@@ -64,22 +64,6 @@ export class InvalidEmployeeError extends Error {
   }
 }
 
-export class TerminationBeforePaidPayrollError extends Error {
-  readonly code = "TERMINATION_BEFORE_PAID_PAYROLL";
-  readonly messageEn: string;
-  constructor(
-    readonly effectiveDate: string,
-    readonly paidThrough: string,
-  ) {
-    const month = fiscalPeriodLabel({ id: paidThrough.slice(0, 7), year: Number(paidThrough.slice(0, 4)), periodNumber: Number(paidThrough.slice(5, 7)) });
-    super(
-      `لا يمكن إنهاء الخدمة بتاريخ ${effectiveDate}: راتب «${month.ar}» اعتُمد للموظف عن الشهر كاملاً حتى ${paidThrough}. اجعل تاريخ إنهاء الخدمة ${paidThrough} أو بعده، واخصم أجر الأيام التي لم يعملها في تسوية مستحقات نهاية الخدمة.`,
-    );
-    this.messageEn = `Service cannot end on ${effectiveDate}: the ${month.en} payroll was approved for this employee for the whole month, to ${paidThrough}. End the service on ${paidThrough} or later and recover the unworked days in the end-of-service settlement.`;
-    this.name = "TerminationBeforePaidPayrollError";
-  }
-}
-
 /** Raised when an employee status transition is not allowed by the employee state machine. */
 export class InvalidEmployeeTransitionError extends Error {
   readonly code = "INVALID_EMPLOYEE_TRANSITION";

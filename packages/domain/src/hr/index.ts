@@ -28,6 +28,17 @@ export {
 } from "./employee.js";
 export { createEmployee, updateEmployee, type CreateEmployeeCommand, type EmployeeEditableFields } from "./create-employee.js";
 export { transitionEmployee, terminateEmployee, rehireEmployee } from "./transition-employee.js";
+export {
+  payslipPaidSpan,
+  payslipOverpaymentAfter,
+  terminateEmployeeService,
+  type PayslipPaidSpan,
+  type PayslipOverpayment,
+  type TerminationPayRecovery,
+  type TerminateEmployeeResult,
+  type TerminateEmployeeDeps,
+  type TerminateEmployeeCommand,
+} from "./termination-recovery.js";
 
 export type {
   Contract,
@@ -283,7 +294,6 @@ export {
   EmployeeNotFoundError,
   InvalidEmployeeError,
   InvalidEmployeeTransitionError,
-  TerminationBeforePaidPayrollError,
   UserNotLinkedToEmployeeError,
   ContractNotFoundError,
   InvalidContractError,

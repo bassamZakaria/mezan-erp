@@ -13,7 +13,6 @@ import {
   createEmployee,
   updateEmployee,
   transitionEmployee,
-  terminateEmployee,
   rehireEmployee,
   createContract,
   terminateContract,
@@ -39,8 +38,7 @@ import {
   InvalidJobTitleError,
   EmployeeNotFoundError,
   InvalidEmployeeError,
-  TerminationBeforePaidPayrollError,
-  PAYROLL_RUN_FINAL_STATUSES,
+  terminateEmployeeService,
   InvalidEmployeeTransitionError,
   ContractNotFoundError,
   InvalidContractError,
@@ -292,7 +290,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidJobTitleError ||
     err instanceof InvalidEmployeeError ||
     err instanceof InvalidEmployeeTransitionError ||
-    err instanceof TerminationBeforePaidPayrollError ||
     err instanceof InvalidContractError ||
     err instanceof ContractNotActiveError ||
     err instanceof InvalidHolidayError ||
@@ -556,24 +553,39 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     }
   });
 
-  async function paidThroughOf(employeeId: string): Promise<string | null> {
-    if (!deps.payroll?.payslips || !deps.payroll.runs) return null;
-    const runs = new Map((await deps.payroll.runs.list()).map((run) => [run.id, run]));
-    return (await deps.payroll.payslips.listByEmployeeId(employeeId))
-      .filter((payslip) => PAYROLL_RUN_FINAL_STATUSES.has(runs.get(payslip.runId)?.status ?? "draft"))
-      .reduce<string | null>((latest, payslip) => (latest === null || payslip.periodEnd > latest ? payslip.periodEnd : latest), null);
-  }
-
   app.post("/employees/:id/terminate", gate("hr.employee.terminate"), async (c) => {
-    const current = await deps.employees.findById(c.req.param("id"));
-    if (!current) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
     try {
-      const body = (await c.req.json().catch(() => ({}))) as { effectiveDate?: unknown };
-      const today = await tenantToday(c);
-      const requested = body.effectiveDate === undefined || body.effectiveDate === null ? today : String(body.effectiveDate);
-      const next = terminateEmployee(current, requested, today, await paidThroughOf(current.id));
-      await deps.employees.update(next);
-      return c.json(serializeEmployee(next));
+      const body = (await c.req.json().catch(() => ({}))) as { effectiveDate?: unknown } | null;
+      const requested = body?.effectiveDate === undefined || body.effectiveDate === null || body.effectiveDate === "" ? null : String(body.effectiveDate);
+      const payroll = deps.payroll;
+      const { employee, payRecovery } = await terminateEmployeeService(
+        c.req.param("id"),
+        { effectiveDate: requested, today: await tenantToday(c) },
+        {
+          employees: deps.employees,
+          payroll: payroll && {
+            runs: payroll.runs,
+            payslips: payroll.payslips,
+            contracts: deps.contracts,
+            advances: payroll.advances,
+            gl: payroll.gl,
+            accounts: payroll.accounts,
+            numbering: deps.numbering,
+            dayDivisorBasis: payroll.dayDivisorBasis ?? (await payroll.settings?.get())?.payrollDayDivisorBasis ?? "FIXED_30",
+          },
+        },
+      );
+      return c.json({
+        ...serializeEmployee(employee),
+        payRecovery: payRecovery && {
+          advanceId: payRecovery.advance.id,
+          advanceNumber: payRecovery.advance.number,
+          days: payRecovery.days,
+          amount: payRecovery.amount.toString(),
+          journalEntryId: payRecovery.journalEntryId,
+          paidThrough: payRecovery.paidThrough,
+        },
+      });
     } catch (err) {
       return handleDomainError(c, err);
     }

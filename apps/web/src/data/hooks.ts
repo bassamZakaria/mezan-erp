@@ -6509,17 +6509,31 @@ export function useTransitionEmployee() {
   });
 }
 
+export interface TerminationPayRecoveryDTO {
+  readonly advanceId: string;
+  readonly advanceNumber: string;
+  readonly days: number;
+  readonly amount: string;
+  readonly journalEntryId: string;
+  readonly paidThrough: string;
+}
+
+export type TerminatedEmployeeDTO = EmployeeDTO & { readonly payRecovery?: TerminationPayRecoveryDTO | null };
+
 export function useTerminateEmployee() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<EmployeeDTO, ApiError, string>({
-    mutationFn: async (id) => {
-      const res = await request(`/hr/employees/${id}/terminate`, { method: "POST" });
+  return useMutation<TerminatedEmployeeDTO, ApiError, { id: string; effectiveDate: string }>({
+    mutationFn: async ({ id, effectiveDate }) => {
+      const res = await request(`/hr/employees/${id}/terminate`, { method: "POST", body: JSON.stringify({ effectiveDate }) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeSServiceCould"), t));
-      return res.json<EmployeeDTO>();
+      return res.json<TerminatedEmployeeDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["hr-employees"] });
+      void queryClient.invalidateQueries({ queryKey: ["hr-advances"] });
+    },
   });
 }
 

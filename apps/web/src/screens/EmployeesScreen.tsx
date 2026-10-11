@@ -41,6 +41,7 @@ import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_
 import { useClockCredentialStatus, useResetClockCredential } from "../data/hr-self-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
+import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -403,6 +404,10 @@ export function EmployeesScreen() {
   const selected = selectedId ? (employees.find((e) => e.id === selectedId) ?? null) : null;
   const contractsQuery = useEmployeeContracts(selectedId);
   const [detailTab, setDetailTab] = useState("personal");
+  const [terminateOpen, setTerminateOpen] = useState(false);
+  const [terminateDate, setTerminateDate] = useState("");
+  const [terminateError, setTerminateError] = useState<string | null>(null);
+  const [terminateNotice, setTerminateNotice] = useState<string | null>(null);
   const [rehireOpen, setRehireOpen] = useState(false);
   const [rehireDate, setRehireDate] = useState("");
   const rehireEmployee = useRehireEmployee();
@@ -545,14 +550,33 @@ export function EmployeesScreen() {
     }
   }
 
+  function openTerminate(employee: EmployeeDTO) {
+    setDetailError(null);
+    setTerminateError(null);
+    setTerminateNotice(null);
+    setTerminateDate(todayIso());
+    setSelectedId(employee.id);
+    setTerminateOpen(true);
+  }
+
   async function runTerminate(employee: EmployeeDTO) {
     if (pendingId) return;
+    if (terminateDate.trim() === "") {
+      setTerminateError(t("employees.aLastDayIsRequired"));
+      return;
+    }
     setPendingId(employee.id);
-    setDetailError(null);
+    setTerminateError(null);
     try {
-      await terminateEmployee.mutateAsync(employee.id);
+      const { payRecovery } = await terminateEmployee.mutateAsync({ id: employee.id, effectiveDate: terminateDate.trim() });
+      setTerminateOpen(false);
+      setTerminateNotice(
+        payRecovery
+          ? t("employees.payRecoveryBooked", { days: payRecovery.days, paidThrough: payRecovery.paidThrough, number: payRecovery.advanceNumber, amount: payRecovery.amount.replace(/(\.\d{2})\d*$/, "$1") })
+          : null,
+      );
     } catch (err) {
-      setDetailError(err instanceof ApiError ? err.message : t("employees.couldnTTerminateTheEmployee"));
+      setTerminateError(err instanceof ApiError ? err.message : t("employees.couldnTTerminateTheEmployee"));
     } finally {
       setPendingId(null);
     }
@@ -621,6 +645,27 @@ export function EmployeesScreen() {
     { key: "hireDate", header: t("employees.hireDate"), render: (e) => <span className="mz-num">{e.hireDate}</span> },
     { key: "status", header: t("common.status"), render: (e) => <StatusPill label={t(STATUS_KEY[e.status])} tone={STATUS_TONE[e.status]} /> },
   ];
+
+  const terminatePanel = (
+    <SidePanel open={terminateOpen} onClose={() => setTerminateOpen(false)} title={t("employees.terminate")} description={t("employees.terminateExplained")}>
+      <div className="flex flex-col gap-[14px]">
+        <TextField label={t("employees.lastWorkingDay")} type="date" value={terminateDate} onChange={setTerminateDate} />
+        {terminateError ? (
+          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {terminateError}
+          </div>
+        ) : null}
+        <div className="flex justify-end gap-[9px]">
+          <Button type="button" onClick={() => setTerminateOpen(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="button" variant="danger-outline" disabled={selected !== null && pendingId === selected.id} onClick={() => selected && void runTerminate(selected)}>
+            {t("employees.confirmTermination")}
+          </Button>
+        </div>
+      </div>
+    </SidePanel>
+  );
 
   const rehirePanel = (
       <SidePanel open={rehireOpen} onClose={() => setRehireOpen(false)} title={t("employees.rehire")} description={t("employees.theYearsAlreadyServedAre")}>
@@ -939,7 +984,7 @@ export function EmployeesScreen() {
                       {t(STATUS_KEY[status])}
                     </Button>
                   ))}
-                  <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => void runTerminate(selected)}>
+                  <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => openTerminate(selected)}>
                     {t("employees.terminate")}
                   </Button>
                 </>
@@ -965,6 +1010,12 @@ export function EmployeesScreen() {
             {detailError}
           </div>
         ) : null}
+        {terminateNotice ? (
+          <div role="status" className="mt-[14px] rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink">
+            {terminateNotice}
+          </div>
+        ) : null}
+        {terminatePanel}
         {rehirePanel}
       </div>
     );
@@ -1048,7 +1099,7 @@ export function EmployeesScreen() {
                     disabled: pendingId === e.id,
                     onSelect: () => void runTransition(e, status),
                   })),
-                  { key: "terminate", label: t("employees.terminate"), tone: "danger" as const, disabled: pendingId === e.id, onSelect: () => void runTerminate(e) },
+                  { key: "terminate", label: t("employees.terminate"), tone: "danger" as const, disabled: pendingId === e.id, onSelect: () => openTerminate(e) },
                 ]),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: e.code })} />;

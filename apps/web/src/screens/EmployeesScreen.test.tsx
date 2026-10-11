@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { BranchDTO, EmployeeDTO } from "@mezan/contracts";
 import { EmployeesScreen } from "./EmployeesScreen";
+import { todayIso } from "../lib/dates";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
 function pickFromCombobox(dialog: HTMLElement, label: string, optionLabel: string) {
@@ -65,7 +66,7 @@ function renderScreen(
   employees: EmployeeDTO[] = sampleEmployees,
   opts: {
     onTransition?: (id: string, status: string) => { status?: number; body: unknown } | undefined;
-    onTerminate?: (id: string) => { status?: number; body: unknown } | undefined;
+    onTerminate?: (id: string, body: unknown) => { status?: number; body: unknown } | undefined;
     onRehire?: (id: string, hireDate: string) => { status?: number; body: unknown } | undefined;
   } = {},
 ) {
@@ -93,9 +94,9 @@ function renderScreen(
       current = [...current.slice(0, index), updated, ...current.slice(index + 1)];
       return { body: updated };
     },
-    "POST /hr/employees/*/terminate": (_init, path) => {
+    "POST /hr/employees/*/terminate": (init, path) => {
       const id = path.split("/")[3]!;
-      const overridden = opts.onTerminate?.(id);
+      const overridden = opts.onTerminate?.(id, init?.body ? JSON.parse(String(init.body)) : undefined);
       if (overridden) return overridden;
       const index = current.findIndex((e) => e.id === id);
       const updated: EmployeeDTO = { ...current[index]!, status: "terminated", terminatedAt: "2026-08-25T00:00:00.000Z" };
@@ -189,16 +190,51 @@ describe("EmployeesScreen", () => {
     expect(await screen.findByRole("menuitem", { name: "في إجازة" })).toBeEnabled();
   });
 
-  it("shows the server's refusal when terminating an employee fails, and the employee stays active", async () => {
+  it("shows the server's refusal inside the termination panel, and the employee stays active", async () => {
     renderScreen([sampleEmployees[0]!], {
-      onTerminate: () => ({ status: 409, body: { message: "لا يمكن إنهاء خدمة موظف له سلفة غير مسددة." } }),
+      onTerminate: () => ({ status: 422, body: { message: "تاريخ إنهاء الخدمة لا يمكن أن يكون بعد 2026-10-31" } }),
     });
     fireEvent.click(await screen.findByText("أحمد محمود"));
     fireEvent.click(screen.getByRole("button", { name: "إنهاء الخدمة" }));
+    const panel = await screen.findByRole("dialog");
+    fireEvent.click(within(panel).getByRole("button", { name: "تأكيد إنهاء الخدمة" }));
 
-    expect(await screen.findByText("لا يمكن إنهاء خدمة موظف له سلفة غير مسددة.")).toBeInTheDocument();
+    expect(await within(panel).findByText("تاريخ إنهاء الخدمة لا يمكن أن يكون بعد 2026-10-31")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "في إجازة" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "إنهاء الخدمة" })).toBeInTheDocument();
+  });
+
+  it("asks for the last day of service, opening on today, and sends the day chosen", async () => {
+    const sent: unknown[] = [];
+    renderScreen([sampleEmployees[0]!], {
+      onTerminate: (_id, body) => {
+        sent.push(body);
+        return undefined;
+      },
+    });
+    fireEvent.click(await screen.findByText("أحمد محمود"));
+    fireEvent.click(screen.getByRole("button", { name: "إنهاء الخدمة" }));
+    const panel = await screen.findByRole("dialog");
+    const field = within(panel).getByLabelText("آخر يوم عمل") as HTMLInputElement;
+    expect(field.value).toBe(todayIso());
+    expect(sent).toEqual([]);
+
+    fireEvent.change(field, { target: { value: "2026-06-12" } });
+    fireEvent.click(within(panel).getByRole("button", { name: "تأكيد إنهاء الخدمة" }));
+
+    await waitFor(() => expect(sent).toEqual([{ effectiveDate: "2026-06-12" }]));
+  });
+
+  it("says what was booked when the last day falls before a day payroll already paid", async () => {
+    renderScreen([sampleEmployees[0]!], {
+      onTerminate: () => ({
+        body: { ...sampleEmployees[0]!, status: "terminated", terminatedAt: "2026-06-12", payRecovery: { advanceId: "A", advanceNumber: "ADV-000009", days: 18, amount: "5040.000000", journalEntryId: "JE", paidThrough: "2026-06-30" } },
+      }),
+    });
+    fireEvent.click(await screen.findByText("أحمد محمود"));
+    fireEvent.click(screen.getByRole("button", { name: "إنهاء الخدمة" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "تأكيد إنهاء الخدمة" }));
+
+    expect(await screen.findByText(/سُجّل أجر 18 يوماً مدفوعة حتى 2026-06-30 سلفة على الموظف برقم ADV-000009/)).toBeInTheDocument();
   });
 
   it("blocks rehiring with no date entered — the rehire request is never sent", async () => {

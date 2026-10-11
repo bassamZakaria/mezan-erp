@@ -8373,12 +8373,13 @@ seeds the platform owner and the `demo` tenant automatically,
 `scripts/env.mjs`) and file any deviation exactly like the rest of this
 document.
 
-`pnpm test:saas` owns four private ports and no others, and refuses to start
+`pnpm test:saas` owns six private ports and no others, and refuses to start
 if any of them already answers: **3321** (API) and **5321** (web) for the whole
-run, and **3322** (API) and **5322** (web) for the second pair that spec 06
+run, **3322** (API) and **5322** (web) for the second pair that spec 06
 restarts under `MEZAN_FAKE_TODAY` — a process cannot change its clock while it
 runs, so each jump in the calendar is a restart on the same platform
-directory. Each run gets a fresh platform directory and removes it on exit; a
+directory — and **3323** (API) and **5323** (web) for the one server spec 08
+boots with the demo seed, once, for its five tests. Each run gets a fresh platform directory and removes it on exit; a
 run that was killed cannot, so the next run removes any `mezan-saas-e2e-*`
 directory older than six hours before it starts. It
 boots `apps/server/src/index.ts`, not `cloud.ts` (the fake clock is refused
@@ -8394,16 +8395,36 @@ it now provisions a paying tenant through `POST /api/platform/tenants`. The
 fixed day is what lets PLT-SAAS-05 assert literal dates — a first period that
 ends 2027-02-28 (a month from the 31st, clamped) and a renewed one that ends
 2027-03-28 — instead of recomputing the domain's month arithmetic in the test.
-The seeded `demo` tenant is covered by `apps/server/src/demo-tenant.test.ts`
-and by the manual walk below, not by this suite.
+That renewed date was 2027-03-28 until 2026-10-11: a renewal used to start
+from the clamped 28th and stay there. The subscription now keeps the day it is
+billed on, so the 31st comes back after February, and the pinned date moved
+with the rule.
+
+The seeded `demo` tenant has its own spec, 08, on its own server
+(`MEZAN_SEED_DEMO=1`, `MEZAN_FAKE_TODAY=2026-10-11`; the seed's documents are
+dated in 2026, so it does not boot on the main server's 2027 day — it stops at
+`NO_FISCAL_PERIOD_FOR_DATE`). That server gets 600 seconds to boot. Spec 08
+sets the browser's clock to the server's day (`page.clock.setFixedTime`) and
+proves, on a populated tenant: the demo admin signs in; a tenant provisioned
+beside it reads none of the demo's 27 customers by list, by id or by a search
+for each one's name, while the demo itself finds every one of them; the ten
+heaviest lists (chart of accounts, customers, sales and purchase invoices,
+journal entries, items, users, suppliers, employees, warehouses) open with
+rows, one `h1`, no console error, no 4xx/5xx and no page scroll; the plan's
+warehouse limit lets the tenant fill up to 10 and refuses the next with
+«وصلتم إلى الحد الأقصى للمستودعات في باقتكم»; and a trial tenant's banner
+shows the number of days between the server's day and the trial's end.
 
 Signup allows 8 requests per source address per hour per server process, and
 every request counts, including a malformed one. Spec 04 makes 5 signup
 requests on the main server (four by API, one from the form) and spec 06 makes
 1 on the clock server. The suite's servers trust the proxy header
 (`MEZAN_TRUST_PROXY=1`), so each of spec 04's signups carries its own
-`x-forwarded-for` and is counted against its own source; the production limit
-is untouched, and `--repeat-each=2` on specs 01, 03 and 04 passes (58 tests).
+`x-forwarded-for` — handed out in order from `10.4.0.1`, not at random — and is
+counted against its own source. The limit itself is asserted: one address
+(`10.44.0.1`) makes eight attempts, each answered on its merits, and its ninth
+answers 429 «محاولات كثيرة جدًا، حاول لاحقًا» with a `retry-after`, while a
+different address still gets through.
 
 Timeouts, and the load they were measured at. On a 12-core machine shared with
 other test runs, at a 1-minute load average of 6 to 39 (nine full runs on
@@ -8603,6 +8624,19 @@ Also guarded since 2026-10-11: a forged verification link shows the server's
 characters; the platform owner resets a tenant owner's PIN from the tenant
 page — asked first, the new PIN shown once and gone after a reload, the old
 PIN answers 401 and the new one signs in.
+
+### Run record — 2026-10-11 (second), `pnpm test:saas` on :3321–:3323 / :5321–:5323, Chromium
+
+Run three times in a row on `c60a5ed0`: 65 passed, 0 parked, 0 failed, 0
+skipped each time — 5.7 minutes at a load average of 21 falling to 11, 4.3
+minutes at 11 falling to 8, and 4.8 minutes at 8. Afterwards none of the six
+ports answered, no server process of the suite was alive and no
+`mezan-saas-e2e-*` directory remained.
+
+The six tests added since the 59: the per-address signup limit (spec 04) and
+the five of spec 08. PLT-SAAS-05 now asserts a renewed period that ends
+2027-03-31. The suite's server log is kept as its last 4,000 characters
+rather than whole.
 
 # 12. Shell, dashboard and reports
 

@@ -257,7 +257,9 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       actor: typeof details["userId"] === "string" ? (details["userId"] as string) : "anonymous",
       severity,
       details: { ...details, origin: requestOrigin(c) ?? "host" },
-    }).catch(() => undefined);
+    }).catch((err: unknown) => {
+      console.error(`[security] ${severity} ${action} could not be recorded in the audit log`, { ...details, origin: requestOrigin(c) ?? "host" }, err);
+    });
   }
 
   function lockedOut(c: Context, seconds: number) {
@@ -589,17 +591,24 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
         );
         await recordTenantClaim(new Date().toISOString());
         await retireSeedAdmin(tx);
+        // REQUIRED ORDERING: recorded INSIDE the transaction that makes the
+        // claim, and not through `security()`, which never fails its caller.
+        // The single highest-authority write in the product either leaves its
+        // own record or does not happen.
+        if (deps.audit) {
+          await recordSecurityEvent(deps.audit, {
+            module: "auth",
+            entityType: "AUTH_USER",
+            entityId: claimed.id,
+            action: "TENANT_CLAIMED",
+            actor: claimed.id,
+            severity: "CRITICAL",
+            details: { userId: claimed.id, email: claimed.email, seedAdminRetired: true, origin: requestOrigin(c) ?? "host" },
+          });
+        }
         return claimed;
       });
       if (!user) return alreadyClaimed(c, parsed.data.email);
-      // The single highest-authority write in the product, and it recorded
-      // nothing at all — so a company admin appearing from nowhere was
-      // indistinguishable, afterwards, from one that had always been there.
-      await security(c, "TENANT_CLAIMED", "CRITICAL", {
-        userId: user.id,
-        email: user.email,
-        seedAdminRetired: true,
-      });
       return c.json(await toSession(user, deps, requestOrigin(c)), 201);
     } catch (err) {
       // This used to hand back the EXISTING admin's session for wizard

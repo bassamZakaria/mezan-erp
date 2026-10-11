@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SmtpConfig } from "@mezan/api";
+import { openSqliteConnection } from "@mezan/persistence";
 import type { SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle, type CreateBackendOptions } from "./create-backend.js";
 
@@ -297,5 +298,29 @@ describe("a session bound to the device that signed in rather than to its addres
     const session = (await (await signIn(h, OWNER.pin, "41.33.10.10")).json()) as SessionDTO & { deviceSecret?: string };
     expect(session.deviceSecret).toBeUndefined();
     expect((await call(h, "GET", "/profile", "102.44.7.1", { authorization: `Bearer ${session.token}` })).status).toBe(401);
+  }, 120_000);
+});
+
+describe("claiming a tenant when the claim cannot be recorded", () => {
+  it("claims nothing: no administrator, no session, and the tenant can still be claimed once the log records again", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-claim-audit-"));
+    dirs.push(dir);
+    const dbPath = path.join(dir, "tenant.db");
+    const h = await createBackend({ dbPath });
+    handles.push(h);
+    const { sqlite: side } = openSqliteConnection(dbPath);
+    side.exec(`CREATE TRIGGER refuse_claim BEFORE INSERT ON audit_event WHEN NEW.action = 'TENANT_CLAIMED' BEGIN SELECT RAISE(ABORT, 'audit log is full'); END`);
+
+    const refused = await post(h, "/bootstrap/admin", OWNER, null);
+    expect(refused.status).toBeGreaterThanOrEqual(500);
+    expect((await signIn(h, OWNER.pin, null)).status).toBe(401);
+    const status = (await (await h.app.fetch(new Request("http://local/bootstrap/status"))).json()) as { claimed: boolean };
+    expect(status.claimed).toBe(false);
+
+    side.exec("DROP TRIGGER refuse_claim");
+    side.close();
+    expect((await post(h, "/bootstrap/admin", OWNER, null)).status).toBe(201);
+    expect((await signIn(h, OWNER.pin, null)).status).toBe(200);
   }, 120_000);
 });

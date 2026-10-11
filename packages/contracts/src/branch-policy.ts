@@ -425,3 +425,48 @@ export const BRANCH_REFUSALS: Readonly<Record<BranchRefusalCode, BranchRefusalBo
     messageEn: "The warehouse does not belong to the document's branch. Choose a warehouse of the same branch, or change the branch.",
   },
 };
+
+export function branchPolicyFor(routePath: string, table: readonly BranchPolicyEntry[] = BRANCH_POLICY_TABLE): BranchPolicyEntry | undefined {
+  let best: BranchPolicyEntry | undefined;
+  for (const entry of table) {
+    const matches = routePath === entry.prefix || routePath.startsWith(`${entry.prefix}/`);
+    if (matches && (!best || entry.prefix.length > best.prefix.length)) best = entry;
+  }
+  return best;
+}
+
+export function branchSubPathListed(entry: BranchPolicyEntry, routePath: string, list: readonly string[] | undefined, method?: string): boolean {
+  if (!list) return false;
+  const rest = routePath.slice(entry.prefix.length);
+  return list.some((listed) => {
+    const [first, second] = listed.split(" ");
+    const sub = second ?? first!;
+    if (second !== undefined && first !== method) return false;
+    return rest === sub || (second === undefined && rest.startsWith(`${sub}/`));
+  });
+}
+
+export enum BranchRestrictedAccess {
+  Full = "full",
+  ReadOnly = "read_only",
+  Unavailable = "unavailable",
+}
+
+const READ_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
+
+/**
+ * What a session restricted to branches may do with an API path — the SAME
+ * table the server enforces, read by the client so a screen, a tile or a
+ * button the server would refuse is not drawn. Hiding, never enforcement.
+ */
+export function branchRestrictedAccess(path: string, method = "GET", table: readonly BranchPolicyEntry[] = BRANCH_POLICY_TABLE): BranchRestrictedAccess {
+  const pathname = path.split("?")[0]!;
+  const entry = branchPolicyFor(pathname, table);
+  if (!entry || entry.policy === BranchPolicy.CompanyWide || branchSubPathListed(entry, pathname, entry.companyWide, method)) {
+    return BranchRestrictedAccess.Unavailable;
+  }
+  if (entry.policy === BranchPolicy.SharedReadOnly && !branchSubPathListed(entry, pathname, entry.readPosts)) {
+    return READ_METHODS.has(method) ? BranchRestrictedAccess.ReadOnly : BranchRestrictedAccess.Unavailable;
+  }
+  return BranchRestrictedAccess.Full;
+}

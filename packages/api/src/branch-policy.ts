@@ -14,6 +14,8 @@ import {
   BranchRefusalCode,
   ScopedReads,
   VIEW_UNATTRIBUTED_PERMISSION,
+  branchPolicyFor,
+  branchSubPathListed as subPathListed,
   type BranchDirectory,
   type BranchPolicyEntry,
   type BranchRefusalBody,
@@ -29,6 +31,7 @@ export {
   BranchRefusalCode,
   ScopedReads,
   VIEW_UNATTRIBUTED_PERMISSION,
+  branchPolicyFor,
   type BranchDirectory,
   type BranchPolicyEntry,
   type BranchRefusalBody,
@@ -87,26 +90,6 @@ const REFUSAL_STATUS: Readonly<Record<BranchRefusalCode, 400 | 403 | 404 | 422>>
 
 export function branchRefusal(c: Context, code: BranchRefusalCode): Response {
   return c.json(BRANCH_REFUSALS[code], REFUSAL_STATUS[code]);
-}
-
-export function branchPolicyFor(routePath: string, table: readonly BranchPolicyEntry[] = BRANCH_POLICY_TABLE): BranchPolicyEntry | undefined {
-  let best: BranchPolicyEntry | undefined;
-  for (const entry of table) {
-    const matches = routePath === entry.prefix || routePath.startsWith(`${entry.prefix}/`);
-    if (matches && (!best || entry.prefix.length > best.prefix.length)) best = entry;
-  }
-  return best;
-}
-
-function subPathListed(entry: BranchPolicyEntry, routePath: string, list: readonly string[] | undefined, method?: string): boolean {
-  if (!list) return false;
-  const rest = routePath.slice(entry.prefix.length);
-  return list.some((listed) => {
-    const [first, second] = listed.split(" ");
-    const sub = second ?? first!;
-    if (second !== undefined && first !== method) return false;
-    return rest === sub || (second === undefined && rest.startsWith(`${sub}/`));
-  });
 }
 
 export function paramNamesOf(routePath: string): string[] {

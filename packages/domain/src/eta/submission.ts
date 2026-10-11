@@ -14,15 +14,48 @@
  */
 import type { EtaPrevalidationFinding } from "./prevalidate.js";
 
-export type EtaDocumentType = "invoice" | "credit_note" | "debit_note" | "receipt";
+export enum EtaDocumentTypeCode {
+  Invoice = "invoice",
+  CreditNote = "credit_note",
+  DebitNote = "debit_note",
+  Receipt = "receipt",
+}
+export type EtaDocumentType = `${EtaDocumentTypeCode}`;
 
-export type EtaSubmissionStatus =
-  | "ready" // جاهز — in the queue, not yet sent
-  | "pending_signature" // بانتظار التوقيع — awaiting e-seal (v1.0)
-  | "submitted" // مرسل — transmitted, awaiting authority acceptance
-  | "accepted" // مقبول — accepted by the authority (has a UUID)
-  | "error" // أخطاء — rejected / transmission error
-  | "excluded"; // مستبعد — deliberately not submitted (reason required)
+export enum EtaSubmissionStatusCode {
+  /** جاهز — in the queue, not yet sent */
+  Ready = "ready",
+  /** بانتظار التوقيع — awaiting e-seal (v1.0) */
+  PendingSignature = "pending_signature",
+  /** مرسل — transmitted, awaiting authority acceptance */
+  Submitted = "submitted",
+  /** مقبول — accepted by the authority (has a UUID) */
+  Accepted = "accepted",
+  /** أخطاء — rejected / transmission error */
+  Error = "error",
+  /** مستبعد — deliberately not submitted (reason required) */
+  Excluded = "excluded",
+}
+export type EtaSubmissionStatus = `${EtaSubmissionStatusCode}`;
+
+export enum EtaRequeueMode {
+  Never = "never",
+  OnRequest = "on_request",
+  Automatic = "automatic",
+}
+
+// INVARIANT: the ONE list of which queued documents may be rebuilt. A sent or
+// accepted document is evidence of what was filed and is never rebuilt. An
+// excluded one is rebuilt only when a user asks for it by name — nothing that
+// happens to its source document may put it back in the queue.
+export const ETA_REQUEUE_MODE: Readonly<Record<EtaSubmissionStatusCode, EtaRequeueMode>> = {
+  [EtaSubmissionStatusCode.Ready]: EtaRequeueMode.Automatic,
+  [EtaSubmissionStatusCode.PendingSignature]: EtaRequeueMode.Automatic,
+  [EtaSubmissionStatusCode.Error]: EtaRequeueMode.Automatic,
+  [EtaSubmissionStatusCode.Excluded]: EtaRequeueMode.OnRequest,
+  [EtaSubmissionStatusCode.Submitted]: EtaRequeueMode.Never,
+  [EtaSubmissionStatusCode.Accepted]: EtaRequeueMode.Never,
+};
 
 export interface EtaSubmissionStatusDefinition {
   readonly code: EtaSubmissionStatus;

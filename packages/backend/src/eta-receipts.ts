@@ -4,6 +4,10 @@ import {
   buildRefundReceiptInput,
   convertToBase,
   DuplicateEtaSubmissionError,
+  ETA_REQUEUE_MODE,
+  EtaDocumentTypeCode,
+  EtaRequeueMode,
+  EtaSubmissionStatusCode,
   EtaDeviceSerialNotRegisteredError,
   EtaDeviceSerialUnknownError,
   EtaOfflineError,
@@ -786,17 +790,38 @@ export function createReturnEtaEnqueueBridge(deps: {
   };
 }
 
-const REQUEUEABLE_SUBMISSION_STATUSES: ReadonlySet<string> = new Set(["ready", "pending_signature", "error", "excluded"]);
+interface FiledTaxableItem {
+  readonly subType?: unknown;
+}
+interface FiledLine {
+  readonly taxableItems?: readonly FiledTaxableItem[];
+}
+
+function filedSubTypesOf(payload: unknown, lineCount: number): readonly string[] | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const body = payload as { readonly invoiceLines?: unknown; readonly itemData?: unknown };
+  const lines = Array.isArray(body.invoiceLines) ? body.invoiceLines : Array.isArray(body.itemData) ? body.itemData : null;
+  if (!lines || lines.length !== lineCount) return null;
+  const subTypes: string[] = [];
+  for (const line of lines as readonly FiledLine[]) {
+    const subType = line.taxableItems?.[0]?.subType;
+    if (typeof subType !== "string") return null;
+    subTypes.push(subType);
+  }
+  return subTypes;
+}
 
 /**
  * What a tax classification does to the e-document of the invoice it touched.
  *
- * INVARIANT: a document the authority already holds — a sent or accepted
- * e-invoice, or ANY e-receipt, which is chained and never rebuilt — keeps the
- * classification it was filed under. The classification is allowed only when
- * every line still declares the sub-type it declared before; otherwise it is
- * refused, and the correction is a credit note or a refund receipt. A queued
- * e-invoice is rebuilt from the classified invoice, which clears its finding.
+ * INVARIANT: a document the authority holds — a sent or accepted e-invoice or
+ * e-receipt — keeps the classification it was filed under: the classification
+ * is allowed only when every line still declares the sub-type its FILED
+ * PAYLOAD declares, never what today's rate table would derive for it. A
+ * queued e-invoice is rebuilt from the classified invoice, which clears its
+ * finding. A REJECTED document is not filed: its classification may change the
+ * sub-type, and it is rebuilt (an e-invoice) or reissued (an e-receipt). An
+ * EXCLUDED document stays excluded.
  */
 export function createSalesInvoiceTaxFiling(deps: {
   readonly eta: EtaService;
@@ -809,16 +834,21 @@ export function createSalesInvoiceTaxFiling(deps: {
       if (!docNo) return TaxClassificationFilingOutcome.NotQueued;
       const submission = await deps.eta.findByInternalId(docNo);
       if (!submission) return TaxClassificationFilingOutcome.NotQueued;
-      if (submission.documentType === "invoice" && REQUEUEABLE_SUBMISSION_STATUSES.has(submission.status)) {
+      const mode = ETA_REQUEUE_MODE[submission.status];
+      if (mode === EtaRequeueMode.OnRequest) return TaxClassificationFilingOutcome.NotQueued;
+      if (mode === EtaRequeueMode.Automatic && submission.documentType === EtaDocumentTypeCode.Invoice) {
         const rebuilt = await deps.rebuild(submission);
         if (!rebuilt) return TaxClassificationFilingOutcome.NotQueued;
         await deps.eta.requeue(submission.id, rebuilt);
         return TaxClassificationFilingOutcome.Requeued;
       }
+      if (submission.status === EtaSubmissionStatusCode.Error && submission.documentType === EtaDocumentTypeCode.Receipt) {
+        return TaxClassificationFilingOutcome.Requeued;
+      }
       const taxRates = await deps.taxRates.list();
       const declared = (invoice: SalesInvoice): readonly string[] =>
         invoice.lines.map((line) => resolveEtaVatSubType(resolveLineTaxRate(taxRates, line)?.etaSubType, line.taxRatePercent));
-      const filed = declared(before);
+      const filed = filedSubTypesOf(submission.payload, before.lines.length) ?? declared(before);
       if (declared(after).some((subType, index) => subType !== filed[index])) {
         throw new TaxClassificationAlreadyFiledError(docNo);
       }

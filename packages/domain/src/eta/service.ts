@@ -21,11 +21,13 @@ import {
   type EtaSignatureResult,
   type EtaSigningPort,
 } from "./signing.js";
-import type {
-  EtaSubmission,
-  EtaSubmissionRepository,
-  EtaSubmissionStatus,
-  EtaTransmitLogEntry,
+import {
+  ETA_REQUEUE_MODE,
+  EtaRequeueMode,
+  type EtaSubmission,
+  type EtaSubmissionRepository,
+  type EtaSubmissionStatus,
+  type EtaTransmitLogEntry,
 } from "./submission.js";
 import { canonicalEtaJson, unconfiguredEtaSigner, type EtaSignerPort } from "./signer.js";
 import { summarizeEtaRejections, type EtaRejectionsReport } from "./rejections-report.js";
@@ -325,7 +327,7 @@ export class EtaService {
     rebuilt: { readonly payload: unknown; readonly prevalidation: readonly EtaPrevalidationFinding[] },
   ): Promise<EtaSubmission> {
     const submission = await this.require(id);
-    if (!["ready", "pending_signature", "error", "excluded"].includes(submission.status)) {
+    if (ETA_REQUEUE_MODE[submission.status] === EtaRequeueMode.Never) {
       throw new InvalidEtaTransitionError(submission.status, "requeue");
     }
     return this.persist({

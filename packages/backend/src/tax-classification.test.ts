@@ -349,6 +349,19 @@ describe("classifying the tax of a posted line that stored none", () => {
     expect(after.lines).toEqual(before.lines);
   });
 
+  it("leaves an excluded e-invoice excluded, with its reason, and says it was not queued", async () => {
+    await sale("T-EXCLUDED", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })]);
+    const confirmed = await call("POST", "/sales-invoices/T-EXCLUDED/confirm", {});
+    const queued = await submissionOf(docNoOf(confirmed));
+    const reason = "خارج النطاق — قرار المحاسب";
+    expect((await call("POST", `/eta/submissions/${queued.id}/exclude`, { reason })).status).toBe(200);
+
+    const done = await classify("T-EXCLUDED", "L1", { taxRateId: EXEMPT_RATE });
+    expect([done.status, done.body.filing]).toEqual([200, "not_queued"]);
+    const after = await submissionOf(docNoOf(confirmed));
+    expect([after.status, after.exclusionReason]).toEqual(["excluded", reason]);
+  });
+
   it("is refused once the VAT return covering the entry's date is filed", async () => {
     await sale("T-JULY", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })], { date: "2026-07-10", dueDate: "2026-08-10" });
     expect((await call("POST", "/sales-invoices/T-JULY/confirm", {})).status).toBe(200);

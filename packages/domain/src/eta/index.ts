@@ -72,6 +72,10 @@ export {
 } from "./receipt-from-invoice.js";
 export {
   ETA_SUBMISSION_STATUSES,
+  ETA_REQUEUE_MODE,
+  EtaRequeueMode,
+  EtaSubmissionStatusCode,
+  EtaDocumentTypeCode,
   getEtaStatusLabel,
   getEtaDocumentTypeLabel,
   type EtaDocumentType,

@@ -3387,7 +3387,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // gets it now. Best-effort, as at confirm: the classification stands.
       afterTaxClassified: async (invoiceId) => {
         try {
-          if (await etaReceipts.issueInvoiceReceipt(invoiceId)) etaReceipts.scheduleSubmission();
+          const issued = (await etaReceipts.reissueInvoiceReceipt(invoiceId)) ?? (await etaReceipts.issueInvoiceReceipt(invoiceId));
+          if (issued) etaReceipts.scheduleSubmission();
         } catch (error) {
           console.error(`[eta] could not issue the receipt of ${invoiceId} after its tax was classified`, error);
         }

@@ -290,6 +290,7 @@ export const licenseStateReasonSchema = z.enum([
   "GRACE_ENDED",
   "INVALID_CLOCK",
   "TENANT_NOT_FOUND",
+  "STATUS_UNKNOWN",
 ]);
 
 export const licenseStateViewSchema = z.object({

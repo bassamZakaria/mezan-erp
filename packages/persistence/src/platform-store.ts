@@ -10,11 +10,12 @@ import {
   type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
-  type Subscription, SUBSCRIPTION_STATUSES,
+  type Subscription, SubscriptionStatusKind,
   type Tenant, type TenantRepository, TenantStatusCode,
 } from "@mezan/domain";
 
 const TENANT_STATUSES: readonly string[] = Object.values(TenantStatusCode);
+const SUBSCRIPTION_STATUSES: readonly string[] = Object.values(SubscriptionStatusKind);
 
 function assertKnownStatus(kind: string, status: string, known: readonly string[]): void {
   if (!known.includes(status)) throw new Error(`refusing to store ${kind} status "${status}"`);

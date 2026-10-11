@@ -15,14 +15,15 @@ export {
   type CreatePlanCommand, type UpdatePlanCommand, type HasLiveSubscribers,
 } from "./plan.js";
 export {
-  DEFAULT_GRACE_DAYS, SUBSCRIPTION_STATUSES, billingAnchorDayOf,
+  DEFAULT_GRACE_DAYS, SubscriptionStatusKind, billingAnchorDayOf,
   startSubscription, renewSubscription, applyRenewal, changePlan, markPastDue,
   suspendSubscription, resumeSubscription, cancelSubscription,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
   type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,
 } from "./subscription.js";
 export {
-  deriveEntitlements, subscriptionLicenseState, subscriptionExpiresAt,
+  deriveEntitlements, subscriptionLicenseState, subscriptionExpiresAt, tenantIsServed,
+  LicenseReasonCode, LicenseStateName, STATUS_UNKNOWN_MESSAGE_AR,
   type SubscriptionLicenseState, type SubscriptionLicenseStateName, type SubscriptionLicenseReason,
 } from "./derive.js";
 export {

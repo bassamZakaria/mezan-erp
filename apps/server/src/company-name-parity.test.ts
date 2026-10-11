@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMPANY_NAME_MAX_LENGTH as DOMAIN_MAX, companyNameProblem, SUBSCRIPTION_STATUSES, TenantStatusCode } from "@mezan/domain";
+import { COMPANY_NAME_MAX_LENGTH as DOMAIN_MAX, companyNameProblem, SubscriptionStatusKind, TenantStatusCode } from "@mezan/domain";
 import { COMPANY_NAME_MAX_LENGTH as WIRE_MAX, companyNameSchema, SubscriptionStatusCode, TenantWireStatus, updateTenantSettingsSchema } from "@mezan/contracts";
 
 const FORBIDDEN = [
@@ -62,7 +62,7 @@ describe("the closed status sets are the same on the wire and in the domain", ()
   });
 
   it("names every subscription status the domain can store, plus the read-only unknown", () => {
-    expect(storable(SubscriptionStatusCode)).toEqual([...SUBSCRIPTION_STATUSES].sort());
-    expect(SUBSCRIPTION_STATUSES).not.toContain(SubscriptionStatusCode.Unknown);
+    expect(storable(SubscriptionStatusCode)).toEqual(storable(SubscriptionStatusKind));
+    expect(Object.values(SubscriptionStatusKind)).not.toContain(SubscriptionStatusCode.Unknown);
   });
 });

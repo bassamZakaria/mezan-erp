@@ -23,6 +23,7 @@ import {
   type Plan,
   type Tenant,
   TenantStatusCode,
+  SubscriptionStatusKind,
 } from "@mezan/domain";
 import {
   createCardCheckoutRequestSchema,
@@ -264,8 +265,8 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
           : null,
       today: usage.today,
       month: usage.month,
-      trialEndsAt: subscription?.status === "trialing" ? subscription.trialEndsAt : null,
-      trialDaysLeft: trialDaysLeft(subscription?.status === "trialing" ? subscription.trialEndsAt : null, usage.today),
+      trialEndsAt: subscription?.status === SubscriptionStatusKind.Trialing ? subscription.trialEndsAt : null,
+      trialDaysLeft: trialDaysLeft(subscription?.status === SubscriptionStatusKind.Trialing ? subscription.trialEndsAt : null, usage.today),
       moduleTrialDays: MODULE_TRIAL_DAYS,
       quotas: usage.quotas as BillingQuotaDTO[],
       limits: usage.limits as BillingLimitDTO[],

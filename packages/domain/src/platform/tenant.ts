@@ -73,7 +73,7 @@ export async function createTenant(cmd: CreateTenantCommand, repo: TenantReposit
     nameAr: cmd.nameAr.trim(),
     nameEn: cmd.nameEn?.trim() || null,
     ownerEmail: normalizeEmail(cmd.ownerEmail),
-    status: "provisioning",
+    status: TenantStatusCode.Provisioning,
     dbFile: tenantDbFile(cmd.code),
     createdAt: now,
     updatedAt: now,
@@ -88,10 +88,10 @@ export interface TenantTransitionCommand {
 }
 
 const TRANSITIONS: Readonly<Record<TenantStatus, readonly TenantStatus[]>> = {
-  provisioning: ["active"],
-  active: ["suspended", "archived"],
-  suspended: ["active", "archived"],
-  archived: [],
+  [TenantStatusCode.Provisioning]: [TenantStatusCode.Active],
+  [TenantStatusCode.Active]: [TenantStatusCode.Suspended, TenantStatusCode.Archived],
+  [TenantStatusCode.Suspended]: [TenantStatusCode.Active, TenantStatusCode.Archived],
+  [TenantStatusCode.Archived]: [],
 };
 
 async function transition(
@@ -112,10 +112,10 @@ async function transition(
   return next;
 }
 
-export const activateTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "active", repo, ["provisioning"]);
-export const suspendTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "suspended", repo);
-export const archiveTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "archived", repo);
-export const resumeTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, "active", repo, ["suspended"]);
+export const activateTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, TenantStatusCode.Active, repo, [TenantStatusCode.Provisioning]);
+export const suspendTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, TenantStatusCode.Suspended, repo);
+export const archiveTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, TenantStatusCode.Archived, repo);
+export const resumeTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, TenantStatusCode.Active, repo, [TenantStatusCode.Suspended]);
 
 export interface ChangeTenantOwnerEmailCommand {
   readonly code: string;

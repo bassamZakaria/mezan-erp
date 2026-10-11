@@ -13,7 +13,7 @@ import {
   type PlatformHandle,
 } from "@mezan/backend";
 import { createSessionRegistry } from "@mezan/api";
-import { TenantNotFoundError, type Tenant } from "@mezan/domain";
+import { SubscriptionStatusKind, TenantNotFoundError, type Tenant } from "@mezan/domain";
 import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
 import { generateOwnerPin, platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
@@ -131,7 +131,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
         ownerNameAr: input.ownerNameAr ?? tenant.nameAr,
         planId,
         billingCycle,
-        trial: live ? live.status === "trialing" : (input.trial ?? false),
+        trial: live ? live.status === SubscriptionStatusKind.Trialing : (input.trial ?? false),
         actorId: input.actorId,
       },
       { platform, router, now },

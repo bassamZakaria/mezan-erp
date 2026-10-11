@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Checkbox } from "@mezan/ui";
+import { LicenseReasonCode } from "@mezan/domain";
 import { useDesktopLicence } from "./data/hooks";
 import {
   useLicenceCheckin,
@@ -112,6 +113,16 @@ export function LicenseBanner() {
         tone: "danger",
         // Importing cannot help: this build can verify nothing. Offering the
         // button would send the owner hunting for a file that will be refused.
+        showCheckin: false,
+        showImport: false,
+        showTransfer: false,
+      };
+    }
+    if (reason === LicenseReasonCode.StatusUnknown) {
+      return {
+        title: t("license.banner.statusUnknown.title"),
+        body: t("license.banner.statusUnknown.body"),
+        tone: "danger",
         showCheckin: false,
         showImport: false,
         showTransfer: false,

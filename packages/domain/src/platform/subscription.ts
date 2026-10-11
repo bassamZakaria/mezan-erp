@@ -10,8 +10,14 @@ import {
   TenantAlreadySubscribedError,
 } from "./errors.js";
 
-export const SUBSCRIPTION_STATUSES = ["trialing", "active", "past_due", "suspended", "cancelled"] as const;
-export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
+export enum SubscriptionStatusKind {
+  Trialing = "trialing",
+  Active = "active",
+  PastDue = "past_due",
+  Suspended = "suspended",
+  Cancelled = "cancelled",
+}
+export type SubscriptionStatus = `${SubscriptionStatusKind}`;
 
 export enum SubscriptionTransition {
   TrialEndedToFree = "TRIAL_ENDED_TO_FREE",
@@ -101,18 +107,18 @@ export function addDays(iso: string, days: number): string {
 }
 
 export function trialHasEnded(s: Subscription, nowIso: string): boolean {
-  return s.status === "trialing" && s.trialEndsAt !== null && s.trialEndsAt <= nowIso;
+  return s.status === SubscriptionStatusKind.Trialing && s.trialEndsAt !== null && s.trialEndsAt <= nowIso;
 }
 
 /** The subscription after a reverse trial lands on the Free plan. Pure; the caller persists it with `compareAndSet`. */
 export function applyTrialEndToFree(s: Subscription, freePlanId: string, nowIso: string): Subscription {
-  if (!trialHasEnded(s, nowIso)) throw new InvalidSubscriptionTransitionError(s.status, "active");
+  if (!trialHasEnded(s, nowIso)) throw new InvalidSubscriptionTransitionError(s.status, SubscriptionStatusKind.Active);
   const endedAt = s.trialEndsAt!;
   return {
     ...s,
     planId: freePlanId,
     previousPlanId: s.planId,
-    status: "active",
+    status: SubscriptionStatusKind.Active,
     trialEndsAt: null,
     billingCycle: "monthly",
     currentPeriodStart: endedAt,
@@ -198,7 +204,7 @@ export async function startSubscription(
     id: cmd.id,
     tenantId: cmd.tenantId,
     planId: plan.id,
-    status: trial ? "trialing" : "active",
+    status: trial ? SubscriptionStatusKind.Trialing : SubscriptionStatusKind.Active,
     billingCycle: cmd.billingCycle,
     addOnModules,
     extraSeats,
@@ -242,13 +248,13 @@ function requireNow(cmd: SubscriptionCommand): string {
 /** The subscription one paid period later — pure, so a caller can persist it inside its own transaction. */
 export function applyRenewal(s: Subscription, nowIso: string): Subscription {
   const now = requireNow({ id: s.id, now: nowIso });
-  assertFrom(s, ["trialing", "active", "past_due"], "active");
+  assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue], SubscriptionStatusKind.Active);
   const lapsed = s.currentPeriodEnd < now;
   const periodStart = lapsed ? now : s.currentPeriodEnd;
   const billingAnchorDay = lapsed ? utcDayOfMonth(now) : billingAnchorDayOf(s);
   return {
     ...s,
-    status: "active",
+    status: SubscriptionStatusKind.Active,
     trialEndsAt: null,
     currentPeriodStart: periodStart,
     currentPeriodEnd: addPeriod(periodStart, s.billingCycle, billingAnchorDay),
@@ -267,11 +273,11 @@ export async function renewSubscription(cmd: SubscriptionCommand, repo: Subscrip
 export async function markPastDue(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, ["active"], "past_due");
+  assertFrom(s, [SubscriptionStatusKind.Active], SubscriptionStatusKind.PastDue);
   if (now < s.currentPeriodEnd) {
     throw new InvalidSubscriptionError([`الفترة الحالية لم تنتهِ بعد (تنتهي في ${s.currentPeriodEnd})`]);
   }
-  const next: Subscription = { ...s, status: "past_due", updatedAt: now };
+  const next: Subscription = { ...s, status: SubscriptionStatusKind.PastDue, updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -279,8 +285,8 @@ export async function markPastDue(cmd: SubscriptionCommand, repo: SubscriptionRe
 export async function suspendSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, ["active", "past_due"], "suspended");
-  const next: Subscription = { ...s, status: "suspended", updatedAt: now };
+  assertFrom(s, [SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue], SubscriptionStatusKind.Suspended);
+  const next: Subscription = { ...s, status: SubscriptionStatusKind.Suspended, updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -288,8 +294,8 @@ export async function suspendSubscription(cmd: SubscriptionCommand, repo: Subscr
 export async function resumeSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, ["suspended"], "active");
-  const next: Subscription = { ...s, status: "active", updatedAt: now };
+  assertFrom(s, [SubscriptionStatusKind.Suspended], SubscriptionStatusKind.Active);
+  const next: Subscription = { ...s, status: SubscriptionStatusKind.Active, updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -297,8 +303,8 @@ export async function resumeSubscription(cmd: SubscriptionCommand, repo: Subscri
 export async function cancelSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, ["trialing", "active", "past_due", "suspended"], "cancelled");
-  const next: Subscription = { ...s, status: "cancelled", cancelledAt: now, updatedAt: now };
+  assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue, SubscriptionStatusKind.Suspended], SubscriptionStatusKind.Cancelled);
+  const next: Subscription = { ...s, status: SubscriptionStatusKind.Cancelled, cancelledAt: now, updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -314,13 +320,13 @@ export async function changePlan(
 ): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, ["trialing", "active", "past_due"], "active");
+  assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue], SubscriptionStatusKind.Active);
   const plan = await activePlan(cmd.planId, plans);
   const next: Subscription = {
     ...s,
     planId: plan.id,
     previousPlanId: plan.id === s.planId ? s.previousPlanId : s.planId,
-    status: s.status === "trialing" ? "active" : s.status,
+    status: s.status === SubscriptionStatusKind.Trialing ? SubscriptionStatusKind.Active : s.status,
     trialEndsAt: null,
     updatedAt: now,
   };

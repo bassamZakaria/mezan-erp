@@ -6,7 +6,7 @@ import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/b
 import type { SqliteOpenOptions } from "@mezan/persistence";
 import type { UserEmailChange } from "@mezan/api";
 import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
-import { followTenantOwnerEmail, recordSecurityEvent, TenantStatusCode } from "@mezan/domain";
+import { followTenantOwnerEmail, recordSecurityEvent, tenantIsServed, TenantStatusCode } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
@@ -171,8 +171,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const mode = hostMatchesTenantDomain(c.req.raw, resolverOptions) ? TenantResolveMode.Subdomain : TenantResolveMode.Code;
     const code = resolveTenantCode(c.req.raw, resolverOptions);
     const tenant = code ? await options.platform.stores.tenants.findByCode(code) : null;
-    const exists = Boolean(tenant && (tenant.status === TenantStatusCode.Active || tenant.status === TenantStatusCode.Suspended));
-    const body: PlatformResolveDTO = { mode, exists };
+    const body: PlatformResolveDTO = { mode, exists: tenantIsServed(tenant) };
     return c.json(body);
   });
 
@@ -181,7 +180,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const code = resolveTenantCode(c.req.raw, resolverOptions);
     if (!code) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
     const tenant = await options.platform.stores.tenants.findByCode(code);
-    if (!tenant || tenant.status === TenantStatusCode.Archived || tenant.status === TenantStatusCode.Provisioning) {
+    if (!tenant || !tenantIsServed(tenant)) {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
     const backend = await cache.get(code);

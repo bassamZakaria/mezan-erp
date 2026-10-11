@@ -1,4 +1,4 @@
-import { defaultFreePlan, isFreePlan, markPastDue, TenantStatusCode } from "@mezan/domain";
+import { defaultFreePlan, isFreePlan, markPastDue, SubscriptionStatusKind, TenantStatusCode } from "@mezan/domain";
 import { materialiseEndedTrial, type PlatformHandle } from "@mezan/backend";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -32,7 +32,7 @@ export async function runDunningSweep(platform: PlatformHandle, now: () => Date)
         landedOnFree += 1;
         continue;
       }
-      if (subscription.status !== "active") continue;
+      if (subscription.status !== SubscriptionStatusKind.Active) continue;
       // A FREE PLAN NEVER GOES PAST DUE. It has a period end because the column
       // needs one; dunning a tenant who owes nothing would put their own books
       // into grace and then read-only a month after they landed on Free, which

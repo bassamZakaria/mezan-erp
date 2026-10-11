@@ -5,7 +5,8 @@ import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBackend, createPlatform, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { createSessionRegistry } from "@mezan/api";
-import { createTenant, activateTenant, archiveTenant, suspendTenant, startSubscription, changePlan } from "@mezan/domain";
+import { createTenant, activateTenant, archiveTenant, suspendTenant, startSubscription, changePlan, LicenseReasonCode } from "@mezan/domain";
+import { openSqliteConnection } from "@mezan/persistence";
 import type { SessionDTO } from "@mezan/contracts";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
 import { TENANT_HEADER } from "./tenant-resolver.js";
@@ -445,6 +446,70 @@ describe("createTenantRouter", () => {
         }),
       );
       expect(res.status).toBe(201);
+    });
+  });
+
+  describe("a stored status this build does not know", () => {
+    async function filePlatform() {
+      const dir = mkdtempSync(path.join(tmpdir(), "mezan-unknown-status-"));
+      dirs.push(dir);
+      const dbPath = path.join(dir, "platform.db");
+      const platform = await createPlatform({ dbPath });
+      platforms.push(platform);
+      for (const code of ["frozen", "gone", "fine"]) {
+        const tenant = await createTenant({ id: `t-${code}`, code, nameAr: `منشأة ${code}`, ownerEmail: `owner@${code}.example`, now: T }, platform.stores.tenants);
+        await activateTenant({ id: tenant.id, now: T }, platform.stores.tenants);
+        await startSubscription({ id: `sub-${code}`, tenantId: tenant.id, planId: "PLAN-CORE", billingCycle: "monthly", now: T }, platform.stores.subscriptions, platform.stores.plans);
+      }
+      const raw = openSqliteConnection(dbPath).sqlite;
+      raw.prepare("UPDATE subscription SET status = 'frozen' WHERE id = 'sub-frozen'").run();
+      raw.prepare("UPDATE tenant SET status = 'terminated' WHERE id = 't-gone'").run();
+      raw.close();
+      return platform;
+    }
+
+    const writeCustomer = (router: TenantRouter, code: string) =>
+      router.app.fetch(
+        new Request("http://ignored/customers", {
+          method: "POST",
+          headers: { "content-type": "application/json", [TENANT_HEADER]: code },
+          body: JSON.stringify({ id: `c-${code}`, code: "C000001", nameAr: "عميل" }),
+        }),
+      );
+
+    it.each(["frozen", "gone"])("keeps %s readable, refuses its writes and names the reason in Arabic", async (code) => {
+      const { router } = newRouter(await filePlatform());
+
+      const read = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: code } }));
+      expect(read.status).toBe(200);
+      const write = await writeCustomer(router, code);
+      expect(write.status).toBe(403);
+      expect(await write.json()).toMatchObject({ error: "LICENSE_READ_ONLY" });
+      const license = await router.app.fetch(new Request("http://ignored/license/state", { headers: { [TENANT_HEADER]: code } }));
+      expect(await license.json()).toMatchObject({
+        state: "READ_ONLY", canWrite: false, reason: LicenseReasonCode.StatusUnknown, messageAr: "حالة الاشتراك غير معروفة — تواصل مع الدعم",
+      });
+    });
+
+    it("answers the sign-in lookup the same way the router dispatches: both tenants exist", async () => {
+      const { router } = newRouter(await filePlatform());
+      for (const code of ["frozen", "gone", "fine"]) {
+        const res = await router.app.fetch(new Request("http://ignored/platform/resolve", { headers: { [TENANT_HEADER]: code } }));
+        expect(await res.json()).toMatchObject({ exists: true });
+      }
+    });
+
+    it("leaves a tenant whose statuses are known writable", async () => {
+      const { router } = newRouter(await filePlatform());
+      const write = await writeCustomer(router, "fine");
+      expect(write.status).not.toBe(403);
+    });
+
+    it("still counts the unknown subscription as the tenant's one live subscription", async () => {
+      const platform = await filePlatform();
+      await expect(
+        startSubscription({ id: "sub-second", tenantId: "t-frozen", planId: "PLAN-CORE", billingCycle: "monthly", now: T }, platform.stores.subscriptions, platform.stores.plans),
+      ).rejects.toThrow();
     });
   });
 

@@ -374,10 +374,26 @@ export function connectionTurn(audit: AuditSink | undefined, options: Connection
     });
 
     let watchdog: ReturnType<typeof setInterval> | undefined;
+    let heldSince: number | null = null;
+    let warned = false;
     const watch = (): void => {
       const since = Date.now();
-      watchdog = setInterval(() => onHeldTooLong(c, Date.now() - since), heldWarningMs);
+      heldSince = since;
+      warned = false;
+      watchdog = setInterval(() => {
+        warned = true;
+        onHeldTooLong(c, Date.now() - since);
+      }, heldWarningMs);
       watchdog.unref?.();
+    };
+    // A holder that never gives the event loop back starves the interval above,
+    // so the length of its hold is read again as it lets go.
+    const unwatch = (): void => {
+      clearInterval(watchdog);
+      if (heldSince === null) return;
+      const heldMs = Date.now() - heldSince;
+      heldSince = null;
+      if (!warned && heldMs >= heldWarningMs) onHeldTooLong(c, heldMs);
     };
     const held = turn(
       async () => {
@@ -386,10 +402,10 @@ export function connectionTurn(audit: AuditSink | undefined, options: Connection
         try {
           await next();
         } finally {
-          clearInterval(watchdog);
+          unwatch();
         }
       },
-      { onYield: () => onYield(c), onSuspend: () => clearInterval(watchdog), onResume: watch, retakeTimeoutMs: options.retakeTimeoutMs, completedRetakeTimeoutMs: options.completedRetakeTimeoutMs },
+      { onYield: () => onYield(c), onSuspend: unwatch, onResume: watch, retakeTimeoutMs: options.retakeTimeoutMs, completedRetakeTimeoutMs: options.completedRetakeTimeoutMs },
     );
     const reason = await Promise.race([held.then(() => undefined), gaveUp]);
     if (reason === undefined) {

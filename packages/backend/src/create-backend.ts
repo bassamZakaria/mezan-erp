@@ -545,6 +545,7 @@ function accountLockedNotice(event: AccountLockedEvent, mailed: boolean): string
 }
 
 export interface CreateBackendOptions {
+  readonly connectionTurn?: CreateAppOptions["connectionTurn"];
   /**
    * SQLite location. A file path gives durable, shared-across-restarts storage
    * (apps/server, Electron); `:memory:` gives an ephemeral per-process DB
@@ -3134,6 +3135,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
 
   const app = createApp(uow, {
+    connectionTurn: options.connectionTurn,
     idempotentRequests: createSqliteIdempotentRequestStore(sqlite),
     secrets,
     beforeTheTurn: auth.beforeTheTurn,

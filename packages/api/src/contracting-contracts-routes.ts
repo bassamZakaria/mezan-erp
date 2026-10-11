@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { importRowLimit } from "./import-limit.js";
 import {
   WorksContractService,
   WorksContractNotDraftError,
@@ -358,7 +359,8 @@ export function createContractingContractsRoutes(
     }
   });
 
-  app.post("/:id/boq/import", gate(MANAGE), async (c) => {
+  const boqRowLimit = importRowLimit();
+  app.post("/:id/boq/import", gate(MANAGE), boqRowLimit, async (c) => {
     const parsed = boqImportSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
@@ -368,7 +370,7 @@ export function createContractingContractsRoutes(
     }
   });
 
-  app.post("/:id/boq/import/commit", gate(MANAGE), async (c) => {
+  app.post("/:id/boq/import/commit", gate(MANAGE), boqRowLimit, async (c) => {
     const parsed = boqImportSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {

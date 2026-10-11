@@ -1,4 +1,6 @@
 import { Hono, type Context } from "hono";
+import { NoFiscalPeriodForDateError, PeriodNotOpenForPostingError } from "@mezan/domain";
+import { importRowLimit } from "./import-limit.js";
 import {
   Money,
   Qty,
@@ -35,6 +37,7 @@ export interface HistoricalImportRoutesDeps {
   readonly gl?: HistoricalImportGlPostingPort;
   readonly accounts?: HistoricalImportGlAccounts;
   readonly now?: () => string;
+  readonly atomic?: <T>(work: () => Promise<T>) => Promise<T>;
 }
 
 /** Rows land on the tenant's calendar day before the importer sees them. */
@@ -95,6 +98,8 @@ export function createHistoricalImportRoutes(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const actor = (c: Context) => getAuthContext(c)?.userId ?? "system";
+  const allOrNothing = <T>(work: () => Promise<T>): Promise<T> => (deps.atomic ? deps.atomic(work) : work());
+  app.use("*", importRowLimit());
 
   app.post("/preview", gate("purchases.invoice.create"), async (c) => {
     const parsed = historicalImportBatchSchema.safeParse(await c.req.json());
@@ -121,14 +126,15 @@ export function createHistoricalImportRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const result = await importHistoricalPurchaseDocuments(
+      const rows = toRowInputs(await toTenantDayRows(c, parsed.data.rows));
+      const result = await allOrNothing(() => importHistoricalPurchaseDocuments(
         {
           importBatchId: `HPI-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          rows: toRowInputs(await toTenantDayRows(c, parsed.data.rows)),
+          rows,
           createdBy: actor(c),
         },
         { archives: deps.archives, gl: deps.gl, accounts: deps.accounts, now: deps.now },
-      );
+      ));
       return c.json(
         {
           groups: [],
@@ -140,6 +146,9 @@ export function createHistoricalImportRoutes(
     } catch (err) {
       if (err instanceof InvalidPurchaseDocumentError) {
         return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+      }
+      if (err instanceof NoFiscalPeriodForDateError || err instanceof PeriodNotOpenForPostingError) {
+        return c.json({ error: err.code, message: `${err.message} لم يُستورد أي مستند من الملف.` }, 422);
       }
       throw err;
     }

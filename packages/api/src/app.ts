@@ -224,7 +224,7 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
-import { AUDITED_MOUNTS, AuditBoundaryRefusal, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation } from "./audit-boundary.js";
+import { AUDITED_MOUNTS, AuditBoundaryRefusal, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation, type ConnectionTurnOptions } from "./audit-boundary.js";
 import { createPrecomputingHasher, type PrecomputingHasher } from "./precomputed-secrets.js";
 import { requestBodyLimit } from "./body-limit.js";
 import { IDEMPOTENT_CREATES, idempotentCreate, type IdempotentRequests } from "./idempotent-create.js";
@@ -826,6 +826,7 @@ export interface CreateAppOptions {
   readonly secrets?: PrecomputingHasher;
   /** Where a create's answer is kept, so the same create sent again is answered with it (idempotent-create.ts). */
   readonly idempotentRequests?: IdempotentRequests;
+  readonly connectionTurn?: ConnectionTurnOptions;
   /** Work other mounts do ahead of the connection's turn, keyed by path (audit-boundary.ts `beforeTheTurn`). */
   readonly beforeTheTurn?: Readonly<Record<string, BoundaryPreparation>>;
   /**
@@ -990,7 +991,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // Before anything reads or writes: a mutating request holds this tenant's
   // connection for its whole length, and a read waits out an open transaction
   // (audit-boundary.ts).
-  app.use("*", connectionTurn(options.auditSink));
+  app.use("*", connectionTurn(options.auditSink, options.connectionTurn));
 
   if (idempotent) for (const create of IDEMPOTENT_CREATES) app.use(create.path, idempotent.record);
 
@@ -1305,7 +1306,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/sales/historical-import",
       createSalesHistoricalImportRoutes(
-        options.salesHistoricalImport,
+        { ...options.salesHistoricalImport, atomic: options.auditSink?.atomic?.bind(options.auditSink) },
         (options.salesHistoricalImport.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
       ),
     );
@@ -1472,7 +1473,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/purchases/historical-import",
       createHistoricalImportRoutes(
-        options.historicalImport,
+        { ...options.historicalImport, atomic: options.auditSink?.atomic?.bind(options.auditSink) },
         (options.historicalImport.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
       ),
     );

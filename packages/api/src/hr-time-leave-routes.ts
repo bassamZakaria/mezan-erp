@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { importRowLimit, linesOfCsvImport } from "./import-limit.js";
 import { Hono, type Context } from "hono";
 import {
   Qty,
@@ -422,8 +423,9 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
     return c.json({ ...preview, createdCount, skippedAlreadyRecordedCount });
   }
 
-  app.post("/attendance/import/preview", gate("hr.attendance.edit"), (c) => runAttendanceImport(c, false));
-  app.post("/attendance/import/commit", gate("hr.attendance.edit"), (c) => runAttendanceImport(c, true));
+  const attendanceRowLimit = importRowLimit(linesOfCsvImport);
+  app.post("/attendance/import/preview", gate("hr.attendance.edit"), attendanceRowLimit, (c) => runAttendanceImport(c, false));
+  app.post("/attendance/import/commit", gate("hr.attendance.edit"), attendanceRowLimit, (c) => runAttendanceImport(c, true));
 
   // --- Leave policies ------------------------------------------------------
 

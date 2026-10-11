@@ -1024,6 +1024,26 @@ describe("connectionTurn", () => {
     expect(reported[0]).toBe("POST /audited/slow");
   });
 
+  it("reports a request that held the connection too long without ever giving the event loop back", async () => {
+    const reported: { readonly path: string; readonly heldMs: number }[] = [];
+    const sink = openSink();
+    const app = new Hono();
+    app.use("*", connectionTurn(sink, { onYield: () => undefined, heldWarningMs: 20, onHeldTooLong: (c, heldMs) => reported.push({ path: c.req.path, heldMs }) }));
+    app.post("/computes", (c) => {
+      const until = Date.now() + 40;
+      while (Date.now() < until);
+      return c.json({});
+    });
+    app.post("/quick", (c) => c.json({}));
+
+    await app.fetch(new Request("http://x/computes", { method: "POST" }));
+    await app.fetch(new Request("http://x/quick", { method: "POST" }));
+
+    expect(reported).toHaveLength(1);
+    expect(reported[0]).toMatchObject({ path: "/computes" });
+    expect(reported[0]!.heldMs).toBeGreaterThanOrEqual(40);
+  });
+
   it("hands a handler the bytes it was sent, though the body was read before the connection was taken", async () => {
     const sink = openSink();
     const app = new Hono();

@@ -228,6 +228,7 @@ import type {
   SupplierDTO,
   TaxRateDTO,
   TenantSettingsDTO,
+  TenantSettingsLookupDTO,
   UserPreferencesDTO,
   TransitionLeadDTO,
   TreasuryAccountDTO,
@@ -256,6 +257,7 @@ import type {
   VoucherDTO,
   VoucherListQueryDTO,
   WarehouseDTO,
+  WarehouseLookupDTO,
   PrintTemplateConfigDTO,
   DepartmentDTO,
   CreateDepartmentDTO,
@@ -305,6 +307,7 @@ import type {
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
+import { ReadPermission, sessionHolds } from "./session";
 import type { TransportResponse } from "./transport";
 import { BranchRefusalCode } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -1824,7 +1827,7 @@ export function useUsers(): UseQueryResult<UserDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<UserDTO[], ApiError>({
     queryKey: ["users"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.Users),
     queryFn: async () => {
       const res = await request("/users");
       if (!res.ok) throw await loaderError(res, t("api.usersCouldNotBeLoaded"), t);
@@ -1881,7 +1884,7 @@ export function useRoles(): UseQueryResult<RoleDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<RoleDTO[], ApiError>({
     queryKey: ["roles"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.Roles),
     queryFn: async () => {
       const res = await request("/roles");
       if (!res.ok) throw await loaderError(res, t("api.rolesCouldNotBeLoaded"), t);
@@ -1957,6 +1960,20 @@ export function useUserPreferences(): UseQueryResult<UserPreferencesDTO | null, 
   });
 }
 
+export function useTenantSettings(): UseQueryResult<TenantSettingsLookupDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<TenantSettingsLookupDTO, ApiError>({
+    queryKey: ["settings", "lookup"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings/lookup");
+      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
+      return res.json<TenantSettingsLookupDTO>();
+    },
+  });
+}
+
 export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1993,13 +2010,20 @@ export function useUpdateSettings() {
 export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  const administers = sessionHolds(session, ReadPermission.Branches);
   return useQuery<BranchDTO[], ApiError>({
-    queryKey: ["branches"],
+    queryKey: ["branches", administers ? "records" : "granted"],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/branches");
+      if (administers) {
+        const res = await request("/branches");
+        if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
+        return res.json<BranchDTO[]>();
+      }
+      const res = await request("/branches/lookup");
       if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
-      return res.json<BranchDTO[]>();
+      const lookup = await res.json<BranchLookupDTO>();
+      return lookup.branches.map((branch) => ({ ...branch, parentBranchId: null, phone: null, email: null, address: null }));
     },
   });
 }
@@ -2378,13 +2402,20 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
 export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  const administers = sessionHolds(session, ReadPermission.Warehouses);
   return useQuery<WarehouseDTO[], ApiError>({
-    queryKey: ["warehouses"],
+    queryKey: ["warehouses", administers ? "records" : "granted"],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/warehouses");
+      if (administers) {
+        const res = await request("/warehouses");
+        if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
+        return res.json<WarehouseDTO[]>();
+      }
+      const res = await request("/warehouses/lookup");
       if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
-      return res.json<WarehouseDTO[]>();
+      const granted = await res.json<WarehouseLookupDTO[]>();
+      return granted.map((warehouse) => ({ ...warehouse, projectId: null, custodianUserId: null }));
     },
   });
 }
@@ -6441,7 +6472,7 @@ export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<JobTitleDTO[], ApiError>({
     queryKey: ["hr-job-titles"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.JobTitles),
     queryFn: async () => {
       const res = await request("/hr/job-titles");
       if (!res.ok) throw await loaderError(res, t("api.jobTitlesCouldNotBe"), t);
@@ -6483,7 +6514,7 @@ export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<EmployeeDTO[], ApiError>({
     queryKey: ["hr-employees"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.Employees),
     queryFn: async () => {
       const res = await request("/hr/employees");
       if (!res.ok) throw await loaderError(res, t("api.employeesCouldNotBeLoaded"), t);

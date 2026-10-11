@@ -104,6 +104,20 @@ export const allowedCurrenciesSchema = z.object({
 });
 
 export type TenantSettingsDTO = z.infer<typeof tenantSettingsSchema>;
+
+/** GET /settings/lookup — what every signed-in user's screens and printed documents read; no outbound-mail configuration. */
+export const tenantSettingsLookupSchema = tenantSettingsSchema.omit({
+  smtpEnabled: true,
+  smtpHost: true,
+  smtpPort: true,
+  smtpSecurity: true,
+  smtpUsername: true,
+  smtpPassword: true,
+  smtpFromName: true,
+  smtpFromEmail: true,
+  allowedEmailDomains: true,
+});
+export type TenantSettingsLookupDTO = z.infer<typeof tenantSettingsLookupSchema>;
 export type UpdateTenantSettingsDTO = z.infer<typeof updateTenantSettingsSchema>;
 export type SendTestEmailDTO = z.infer<typeof sendTestEmailSchema>;
 export type TestEmailResultDTO = z.infer<typeof testEmailResultSchema>;

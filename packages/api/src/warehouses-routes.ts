@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { createWarehouse, updateWarehouse, InvalidWarehouseError, type WarehouseRepository } from "@mezan/domain";
+import { ALL_SCOPE, createWarehouse, updateWarehouse, InvalidWarehouseError, type WarehouseRepository } from "@mezan/domain";
 import { createWarehouseSchema, updateWarehouseSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { branchGrantOf, createAuthenticatedGate, createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { refuseExistingId } from "./duplicate-id.js";
 
 export interface WarehouseUse {
@@ -36,6 +36,33 @@ export function createWarehousesRoutes(
     const branchId = c.req.query("branchId");
     const warehouses = branchId ? await store.findByBranch(branchId) : await store.findAll();
     return c.json(withinScope(warehouses, branchScopeOf(c), (w) => w.branchId));
+  });
+
+  /**
+   * The warehouses a picker may offer: those of the branches and warehouses
+   * the SESSION was granted. Any signed-in user may ask — a document that
+   * takes a warehouse needs the list, and `admin.warehouses.view` would hand
+   * a branch's clerk every other branch's store.
+   *
+   * Registered before `/:id`, which would otherwise read `lookup` as an id.
+   */
+  app.get("/lookup", createAuthenticatedGate(resolveAuthContext), async (c) => {
+    const branches = branchGrantOf(c);
+    const granted = getAuthContext(c)?.warehouseGrant;
+    const warehouses = (await store.findAll())
+      .filter((warehouse) => !branches || branches.includes(warehouse.branchId))
+      .filter((warehouse) => !granted || granted === ALL_SCOPE || granted.includes(warehouse.id))
+      .map((warehouse) => ({
+        id: warehouse.id,
+        code: warehouse.code,
+        name: warehouse.name,
+        nameEn: warehouse.nameEn,
+        branchId: warehouse.branchId,
+        type: warehouse.type,
+        isDefault: warehouse.isDefault,
+        active: warehouse.active,
+      }));
+    return c.json(warehouses);
   });
 
   app.get("/:id", gate("admin.warehouses.view"), async (c) => {

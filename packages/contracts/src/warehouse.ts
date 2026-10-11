@@ -40,5 +40,9 @@ export const updateWarehouseSchema = warehouseSchema.omit({ id: true }).partial(
 
 export type WarehouseTypeDTO = z.infer<typeof warehouseTypeSchema>;
 export type WarehouseDTO = z.infer<typeof warehouseSchema>;
+
+/** GET /warehouses/lookup — what a warehouse picker needs, for the warehouses the session was granted. */
+export const warehouseLookupSchema = warehouseSchema.pick({ id: true, code: true, name: true, nameEn: true, branchId: true, type: true, isDefault: true, active: true });
+export type WarehouseLookupDTO = z.infer<typeof warehouseLookupSchema>;
 export type CreateWarehouseDTO = z.infer<typeof createWarehouseSchema>;
 export type UpdateWarehouseDTO = z.infer<typeof updateWarehouseSchema>;

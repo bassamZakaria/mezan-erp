@@ -67,7 +67,7 @@ function baseInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO 
 function baseTransport(settingsOverrides: Record<string, unknown> = {}) {
   return stubTransport({
     "GET /print-template-config": () => ({ body: DEFAULT_PRINT_TEMPLATE_CONFIG }),
-    "GET /settings": () => ({
+    "GET /settings/lookup": () => ({
       body: {
         companyName: "شركة سايج",
         address: "القاهرة الجديدة",
@@ -86,7 +86,7 @@ describe("SalesInvoicePrintPage", () => {
   it("shows the empty-state notice when no print template config is available", async () => {
     const transport = stubTransport({
       "GET /print-template-config": () => ({ status: 404, body: {} }),
-      "GET /settings": () => ({ body: {} }),
+      "GET /settings/lookup": () => ({ body: {} }),
       "GET /customers": () => ({ body: [] }),
       "GET /branches": () => ({ body: [] }),
       "GET /warehouses": () => ({ body: [] }),

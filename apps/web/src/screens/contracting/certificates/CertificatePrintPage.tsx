@@ -6,7 +6,7 @@ import {
   type PaginatedTableColumn,
 } from "@mezan/ui";
 import type { CertificateWorkLineDTO } from "@mezan/contracts";
-import { useCustomers, useProjects, useSettings } from "../../../data/hooks";
+import { useCustomers, useProjects, useTenantSettings } from "../../../data/hooks";
 import { useProgressCertificate } from "../../../data/contracting-certificates-hooks";
 import { useAppTranslation } from "../../../i18n";
 import { EMPTY } from "../../../lib/empty";
@@ -57,7 +57,7 @@ export function CertificatePrintPage({
 }) {
   const { t } = useAppTranslation();
   const query = useProgressCertificate(certificateId);
-  const settings = useSettings().data ?? null;
+  const settings = useTenantSettings().data ?? null;
   const projects = useProjects().data ?? EMPTY;
   const customers = useCustomers().data ?? EMPTY;
 

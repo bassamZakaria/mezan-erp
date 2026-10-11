@@ -143,6 +143,8 @@ export {
   tenantSettingsSchema,
   updateTenantSettingsSchema,
   type TenantSettingsDTO,
+  tenantSettingsLookupSchema,
+  type TenantSettingsLookupDTO,
   type UpdateTenantSettingsDTO,
 } from "./settings.js";
 
@@ -164,6 +166,8 @@ export {
   updateWarehouseSchema,
   type WarehouseTypeDTO,
   type WarehouseDTO,
+  warehouseLookupSchema,
+  type WarehouseLookupDTO,
   type CreateWarehouseDTO,
   type UpdateWarehouseDTO,
 } from "./warehouse.js";

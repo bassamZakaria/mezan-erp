@@ -31,7 +31,7 @@ export function createBranchesRoutes(
     const branches = (await store.findAll())
       .filter((branch) => !grant || grant.includes(branch.id))
       .sort((a, b) => Number(b.isMain) - Number(a.isMain) || a.name.localeCompare(b.name, "ar"))
-      .map((branch) => ({ id: branch.id, name: branch.name, isMain: branch.isMain, active: branch.active }));
+      .map((branch) => ({ id: branch.id, code: branch.code, name: branch.name, isMain: branch.isMain, active: branch.active }));
     return c.json({ branches, restricted: grant !== undefined, unattributed: canSeeUnattributed(c) });
   });
 

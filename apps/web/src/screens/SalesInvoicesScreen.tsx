@@ -50,7 +50,7 @@ import {
   useEmployees,
   useItems,
   useProjects,
-  useSettings,
+  useTenantSettings,
   useItemAvailability,
   useConvertSalesQuoteToInvoice,
   useEtaSubmissions,
@@ -557,7 +557,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     [items, priceFor, format],
   );
 
-  const tenantSettings = useSettings();
+  const tenantSettings = useTenantSettings();
   const customerData = customer ? (customers.find((c) => c.id === customer.id) ?? null) : null;
   // A customer with no tax registration number is a consumer sale — an
   // e-receipt, not an e-invoice — and confirming it here has no till to name

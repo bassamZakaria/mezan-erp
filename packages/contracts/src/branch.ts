@@ -31,7 +31,7 @@ export const updateBranchSchema = branchSchema.omit({ id: true }).partial();
 
 /** GET /branches/lookup — what a branch picker may offer this session. */
 export const branchLookupSchema = z.object({
-  branches: z.array(branchSchema.pick({ id: true, name: true, isMain: true, active: true })),
+  branches: z.array(branchSchema.pick({ id: true, code: true, name: true, isMain: true, active: true })),
   /** Whether the session is granted specific branches rather than all of them. */
   restricted: z.boolean(),
   /** Whether the session may read postings that carry no branch («غير مخصص»). */

@@ -339,7 +339,7 @@ describe("D111 round 1 · /branches/lookup and the unattributed permission", () 
     const res = await alex("GET", "/branches/lookup");
     expect(res.status).toBe(200);
     expect(res.body.branches.map((branch: any) => branch.id)).toEqual([ALEX]);
-    expect(Object.keys(res.body.branches[0]).sort()).toEqual(["active", "id", "isMain", "name"]);
+    expect(Object.keys(res.body.branches[0]).sort()).toEqual(["active", "code", "id", "isMain", "name"]);
     expect(res.body.restricted).toBe(true);
     expect(res.body.unattributed).toBe(false);
   });
@@ -2514,5 +2514,54 @@ describe("D111 round 4 · a branch user edits a shared record's contact details 
     expect((await admin("PATCH", "/items/ITEM-DEMO-1", { taxRatePercent: 14 })).status).toBe(200);
     const created = await admin("POST", "/customers", { id: "D111-R4-CUST-ADMIN", nameAr: "عميل الإدارة", taxNumber: "123-456-789", openingBalance: "10.00", openingBalanceDate: TODAY });
     expect(created.status, JSON.stringify(created.body).slice(0, 200)).toBe(201);
+  });
+});
+
+describe("D111 round 4 · the lists a picker needs are open to every signed-in user and cut to the session's grant", () => {
+  const picker = (userId: string, branchScope: typeof ALL_SCOPE | string[], warehouseScope: typeof ALL_SCOPE | string[]) =>
+    callerFor(handle.sessions.issue({ userId, permissions: ["sales.invoice.create"], roleCode: null, branchScope, warehouseScope }));
+
+  it("a user with no admin permission reads the branches and warehouses of its grant, and no other's", async () => {
+    const caller = picker("USER-R4-PICK-ALEX", [ALEX], ALL_SCOPE);
+    const branches = await caller("GET", "/branches/lookup");
+    expect(branches.status).toBe(200);
+    expect(branches.body.branches.map((branch: any) => branch.id)).toEqual([ALEX]);
+    expect(branches.body.branches[0].code).toBeTruthy();
+    const warehouses = await caller("GET", "/warehouses/lookup");
+    expect(warehouses.status, JSON.stringify(warehouses.body).slice(0, 200)).toBe(200);
+    const ids = warehouses.body.map((warehouse: any) => warehouse.id);
+    expect(ids).toContain(ALEX_WAREHOUSE);
+    expect(new Set(warehouses.body.map((warehouse: any) => warehouse.branchId))).toEqual(new Set([ALEX]));
+    expect(JSON.stringify(warehouses.body)).not.toContain(MAIN_WAREHOUSE);
+  });
+
+  it("a narrow warehouse grant cuts the warehouse list further", async () => {
+    const caller = picker("USER-R4-PICK-ONE", ALL_SCOPE, [ALEX_WAREHOUSE]);
+    const warehouses = await caller("GET", "/warehouses/lookup");
+    expect(warehouses.body.map((warehouse: any) => warehouse.id)).toEqual([ALEX_WAREHOUSE]);
+  });
+
+  it("the settings every screen needs are readable without the settings permission, and carry no mail credentials", async () => {
+    const caller = picker("USER-R4-PICK-ALEX", [ALEX], ALL_SCOPE);
+    expect((await caller("GET", "/settings")).status).toBe(403);
+    const lookup = await caller("GET", "/settings/lookup");
+    expect(lookup.status, JSON.stringify(lookup.body).slice(0, 200)).toBe(200);
+    expect(lookup.body.companyName).toBeTruthy();
+    expect(lookup.body.currency).toBe("EGP");
+    expect(Object.keys(lookup.body).filter((key) => key.startsWith("smtp") || key === "allowedEmailDomains")).toEqual([]);
+  });
+
+  it("an unauthenticated caller reads none of them", async () => {
+    for (const path of ["/branches/lookup", "/warehouses/lookup", "/settings/lookup"]) {
+      const res = await handle.app.fetch(new Request(`http://local${path}`));
+      expect(res.status, path).toBe(401);
+    }
+  });
+
+  it("the seeded branch manager holds what its dashboard, an invoice and a voucher ask for", async () => {
+    const permissions = JSON.parse(one<{ permissions: string }>("SELECT permissions FROM role WHERE code = 'BRANCH_MANAGER'")!.permissions) as string[];
+    for (const code of ["accounting.journal.view", "sales.invoice.create", "treasury.cash_voucher.create"]) expect(permissions, code).toContain(code);
+    const manager = callerFor(handle.sessions.issue({ userId: "USER-R4-MANAGER", permissions, roleCode: "BRANCH_MANAGER", branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
+    expect((await manager("GET", "/dashboard/summary")).status).toBe(200);
   });
 });

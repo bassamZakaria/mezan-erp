@@ -1,6 +1,6 @@
 import { amountInWords } from "@mezan/domain";
 import type { PrintDocumentModel, PrintLedgerRow, PrintPartyInfo } from "@mezan/ui";
-import type { TenantSettingsDTO } from "@mezan/contracts";
+import type { TenantSettingsLookupDTO } from "@mezan/contracts";
 import { toMajorNumber } from "../lib/money";
 import { companyOf } from "./document-print";
 
@@ -40,7 +40,7 @@ export interface LedgerPrintInput {
   readonly number: string;
   readonly date: string;
   readonly statusLabel?: string;
-  readonly settings: TenantSettingsDTO | null;
+  readonly settings: TenantSettingsLookupDTO | null;
   readonly branchName?: string;
   readonly party?: PrintPartyInfo;
   readonly notes?: string | null;

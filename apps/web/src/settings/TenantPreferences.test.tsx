@@ -45,7 +45,7 @@ afterEach(() => {
 
 describe("TenantPreferences", () => {
   it("always renders its children, even before settings has loaded", () => {
-    const transport = stubTransport({ "GET /settings": () => new Promise(() => {}) as never });
+    const transport = stubTransport({ "GET /settings/lookup": () => new Promise(() => {}) as never });
     const { Wrapper } = makeWrapper(transport);
     render(
       <Wrapper>
@@ -58,7 +58,7 @@ describe("TenantPreferences", () => {
   });
 
   it("applies the tenant's default language when the browser has no locale of its own yet", async () => {
-    const transport = stubTransport({ "GET /settings": () => ({ body: { language: "en", dateNumerals: "western" } }) });
+    const transport = stubTransport({ "GET /settings/lookup": () => ({ body: { language: "en", dateNumerals: "western" } }) });
     const { Wrapper } = makeWrapper(transport);
     render(
       <Wrapper>
@@ -72,7 +72,7 @@ describe("TenantPreferences", () => {
 
   it("never overwrites a locale the browser/user has already chosen", async () => {
     window.localStorage.setItem("mezan.locale", "ar");
-    const transport = stubTransport({ "GET /settings": () => ({ body: { language: "en", dateNumerals: "western" } }) });
+    const transport = stubTransport({ "GET /settings/lookup": () => ({ body: { language: "en", dateNumerals: "western" } }) });
     const { Wrapper } = makeWrapper(transport);
     render(
       <Wrapper>
@@ -87,7 +87,7 @@ describe("TenantPreferences", () => {
   });
 
   it("never applies 'de' as the interface language, even with no persisted locale", async () => {
-    const transport = stubTransport({ "GET /settings": () => ({ body: { language: "de", dateNumerals: "western" } }) });
+    const transport = stubTransport({ "GET /settings/lookup": () => ({ body: { language: "de", dateNumerals: "western" } }) });
     const { Wrapper } = makeWrapper(transport);
     render(
       <Wrapper>
@@ -103,7 +103,7 @@ describe("TenantPreferences", () => {
   it("applies the language only ONCE — a later settings refetch with a different language does not re-apply", async () => {
     let call = 0;
     const transport = stubTransport({
-      "GET /settings": () => {
+      "GET /settings/lookup": () => {
         call += 1;
         return { body: { language: call === 1 ? "en" : "fr", dateNumerals: "western" } };
       },
@@ -128,7 +128,7 @@ describe("TenantPreferences", () => {
   });
 
   it("passes the tenant's dateNumerals preference into the numerals context for children to read", async () => {
-    const transport = stubTransport({ "GET /settings": () => ({ body: { language: "ar", dateNumerals: "arabic" } }) });
+    const transport = stubTransport({ "GET /settings/lookup": () => ({ body: { language: "ar", dateNumerals: "arabic" } }) });
     const { Wrapper } = makeWrapper(transport);
     render(
       <Wrapper>
@@ -141,7 +141,7 @@ describe("TenantPreferences", () => {
   });
 
   it("defaults numerals to 'western' before settings has loaded", () => {
-    const transport = stubTransport({ "GET /settings": () => new Promise(() => {}) as never });
+    const transport = stubTransport({ "GET /settings/lookup": () => new Promise(() => {}) as never });
     const { Wrapper } = makeWrapper(transport);
     render(
       <Wrapper>

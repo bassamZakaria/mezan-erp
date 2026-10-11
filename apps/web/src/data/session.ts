@@ -262,3 +262,19 @@ export function authHeaders(session: Session | null, selection?: ScopeSelection)
     "x-warehouse-scope": warehouseScope,
   };
 }
+
+const EVERY_PERMISSION = "*";
+
+export enum ReadPermission {
+  Branches = "admin.branches.view",
+  Warehouses = "admin.warehouses.view",
+  Settings = "admin.settings.view",
+  Roles = "admin.roles.view",
+  Users = "admin.users.view",
+  JobTitles = "hr.job_title.view",
+  Employees = "hr.employee.view",
+}
+
+export function sessionHolds(session: Session | null, permission: string): boolean {
+  return session !== null && (session.permissions.includes(EVERY_PERMISSION) || session.permissions.includes(permission));
+}

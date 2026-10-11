@@ -6,7 +6,7 @@ import {
   type PaginatedTableColumn,
 } from "@mezan/ui";
 import type { SubCertificateWorkLineDTO } from "@mezan/contracts";
-import { useProjects, useSettings } from "../../../data/hooks";
+import { useProjects, useTenantSettings } from "../../../data/hooks";
 import { useSubCertificate } from "../../../data/contracting-subcontracts-hooks";
 import { useAppTranslation } from "../../../i18n";
 import { EMPTY } from "../../../lib/empty";
@@ -48,7 +48,7 @@ export function SubCertificatePrintPage({
 }) {
   const { t } = useAppTranslation();
   const query = useSubCertificate(certificateId);
-  const settings = useSettings().data ?? null;
+  const settings = useTenantSettings().data ?? null;
   const projects = useProjects().data ?? EMPTY;
 
   const certificate = query.data;

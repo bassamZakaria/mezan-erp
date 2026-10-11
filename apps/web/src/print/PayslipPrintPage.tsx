@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { EmptyState, PrintView, resolvePrintTemplateConfig, useFormat, type PrintTemplateConfig } from "@mezan/ui";
 import type { PayrollRunDTO, PayslipDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
-import { useBranches, useDepartments, useEmployees, useJobTitles, usePrintTemplateConfig, useSettings } from "../data/hooks";
+import { useBranches, useDepartments, useEmployees, useJobTitles, usePrintTemplateConfig, useTenantSettings } from "../data/hooks";
 import { payslipPrintModel, type PayslipLetterhead, type PayslipPrintEmployee } from "./payslip-print";
 import { useUnverifiedStatutoryCodes } from "../data/hr-payroll-hooks";
 import { employeeDisplayName } from "../screens/hr-employee-name";
@@ -25,7 +25,7 @@ const PAY_BASIS_KEY = {
 export function PayslipPrintPage({ payslip, run }: { payslip: PayslipDTO; run: PayrollRunDTO }) {
   const { locale } = useAppTranslation();
   const configQuery = usePrintTemplateConfig();
-  const settings = useSettings().data ?? null;
+  const settings = useTenantSettings().data ?? null;
   const employees = useEmployees().data ?? EMPTY;
   const departments = useDepartments().data ?? EMPTY;
   const jobTitles = useJobTitles().data ?? EMPTY;

@@ -18,7 +18,7 @@ import {
   Qty as QtyDisplay,
 } from "@mezan/ui";
 import type { CostCategoryDTO, GoodsReceiptDTO, GoodsReceiptStatusDTO, PurchaseOrderDTO } from "@mezan/contracts";
-import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, useProjects, usePurchaseOrders, useSettings, useSuppliers,
+import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers,
   useUsers,
   useBranches,
   useWarehouses,
@@ -305,7 +305,7 @@ export function GoodsReceiptsScreen() {
    * form offers only what the tenant allows instead of letting the user fill a
    * whole receipt the server will then reject.
    */
-  const settingsQuery = useSettings();
+  const settingsQuery = useTenantSettings();
   const requirePoForGrn = settingsQuery.data?.requirePoForGrn ?? true;
   const policyKnown = settingsQuery.data !== undefined;
 

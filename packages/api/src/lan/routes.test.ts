@@ -46,6 +46,9 @@ function fakeAuthSessions(): { sessions: SessionRegistry; revoked: string[] } {
   return {
     sessions: {
       issue: () => "unused",
+      issueDeviceBound: () => ({ token: "unused", deviceSecret: "unused" }),
+      needsStepUp: () => false,
+      confirmStepUp: () => {},
       find: () => null,
       inspect: () => ({ grant: null, refusal: null }),
       revoke: (token: string) => {

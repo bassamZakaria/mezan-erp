@@ -9,6 +9,7 @@ import {
   type AuthContext,
   type ScopeSelection,
 } from "@mezan/domain";
+import { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER } from "@mezan/contracts";
 import type { AuthContextResolver } from "./permission-gate.js";
 import { requestOrigin } from "./request-origin.js";
 
@@ -71,11 +72,37 @@ interface StoredSession extends SessionGrant {
   readonly issuedAt: number;
   /** Canonical form of where `issue()` was called from; null is the in-process mount. */
   readonly issuedFrom: string | null;
+  /** Set for a session bound to its device rather than its address: the hash of the secret only that device holds. */
+  readonly deviceHash: string | null;
+  lastOrigin: string | null;
+  /** The address changed since the PIN was last entered: an administrative act waits for it to be entered again. */
+  movedSincePin: boolean;
   lastSeenAt: number;
 }
 
+export enum SessionRefusalKind {
+  Idle = "idle",
+  Aged = "aged",
+  Moved = "moved",
+  Device = "device",
+}
+
 /** Why a token that exists was nonetheless refused. */
-export type SessionRefusalReason = "idle" | "aged" | "moved";
+export type SessionRefusalReason = `${SessionRefusalKind}`;
+
+export interface SessionAddressChange {
+  readonly userId: string;
+  readonly from: string;
+  readonly to: string;
+}
+
+export interface DeviceBoundSession {
+  readonly token: string;
+  /** Shown to the client once, at sign-in, and never stored here: only its hash is kept. */
+  readonly deviceSecret: string;
+}
+
+export { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER };
 
 export interface SessionRefusal {
   readonly reason: SessionRefusalReason;
@@ -89,6 +116,8 @@ export interface SessionLookup {
   readonly grant: SessionGrant | null;
   /** Null when the token was simply never issued, or was already revoked. */
   readonly refusal: SessionRefusal | null;
+  /** A device-bound session seen from a new address: information, not a refusal. */
+  readonly addressChange?: SessionAddressChange | null;
 }
 
 export interface SessionRegistry {
@@ -102,9 +131,19 @@ export interface SessionRegistry {
    * therefore fails closed; supplying a caller-controlled value would not.
    */
   issue(grant: SessionGrant, origin?: string | null): string;
-  find(token: string, origin?: string | null): SessionGrant | null;
+  // SECURITY: a session bound to a secret held by the device that signed in,
+  // for a client whose address legitimately changes (a phone between networks).
+  // The bearer token alone is then worth nothing: presented without the secret
+  // it is refused and the session ends. The secret is a second factor of the
+  // SESSION, never a credential on its own — every request still needs the
+  // bearer token, so a browser that held it in a cookie would gain no
+  // cross-site request surface from it.
+  issueDeviceBound(grant: SessionGrant, origin?: string | null): DeviceBoundSession;
+  needsStepUp(token: string): boolean;
+  confirmStepUp(token: string): void;
+  find(token: string, origin?: string | null, device?: string | null): SessionGrant | null;
   /** Same lookup as {@link find}, but says WHY when it refuses. */
-  inspect(token: string, origin?: string | null): SessionLookup;
+  inspect(token: string, origin?: string | null, device?: string | null): SessionLookup;
   revoke(token: string): void;
   revokeUser(userId: string): void;
 }
@@ -233,6 +272,15 @@ function originLabel(origin: string | null): string {
 export function createSessionRegistry(now: () => number = Date.now): SessionRegistry {
   const byHash = new Map<string, StoredSession>();
 
+  function open(grant: SessionGrant, origin: string | null, deviceHash: string | null): string {
+    const at = now();
+    sweep(at);
+    const token = randomBytes(32).toString("base64url");
+    const from = canonicalOrigin(origin);
+    byHash.set(hashToken(token), { ...grant, issuedAt: at, issuedFrom: from, deviceHash, lastOrigin: from, movedSincePin: false, lastSeenAt: at });
+    return token;
+  }
+
   function expired(session: StoredSession, at: number): SessionRefusalReason | null {
     if (at - session.lastSeenAt > IDLE_TIMEOUT_MS) return "idle";
     if (at - session.issuedAt > MAX_SESSION_MS) return "aged";
@@ -247,24 +295,43 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
 
   const registry: SessionRegistry = {
     issue(grant, origin = null) {
-      const at = now();
-      sweep(at);
-      const token = randomBytes(32).toString("base64url");
-      byHash.set(hashToken(token), {
-        ...grant,
-        issuedAt: at,
-        issuedFrom: canonicalOrigin(origin),
-        lastSeenAt: at,
-      });
-      return token;
+      return open(grant, origin, null);
     },
-    inspect(token, origin = null) {
+    issueDeviceBound(grant, origin = null) {
+      const deviceSecret = randomBytes(32).toString("base64url");
+      return { token: open(grant, origin, hashToken(deviceSecret)), deviceSecret };
+    },
+    needsStepUp(token) {
+      return byHash.get(hashToken(token))?.movedSincePin === true;
+    },
+    confirmStepUp(token) {
+      const session = byHash.get(hashToken(token));
+      if (session) session.movedSincePin = false;
+    },
+    inspect(token, origin = null, device = null) {
       const at = now();
       const key = hashToken(token);
       const session = byHash.get(key);
       if (!session) return { grant: null, refusal: null };
 
       const presented = canonicalOrigin(origin);
+      if (session.deviceHash !== null) {
+        const held = device !== null && device !== "" && tokensMatch(hashToken(device), session.deviceHash);
+        const reason: SessionRefusalReason | null = held ? expired(session, at) : SessionRefusalKind.Device;
+        if (reason) {
+          byHash.delete(key);
+          return {
+            grant: null,
+            refusal: { reason, userId: session.userId, issuedFrom: originLabel(session.issuedFrom), presentedFrom: originLabel(presented) },
+          };
+        }
+        session.lastSeenAt = at;
+        if (presented === session.lastOrigin) return { grant: session, refusal: null };
+        const addressChange = { userId: session.userId, from: originLabel(session.lastOrigin), to: originLabel(presented) };
+        session.lastOrigin = presented;
+        session.movedSincePin = true;
+        return { grant: session, refusal: null, addressChange };
+      }
       // ORIGIN BEFORE EXPIRY, deliberately. A token presented from a second
       // address is the signal an auditor wants whether or not it had also aged
       // out, and reporting "idle" for it would file a theft as housekeeping.
@@ -285,8 +352,8 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
       session.lastSeenAt = at;
       return { grant: session, refusal: null };
     },
-    find(token, origin = null) {
-      return registry.inspect(token, origin).grant;
+    find(token, origin = null, device = null) {
+      return registry.inspect(token, origin, device).grant;
     },
     revoke(token) {
       byHash.delete(hashToken(token));
@@ -348,7 +415,7 @@ function sessionLookup(sessions: SessionRegistry, c: Context, token: string): Se
   }
   let lookup = perRequest.get(c);
   if (!lookup) {
-    lookup = sessions.inspect(token, requestOrigin(c));
+    lookup = sessions.inspect(token, requestOrigin(c), c.req.header(DEVICE_SECRET_HEADER) ?? null);
     perRequest.set(c, lookup);
   }
   return lookup;
@@ -434,7 +501,29 @@ export function sessionOriginReporting(sessions: SessionRegistry, audit: AuditSi
   return async function reportMovedSessions(c, next) {
     const token = readSessionToken(c);
     if (token) {
-      const { refusal } = sessionLookup(sessions, c, token);
+      const { refusal, addressChange } = sessionLookup(sessions, c, token);
+      if (addressChange) {
+        await recordSecurityEvent(audit, {
+          module: "auth",
+          entityType: "AUTH_USER",
+          entityId: addressChange.userId,
+          action: "SESSION_ADDRESS_CHANGED",
+          actor: addressChange.userId,
+          severity: "INFO",
+          details: { from: addressChange.from, to: addressChange.to },
+        }).catch(() => undefined);
+      }
+      if (refusal?.reason === SessionRefusalKind.Device) {
+        await recordSecurityEvent(audit, {
+          module: "auth",
+          entityType: "AUTH_USER",
+          entityId: refusal.userId,
+          action: "SESSION_DEVICE_REJECTED",
+          actor: refusal.userId,
+          severity: "CRITICAL",
+          details: { issuedFrom: refusal.issuedFrom, presentedFrom: refusal.presentedFrom, method: c.req.method, path: new URL(c.req.url).pathname },
+        }).catch(() => undefined);
+      }
       if (refusal?.reason === "moved") {
         await recordSecurityEvent(audit, {
           module: "auth",
@@ -462,4 +551,22 @@ export function tokensMatch(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+export const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
+
+// SECURITY: an administrative change made on a device-bound session whose
+// address has moved since the PIN was entered waits until it is entered again
+// (`POST /auth/step-up`). A token and its device secret lifted together from
+// one phone can then read, but cannot re-shape who may do what.
+export function stepUpGate(sessions: SessionRegistry): MiddlewareHandler {
+  return async function requireRecentPin(c, next) {
+    if (c.req.method === "GET" || c.req.method === "HEAD") return next();
+    const token = readSessionToken(c);
+    if (!token || !sessions.needsStepUp(token)) return next();
+    return c.json(
+      { error: STEP_UP_REQUIRED, message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال رمز PIN لتأكيد هذا الإجراء." },
+      403,
+    );
+  };
 }

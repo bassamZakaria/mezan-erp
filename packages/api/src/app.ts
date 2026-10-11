@@ -97,7 +97,10 @@ import {
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createLanRoutes } from "./lan/routes.js";
-import { existenceRead, sessionOriginReporting, type SessionRegistry } from "./session-auth.js";
+import { existenceRead, sessionOriginReporting, stepUpGate, type SessionRegistry } from "./session-auth.js";
+
+/** Who may do what, and how the tenant is configured: changed only on a PIN entered since the session last moved. */
+const STEP_UP_MOUNTS: readonly string[] = ["/users", "/users/*", "/roles", "/roles/*", "/settings", "/settings/*", "/fiscal-periods/*"];
 import type { LoginThrottle } from "./login-throttle.js";
 import { applyModuleGates, entitlementsBinding, type EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
@@ -1029,6 +1032,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // the write gate turned it away first, the theft would go unrecorded.
   if (options.security?.sessions && options.auditSink) {
     app.use("*", sessionOriginReporting(options.security.sessions, options.auditSink));
+  }
+  if (options.security?.sessions) {
+    const recentPin = stepUpGate(options.security.sessions);
+    for (const mount of STEP_UP_MOUNTS) app.use(mount, recentPin);
   }
 
   /**

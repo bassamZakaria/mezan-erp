@@ -32,7 +32,7 @@ import {
   type BillingQuotaDTO,
   type TenantBillingDTO,
 } from "@mezan/contracts";
-import { BodyLimitRefusal, readSessionToken, type SessionGrant } from "@mezan/api";
+import { BodyLimitRefusal, DEVICE_SECRET_HEADER, readSessionToken, type SessionGrant } from "@mezan/api";
 import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
 import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
@@ -99,6 +99,7 @@ interface Caller {
   readonly token: string;
   readonly source: CloudSource;
   readonly door: TenantDoor;
+  readonly device: Readonly<Record<string, string>>;
 }
 
 function allowed(grant: SessionGrant, permission: string): boolean {
@@ -209,9 +210,10 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     if (!token) return c.json({ error: "UNAUTHENTICATED", message: "سجّل الدخول أولًا" }, 401);
     const source = callerSource(c);
     const door = await router.callerDoor(code);
-    const grant = door.findSession(token, source);
+    const grant = door.findSession(token, source, c.req.header(DEVICE_SECRET_HEADER) ?? null);
     if (!grant) return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى" }, 401);
-    return { tenant, grant, token, source, door };
+    const deviceSecret = c.req.header(DEVICE_SECRET_HEADER);
+    return { tenant, grant, token, source, door, device: deviceSecret ? { [DEVICE_SECRET_HEADER]: deviceSecret } : {} };
   }
 
   const forbidden = (c: Context) => c.json({ error: "FORBIDDEN", message: "ليست لديك صلاحية إدارة الاشتراك" }, 403);
@@ -219,7 +221,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
   /** What this tenant's own backend counts against its plan, on its own day. Forwarded with the caller's token, so it is the caller's own read. */
   async function planUsage(caller: Caller): Promise<PlanUsage> {
     const res = await caller.door.fetch(
-      new Request("http://tenant/plan-usage", { headers: { authorization: `Bearer ${caller.token}` } }),
+      new Request("http://tenant/plan-usage", { headers: { authorization: `Bearer ${caller.token}`, ...caller.device } }),
       caller.source,
     );
     if (!res.ok) return { today: null, month: null, quotas: [], limits: [] };

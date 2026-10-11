@@ -214,3 +214,88 @@ describe("a burst of sign-ins larger than the tenant checks at once", () => {
     expect(owner.status).toBe(200);
   }, 120_000);
 });
+
+describe("a session bound to the device that signed in rather than to its address", () => {
+  const DEVICE = { "x-mezan-device-binding": "1" };
+
+  function call(h: BackendHandle, method: string, pathname: string, address: string, headers: Record<string, string>, body?: unknown) {
+    return h.app.fetch(
+      new Request(`http://local${pathname}`, {
+        method,
+        headers: { "content-type": "application/json", ...headers },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
+      from(address),
+    );
+  }
+
+  async function deviceSession(h: BackendHandle, address: string) {
+    const res = await call(h, "POST", "/auth/login", address, DEVICE, { username: OWNER.email, pin: OWNER.pin });
+    expect(res.status).toBe(200);
+    const session = (await res.json()) as SessionDTO & { deviceSecret?: string };
+    expect(session.deviceSecret).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+    return { token: session.token, secret: session.deviceSecret! };
+  }
+
+  const auditText = async (h: BackendHandle, action: string) => {
+    const host = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    const res = await h.app.fetch(new Request(`http://local/audit?action=${action}`, { headers: { authorization: `Bearer ${host.token}` } }));
+    return res.text();
+  };
+
+  it("keeps working when the address changes and the device secret comes with it, and records the move once as information", async () => {
+    const h = await open();
+    await claim(h);
+    const { token, secret } = await deviceSession(h, "41.33.10.10");
+    const bearer = { authorization: `Bearer ${token}`, "x-mezan-device": secret };
+
+    expect((await call(h, "GET", "/profile", "41.33.10.10", bearer)).status).toBe(200);
+    expect((await call(h, "GET", "/profile", "102.44.7.1", bearer)).status).toBe(200);
+    expect((await call(h, "GET", "/profile", "102.44.7.1", bearer)).status).toBe(200);
+
+    const moves = (await auditText(h, "SESSION_ADDRESS_CHANGED")).match(/SESSION_ADDRESS_CHANGED/g) ?? [];
+    expect(moves).toHaveLength(1);
+    expect(await auditText(h, "SESSION_ADDRESS_CHANGED")).toContain("INFO");
+  }, 120_000);
+
+  it("refuses the token without its device secret, records it as critical, and ends the session", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const h = await open();
+    await claim(h);
+    const { token, secret } = await deviceSession(h, "41.33.10.10");
+
+    expect((await call(h, "GET", "/profile", "41.33.10.10", { authorization: `Bearer ${token}` })).status).toBe(401);
+    expect((await call(h, "GET", "/profile", "41.33.10.10", { authorization: `Bearer ${token}`, "x-mezan-device": secret })).status).toBe(401);
+
+    const audit = await auditText(h, "SESSION_DEVICE_REJECTED");
+    expect(audit).toContain("SESSION_DEVICE_REJECTED");
+    expect(audit).toContain("CRITICAL");
+  }, 120_000);
+
+  it("asks for the PIN again before an administrative change made after the address moved, and accepts it", async () => {
+    const h = await open();
+    const owner = await claim(h);
+    const { token, secret } = await deviceSession(h, "41.33.10.10");
+    const bearer = { authorization: `Bearer ${token}`, "x-mezan-device": secret };
+    const unlockSelf = (address: string) => call(h, "POST", `/users/${owner.userId}/unlock`, address, bearer, {});
+
+    expect((await unlockSelf("41.33.10.10")).status).toBe(200);
+    const moved = await unlockSelf("102.44.7.1");
+    expect(moved.status).toBe(403);
+    expect(await moved.json()).toMatchObject({ error: "STEP_UP_REQUIRED", message: expect.stringContaining("رمز PIN") });
+    expect((await call(h, "GET", "/profile", "102.44.7.1", bearer)).status).toBe(200);
+
+    expect((await call(h, "POST", "/auth/step-up", "102.44.7.1", bearer, { pin: "000000" })).status).toBe(401);
+    expect((await call(h, "POST", "/auth/step-up", "102.44.7.1", bearer, { pin: OWNER.pin })).status).toBe(200);
+    expect((await unlockSelf("102.44.7.1")).status).toBe(200);
+  }, 120_000);
+
+  it("still binds a session to its address when the client did not ask for a device secret", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const h = await open();
+    await claim(h);
+    const session = (await (await signIn(h, OWNER.pin, "41.33.10.10")).json()) as SessionDTO & { deviceSecret?: string };
+    expect(session.deviceSecret).toBeUndefined();
+    expect((await call(h, "GET", "/profile", "102.44.7.1", { authorization: `Bearer ${session.token}` })).status).toBe(401);
+  }, 120_000);
+});

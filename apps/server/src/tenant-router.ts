@@ -65,13 +65,13 @@ const CROSS_TENANT_FREE_ATTEMPTS = 90;
 /** A tenant backend as a cloud CALLER reaches it: every read names the address the caller is counted and bound against. */
 export interface TenantDoor {
   fetch(request: Request, source: CloudSource): Promise<Response>;
-  findSession(token: string, source: CloudSource): SessionGrant | null;
+  findSession(token: string, source: CloudSource, deviceSecret: string | null): SessionGrant | null;
 }
 
 function doorTo(backend: BackendHandle): TenantDoor {
   return {
     fetch: async (request, source) => backend.app.fetch(request, originEnv(source)),
-    findSession: (token, source) => backend.sessions.find(token, source),
+    findSession: (token, source, deviceSecret) => backend.sessions.find(token, source, deviceSecret),
   };
 }
 

@@ -88,6 +88,25 @@ describe("a cloud caller behind the two-hop proxy", () => {
     expect((await h.send("/api/platform/tenants", { token, client: "66.66.66.66" })).status).toBe(401);
   });
 
+  it("lets a phone roam between addresses on a device-bound session, on the tenant's routes and on billing, and refuses the token alone", async () => {
+    const h = await boot();
+    const admin = await provision(h);
+    const login = await h.send("/api/auth/login", {
+      method: "POST", tenant: "acme", headers: { "x-mezan-device-binding": "1" },
+      body: JSON.stringify({ username: admin.adminEmail, pin: admin.adminPin }),
+    });
+    const { token, deviceSecret } = (await login.json()) as { token: string; deviceSecret: string };
+    const device = { "x-mezan-device": deviceSecret };
+
+    expect((await h.send("/api/profile", { token, tenant: "acme", headers: device })).status).toBe(200);
+    expect((await h.send("/api/profile", { token, tenant: "acme", headers: device, client: "102.44.7.1" })).status).toBe(200);
+    expect((await h.send("/api/billing/subscription", { token, tenant: "acme", headers: device, client: "197.55.1.9" })).status).toBe(200);
+    expect((await h.send("/api/profile", { token, tenant: "acme", headers: device, client: "2a01:db8:5::77" })).status).toBe(200);
+
+    expect((await h.send("/api/profile", { token, tenant: "acme", client: "102.44.7.1" })).status).toBe(401);
+    expect((await h.send("/api/profile", { token, tenant: "acme", headers: device })).status).toBe(401);
+  });
+
   it("reads the deletion form's caller only after the origin secret has proved the request crossed the edge", async () => {
     const h = await bootCloudHarness({ vars: { MEZAN_ORIGIN_SECRET: "edge-secret", MEZAN_SUPPORT_EMAIL: "support@mezan.test" } });
     harnesses.push(h);

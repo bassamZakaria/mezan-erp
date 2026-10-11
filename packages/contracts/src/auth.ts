@@ -8,6 +8,14 @@ import { scopeSelectionSchema } from "./roles.js";
  * (`x-user-id`, `x-permissions`, `x-branch-scope`, `x-warehouse-scope`) it
  * sends on every subsequent API call.
  */
+/** Sent on sign-in by a client that keeps a secret in the device's secure storage and wants its session bound to it. */
+export const DEVICE_BINDING_HEADER = "x-mezan-device-binding";
+/** Carries that secret on every request of a device-bound session. */
+export const DEVICE_SECRET_HEADER = "x-mezan-device";
+
+export const stepUpRequestSchema = z.object({ pin: z.string().regex(/^\d{6}$/) });
+export type StepUpRequestDTO = z.infer<typeof stepUpRequestSchema>;
+
 export const unlockAccountRequestSchema = z.object({
   username: z.string().min(1).max(254),
   code: z.string().min(1).max(64),
@@ -54,6 +62,8 @@ export const sessionSchema = z.object({
    * deciding what a request is allowed to do.
    */
   token: z.string(),
+  /** Only for a client that asked for a device-bound session: the secret it must keep in the device's secure storage and send with every request. */
+  deviceSecret: z.string().optional(),
 });
 
 export const loginResponseSchema = sessionSchema;

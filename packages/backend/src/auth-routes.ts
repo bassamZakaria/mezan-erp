@@ -15,10 +15,13 @@ import {
   UserState,
   type User,
 } from "@mezan/domain";
-import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, type SessionDTO } from "@mezan/contracts";
+import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, stepUpRequestSchema, type SessionDTO } from "@mezan/contracts";
 import {
   accountLocked,
   signInBusy,
+  DEVICE_BINDING_HEADER,
+  DEVICE_SECRET_HEADER,
+  type SessionGrant,
   createAccountLocks,
   createLoginThrottle,
   createMemoryAccountLockStore,
@@ -111,7 +114,7 @@ async function tenantName(settings: SettingsRepository): Promise<string> {
  * @mezan/api's session-auth.ts), so it is read from `requestOrigin(c)` and
  * never from anything in the request body or headers.
  */
-async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null): Promise<SessionDTO> {
+async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null, deviceBound = false): Promise<SessionDTO> {
   let permissions: string[];
   let roleCode: string | null = null;
   if (user.isCompanyAdmin) {
@@ -139,17 +142,17 @@ async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null
     // permissions travel too, but only so the UI can hide what the user cannot
     // do — the server re-reads them from this session on every request and
     // never from what comes back.
-    token: deps.sessions.issue(
-      {
-        userId: user.id,
-        permissions,
-        roleCode,
-        branchScope: user.branchScope,
-        warehouseScope: user.warehouseScope,
-      },
-      origin,
-    ),
+    ...issueSession(deps.sessions, { userId: user.id, permissions, roleCode, branchScope: user.branchScope, warehouseScope: user.warehouseScope }, origin, deviceBound),
   };
+}
+
+function issueSession(sessions: SessionRegistry, grant: SessionGrant, origin: string | null, deviceBound: boolean): { token: string; deviceSecret?: string } {
+  return deviceBound ? sessions.issueDeviceBound(grant, origin) : { token: sessions.issue(grant, origin) };
+}
+
+/** A client that keeps a secret in the device's own secure storage asks for a session bound to it instead of to its address. */
+function wantsDeviceBinding(c: Context): boolean {
+  return c.req.header(DEVICE_BINDING_HEADER) === "1";
 }
 
 /**
@@ -411,7 +414,30 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: signedIn.id, username: needle });
     // The session is bound to the origin the CREDENTIAL was verified from, so
     // the till that logged in is the only place the token it got back works.
-    return c.json(await toSession(signedIn, deps, requestOrigin(c)));
+    return c.json(await toSession(signedIn, deps, requestOrigin(c), wantsDeviceBinding(c)));
+  });
+
+  app.post("/auth/step-up", async (c) => {
+    const parsed = stepUpRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const token = readSessionToken(c);
+    const origin = requestOrigin(c);
+    const grant = token ? deps.sessions.find(token, origin, c.req.header(DEVICE_SECRET_HEADER) ?? null) : null;
+    const user = grant ? await deps.uow.users.findById(grant.userId) : null;
+    if (!token || !user || user.status !== UserState.Active || !user.pinHash) {
+      return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى." }, 401);
+    }
+    const held = guard.check(user.email, origin, true);
+    if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
+    if (!(await deps.hasher.verify(parsed.data.pin, user.pinHash))) {
+      const failure = guard.failed(user.email, origin, true);
+      await security(c, "STEP_UP_FAILED", "WARNING", { userId: user.id });
+      if (failure.verdict === SignInVerdict.Locked || failure.verdict === SignInVerdict.Wait) return refused(c, failure);
+      return c.json({ error: "INVALID_CREDENTIALS", message: "رمز PIN غير صحيح." }, 401);
+    }
+    deps.sessions.confirmStepUp(token);
+    await security(c, "STEP_UP_CONFIRMED", "INFO", { userId: user.id });
+    return c.json({ ok: true });
   });
 
   app.post("/auth/unlock", async (c) => {
@@ -454,7 +480,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    */
   app.post("/auth/logout", (c) => {
     const token = readSessionToken(c);
-    if (token && deps.sessions.find(token, requestOrigin(c))) deps.sessions.revoke(token);
+    if (token && deps.sessions.find(token, requestOrigin(c), c.req.header(DEVICE_SECRET_HEADER) ?? null)) deps.sessions.revoke(token);
     return c.json({ ok: true });
   });
 

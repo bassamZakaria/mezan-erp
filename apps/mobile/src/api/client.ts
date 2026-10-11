@@ -1,4 +1,5 @@
 import type { ZodType } from "zod";
+import { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER } from "@mezan/contracts";
 import { ApiError, ApiFailure } from "./errors";
 
 export enum HttpMethod {
@@ -16,6 +17,10 @@ export interface ApiCredentials {
   readonly baseUrl: string;
   readonly tenantCode: string | null;
   readonly token: string | null;
+  /** The secret this device was given at sign-in; sent with the token on every request. */
+  readonly deviceSecret?: string | null;
+  /** Set on the sign-in request alone: asks for a session bound to this device rather than to its address. */
+  readonly bindDevice?: boolean;
   readonly branchScope: string;
   readonly warehouseScope: string;
 }
@@ -32,8 +37,10 @@ const REFUSAL_STATUSES = new Set([400, 404, 409, 422]);
 function headersFor(credentials: ApiCredentials): Record<string, string> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (credentials.tenantCode) headers["x-mezan-tenant"] = credentials.tenantCode;
+  if (credentials.bindDevice) headers[DEVICE_BINDING_HEADER] = "1";
   if (credentials.token) {
     headers.authorization = `Bearer ${credentials.token}`;
+    if (credentials.deviceSecret) headers[DEVICE_SECRET_HEADER] = credentials.deviceSecret;
     headers["x-branch-scope"] = credentials.branchScope;
     headers["x-warehouse-scope"] = credentials.warehouseScope;
   }

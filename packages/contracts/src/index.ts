@@ -899,6 +899,10 @@ export {
 export {
   loginRequestSchema,
   unlockAccountRequestSchema,
+  stepUpRequestSchema,
+  DEVICE_BINDING_HEADER,
+  DEVICE_SECRET_HEADER,
+  type StepUpRequestDTO,
   type UnlockAccountRequestDTO,
   sessionSchema,
   loginResponseSchema,

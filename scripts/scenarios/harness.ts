@@ -149,6 +149,31 @@ export async function boot() {
     return m[1] ? -units : units;
   }
 
+  /**
+   * بضاعة واردة لم تُفوتر (GL 2120) holds exactly the cost of the confirmed
+   * receipts no invoice has cleared: a fully invoiced receipt leaves nothing
+   * in it, whatever price the invoice stated.
+   */
+  async function goodsReceivedNotInvoicedGap(): Promise<bigint | null> {
+    const receipts = await req("GET", "/purchases/receipts?status=confirmed&invoiced=false&pageSize=10000");
+    const ledger = await req("GET", "/gl/accounts/2120/ledger");
+    const list = rows(receipts.body);
+    const credit = scaled(ledger.body?.balance?.credit);
+    const debit = scaled(ledger.body?.balance?.debit);
+    if (receipts.status !== 200 || credit === null || debit === null) return null;
+    let accrued = 0n;
+    for (const receipt of list) {
+      if (receipt.status !== "confirmed" || receipt.invoiced !== false) continue;
+      for (const line of receipt.lines ?? []) {
+        const qty = scaled(line.qty);
+        const unitCost = scaled(line.unitCost);
+        if (qty === null || unitCost === null) return null;
+        accrued += (qty * unitCost) / 1_000_000n;
+      }
+    }
+    return accrued - (credit - debit);
+  }
+
   async function invariants() {
     const tb = await req("GET", "/financial-reports/trial-balance");
     const g = tb.body?.grandTotals ?? {};
@@ -167,9 +192,10 @@ export async function boot() {
       inventory: diff("inventory"),
       ap: diff("ap"),
       ar: diff("ar"),
+      grni: await goodsReceivedNotInvoicedGap(),
     };
     const asNumber = (x: bigint | null) => (x === null ? NaN : Number(x) / 1e6);
-    return { tb: asNumber(exact.tb), inventory: asNumber(exact.inventory), ap: asNumber(exact.ap), ar: asNumber(exact.ar), exact };
+    return { tb: asNumber(exact.tb), inventory: asNumber(exact.inventory), ap: asNumber(exact.ap), ar: asNumber(exact.ar), grni: asNumber(exact.grni), exact };
   }
 
   /**
@@ -193,6 +219,7 @@ export async function boot() {
     check("inventory still reconciles to GL 1200", same("inventory"), moved("inventory"));
     check("AP still reconciles", same("ap"), moved("ap"));
     check("AR still reconciles", same("ar"), moved("ar"));
+    check("GL 2120 still equals the goods received and not yet invoiced", after.exact.grni !== null && after.exact.grni === before.exact.grni, `${before.grni.toFixed(6)} → ${after.grni.toFixed(6)}`);
   }
 
   function report(): number {

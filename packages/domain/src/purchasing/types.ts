@@ -138,6 +138,8 @@ export interface PurchaseGlAccounts {
    * no such account configured must fall back to.
    */
   readonly goodsReceivedNotInvoicedAccountId?: string;
+  /** فروق أسعار الشراء — takes the part of an invoice-versus-receipt cost difference the goods on hand can no longer carry. Absent = that part stays on inventory. */
+  readonly priceVarianceAccountId?: string;
 }
 
 /**
@@ -149,6 +151,23 @@ export interface PurchaseStockPostingPort {
   postReceipt(command: PostReceiptCommand): Promise<void>;
   /** Undo a prior `postReceipt` (cancellation). `StockLedgerService.reverseReceipt` satisfies this structurally. */
   reverseReceipt(command: ReverseReceiptCommand): Promise<void>;
+  /** Carries an invoice-versus-receipt cost difference into the receipt's goods still on hand; absent = nothing is carried and the whole difference is a variance. */
+  applyReceiptCostVariance?(command: ReceiptCostVarianceCommand): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money }>;
+  /** Takes back what `applyReceiptCostVariance` carried for a document. Resolves false when goods have left the position since, and nothing is written. */
+  reverseReceiptCostVariance?(command: { readonly varianceDocId: string; readonly reversalId: string; readonly positions: readonly { itemId: string; warehouseId: string }[]; readonly occurredAt: string }): Promise<boolean>;
+}
+
+export interface ReceiptCostVarianceCommand {
+  /** The invoice that states the cost. */
+  readonly varianceDocId: string;
+  readonly varianceDocNumber: string | null;
+  /** The receipt whose layers hold the goods. */
+  readonly receiptId: string;
+  readonly itemId: string;
+  readonly warehouseId: string;
+  /** Signed: positive when the invoice costs more than the receipt recorded. */
+  readonly valueDelta: Money;
+  readonly occurredAt: string;
 }
 
 /**

@@ -11,7 +11,7 @@
  * Its lines are auto-filled from the confirmed receipt (create-from auto-fill).
  */
 
-import { Money, Qty } from "../money/index.js";
+import { Money, Qty, allocate } from "../money/index.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { extend, occurredAtFromDocumentDate, unitCostOf, type CostLayerRepository } from "../inventory/index.js";
@@ -19,7 +19,7 @@ import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
-import { distinctPositions, markGoodsReceiptInvoiced, receiptLayersConsumed, releaseGoodsReceiptFromInvoice } from "./goods-receipt.js";
+import { distinctPositions, goodsReceiptTotalCost, markGoodsReceiptInvoiced, receiptLayersConsumed, releaseGoodsReceiptFromInvoice } from "./goods-receipt.js";
 import { LandedCostStandsOnDocumentError } from "../landed-costs/errors.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import {
@@ -521,10 +521,20 @@ export function baseReceiptLines(qty: Qty, unitCost: Money, rate?: string | null
 }
 
 /** Build the balanced Dr/Cr posting for a confirmed invoice (pure). */
+export interface ReceiptCostVariance {
+  /** What the receipt accrued for the goods — the amount that clears بضاعة واردة لم تُفوتر. */
+  readonly receivedCost: Money;
+  /** The part of (invoiced − received) carried into the goods still on hand; signed. */
+  readonly absorbed: Money;
+  /** The part the goods could no longer carry — posted to purchase price variance; signed. */
+  readonly unabsorbed: Money;
+}
+
 export function buildInvoicePosting(
   invoice: PurchaseInvoice,
   accounts: PurchaseGlAccounts,
   fx?: { readonly rate: string; readonly baseCurrency: string },
+  variance?: ReceiptCostVariance,
 ): PurchaseGlPosting {
   // Line amounts are entered in the DOCUMENT's currency. When that is not the
   // base currency they are converted here, once, at the rate that applied on
@@ -573,14 +583,24 @@ export function buildInvoicePosting(
      * inventory itself.
      */
     const clearsGrni = invoice.receiptId !== null && accounts.goodsReceivedNotInvoicedAccountId !== undefined;
-    for (const [costCategory, amount] of byCategory("inventory")) {
-      if (amount.scaled === 0n) continue;
+    const groups = [...byCategory("inventory")].filter(([, amount]) => amount.scaled !== 0n);
+    // The accrual is cleared by what the RECEIPT recorded, never by what the invoice states: the difference is a cost of the goods (or a price variance), not a balance left sitting in 2120.
+    const cleared = clearsGrni && variance ? allocate(variance.receivedCost, groups.map(([, amount]) => amount.scaled)) : groups.map(([, amount]) => amount);
+    groups.forEach(([costCategory], index) => {
+      const amount = cleared[index] as Money;
+      if (amount.scaled === 0n) return;
       lines.push({
         accountId: clearsGrni ? (accounts.goodsReceivedNotInvoicedAccountId as string) : accounts.inventoryAccountId,
         debit: amount,
         credit: Money.zero(),
         ...(costCategory ? { costCategory } : {}),
       });
+    });
+    if (clearsGrni && variance) {
+      const signedLine = (accountId: string, amount: Money): PurchaseGlPostingLine =>
+        amount.scaled > 0n ? { accountId, debit: amount, credit: Money.zero() } : { accountId, debit: Money.zero(), credit: amount.negate() };
+      if (variance.absorbed.scaled !== 0n) lines.push(signedLine(accounts.inventoryAccountId, variance.absorbed));
+      if (variance.unabsorbed.scaled !== 0n) lines.push(signedLine(accounts.priceVarianceAccountId ?? accounts.inventoryAccountId, variance.unabsorbed));
     }
   }
   if (freightBase.scaled !== 0n) {
@@ -632,6 +652,39 @@ export function buildInvoicePosting(
 }
 
 /**
+ * What the invoice states for the goods, against what their receipt accrued.
+ * The difference is split across the receipt's lines by value and carried into
+ * each position's goods still on hand; what they cannot carry is the variance.
+ */
+async function carryReceiptCostVariance(invoice: PurchaseInvoice, receipt: GoodsReceipt, rate: string | null, stock: PurchaseStockPostingPort): Promise<ReceiptCostVariance> {
+  const receivedCost = goodsReceiptTotalCost(receipt);
+  const difference = Money.fromScaled(purchaseInvoiceBaseParts(invoice, rate).inventory.scaled - receivedCost.scaled);
+  if (difference.scaled === 0n) return { receivedCost, absorbed: Money.zero(), unabsorbed: Money.zero() };
+  if (!stock.applyReceiptCostVariance) return { receivedCost, absorbed: Money.zero(), unabsorbed: difference };
+  const byItem = new Map<string, bigint>();
+  for (const line of receipt.lines) byItem.set(line.itemId, (byItem.get(line.itemId) ?? 0n) + extend(line.qty, line.unitCost).scaled);
+  const items = [...byItem];
+  const weights = items.every(([, cost]) => cost === 0n) ? items.map(() => 1n) : items.map(([, cost]) => cost);
+  const shares = allocate(difference, weights);
+  let absorbed = 0n;
+  for (const [index, [itemId]] of items.entries()) {
+    const share = shares[index] as Money;
+    if (share.scaled === 0n) continue;
+    const carried = await stock.applyReceiptCostVariance({
+      varianceDocId: invoice.id,
+      varianceDocNumber: invoice.number,
+      receiptId: receipt.id,
+      itemId,
+      warehouseId: receipt.warehouseId,
+      valueDelta: share,
+      occurredAt: occurredAtFromDocumentDate(invoice.date),
+    });
+    absorbed += carried.absorbed.scaled;
+  }
+  return { receivedCost, absorbed: Money.fromScaled(absorbed), unabsorbed: Money.fromScaled(difference.scaled - absorbed) };
+}
+
+/**
  * تأكيد الفاتورة (Confirm invoice): مسودة → مؤكد. Posts the GL entry (inventory +
  * tax + payable) always; posts stock IN only for a MANUAL invoice (no receipt),
  * since a from-receipt invoice's goods already entered the ledger at receipt
@@ -659,7 +712,7 @@ export async function confirmPurchaseInvoice(
     fx = { rate: found.rate, baseCurrency };
   }
 
-  const posting = buildInvoicePosting(invoice, deps.accounts, fx);
+  let posting = buildInvoicePosting(invoice, deps.accounts, fx);
 
   // EVERY WRITE BELOW SHARES ONE TRANSACTION (B-7). The GL entry is keyed
   // `PI-JE:<invoiceId>`, so a failure after it posted left the invoice `draft`
@@ -677,6 +730,9 @@ export async function confirmPurchaseInvoice(
       const receipt = await deps.receipts?.findById(invoice.receiptId);
       if (receipt?.invoiced || (await otherConfirmedInvoicesOnReceipt(deps.invoices, invoice.receiptId, invoice.id)).length > 0) {
         throw new GoodsReceiptAlreadyInvoicedError(invoice.receiptId, GoodsReceiptInvoicedRefusal.SecondInvoice);
+      }
+      if (receipt && deps.accounts.goodsReceivedNotInvoicedAccountId !== undefined) {
+        posting = buildInvoicePosting(invoice, deps.accounts, fx, await carryReceiptCostVariance(invoice, receipt, fx?.rate ?? null, deps.stock));
       }
     }
     await deps.gl.post(posting);
@@ -808,6 +864,16 @@ export async function cancelPurchaseInvoice(
         // The day the GL reversal is dated, so stock and GL 1200 leave together.
         occurredAt: occurredAtFromDocumentDate(cancelDate),
       });
+    }
+
+    if (sourceReceipt && deps.stock.reverseReceiptCostVariance) {
+      const takenBack = await deps.stock.reverseReceiptCostVariance({
+        varianceDocId: invoice.id,
+        reversalId: purchaseInvoiceCancelEntryId(invoice.id),
+        positions,
+        occurredAt: occurredAtFromDocumentDate(cancelDate),
+      });
+      if (!takenBack) throw new PurchaseItemsAlreadyConsumedError(id);
     }
 
     await deps.glReverse.reverse(invoice.id, {

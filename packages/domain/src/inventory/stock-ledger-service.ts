@@ -1161,6 +1161,86 @@ export class StockLedgerService {
     });
   }
 
+  /**
+   * Carries the difference between what a receipt recorded and what its
+   * invoice states into the receipt's goods, as a value-only movement on the
+   * receipt's layers. Only the share still on hand is carried; the rest comes
+   * back as `unabsorbed` for the caller to post to purchase price variance.
+   * When a movement on the position is dated after `occurredAt`, nothing is
+   * carried at all: stock already moved at the old cost on a later day, and a
+   * value dated before it would put stock and GL 1200 on different days.
+   */
+  async applyReceiptCostVariance(command: {
+    readonly varianceDocId: string;
+    readonly varianceDocNumber: string | null;
+    readonly receiptId: string;
+    readonly itemId: string;
+    readonly warehouseId: string;
+    readonly valueDelta: Money;
+    readonly occurredAt: string;
+  }): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money }> {
+    if (command.valueDelta.scaled === 0n) return { absorbed: Money.zero(), unabsorbed: Money.zero() };
+    return this.runInTransaction(async () => {
+      const movements = await this.deps.ledger.listByPosition(command.itemId, command.warehouseId);
+      const last = movements[movements.length - 1]?.occurredAt;
+      if (last && last.slice(0, 10) > command.occurredAt.slice(0, 10)) return { absorbed: Money.zero(), unabsorbed: command.valueDelta };
+      const before = movements.length === 0 ? emptyPosition(command.itemId, command.warehouseId) : replay(command.itemId, command.warehouseId, movements);
+      const occurredAt = last && last > command.occurredAt ? last : command.occurredAt;
+      await this.assertPeriodOpen(occurredAt);
+      const negative = command.valueDelta.scaled < 0n;
+      await this.deps.ledger.append({
+        id: `${command.varianceDocId}:PPV:${command.itemId}:${command.warehouseId}`,
+        itemId: command.itemId,
+        warehouseId: command.warehouseId,
+        direction: negative ? "OUT" : "IN",
+        qty: Qty.zero(),
+        unitCost: Money.zero(),
+        sourceDocType: "PURCHASE_INVOICE",
+        sourceDocId: command.varianceDocId,
+        sourceDocNumber: command.varianceDocNumber,
+        reason: null,
+        occurredAt,
+        valueDelta: negative ? command.valueDelta.negate() : command.valueDelta,
+        revaluesSourceDocId: command.receiptId,
+      });
+      const after = await this.rebuildWithin(command.itemId, command.warehouseId);
+      const unabsorbed = Money.fromScaled(after.unabsorbedRevaluation.scaled - before.unabsorbedRevaluation.scaled);
+      return { absorbed: Money.fromScaled(command.valueDelta.scaled - unabsorbed.scaled), unabsorbed };
+    });
+  }
+
+  async reverseReceiptCostVariance(command: {
+    readonly varianceDocId: string;
+    readonly reversalId: string;
+    readonly positions: readonly { itemId: string; warehouseId: string }[];
+    readonly occurredAt: string;
+  }): Promise<boolean> {
+    return this.runInTransaction(async () => {
+      const found: { movement: StockMovement; last: string }[] = [];
+      for (const position of command.positions) {
+        const movements = await this.deps.ledger.listByPosition(position.itemId, position.warehouseId);
+        const index = movements.findIndex((m) => m.sourceDocType === "PURCHASE_INVOICE" && m.sourceDocId === command.varianceDocId && isRevaluation(m));
+        if (index === -1) continue;
+        if (movements.slice(index + 1).some((m) => m.direction === "OUT" && !isRevaluation(m))) return false;
+        found.push({ movement: movements[index]!, last: movements[movements.length - 1]!.occurredAt });
+      }
+      for (const { movement, last } of found) {
+        const occurredAt = last > command.occurredAt ? last : command.occurredAt;
+        await this.assertPeriodOpen(occurredAt);
+        await this.deps.ledger.append({
+          ...movement,
+          id: `${command.reversalId}:PPV:${movement.itemId}:${movement.warehouseId}`,
+          direction: movement.direction === "IN" ? "OUT" : "IN",
+          sourceDocId: command.reversalId,
+          sourceDocNumber: null,
+          occurredAt,
+        });
+        await this.rebuildWithin(movement.itemId, movement.warehouseId);
+      }
+      return true;
+    });
+  }
+
   /** `rebuild`'s body, for callers already inside a transaction. */
   private async rebuildWithin(itemId: string, warehouseId: string): Promise<WacPosition> {
     const movements = await this.deps.ledger.listByPosition(itemId, warehouseId);

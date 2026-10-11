@@ -300,6 +300,7 @@ const PURCHASE_GL_ACCOUNTS = {
   // D53: receiving goods now posts Dr 1200 / Cr 2120, and the invoice clears
   // 2120 rather than debiting inventory a second time.
   goodsReceivedNotInvoicedAccountId: "2120",
+  priceVarianceAccountId: "5080",
 };
 
 /**

@@ -18,6 +18,8 @@ const VAT = 14;
 
 export async function run(ctx: Ctx): Promise<void> {
   const { req, rows, n, check, checkEq, scenario } = ctx;
+  // A landed cost is dated no earlier than the latest movement of the stock it revalues, and earlier suites move stock today.
+  const landedCostDate = String((await req("GET", "/financial-reports/trial-balance")).body?.params?.asOfDate ?? "");
 
   async function itemBalance(itemId: string) {
     const res = await req("GET", `/inventory/balance?itemId=${itemId}&warehouseId=${WAREHOUSE_ID}`);
@@ -684,7 +686,7 @@ export async function run(ctx: Ctx): Promise<void> {
     // Reproduces LC-DEMO-1's exact numbers: rice 100@140=14,000, sugar 300@31=9,300 (total value 23,300); SHIPPING 1,800 + CLEARANCE 700 = 2,500.
     const lc = await req("POST", "/landed-costs", {
       id: "SCN-LC-1",
-      date: "2026-08-24",
+      date: landedCostDate,
       memo: "شحن وتخليص — سيناريو تنفيذي",
       distributionMethod: "BY_VALUE",
       costItems: [
@@ -778,7 +780,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const cogsBefore = await accountBalance("5100");
     const lc = await req("POST", "/landed-costs", {
       id: "SCN-LC-LATE",
-      date: "2026-08-24",
+      date: landedCostDate,
       memo: "شحن متأخر — بعد بيع جزء من البضاعة",
       distributionMethod: "BY_VALUE",
       costItems: [{ costType: "SHIPPING", description: "نقل بري", amount: "1000" }],
@@ -822,8 +824,23 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const before = await itemBalance("ITEM-DEMO-2");
     const beforeInv = await ctx.invariants();
-    const confirm = await req("POST", "/landed-costs/LC-DEMO-2/confirm", {});
-    check("LC-DEMO-2 confirms", confirm.status === 200 && confirm.body?.document?.status === "confirmed", JSON.stringify(confirm.body).slice(0, 150));
+    const early = await req("POST", "/landed-costs/LC-DEMO-2/confirm", {});
+    check(
+      "LC-DEMO-2, dated before oil that has moved since, is refused naming the earliest day allowed",
+      early.status === 422 && early.body?.error === "LANDED_COST_DATE_BEFORE_STOCK_MOVEMENT" && /^\d{4}-\d{2}-\d{2}$/.test(String(early.body?.earliestAllowedDate)),
+      JSON.stringify(early.body).slice(0, 150),
+    );
+    const redated = await req("POST", "/landed-costs", {
+      id: "SCN-LC-DEMO-2-REDATED",
+      date: landedCostDate,
+      memo: lc.body.memo,
+      distributionMethod: line.distributionMethod,
+      costItems: line.costItems,
+      targets: [{ itemId: line.itemId, warehouseId: line.warehouseId, sourceInvoiceId: line.sourceInvoiceId, sourceInvoiceNumber: line.sourceInvoiceNumber ?? null, qty: line.qty, unitCost: line.unitCost }],
+    });
+    check("the same landed cost dated today is drafted", redated.status === 201, JSON.stringify(redated.body).slice(0, 150));
+    const confirm = await req("POST", "/landed-costs/SCN-LC-DEMO-2-REDATED/confirm", {});
+    check("the redated landed cost confirms", confirm.status === 200 && confirm.body?.document?.status === "confirmed", JSON.stringify(confirm.body).slice(0, 150));
 
     const after = await itemBalance("ITEM-DEMO-2");
     checkEq("oil's inventory value rose by exactly 750 (independent /inventory/balance check)", after.totalValue - before.totalValue, 750, 0.01);
@@ -1124,7 +1141,7 @@ export async function run(ctx: Ctx): Promise<void> {
       for (const basis of bases) {
         const doc = await req("POST", "/landed-costs", {
           id: basis.id,
-          date: "2026-08-24",
+          date: landedCostDate,
           memo: `توزيع ${basis.method}`,
           distributionMethod: basis.method,
           costItems: [

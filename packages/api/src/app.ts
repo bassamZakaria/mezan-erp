@@ -2,8 +2,6 @@ import { Hono } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
   Money,
-  NoFiscalPeriodForDateError,
-  PeriodNotOpenForPostingError,
   SeatSessionRegistry,
   createEntitlements,
   type UnitOfWork,
@@ -144,6 +142,7 @@ import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } 
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 import { createSalesInvoiceQuota } from "./plan-quota-wiring.js";
 import { createPlanUsageRoutes } from "./plan-usage-routes.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { planLocationsBinding } from "./plan-locations.js";
 import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
 import { createPurchaseReturnsRoutes } from "./purchase-returns-routes.js";
@@ -1743,9 +1742,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     // The posting engine refuses a date in a shut or missing period on EVERY
     // route that posts, and only some route files map it. Same answer the GL
     // route gives, so no confirm reports a closed month as «خطأ داخلي».
-    if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
-      return c.json({ error: err.code, message: err.message }, 422);
-    }
+    const refusal = postingRefusalResponse(c, err);
+    if (refusal) return refusal;
     try {
       console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
     } catch {

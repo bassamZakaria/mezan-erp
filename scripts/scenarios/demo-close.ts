@@ -2,6 +2,15 @@ import type { Ctx } from "./harness.js";
 
 const CLEAN_MONTHS = ["06", "07"] as const;
 const OVERRIDDEN_MONTHS = ["01", "02", "03", "04", "05"] as const;
+const OVERRIDDEN_EVERY_MONTH = { checks: ["bank_statements", "drafts", "recurring_journals"], names: ["المستندات غير المرحَّلة", "كشوف البنوك", "القيود المتكررة المستحقة"] };
+// May's VAT return is filed, so the asset registered after May's depreciation run cannot be charged in May any more.
+const OVERRIDDEN: Readonly<Record<string, { checks: string[]; names: string[] }>> = {
+  "01": OVERRIDDEN_EVERY_MONTH,
+  "02": OVERRIDDEN_EVERY_MONTH,
+  "03": OVERRIDDEN_EVERY_MONTH,
+  "04": OVERRIDDEN_EVERY_MONTH,
+  "05": { checks: ["bank_statements", "depreciation", "drafts", "recurring_journals"], names: [...OVERRIDDEN_EVERY_MONTH.names, "تشغيل الإهلاك"] },
+};
 const LIVE_MONTH = "08";
 const LIVE_MONTH_BLOCKERS = ["bank_statements", "depreciation", "drafts", "fx_revaluation", "recurring_journals"];
 const periodId = (month: string) => `fp-2026-${month}`;
@@ -59,7 +68,12 @@ export async function run(ctx: Ctx): Promise<void> {
       same(`2026-${month} is closed`, await statusOf(month), "closed");
       const [summary] = await summariesOf(month);
       check(`2026-${month}: the override reason is stated in Arabic`, /[؀-ۿ]{4,}/.test(summary?.overrideReason ?? ""), JSON.stringify(summary?.overrideReason));
-      check(`2026-${month}: the summary names what was overridden`, (summary?.failedChecks ?? []).length > 0, JSON.stringify(summary?.failedChecks));
+      same(`2026-${month}: the summary names exactly what was overridden`, JSON.stringify([...(summary?.failedChecks ?? [])].sort()), JSON.stringify(OVERRIDDEN[month]?.checks));
+      check(
+        `2026-${month}: and the stated reason names each of those checks`,
+        (OVERRIDDEN[month]?.names ?? ["?"]).every((name) => String(summary?.overrideReason ?? "").includes(name)),
+        JSON.stringify(summary?.overrideReason),
+      );
       check(`2026-${month}: its seal is intact`, summary?.sealValid === true, JSON.stringify(summary?.sealValid));
     }
   });

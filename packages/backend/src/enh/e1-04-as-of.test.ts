@@ -91,6 +91,16 @@ afterAll(() => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
+const OVERRIDDEN_EVERY_MONTH = { failed: ["bank_statements", "drafts", "recurring_journals"], named: "المستندات غير المرحَّلة، كشوف البنوك، القيود المتكررة المستحقة" };
+// May's VAT return is filed, so the plant asset registered after May's run can no longer be charged in May: its depreciation is overridden, and said so.
+const OVERRIDDEN: Readonly<Record<string, { failed: string[]; named: string }>> = {
+  "01": OVERRIDDEN_EVERY_MONTH,
+  "02": OVERRIDDEN_EVERY_MONTH,
+  "03": OVERRIDDEN_EVERY_MONTH,
+  "04": OVERRIDDEN_EVERY_MONTH,
+  "05": { failed: ["bank_statements", "depreciation", "drafts", "recurring_journals"], named: `${OVERRIDDEN_EVERY_MONTH.named}، تشغيل الإهلاك` },
+};
+
 interface SummaryRow {
   readonly overrideReason: string | null;
   readonly failedChecks: readonly string[];
@@ -145,10 +155,30 @@ describe("the demo shows a guided close that works, and one that refuses for a r
     for (const month of ["01", "02", "03", "04", "05"]) {
       expect(periodStatus(month)).toBe("closed");
       const [latest] = await summariesOf(month);
-      expect(latest?.overrideReason).toMatch(/[\u0600-\u06FF].*المدير المالي/);
-      expect(latest?.failedChecks.length).toBeGreaterThan(0);
+      const expected = OVERRIDDEN[month];
+      expect({ month, failed: [...(latest?.failedChecks ?? [])].sort() }).toEqual({ month, failed: expected?.failed });
+      expect(latest?.overrideReason).toBe(`إقفال بتجاوز الفحوص الآتية: ${expected?.named} — بموافقة المدير المالي.`);
       expect(latest?.sealValid).toBe(true);
     }
+  });
+
+  it("July's bank statement carries a bank charge the books did not know: it was booked from the statement line, not matched to an entry written to fit it", () => {
+    const created = sqlite
+      .prepare(
+        `SELECT l.description, l.amount, l.status, l.matched_entry_id AS entryId FROM statement_line l
+          WHERE l.statement_id = 'BSTMT-DEMO-2026-07' AND l.match_source = 'created_entry'`,
+      )
+      .safeIntegers()
+      .all() as { description: string; amount: bigint; status: string; entryId: string }[];
+    expect(created.map((line) => [line.description, line.amount, line.status])).toEqual([["مصاريف خدمات بنكية", -75_000_000n, "matched"]]);
+    const entry = sqlite
+      .prepare(`SELECT jl.account_id AS account, jl.debit - jl.credit AS net FROM journal_line jl WHERE jl.entry_id = ? ORDER BY jl.account_id`)
+      .safeIntegers()
+      .all(created[0]?.entryId);
+    expect(entry).toEqual([
+      { account: "1310", net: -75_000_000n },
+      { account: "5910", net: 75_000_000n },
+    ]);
   });
 
   it("August is open and is refused on its real blockers; the refusal names them and leaves it open", async () => {

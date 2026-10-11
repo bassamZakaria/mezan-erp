@@ -11,6 +11,7 @@ import {
   SUITE_TENANT_CODE,
   StorageKey,
   SubscriptionStatus,
+  TENANT_HEADER,
   tenantCodeTakenSentence,
   uniqueCode,
 } from "./support/env";
@@ -38,6 +39,8 @@ const CUSTOMER_NAME = `عميل ${TENANT_CODE}`;
 const HR_REFUSAL = "وحدة الموارد البشرية ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.";
 const READ_ONLY_BANNER = "الترخيص غير فعّال — وضع القراءة فقط";
 const SUSPEND_QUESTION = "إيقاف المنشأة؟";
+const RESET_OWNER_PIN = "إعادة تعيين رمز المالك";
+const RESET_OWNER_PIN_QUESTION = "إعادة تعيين رمز المالك؟";
 const FIRST_PERIOD_END = "2027-02-28";
 const RENEWED_PERIOD_END = "2027-03-28";
 
@@ -330,5 +333,40 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     const after = await tenantCall(request, api, HttpMethod.Get, "/customers");
     expect(rowsOf(after.body).map((row) => row["nameAr"])).toEqual([CUSTOMER_NAME]);
     await tenantContext.close();
+  });
+
+  test("the platform owner resets a tenant owner's PIN: asked first, shown once, the old PIN stops and the new one signs in", async ({ page, request }) => {
+    await platformSignIn(page);
+    await openTenantDetail(page, paying.code);
+
+    await page.getByRole("button", { name: RESET_OWNER_PIN }).click();
+    const question = page.getByRole("dialog", { name: RESET_OWNER_PIN_QUESTION });
+    await expect(question).toContainText(paying.adminEmail);
+    await question.getByRole("button", { name: "رجوع" }).click();
+    await expect(question).toBeHidden();
+    await tenantApiLogin(request, paying);
+
+    await page.getByRole("button", { name: RESET_OWNER_PIN }).click();
+    const answered = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/platform/tenants/${paying.id}/owner-pin/reset`);
+    await page.getByRole("dialog", { name: RESET_OWNER_PIN_QUESTION }).getByRole("button", { name: "إعادة التعيين" }).click();
+    const response = await answered;
+    expect(response.status()).toBe(200);
+    const fresh = (await response.json()) as { adminEmail: string; adminPin: string };
+    expect(fresh.adminEmail).toBe(paying.adminEmail);
+    expect(fresh.adminPin).toMatch(/^[0-9]{6}$/);
+    expect(fresh.adminPin).not.toBe(paying.adminPin);
+    await expect(page.locator("main").getByText(fresh.adminPin, { exact: true })).toBeVisible();
+    await expect(page.locator("main").getByText(/لن يظهر رقم التعريف الشخصي مرة أخرى/).first()).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole("button", { name: RESET_OWNER_PIN })).toBeVisible();
+    await expect(page.getByText(fresh.adminPin, { exact: true })).toHaveCount(0);
+
+    const oldPin = await request.post(`${SAAS_API_URL}/api/auth/login`, {
+      headers: { [TENANT_HEADER]: paying.code },
+      data: { username: paying.adminEmail, pin: paying.adminPin },
+    });
+    expect(oldPin.status()).toBe(401);
+    await tenantApiLogin(request, { ...paying, adminPin: fresh.adminPin });
   });
 });

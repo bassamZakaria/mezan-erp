@@ -4,7 +4,7 @@ import { createPlatformUser, createTenant, activateTenant, startSubscription } f
 import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
-import { createPlatformRoutes } from "./platform-routes.js";
+import { createPlatformRoutes, TenantOwnerAccountNotFoundError } from "./platform-routes.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
@@ -97,12 +97,19 @@ async function buildRig(): Promise<Rig> {
     now: FIXED_NOW,
     provisionTenant,
     provisionRetry,
+    resetOwnerPin: async ({ tenant }) => {
+      if (tenant.ownerEmail === OWNER_WHO_LEFT) throw new TenantOwnerAccountNotFoundError();
+      return { adminEmail: tenant.ownerEmail, adminPin: RESET_PIN };
+    },
     invalidateEntitlements: (code: string) => { invalidated.push(code); },
     idOf,
   });
 
   return { platform, auth, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
 }
+
+const RESET_PIN = "305917";
+const OWNER_WHO_LEFT = "gone@acme.eg";
 
 function req(path: string, token: string, init: RequestInit = {}) {
   return new Request(`http://x${path}`, {
@@ -195,6 +202,40 @@ describe("createPlatformRoutes", () => {
     expect(actions).toContain("TENANT_ARCHIVED");
     expect(rows.every((r) => r.module === "platform" && r.stream === "security")).toBe(true);
     expect(rows.find((r) => r.action === "TENANT_SUSPENDED")?.actor).toBe("PU-OWNER");
+  });
+
+  it("resets a live tenant's owner PIN for the platform owner, answers it once and audits it without the PIN", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toEqual({ adminEmail: body.tenant.ownerEmail, adminPin: RESET_PIN });
+    const row = (await rig.platform.audit.query("security")).find((r) => r.action === "TENANT_OWNER_PIN_RESET");
+    expect(row).toMatchObject({ module: "platform", actor: "PU-OWNER", entityId: body.tenant.id });
+    expect(JSON.stringify(row)).not.toContain(RESET_PIN);
+  });
+
+  it("refuses the owner PIN reset to a support operator, for an archived tenant, and when the owner's account is gone", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const reset = (id: string, token: string) => rig.app.fetch(req(`/tenants/${id}/owner-pin/reset`, token, { method: "POST" }));
+
+    expect((await reset(body.tenant.id, rig.supportToken)).status).toBe(403);
+
+    const gone = await provisionOne(rig, { code: "gone", ownerEmail: OWNER_WHO_LEFT });
+    const missing = await reset(gone.body.tenant.id, rig.ownerToken);
+    expect(missing.status).toBe(409);
+    expect(await json(missing)).toMatchObject({ error: "TENANT_OWNER_ACCOUNT_NOT_FOUND" });
+
+    await rig.app.fetch(req(`/tenants/${body.tenant.id}/archive`, rig.ownerToken, { method: "POST" }));
+    const archived = await reset(body.tenant.id, rig.ownerToken);
+    expect(archived.status).toBe(409);
+    expect(await json(archived)).toMatchObject({ error: "TENANT_NOT_LIVE" });
+
+    const actions = (await rig.platform.audit.query("security")).filter((r) => r.action === "TENANT_OWNER_PIN_RESET");
+    expect(actions).toEqual([]);
   });
 
   it("refuses a transition that is not legal with 409", async () => {

@@ -1,3 +1,5 @@
+import { PayBasis } from "@mezan/domain";
+import { EmployeeRefStatus } from "@mezan/domain";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -328,14 +330,14 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const todayIso = await tenantToday(c);
     const monthPrefix = todayIso.slice(0, 7);
 
-    const activeEmployees = employees.filter((e) => e.status === "active").length;
-    const onLeave = employees.filter((e) => e.status === "on_leave").length;
+    const activeEmployees = employees.filter((e) => e.status === EmployeeRefStatus.Active).length;
+    const onLeave = employees.filter((e) => e.status === EmployeeRefStatus.OnLeave).length;
     const hiresThisMonth = employees.filter((e) => e.hireDate.startsWith(monthPrefix)).length;
-    const terminationsThisMonth = employees.filter((e) => e.status === "terminated" && (e.terminatedAt ?? "").startsWith(monthPrefix)).length;
+    const terminationsThisMonth = employees.filter((e) => e.status === EmployeeRefStatus.Terminated && (e.terminatedAt ?? "").startsWith(monthPrefix)).length;
     const contractsExpiringSoon = contracts.filter((ct) => isContractExpiringSoon(ct, now)).length;
     const probationEndingSoonWindowMs = 30 * 24 * 60 * 60 * 1000;
     const probationEndingSoon = employees.filter((e) => {
-      if (!e.probationEndDate || e.status !== "active") return false;
+      if (!e.probationEndDate || e.status !== EmployeeRefStatus.Active) return false;
       const end = new Date(`${e.probationEndDate}T00:00:00Z`).getTime();
       const diff = end - now.getTime();
       return diff >= 0 && diff <= probationEndingSoonWindowMs;
@@ -343,7 +345,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
 
     const byDepartmentMap = new Map<string, number>();
     for (const e of employees) {
-      if (!e.departmentId || e.status === "terminated") continue;
+      if (!e.departmentId || e.status === EmployeeRefStatus.Terminated) continue;
       byDepartmentMap.set(e.departmentId, (byDepartmentMap.get(e.departmentId) ?? 0) + 1);
     }
     const departmentsById = new Map(departments.map((d) => [d.id, d]));
@@ -356,7 +358,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
 
     const byBranchMap = new Map<string, number>();
     for (const e of employees) {
-      if (e.status === "terminated") continue;
+      if (e.status === EmployeeRefStatus.Terminated) continue;
       byBranchMap.set(e.branchId, (byBranchMap.get(e.branchId) ?? 0) + 1);
     }
     const byBranch = [...byBranchMap.entries()].map(([branchId, count]) => ({ branchId, count }));
@@ -545,7 +547,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const parsed = transitionEmployeeSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const next = transitionEmployee(current, parsed.data.status);
+      const next = transitionEmployee(current, parsed.data.status as EmployeeRefStatus);
       await deps.employees.update(next);
       return c.json(serializeEmployee(next));
     } catch (err) {
@@ -710,6 +712,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
       const contract = await createContract(
         {
           ...parsed.data,
+          payBasis: parsed.data.payBasis as PayBasis | undefined,
           id,
           number,
           monthlySalary: Money.fromMajor(parsed.data.monthlySalary),

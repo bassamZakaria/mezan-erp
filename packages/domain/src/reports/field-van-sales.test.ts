@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import { runReport } from "./engine.js";
@@ -34,7 +35,7 @@ function employee(overrides: Partial<Employee> = {}): Employee {
     requireBiometricAtClockIn: false, deviceBadgeId: null, hasPensionEntitlement: null, taxDisabilityExemption: false,
     address: null,
     emergencyContact: null,
-    status: "active",
+    status: EmployeeRefStatus.Active,
     terminatedAt: null,
     createdAt: "2020-01-01T00:00:00.000Z",
     ...overrides,

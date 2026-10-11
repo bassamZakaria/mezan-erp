@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { describe, it, expect } from "vitest";
 import { createInMemoryEmployeeRepository } from "./test-helpers/in-memory-hr-repositories.js";
 import { createEmployee, updateEmployee } from "./create-employee.js";
@@ -65,9 +66,9 @@ describe("employee status transitions", () => {
   it("allows active -> on_leave -> active", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee(BASE, repo);
-    const onLeave = transitionEmployee(emp, "on_leave");
+    const onLeave = transitionEmployee(emp, EmployeeRefStatus.OnLeave);
     expect(onLeave.status).toBe("on_leave");
-    const active = transitionEmployee(onLeave, "active");
+    const active = transitionEmployee(onLeave, EmployeeRefStatus.Active);
     expect(active.status).toBe("active");
   });
 
@@ -80,7 +81,7 @@ describe("employee status transitions", () => {
     expect(() => terminateEmployee(emp, "2026-06-11", "2026-06-10")).toThrow(InvalidEmployeeError);
     expect(() => terminateEmployee(emp, "2026-06-01T00:00:00.000Z", "2026-06-10")).toThrow(InvalidEmployeeError);
     expect(() => terminateEmployee({ ...emp, hireDate: "2026-06-05" }, "2026-06-01", "2026-06-10")).toThrow(InvalidEmployeeError);
-    expect(() => transitionEmployee(terminated, "active")).toThrow(InvalidEmployeeTransitionError);
+    expect(() => transitionEmployee(terminated, EmployeeRefStatus.Active)).toThrow(InvalidEmployeeTransitionError);
   });
 
   it("terminateEmployee rejects an already-terminated employee", async () => {

@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { InvalidEmployeeError, InvalidEmployeeTransitionError } from "./errors.js";
 import { canTransitionEmployee, type Employee, type EmployeeStatus } from "./employee.js";
 
@@ -11,15 +12,15 @@ export function transitionEmployee(employee: Employee, to: EmployeeStatus): Empl
 
 /** Terminates an employee's service (docs/archive/catalog/06 "المزيد → إنهاء الخدمة") — the one path into the terminal "terminated" status. */
 export function terminateEmployee(employee: Employee, effectiveDate: string, latestAllowed: string = effectiveDate): Employee {
-  if (!canTransitionEmployee(employee.status, "terminated")) {
-    throw new InvalidEmployeeTransitionError(employee.status, "terminated");
+  if (!canTransitionEmployee(employee.status, EmployeeRefStatus.Terminated)) {
+    throw new InvalidEmployeeTransitionError(employee.status, EmployeeRefStatus.Terminated);
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) || Number.isNaN(Date.parse(`${effectiveDate}T00:00:00.000Z`))) {
     throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة مطلوب بصيغة YYYY-MM-DD"]);
   }
   if (effectiveDate > latestAllowed) throw new InvalidEmployeeError([`تاريخ إنهاء الخدمة لا يمكن أن يكون بعد ${latestAllowed}`]);
   if (effectiveDate < employee.hireDate) throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة لا يمكن أن يسبق تاريخ التعيين"]);
-  return { ...employee, status: "terminated", terminatedAt: effectiveDate };
+  return { ...employee, status: EmployeeRefStatus.Terminated, terminatedAt: effectiveDate };
 }
 
 /**
@@ -32,8 +33,8 @@ export function terminateEmployee(employee: Employee, effectiveDate: string, lat
  * the old spell produced (payslips, leave, advances) still points at this id.
  */
 export function rehireEmployee(employee: Employee, hireDate: string): Employee {
-  if (employee.status !== "terminated") {
-    throw new InvalidEmployeeTransitionError(employee.status, "active");
+  if (employee.status !== EmployeeRefStatus.Terminated) {
+    throw new InvalidEmployeeTransitionError(employee.status, EmployeeRefStatus.Active);
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(hireDate)) {
     throw new InvalidEmployeeError(["تاريخ إعادة التعيين مطلوب بصيغة YYYY-MM-DD"]);
@@ -41,7 +42,7 @@ export function rehireEmployee(employee: Employee, hireDate: string): Employee {
   const servedUntil = employee.terminatedAt ?? hireDate;
   return {
     ...employee,
-    status: "active",
+    status: EmployeeRefStatus.Active,
     hireDate,
     priorServiceYears: employee.priorServiceYears + completedYearsBetween(employee.hireDate, servedUntil.slice(0, 10)),
     terminatedAt: null,

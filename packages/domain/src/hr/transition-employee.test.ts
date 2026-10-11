@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { describe, it, expect } from "vitest";
 import { createInMemoryEmployeeRepository } from "./test-helpers/in-memory-hr-repositories.js";
 import { createEmployee } from "./create-employee.js";
@@ -17,16 +18,16 @@ describe("transitionEmployee", () => {
   it("allows every documented transition out of active", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee(BASE, repo);
-    expect(transitionEmployee(emp, "on_leave").status).toBe("on_leave");
-    expect(transitionEmployee(emp, "suspended").status).toBe("suspended");
-    expect(transitionEmployee(emp, "terminated").status).toBe("terminated");
+    expect(transitionEmployee(emp, EmployeeRefStatus.OnLeave).status).toBe("on_leave");
+    expect(transitionEmployee(emp, EmployeeRefStatus.Suspended).status).toBe("suspended");
+    expect(transitionEmployee(emp, EmployeeRefStatus.Terminated).status).toBe("terminated");
   });
 
   it("rejects a transition the state machine does not allow", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee(BASE, repo);
-    const terminated = transitionEmployee(emp, "terminated");
-    expect(() => transitionEmployee(terminated, "active")).toThrow(InvalidEmployeeTransitionError);
+    const terminated = transitionEmployee(emp, EmployeeRefStatus.Terminated);
+    expect(() => transitionEmployee(terminated, EmployeeRefStatus.Active)).toThrow(InvalidEmployeeTransitionError);
   });
 });
 

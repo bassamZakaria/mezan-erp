@@ -1,5 +1,8 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
+import { ContractStatus } from "./contract.js";
+import { PayBasis } from "./contract.js";
 import type { EmployeeRef } from "../hr-shared/employee-ref.js";
-import type { Contract, ContractStatus, PayBasis } from "./contract.js";
+import type { Contract } from "./contract.js";
 import { isBaseCurrency } from "../exchange-rates/convert.js";
 
 export interface PayrollWindow {
@@ -15,8 +18,7 @@ export interface PayrollCapabilities {
   readonly canConvertCurrency: boolean;
 }
 
-const TERMINATED: EmployeeRef["status"] & ContractStatus = "terminated";
-const MONTHLY: PayBasis = "monthly";
+const MONTHLY: PayBasis = PayBasis.Monthly;
 
 export interface PayrollBindings {
   readonly attendanceBound: boolean;
@@ -65,7 +67,7 @@ function inclusiveDays(from: string, to: string): number {
 
 /** The last day served, for someone who has left; null while still employed. A termination with no date leaves the day unknown. */
 function lastServiceDay(employee: PayrollServiceSpan): string | null | undefined {
-  if (employee.status !== TERMINATED) return null;
+  if (employee.status !== EmployeeRefStatus.Terminated) return null;
   return employee.terminatedAt ? dayOf(employee.terminatedAt) : undefined;
 }
 
@@ -82,7 +84,7 @@ export function inServiceDuring(employee: PayrollServiceSpan, window: PayrollWin
 }
 
 function contractEndDay(contract: Contract): string | null {
-  const terminated = contract.status === TERMINATED ? (contract.terminatedAt ? dayOf(contract.terminatedAt) : "") : null;
+  const terminated = contract.status === ContractStatus.Terminated ? (contract.terminatedAt ? dayOf(contract.terminatedAt) : "") : null;
   if (terminated === null) return contract.endDate;
   return contract.endDate === null ? terminated : earlier(contract.endDate, terminated);
 }

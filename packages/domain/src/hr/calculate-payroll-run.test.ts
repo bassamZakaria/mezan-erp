@@ -1,3 +1,4 @@
+import { PayBasis } from "./contract.js";
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
 import { createEmployeeDirectory } from "./employee.js";
@@ -142,7 +143,7 @@ async function employeeWithContract(
     contractStart?: string;
     contractEnd?: string | null;
     currency?: string;
-    payBasis?: "monthly" | "hourly" | "daily";
+    payBasis?: PayBasis;
     payFrequency?: "monthly" | "biweekly" | "weekly";
   },
 ) {
@@ -160,7 +161,7 @@ async function employeeWithContract(
       type: opts.contractEnd !== undefined ? "fixed_term" : "indefinite",
       monthlySalary: Money.fromMajor(opts.monthlySalary),
       currency: opts.currency ?? "EGP",
-      payBasis: opts.payBasis ?? "monthly",
+      payBasis: opts.payBasis ?? PayBasis.Monthly,
       payFrequency: opts.payFrequency ?? "monthly",
       allowances: (opts.allowances ?? []).map((a, i) => ({ id: `${opts.id}-al-${i}`, name: a.name, amount: Money.fromMajor(a.amount), componentId: a.componentId ?? null })),
       deductions: (opts.deductions ?? []).map((d, i) => ({ id: `${opts.id}-de-${i}`, name: d.name, amount: Money.fromMajor(d.amount), componentId: d.componentId ?? null })),
@@ -238,7 +239,7 @@ describe("calculatePayrollRun", () => {
   it("excludes a non-monthly pay basis, with a warning", async () => {
     const h = await harness();
     const run = await createPayrollRun({ id: "r1", year: 2026, month: 1 }, h.deps);
-    await employeeWithContract(h, { id: "emp-1", monthlySalary: "3000.00", payBasis: "daily" });
+    await employeeWithContract(h, { id: "emp-1", monthlySalary: "3000.00", payBasis: PayBasis.Daily });
     await expect(calculatePayrollRun(run.id, h.deps)).rejects.toThrow(NoPayableEmployeesError);
   });
 

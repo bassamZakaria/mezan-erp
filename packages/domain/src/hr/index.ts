@@ -40,13 +40,12 @@ export {
   type TerminateEmployeeCommand,
 } from "./termination-recovery.js";
 
+export { PayBasis, ContractStatus } from "./contract.js";
 export type {
   Contract,
   ContractRepository,
   ContractType,
-  PayBasis,
   PayFrequency,
-  ContractStatus,
   ContractLineItem,
   LeaveEntitlementOverrides,
   ContractTypeDefinition,

@@ -1,3 +1,5 @@
+import { PayBasis } from "./contract.js";
+import { ContractStatus } from "./contract.js";
 import { Money, allocate, roundMoney } from "../money/index.js";
 import { convertFromBase, convertToBase } from "../exchange-rates/convert.js";
 import type { EmployeeDirectory, EmployeeRef } from "../hr-shared/employee-ref.js";
@@ -181,7 +183,7 @@ export async function createPayrollRun(
 /** The contract in force for the period: active, and overlapping [periodStart, periodEnd]. Latest start wins. */
 function pickContract(contracts: readonly Contract[], periodStart: string, periodEnd: string): Contract | null {
   const candidates = contracts.filter(
-    (c) => c.status === "active" && c.startDate <= periodEnd && (c.endDate === null || c.endDate >= periodStart),
+    (c) => c.status === ContractStatus.Active && c.startDate <= periodEnd && (c.endDate === null || c.endDate >= periodStart),
   );
   if (candidates.length === 0) return null;
   return [...candidates].sort((a, b) => (a.startDate < b.startDate ? 1 : a.startDate > b.startDate ? -1 : 0))[0] ?? null;
@@ -295,7 +297,7 @@ function inRunCurrency(contract: Contract, rate: string, runCurrency: string): C
   return {
     ...contract,
     currency: runCurrency,
-    monthlySalary: contract.payBasis === "monthly" ? fixed(contract.monthlySalary) : convertToBase(contract.monthlySalary, rate),
+    monthlySalary: contract.payBasis === PayBasis.Monthly ? fixed(contract.monthlySalary) : convertToBase(contract.monthlySalary, rate),
     allowances: contract.allowances.map((a) => ({ ...a, amount: fixed(a.amount) })),
     deductions: contract.deductions.map((d) => ({ ...d, amount: fixed(d.amount) })),
   };
@@ -317,7 +319,7 @@ function attendancePay(input: EmployeePayrollInput, worked: PeriodWorkedTime): A
   const paidHalfDays = worked.paidLeaveHalfDays + 2 * worked.paidHolidays;
   const paidDays = paidHalfDays / 2;
   const lines: { nameAr: string; amount: Money }[] = [];
-  if (input.contract.payBasis === "hourly") {
+  if (input.contract.payBasis === PayBasis.Hourly) {
     const standardMinutes = BigInt(Math.max(Math.round(worked.standardDailyHours * 60), 0));
     const hours = worked.workedMinutes / 60;
     lines.push({
@@ -395,7 +397,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     const { contract, paidStart, paidEnd, paidDays } = eligibility;
     if (contract.payFrequency !== "monthly") {
       warnings.push(
-        contract.payBasis === "monthly"
+        contract.payBasis === PayBasis.Monthly
           ? `${employee.fullNameAr} (${employee.code}): تكرار الدفع "${getPayFrequencyLabel(contract.payFrequency)}" — احتُسب راتب شهر كامل للفترة.`
           : `${employee.fullNameAr} (${employee.code}): تكرار الدفع "${getPayFrequencyLabel(contract.payFrequency)}" — احتُسب حضور الشهر كله في كشف واحد.`,
       );
@@ -439,7 +441,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
   for (const input of inputs) {
     const { employee, contract, signed, fx, paidDays } = input;
     const who = `${employee.fullNameAr} (${employee.code})`;
-    const isMonthly = contract.payBasis === "monthly";
+    const isMonthly = contract.payBasis === PayBasis.Monthly;
     const lines: PayslipLine[] = [];
     let quantity: number | null = null;
     let standardDailyHours: number | null = null;
@@ -463,7 +465,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       for (const line of pay.lines) {
         lines.push({ id: idGen(), kind: "earning", source: "contract_basic", nameAr: line.nameAr, amount: line.amount, glAccountId: null, referenceId: null, capped: false });
       }
-      if (contract.payBasis === "hourly" && worked.unclockedDays.length > 0) {
+      if (contract.payBasis === PayBasis.Hourly && worked.unclockedDays.length > 0) {
         warnings.push(`${who}: ${worked.unclockedDays.length} يوم حضور بلا وقت حضور وانصراف (${worked.unclockedDays.join("، ")}) — لا ساعات تُدفع عنها.`);
       }
       if (worked.unapprovedOffDays.length > 0) {
@@ -493,9 +495,9 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       const worked = await deps.overtime.overtimeHoursFor(employee.id, input.paidStart, input.paidEnd);
       const hours = BigInt(Math.max(Math.round((standardDailyHours ?? worked.standardDailyHours) * 1000), 1));
       const ownRates =
-        contract.payBasis === "hourly"
+        contract.payBasis === PayBasis.Hourly
           ? { hourlyRate: contract.monthlySalary, dayWage: Money.fromScaled(divRoundHalfUp(contract.monthlySalary.scaled * hours, 1000n)) }
-          : contract.payBasis === "daily"
+          : contract.payBasis === PayBasis.Daily
             ? { hourlyRate: Money.fromScaled(divRoundHalfUp(contract.monthlySalary.scaled * 1000n, hours)), dayWage: contract.monthlySalary }
             : {};
       for (const line of overtimePay({ monthlyWage, dayDivisor: divisor, standardDailyHours: worked.standardDailyHours, ...ownRates }, worked)) {

@@ -1,13 +1,14 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import type {
-  Notification,
-  NotificationChannel,
-  NotificationChannelStatus,
-  NotificationListFilter,
-  NotificationPriority,
-  NotificationReadStatus,
-  NotificationRepository,
+import {
+  NotificationChannelState,
+  type Notification,
+  type NotificationChannel,
+  type NotificationChannelStatus,
+  type NotificationListFilter,
+  type NotificationPriority,
+  type NotificationReadStatus,
+  type NotificationRepository,
 } from "@mezan/domain";
 
 /**
@@ -89,6 +90,8 @@ function fromRow(row: NotificationRow): Notification {
   };
 }
 
+const channelPath = (channel: string): string => `$."${channel.replace(/["\\]/g, "")}"`;
+
 class SqliteNotificationRepository implements NotificationRepository {
   private readonly insertStmt: Database.Statement;
   private readonly selectByIdStmt: Database.Statement;
@@ -96,6 +99,9 @@ class SqliteNotificationRepository implements NotificationRepository {
   private readonly markAllReadStmt: Database.Statement;
   private readonly countUnreadStmt: Database.Statement;
   private readonly listQueuedStmt: Database.Statement;
+  private readonly claimStmt: Database.Statement;
+  private readonly settleStmt: Database.Statement;
+  private readonly requeueStaleStmt: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
     this.insertStmt = sqlite.prepare(`
@@ -109,6 +115,22 @@ class SqliteNotificationRepository implements NotificationRepository {
     this.listQueuedStmt = sqlite.prepare(
       `SELECT * FROM notification WHERE channel_status_json LIKE '%"queued"%' ORDER BY created_at ASC LIMIT ?`,
     );
+    // ONE STATEMENT, so the check and the claim cannot be separated: of two
+    // drains reaching the same channel, exactly one changes a row.
+    this.claimStmt = sqlite.prepare(`
+      UPDATE notification
+         SET channel_status_json = json_set(channel_status_json, @path, '${NotificationChannelState.Sending}'), sending_since = @at
+       WHERE id = @id AND json_extract(channel_status_json, @path) = '${NotificationChannelState.Queued}'
+    `);
+    this.settleStmt = sqlite.prepare(
+      `UPDATE notification SET channel_status_json = json_set(channel_status_json, @path, @status) WHERE id = @id`,
+    );
+    this.requeueStaleStmt = sqlite.prepare(`
+      UPDATE notification
+         SET channel_status_json = replace(channel_status_json, '"${NotificationChannelState.Sending}"', '"${NotificationChannelState.Queued}"'),
+             sending_since = NULL
+       WHERE channel_status_json LIKE '%"${NotificationChannelState.Sending}"%' AND (sending_since IS NULL OR sending_since < ?)
+    `);
     this.selectByIdStmt = sqlite.prepare(`SELECT * FROM notification WHERE id = ?`);
     this.markReadStmt = sqlite.prepare(
       `UPDATE notification SET status = 'read', read_at = ? WHERE id = ? AND recipient_user_id = ? AND status = 'unread'`,
@@ -139,6 +161,18 @@ class SqliteNotificationRepository implements NotificationRepository {
   async listQueued(limit: number): Promise<readonly Notification[]> {
     const rows = this.listQueuedStmt.all(limit) as NotificationRow[];
     return rows.map(fromRow);
+  }
+
+  async claimChannel(id: string, channel: string, at: string): Promise<boolean> {
+    return this.claimStmt.run({ id, path: channelPath(channel), at }).changes === 1;
+  }
+
+  async settleChannel(id: string, channel: string, status: NotificationChannelStatus): Promise<void> {
+    this.settleStmt.run({ id, path: channelPath(channel), status });
+  }
+
+  async requeueStaleSending(before: string): Promise<number> {
+    return this.requeueStaleStmt.run(before).changes;
   }
 
   async findById(id: string): Promise<Notification | null> {
@@ -177,6 +211,9 @@ class SqliteNotificationRepository implements NotificationRepository {
 export interface SqliteNotificationStoreHandle extends NotificationRepository {
   /** Every notification with a channel still queued — the dispatcher's input (ROADMAP §3.3). */
   listQueued(limit: number): Promise<readonly Notification[]>;
+  claimChannel(id: string, channel: string, at: string): Promise<boolean>;
+  settleChannel(id: string, channel: string, status: NotificationChannelStatus): Promise<void>;
+  requeueStaleSending(before: string): Promise<number>;
   close(): void;
 }
 
@@ -184,6 +221,8 @@ export interface SqliteNotificationStoreHandle extends NotificationRepository {
 export function createSqliteNotificationStore(path: SqliteConnectionInput = ":memory:"): SqliteNotificationStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
+  const columns = sqlite.prepare("PRAGMA table_info(notification)").all() as { name: string }[];
+  if (!columns.some((column) => column.name === "sending_since")) sqlite.exec("ALTER TABLE notification ADD COLUMN sending_since TEXT");
   const repo = new SqliteNotificationRepository(sqlite);
   return Object.assign(repo, {
     close: () => {

@@ -93,4 +93,47 @@ describe("SqliteNotificationRepository", () => {
     expect(await handle.countUnread("u-1")).toBe(0);
     expect(await handle.countUnread("u-2")).toBe(1);
   });
+
+  it("claims a queued channel for one drain only, and leaves the row's other fields alone", async () => {
+    handle = createSqliteNotificationStore();
+    await handle.save(makeNotification({ channels: ["in_app", "email"], channelStatus: { in_app: "delivered", email: "queued" } }));
+
+    expect(await handle.claimChannel("n-1", "email", "2026-08-23T10:01:00.000Z")).toBe(true);
+    expect(await handle.claimChannel("n-1", "email", "2026-08-23T10:01:01.000Z")).toBe(false);
+    expect(await handle.claimChannel("n-1", "in_app", "2026-08-23T10:01:01.000Z")).toBe(false);
+
+    expect(await handle.findById("n-1")).toEqual(
+      makeNotification({ channels: ["in_app", "email"], channelStatus: { in_app: "delivered", email: "sending" } }),
+    );
+    expect(await handle.listQueued(10)).toEqual([]);
+  });
+
+  it("settles one channel without rewriting a read flag set while the mail server answered", async () => {
+    handle = createSqliteNotificationStore();
+    await handle.save(makeNotification({ channels: ["in_app", "email"], channelStatus: { in_app: "delivered", email: "queued" } }));
+    await handle.claimChannel("n-1", "email", "2026-08-23T10:01:00.000Z");
+    await handle.markRead("n-1", "u-1", "2026-08-23T10:01:30.000Z");
+
+    await handle.settleChannel("n-1", "email", "sent");
+
+    expect(await handle.findById("n-1")).toMatchObject({
+      status: "read",
+      readAt: "2026-08-23T10:01:30.000Z",
+      channelStatus: { in_app: "delivered", email: "sent" },
+    });
+  });
+
+  it("queues again a channel claimed before the cut-off, and not one claimed after it", async () => {
+    handle = createSqliteNotificationStore();
+    const emailQueued = { channels: ["in_app", "email"] as const, channelStatus: { in_app: "delivered", email: "queued" } as const };
+    await handle.save(makeNotification({ id: "abandoned", ...emailQueued }));
+    await handle.save(makeNotification({ id: "in-flight", ...emailQueued }));
+    await handle.claimChannel("abandoned", "email", "2026-08-23T10:00:00.000Z");
+    await handle.claimChannel("in-flight", "email", "2026-08-23T10:14:00.000Z");
+
+    expect(await handle.requeueStaleSending("2026-08-23T10:05:00.000Z")).toBe(1);
+
+    expect((await handle.findById("abandoned"))?.channelStatus.email).toBe("queued");
+    expect((await handle.findById("in-flight"))?.channelStatus.email).toBe("sending");
+  });
 });

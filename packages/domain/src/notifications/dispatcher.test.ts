@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { NotificationDispatcher, type DispatchOutcome, type NotificationTransport } from "./dispatcher.js";
-import type { Notification, NotificationRepository } from "./types.js";
+import { NotificationDispatcher, type DispatchOutcome, type NotificationDispatcherDeps, type NotificationTransport } from "./dispatcher.js";
+import { NotificationChannelState, type Notification, type NotificationChannelStatus } from "./types.js";
 
 const NOW = "2026-09-14T12:00:00.000Z";
 
@@ -25,6 +25,11 @@ function notification(over: Partial<Notification> = {}): Notification {
 
 function store(rows: Notification[]) {
   const saved: Notification[] = [];
+  const claimedAt = new Map<string, string>();
+  const withChannel = (id: string, channel: string, status: NotificationChannelStatus) => {
+    const at = rows.findIndex((r) => r.id === id);
+    if (at >= 0) rows[at] = { ...rows[at]!, channelStatus: { ...rows[at]!.channelStatus, [channel]: status } };
+  };
   const repo = {
     async save(n: Notification) {
       saved.push(n);
@@ -45,7 +50,28 @@ function store(rows: Notification[]) {
     async listQueued(limit: number) {
       return rows.filter((r) => Object.values(r.channelStatus).includes("queued")).slice(0, limit);
     },
-  } as unknown as NotificationRepository & { listQueued(limit: number): Promise<readonly Notification[]> };
+    async claimChannel(id: string, channel: string, at: string) {
+      if (rows.find((r) => r.id === id)?.channelStatus[channel] !== "queued") return false;
+      withChannel(id, channel, NotificationChannelState.Sending);
+      claimedAt.set(id, at);
+      return true;
+    },
+    async settleChannel(id: string, channel: string, status: NotificationChannelStatus) {
+      withChannel(id, channel, status);
+    },
+    async requeueStaleSending(before: string) {
+      let requeued = 0;
+      for (const row of [...rows]) {
+        if ((claimedAt.get(row.id) ?? "") >= before) continue;
+        for (const [channel, status] of Object.entries(row.channelStatus)) {
+          if (status !== "sending") continue;
+          withChannel(row.id, channel, NotificationChannelState.Queued);
+          requeued += 1;
+        }
+      }
+      return requeued;
+    },
+  } as unknown as NotificationDispatcherDeps["notifications"];
   return { repo, saved, rows };
 }
 
@@ -155,11 +181,83 @@ describe("NotificationDispatcher — draining the outbound queue (ROADMAP §3.3)
     expect(d.saved).toEqual([]);
   });
 
-  it("writes nothing back when every channel merely stayed queued", async () => {
+  it("leaves the row exactly as it was when every channel merely stayed queued", async () => {
     const rows = [notification()];
+    const before = structuredClone(rows[0]);
     const d = dispatcher(rows, transport({ kind: "offline", reason: "offline" }));
     await d.run();
+    expect(rows[0]).toEqual(before);
     expect(d.saved).toEqual([]);
+  });
+
+  it("sends each notification once when two drains run at once", async () => {
+    const rows = [notification({ id: "n1" }), notification({ id: "n2" })];
+    const seen: string[] = [];
+    let release!: () => void;
+    const mailServer = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow: NotificationTransport = {
+      channel: "email",
+      async send(n) {
+        seen.push(n.id);
+        await mailServer;
+        return { kind: "sent" };
+      },
+    };
+    const d = dispatcher(rows, slow);
+
+    const first = d.run();
+    const second = d.run();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    release();
+    const [a, b] = await Promise.all([first, second]);
+
+    expect([...seen].sort()).toEqual(["n1", "n2"]);
+    expect(a.sent + b.sent).toBe(2);
+    expect(rows.map((r) => r.channelStatus.email)).toEqual(["sent", "sent"]);
+  });
+
+  it("writes only the channel it sent, keeping what changed on the row while the mail server answered", async () => {
+    const rows = [notification()];
+    const readMeanwhile: NotificationTransport = {
+      channel: "email",
+      async send() {
+        rows[0] = { ...rows[0]!, status: "read", readAt: NOW };
+        return { kind: "sent" };
+      },
+    };
+    await dispatcher(rows, readMeanwhile).run();
+
+    expect(rows[0]).toMatchObject({ status: "read", readAt: NOW, channelStatus: { in_app: "delivered", email: "sent" } });
+  });
+
+  it("puts back a channel a drain that died left sending, once the timeout has passed, and sends it", async () => {
+    const rows = [notification({ channelStatus: { in_app: "delivered", email: "sending" } })];
+    const seen: string[] = [];
+    const d = dispatcher(rows, transport({ kind: "sent" }, seen));
+
+    expect(await d.run()).toMatchObject({ attempted: 1, sent: 1 });
+    expect(seen).toEqual(["n1"]);
+    expect(rows[0]?.channelStatus.email).toBe("sent");
+  });
+
+  it("does not take a channel another drain claimed a moment ago", async () => {
+    const rows = [notification()];
+    const seen: string[] = [];
+    const s = store(rows);
+    await s.repo.claimChannel("n1", "email", NOW);
+
+    const result = await new NotificationDispatcher({
+      notifications: s.repo,
+      transports: [transport({ kind: "sent" }, seen)],
+      recipientEmail: async () => "owner@shop.test",
+      now: () => NOW,
+    }).drain();
+
+    expect(result).toMatchObject({ attempted: 0, sent: 0 });
+    expect(seen).toEqual([]);
+    expect(rows[0]?.channelStatus.email).toBe("sending");
   });
 
   it("caps one drain at the batch size, so a month offline is not one enormous send", async () => {

@@ -3,6 +3,7 @@ export {
   NOTIFICATION_CHANNELS,
   CONDITION_OPERATORS,
   NOTIFICATION_RECIPIENT_TYPES,
+  NotificationChannelState,
   type NotificationPriority,
   type NotificationChannel,
   type ConditionOperator,

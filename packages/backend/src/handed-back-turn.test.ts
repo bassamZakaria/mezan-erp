@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { ALL_SCOPE } from "@mezan/domain";
+import { ALL_SCOPE, NotificationDispatcher, type Notification } from "@mezan/domain";
+import { createSqliteNotificationStore } from "@mezan/persistence";
 import { createBackend, type BackendHandle, type CreateBackendOptions } from "./create-backend.js";
 import { SEED_ADMIN_USER_ID } from "./seed.js";
 import { raced } from "./test/raced.js";
@@ -156,5 +157,52 @@ describe("a user erased by three requests at once", () => {
       const trail = (await t.admin("GET", "/audit?stream=security&action=PERSONAL_DATA_ERASED")).body;
       expect(JSON.stringify(trail).match(/PERSONAL_DATA_ERASED/g) ?? []).toHaveLength(1);
     });
+  });
+});
+
+describe("the notification queue drained by three requests at once", () => {
+  it("hands each message to the mail server once and records each as sent", async () => {
+    const notifications = createSqliteNotificationStore(":memory:");
+    const queued = (id: string): Notification => ({
+      id,
+      ruleId: null,
+      recipientUserId: "user-1",
+      eventCode: "SALES_INVOICE_CONFIRMED",
+      title: "فاتورة جديدة",
+      body: "تم تأكيد الفاتورة",
+      priority: "normal",
+      channels: ["in_app", "email"],
+      channelStatus: { in_app: "delivered", email: "queued" },
+      status: "unread",
+      payload: {},
+      createdAt: "2026-09-14T12:00:00.000Z",
+      readAt: null,
+    });
+    for (const id of ["n1", "n2", "n3", "n4"]) await notifications.save(queued(id));
+    const handed: string[] = [];
+    const drain = () =>
+      new NotificationDispatcher({
+        notifications,
+        recipientEmail: async () => "owner@example.eg",
+        now: () => "2026-09-14T12:05:00.000Z",
+        transports: [
+          {
+            channel: "email",
+            async send(notification) {
+              handed.push(notification.id);
+              await new Promise<void>((resolve) => setImmediate(resolve));
+              return { kind: "sent" };
+            },
+          },
+        ],
+      }).drain();
+
+    await raced(drain, async (results) => {
+      expect([...handed].sort()).toEqual(["n1", "n2", "n3", "n4"]);
+      expect(results.reduce((total, result) => total + result.sent, 0)).toBe(4);
+      const stored = await Promise.all(["n1", "n2", "n3", "n4"].map((id) => notifications.findById(id)));
+      expect(stored.map((row) => row?.channelStatus)).toEqual(Array(4).fill({ in_app: "delivered", email: "sent" }));
+    });
+    notifications.close();
   });
 });

@@ -433,6 +433,36 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     const app = await boot();
     expect((await resetOwnerPin(app, "no-such-tenant", await platformBearer(app))).status).toBe(404);
   });
+
+  it("records the operator who retried a provision as the actor of the tenant's PIN reset", async () => {
+    const app = await boot();
+    const bearer = await platformBearer(app);
+    const console_ = (route: string, body?: unknown) =>
+      app.root.fetch(
+        new Request(`http://cloud.internal/api/platform${route}`, {
+          method: body === undefined ? "GET" : "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        }),
+      );
+    const operator = (await (await console_("/auth/me")).json()) as { id: string };
+    expect((await console_("/plans/PLAN-CORE/retire", {})).status).toBe(200);
+    const failed = await console_("/tenants", { ...signupBody("retried", "منشأة أعيد تجهيزها"), trial: false });
+    expect(failed.status).toBe(422);
+    const { tenantId } = (await failed.json()) as { tenantId: string };
+
+    const retried = await console_(`/tenants/${tenantId}/provision`, { planId: "PLAN-BUSINESS", billingCycle: "monthly" });
+
+    expect(retried.status).toBe(200);
+    const { adminPin } = (await retried.json()) as { adminPin: string };
+    const session = ((await (await cloudLogin(app, "retried", adminPin)).json()) as { token: string }).token;
+    const audit = await app.root.fetch(
+      new Request("http://cloud.internal/api/audit?stream=security&action=OWNER_PIN_RESET", { headers: { authorization: `Bearer ${session}`, "x-mezan-tenant": "retried" } }),
+    );
+    expect(audit.status).toBe(200);
+    const { events } = (await audit.json()) as { events: { action: string; actor: string }[] };
+    expect(events.map((row) => row.actor)).toEqual([`platform:${operator.id}`]);
+  });
 });
 
 interface SignupProcess {

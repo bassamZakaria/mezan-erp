@@ -1,6 +1,6 @@
 import { randomInt, randomUUID } from "node:crypto";
-import { activateTenant, createTenant, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
-import { OwnerPinResetOutcome, type PlatformHandle } from "@mezan/backend";
+import { activateTenant, createTenant, normalizeEmail, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
+import { OwnerPinResetOutcome, TenantOwnerAccountNotFoundError, type PlatformHandle } from "@mezan/backend";
 import type { TenantRouter } from "./tenant-router.js";
 
 export interface ProvisionTenantCommand {
@@ -12,6 +12,7 @@ export interface ProvisionTenantCommand {
   readonly planId: string;
   readonly billingCycle: BillingCycle;
   readonly trial: boolean;
+  readonly actorId?: string;
 }
 
 export interface ProvisionTenantDeps {
@@ -19,6 +20,7 @@ export interface ProvisionTenantDeps {
   readonly router: TenantRouter;
   readonly now: () => Date;
   readonly pinOf?: () => string;
+  readonly stillOurs?: () => Promise<boolean>;
 }
 
 export interface ProvisionTenantResult {
@@ -49,7 +51,20 @@ export class PlanRequiredError extends Error {
   }
 }
 
+export class ProvisioningSupersededError extends Error {
+  readonly code = "PROVISIONING_SUPERSEDED";
+
+  constructor() {
+    super("تولّى طلب آخر تجهيز هذه المنشأة");
+    this.name = "ProvisioningSupersededError";
+  }
+}
+
 export const PROVISIONING_ACTOR = "platform:provisioning";
+
+export function platformActor(actorId: string): string {
+  return `platform:${actorId}`;
+}
 
 export function generateOwnerPin(): string {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
@@ -59,7 +74,12 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
   const nowIso = deps.now().toISOString();
   const pinOf = deps.pinOf ?? generateOwnerPin;
 
+  const stillOurs = async (): Promise<void> => {
+    if (deps.stillOurs && !(await deps.stillOurs())) throw new ProvisioningSupersededError();
+  };
+
   const existing = await deps.platform.stores.tenants.findByCode(cmd.code);
+  if (existing && existing.ownerEmail !== normalizeEmail(cmd.ownerEmail)) throw new TenantCodeTakenError(cmd.code);
   let tenant =
     existing ??
     (await createTenant(
@@ -76,10 +96,17 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
     const { claimed } = (await statusRes.json()) as { claimed: boolean };
 
     let adminPin: string | null = null;
+    await stillOurs();
     if (claimed) {
       if (tenant.status !== TenantStatusCode.Provisioning) throw new TenantCodeTakenError(cmd.code);
       const freshPin = pinOf();
-      const outcome = await backend.resetOwnerPin({ email: cmd.ownerEmail, pin: freshPin, onlyIfNeverSignedIn: true, actor: PROVISIONING_ACTOR });
+      const outcome = await backend.resetOwnerPin({
+        email: cmd.ownerEmail,
+        pin: freshPin,
+        onlyIfNeverSignedIn: true,
+        actor: cmd.actorId ? platformActor(cmd.actorId) : PROVISIONING_ACTOR,
+      });
+      if (outcome === OwnerPinResetOutcome.OwnerNotFound) throw new TenantOwnerAccountNotFoundError();
       if (outcome === OwnerPinResetOutcome.Reset) adminPin = freshPin;
     } else {
       adminPin = pinOf();
@@ -96,6 +123,7 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
     }
 
     const live = await deps.platform.stores.subscriptions.findLiveByTenant(tenant.id);
+    await stillOurs();
     if (!live) {
       await startSubscription(
         {
@@ -111,13 +139,16 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
       );
     }
 
+    await stillOurs();
     if (tenant.status === TenantStatusCode.Provisioning) {
-      tenant = await activateTenant({ id: tenant.id, now: nowIso }, deps.platform.stores.tenants);
+      const latest = await deps.platform.stores.tenants.findById(tenant.id);
+      tenant =
+        latest?.status === TenantStatusCode.Active ? latest : await activateTenant({ id: tenant.id, now: nowIso }, deps.platform.stores.tenants);
     }
 
     return { tenant, adminEmail: cmd.ownerEmail, adminPin };
   } catch (err) {
-    if (err instanceof TenantCodeTakenError) throw err;
+    if (err instanceof TenantCodeTakenError || err instanceof ProvisioningSupersededError) throw err;
     throw new TenantProvisioningError(tenant.id, err);
   }
 }

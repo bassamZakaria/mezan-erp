@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createBackend, createPlatform, type BackendHandle, type PlatformHandle } from "@mezan/backend";
+import { createBackend, createPlatform, TenantOwnerAccountNotFoundError, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { createTenant, retirePlan, startSubscription, TenantCodeTakenError } from "@mezan/domain";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { provisionTenant, TenantProvisioningError } from "./provision-tenant.js";
@@ -214,5 +214,69 @@ describe("provisionTenant", () => {
     const subs = await platform.stores.subscriptions.listByTenant(tenant.id);
     expect(subs.length).toBe(1);
     expect(subs[0]?.planId).toBe("PLAN-CORE");
+  });
+
+  it("refuses a tenant still being provisioned for a different owner, and leaves it untouched", async () => {
+    const platform = await newPlatform();
+    const router = newRouter(platform);
+    const tenant = await createTenant({ id: "t-adopt", code: "adopt", nameAr: "محجوزة", ownerEmail: "first@adopt.example", now: T }, platform.stores.tenants);
+
+    await expect(
+      provisionTenant(
+        { code: "adopt", nameAr: "محجوزة", ownerEmail: "second@adopt.example", ownerNameAr: "آخر", planId: "PLAN-CORE", billingCycle: "monthly", trial: false },
+        { platform, router, now: () => new Date(T), pinOf: () => "444444" },
+      ),
+    ).rejects.toBeInstanceOf(TenantCodeTakenError);
+
+    expect(await platform.stores.tenants.findById(tenant.id)).toEqual(tenant);
+    expect(await platform.stores.subscriptions.findLiveByTenant(tenant.id)).toBeNull();
+    const backend = await router.backendFor("adopt");
+    const status = (await (await backend.app.fetch(new Request("http://tenant.internal/bootstrap/status"))).json()) as { claimed: boolean };
+    expect(status.claimed).toBe(false);
+  });
+
+  it("accepts the recorded owner's email in another letter case", async () => {
+    const platform = await newPlatform();
+    const router = newRouter(platform);
+    await createTenant({ id: "t-case", code: "lettercase", nameAr: "حالة", ownerEmail: "owner@case.example", now: T }, platform.stores.tenants);
+
+    const result = await provisionTenant(
+      { code: "lettercase", nameAr: "حالة", ownerEmail: " Owner@Case.Example ", ownerNameAr: "المدير", planId: "PLAN-CORE", billingCycle: "monthly", trial: false },
+      { platform, router, now: () => new Date(T), pinOf: () => "555555" },
+    );
+
+    expect(result.tenant.status).toBe("active");
+    expect(result.adminPin).toBe("555555");
+  });
+
+  it("does not activate a claimed tenant that holds no admin with the owner's email", async () => {
+    const platform = await newPlatform();
+    const router = newRouter(platform);
+    const tenant = await createTenant({ id: "t-orphan", code: "orphan", nameAr: "يتيمة", ownerEmail: "owner@orphan.example", now: T }, platform.stores.tenants);
+    const backend = await router.backendFor("orphan");
+    await backend.app.fetch(new Request("http://tenant.internal/bootstrap/seed", { method: "POST" }));
+    const claimed = await backend.app.fetch(
+      new Request("http://tenant.internal/bootstrap/admin", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nameAr: "غريب", email: "someone@else.example", pin: "121212", companyName: "يتيمة" }),
+      }),
+    );
+    expect(claimed.status).toBe(201);
+
+    let thrown: unknown;
+    try {
+      await provisionTenant(
+        { code: "orphan", nameAr: "يتيمة", ownerEmail: "owner@orphan.example", ownerNameAr: "المدير", planId: "PLAN-CORE", billingCycle: "monthly", trial: false },
+        { platform, router, now: () => new Date(T), pinOf: () => "666666" },
+      );
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(thrown).toBeInstanceOf(TenantProvisioningError);
+    expect((thrown as TenantProvisioningError).cause).toBeInstanceOf(TenantOwnerAccountNotFoundError);
+    expect((await platform.stores.tenants.findById(tenant.id))?.status).toBe("provisioning");
+    expect(await platform.stores.subscriptions.findLiveByTenant(tenant.id)).toBeNull();
   });
 });

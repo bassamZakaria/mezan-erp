@@ -16,7 +16,7 @@ import { createSessionRegistry } from "@mezan/api";
 import { TenantNotFoundError, type Tenant } from "@mezan/domain";
 import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
-import { generateOwnerPin, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
+import { generateOwnerPin, platformActor, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
@@ -115,7 +115,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const provisionTenantForRoutes = (cmd: CreateTenantRequestDTO & { actorId: string }): Promise<ProvisionResultDTO> =>
     provisionTenant(cmd, { platform, router, now });
 
-  const provisionRetryForRoutes = async (input: { tenantId: string } & ProvisionRetryRequestDTO): Promise<ProvisionResultDTO> => {
+  const provisionRetryForRoutes = async (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO): Promise<ProvisionResultDTO> => {
     const tenant = await platform.stores.tenants.findById(input.tenantId);
     if (!tenant) throw new TenantNotFoundError(input.tenantId);
     const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
@@ -132,6 +132,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
         planId,
         billingCycle,
         trial: live ? live.status === "trialing" : (input.trial ?? false),
+        actorId: input.actorId,
       },
       { platform, router, now },
     );
@@ -144,7 +145,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       email: input.tenant.ownerEmail,
       pin: adminPin,
       onlyIfNeverSignedIn: false,
-      actor: `platform:${input.actorId}`,
+      actor: platformActor(input.actorId),
     });
     if (outcome !== OwnerPinResetOutcome.Reset) throw new TenantOwnerAccountNotFoundError();
     return { adminEmail: input.tenant.ownerEmail, adminPin };

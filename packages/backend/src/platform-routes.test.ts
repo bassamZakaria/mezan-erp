@@ -213,7 +213,7 @@ describe("createPlatformRoutes", () => {
     expect(res.status).toBe(200);
     expect(await json(res)).toEqual({ adminEmail: body.tenant.ownerEmail, adminPin: RESET_PIN });
     const row = (await rig.platform.audit.query("security")).find((r) => r.action === "TENANT_OWNER_PIN_RESET");
-    expect(row).toMatchObject({ module: "platform", actor: "PU-OWNER", entityId: body.tenant.id });
+    expect(row).toMatchObject({ module: "platform", actor: "PU-OWNER", entityId: body.tenant.id, severity: "CRITICAL" });
     expect(JSON.stringify(row)).not.toContain(RESET_PIN);
   });
 
@@ -236,6 +236,13 @@ describe("createPlatformRoutes", () => {
 
     const actions = (await rig.platform.audit.query("security")).filter((r) => r.action === "TENANT_OWNER_PIN_RESET");
     expect(actions).toEqual([]);
+    const refused = (await rig.platform.audit.query("security")).filter((r) => r.action === "TENANT_OWNER_PIN_RESET_REFUSED");
+    const byReason = refused.map((r) => [(r.details as { reason: string }).reason, r.actor, r.entityId, r.severity]).sort();
+    expect(byReason).toEqual([
+      ["OWNER_ONLY", "PU-SUPPORT", body.tenant.id, "CRITICAL"],
+      ["TENANT_NOT_LIVE", "PU-OWNER", body.tenant.id, "CRITICAL"],
+      ["TENANT_OWNER_ACCOUNT_NOT_FOUND", "PU-OWNER", gone.body.tenant.id, "CRITICAL"],
+    ]);
   });
 
   it("refuses a transition that is not legal with 409", async () => {

@@ -19,6 +19,7 @@ import {
   deriveEntitlements,
   subscriptionLicenseState,
   recordSecurityEvent,
+  type AuditSeverity,
   InvalidTenantError,
   TenantNotFoundError,
   TenantCodeTakenError,
@@ -87,7 +88,7 @@ export interface CreatePlatformRoutesOptions {
   readonly now: () => Date;
   readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }) => Promise<ProvisionResultDTO>;
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
-  readonly provisionRetry?: (input: { tenantId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
+  readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
   readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string }) => Promise<OwnerPinResetResultDTO>;
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;
@@ -258,15 +259,22 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     for (const code of codes) invalidateEntitlements(code);
   }
 
-  async function audit(c: Context, action: string, entityId: string | null, details: Record<string, unknown>) {
+  async function audit(
+    c: Context,
+    action: string,
+    entityId: string | null,
+    details: Record<string, unknown>,
+    severity: AuditSeverity = "INFO",
+    actorId?: string,
+  ) {
     const platformUser = c.get("platformUser");
     await recordSecurityEvent(platform.audit, {
       module: "platform",
       entityType: "PLATFORM",
       entityId,
       action,
-      actor: platformUser?.id ?? "unknown",
-      severity: "INFO",
+      actor: actorId ?? platformUser?.id ?? "unknown",
+      severity,
       timestamp: nowIso(),
       details: { ...details, origin: requestOrigin(c) ?? "host" },
     }).catch(onAuditError);
@@ -317,7 +325,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         return c.json({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" }, 409);
       }
       if (!provisionRetry) throw new Error("provisionRetry dependency is not configured");
-      const result = await provisionRetry({ tenantId: tenant.id, ...parsed.data });
+      const result = await provisionRetry({ tenantId: tenant.id, actorId: c.get("platformUser")!.id, ...parsed.data });
       invalidateEntitlements(result.tenant.code);
       await audit(c, "TENANT_PROVISION_RETRIED", result.tenant.id, { code: result.tenant.code });
       return c.json(result, 200);
@@ -326,19 +334,31 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
-  app.post("/tenants/:id/owner-pin/reset", requireOwner, async (c) => {
+  const ownerPinResetRefused = (c: Context, tenantId: string | null, reason: string, actorId?: string) =>
+    audit(c, "TENANT_OWNER_PIN_RESET_REFUSED", tenantId, { reason }, "CRITICAL", actorId);
+
+  const requireOwnerForPinReset = auth.requirePlatform("owner", (c, user) =>
+    ownerPinResetRefused(c, c.req.param("id") ?? null, "OWNER_ONLY", user.id),
+  );
+
+  app.post("/tenants/:id/owner-pin/reset", requireOwnerForPinReset, async (c) => {
     const platformUser = c.get("platformUser")!;
+    const tenantId = c.req.param("id");
     try {
-      const tenant = await requireTenant(c.req.param("id"));
+      const tenant = await requireTenant(tenantId);
       if (tenant.status !== TenantStatusCode.Active && tenant.status !== TenantStatusCode.Suspended) {
+        await ownerPinResetRefused(c, tenant.id, "TENANT_NOT_LIVE");
         return c.json({ error: "TENANT_NOT_LIVE", message: "لا يُعاد تعيين رمز المالك إلا لمنشأة نشطة أو موقوفة" }, 409);
       }
       if (!resetOwnerPin) throw new Error("resetOwnerPin dependency is not configured");
       const result = await resetOwnerPin({ tenant, actorId: platformUser.id });
-      await audit(c, "TENANT_OWNER_PIN_RESET", tenant.id, { code: tenant.code, adminEmail: result.adminEmail });
+      await audit(c, "TENANT_OWNER_PIN_RESET", tenant.id, { code: tenant.code, adminEmail: result.adminEmail }, "CRITICAL");
       return c.json(result, 200);
     } catch (err) {
-      if (err instanceof TenantOwnerAccountNotFoundError) return c.json({ error: err.code, message: err.message }, 409);
+      if (err instanceof TenantOwnerAccountNotFoundError) {
+        await ownerPinResetRefused(c, tenantId, err.code);
+        return c.json({ error: err.code, message: err.message }, 409);
+      }
       return domainErrorResponse(c, err);
     }
   });

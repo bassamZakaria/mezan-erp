@@ -1743,3 +1743,95 @@ describe("D111 round 3 · shared master data carries no other branch's money or 
     }
   });
 });
+
+describe("D111 round 3 · a branch user does not rewrite what prices every branch", () => {
+  const restricted = (): readonly (readonly [label: string, caller: Caller])[] => [
+    ["non-admin", alex],
+    ["* admin granted one branch", alexStar],
+  ];
+  const fingerprint = (sql: string, ...params: unknown[]) => JSON.stringify(all(sql, ...params));
+
+  function expectFieldRefused(res: Res, field: string) {
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(403);
+    expect(res.body.error).toBe("SHARED_FIELD_RESTRICTED");
+    expect(res.body.message).toMatch(ARABIC);
+    expect(res.body.fields).toContain(field);
+  }
+
+  it("a customer's credit limit, price list, payment terms, tax exemption and active flag are refused; its phone is not", async () => {
+    const state = () => fingerprint("SELECT credit_limit, price_list_id, payment_terms_days, tax_exempt, active FROM customer WHERE id = 'CUST-DEMO-2'");
+    const before = state();
+    for (const [label, caller] of restricted()) {
+      for (const [field, value] of [["creditLimit", "999999999"], ["priceListId", null], ["paymentTermsDays", 365], ["taxExempt", true], ["active", false]] as const) {
+        expectFieldRefused(await caller("PATCH", "/customers/CUST-DEMO-2", { [field]: value }), field);
+      }
+      expect(state(), label).toBe(before);
+      const unchanged = await caller("PATCH", "/customers/CUST-DEMO-2", { phone: "01000000001", creditLimit: "120000", paymentTermsDays: 45 });
+      expect(unchanged.status, `${label} ${JSON.stringify(unchanged.body).slice(0, 200)}`).toBe(200);
+      expect(one<any>("SELECT phone FROM customer WHERE id = 'CUST-DEMO-2'").phone).toBe("01000000001");
+      expect(state(), label).toBe(before);
+    }
+  });
+
+  it("a branch user creates a customer, but not one born with a credit limit or a price list", async () => {
+    const created = await alex("POST", "/customers", { id: "R3-CUST-OK", nameAr: "عميل الفرع", creditLimit: "0", taxExempt: false, active: true });
+    expect(created.status, JSON.stringify(created.body).slice(0, 200)).toBe(201);
+    expectFieldRefused(await alex("POST", "/customers", { id: "R3-CUST-LIMIT", nameAr: "عميل بحد", creditLimit: "5000000" }), "creditLimit");
+    expectFieldRefused(await alex("POST", "/customers", { id: "R3-CUST-PL", nameAr: "عميل بقائمة", priceListId: "PL-DEMO-2" }), "priceListId");
+    expect(one("SELECT id FROM customer WHERE id IN ('R3-CUST-LIMIT', 'R3-CUST-PL')")).toBeUndefined();
+  });
+
+  it("a supplier's payment terms and active flag, and an item's cost, GL accounts and status, are refused", async () => {
+    const state = () =>
+      fingerprint("SELECT payment_terms_days, active FROM supplier WHERE id = 'SUPP-DEMO-1'") +
+      fingerprint("SELECT * FROM item WHERE id = 'ITEM-DEMO-1'");
+    const before = state();
+    for (const [label, caller] of restricted()) {
+      expectFieldRefused(await caller("PATCH", "/suppliers/SUPP-DEMO-1", { paymentTermsDays: 365 }), "paymentTermsDays");
+      expectFieldRefused(await caller("PATCH", "/suppliers/SUPP-DEMO-1", { active: false }), "active");
+      for (const [field, value] of [["costPrice", "1.00"], ["revenueAccountId", "4900"], ["cogsAccountId", "5200"], ["inventoryAccountId", "1300-1"], ["status", "inactive"]] as const) {
+        expectFieldRefused(await caller("PATCH", "/items/ITEM-DEMO-1", { [field]: value }), field);
+      }
+      expect(state(), label).toBe(before);
+    }
+    const described = await alex("PATCH", "/items/ITEM-DEMO-1", { description: "وصف من الفرع" });
+    expect(described.status, JSON.stringify(described.body).slice(0, 200)).toBe(200);
+  });
+
+  it("price lists, promotions, bills of materials and configurable products are read-only, while pricing a line still works", async () => {
+    const state = () =>
+      fingerprint("SELECT COUNT(*) AS n FROM price_list") + fingerprint("SELECT COUNT(*) AS n FROM promotion") + fingerprint("SELECT id, active FROM price_list ORDER BY id");
+    const before = state();
+    for (const [label, caller] of restricted()) {
+      const writes: readonly (readonly [method: string, path: string])[] = [
+        ["POST", "/price-lists"],
+        ["PATCH", "/price-lists/PL-DEMO-2"],
+        ["POST", "/price-lists/PL-DEMO-2/deactivate"],
+        ["POST", "/promotions"],
+        ["PATCH", "/promotions/PROMO-DEMO-1"],
+        ["POST", "/promotions/PROMO-DEMO-1/deactivate"],
+        ["POST", "/manufacturing/boms"],
+        ["POST", "/manufacturing/configurable-products"],
+      ];
+      for (const [method, path] of writes) {
+        const res = await caller(method, path, { id: "R3-RO", nameAr: "محاولة" });
+        expect(res.status, `${label} ${method} ${path}`).toBe(403);
+        expect(res.body.error).toBe("COMPANY_WIDE_REPORT");
+        expect(res.body.message).toMatch(ARABIC);
+      }
+      expect(state(), label).toBe(before);
+      expect((await caller("GET", "/price-lists")).status, label).toBe(200);
+      expect((await caller("GET", "/promotions")).status, label).toBe(200);
+      const priced = await caller("POST", "/price-lists/resolve-price", { itemId: "ITEM-DEMO-1", customerId: "CUST-DEMO-2", qty: "1", date: TODAY });
+      expect(priced.status, `${label} ${JSON.stringify(priced.body).slice(0, 200)}`).not.toBe(403);
+      const evaluated = await caller("POST", "/promotions/evaluate", { date: TODAY, customerId: "CUST-DEMO-2", lines: [{ itemId: "ITEM-DEMO-1", qty: "1", unitPrice: "180" }] });
+      expect(evaluated.status, `${label} ${JSON.stringify(evaluated.body).slice(0, 200)}`).not.toBe(403);
+    }
+  });
+
+  it("an unrestricted admin edits all of it", async () => {
+    const limit = await admin("PATCH", "/customers/CUST-DEMO-2", { creditLimit: "120000" });
+    expect(limit.status, JSON.stringify(limit.body).slice(0, 200)).toBe(200);
+    expect((await admin("PATCH", "/items/ITEM-DEMO-1", { costPrice: "140" })).status).toBe(200);
+  });
+});

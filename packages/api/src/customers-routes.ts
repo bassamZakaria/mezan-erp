@@ -1,3 +1,4 @@
+import { sharedFieldRefusal } from "./branch-policy.js";
 import { Hono, type Context } from "hono";
 import { nextMasterCode } from "./master-code.js";
 import {
@@ -80,6 +81,8 @@ export interface PartyOpeningBalancePoster {
 }
 
 /** Wire representation of a customer — a plain JSON-safe projection with Money as decimal strings. */
+const CUSTOMERS_PREFIX = "/customers";
+
 function serialize(customer: Customer) {
   return {
     id: customer.id,
@@ -365,6 +368,8 @@ export function createCustomersRouter(
     if (await repo.findById(parsed.data.id)) {
       return c.json({ error: "ALREADY_EXISTS" }, 409);
     }
+    const restrictedOnCreate = sharedFieldRefusal(c, CUSTOMERS_PREFIX, null, parsed.data);
+    if (restrictedOnCreate) return restrictedOnCreate;
     const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "C");
     if (await repo.findByCode(code)) {
       return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${code}» مستخدم بالفعل.` }, 409);
@@ -404,6 +409,8 @@ export function createCustomersRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const restricted = sharedFieldRefusal(c, CUSTOMERS_PREFIX, serialize(current), parsed.data);
+    if (restricted) return restricted;
     // Every POS sale with no named buyer is invoiced to this customer: it must
     // stay active and stay a consumer (no tax number), or the till stops selling.
     if (

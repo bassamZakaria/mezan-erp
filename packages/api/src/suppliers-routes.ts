@@ -1,3 +1,4 @@
+import { sharedFieldRefusal } from "./branch-policy.js";
 import { Hono, type Context } from "hono";
 import { createSupplier, updateSupplier, InvalidSupplierError, Money, AuditChangeAction, type AuditSink, type Supplier, type SupplierRepository, matchesSearch } from "@mezan/domain";
 import { nextMasterCode } from "./master-code.js";
@@ -26,6 +27,8 @@ export interface SupplierPayablesSource {
 }
 
 /** Wire representation of a supplier — a plain JSON-safe projection with Money as decimal strings. */
+const SUPPLIERS_PREFIX = "/suppliers";
+
 function serialize(supplier: Supplier) {
   return {
     id: supplier.id,
@@ -204,6 +207,8 @@ export function createSuppliersRouter(
     if (await repo.findById(parsed.data.id)) {
       return c.json({ error: "ALREADY_EXISTS" }, 409);
     }
+    const restrictedOnCreate = sharedFieldRefusal(c, SUPPLIERS_PREFIX, null, parsed.data);
+    if (restrictedOnCreate) return restrictedOnCreate;
     const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "S");
     if (await repo.findByCode(code)) {
       return c.json({ error: "DUPLICATE_SUPPLIER_CODE", message: `كود المورد «${code}» مستخدم بالفعل.` }, 409);
@@ -236,6 +241,8 @@ export function createSuppliersRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const restricted = sharedFieldRefusal(c, SUPPLIERS_PREFIX, serialize(current), parsed.data);
+    if (restricted) return restricted;
     if (parsed.data.code !== undefined && parsed.data.code !== current.code) {
       const clash = await repo.findByCode(parsed.data.code);
       if (clash) {

@@ -95,6 +95,10 @@ export interface BranchPolicyEntry {
   readonly companyWide?: readonly string[];
   readonly defaultsBranch?: boolean;
   readonly defaultsLineBranch?: boolean;
+  /** Fields of a shared record that apply to every branch: a branch-restricted session may not set or change them. */
+  readonly restrictedFields?: readonly string[];
+  /** POST sub-paths of a read-only family that compute and store nothing. */
+  readonly readPosts?: readonly string[];
   /** A family that moves stock between two warehouses, so its warehouses need not share the document's branch. */
   readonly movesBetweenWarehouses?: boolean;
   /** A record of this family that no branch owns is the company's: readable by every session, writable only by an unrestricted one. */
@@ -113,12 +117,12 @@ function handlerScoped(prefix: string, extra: Partial<BranchPolicyEntry> = {}): 
   return { prefix, policy: BranchPolicy.Scoped, reads: ScopedReads.HandlerNarrows, ...extra };
 }
 
-function shared(prefix: string, params?: Readonly<Record<string, BranchRecordKind | null>>): BranchPolicyEntry {
-  return { prefix, policy: BranchPolicy.MasterDataShared, ...(params ? { params } : {}) };
+function shared(prefix: string, params?: Readonly<Record<string, BranchRecordKind | null>>, restrictedFields?: readonly string[]): BranchPolicyEntry {
+  return { prefix, policy: BranchPolicy.MasterDataShared, ...(params ? { params } : {}), ...(restrictedFields ? { restrictedFields } : {}) };
 }
 
-function readOnly(prefix: string): BranchPolicyEntry {
-  return { prefix, policy: BranchPolicy.SharedReadOnly };
+function readOnly(prefix: string, extra: Partial<BranchPolicyEntry> = {}): BranchPolicyEntry {
+  return { prefix, policy: BranchPolicy.SharedReadOnly, ...extra };
 }
 
 function companyWide(prefix: string): BranchPolicyEntry {
@@ -194,19 +198,19 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   readOnly("/assets/categories"),
   readOnly("/manufacturing/work-stations"),
 
-  shared("/items"),
+  shared("/items", undefined, ["costPrice", "revenueAccountId", "cogsAccountId", "inventoryAccountId", "status"]),
   shared("/item-units"),
   shared("/item-categories"),
   shared("/item-brands"),
   shared("/item-seasons"),
   shared("/item-specifications"),
   shared("/inventory/product-templates"),
-  shared("/price-lists"),
-  shared("/promotions"),
-  shared("/manufacturing/boms"),
-  shared("/manufacturing/configurable-products"),
-  shared("/customers", { id: K.Customer }),
-  shared("/suppliers", { id: K.Supplier }),
+  readOnly("/price-lists", { readPosts: ["/resolve-price"] }),
+  readOnly("/promotions", { readPosts: ["/evaluate"] }),
+  readOnly("/manufacturing/boms"),
+  readOnly("/manufacturing/configurable-products"),
+  shared("/customers", { id: K.Customer }, ["creditLimit", "priceListId", "paymentTermsDays", "taxExempt", "active"]),
+  shared("/suppliers", { id: K.Supplier }, ["paymentTermsDays", "active"]),
   shared("/cost-centers", { id: K.CostCenter }),
 
   companyWide("/data-migration"),
@@ -363,6 +367,7 @@ export enum BranchRefusalCode {
   BranchRequired = "BRANCH_REQUIRED",
   TreasuryBranchMismatch = "TREASURY_BRANCH_MISMATCH",
   WarehouseBranchMismatch = "WAREHOUSE_BRANCH_MISMATCH",
+  SharedFieldRestricted = "SHARED_FIELD_RESTRICTED",
 }
 
 export interface BranchRefusalBody {
@@ -401,6 +406,11 @@ export const BRANCH_REFUSALS: Readonly<Record<BranchRefusalCode, BranchRefusalBo
     error: BranchRefusalCode.TreasuryBranchMismatch,
     message: "الخزينة أو الحساب البنكي يتبع فرعًا غير فرع المستند.",
     messageEn: "The cash or bank account belongs to a different branch from the document.",
+  },
+  [BranchRefusalCode.SharedFieldRestricted]: {
+    error: BranchRefusalCode.SharedFieldRestricted,
+    message: "هذا الحقل يسري على كل الفروع، ولا يحدده أو يغيّره حساب مقيّد بفروع محددة. اطلب التعديل من الإدارة.",
+    messageEn: "This field applies to every branch and cannot be set or changed by an account restricted to specific branches. Ask head office to change it.",
   },
   [BranchRefusalCode.WarehouseBranchMismatch]: {
     error: BranchRefusalCode.WarehouseBranchMismatch,

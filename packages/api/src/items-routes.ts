@@ -20,7 +20,7 @@ import {
   can,
   matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema, pageQuerySchema, DEFAULT_PAGE_SIZE } from "@mezan/contracts";
-import { grantedWarehouseIdsOf } from "./branch-policy.js";
+import { grantedWarehouseIdsOf, sharedFieldRefusal } from "./branch-policy.js";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 
@@ -64,6 +64,8 @@ export const AUDITED_ITEM_FIELDS = [
  * the item-list permission every clerk holds (D94). It is omitted from the
  * payload, not nulled: a null reads as "this item has no cost".
  */
+const ITEMS_PREFIX = "/items";
+
 function serialize(item: Item, showCost = true) {
   const cost = showCost ? { costPrice: item.costPrice?.toString() ?? null } : {};
   return {
@@ -396,6 +398,8 @@ export function createItemsRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const restrictedOnCreate = sharedFieldRefusal(c, ITEMS_PREFIX, null, parsed.data);
+    if (restrictedOnCreate) return restrictedOnCreate;
     try {
       const tenant = settings ? ((await settings.get()) ?? createDefaultSettings()) : null;
       const item = await createItem(
@@ -423,6 +427,8 @@ export function createItemsRouter(
     }
     try {
       const before = await repo.findById(c.req.param("id"));
+      const restricted = before ? sharedFieldRefusal(c, ITEMS_PREFIX, serialize(before), parsed.data) : null;
+      if (restricted) return restricted;
       const item = await updateItem(
         c.req.param("id"),
         {

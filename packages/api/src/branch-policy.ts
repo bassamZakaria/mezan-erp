@@ -80,6 +80,7 @@ const REFUSAL_STATUS: Readonly<Record<BranchRefusalCode, 400 | 403 | 404 | 422>>
   [BranchRefusalCode.BranchRequired]: 400,
   [BranchRefusalCode.TreasuryBranchMismatch]: 403,
   [BranchRefusalCode.WarehouseBranchMismatch]: 422,
+  [BranchRefusalCode.SharedFieldRestricted]: 403,
 };
 
 export function branchRefusal(c: Context, code: BranchRefusalCode): Response {
@@ -441,6 +442,38 @@ export async function recordInBranchGrant(c: Context, kind: BranchRecordKind, id
   return standing === Standing.Unattributed && session.seesUnattributed;
 }
 
+const UNSET_FIELD_VALUES: ReadonlySet<unknown> = new Set([undefined, null, "", false, 0]);
+const DECIMAL = /^-?\d+(\.\d+)?$/;
+const CREATED_ACTIVE: Readonly<Record<string, unknown>> = { active: true, status: "active" };
+
+function sameFieldValue(stored: unknown, sent: unknown): boolean {
+  if (typeof stored === "string" && typeof sent === "string" && DECIMAL.test(stored) && DECIMAL.test(sent)) {
+    const scaled = (text: string) => {
+      const [whole = "0", fraction = ""] = text.replace("-", "").split(".");
+      return (text.startsWith("-") ? -1n : 1n) * BigInt(whole + fraction.padEnd(6, "0").slice(0, 6));
+    };
+    return scaled(stored) === scaled(sent);
+  }
+  const unset = (value: unknown) => UNSET_FIELD_VALUES.has(value) || (typeof value === "string" && DECIMAL.test(value) && Number(value) === 0);
+  if (unset(stored) && unset(sent)) return true;
+  return JSON.stringify(stored) === JSON.stringify(sent);
+}
+
+/**
+ * SECURITY: a branch-restricted session may create and edit shared master
+ * data, but not the fields that apply to every branch — a credit limit, a
+ * price list, payment terms, a cost, the accounts a sale posts to, whether the
+ * record is active. `stored` is the record as it stands, or null on create;
+ * a field the request sends unchanged is not a change.
+ */
+export function sharedFieldRefusal(c: Context, prefix: string, stored: Readonly<Record<string, unknown>> | null, sent: Readonly<Record<string, unknown>>): Response | null {
+  if (!c.get(BRANCH_SESSION_KEY)) return null;
+  const restricted = branchPolicyFor(prefix)?.restrictedFields ?? [];
+  const fields = restricted.filter((field) => sent[field] !== undefined && !sameFieldValue(stored ? stored[field] : CREATED_ACTIVE[field], sent[field]));
+  if (fields.length === 0) return null;
+  return c.json({ ...BRANCH_REFUSALS[BranchRefusalCode.SharedFieldRestricted], fields }, 403);
+}
+
 export async function recordsInBranchGrant<Row>(c: Context, kind: BranchRecordKind, rows: readonly Row[], idOf: (row: Row) => string): Promise<readonly Row[]> {
   if (!c.get(BRANCH_SESSION_KEY)) return rows;
   const kept: Row[] = [];
@@ -552,7 +585,7 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
     }
     if (entry.policy === BranchPolicy.Public || entry.policy === BranchPolicy.SelfOnly) return next();
     if (entry.policy === BranchPolicy.SharedReadOnly) {
-      return isRead(c) ? next() : branchRefusal(c, BranchRefusalCode.CompanyWideOnly);
+      return isRead(c) || subPathListed(entry, routePath, entry.readPosts) ? next() : branchRefusal(c, BranchRefusalCode.CompanyWideOnly);
     }
 
     const outsideQuery = await queryRefusal(c, session, entry);

@@ -8406,10 +8406,10 @@ requests on the main server (four by API, one from the form) and spec 06 makes
 is untouched, and `--repeat-each=2` on specs 01, 03 and 04 passes (56 tests).
 
 Timeouts, and the load they were measured at. On a 12-core machine shared with
-other test runs, at a 1-minute load average of 28 to 39 (three full runs on
-2026-10-11, one of them alongside four `pnpm build`s of this repo): a
-screen-walk test took 16 to 27 seconds and the slowest other test 17 seconds
-(the 390px console walk; outside spec 07 the slowest was 11 seconds). The main
+other test runs, at a 1-minute load average of 12 to 39 (six full runs on
+2026-10-11, two of them alongside four `pnpm build`s of this repo): a
+screen-walk test took 15 to 34 seconds and the slowest other test 17 seconds
+(the 390px console walk in one run, spec 06's first test in another). The main
 API answered `/healthz` 1 second after start with no seed, measured at load 7
 and again at load 10, not at the higher load. Against that: servers get 300
 seconds to boot, a test 120 seconds, a screen-walk test 180, the three clock
@@ -8560,10 +8560,12 @@ Found by the final code review the same day and fixed: cached tenant answers and
 ### Run record — 2026-10-11, `pnpm test:saas` on :3321/:5321 and :3322/:5322, Chromium
 
 Automated, Arabic, light theme, desktop unless the screen walk says otherwise.
-Run three times in a row: 58 passed, 0 parked, 0 failed, 0 skipped each time —
-4.3 minutes at a load average of 28, 5.6 minutes at 39 with four `pnpm build`s
-of this repo running beside it, and 5.1 minutes at 31. Specs 01, 03 and 04
-with `--repeat-each=2`: 56 passed.
+Run three times in a row on the final tree: 59 passed, 0 parked, 0 failed, 0
+skipped each time — 5.7 minutes at a load average of 34 to 38, 4.7 minutes at
+35 with four `pnpm build`s of this repo finishing beside it, and 3.7 minutes
+at 12 falling to 6. The three runs before the owner-PIN test was added were 58
+of 58 at loads of 28, 39 (again beside four builds) and 31. Specs 01, 03 and
+04 with `--repeat-each=2`: 56 passed.
 
 | ID | Result | What the suite asserts |
 |---|---|---|
@@ -8596,7 +8598,9 @@ through all four phone looks as well.
 
 Also guarded since 2026-10-11: a forged verification link shows the server's
 «رابط التفعيل غير صالح»; the signup form caps the company name at 200
-characters.
+characters; the platform owner resets a tenant owner's PIN from the tenant
+page — asked first, the new PIN shown once and gone after a reload, the old
+PIN answers 401 and the new one signs in.
 
 # 12. Shell, dashboard and reports
 

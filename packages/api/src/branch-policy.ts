@@ -334,21 +334,44 @@ async function treasuryMismatchRefusal(
 }
 
 const DOCUMENT_WAREHOUSE_KEY = "warehouseId";
+const SOURCE_DOCUMENT_KEYS: ReadonlySet<string> = new Set(["sourceInvoiceId", "invoiceId", "receiptId", "purchaseOrderId", "orderId", "quoteId", "rfqId"]);
+
+type BranchResolver = (kind: BranchRecordKind, id: string) => Promise<readonly (string | null)[] | null>;
+
+async function attributedBranches(resolve: BranchResolver, kind: BranchRecordKind, id: string): Promise<string[]> {
+  return ((await resolve(kind, id)) ?? []).filter((branch): branch is string => typeof branch === "string" && branch !== "");
+}
 
 /**
  * LEDGER INVARIANT, for every session: a document's warehouse belongs to the
  * document's branch. The journal is stamped with the branch and the stock
  * leaves the warehouse, so a pair that disagrees books one branch's sale
  * against another branch's stock.
+ *
+ * The document's branch is the one it will be BOOKED to, which is not always
+ * the one the body states: the stored document a by-id route addresses, else
+ * the branch named beside the warehouse, else the source document named beside
+ * it, else the header's, else the branch of the header's own warehouse.
  */
 async function warehouseBranchRefusal(
   c: Context,
-  resolve: (kind: BranchRecordKind, id: string) => Promise<readonly (string | null)[] | null>,
+  resolve: BranchResolver,
   entry: BranchPolicyEntry | undefined,
+  routePath: string,
   body: unknown,
+  defaultBranch?: string,
 ): Promise<Response | null> {
   if (entry?.movesBetweenWarehouses) return null;
-  const disagrees = async (value: unknown, inherited: string | undefined, depth: number): Promise<boolean> => {
+  const stored = new Set<string>();
+  if (entry) {
+    for (const [name, value] of Object.entries(paramsOf(routePath, new URL(c.req.url).pathname))) {
+      const kind = entry.params?.[name];
+      if (!kind || NAMED_LOCATION_KINDS.has(kind)) continue;
+      for (const id of await attributedBranches(resolve, kind, value)) stored.add(id);
+    }
+  }
+  const root = stored.size > 0 ? stored : defaultBranch !== undefined && entry?.defaultsBranch && paramNamesOf(routePath).length === 0 ? new Set([defaultBranch]) : undefined;
+  const disagrees = async (value: unknown, inherited: ReadonlySet<string> | undefined, depth: number): Promise<boolean> => {
     if (depth > BODY_SCAN_DEPTH || value === null || typeof value !== "object") return false;
     if (Array.isArray(value)) {
       for (const item of value) if (await disagrees(item, inherited, depth + 1)) return true;
@@ -356,16 +379,27 @@ async function warehouseBranchRefusal(
     }
     const record = value as Record<string, unknown>;
     const stated = record["branchId"];
-    const branch = typeof stated === "string" && stated !== "" ? stated : inherited;
-    const warehouse = record[DOCUMENT_WAREHOUSE_KEY];
-    if (branch !== undefined && typeof warehouse === "string" && warehouse !== "") {
-      const held = ((await resolve(K.Warehouse, warehouse)) ?? []).filter((id): id is string => typeof id === "string" && id !== "");
-      if (held.some((id) => id !== branch)) return true;
+    let branches: ReadonlySet<string> | undefined = depth === 0 && stored.size > 0 ? stored : typeof stated === "string" && stated !== "" ? new Set([stated]) : undefined;
+    if (!branches) {
+      const sourced = new Set<string>();
+      for (const key of SOURCE_DOCUMENT_KEYS) {
+        const id = record[key];
+        const kind = BODY_REFERENCE_KEYS[key];
+        if (typeof id === "string" && id !== "" && kind) for (const branch of await attributedBranches(resolve, kind, id)) sourced.add(branch);
+      }
+      branches = sourced.size > 0 ? sourced : inherited;
     }
-    for (const child of Object.values(record)) if (await disagrees(child, branch, depth + 1)) return true;
+    const warehouse = record[DOCUMENT_WAREHOUSE_KEY];
+    let held: string[] = [];
+    if (typeof warehouse === "string" && warehouse !== "") {
+      held = await attributedBranches(resolve, K.Warehouse, warehouse);
+      if (branches && held.some((id) => !branches.has(id))) return true;
+    }
+    const handedDown = branches ?? (held.length > 0 ? new Set(held) : undefined);
+    for (const child of Object.values(record)) if (await disagrees(child, handedDown, depth + 1)) return true;
     return false;
   };
-  return (await disagrees(body, undefined, 0)) ? branchRefusal(c, BranchRefusalCode.WarehouseBranchMismatch) : null;
+  return (await disagrees(body, root, 0)) ? branchRefusal(c, BranchRefusalCode.WarehouseBranchMismatch) : null;
 }
 
 /**
@@ -420,6 +454,29 @@ function warehouseGrantRefusal(c: Context, ctx: AuthContext, body: unknown): Res
   if (granted === ALL_SCOPE) return null;
   const outside = referencesNamedIn(body).some((reference) => reference.kind === K.Warehouse && !granted.includes(reference.id));
   return outside ? branchRefusal(c, BranchRefusalCode.WarehouseOutOfScope) : null;
+}
+
+/**
+ * SECURITY, for every session granted only some warehouses: a stored document
+ * that stands on a warehouse outside them answers as one that is not there —
+ * to read it and to move it. Without this the warehouse grant held a session
+ * off raising a document on another warehouse and then let it confirm one
+ * somebody else had raised there. A document that moves stock between two
+ * warehouses is open from either end.
+ */
+async function storedWarehouseRefusal(c: Context, ctx: AuthContext, directory: BranchDirectory | undefined, entry: BranchPolicyEntry | undefined, routePath: string): Promise<Response | null> {
+  const granted = ctx.warehouseGrant;
+  if (granted === ALL_SCOPE || !directory || !entry) return null;
+  for (const [name, value] of Object.entries(paramsOf(routePath, new URL(c.req.url).pathname))) {
+    const kind = entry.params?.[name];
+    if (!kind) continue;
+    const warehouses = (await directory.warehousesOf(kind, value)) ?? [];
+    if (warehouses.length === 0) continue;
+    const inside = warehouses.filter((id) => granted.includes(id)).length;
+    const reachable = isRead(c) || entry.movesBetweenWarehouses ? inside > 0 : inside === warehouses.length;
+    if (!reachable) return branchRefusal(c, BranchRefusalCode.NotFound);
+  }
+  return null;
 }
 
 function companysRecordRefusal(c: Context, entry: BranchPolicyEntry, body: unknown): Response | null {
@@ -579,13 +636,15 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
     if (!ctx.authenticated) return next();
     const directory = options.directory;
     if (ctx.branchGrant === ALL_SCOPE) {
+      const outsideStoredWarehouse = await storedWarehouseRefusal(c, ctx, directory, branchPolicyFor(routePath, table), routePath);
+      if (outsideStoredWarehouse) return outsideStoredWarehouse;
       if (isRead(c)) return next();
       const body = await readJsonBody(c);
       const outsideWarehouses = warehouseGrantRefusal(c, ctx, body);
       if (outsideWarehouses) return outsideWarehouses;
       if (!directory) return next();
       const resolve = async (kind: BranchRecordKind, id: string) => (kind === K.Branch ? [id] : directory.branchesOf(kind, id, BranchAccess.Write));
-      const mismatch = await warehouseBranchRefusal(c, resolve, branchPolicyFor(routePath, table), body);
+      const mismatch = await warehouseBranchRefusal(c, resolve, branchPolicyFor(routePath, table), routePath, body);
       return mismatch ?? next();
     }
 
@@ -615,7 +674,7 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
 
     const outsideQuery = await queryRefusal(c, session, entry);
     if (outsideQuery) return outsideQuery;
-    const stored = await storedRecordRefusal(c, session, entry, routePath);
+    const stored = (await storedRecordRefusal(c, session, entry, routePath)) ?? (await storedWarehouseRefusal(c, ctx, directory, entry, routePath));
     if (stored) return stored;
     if (!isRead(c)) {
       const body = await readJsonBody(c);
@@ -624,7 +683,7 @@ export function branchPolicyEnforcement(options: BranchPolicyEnforcementOptions)
         companysRecordRefusal(c, entry, body) ??
         (await claimedIdRefusal(c, session, entry, routePath, body)) ??
         (await bodyRefusal(c, session, entry, body)) ??
-        (await warehouseBranchRefusal(c, (kind, id) => lookup(session, kind, id), entry, body)) ??
+        (await warehouseBranchRefusal(c, (kind, id) => lookup(session, kind, id), entry, routePath, body, session.grant.length === 1 ? session.grant[0] : undefined)) ??
         (await treasuryMismatchRefusal(c, (kind, id) => lookup(session, kind, id), RESTRICTED_TREASURY_HOLDER_KEYS, entry, routePath, body)) ??
         defaultBranchRefusal(c, session, entry, routePath, body);
       if (refusal) return refusal;

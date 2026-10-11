@@ -26,7 +26,7 @@ export { atomically, type ConfigTransactor } from "./config-transactor.js";
 export { MasterDataKind, refuseUnknownMasterData, unknownMasterIds, type MasterDataChecks, type MasterDataRef, type MasterRecordCheck } from "./master-data-check.js";
 export { createSettingsRoutes } from "./settings-routes.js";
 export { createBranchesRoutes } from "./branches-routes.js";
-export { createWarehousesRoutes } from "./warehouses-routes.js";
+export { createWarehousesRoutes, WarehouseRefusalCode, type WarehouseUse } from "./warehouses-routes.js";
 export { createCustomersRouter } from "./customers-routes.js";
 export { createSuppliersRouter } from "./suppliers-routes.js";
 export { createItemsRouter } from "./items-routes.js";

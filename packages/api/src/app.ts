@@ -112,7 +112,7 @@ import { createSettingsRoutes } from "./settings-routes.js";
 import { tenantTimeZoneMiddleware } from "./tenant-day.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
-import { createWarehousesRoutes } from "./warehouses-routes.js";
+import { createWarehousesRoutes, type WarehouseUse } from "./warehouses-routes.js";
 import {
   createCustomersRouter,
   type CustomerReceivablesSource,
@@ -375,6 +375,8 @@ export interface CreateAppOptions {
   readonly branchDirectory?: BranchDirectory;
   /** Mounts `/warehouses` (docs/archive/catalog/09) when present — omit it for no `/warehouses` route. */
   readonly warehouseStore?: WarehouseRepository;
+  /** What still ties a warehouse to its branch; without it a warehouse can be re-homed under stock and open documents. */
+  readonly warehouseUse?: (warehouseId: string) => WarehouseUse;
   /** Mounts `/customers` (docs/archive/catalog/01 "العملاء") when present — omit it for no `/customers` route. */
   readonly customerStore?: CustomerRepository;
   /** Mounts `/suppliers` (docs/archive/catalog/02 "الموردون") when present — omit it for no `/suppliers` route. */
@@ -1078,7 +1080,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/branches", createBranchesRoutes(options.branchStore, resolveAuth));
   }
   if (options.warehouseStore) {
-    app.route("/warehouses", createWarehousesRoutes(options.warehouseStore, resolveAuth));
+    app.route("/warehouses", createWarehousesRoutes(options.warehouseStore, resolveAuth, options.warehouseUse));
   }
   /** The customer aging ladder's own row totals — never a second derivation beside it (D195). */
   const reportsDeps = options.reports;

@@ -60,6 +60,29 @@ const COLUMN_SOURCES: Partial<Record<BranchRecordKind, ColumnSource>> = {
   },
 };
 
+interface WarehouseSource {
+  readonly table: string;
+  readonly columns: readonly string[];
+  readonly numberColumn?: string;
+}
+
+const WAREHOUSE_SOURCES: Partial<Record<BranchRecordKind, WarehouseSource>> = {
+  [K.Warehouse]: { table: "warehouse", columns: ["id"] },
+  [K.SalesInvoice]: { table: "sales_invoice", columns: ["warehouse_id"], numberColumn: "doc_no" },
+  [K.PurchaseOrder]: { table: "purchase_order", columns: ["warehouse_id"], numberColumn: "number" },
+  [K.PurchaseInvoice]: { table: "purchase_invoice", columns: ["warehouse_id"], numberColumn: "number" },
+  [K.GoodsReceipt]: { table: "goods_receipt", columns: ["warehouse_id"], numberColumn: "number" },
+  [K.Rfq]: { table: "purchase_rfq", columns: ["warehouse_id"], numberColumn: "number" },
+  [K.PhysicalCount]: { table: "physical_count", columns: ["warehouse_id"], numberColumn: "count_no" },
+  [K.WorkOrder]: { table: "work_order", columns: ["source_warehouse_id", "wip_warehouse_id", "destination_warehouse_id"], numberColumn: "number" },
+  [K.Asset]: { table: "asset", columns: ["warehouse_id"] },
+  [K.Van]: { table: "van", columns: ["warehouse_id"] },
+  [K.VanTrip]: { table: "van_trip", columns: ["van_warehouse_id", "source_warehouse_id"] },
+  [K.PosTerminal]: { table: "pos_terminal", columns: ["warehouse_id"] },
+  [K.WritedownRun]: { table: "writedown_run", columns: ["warehouse_id"] },
+};
+const LINE_WAREHOUSE_KEYS = ["warehouseId", "fromWarehouseId", "toWarehouseId"] as const;
+
 const FRAMEWORK_DOC_TYPE: Partial<Record<BranchRecordKind, string>> = {
   [K.SalesReturn]: "SALES_RETURN",
   [K.PurchaseReturn]: "PURCHASE_RETURN",
@@ -272,5 +295,50 @@ export function createSqliteBranchDirectory(sqlite: Database.Database): BranchDi
     return special[kind]?.(id, access) ?? null;
   }
 
-  return { branchesOf: resolve };
+  const warehouseQueries = new Map<BranchRecordKind, { rows: Query; columns: readonly string[] }>(
+    (Object.entries(WAREHOUSE_SOURCES) as [BranchRecordKind, WarehouseSource][]).map(([kind, source]) => [
+      kind,
+      {
+        rows: query(`SELECT ${source.columns.join(", ")} FROM ${source.table} d WHERE d.id = @id${source.numberColumn ? ` OR d.${source.numberColumn} = @id` : ""}`),
+        columns: source.columns,
+      },
+    ]),
+  );
+  const postedStockWarehouses = query("SELECT DISTINCT m.warehouse_id AS w FROM stock_movement m WHERE m.source_doc_id = @id OR m.source_doc_number = @id");
+  const lineWarehouses = (linesJson: unknown): string[] =>
+    parseLines(linesJson).flatMap((line) => LINE_WAREHOUSE_KEYS.map((key) => text(line[key])).filter((id): id is string => id !== null));
+  const WAREHOUSE_COMPOSITES: Partial<Record<BranchRecordKind, readonly BranchRecordKind[]>> = {
+    [K.AnyInvoice]: [K.SalesInvoice, K.PurchaseInvoice],
+    [K.SourceDocument]: SOURCE_DOCUMENT_KINDS,
+    [K.AnyDocument]: ANY_DOCUMENT_KINDS,
+  };
+
+  function warehousesOf(kind: BranchRecordKind, id: string): readonly string[] | null {
+    const fromColumns = warehouseQueries.get(kind);
+    if (fromColumns) {
+      const rows = fromColumns.rows(id);
+      if (rows.length === 0) return null;
+      return [...new Set(rows.flatMap((row) => fromColumns.columns.map((column) => text(row[column])).filter((value): value is string => value !== null)))];
+    }
+    const docType = FRAMEWORK_DOC_TYPE[kind];
+    if (docType) {
+      const row = sql.frameworkTyped(id, docType)[0];
+      return row ? [...new Set(lineWarehouses(row["lines_json"]))] : null;
+    }
+    if (kind === K.StockAdjustment || kind === K.StockTransfer) {
+      const row = stockDocumentQueries[kind === K.StockAdjustment ? "stock_adjustment_document" : "stock_transfer_document"](id)[0];
+      return row ? [...new Set(lineWarehouses(row["lines_json"]))] : null;
+    }
+    if (kind === K.PostedStockDocument) {
+      const rows = postedStockWarehouses(id);
+      return rows.length === 0 ? null : rows.map((row) => text(row["w"])).filter((value): value is string => value !== null);
+    }
+    for (const member of WAREHOUSE_COMPOSITES[kind] ?? []) {
+      const warehouses = warehousesOf(member, id);
+      if (warehouses !== null) return warehouses;
+    }
+    return resolve(kind, id, BranchAccess.Read) === null ? null : [];
+  }
+
+  return { branchesOf: resolve, warehousesOf };
 }

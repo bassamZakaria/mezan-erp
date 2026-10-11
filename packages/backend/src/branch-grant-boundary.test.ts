@@ -2292,3 +2292,140 @@ describe("D111 round 4 · the ledger account money moves through is the stored t
     expect(debited).toEqual([HQ_BANK_GL]);
   });
 });
+
+describe("D111 round 4 · a document's warehouse belongs to the branch the document is booked to, however that branch is arrived at", () => {
+  const purchaseReturn = (id: string, warehouseId: string) => ({
+    id,
+    date: TODAY,
+    memo: "مرتجع اختبار",
+    lines: [
+      {
+        itemId: "ITEM-DEMO-1",
+        warehouseId,
+        supplierId: "SUPP-DEMO-1",
+        sourceInvoiceId: "PI-DEMO-ALEX-1",
+        sourceInvoiceNumber: null,
+        reason: "DEFECTIVE",
+        availableQty: "1",
+        qty: "1",
+        unitCost: "140",
+        taxAmount: "19.60",
+      },
+    ],
+  });
+  const movementsOutOfMain = () => one<{ n: number }>("SELECT count(*) AS n FROM stock_movement WHERE warehouse_id = ?", MAIN_WAREHOUSE)!.n;
+
+  it("a return against a branch's invoice cannot take its stock out of another branch's warehouse by leaving the branch unsaid", async () => {
+    expect(one<{ b: string }>("SELECT branch_id AS b FROM purchase_invoice WHERE id = 'PI-DEMO-ALEX-1'")?.b).toBe(ALEX);
+    for (const [label, caller] of [["admin", admin], ["both branches", bothBranches]] as const) {
+      const id = `D111-R4-PRET-${label.length}`;
+      const moved = movementsOutOfMain();
+      const res = await caller("POST", "/purchase-returns", purchaseReturn(id, MAIN_WAREHOUSE));
+      expect(res.status, `${label} ${JSON.stringify(res.body).slice(0, 200)}`).toBe(422);
+      expect(res.body?.error).toBe("WAREHOUSE_BRANCH_MISMATCH");
+      expect(res.body?.message).toMatch(ARABIC);
+      expect(one("SELECT id FROM framework_document WHERE id = ?", id)).toBeUndefined();
+      expect(movementsOutOfMain()).toBe(moved);
+    }
+  });
+
+  it("the same return out of the invoice's own branch's warehouse is accepted", async () => {
+    const res = await admin("POST", "/purchase-returns", purchaseReturn("D111-R4-PRET-OWN", ALEX_WAREHOUSE));
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
+  });
+
+  it("a line's warehouse cannot leave the branch of the document's header", async () => {
+    const res = await admin("POST", "/purchases/invoices", {
+      id: "D111-R4-PI-LINE-WH",
+      supplierId: "SUPP-DEMO-1",
+      date: TODAY,
+      branchId: ALEX,
+      warehouseId: ALEX_WAREHOUSE,
+      currency: "EGP",
+      lines: [{ itemId: "ITEM-DEMO-1", qty: "1", unitCost: "140", kind: "inventory", taxRatePercent: 14, warehouseId: MAIN_WAREHOUSE }],
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(422);
+    expect(res.body?.error).toBe("WAREHOUSE_BRANCH_MISMATCH");
+    expect(one("SELECT id FROM purchase_invoice WHERE id = 'D111-R4-PI-LINE-WH'")).toBeUndefined();
+  });
+
+  it("a warehouse holding stock or open documents cannot be moved to another branch", async () => {
+    const before = one<{ b: string }>("SELECT branch_id AS b FROM warehouse WHERE id = ?", ALEX_WAREHOUSE)!.b;
+    const current = (await admin("GET", `/warehouses/${ALEX_WAREHOUSE}`)).body ?? rowsOf((await admin("GET", "/warehouses")).body).find((row: any) => row.id === ALEX_WAREHOUSE);
+    for (const caller of [admin, bothBranches]) {
+      const res = await caller("PUT", `/warehouses/${ALEX_WAREHOUSE}`, { ...current, branchId: MAIN });
+      expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(409);
+      expect(res.body?.error).toBe("WAREHOUSE_IN_USE");
+      expect(res.body?.message).toMatch(ARABIC);
+      expect(one<{ b: string }>("SELECT branch_id AS b FROM warehouse WHERE id = ?", ALEX_WAREHOUSE)!.b).toBe(before);
+    }
+  });
+
+  it("an empty warehouse with no documents can still be moved", async () => {
+    expect((await admin("POST", "/warehouses", { id: "D111-R4-WH-EMPTY", code: "R4E", name: "مستودع فارغ", type: "MAIN", branchId: ALEX })).status).toBe(201);
+    const current = rowsOf((await admin("GET", "/warehouses")).body).find((row: any) => row.id === "D111-R4-WH-EMPTY");
+    const res = await admin("PUT", "/warehouses/D111-R4-WH-EMPTY", { ...current, branchId: MAIN });
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(200);
+    expect(one<{ b: string }>("SELECT branch_id AS b FROM warehouse WHERE id = 'D111-R4-WH-EMPTY'")!.b).toBe(MAIN);
+  });
+});
+
+describe("D111 round 4 · a session granted some warehouses cannot open or move another warehouse's document by its id", () => {
+  const OTHER_ALEX_WAREHOUSE = "D111-R4-WH-ALEX-2";
+  const INVOICE = "D111-R4-INV-OTHER-WH";
+  const everything = () => ALL_PERMISSION_CODES.filter((code) => code !== VIEW_UNATTRIBUTED);
+  const narrow = (userId: string, permissions: readonly string[], branchScope: typeof ALL_SCOPE | string[], warehouses: string[]) =>
+    callerFor(handle.sessions.issue({ userId, permissions, roleCode: null, branchScope, warehouseScope: warehouses }));
+  const statusOf = () => one<{ status: string }>("SELECT status FROM sales_invoice WHERE id = ?", INVOICE)!.status;
+
+  beforeAll(async () => {
+    const warehouse = await admin("POST", "/warehouses", { id: OTHER_ALEX_WAREHOUSE, code: "ALX2", name: "مستودع الإسكندرية الثاني", type: "MAIN", branchId: ALEX });
+    expect(warehouse.status, JSON.stringify(warehouse.body).slice(0, 200)).toBe(201);
+    const invoice = await admin("POST", "/sales-invoices", salesInvoice(INVOICE, ALEX, OTHER_ALEX_WAREHOUSE));
+    expect(invoice.status, JSON.stringify(invoice.body).slice(0, 200)).toBe(201);
+  });
+
+  it("answers as if the document were not there — to read it, to confirm it, to cancel it — whatever the branch grant", async () => {
+    const callers = [
+      ["branch user, one warehouse", narrow("USER-R4-WH-ALEX", everything(), [ALEX], [ALEX_WAREHOUSE])],
+      ["* admin of the branch, one warehouse", narrow("USER-R4-WH-STAR", ["*"], [ALEX], [ALEX_WAREHOUSE])],
+      ["every branch, one warehouse", narrow("USER-R4-WH-ALL", everything(), ALL_SCOPE, [ALEX_WAREHOUSE])],
+    ] as const;
+    for (const [label, caller] of callers) {
+      for (const [method, path] of [["GET", `/sales-invoices/${INVOICE}`], ["POST", `/sales-invoices/${INVOICE}/confirm`], ["POST", `/sales-invoices/${INVOICE}/cancel`]] as const) {
+        const res = await caller(method, path, method === "GET" ? undefined : {});
+        expect(res.status, `${label} ${method} ${path} ${JSON.stringify(res.body).slice(0, 160)}`).toBe(404);
+        expect(res.body?.error).toBe("NOT_FOUND");
+        expect(res.body?.message).toMatch(ARABIC);
+        expect(JSON.stringify(res.body)).not.toContain(OTHER_ALEX_WAREHOUSE);
+      }
+      expect(statusOf(), label).toBe("draft");
+    }
+  });
+
+  it("the same answer is given for an id nobody holds", async () => {
+    const caller = narrow("USER-R4-WH-ALEX", everything(), [ALEX], [ALEX_WAREHOUSE]);
+    const foreign = await caller("GET", `/sales-invoices/${INVOICE}`);
+    const unknown = await caller("GET", "/sales-invoices/D111-R4-NO-SUCH-INVOICE");
+    expect(foreign.status).toBe(unknown.status);
+    expect(foreign.body).toEqual(unknown.body);
+  });
+
+  it("a session granted that warehouse opens it", async () => {
+    const caller = narrow("USER-R4-WH-BOTH", everything(), [ALEX], [ALEX_WAREHOUSE, OTHER_ALEX_WAREHOUSE]);
+    expect((await caller("GET", `/sales-invoices/${INVOICE}`)).status).toBe(200);
+    expect((await alex("GET", `/sales-invoices/${INVOICE}`)).status).toBe(200);
+  });
+});
+
+describe("D111 round 4 · a company-level record is not created by a branch-restricted session", () => {
+  it("a treasury account with no branch is refused, and none is stored", async () => {
+    for (const caller of [alex, alexStar, bothBranches]) {
+      const res = await caller("POST", "/treasury-accounts", { id: "D111-R4-TR-COMPANY", code: "R4-CO", name: "حساب الشركة", type: "bank", branchId: null });
+      expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(403);
+      expect(res.body?.error).toBe("COMPANY_WIDE_REPORT");
+      expect(res.body?.message).toMatch(ARABIC);
+      expect(one("SELECT id FROM treasury_account WHERE id = 'D111-R4-TR-COMPANY'")).toBeUndefined();
+    }
+  });
+});

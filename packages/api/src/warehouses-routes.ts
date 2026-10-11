@@ -4,10 +4,30 @@ import { createWarehouseSchema, updateWarehouseSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { refuseExistingId } from "./duplicate-id.js";
 
+export interface WarehouseUse {
+  readonly holdsStock: boolean;
+  readonly openDocuments: number;
+}
+
+export enum WarehouseRefusalCode {
+  InUse = "WAREHOUSE_IN_USE",
+}
+
+function inUseRefusal(use: WarehouseUse): { error: WarehouseRefusalCode; message: string; messageEn: string } | null {
+  if (!use.holdsStock && use.openDocuments === 0) return null;
+  const reasons = [use.holdsStock ? "به رصيد مخزون" : null, use.openDocuments > 0 ? `عليه ${use.openDocuments} مستند لم يُرحَّل بعد` : null].filter((reason) => reason !== null);
+  return {
+    error: WarehouseRefusalCode.InUse,
+    message: `لا يمكن نقل المستودع إلى فرع آخر: ${reasons.join("، و")}. صفِّ الرصيد ورحِّل المستندات المفتوحة أو ألغِها أولاً.`,
+    messageEn: "The warehouse cannot be moved to another branch while it holds stock or has documents that are not yet posted.",
+  };
+}
+
 /** Warehouse CRUD routes (docs/archive/catalog/09 §"إدارة المستودعات"), gated by admin.warehouses.*. */
 export function createWarehousesRoutes(
   store: WarehouseRepository,
   resolveAuthContext: AuthContextResolver,
+  useOf?: (warehouseId: string) => WarehouseUse,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -61,6 +81,10 @@ export function createWarehousesRoutes(
     }
     try {
       const next = updateWarehouse(current, parsed.data);
+      // LEDGER INVARIANT: a warehouse's stock and unposted documents belong to
+      // its branch. Re-homing it under them makes that pairing false in storage.
+      const rehomed = next.branchId !== current.branchId && useOf ? inUseRefusal(useOf(id)) : null;
+      if (rehomed) return c.json(rehomed, 409);
       await store.save(next);
       return c.json(next);
     } catch (err) {

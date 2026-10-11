@@ -256,6 +256,7 @@ import {
 import { createAuthRoutes } from "./auth-routes.js";
 import { BranchAccess, BranchRecordKind, type BranchDirectory } from "@mezan/api";
 import { createSqliteBranchDirectory } from "./branch-directory.js";
+import { createWarehouseUse } from "./warehouse-use.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
@@ -934,6 +935,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     branchesOf(kind, id, access) {
       if (!branchDirectory) throw new Error("createBackend: the branch directory was read before the backend finished starting");
       return branchDirectory.branchesOf(kind, id, access);
+    },
+    warehousesOf(kind, id) {
+      if (!branchDirectory) throw new Error("createBackend: the branch directory was read before the backend finished starting");
+      return branchDirectory.warehousesOf(kind, id);
     },
   };
   const notificationEngine = new NotificationRulesEngine({
@@ -3032,6 +3037,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     branchStore: branches,
     branchDirectory: deferredBranchDirectory,
     warehouseStore: warehouses,
+    warehouseUse: createWarehouseUse(sqlite),
     customerStore: customers,
     supplierStore: suppliers,
     customerOpeningBalances,

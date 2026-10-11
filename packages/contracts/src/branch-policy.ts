@@ -83,6 +83,8 @@ export enum BranchAccess {
 
 export interface BranchDirectory {
   branchesOf(kind: BranchRecordKind, id: string, access: BranchAccess): Promise<readonly (string | null)[] | null> | readonly (string | null)[] | null;
+  /** The warehouses a stored record stands on: empty for one that names none, null when nothing holds the id. */
+  warehousesOf(kind: BranchRecordKind, id: string): Promise<readonly string[] | null> | readonly string[] | null;
 }
 
 export interface BranchPolicyEntry {

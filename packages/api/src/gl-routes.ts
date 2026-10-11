@@ -1,3 +1,4 @@
+import { postingRefusal } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -41,7 +42,6 @@ import {
   NothingToCloseError,
   recordVatFiling,
   amendVatFiling,
-  VatPeriodAlreadyFiledError,
   DuplicateVatFilingError,
   VatFilingNotFoundError,
   type VatFiling,
@@ -215,9 +215,8 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof ReversalDateBeforeOriginalError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
-  if (err instanceof VatPeriodAlreadyFiledError) {
-    return c.json({ error: err.code, message: err.message }, 422);
-  }
+  const postingRefused = postingRefusal(c, err);
+  if (postingRefused) return postingRefused;
   if (err instanceof DuplicateVatFilingError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }

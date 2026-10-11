@@ -1,3 +1,4 @@
+import { postingRefusal } from "./posting-refusal.js";
 import type { Context } from "hono";
 import {
   InactiveTaxRateError,
@@ -22,7 +23,6 @@ import {
   TaxRateNotFoundError,
   TaxRatePercentMismatchError,
   TaxRateUnverifiableError,
-  VatPeriodAlreadyFiledError,
 } from "@mezan/domain";
 
 export function taxRateRefusal(c: Context, err: unknown): Response | null {
@@ -71,9 +71,11 @@ export function taxClassificationRefusal(c: Context, err: unknown): Response | n
   if (err instanceof JournalTaxLineUnclassifiedError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
-  if (err instanceof VatPeriodAlreadyFiledError || err instanceof JournalTaxTagUnsupportedError) {
+  if (err instanceof JournalTaxTagUnsupportedError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
+  const postingRefused = postingRefusal(c, err);
+  if (postingRefused) return postingRefused;
   if (err instanceof TaxClassificationReturnFiledError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, returnNumber: err.returnNumber }, 422);
   }

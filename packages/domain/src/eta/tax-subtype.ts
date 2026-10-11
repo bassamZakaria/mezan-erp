@@ -11,10 +11,7 @@ export const ZERO_RATED_SUBTYPES: readonly EtaVatSubTypeCode[] = [
   EtaVatSubTypeCode.NotSubject,
 ];
 
-export function resolveEtaVatSubType(configured: string | null | undefined, taxRatePercent: number): string {
-  if (configured && configured !== EtaVatSubTypeCode.Auto) return configured;
-  return taxRatePercent > 0 ? EtaVatSubTypeCode.BasicSales : EtaVatSubTypeCode.NotSubject;
-}
+export { resolveEtaVatSubType } from "../tax-rates/eta-vat-sub-type.js";
 
 // INVARIANT: reached only for a line whose stored id is NULL. Several rates
 // sharing a percent answer only when they all classify the same way — the

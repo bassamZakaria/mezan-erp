@@ -1,3 +1,4 @@
+import { postingRefusal } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   createOpeningBalanceDuplicatesReport,
@@ -5,7 +6,6 @@ import {
   recordSensitiveEvent,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
-  VatPeriodAlreadyFiledError,
   JournalEntryAlreadyReversedError,
   JournalEntryNotFoundError,
   JournalEntryNotPostedError,
@@ -53,9 +53,8 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof NoFiscalPeriodForDateError || err instanceof PeriodNotOpenForPostingError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
-  if (err instanceof VatPeriodAlreadyFiledError) {
-    return c.json({ error: err.code, message: err.message }, 422);
-  }
+  const postingRefused = postingRefusal(c, err);
+  if (postingRefused) return postingRefused;
   if (err instanceof JournalEntryNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

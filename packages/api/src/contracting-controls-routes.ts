@@ -1,3 +1,4 @@
+import { postingRefusal } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   ControlsService,
@@ -7,7 +8,6 @@ import {
   PeriodNotOpenForPostingError,
   RetentionReleaseExceedsBalanceError,
   RetentionReleaseNotFoundError,
-  VatPeriodAlreadyFiledError,
   getBoqUnitLabel,
   getRetentionReleaseKindLabel,
   getRetentionReleaseStatusLabel,
@@ -218,9 +218,8 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
     return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
   }
-  if (err instanceof VatPeriodAlreadyFiledError) {
-    return c.json({ error: "VAT_PERIOD_FILED", message: err.message }, 409);
-  }
+  const postingRefused = postingRefusal(c, err);
+  if (postingRefused) return postingRefused;
   throw err;
 }
 

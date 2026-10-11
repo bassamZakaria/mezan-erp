@@ -1,3 +1,4 @@
+import { postingRefusal } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   CertificateDateOrderError,
@@ -10,7 +11,6 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   ProgressCertificateNotFoundError,
-  VatPeriodAlreadyFiledError,
   type CertificateComputation,
   type CertificateMaterialLine,
   type CertificateServiceDeps,
@@ -253,10 +253,11 @@ function handleDomainError(c: Context, err: unknown) {
    * return telling the user to pick another date — a 409, never the 500 an
    * unhandled throw turned them into.
    */
+  const postingRefused = postingRefusal(c, err);
+  if (postingRefused) return postingRefused;
   if (
     err instanceof PeriodNotOpenForPostingError ||
-    err instanceof NoFiscalPeriodForDateError ||
-    err instanceof VatPeriodAlreadyFiledError
+    err instanceof NoFiscalPeriodForDateError
   ) {
     return c.json({ error: (err as { code?: string }).code ?? "PERIOD_REFUSED", message: err.message }, 409);
   }

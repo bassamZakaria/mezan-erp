@@ -1,6 +1,7 @@
 import { TaxRateStatusCode, type EtaVatSubType, type TaxCalculationType, type TaxRate, type TaxRateRepository, type TaxRateStatus, type TaxRateUsage } from "./tax-rate.js";
 import { InvalidTaxRateError, SystemTaxRateLockedError, TaxRateInUseError, TaxRateNotFoundError, TaxRateOnCustomerCardsError } from "./errors.js";
 import { assertNotReservedTaxRate, isSystemTaxRate } from "./system-tax-rates.js";
+import { resolveEtaVatSubType } from "./eta-vat-sub-type.js";
 
 export interface UpdateTaxRateCommand {
   readonly name?: string;
@@ -43,7 +44,9 @@ async function updateTaxRateInTransaction(
   // INVARIANT: a stored line names this row and reads its classification off
   // it. Changing the percent or the sub-type here would restate every document
   // already filed under it, so a referenced rate keeps both for good.
-  const restatesIdentity = nextRate !== current.rate || (command.etaSubType ?? current.etaSubType) !== current.etaSubType;
+  const restatesIdentity =
+    nextRate !== current.rate ||
+    resolveEtaVatSubType(command.etaSubType ?? current.etaSubType, nextRate) !== resolveEtaVatSubType(current.etaSubType, current.rate);
   if (restatesIdentity && (await usage.isReferenced(taxRateId))) {
     throw new TaxRateInUseError(current.id, current.name);
   }
@@ -84,9 +87,10 @@ async function updateTaxRateInTransaction(
 
   // A look-alike a file already holds must stay editable — above all it must
   // be possible to rename or deactivate it. Only a change that MAKES a rate a
-  // look-alike, or keeps one while restating it, is refused.
+  // look-alike, keeps one while restating it, or switches one back on is refused.
   const restated = updated.name !== current.name || updated.rate !== current.rate || updated.etaSubType !== current.etaSubType;
-  if (restated) assertNotReservedTaxRate(updated);
+  const reactivated = updated.status === TaxRateStatusCode.Active && current.status !== TaxRateStatusCode.Active;
+  if (restated || reactivated) assertNotReservedTaxRate(updated);
   await repo.update(updated);
   return updated;
 }

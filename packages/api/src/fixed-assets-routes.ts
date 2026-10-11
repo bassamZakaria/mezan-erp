@@ -1,3 +1,4 @@
+import { postingRefusal } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -22,7 +23,6 @@ import {
   DepreciationRunNotPostedError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
-  VatPeriodAlreadyFiledError,
   DuplicateDepreciationPeriodError,
   NoDepreciableAssetsError,
   ReversalDateBeforeOriginalError,
@@ -185,10 +185,11 @@ function handleDomainError(c: Context, err: unknown) {
   }
   // The GL's own gates reach the caller as a refusal, not a 500: a reversal
   // dated into a closed period or a filed VAT month is a business answer.
+  const postingRefused = postingRefusal(c, err);
+  if (postingRefused) return postingRefused;
   if (
     err instanceof NoFiscalPeriodForDateError ||
-    err instanceof PeriodNotOpenForPostingError ||
-    err instanceof VatPeriodAlreadyFiledError
+    err instanceof PeriodNotOpenForPostingError
   ) {
     return refuse(err, 422);
   }

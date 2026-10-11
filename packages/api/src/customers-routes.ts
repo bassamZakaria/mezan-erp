@@ -1,3 +1,4 @@
+import { postingRefusal } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import { nextMasterCode } from "./master-code.js";
 import {
@@ -12,7 +13,6 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   AuditChangeAction,
-  VatPeriodAlreadyFiledError,
   TaxRateStatusCode,
   isSystemTaxRate,
   type AuditSink,
@@ -146,13 +146,14 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof InvalidCustomerError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
   }
+  const postingRefused = postingRefusal(c, err);
+  if (postingRefused) return postingRefused;
   if (
     err instanceof AccountNotFoundError ||
     err instanceof HeaderAccountNotPostableError ||
     err instanceof InactiveAccountError ||
     err instanceof NoFiscalPeriodForDateError ||
-    err instanceof PeriodNotOpenForPostingError ||
-    err instanceof VatPeriodAlreadyFiledError
+    err instanceof PeriodNotOpenForPostingError
   ) {
     const messageEn = (err as Error & { messageEn?: string }).messageEn;
     return c.json({ error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) }, 422);

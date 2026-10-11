@@ -1,4 +1,5 @@
 import { ReservedTaxRateError } from "./errors.js";
+import { resolveEtaVatSubType } from "./eta-vat-sub-type.js";
 import { EtaVatSubTypeCode, TaxCalculationTypeCode, TaxRateStatusCode, type TaxRate, type TaxRateRepository } from "./tax-rate.js";
 
 // EXTERNAL CONTRACT: stored on posted lines and journal lines. The id never
@@ -58,13 +59,6 @@ export function systemNotSubjectRateIn<T extends Pick<TaxRate, "id" | "status">>
 
 const folded = (value: string): string => value.trim().toLowerCase();
 
-// EXTERNAL CONTRACT: the same reading `resolveEtaVatSubType` gives the
-// e-invoice — `auto` files a 0% line as not subject and a taxed one as basic.
-function declaredSubType(rate: Pick<TaxRate, "rate" | "etaSubType">): string {
-  if (rate.etaSubType !== EtaVatSubTypeCode.Auto) return rate.etaSubType;
-  return rate.rate > 0 ? EtaVatSubTypeCode.BasicSales : EtaVatSubTypeCode.NotSubject;
-}
-
 // INVARIANT: nothing a user creates may be taken for the system's rate —
 // not by its id or code in another case, and not by being indistinguishable
 // from it in a picker (same name, percent and classification).
@@ -75,7 +69,7 @@ export function assertNotReservedTaxRate(candidate: Pick<TaxRate, "id" | "code" 
     const takesIdentity = reserved.includes(folded(candidate.id)) || reserved.includes(folded(candidate.code));
     const shadows =
       candidate.rate === systemRate.rate &&
-      declaredSubType(candidate) === declaredSubType(systemRate) &&
+      resolveEtaVatSubType(candidate.etaSubType, candidate.rate) === resolveEtaVatSubType(systemRate.etaSubType, systemRate.rate) &&
       candidate.name.trim() === systemRate.name;
     if (takesIdentity || shadows) throw new ReservedTaxRateError(systemRate.name);
   }

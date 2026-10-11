@@ -1,3 +1,4 @@
+import { postingRefusal } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   InvalidSubCertificateError,
@@ -16,7 +17,6 @@ import {
   SubcontractRetentionError,
   SubcontractService,
   SubcontractorNotPayableError,
-  VatPeriodAlreadyFiledError,
   type CertificateComputation,
   type SubCertificatePreview,
   type SubCertificateServiceDeps,
@@ -323,10 +323,11 @@ function handleDomainError(c: Context, err: unknown) {
   }
   // A closed period or a filed VAT return is a state conflict, not a server
   // fault: the caller has to reopen the period or change the date.
+  const postingRefused = postingRefusal(c, err);
+  if (postingRefused) return postingRefused;
   if (
     err instanceof PeriodNotOpenForPostingError ||
-    err instanceof NoFiscalPeriodForDateError ||
-    err instanceof VatPeriodAlreadyFiledError
+    err instanceof NoFiscalPeriodForDateError
   ) {
     return c.json({ error: err.code, message: err.message }, 409);
   }

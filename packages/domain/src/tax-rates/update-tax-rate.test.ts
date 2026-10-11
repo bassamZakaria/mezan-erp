@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { InMemoryTaxRateRepository } from "./test-helpers/in-memory-tax-rate-repository.js";
 import { createTaxRate } from "./create-tax-rate.js";
 import { updateTaxRate } from "./update-tax-rate.js";
-import { InvalidTaxRateError, TaxRateInUseError, TaxRateNotFoundError } from "./errors.js";
+import { InvalidTaxRateError, ReservedTaxRateError, TaxRateInUseError, TaxRateNotFoundError } from "./errors.js";
 
 describe("updateTaxRate — a rate stored lines name keeps its percent and its ETA sub-type (D79)", () => {
   const referenced = { isReferenced: async () => true };
@@ -40,6 +40,34 @@ describe("updateTaxRate — a rate stored lines name keeps its percent and its E
 });
 
 const NOT_REFERENCED = { isReferenced: async () => false };
+
+describe("updateTaxRate — what counts as restating a referenced rate is what the authority is told", () => {
+  const referenced = { isReferenced: async () => true };
+
+  it("lets `auto` be spelled out as the sub-type it already files under, and refuses any other", async () => {
+    const repo = new InMemoryTaxRateRepository();
+    await createTaxRate({ id: "zero", code: "ZERO", name: "صفرية", rate: 0, etaSubType: "auto" }, repo);
+    await createTaxRate({ id: "std", code: "STD", name: "أساسية", rate: 14, etaSubType: "auto" }, repo);
+    expect((await updateTaxRate("zero", { etaSubType: "V004" }, repo, referenced)).etaSubType).toBe("V004");
+    expect((await updateTaxRate("std", { etaSubType: "V009" }, repo, referenced)).etaSubType).toBe("V009");
+    await expect(updateTaxRate("zero", { etaSubType: "V003" }, repo, referenced)).rejects.toBeInstanceOf(TaxRateInUseError);
+    expect((await updateTaxRate("zero", { etaSubType: "auto" }, repo, referenced)).etaSubType).toBe("auto");
+  });
+});
+
+describe("updateTaxRate — a look-alike of the system's rate that a file already holds", () => {
+  it("can be renamed or left inactive, and cannot be switched back on as it is", async () => {
+    const repo = new InMemoryTaxRateRepository();
+    await repo.create({
+      id: "legacy", code: "LEGACY", name: "غير خاضع", rate: 0, calculationType: "exclusive", isDefault: false,
+      outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "V004", status: "inactive",
+    } as Parameters<typeof repo.create>[0]);
+    await expect(updateTaxRate("legacy", { status: "active" }, repo, NOT_REFERENCED)).rejects.toBeInstanceOf(ReservedTaxRateError);
+    expect((await repo.findById("legacy"))?.status).toBe("inactive");
+    const renamed = await updateTaxRate("legacy", { name: "خارج النطاق — قديم", status: "active" }, repo, NOT_REFERENCED);
+    expect([renamed.name, renamed.status]).toEqual(["خارج النطاق — قديم", "active"]);
+  });
+});
 
 describe("updateTaxRate", () => {
   it("updates fields in place", async () => {

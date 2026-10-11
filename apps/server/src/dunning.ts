@@ -1,4 +1,4 @@
-import { defaultFreePlan, isFreePlan, markPastDue } from "@mezan/domain";
+import { defaultFreePlan, isFreePlan, markPastDue, TenantStatusCode } from "@mezan/domain";
 import { materialiseEndedTrial, type PlatformHandle } from "@mezan/backend";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -20,7 +20,7 @@ export async function runDunningSweep(platform: PlatformHandle, now: () => Date)
   let failed = 0;
   let landedOnFree = 0;
   for (const tenant of tenants) {
-    if (tenant.status === "archived") continue;
+    if (tenant.status === TenantStatusCode.Archived) continue;
     try {
       const subscription = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
       if (!subscription) continue;

@@ -22,6 +22,7 @@ import {
   type ModuleTrial,
   type Plan,
   type Tenant,
+  TenantStatusCode,
 } from "@mezan/domain";
 import {
   createCardCheckoutRequestSchema,
@@ -197,7 +198,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     const code = resolveTenantCode(c.req.raw, { tenantDomain: env.tenantDomain, trustForwardedHost: env.trustProxy, allowTenantHeader: true });
     if (!code) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
     const tenant = await platform.stores.tenants.findByCode(code);
-    if (!tenant || tenant.status === "archived" || tenant.status === "provisioning") {
+    if (!tenant || tenant.status === TenantStatusCode.Archived || tenant.status === TenantStatusCode.Provisioning) {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
     const token = readSessionToken(c);

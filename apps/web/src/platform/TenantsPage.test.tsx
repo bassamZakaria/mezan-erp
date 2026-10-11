@@ -182,6 +182,21 @@ describe("TenantsPage", () => {
     });
   });
 
+  it("marks the tenant whose billing day still needs the platform owner's review", async () => {
+    const unsettled: TenantSummaryDTO = {
+      ...tenantSummary,
+      tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "unsettled", nameAr: "منشأة قديمة" },
+      subscription: tenantSummary.subscription && { ...tenantSummary.subscription, id: "sub-2", tenantId: "tenant-2", billingAnchorNeedsReview: true },
+    };
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [tenantSummary, unsettled] }) }),
+      initialSession: testPlatformSession,
+    });
+
+    expect((await screen.findByText("unsettled")).closest("tr")).toHaveTextContent("يوم الفوترة يحتاج مراجعة");
+    expect(screen.getByText("acme").closest("tr")).not.toHaveTextContent("يوم الفوترة يحتاج مراجعة");
+  });
+
   it("marks only the tenant whose owner address has not been confirmed by the owner", async () => {
     const unverified: TenantSummaryDTO = {
       ...tenantSummary,

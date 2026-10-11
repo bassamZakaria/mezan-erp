@@ -50,6 +50,11 @@ export function OwnerContactChip({ verified }: { verified: boolean }) {
   return verified ? null : <StatusPill label={t("platform.tenants.ownerUnverified")} tone="warning" />;
 }
 
+export function BillingDayReviewChip({ needsReview }: { needsReview: boolean }) {
+  const { t } = useAppTranslation();
+  return needsReview ? <StatusPill label={t("platform.tenantDetail.anchorDay.review")} tone="warning" /> : null;
+}
+
 export function TenantLicenceChip({ state, subscriptionStatus }: { state: LicenseStateNameDTO; subscriptionStatus: SubscriptionStatusDTO | null }) {
   const { t } = useAppTranslation();
   if (subscriptionStatus === SubscriptionStatusCode.Unknown) {

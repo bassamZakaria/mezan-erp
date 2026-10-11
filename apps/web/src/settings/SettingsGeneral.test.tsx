@@ -426,4 +426,35 @@ describe("SettingsGeneral", () => {
     expect(putCalls).toBe(0);
     expect(textboxByLabel("اسم المنشأة")).toHaveValue(name);
   });
+
+  it("takes the person to the company tab and marks the name field when a save from another tab meets a stored company name that is empty", async () => {
+    let putCalls = 0;
+    const transport = stubTransport({
+      "GET /settings": () => ({ body: { ...baseSettings, companyName: "" } }),
+      "PUT /settings": (init) => {
+        putCalls += 1;
+        return { body: JSON.parse(String(init?.body)) as unknown };
+      },
+    });
+    renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
+    fireEvent.change(textboxByLabel("نسبة الضريبة الافتراضية (%)"), { target: { value: "15" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+
+    expect(screen.getByRole("tab", { name: "بيانات المنشأة" })).toHaveAttribute("aria-selected", "true");
+    const name = textboxByLabel("اسم المنشأة");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveFocus();
+    expect(name).toHaveAccessibleDescription("اسم المنشأة مطلوب.");
+    expect(putCalls).toBe(0);
+
+    fireEvent.change(name, { target: { value: "شركة الاختبار" } });
+    expect(textboxByLabel("اسم المنشأة")).not.toHaveAttribute("aria-invalid", "true");
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+    await waitFor(() => expect(putCalls).toBe(1));
+    fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
+    expect(textboxByLabel("نسبة الضريبة الافتراضية (%)")).toHaveValue(15);
+  });
 });

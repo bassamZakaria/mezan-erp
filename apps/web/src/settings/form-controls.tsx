@@ -1,4 +1,4 @@
-import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import {
   Chip,
   cn,
@@ -18,15 +18,16 @@ import {
 export interface FieldProps {
   label: string;
   hint?: string;
+  error?: ReactNode;
   /** The id of the control inside. Without it the label names nothing (D67). */
   htmlFor?: string;
   className?: string;
   children: ReactNode;
 }
 
-export function Field({ label, hint, htmlFor, className, children }: FieldProps) {
+export function Field({ label, hint, error, htmlFor, className, children }: FieldProps) {
   return (
-    <UiField label={label} hint={hint} htmlFor={htmlFor} className={className}>
+    <UiField label={label} hint={hint} error={error} htmlFor={htmlFor} className={className}>
       {children}
     </UiField>
   );
@@ -42,14 +43,22 @@ export interface TextFieldProps {
   type?: "text" | "email" | "tel" | "date" | "password" | "number";
   autoComplete?: string;
   maxLength?: number;
+  /** What is wrong with the value. It marks the input invalid and is read out as its description. */
+  error?: string | null;
+  inputRef?: Ref<HTMLInputElement>;
 }
 
-export function TextField({ label, value, onChange, placeholder, hint, disabled, type = "text", autoComplete, maxLength }: TextFieldProps) {
+export function TextField({ label, value, onChange, placeholder, hint, disabled, type = "text", autoComplete, maxLength, error, inputRef }: TextFieldProps) {
   const id = useId();
+  const errorId = `${id}-error`;
   return (
-    <Field label={label} hint={hint} htmlFor={id}>
+    <Field label={label} hint={hint} error={error ? <span id={errorId}>{error}</span> : undefined} htmlFor={id}>
       <TextInput
         id={id}
+        ref={inputRef}
+        invalid={Boolean(error)}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
         type={type}
         value={value}
         placeholder={placeholder}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
 import { COMPANY_NAME_MAX_LENGTH, type TenantSettingsDTO, type UpdateTenantSettingsDTO } from "@mezan/contracts";
 import { companyNameError } from "../company-name";
@@ -63,6 +63,14 @@ const SHOW_EMAIL_TAB = false;
 /** The document currencies the platform supports (R1.15), minus whichever is the base. */
 const DOCUMENT_CURRENCIES = ["EGP", "SAR", "AED", "QAR", "KWD", "BHD", "OMR", "JOD", "USD", "EUR", "GBP"];
 
+enum SettingsTab {
+  Company = "company",
+  Regional = "regional",
+  Tax = "tax",
+  Policies = "policies",
+  Email = "email",
+}
+
 function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
   const { t } = useAppTranslation();
   const updateSettingsMutation = useUpdateSettings();
@@ -70,6 +78,13 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
   const [draft, setDraft] = useState<TenantSettingsDTO>(initial);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<string>(SettingsTab.Company);
+  const [companyNameProblem, setCompanyNameProblem] = useState<string | null>(null);
+  const companyNameInput = useRef<HTMLInputElement>(null);
+  const [focusCompanyName, setFocusCompanyName] = useState(0);
+  useEffect(() => {
+    if (focusCompanyName > 0) companyNameInput.current?.focus();
+  }, [focusCompanyName]);
   const [testRecipient, setTestRecipient] = useState(initial.email);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
@@ -81,7 +96,10 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
   async function handleSave() {
     const nameError = companyNameError(draft.companyName, t);
     if (nameError) {
-      setError(nameError);
+      setError(null);
+      setCompanyNameProblem(nameError);
+      setTab(SettingsTab.Company);
+      setFocusCompanyName((asked) => asked + 1);
       return;
     }
     try {
@@ -126,9 +144,11 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
           </Button>
         </>
       }
+      activeTabKey={tab}
+      onTabChange={setTab}
       tabs={[
         {
-          key: "company",
+          key: SettingsTab.Company,
           label: t("settingsGeneral.companyDetails"),
           content: (
             <SectionCard title={t("settingsGeneral.companyDetails")}>
@@ -136,7 +156,12 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                 label={t("settingsGeneral.companyName")}
                 value={draft.companyName}
                 maxLength={COMPANY_NAME_MAX_LENGTH}
-                onChange={(v) => patch({ companyName: v })}
+                error={companyNameProblem}
+                inputRef={companyNameInput}
+                onChange={(v) => {
+                  setCompanyNameProblem(null);
+                  patch({ companyName: v });
+                }}
               />
               <TextField
                 label={t("common.taxNumber")}
@@ -156,7 +181,7 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
           ),
         },
         {
-          key: "regional",
+          key: SettingsTab.Regional,
           label: t("settingsGeneral.tabRegional"),
           content: (
             <div className="flex flex-col gap-[16px]">
@@ -237,7 +262,7 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
           ),
         },
         {
-          key: "tax",
+          key: SettingsTab.Tax,
           label: t("settingsGeneral.tax"),
           content: (
             <SectionCard title={t("settingsGeneral.vat")}>
@@ -271,7 +296,7 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
           ),
         },
         {
-          key: "policies",
+          key: SettingsTab.Policies,
           label: t("settingsGeneral.tabPolicies"),
           content: (
             <div className="flex flex-col gap-[16px]">
@@ -488,7 +513,7 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
         ...(SHOW_EMAIL_TAB
           ? [
           {
-            key: "email",
+            key: SettingsTab.Email,
             label: t("settingsGeneral.email"),
             content: (
               <div className="flex flex-col gap-[16px]">

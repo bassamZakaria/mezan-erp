@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router";
 import { Button, Card, DocumentList, useFormat, type DocumentListColumn } from "@mezan/ui";
 import type { TenantSummaryDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
-import { OwnerContactChip, TenantLicenceChip, TenantStatusChip } from "./chips";
+import { BillingDayReviewChip, OwnerContactChip, TenantLicenceChip, TenantStatusChip } from "./chips";
 import { usePlatformApi } from "./api";
 import { NewTenantDialog } from "./NewTenantDialog";
 import { usePlansQuery, useTenantsQuery } from "./hooks";
@@ -45,6 +45,7 @@ export function TenantsPage() {
           <div className="font-semibold text-ink">{row.tenant.nameAr}</div>
           {row.tenant.nameEn ? <div className="mz-lat text-[11px] text-ink-faint">{row.tenant.nameEn}</div> : null}
           <OwnerContactChip verified={row.tenant.ownerContactVerified} />
+          <BillingDayReviewChip needsReview={row.subscription?.billingAnchorNeedsReview === true} />
         </div>
       ),
     },
@@ -108,6 +109,7 @@ export function TenantsPage() {
                   <div className="flex flex-wrap items-center gap-[8px]">
                     <TenantLicenceChip state={row.licenseState.state} subscriptionStatus={row.subscription?.status ?? null} />
                     <OwnerContactChip verified={row.tenant.ownerContactVerified} />
+                    <BillingDayReviewChip needsReview={row.subscription?.billingAnchorNeedsReview === true} />
                   </div>
                   <dl className="grid grid-cols-2 gap-[8px] text-[12px] text-ink-muted">
                     <div>

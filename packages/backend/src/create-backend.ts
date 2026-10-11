@@ -125,6 +125,7 @@ import {
   type OpeningBalanceEntryRef,
   tenantTodayIso,
   BASE_CURRENCY,
+  EVENT_BRANCH_IDS_KEY,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -253,7 +254,7 @@ import {
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
 import { createAuthRoutes } from "./auth-routes.js";
-import type { BranchDirectory } from "@mezan/api";
+import { BranchAccess, BranchRecordKind, type BranchDirectory } from "@mezan/api";
 import { createSqliteBranchDirectory } from "./branch-directory.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
@@ -447,8 +448,31 @@ function emittedEventCodesOf(...mappings: readonly DocumentEventMapping[]): Even
   return [...codes];
 }
 
+const BRIDGED_DOCUMENT_KINDS: Readonly<Record<string, BranchRecordKind>> = {
+  SALES_INVOICE: BranchRecordKind.SalesInvoice,
+  SALES_RETURN: BranchRecordKind.SalesReturn,
+  PURCHASE_RETURN: BranchRecordKind.PurchaseReturn,
+  PURCHASE_ORDER: BranchRecordKind.PurchaseOrder,
+  GOODS_RECEIPT: BranchRecordKind.GoodsReceipt,
+  PURCHASE_INVOICE: BranchRecordKind.PurchaseInvoice,
+  [VOUCHER_DOC_TYPE]: BranchRecordKind.Voucher,
+};
+
+/**
+ * SECURITY: the branches a bridged document belongs to, read from its stored
+ * row. A document type with no declared kind states none, which the engine
+ * reads as company-level — it reaches fewer people, never more.
+ */
+async function bridgedDocumentBranchIds(directory: BranchDirectory, docType: string, docId: string): Promise<string[]> {
+  const kind = BRIDGED_DOCUMENT_KINDS[docType];
+  if (!kind) return [];
+  const branches = (await directory.branchesOf(kind, docId, BranchAccess.Read)) ?? [];
+  return [...new Set(branches.filter((id): id is string => typeof id === "string" && id !== ""))];
+}
+
 function createDocumentEventBridge(
   eventBus: EventBus,
+  directory: BranchDirectory,
   mapping: DocumentEventMapping,
   enrich?: (docId: string) => Promise<Record<string, unknown>>,
 ): DocumentEventPublisher {
@@ -457,19 +481,15 @@ function createDocumentEventBridge(
       const code = mapping[event.docType]?.[event.type];
       if (!code) return;
       const basePayload: Record<string, unknown> = { documentNumber: event.docNo ?? event.docId };
-      if (!enrich) {
-        eventBus.publish(code, basePayload, event.occurredAt);
-        return;
-      }
       // DocumentEventPublisher.publish is synchronous; the notification
       // engine's own dispatch is independently async, so a fire-and-forget
-      // enrichment lookup here just widens the payload before that dispatch
-      // runs — a failed lookup logs and drops the event rather than ever
-      // throwing back into the document's own confirm/cancel transaction.
-      void enrich(event.docId)
-        .then((extra) => eventBus.publish(code, { ...basePayload, ...extra }, event.occurredAt))
+      // lookup here just widens the payload before that dispatch runs — a
+      // failed lookup logs and drops the event rather than ever throwing back
+      // into the document's own confirm/cancel transaction.
+      void Promise.all([bridgedDocumentBranchIds(directory, event.docType, event.docId), enrich ? enrich(event.docId) : {}])
+        .then(([branchIds, extra]) => eventBus.publish(code, { ...basePayload, ...extra, [EVENT_BRANCH_IDS_KEY]: branchIds }, event.occurredAt))
         .catch((error: unknown) => {
-          console.error(`[notifications] event bridge enrichment failed for ${event.docType}/${event.type}`, error);
+          console.error(`[notifications] event bridge lookup failed for ${event.docType}/${event.type}`, error);
         });
     },
   };
@@ -906,6 +926,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       console.error(`[notifications] a subscriber failed handling "${event.code}"`, error);
     },
   });
+  // The directory reads tables that stores mounted further down create, so it
+  // is built once they all exist — and BEFORE the first request, so a
+  // statement that cannot be prepared stops the boot instead of a refusal.
+  let branchDirectory: BranchDirectory | undefined;
+  const deferredBranchDirectory: BranchDirectory = {
+    branchesOf(kind, id, access) {
+      if (!branchDirectory) throw new Error("createBackend: the branch directory was read before the backend finished starting");
+      return branchDirectory.branchesOf(kind, id, access);
+    },
+  };
   const notificationEngine = new NotificationRulesEngine({
     rules: notificationRules,
     notifications,
@@ -1101,6 +1131,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   } satisfies DocumentEventMapping;
   const salesInvoiceEventBridge = createDocumentEventBridge(
     eventBus,
+    deferredBranchDirectory,
     salesInvoiceEventMapping,
     async (docId) => {
       const invoice = await salesInvoices.findById(docId);
@@ -1795,7 +1826,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     SALES_RETURN: { DOCUMENT_CONFIRMED: "SALES_RETURN_CONFIRMED" },
     PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
   } satisfies DocumentEventMapping;
-  const returnsEventBridge = createDocumentEventBridge(eventBus, returnsEventMapping);
+  const returnsEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, returnsEventMapping);
 
   /*
    * The purchase chain is not a `DocumentService`, so it never had a publisher
@@ -1811,7 +1842,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     GOODS_RECEIPT: { DOCUMENT_CONFIRMED: "PURCHASE_RECEIPT_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RECEIPT_VOIDED" },
     PURCHASE_INVOICE: { DOCUMENT_CONFIRMED: "PURCHASE_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_INVOICE_VOIDED" },
   } satisfies DocumentEventMapping;
-  const purchasesEventBridge = createDocumentEventBridge(eventBus, purchasesEventMapping);
+  const purchasesEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, purchasesEventMapping);
 
   /*
    * `VoucherService` has declared an `events` port since it was written and
@@ -1821,7 +1852,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const voucherEventMapping = {
     [VOUCHER_DOC_TYPE]: { DOCUMENT_CONFIRMED: "CASH_VOUCHER_CONFIRMED" },
   } satisfies DocumentEventMapping;
-  const voucherEventBridge = createDocumentEventBridge(eventBus, voucherEventMapping);
+  const voucherEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, voucherEventMapping);
 
   const salesReturnEvents = fanOutDocumentEvents(
     returnsEventBridge,
@@ -2984,16 +3015,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return { voucherId };
   };
 
-  // The directory reads tables that stores mounted further down create, so it
-  // is built once they all exist — and BEFORE the first request, so a
-  // statement that cannot be prepared stops the boot instead of a refusal.
-  let branchDirectory: BranchDirectory | undefined;
-  const deferredBranchDirectory: BranchDirectory = {
-    branchesOf(kind, id, access) {
-      if (!branchDirectory) throw new Error("createBackend: the branch directory was read before the backend finished starting");
-      return branchDirectory.branchesOf(kind, id, access);
-    },
-  };
   const app = createApp(uow, {
     resolveAuthContext,
     security: { sessions, loginThrottle },

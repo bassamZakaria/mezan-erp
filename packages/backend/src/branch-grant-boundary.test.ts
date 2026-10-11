@@ -2135,3 +2135,83 @@ describe("D111 round 4 · a cheque and the entry that receives it are one write"
     expect(reconciliation.body.rows.filter((row: any) => !row.matched)).toEqual([]);
   });
 });
+
+describe("D111 round 4 · a notification reaches only the people whose branch grant covers its document", () => {
+  const CASH_FORECAST = "treasury.cash_forecast.view";
+  const recipients: Record<string, { id: string; read: Caller }> = {};
+
+  const settled = async (documentNumber: string) => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (one("SELECT 1 FROM notification WHERE payload_json LIKE ?", `%${documentNumber}%`)) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  };
+  const received = async (who: string, needle: string) => {
+    const res = await recipients[who]!.read("GET", "/notifications?limit=200");
+    expect(res.status).toBe(200);
+    return rowsOf(res.body).some((notification: any) => JSON.stringify(notification).includes(needle));
+  };
+  const confirmedInvoice = async (id: string, branchId: string, warehouseId: string): Promise<string> => {
+    expect((await admin("POST", "/sales-invoices", salesInvoice(id, branchId, warehouseId))).status).toBe(201);
+    const confirmed = await admin("POST", `/sales-invoices/${id}/confirm`, {});
+    expect(confirmed.status, JSON.stringify(confirmed.body).slice(0, 200)).toBe(200);
+    const documentNumber = one<{ doc_no: string }>("SELECT doc_no FROM sales_invoice WHERE id = ?", id)!.doc_no;
+    await settled(documentNumber);
+    return documentNumber;
+  };
+
+  beforeAll(async () => {
+    const role = async (code: string, permissions: string[]) => {
+      const res = await admin("POST", "/roles", { code, name: code, permissions });
+      expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(201);
+      return res.body.id as string;
+    };
+    const plain = await role("D111_R4_NOTIFY", ["sales.invoice.view", CASH_FORECAST]);
+    const withUnattributed = await role("D111_R4_NOTIFY_U", ["sales.invoice.view", CASH_FORECAST, VIEW_UNATTRIBUTED]);
+    const user = async (key: string, roleId: string | null, isCompanyAdmin: boolean, branchScope: typeof ALL_SCOPE | string[], permissions: readonly string[]) => {
+      const res = await admin("POST", "/users", {
+        nameAr: `مستلم ${key}`,
+        email: `d111-r4-${key.toLowerCase()}@cyag.example`,
+        roleId,
+        isCompanyAdmin,
+        branchScope,
+        warehouseScope: ALL_SCOPE,
+        password: "Passw0rd!x",
+        acknowledge: true,
+        reason: "اختبار حدود الإشعارات",
+      });
+      expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
+      const id = res.body.id as string;
+      recipients[key] = { id, read: callerFor(handle.sessions.issue({ userId: id, permissions, roleCode: null, branchScope, warehouseScope: ALL_SCOPE })) };
+    };
+    await user("alex", plain, false, [ALEX], ["sales.invoice.view", CASH_FORECAST]);
+    await user("alexUnattributed", withUnattributed, false, [ALEX], ["sales.invoice.view", CASH_FORECAST, VIEW_UNATTRIBUTED]);
+    await user("main", plain, false, [MAIN], ["sales.invoice.view", CASH_FORECAST]);
+    await user("everywhere", plain, false, ALL_SCOPE, ["sales.invoice.view", CASH_FORECAST]);
+    await user("alexAdmin", null, true, [ALEX], ["*"]);
+  });
+
+  it("another branch's confirmed invoice — its number, amount and customer — reaches nobody restricted to a different branch", async () => {
+    const documentNumber = await confirmedInvoice("D111-R4-NOTIFY-MAIN", MAIN, MAIN_WAREHOUSE);
+    expect(await received("main", documentNumber)).toBe(true);
+    expect(await received("everywhere", documentNumber)).toBe(true);
+    for (const who of ["alex", "alexUnattributed", "alexAdmin"]) expect(await received(who, documentNumber), who).toBe(false);
+    const stored = all<{ recipient_user_id: string }>("SELECT recipient_user_id FROM notification WHERE payload_json LIKE ?", `%${documentNumber}%`).map((row) => row.recipient_user_id);
+    for (const who of ["alex", "alexUnattributed", "alexAdmin"]) expect(stored, who).not.toContain(recipients[who]!.id);
+  });
+
+  it("a branch's own confirmed invoice reaches its people and not the other branch's", async () => {
+    const documentNumber = await confirmedInvoice("D111-R4-NOTIFY-ALEX", ALEX, ALEX_WAREHOUSE);
+    for (const who of ["alex", "alexUnattributed", "alexAdmin", "everywhere"]) expect(await received(who, documentNumber), who).toBe(true);
+    expect(await received("main", documentNumber)).toBe(false);
+  });
+
+  it("a company-level alert reaches the unrestricted and a restricted holder of «غير مخصص», nobody else", async () => {
+    expect((await admin("PUT", "/cash-forecast/threshold", { amount: "999999999999.00" })).status).toBe(200);
+    expect((await admin("GET", "/cash-forecast")).status).toBe(200);
+    const alert = one<{ id: string }>("SELECT id FROM cash_forecast_alerts ORDER BY detected_at DESC LIMIT 1")!;
+    expect(alert).toBeDefined();
+    for (const who of ["everywhere", "alexUnattributed", "alexAdmin"]) expect(await received(who, alert.id), who).toBe(true);
+    for (const who of ["alex", "main"]) expect(await received(who, alert.id), who).toBe(false);
+  });
+});

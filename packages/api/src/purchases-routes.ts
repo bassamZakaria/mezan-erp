@@ -37,6 +37,7 @@ import {
   PurchaseOrderRequiredError,
   PurchaseItemsAlreadyConsumedError,
   GoodsReceiptAlreadyInvoicedError,
+  InvoiceDoesNotMatchReceiptError,
   InvalidJournalEntryError,
   AccountNotFoundError,
   HeaderAccountNotPostableError,
@@ -355,13 +356,14 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof OverReceiptError ||
     err instanceof PurchaseOrderRequiredError ||
     err instanceof PurchaseItemsAlreadyConsumedError ||
-    err instanceof GoodsReceiptAlreadyInvoicedError
+    err instanceof GoodsReceiptAlreadyInvoicedError ||
+    err instanceof InvoiceDoesNotMatchReceiptError
   ) {
     return c.json(
       {
         error: err.code,
         message: err.message,
-        messageEn: err instanceof PurchaseItemsAlreadyConsumedError ? err.messageEn : undefined,
+        messageEn: "messageEn" in err ? err.messageEn : undefined,
         reasons: err instanceof InvalidPurchaseDocumentError ? err.reasons : undefined,
       },
       422,
@@ -798,7 +800,11 @@ export function createPurchasesRoutes(
   if (deps.layers) {
     const layers = deps.layers;
     app.post("/receipts/:id/cancel", gate("purchases.receipt.void"), async (c) => {
+      const requested = requestedReversalDate(await readOptionalBody(c));
+      if (!requested.ok) return c.json(INVALID_REVERSAL_DATE, 400);
+      const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
       try {
+        const target = await deps.receipts.findById(c.req.param("id"));
         const receipt = await cancelGoodsReceipt(c.req.param("id"), {
           receipts: deps.receipts,
           orders: deps.orders,
@@ -810,7 +816,7 @@ export function createPurchasesRoutes(
           audit: audit(c),
           actor: actor(c),
           now: deps.now,
-        });
+        }, { date: requested.date ?? (target && today < target.date ? target.date : today) });
         emit("DOCUMENT_CANCELLED", "GOODS_RECEIPT", receipt.id, receipt.number);
         return c.json(serializeReceipt(receipt));
       } catch (err) {

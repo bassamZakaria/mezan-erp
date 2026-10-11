@@ -11,7 +11,7 @@
 import { Money, Qty } from "../money/index.js";
 import { extend, occurredAtFromDocumentDate, type CostLayer, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
-import { JournalEntryNotFoundError } from "../gl/errors.js";
+import { JournalEntryNotFoundError, ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import {
   applyReceiptToOrder,
@@ -501,6 +501,7 @@ export async function confirmGoodsReceipt(
 export async function cancelGoodsReceipt(
   id: string,
   deps: CancelGoodsReceiptDeps,
+  options: { readonly date?: string } = {},
 ): Promise<GoodsReceipt> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
   const receipt = await deps.receipts.findById(id);
@@ -509,6 +510,11 @@ export async function cancelGoodsReceipt(
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
   if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(id);
+  if (options.date !== undefined && options.date < receipt.date) {
+    throw new ReversalDateBeforeOriginalError(id, options.date, receipt.date);
+  }
+  const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+  const cancelDate = options.date ?? (today < receipt.date ? receipt.date : today);
 
   return atomically(deps, async () => {
   if (receipt.status === "confirmed") {
@@ -525,14 +531,14 @@ export async function cancelGoodsReceipt(
       sourceDocType: "PURCHASE_RECEIPT",
       sourceDocId: receipt.id,
       positions,
-      occurredAt: occurredAtFromDocumentDate(receipt.date),
+      // The day the GL reversal is dated, so stock and GL 1200 leave together.
+      occurredAt: occurredAtFromDocumentDate(cancelDate),
     });
 
     try {
       await deps.glReverse?.reverse(receipt.id, {
         reversalId: goodsReceiptCancelEntryId(receipt.id),
-        // The day the stock reversal is stamped, so stock and GL 1200 leave together.
-        date: receipt.date,
+        date: cancelDate,
         memo: `عكس إذن استلام ${receipt.number}`,
       });
     } catch (err) {

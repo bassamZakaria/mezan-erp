@@ -41,6 +41,8 @@ export {
   PurchaseOrderRequiredError,
   PurchaseItemsAlreadyConsumedError,
   GoodsReceiptAlreadyInvoicedError,
+  GoodsReceiptInvoicedRefusal,
+  InvoiceDoesNotMatchReceiptError,
   RfqNotFoundError,
   InvalidRfqError,
   RfqNotDraftError,

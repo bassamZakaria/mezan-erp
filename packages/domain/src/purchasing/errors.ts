@@ -107,11 +107,41 @@ export class PurchaseItemsAlreadyConsumedError extends Error {
   }
 }
 
+export enum GoodsReceiptInvoicedRefusal {
+  Cancel = "cancel",
+  SecondInvoice = "second_invoice",
+}
+
 export class GoodsReceiptAlreadyInvoicedError extends Error {
   readonly code = "GOODS_RECEIPT_ALREADY_INVOICED";
-  constructor(readonly id: string) {
-    super(`إذن الاستلام "${id}" تمت فوترته ولا يمكن إلغاؤه.`);
+  readonly messageEn: string;
+  constructor(
+    readonly id: string,
+    readonly refusal: GoodsReceiptInvoicedRefusal = GoodsReceiptInvoicedRefusal.Cancel,
+  ) {
+    super(
+      refusal === GoodsReceiptInvoicedRefusal.Cancel
+        ? `إذن الاستلام "${id}" تمت فوترته ولا يمكن إلغاؤه.`
+        : `إذن الاستلام "${id}" عليه فاتورة مشتريات مؤكدة بالفعل، ولا تُؤكَّد عليه فاتورة ثانية. ألغِ الفاتورة القائمة أولاً إن كانت هذه هي الصحيحة.`,
+    );
+    this.messageEn =
+      refusal === GoodsReceiptInvoicedRefusal.Cancel
+        ? `Goods receipt "${id}" has been invoiced and cannot be cancelled.`
+        : `Goods receipt "${id}" already has a confirmed purchase invoice; a second one cannot be confirmed against it. Cancel the standing invoice first if this is the right one.`;
     this.name = "GoodsReceiptAlreadyInvoicedError";
+  }
+}
+
+export class InvoiceDoesNotMatchReceiptError extends Error {
+  readonly code = "INVOICE_DOES_NOT_MATCH_RECEIPT";
+  readonly messageEn: string;
+  constructor(
+    readonly receiptId: string,
+    readonly reasons: readonly { readonly ar: string; readonly en: string }[],
+  ) {
+    super(`فاتورة المشتريات لا تطابق إذن الاستلام "${receiptId}": ${reasons.map((r) => r.ar).join("، ")}.`);
+    this.messageEn = `The purchase invoice does not match goods receipt "${receiptId}": ${reasons.map((r) => r.en).join("; ")}.`;
+    this.name = "InvoiceDoesNotMatchReceiptError";
   }
 }
 

@@ -416,7 +416,8 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
       .gte("date", filter.fromDate)
       .lte("date", filter.toDate)
       .eq("branch_id", filter.branchId)
-      .eq("warehouse_id", filter.warehouseId);
+      .eq("warehouse_id", filter.warehouseId)
+      .eq("receipt_id", filter.receiptId);
     if (filter.statusIn) {
       // An empty set matches nothing, exactly as asked — dropping the clause
       // would widen it to every status.

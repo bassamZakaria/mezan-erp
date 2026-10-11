@@ -34,6 +34,8 @@ import {
 } from "./types.js";
 import {
   GoodsReceiptAlreadyInvoicedError,
+  GoodsReceiptInvoicedRefusal,
+  InvoiceDoesNotMatchReceiptError,
   DuplicatePurchaseDocumentError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
@@ -127,6 +129,7 @@ export interface PurchaseInvoiceListFilter {
   readonly toDate?: string;
   readonly branchId?: string;
   readonly warehouseId?: string;
+  readonly receiptId?: string;
   /** Substring of the document number or the supplier's own invoice number. */
   readonly search?: string;
   readonly limit?: number;
@@ -407,6 +410,30 @@ function validate(lines: readonly PurchaseInvoiceLine[], supplierId: string, pro
   if (reasons.length > 0) throw new InvalidPurchaseDocumentError(reasons);
 }
 
+function assertInvoiceMatchesReceipt(command: Pick<CreatePurchaseInvoiceCommand, "warehouseId" | "lines">, receipt: GoodsReceipt): void {
+  const reasons: { ar: string; en: string }[] = [];
+  if (command.warehouseId !== receipt.warehouseId) {
+    reasons.push({
+      ar: `مستودع الفاتورة "${command.warehouseId}" يختلف عن مستودع الاستلام "${receipt.warehouseId}"`,
+      en: `the invoice warehouse "${command.warehouseId}" is not the receipt's warehouse "${receipt.warehouseId}"`,
+    });
+  }
+  const received = new Set(receipt.lines.map((line) => line.itemId));
+  const foreign = new Set<string>();
+  for (const line of command.lines) {
+    if ((line.kind ?? "inventory") !== "inventory" || !line.itemId || received.has(line.itemId)) continue;
+    foreign.add(line.itemId);
+  }
+  for (const itemId of foreign) {
+    reasons.push({ ar: `الصنف "${itemId}" غير موجود في إذن الاستلام`, en: `item "${itemId}" is not on the receipt` });
+  }
+  if (reasons.length > 0) throw new InvoiceDoesNotMatchReceiptError(receipt.id, reasons);
+}
+
+async function otherConfirmedInvoicesOnReceipt(invoices: PurchaseInvoiceRepository, receiptId: string, exceptId: string): Promise<PurchaseInvoice[]> {
+  return (await invoices.list({ receiptId, status: "confirmed" })).filter((other) => other.receiptId === receiptId && other.status === "confirmed" && other.id !== exceptId);
+}
+
 /**
  * Create a مسودة (draft) purchase invoice — manual, or from a confirmed receipt.
  * With `requireReceiptForInvoice` on, a `receiptId` is mandatory.
@@ -431,7 +458,8 @@ export async function createPurchaseInvoice(
     // Only the status was checked, never this flag — so a second invoice
     // against the same receipt was accepted and posted a duplicate Dr
     // Inventory with no matching stock movement.
-    if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(command.receiptId);
+    if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(command.receiptId, GoodsReceiptInvoicedRefusal.SecondInvoice);
+    assertInvoiceMatchesReceipt(command, receipt);
     sourceReceipt = receipt;
   }
   if (await deps.invoices.findById(command.id)) {
@@ -641,6 +669,13 @@ export async function confirmPurchaseInvoice(
   const runAtomically = deps.gl.transaction?.bind(deps.gl) ?? (<T,>(fn: () => Promise<T>) => fn());
 
   const confirmed = await runAtomically(async () => {
+    // Read INSIDE the transaction: two drafts can be raised on one receipt while neither is confirmed, and only the first may post.
+    if (invoice.receiptId) {
+      const receipt = await deps.receipts?.findById(invoice.receiptId);
+      if (receipt?.invoiced || (await otherConfirmedInvoicesOnReceipt(deps.invoices, invoice.receiptId, invoice.id)).length > 0) {
+        throw new GoodsReceiptAlreadyInvoicedError(invoice.receiptId, GoodsReceiptInvoicedRefusal.SecondInvoice);
+      }
+    }
     await deps.gl.post(posting);
 
     // Manual invoice (no prior receipt): the invoice IS the stock-in document.
@@ -740,8 +775,11 @@ export async function cancelPurchaseInvoice(
   return atomically(deps, async () => {
   if (invoice.status === "confirmed") {
     const inventoryLines = invoice.lines.filter((l) => l.kind === "inventory" && l.itemId !== null);
-    const positions = distinctPositions(inventoryLines.map((l) => ({ itemId: l.itemId as string, warehouseId: invoice.warehouseId })));
-    // The goods of a from-receipt invoice sit in layers the RECEIPT created, under the receipt's id.
+    // The goods of a from-receipt invoice sit in layers the RECEIPT created: under the receipt's id, in the receipt's warehouse, for the receipt's items.
+    const sourceReceipt = invoice.receiptId ? ((await deps.receipts?.findById(invoice.receiptId)) ?? null) : null;
+    const positions = sourceReceipt
+      ? distinctPositions(sourceReceipt.lines.map((l) => ({ itemId: l.itemId, warehouseId: sourceReceipt.warehouseId })))
+      : distinctPositions(inventoryLines.map((l) => ({ itemId: l.itemId as string, warehouseId: invoice.warehouseId })));
     const layerOwnerId = invoice.receiptId ?? invoice.id;
     if (policy.trackSoldPurchaseItems) {
       for (const position of positions) {
@@ -769,7 +807,7 @@ export async function cancelPurchaseInvoice(
       date: cancelDate,
       memo: `عكس فاتورة مشتريات ${invoice.number}`,
     });
-    if (invoice.receiptId && deps.receipts) {
+    if (invoice.receiptId && deps.receipts && (await otherConfirmedInvoicesOnReceipt(deps.invoices, invoice.receiptId, invoice.id)).length === 0) {
       await releaseGoodsReceiptFromInvoice(invoice.receiptId, { receipts: deps.receipts });
     }
   }

@@ -23,6 +23,7 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { isBranchRestricted, navItemAccess, withoutBranchUnavailable } from "./branch-restriction";
 import { BranchReadOnlyNotice, BranchUnavailableState } from "./shell/BranchRestrictionNotices";
+import { ReadOnlyForm } from "./shell/ReadOnlyForm";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
 import {
@@ -655,9 +656,11 @@ export function AppLayout() {
       ) : (
         <>
           {screenAccess === BranchRestrictedAccess.ReadOnly ? <BranchReadOnlyNotice /> : null}
-          <Suspense fallback={<ScreenLoading />}>
-            <Outlet />
-          </Suspense>
+          <ReadOnlyForm reason={screenAccess === BranchRestrictedAccess.ReadOnly ? t("branchRestriction.readOnlyControl") : null}>
+            <Suspense fallback={<ScreenLoading />}>
+              <Outlet />
+            </Suspense>
+          </ReadOnlyForm>
         </>
       )}
 

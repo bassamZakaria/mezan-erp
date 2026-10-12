@@ -5,6 +5,7 @@ const TODAY = "2026-08-24";
 const UNNAMED_ZERO = { taxRateId: null, taxRatePercent: 0 };
 const EXEMPT_RATE = "VAT-EXEMPT";
 const SUPPLIER = "SUPP-DEMO-1";
+const CASH_GL = "1300-1";
 
 let kit: BackendKit;
 
@@ -140,6 +141,69 @@ describe("two operations on one stored document land as one story", () => {
         expect(entry.map((line) => line.taxRateId)).toEqual(entry.map(() => named));
         expect(reversal.map((line) => line.taxRateId)).toEqual(reversal.map(() => named));
         expect(await kit.auditRows("PURCHASE_INVOICE", fixture, "CLASSIFY_LINE_TAX")).toHaveLength(named ? 1 : 0);
+      },
+    });
+  }, 120_000);
+
+  it("a goods receipt's confirm against the invoice raised from it: an invoice is never raised from a receipt that is not confirmed, and is raised once it is", async () => {
+    await raceBothOrders<string>(kit, "RC-GRN-INV", {
+      outcome: RaceOutcome.FirstCommitDecides,
+      arrange: async (tag) => {
+        const drafted = await kit.call("POST", "/purchases/receipts", {
+          id: tag, supplierId: SUPPLIER, date: TODAY, branchId: "BR-MAIN", warehouseId: "WH-MAIN", lines: [{ itemId: "ITEM-DEMO-2", qty: "3", unitCost: "70" }],
+        });
+        expect(drafted.status, JSON.stringify(drafted.body)).toBe(201);
+        return tag;
+      },
+      first: (id) => kit.call("POST", `/purchases/receipts/${id}/confirm`, {}),
+      second: (id) => kit.call("POST", "/purchases/invoices", { id: `${id}-INV`, supplierId: SUPPLIER, date: TODAY, dueDate: "2026-09-23", branchId: "BR-MAIN", warehouseId: "WH-MAIN", receiptId: id }),
+      agree: async ({ fixture, first, second }) => {
+        expect(first.status, JSON.stringify(first.body)).toBe(200);
+        const receipt = (await kit.call("GET", `/purchases/receipts/${fixture}`)).body;
+        expect(receipt.status).toBe("confirmed");
+        const invoice = await kit.call("GET", `/purchases/invoices/${fixture}-INV`);
+        if (second.status === 201) {
+          expect([invoice.status, invoice.body.status, invoice.body.receiptId]).toEqual([200, "draft", fixture]);
+          expect(invoice.body.lines.map((line: { itemId: string; qty: string }) => [line.itemId, Number(line.qty)])).toEqual([["ITEM-DEMO-2", 3]]);
+        } else {
+          expect(second.status, JSON.stringify(second.body)).toBeGreaterThanOrEqual(400);
+          expect(second.body.message ?? "").toMatch(/[\u0600-\u06FF]/);
+          expect(invoice.status).toBe(404);
+        }
+      },
+    });
+  }, 120_000);
+
+  it("a voucher's confirm against its reversal: a voucher is never reversed before it posts, and its reversal mirrors the one entry it posted", async () => {
+    await raceBothOrders<string>(kit, "RC-VCH-REV", {
+      outcome: RaceOutcome.FirstCommitDecides,
+      arrange: async (tag) => {
+        const drafted = await kit.call("POST", "/vouchers", {
+          id: tag, date: TODAY, voucherType: "other_income", amount: "120", branchId: "BR-MAIN", paymentMethod: "cash",
+          treasuryAccountId: "TR-DEMO-CASH", treasuryGlAccountId: CASH_GL, counterpartyGlAccountId: "4100",
+        });
+        expect(drafted.status, JSON.stringify(drafted.body)).toBe(201);
+        return tag;
+      },
+      first: (id) => kit.call("POST", `/vouchers/${id}/confirm`, {}),
+      second: (id) => kit.call("POST", `/vouchers/${id}/reverse`, { reversalId: `${id}-REV` }),
+      agree: async ({ fixture, first, second }) => {
+        expect(first.status, JSON.stringify(first.body)).toBe(200);
+        const voucher = (await kit.call("GET", `/vouchers/${fixture}`)).body;
+        const posted = await kit.journalLines(voucher.journalEntryId);
+        expect(posted.length).toBeGreaterThan(0);
+        const mirror = await kit.call("GET", `/vouchers/${fixture}-REV`);
+        if (second.status >= 200 && second.status < 300) {
+          expect(voucher.status).toBe("reversed");
+          expect([mirror.status, mirror.body.reversesDocId]).toEqual([200, fixture]);
+          const reversal = await kit.journalLines(mirror.body.journalEntryId);
+          expect(reversal.map((line) => [line.accountId, line.debit, line.credit]).sort()).toEqual(posted.map((line) => [line.accountId, line.credit, line.debit]).sort());
+        } else {
+          expect(second.status, JSON.stringify(second.body)).toBe(409);
+          expect(second.body.message ?? "").toMatch(/[\u0600-\u06FF]/);
+          expect(voucher.status).toBe("confirmed");
+          expect(mirror.status).toBe(404);
+        }
       },
     });
   }, 120_000);

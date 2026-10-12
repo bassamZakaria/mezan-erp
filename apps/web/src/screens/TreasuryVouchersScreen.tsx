@@ -77,6 +77,7 @@ import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { VoucherReversalNotice } from "./VoucherReversalNotice";
 import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** السندات النقدية (Treasury Vouchers) — docs/archive/catalog/04, on the real `/vouchers` API. */
@@ -400,7 +401,7 @@ export function TreasuryVouchersScreen() {
   }
 
   if (selectedId) {
-    return <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={subPage.close} />;
+    return <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={subPage.close} onOpenVoucher={(voucherId) => subPage.open(voucherId)} />;
   }
 
   return (
@@ -594,11 +595,13 @@ function VoucherDetailView({
   partyName,
   treasuryName,
   onBack,
+  onOpenVoucher,
 }: {
   id: string;
   partyName: (id: string | null) => string;
   treasuryName: (id: string) => string;
   onBack: () => void;
+  onOpenVoucher: (voucherId: string) => void;
 }) {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
@@ -889,7 +892,8 @@ function VoucherDetailView({
         effects={(effects?.effects ?? []).map((e) => e.description)}
         tabs={tabs}
       />
-      <div className="mt-[16px]">
+      <div className="mt-[16px] flex flex-col gap-[12px]">
+        <VoucherReversalNotice document={doc} onOpen={onOpenVoucher} />
         <ResubmitForApprovalAction family={ResubmitFamily.Vouchers} document={doc} />
       </div>
       <ConfirmDialog

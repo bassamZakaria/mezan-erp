@@ -192,17 +192,16 @@ describe("two operations on one stored document land as one story", () => {
         const voucher = (await kit.call("GET", `/vouchers/${fixture}`)).body;
         const posted = await kit.journalLines(voucher.journalEntryId);
         expect(posted.length).toBeGreaterThan(0);
-        const mirror = await kit.call("GET", `/vouchers/${fixture}-REV`);
         if (second.status >= 200 && second.status < 300) {
-          expect(voucher.status).toBe("reversed");
-          expect([mirror.status, mirror.body.reversesDocId]).toEqual([200, fixture]);
+          expect([voucher.status, voucher.reversedByDocId]).toEqual(["reversed", `${fixture}-REV`]);
+          const mirror = await kit.call("GET", `/vouchers/${voucher.reversedByDocId}`);
+          expect([mirror.status, mirror.body.reversesDocId, mirror.body.reversedByDocId]).toEqual([200, fixture, null]);
           const reversal = await kit.journalLines(mirror.body.journalEntryId);
           expect(reversal.map((line) => [line.accountId, line.debit, line.credit]).sort()).toEqual(posted.map((line) => [line.accountId, line.credit, line.debit]).sort());
         } else {
           expect(second.status, JSON.stringify(second.body)).toBe(409);
           expect(second.body.message ?? "").toMatch(/[\u0600-\u06FF]/);
-          expect(voucher.status).toBe("confirmed");
-          expect(mirror.status).toBe(404);
+          expect([voucher.status, voucher.reversedByDocId]).toEqual(["confirmed", null]);
         }
       },
     });

@@ -121,6 +121,7 @@ function serialize(doc: VoucherDocument, approval: DocumentApprovalDTO | null = 
     journalEntryId: doc.journalEntryId,
     confirmedAt: doc.confirmedAt,
     reversesDocId: doc.reversesDocId ?? null,
+    reversedByDocId: doc.reversedByDocId ?? null,
     heldAllocations: (line.heldAllocations ?? []).map(serializeHeldAllocation),
   };
 }

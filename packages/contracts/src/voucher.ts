@@ -89,6 +89,8 @@ export const voucherSchema = z.object({
    * skip it (D197, D200). Optional so older payloads still parse.
    */
   reversesDocId: z.string().nullish(),
+  /** On a reversed voucher: the mirror that reversed it. Optional so older payloads still parse. */
+  reversedByDocId: z.string().nullish(),
   /** Allocations a collection carries while held for approval; the approved confirm applies them (D344). */
   heldAllocations: z.array(heldAllocationSchema).optional(),
 });

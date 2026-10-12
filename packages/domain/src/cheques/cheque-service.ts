@@ -33,6 +33,7 @@
  */
 
 import { Money } from "../money/index.js";
+import type { JournalEntry } from "../journal.js";
 import { postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
 import { carryingBaseOf, convertFromBase, shareOfBase } from "../exchange-rates/convert.js";
 import type {
@@ -382,26 +383,45 @@ export class ChequeService {
       const cheque = await this.require(cmd.chequeId);
       assertChequeTransition(cheque, "return");
       const date = cmd.date ?? this.now().slice(0, 10);
+      let restated: JournalLineInput[] = [];
       if (cheque.collectionJournalEntryId) {
         const collection = await this.deps.gl.ledger.findById(cheque.collectionJournalEntryId);
         if (collection && date < collection.date.slice(0, 10)) throw new ReversalDateBeforeOriginalError(collection.id, date, collection.date);
+        if (collection) restated = await this.restatementLeavingWith(cheque, collection, date);
         await reverseJournalEntry(cheque.collectionJournalEntryId, this.deps.gl, {
           reversalId: cmd.collectionReversalId,
           date,
           memo: `ردّ البنك للشيك المحصَّل رقم ${cheque.chequeNumber}`,
         });
       }
-      return this.postBounce(cheque, cmd, date);
+      return this.postBounce(cheque, cmd, date, restated);
     });
   }
 
-  private async postBounce(cheque: Cheque, cmd: BounceChequeCommand, date: string): Promise<Cheque> {
+  private async restatementLeavingWith(cheque: Cheque, collection: JournalEntry, date: string): Promise<JournalLineInput[]> {
+    const port = this.deps.realisedFx;
+    if (cheque.direction !== "incoming" || !cheque.bankTreasuryAccountId || !port?.treasuryRevaluationShare) return [];
+    const bankLine = collection.lines.find((line) => line.fxRate && line.currency && line.debit.scaled > 0n);
+    if (!bankLine?.fxRate || !bankLine.currency) return [];
+    const foreign = convertFromBase(cheque.amount, bankLine.fxRate);
+    const share = (await port.treasuryRevaluationShare(cheque.bankTreasuryAccountId, foreign, collection.date.slice(0, 10), date)).scaled;
+    if (share === 0n) return [];
+    const accounts = await port.differenceAccounts();
+    const amount = Money.fromScaled(share > 0n ? share : -share);
+    const onBank = { accountId: bankLine.accountId, memo: FX_REALISED_LINE_MEMO, currency: bankLine.currency, fxRate: bankLine.fxRate };
+    return share > 0n
+      ? [{ accountId: accounts.lossAccountId, memo: FX_REALISED_LINE_MEMO, debit: amount, credit: Money.zero() }, { ...onBank, debit: Money.zero(), credit: amount }]
+      : [{ ...onBank, debit: amount, credit: Money.zero() }, { accountId: accounts.gainAccountId, memo: FX_REALISED_LINE_MEMO, debit: Money.zero(), credit: amount }];
+  }
+
+  private async postBounce(cheque: Cheque, cmd: BounceChequeCommand, date: string, restated: readonly JournalLineInput[] = []): Promise<Cheque> {
     {
-      const lines =
+      const lines: JournalLineInput[] =
         cheque.direction === "incoming"
           ? [
               { accountId: cheque.counterpartyGlAccountId, debit: cheque.amount, credit: Money.zero() },
               { accountId: cheque.controlAccounts.underCollectionAccountId, debit: Money.zero(), credit: cheque.amount },
+              ...restated,
             ]
           : [
               { accountId: cheque.controlAccounts.underCollectionAccountId, debit: cheque.amount, credit: Money.zero() },

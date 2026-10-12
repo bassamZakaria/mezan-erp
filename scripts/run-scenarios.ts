@@ -46,9 +46,9 @@ import type { Ctx } from "./scenarios/harness.js";
  */
 const ctx = await boot();
 const start = await ctx.invariants();
-console.log(`baseline  tb ${start.tb.toFixed(6)} · inventory ${start.inventory.toFixed(6)} · ap ${start.ap.toFixed(6)} · ar ${start.ar.toFixed(6)} · 2120 ${start.grni.toFixed(6)}`);
+console.log(`baseline  tb ${start.tb.toFixed(6)} · inventory ${start.inventory.toFixed(6)} · ap ${start.ap.toFixed(6)} · ar ${start.ar.toFixed(6)} · 2120 ${start.grni.toFixed(6)} · fx residue ${start.fxResidue.toFixed(6)}`);
 const exactlyZero = (label: string, inv: Awaited<ReturnType<typeof ctx.invariants>>) => {
-  for (const key of ["tb", "inventory", "ap", "ar", "grni"] as const) {
+  for (const key of ["tb", "inventory", "ap", "ar", "grni", "fxResidue"] as const) {
     if (inv.exact[key] !== 0n) ctx.failures.push(`${label} invariants · ${key} is ${inv[key].toFixed(6)}, not exactly 0`);
   }
 };
@@ -115,6 +115,6 @@ if (!only.size || only.has("reports")) {
 }
 
 const end = await ctx.invariants();
-console.log(`final     tb ${end.tb.toFixed(6)} · inventory ${end.inventory.toFixed(6)} · ap ${end.ap.toFixed(6)} · ar ${end.ar.toFixed(6)} · 2120 ${end.grni.toFixed(6)}`);
+console.log(`final     tb ${end.tb.toFixed(6)} · inventory ${end.inventory.toFixed(6)} · ap ${end.ap.toFixed(6)} · ar ${end.ar.toFixed(6)} · 2120 ${end.grni.toFixed(6)} · fx residue ${end.fxResidue.toFixed(6)}`);
 exactlyZero("final", end);
 process.exit(ctx.report());

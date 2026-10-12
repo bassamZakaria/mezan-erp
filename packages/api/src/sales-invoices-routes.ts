@@ -169,6 +169,8 @@ export interface SalesInvoiceRoutesDeps {
     invoiceId: string,
     options: { readonly paymentMethod?: EtaReceiptPaymentMethod },
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
+  /** Takes what a standing revaluation restated a voided invoice by off its control account, as a realised difference. */
+  readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
   /** Whether the invoice has an e-receipt; a receipted sale is refused a void. */
   readonly hasEtaReceipt?: (invoiceId: string) => Promise<boolean>;
   /**
@@ -1227,6 +1229,7 @@ export function createSalesInvoicesRoutes(
         }
         const voided: SalesInvoice = { ...invoice, status: "reversed" };
         await deps.repo.update(voided);
+        await deps.releaseRevaluationShare?.(invoice.id, date);
         await recordAdminEvent(deps.audit, c, {
           module: "sales",
           entityType: "SALES_INVOICE",

@@ -248,7 +248,7 @@ export interface PeriodCloseSources {
   payrollDue(window: PeriodCloseWindow): Promise<PeriodClosePayrollDue>;
   foreignCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
   fxRevaluedCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
-  /** Foreign-currency treasury accounts holding none of their currency while the ledger still carries a base amount on them. */
+  /** Monetary accounts holding none of a foreign currency while the ledger still carries a base amount on them in it. */
   foreignResidues(window: PeriodCloseWindow): Promise<readonly PeriodCloseForeignResidue[]>;
   recurringDue(window: PeriodCloseWindow): Promise<readonly PeriodCloseRecurringDue[]>;
   depreciation(window: PeriodCloseWindow): Promise<readonly PeriodCloseDepreciationGroup[]>;

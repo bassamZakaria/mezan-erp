@@ -6,6 +6,7 @@ import {
   type LedgerRepository,
   type NaturalBalance,
   type ReconciliationSummary,
+  type ForeignResidue,
 } from "@mezan/domain";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
@@ -23,6 +24,8 @@ export interface ReconciliationRoutesDeps {
   readonly ledger: LedgerRepository;
   /** Yields the sub-ledger balances to check against their GL control accounts. */
   readonly resolveControls: () => Promise<readonly ReconciliationControl[]>;
+  /** Every account and document holding none of its foreign currency while base is still carried on it. */
+  readonly foreignResidues?: () => Promise<readonly ForeignResidue[]>;
 }
 
 /**
@@ -71,6 +74,8 @@ export function createReconciliationRoutes(
     const controlIds = new Set(controls.map((x) => x.controlAccountId));
     const lines = (await deps.ledger.listLines?.()) ?? [];
     const unlinked = findUnlinkedControlLines(lines, controlIds);
+    const residues = (await deps.foreignResidues?.()) ?? [];
+    const residueTotal = residues.reduce((sum, row) => sum + (row.base.scaled < 0n ? -row.base.scaled : row.base.scaled), 0n);
 
     return c.json({
       rows: summary.rows.map((r) => ({
@@ -83,6 +88,10 @@ export function createReconciliationRoutes(
         matched: r.matched,
       })),
       allMatched: summary.allMatched,
+      foreignResidue: {
+        total: Money.fromScaled(residueTotal).toString(),
+        rows: residues.map((row) => ({ kind: row.kind, ref: row.ref, currency: row.currency, base: row.base.toString() })),
+      },
       unlinked: unlinked.map((u) => ({
         entryId: u.entryId,
         entryNo: u.entryNo,

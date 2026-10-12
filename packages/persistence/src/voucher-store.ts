@@ -619,8 +619,10 @@ class SqliteRevaluationShareRepository implements FxRevaluationShareRepository {
   private readonly insert: Database.Statement;
   private readonly selectByItem: Database.Statement;
   private readonly selectByEntry: Database.Statement;
+  private readonly selectItemIds: Database.Statement;
 
   constructor(sqlite: Database.Database) {
+    this.selectItemIds = sqlite.prepare(`SELECT DISTINCT item_id FROM fx_revaluation_share ORDER BY item_id`);
     this.insert = sqlite.prepare(`
       INSERT INTO fx_revaluation_share (entry_id, item_id, account_id, kind, party_id, currency, amount)
       VALUES (@entry_id, @item_id, @account_id, @kind, @party_id, @currency, @amount)
@@ -647,6 +649,9 @@ class SqliteRevaluationShareRepository implements FxRevaluationShareRepository {
   }
   async listByEntry(entryId: string): Promise<readonly FxRevaluationShareRecord[]> {
     return (this.selectByEntry.all(entryId) as ShareRow[]).map(toShare);
+  }
+  async listItemIds(): Promise<readonly string[]> {
+    return (this.selectItemIds.all() as { item_id: string }[]).map((row) => row.item_id);
   }
 }
 

@@ -193,9 +193,10 @@ export async function boot() {
       ap: diff("ap"),
       ar: diff("ar"),
       grni: await goodsReceivedNotInvoicedGap(),
+      fxResidue: scaled(recon.body?.foreignResidue?.total),
     };
     const asNumber = (x: bigint | null) => (x === null ? NaN : Number(x) / 1e6);
-    return { tb: asNumber(exact.tb), inventory: asNumber(exact.inventory), ap: asNumber(exact.ap), ar: asNumber(exact.ar), grni: asNumber(exact.grni), exact };
+    return { tb: asNumber(exact.tb), inventory: asNumber(exact.inventory), ap: asNumber(exact.ap), ar: asNumber(exact.ar), grni: asNumber(exact.grni), fxResidue: asNumber(exact.fxResidue), exact };
   }
 
   /**
@@ -220,6 +221,7 @@ export async function boot() {
     check("AP still reconciles", same("ap"), moved("ap"));
     check("AR still reconciles", same("ar"), moved("ar"));
     check("GL 2120 still equals the goods received and not yet invoiced", after.exact.grni !== null && after.exact.grni === before.exact.grni, `${before.grni.toFixed(6)} → ${after.grni.toFixed(6)}`);
+    check("nothing holds base with none of its foreign currency", after.exact.fxResidue === 0n, `${before.fxResidue.toFixed(6)} → ${after.fxResidue.toFixed(6)}`);
   }
 
   function report(): number {

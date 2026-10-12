@@ -24,6 +24,15 @@ import {
   type OpenFxBalance,
   type OpenFxItem,
   type FxRevaluationShare,
+  type ForeignResidue,
+  type JournalLineInput,
+  ForeignResidueKind,
+  FX_REVALUATION_LINE_MEMO,
+  FX_REALISED_LINE_MEMO,
+  FX_REALISED_DOC_TYPE,
+  Money,
+  isRoundingResidue,
+  postJournalEntry,
 } from "@mezan/domain";
 import { fxRevaluationRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
@@ -55,6 +64,9 @@ export interface FxRevaluationRoutesDeps {
   readonly saveShares?: (entryId: string, shares: readonly FxRevaluationShare[]) => Promise<void>;
   /** Whether a settlement still standing has taken part of what this run restated. */
   readonly sharesConsumed?: (entryId: string) => Promise<boolean>;
+  readonly foreignResidues?: (asOfDate?: string) => Promise<readonly ForeignResidue[]>;
+  readonly realisedDifferenceAccounts?: () => Promise<FxDifferenceAccounts>;
+  readonly releaseItemShare?: (itemId: string, date: string) => Promise<void>;
   /** GL account → currency, for every treasury account kept in a foreign currency: its untagged lines are read at the rate of their own date. */
   readonly foreignTreasuryCurrencies?: () => Promise<ReadonlyMap<string, string>>;
 }
@@ -210,6 +222,53 @@ export function createFxRevaluationRoutes(
     message: "تشغيل إعادة تقييم العملات غير موجود.",
     messageEn: "The FX revaluation run does not exist.",
   } as const;
+
+  const serializeResidue = (row: ForeignResidue) => ({ kind: row.kind, ref: row.ref, currency: row.currency, base: row.base.toString() });
+
+  app.get("/residue", gate("accounting.journal.view"), async (c) => {
+    const rows = (await deps.foreignResidues?.()) ?? [];
+    return c.json({ rows: rows.map(serializeResidue) });
+  });
+
+  app.post("/residue/sweep", gate("accounting.journal.post"), async (c) => {
+    const parsed = fxRevaluationRequestSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const date = await tenantDay(c, parsed.data.date);
+    const residues = (await deps.foreignResidues?.()) ?? [];
+    const sweepable = residues.filter(isRoundingResidue);
+    const refused = residues.filter((row) => !isRoundingResidue(row)).map((row) => ({
+      ...serializeResidue(row),
+      message: "الرصيد المتبقي ليس فرق تقريب؛ يُعالج من مصدره ولا يُرحَّل إلى فروق العملة.",
+      messageEn: "This residue is not a rounding remainder; it is corrected at its source, not swept to exchange differences.",
+    }));
+    if (sweepable.length === 0 || !deps.realisedDifferenceAccounts) return c.json({ swept: [], refused, entryId: null }, 201);
+    try {
+      const accounts = await deps.realisedDifferenceAccounts();
+      const zero = Money.zero();
+      const lines: JournalLineInput[] = [];
+      for (const row of sweepable) {
+        if (row.kind !== ForeignResidueKind.Account) continue;
+        const magnitude = Money.fromScaled(row.base.scaled < 0n ? -row.base.scaled : row.base.scaled);
+        const fxRate = (await deps.exchangeRates.findRate(row.currency, date))?.rate ?? "1";
+        const overstated = row.base.scaled > 0n;
+        lines.push({ accountId: row.ref, debit: overstated ? zero : magnitude, credit: overstated ? magnitude : zero, memo: FX_REVALUATION_LINE_MEMO, currency: row.currency, fxRate });
+        lines.push({ accountId: overstated ? accounts.lossAccountId : accounts.gainAccountId, debit: overstated ? magnitude : zero, credit: overstated ? zero : magnitude, memo: FX_REALISED_LINE_MEMO });
+      }
+      const actor = getAuthContext(c)?.userId ?? "system";
+      const entryId = await deps.ledger.transaction(async () => {
+        for (const row of sweepable) if (row.kind === ForeignResidueKind.Item) await deps.releaseItemShare?.(row.ref, date);
+        if (lines.length === 0) return null;
+        const posted = await postJournalEntry(
+          { id: idGen(), date, memo: `ترحيل فروق تقريب العملات الأجنبية حتى ${date}`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, lines },
+          { ledger: deps.ledger, accounts: deps.accounts, periods: deps.periods, numbering: deps.numbering, projects: deps.projects, audit: deps.audit, vatFilings: deps.vatFilings, events: deps.events, now: deps.now, actor },
+        );
+        return posted.id;
+      });
+      return c.json({ swept: sweepable.map(serializeResidue), refused, entryId }, 201);
+    } catch (err) {
+      return handleError(c, err);
+    }
+  });
 
   const SHARE_CONSUMED = {
     error: "FX_REVALUATION_SHARE_CONSUMED",

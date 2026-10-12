@@ -142,9 +142,8 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
 
   async function foreignResidues(window: PeriodCloseWindow) {
     const { balances } = await openForeignBalances(window);
-    const treasury = await ctx.treasuryFx.foreignCurrencyByGlAccount();
     return balances
-      .filter((balance) => treasury.get(balance.accountId) === balance.currency && balance.foreignAmount.scaled === 0n && balance.bookedBase.scaled !== 0n)
+      .filter((balance) => balance.foreignAmount.scaled === 0n && balance.bookedBase.scaled !== 0n)
       .map((balance) => ({ accountId: balance.accountId, currency: balance.currency, label: balance.label ?? balance.accountId, base: balance.bookedBase }));
   }
 

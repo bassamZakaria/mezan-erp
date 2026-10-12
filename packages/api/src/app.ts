@@ -659,6 +659,7 @@ export interface CreateAppOptions {
      */
     readonly layers?: CostLayerRepository;
     readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
+    readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
     readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
     readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
     readonly currencyCheck?: CurrencyCheck;
@@ -1477,6 +1478,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           transactor: { transaction: (fn) => purchases.gl.ledger.transaction(fn) },
           glReverse: purchases.layers ? glReversePort : undefined,
           landedCostsStandingOn: purchases.landedCostsStandingOn,
+          releaseRevaluationShare: purchases.releaseRevaluationShare,
           accounts: purchases.accounts,
           allocatable: purchases.allocatable,
           returns: options.purchaseReturns?.service,

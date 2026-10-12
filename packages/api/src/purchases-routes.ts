@@ -198,6 +198,7 @@ export interface PurchasesRoutesDeps {
   readonly glReverse?: PurchaseGlReversalPort;
   /** Numbers of the confirmed landed costs standing on a receipt or invoice; a document carrying one is not cancelled under it. */
   readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
+  readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
   /** Append-only audit sink; when present every confirm/cancel below is recorded on the `sensitive` stream. */
   readonly audit?: AuditSink;
   /**
@@ -1420,6 +1421,7 @@ export function createPurchasesRoutes(
           actor: actor(c),
           now: deps.now,
         }, { date: requested.date ?? (target && today < target.date ? target.date : today) });
+        if (target?.status === "confirmed") await deps.releaseRevaluationShare?.(invoice.id, requested.date ?? (today < target.date ? target.date : today));
         await stampDocumentModifier(deps.invoiceVersions, invoice.id, actor(c));
         emit("DOCUMENT_CANCELLED", "PURCHASE_INVOICE", invoice.id, invoice.number);
         return c.json(serializeInvoice(invoice));

@@ -98,6 +98,7 @@ export interface FxRevaluationShareRepository {
   saveAll(shares: readonly FxRevaluationShareRecord[]): Promise<void>;
   listByItem(itemId: string): Promise<readonly FxRevaluationShareRecord[]>;
   listByEntry(entryId: string): Promise<readonly FxRevaluationShareRecord[]>;
+  listItemIds(): Promise<readonly string[]>;
 }
 
 /**

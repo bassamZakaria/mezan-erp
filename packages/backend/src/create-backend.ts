@@ -115,6 +115,13 @@ import {
   returnedByInvoice,
   convertFromBase,
   type OpenFxItem,
+  type AllocationInvoiceKind,
+  FX_REALISED_DOC_TYPE,
+  FX_REALISED_LINE_MEMO,
+  type ForeignResidue,
+  ForeignResidueKind,
+  accountForeignResidues,
+  shareOfBase,
   replay,
   type StockMovement,
   Qty,
@@ -2370,6 +2377,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return rows;
   }
 
+  async function foreignResidues(asOfDate?: string): Promise<ForeignResidue[]> {
+    const posted = (await ledger.listLines?.(asOfDate ? { toDate: asOfDate } : {})) ?? [];
+    const { lines } = await withDerivedTreasuryFx(posted, await foreignTreasuryCurrencies(), async (currency, on) => (await exchangeRates.findRate(currency, on))?.rate ?? null);
+    const residues = accountForeignResidues(deriveOpenFxBalances(lines, await accounts.list()));
+    for (const itemId of await vouchers.revaluationShares.listItemIds()) {
+      const invoice = await vouchers.invoices.findById(itemId);
+      const returned = invoice ? ((await returnedByInvoice(invoiceReturnCredits, [invoice])).get(invoice.id) ?? Money.zero()) : Money.zero();
+      if (invoice && (await invoiceStands(invoice.id, invoice.kind)) && invoiceOpenBalance(invoice, returned).scaled !== 0n) continue;
+      const standing = await standingRevaluationShare(itemId);
+      if (standing.scaled === 0n) continue;
+      const share = (await vouchers.revaluationShares.listByItem(itemId))[0];
+      residues.push({ kind: ForeignResidueKind.Item, ref: itemId, currency: share?.currency ?? "", base: standing });
+    }
+    return residues;
+  }
+
   async function resolveReconciliationControls(asOfDate?: string) {
     const upTo = (date: string | null | undefined): boolean => asOfDate === undefined || (date ?? "").slice(0, 10) <= asOfDate;
     const standingCertificate = (certificate: { status: string; approvedAt: string | null; executionDate: string; voidedAt: string | null }): boolean =>
@@ -3014,7 +3037,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const out = new Map<string, OpenFxItem[]>();
     for (const invoice of open) {
       const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
-      if (!booked) continue;
+      if (!booked || !(await invoiceStands(invoice.id, invoice.kind))) continue;
       const openBase = invoiceOpenBalance(invoice, returned.get(invoice.id) ?? Money.zero());
       if (openBase.scaled === 0n) continue;
       const key = openFxItemsKey(controlOf[invoice.kind], booked.currency);
@@ -3029,6 +3052,40 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       out.set(key, items);
     }
     return out;
+  }
+  async function invoiceStands(invoiceId: string, kind: AllocationInvoiceKind): Promise<boolean> {
+    if (kind === "sales") {
+      const invoice = await salesInvoices.findById(invoiceId);
+      return invoice !== null && SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status);
+    }
+    return (await purchaseInvoices.findById(invoiceId))?.status === "confirmed";
+  }
+  async function releaseRevaluationShare(invoiceId: string, date: string): Promise<void> {
+    const standing = await standingRevaluationShare(invoiceId);
+    const share = (await vouchers.revaluationShares.listByItem(invoiceId))[0];
+    if (standing.scaled === 0n || !share) return;
+    const booked = await realisedFx.invoiceFx(invoiceId, share.kind);
+    const accountsFor = await fxDifferenceAccounts("realised");
+    const debitPositive = share.kind === "sales" ? standing.scaled : -standing.scaled;
+    const magnitude = Money.fromScaled(debitPositive < 0n ? -debitPositive : debitPositive);
+    const overstated = debitPositive > 0n;
+    const entryId = `FXR:release:${invoiceId}:${(await vouchers.revaluationShares.listByItem(invoiceId)).length}`;
+    await postJournalEntry(
+      {
+        id: entryId,
+        date,
+        memo: `إقفال إعادة تقييم قائمة على مستند أُقفل (${invoiceId})`,
+        source: "system",
+        sourceDocType: FX_REALISED_DOC_TYPE,
+        sourceDocId: invoiceId,
+        lines: [
+          { accountId: share.accountId, debit: overstated ? Money.zero() : magnitude, credit: overstated ? magnitude : Money.zero(), memo: FX_REVALUATION_LINE_MEMO, currency: share.currency, fxRate: booked?.fxRate ?? "1", partyId: share.partyId },
+          { accountId: overstated ? accountsFor.lossAccountId : accountsFor.gainAccountId, debit: overstated ? magnitude : Money.zero(), credit: overstated ? Money.zero() : magnitude, memo: FX_REALISED_LINE_MEMO },
+        ],
+      },
+      salesInvoiceGl,
+    );
+    await vouchers.revaluationShares.saveAll([{ ...share, entryId, amount: Money.fromScaled(-standing.scaled) }]);
   }
   async function revaluationSharesConsumed(entryId: string): Promise<boolean> {
     for (const share of await vouchers.revaluationShares.listByEntry(entryId)) {
@@ -3052,6 +3109,21 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     differenceAccounts: () => fxDifferenceAccounts("realised"),
     revaluationShare: (invoice) => standingRevaluationShare(invoice.id),
+    async treasuryRevaluationShare(treasuryAccountId, foreign, fromDate, toDate) {
+      const account = (await treasuryAccounts.list()).find((row) => row.id === treasuryAccountId);
+      if (!account?.glAccountId) return Money.zero();
+      const restated = ((await ledger.listLines?.({ accountIds: [account.glAccountId], fromDate, toDate })) ?? []).filter((line) => line.source === "system" && line.memo === FX_REVALUATION_LINE_MEMO);
+      let share = 0n;
+      for (const entryId of new Set(restated.map((line) => line.entryId))) {
+        const entry = await ledger.findById(entryId);
+        if (!entry || entry.reversedByEntryId || entry.reversesEntryId) continue;
+        const held = (await foreignTreasuryBalances(entry.date.slice(0, 10))).find((row) => row.treasuryAccountId === treasuryAccountId);
+        if (!held || held.foreignBalance.scaled <= 0n) continue;
+        const net = restated.filter((line) => line.entryId === entryId).reduce((sum, line) => sum + line.debit.scaled - line.credit.scaled, 0n);
+        share += foreign.scaled >= held.foreignBalance.scaled ? net : shareOfBase(Money.fromScaled(net), foreign, held.foreignBalance).scaled;
+      }
+      return Money.fromScaled(share);
+    },
     async treasuryPosition(treasuryAccountId, asOfDate) {
       const held = (await foreignTreasuryBalances(asOfDate)).find((row) => row.treasuryAccountId === treasuryAccountId);
       if (!held) return null;
@@ -3467,8 +3539,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // being present, so omitting it silently disables both.
       layers: stockLedger.layers,
       landedCostsStandingOn: (documentId) => landedCosts.standingOn(documentId),
+      releaseRevaluationShare,
     },
     salesInvoices: {
+      releaseRevaluationShare,
       repo: salesInvoices,
       versionGuard: { versions: salesInvoices.versions, displayNameOf },
       itemCheck: items,
@@ -3610,6 +3684,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       openFxItems,
       saveShares: (entryId, shares) => vouchers.revaluationShares.saveAll(shares.map((share) => ({ ...share, entryId }))),
       sharesConsumed: revaluationSharesConsumed,
+      foreignResidues,
+      realisedDifferenceAccounts: () => fxDifferenceAccounts("realised"),
+      releaseItemShare: releaseRevaluationShare,
     },
     eta: {
       service: etaService,
@@ -3650,7 +3727,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return issued;
       },
     },
-    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls() },
+    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues() },
     openingBalanceDuplicates: {
       resolveContext: resolveOpeningBalanceDuplicatesContext,
       repair: repairOpeningBalanceDuplicate,

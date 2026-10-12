@@ -17,6 +17,34 @@ import { FX_REALISED_LINE_MEMO } from "../vouchers/realised-fx.js";
  * distort the next period.
  */
 
+export enum ForeignResidueKind {
+  Account = "account",
+  Item = "item",
+}
+
+/** Base money left where no foreign money is: on an account in one currency, or as revaluation standing on a settled document. */
+export interface ForeignResidue {
+  readonly kind: ForeignResidueKind;
+  readonly ref: string;
+  readonly currency: string;
+  readonly base: Money;
+}
+
+/** Below one piastre a residue is what rounding leaves behind and may be swept to realised differences. */
+export const FX_ROUNDING_RESIDUE_LIMIT = Money.fromMajor("0.01");
+
+export function isRoundingResidue(residue: ForeignResidue): boolean {
+  const magnitude = residue.base.scaled < 0n ? -residue.base.scaled : residue.base.scaled;
+  return magnitude !== 0n && magnitude < FX_ROUNDING_RESIDUE_LIMIT.scaled;
+}
+
+/** The accounts among `balances` that hold none of their currency and still carry base. */
+export function accountForeignResidues(balances: readonly OpenFxBalance[]): ForeignResidue[] {
+  return balances
+    .filter((balance) => balance.foreignAmount.scaled === 0n && balance.bookedBase.scaled !== 0n)
+    .map((balance) => ({ kind: ForeignResidueKind.Account, ref: balance.accountId, currency: balance.currency, base: balance.naturalBalance === "debit" ? balance.bookedBase : Money.fromScaled(-balance.bookedBase.scaled) }));
+}
+
 /** One open foreign-currency balance to revalue. */
 export interface OpenFxBalance {
   readonly accountId: string;

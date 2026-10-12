@@ -144,6 +144,22 @@ describe("a foreign invoice settled after a revaluation that does not reverse it
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 
+  it("a restated invoice that is voided, and a restated bill that is cancelled, take their restatement off the control account as a realised difference the other way", async () => {
+    await books();
+    await receivable();
+    await payable();
+    await revalue("48.45");
+    expect(fx()).toEqual({ control1105: "48450.000000", control2100: "-48450.000000", unrealised: "0.000000", realised: "0.000000" });
+
+    await ok("POST", "/sales-invoices/inv-usd/void", {}, 200);
+    await ok("POST", "/purchases/invoices/pi-usd/cancel", {}, 200);
+
+    expect(fx()).toEqual({ control1105: "0.000000", control2100: "0.000000", unrealised: "0.000000", realised: "0.000000" });
+    expect(world.balance("5920")).toBe(450_000_000n);
+    expect(world.balance("4920")).toBe(-450_000_000n);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
   it("undoing the settlement puts the restatement back on the item, and settling again consumes it again", async () => {
     await books();
     await receivable();

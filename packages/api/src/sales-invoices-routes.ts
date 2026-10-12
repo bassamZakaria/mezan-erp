@@ -62,11 +62,13 @@ import {
   type SalesTaxPolicySource,
   type TaxRateRepository,
   type UserRepository,
-  EtaReceiptedSaleVoidRefusedError,
   type EtaReceiptPaymentMethod,
   SalesTaxRecalculationUnacknowledgedError,
   type EtaSubmissionStatus,
-  EtaSubmissionStatusCode,
+  type EtaDocumentType,
+  EtaDocumentTypeCode,
+  EtaVoidVerdict,
+  etaVoidVerdictOf,
   InvoiceDocumentKind,
 } from "@mezan/domain";
 import {
@@ -190,8 +192,6 @@ export interface SalesInvoiceRoutesDeps {
     invoiceId: string,
     options: { readonly paymentMethod?: EtaReceiptPaymentMethod },
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
-  /** Whether the invoice has an e-receipt; a receipted sale is refused a void. */
-  readonly hasEtaReceipt?: (invoiceId: string) => Promise<boolean>;
   /**
    * Turns a collection recorded on the invoice into a real confirmed collection
    * voucher, allocated to that invoice. Without it the route refuses rather
@@ -225,11 +225,12 @@ export interface SalesInvoiceRoutesDeps {
   readonly stockRestore?: DocumentStockHook;
   readonly withdrawUnsentEtaSubmission?: (invoice: SalesInvoice) => Promise<void>;
   /**
-   * Where the invoice's e-invoice stands with the tax authority, or null when
-   * it has none. A void reads it inside its own transaction: a document the
-   * authority holds, or is judging, is never dropped from the books.
+   * Where the invoice's e-invoice OR e-receipt stands with the tax authority
+   * — the last link of its chain — or null when it has none. A void reads it
+   * inside its own transaction: a document the authority holds, or is
+   * judging, is never dropped from the books.
    */
-  readonly etaSubmissionStatusOf?: (invoice: SalesInvoice) => Promise<EtaSubmissionStatus | null>;
+  readonly etaDocumentOf?: (invoice: SalesInvoice) => Promise<{ readonly status: EtaSubmissionStatus; readonly documentType: EtaDocumentType } | null>;
   /**
    * SECURITY: what the print page needs beyond the invoice itself — the names
    * of its own branch and warehouse, its own customer's printed details and
@@ -482,6 +483,8 @@ enum SalesInvoiceVoidRefusalCode {
   StockRestoreUnavailable = "STOCK_RESTORE_UNAVAILABLE",
   EtaAwaitingVerdict = "ETA_INVOICE_AWAITING_VERDICT",
   EtaAccepted = "ETA_INVOICE_ACCEPTED",
+  EtaReceiptAwaitingVerdict = "ETA_RECEIPT_AWAITING_VERDICT",
+  EtaReceiptAccepted = "ETA_RECEIPT_ACCEPTED",
   IssueMovementMissing = "ISSUE_MOVEMENT_MISSING",
 }
 
@@ -1497,30 +1500,40 @@ export function createSalesInvoicesRoutes(
         const current = await deps.repo.findById(requested.id);
         if (!current) throw new SalesInvoiceVoidRefusal(404, { error: "NOT_FOUND", message: "الفاتورة غير موجودة." });
         assertSalesInvoiceTransition(current.id, current.status, "reversed");
-        // A receipted consumer sale is corrected by a return (a refund receipt);
-        // the authority has no cancellation for a receipt, so a void would drop
-        // the VAT from the books while the authority keeps it.
-        if (deps.hasEtaReceipt && (await deps.hasEtaReceipt(current.id))) {
-          throw new EtaReceiptedSaleVoidRefusedError(current.docNo ?? current.id);
+        // INVARIANT: an e-invoice or e-receipt the authority is judging or has
+        // accepted carries VAT the authority keeps. Voiding the sale would
+        // drop that VAT from the books alone, so it is refused here with the
+        // real way forward; an unsent, rejected or excluded one is withdrawn
+        // below. ONE rule for both documents (`etaVoidVerdictOf`).
+        const filed = (await deps.etaDocumentOf?.(current)) ?? null;
+        const verdict = etaVoidVerdictOf(filed?.status ?? null);
+        const number = current.docNo ?? current.id;
+        const receipt = filed?.documentType === EtaDocumentTypeCode.Receipt;
+        if (verdict === EtaVoidVerdict.AwaitingVerdict) {
+          throw new SalesInvoiceVoidRefusal(409, receipt
+            ? {
+                error: SalesInvoiceVoidRefusalCode.EtaReceiptAwaitingVerdict,
+                message: `الإيصال الإلكتروني للفاتورة ${number} أُرسل إلى مصلحة الضرائب وما زال قيد المراجعة. انتظر رد المصلحة: إن رُفض أمكن إلغاء الفاتورة، وإن قُبل فتُصحَّح بمرتجع مبيعات يصدر به إيصال مرتجع.`,
+                messageEn: `The e-receipt of invoice ${number} has been sent to the tax authority and is awaiting its verdict. Wait for it: a rejected receipt can be voided, an accepted one is corrected by a sales return (a refund receipt).`,
+              }
+            : {
+                error: SalesInvoiceVoidRefusalCode.EtaAwaitingVerdict,
+                message: `الفاتورة الإلكترونية ${number} أُرسلت إلى مصلحة الضرائب وما زالت قيد المراجعة. انتظر رد المصلحة: إن رُفضت أمكن إلغاء الفاتورة، وإن قُبلت فتُصحَّح بمرتجع مبيعات (إشعار دائن).`,
+                messageEn: `E-invoice ${number} has been sent to the tax authority and is awaiting its verdict. Wait for it: a rejected document can be voided, an accepted one is corrected by a sales return (credit note).`,
+              });
         }
-        // INVARIANT: an e-invoice the authority is judging or has accepted
-        // carries VAT the authority keeps. Voiding the sale would drop that
-        // VAT from the books alone, so it is refused here with the real way
-        // forward; an unsent, rejected or excluded one is withdrawn below.
-        const filed = (await deps.etaSubmissionStatusOf?.(current)) ?? null;
-        if (filed === EtaSubmissionStatusCode.Submitted) {
-          throw new SalesInvoiceVoidRefusal(409, {
-            error: SalesInvoiceVoidRefusalCode.EtaAwaitingVerdict,
-            message: `الفاتورة الإلكترونية ${current.docNo ?? current.id} أُرسلت إلى مصلحة الضرائب وما زالت قيد المراجعة. انتظر رد المصلحة: إن رُفضت أمكن إلغاء الفاتورة، وإن قُبلت فتُصحَّح بمرتجع مبيعات (إشعار دائن).`,
-            messageEn: `E-invoice ${current.docNo ?? current.id} has been sent to the tax authority and is awaiting its verdict. Wait for it: a rejected document can be voided, an accepted one is corrected by a sales return (credit note).`,
-          });
-        }
-        if (filed === EtaSubmissionStatusCode.Accepted) {
-          throw new SalesInvoiceVoidRefusal(409, {
-            error: SalesInvoiceVoidRefusalCode.EtaAccepted,
-            message: `الفاتورة الإلكترونية ${current.docNo ?? current.id} مقبولة لدى مصلحة الضرائب ولا تُلغى من الدفاتر وحدها. صحّحها بمرتجع مبيعات يصدر به إشعار دائن.`,
-            messageEn: `E-invoice ${current.docNo ?? current.id} is accepted by the tax authority and cannot be voided in the books alone. Correct it with a sales return, which files a credit note.`,
-          });
+        if (verdict === EtaVoidVerdict.Accepted) {
+          throw new SalesInvoiceVoidRefusal(409, receipt
+            ? {
+                error: SalesInvoiceVoidRefusalCode.EtaReceiptAccepted,
+                message: `الإيصال الإلكتروني للفاتورة ${number} مقبول لدى مصلحة الضرائب، والإيصال لا يُلغى لدى المصلحة. صحّح البيع بمرتجع مبيعات يصدر به إيصال مرتجع.`,
+                messageEn: `The e-receipt of invoice ${number} is accepted by the tax authority, which cannot cancel a receipt. Correct the sale with a sales return, which issues a refund receipt.`,
+              }
+            : {
+                error: SalesInvoiceVoidRefusalCode.EtaAccepted,
+                message: `الفاتورة الإلكترونية ${number} مقبولة لدى مصلحة الضرائب ولا تُلغى من الدفاتر وحدها. صحّحها بمرتجع مبيعات يصدر به إشعار دائن.`,
+                messageEn: `E-invoice ${number} is accepted by the tax authority and cannot be voided in the books alone. Correct it with a sales return, which files a credit note.`,
+              });
         }
         // The purchase side refuses when the received goods have already been
         // consumed; the sales side's equivalents are a collection that has moved
@@ -1613,7 +1626,6 @@ export function createSalesInvoicesRoutes(
       });
     } catch (err) {
       if (err instanceof SalesInvoiceVoidRefusal) return c.json(err.body, err.status);
-      if (err instanceof EtaReceiptedSaleVoidRefusedError) return c.json({ error: err.code, message: err.message }, 409);
       return handleDomainError(c, err);
     }
   });

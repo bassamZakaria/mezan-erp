@@ -147,7 +147,6 @@ export {
   EtaReceiptNotReadyError,
   EtaBuyerIdentityRequiredError,
   EtaRefundTooLateError,
-  EtaReceiptedSaleVoidRefusedError,
   EtaReissueNotRejectedError,
   EtaReceiptNotASupplyError,
   EtaReissueWindowExpiredError,

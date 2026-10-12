@@ -196,8 +196,6 @@ export interface EtaReceiptIssuer {
   settle(): Promise<void>;
   /** Whether a submission run is in flight right now. */
   pending(): boolean;
-  /** Whether an e-receipt exists for this invoice — a receipted sale cannot be voided, only returned. */
-  hasInvoiceReceipt(invoiceId: string): Promise<boolean>;
   /** Cancels a pending retry; the backend's close() calls it. */
   stop(): void;
 }
@@ -497,12 +495,6 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
       });
       const printed = await deps.eta.reissueReceipt(rejected.internalId, corrected);
       return { receiptNo: printed.receiptNo, uuid: printed.uuid, qrValue: printed.qrValue };
-    },
-
-    async hasInvoiceReceipt(invoiceId) {
-      const invoice = await deps.invoices.findById(invoiceId);
-      if (!invoice) return false;
-      return (await deps.eta.receiptForPrint(invoice.docNo ?? invoice.id)) !== null;
     },
 
     scheduleSubmission: schedule,

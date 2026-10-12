@@ -2,6 +2,7 @@ import {
   DocumentReversalRefusedError,
   EtaVoidVerdict,
   etaVoidVerdictOf,
+  type EtaDocumentType,
   type EtaService,
   type EtaSubmissionStatus,
   type FrameworkDocument,
@@ -12,6 +13,7 @@ import { latestReceiptOf } from "./eta-receipts.js";
 
 export interface EtaVoidPort {
   statusOf(internalId: string): Promise<EtaSubmissionStatus | null>;
+  documentOf(internalId: string): Promise<{ readonly status: EtaSubmissionStatus; readonly documentType: EtaDocumentType } | null>;
   withdraw(internalId: string, reason: string): Promise<void>;
 }
 
@@ -21,6 +23,10 @@ export function createEtaVoidPort(eta: Pick<EtaService, "findByInternalId" | "ex
   return {
     async statusOf(internalId) {
       return (await latestReceiptOf(eta, internalId))?.status ?? null;
+    },
+    async documentOf(internalId) {
+      const submission = await latestReceiptOf(eta, internalId);
+      return submission ? { status: submission.status, documentType: submission.documentType } : null;
     },
     async withdraw(internalId, reason) {
       const submission = await latestReceiptOf(eta, internalId);

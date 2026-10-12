@@ -16,6 +16,7 @@ import {
   type SalesReturnDocument,
   type DocumentWorkflowGate,
   EtaSubmissionStatusCode,
+  EtaDocumentTypeCode,
 } from "@mezan/domain";
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "@mezan/persistence";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
@@ -96,7 +97,7 @@ async function harness(
     maxLineDiscountPercent?: number;
     returns?: SalesInvoiceRoutesDeps["returns"];
     withoutStockRestore?: boolean;
-    etaSubmissionStatusOf?: SalesInvoiceRoutesDeps["etaSubmissionStatusOf"];
+    etaDocumentOf?: SalesInvoiceRoutesDeps["etaDocumentOf"];
     withdrawUnsentEtaSubmission?: SalesInvoiceRoutesDeps["withdrawUnsentEtaSubmission"];
     now?: string;
     workflow?: DocumentWorkflowGate;
@@ -162,7 +163,7 @@ async function harness(
     stock: createSalesInvoiceStockHook(stockService),
     ...(opts.workflow ? { workflow: opts.workflow } : {}),
     ...(opts.withoutStockRestore ? {} : { stockRestore: createInventoryStockHook(stockService) }),
-    ...(opts.etaSubmissionStatusOf ? { etaSubmissionStatusOf: opts.etaSubmissionStatusOf } : {}),
+    ...(opts.etaDocumentOf ? { etaDocumentOf: opts.etaDocumentOf } : {}),
     ...(opts.withdrawUnsentEtaSubmission ? { withdrawUnsentEtaSubmission: opts.withdrawUnsentEtaSubmission } : {}),
     now: () => opts.now ?? NOW,
     idGen: (() => { let n = 0; return () => `inv-${++n}`; })(),
@@ -416,10 +417,10 @@ const VOID_BODY = JSON.stringify({ reason: "صدرت بالخطأ" });
 const VOID_WITH_VIEW = "sales.invoice.void,sales.invoice.view";
 
 describe("voiding an invoice the tax authority holds, or is about to", () => {
-  async function confirmedWith(status: EtaSubmissionStatusCode | null) {
+  async function confirmedWith(documentType: EtaDocumentTypeCode, status: EtaSubmissionStatusCode | null) {
     const withdrawn: string[] = [];
     const h = await harness({
-      etaSubmissionStatusOf: async () => status,
+      etaDocumentOf: async () => (status === null ? null : { status, documentType }),
       withdrawUnsentEtaSubmission: async (invoice) => {
         withdrawn.push(invoice.id);
       },
@@ -433,23 +434,34 @@ describe("voiding an invoice the tax authority holds, or is about to", () => {
   }
 
   it.each([
-    [EtaSubmissionStatusCode.Submitted, "ETA_INVOICE_AWAITING_VERDICT", "انتظر"],
-    [EtaSubmissionStatusCode.Accepted, "ETA_INVOICE_ACCEPTED", "مرتجع"],
-  ])("refuses while the e-invoice is %s: the books never drop VAT the authority keeps", async (status, code, way) => {
-    const { res, body, stored, withdrawn } = await confirmedWith(status);
+    [EtaDocumentTypeCode.Invoice, EtaSubmissionStatusCode.Submitted, "ETA_INVOICE_AWAITING_VERDICT", "انتظر"],
+    [EtaDocumentTypeCode.Invoice, EtaSubmissionStatusCode.Accepted, "ETA_INVOICE_ACCEPTED", "إشعار دائن"],
+    [EtaDocumentTypeCode.Receipt, EtaSubmissionStatusCode.Submitted, "ETA_RECEIPT_AWAITING_VERDICT", "انتظر"],
+    [EtaDocumentTypeCode.Receipt, EtaSubmissionStatusCode.Accepted, "ETA_RECEIPT_ACCEPTED", "إيصال مرتجع"],
+  ])("refuses while its e-%s is %s: the books never drop VAT the authority keeps", async (documentType, status, code, way) => {
+    const { res, body, stored, withdrawn } = await confirmedWith(documentType, status);
     expect([res.status, body.error]).toEqual([409, code]);
     expect(body.message).toContain(way);
     expect(body.messageEn).toBeTruthy();
     expect([stored?.status, withdrawn]).toEqual(["confirmed", []]);
   });
 
-  it.each([[EtaSubmissionStatusCode.Ready], [EtaSubmissionStatusCode.PendingSignature], [EtaSubmissionStatusCode.Error], [EtaSubmissionStatusCode.Excluded], [null]])(
-    "proceeds while the e-invoice is %s, and withdraws it in the same act",
-    async (status) => {
-      const { res, stored, withdrawn, id } = await confirmedWith(status);
-      expect([res.status, stored?.status, withdrawn]).toEqual([200, "reversed", [id]]);
-    },
-  );
+  it.each(
+    [EtaDocumentTypeCode.Invoice, EtaDocumentTypeCode.Receipt].flatMap((documentType) =>
+      [EtaSubmissionStatusCode.Ready, EtaSubmissionStatusCode.PendingSignature, EtaSubmissionStatusCode.Error, EtaSubmissionStatusCode.Excluded, null].map(
+        (status) => [documentType, status] as const,
+      ),
+    ),
+  )("proceeds while its e-%s is %s, and withdraws it in the same act", async (documentType, status) => {
+    const { res, stored, withdrawn, id } = await confirmedWith(documentType, status);
+    expect([res.status, stored?.status, withdrawn]).toEqual([200, "reversed", [id]]);
+  });
+
+  it("judges every status the queue knows, for both document types", () => {
+    expect(Object.values(EtaSubmissionStatusCode).sort()).toEqual(
+      [EtaSubmissionStatusCode.Ready, EtaSubmissionStatusCode.PendingSignature, EtaSubmissionStatusCode.Error, EtaSubmissionStatusCode.Excluded, EtaSubmissionStatusCode.Submitted, EtaSubmissionStatusCode.Accepted].sort(),
+    );
+  });
 });
 
 describe("voiding a confirmed invoice", () => {

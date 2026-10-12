@@ -27,8 +27,6 @@ import {
   EtaReceiptSourceKind,
   SalesQuoteService,
   SalesPricingMode,
-  ETA_REQUEUE_MODE,
-  EtaRequeueMode,
   SalesInvoiceField,
   DocumentChangedError,
   InvalidSalesInvoicePaymentError,
@@ -3451,7 +3449,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },
-      hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
       stockRestore: createInventoryStockHook(stockService),
       printContext: async (invoice) => {
         const docNo = invoice.docNo ?? invoice.id;
@@ -3487,12 +3484,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           (await salesInvoices.list({ sourceQuoteId: quoteId })).filter((other) => other.status !== SalesInvoiceStatusCode.Cancelled).map((other) => other.id),
         );
       },
-      etaSubmissionStatusOf: async (invoice) => (await etaService.findByInternalId(invoice.docNo ?? invoice.id))?.status ?? null,
-      withdrawUnsentEtaSubmission: async (invoice) => {
-        const submission = await etaService.findByInternalId(invoice.docNo ?? invoice.id);
-        if (!submission || ETA_REQUEUE_MODE[submission.status] !== EtaRequeueMode.Automatic) return;
-        await etaService.exclude(submission.id, `أُلغيت الفاتورة ${invoice.docNo ?? invoice.id} قبل إرسالها إلى المصلحة.`);
-      },
+      etaDocumentOf: (invoice) => etaVoid.documentOf(invoice.docNo ?? invoice.id),
+      withdrawUnsentEtaSubmission: (invoice) =>
+        etaVoid.withdraw(invoice.docNo ?? invoice.id, `أُلغيت الفاتورة ${invoice.docNo ?? invoice.id} قبل إرسالها إلى المصلحة.`),
       taxTags: createJournalTaxTagPort({ ledger, vatFilings }),
       taxDependents: createReturnTaxCarry({
         returns: salesReturnStore,

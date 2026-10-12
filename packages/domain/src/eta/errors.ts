@@ -166,22 +166,6 @@ export class EtaRefundTooLateError extends Error {
   }
 }
 
-/**
- * A consumer sale whose e-receipt exists cannot be voided: the authority has no
- * cancellation for a receipt, so voiding would drop the VAT from the books while
- * the authority keeps it. The correction is a return, which files a refund receipt.
- */
-export class EtaReceiptedSaleVoidRefusedError extends Error {
-  readonly code = "ETA_RECEIPTED_SALE_VOID_REFUSED";
-  constructor(readonly receiptNumber: string) {
-    super(
-      `لا يمكن إلغاء الفاتورة ${receiptNumber}: صدر لها إيصال إلكتروني، والإيصال لا يُلغى لدى المصلحة. استخدم مرتجع مبيعات ليصدر إيصال مرتجع. ` +
-        `Invoice ${receiptNumber} has an e-receipt, which the authority cannot cancel; record a sales return instead.`,
-    );
-    this.name = "EtaReceiptedSaleVoidRefusedError";
-  }
-}
-
 /** Only a receipt the authority REJECTED (أخطاء) can be corrected and re-issued. */
 export class EtaReissueNotRejectedError extends Error {
   readonly code = "ETA_REISSUE_NOT_REJECTED";

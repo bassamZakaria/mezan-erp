@@ -74,6 +74,7 @@ import {
   can,
   InvoiceDocumentKind,
   type TaxClassificationDependentsPort,
+  atomically,
 } from "@mezan/domain";
 import {
   createPurchaseOrderSchema,
@@ -400,6 +401,23 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   throw err;
+}
+
+enum PurchaseInvoiceRefusalCode {
+  HasPayments = "INVOICE_HAS_PAYMENTS",
+  HasReturns = "INVOICE_HAS_RETURNS",
+  NotPayable = "INVOICE_NOT_PAYABLE",
+  PaymentExceedsBalance = "PAYMENT_EXCEEDS_BALANCE",
+}
+
+class PurchaseInvoiceRouteRefusal extends Error {
+  constructor(
+    readonly status: 409 | 422,
+    readonly body: { readonly error: PurchaseInvoiceRefusalCode; readonly message: string; readonly messageEn: string },
+  ) {
+    super(body.message);
+    this.name = "PurchaseInvoiceRouteRefusal";
+  }
 }
 
 export function createPurchasesRoutes(
@@ -1176,52 +1194,59 @@ export function createPurchasesRoutes(
         503,
       );
     }
-    if (invoice.status !== "confirmed") {
-      return c.json(
-        { error: "INVOICE_NOT_PAYABLE", message: "لا يمكن السداد إلا على فاتورة مؤكدة." },
-        422,
-      );
-    }
     const amount = Money.fromMajor(parsed.data.amount);
     if (amount.scaled <= 0n) {
-      return c.json({ error: "INVALID_PAYMENT", message: "قيمة السداد يجب أن تكون أكبر من صفر." }, 422);
+      return c.json({ error: "INVALID_PAYMENT", message: "قيمة السداد يجب أن تكون أكبر من صفر.", messageEn: "The payment must be greater than zero." }, 422);
     }
-    const allocated = (await allocatedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
-    const returned = (await returnedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
     // A payment happens when it happens — dating it back to the invoice
     // would measure the treasury's balance on the wrong day.
     const date = (await tenantDay(c, parsed.data.date)) ?? (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
-    let capacity = purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled;
-    if (invoice.fxRate && deps.settlementPreview) {
-      try {
-        capacity = (await deps.settlementPreview(invoice.id, amount, date)).capacity.scaled;
-      } catch (err) {
-        return handleDomainError(c, err);
-      }
-    }
-    if (amount.scaled > capacity) {
-      return c.json(
-        { error: "PAYMENT_EXCEEDS_BALANCE", message: "قيمة السداد أكبر من المتبقي على الفاتورة." },
-        422,
-      );
-    }
+    const pay = deps.pay;
     try {
-      const { voucherId, voucherNo } = await deps.pay({
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.number,
-        supplierId: invoice.supplierId,
-        branchId: invoice.branchId,
-        amount,
-        treasuryAccountId: parsed.data.treasuryAccountId,
-        paymentMethod: parsed.data.paymentMethod ?? "cash",
-        date,
-        referenceNo: parsed.data.referenceNo ?? null,
-        memo: parsed.data.notes ?? `سداد على الفاتورة ${invoice.number}`,
-        actor: actor(c),
+      // INVARIANT: the invoice is re-read and every guard run inside the
+      // transaction that creates, confirms and allocates the voucher. A
+      // cancel that landed since the request began is seen here and refuses
+      // the payment; one that lands after finds the allocation and refuses
+      // itself.
+      const paid = await atomically({ transactor: deps.transactor }, async () => {
+        const current = await deps.invoices.findById(invoice.id);
+        if (!current || current.status !== "confirmed") {
+          throw new PurchaseInvoiceRouteRefusal(422, {
+            error: PurchaseInvoiceRefusalCode.NotPayable,
+            message: "لا يمكن السداد إلا على فاتورة مؤكدة.",
+            messageEn: "Only a confirmed invoice can be paid.",
+          });
+        }
+        const allocated = (await allocatedByInvoice([current.id])).get(current.id) ?? Money.zero();
+        const returned = (await returnedByInvoice([current.id])).get(current.id) ?? Money.zero();
+        let capacity = purchaseInvoiceBaseTotal(current).scaled - allocated.scaled - returned.scaled;
+        if (current.fxRate && deps.settlementPreview) capacity = (await deps.settlementPreview(current.id, amount, date)).capacity.scaled;
+        if (amount.scaled > capacity) {
+          throw new PurchaseInvoiceRouteRefusal(422, {
+            error: PurchaseInvoiceRefusalCode.PaymentExceedsBalance,
+            message: "قيمة السداد أكبر من المتبقي على الفاتورة.",
+            messageEn: "The payment is more than what is left on the invoice.",
+          });
+        }
+        const voucher = await pay({
+          invoiceId: current.id,
+          invoiceNumber: current.number,
+          supplierId: current.supplierId,
+          branchId: current.branchId,
+          amount,
+          treasuryAccountId: parsed.data.treasuryAccountId,
+          paymentMethod: parsed.data.paymentMethod ?? "cash",
+          date,
+          referenceNo: parsed.data.referenceNo ?? null,
+          memo: parsed.data.notes ?? `سداد على الفاتورة ${current.number}`,
+          actor: actor(c),
+        });
+        return { current, returned, voucher };
       });
-      const settled = (await allocatedByInvoice([invoice.id])).get(invoice.id);
-      return c.json({ ...serializeInvoice(invoice, settled, returned), voucherId, voucherNo });
+      const settled = (await allocatedByInvoice([paid.current.id])).get(paid.current.id);
+      return c.json({ ...serializeInvoice(paid.current, settled, paid.returned), voucherId: paid.voucher.voucherId, voucherNo: paid.voucher.voucherNo });
     } catch (err) {
+      if (err instanceof PurchaseInvoiceRouteRefusal) return c.json(err.body, err.status);
       return handleDomainError(c, err);
     }
   });
@@ -1452,29 +1477,6 @@ export function createPurchasesRoutes(
       if (!(await visibleInvoice(c))) return c.json(NOT_FOUND_BODY, 404);
       const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
       if (stale) return stale;
-      const target = await deps.invoices.findById(c.req.param("id"));
-      if (target?.status === "confirmed") {
-        if (((await allocatedByInvoice([target.id])).get(target.id) ?? Money.zero()).scaled !== 0n) {
-          return c.json(
-            {
-              error: "INVOICE_HAS_PAYMENTS",
-              message: "لا يمكن إلغاء فاتورة سُدّدت مبالغ عليها — اعكس السداد أولاً.",
-              messageEn: "This invoice has payments applied to it — reverse the payment first.",
-            },
-            409,
-          );
-        }
-        if (((await returnedByInvoice([target.id])).get(target.id) ?? Money.zero()).scaled !== 0n) {
-          return c.json(
-            {
-              error: "INVOICE_HAS_RETURNS",
-              message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد.",
-              messageEn: "This invoice has a confirmed purchase return against it.",
-            },
-            409,
-          );
-        }
-      }
       try {
         const invoice = await cancelPurchaseInvoice(c.req.param("id"), {
           invoices: deps.invoices,
@@ -1486,11 +1488,31 @@ export function createPurchasesRoutes(
           audit: audit(c),
           actor: actor(c),
           now: deps.now,
+          // INVARIANT: both guards read inside the cancel's transaction. Read
+          // before it, a payment allocated in between left a cancelled invoice
+          // holding a confirmed voucher.
+          cancelGuard: async (confirmed) => {
+            if (((await allocatedByInvoice([confirmed.id])).get(confirmed.id) ?? Money.zero()).scaled !== 0n) {
+              throw new PurchaseInvoiceRouteRefusal(409, {
+                error: PurchaseInvoiceRefusalCode.HasPayments,
+                message: "لا يمكن إلغاء فاتورة سُدّدت مبالغ عليها — اعكس السداد أولاً.",
+                messageEn: "This invoice has payments applied to it — reverse the payment first.",
+              });
+            }
+            if (((await returnedByInvoice([confirmed.id])).get(confirmed.id) ?? Money.zero()).scaled !== 0n) {
+              throw new PurchaseInvoiceRouteRefusal(409, {
+                error: PurchaseInvoiceRefusalCode.HasReturns,
+                message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد.",
+                messageEn: "This invoice has a confirmed purchase return against it.",
+              });
+            }
+          },
         });
         await stampDocumentModifier(deps.invoiceVersions, invoice.id, actor(c));
         emit("DOCUMENT_CANCELLED", "PURCHASE_INVOICE", invoice.id, invoice.number);
         return c.json(serializeInvoice(invoice));
       } catch (err) {
+        if (err instanceof PurchaseInvoiceRouteRefusal) return c.json(err.body, err.status);
         return handleDomainError(c, err);
       }
     });

@@ -143,4 +143,41 @@ describe("two operations on one stored document land as one story", () => {
       },
     });
   }, 120_000);
+
+  it("supplier payment against cancel: one of them wins, and a cancelled purchase invoice never holds an allocated payment", async () => {
+    await raceBothOrders<string>(kit, "RC-PAY-CANCEL", {
+      outcome: RaceOutcome.ExactlyOneWins,
+      arrange: (tag) => confirmedPurchase(tag),
+      first: (id) => kit.call("POST", `/purchases/invoices/${id}/payments`, { amount: "50", treasuryAccountId: "TR-DEMO-CASH", paymentMethod: "cash", referenceNo: `REF-${id}` }),
+      second: (id) => kit.call("POST", `/purchases/invoices/${id}/cancel`, {}),
+      agree: async ({ fixture, first, second }) => {
+        const invoice = (await kit.call("GET", `/purchases/invoices/${fixture}`)).body;
+        const found = (await kit.call("GET", `/vouchers?pageSize=200&search=${encodeURIComponent(`REF-${fixture}`)}`)).body;
+        const payments = rowsOf(found).filter((voucher) => voucher.referenceNo === `REF-${fixture}`);
+        if (first.status === 200) {
+          expect([invoice.status, payments.length, second.status, second.body.error]).toEqual(["confirmed", 1, 409, "INVOICE_HAS_PAYMENTS"]);
+        } else {
+          expect([invoice.status, payments.length, first.status, first.body.error]).toEqual(["cancelled", 0, 422, "INVOICE_NOT_PAYABLE"]);
+        }
+        expect((first.status === 200 ? second : first).body.message).toMatch(/[\u0600-\u06FF]/);
+      },
+    });
+  });
+
+  it("collection against collection: two that together exceed the invoice — one lands, the other is refused in Arabic and leaves no voucher", async () => {
+    await raceBothOrders<string>(kit, "RC-COLL-COLL", {
+      outcome: RaceOutcome.ExactlyOneWins,
+      arrange: (tag) => confirmedSale(tag, [serviceLine("A", UNNAMED_ZERO)]),
+      first: (id) => kit.call("POST", `/sales-invoices/${id}/payments`, { amount: "70", treasuryAccountId: "TR-DEMO-CASH", paymentMethod: "cash", referenceNo: `REF-${id}` }),
+      second: (id) => kit.call("POST", `/sales-invoices/${id}/payments`, { amount: "70", treasuryAccountId: "TR-DEMO-CASH", paymentMethod: "cash", referenceNo: `REF-${id}` }),
+      agree: async ({ fixture, first, second }) => {
+        const loser = first.status === 200 ? second : first;
+        expect(loser.status, JSON.stringify(loser.body)).toBe(422);
+        expect(loser.body.message).toMatch(/[\u0600-\u06FF]/);
+        const invoice = (await kit.call("GET", `/sales-invoices/${fixture}`)).body;
+        const found = (await kit.call("GET", `/vouchers?pageSize=200&search=${encodeURIComponent(`REF-${fixture}`)}`)).body;
+        expect([invoice.amountPaid, rowsOf(found).filter((voucher) => voucher.referenceNo === `REF-${fixture}`).length]).toEqual(["70.000000", 1]);
+      },
+    });
+  });
 });

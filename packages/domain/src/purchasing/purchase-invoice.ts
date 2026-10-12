@@ -236,6 +236,12 @@ export interface CancelPurchaseInvoiceDeps extends PurchaseAuditDeps {
   readonly layers: CostLayerRepository;
   readonly policy?: PurchasePolicy;
   readonly now?: () => string;
+  /**
+   * What must not stand against a confirmed invoice for it to be cancelled —
+   * a payment allocated to it, a return raised on it. Run on the invoice as
+   * read INSIDE the cancel's transaction; it throws to refuse.
+   */
+  readonly cancelGuard?: (invoice: PurchaseInvoice) => Promise<void>;
 }
 
 function nowIso(deps: { now?: () => string }): string {
@@ -785,6 +791,7 @@ export async function cancelPurchaseInvoice(
     throw new PurchaseDocumentNotDraftError(id, invoice.status);
   }
   if (invoice.status === "confirmed") {
+    await deps.cancelGuard?.(invoice);
     const inventoryLines = invoice.lines.filter((l) => l.kind === "inventory" && l.itemId !== null);
     if (policy.trackSoldPurchaseItems) {
       for (const line of inventoryLines) {

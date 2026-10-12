@@ -16,14 +16,30 @@ export class ApiError extends Error {
   readonly serverMessage: string | null;
   readonly serverMessageEn: string | null;
 
-  constructor(failure: ApiFailure, status: number | null, serverMessage: string | null, serverMessageEn: string | null) {
+  /** Set only on a confirm refused because posting would re-rate the draft: the grand total that would post. */
+  readonly recalculatedGrandTotal: string | null;
+
+  constructor(failure: ApiFailure, status: number | null, serverMessage: string | null, serverMessageEn: string | null, recalculatedGrandTotal: string | null = null) {
     super(serverMessage ?? serverMessageEn ?? failure);
     this.name = "ApiError";
     this.failure = failure;
     this.status = status;
     this.serverMessage = serverMessage;
     this.serverMessageEn = serverMessageEn;
+    this.recalculatedGrandTotal = recalculatedGrandTotal;
   }
+}
+
+export interface RerateNotice {
+  readonly message: string | null;
+  readonly shownTotal: string;
+  readonly recalculatedTotal: string;
+}
+
+/** What a refused confirm asks the seller to acknowledge: the total shown beside the one that would post. Null for any other refusal. */
+export function rerateNoticeOf(error: unknown, shownTotal: string): RerateNotice | null {
+  if (!(error instanceof ApiError) || error.recalculatedGrandTotal === null) return null;
+  return { message: error.serverMessage, shownTotal, recalculatedTotal: error.recalculatedGrandTotal };
 }
 
 export function describeApiError(error: unknown, strings: Strings): string {

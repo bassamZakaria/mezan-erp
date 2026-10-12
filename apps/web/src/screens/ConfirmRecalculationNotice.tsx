@@ -2,7 +2,7 @@ import type { ConfirmSalesInvoiceDTO } from "@mezan/contracts";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
-function twoDecimals(amount: string): string {
+export function twoDecimals(amount: string): string {
   const point = amount.indexOf(".");
   return point === -1 ? `${amount}.00` : amount.slice(0, point + 3).padEnd(point + 3, "0");
 }

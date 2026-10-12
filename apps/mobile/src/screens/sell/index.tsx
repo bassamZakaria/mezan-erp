@@ -8,7 +8,7 @@ import { EntityPicker, filterPickerOptions, type PickerOption } from "@/componen
 import { OfflineNotice } from "@/components/offline-notice";
 import { Segmented } from "@/components/segmented";
 import { TextField } from "@/components/text-field";
-import { describeWriteError } from "@/api/errors";
+import { describeWriteError, rerateNoticeOf, type RerateNotice } from "@/api/errors";
 import {
   useBranches,
   useCreateSalesInvoice,
@@ -104,6 +104,7 @@ export function Sell() {
   const [lines, setLines] = useState<LineDraft[]>([blankLine()]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingRerate, setPendingRerate] = useState<(RerateNotice & { readonly invoiceId: string }) | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -202,15 +203,46 @@ export function Sell() {
             };
           }),
         });
-        const confirmed = await confirmInvoice.mutateAsync({ id: created.id });
-        const total = confirmed.totals?.grandTotal;
-        setNotice(
-          `${strings.sell.invoiceCreated} — ${confirmed.docNo ?? confirmed.id}` +
-            (total ? ` — ${formatAmountWithCurrency(total)}` : ""),
-        );
+        // The draft exists from here on: a confirm refused for a re-rate is
+        // acknowledged against THIS draft, never by raising another.
+        if (!(await confirmDraft(created.id, created.totals.grandTotal, false))) return;
       }
       setLines([blankLine()]);
       setNotes("");
+    } catch (err) {
+      setError(describeWriteError(err, strings));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDraft(id: string, shownTotal: string, acknowledgeTaxRecalculation: boolean): Promise<boolean> {
+    try {
+      const confirmed = await confirmInvoice.mutateAsync({ id, body: acknowledgeTaxRecalculation ? { acknowledgeTaxRecalculation } : {} });
+      const total = confirmed.totals?.grandTotal;
+      setPendingRerate(null);
+      setNotice(
+        `${strings.sell.invoiceCreated} — ${confirmed.docNo ?? confirmed.id}` +
+          (total ? ` — ${formatAmountWithCurrency(total)}` : ""),
+      );
+      return true;
+    } catch (err) {
+      const rerate = rerateNoticeOf(err, shownTotal);
+      if (!rerate) throw err;
+      setPendingRerate({ invoiceId: id, ...rerate });
+      return false;
+    }
+  }
+
+  async function acknowledgeRerate() {
+    if (!pendingRerate || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (await confirmDraft(pendingRerate.invoiceId, pendingRerate.shownTotal, true)) {
+        setLines([blankLine()]);
+        setNotes("");
+      }
     } catch (err) {
       setError(describeWriteError(err, strings));
     } finally {
@@ -330,10 +362,27 @@ export function Sell() {
 
       {error ? <Text style={[styles.notice, { color: theme.negative }]}>{error}</Text> : null}
       {notice ? <Text style={[styles.notice, { color: theme.positive }]}>{notice}</Text> : null}
+      {pendingRerate ? (
+        <View accessibilityRole="alert">
+          {pendingRerate.message ? <Text style={[styles.notice, { color: theme.negative }]}>{pendingRerate.message}</Text> : null}
+          <Text style={[styles.notice, { color: theme.negative }]}>
+            {strings.sell.rerateTotals
+              .replace("{recalculated}", formatAmountWithCurrency(pendingRerate.recalculatedTotal))
+              .replace("{shown}", formatAmountWithCurrency(pendingRerate.shownTotal))}
+          </Text>
+          <Button
+            busy={busy}
+            label={strings.sell.rerateConfirm}
+            onPress={() => {
+              void acknowledgeRerate();
+            }}
+          />
+        </View>
+      ) : null}
 
       <Button
         busy={busy}
-        disabled={!canSubmitKind}
+        disabled={!canSubmitKind || pendingRerate !== null}
         label={submitLabel}
         onPress={() => {
           void submit();

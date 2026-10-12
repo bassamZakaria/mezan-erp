@@ -601,6 +601,64 @@ describe("SalesInvoicesScreen — row-scoped confirm from the list", () => {
     await waitFor(() => expect(screen.getByText("INV-000900")).toBeInTheDocument());
   });
 
+  it("a row whose confirm would re-rate the invoice shows the old and the new total, and confirms only once the change is acknowledged", async () => {
+    const list = [invoice({ id: "inv-draft-a", docNo: null, status: "draft", version: 4, totals: { ...invoice().totals, grandTotal: "114.000000" } })];
+    const sent: Record<string, unknown>[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(list),
+      "POST /sales-invoices/inv-draft-a/confirm": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
+        sent.push(body);
+        if (body.acknowledgeTaxRecalculation !== true) {
+          return {
+            status: 409,
+            body: {
+              error: "SALES_TAX_RECALCULATION_UNACKNOWLEDGED", taxRecalculated: true, message: "تغيّر إعداد ضريبة القيمة المضافة منذ إنشاء المسودة.",
+              lines: [], totals: { taxableTotal: "100.000000", taxTotal: "0.000000", grandTotal: "100.000000" },
+            },
+          };
+        }
+        return { body: { ...list[0], status: "confirmed", docNo: "INV-000901", held: false, taxRecalculated: { message: "أُعيد احتساب الضريبة." } } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findAllByText("مسودة");
+    fireEvent.click(within(screen.getAllByRole("row")[1]!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("تغيّر إعداد ضريبة القيمة المضافة منذ إنشاء المسودة.");
+    expect(dialog).toHaveTextContent("الإجمالي الذي سيُرحَّل: 100.00 — المعروض حالياً: 114.00");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(sent).toEqual([{ expectedVersion: 4 }]);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد الفاتورة" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({ expectedVersion: 4, acknowledgeTaxRecalculation: true });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText("أُعيد احتساب الضريبة.")).toBeInTheDocument();
+  });
+
+  it("a re-rate notice that is dismissed confirms nothing", async () => {
+    const list = [invoice({ id: "inv-draft-a", docNo: null, status: "draft", version: 4 })];
+    let calls = 0;
+    const transport = stubTransport({
+      ...baseHandlers(list),
+      "POST /sales-invoices/inv-draft-a/confirm": () => {
+        calls += 1;
+        return { status: 409, body: { error: "SALES_TAX_RECALCULATION_UNACKNOWLEDGED", taxRecalculated: true, message: "تغيّر الإعداد.", lines: [], totals: { taxableTotal: "1", taxTotal: "0", grandTotal: "1" } } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findAllByText("مسودة");
+    fireEvent.click(within(screen.getAllByRole("row")[1]!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getAllByRole("button")[0]!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(calls).toBe(1);
+  });
+
   it("shows the server's refusal for the failed row and leaves the other draft row's own confirm action untouched", async () => {
     const list = [draftA, draftB];
     const transport = stubTransport({

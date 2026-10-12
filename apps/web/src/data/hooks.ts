@@ -3054,6 +3054,18 @@ export type ConfirmSalesInvoiceAct =
   | string
   | ({ readonly id: string; readonly expectedVersion?: number } & Pick<ConfirmSalesInvoiceDTO, "receiptPaymentMethod" | "acknowledgeTaxRecalculation">);
 
+/** A confirm the server refused because posting would re-rate the draft: it carries the total that would post. */
+export class SalesTaxRecalculationPendingError extends ApiError {
+  constructor(
+    status: number,
+    message: string,
+    readonly recalculatedGrandTotal: string,
+  ) {
+    super(status, message);
+    this.name = "SalesTaxRecalculationPendingError";
+  }
+}
+
 export function useConfirmSalesInvoice() {
   const { t } = useAppTranslation();
   const { request } = useApi();
@@ -3067,7 +3079,13 @@ export function useConfirmSalesInvoice() {
         ...(input.acknowledgeTaxRecalculation === undefined ? {} : { acknowledgeTaxRecalculation: input.acknowledgeTaxRecalculation }),
       };
       const res = await request(`/sales-invoices/${id}/confirm`, { method: "POST", body: JSON.stringify(dto) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2"), t));
+      if (!res.ok) {
+        const body = await res.json<{ message?: string; taxRecalculated?: boolean; totals?: { grandTotal?: string } }>().catch(() => null);
+        const message = await readError({ status: res.status, json: async <T,>() => (body ?? {}) as T }, t("api.theInvoiceCouldNotBe2"), t);
+        const recalculated = res.status === 409 && body?.taxRecalculated === true ? body.totals?.grandTotal : undefined;
+        if (recalculated !== undefined) throw new SalesTaxRecalculationPendingError(res.status, message, recalculated);
+        throw new ApiError(res.status, message);
+      }
       return res.json<ConfirmedSalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),

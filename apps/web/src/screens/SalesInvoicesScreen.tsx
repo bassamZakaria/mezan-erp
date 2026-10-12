@@ -25,6 +25,7 @@ import {
   StatusPill,
   TextInput,
   useFormat,
+  ConfirmDialog,
 } from "@mezan/ui";
 import {
   Money,
@@ -45,6 +46,7 @@ import {
   useAccounts,
   useBranches,
   useConfirmSalesInvoice,
+  SalesTaxRecalculationPendingError,
   useCreateSalesInvoice,
   useCustomers,
   useEmployees,
@@ -87,13 +89,19 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { ClassifyLineTaxAction } from "./ClassifyLineTaxAction";
 import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
 import { DraftLineEditAction } from "./DraftLineEditAction";
-import { ConfirmRecalculationNotice, confirmAcknowledgementOf } from "./ConfirmRecalculationNotice";
+import { ConfirmRecalculationNotice, confirmAcknowledgementOf, twoDecimals } from "./ConfirmRecalculationNotice";
 import { VoidReasonNotice, VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+
+interface RowRerate {
+  readonly row: Pick<SalesInvoiceDTO, "id" | "docNo" | "version" | "totals">;
+  readonly message: string;
+  readonly recalculated: string;
+}
 
 /** فواتير المبيعات (Sales Invoices) — docs/archive/catalog/01-sales.md. List + detail (with the
  * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm sub-page form with live
@@ -1994,18 +2002,26 @@ export function SalesInvoicesScreen() {
   const [rowError, setRowError] = useState<string | null>(null);
   const [rowNotice, setRowNotice] = useState<string | null>(null);
 
-  async function confirmRow(id: string, expectedVersion?: number): Promise<void> {
+  const [rowRerate, setRowRerate] = useState<RowRerate | null>(null);
+
+  async function confirmRow(row: Pick<SalesInvoiceDTO, "id" | "docNo" | "version" | "totals">, acknowledgeTaxRecalculation = false): Promise<void> {
     if (confirmingId) return;
     setRowError(null);
     setRowNotice(null);
-    setConfirmingId(id);
+    setConfirmingId(row.id);
     try {
       // N-9: the version the LIST row was served. Without it a second till that
       // already moved this invoice wins silently.
-      const confirmed = await listConfirm.mutateAsync({ id, expectedVersion });
+      const confirmed = await listConfirm.mutateAsync({ id: row.id, expectedVersion: row.version, ...(acknowledgeTaxRecalculation ? { acknowledgeTaxRecalculation } : {}) });
+      setRowRerate(null);
       setRowNotice(confirmed.taxRecalculated?.message ?? null);
     } catch (err) {
-      setRowError(errorMessage(err, t("common.failed")));
+      // The server names the total that would post; the row asks before it posts it.
+      if (err instanceof SalesTaxRecalculationPendingError) setRowRerate({ row, message: err.message, recalculated: err.recalculatedGrandTotal });
+      else {
+        setRowRerate(null);
+        setRowError(errorMessage(err, t("common.failed")));
+      }
     } finally {
       setConfirmingId(null);
     }
@@ -2137,6 +2153,24 @@ export function SalesInvoicesScreen() {
         <InvoiceDetailView invoice={selected} today={today} onPrint={() => subPage.open(selected.docNo ?? selected.id, "print")} />
       ) : (
         <div className="w-full">
+          <ConfirmDialog
+            open={rowRerate !== null}
+            title={t("confirmPreview.rowTitle", { number: rowRerate?.row.docNo ?? t("docStatus.draft") })}
+            consequence={
+              rowRerate ? (
+                <div role="status" className="flex flex-col gap-[6px]">
+                  <p className="font-semibold">{rowRerate.message}</p>
+                  <p>{t("confirmPreview.totals", { recalculated: twoDecimals(rowRerate.recalculated), shown: twoDecimals(rowRerate.row.totals.grandTotal) })}</p>
+                </div>
+              ) : null
+            }
+            confirmLabel={t("salesInvoices.confirm")}
+            confirmDisabled={confirmingId !== null}
+            onConfirm={() => {
+              if (rowRerate) void confirmRow(rowRerate.row, true);
+            }}
+            onCancel={() => setRowRerate(null)}
+          />
           {rowError ? (
             <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
               {rowError}
@@ -2271,7 +2305,7 @@ export function SalesInvoicesScreen() {
                         key: "confirm",
                         label: t("salesInvoices.confirm"),
                         disabled: confirmingId === inv.id,
-                        onSelect: () => void confirmRow(inv.id, inv.version),
+                        onSelect: () => void confirmRow(inv),
                       },
                     ]
                   : []),

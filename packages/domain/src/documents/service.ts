@@ -29,6 +29,7 @@ import type {
   DocumentEventPublisher,
   DocumentEventType,
   DocumentStockResult,
+  DocumentGlPostingResult,
 } from "./hooks.js";
 import { assertTransition, isActive, type DocumentStatus } from "./status.js";
 import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
@@ -38,6 +39,7 @@ import {
   DuplicateDocumentError,
   InvalidDocumentError,
   MissingHookError,
+  UnbookedStockVarianceError,
   assertDocumentWritten,
 } from "./errors.js";
 
@@ -377,23 +379,10 @@ export class DocumentService<Line> {
         throw new ReversalDateBeforeOriginalError(id, resolvedDate, existing.date);
       }
 
-      let reversalJournalEntryId: string | null = null;
-      let reversalDocNo: string | null = null;
-      if (existing.journalEntryId) {
-        if (!this.deps.gl) throw new MissingHookError(this.def.code, "gl");
-        const result = await this.deps.gl.reverse(existing.journalEntryId, {
-          reversalId: opts.reversalId,
-          date: opts.date,
-          memo: opts.memo,
-        });
-        reversalJournalEntryId = result.journalEntryId;
-        reversalDocNo = result.journalEntryNo;
-      }
-
-      const reversal: FrameworkDocument<Line> = {
+      const reversalOf = (posted: DocumentGlPostingResult | null): FrameworkDocument<Line> => ({
         id: opts.reversalId,
         docType: this.def.code,
-        docNo: reversalDocNo,
+        docNo: posted?.journalEntryNo ?? null,
         date: opts.date ?? existing.date,
         memo: opts.memo ?? `عكس المستند ${existing.docNo ?? existing.id}`,
         status: this.def.confirmedStatus,
@@ -403,20 +392,39 @@ export class DocumentService<Line> {
         reversesDocId: existing.id,
         reversedByDocId: null,
         workflowRequestId: null,
-        journalEntryId: reversalJournalEntryId,
-      };
+        journalEntryId: posted?.journalEntryId ?? null,
+      });
 
       // Stock comes back too (B-10). Reversing only the GL credited 1200 and
       // left the goods on hand, so the sub-ledger and its control account
       // parted company by the value of every reversed movement.
-      if (this.def.buildStockPlan) {
-        const plan = this.def.buildStockPlan(reversal);
-        if (plan) {
-          if (!this.deps.stock?.reverse) throw new MissingHookError(this.def.code, "stock");
-          await this.deps.stock.reverse(plan, existing.id);
-        }
+      let stockReversed = false;
+      const reverseStock = async (posted: DocumentGlPostingResult | null): Promise<DocumentStockResult | undefined> => {
+        stockReversed = true;
+        const plan = this.def.buildStockPlan?.(reversalOf(posted));
+        if (!plan) return undefined;
+        if (!this.deps.stock?.reverse) throw new MissingHookError(this.def.code, "stock");
+        return this.deps.stock.reverse(plan, existing.id);
+      };
+
+      let posted: DocumentGlPostingResult | null = null;
+      if (existing.journalEntryId) {
+        if (!this.deps.gl) throw new MissingHookError(this.def.code, "gl");
+        posted = await this.deps.gl.reverse(existing.journalEntryId, {
+          reversalId: opts.reversalId,
+          date: opts.date,
+          memo: opts.memo,
+          stock: reverseStock,
+        });
+      }
+      // INVARIANT: a GL hook that never ran the stock step, or a document with
+      // no entry, has nowhere to book a variance — so there must be none.
+      if (!stockReversed) {
+        const unbooked = (await reverseStock(posted))?.unmirroredValue;
+        if (unbooked && unbooked.scaled !== 0n) throw new UnbookedStockVarianceError(unbooked);
       }
 
+      const reversal = reversalOf(posted);
       await this.deps.repo.save(reversal);
 
       const original: FrameworkDocument<Line> = {

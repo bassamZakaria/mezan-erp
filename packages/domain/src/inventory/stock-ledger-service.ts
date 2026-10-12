@@ -330,6 +330,8 @@ export interface PostIssueResult {
  */
 export interface DocumentStockPlanResult {
   readonly valueMoved: Money;
+  /** Signed: what mirrored issues were asked to take out beyond what their emptied positions held. */
+  readonly unmirroredValue: Money;
 }
 
 export class StockLedgerService {
@@ -424,7 +426,7 @@ export class StockLedgerService {
      * layer's, so the leg stays valuation-neutral.
      */
     layerSlices?: readonly ConsumedSlice[];
-  }): Promise<{ signedValue: Money; unitCost: Money; consumed: readonly ConsumedSlice[] }> {
+  }): Promise<{ signedValue: Money; unmirrored: Money; unitCost: Money; consumed: readonly ConsumedSlice[] }> {
     if (input.qty.isNegative() || input.qty.isZero()) {
       throw new InvalidStockMovementError(["الكمية يجب أن تكون رقماً موجباً"]);
     }
@@ -434,6 +436,7 @@ export class StockLedgerService {
     let newOnHand: Qty;
     let newTotalValue: Money;
     let signed: Money;
+    let unmirrored = Money.zero();
     let deficit: { shortQty: Qty; costBasis: DeficitCostBasis } | null = null;
 
     if (input.direction === "IN") {
@@ -494,7 +497,12 @@ export class StockLedgerService {
       // and the control account move together by construction, so there is no
       // window in which they disagree. `wac.ts`'s replay applies the identical
       // rule, or `cacheDrift` would report this fix as corruption.
-      const cogs = input.value ?? (projected.isZero() ? snap.totalValue : extend(input.qty, unitCost));
+      // INVARIANT: a movement that leaves quantity 0 leaves value 0, a mirrored
+      // one included. What the mirror asked for beyond what the position held
+      // is returned as `unmirrored`, and the caller books it with the reversal.
+      const drained = projected.isZero();
+      const cogs = drained ? snap.totalValue : (input.value ?? extend(input.qty, unitCost));
+      if (drained && input.value) unmirrored = input.value.add(cogs.negate());
       newOnHand = projected;
       newTotalValue = snap.totalValue.add(cogs.negate());
       signed = cogs.negate();
@@ -575,7 +583,7 @@ export class StockLedgerService {
       });
     }
 
-    return { signedValue: signed, unitCost, consumed };
+    return { signedValue: signed, unmirrored, unitCost, consumed };
   }
 
   /**
@@ -971,14 +979,15 @@ export class StockLedgerService {
     }[];
     readonly occurredAt?: string;
   }): Promise<DocumentStockPlanResult> {
-    if (plan.lines.length === 0) return { valueMoved: Money.zero() };
+    if (plan.lines.length === 0) return { valueMoved: Money.zero(), unmirroredValue: Money.zero() };
     const occurredAt = plan.occurredAt ?? this.now();
 
     let valueMoved = Money.zero();
+    let unmirroredValue = Money.zero();
     await this.runInTransaction(async () => {
       for (let i = 0; i < plan.lines.length; i++) {
         const line = plan.lines[i] as (typeof plan.lines)[number];
-        const { signedValue } = await this.applyMovement({
+        const { signedValue, unmirrored } = await this.applyMovement({
           movementId: `${plan.sourceDocId}:${i}`,
           itemId: line.itemId,
           warehouseId: line.warehouseId ?? plan.warehouseId,
@@ -993,9 +1002,10 @@ export class StockLedgerService {
           occurredAt,
         });
         valueMoved = valueMoved.add(signedValue);
+        unmirroredValue = unmirroredValue.add(unmirrored);
       }
     });
-    return { valueMoved };
+    return { valueMoved, unmirroredValue };
   }
 
   /**

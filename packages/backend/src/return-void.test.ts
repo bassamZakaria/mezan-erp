@@ -119,6 +119,61 @@ describe("voiding a confirmed sales return", () => {
     expect((await kit.invariants()).inventory).toBe(0n);
   });
 
+  it("leaves no value on a position its void empties: the last issue out takes what is there and the difference is booked with the reversal", async () => {
+    const warehouses = (await kit.call("GET", "/warehouses")).body as { id: string }[];
+    const stockAt = async (warehouseId: string) => (await kit.call("GET", `/inventory/balance?itemId=${STOCK_ITEM}&warehouseId=${warehouseId}`)).body;
+    let empty: string | undefined;
+    for (const warehouse of warehouses) {
+      if ((await stockAt(warehouse.id)).onHand === "0.000000") empty ??= warehouse.id;
+    }
+    expect(empty, "a seeded warehouse holding none of the item").toBeDefined();
+    const there = empty as string;
+    const buy = async (id: string, qty: string, unitCost: string) => {
+      const created = await kit.call("POST", "/purchases/invoices", {
+        id, supplierId: SUPPLIER, date: TODAY, dueDate: "2026-09-23", branchId: "BR-MAIN", warehouseId: there,
+        lines: [{ itemId: STOCK_ITEM, kind: "inventory", qty, unitCost, taxRateId: "VAT14" }],
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      expect((await kit.call("POST", `/purchases/invoices/${id}/confirm`, {})).status).toBe(200);
+    };
+    const sell = async (id: string) => {
+      const created = await kit.call("POST", "/sales-invoices", {
+        id, date: TODAY, dueDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل", warehouseId: there, branchId: "BR-MAIN",
+        arAccountId: "1105", taxAccountId: "2200",
+        lines: [{ lineId: "A", itemId: STOCK_ITEM, itemNameAr: "صنف", isStock: true, qty: "2", unitPrice: "100", revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", taxRateId: "VAT14" }],
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      const confirmed = await kit.call("POST", `/sales-invoices/${id}/confirm`, {});
+      expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    };
+
+    await buy("RV-S-9-BUY-1", "3", "10");
+    await sell("RV-S-9");
+    await buy("RV-S-9-BUY-2", "1", "40");
+    const drafted = await kit.call("POST", "/sales-returns/from-invoice", {
+      id: "RV-S-9-R", date: TODAY, memo: "", warehouseId: there, sourceInvoiceId: "RV-S-9", reason: "DEFECTIVE",
+      requested: [{ itemId: STOCK_ITEM, sourceLineId: "A", qty: "2" }],
+    });
+    expect(drafted.status, JSON.stringify(drafted.body)).toBe(201);
+    expect((await kit.call("POST", "/sales-returns/RV-S-9-R/confirm", {})).status).toBe(200);
+    await sell("RV-S-9-AGAIN");
+    const held = await stockAt(there);
+    expect([held.onHand, held.totalValue]).toEqual(["2.000000", "35.000000"]);
+
+    const voided = await kit.call("POST", "/sales-returns/RV-S-9-R/void", { reason: REASON });
+    expect([voided.status, voided.body.status], JSON.stringify(voided.body)).toEqual([200, "reversed"]);
+
+    const after = await stockAt(there);
+    expect([after.onHand, after.totalValue]).toEqual(["0.000000", "0.000000"]);
+    expect(await kit.invariants()).toEqual({ tb: 0n, inventory: 0n, ap: 0n, ar: 0n });
+    const reversal = await kit.journalLines(voided.body.reversalJournalEntryId);
+    const net = (accountId: string) =>
+      reversal.filter((line) => line.accountId === accountId).reduce((sum, line) => sum + BigInt(line.credit.replace(".", "")) - BigInt(line.debit.replace(".", "")), 0n);
+    expect([net("1200"), net("5100")]).toEqual([35_000000n, -35_000000n]);
+    const valuation = (await kit.call("GET", "/inventory/valuation")).body.rows as { onHand: string; totalValue: string }[];
+    expect(valuation.filter((row) => row.onHand === "0.000000" && row.totalValue !== "0.000000")).toEqual([]);
+  });
+
   it("requires a reason and its own permission, and a refusal moves nothing", async () => {
     await confirmedSale("RV-S-2");
     await confirmedSalesReturn("RV-S-2-R", "RV-S-2", "1");

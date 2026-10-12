@@ -1,5 +1,6 @@
 /** Document-framework errors. Stable `code`s so the api/UI can branch on them. */
 
+import type { Money } from "../money/index.js";
 import type { ApprovalStatus } from "../workflow/index.js";
 import { DOCUMENT_STATUS_LABELS_AR, type DocumentStatus } from "./status.js";
 
@@ -121,3 +122,14 @@ const RESUBMIT_REFUSAL_AR: Readonly<Record<ApprovalStatus | "none", string>> = {
   modification_requested: "طُلب تعديل هذا المستند؛ عدِّله ثم أكِّده ليُعرض على المعتمِد من جديد.",
   rejected: "تعذّرت إعادة إرسال المستند للاعتماد.",
 };
+
+/** A wiring error: a reversal emptied a stock position at a value its mirror did not name, and nothing can book the difference. */
+export class UnbookedStockVarianceError extends Error {
+  readonly code = "UNBOOKED_STOCK_VARIANCE";
+  readonly messageEn: string;
+  constructor(readonly unmirroredValue: Money) {
+    super(`تعذّر عكس المستند: فرق تكلفة مخزون بقيمة ${unmirroredValue.toString()} لا يوجد حساب لترحيله.`);
+    this.messageEn = `The reversal left a stock cost variance of ${unmirroredValue.toString()} with no account wired to book it.`;
+    this.name = "UnbookedStockVarianceError";
+  }
+}

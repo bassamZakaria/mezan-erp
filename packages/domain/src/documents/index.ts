@@ -74,6 +74,7 @@ export {
   DocumentChangedError,
   DocumentReversalRefusedError,
   DocumentResubmitRefusedError,
+  UnbookedStockVarianceError,
   assertDocumentWritten,
 } from "./errors.js";
 

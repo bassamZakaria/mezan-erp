@@ -162,14 +162,27 @@ export async function boot() {
     };
     const debit = scaled(g.debit);
     const credit = scaled(g.credit);
+    const valuation = await req("GET", "/inventory/valuation");
+    const positions: { itemId: string; warehouseId: string; onHand: unknown; totalValue: unknown }[] | null = Array.isArray(valuation.body?.rows) ? valuation.body.rows : null;
+    const stranded = (positions ?? []).filter((p) => scaled(p.onHand) === 0n && scaled(p.totalValue) !== 0n);
+    const magnitude = (x: bigint) => (x < 0n ? -x : x);
     const exact = {
       tb: debit === null || credit === null ? null : debit - credit,
       inventory: diff("inventory"),
       ap: diff("ap"),
       ar: diff("ar"),
+      strandedStock: positions === null ? null : stranded.reduce((sum, p) => sum + magnitude(scaled(p.totalValue) ?? 0n), 0n),
     };
     const asNumber = (x: bigint | null) => (x === null ? NaN : Number(x) / 1e6);
-    return { tb: asNumber(exact.tb), inventory: asNumber(exact.inventory), ap: asNumber(exact.ap), ar: asNumber(exact.ar), exact };
+    return {
+      tb: asNumber(exact.tb),
+      inventory: asNumber(exact.inventory),
+      ap: asNumber(exact.ap),
+      ar: asNumber(exact.ar),
+      strandedStock: asNumber(exact.strandedStock),
+      strandedPositions: stranded.map((p) => `${p.itemId}@${p.warehouseId}=${String(p.totalValue)}`),
+      exact,
+    };
   }
 
   /**
@@ -193,6 +206,7 @@ export async function boot() {
     check("inventory still reconciles to GL 1200", same("inventory"), moved("inventory"));
     check("AP still reconciles", same("ap"), moved("ap"));
     check("AR still reconciles", same("ar"), moved("ar"));
+    check("no empty stock position holds value", after.exact.strandedStock === 0n, after.strandedPositions.slice(0, 5).join(" · "));
   }
 
   function report(): number {

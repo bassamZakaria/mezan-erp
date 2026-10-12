@@ -1839,7 +1839,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
 
 
-  const documentGl = createJournalGlHook(salesInvoiceGl);
+  const documentGl = createJournalGlHook(salesInvoiceGl, {
+    inventoryAccountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
+    costVarianceAccountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
+  });
   const documentWorkflowGate = createDocumentWorkflowGate(
     (actionType) => workflowConfigs.resolveSync(actionType),
     approvalRequests,

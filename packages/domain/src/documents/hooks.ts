@@ -102,10 +102,22 @@ export interface DocumentGlPostingResult {
   readonly journalEntryNo: string | null;
 }
 
+export interface DocumentGlReversalOptions {
+  readonly reversalId: string;
+  readonly date?: string;
+  readonly memo?: string;
+  /**
+   * ORDER MATTERS: runs once the reversing entry has its number and before it
+   * is saved, so the stock moves under that number and whatever it could not
+   * mirror is booked in that same entry.
+   */
+  readonly stock?: (reversal: DocumentGlPostingResult) => Promise<DocumentStockResult | undefined>;
+}
+
 export interface DocumentGlHook {
   post(posting: DocumentGlPosting): Promise<DocumentGlPostingResult>;
   /** Reverse a previously posted entry (drives document reversal). */
-  reverse(journalEntryId: string, opts: { reversalId: string; date?: string; memo?: string }): Promise<DocumentGlPostingResult>;
+  reverse(journalEntryId: string, opts: DocumentGlReversalOptions): Promise<DocumentGlPostingResult>;
 }
 
 /* --- Stock-movement hook (via the stock-ledger engine) ------------------- */
@@ -169,6 +181,12 @@ export interface DocumentStockPlan {
 export interface DocumentStockResult {
   /** Signed: positive when value entered stock, negative when it left. */
   readonly valueMoved: Money;
+  /**
+   * Only on a reversal: what the mirrored issues were asked to take out beyond
+   * what the positions they emptied still held. The reversing entry books it,
+   * or the control account and the stock ledger part by exactly this figure.
+   */
+  readonly unmirroredValue?: Money;
 }
 
 export interface DocumentStockHook {

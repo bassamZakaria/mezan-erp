@@ -28,7 +28,9 @@ import {
   type GateConfig,
   type GateableActionType,
 } from "../workflow/index.js";
+import type { JournalLine } from "../journal.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "./document.js";
+import { UnbookedStockVarianceError } from "./errors.js";
 import { buildEffects } from "./effects.js";
 import type { DocumentApprovalView, DocumentGlHook, DocumentGlPosting, DocumentWorkflowGate } from "./hooks.js";
 import { InvalidDocumentError } from "./errors.js";
@@ -144,7 +146,13 @@ export const journalDocumentType: DocumentTypeDefinition<JournalDocLine> = {
  * entry id equals the document id (`posting.sourceDocId`), so the ledger entry
  * and the document share one identity and one JE- number.
  */
-export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
+/** Where a reversal books stock value its mirrored issue could not take out of an emptied position. */
+export interface StockReversalVarianceAccounts {
+  readonly inventoryAccountId: string;
+  readonly costVarianceAccountId: string;
+}
+
+export function createJournalGlHook(deps: JournalPostingDeps, stockVariance?: StockReversalVarianceAccounts): DocumentGlHook {
   return {
     async post(posting) {
       const entry = await postJournalEntry(
@@ -180,14 +188,36 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
       return { journalEntryId: entry.id, journalEntryNo: entry.entryNo ?? null };
     },
     async reverse(journalEntryId, opts) {
+      const stock = opts.stock;
       const { reversal } = await reverseJournalEntry(journalEntryId, deps, {
         reversalId: opts.reversalId,
         date: opts.date,
         memo: opts.memo,
+        appendLines: stock
+          ? async (entry) => stockVarianceLines((await stock({ journalEntryId: entry.id, journalEntryNo: entry.entryNo }))?.unmirroredValue, stockVariance)
+          : undefined,
       });
       return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
     },
   };
+}
+
+const STOCK_VARIANCE_MEMO = "فرق تكلفة: عكس حركة مخزنية أفرغت رصيد الصنف";
+
+function stockVarianceLines(unmirrored: Money | undefined, accounts: StockReversalVarianceAccounts | undefined): JournalLine[] {
+  if (!unmirrored || unmirrored.scaled === 0n) return [];
+  if (!accounts) throw new UnbookedStockVarianceError(unmirrored);
+  // The mirrored lines already took the FULL mirrored value off the inventory
+  // account; the position only held less (positive) or more (negative).
+  const heldMore = unmirrored.scaled < 0n;
+  const magnitude = heldMore ? unmirrored.negate() : unmirrored;
+  const [debited, credited] = heldMore
+    ? [accounts.costVarianceAccountId, accounts.inventoryAccountId]
+    : [accounts.inventoryAccountId, accounts.costVarianceAccountId];
+  return [
+    { accountId: debited, debit: magnitude, credit: Money.zero(), memo: STOCK_VARIANCE_MEMO },
+    { accountId: credited, debit: Money.zero(), credit: magnitude, memo: STOCK_VARIANCE_MEMO },
+  ];
 }
 
 /**

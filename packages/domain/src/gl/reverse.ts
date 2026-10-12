@@ -25,6 +25,12 @@ export interface ReverseJournalEntryOptions {
    * original itself.
    */
   readonly linePatch?: (line: JournalLine) => JournalLine;
+  /**
+   * ORDER MATTERS: called inside the reversal's transaction once its number is
+   * allocated and before it is saved. The balanced lines it returns are booked
+   * in the reversing entry itself, after the mirrored ones.
+   */
+  readonly appendLines?: (reversal: { readonly id: string; readonly entryNo: string }) => Promise<readonly JournalLine[]>;
 }
 
 export interface ReverseJournalEntryResult {
@@ -93,6 +99,8 @@ export async function reverseJournalEntry(
 
   const result = await deps.ledger.transaction(async () => {
     const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);
+    const appended = (await opts.appendLines?.({ id: opts.reversalId, entryNo: number.formatted })) ?? [];
+    if (appended.length > 0) assertBalanced(appended);
     const reversal: JournalEntry = {
       id: opts.reversalId,
       entryNo: number.formatted,
@@ -100,7 +108,7 @@ export async function reverseJournalEntry(
       memo,
       status: "posted",
       source: "system",
-      lines: reversalLines,
+      lines: appended.length > 0 ? [...reversalLines, ...appended] : reversalLines,
       createdAt: stamp,
       postedAt: stamp,
       reversesEntryId: original.id,

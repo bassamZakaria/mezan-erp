@@ -138,7 +138,6 @@ export {
   type PhysicalCountNumberingHook,
   type StockBalanceReader,
   PhysicalCountNotFoundError,
-  DuplicatePhysicalCountError,
   InvalidPhysicalCountError,
   InvalidPhysicalCountStatusError,
   type PhysicalCountServiceDeps,

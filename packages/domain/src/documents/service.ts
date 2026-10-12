@@ -33,7 +33,6 @@ import { assertTransition, isActive, type DocumentStatus } from "./status.js";
 import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import {
   DocumentNotFoundError,
-  DuplicateDocumentError,
   InvalidDocumentError,
   MissingHookError,
 } from "./errors.js";

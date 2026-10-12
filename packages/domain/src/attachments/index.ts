@@ -18,4 +18,4 @@ export {
   type CreateAttachmentCommand,
 } from "./create-attachment.js";
 export { deleteAttachment } from "./delete-attachment.js";
-export { AttachmentNotFoundError, DuplicateAttachmentIdError, InvalidAttachmentError } from "./errors.js";
+export { AttachmentNotFoundError, InvalidAttachmentError } from "./errors.js";

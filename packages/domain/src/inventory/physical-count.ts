@@ -107,14 +107,6 @@ export class PhysicalCountNotFoundError extends Error {
   }
 }
 
-export class DuplicatePhysicalCountError extends Error {
-  readonly code = "DUPLICATE_PHYSICAL_COUNT";
-  constructor(readonly id: string) {
-    super(`Physical count "${id}" already exists.`);
-    this.name = "DuplicatePhysicalCountError";
-  }
-}
-
 export class InvalidPhysicalCountError extends Error {
   readonly code = "INVALID_PHYSICAL_COUNT";
   constructor(readonly id: string, message: string) {

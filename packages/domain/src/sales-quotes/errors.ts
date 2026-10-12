@@ -23,16 +23,6 @@ export class SalesQuoteNotFoundError extends Error {
   }
 }
 
-export class DuplicateSalesQuoteError extends Error {
-  readonly code = "DUPLICATE_SALES_QUOTE";
-  readonly messageEn: string;
-  constructor(readonly quoteId: string) {
-    super(`عرض السعر "${quoteId}" موجود بالفعل.`);
-    this.messageEn = `Sales quote "${quoteId}" already exists.`;
-    this.name = "DuplicateSalesQuoteError";
-  }
-}
-
 export class InvalidSalesQuoteTransitionError extends Error {
   readonly code = "INVALID_SALES_QUOTE_TRANSITION";
   constructor(

@@ -15,7 +15,6 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   InactiveAccountError,
-  DuplicateJournalEntryError,
   JournalEntryNotFoundError,
   JournalEntryNotDraftError,
   JournalEntryNotPostedError,
@@ -255,7 +254,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (
-    err instanceof DuplicateJournalEntryError ||
     err instanceof JournalEntryNotDraftError ||
     err instanceof JournalEntryNotPostedError ||
     err instanceof JournalEntryAlreadyReversedError

@@ -23,7 +23,6 @@ import type { ProjectRepository } from "../projects/project.js";
 import { ProjectNotFoundError } from "../projects/errors.js";
 import type { GlEventPublisher } from "./events.js";
 import {
-  DuplicateJournalEntryError,
   InactiveAccountError,
   InvalidJournalPartyError,
   JournalEntryNotDraftError,

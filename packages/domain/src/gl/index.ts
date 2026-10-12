@@ -50,7 +50,6 @@ export {
   JournalEntryNotPostedError,
   JournalEntryAlreadyReversedError,
   InactiveAccountError,
-  DuplicateJournalEntryError,
   PartyRequiredOnControlAccountError,
   InvalidJournalPartyError,
   ReversalDateBeforeOriginalError,

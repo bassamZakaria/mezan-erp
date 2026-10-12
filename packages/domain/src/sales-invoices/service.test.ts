@@ -18,7 +18,6 @@ import {
   InvalidSalesInvoicePaymentError,
   InvalidSalesInvoiceTransitionError,
   SalesInvoiceNotFoundError,
-  DuplicateSalesInvoiceError,
   type CreateSalesInvoiceCommand,
   type SalesInvoicePricingDeps,
   type SalesInvoiceServiceDeps,

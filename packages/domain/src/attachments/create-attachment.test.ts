@@ -6,7 +6,7 @@ import {
   ATTACHMENT_MAX_BYTES,
   type CreateAttachmentCommand,
 } from "./create-attachment.js";
-import { DuplicateAttachmentIdError, InvalidAttachmentError } from "./errors.js";
+import { InvalidAttachmentError } from "./errors.js";
 import type { Attachment, AttachmentContent, AttachmentRepository } from "./attachment.js";
 import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
@@ -180,7 +180,7 @@ describe("createAttachment — refusals", () => {
     );
   });
 
-  it("throws DuplicateAttachmentIdError when the caller-supplied id already exists", async () => {
+  it("refuses a caller-supplied id that already exists as a duplicate record id", async () => {
     const repo = new FakeAttachmentRepository();
     repo.rows.set("att-1", { ...cmd(), byteSize: 3, mimeType: "image/jpeg", entityType: "item", notes: null, uploadedAt: "x" } as unknown as Attachment);
     await expect(createAttachment(cmd(), repo)).rejects.toBeInstanceOf(DuplicateRecordIdError);

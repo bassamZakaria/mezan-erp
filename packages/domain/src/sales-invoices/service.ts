@@ -47,7 +47,6 @@ import type {
   SalesInvoicePromotionHook,
 } from "./ports.js";
 import {
-  DuplicateSalesInvoiceError,
   InvalidSalesInvoiceError,
   InvalidSalesInvoicePaymentError,
   SalesInvoiceNotFoundError,

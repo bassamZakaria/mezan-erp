@@ -128,7 +128,7 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
   // ONE TRANSACTION for the entry, every asset write and the run's own status
   // (B-9). A failure part-way used to leave the GL entry posted against assets
   // whose accumulated depreciation had not moved, and the run still `draft` —
-  // so re-posting threw DuplicateJournalEntryError and the period could never
+  // so re-posting threw a duplicate-id refusal and the period could never
   // be closed.
   return deps.gl.ledger.transaction(async () => {
     const entry = await postJournalEntry(

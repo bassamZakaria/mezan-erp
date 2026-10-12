@@ -15,7 +15,6 @@ import { grossUpForWaste } from "./bom.js";
 import type { ActivationStatus, ItemPolicy, PricingMethod } from "./types.js";
 import {
   ConfigurableProductNotFoundError,
-  DuplicateManufacturingDocumentError,
   FormulaError,
   InvalidManufacturingDocumentError,
 } from "./errors.js";

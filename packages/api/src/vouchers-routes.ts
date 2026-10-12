@@ -12,7 +12,6 @@ import {
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   DocumentNotFoundError,
-  DuplicateDocumentError,
   UnbalancedEntryError,
   AccountNotFoundError,
   HeaderAccountNotPostableError,
@@ -200,7 +199,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     return refuse(err, 404);
   }
   if (
-    err instanceof DuplicateDocumentError ||
     err instanceof InvalidDocumentTransitionError ||
     err instanceof ApprovalRequestRejectedError ||
     err instanceof VoucherNotAllocatableError ||

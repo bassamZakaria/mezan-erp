@@ -12,7 +12,6 @@ import {
   computeInvoiceTotals,
   InvalidSalesInvoiceError,
   SalesInvoiceNotFoundError,
-  DuplicateSalesInvoiceError,
   InvalidSalesInvoiceTransitionError,
   InvalidSalesInvoicePaymentError,
   UnbalancedEntryError,
@@ -22,7 +21,6 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
-  DuplicateJournalEntryError,
   ExpiredStockError,
   NegativeStockError,
   UncostedDeficitIssueError,
@@ -395,10 +393,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json(withMessageEn(err), 404);
   }
   if (
-    err instanceof DuplicateSalesInvoiceError ||
     err instanceof InvalidSalesInvoiceTransitionError ||
     err instanceof ApprovalRequestRejectedError ||
-    err instanceof DuplicateJournalEntryError ||
     err instanceof JournalEntryAlreadyReversedError ||
     err instanceof JournalEntryNotPostedError
   ) {

@@ -90,21 +90,6 @@ export class ItemUnitInUseError extends Error {
 }
 
 /**
- * Raised when an item-category code already exists (codes are unique across
- * the catalog). Currently unreachable in production: `item-catalog.ts` throws
- * its own, separately-defined `DuplicateItemCategoryError` (no "Code" suffix).
- */
-export class DuplicateItemCategoryCodeError extends Error {
-  readonly code = "DUPLICATE_ITEM_CATEGORY_CODE";
-  readonly messageEn: string;
-  constructor(readonly categoryCode: string) {
-    super(`كود فئة الصنف "${categoryCode}" مستخدم من قبل.`);
-    this.messageEn = `Item category code "${categoryCode}" already exists.`;
-    this.name = "DuplicateItemCategoryCodeError";
-  }
-}
-
-/**
  * Raised when an operation references an item-category id that does not
  * exist. Currently unreachable in production: `item-catalog.ts` throws its
  * own, separately-defined `ItemCategoryNotFoundError`.
@@ -217,10 +202,9 @@ export class ItemStatusNotSettableError extends Error {
 
 export class ItemPendingPricingError extends Error {
   readonly code = "ITEM_PENDING_PRICING";
-  readonly messageEn: string;
-  constructor(readonly items: readonly { readonly id: string; readonly nameAr: string }[]) {
-    super(`لا يمكن استخدام صنف بانتظار التسعير في مستند: ${items.map((item) => `«${item.nameAr}»`).join("، ")}. يُتاح الصنف بعد أن تسعّره الإدارة.`);
-    this.messageEn = `An item waiting to be priced cannot be put on a document: ${items.map((item) => item.id).join(", ")}. It becomes available once head office prices it.`;
+  readonly messageEn = "An item waiting to be priced cannot be put on a document. It becomes available once head office prices it.";
+  constructor(readonly itemIds: readonly string[]) {
+    super("لا يمكن استخدام صنف بانتظار التسعير في مستند. يُتاح الصنف بعد أن تسعّره الإدارة.");
     this.name = "ItemPendingPricingError";
   }
 }

@@ -45,6 +45,8 @@ async function readJson(c: Context): Promise<unknown> {
  * SECURITY: mounted app-wide, so a write on ANY route — one added later
  * included — cannot put an item still waiting for head office's price on a
  * document. Only the item master and the price lists that price it are exempt.
+ * It runs before the route's own permission gate, so the refusal repeats the
+ * ids the caller sent and says nothing else about the item.
  */
 export function pendingPricingGuard(items: Pick<ItemRepository, "findById" | "findByCode">, resolveAuthContext: AuthContextResolver): MiddlewareHandler {
   return async function pendingPricing(c, next) {
@@ -55,10 +57,10 @@ export function pendingPricingGuard(items: Pick<ItemRepository, "findById" | "fi
     if (named.ids.size === 0 && named.codes.size === 0) return next();
     if (!(await resolveAuthContext(c)).authenticated) return next();
     const found = await Promise.all([...[...named.ids].map((id) => items.findById(id)), ...[...named.codes].map((code) => items.findByCode(code))]);
-    const pending = new Map<string, string>();
-    for (const item of found) if (item?.status === ItemStatusCode.PendingPricing) pending.set(item.id, item.nameAr);
+    const pending = new Set<string>();
+    for (const item of found) if (item?.status === ItemStatusCode.PendingPricing) pending.add(item.id);
     if (pending.size === 0) return next();
-    const refusal = new ItemPendingPricingError([...pending].map(([id, nameAr]) => ({ id, nameAr })));
-    return c.json({ error: refusal.code, message: refusal.message, messageEn: refusal.messageEn, itemIds: [...pending.keys()] }, 409);
+    const refusal = new ItemPendingPricingError([...pending]);
+    return c.json({ error: refusal.code, message: refusal.message, messageEn: refusal.messageEn, itemIds: refusal.itemIds }, 409);
   };
 }

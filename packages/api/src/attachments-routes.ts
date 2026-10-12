@@ -2,7 +2,6 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   ATTACHMENT_ENTITY_PERMISSIONS,
   AttachmentNotFoundError,
-  DuplicateAttachmentIdError,
   InvalidAttachmentError,
   can,
   createAttachment,
@@ -119,9 +118,6 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof AttachmentNotFoundError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
-  }
-  if (err instanceof DuplicateAttachmentIdError) {
-    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof InvalidAttachmentError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);

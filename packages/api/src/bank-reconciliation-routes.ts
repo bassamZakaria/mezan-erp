@@ -12,7 +12,6 @@ import {
   BankStatementSource,
   CashBalanceWouldGoNegativeError,
   ColumnNotFoundError,
-  DuplicateDocumentError,
   DuplicateStatementImportError,
   EntryAccountRequiredError,
   EntryAlreadyMatchedError,
@@ -247,7 +246,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof StatementAlreadyFinalizedError ||
     err instanceof EntryAlreadyMatchedError ||
     err instanceof SuggestionNotPendingError ||
-    err instanceof DuplicateDocumentError ||
     err instanceof InvalidDocumentTransitionError ||
     err instanceof ApprovalRequestRejectedError
   ) {

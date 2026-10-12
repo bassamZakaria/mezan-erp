@@ -26,19 +26,6 @@ export class DocumentNotFoundError extends Error {
   }
 }
 
-export class DuplicateDocumentError extends Error {
-  readonly code = "DUPLICATE_DOCUMENT";
-  readonly messageEn: string;
-  constructor(
-    readonly docType: string,
-    readonly docId: string,
-  ) {
-    super(`المستند "${docType}/${docId}" موجود بالفعل.`);
-    this.messageEn = `Document ${docType}/${docId} already exists.`;
-    this.name = "DuplicateDocumentError";
-  }
-}
-
 /**
  * A document type declared a hook (GL, stock, workflow, numbering) but the
  * running `DocumentService` was constructed without an adapter for it. This is a

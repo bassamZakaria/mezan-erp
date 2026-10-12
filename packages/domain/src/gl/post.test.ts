@@ -28,7 +28,6 @@ import {
 import { VatPeriodAlreadyFiledError } from "../tax/vat-filing.js";
 import {
   InactiveAccountError,
-  DuplicateJournalEntryError,
   JournalEntryNotDraftError,
   JournalEntryNotFoundError,
   InvalidJournalPartyError,

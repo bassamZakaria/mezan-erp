@@ -1,6 +1,6 @@
 import type { App } from "@mezan/api";
 import type { SeedFragment } from "./fragments.js";
-import { ACCOUNTS, CORE, VAT_PERCENT, call, seedBranchActorHeaders, step } from "./shared.js";
+import { ACCOUNTS, CORE, SeedPerson, VAT_PERCENT, call, seedBranchActorHeaders, seededUserId, step } from "./shared.js";
 
 /**
  * A second branch with its own warehouse, cash drawer and trade (D111).
@@ -17,7 +17,6 @@ const PURCHASE_INVOICE_ID = "PI-DEMO-ALEX-1";
 const SALES_INVOICE_ID = "INV-DEMO-ALEX-1";
 const COLLECTION_VOUCHER_ID = "VCH-DEMO-ALEX-1";
 export const PENDING_PRICING_ITEM_ID = "ITEM-DEMO-ALEX-PENDING";
-const BRANCH_CLERK_USER_ID = "USER-DEMO-ALEX-CLERK";
 const LIMIT_REFUSALS = new Set(["BRANCH_LIMIT_REACHED", "WAREHOUSE_LIMIT_REACHED"]);
 
 /** Creates a location, or reports that the tenant's plan holds no room for it. Any other refusal is a real failure. */
@@ -136,7 +135,7 @@ async function run(app: App): Promise<void> {
   await step(app, "POST", `/vouchers/${COLLECTION_VOUCHER_ID}/confirm`, {});
   await step(app, "POST", `/vouchers/${COLLECTION_VOUCHER_ID}/allocations`, { invoiceId: SALES_INVOICE_ID, amount: "1000.00" });
 
-  const asBranchClerk = seedBranchActorHeaders(BRANCH_CLERK_USER_ID, ["inventory.item.view", "inventory.item.create"], [SECOND_BRANCH_ID]);
+  const asBranchClerk = seedBranchActorHeaders(seededUserId(SeedPerson.WarehouseKeeper), ["inventory.item.view", "inventory.item.create"], [SECOND_BRANCH_ID]);
   const created = await app.fetch(
     new Request("http://demo-seed/items", {
       method: "POST",

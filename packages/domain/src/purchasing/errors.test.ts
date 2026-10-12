@@ -3,7 +3,6 @@ import {
   PurchaseOrderNotFoundError,
   GoodsReceiptNotFoundError,
   PurchaseInvoiceNotFoundError,
-  DuplicatePurchaseDocumentError,
   InvalidPurchaseDocumentError,
   PurchaseDocumentNotDraftError,
   PurchaseOrderNotReceivableError,
@@ -42,11 +41,6 @@ describe("purchasing errors", () => {
     expect(err.id).toBe("pi-1");
   });
 
-  it("DuplicatePurchaseDocumentError names the duplicate id", () => {
-    const err = new DuplicatePurchaseDocumentError("doc-1");
-    expect(err.code).toBe("DUPLICATE_PURCHASE_DOCUMENT");
-    expect(err.message).toContain("doc-1");
-  });
 
   it("InvalidPurchaseDocumentError joins every reason into the message", () => {
     const err = new InvalidPurchaseDocumentError(["reason A", "reason B"]);

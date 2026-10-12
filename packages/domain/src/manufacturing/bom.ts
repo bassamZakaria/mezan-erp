@@ -14,7 +14,6 @@ import { NextNumberService } from "../numbering/index.js";
 import type { ActivationStatus } from "./types.js";
 import {
   BomNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
 } from "./errors.js";
 import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";

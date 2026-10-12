@@ -131,6 +131,14 @@ describe("upgrade — an approval given before requests carried their document's
     expect(standing.body.reason).toMatch(ARABIC);
     expect(standing.body.reason).toContain("اطلب الموافقة من جديد");
     expect((await clerk("GET", "/workflow/requests/NOBODY:confirm/standing")).status).toBe(404);
+    const elsewhere = handle.sessions.issue({ userId: "USER-UP-ELSEWHERE", permissions: ["sales.invoice.view", "workflow.view"], roleCode: null, branchScope: ["BR-ELSEWHERE"], warehouseScope: ALL_SCOPE });
+    const foreign = await handle.app.fetch(new Request("http://local/workflow/requests/UP-APPROVED:confirm/standing", { headers: { authorization: `Bearer ${elsewhere}` } }));
+    expect(foreign.status).toBe(404);
+    const own = handle.sessions.issue({ userId: "USER-UP-OWN-BRANCH", permissions: ["sales.invoice.view"], roleCode: null, branchScope: ["BR-MAIN"], warehouseScope: ALL_SCOPE });
+    const ownBranch = await handle.app.fetch(new Request("http://local/workflow/requests/UP-APPROVED:confirm/standing", { headers: { authorization: `Bearer ${own}` } }));
+    expect(ownBranch.status).toBe(200);
+    const anonymous = await handle.app.fetch(new Request("http://local/workflow/requests/UP-APPROVED:confirm/standing"));
+    expect(anonymous.status).toBe(401);
   });
 
   it("the stale approval is not in the approver's inbox and cannot be decided as it stands", async () => {

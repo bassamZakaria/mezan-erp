@@ -7,7 +7,6 @@ import {
   ItemUnitNotFoundError,
   InvalidItemUnitError,
   ItemUnitInUseError,
-  DuplicateItemCategoryCodeError,
   ItemCategoryNotFoundError,
   InvalidItemCategoryError,
   ItemCategoryInUseError,
@@ -66,10 +65,6 @@ describe("items errors", () => {
     expect(err.message).toContain("3");
   });
 
-  it("DuplicateItemCategoryCodeError names the code", () => {
-    const err = new DuplicateItemCategoryCodeError("CAT-1");
-    expect(err.code).toBe("DUPLICATE_ITEM_CATEGORY_CODE");
-  });
 
   it("ItemCategoryNotFoundError names the id", () => {
     const err = new ItemCategoryNotFoundError("cat-1");

@@ -1,5 +1,5 @@
 import { isAttachmentEntityType, type Attachment, type AttachmentEntityType, type AttachmentRepository } from "./attachment.js";
-import { DuplicateAttachmentIdError, InvalidAttachmentError } from "./errors.js";
+import { InvalidAttachmentError } from "./errors.js";
 import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 /** 5 MiB. The store keeps bytes in the SQLite file, which the desktop backup copies whole. */

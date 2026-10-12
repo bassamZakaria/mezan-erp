@@ -66,7 +66,6 @@ export {
 export {
   InvalidDocumentTransitionError,
   DocumentNotFoundError,
-  DuplicateDocumentError,
   MissingHookError,
   InvalidDocumentError,
 } from "./errors.js";

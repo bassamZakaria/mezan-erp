@@ -45,7 +45,8 @@ describe("pendingPricingGuard", () => {
     const refusal = (await res.json()) as { error: string; message: string; itemIds: string[] };
     expect(refusal.error).toBe("ITEM_PENDING_PRICING");
     expect(refusal.message).toMatch(/[؀-ۿ]/);
-    expect(refusal.message).toContain("صنف PENDING");
+    expect(refusal.message).toContain("بانتظار التسعير");
+    expect(refusal.message).not.toContain("صنف PENDING");
     expect(refusal.itemIds).toEqual(["PENDING"]);
   });
 

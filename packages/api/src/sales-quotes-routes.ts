@@ -10,7 +10,6 @@ import {
   isQuoteExpired,
   InvalidSalesQuoteError,
   SalesQuoteNotFoundError,
-  DuplicateSalesQuoteError,
   InvalidSalesQuoteTransitionError,
   type SalesQuote,
   type SalesQuoteDiscount,
@@ -20,7 +19,6 @@ import {
   type CreateSalesQuoteCommand,
   SalesInvoiceService,
   InvalidSalesInvoiceError,
-  DuplicateSalesInvoiceError,
   type SalesInvoiceRepository,
   type SalesInvoiceStockHook,
   type CreateSalesInvoiceCommand,
@@ -177,7 +175,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof SalesQuoteNotFoundError) {
     return c.json(withMessageEn(err), 404);
   }
-  if (err instanceof DuplicateSalesQuoteError || err instanceof InvalidSalesQuoteTransitionError) {
+  if (err instanceof InvalidSalesQuoteTransitionError) {
     return c.json(withMessageEn(err), 409);
   }
   throw err;
@@ -603,9 +601,6 @@ export function createSalesQuotesRoutes(
     } catch (err) {
       if (err instanceof InvalidSalesInvoiceError) {
         return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
-      }
-      if (err instanceof DuplicateSalesInvoiceError) {
-        return c.json(withMessageEn(err), 409);
       }
       return handleDomainError(c, err);
     }

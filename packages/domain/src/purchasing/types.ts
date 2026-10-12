@@ -113,7 +113,7 @@ export interface PurchaseGlPostingPort {
   /**
    * Run the whole confirm inside one atomic boundary. Without it the GL entry
    * posted first with a deterministic id and any later failure left the invoice
-   * `draft` with a live entry, so every retry threw DuplicateJournalEntryError
+   * `draft` with a live entry, so every retry threw a duplicate-id refusal
    * and the invoice was permanently unconfirmable (B-7). Optional so a caller
    * that has no transactor still works, unatomically, as before.
    */

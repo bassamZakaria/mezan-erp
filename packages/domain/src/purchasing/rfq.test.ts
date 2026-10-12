@@ -20,7 +20,6 @@ import {
   RfqNotSentError,
   RfqNotOpenError,
   RfqQuoteNotFoundError,
-  DuplicatePurchaseDocumentError,
 } from "./errors.js";
 import { InMemoryPurchaseOrders, makeNumbering } from "./test-helpers.js";
 import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";

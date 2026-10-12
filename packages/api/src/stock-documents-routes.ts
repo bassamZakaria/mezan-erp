@@ -4,7 +4,6 @@ import {
   Qty,
   type DocumentStatus,
   DocumentNotFoundError,
-  DuplicateDocumentError,
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   NegativeStockError,
@@ -12,7 +11,6 @@ import {
   InvalidStockMovementError,
   SameWarehouseTransferError,
   PhysicalCountNotFoundError,
-  DuplicatePhysicalCountError,
   InvalidPhysicalCountError,
   InvalidPhysicalCountStatusError,
   revealsSystemQty,
@@ -208,9 +206,6 @@ function handleDocumentError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
-  }
-  if (err instanceof DuplicateDocumentError || err instanceof DuplicatePhysicalCountError) {
-    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (err instanceof InvalidDocumentTransitionError || err instanceof InvalidPhysicalCountStatusError) {
     return c.json({ error: err.code, message: err.message }, 409);

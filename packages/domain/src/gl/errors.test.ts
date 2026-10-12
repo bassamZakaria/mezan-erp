@@ -5,7 +5,6 @@ import {
   JournalEntryNotPostedError,
   JournalEntryAlreadyReversedError,
   InactiveAccountError,
-  DuplicateJournalEntryError,
 } from "./errors.js";
 
 describe("gl errors", () => {
@@ -53,11 +52,4 @@ describe("gl errors", () => {
     expect(err.message).toBe('الحساب "1300" غير نشط، فلا يمكن الترحيل إليه.');
   });
 
-  it("DuplicateJournalEntryError carries the entry id and an Arabic message", () => {
-    const err = new DuplicateJournalEntryError("je-1");
-    expect(err.name).toBe("DuplicateJournalEntryError");
-    expect(err.code).toBe("DUPLICATE_JOURNAL_ENTRY");
-    expect(err.entryId).toBe("je-1");
-    expect(err.message).toBe('القيد "je-1" موجود بالفعل.');
-  });
 });

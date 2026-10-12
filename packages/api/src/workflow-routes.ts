@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  ALL_SCOPE,
   can,
   isGateableActionType,
   saveWorkflowConfig,
@@ -247,7 +248,10 @@ export function createWorkflowRoutes(
    */
   app.get("/requests/:id/standing", gateAny("workflow.view", ...HELD_DOCUMENT_READ_PERMISSIONS), async (c) => {
     const record = await deps.requests.findById(c.req.param("id"));
-    if (!record) return c.json({ error: "NOT_FOUND" }, 404);
+    const grant = getAuthContext(c)?.branchGrant ?? ALL_SCOPE;
+    const branchId = record?.subject?.branchId ?? null;
+    const outsideGrant = grant !== ALL_SCOPE && branchId !== null && !grant.includes(branchId);
+    if (!record || outsideGrant) return c.json({ error: "NOT_FOUND" }, 404);
     const needsReapproval = record.status === ApprovalStatusCode.ReapprovalRequired;
     return c.json({
       id: record.id,

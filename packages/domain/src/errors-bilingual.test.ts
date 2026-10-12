@@ -14,7 +14,7 @@ import {
 } from "./bank-reconciliation/errors.js";
 import { ChequeNotFoundError, DuplicateChequeNumberError, InvalidChequeTransitionError, InvalidChequeCommandError, ReplacementAmountMismatchError } from "./cheques/errors.js";
 import { DuplicateCostCenterCodeError, CostCenterNotFoundError, InvalidParentCostCenterError, CircularParentCostCenterError } from "./cost-centers/errors.js";
-import { DuplicateDocumentError, MissingHookError } from "./documents/errors.js";
+import { MissingHookError } from "./documents/errors.js";
 import { FollowUpNotFoundError } from "./installments/errors.js";
 import { EmptyLandedCostTargetsError, ZeroLandedCostWeightError } from "./landed-costs/errors.js";
 import { DuplicateTaxCodeError, TaxRateNotFoundError, InvalidTaxRateError, TaxGroupNotFoundError } from "./tax-rates/errors.js";
@@ -37,7 +37,6 @@ import {
   ItemUnitNotFoundError,
   InvalidItemUnitError,
   ItemUnitInUseError,
-  DuplicateItemCategoryCodeError,
   ItemCategoryNotFoundError,
   InvalidItemCategoryError,
   ItemCategoryInUseError,
@@ -54,10 +53,10 @@ import {
   InvalidItemCategoryError as CatalogInvalidItemCategoryError,
 } from "./items/item-catalog.js";
 import { InvalidPromotionError, PromotionNotFoundError, DuplicatePromotionError, CouponRequiredError } from "./promotions/errors.js";
-import { InvalidSalesInvoiceError, SalesInvoiceNotFoundError, DuplicateSalesInvoiceError } from "./sales-invoices/errors.js";
-import { InvalidSalesQuoteError, SalesQuoteNotFoundError, DuplicateSalesQuoteError } from "./sales-quotes/errors.js";
+import { InvalidSalesInvoiceError, SalesInvoiceNotFoundError } from "./sales-invoices/errors.js";
+import { InvalidSalesQuoteError, SalesQuoteNotFoundError } from "./sales-quotes/errors.js";
 
-import { AttachmentNotFoundError, DuplicateAttachmentIdError, InvalidAttachmentError } from "./attachments/errors.js";
+import { AttachmentNotFoundError, InvalidAttachmentError } from "./attachments/errors.js";
 import {
   EtaSubmissionNotFoundError,
   DuplicateEtaSubmissionError,
@@ -91,7 +90,6 @@ import {
   WorkOrderNotFoundError,
   ConfigurableProductNotFoundError,
   ConfigInstanceNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
   WorkOrderStageError,
   FormulaError,
@@ -141,7 +139,6 @@ describe("domain errors are bilingual (D280)", () => {
     ["InvalidParentCostCenterError", new InvalidParentCostCenterError('مركز التكلفة الأصل "cc-9" غير موجود.', 'Parent cost center "cc-9" was not found.')],
     ["CircularParentCostCenterError", new CircularParentCostCenterError("cc-1")],
     // documents
-    ["DuplicateDocumentError", new DuplicateDocumentError("JOURNAL_ENTRY", "j-1")],
     ["MissingHookError", new MissingHookError("JOURNAL_ENTRY", "gl")],
     // installments
     ["FollowUpNotFoundError", new FollowUpNotFoundError("fu-1")],
@@ -177,7 +174,6 @@ describe("domain errors are bilingual (D280)", () => {
     ["ItemUnitNotFoundError", new ItemUnitNotFoundError("PCS")],
     ["InvalidItemUnitError", new InvalidItemUnitError(["وحدة غير صالحة"])],
     ["ItemUnitInUseError", new ItemUnitInUseError("PCS", 3)],
-    ["DuplicateItemCategoryCodeError", new DuplicateItemCategoryCodeError("CAT-1")],
     ["ItemCategoryNotFoundError", new ItemCategoryNotFoundError("cat-1")],
     ["InvalidItemCategoryError", new InvalidItemCategoryError(["فئة غير صالحة"])],
     ["ItemCategoryInUseError", new ItemCategoryInUseError("CAT-1", 2)],
@@ -199,15 +195,12 @@ describe("domain errors are bilingual (D280)", () => {
     // sales-invoices
     ["InvalidSalesInvoiceError", new InvalidSalesInvoiceError(["العميل مطلوب."])],
     ["SalesInvoiceNotFoundError", new SalesInvoiceNotFoundError("inv-1")],
-    ["DuplicateSalesInvoiceError", new DuplicateSalesInvoiceError("inv-1")],
     // sales-quotes
     ["InvalidSalesQuoteError", new InvalidSalesQuoteError(["العميل مطلوب."])],
     ["SalesQuoteNotFoundError", new SalesQuoteNotFoundError("qt-1")],
-    ["DuplicateSalesQuoteError", new DuplicateSalesQuoteError("qt-1")],
 
     // attachments
     ["AttachmentNotFoundError", new AttachmentNotFoundError("att-1")],
-    ["DuplicateAttachmentIdError", new DuplicateAttachmentIdError("att-1")],
     ["InvalidAttachmentError", new InvalidAttachmentError(["اسم الملف مطلوب"])],
     // eta
     ["EtaSubmissionNotFoundError", new EtaSubmissionNotFoundError("sub-1")],
@@ -240,7 +233,6 @@ describe("domain errors are bilingual (D280)", () => {
     ["WorkOrderNotFoundError", new WorkOrderNotFoundError("WO-1")],
     ["ConfigurableProductNotFoundError", new ConfigurableProductNotFoundError("CFG-1")],
     ["ConfigInstanceNotFoundError", new ConfigInstanceNotFoundError("CI-1")],
-    ["DuplicateManufacturingDocumentError", new DuplicateManufacturingDocumentError("WO-1")],
     ["InvalidManufacturingDocumentError", new InvalidManufacturingDocumentError(["الكمية المخططة يجب أن تكون أكبر من صفر"])],
     ["WorkOrderStageError", new WorkOrderStageError("issue", "not_started")],
     ["FormulaError", new FormulaError("EVAL", "division by zero")],

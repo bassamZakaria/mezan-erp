@@ -34,7 +34,6 @@ import {
   WorkOrderNotFoundError,
   ConfigurableProductNotFoundError,
   ConfigInstanceNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
   WorkOrderStageError,
   FormulaError,
@@ -377,9 +376,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof ConfigInstanceNotFoundError
   ) {
     return c.json(withMessageEn(err), 404);
-  }
-  if (err instanceof DuplicateManufacturingDocumentError) {
-    return c.json(withMessageEn(err), 409);
   }
   if (err instanceof WorkOrderStageError) {
     return c.json(withMessageEn(err), 409);

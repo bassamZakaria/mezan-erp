@@ -33,7 +33,6 @@ import {
 } from "./types.js";
 import {
   GoodsReceiptAlreadyInvoicedError,
-  DuplicatePurchaseDocumentError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
   PurchaseDocumentNotDraftError,
@@ -626,7 +625,7 @@ export async function confirmPurchaseInvoice(
 
   // EVERY WRITE BELOW SHARES ONE TRANSACTION (B-7). The GL entry is keyed
   // `PI-JE:<invoiceId>`, so a failure after it posted left the invoice `draft`
-  // with a live entry and every retry threw DuplicateJournalEntryError — the
+  // with a live entry and every retry threw a duplicate-id refusal — the
   // invoice was permanently unconfirmable. SAVEPOINT nesting on the shared
   // connection makes the inner GL transaction safe inside this one.
   //

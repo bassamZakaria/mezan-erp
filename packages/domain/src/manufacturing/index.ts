@@ -27,7 +27,6 @@ export {
   WorkOrderNotFoundError,
   ConfigurableProductNotFoundError,
   ConfigInstanceNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
   WorkOrderStageError,
   FormulaError,

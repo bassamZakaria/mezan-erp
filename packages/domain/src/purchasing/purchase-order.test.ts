@@ -15,7 +15,7 @@ import {
   type PurchaseOrder,
   type PurchaseOrderLine,
 } from "./purchase-order.js";
-import { DuplicatePurchaseDocumentError, InvalidPurchaseDocumentError, PurchaseOrderNotFoundError } from "./errors.js";
+import { InvalidPurchaseDocumentError, PurchaseOrderNotFoundError } from "./errors.js";
 import { InMemoryPurchaseOrders, makeNumbering } from "./test-helpers.js";
 import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 

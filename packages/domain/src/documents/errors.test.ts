@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   InvalidDocumentTransitionError,
   DocumentNotFoundError,
-  DuplicateDocumentError,
   MissingHookError,
   InvalidDocumentError,
 } from "./errors.js";
@@ -30,15 +29,6 @@ describe("DocumentNotFoundError", () => {
     expect(err.docType).toBe("JOURNAL_ENTRY");
     expect(err.docId).toBe("j-404");
     expect(err.message).toBe("المستند j-404 غير موجود.");
-  });
-});
-
-describe("DuplicateDocumentError", () => {
-  it("carries the doc type/id", () => {
-    const err = new DuplicateDocumentError("JOURNAL_ENTRY", "j-1");
-    expect(err.code).toBe("DUPLICATE_DOCUMENT");
-    expect(err.message).toBe('المستند "JOURNAL_ENTRY/j-1" موجود بالفعل.');
-    expect(err.messageEn).toBe("Document JOURNAL_ENTRY/j-1 already exists.");
   });
 });
 

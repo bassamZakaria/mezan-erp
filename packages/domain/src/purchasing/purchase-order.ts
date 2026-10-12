@@ -12,7 +12,6 @@ import { NextNumberService } from "../numbering/index.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import type { PurchaseOrderStatus } from "./types.js";
 import {
-  DuplicatePurchaseDocumentError,
   InvalidPurchaseDocumentError,
   PurchaseOrderNotFoundError,
 } from "./errors.js";

@@ -2,7 +2,6 @@ import type { Context } from "hono";
 import {
   ApprovalRequestRejectedError,
   DocumentNotFoundError,
-  DuplicateDocumentError,
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   MissingHookError,
@@ -25,9 +24,6 @@ export function handleDocumentError(c: Context, err: unknown): Response {
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof DocumentNotFoundError) {
     return refuse(err, 404);
-  }
-  if (err instanceof DuplicateDocumentError) {
-    return refuse(err, 409);
   }
   if (err instanceof ApprovalRequestRejectedError) {
     return refuse(err, 409);

@@ -25,7 +25,6 @@ import type { ConfigInstanceStatus } from "./types.js";
 import {
   ConfigInstanceNotFoundError,
   ConfigurableProductNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
 } from "./errors.js";
 import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";

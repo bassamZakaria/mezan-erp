@@ -22,7 +22,6 @@ import { createGoodsReceipt, confirmGoodsReceipt } from "./goods-receipt.js";
 import type { AllocatableInvoiceRepository, AllocatableInvoice } from "../vouchers/allocation.js";
 import type { PurchaseGlAccounts, PurchaseGlPosting } from "./types.js";
 import {
-  DuplicatePurchaseDocumentError,
   GoodsReceiptAlreadyInvoicedError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
@@ -445,7 +444,7 @@ describe("confirmPurchaseInvoice — sub-ledger (AP) and GL control account both
 /**
  * guards B-7 — the GL posted first with a deterministic id (`PI-JE:<invoiceId>`)
  * and nothing wrapped the confirm, so a failure after it left the invoice
- * `draft` beside a live entry and every retry threw DuplicateJournalEntryError.
+ * `draft` beside a live entry and every retry threw a duplicate-id refusal.
  * The invoice could never be confirmed again.
  */
 describe("confirmPurchaseInvoice — one transaction", () => {

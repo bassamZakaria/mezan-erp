@@ -27,7 +27,6 @@ import {
   PurchaseOrderNotFoundError,
   GoodsReceiptNotFoundError,
   PurchaseInvoiceNotFoundError,
-  DuplicatePurchaseDocumentError,
   InvalidPurchaseDocumentError,
   PurchaseDocumentNotDraftError,
   PurchaseOrderNotReceivableError,
@@ -338,9 +337,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof PurchaseInvoiceNotFoundError
   ) {
     return c.json({ error: err.code, message: err.message }, 404);
-  }
-  if (err instanceof DuplicatePurchaseDocumentError) {
-    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (
     err instanceof PurchaseDocumentNotDraftError ||

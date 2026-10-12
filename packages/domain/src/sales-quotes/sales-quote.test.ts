@@ -9,7 +9,6 @@ import {
   isQuoteExpired,
   InvalidSalesQuoteError,
   InvalidSalesQuoteTransitionError,
-  DuplicateSalesQuoteError,
   SalesQuoteNotFoundError,
   type CreateSalesQuoteCommand,
   type SalesQuoteLine,

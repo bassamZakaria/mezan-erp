@@ -16,7 +16,6 @@ import {
   RfqNotSentError,
   RfqNotOpenError,
   RfqQuoteNotFoundError,
-  DuplicatePurchaseDocumentError,
   InvalidPurchaseDocumentError,
   type PurchaseRfq,
   type PurchaseRfqRepository,
@@ -103,9 +102,6 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   if (err instanceof RfqNotFoundError || err instanceof RfqQuoteNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
-  }
-  if (err instanceof DuplicatePurchaseDocumentError) {
-    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (
     err instanceof RfqNotDraftError ||

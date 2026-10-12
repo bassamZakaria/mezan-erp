@@ -107,6 +107,7 @@ describe("an item a branch creates waits for head office to price it", () => {
       expect(refused.body.message).toMatch(ARABIC);
       expect(refused.body.message).toContain("بانتظار التسعير");
       expect(refused.body.itemIds).toEqual(["PP-1"]);
+      expect(JSON.stringify(refused.body)).not.toContain("صنف PP-1");
     }
     expect((await headOffice("GET", `${path}/${body().id}`)).status).toBe(404);
   });

@@ -17,7 +17,6 @@ import { computeQuoteTotals, type SalesQuoteTotals } from "./totals.js";
 import { describeQuoteEffects } from "./effects.js";
 import type { SalesQuoteListFilter, SalesQuoteRepository } from "./ports.js";
 import {
-  DuplicateSalesQuoteError,
   InvalidSalesQuoteError,
   SalesQuoteNotFoundError,
 } from "./errors.js";

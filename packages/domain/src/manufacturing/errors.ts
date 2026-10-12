@@ -87,16 +87,6 @@ export class ConfigInstanceNotFoundError extends Error {
   }
 }
 
-export class DuplicateManufacturingDocumentError extends Error {
-  readonly code = "DUPLICATE_MANUFACTURING_DOCUMENT";
-  readonly messageEn: string;
-  constructor(readonly id: string) {
-    super(`يوجد بالفعل مستند تصنيع بالمعرف "${id}".`);
-    this.messageEn = `A manufacturing document with id "${id}" already exists.`;
-    this.name = "DuplicateManufacturingDocumentError";
-  }
-}
-
 export class InvalidManufacturingDocumentError extends Error {
   readonly code = "INVALID_MANUFACTURING_DOCUMENT";
   readonly messageEn: string;

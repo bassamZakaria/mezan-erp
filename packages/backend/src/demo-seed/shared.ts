@@ -81,6 +81,7 @@ export enum SeedPerson {
   ConsultantQs = "manar.abdelaziz",
   ContractingFinance = "nourhan.samir",
   TreasuryCashier = "youssef.badr",
+  WarehouseKeeper = "sayed.gamal",
 }
 
 const seededUserIds = new Map<string, string>();

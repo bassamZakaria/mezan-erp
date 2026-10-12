@@ -16,7 +16,6 @@ import { buildEffects } from "./effects.js";
 import { canTransition, assertTransition } from "./status.js";
 import {
   InvalidDocumentTransitionError,
-  DuplicateDocumentError,
   InvalidDocumentError,
   MissingHookError,
 } from "./errors.js";

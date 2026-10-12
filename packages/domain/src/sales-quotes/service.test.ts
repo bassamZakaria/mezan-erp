@@ -4,7 +4,6 @@ import { NextNumberService } from "../numbering/index.js";
 import { InMemorySequenceStore } from "../gl/test-helpers/in-memory-ledger-repository.js";
 import {
   SalesQuoteService,
-  DuplicateSalesQuoteError,
   InvalidSalesQuoteTransitionError,
   SalesQuoteNotFoundError,
   type CreateSalesQuoteCommand,

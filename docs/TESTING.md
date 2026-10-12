@@ -8438,14 +8438,42 @@ Sign-in never waits on the company lookup (`GET /api/platform/resolve`). Spec
 03 fails that request in the browser (`page.route`) two ways: a 502 HTML page
 on the bare host, where the form and the company-code field are there at once,
 no «إعادة المحاولة» panel and no alert appear, the lookup is retried by itself,
-no `/api/tenant`, `/api/entitlements` or `/api/bootstrap/status` request leaves
+the email field is empty, no `/api/*` request other than the lookup leaves
 before a company is typed, and a typed company signs in; and a 500 on a tenant
 subdomain, where the screen settles into subdomain mode without a click once
-the lookup answers and the owner signs in while it is still failing. Spec 02
+the lookup answers, and from then on that host never offers a company-code
+field again, even on a reload while the lookup fails, and the owner still
+signs in. Spec 02
 holds the «انتهت الجلسة» notice to two rules: it is on the sign-in screen after
 a session is revoked, whichever of the page's requests meets the 401 first,
 and it is still there after the page is loaded again, until the first PIN
 digit is typed.
+
+Which host the sign-in screen is on decides what a failing lookup shows
+(`apps/web/src/login/lookup-host.ts`, unit-tested in
+`LoginScreen.test.tsx` and `LoginScreen.lan.test.tsx`): the cloud offers the
+company-code field; a desktop host offers none; a till on the shop's network
+(a private address or a `.local` name) shows «تعذّر الوصول إلى الجهاز الرئيسي…»
+and no code field. The lookup stops on 400, 401, 403 and 410, keeps looking on
+anything else, and spreads each wait by up to a fifth either way. The seed
+admin's email is offered only on a desktop host whose `/bootstrap/status`
+answers `demoSeeded: true`.
+
+The tenant owner on the platform (`apps/server/src/owner-contact.test.ts`,
+`owner-console.test.ts`, `release-tenant.test.ts`, `tenant-db-file.test.ts`):
+only the owner changes the owner account's email, PIN, password, status or
+admin flag, and a peer admin is refused «هذا حساب مالك المنشأة…»; a hand-over
+the owner did not make themself is PENDING until the platform owner confirms
+it in the console or the previous owner presses confirm on the mailed link
+(`/signup/owner-handover`, which confirms nothing on being opened); a sign-in
+or an email change made with a PIN the console issued proves nothing; a tenant
+with no account that can be named its owner is flagged «المنشأة بلا مالك
+محدَّد» and assigned from the console. A tenant's database and backups are
+named by tenant id (`tenants/<id>.db`, `backups/tenants/<id>/`); a database
+kept under the code by an earlier build is copied, verified and adopted on its
+first open, and releasing a stuck tenant never moves a file. Mailed links are
+built on `MEZAN_PUBLIC_URL` or one of the deployment's own tenant subdomains,
+never on a forwarded host.
 
 Timeouts, and the load they were measured at. On a 12-core machine shared with
 other test runs, at a 1-minute load average of 6 to 39 (nine full runs on

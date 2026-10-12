@@ -11,7 +11,7 @@ import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { createOwnerContact, OwnerCandidateNotFoundError, OwnerConfirmation, PREVIOUS_OWNER_ACTOR, type PendingHandOverMail } from "./owner-contact.js";
 import { settleTenantDbFile } from "./tenant-db-file.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
-import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
+import { requestHost, resolveTenantCode, tenantSlugOfHost, TENANT_HEADER } from "./tenant-resolver.js";
 
 export interface TenantRouterOptions {
   readonly platform: PlatformHandle;
@@ -84,22 +84,6 @@ export interface TenantRouter {
 
 export function tenantDbPath(dataDir: string, dbFile: string): string {
   return path.join(dataDir, dbFile);
-}
-
-/** Whether THIS request's host itself matched the tenant domain, vs. resolving via the header. */
-function hostMatchesTenantDomain(request: Request, options: TenantResolverOptionsForMode): boolean {
-  if (!options.tenantDomain) return false;
-  const raw = (options.trustForwardedHost ? request.headers.get("x-forwarded-host") : null) ?? request.headers.get("host");
-  if (!raw) return false;
-  const host = raw.split(",")[0]!.trim().toLowerCase().replace(/:\d+$/, "");
-  const domain = options.tenantDomain.toLowerCase();
-  if (!host.endsWith(`.${domain}`)) return false;
-  return !host.slice(0, -(domain.length + 1)).includes(".");
-}
-
-interface TenantResolverOptionsForMode {
-  readonly tenantDomain?: string;
-  readonly trustForwardedHost?: boolean;
 }
 
 /** This router's own catch-all pattern — kept as a constant so its length can be subtracted from `routePath`. */
@@ -205,7 +189,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
    * it echoes back the code the person typed.
    */
   app.get("/platform/resolve", async (c) => {
-    const mode = hostMatchesTenantDomain(c.req.raw, resolverOptions) ? TenantResolveMode.Subdomain : TenantResolveMode.Code;
+    const mode = tenantSlugOfHost(requestHost(c.req.raw, options.trustForwardedHost ?? false), options.tenantDomain) !== null ? TenantResolveMode.Subdomain : TenantResolveMode.Code;
     const code = resolveTenantCode(c.req.raw, resolverOptions);
     const tenant = code ? await options.platform.stores.tenants.findByCode(code) : null;
     const body: PlatformResolveDTO = { mode, exists: tenantIsServed(tenant) };

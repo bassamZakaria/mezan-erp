@@ -22,6 +22,32 @@ describe("the origin a mailed link is built on", () => {
     expect(trustedPublicOrigin(request({ "x-forwarded-host": "evilmezan.example" }), env)).toBe("https://app.mezan.example");
   });
 
+  it.each([
+    ["a decimal address with a path", "2130706433/x?.mezan.example"],
+    ["userinfo, a port and a query", "user@evil.example:1/?.mezan.example"],
+    ["a bracketed v6 address", "[::1]/?.mezan.example"],
+    ["a fragment", "evil.example/#.mezan.example"],
+    ["a backslash", "evil.example\\.mezan.example"],
+    ["a trailing dot", "nile.mezan.example."],
+    ["a port that is not a number", "nile.mezan.example:evil"],
+    ["a label that is not a tenant code", "a_b.mezan.example"],
+    ["an empty label", ".mezan.example"],
+  ])("never builds a link on a forwarded host that is not exactly a tenant subdomain: %s", (_, hostile) => {
+    const proxied = { MEZAN_TENANT_DOMAIN: "mezan.example", MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" };
+
+    expect(trustedPublicOrigin(request({ "x-forwarded-host": hostile }), parseEnv({ ...proxied, MEZAN_PUBLIC_URL: "https://app.mezan.example" }))).toBe("https://app.mezan.example");
+    expect(trustedPublicOrigin(request({ "x-forwarded-host": hostile }), parseEnv(proxied))).toBeNull();
+    expect(trustedPublicOrigin(request({ host: hostile }), parseEnv({ MEZAN_TENANT_DOMAIN: "mezan.example" }))).toBeNull();
+  });
+
+  it("writes the tenant subdomain itself, in lower case and with no port the caller chose", () => {
+    const env = parseEnv({ MEZAN_TENANT_DOMAIN: "mezan.example", MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" });
+
+    expect(trustedPublicOrigin(request({ "x-forwarded-host": "NILE.MEZAN.EXAMPLE" }), env)).toBe("https://nile.mezan.example");
+    expect(trustedPublicOrigin(request({ "x-forwarded-host": "nile.mezan.example:8443" }), env)).toBe("https://nile.mezan.example");
+    expect(tenantPublicOrigin(env, "nile/x?")).toBeNull();
+  });
+
   it("reads the forwarded host only behind a trusted proxy", () => {
     const env = parseEnv({ MEZAN_TENANT_DOMAIN: "mezan.example" });
 

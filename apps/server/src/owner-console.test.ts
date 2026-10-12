@@ -201,6 +201,30 @@ describe("the link a signup mails", () => {
     expect(mail?.mail.body).not.toContain("evil.example");
   });
 
+  it.each(["2130706433/x?.mezan.example", "[::1]/?.mezan.example", "user@evil.example/?.mezan.example"])(
+    "is never built on a forwarded host that only ends in the tenant domain: %s",
+    async (hostile) => {
+      const w = await world({ MEZAN_PUBLIC_URL: "https://app.mezan.example", MEZAN_TENANT_DOMAIN: "mezan.example" });
+
+      const started = await w.cloud.send("/api/signup", { method: "POST", body: body("victim"), headers: { "x-forwarded-host": hostile } });
+
+      expect(started.status).toBe(201);
+      const links = (w.sent.find((entry) => entry.to === "owner@victim.example")?.mail.body ?? "").match(/https?:\/\/\S+/g) ?? [];
+      expect(links.length).toBeGreaterThan(0);
+      for (const link of links) expect(new URL(link).origin).toBe("https://app.mezan.example");
+    },
+  );
+
+  it("is built on the tenant subdomain the request really arrived on", async () => {
+    const w = await world({ MEZAN_PUBLIC_URL: "https://app.mezan.example", MEZAN_TENANT_DOMAIN: "mezan.example" });
+
+    await w.cloud.send("/api/signup", { method: "POST", body: body("honest"), headers: { "x-forwarded-host": "nile.mezan.example" } });
+
+    const links = (w.sent.find((entry) => entry.to === "owner@honest.example")?.mail.body ?? "").match(/https?:\/\/\S+/g) ?? [];
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) expect(new URL(link).origin).toBe("https://nile.mezan.example");
+  });
+
   it("is refused, with no mail and no signup recorded, when mail is configured but no origin can be trusted", async () => {
     const w = await world({});
 

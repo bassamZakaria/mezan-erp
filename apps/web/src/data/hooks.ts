@@ -4972,6 +4972,20 @@ export function useRequeueEtaSubmission() {
   });
 }
 
+export function useRecordEtaSubmissionUuid() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaSubmissionDTO, ApiError, { id: string; etaUuid: string }>({
+    mutationFn: async ({ id, etaUuid }) => {
+      const res = await request(`/eta/submissions/${id}/accept`, { method: "POST", body: JSON.stringify({ etaUuid }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thatActionCouldNotBe"), t));
+      return res.json<EtaSubmissionDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
 /** إصلاح وإعادة الطابور جماعياً — requeue then submit every selected row. */
 export function useBulkRequeueSubmitEta() {
   const { t } = useAppTranslation();

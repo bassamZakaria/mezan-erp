@@ -29,7 +29,7 @@ import {
   type EtaTaxSubTypeRowDTO,
   type EtaUnitMappingRowDTO,
 } from "@mezan/contracts";
-import { ETA_RECEIPT_REPORTING_WINDOW_HOURS, EtaPrevalidationFixScreen, EtaPrevalidationSeverity } from "@mezan/domain";
+import { ETA_RECEIPT_REPORTING_WINDOW_HOURS, ETA_UNRECORDED_SUBMISSION_CODE, EtaPrevalidationFixScreen, EtaPrevalidationSeverity } from "@mezan/domain";
 import {
   useApplyEtaUnitSuggestions,
   useBulkRequeueSubmitEta,
@@ -43,6 +43,7 @@ import {
   useEtaUnitCodes,
   useEtaUnitMappings,
   useExcludeEtaSubmission,
+  useRecordEtaSubmissionUuid,
   useRequeueEtaSubmission,
   useSaveEtaBranchCode,
   useSaveEtaItemMapping,
@@ -1009,6 +1010,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   const processMutation = useProcessEtaQueue();
   const excludeMutation = useExcludeEtaSubmission();
   const requeueMutation = useRequeueEtaSubmission();
+  const recordUuidMutation = useRecordEtaSubmissionUuid();
   const bulkMutation = useBulkRequeueSubmitEta();
   const [notice, setNotice] = useState<
     | { kind: "offline" }
@@ -1023,6 +1025,8 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
     failed: number;
   } | null>(null);
   const [excludingId, setExcludingId] = useState<string | null>(null);
+  const [recordingId, setRecordingId] = useState<string | null>(null);
+  const [portalUuid, setPortalUuid] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -1098,6 +1102,22 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
     setPendingId(id);
     try {
       await requeueMutation.mutateAsync(id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  async function confirmRecordUuid() {
+    const etaUuid = portalUuid.trim();
+    if (!recordingId || etaUuid === "" || pendingId !== null) return;
+    setActionError(null);
+    setPendingId(recordingId);
+    try {
+      await recordUuidMutation.mutateAsync({ id: recordingId, etaUuid });
+      setRecordingId(null);
+      setPortalUuid("");
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
     } finally {
@@ -1280,6 +1300,17 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         </div>
       ) : null}
 
+      {recordingId ? (
+        <div className="mb-[14px] rounded-lg border border-border bg-surface p-[14px_16px]">
+          <div className="mb-[8px] text-[12.5px] text-ink">{pt("recordUuidHelp")}</div>
+          <div className="flex flex-wrap items-center gap-[8px]">
+            <TextInput size="sm" dir="ltr" className="min-w-[260px] flex-1" aria-label={pt("recordUuidField")} value={portalUuid} onChange={(e) => setPortalUuid(e.target.value)} />
+            <Button variant="primary" onClick={() => void confirmRecordUuid()} disabled={portalUuid.trim() === "" || pendingId === recordingId}>{pt("recordUuidConfirm")}</Button>
+            <Button onClick={() => setRecordingId(null)}>{t("common.cancel")}</Button>
+          </div>
+        </div>
+      ) : null}
+
       <DocumentList<EtaSubmissionDTO>
         title=""
         filterBarCollapsible
@@ -1321,6 +1352,19 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
               label: pt("requeue"),
               disabled: pendingId === s.id,
               onSelect: () => void requeueOne(s.id),
+            });
+          }
+          if ((s.rejectionCodes ?? []).includes(ETA_UNRECORDED_SUBMISSION_CODE)) {
+            items.push({
+              key: "record-uuid",
+              label: pt("recordUuid"),
+              disabled: pendingId === s.id,
+              onSelect: () => {
+                setActionError(null);
+                setExcludingId(null);
+                setPortalUuid("");
+                setRecordingId(s.id);
+              },
             });
           }
           if (actionable(s.status)) {

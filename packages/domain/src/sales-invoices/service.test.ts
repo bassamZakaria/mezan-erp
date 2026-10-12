@@ -927,6 +927,20 @@ describe("SalesInvoiceService.classifyLineTax — naming the rate of a posted li
     expect(audit.events.filter((e) => e.action === "CLASSIFY_LINE_TAX")).toEqual([]);
   });
 
+  it("audits a retry that carries the standing rate onto a return, and writes no row for a retry that reaches nothing", async () => {
+    let reaches: readonly string[] = ["SRT-000009"];
+    const taxDependents = { carry: async () => ({ documentNumbers: reaches, journalLinesNamed: reaches.length }) };
+    const { svc, audit } = await posted([{ ...unnamed("L1", 0), taxRateId: "EXEMPT" }], { taxDependents });
+    await svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" });
+    const carried = audit.events.filter((e) => e.action === "CARRY_LINE_TAX");
+    expect(carried.map((e) => e.details)).toEqual([
+      expect.objectContaining({ lineIds: ["L1"], after: { taxRateId: "EXEMPT", taxRatePercent: 0 }, carriedToDocuments: ["SRT-000009"], carriedJournalLinesNamed: 1 }),
+    ]);
+    reaches = [];
+    await svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" });
+    expect(audit.events.filter((e) => e.action === "CARRY_LINE_TAX")).toHaveLength(1);
+  });
+
   it("refuses a rate at another percent", async () => {
     const { svc } = await posted([unnamed("L1", 14)]);
     await expect(svc.classifyLineTax("inv-1", { lineRef: "L1", taxRateId: "EXEMPT" })).rejects.toBeInstanceOf(TaxRateClassificationPercentError);

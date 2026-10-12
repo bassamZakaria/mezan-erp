@@ -109,7 +109,28 @@ export async function classifyPurchaseInvoiceLineTax(
     }));
     const standing = alreadyClassifiedAs(taxRates, postedLines, request);
     if (standing) {
-      await deps.taxDependents?.carry({ sourceDocumentId: existing.id, taxRatePercent: standing.before.taxRatePercent, taxRateId: request.taxRateId });
+      const reached = await deps.taxDependents?.carry({ sourceDocumentId: existing.id, taxRatePercent: standing.before.taxRatePercent, taxRateId: request.taxRateId });
+      if (deps.audit && reached && (reached.documentNumbers.length > 0 || reached.journalLinesNamed > 0)) {
+        await recordSensitiveEvent(deps.audit, {
+          module: TaxClassificationAuditModule.Purchases,
+          entityType: TaxClassificationAuditEntity.PurchaseInvoice,
+          entityId: existing.id,
+          action: TaxClassificationAuditAction.CarryLineTax,
+          actor: deps.actor ?? "system",
+          branchId: existing.branchId ?? null,
+          severity: AuditSeverityCode.Warning,
+          details: {
+            invoiceId: existing.id,
+            number: existing.number,
+            lineIds: standing.lineRefs,
+            before: standing.before,
+            after: standing.after,
+            taxRateName: standing.taxRateName,
+            carriedToDocuments: reached.documentNumbers,
+            carriedJournalLinesNamed: reached.journalLinesNamed,
+          },
+        });
+      }
       return { invoice: existing, plan: standing, journalLinesNamed: 0 };
     }
     const plan = planTaxClassification(taxRates, postedLines, request);

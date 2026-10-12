@@ -44,6 +44,19 @@ function matchExpected(entry: JournalEntry, expected: readonly ExpectedTaxJourna
   return [...claimed];
 }
 
+// The expected lines no journal line named under this rate already answers for.
+function notYetNamed(entry: JournalEntry, expected: readonly ExpectedTaxJournalLine[], taxRatePercent: number, taxRateId: string): ExpectedTaxJournalLine[] {
+  const claimed = new Set<number>();
+  return expected.filter((wanted) => {
+    const found = entry.lines.findIndex(
+      (line, index) => !claimed.has(index) && line.taxRateId === taxRateId && line.taxRatePercent === taxRatePercent && amountsKey(line) === amountsKey(wanted),
+    );
+    if (found < 0) return true;
+    claimed.add(found);
+    return false;
+  });
+}
+
 // INVARIANT: naming the rate moves the entry's amounts from the VAT return's
 // unnamed row to a named one, so it is refused once the return covering the
 // ENTRY's own date is filed — exactly as a posting dated there would be. A
@@ -59,9 +72,17 @@ export function createJournalTaxTagPort(deps: {
       await assertVatNotFiled(entry.date, deps.vatFilings);
       if (!deps.ledger.retagUnnamedTaxRate) throw new JournalTaxTagUnsupportedError();
       const named = await deps.ledger.retagUnnamedTaxRate(entryId, taxRatePercent, taxRateId);
-      if (named > 0 || !expected || expected.length === 0 || !deps.ledger.tagJournalLines) return named;
-      const matched = matchExpected(entry, expected, taxRatePercent);
-      return matched ? deps.ledger.tagJournalLines(entryId, matched, taxRatePercent, taxRateId) : 0;
+      if (!expected || expected.length === 0 || !deps.ledger.tagJournalLines) return named;
+      // INVARIANT: a classification names EVERY journal line its document
+      // lines posted, or none beyond what the percent found. An entry whose
+      // VAT line alone carried a percent is finished here — the lines the
+      // percent could not find are matched by account and amount — so it is
+      // never left with its tax named and its base unnamed.
+      const current = named > 0 ? ((await deps.ledger.findById(entryId)) ?? entry) : entry;
+      const stillExpected = notYetNamed(current, expected, taxRatePercent, taxRateId);
+      if (stillExpected.length === 0) return named;
+      const matched = matchExpected(current, stillExpected, taxRatePercent);
+      return matched ? named + (await deps.ledger.tagJournalLines(entryId, matched, taxRatePercent, taxRateId)) : named;
     },
 
     async nameChosenLines(entryId, lineIndexes, taxRatePercent, taxRateId, expected) {

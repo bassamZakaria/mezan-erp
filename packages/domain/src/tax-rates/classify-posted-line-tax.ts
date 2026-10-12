@@ -28,6 +28,7 @@ export { TaxClassificationFilingOutcomeCode as TaxClassificationFilingOutcome };
 
 export enum TaxClassificationAuditAction {
   ClassifyLineTax = "CLASSIFY_LINE_TAX",
+  CarryLineTax = "CARRY_LINE_TAX",
   NameJournalLineTax = "NAME_JOURNAL_LINE_TAX",
 }
 

@@ -1140,7 +1140,31 @@ export class SalesInvoiceService {
       if (standing) {
         // A return drafted while the first classification ran never heard of
         // it; asking again carries the standing rate to it and nothing else.
-        await this.deps.taxDependents?.carry({ sourceDocumentId: existing.id, taxRatePercent: standing.before.taxRatePercent, taxRateId: request.taxRateId });
+        const reached = await this.deps.taxDependents?.carry({ sourceDocumentId: existing.id, taxRatePercent: standing.before.taxRatePercent, taxRateId: request.taxRateId });
+        // INVARIANT: every write is audited. A retry that names a return's
+        // lines or its entry leaves a row saying which; one that reaches
+        // nothing writes nothing and leaves none.
+        if (this.deps.audit && reached && (reached.documentNumbers.length > 0 || reached.journalLinesNamed > 0)) {
+          await recordSensitiveEvent(this.deps.audit, {
+            module: TaxClassificationAuditModule.Sales,
+            entityType: TaxClassificationAuditEntity.SalesInvoice,
+            entityId: existing.id,
+            action: TaxClassificationAuditAction.CarryLineTax,
+            actor: this.deps.actor ?? "system",
+            branchId: existing.branchId ?? null,
+            severity: AuditSeverityCode.Warning,
+            details: {
+              invoiceId: existing.id,
+              docNo: existing.docNo,
+              lineIds: standing.lineRefs,
+              before: standing.before,
+              after: standing.after,
+              taxRateName: standing.taxRateName,
+              carriedToDocuments: reached.documentNumbers,
+              carriedJournalLinesNamed: reached.journalLinesNamed,
+            },
+          });
+        }
         return { invoice: existing, plan: standing, journalLinesNamed: 0, filing: TaxClassificationFilingOutcome.NotQueued };
       }
       const plan = planTaxClassification(taxRates, postedLines, request);

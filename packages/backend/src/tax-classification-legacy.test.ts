@@ -37,6 +37,12 @@ function stripJournalTaxTags(entryId: string): void {
   sqlite.close();
 }
 
+function keepPercentOnVatLineOnly(entryId: string): void {
+  const { sqlite } = openSqliteConnection(dbPath);
+  sqlite.prepare(`UPDATE journal_line SET tax_rate_percent = 14 WHERE entry_id = ? AND account_id = '2200'`).run(entryId);
+  sqlite.close();
+}
+
 function mergeRevenueLines(entryId: string): void {
   const { sqlite } = openSqliteConnection(dbPath);
   const lines = sqlite.prepare(`SELECT id, credit FROM journal_line WHERE entry_id = ? AND account_id = '4100' ORDER BY line_no`).all(entryId) as { id: number; credit: number }[];
@@ -87,6 +93,16 @@ describe("classifying a line whose journal entry predates tax tags (D79 round 5)
     expect([done.status, done.body.journalLinesNamed]).toEqual([200, 2]);
     expect(await journalTags("T-LEGACY-ONE")).toEqual([["1105", null, null], ["4100", 14, "VAT14"], ["2200", 14, "VAT14"]]);
     expect((await call("GET", "/sales-invoices/T-LEGACY-ONE")).body.lines[0].taxRateId).toBe("VAT14");
+  });
+
+  it("finishes an entry only its VAT line carried a percent on: the base line is named too, never left half-named", async () => {
+    await legacySale("T-LEGACY-HALF", [serviceLine("L1", 14)]);
+    keepPercentOnVatLineOnly("T-LEGACY-HALF");
+    expect(await journalTags("T-LEGACY-HALF")).toEqual([["1105", null, null], ["4100", null, null], ["2200", 14, null]]);
+
+    const done = await call("POST", "/sales-invoices/T-LEGACY-HALF/lines/L1/classify-tax", { taxRateId: "VAT14" });
+    expect([done.status, done.body.journalLinesNamed], JSON.stringify(done.body)).toEqual([200, 2]);
+    expect(await journalTags("T-LEGACY-HALF")).toEqual([["1105", null, null], ["4100", 14, "VAT14"], ["2200", 14, "VAT14"]]);
   });
 
   it("names each percent group of a mixed legacy entry against the lines its own posting produced", async () => {

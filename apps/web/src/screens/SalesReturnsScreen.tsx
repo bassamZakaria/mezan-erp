@@ -46,6 +46,7 @@ import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
 import { returnLinesTotal } from "./exact-line-totals";
 import { EMPTY } from "../lib/empty";
+import { ReturnJournalCard } from "./ReturnJournalCard";
 import { ReturnFamily, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -594,6 +595,7 @@ export function SalesReturnsScreen() {
               <AttachmentsTab entityType="sales-return" entityId={selected.id} />
             </Card>
 
+            <ReturnJournalCard family={ReturnFamily.Sales} document={selected} lineLabel={itemName} />
             <VoidReturnReasonNotice document={selected} />
             <VoidReturnAction family={ReturnFamily.Sales} document={selected} />
           </div>

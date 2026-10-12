@@ -30,6 +30,7 @@ import { type AuthContextResolver, callerUserId, createAnyPermissionGate, create
 import { handleDocumentError } from "./document-error-handling.js";
 import { salesSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
+import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
 import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReturn } from "./return-void.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
@@ -118,6 +119,7 @@ export function createSalesReturnsRoutes(
   refunds?: SalesReturnRefundPort,
   /** The employee a user sells as; absent, an own-records caller is shown no source invoice at all. */
   ownSalespersonId?: (userId: string) => Promise<string | null>,
+  journalTax?: ReturnJournalTaxPort<SalesReturnLine>,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -508,6 +510,15 @@ export function createSalesReturnsRoutes(
     } catch (err) {
       return handleDocumentError(c, err);
     }
+  });
+
+  app.post("/:id/lines/:lineId/journal-tax", gate("sales.invoice.classify_tax"), async (c) => {
+    const doc = await service.findById(c.req.param("id"));
+    const scope = warehouseScopeOf(c);
+    if (!doc || (ownVisibilityOnly(c) && (!scope || !doc.lines.some((line) => scope.includes(line.warehouseId))))) {
+      return c.json({ error: "NOT_FOUND", message: "المرتجع غير موجود." }, 404);
+    }
+    return handleReturnJournalTax(c, doc, ["sales.return.view", "sales.return.view_own"], journalTax);
   });
 
   app.post("/:id/void", gate("sales.return.void"), async (c) => {

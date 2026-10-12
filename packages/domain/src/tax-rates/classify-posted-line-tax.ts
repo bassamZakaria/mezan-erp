@@ -150,6 +150,21 @@ export class TaxClassificationReturnMixedError extends Error {
   }
 }
 
+export class TaxClassificationReturnDisagreesError extends Error {
+  readonly code = "TAX_CLASSIFICATION_RETURN_DISAGREES";
+  readonly messageEn: string;
+  constructor(
+    readonly returnNumber: string,
+    readonly taxRateId: string,
+  ) {
+    super(
+      `المرتجع ${returnNumber} صنّف بنود هذه الفاتورة تحت ضريبة أخرى (${taxRateId})، والفاتورة ومرتجعها يحملان التصنيف نفسه. اختر الضريبة المسجّلة على المرتجع.`,
+    );
+    this.messageEn = `Return ${returnNumber} classified this invoice's lines under another rate (${taxRateId}), and an invoice and its return carry one classification. Pick the rate the return names.`;
+    this.name = "TaxClassificationReturnDisagreesError";
+  }
+}
+
 export class TaxClassificationNotASupplyError extends Error {
   readonly code = "TAX_CLASSIFICATION_NOT_A_SUPPLY";
   readonly messageEn: string;

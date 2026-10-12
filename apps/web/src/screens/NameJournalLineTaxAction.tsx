@@ -4,13 +4,21 @@ import { TaxRateStatusCode } from "@mezan/domain";
 import type { TaxRateDTO } from "@mezan/contracts";
 import { useApi } from "../data/ApiContext";
 import { DocumentReadPermission, sessionMayRead } from "../data/document-read-permissions";
-import { ClassifiableDocument, useJournalEntry, useNameJournalLineTax, useVatEnabled } from "../data/hooks";
+import { ClassifiableDocument, ReturnFamily, useJournalEntry, useNameJournalLineTax, useVatEnabled } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { SelectField } from "../settings/form-controls";
 import { CLASSIFY_PERMISSION, type ClassifiableLine } from "./ClassifyLineTaxAction";
 
+export type JournalTaxDocument = ClassifiableDocument | ReturnFamily;
+
+const JOURNAL_TAX_PERMISSION: Record<JournalTaxDocument, DocumentReadPermission> = {
+  ...CLASSIFY_PERMISSION,
+  [ReturnFamily.Sales]: DocumentReadPermission.SalesInvoiceClassifyTax,
+  [ReturnFamily.Purchases]: DocumentReadPermission.PurchaseInvoiceClassifyTax,
+};
+
 export interface NameJournalLineTaxActionProps {
-  readonly document: ClassifiableDocument;
+  readonly document: JournalTaxDocument;
   readonly documentId: string;
   readonly journalEntryId: string | null;
   readonly posted: boolean;
@@ -23,7 +31,7 @@ export function NameJournalLineTaxAction({ document, documentId, journalEntryId,
   const { t } = useAppTranslation();
   const { session } = useApi();
   const permitted =
-    posted && sessionMayRead(session, CLASSIFY_PERMISSION[document]) && sessionMayRead(session, DocumentReadPermission.JournalEntries);
+    posted && sessionMayRead(session, JOURNAL_TAX_PERMISSION[document]) && sessionMayRead(session, DocumentReadPermission.JournalEntries);
   const entryQuery = useJournalEntry(permitted ? journalEntryId : null);
   const nameTax = useNameJournalLineTax(document);
   const vatEnabled = useVatEnabled();

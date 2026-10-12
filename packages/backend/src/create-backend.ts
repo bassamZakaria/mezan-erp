@@ -46,6 +46,7 @@ import {
   PURCHASE_RETURN_DOC_TYPE,
   type SalesInvoiceLookupPort,
   type PurchaseInvoiceLookupPort,
+  type PurchaseReturnLine,
   createSalesInvoiceStockHook,
   SalesInvoiceService,
   CertificateService,
@@ -65,6 +66,7 @@ import {
   RETENTION_RELEASE_ITEM_ID,
   createReturnTaxCarry,
   expectedReturnTaxJournalLines,
+  nameReturnJournalLineTax,
   salesTaxPolicySource,
   InvoiceDocumentKind,
   GuaranteeService,
@@ -1894,6 +1896,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       unitMappings: etaStore.unitMappings,
     }),
   );
+  const salesReturnTaxFiling = createSalesReturnTaxFiling({
+    eta: etaService,
+    taxRates,
+    rebuildCreditNote: createEtaReturnCreditNoteRebuilder({
+      eta: etaService,
+      customers,
+      items,
+      taxRates,
+      branchCodes: etaStore.branchCodes,
+      unitMappings: etaStore.unitMappings,
+    }),
+  });
   const standingSalesReturnRefunds = async (returnId: string) => {
     const prefix = `REFUND:${returnId}:`;
     return (await vouchers.documents.list())
@@ -3484,18 +3498,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         returns: salesReturnStore,
         tags: createJournalTaxTagPort({ ledger, vatFilings }),
         expected: expectedReturnTaxJournalLines(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS)),
-        filing: createSalesReturnTaxFiling({
-          eta: etaService,
-          taxRates,
-          rebuildCreditNote: createEtaReturnCreditNoteRebuilder({
-            eta: etaService,
-            customers,
-            items,
-            taxRates,
-            branchCodes: etaStore.branchCodes,
-            unitMappings: etaStore.unitMappings,
-          }),
-        }),
+        filing: salesReturnTaxFiling,
       }),
       taxFiling: createSalesInvoiceTaxFiling({ eta: etaService, taxRates, rebuild: rebuildEtaInvoiceSubmission }),
       // A consumer sale whose e-receipt was refused for its unnamed 0% line
@@ -4012,6 +4015,21 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     salesReturns: {
       service: salesReturns,
       invoices: salesReturnInvoices,
+      journalTax: (id, request) =>
+        nameReturnJournalLineTax(id, request, {
+          returns: salesReturnStore,
+          tags: createJournalTaxTagPort({ ledger, vatFilings }),
+          taxRates,
+          expected: expectedReturnTaxJournalLines(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS)),
+          sourceRateOf: async (line) => {
+            const invoice = await salesInvoices.findById(line.sourceInvoiceId);
+            const source = invoice?.lines.find((candidate) => candidate.lineId === line.sourceLineId);
+            return source ? (source.taxRateId ?? null) : undefined;
+          },
+          filing: salesReturnTaxFiling,
+          audit: auditSink,
+          auditModule: "sales",
+        }),
       /**
        * «استرداد للعميل» (R3.9). A confirmed return credits AR and moves no
        * money; this pays the credit note out as a REAL رد مبلغ لعميل voucher —
@@ -4070,6 +4088,30 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     purchaseReturns: {
       service: purchaseReturns,
       invoices: purchaseReturnInvoices,
+      journalTax: (id, request) =>
+        nameReturnJournalLineTax(id, request, {
+          returns: purchaseReturnStore,
+          tags: createJournalTaxTagPort({ ledger, vatFilings }),
+          taxRates,
+          // INVARIANT: inventory left at the moving average, so the entry —
+          // not the return's lines — says what its inventory lines carry.
+          expected: async (doc, taxRatePercent, sourceInvoiceId, taxRateId) => {
+            const entry = doc.journalEntryId ? await ledger.findById(doc.journalEntryId) : null;
+            const removed = Money.sum(
+              (entry?.lines ?? []).filter((line) => line.accountId === PURCHASE_RETURN_GL_ACCOUNTS.inventoryAccountId).map((line) => line.credit),
+            );
+            const definition = createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS);
+            return expectedReturnTaxJournalLines<PurchaseReturnLine>({
+              buildGlPosting: (scoped) => definition.buildGlPosting?.(scoped, { valueMoved: removed.negate() }) ?? null,
+            })(doc, taxRatePercent, sourceInvoiceId, taxRateId);
+          },
+          sourceRateOf: async (line) => {
+            const invoice = await purchaseInvoices.findById(line.sourceInvoiceId);
+            return invoice && line.sourceLineId ? (invoice.lines[Number(line.sourceLineId)]?.taxRateId ?? null) : undefined;
+          },
+          audit: auditSink,
+          auditModule: "purchases",
+        }),
     },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
     installments: {

@@ -17,6 +17,7 @@ import { type AuthContextResolver, callerUserId, createPermissionGate, getAuthCo
 import { handleDocumentError } from "./document-error-handling.js";
 import { purchaseSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay } from "./tenant-day.js";
+import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
 import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReturn } from "./return-void.js";
 
 function serializeLine(l: PurchaseReturnLine) {
@@ -72,6 +73,7 @@ export function createPurchaseReturnsRoutes(
    * so the same goods could be returned repeatedly. Mirrors sales-returns.
    */
   invoices?: PurchaseInvoiceLookupPort,
+  journalTax?: ReturnJournalTaxPort<PurchaseReturnLine>,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -342,6 +344,15 @@ export function createPurchaseReturnsRoutes(
     } catch (err) {
       return handleDocumentError(c, err);
     }
+  });
+
+  app.post("/:id/lines/:lineId/journal-tax", gate("purchases.invoice.classify_tax"), async (c) => {
+    const doc = await service.findById(c.req.param("id"));
+    const scope = warehouseScopeOf(c);
+    if (!doc || (scope && !doc.lines.some((line) => scope.includes(line.warehouseId)))) {
+      return c.json({ error: "NOT_FOUND", message: "المرتجع غير موجود." }, 404);
+    }
+    return handleReturnJournalTax(c, doc, ["purchases.return.view"], journalTax);
   });
 
   app.post("/:id/void", gate("purchases.return.void"), async (c) => {

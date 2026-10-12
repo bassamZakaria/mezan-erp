@@ -150,6 +150,7 @@ import { createSalesInvoiceQuota } from "./plan-quota-wiring.js";
 import { createPlanUsageRoutes } from "./plan-usage-routes.js";
 import { planLocationsBinding } from "./plan-locations.js";
 import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
+import type { ReturnJournalTaxPort } from "./return-journal-tax.js";
 import { createPurchaseReturnsRoutes } from "./purchase-returns-routes.js";
 import { createLandedCostsRoutes } from "./landed-costs-routes.js";
 import { createInstallmentsRoutes, type InstallmentsRoutesDeps } from "./installments-routes.js";
@@ -771,6 +772,7 @@ export interface CreateAppOptions {
     readonly invoices?: SalesInvoiceLookupPort;
     /** Treasury seam behind «استرداد للعميل» — without it the refund route 503s instead of faking a state change (R3.9). */
     readonly refunds?: SalesReturnRefundPort;
+    readonly journalTax?: ReturnJournalTaxPort<SalesReturnLine>;
   };
   /** Mounts `/purchase-returns` (docs/archive/catalog/02 §"مرتجعات المشتريات") when present — mirrors `salesReturns`. */
   readonly purchaseReturns?: {
@@ -778,6 +780,7 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
     /** Lets the server derive the returnable quantity rather than trusting the client's. */
     readonly invoices?: PurchaseInvoiceLookupPort;
+    readonly journalTax?: ReturnJournalTaxPort<PurchaseReturnLine>;
   };
   /**
    * Mounts `/landed-costs` (docs/archive/catalog/02 §"التكاليف الإضافية") when
@@ -1210,13 +1213,14 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         options.salesReturns.invoices,
         options.salesReturns.refunds,
         async (userId) => (await uow.users.findById(userId))?.employeeId ?? null,
+        options.salesReturns.journalTax,
       ),
     );
   }
   if (options.purchaseReturns) {
     app.route(
       "/purchase-returns",
-      createPurchaseReturnsRoutes(options.purchaseReturns.service, (options.purchaseReturns.resolveAuthContext ?? resolveAuth), options.purchaseReturns.invoices),
+      createPurchaseReturnsRoutes(options.purchaseReturns.service, (options.purchaseReturns.resolveAuthContext ?? resolveAuth), options.purchaseReturns.invoices, options.purchaseReturns.journalTax),
     );
   }
   if (options.landedCosts) {

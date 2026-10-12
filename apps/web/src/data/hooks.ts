@@ -3141,8 +3141,8 @@ export function useRetryEtaReceipt() {
 
 const QUERIES_A_TAX_CLASSIFICATION_MOVES = ["eta-submissions", "eta", "journal-entries", "gl", "audit", "entity-audit", "financial-reports", "vat-filings"];
 
-function invalidateAfterTaxClassification(queryClient: ReturnType<typeof useQueryClient>, document: ClassifiableDocument): void {
-  const sales = document === ClassifiableDocument.SalesInvoice;
+function invalidateAfterTaxClassification(queryClient: ReturnType<typeof useQueryClient>, document: ClassifiableDocument | ReturnFamily): void {
+  const sales = document === ClassifiableDocument.SalesInvoice || document === ReturnFamily.Sales;
   for (const key of [sales ? "sales-invoices" : "purchase-invoices", sales ? "sales-returns" : "purchase-returns", ...QUERIES_A_TAX_CLASSIFICATION_MOVES]) {
     queryClient.invalidateQueries({ queryKey: [key] });
   }
@@ -3156,7 +3156,7 @@ export interface NameJournalLineTaxAct {
   readonly withLineIds: readonly string[];
 }
 
-export function useNameJournalLineTax(document: ClassifiableDocument) {
+export function useNameJournalLineTax(document: ClassifiableDocument | ReturnFamily) {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();

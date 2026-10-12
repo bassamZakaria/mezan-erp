@@ -16,6 +16,7 @@ import {
   TaxClassificationNotPostedError,
   TaxClassificationReturnFiledError,
   TaxClassificationReturnMixedError,
+  TaxClassificationReturnDisagreesError,
   TaxClassificationStaleError,
   TaxClassificationSharedPostingError,
   TaxRateAlreadyClassifiedError,
@@ -78,6 +79,9 @@ export function taxClassificationRefusal(c: Context, err: unknown): Response | n
   if (postingRefused) return postingRefused;
   if (err instanceof TaxClassificationReturnFiledError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, returnNumber: err.returnNumber }, 422);
+  }
+  if (err instanceof TaxClassificationReturnDisagreesError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, returnNumber: err.returnNumber, taxRateId: err.taxRateId }, 409);
   }
   if (err instanceof TaxClassificationReturnMixedError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, returnNumber: err.returnNumber, invoiceNumbers: err.invoiceNumbers }, 409);

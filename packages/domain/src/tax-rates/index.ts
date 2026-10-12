@@ -78,6 +78,7 @@ export {
   TaxClassificationNotASupplyError,
   TaxClassificationReturnFiledError,
   TaxClassificationReturnMixedError,
+  TaxClassificationReturnDisagreesError,
   type TaxClassificationCarryRequest,
   type TaxClassificationCarryResult,
   type TaxClassificationDependentsPort,

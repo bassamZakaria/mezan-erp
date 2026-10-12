@@ -1,5 +1,7 @@
 import type { DocumentRepository, DocumentTypeDefinition, FrameworkDocument } from "../documents/document.js";
+import { isStandingReturn } from "../documents/return-availability.js";
 import {
+  TaxClassificationReturnDisagreesError,
   TaxClassificationReturnFiledError,
   TaxClassificationReturnJournalUntaggedError,
   TaxClassificationReturnMixedError,
@@ -46,10 +48,16 @@ export function createReturnTaxCarry<Line extends SourcedTaxLine>(deps: {
       const documentNumbers: string[] = [];
       let journalLinesNamed = 0;
       for (const doc of candidates) {
+        const number = doc.docNo ?? doc.id;
+        // A return whose lines were named on the return itself holds this
+        // invoice's lines to that rate: the invoice is never classified apart.
+        const disagreeing = doc.lines.find(
+          (line) => line.sourceInvoiceId === sourceDocumentId && line.taxRatePercent === taxRatePercent && (line.taxRateId ?? null) !== null && line.taxRateId !== taxRateId,
+        );
+        if (disagreeing && isStandingReturn(doc)) throw new TaxClassificationReturnDisagreesError(number, disagreeing.taxRateId as string);
         const unnamed = doc.lines.filter((line) => unnamedAt(line, taxRatePercent));
         const mine = unnamed.filter((line) => line.sourceInvoiceId === sourceDocumentId);
         if (mine.length === 0) continue;
-        const number = doc.docNo ?? doc.id;
         // INVARIANT: an entry that also holds another invoice's unnamed lines
         // at this percent is named by amount, this invoice's lines alone. One
         // posted before the split holds them merged, matches nothing and is
@@ -85,11 +93,11 @@ export function createReturnTaxCarry<Line extends SourcedTaxLine>(deps: {
 
 export function expectedReturnTaxJournalLines<Line extends { readonly sourceInvoiceId: string }>(
   definition: Pick<DocumentTypeDefinition<Line>, "buildGlPosting">,
-): (doc: FrameworkDocument<Line>, taxRatePercent: number, sourceInvoiceId?: string) => readonly ExpectedTaxJournalLine[] {
-  return (doc, taxRatePercent, sourceInvoiceId) => {
+): (doc: FrameworkDocument<Line>, taxRatePercent: number, sourceInvoiceId?: string, taxRateId?: string | null) => readonly ExpectedTaxJournalLine[] {
+  return (doc, taxRatePercent, sourceInvoiceId, taxRateId = null) => {
     const scoped = sourceInvoiceId === undefined ? doc : { ...doc, lines: doc.lines.filter((line) => line.sourceInvoiceId === sourceInvoiceId) };
     return (definition.buildGlPosting?.(scoped)?.lines ?? [])
-      .filter((line) => line.taxRatePercent === taxRatePercent && (line.taxRateId ?? null) === null)
+      .filter((line) => line.taxRatePercent === taxRatePercent && (line.taxRateId ?? null) === taxRateId)
       .map((line) => ({ accountId: line.accountId, debit: line.debit, credit: line.credit }));
   };
 }

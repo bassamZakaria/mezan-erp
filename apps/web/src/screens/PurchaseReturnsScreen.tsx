@@ -40,6 +40,7 @@ import { majorOf } from "../lib/money";
 import { returnLinesTotal } from "./exact-line-totals";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { ReturnJournalCard } from "./ReturnJournalCard";
 import { ReturnFamily, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -412,6 +413,7 @@ export function PurchaseReturnsScreen() {
                 </Button>
               </div>
             ) : null}
+            <ReturnJournalCard family={ReturnFamily.Purchases} document={selected} lineLabel={itemName} />
             <VoidReturnReasonNotice document={selected} />
             <VoidReturnAction family={ReturnFamily.Purchases} document={selected} />
           </div>

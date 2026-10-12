@@ -4,7 +4,7 @@ import { Button, Card, DocumentList, useFormat, type DocumentListColumn } from "
 import type { TenantSummaryDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 import { BillingDayReviewChip, OwnerContactChip, TenantLicenceChip, TenantStatusChip } from "./chips";
-import { usePlatformApi } from "./api";
+import { PlatformApiError, usePlatformApi } from "./api";
 import { NewTenantDialog } from "./NewTenantDialog";
 import { usePlansQuery, useTenantsQuery } from "./hooks";
 import { useMediaQuery } from "../lib/use-media-query";
@@ -75,7 +75,7 @@ export function TenantsPage() {
       {tenantsQuery.isError ? (
         <Card className="mb-[14px] p-[14px_16px]">
           <p role="alert" className="text-[13px] font-semibold text-danger-ink">
-            {tenantsQuery.error.message}
+            {tenantsQuery.error instanceof PlatformApiError ? tenantsQuery.error.message : t("platform.error.network")}
           </p>
           <Button size="sm" className="mt-[8px]" onClick={() => tenantsQuery.refetch()}>
             {t("common.retry")}

@@ -278,6 +278,18 @@ describe("TenantsPage", () => {
     expect(screen.queryByRole("button", { name: "منشأة جديدة" })).not.toBeInTheDocument();
   });
 
+  it("says in Arabic that the connection failed when the list cannot reach the server, never the browser's own words", async () => {
+    const plansTransport = stubPlatformTransport({ "GET /plans": () => ({ body: [plan] }) });
+    const transport: Transport = async (path, init) => {
+      if (path === "/tenants") throw new TypeError("Failed to fetch");
+      return plansTransport(path, init);
+    };
+    renderWithPlatformProviders(<TenantsPage />, { transport, initialSession: testPlatformSession });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر الاتصال بالخادم. تحقّق من الاتصال ثم أعد المحاولة.");
+    expect(screen.queryByText(/Failed to fetch/)).not.toBeInTheDocument();
+  });
+
   it("shows a loading skeleton before the tenants arrive, then the rows", async () => {
     let resolveTenants: (result: { status: number; body: unknown }) => void = () => {};
     const pending = new Promise<{ status: number; body: unknown }>((resolve) => {

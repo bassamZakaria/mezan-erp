@@ -4,7 +4,7 @@ import {
   type ExpectedTaxJournalLine,
   type JournalLineTaxTag,
   type JournalTaxTagPort,
-} from "../tax-rates/classify-posted-line-tax.js";
+} from "./tax-ports.js";
 import type { JournalEntry, JournalLine } from "../journal.js";
 import type { LedgerRepository } from "./ledger.js";
 import { assertVatNotFiled, type JournalPostingDeps } from "./post.js";

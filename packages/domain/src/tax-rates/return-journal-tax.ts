@@ -21,8 +21,8 @@ import {
   type JournalTaxTagPort,
   type TaxClassificationPlan,
   type TaxRateRepository,
-} from "../tax-rates/index.js";
-import type { ReturnTaxFilingPort } from "./tax-carry.js";
+} from "./index.js";
+import type { ReturnTaxFilingPort } from "./return-tax-carry.js";
 
 interface ReturnTaxLine {
   readonly itemId: string;

@@ -4,9 +4,9 @@ import type { JournalEntry, JournalLine } from "../journal.js";
 import { Money, Qty } from "../money/index.js";
 import { createPurchaseReturnDocumentType, type PurchaseReturnLine } from "../purchase-returns/purchase-return-document.js";
 import { createSalesReturnDocumentType, type SalesReturnLine } from "../sales-returns/sales-return-document.js";
-import { TaxClassificationReturnMixedError } from "../tax-rates/classify-posted-line-tax.js";
-import { createReturnTaxCarry, expectedReturnTaxJournalLines } from "./tax-carry.js";
-import { createJournalTaxTagPort } from "./tax-tag.js";
+import { TaxClassificationReturnMixedError } from "./classify-posted-line-tax.js";
+import { createReturnTaxCarry, expectedReturnTaxJournalLines } from "./return-tax-carry.js";
+import { createJournalTaxTagPort } from "../gl/tax-tag.js";
 
 const SALES = createSalesReturnDocumentType({
   accountsReceivableId: "1105", salesReturnsAccountId: "4190", outputTaxPayableAccountId: "2200", inventoryAccountId: "1200", cogsAccountId: "5100",

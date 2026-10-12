@@ -9,7 +9,7 @@ import {
   type ExpectedTaxJournalLine,
   type JournalTaxTagPort,
   type TaxClassificationDependentsPort,
-} from "../tax-rates/classify-posted-line-tax.js";
+} from "./classify-posted-line-tax.js";
 import { VatPeriodAlreadyFiledError } from "../tax/vat-filing.js";
 
 interface SourcedTaxLine {

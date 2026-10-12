@@ -83,14 +83,9 @@ export {
   type TaxClassificationCarryResult,
   type TaxClassificationDependentsPort,
   TaxClassificationJournalUntaggedError,
-  JournalTaxLinesMismatchError,
   TaxClassificationFiledUnreadableError,
   JournalTaxLineUnclassifiedError,
-  JournalTaxLineAlreadyNamedError,
   TaxClassificationReturnJournalUntaggedError,
-  type ExpectedTaxJournalLine,
-  type JournalLineTaxTag,
-  type ChosenJournalLinesNamed,
   PostedLineNotFoundError,
   TaxClassificationNotPostedError,
   TaxClassificationSharedPostingError,
@@ -98,5 +93,20 @@ export {
   type PostedTaxLine,
   type ClassifyPostedLineTaxRequest,
   type TaxClassificationPlan,
-  type JournalTaxTagPort,
 } from "./classify-posted-line-tax.js";
+
+export { createReturnTaxCarry, expectedReturnTaxJournalLines, type ReturnTaxFilingPort } from "./return-tax-carry.js";
+export {
+  nameReturnJournalLineTax,
+  type NameReturnJournalLineTaxDeps,
+  type NameReturnJournalLineTaxRequest,
+  type NameReturnJournalLineTaxResult,
+} from "./return-journal-tax.js";
+export {
+  JournalTaxLineAlreadyNamedError,
+  JournalTaxLinesMismatchError,
+  type ChosenJournalLinesNamed,
+  type ExpectedTaxJournalLine,
+  type JournalLineTaxTag,
+  type JournalTaxTagPort,
+} from "../gl/tax-ports.js";

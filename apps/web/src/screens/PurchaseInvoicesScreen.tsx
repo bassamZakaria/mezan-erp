@@ -64,6 +64,7 @@ import { DERIVED_TAX, TaxRateField, lineTaxPayload, postedTaxRateLabel, type Tax
 import { useEntityName } from "../lib/entity-names";
 import { ClassifyLineTaxAction, type ClassifiableLine } from "./ClassifyLineTaxAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
+import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
 import { purchaseInvoiceLineTotal } from "./exact-line-totals";
 import { PurchaseInvoiceStatusCode } from "@mezan/domain";
 import { itemTypeIsPurchasable ,
@@ -118,7 +119,6 @@ const COST_CATEGORY_KEY: Record<CostCategoryDTO, AppTranslationKey> = {
   indirect: "costCategory.indirect",
 };
 
-const num = (v: string) => Number(v);
 
 interface DraftLine {
   itemId: string;
@@ -175,13 +175,13 @@ function InvoiceDetail({
   const [payError, setPayError] = useState<string | null>(null);
   const [payNote, setPayNote] = useState<string | null>(null);
 
-  const paid = num(invoice.amountPaid);
-  const returned = num(invoice.returnedCredit ?? "0");
-  const remaining = num(invoice.remainingBalance);
+  const paid = majorOf(invoice.amountPaid);
+  const returned = majorOf(invoice.returnedCredit ?? "0");
+  const remaining = majorOf(invoice.remainingBalance);
   const canPay = invoice.status === "confirmed" && remaining > 0;
   const settledInBase = Boolean(invoice.fxRate);
   const docCurrencyLabel = settledInBase ? invoice.currency : undefined;
-  const settlementTotal = num(invoice.baseTotal ?? invoice.total);
+  const settlementTotal = majorOf(invoice.baseTotal ?? invoice.total);
 
   // EXTERNAL CONTRACT: a purchase invoice line has no id; the server names it by its position.
   const classifiableLines = useMemo<ClassifiableLine[]>(
@@ -215,7 +215,7 @@ function InvoiceDetail({
   }, [landedCostsQuery.data, invoice.id, invoice.receiptId]);
 
   const landedTotal = landedCosts.reduce(
-    (sum, row) => sum + row.lines.reduce((s, l) => s + num(l.allocatedAmount), 0),
+    (sum, row) => sum + row.lines.reduce((s, l) => s + majorOf(l.allocatedAmount), 0),
     0,
   );
 
@@ -274,7 +274,7 @@ function InvoiceDetail({
         { label: t("purchaseInvoices.detail.supplierInvoiceNo"), value: invoice.supplierInvoiceNumber ?? "—" },
         { label: t("purchaseInvoices.detail.source"), value: invoice.receiptId ? t("purchaseInvoices.source.fromReceipt") : t("purchaseInvoices.source.manual") },
         { label: t("common.project"), value: projectName(invoice.projectId) },
-        { label: t("purchaseInvoices.detail.grandTotal"), value: <MoneyValue value={num(invoice.total)} currencyLabel={docCurrencyLabel} /> },
+        { label: t("purchaseInvoices.detail.grandTotal"), value: <MoneyValue value={majorOf(invoice.total)} currencyLabel={docCurrencyLabel} /> },
         ...(settledInBase ? [{ label: t("purchaseInvoices.detail.baseTotal"), value: <MoneyValue value={settlementTotal} /> }] : []),
         { label: t("purchaseInvoices.pay.paid"), value: <MoneyValue value={paid} /> },
         ...(returned > 0 ? [{ label: t("purchaseInvoices.pay.returned"), value: <MoneyValue value={-returned} /> }] : []),
@@ -298,6 +298,15 @@ function InvoiceDetail({
                 posted={invoice.status === PurchaseInvoiceStatusCode.Confirmed}
                 documentKind={invoice.documentKind}
                 lines={classifiableLines}
+              />
+              <NameJournalLineTaxAction
+                document={ClassifiableDocument.PurchaseInvoice}
+                documentId={invoice.id}
+                journalEntryId={`PI-JE:${invoice.id}`}
+                posted={invoice.status === PurchaseInvoiceStatusCode.Confirmed}
+                lines={classifiableLines}
+                taxRates={detailTaxRates}
+                accountLabel={(accountId) => accountId}
               />
               <table className="w-full min-w-[860px] border-collapse text-[13px]">
                 <thead>
@@ -327,7 +336,7 @@ function InvoiceDetail({
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.receivedQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.consumedQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.remainingQty} /> : "—"}</td>
-                        <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
+                        <td className="px-[12px] py-[10px] text-end"><MoneyValue value={majorOf(l.unitCost)} showUnit={false} /></td>
                         <td className="px-[12px] py-[10px] text-end">
                           {postedTaxRateLabel(detailTaxRates, l, t)}
                           <ClassifyLineTaxAction
@@ -349,9 +358,9 @@ function InvoiceDetail({
                   <tr className="border-t border-border font-semibold">
                     <td className="px-[12px] py-[10px]" colSpan={9}>{t("purchaseInvoices.totalsRow")}</td>
                     <td className="px-[12px] py-[10px] text-end">
-                      <div><MoneyValue value={num(invoice.subtotal)} showUnit={false} /></div>
-                      <div className="text-ink-muted"><MoneyValue value={num(invoice.tax)} showUnit={false} /></div>
-                      <div><MoneyValue value={num(invoice.total)} showUnit={false} /></div>
+                      <div><MoneyValue value={majorOf(invoice.subtotal)} showUnit={false} /></div>
+                      <div className="text-ink-muted"><MoneyValue value={majorOf(invoice.tax)} showUnit={false} /></div>
+                      <div><MoneyValue value={majorOf(invoice.total)} showUnit={false} /></div>
                     </td>
                   </tr>
                 </tfoot>
@@ -400,9 +409,9 @@ function InvoiceDetail({
                             {l.costItems.map((ci) => t(LANDED_COST_TYPE_KEY[ci.costType])).join(" · ")}
                           </td>
                           <td className="p-[10px] text-ink-muted">{t(LANDED_COST_BASIS_KEY[l.distributionMethod])}</td>
-                          <td className="p-[10px] text-end font-semibold text-ink"><MoneyValue value={num(l.allocatedAmount)} showUnit={false} /></td>
-                          <td className="p-[10px] text-end text-ink-muted"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
-                          <td className="p-[10px] text-end text-ink"><MoneyValue value={num(l.newUnitCost)} showUnit={false} /></td>
+                          <td className="p-[10px] text-end font-semibold text-ink"><MoneyValue value={majorOf(l.allocatedAmount)} showUnit={false} /></td>
+                          <td className="p-[10px] text-end text-ink-muted"><MoneyValue value={majorOf(l.unitCost)} showUnit={false} /></td>
+                          <td className="p-[10px] text-end text-ink"><MoneyValue value={majorOf(l.newUnitCost)} showUnit={false} /></td>
                           <td className="p-[10px]">
                             <StatusPill
                               label={row.doc.status === "confirmed" ? t("purchaseInvoices.status.confirmed") : t("purchaseInvoices.status.draft")}
@@ -663,7 +672,7 @@ export function PurchaseInvoicesScreen() {
    */
   const payment = useMemo(() => {
     const today = todayIso();
-    const settled = (inv: PurchaseInvoiceDTO) => num(inv.remainingBalance) <= 0;
+    const settled = (inv: PurchaseInvoiceDTO) => majorOf(inv.remainingBalance) <= 0;
     const live = (inv: PurchaseInvoiceDTO) => inv.status === "confirmed";
     return {
       overdue: (inv: PurchaseInvoiceDTO) => live(inv) && !settled(inv) && inv.dueDate !== null && inv.dueDate < today,
@@ -672,7 +681,7 @@ export function PurchaseInvoicesScreen() {
         const horizon = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
         return inv.dueDate >= today && inv.dueDate <= horizon;
       },
-      partiallyPaid: (inv: PurchaseInvoiceDTO) => live(inv) && num(inv.amountPaid) > 0 && !settled(inv),
+      partiallyPaid: (inv: PurchaseInvoiceDTO) => live(inv) && majorOf(inv.amountPaid) > 0 && !settled(inv),
       paid: (inv: PurchaseInvoiceDTO) => live(inv) && settled(inv),
     };
   }, []);
@@ -717,10 +726,10 @@ export function PurchaseInvoicesScreen() {
       // own currency (D218).
       render: (inv) => (
         <div className="flex flex-col items-end gap-[3px]">
-          <MoneyValue value={num(inv.baseTotal ?? inv.total)} />
+          <MoneyValue value={majorOf(inv.baseTotal ?? inv.total)} />
           {inv.fxRate ? (
             <span className="text-[11px] text-ink-muted">
-              <MoneyValue value={num(inv.total)} currencyLabel={inv.currency} />
+              <MoneyValue value={majorOf(inv.total)} currencyLabel={inv.currency} />
             </span>
           ) : null}
         </div>
@@ -1124,7 +1133,7 @@ export function PurchaseInvoicesScreen() {
         rowAction={(inv) => {
           // Derived from THIS row's state (R1.3): only a draft can be confirmed,
           // and only a confirmed invoice with a balance can be paid or costed.
-          const owing = num(inv.remainingBalance) > 0 && inv.status === "confirmed";
+          const owing = majorOf(inv.remainingBalance) > 0 && inv.status === "confirmed";
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(inv.number ?? inv.id) },
             { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(inv.number ?? inv.id, "print") },

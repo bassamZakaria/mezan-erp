@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -59,7 +59,6 @@ const REASON_KEY: Record<SalesReturnReasonDTO, AppTranslationKey> = {
 };
 
 
-const num = (v: string) => Number(v);
 
 interface LineDraft {
   key: string;
@@ -181,26 +180,6 @@ export function SalesReturnsScreen() {
     if (firstOpen) setRefundTreasuryId(firstOpen.id);
   }, [treasuryAccounts, refundTreasuryId]);
 
-  /**
-   * Seeds the line grid once the chosen invoice resolves. It does NOT choose an
-   * invoice: this used to default to `invoices[0]`, so opening «مرتجع جديد»
-   * silently pointed the return at whichever invoice happened to sort first —
-   * a user who did not notice returned goods against the wrong document. A
-   * return has no meaning without its source, so the picker starts empty
-   * unless the caller supplied one (R2.2).
-   */
-  useEffect(() => {
-    if (firstSegment !== "new" || invoiceId === "" || lines.length > 0) return;
-    const invoice = invoices.find((i) => i.id === invoiceId);
-    if (!invoice) return;
-    const firstLine = invoice.lines.find((l) => l.isStock && l.unitCost !== null);
-    // Bail instead of `setLines([])`: the grid is already empty here, and a fresh
-    // `[]` is never `Object.is`-equal to the current state, so React would re-render
-    // and re-run this effect forever on an invoice with nothing returnable.
-    if (!firstLine) return;
-    setLines([blankLine(firstLine.lineId, reason)]);
-  }, [firstSegment, invoices, invoiceId, lines.length, reason]);
-
   useEffect(() => {
     if (firstSegment !== "new" || warehouseId !== "") return;
     const next = invoices.find((i) => i.id === invoiceId)?.warehouseId ?? warehouses[0]?.id;
@@ -215,6 +194,19 @@ export function SalesReturnsScreen() {
     () => (selectedInvoice?.lines ?? []).filter((l) => l.isStock && l.unitCost !== null),
     [selectedInvoice],
   );
+
+  // INVARIANT: the first row is offered only once the SERVER has said what is
+  // left to return, and it names a line that still has room. Seeded from the
+  // invoice alone it could name a line already returned in full.
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (firstSegment !== "new" || invoiceId === "" || !sourceLinesQuery.isSuccess || seededFor.current === invoiceId) return;
+    seededFor.current = invoiceId;
+    if (lines.length > 0) return;
+    const returnable = new Set(returnableLines.map((line) => line.lineId));
+    const first = nextReturnSourceLine(sourceLines.filter((line) => returnable.has(line.sourceLineId)), [], "");
+    if (first !== "") setLines([blankLine(first, reason)]);
+  }, [firstSegment, invoiceId, sourceLinesQuery.isSuccess, sourceLines, returnableLines, lines.length, reason]);
 
   const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
   const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
@@ -367,7 +359,7 @@ export function SalesReturnsScreen() {
       key: "refundDue",
       header: t("salesReturns.col.refundDue"),
       align: "end",
-      render: (d) => (num(d.refundDue) > 0 ? <MoneyDisplay value={num(d.refundDue)} /> : "—"),
+      render: (d) => (majorOf(d.refundDue) > 0 ? <MoneyDisplay value={majorOf(d.refundDue)} /> : "—"),
     },
     {
       key: "status",
@@ -514,7 +506,7 @@ export function SalesReturnsScreen() {
                     <StatusPill label={t(REASON_KEY[l.reason])} tone="neutral" />
                   </span>
                   <span className="mz-num text-ink-muted">
-                    {l.qty} × <MoneyDisplay value={num(l.unitPrice)} />
+                    {l.qty} × <MoneyDisplay value={majorOf(l.unitPrice)} />
                   </span>
                 </div>
               ))}
@@ -559,7 +551,7 @@ export function SalesReturnsScreen() {
                   </div>
                   <div className="text-[12.5px] text-ink">
                     <div className="text-[11px] font-semibold text-ink-faint">{t("salesReturns.refund.due")}</div>
-                    <MoneyDisplay value={num(selected.refundDue)} className="text-[14px] font-bold" />
+                    <MoneyDisplay value={majorOf(selected.refundDue)} className="text-[14px] font-bold" />
                   </div>
                   <Button variant="primary" disabled={refundReturn.isPending} onClick={() => refundExisting(selected.id)}>
                     {t("salesReturns.refund.submit")}
@@ -585,7 +577,7 @@ export function SalesReturnsScreen() {
                         <td className="mz-num p-[6px] text-ink">{r.voucherNo ?? r.voucherId}</td>
                         <td className="mz-num p-[6px] text-ink-muted">{r.date}</td>
                         <td className="p-[6px] text-end">
-                          <MoneyDisplay value={num(r.amount)} />
+                          <MoneyDisplay value={majorOf(r.amount)} />
                         </td>
                       </tr>
                     ))}

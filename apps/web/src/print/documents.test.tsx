@@ -36,7 +36,7 @@ const order: PurchaseOrderDTO = {
 function transportWith(settings: Record<string, unknown> = {}) {
   return stubTransport({
     "GET /print-template-config": () => ({ body: DEFAULT_PRINT_TEMPLATE_CONFIG }),
-    "GET /settings": () => ({
+    "GET /print-template-config/letterhead": () => ({
       body: {
         companyName: "شركة سايج",
         address: "القاهرة الجديدة",

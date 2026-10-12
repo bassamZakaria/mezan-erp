@@ -660,7 +660,13 @@ export function CustomersScreen() {
     };
     try {
       if (editingId) {
-        await updateCustomer.mutateAsync({ id: editingId, patch: { ...fields, active: draft.active } });
+        const stored = customers.find((customer) => customer.id === editingId);
+        const { taxExemptionRateId, ...unchangedFields } = fields;
+        const exemptionRateChanged = !stored || (stored.taxExemptionRateId ?? null) !== taxExemptionRateId;
+        await updateCustomer.mutateAsync({
+          id: editingId,
+          patch: { ...unchangedFields, ...(exemptionRateChanged ? { taxExemptionRateId } : {}), active: draft.active },
+        });
       } else {
         const code = draft.code.trim();
         await createCustomer.mutateAsync({ id: crypto.randomUUID(), ...(code === "" ? {} : { code }), ...fields });

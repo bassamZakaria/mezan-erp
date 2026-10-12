@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -53,7 +53,6 @@ const REASON_KEY: Record<PurchaseReturnReasonDTO, AppTranslationKey> = {
 };
 
 
-const num = (v: string) => Number(v);
 
 interface LineDraft {
   key: string;
@@ -119,8 +118,6 @@ export function PurchaseReturnsScreen() {
     if (!firstInvoice) return;
     setInvoiceId(firstInvoice.id);
     setWarehouseId(firstInvoice.warehouseId);
-    const firstLine = returnableLinesOf(firstInvoice)[0];
-    setLines(firstLine ? [blankLine(firstLine.sourceLineId)] : []);
   }, [firstSegment, invoices, invoiceId]);
 
   useEffect(() => {
@@ -134,6 +131,19 @@ export function PurchaseReturnsScreen() {
   const sourceLinesQuery = useReturnSourceLines(ReturnKind.Purchase, firstSegment === "new" ? invoiceId : "");
   const sourceLines = sourceLinesQuery.data?.lines ?? EMPTY;
   const sourceLinesReady = invoiceId === "" || sourceLinesQuery.isSuccess;
+
+  // INVARIANT: the first row is offered only once the SERVER has said what is
+  // left to return, and it names a line that still has room. Seeded from the
+  // invoice alone it could name a line already returned in full.
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (firstSegment !== "new" || invoiceId === "" || !sourceLinesQuery.isSuccess || seededFor.current === invoiceId) return;
+    seededFor.current = invoiceId;
+    if (lines.length > 0) return;
+    const returnable = new Set(returnableLines.map((line) => line.sourceLineId));
+    const first = nextReturnSourceLine(sourceLines.filter((line) => returnable.has(line.sourceLineId)), [], "");
+    if (first !== "") setLines([blankLine(first)]);
+  }, [firstSegment, invoiceId, sourceLinesQuery.isSuccess, sourceLines, returnableLines, lines.length]);
 
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
@@ -191,8 +201,7 @@ export function PurchaseReturnsScreen() {
     setInvoiceId(id);
     const invoice = invoices.find((i) => i.id === id) ?? null;
     if (invoice) setWarehouseId(invoice.warehouseId);
-    const firstLine = returnableLinesOf(invoice)[0];
-    setLines(firstLine ? [blankLine(firstLine.sourceLineId)] : []);
+    setLines([]);
   }
 
   function nextSourceLineId(rows: readonly LineDraft[]): string {
@@ -384,7 +393,7 @@ export function PurchaseReturnsScreen() {
                 <div key={i} className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[13px]">
                   <span>{itemName(l.itemId)}</span>
                   <span className="mz-num text-ink-muted">
-                    {l.qty} × <MoneyDisplay value={num(l.unitCost)} />
+                    {l.qty} × <MoneyDisplay value={majorOf(l.unitCost)} />
                   </span>
                 </div>
               ))}

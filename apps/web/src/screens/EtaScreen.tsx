@@ -111,13 +111,12 @@ const TABS: Array<{ id: EtaTab; labelKey: AppTranslationKey }> = [
   { id: "submissions", labelKey: "eta.tabSubmissions" },
 ];
 
-function classifiableFinding(finding: EtaPrevalidationFindingDTO, documentType: string): boolean {
-  return (
+function classifiableLineOf(finding: EtaPrevalidationFindingDTO, documentType: string): string | null {
+  const classifiable =
     documentType === EtaDocumentTypeCode.Invoice &&
     finding.code === EtaPrevalidationRuleCode.TaxSubtypeNotMapped &&
-    finding.fixScreen === EtaPrevalidationFixScreen.SourceDocument &&
-    typeof finding.fixRefId === "string"
-  );
+    finding.fixScreen === EtaPrevalidationFixScreen.SourceDocument;
+  return classifiable && typeof finding.fixRefId === "string" ? finding.fixRefId : null;
 }
 
 /** Which screen a pre-validation finding's `fixScreen` opens — the ETA screen's own tabs, or another screen entirely. */
@@ -1426,9 +1425,7 @@ function ReadinessTab() {
                     tone={f.severity === EtaPrevalidationSeverity.Blocking ? "danger" : "warning"}
                   />
                   <span className="text-ink">{f.messageAr}</span>
-                  {classifiableFinding(f, s.documentType) ? (
-                    <EtaFindingClassifyAction documentNumber={s.internalId} lineId={f.fixRefId as string} />
-                  ) : null}
+                  <EtaFindingClassifyAction documentNumber={s.internalId} lineId={classifiableLineOf(f, s.documentType)} />
                   <a href={fixHrefFor(f, s.internalId)} className="font-semibold text-brand hover:underline">
                     {pt("fixLink")}
                   </a>

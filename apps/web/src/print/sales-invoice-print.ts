@@ -1,7 +1,6 @@
 import { amountInWords } from "@mezan/domain";
 import type { PrintDocumentLine, PrintDocumentModel } from "@mezan/ui";
-import type { TenantSettingsDTO } from "@mezan/contracts";
-import type { SalesInvoiceDTO, SalesInvoiceLineRowDTO } from "../data/hooks";
+import type { PrintLetterheadDTO, SalesInvoiceDTO, SalesInvoiceLineRowDTO } from "../data/hooks";
 import { majorOf, scaledOf, toMajorNumber } from "../lib/money";
 
 /**
@@ -25,7 +24,7 @@ import { majorOf, scaledOf, toMajorNumber } from "../lib/money";
 
 export interface SalesInvoicePrintContext {
   readonly invoice: SalesInvoiceDTO;
-  readonly settings: TenantSettingsDTO | null;
+  readonly settings: PrintLetterheadDTO | null;
   readonly branchName?: string;
   readonly warehouseName?: string;
   readonly customerTaxNumber?: string;
@@ -81,10 +80,6 @@ export function salesInvoicePrintModel(ctx: SalesInvoicePrintContext): PrintDocu
     };
   });
 
-  // Grouped by the RATE the line stored, then by its percent, so an exempt
-  // line and an export line print as two rows, each under its own name. A
-  // line that names no rate prints under the generic label, and only when it
-  // carries tax: an unnamed 0% says nothing worth a row.
   const byRate = new Map<string, { label: string; rate: number; tax: bigint }>();
   for (const line of invoice.lines) {
     const net = lineGrossScaled(line) - lineDiscountScaled(line);
@@ -135,9 +130,9 @@ export function salesInvoicePrintModel(ctx: SalesInvoicePrintContext): PrintDocu
         majorOf(invoice.totals.lineDiscountTotal) +
         majorOf(invoice.totals.invoiceDiscountTotal) +
         majorOf(invoice.totals.promotionDiscountTotal),
-      taxBreakdown: [...byRate.values()]
-        .sort((a, b) => a.rate - b.rate)
-        .map((row) => ({ label: row.label, rate: row.rate, amount: toMajorNumber(row.tax) })),
+      taxBreakdown: [...byRate.entries()]
+        .sort(([, a], [, b]) => a.rate - b.rate)
+        .map(([key, row]) => ({ key, label: row.label, rate: row.rate, amount: toMajorNumber(row.tax) })),
       grandTotal,
       currencyLabel: ctx.currencyLabel,
       // A negative total would be a credit note, which is a different document

@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { Button, SidePanel } from "@mezan/ui";
 import { TaxRateStatusCode } from "@mezan/domain";
-import { InvoiceDocumentKind, type TaxRateDTO } from "@mezan/contracts";
+import { InvoiceDocumentKind, TaxClassificationFilingOutcomeCode, type TaxRateDTO } from "@mezan/contracts";
 import { useApi } from "../data/ApiContext";
-import { ClassifiableDocument, useClassifyLineTax } from "../data/hooks";
-import { useAppTranslation } from "../i18n";
+import { ClassifiableDocument, useClassifyLineTax, useVatEnabled } from "../data/hooks";
+import { DocumentReadPermission, sessionMayRead } from "../data/document-read-permissions";
+import { useNavigation } from "../navigation";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { SelectField } from "../settings/form-controls";
 
 export interface ClassifiableLine {
@@ -14,9 +16,15 @@ export interface ClassifiableLine {
   readonly taxRateId: string | null;
 }
 
-const PERMISSION: Record<ClassifiableDocument, string> = {
-  [ClassifiableDocument.SalesInvoice]: "sales.invoice.classify_tax",
-  [ClassifiableDocument.PurchaseInvoice]: "purchases.invoice.classify_tax",
+export const CLASSIFY_PERMISSION: Record<ClassifiableDocument, DocumentReadPermission> = {
+  [ClassifiableDocument.SalesInvoice]: DocumentReadPermission.SalesInvoiceClassifyTax,
+  [ClassifiableDocument.PurchaseInvoice]: DocumentReadPermission.PurchaseInvoiceClassifyTax,
+};
+
+const RECEIPT_OUTCOME_MESSAGE: Partial<Record<TaxClassificationFilingOutcomeCode, AppTranslationKey>> = {
+  [TaxClassificationFilingOutcomeCode.Reissued]: "classifyTax.outcome.reissued",
+  [TaxClassificationFilingOutcomeCode.ReissuePending]: "classifyTax.outcome.reissuePending",
+  [TaxClassificationFilingOutcomeCode.ReissueRefused]: "classifyTax.outcome.reissueRefused",
 };
 
 export interface ClassifyLineTaxActionProps {
@@ -34,38 +42,40 @@ export interface ClassifyLineTaxActionProps {
 export function ClassifyLineTaxAction({ document, documentId, posted, documentKind, line, lines, taxRates, openedExternally = false, onClosed }: ClassifyLineTaxActionProps) {
   const { t } = useAppTranslation();
   const { session } = useApi();
+  const { navigate } = useNavigation();
   const classify = useClassifyLineTax(document);
+  const vatEnabled = useVatEnabled();
   const [open, setOpen] = useState(openedExternally);
   const [taxRateId, setTaxRateId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [receiptOutcome, setReceiptOutcome] = useState<string | null>(null);
 
+  // The system's rate classifies a sale only for a tenant outside VAT; the
+  // server refuses it everywhere else, so it is offered nowhere else.
+  const systemRateApplies = document === ClassifiableDocument.SalesInvoice && vatEnabled === false;
   const candidates = useMemo(
-    () =>
-      taxRates.filter(
-        (rate) =>
-          rate.status === TaxRateStatusCode.Active &&
-          rate.rate === line.taxRatePercent &&
-          !(document === ClassifiableDocument.SalesInvoice && rate.isSystem === true),
-      ),
-    [taxRates, line.taxRatePercent, document],
+    () => taxRates.filter((rate) => rate.status === TaxRateStatusCode.Active && rate.rate === line.taxRatePercent && (rate.isSystem !== true || systemRateApplies)),
+    [taxRates, line.taxRatePercent, systemRateApplies],
   );
   const companions = useMemo(
     () => lines.filter((other) => other.lineId !== line.lineId && other.taxRateId === null && other.taxRatePercent === line.taxRatePercent),
     [lines, line.lineId, line.taxRatePercent],
   );
 
-  const permissions = session?.permissions ?? [];
-  const permitted = permissions.includes("*") || permissions.includes(PERMISSION[document]);
+  const permitted = sessionMayRead(session, CLASSIFY_PERMISSION[document]);
+  const mayManageRates = sessionMayRead(session, DocumentReadPermission.TaxRatesManage);
   if (!posted || documentKind === InvoiceDocumentKind.RetentionRelease || line.taxRateId !== null || !permitted) return null;
 
   function openPanel() {
     setError(null);
+    setReceiptOutcome(null);
     setTaxRateId("");
     setOpen(true);
   }
 
   function closePanel() {
     setOpen(false);
+    setReceiptOutcome(null);
     onClosed?.();
   }
 
@@ -77,8 +87,13 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
     }
     setError(null);
     try {
-      await classify.mutateAsync({ documentId, lineId: line.lineId, taxRateId, withLineIds: companions.map((other) => other.lineId) });
-      closePanel();
+      const result = await classify.mutateAsync({ documentId, lineId: line.lineId, taxRateId, withLineIds: companions.map((other) => other.lineId) });
+      const outcomeKey = RECEIPT_OUTCOME_MESSAGE[result.filing];
+      if (!outcomeKey) {
+        closePanel();
+        return;
+      }
+      setReceiptOutcome(result.filingMessage ? `${t(outcomeKey)} ${result.filingMessage}` : t(outcomeKey));
     } catch (err) {
       setError(err instanceof Error ? err.message : t("classifyTax.error.failed"));
     }
@@ -92,6 +107,19 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
         </Button>
       )}
       <SidePanel open={open} onClose={closePanel} title={t("classifyTax.title")}>
+        {receiptOutcome ? (
+          <div className="flex flex-col gap-[14px]">
+            <div role="status" className="rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12.5px] text-ink">
+              <p className="font-semibold">{t("classifyTax.outcome.classified", { line: line.label })}</p>
+              <p className="mt-[6px]">{receiptOutcome}</p>
+            </div>
+            <div className="flex justify-end">
+              <Button type="button" variant="primary" onClick={closePanel}>
+                {t("classifyTax.done")}
+              </Button>
+            </div>
+          </div>
+        ) : (
         <form
           className="flex flex-col gap-[14px]"
           onSubmit={(event) => {
@@ -107,8 +135,15 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
           <p className="text-[13px] text-ink">{t("classifyTax.lineSummary", { line: line.label, percent: line.taxRatePercent })}</p>
           <p className="text-[12px] text-ink-muted">{t("classifyTax.explain")}</p>
           {candidates.length === 0 ? (
-            <div role="status" className="rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12.5px] text-ink-muted">
-              {t("classifyTax.noRates", { percent: line.taxRatePercent })}
+            <div role="status" className="flex flex-col items-start gap-[8px] rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12.5px] text-ink-muted">
+              <span>{t(line.taxRatePercent === 0 ? "classifyTax.noZeroRates" : "classifyTax.noRates", { percent: line.taxRatePercent })}</span>
+              {mayManageRates ? (
+                <Button type="button" size="sm" onClick={() => navigate("taxes")}>
+                  {t("classifyTax.openTaxRates")}
+                </Button>
+              ) : (
+                <span>{t("classifyTax.askForRate")}</span>
+              )}
             </div>
           ) : (
             <SelectField
@@ -140,6 +175,7 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
             </Button>
           </div>
         </form>
+        )}
       </SidePanel>
     </>
   );

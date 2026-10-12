@@ -1,3 +1,5 @@
+import { ReadPermission, sessionHolds } from "./session";
+import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AuditEventDTO,
@@ -217,6 +219,8 @@ import type {
   SalesReturnDocumentDTO,
   ReturnSourceLinesDTO,
   ClassifyLineTaxDTO,
+  NameJournalLineTaxDTO,
+  EditSalesInvoiceDraftLineDTO,
   LineTaxClassificationDTO,
   SessionDTO,
   SettleVanTripDTO,
@@ -833,7 +837,7 @@ export function useCustomers(filter: CustomerListFilter = {}): UseQueryResult<Cu
   const { request, session } = useApi();
   return useQuery<CustomerDTO[], ApiError>({
     queryKey: ["customers", filter],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.Customers),
     queryFn: async () => {
       const qs = customerParams(filter).toString();
       const res = await request(`/customers${qs ? `?${qs}` : ""}`);
@@ -1351,6 +1355,8 @@ export interface JournalEntryDTO {
     costCategory?: CostCategoryDTO | null;
     branchId?: string | null;
     partyId?: string | null;
+    taxRatePercent?: number | null;
+    taxRateId?: string | null;
   }>;
 }
 
@@ -1793,7 +1799,7 @@ export function useUsers(): UseQueryResult<UserDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<UserDTO[], ApiError>({
     queryKey: ["users"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.Users),
     queryFn: async () => {
       const res = await request("/users");
       if (!res.ok) throw await loaderError(res, t("api.usersCouldNotBeLoaded"), t);
@@ -1850,7 +1856,7 @@ export function useRoles(): UseQueryResult<RoleDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<RoleDTO[], ApiError>({
     queryKey: ["roles"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.Roles),
     queryFn: async () => {
       const res = await request("/roles");
       if (!res.ok) throw await loaderError(res, t("api.rolesCouldNotBeLoaded"), t);
@@ -1931,7 +1937,7 @@ export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
   const { request, session } = useApi();
   return useQuery<TenantSettingsDTO, ApiError>({
     queryKey: ["settings"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.Settings),
     queryFn: async () => {
       const res = await request("/settings");
       if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
@@ -1964,7 +1970,7 @@ export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<BranchDTO[], ApiError>({
     queryKey: ["branches"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.Branches),
     queryFn: async () => {
       const res = await request("/branches");
       if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
@@ -2320,7 +2326,7 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
   const { request, session } = useApi();
   return useQuery<JournalEntryDTO, ApiError>({
     queryKey: ["journal-entries", "detail", id],
-    enabled: session !== null && id !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.JournalEntries) && id !== null,
     queryFn: async () => {
       const res = await request(`/gl/journal-entries/${id}`);
       if (!res.ok) throw await loaderError(res, t("api.theJournalEntryCouldNot"), t);
@@ -2335,7 +2341,7 @@ export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<WarehouseDTO[], ApiError>({
     queryKey: ["warehouses"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.Warehouses),
     queryFn: async () => {
       const res = await request("/warehouses");
       if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
@@ -3050,7 +3056,7 @@ export function useConfirmSalesInvoice() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<SalesInvoiceDTO & { held: boolean }, ApiError, ConfirmSalesInvoiceAct>({
+  return useMutation<ConfirmedSalesInvoiceDTO, ApiError, ConfirmSalesInvoiceAct>({
     mutationFn: async (input) => {
       const id = typeof input === "string" ? input : input.id;
       const dto: ConfirmSalesInvoiceDTO = typeof input === "string" ? {} : {
@@ -3059,11 +3065,13 @@ export function useConfirmSalesInvoice() {
       };
       const res = await request(`/sales-invoices/${id}/confirm`, { method: "POST", body: JSON.stringify(dto) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2"), t));
-      return res.json<SalesInvoiceDTO & { held: boolean }>();
+      return res.json<ConfirmedSalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
   });
 }
+
+export type ConfirmedSalesInvoiceDTO = SalesInvoiceDTO & { held: boolean; taxRecalculated?: { message: string } };
 
 export enum ClassifiableDocument {
   SalesInvoice = "sales-invoices",
@@ -3091,12 +3099,68 @@ export function useClassifyLineTax(document: ClassifiableDocument) {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.lineTaxCouldNotBeClassified"), t));
       return res.json<LineTaxClassificationDTO>();
     },
-    onSuccess: () => {
-      const sales = document === ClassifiableDocument.SalesInvoice;
-      for (const key of [sales ? "sales-invoices" : "purchase-invoices", sales ? "sales-returns" : "purchase-returns", "eta-submissions", "journal-entries", "gl", "audit", "entity-audit"]) {
-        queryClient.invalidateQueries({ queryKey: [key] });
-      }
+    onSuccess: () => invalidateAfterTaxClassification(queryClient, document),
+  });
+}
+
+const QUERIES_A_TAX_CLASSIFICATION_MOVES = ["eta-submissions", "eta", "journal-entries", "gl", "audit", "entity-audit", "financial-reports", "vat-filings"];
+
+function invalidateAfterTaxClassification(queryClient: ReturnType<typeof useQueryClient>, document: ClassifiableDocument): void {
+  const sales = document === ClassifiableDocument.SalesInvoice;
+  for (const key of [sales ? "sales-invoices" : "purchase-invoices", sales ? "sales-returns" : "purchase-returns", ...QUERIES_A_TAX_CLASSIFICATION_MOVES]) {
+    queryClient.invalidateQueries({ queryKey: [key] });
+  }
+}
+
+export interface NameJournalLineTaxAct {
+  readonly documentId: string;
+  readonly lineId: string;
+  readonly journalLineIndexes: readonly number[];
+  readonly taxRateId?: string;
+  readonly withLineIds: readonly string[];
+}
+
+export function useNameJournalLineTax(document: ClassifiableDocument) {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LineTaxClassificationDTO, ApiError, NameJournalLineTaxAct>({
+    mutationFn: async ({ documentId, lineId, journalLineIndexes, taxRateId, withLineIds }) => {
+      const dto: NameJournalLineTaxDTO = {
+        journalLineIndexes: [...journalLineIndexes],
+        ...(taxRateId ? { taxRateId } : {}),
+        ...(withLineIds.length > 0 ? { withLineIds: [...withLineIds] } : {}),
+      };
+      const res = await request(`/${document}/${encodeURIComponent(documentId)}/lines/${encodeURIComponent(lineId)}/journal-tax`, {
+        method: "POST",
+        body: JSON.stringify(dto),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.lineTaxCouldNotBeClassified"), t));
+      return res.json<LineTaxClassificationDTO>();
     },
+    onSuccess: () => invalidateAfterTaxClassification(queryClient, document),
+  });
+}
+
+export interface EditSalesInvoiceDraftLineAct extends EditSalesInvoiceDraftLineDTO {
+  readonly invoiceId: string;
+  readonly lineId: string;
+}
+
+export function useEditSalesInvoiceDraftLine() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesInvoiceDTO, ApiError, EditSalesInvoiceDraftLineAct>({
+    mutationFn: async ({ invoiceId, lineId, ...change }) => {
+      const res = await request(`/sales-invoices/${encodeURIComponent(invoiceId)}/lines/${encodeURIComponent(lineId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(change),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe"), t));
+      return res.json<SalesInvoiceDTO>();
+    },
+    onSuccess: () => invalidateSalesInvoices(queryClient),
   });
 }
 
@@ -4682,13 +4746,27 @@ export function useTaxRates(): UseQueryResult<TaxRateDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<TaxRateDTO[], ApiError>({
     queryKey: ["tax-rates"],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.TaxRates),
     queryFn: async () => {
       const res = await request("/tax-rates");
       if (!res.ok) throw await loaderError(res, t("api.taxesCouldNotBeLoaded"), t);
       return res.json<TaxRateDTO[]>();
     },
   });
+}
+
+export function useVatEnabled(): boolean | null {
+  const { request, session } = useApi();
+  const query = useQuery<{ vatEnabled: boolean }, ApiError>({
+    queryKey: ["tax-rates", "policy"],
+    enabled: sessionMayRead(session, DocumentReadPermission.TaxRates),
+    queryFn: async () => {
+      const res = await request("/tax-rates/policy");
+      if (!res.ok) throw new ApiError(res.status, "");
+      return res.json<{ vatEnabled: boolean }>();
+    },
+  });
+  return query.data?.vatEnabled ?? null;
 }
 
 export function useCreateTaxRate() {
@@ -4874,7 +4952,7 @@ export function useEtaSubmissions(status?: EtaSubmissionStatusDTO): UseQueryResu
   const { request, session } = useApi();
   return useQuery<EtaSubmissionDTO[], ApiError>({
     queryKey: ["eta-submissions", status ?? "all"],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.EtaQueue),
     queryFn: async () => {
       const res = await request(`/eta/submissions${status ? `?status=${status}` : ""}`);
       if (!res.ok) throw await loaderError(res, t("api.theSubmissionQueueCouldNot"), t);
@@ -6455,7 +6533,7 @@ export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<JobTitleDTO[], ApiError>({
     queryKey: ["hr-job-titles"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.JobTitles),
     queryFn: async () => {
       const res = await request("/hr/job-titles");
       if (!res.ok) throw await loaderError(res, t("api.jobTitlesCouldNotBe"), t);
@@ -6497,7 +6575,7 @@ export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<EmployeeDTO[], ApiError>({
     queryKey: ["hr-employees"],
-    enabled: session !== null,
+    enabled: sessionHolds(session, ReadPermission.Employees),
     queryFn: async () => {
       const res = await request("/hr/employees");
       if (!res.ok) throw await loaderError(res, t("api.employeesCouldNotBeLoaded"), t);
@@ -7178,6 +7256,51 @@ export function usePrintTemplateConfig(): UseQueryResult<PrintTemplateConfigDTO,
       const res = await request("/print-template-config");
       if (!res.ok) throw await loaderError(res, t("api.thePrintTemplateCouldNot"), t);
       return res.json<PrintTemplateConfigDTO>();
+    },
+  });
+}
+
+export interface PrintLetterheadDTO {
+  readonly companyName: string;
+  readonly address: string;
+  readonly phone: string;
+  readonly email: string;
+  readonly taxRegistrationNumber: string;
+  readonly commercialRegistrationNumber: string;
+}
+
+export function usePrintLetterhead(): UseQueryResult<PrintLetterheadDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<PrintLetterheadDTO, ApiError>({
+    queryKey: ["print-template-config", "letterhead"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/print-template-config/letterhead");
+      if (!res.ok) throw await loaderError(res, t("api.thePrintTemplateCouldNot"), t);
+      return res.json<PrintLetterheadDTO>();
+    },
+  });
+}
+
+export interface SalesInvoicePrintContextDTO {
+  readonly branchName: string | null;
+  readonly warehouseName: string | null;
+  readonly customer: { readonly code: string; readonly taxNumber: string | null; readonly address: string | null; readonly phone: string | null } | null;
+  readonly etaUuid: string | null;
+  readonly etaQrValue: string | null;
+}
+
+export function useSalesInvoicePrintContext(invoiceId: string): UseQueryResult<SalesInvoicePrintContextDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<SalesInvoicePrintContextDTO, ApiError>({
+    queryKey: ["sales-invoices", "print-context", invoiceId],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/sales-invoices/${encodeURIComponent(invoiceId)}/print-context`);
+      if (!res.ok) throw await loaderError(res, t("api.thePrintTemplateCouldNot"), t);
+      return res.json<SalesInvoicePrintContextDTO>();
     },
   });
 }

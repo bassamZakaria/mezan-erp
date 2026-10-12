@@ -22,7 +22,7 @@ export function UnnamedTaxNotice({ document, posted, documentKind, lines }: Unna
   if (unnamed.length === 0) return null;
   return (
     <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
-      {t(MESSAGE[document], { lines: unnamed.map((line) => `«${line.label}»`).join(t("dataMigration.reasonSeparator")), action: t("classifyTax.action") })}
+      {t(MESSAGE[document], { lines: unnamed.map((line) => `«${line.label}»`).join(t("classifyTax.lineSeparator")), action: t("classifyTax.action") })}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { EmptyState, PrintView, resolvePrintTemplateConfig, type PrintDocumentModel, type PrintTemplateConfig } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
-import { usePrintTemplateConfig, useSettings } from "../data/hooks";
+import { usePrintLetterhead, usePrintTemplateConfig } from "../data/hooks";
 
 /**
  * The one routed print destination every document type reuses (P-6).
@@ -15,7 +15,7 @@ import { usePrintTemplateConfig, useSettings } from "../data/hooks";
 export function DocumentPrintPage({ document }: { document: PrintDocumentModel }) {
   const { t } = useAppTranslation();
   const configQuery = usePrintTemplateConfig();
-  const settings = useSettings().data ?? null;
+  const settings = usePrintLetterhead().data ?? null;
 
   if (configQuery.isLoading) return null;
   if (!configQuery.data) {

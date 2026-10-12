@@ -85,6 +85,8 @@ import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { ClassifyLineTaxAction } from "./ClassifyLineTaxAction";
+import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
+import { DraftLineEditAction } from "./DraftLineEditAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { todayIso } from "../lib/dates";
@@ -1259,6 +1261,7 @@ function InvoiceDetailView({
   const { t, locale } = useAppTranslation();
   const detailConfirm = useConfirmSalesInvoice();
   const [detailConfirmError, setDetailConfirmError] = useState<string | null>(null);
+  const [taxRecalculatedNotice, setTaxRecalculatedNotice] = useState<string | null>(null);
   /** B3 — stated only for a consumer sale confirmed with no till; "" leaves the backend's own derivation. */
   const [detailReceiptPaymentMethod, setDetailReceiptPaymentMethod] = useState<EtaReceiptPaymentMethod | "">("");
   const detailCustomersQuery = useCustomers();
@@ -1459,6 +1462,11 @@ function InvoiceDetailView({
               {detailConfirmError}
             </span>
           ) : null}
+          {taxRecalculatedNotice ? (
+            <span role="status" className="block text-[12.5px] font-semibold text-warning-ink">
+              {taxRecalculatedNotice}
+            </span>
+          ) : null}
         </>
       }
       /**
@@ -1479,13 +1487,14 @@ function InvoiceDetailView({
                 try {
                   // N-9: the version this screen was served. A second till that
                   // already moved this invoice gets the 409 refusal here.
-                  await detailConfirm.mutateAsync({
+                  const confirmed = await detailConfirm.mutateAsync({
                     id: invoice.id,
                     expectedVersion: invoice.version,
                     ...(isConsumerReceiptSale && detailReceiptPaymentMethod !== ""
                       ? { receiptPaymentMethod: detailReceiptPaymentMethod }
                       : {}),
                   });
+                  setTaxRecalculatedNotice(confirmed.taxRecalculated?.message ?? null);
                 } catch (err) {
                   setDetailConfirmError(errorMessage(err, t("common.failed")));
                 }
@@ -1600,6 +1609,7 @@ function InvoiceDetailView({
                           <td className="px-[15px] py-[11px] text-end">
                             {lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.tax.toString())} /> : "—"}
                             <span className="block text-[11px] text-ink-faint">{postedTaxRateLabel(detailTaxRates, l, t)}</span>
+                            <DraftLineEditAction invoice={invoice} line={l} taxRates={detailTaxRates} />
                             <ClassifyLineTaxAction
                               document={ClassifiableDocument.SalesInvoice}
                               documentId={invoice.id}
@@ -1681,6 +1691,15 @@ function InvoiceDetailView({
               {invoice.journalEntryId ? (
                 journalEntryQuery.data ? (
                   <>
+                    <NameJournalLineTaxAction
+                      document={ClassifiableDocument.SalesInvoice}
+                      documentId={invoice.id}
+                      journalEntryId={invoice.journalEntryId}
+                      posted={SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)}
+                      lines={invoice.lines.map((l) => ({ lineId: l.lineId, label: l.itemNameAr, taxRatePercent: l.taxRatePercent, taxRateId: l.taxRateId ?? null }))}
+                      taxRates={detailTaxRates}
+                      accountLabel={accountLabel}
+                    />
                     <div className="mb-[12px] text-[13px] text-ink-muted">
                       {t("salesInvoices.journal.entryNo")} <span className="mz-num font-semibold text-ink">{journalEntryQuery.data.entryNo ?? invoice.docNo}</span>
                     </div>
@@ -1967,15 +1986,18 @@ export function SalesInvoicesScreen() {
   const listConfirm = useConfirmSalesInvoice();
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
+  const [rowNotice, setRowNotice] = useState<string | null>(null);
 
   async function confirmRow(id: string, expectedVersion?: number): Promise<void> {
     if (confirmingId) return;
     setRowError(null);
+    setRowNotice(null);
     setConfirmingId(id);
     try {
       // N-9: the version the LIST row was served. Without it a second till that
       // already moved this invoice wins silently.
-      await listConfirm.mutateAsync({ id, expectedVersion });
+      const confirmed = await listConfirm.mutateAsync({ id, expectedVersion });
+      setRowNotice(confirmed.taxRecalculated?.message ?? null);
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
     } finally {
@@ -2112,6 +2134,11 @@ export function SalesInvoicesScreen() {
           {rowError ? (
             <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
               {rowError}
+            </div>
+          ) : null}
+          {rowNotice ? (
+            <div role="status" className="mb-[18px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+              {rowNotice}
             </div>
           ) : null}
           {query.isError ? (

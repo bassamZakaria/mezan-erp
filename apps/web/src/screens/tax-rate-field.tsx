@@ -61,8 +61,12 @@ export function postedTaxRateLabel(
     : t("taxRateField.option", { name, rate: line.taxRatePercent });
 }
 
+// INVARIANT: the system's «غير خاضع» rate is never offered. The server names
+// it itself on a VAT-off tenant's sales and refuses it wherever it is chosen,
+// so a picker that lists it offers only a refusal. A line that already holds
+// it still shows it.
 export function selectableTaxRates(taxRates: readonly TaxRateDTO[], selectedId: string | null): TaxRateDTO[] {
-  return taxRates.filter((r) => r.status === TaxRateStatusCode.Active || r.id === selectedId);
+  return taxRates.filter((r) => r.id === selectedId || (r.status === TaxRateStatusCode.Active && r.isSystem !== true));
 }
 
 export interface TaxRateFieldProps {

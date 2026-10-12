@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { InvoiceDocumentKind, type SessionDTO, type TaxRateDTO } from "@mezan/contracts";
 import { ClassifiableDocument } from "../data/hooks";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -116,14 +116,25 @@ describe("ClassifyLineTaxAction — «تصنيف ضريبة البند» on a po
     expect(screen.queryByRole("button", { name: /تصنيف ضريبة البند/ })).toBeNull();
   });
 
-  it("never offers the system's «غير خاضع» rate on a sale — the server names it only for a tenant whose VAT is off — and does offer it on a purchase", async () => {
+  it("offers the system's «غير خاضع» rate only on a sale of a tenant whose VAT is off — never while VAT is on, and never on a purchase", async () => {
     const system = taxRate({ id: "SYS-NOT-SUBJECT", code: "SYS-NOT-SUBJECT", name: "غير خاضع", rate: 0, isDefault: false, etaSubType: "V004", isSystem: true });
     const withSystem = [...TAX_RATES, system];
-    const optionsFor = async (document: ClassifiableDocument) => {
+    const optionsFor = async (document: ClassifiableDocument, vatEnabled: boolean) => {
+      let policyServed = false;
+      const transport = stubTransport({
+        "GET /tax-rates/policy": () => {
+          policyServed = true;
+          return { body: { vatEnabled } };
+        },
+      });
       const { unmount } = renderWithProviders(
         <ClassifyLineTaxAction document={document} documentId="INV-1" posted line={LINES[0]!} lines={LINES} taxRates={withSystem} />,
-        { transport: stubTransport({}), initialSession: testAdminSession },
+        { transport, initialSession: testAdminSession },
       );
+      await waitFor(() => expect(policyServed).toBe(true));
+      await act(async () => {
+        await Promise.resolve();
+      });
       fireEvent.click(screen.getByRole("button", { name: "تصنيف ضريبة البند «خدمة توصيل»" }));
       await screen.findByRole("dialog", { name: "تصنيف ضريبة البند" });
       fireEvent.click(screen.getByLabelText("الضريبة"));
@@ -131,8 +142,33 @@ describe("ClassifyLineTaxAction — «تصنيف ضريبة البند» on a po
       unmount();
       return options;
     };
-    expect(await optionsFor(ClassifiableDocument.SalesInvoice)).not.toContain("غير خاضع · 0٪");
-    expect(await optionsFor(ClassifiableDocument.PurchaseInvoice)).toContain("غير خاضع · 0٪");
+    expect(await optionsFor(ClassifiableDocument.SalesInvoice, true)).not.toContain("غير خاضع · 0٪");
+    expect(await optionsFor(ClassifiableDocument.PurchaseInvoice, true)).not.toContain("غير خاضع · 0٪");
+    expect(await optionsFor(ClassifiableDocument.PurchaseInvoice, false)).not.toContain("غير خاضع · 0٪");
+    expect(await optionsFor(ClassifiableDocument.SalesInvoice, false)).toContain("غير خاضع · 0٪");
+  });
+
+  it("says what became of a rejected e-receipt instead of closing silently", async () => {
+    renderAction(LINES[0]!, {
+      respond: () => ({ body: { documentId: "INV-1", documentNumber: "INV-000001", lineIds: ["L1"], taxRateId: "VAT-EXEMPT", taxRateName: "معفى من الضريبة", taxRatePercent: 0, journalLinesNamed: 1, filing: "reissue_refused", filingMessage: "لا يمكن إعادة إصدار الإيصال المرفوض بعد مرور 96 ساعة على إصداره." } }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: /تصنيف ضريبة البند/ }));
+    pick("معفى من الضريبة · 0٪");
+    fireEvent.click(screen.getByRole("button", { name: "تصنيف" }));
+    expect(await screen.findByText(/تعذّر إعادة إصدار الإيصال الإلكتروني المرفوض: لا يمكن إعادة إصدار الإيصال المرفوض بعد مرور 96 ساعة/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "تم" }));
+    await waitFor(() => expect(screen.queryByText(/تعذّر إعادة إصدار/)).toBeNull());
+  });
+
+  it("tells a tenant with no 0% rate of its own to create one, and offers the Tax Rates screen to whoever may manage them", async () => {
+    renderWithProviders(
+      <ClassifyLineTaxAction document={ClassifiableDocument.SalesInvoice} documentId="INV-1" posted line={LINES[0]!} lines={LINES} taxRates={TAX_RATES.filter((rate) => rate.rate !== 0)} />,
+      { transport: stubTransport({ "GET /tax-rates/policy": () => ({ body: { vatEnabled: true } }) }), initialSession: testAdminSession },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /تصنيف ضريبة البند/ }));
+    expect(await screen.findByText(/أنشئ ضريبة بنسبة 0٪ بتصنيف «غير خاضع»/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "فتح شاشة الضرائب" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تصنيف" })).toBeDisabled();
   });
 
   it("is absent on a retention release, which is not a supply and has no tax to classify", () => {

@@ -216,3 +216,18 @@ describe("MEZAN_PAYMOB_NOT_FOUND_CONFIRMED", () => {
     expect(parseEnv({ ...live, MEZAN_PAYMOB_NOT_FOUND_CONFIRMED: "1" }).paymob).toMatchObject({ notFoundShapeConfirmed: true });
   });
 });
+
+describe("MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER", () => {
+  it("names the one header the caller's address is read from, lower-cased, and only with a trusted proxy", () => {
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1", MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: " CF-Connecting-IP " }).clientSource)
+      .toEqual({ trustedProxyHops: 1, trustViewerAddress: false, compareViewerAddress: false, trustedAddressHeader: "cf-connecting-ip" });
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" }).clientSource).not.toHaveProperty("trustedAddressHeader");
+    expect(() => parseEnv({ MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: "cf-connecting-ip" })).toThrow(/MEZAN_TRUST_PROXY=1/);
+  });
+
+  it("refuses a value that is not a header name, and the forwarded chain itself", () => {
+    for (const bad of ["cf connecting ip", "x-real-ip: 1.2.3.4", "x-forwarded-for", "forwarded"]) {
+      expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1", MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: bad }), bad).toThrow(/MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER/);
+    }
+  });
+});

@@ -193,6 +193,10 @@ function parseReviewTenant(env: Record<string, string | undefined>): ReviewTenan
   return { code, pin };
 }
 
+const TRUSTED_ADDRESS_HEADER_VAR = "MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER";
+const HEADER_NAME = /^[a-z0-9][a-z0-9-]*$/;
+const CALLER_WRITTEN_HEADERS: ReadonlySet<string> = new Set(["x-forwarded-for", "forwarded"]);
+
 function parseClientSource(env: Record<string, string | undefined>): ClientSourceOptions {
   const trustProxy = flag(env["MEZAN_TRUST_PROXY"]);
   const hops = parseNonNegativeInt(env["MEZAN_TRUSTED_PROXY_HOPS"], "MEZAN_TRUSTED_PROXY_HOPS", 0);
@@ -211,7 +215,23 @@ function parseClientSource(env: Record<string, string | undefined>): ClientSourc
       "MEZAN_TRUST_VIEWER_ADDRESS needs MEZAN_TRUST_PROXY=1 and MEZAN_ORIGIN_SECRET: CloudFront-Viewer-Address is only CloudFront's word when nothing reaches the origin except through it",
     );
   }
-  return { trustedProxyHops: hops, trustViewerAddress: viewer, compareViewerAddress: trustProxy && originSecret };
+  const header = trimmedOrUndefined(env[TRUSTED_ADDRESS_HEADER_VAR])?.toLowerCase();
+  if (header !== undefined) {
+    if (!trustProxy) {
+      throw new Error(`${TRUSTED_ADDRESS_HEADER_VAR} needs MEZAN_TRUST_PROXY=1: with no trusted proxy every header is the caller's own word`);
+    }
+    if (!HEADER_NAME.test(header) || CALLER_WRITTEN_HEADERS.has(header)) {
+      throw new Error(
+        `${TRUSTED_ADDRESS_HEADER_VAR} must name one header the edge overwrites on every request (for example cf-connecting-ip), got "${header}"`,
+      );
+    }
+  }
+  return {
+    trustedProxyHops: hops,
+    trustViewerAddress: viewer,
+    compareViewerAddress: trustProxy && originSecret,
+    ...(header === undefined ? {} : { trustedAddressHeader: header }),
+  };
 }
 
 export function parseEnv(env: Record<string, string | undefined> = process.env, options: ParseEnvOptions = {}): CloudEnv {

@@ -29,6 +29,8 @@ export interface ClientSourceOptions {
   /** True where an origin secret proves every request crossed CloudFront, so its viewer address can check the hop count. */
   readonly compareViewerAddress: boolean;
   readonly onViewerMismatch?: (mismatch: ViewerMismatch) => void;
+  /** The one header this deployment's edge writes the caller's address in, lower-cased. Read only when a proxy is trusted. */
+  readonly trustedAddressHeader?: string;
 }
 
 const VIEWER_ADDRESS = "cloudfront-viewer-address";
@@ -62,18 +64,23 @@ function viewerAddress(header: string | undefined): CloudSource | null {
 // and aimed at a victim by naming them. With a proxy trusted, the socket is the
 // proxy and is never read: a chain that does not yield an address is
 // UNRESOLVED, not somebody else's address and not the host.
-function countedSource(c: Context, trustedProxyHops: number): CloudSource {
+function countedSource(c: Context, trustedProxyHops: number, trustedAddressHeader?: string): CloudSource {
   if (trustedProxyHops === 0) {
     const peer = requestOrigin(c);
     return (peer === null ? null : canonical(canonicalOrigin(peer) ?? "")) ?? UNRESOLVED_SOURCE;
   }
+  // SECURITY: the named header is believed because the DEPLOYMENT says its
+  // edge overwrites it on every request. A request without a usable value did
+  // not come through that edge, so it is unresolved — never read from the
+  // forwarded chain instead, which is the part of the request a caller writes.
+  if (trustedAddressHeader !== undefined) return forwardedEntry(c.req.header(trustedAddressHeader)) ?? UNRESOLVED_SOURCE;
   const hops = (c.req.header(FORWARDED_FOR) ?? "").split(",");
   return forwardedEntry(hops[hops.length - trustedProxyHops]) ?? UNRESOLVED_SOURCE;
 }
 
 export function cloudSource(c: Context, options: ClientSourceOptions): CloudSource {
   const viewer = options.trustViewerAddress || options.compareViewerAddress ? viewerAddress(c.req.header(VIEWER_ADDRESS)) : null;
-  const counted = countedSource(c, options.trustedProxyHops);
+  const counted = countedSource(c, options.trustedProxyHops, options.trustedAddressHeader);
   if (options.compareViewerAddress && viewer !== null && viewer !== counted) {
     options.onViewerMismatch?.({ counted, viewer, trustedProxyHops: options.trustedProxyHops });
   }

@@ -64,6 +64,13 @@ request. Until the origin request policy for `/api/*` and `/legal/*` forwards
 `CloudFront-Viewer-Address`, a wrong `MEZAN_TRUSTED_PROXY_HOPS` is found only by
 reading an audit event's address by hand.
 
+Once that policy forwards the header, `MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER=cloudfront-viewer-address`
+reads the caller from it directly and refuses a request that arrives without
+it; like `MEZAN_TRUST_VIEWER_ADDRESS`, it is only CloudFront's word while
+`MEZAN_ORIGIN_SECRET` keeps everything else from reaching the origin. It is
+not set on this stack today, for the reason above: the header never arrives,
+so every request would be refused.
+
 One policy cannot both drop the viewer's `Host` and add a CloudFront header
 (<https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/origin-request-understand-origin-request-policy.html>),
 so the change replaces the managed policy with one that lists the headers the

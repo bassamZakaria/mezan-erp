@@ -1,21 +1,64 @@
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync, renameSync, rmSync } from "node:fs";
+import { createReadStream, existsSync, renameSync, rmSync, statSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { tenantDbFile, type Tenant, type TenantRepository } from "@mezan/domain";
+import { tenantDbFile, TenantStatusCode, type Tenant, type TenantRepository } from "@mezan/domain";
+import { holdSqliteFile, SqliteFileBusyError } from "@mezan/persistence";
 
 const SQLITE_FILE_SUFFIXES = ["", "-wal", "-shm"] as const;
+const SQLITE_SIBLING_SUFFIXES = ["-wal", "-shm"] as const;
 
-export class TenantDbFileConflictError extends Error {
-  readonly code = "TENANT_DB_FILE_CONFLICT";
+export enum TenantDbFileRefusal {
+  Conflict = "TENANT_DB_FILE_CONFLICT",
+  Missing = "TENANT_DB_FILE_MISSING",
+  Shared = "TENANT_DB_FILE_SHARED",
+  Busy = "TENANT_DB_FILE_BUSY",
+}
 
-  constructor(readonly tenantId: string, readonly file: string) {
-    super(`tenant "${tenantId}" has two different database files; "${file}" was left untouched`);
-    this.name = "TenantDbFileConflictError";
+export abstract class TenantDbFileError extends Error {
+  abstract readonly code: TenantDbFileRefusal;
+  readonly retryable: boolean = false;
+
+  constructor(readonly tenantId: string, readonly file: string, message: string) {
+    super(message);
+    this.name = new.target.name;
   }
 }
 
-function sha256Of(file: string): Promise<string> {
+export class TenantDbFileConflictError extends TenantDbFileError {
+  readonly code = TenantDbFileRefusal.Conflict;
+
+  constructor(tenantId: string, file: string) {
+    super(tenantId, file, `tenant "${tenantId}" has two different database files; "${file}" was left untouched`);
+  }
+}
+
+export class TenantDbFileMissingError extends TenantDbFileError {
+  readonly code = TenantDbFileRefusal.Missing;
+
+  constructor(tenantId: string, file: string) {
+    super(tenantId, file, `the database file "${file}" of tenant "${tenantId}" is not where its row says; nothing was changed`);
+  }
+}
+
+export class TenantDbFileSharedError extends TenantDbFileError {
+  readonly code = TenantDbFileRefusal.Shared;
+
+  constructor(tenantId: string, file: string, readonly otherTenantIds: readonly string[]) {
+    super(tenantId, file, `the database file "${file}" of tenant "${tenantId}" is also named by ${otherTenantIds.map((id) => `"${id}"`).join(", ")}; nothing was changed`);
+  }
+}
+
+export class TenantDbFileBusyError extends TenantDbFileError {
+  readonly code = TenantDbFileRefusal.Busy;
+  override readonly retryable = true;
+
+  constructor(tenantId: string, file: string) {
+    super(tenantId, file, `the database file "${file}" of tenant "${tenantId}" is open elsewhere; it was not moved`);
+  }
+}
+
+export function sha256OfFile(file: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = createHash("sha256");
     createReadStream(file)
@@ -25,42 +68,115 @@ function sha256Of(file: string): Promise<string> {
   });
 }
 
-async function copyVerified(from: string, to: string, tenantId: string): Promise<void> {
-  const wanted = await sha256Of(from);
-  if (existsSync(to)) {
-    if ((await sha256Of(to)) !== wanted) throw new TenantDbFileConflictError(tenantId, to);
-    return;
-  }
-  const staged = `${to}.adopting`;
-  await copyFile(from, staged);
-  if ((await sha256Of(staged)) !== wanted) {
-    rmSync(staged, { force: true });
-    throw new Error(`the copy of "${from}" did not match its source`);
-  }
-  renameSync(staged, to);
+export interface TenantDbFileIo {
+  readonly copyFile?: (from: string, to: string) => Promise<void>;
+  readonly sha256Of?: (file: string) => Promise<string>;
+  readonly waitMs?: number;
 }
 
-// REQUIRED ORDERING: copy and verify, then point the platform row at the copy,
-// and only then remove the old file. The platform row is the source of truth:
-// a crash at any step leaves a file the row names, complete.
-export async function settleTenantDbFile(tenants: Pick<TenantRepository, "setDbFile" | "findById">, dataDir: string, tenant: Tenant): Promise<Tenant> {
+type Tenants = Pick<TenantRepository, "setDbFile" | "findById" | "list">;
+
+function stampOf(files: readonly string[]): string {
+  return files
+    .flatMap((file) => SQLITE_FILE_SUFFIXES.map((suffix) => `${file}${suffix}`))
+    .map((file) => {
+      const stat = statSync(file, { throwIfNoEntry: false });
+      return stat ? `${stat.size}:${stat.mtimeMs}` : "-";
+    })
+    .join("|");
+}
+
+const knownConflicts = new Map<string, { readonly stamp: string; readonly error: TenantDbFileConflictError }>();
+const reportedStaleCopies = new Set<string>();
+
+async function othersNaming(tenants: Tenants, tenant: Tenant, dbFile: string): Promise<string[]> {
+  return (await tenants.list()).filter((other) => other.id !== tenant.id && other.dbFile === dbFile).map((other) => other.id);
+}
+
+async function dropStaleCopy(tenants: Tenants, dataDir: string, tenant: Tenant, sha256Of: (file: string) => Promise<string>): Promise<void> {
+  const legacy = `tenants/${tenant.code}.db`;
+  const stale = path.join(dataDir, legacy);
+  const current = path.join(dataDir, tenant.dbFile);
+  if (legacy === tenant.dbFile || !existsSync(stale) || !existsSync(current)) return;
+  if ((await othersNaming(tenants, tenant, legacy)).length > 0) return;
+  if ((await sha256Of(stale)) === (await sha256Of(current))) {
+    for (const suffix of SQLITE_FILE_SUFFIXES) rmSync(`${stale}${suffix}`, { force: true });
+    return;
+  }
+  const key = `${dataDir}\n${tenant.id}`;
+  if (reportedStaleCopies.has(key)) return;
+  reportedStaleCopies.add(key);
+  console.warn(`[cloud] tenant "${tenant.id}" is served from "${tenant.dbFile}", and a different file was left at "${legacy}"; it was not removed`);
+}
+
+// REQUIRED ORDERING: hold the old file exclusively, copy and verify, point the
+// platform row at the copy, and only then remove the old file. The platform
+// row is the source of truth: a crash at any step leaves a file the row names,
+// complete, and a write that could land in the old file afterwards is refused
+// before anything is copied.
+export async function settleTenantDbFile(tenants: Tenants, dataDir: string, tenant: Tenant, io: TenantDbFileIo = {}): Promise<Tenant> {
+  const sha256Of = io.sha256Of ?? sha256OfFile;
+  const copy = io.copyFile ?? copyFile;
   const wanted = tenantDbFile(tenant.id);
-  if (tenant.dbFile === wanted) return tenant;
+  if (tenant.dbFile === wanted) {
+    await dropStaleCopy(tenants, dataDir, tenant, sha256Of);
+    return tenant;
+  }
   const from = path.join(dataDir, tenant.dbFile);
   const to = path.join(dataDir, wanted);
+  const cacheKey = `${dataDir}\n${tenant.id}`;
 
   if (existsSync(from)) {
-    await mkdir(path.dirname(to), { recursive: true });
-    for (const suffix of SQLITE_FILE_SUFFIXES) {
-      if (existsSync(`${from}${suffix}`)) await copyVerified(`${from}${suffix}`, `${to}${suffix}`, tenant.id);
-      else if (existsSync(`${to}${suffix}`)) throw new TenantDbFileConflictError(tenant.id, `${to}${suffix}`);
+    const sharers = await othersNaming(tenants, tenant, tenant.dbFile);
+    if (sharers.length > 0) throw new TenantDbFileSharedError(tenant.id, tenant.dbFile, sharers);
+    const known = knownConflicts.get(cacheKey);
+    if (known && known.stamp === stampOf([from, to])) throw known.error;
+    knownConflicts.delete(cacheKey);
+
+    let held;
+    try {
+      held = holdSqliteFile(from, { waitMs: io.waitMs });
+    } catch (err) {
+      if (err instanceof SqliteFileBusyError) throw new TenantDbFileBusyError(tenant.id, tenant.dbFile);
+      throw err;
     }
+    try {
+      const conflict = (file: string): TenantDbFileConflictError => {
+        const error = new TenantDbFileConflictError(tenant.id, file);
+        knownConflicts.set(cacheKey, { stamp: stampOf([from, to]), error });
+        return error;
+      };
+      for (const suffix of SQLITE_SIBLING_SUFFIXES) if (existsSync(`${to}${suffix}`)) throw conflict(`${to}${suffix}`);
+      const source = await sha256Of(from);
+      if (existsSync(to)) {
+        if ((await sha256Of(to)) !== source) throw conflict(to);
+      } else {
+        await mkdir(path.dirname(to), { recursive: true });
+        const staged = `${to}.adopting`;
+        await copy(from, staged);
+        if ((await sha256Of(staged)) !== source) {
+          rmSync(staged, { force: true });
+          throw new Error(`the copy of "${from}" did not match its source`);
+        }
+        renameSync(staged, to);
+      }
+      await repoint(tenants, tenant, wanted);
+    } finally {
+      held.release();
+    }
+    for (const suffix of SQLITE_FILE_SUFFIXES) rmSync(`${from}${suffix}`, { force: true });
+    return { ...tenant, dbFile: wanted };
   }
 
-  if (!(await tenants.setDbFile(tenant.id, tenant.dbFile, wanted))) {
-    const latest = await tenants.findById(tenant.id);
-    if (latest?.dbFile !== wanted) throw new Error(`the database file of tenant "${tenant.id}" changed while it was being renamed`);
-  }
-  for (const suffix of SQLITE_FILE_SUFFIXES) rmSync(`${from}${suffix}`, { force: true });
+  // SECURITY: a tenant that was ever served has books. With its file gone the
+  // row is left naming it: repointing would open an empty database in its place.
+  if (tenant.status !== TenantStatusCode.Provisioning && !existsSync(to)) throw new TenantDbFileMissingError(tenant.id, tenant.dbFile);
+  await repoint(tenants, tenant, wanted);
   return { ...tenant, dbFile: wanted };
+}
+
+async function repoint(tenants: Tenants, tenant: Tenant, wanted: string): Promise<void> {
+  if (await tenants.setDbFile(tenant.id, tenant.dbFile, wanted)) return;
+  const latest = await tenants.findById(tenant.id);
+  if (latest?.dbFile !== wanted) throw new Error(`the database file of tenant "${tenant.id}" changed while it was being renamed`);
 }

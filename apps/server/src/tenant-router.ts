@@ -9,7 +9,7 @@ import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { tenantIsServed, TenantStatusCode, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { createOwnerContact, OwnerCandidateNotFoundError, OwnerConfirmation, PREVIOUS_OWNER_ACTOR, type PendingHandOverMail } from "./owner-contact.js";
-import { settleTenantDbFile } from "./tenant-db-file.js";
+import { settleTenantDbFile, TenantDbFileError } from "./tenant-db-file.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { requestHost, resolveTenantCode, tenantSlugOfHost, TENANT_HEADER } from "./tenant-resolver.js";
 
@@ -23,6 +23,7 @@ export interface TenantRouterOptions {
   readonly ttlMs?: number;
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
+  readonly dbFileWaitMs?: number;
   readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, hooks: TenantBackendHooks) => Promise<BackendHandle>;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
@@ -88,6 +89,7 @@ export function tenantDbPath(dataDir: string, dbFile: string): string {
 
 /** This router's own catch-all pattern — kept as a constant so its length can be subtracted from `routePath`. */
 const REST_PATTERN = "/:rest{.*}";
+const DB_FILE_RETRY_AFTER_SECONDS = 5;
 
 export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   const resolvers = new Map<string, TenantResolvers>();
@@ -144,7 +146,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     open: async (tenantId) => {
       const stored = await options.platform.stores.tenants.findById(tenantId);
       if (!stored) throw new Error("TENANT_NOT_FOUND");
-      const tenant = await settleTenantDbFile(options.platform.stores.tenants, options.dataDir, stored);
+      const tenant = await settleTenantDbFile(options.platform.stores.tenants, options.dataDir, stored, { waitMs: options.dbFileWaitMs });
       const { code } = tenant;
       const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(code));
       openCodes.set(tenantId, code);
@@ -177,6 +179,11 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
     console.error(err);
+    if (err instanceof TenantDbFileError) {
+      if (!err.retryable) return c.json({ error: err.code, message: "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم." }, 503);
+      c.header("Retry-After", String(DB_FILE_RETRY_AFTER_SECONDS));
+      return c.json({ error: err.code, message: "بيانات المنشأة قيد النقل الآن. أعد المحاولة بعد لحظات." }, 503);
+    }
     return c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 

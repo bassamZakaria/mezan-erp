@@ -80,7 +80,7 @@ export function taxClassificationRefusal(c: Context, err: unknown): Response | n
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, returnNumber: err.returnNumber }, 422);
   }
   if (err instanceof TaxClassificationReturnMixedError) {
-    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, returnNumber: err.returnNumber }, 409);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, returnNumber: err.returnNumber, invoiceNumbers: err.invoiceNumbers }, 409);
   }
   return taxRateRefusal(c, err);
 }

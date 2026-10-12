@@ -85,6 +85,15 @@ export function createJournalTaxTagPort(deps: {
       return matched ? named + (await deps.ledger.tagJournalLines(entryId, matched, taxRatePercent, taxRateId)) : named;
     },
 
+    async nameExpectedLines(entryId, taxRatePercent, taxRateId, expected) {
+      const entry = await deps.ledger.findById(entryId);
+      if (!entry || expected.length === 0) return 0;
+      await assertVatNotFiled(entry.date, deps.vatFilings);
+      if (!deps.ledger.tagJournalLines) throw new JournalTaxTagUnsupportedError();
+      const matched = matchExpected(entry, expected, taxRatePercent);
+      return matched ? deps.ledger.tagJournalLines(entryId, matched, taxRatePercent, taxRateId) : 0;
+    },
+
     async nameChosenLines(entryId, lineIndexes, taxRatePercent, taxRateId, expected) {
       const entry = await deps.ledger.findById(entryId);
       if (!entry || !deps.ledger.tagJournalLines) throw new JournalTaxTagUnsupportedError();

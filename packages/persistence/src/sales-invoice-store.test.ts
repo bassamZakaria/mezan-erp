@@ -279,6 +279,7 @@ describe("a classification never saves the invoice whole", () => {
           return 1;
         },
         nameChosenLines: async () => ({ before: [], after: [] }),
+        nameExpectedLines: async () => 0,
       },
     });
 

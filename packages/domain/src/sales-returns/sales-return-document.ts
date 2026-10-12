@@ -213,8 +213,9 @@ export function createSalesReturnDocumentType(
       // (`validate` above), so its projectId — inherited from that invoice —
       // is the same on every line; the first line's is the document's.
       const projectId = doc.lines[0]?.projectId ?? null;
-      // Grouped by the rate the source invoice line charged, so a mixed-rate
-      // return posts one base line and one VAT line PER RATE. The VAT return
+      // Grouped by source invoice and the rate its line charged, so a return
+      // posts one base line and one VAT line PER (INVOICE, RATE) — each
+      // invoice's lines can then be classified without the other's. The VAT return
       // reports the rates actually charged, and it can only do that if the
       // ledger recorded them (D28, D76). Lines carrying no rate group under
       // `null` and post the single untagged pair they always did.
@@ -222,7 +223,7 @@ export function createSalesReturnDocumentType(
       for (const l of doc.lines) {
         const rate = l.taxRatePercent ?? null;
         const taxRateId = l.taxRateId ?? null;
-        const key = `${rate}|${taxRateId ?? ""}`;
+        const key = `${l.sourceInvoiceId}|${rate}|${taxRateId ?? ""}`;
         const slot = byRate.get(key) ?? { rate, taxRateId, base: Money.zero(), tax: Money.zero() };
         const part = salesReturnLineBase(l);
         byRate.set(key, { ...slot, base: slot.base.add(part.revenue), tax: slot.tax.add(part.tax) });

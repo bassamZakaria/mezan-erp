@@ -92,6 +92,12 @@ export interface JournalTaxTagPort {
     taxRateId: string,
     expected: readonly ExpectedTaxJournalLine[],
   ): Promise<ChosenJournalLinesNamed>;
+  /**
+   * Names ONLY the unnamed lines that are, account for account and amount for
+   * amount, the `expected` ones — all of them or none. For an entry that holds
+   * other documents' unnamed lines at the same percent.
+   */
+  nameExpectedLines(entryId: string, taxRatePercent: number, taxRateId: string, expected: readonly ExpectedTaxJournalLine[]): Promise<number>;
 }
 
 export interface TaxClassificationCarryRequest {
@@ -131,11 +137,15 @@ export class TaxClassificationReturnFiledError extends Error {
 export class TaxClassificationReturnMixedError extends Error {
   readonly code = "TAX_CLASSIFICATION_RETURN_MIXED";
   readonly messageEn: string;
-  constructor(readonly returnNumber: string) {
+  constructor(
+    readonly returnNumber: string,
+    readonly invoiceNumbers: readonly string[] = [],
+  ) {
+    const invoices = invoiceNumbers.join(" و ");
     super(
-      `المرتجع ${returnNumber} يجمع بنوداً غير مصنّفة الضريبة من أكثر من فاتورة بالنسبة نفسها في سطر قيد واحد، وسطر القيد يحمل ضريبة واحدة، فلا يُصنَّف بند إحدى الفاتورتين دون الأخرى. المرتجع المؤكد لا يُعكس؛ راجع المحاسب قبل تصنيف هذه البنود.`,
+      `المرتجع ${returnNumber} رُحّل قبل فصل قيده لكل فاتورة: بنوده غير المصنّفة الضريبة من الفواتير ${invoices} بالنسبة نفسها مجموعة في سطر قيد واحد، وسطر القيد يحمل ضريبة واحدة، فلا يُصنَّف بند إحداها دون الأخرى. صنّف بنود هذه الفواتير على المرتجع معاً من «تسمية ضريبة سطر القيد» في صفحة المرتجع.`,
     );
-    this.messageEn = `Return ${returnNumber} holds unclassified lines of more than one invoice at the same percent on one journal line, and a journal line carries one rate, so one invoice's line cannot be classified without the other's. A confirmed return cannot be reversed; refer to the accountant before classifying these lines.`;
+    this.messageEn = `Return ${returnNumber} was posted before its entry was split per invoice: its unclassified lines of invoices ${invoiceNumbers.join(" and ")} at the same percent share one journal line, and a journal line carries one rate, so one invoice's line cannot be classified without the other's. Classify them together on the return with "Name the journal line's tax" on the return's page.`;
     this.name = "TaxClassificationReturnMixedError";
   }
 }

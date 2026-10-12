@@ -227,7 +227,7 @@ export function createPurchaseReturnDocumentType(
       // return needs. One untagged pair when no line carries a rate, which is
       // the entry this type always posted (D28, D76).
       type RateGroup = { readonly rate: number | null; readonly taxRateId: string | null; readonly base: Money; readonly tax: Money };
-      const taxKeyOf = (l: PurchaseReturnLine): string => `${l.taxRatePercent ?? null}|${l.taxRateId ?? ""}`;
+      const taxKeyOf = (l: PurchaseReturnLine): string => `${l.sourceInvoiceId}|${l.taxRatePercent ?? null}|${l.taxRateId ?? ""}`;
       const byRate = new Map<string, RateGroup>();
       for (const l of doc.lines) {
         const key = taxKeyOf(l);

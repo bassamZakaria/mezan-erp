@@ -12,6 +12,7 @@ import { VatPeriodAlreadyFiledError } from "../tax/vat-filing.js";
 
 interface SourcedTaxLine {
   readonly sourceInvoiceId: string;
+  readonly sourceInvoiceNumber?: string | null;
   readonly taxRatePercent?: number | null;
   readonly taxRateId?: string | null;
 }
@@ -33,7 +34,7 @@ export interface ReturnTaxFilingPort<Line> {
 export function createReturnTaxCarry<Line extends SourcedTaxLine>(deps: {
   readonly returns: DocumentRepository<Line>;
   readonly tags: JournalTaxTagPort;
-  readonly expected: (doc: FrameworkDocument<Line>, taxRatePercent: number) => readonly ExpectedTaxJournalLine[];
+  readonly expected: (doc: FrameworkDocument<Line>, taxRatePercent: number, sourceInvoiceId?: string) => readonly ExpectedTaxJournalLine[];
   readonly filing?: ReturnTaxFilingPort<Line>;
 }): TaxClassificationDependentsPort {
   const unnamedAt = (line: SourcedTaxLine, percent: number): boolean => (line.taxRateId ?? null) === null && line.taxRatePercent === percent;
@@ -49,15 +50,24 @@ export function createReturnTaxCarry<Line extends SourcedTaxLine>(deps: {
         const mine = unnamed.filter((line) => line.sourceInvoiceId === sourceDocumentId);
         if (mine.length === 0) continue;
         const number = doc.docNo ?? doc.id;
-        if (mine.length !== unnamed.length) throw new TaxClassificationReturnMixedError(number);
+        // INVARIANT: an entry that also holds another invoice's unnamed lines
+        // at this percent is named by amount, this invoice's lines alone. One
+        // posted before the split holds them merged, matches nothing and is
+        // refused — never named for both invoices by one of them.
+        const shared = mine.length !== unnamed.length;
         if (doc.journalEntryId) {
-          const expected = deps.expected(doc, taxRatePercent);
+          const expected = deps.expected(doc, taxRatePercent, shared ? sourceDocumentId : undefined);
           let named = 0;
           try {
-            named = await deps.tags.retagUnnamedTaxRate(doc.journalEntryId, taxRatePercent, taxRateId, expected);
+            named = shared
+              ? await deps.tags.nameExpectedLines(doc.journalEntryId, taxRatePercent, taxRateId, expected)
+              : await deps.tags.retagUnnamedTaxRate(doc.journalEntryId, taxRatePercent, taxRateId, expected);
           } catch (err) {
             if (err instanceof VatPeriodAlreadyFiledError) throw new TaxClassificationReturnFiledError(number, err.date);
             throw err;
+          }
+          if (named === 0 && shared) {
+            throw new TaxClassificationReturnMixedError(number, [...new Set(unnamed.map((line) => line.sourceInvoiceNumber ?? line.sourceInvoiceId))]);
           }
           if (named === 0 && expected.length > 0) throw new TaxClassificationReturnJournalUntaggedError(number);
           journalLinesNamed += named;
@@ -73,11 +83,13 @@ export function createReturnTaxCarry<Line extends SourcedTaxLine>(deps: {
   };
 }
 
-export function expectedReturnTaxJournalLines<Line>(
+export function expectedReturnTaxJournalLines<Line extends { readonly sourceInvoiceId: string }>(
   definition: Pick<DocumentTypeDefinition<Line>, "buildGlPosting">,
-): (doc: FrameworkDocument<Line>, taxRatePercent: number) => readonly ExpectedTaxJournalLine[] {
-  return (doc, taxRatePercent) =>
-    (definition.buildGlPosting?.(doc)?.lines ?? [])
+): (doc: FrameworkDocument<Line>, taxRatePercent: number, sourceInvoiceId?: string) => readonly ExpectedTaxJournalLine[] {
+  return (doc, taxRatePercent, sourceInvoiceId) => {
+    const scoped = sourceInvoiceId === undefined ? doc : { ...doc, lines: doc.lines.filter((line) => line.sourceInvoiceId === sourceInvoiceId) };
+    return (definition.buildGlPosting?.(scoped)?.lines ?? [])
       .filter((line) => line.taxRatePercent === taxRatePercent && (line.taxRateId ?? null) === null)
       .map((line) => ({ accountId: line.accountId, debit: line.debit, credit: line.credit }));
+  };
 }

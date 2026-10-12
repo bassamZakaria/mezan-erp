@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "../i18n";
 import { cn } from "../lib/cn";
 import { formatDate, formatNumber } from "../lib/format";
@@ -33,6 +33,31 @@ export interface PrintViewProps {
 
 const PAGE_WIDTH_MM: Record<"A4" | "A5", number> = { A4: 210, A5: 148 };
 const PAGE_HEIGHT_MM: Record<"A4" | "A5", number> = { A4: 297, A5: 210 };
+const CSS_PX_PER_MM = 96 / 25.4;
+const SCREEN_SCALE_VARIABLE = "--mz-print-screen-scale";
+
+// INVARIANT: the page keeps its paper width in millimetres — that is what the
+// printer and `printToPDF` lay out. Only the ON-SCREEN preview is scaled to the
+// space it has, under `@media screen`, so a phone sees the whole page and the
+// printed output is byte for byte what it was.
+function useScreenFitScale(pageWidthMm: number) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const fit = () => {
+      const available = root.clientWidth;
+      setScale(available > 0 ? Math.min(1, available / (pageWidthMm * CSS_PX_PER_MM)) : 1);
+    };
+    fit();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(fit);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [pageWidthMm]);
+  return { rootRef, scale };
+}
 
 export function PrintView({ config, document, showToolbar = true, orientation = "portrait", className }: PrintViewProps) {
   const { t } = useTranslation();
@@ -48,16 +73,17 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
   const pageHeightMm = landscape ? PAGE_WIDTH_MM[effective.pageSize] : PAGE_HEIGHT_MM[effective.pageSize];
   const signatureLabels = footer.signatureLabels.slice(0, footer.signatureCount);
   while (signatureLabels.length < footer.signatureCount) signatureLabels.push("");
+  const { rootRef, scale } = useScreenFitScale(pageWidthMm);
 
   return (
-    <div className={cn("mz-print-root", className)}>
-      <style>{`@page { size: ${effective.pageSize}${landscape ? " landscape" : ""}; margin: 14mm 12mm; }`}</style>
+    <div ref={rootRef} className={cn("mz-print-root", className)} style={{ [SCREEN_SCALE_VARIABLE]: scale } as CSSProperties}>
+      <style>{`@page { size: ${effective.pageSize}${landscape ? " landscape" : ""}; margin: 14mm 12mm; } @media screen { .mz-print-page { zoom: var(${SCREEN_SCALE_VARIABLE}, 1); } }`}</style>
 
       {showToolbar ? <PrintToolbar pageSize={effective.pageSize} landscape={landscape} /> : null}
 
       <div
         dir="rtl"
-        className="relative mx-auto overflow-hidden bg-surface p-[16mm_14mm] text-[12.5px] text-ink print:m-0"
+        className="mz-print-page relative mx-auto overflow-hidden bg-surface p-[16mm_14mm] text-[12.5px] text-ink print:m-0"
         style={{ width: `${pageWidthMm}mm`, minHeight: `${pageHeightMm}mm`, borderColor: identity.primaryColor }}
       >
         {watermark.text ? (
@@ -280,8 +306,8 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
                 </div>
               ) : null}
               {totalsConfig.showTaxBreakdown
-                ? document.totals.taxBreakdown?.map((row) => (
-                    <div key={`${row.label}|${row.rate ?? ""}`} className="flex justify-between">
+                ? document.totals.taxBreakdown?.map((row, index) => (
+                    <div key={row.key ?? `${index}|${row.label}|${row.rate ?? ""}`} className="flex justify-between">
                       <span className="text-ink-muted">
                         {row.label}
                         {row.rate !== undefined ? ` (${formatNumber(row.rate)}%)` : ""}

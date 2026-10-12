@@ -232,14 +232,15 @@ describe("tax rates a file already holds in a shape today's rules refuse (D79 ro
     expect([back.status, back.body.error]).toEqual([409, "TAX_RATE_RESERVED"]);
   });
 
-  it("refuses an inactive rate the request names on a customer card even when the card already holds it, and still saves an unrelated edit", async () => {
+  it("ignores a customer card's exemption rate resent unchanged though it was deactivated since, and still refuses naming it afresh", async () => {
     expect((await call("POST", "/tax-rates", { id: "OLD-ZERO", code: "OLD-ZERO", name: "صفري قديم", rate: 0, etaSubType: "V002" })).status).toBe(201);
     expect((await call("POST", "/customers", { id: "OLD-CARD", code: "OLD-CARD", nameAr: "جهة", taxNumber: "311222333", etaBuyerType: "business", taxExempt: true, taxExemptionRateId: "OLD-ZERO" })).status).toBe(201);
     raw(`UPDATE tax_rate SET status = 'inactive' WHERE id = 'OLD-ZERO'`);
 
-    const resent = await call("PATCH", "/customers/OLD-CARD", { taxExemptionRateId: "OLD-ZERO" });
-    expect([resent.status, resent.body.error]).toEqual([422, "CUSTOMER_EXEMPTION_RATE_INVALID"]);
-    const phone = await call("PATCH", "/customers/OLD-CARD", { phone: "01000000000" });
-    expect([phone.status, phone.body.taxExemptionRateId]).toEqual([200, "OLD-ZERO"]);
+    const resent = await call("PATCH", "/customers/OLD-CARD", { phone: "01000000000", taxExemptionRateId: "OLD-ZERO" });
+    expect([resent.status, resent.body.phone, resent.body.taxExemptionRateId]).toEqual([200, "01000000000", "OLD-ZERO"]);
+    expect((await call("POST", "/customers", { id: "NEW-CARD", code: "NEW-CARD", nameAr: "جهة", taxNumber: "311222334", etaBuyerType: "business", taxExempt: true })).status).toBe(201);
+    const afresh = await call("PATCH", "/customers/NEW-CARD", { taxExemptionRateId: "OLD-ZERO" });
+    expect([afresh.status, afresh.body.error]).toEqual([422, "CUSTOMER_EXEMPTION_RATE_INVALID"]);
   });
 });

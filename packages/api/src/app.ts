@@ -1045,7 +1045,14 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.taxRateRepo) {
-    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, resolveAuth, options.taxRateUsage ?? ASSUME_TAX_RATE_REFERENCED, options.auditSink));
+    app.route("/tax-rates", createTaxRatesRoutes(
+        options.taxRateRepo,
+        resolveAuth,
+        options.taxRateUsage ?? ASSUME_TAX_RATE_REFERENCED,
+        options.auditSink,
+        options.settingsStore ? salesTaxPolicySource(options.settingsStore) : undefined,
+      ),
+    );
     if (options.taxGroupRepo) {
       app.route("/tax-groups", createTaxGroupsRoutes(options.taxGroupRepo, options.taxRateRepo, resolveAuth));
     }

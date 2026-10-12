@@ -154,6 +154,9 @@ export enum SalesInvoiceLifecycleAuditAction {
 const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
 const SALES_MODULE = "sales";
 
+/** The request a gated confirm of this invoice raises and later reads. */
+const confirmRequestIdOf = (invoiceId: string): string => `${invoiceId}:confirm`;
+
 export interface SalesInvoiceServiceDeps {
   readonly repo: SalesInvoiceRepository;
   readonly numbering: DocumentNumberingHook;
@@ -423,7 +426,7 @@ export class SalesInvoiceService {
 
   async confirm(id: string, opts: ConfirmSalesInvoiceOptions = {}): Promise<ConfirmSalesInvoiceResult> {
     const stored = await this.require(id);
-    const requestId = opts.requestId ?? `${id}:confirm`;
+    const requestId = opts.requestId ?? confirmRequestIdOf(id);
     // INVARIANT: a draft the VAT setting has re-rated is never posted — or
     // sent for approval — at figures its screen did not show. Unacknowledged
     // it is refused with the new totals; acknowledged, the re-rated lines are
@@ -919,6 +922,11 @@ export class SalesInvoiceService {
       const next: SalesInvoice = { ...existing, lines: existing.lines.map((line) => (line.lineId === lineId ? after : line)) };
       this.validate(next);
       if (!(await this.deps.repo.replaceUnposted(next, { status: [existing.status] }))) throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, id);
+      // INVARIANT: a verdict covers the document it was given on. A draft
+      // edited after its request was rejected — or approved — is judged afresh
+      // on its next confirm: the request goes back to «طلب تعديل» here, in the
+      // edit's own transaction, and the gate's rules are not touched.
+      await this.deps.workflow?.reopen?.(confirmRequestIdOf(id));
       if (this.deps.audit) {
         const figures = (line: SalesInvoiceLine) => ({
           qty: line.qty.toString(),

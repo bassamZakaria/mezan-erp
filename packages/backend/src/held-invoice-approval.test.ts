@@ -95,4 +95,23 @@ describe("approving a held invoice posts what the approver read, or nothing", ()
     }
     expect(await kit.invariants()).toEqual({ tb: 0n, inventory: 0n, ap: 0n, ar: 0n });
   });
+
+  it("a rejected invoice that is then edited is judged afresh on its next confirm; unedited, the rejection stands", async () => {
+    const decide = async (id: string, decision: string) =>
+      kit.call("POST", `/workflow/requests/${encodeURIComponent(`${id}:confirm`)}/decide`, { decision, comment: "السعر غير صحيح" });
+
+    await held("HELD-REJECT", { taxRateId: VAT_RATE });
+    expect((await decide("HELD-REJECT", "reject")).status).toBe(200);
+    expect((await invoiceOf("HELD-REJECT")).status).toBe("draft");
+
+    const unedited = await submit("HELD-REJECT");
+    expect([unedited.status, unedited.body.error], JSON.stringify(unedited.body)).toEqual([409, "APPROVAL_REQUEST_REJECTED"]);
+
+    expect((await kit.call("PATCH", "/sales-invoices/HELD-REJECT/lines/A", { unitPrice: "90" }, SUBMITTER)).status).toBe(200);
+    const resubmitted = await submit("HELD-REJECT");
+    expect([resubmitted.status, resubmitted.body.held, resubmitted.body.status], JSON.stringify(resubmitted.body)).toEqual([200, true, "pending"]);
+    expect((await decide("HELD-REJECT", "approve")).status).toBe(200);
+    const posted = await invoiceOf("HELD-REJECT");
+    expect([posted.status, posted.totals.grandTotal]).toEqual(["confirmed", "102.600000"]);
+  });
 });

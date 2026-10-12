@@ -151,6 +151,7 @@ export {
 export { Kbd, modKeyLabel, type KbdProps, type KbdTone } from "./primitives/Kbd";
 export { SidePanel, type SidePanelProps } from "./primitives/SidePanel";
 export { MoneyInput, type MoneyInputProps } from "./primitives/MoneyInput";
+export { MoneyStringInput, toMoneyDecimal, type MoneyStringInputProps } from "./primitives/MoneyStringInput";
 export { QtyInput, type QtyInputProps } from "./primitives/QtyInput";
 export { EntityPicker, type EntityPickerProps, type EntityPickerOption } from "./primitives/EntityPicker";
 export { RowMenu } from "./primitives/RowMenu";

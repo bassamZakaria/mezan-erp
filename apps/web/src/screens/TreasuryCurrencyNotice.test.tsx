@@ -16,7 +16,7 @@ const egpBank = { id: "ta-egp", name: "البنك الأهلي", currency: "EGP"
 function show(props: Partial<Parameters<typeof TreasuryCurrencyNotice>[0]>) {
   const onChange = vi.fn();
   renderWithProviders(
-    <TreasuryCurrencyNotice baseCurrency="EGP" accounts={[usdBank]} voucherCurrency="USD" onVoucherCurrencyChange={onChange} amount={200} date="2026-08-20" rates={rates} {...props} />,
+    <TreasuryCurrencyNotice baseCurrency="EGP" accounts={[usdBank]} voucherCurrency="USD" onVoucherCurrencyChange={onChange} amount="200" date="2026-08-20" rates={rates} {...props} />,
     { transport: stubTransport({}), initialSession: testAdminSession },
   );
   return onChange;
@@ -38,20 +38,25 @@ describe("the currency panel of a voucher on a foreign-currency treasury account
   });
 
   it("a voucher stated in the base currency shows the dollars it moves at the day's rate", () => {
-    show({ voucherCurrency: "EGP", amount: 4935 });
+    show({ voucherCurrency: "EGP", amount: "4935" });
     const panel = screen.getByRole("group", { name: "عملة حساب الخزينة" });
     expect(panel).toHaveTextContent("المبلغ بعملة الحساب: 100.00 USD");
     expect(panel).toHaveTextContent("المعادل بالعملة الأساسية: 4935.00 EGP");
   });
 
   it("rounds what it shows to the piastre instead of cutting it off", () => {
-    show({ voucherCurrency: "EGP", amount: 100 });
+    show({ voucherCurrency: "EGP", amount: "100" });
     expect(screen.getByRole("group", { name: "عملة حساب الخزينة" })).toHaveTextContent("المبلغ بعملة الحساب: 2.03 USD");
   });
 
-  it("takes an amount a browser number field can produce without breaking", () => {
-    show({ amount: 0.1 + 0.2 });
+  it("reads the amount as the decimal it is given, and anything that is not a money decimal as nothing", () => {
+    show({ amount: "0.30" });
     expect(screen.getByRole("group", { name: "عملة حساب الخزينة" })).toHaveTextContent("المبلغ بعملة الحساب: 0.30 USD");
+  });
+
+  it.each(["", "0.30000000000000004", "3e-1", "abc"])("shows nothing for %j", (amount) => {
+    show({ amount });
+    expect(screen.getByRole("group", { name: "عملة حساب الخزينة" })).toHaveTextContent("المبلغ بعملة الحساب: 0.00 USD");
   });
 
   it("says the voucher cannot post when the date has no approved rate", () => {

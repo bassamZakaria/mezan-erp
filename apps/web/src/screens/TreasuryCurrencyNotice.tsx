@@ -25,8 +25,10 @@ function twoDecimals(amount: Money): string {
   return roundMoney(amount, 2, "HALF_UP").toString().slice(0, -4);
 }
 
-function statedAmount(amount: number | null): Money {
-  return amount === null || !Number.isFinite(amount) || Math.abs(amount) >= 1e15 ? Money.zero() : Money.fromMajor(amount.toFixed(6));
+const MONEY_DECIMAL = /^-?\d+(\.\d{1,6})?$/;
+
+function statedAmount(amount: string): Money {
+  return MONEY_DECIMAL.test(amount) ? Money.fromMajor(amount) : Money.zero();
 }
 
 interface TreasuryCurrencyNoticeProps {
@@ -34,7 +36,7 @@ interface TreasuryCurrencyNoticeProps {
   readonly accounts: readonly TreasuryCurrencyAccount[];
   readonly voucherCurrency: string;
   readonly onVoucherCurrencyChange: (currency: string) => void;
-  readonly amount: number | null;
+  readonly amount: string;
   readonly date: string;
   readonly rates: readonly TreasuryCurrencyRate[];
 }

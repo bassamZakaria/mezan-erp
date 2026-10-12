@@ -312,6 +312,22 @@ describe("TreasuryVouchersScreen — create + confirm", () => {
     expect(collectionRequests[0]).toMatchObject({ amount: "300.000000", allocations: [] });
   });
 
+  it("sends the amount as the decimal that was typed, digit for digit, where a binary number would have changed it", async () => {
+    const { collectionRequests } = renderScreen();
+    await screen.findByText("CV-000001");
+    fireEvent.click(screen.getByRole("button", { name: "سند جديد" }));
+    fireEvent.click(screen.getByText("تحصيل من عميل"));
+    setMoney(screen.getByLabelText("المبلغ"), "9007199254740993.10");
+    const partyInput = screen.getByPlaceholderText("ابحث عن عميل…");
+    fireEvent.focus(partyInput);
+    fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"));
+
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء وتأكيد" }));
+
+    await waitFor(() => expect(collectionRequests).toHaveLength(1));
+    expect(collectionRequests[0]).toMatchObject({ amount: "9007199254740993.100000" });
+  });
+
   /**
    * D83. When an approval gate held the confirm, the wizard closed on plain
    * success — the operator was told the money had moved when no entry had been

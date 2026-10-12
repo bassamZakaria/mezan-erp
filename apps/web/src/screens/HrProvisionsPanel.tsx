@@ -101,7 +101,7 @@ function ProvisionRow({ kind, asOfDate }: { kind: HrProvisionKindDTO; asOfDate: 
                 <span className="flex flex-wrap items-center gap-x-[12px] gap-y-[2px]">
                   <span className="mz-num font-semibold text-ink">{posting.asOfDate}</span>
                   <span className="mz-num text-ink-muted">{posting.journalEntryNo ?? posting.journalEntryId}</span>
-                  <MoneyDisplay value={Number(posting.movement)} />
+                  <MoneyDisplay value={posting.movement} />
                   {posting.reversalEntryId ? (
                     <span className="text-ink-faint">{t("reversal.reversedBy", { entry: posting.reversalEntryNo ?? posting.reversalEntryId, date: posting.reversalDate ?? "" })}</span>
                   ) : null}

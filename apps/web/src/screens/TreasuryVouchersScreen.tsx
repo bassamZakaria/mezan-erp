@@ -9,7 +9,7 @@ import {
   Chip,
   Card,
   Button,
-  MoneyInput,
+  MoneyStringInput,
   EntityPicker,
   ConfirmDialog,
   type DocumentListColumn,
@@ -628,7 +628,7 @@ function VoucherDetailView({
   const [error, setError] = useState<string | null>(null);
   const [reversingAllocId, setReversingAllocId] = useState<string | null>(null);
   const [invoiceId, setInvoiceId] = useState("");
-  const [allocAmount, setAllocAmount] = useState<number | null>(null);
+  const [allocAmount, setAllocAmount] = useState("");
   const [reverseConfirmOpen, setReverseConfirmOpen] = useState(false);
   const [reverseDate, setReverseDate] = useState(todayIso());
 
@@ -668,13 +668,13 @@ function VoucherDetailView({
   }
 
   async function handleAllocate() {
-    if (busy || !doc || invoiceId === "" || !allocAmount || allocAmount <= 0) return;
+    if (busy || !doc || invoiceId === "" || allocAmount === "" || Money.fromMajor(allocAmount).scaled <= 0n) return;
     setBusy(true);
     setError(null);
     try {
-      await createAllocation.mutateAsync({ voucherId: doc.id, body: { invoiceId, amount: String(allocAmount) } });
+      await createAllocation.mutateAsync({ voucherId: doc.id, body: { invoiceId, amount: allocAmount } });
       setInvoiceId("");
-      setAllocAmount(null);
+      setAllocAmount("");
     } catch (err) {
       setError(err instanceof Error ? err.message : t("vouchers.theAmountCouldNotBe"));
     } finally {
@@ -839,10 +839,10 @@ function VoucherDetailView({
                 />
                 <div>
                   <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("common.amount")}</div>
-                  <MoneyInput value={allocAmount} onChange={setAllocAmount} aria-label={t("vouchers.amountToAllocate")} />
+                  <MoneyStringInput value={allocAmount} onChange={setAllocAmount} aria-label={t("vouchers.amountToAllocate")} />
                 </div>
                 <div className="flex justify-end">
-                  <Button variant="primary" disabled={busy || invoiceId === "" || !allocAmount} onClick={handleAllocate}>
+                  <Button variant="primary" disabled={busy || invoiceId === "" || allocAmount === ""} onClick={handleAllocate}>
                     {t("vouchers.allocate")}
                   </Button>
                 </div>
@@ -948,7 +948,7 @@ function withholdingOf(amount: Money, ratePercent: number | null, direction: str
 const EMPTY_RATES: readonly TreasuryCurrencyRate[] = [];
 
 interface CreateDraft {
-  amount: number | null;
+  amount: string;
   currency: string;
   paymentMethod: VoucherPaymentMethod;
   treasuryAccountId: string;
@@ -1002,7 +1002,7 @@ function CreateVoucherView({
     initialCustomerId ? "customer_collection" : initialSupplierId ? "supplier_payment" : initialVoucherType,
   );
   const [draft, setDraft] = useState<CreateDraft>({
-    amount: null,
+    amount: "",
     currency: "",
     paymentMethod: "cash",
     treasuryAccountId: treasuryAccounts[0]?.id ?? "",
@@ -1072,7 +1072,7 @@ function CreateVoucherView({
 
   const buildLine = useCallback((): VoucherLine | null => {
     if (!type || !def) return null;
-    const amount = Money.fromMajor(String(draft.amount ?? 0));
+    const amount = draft.amount === "" ? Money.zero() : Money.fromMajor(draft.amount);
     return {
       voucherType: type,
       direction: def.direction,
@@ -1232,7 +1232,8 @@ function CreateVoucherView({
 
   const canSubmit =
     !busy &&
-    (draft.amount ?? 0) > 0 &&
+    draft.amount !== "" &&
+    Money.fromMajor(draft.amount).scaled > 0n &&
     draft.treasuryAccountId !== "" &&
     (!def.requiresCustomer && !def.requiresSupplier ? true : draft.partyId !== "") &&
     (def.direction === "transfer" ? draft.counterTreasuryAccountId !== "" && draft.counterTreasuryAccountId !== draft.treasuryAccountId : true);
@@ -1264,7 +1265,7 @@ function CreateVoucherView({
         <Card className="flex flex-col gap-[14px] p-[18px]">
           <div>
             <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("vouchers.amount")}</div>
-            <MoneyInput value={draft.amount} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} aria-label={t("common.amount")} />
+            <MoneyStringInput value={draft.amount} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} aria-label={t("common.amount")} />
           </div>
 
           <SelectField

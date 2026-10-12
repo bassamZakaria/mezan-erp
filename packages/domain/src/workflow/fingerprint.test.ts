@@ -30,4 +30,11 @@ describe("documentFingerprint", () => {
     expect(documentFingerprint({ ...invoice, lines: [...invoice.lines, { qty: "1", unitPrice: Money.fromMajor("1") }] })).not.toBe(base);
     expect(documentFingerprint({ ...invoice, branchId: "BR-ALEX" })).not.toBe(base);
   });
+
+  it("is unmoved by what the service stamps on a held document's lines after submission", () => {
+    const voucher = { id: "V-1", lines: [{ amount: Money.fromMajor("300"), treasuryAccountId: "TR-1" }] };
+    const carrying = { id: "V-1", lines: [{ amount: Money.fromMajor("300"), treasuryAccountId: "TR-1", heldAllocations: [{ invoiceId: "INV-1" }], fxRate: "13.5" }] };
+    expect(documentFingerprint(carrying)).toBe(documentFingerprint(voucher));
+    expect(documentFingerprint({ ...carrying, lines: [{ ...carrying.lines[0]!, treasuryAccountId: "TR-2" }] })).not.toBe(documentFingerprint(voucher));
+  });
 });

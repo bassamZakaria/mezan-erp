@@ -56,6 +56,14 @@ export function sha256Hex(text: string): string {
   return [...h].map((word) => word.toString(16).padStart(8, "0")).join("");
 }
 
+/**
+ * What the service itself stamps onto a held document's lines after it was
+ * submitted — the allocations a held collection carries, the rate a foreign
+ * document confirms at. A pending document cannot be edited by its submitter,
+ * so these are never the submitter's change.
+ */
+const SERVICE_STAMPED_KEYS: ReadonlySet<string> = new Set(["heldAllocations", "fxRate"]);
+
 function canonical(value: unknown): unknown {
   if (value === null || value === undefined) return null;
   if (typeof value === "bigint") return value.toString();
@@ -66,7 +74,7 @@ function canonical(value: unknown): unknown {
   const record = value as Record<string, unknown>;
   return Object.fromEntries(
     Object.keys(record)
-      .filter((key) => record[key] !== undefined)
+      .filter((key) => record[key] !== undefined && !SERVICE_STAMPED_KEYS.has(key))
       .sort()
       .map((key) => [key, canonical(record[key])]),
   );

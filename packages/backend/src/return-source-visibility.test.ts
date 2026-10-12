@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ALL_SCOPE } from "@mezan/domain";
 import { bootBackendKit, type BackendKit } from "./test-helpers/backend-kit.js";
 
 const TODAY = "2026-08-24";
@@ -75,3 +76,52 @@ describe("a return is raised only against an invoice its author may read", () =>
     expect((await purchaseByLines("VIS-P-OK")).status).toBe(201);
   });
 });
+
+describe("a purchase-returns role reads the source invoices of the warehouses it is granted, and no others", () => {
+  async function clerk(method: string, path: string, body: unknown, warehouseScope: readonly string[] | typeof ALL_SCOPE, permissions: readonly string[] = RETURNS_CLERK) {
+    const bearer = kit.backend.sessions.issue({ userId: "RETURNS-CLERK", permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope });
+    const res = await kit.backend.app.fetch(
+      new Request(`http://local${path}`, {
+        method,
+        headers: { "content-type": "application/json", authorization: `Bearer ${bearer}`, "x-branch-scope": "*", "x-warehouse-scope": "*" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
+    );
+    const text = await res.text();
+    return { status: res.status, body: text ? JSON.parse(text) : null };
+  }
+  const draft = (id: string) => ({
+    id, date: TODAY, memo: "",
+    lines: [{ itemId: "ITEM-DEMO-2", warehouseId: "WH-MAIN", supplierId: "SUPP-DEMO-1", sourceInvoiceId: "VIS-P", sourceInvoiceNumber: null, sourceLineId: "0", reason: "DEFECTIVE", qty: "1" }],
+  });
+
+  it("reads the lines and raises the return when the invoice's warehouse is one it is granted", async () => {
+    const lines = await clerk("GET", "/purchase-returns/source-lines/VIS-P", undefined, ["WH-MAIN"]);
+    expect([lines.status, lines.body.lines?.length], JSON.stringify(lines.body)).toEqual([200, 1]);
+    const raised = await clerk("POST", "/purchase-returns", draft("VIS-P-WH-1"), ["WH-MAIN"]);
+    expect(raised.status, JSON.stringify(raised.body).slice(0, 300)).toBe(201);
+  });
+
+  it("is refused, as if the invoice did not exist, for a warehouse outside its grant and when it holds no explicit grant at all", async () => {
+    for (const scope of [["WH-ELSEWHERE"], ALL_SCOPE] as const) {
+      const lines = await clerk("GET", "/purchase-returns/source-lines/VIS-P", undefined, scope);
+      expect([lines.status, lines.body.error], JSON.stringify(scope)).toEqual([404, NOT_FOUND]);
+      const raised = await clerk("POST", "/purchase-returns", draft(`VIS-P-WH-X-${String(scope)}`), scope);
+      expect([raised.status, raised.body.error], JSON.stringify(scope)).toEqual([422, NOT_FOUND]);
+    }
+  });
+
+  it("opens the source lookup only: the invoice itself, its list and a caller who cannot raise a return stay closed", async () => {
+    expect((await clerk("GET", "/purchases/invoices/VIS-P", undefined, ["WH-MAIN"])).status).toBe(404);
+    const listed = await clerk("GET", "/purchases/invoices", undefined, ["WH-MAIN"]);
+    const rows: { id: string }[] = Array.isArray(listed.body) ? listed.body : (listed.body?.items ?? []);
+    expect(rows.map((row) => row.id)).not.toContain("VIS-P");
+    expect((await clerk("GET", "/purchase-returns/source-lines/VIS-P", undefined, ["WH-MAIN"], ["purchases.return.view"])).status).toBe(403);
+  });
+
+  it("keeps the sales rule as it is: a warehouse grant opens no sales invoice to a returns role", async () => {
+    const lines = await clerk("GET", "/sales-returns/source-lines/VIS-S", undefined, ["WH-MAIN"], ["sales.return.create", "sales.return.view_own"]);
+    expect([lines.status, lines.body.error]).toEqual([404, NOT_FOUND]);
+  });
+});
+

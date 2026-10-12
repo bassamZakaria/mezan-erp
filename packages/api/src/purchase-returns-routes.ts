@@ -86,7 +86,7 @@ export function createPurchaseReturnsRoutes(
     if (!invoices) return undefined;
     if (!cache.has(sourceInvoiceId)) {
       const found = await invoices.findConfirmedInvoice(sourceInvoiceId);
-      cache.set(sourceInvoiceId, found && !purchaseSourceInvoiceHidden(getAuthContext(c), found) ? found : null);
+      cache.set(sourceInvoiceId, found && !purchaseSourceInvoiceHidden(getAuthContext(c), found, warehouseScopeOf(c)) ? found : null);
     }
     return cache.get(sourceInvoiceId) ?? null;
   }

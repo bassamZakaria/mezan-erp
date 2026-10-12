@@ -15,10 +15,18 @@ export function salesSourceInvoiceHidden(
   return ownSalespersonId === null || invoice.salespersonId !== ownSalespersonId;
 }
 
+// INVARIANT: a purchase return takes goods OUT of a warehouse, so a role that
+// raises returns reads the source invoices of the warehouses it is explicitly
+// granted — and nothing else of them: this opens the return's source lookup,
+// never the invoice's own routes. The all-warehouses sentinel is not a grant;
+// widening on it would open every supplier invoice to a returns clerk.
 export function purchaseSourceInvoiceHidden(
   ctx: AuthContext | null | undefined,
-  invoice: { readonly createdBy?: string | null },
+  invoice: { readonly createdBy?: string | null; readonly warehouseId?: string | null },
+  grantedWarehouses?: readonly string[],
 ): boolean {
   if (!ctx) return true;
-  return !can(ctx, "purchases.invoice.view") && invoice.createdBy !== ctx.userId;
+  if (can(ctx, "purchases.invoice.view") || invoice.createdBy === ctx.userId) return false;
+  const inGrantedWarehouse = grantedWarehouses !== undefined && !!invoice.warehouseId && grantedWarehouses.includes(invoice.warehouseId);
+  return !(inGrantedWarehouse && can(ctx, "purchases.return.create"));
 }

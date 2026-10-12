@@ -84,6 +84,7 @@ import type {
 } from "./ports.js";
 import {
   ApprovedSalesInvoiceReratedError,
+  SalesTaxRecalculationUnacknowledgedError,
   DuplicateSalesInvoiceError,
   SalesInvoiceNotDraftError,
   SalesInvoiceLineNotFoundError,
@@ -308,6 +309,8 @@ export interface CreateSalesInvoiceCommand {
 }
 
 export interface ConfirmSalesInvoiceOptions {
+  /** The caller has been shown the totals a changed VAT setting would post, and confirms them. */
+  readonly acknowledgeTaxRecalculation?: boolean;
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
   readonly requestId?: string;
@@ -406,9 +409,36 @@ export class SalesInvoiceService {
    * approval is required the invoice is held بانتظار الموافقة (pending). Otherwise
    * it runs numbering → stock issue → GL post → persist in one transaction.
    */
+  /**
+   * What confirming this draft would post that the draft does not show: the
+   * lines and totals the current VAT setting re-rates it to. Null when
+   * confirming posts the draft as it stands. Computed by the SAME re-rating the
+   * confirm runs, so the notice and the posting cannot disagree.
+   */
+  async confirmPreview(invoice: SalesInvoice): Promise<{ readonly invoice: SalesInvoice; readonly totals: SalesInvoiceTotals } | null> {
+    if (invoice.status !== SalesInvoiceStatusCode.Draft) return null;
+    const rerated = await this.rerateForCurrentVat(invoice);
+    return rerated.recalculated ? { invoice: rerated.invoice, totals: this.totalsOf(rerated.invoice) } : null;
+  }
+
   async confirm(id: string, opts: ConfirmSalesInvoiceOptions = {}): Promise<ConfirmSalesInvoiceResult> {
-    const existing = await this.require(id);
+    const stored = await this.require(id);
     const requestId = opts.requestId ?? `${id}:confirm`;
+    // INVARIANT: a draft the VAT setting has re-rated is never posted — or
+    // sent for approval — at figures its screen did not show. Unacknowledged
+    // it is refused with the new totals; acknowledged, the re-rated lines are
+    // written to the draft BEFORE the approval gate, so the approver reads
+    // what will post.
+    const preview = await this.confirmPreview(stored);
+    if (preview && !opts.acknowledgeTaxRecalculation) {
+      throw new SalesTaxRecalculationUnacknowledgedError(id, displayAmount(this.totalsOf(stored).grandTotal), displayAmount(preview.totals.grandTotal));
+    }
+    if (preview) {
+      this.validate(preview.invoice);
+      if (!(await this.deps.repo.replaceUnposted(preview.invoice, { status: [stored.status] }))) throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, id);
+    }
+    const existing = preview?.invoice ?? stored;
+    const reratedBeforeGate = preview !== null;
     this.validate(existing);
 
     const effects = this.effectsOf(existing);
@@ -430,6 +460,7 @@ export class SalesInvoiceService {
         // Re-confirming while the request is still in the inbox is a no-op, not
         // an illegal pending → pending transition.
         if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
+
         assertTransition(id, existing.status, "pending");
         const held: SalesInvoice = {
           ...existing,
@@ -438,7 +469,7 @@ export class SalesInvoiceService {
         };
         await this.writeFields(held, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], existing.status);
         this.emit("DOCUMENT_SUBMITTED", held);
-        return { invoice: held, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
+        return { invoice: held, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: reratedBeforeGate };
       }
     }
 
@@ -576,7 +607,7 @@ export class SalesInvoiceService {
     }
     const { confirmed, creditWarning, pricingVariances, taxRecalculated } = outcome;
     this.emit("DOCUMENT_CONFIRMED", confirmed);
-    return { invoice: confirmed, held: false, creditWarning, pricingVariances, taxRecalculated };
+    return { invoice: confirmed, held: false, creditWarning, pricingVariances, taxRecalculated: taxRecalculated || reratedBeforeGate };
   }
 
   /**

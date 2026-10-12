@@ -101,6 +101,7 @@ export {
 
 export {
   ApprovedSalesInvoiceReratedError,
+  SalesTaxRecalculationUnacknowledgedError,
   InvalidSalesInvoiceError,
   SalesInvoiceNotFoundError,
   DuplicateSalesInvoiceError,

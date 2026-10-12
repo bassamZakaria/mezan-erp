@@ -116,6 +116,12 @@ export const createSalesInvoiceSchema = z.object({
 export const confirmSalesInvoiceSchema = z.object({
   requestId: z.string().min(1).optional(),
   /**
+   * The caller has been shown the totals a changed VAT setting would post
+   * (`confirmPreview` on the draft) and confirms them. Without it such a
+   * confirm is refused 409 with the recalculated totals.
+   */
+  acknowledgeTaxRecalculation: z.boolean().optional(),
+  /**
    * N-9 — the `version` the screen was served. Sent back on the act so a second
    * till acting on a document that has already moved is refused with 409 rather
    * than silently winning. Optional on the wire so an older client keeps
@@ -319,6 +325,15 @@ export const salesInvoiceSchema = z.object({
   /** Absent from a server older than the field: an ordinary invoice. */
   documentKind: z.nativeEnum(InvoiceDocumentKind).optional(),
   voidReason: z.string().nullish(),
+  /** On a draft the current VAT setting would re-rate: what confirming it would post. */
+  confirmPreview: z
+    .object({
+      taxRecalculated: z.literal(true),
+      message: z.string(),
+      lines: z.array(z.object({ lineId: z.string(), taxRatePercent: z.number(), taxRateId: z.string().nullable() })),
+      totals: z.object({ taxableTotal: moneyString, taxTotal: moneyString, grandTotal: moneyString }),
+    })
+    .nullish(),
   customerTaxExempt: z.boolean(),
   taxInclusive: z.boolean(),
   warehouseId: z.string().min(1),

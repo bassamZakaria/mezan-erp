@@ -3051,7 +3051,7 @@ export function useCreateSalesInvoice() {
  */
 export type ConfirmSalesInvoiceAct =
   | string
-  | ({ readonly id: string; readonly expectedVersion?: number } & Pick<ConfirmSalesInvoiceDTO, "receiptPaymentMethod">);
+  | ({ readonly id: string; readonly expectedVersion?: number } & Pick<ConfirmSalesInvoiceDTO, "receiptPaymentMethod" | "acknowledgeTaxRecalculation">);
 
 export function useConfirmSalesInvoice() {
   const { t } = useAppTranslation();
@@ -3063,6 +3063,7 @@ export function useConfirmSalesInvoice() {
       const dto: ConfirmSalesInvoiceDTO = typeof input === "string" ? {} : {
         ...(input.expectedVersion === undefined ? {} : { expectedVersion: input.expectedVersion }),
         ...(input.receiptPaymentMethod === undefined ? {} : { receiptPaymentMethod: input.receiptPaymentMethod }),
+        ...(input.acknowledgeTaxRecalculation === undefined ? {} : { acknowledgeTaxRecalculation: input.acknowledgeTaxRecalculation }),
       };
       const res = await request(`/sales-invoices/${id}/confirm`, { method: "POST", body: JSON.stringify(dto) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2"), t));

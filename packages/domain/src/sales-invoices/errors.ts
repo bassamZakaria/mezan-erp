@@ -77,6 +77,27 @@ export class SalesInvoiceLineNotFoundError extends Error {
 }
 
 /**
+ * Confirming would post other tax and another total than the draft shows: the
+ * VAT setting moved since it was raised. The caller is shown the recalculated
+ * figures and must say it has seen them.
+ */
+export class SalesTaxRecalculationUnacknowledgedError extends Error {
+  readonly code = "TAX_RECALCULATION_NOT_ACKNOWLEDGED";
+  readonly messageEn: string;
+  constructor(
+    readonly invoiceId: string,
+    readonly shownTotal: string,
+    readonly recalculatedTotal: string,
+  ) {
+    super(
+      `تغيّر إعداد ضريبة القيمة المضافة منذ إنشاء هذه المسودة: الإجمالي المعروض ${shownTotal} وسيُرحَّل ${recalculatedTotal}. راجع الإجمالي الجديد ثم أكّد من جديد.`,
+    );
+    this.messageEn = `The VAT setting changed since this draft was raised: it shows ${shownTotal} and would post ${recalculatedTotal}. Review the new total, then confirm again.`;
+    this.name = "SalesTaxRecalculationUnacknowledgedError";
+  }
+}
+
+/**
  * An approval was given for one set of figures and the invoice would post
  * another: the VAT setting moved while it waited. It is handed back as a draft
  * carrying the recalculated figures, and posts only on a fresh approval.

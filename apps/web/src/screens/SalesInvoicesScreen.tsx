@@ -87,6 +87,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { ClassifyLineTaxAction } from "./ClassifyLineTaxAction";
 import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
 import { DraftLineEditAction } from "./DraftLineEditAction";
+import { ConfirmRecalculationNotice, confirmAcknowledgementOf } from "./ConfirmRecalculationNotice";
 import { VoidReasonNotice, VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
@@ -1463,6 +1464,7 @@ function InvoiceDetailView({
               {detailConfirmError}
             </span>
           ) : null}
+          <ConfirmRecalculationNotice invoice={invoice} />
           {taxRecalculatedNotice ? (
             <span role="status" className="block text-[12.5px] font-semibold text-warning-ink">
               {taxRecalculatedNotice}
@@ -1491,6 +1493,7 @@ function InvoiceDetailView({
                   const confirmed = await detailConfirm.mutateAsync({
                     id: invoice.id,
                     expectedVersion: invoice.version,
+                    ...confirmAcknowledgementOf(invoice),
                     ...(isConsumerReceiptSale && detailReceiptPaymentMethod !== ""
                       ? { receiptPaymentMethod: detailReceiptPaymentMethod }
                       : {}),

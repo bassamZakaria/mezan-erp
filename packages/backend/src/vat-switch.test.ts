@@ -72,7 +72,19 @@ describe("a document raised under one VAT setting and finished under the other",
     const draft = await draftSale("VS-D1");
     expect([draft.status, taxOf(draft.body), draft.body.totals.grandTotal]).toEqual([201, [[0, SYSTEM_RATE]], "100.000000"]);
     await setVat(true);
-    const confirmed = await kit.call("POST", "/sales-invoices/VS-D1/confirm", {});
+
+    const shown = await invoiceOf("VS-D1");
+    expect([shown.totals.grandTotal, shown.confirmPreview?.taxRecalculated, shown.confirmPreview?.totals.grandTotal]).toEqual(["100.000000", true, "114.000000"]);
+    expect(shown.confirmPreview.message).toContain("أُعيد احتساب الضريبة");
+    expect(shown.confirmPreview.lines).toEqual([{ lineId: "A", taxRatePercent: 14, taxRateId: VAT_RATE }]);
+
+    const unacknowledged = await kit.call("POST", "/sales-invoices/VS-D1/confirm", {});
+    expect([unacknowledged.status, unacknowledged.body.error, unacknowledged.body.totals?.grandTotal], JSON.stringify(unacknowledged.body)).toEqual([409, "TAX_RECALCULATION_NOT_ACKNOWLEDGED", "114.000000"]);
+    expect(unacknowledged.body.message).toMatch(/[\u0600-\u06FF]/);
+    expect(unacknowledged.body.messageEn).toBeTruthy();
+    expect((await invoiceOf("VS-D1")).status).toBe("draft");
+
+    const confirmed = await kit.call("POST", "/sales-invoices/VS-D1/confirm", { acknowledgeTaxRecalculation: true });
     expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
     expect(confirmed.body.taxRecalculated?.message).toContain("أُعيد احتساب الضريبة");
     const invoice = await invoiceOf("VS-D1");
@@ -84,8 +96,10 @@ describe("a document raised under one VAT setting and finished under the other",
     const draft = await draftSale("VS-D2", { taxRateId: VAT_RATE });
     expect([draft.status, draft.body.totals.grandTotal]).toEqual([201, "114.000000"]);
     await setVat(false);
-    const confirmed = await kit.call("POST", "/sales-invoices/VS-D2/confirm", {});
+    const shown = await invoiceOf("VS-D2");
+    const confirmed = await kit.call("POST", "/sales-invoices/VS-D2/confirm", { acknowledgeTaxRecalculation: true });
     await setVat(true);
+    expect([shown.confirmPreview?.taxRecalculated, shown.confirmPreview?.totals.grandTotal]).toEqual([true, "100.000000"]);
     expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
     expect(confirmed.body.taxRecalculated?.message).toContain("أُعيد احتساب الضريبة");
     const invoice = await invoiceOf("VS-D2");
@@ -95,6 +109,7 @@ describe("a document raised under one VAT setting and finished under the other",
 
   it("says nothing about recalculation when the setting has not moved", async () => {
     expect((await draftSale("VS-D3", { taxRateId: VAT_RATE })).status).toBe(201);
+    expect((await invoiceOf("VS-D3")).confirmPreview ?? null).toBeNull();
     const confirmed = await kit.call("POST", "/sales-invoices/VS-D3/confirm", {});
     expect([confirmed.status, confirmed.body.taxRecalculated ?? null]).toEqual([200, null]);
   });

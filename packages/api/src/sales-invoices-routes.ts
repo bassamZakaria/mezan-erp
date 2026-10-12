@@ -64,6 +64,7 @@ import {
   type UserRepository,
   EtaReceiptedSaleVoidRefusedError,
   type EtaReceiptPaymentMethod,
+  SalesTaxRecalculationUnacknowledgedError,
   InvoiceDocumentKind,
 } from "@mezan/domain";
 import {
@@ -442,6 +443,19 @@ export interface SalesInvoiceSourceDocument {
 }
 
 const PRICE_OVERRIDE_PERMISSION = "sales.price.override";
+
+function confirmPreviewBody(preview: { readonly invoice: SalesInvoice; readonly totals: SalesInvoiceTotals }) {
+  return {
+    taxRecalculated: true as const,
+    message: SALES_TAX_RECALCULATED_NOTICE_AR,
+    lines: preview.invoice.lines.map((line) => ({ lineId: line.lineId, taxRatePercent: line.taxRatePercent, taxRateId: line.taxRateId ?? null })),
+    totals: {
+      taxableTotal: preview.totals.taxableTotal.toString(),
+      taxTotal: preview.totals.taxTotal.toString(),
+      grandTotal: preview.totals.grandTotal.toString(),
+    },
+  };
+}
 
 const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
 const JOURNAL_VIEW_PERMISSION = "accounting.journal.view";
@@ -1124,8 +1138,10 @@ export function createSalesInvoicesRoutes(
     // rows it happens to hold.
     const invoice = await visibleInvoice(c, svc);
     if (!invoice) return c.json(NOT_FOUND_BODY, 404);
+    const preview = await svc.confirmPreview(invoice);
     return c.json({
       ...serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), maySeeCost(c)),
+      ...(preview ? { confirmPreview: confirmPreviewBody(preview) } : {}),
       // N-9: the screen keeps this and sends it back, so a second till acting on
       // a document that has already moved is refused rather than winning.
       version: await documentVersionOf(deps.versionGuard, invoice.id),
@@ -1243,6 +1259,7 @@ export function createSalesInvoicesRoutes(
     const ctx = getAuthContext(c);
     try {
       const result = await svc.confirm(target.id, {
+        acknowledgeTaxRecalculation: parsed.data.acknowledgeTaxRecalculation === true,
         requestId: parsed.data.requestId,
         actor: ctx?.userId,
         actorRoles: gateActorRoles(c),
@@ -1280,6 +1297,10 @@ export function createSalesInvoicesRoutes(
         })),
       });
     } catch (err) {
+      if (err instanceof SalesTaxRecalculationUnacknowledgedError) {
+        const preview = await svc.confirmPreview(target);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, ...(preview ? confirmPreviewBody(preview) : {}) }, 409);
+      }
       return handleDomainError(c, err);
     }
   });

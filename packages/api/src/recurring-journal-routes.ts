@@ -444,6 +444,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
           templates: deps.templates,
           runs: deps.runs,
           skips: deps.skips,
+          entryStatusOf: async (journalEntryId) => (await deps.ledger.findById(journalEntryId))?.status ?? null,
           audit: deps.audit,
           now: deps.now,
           actor: getAuthContext(c)?.userId ?? "system",

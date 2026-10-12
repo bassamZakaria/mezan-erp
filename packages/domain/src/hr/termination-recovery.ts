@@ -8,6 +8,7 @@ import { EmployeeNotFoundError, EmployeeNotTerminatedError, TerminationRecoveryA
 import {
   PAYROLL_RUN_FINAL_STATUSES,
   PayrollRunStatusCode,
+  PayslipLineKindCode,
   PayslipLineSourceCode,
   payrollDayDivisor,
   type PayrollDayDivisorBasis,
@@ -281,7 +282,7 @@ async function bookPayRecovery(employee: Employee, effectiveDate: string, today:
     }
     const line: PayslipLine = {
       id: `${payslip.id}:TERMINATION:${id}`,
-      kind: "deduction",
+      kind: PayslipLineKindCode.TerminationAdjustment,
       source: PayslipLineSourceCode.TerminationAdjustment,
       nameAr: `تسوية إنهاء الخدمة — أجر أيام بعد ${effectiveDate}`,
       amount: Money.fromScaled(amount),
@@ -292,10 +293,9 @@ async function bookPayRecovery(employee: Employee, effectiveDate: string, today:
     await payroll.payslips.create({
       ...payslip,
       lines: [...payslip.lines, line],
-      totalDeductions: Money.fromScaled(payslip.totalDeductions.scaled + amount),
       netPay: Money.fromScaled(payslip.netPay.scaled - amount),
     });
-    await payroll.runs.update({ ...run, totalDeductions: Money.fromScaled(run.totalDeductions.scaled + amount), totalNet: Money.fromScaled(run.totalNet.scaled - amount) });
+    await payroll.runs.update({ ...run, totalNet: Money.fromScaled(run.totalNet.scaled - amount) });
   }
 
   let advance: EmployeeAdvance | null = null;
@@ -408,10 +408,9 @@ export async function undoTerminationRecovery(id: string, employeeId: string, to
     await payroll.payslips.create({
       ...payslip,
       lines: payslip.lines.filter((candidate) => candidate !== line),
-      totalDeductions: Money.fromScaled(payslip.totalDeductions.scaled - line.amount.scaled),
       netPay: Money.fromScaled(payslip.netPay.scaled + line.amount.scaled),
     });
-    const updated = { ...run, totalDeductions: Money.fromScaled(run.totalDeductions.scaled - line.amount.scaled), totalNet: Money.fromScaled(run.totalNet.scaled + line.amount.scaled) };
+    const updated = { ...run, totalNet: Money.fromScaled(run.totalNet.scaled + line.amount.scaled) };
     runs.set(run.id, updated);
     await payroll.runs.update(updated);
   }

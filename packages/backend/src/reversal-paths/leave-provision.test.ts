@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, entry, expectJournalRouteClosed, expectRefusedInClosedPeriod } from "./world.js";
 
 let world: SeededWorld;
@@ -34,7 +34,7 @@ describe("reversing a leave provision posting", () => {
     expect(world.balance("2180")).toBe(liabilityBefore);
     expect(await preview("2026-08-31")).toMatchObject({ postedBalance: before.postedBalance, movement: before.movement });
     expect(auditRows(world, "HR_LEAVE_PROVISION", "leave:2026-08-31", "REVERSE")).toBe(1);
-    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
 
     const again = await reverse("2026-08-31");
     expect(`${again.status} ${String(again.body.error)}`).toBe("404 HR_PROVISION_POSTING_NOT_FOUND");

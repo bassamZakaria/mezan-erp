@@ -26,6 +26,7 @@ import {
   type VoucherAllocation,
   type Cheque,
   type ChequeServiceDeps,
+  type TreasuryAccountRepository,
 } from "@mezan/domain";
 import {
   createChequeSchema,
@@ -41,6 +42,7 @@ import { createPermissionGate, getAuthContext, type AuthContextResolver, branchS
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { treasuryLedgerAccount } from "./treasury-ledger-account.js";
 
 export type ChequeRoutesDeps = ChequeServiceDeps & {
   /** Generates ids (cheque id, journal-entry id) when the request omits them. Defaults to a UUID. */
@@ -54,6 +56,8 @@ export type ChequeRoutesDeps = ChequeServiceDeps & {
   readonly audit?: AuditSink;
   /** Refuses a cheque naming a branch no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
+  /** Where a deposited cheque's bank ledger account is read from at collection. */
+  readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
 };
 
 function serialize(cheque: Cheque, asOfDate: string, allocations: readonly VoucherAllocation[] = []) {
@@ -382,10 +386,15 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const deposited = await service.findById(c.req.param("id"));
+    const bank = deposited?.bankTreasuryAccountId
+      ? await treasuryLedgerAccount(c, deps.treasuryAccounts, deposited.bankTreasuryAccountId, parsed.data.bankGlAccountId)
+      : null;
+    if (bank instanceof Response) return bank;
     try {
       const cheque = await service.collect({
         chequeId: c.req.param("id"),
-        bankGlAccountId: parsed.data.bankGlAccountId,
+        bankGlAccountId: bank?.glAccountId ?? parsed.data.bankGlAccountId ?? "",
         date: await postingDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),

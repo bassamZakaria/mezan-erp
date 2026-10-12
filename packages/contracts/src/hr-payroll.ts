@@ -99,7 +99,7 @@ export const employeeAdvanceBalanceSchema = z.object({
 // --- Payroll runs & payslips ----------------------------------------------
 
 export const payrollRunStatusSchema = z.enum(["draft", "calculated", "approved", "disbursed", "cancelled"]);
-export const payslipLineKindSchema = z.enum(["earning", "deduction", "employer_contribution"]);
+export const payslipLineKindSchema = z.enum(["earning", "deduction", "employer_contribution", "termination_adjustment"]);
 export const payslipLineSourceSchema = z.enum([
   "contract_basic",
   "contract_allowance",
@@ -232,7 +232,7 @@ export type CreatePayrollRunDTO = z.infer<typeof createPayrollRunSchema>;
 
 // --- Payroll components (GL routing, R10.7) --------------------------------
 
-export const payrollComponentKindSchema = payslipLineKindSchema;
+export const payrollComponentKindSchema = z.enum(["earning", "deduction", "employer_contribution"]);
 
 export const payrollComponentSchema = z.object({
   id: z.string().min(1),

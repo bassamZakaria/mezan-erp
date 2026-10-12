@@ -64,6 +64,7 @@ import {
   reversePayrollRunApproval,
   cancelEmployeeAdvance,
   PayrollRunDisbursedError,
+  DisbursementTreasuryAccountNotFoundError,
   PayrollRunNotApprovedError,
   PayrollRunHasTerminationAdjustmentError,
   AdvancePartlyRepaidError,
@@ -341,6 +342,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (reversalRefusal) return reversalRefusal;
   if (err instanceof HrProvisionPostingNotFoundError) return c.json(withMessageEn(err), 404);
   if (err instanceof HrProvisionLaterPostingError) return c.json(withMessageEn(err), 409);
+  if (err instanceof DisbursementTreasuryAccountNotFoundError) return c.json(withMessageEn(err), 422);
   if (err instanceof PayrollRunDisbursedError) return c.json({ ...withMessageEn(err), disbursementVoucherId: err.disbursementVoucherId }, 409);
   if (
     err instanceof PayrollRunNotApprovedError ||

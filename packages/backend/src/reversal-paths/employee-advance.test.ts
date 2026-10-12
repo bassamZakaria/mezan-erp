@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, entry, expectJournalRouteClosed } from "./world.js";
 
 let world: SeededWorld;
@@ -58,7 +58,7 @@ describe("cancelling an employee advance", () => {
     expect(receivableBefore - world.balance("1160")).toBe(disbursed.amount);
     expect(world.balance("1310") - bankBefore).toBe(disbursed.amount);
     expect(auditRows(world, "EMPLOYEE_ADVANCE", "ADV-DEMO-4", "CANCEL")).toBe(1);
-    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
 
     const again = await cancel("ADV-DEMO-4");
     expect(`${again.status} ${String(again.body.error)}`).toBe("422 INVALID_EMPLOYEE_ADVANCE_TRANSITION");
@@ -79,6 +79,6 @@ describe("cancelling an employee advance", () => {
     expect(advance(recovery.advanceId).status).toBe("cancelled");
     expect(entry(world, recovery.journalEntryId).status).toBe("reversed");
     expect({ advances: world.balance("1160"), basic: world.balance("5120"), allowances: world.balance("5121"), payable: world.balance("2170") }).toEqual(before);
-    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
   });
 });

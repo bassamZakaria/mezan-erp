@@ -377,6 +377,16 @@ export class InvalidPayrollRunError extends Error {
   }
 }
 
+export class DisbursementTreasuryAccountNotFoundError extends Error {
+  readonly code = "TREASURY_ACCOUNT_NOT_FOUND";
+  readonly messageEn: string;
+  constructor(readonly treasuryAccountId: string) {
+    super("حساب الخزينة غير موجود أو غير نشط أو بلا حساب دفتري.");
+    this.messageEn = "The treasury account does not exist, is inactive, or has no ledger account.";
+    this.name = "DisbursementTreasuryAccountNotFoundError";
+  }
+}
+
 export class PayrollRunDisbursedError extends Error {
   readonly code = "PAYROLL_RUN_DISBURSED";
   readonly messageEn: string;

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, entry, expectJournalRouteClosed, expectRefusedInClosedPeriod } from "./world.js";
 
 let world: SeededWorld;
@@ -32,7 +32,7 @@ describe("a collected cheque the bank returns", () => {
     expect(world.balance("1320")).toBe(before.underCollection);
     expect(world.balance("1105") - before.receivable).toBe(AMOUNT);
     expect(auditRows(world, "CHEQUE", "CHQ-DEMO-2", "RETURN")).toBe(1);
-    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
 
     const again = await world.request("POST", "/cheques/CHQ-DEMO-2/return", {});
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 INVALID_CHEQUE_TRANSITION");
@@ -49,6 +49,6 @@ describe("a collected cheque the bank returns", () => {
     const res = await world.request("POST", "/cheques/CHQ-DEMO-4/return", {});
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(before.payable - world.balance("2100")).toBe(4_200_000_000n);
-    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
   });
 });

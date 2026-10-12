@@ -175,7 +175,15 @@ export function payrollUnimplementedRulesFor(run: Pick<PayrollRun, "statutoryTab
 }
 
 /** What a payslip line does to the net: adds to it, takes from it, or is an employer-side cost that never touches it. */
-export type PayslipLineKind = "earning" | "deduction" | "employer_contribution";
+export enum PayslipLineKindCode {
+  Earning = "earning",
+  Deduction = "deduction",
+  EmployerContribution = "employer_contribution",
+  /** Pay for days after a last day, taken off an approved net by its own entry — never part of what the approval entry credited. */
+  TerminationAdjustment = "termination_adjustment",
+}
+
+export type PayslipLineKind = `${PayslipLineKindCode}`;
 
 /** Where a line came from — the audit trail for "why is my net this number?". */
 export enum PayslipLineSourceCode {

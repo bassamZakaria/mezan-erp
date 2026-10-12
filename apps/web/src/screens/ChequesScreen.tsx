@@ -72,9 +72,6 @@ const DIRECTION_ACCOUNTS: Record<ChequeDirectionDTO, { counterparty: string; und
   outgoing: { counterparty: "2100", underCollection: "2150", bounced: null },
 };
 
-/** The bank GL account a collection lands in — "النقدية بالبنوك" in the standard COA. */
-const BANK_GL_ACCOUNT_ID = "1310";
-
 function today(): string {
   return todayIso();
 }
@@ -189,7 +186,7 @@ export function ChequesScreen() {
         if (!bankAccount) throw new Error(t("cheques.thereIsNoActiveBank"));
         await deposit.mutateAsync({ id: cheque.id, body: { bankTreasuryAccountId: bankAccount.id } });
       } else if (action === "collect") {
-        await collect.mutateAsync({ id: cheque.id, body: { bankGlAccountId: BANK_GL_ACCOUNT_ID, date: today() } });
+        await collect.mutateAsync({ id: cheque.id, body: { date: today() } });
       } else if (action === "bounce") {
         await bounce.mutateAsync({ id: cheque.id, body: { date: today() } });
       } else {

@@ -5,6 +5,7 @@ import type { EmployeeDirectory } from "../hr-shared/employee-ref.js";
 import { applyGarnishmentRecovery, type GarnishmentRepository } from "./garnishment.js";
 import {
   canTransitionPayrollRun,
+  PayslipLineKindCode,
   type PayrollGlAccounts,
   type PayrollRun,
   type PayrollRunRepository,
@@ -85,6 +86,8 @@ function buildJournalLines(
           branchId,
           line.amount,
         );
+      } else if (line.kind === PayslipLineKindCode.TerminationAdjustment) {
+        addTo(credits, accounts.salariesPayableAccountId, branchId, line.amount);
       } else if (line.source === "advance_recovery") {
         addTo(credits, accounts.employeeAdvanceAccountId, branchId, line.amount);
       } else {

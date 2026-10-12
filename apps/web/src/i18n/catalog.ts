@@ -5170,6 +5170,7 @@ const webAr = {
   // payroll line kinds
   "payroll.lineKind.earning": "استحقاق",
   "payroll.lineKind.deduction": "استقطاع",
+  "payroll.lineKind.termination_adjustment": "تسوية إنهاء خدمة",
   "payroll.lineKind.employer_contribution": "مساهمة صاحب العمل",
   "advances.repaidOf": "مسدد منه {amount}",
 
@@ -14628,6 +14629,7 @@ const webEn: Record<WebTranslationKey, string> = {
   // payroll line kinds
   "payroll.lineKind.earning": "Earning",
   "payroll.lineKind.deduction": "Deduction",
+  "payroll.lineKind.termination_adjustment": "Termination adjustment",
   "payroll.lineKind.employer_contribution": "Employer contribution",
   "advances.repaidOf": "{amount} repaid",
 

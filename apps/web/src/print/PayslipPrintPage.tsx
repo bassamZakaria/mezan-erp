@@ -86,6 +86,7 @@ export function PayslipPrintView({ payslip, run, employee, letterhead, branchNam
           earning: t("payslipPrint.earning"),
           deduction: t("payslipPrint.deduction"),
           employerContribution: t("payslipPrint.employerContribution"),
+          terminationAdjustment: t("payroll.lineKind.termination_adjustment"),
           grossEarnings: t("payslipPrint.grossEarnings"),
           totalDeductions: t("payslipPrint.totalDeductions"),
           netPay: t("payslipPrint.netPay"),

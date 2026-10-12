@@ -87,7 +87,8 @@ export const depositChequeSchema = z.object({
 });
 
 export const collectChequeSchema = z.object({
-  bankGlAccountId: z.string().min(1),
+  /** Derived from the bank the cheque was deposited at; a request that states it must state that bank's own. */
+  bankGlAccountId: z.string().min(1).optional(),
   date: isoDateOrInstant.optional(),
 });
 

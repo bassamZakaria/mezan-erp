@@ -6,6 +6,9 @@ import { Hono } from "hono";
 import { DocumentNotFoundError, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
 import { handleDocumentError } from "./document-error-handling.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
+import { reversalRefusalResponse } from "./document-reversal.js";
+
+const SHARED_ANSWER = /postingRefusalResponse\(|reversalRefusalResponse\(/;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -48,16 +51,21 @@ describe("a posting dated into a shut or missing period", () => {
     expect((await answer(handleDocumentError, new DocumentNotFoundError("SALES_RETURN", "x"))).status).toBe(404);
   });
 
+  it("the reversal answer a reverse route uses gives the same period refusal, so a handler built on it is not silent", async () => {
+    expect(await answer(reversalRefusalResponse, closed)).toEqual(await answer(postingRefusalResponse, closed));
+    expect(await answer(reversalRefusalResponse, missing)).toEqual(await answer(postingRefusalResponse, missing));
+  });
+
   it("every route file's own error handler gives the shared answer, so a stock-only confirm names the month in both languages too", () => {
     const silent = routeFiles()
-      .filter(({ source }) => /^function handle\w*Error\(c: Context, err: unknown\)/m.test(source) && !source.includes("postingRefusalResponse("))
+      .filter(({ source }) => /^function handle\w*Error\(c: Context, err: unknown\)/m.test(source) && !SHARED_ANSWER.test(source))
       .map(({ name }) => name);
     expect(silent).toEqual([]);
   });
 
   it("no route file maps the period refusal by hand without the shared answer", () => {
     const byHand = routeFiles()
-      .filter(({ source }) => source.includes("instanceof PeriodNotOpenForPostingError") && !source.includes("postingRefusalResponse("))
+      .filter(({ source }) => source.includes("instanceof PeriodNotOpenForPostingError") && !SHARED_ANSWER.test(source))
       .map(({ name }) => name);
     expect(byHand).toEqual([]);
   });

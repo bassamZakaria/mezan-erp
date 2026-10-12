@@ -213,7 +213,10 @@ function handleDocumentError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateDocumentError || err instanceof DuplicatePhysicalCountError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
-  if (err instanceof InvalidDocumentTransitionError || err instanceof InvalidPhysicalCountStatusError) {
+  if (err instanceof InvalidDocumentTransitionError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  }
+  if (err instanceof InvalidPhysicalCountStatusError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
   if (

@@ -64,6 +64,7 @@ const LINE_KIND_KEY = {
   earning: "payroll.lineKind.earning",
   deduction: "payroll.lineKind.deduction",
   employer_contribution: "payroll.lineKind.employer_contribution",
+  termination_adjustment: "payroll.lineKind.termination_adjustment",
 } as const;
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;

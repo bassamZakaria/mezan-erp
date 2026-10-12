@@ -448,7 +448,7 @@ describe("PurchaseReturnsScreen", () => {
 
     selectOptionAt("الفاتورة الأصلية *", 0, "PI-000200 — شركة النيل للتوريدات");
 
-    fireEvent.click(screen.getByRole("combobox", { name: "الصنف" }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "الصنف" }));
     expect(screen.getByRole("option", { name: "بلاط" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "أسمنت بورتلاندي" })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "طوب أحمر" })).not.toBeInTheDocument();

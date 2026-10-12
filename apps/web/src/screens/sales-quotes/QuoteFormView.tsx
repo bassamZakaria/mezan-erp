@@ -143,18 +143,17 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
       setError(t("quotes.error.needBranch"));
       return;
     }
+    if (lines.some((l) => l.itemId === "")) {
+      setError(t("quotes.error.needItem"));
+      return;
+    }
     const quoteLines = domainLines.filter((l) => l.qty.scaled > 0n);
     if (quoteLines.length === 0) {
       setError(t("quotes.error.needLine"));
       return;
     }
     const quotedKeys = new Set(quoteLines.map((l) => l.lineId));
-    const quotedDrafts = lines.filter((l) => quotedKeys.has(l.key));
-    if (quotedDrafts.some((l) => l.itemId === "")) {
-      setError(t("quotes.error.needItem"));
-      return;
-    }
-    if (quotedDrafts.some((l) => l.unitPrice !== null && !Number.isFinite(l.unitPrice))) {
+    if (lines.some((l) => quotedKeys.has(l.key) && l.unitPrice !== null && !Number.isFinite(l.unitPrice))) {
       setError(t("quotes.error.needUnitPrice"));
       return;
     }

@@ -11,7 +11,7 @@ import {
   type LandedCostService,
 } from "@mezan/domain";
 import { createLandedCostSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
 import type { DocumentApprovalDTO } from "@mezan/contracts";
@@ -128,7 +128,7 @@ export function createLandedCostsRoutes(
 
   app.post("/:id/confirm", gate("purchases.landed_cost.confirm"), async (c) => {
     try {
-      const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c) });
+      const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c) });
       return c.json({
         document: serialize(result.document, await approvalOf(documents, result.document)),
         held: result.held,
@@ -153,14 +153,14 @@ export function createLandedCostsRoutes(
 
   mountResubmitRoute(app, {
     permission: gate("purchases.landed_cost.confirm"),
-    resubmit: (c, id) => documents.resubmit(id, { actor: callerUserId(c) }),
+    resubmit: (c, id) => documents.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
     serialize: async (_c, doc) => serialize(doc, await approvalOf(documents, doc)),
     onError: handleDocumentError,
   });
 
   app.post("/:id/cancel", gate("purchases.landed_cost.void"), async (c) => {
     try {
-      const doc = await documents.cancel(c.req.param("id"));
+      const doc = await documents.cancel(c.req.param("id"), { actor: callerUserId(c) });
       return c.json(serialize(doc));
     } catch (err) {
       return handleDocumentError(c, err);

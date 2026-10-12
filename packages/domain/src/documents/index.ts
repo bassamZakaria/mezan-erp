@@ -60,6 +60,7 @@ export {
   type DocumentServiceDeps,
   type CreateDraftCommand,
   type ConfirmOptions,
+  type CancelOptions,
   type ConfirmResult,
   type ReverseOptions,
 } from "./service.js";

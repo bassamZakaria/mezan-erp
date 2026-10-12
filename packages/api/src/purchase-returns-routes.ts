@@ -13,7 +13,7 @@ import {
   type PurchaseReturnLine,
 } from "@mezan/domain";
 import { createPurchaseReturnSchema, returnSourceLinesSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerUserId, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, callerUserId, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
 import type { DocumentApprovalDTO } from "@mezan/contracts";
@@ -335,7 +335,7 @@ export function createPurchaseReturnsRoutes(
 
   app.post("/:id/confirm", gate("purchases.return.confirm"), async (c) => {
     try {
-      const result = await service.confirm(c.req.param("id"), { actor: callerUserId(c) });
+      const result = await service.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c) });
       return c.json({ document: serialize(result.document, null, await approvalOf(service, result.document)), held: result.held });
     } catch (err) {
       return handleDocumentError(c, err);
@@ -344,14 +344,14 @@ export function createPurchaseReturnsRoutes(
 
   mountResubmitRoute(app, {
     permission: gate("purchases.return.confirm"),
-    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c) }),
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
     serialize: async (_c, doc) => serialize(doc, null, await approvalOf(service, doc)),
     onError: handleDocumentError,
   });
 
   app.post("/:id/cancel", gate("purchases.return.void"), async (c) => {
     try {
-      const doc = await service.cancel(c.req.param("id"));
+      const doc = await service.cancel(c.req.param("id"), { actor: callerUserId(c) });
       return c.json(serialize(doc));
     } catch (err) {
       return handleDocumentError(c, err);

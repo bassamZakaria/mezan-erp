@@ -36,7 +36,7 @@ import {
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
 import type { DocumentApprovalDTO } from "@mezan/contracts";
-import { callerUserId, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { callerRoleCodes, callerUserId, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
 import { tenantDay } from "./tenant-day.js";
 import { handleDocumentError as handleFrameworkDocumentError } from "./document-error-handling.js";
@@ -284,7 +284,7 @@ export function createStockAdjustmentsRoutes(
         const refusal = warehouseScopeRefusal(c, existing.lines.map((l) => l.warehouseId));
         if (refusal) return refusal;
       }
-      const { document, held } = await service.confirm(c.req.param("id"));
+      const { document, held } = await service.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c) });
       return c.json({ document: serializeAdjustment(document, await approvalOf(service, document)), held });
     } catch (err) {
       return handleDocumentError(c, err);
@@ -297,7 +297,7 @@ export function createStockAdjustmentsRoutes(
       const doc = await service.findById(id);
       return doc ? warehouseScopeRefusal(c, doc.lines.map((l) => l.warehouseId)) : undefined;
     },
-    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c) }),
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
     serialize: async (_c, doc) => serializeAdjustment(doc, await approvalOf(service, doc)),
     onError: handleDocumentError,
   });
@@ -430,7 +430,7 @@ export function createStockTransfersRoutes(
         );
         if (refusal) return refusal;
       }
-      const { document, held } = await service.confirm(c.req.param("id"));
+      const { document, held } = await service.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c) });
       return c.json({ document: serializeTransfer(document, await approvalOf(service, document)), held });
     } catch (err) {
       return handleDocumentError(c, err);
@@ -443,7 +443,7 @@ export function createStockTransfersRoutes(
       const doc = await service.findById(id);
       return doc ? warehouseScopeRefusal(c, doc.lines.flatMap((l) => [l.fromWarehouseId, l.toWarehouseId])) : undefined;
     },
-    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c) }),
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
     serialize: async (_c, doc) => serializeTransfer(doc, await approvalOf(service, doc)),
     onError: handleDocumentError,
   });
@@ -591,6 +591,7 @@ export function createPhysicalCountsRoutes(
       const result = await service.generateAdjustment({
         countId: c.req.param("id"),
         adjustmentId: parsed.data.adjustmentId,
+        actor: callerUserId(c),
       });
       return c.json({
         count: serializeCount(result.count),

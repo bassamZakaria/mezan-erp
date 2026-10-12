@@ -26,7 +26,7 @@ import {
   returnSourceLinesSchema,
 } from "@mezan/contracts";
 import type { z } from "zod";
-import { type AuthContextResolver, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
 import type { DocumentApprovalDTO } from "@mezan/contracts";
@@ -502,6 +502,7 @@ export function createSalesReturnsRoutes(
     try {
       const result = await service.confirm(c.req.param("id"), {
         actor: callerUserId(c),
+        actorRoles: callerRoleCodes(c),
       });
       return c.json({
         document: serialize(result.document, await refundsOf(result.document.id), null, await approvalOf(service, result.document)),
@@ -514,14 +515,14 @@ export function createSalesReturnsRoutes(
 
   mountResubmitRoute(app, {
     permission: gate("sales.return.confirm"),
-    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c) }),
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
     serialize: async (_c, doc) => serialize(doc, await refundsOf(doc.id), null, await approvalOf(service, doc)),
     onError: handleDocumentError,
   });
 
   app.post("/:id/cancel", gate("sales.return.void"), async (c) => {
     try {
-      const doc = await service.cancel(c.req.param("id"));
+      const doc = await service.cancel(c.req.param("id"), { actor: callerUserId(c) });
       return c.json(serialize(doc, await refundsOf(doc.id)));
     } catch (err) {
       return handleDocumentError(c, err);

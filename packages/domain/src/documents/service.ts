@@ -79,6 +79,10 @@ export interface ConfirmOptions {
   readonly requestId?: string;
 }
 
+export interface CancelOptions {
+  readonly actor?: string;
+}
+
 export interface ReverseOptions {
   /** Id for the reversing document + its reversing journal entry (caller-supplied — domain stays pure). */
   readonly reversalId: string;
@@ -179,7 +183,7 @@ export class DocumentService<Line> {
       // began is posted from, or refuses this confirm — never overwritten.
       const fresh = await this.require(id);
       await this.assertConfirmable(fresh);
-      return this.post(fresh, target);
+      return this.post(fresh, target, opts.actor);
     });
 
     this.emit("DOCUMENT_CONFIRMED", confirmed);
@@ -206,7 +210,7 @@ export class DocumentService<Line> {
     }
   }
 
-  private async post(existing: FrameworkDocument<Line>, target: DocumentStatus): Promise<FrameworkDocument<Line>> {
+  private async post(existing: FrameworkDocument<Line>, target: DocumentStatus, actor: string | undefined): Promise<FrameworkDocument<Line>> {
     let docNo = existing.docNo;
     if (this.def.numberingSequence && !this.def.numberFromGl) {
       if (!this.deps.numbering) throw new MissingHookError(this.def.code, "numbering");
@@ -251,7 +255,7 @@ export class DocumentService<Line> {
       [DocumentField.DocNo, DocumentField.Status, DocumentField.ConfirmedAt, DocumentField.JournalEntryId, DocumentField.WorkflowRequestId],
       existing.status,
     );
-    await this.recordAudit("CONFIRM", next, "INFO");
+    await this.recordAudit("CONFIRM", next, "INFO", { actor });
     return next;
   }
 
@@ -326,7 +330,7 @@ export class DocumentService<Line> {
   }
 
   /** Cancel a draft/pending document (never a live one — those are reversed). */
-  async cancel(id: string): Promise<FrameworkDocument<Line>> {
+  async cancel(id: string, opts: CancelOptions = {}): Promise<FrameworkDocument<Line>> {
     const cancelled = await this.deps.repo.transaction(async () => {
       const existing = await this.require(id);
       assertTransition(this.def.code, id, existing.status, "cancelled");
@@ -342,7 +346,7 @@ export class DocumentService<Line> {
         [DocumentField.Status, DocumentField.WorkflowRequestId, ...(cancelledLines ? [DocumentField.Lines] : [])],
         existing.status,
       );
-      await this.recordAudit("CANCEL", next, "WARNING");
+      await this.recordAudit("CANCEL", next, "WARNING", { actor: opts.actor });
       return next;
     });
     this.emit("DOCUMENT_CANCELLED", cancelled);

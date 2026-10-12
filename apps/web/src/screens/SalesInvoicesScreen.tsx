@@ -87,7 +87,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { ClassifyLineTaxAction } from "./ClassifyLineTaxAction";
 import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
 import { DraftLineEditAction } from "./DraftLineEditAction";
-import { VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
+import { VoidReasonNotice, VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { todayIso } from "../lib/dates";
@@ -1564,6 +1564,7 @@ function InvoiceDetailView({
               taxableTotal={toMajor(invoice.totals.taxableTotal ?? invoice.totals.subtotal)}
               taxTotal={toMajor(invoice.totals.taxTotal)}
             />
+            <VoidReasonNotice invoice={invoice} />
             <UnnamedTaxNotice
               document={ClassifiableDocument.SalesInvoice}
               posted={SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)}

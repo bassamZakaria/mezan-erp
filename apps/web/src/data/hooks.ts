@@ -221,6 +221,7 @@ import type {
   ClassifyLineTaxDTO,
   NameJournalLineTaxDTO,
   EditSalesInvoiceDraftLineDTO,
+  VoidSalesInvoiceDTO,
   LineTaxClassificationDTO,
   SessionDTO,
   SettleVanTripDTO,
@@ -3075,9 +3076,9 @@ export function useVoidSalesInvoice() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<SalesInvoiceDTO, ApiError, { id: string; reason: string }>({
-    mutationFn: async ({ id, reason }) => {
-      const res = await request(`/sales-invoices/${encodeURIComponent(id)}/void`, { method: "POST", body: JSON.stringify({ reason }) });
+  return useMutation<SalesInvoiceDTO, ApiError, { id: string } & VoidSalesInvoiceDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/sales-invoices/${encodeURIComponent(id)}/void`, { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2"), t));
       return res.json<SalesInvoiceDTO>();
     },

@@ -141,6 +141,8 @@ export interface SalesInvoice {
   readonly docType: "SALES_INVOICE";
   /** Absent on a document written before the column existed: an ordinary invoice. */
   readonly documentKind?: InvoiceDocumentKind;
+  /** Why a posted invoice was voided, as the person voiding it stated; null on any other invoice. */
+  readonly voidReason?: string | null;
   /** Sequential number (INV-…) stamped on confirm; null while draft/pending. */
   readonly docNo: string | null;
   readonly status: SalesInvoiceStatus;

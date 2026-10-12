@@ -5769,7 +5769,7 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/cheques/chq-asof/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app))).status).toBe(200);
     expect((await post(app, "/cheques/chq-asof/bounce", { date: "2026-08-28" }, admin(app))).status).toBe(200);
-    expect((await post(app, "/sales-invoices/inv-v/void", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-v/void", { reason: "صدرت بالخطأ" }, admin(app))).status).toBe(200);
 
     for (const [date, owed] of [
       ["2026-08-05", 1300], ["2026-08-11", 900], ["2026-08-13", 400], ["2026-08-16", 300],

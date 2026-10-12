@@ -685,6 +685,8 @@ export {
   createSalesInvoiceSchema,
   confirmSalesInvoiceSchema,
   salesInvoicePaymentSchema,
+  voidSalesInvoiceSchema,
+  type VoidSalesInvoiceDTO,
   editSalesInvoiceDraftLineSchema,
   type EditSalesInvoiceDraftLineDTO,
   salesInvoiceListQuerySchema,

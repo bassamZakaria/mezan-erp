@@ -13,6 +13,7 @@ export enum SalesInvoiceField {
   Status = "status",
   AmountPaid = "amountPaid",
   WorkflowRequestId = "workflowRequestId",
+  VoidReason = "voidReason",
 }
 
 export interface SalesInvoiceWritePrecondition {

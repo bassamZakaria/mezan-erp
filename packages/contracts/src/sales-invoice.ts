@@ -154,6 +154,13 @@ export const editSalesInvoiceDraftLineSchema = z
   });
 export type EditSalesInvoiceDraftLineDTO = z.infer<typeof editSalesInvoiceDraftLineSchema>;
 
+/** إلغاء فاتورة مرحّلة — the reason is required and is kept on the document and its audit row. */
+export const voidSalesInvoiceSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+  expectedVersion: z.number().int().positive().optional(),
+});
+export type VoidSalesInvoiceDTO = z.infer<typeof voidSalesInvoiceSchema>;
+
 export const salesInvoicePaymentSchema = z.object({
   amount: moneyString,
   treasuryAccountId: z.string().min(1),
@@ -311,6 +318,7 @@ export const salesInvoiceSchema = z.object({
   customerNameAr: z.string(),
   /** Absent from a server older than the field: an ordinary invoice. */
   documentKind: z.nativeEnum(InvoiceDocumentKind).optional(),
+  voidReason: z.string().nullish(),
   customerTaxExempt: z.boolean(),
   taxInclusive: z.boolean(),
   warehouseId: z.string().min(1),

@@ -21,7 +21,7 @@ export function VoidSalesInvoiceAction({ invoice }: { invoice: SalesInvoiceDTO }
     if (voidInvoice.isPending) return;
     setError(null);
     try {
-      await voidInvoice.mutateAsync({ id: invoice.id, reason: reason.trim() });
+      await voidInvoice.mutateAsync({ id: invoice.id, reason: reason.trim(), ...(invoice.version === undefined ? {} : { expectedVersion: invoice.version }) });
       setOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("voidInvoice.failed"));
@@ -60,5 +60,15 @@ export function VoidSalesInvoiceAction({ invoice }: { invoice: SalesInvoiceDTO }
         onCancel={() => setOpen(false)}
       />
     </>
+  );
+}
+
+export function VoidReasonNotice({ invoice }: { invoice: SalesInvoiceDTO }) {
+  const { t } = useAppTranslation();
+  if (!invoice.voidReason) return null;
+  return (
+    <p role="note" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+      {t("voidInvoice.reasonShown", { reason: invoice.voidReason })}
+    </p>
   );
 }

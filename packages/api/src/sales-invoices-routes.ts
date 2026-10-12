@@ -70,6 +70,7 @@ import {
   createSalesInvoiceSchema,
   confirmSalesInvoiceSchema,
   salesInvoicePaymentSchema,
+  voidSalesInvoiceSchema,
   editSalesInvoiceDraftLineSchema,
   salesInvoiceListQuerySchema,
   salesInvoiceSchema,
@@ -377,6 +378,7 @@ function serialize(
     customerId: invoice.customerId,
     customerNameAr: invoice.customerNameAr,
     documentKind: invoice.documentKind ?? InvoiceDocumentKind.Standard,
+    voidReason: invoice.voidReason ?? null,
     customerTaxExempt: invoice.customerTaxExempt,
     taxInclusive: invoice.taxInclusive,
     warehouseId: invoice.warehouseId,
@@ -1423,6 +1425,21 @@ export function createSalesInvoicesRoutes(
     const svc = service(c);
     const requested = await visibleInvoice(c, svc);
     if (!requested) return c.json(NOT_FOUND_BODY, 404);
+    const body: unknown = await c.req.json().catch(() => null);
+    const parsed = voidSalesInvoiceSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(
+        {
+          error: "VOID_REASON_REQUIRED",
+          message: "سبب الإلغاء مطلوب: اكتب لماذا تُلغى هذه الفاتورة، ويُحفظ السبب عليها وفي سجل المراجعة.",
+          messageEn: "A reason is required: say why this invoice is being voided. It is kept on the invoice and in the audit trail.",
+        },
+        400,
+      );
+    }
+    const stale = await refuseStaleDocument(c, deps.versionGuard, requested.id, expectedVersionOf(body));
+    if (stale) return stale;
+    const reason = parsed.data.reason;
 
     const date = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
     try {
@@ -1505,8 +1522,8 @@ export function createSalesInvoicesRoutes(
             });
           }
         }
-        const next: SalesInvoice = { ...current, status: REVERSED_STATUS };
-        if (!(await deps.repo.writeFields(next, [SalesInvoiceField.Status], { status: [current.status] }))) {
+        const next: SalesInvoice = { ...current, status: REVERSED_STATUS, voidReason: reason };
+        if (!(await deps.repo.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.VoidReason], { status: [current.status] }))) {
           throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, current.id);
         }
         await deps.withdrawUnsentEtaSubmission?.(next);
@@ -1519,6 +1536,7 @@ export function createSalesInvoicesRoutes(
             docNo: next.docNo,
             customerId: next.customerId,
             previousStatus: current.status,
+            reason,
             grandTotal: totalsFor(svc, next).grandTotal.toString(),
             reversalJournalEntryId: posted.journalEntryId,
           },

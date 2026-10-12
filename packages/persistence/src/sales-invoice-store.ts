@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS sales_invoice (
   workflow_request_id    TEXT,
   reverses_invoice_id    TEXT REFERENCES sales_invoice(id),
   reversed_by_invoice_id TEXT REFERENCES sales_invoice(id),
-  document_kind          TEXT NOT NULL DEFAULT 'standard'
+  document_kind          TEXT NOT NULL DEFAULT 'standard',
+  void_reason            TEXT
 );
 CREATE TABLE IF NOT EXISTS sales_invoice_line (
   invoice_id           TEXT NOT NULL REFERENCES sales_invoice(id),
@@ -135,6 +136,7 @@ const ADDED_COLUMNS: readonly (readonly [string, string])[] = [
   ["fx_rate", "TEXT"],
   ["project_id", "TEXT"],
   ["document_kind", `TEXT NOT NULL DEFAULT '${InvoiceDocumentKind.Standard}'`],
+  ["void_reason", "TEXT"],
 ];
 
 /** Line columns added after the table shipped — see {@link ADDED_COLUMNS}. */
@@ -178,6 +180,7 @@ interface InvoiceRow {
   customer_id: string;
   customer_name_ar: string;
   document_kind: string | null;
+  void_reason: string | null;
   customer_tax_exempt: number;
   tax_inclusive: number | null;
   warehouse_id: string;
@@ -312,6 +315,7 @@ function invoiceParams(invoice: SalesInvoice) {
     customer_id: invoice.customerId,
     customer_name_ar: invoice.customerNameAr,
     document_kind: invoice.documentKind ?? InvoiceDocumentKind.Standard,
+    void_reason: invoice.voidReason ?? null,
     customer_tax_exempt: invoice.customerTaxExempt ? 1 : 0,
     tax_inclusive: invoice.taxInclusive ? 1 : 0,
     warehouse_id: invoice.warehouseId,
@@ -362,6 +366,7 @@ const SALES_INVOICE_COLUMNS: Readonly<Record<SalesInvoiceField, readonly string[
   [SalesInvoiceField.Status]: ["status"],
   [SalesInvoiceField.AmountPaid]: ["amount_paid"],
   [SalesInvoiceField.WorkflowRequestId]: ["workflow_request_id"],
+  [SalesInvoiceField.VoidReason]: ["void_reason"],
 };
 
 class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
@@ -384,7 +389,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         currency, fx_rate, notes, internal_notes,
         discount_type, discount_percent, discount_amount, ar_account_id, tax_account_id,
         amount_paid, created_at, confirmed_at, journal_entry_id, workflow_request_id,
-        reverses_invoice_id, reversed_by_invoice_id, document_kind
+        reverses_invoice_id, reversed_by_invoice_id, document_kind, void_reason
       ) VALUES (
         @id, @doc_type, @doc_no, @status, @date, @due_date, @customer_id, @customer_name_ar,
         @customer_tax_exempt, @tax_inclusive, @warehouse_id, @branch_id, @salesperson_id, @salesperson_name_ar,
@@ -394,7 +399,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         @currency, @fx_rate, @notes, @internal_notes,
         @discount_type, @discount_percent, @discount_amount, @ar_account_id, @tax_account_id,
         @amount_paid, @created_at, @confirmed_at, @journal_entry_id, @workflow_request_id,
-        @reverses_invoice_id, @reversed_by_invoice_id, @document_kind
+        @reverses_invoice_id, @reversed_by_invoice_id, @document_kind, @void_reason
       )
     `);
     this.updateInvoice = sqlite.prepare(`
@@ -437,7 +442,8 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         workflow_request_id = @workflow_request_id,
         reverses_invoice_id = @reverses_invoice_id,
         reversed_by_invoice_id = @reversed_by_invoice_id,
-        document_kind = @document_kind
+        document_kind = @document_kind,
+        void_reason = @void_reason
       WHERE id = @id
     `);
     this.deleteLines = sqlite.prepare(`DELETE FROM sales_invoice_line WHERE invoice_id = ?`);
@@ -659,6 +665,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       customerId: row.customer_id,
       customerNameAr: row.customer_name_ar,
       documentKind: row.document_kind === InvoiceDocumentKind.RetentionRelease ? InvoiceDocumentKind.RetentionRelease : InvoiceDocumentKind.Standard,
+      voidReason: row.void_reason ?? null,
       customerTaxExempt: row.customer_tax_exempt === 1,
       taxInclusive: row.tax_inclusive === 1,
       warehouseId: row.warehouse_id,

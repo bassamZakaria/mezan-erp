@@ -406,6 +406,8 @@ describe("what the confirm route feeds the workflow gate", () => {
  * so a wrong CONFIRMED invoice had no exit at all — only a draft could be
  * cancelled. Every assertion here is on the books, not on the status flag.
  */
+const VOID_BODY = JSON.stringify({ reason: "صدرت بالخطأ" });
+
 describe("voiding a confirmed invoice", () => {
   const VOID = "sales.invoice.void";
 
@@ -443,7 +445,7 @@ describe("voiding a confirmed invoice", () => {
     expect(postedBalance(ledger, AR).toString()).toBe("387.600000");
     expect((await stockService.getPosition("ITEM-A", "WH1")).onHand.toString()).toBe("90.000000");
 
-    const res = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }));
+    const res = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }));
     expect(res.status).toBe(200);
     const voided = (await res.json()) as any;
     expect(voided.status).toBe("reversed");
@@ -482,7 +484,7 @@ describe("voiding a confirmed invoice", () => {
 
   it("refuses without sales.invoice.void", async () => {
     const { app, id } = await confirmedInvoice();
-    const res = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: "sales.invoice.confirm" }));
+    const res = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: "sales.invoice.confirm" }));
     expect(res.status).toBe(403);
   });
 
@@ -490,12 +492,12 @@ describe("voiding a confirmed invoice", () => {
     const { app } = await harness();
     const create = await app.fetch(req("/", { method: "POST", body: JSON.stringify(draftBody), permissions: "sales.invoice.create" }));
     const { id } = (await create.json()) as any;
-    const draftVoid = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }));
+    const draftVoid = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }));
     expect(draftVoid.status).toBe(409);
 
     await app.fetch(req(`/${id}/confirm`, { method: "POST", body: JSON.stringify({}), permissions: "sales.invoice.confirm" }));
-    expect((await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }))).status).toBe(200);
-    expect((await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }))).status).toBe(409);
+    expect((await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }))).status).toBe(200);
+    expect((await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }))).status).toBe(409);
   });
 
   it("refuses an invoice that has been collected against, and moves nothing", async () => {
@@ -508,7 +510,7 @@ describe("voiding a confirmed invoice", () => {
       }),
     );
 
-    const res = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }));
+    const res = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }));
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: "INVOICE_HAS_COLLECTIONS" });
     expect((await ledger.findById(id)).status).toBe("posted");
@@ -520,7 +522,7 @@ describe("voiding a confirmed invoice", () => {
     // (a document posts on its own date), but the void's mirror entry is
     // stamped "now" — September — and there is no open period to take it.
     const { app, ledger, stockService, id } = await confirmedInvoice({ now: "2026-09-05T09:00:00.000Z" });
-    const res = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }));
+    const res = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }));
     expect(res.status).toBe(422);
 
     expect((await ledger.findById(id)).status).toBe("posted");
@@ -530,7 +532,7 @@ describe("voiding a confirmed invoice", () => {
 
   it("answers 503 rather than reversing the GL when no stock-restore hook is mounted", async () => {
     const { app, ledger, id } = await confirmedInvoice({ withoutStockRestore: true });
-    const res = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }));
+    const res = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }));
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ error: "STOCK_RESTORE_UNAVAILABLE" });
     // The GL must be exactly where it was: a one-sided void is the bug this guards.

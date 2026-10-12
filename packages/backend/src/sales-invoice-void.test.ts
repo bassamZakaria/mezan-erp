@@ -90,6 +90,28 @@ describe("voiding a confirmed stock invoice", () => {
   });
 });
 
+describe("the reason a sale was voided", () => {
+  it("is required, and a void without one moves nothing", async () => {
+    const invoice = await confirmedStockSale("VOID-WHY-0");
+    for (const body of [{}, { reason: "" }, { reason: "   " }]) {
+      const refused = await kit.call("POST", "/sales-invoices/VOID-WHY-0/void", body);
+      expect([refused.status, refused.body.error], JSON.stringify(refused.body)).toEqual([400, "VOID_REASON_REQUIRED"]);
+      expect(refused.body.message).toMatch(/[\u0600-\u06FF]/);
+      expect(refused.body.messageEn).toBeTruthy();
+    }
+    expect((await kit.call("GET", "/sales-invoices/VOID-WHY-0")).body.status).toBe("confirmed");
+    expect(await kit.journalLines(`${invoice.id}:void`)).toHaveLength(0);
+  });
+
+  it("is written to the audit row and shown on the document", async () => {
+    await confirmedStockSale("VOID-WHY-1");
+    const voided = await kit.call("POST", "/sales-invoices/VOID-WHY-1/void", { reason: "  صدرت للعميل الخطأ  " });
+    expect([voided.status, voided.body.voidReason], JSON.stringify(voided.body)).toEqual([200, "صدرت للعميل الخطأ"]);
+    expect((await kit.call("GET", "/sales-invoices/VOID-WHY-1")).body.voidReason).toBe("صدرت للعميل الخطأ");
+    expect((await kit.auditRows("SALES_INVOICE", "VOID-WHY-1", "VOID")).map((row) => row.details.reason)).toEqual(["صدرت للعميل الخطأ"]);
+  });
+});
+
 describe("a line sold by the carton, everywhere its quantity is read", () => {
   const reserved = async () =>
     rowsOf((await kit.call("GET", `/inventory/stock-balance?warehouseId=${WAREHOUSE}`)).body).find((row) => row.itemId === STOCK_ITEM)?.reserved;

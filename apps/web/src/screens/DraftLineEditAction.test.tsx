@@ -6,7 +6,7 @@ import type { SessionDTO, TaxRateDTO } from "@mezan/contracts";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import { DraftLineEditAction } from "./DraftLineEditAction";
-import { VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
+import { VoidReasonNotice, VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
 
 const RATES = [
   { id: "VAT14", code: "VAT14", name: "ضريبة القيمة المضافة", rate: 14, status: "active", isSystem: false },
@@ -74,6 +74,40 @@ describe("VoidSalesInvoiceAction — «إلغاء الفاتورة»", () => {
     fireEvent.change(screen.getByLabelText("سبب الإلغاء"), { target: { value: "خطأ" } });
     fireEvent.click(screen.getAllByRole("button", { name: "إلغاء الفاتورة" }).at(-1)!);
     expect(await screen.findByRole("alert")).toHaveTextContent("اعكس التحصيل أولاً");
-    expect(sent).toEqual([{ reason: "خطأ" }]);
+    expect(sent).toEqual([{ reason: "خطأ", expectedVersion: 7 }]);
+  });
+
+  it("sends one void while the first is in flight, and keeps the dialog's confirm disabled until it answers", async () => {
+    let release: (() => void) | undefined;
+    let calls = 0;
+    const answered = stubTransport({ "POST /sales-invoices/*/void": () => ({ body: { ...invoice("reversed"), voidReason: "خطأ" } }) });
+    const transport: typeof answered = async (path, init) => {
+      if ((init?.method ?? "GET") !== "POST") return answered(path, init);
+      calls += 1;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return answered(path, init);
+    };
+    renderWithProviders(<VoidSalesInvoiceAction invoice={invoice("confirmed")} />, { transport, initialSession: testAdminSession });
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء الفاتورة" }));
+    fireEvent.change(screen.getByLabelText("سبب الإلغاء"), { target: { value: "خطأ" } });
+    const confirm = () => screen.getAllByRole("button", { name: "إلغاء الفاتورة" }).at(-1)!;
+    fireEvent.click(confirm());
+    await waitFor(() => expect(confirm()).toBeDisabled());
+    fireEvent.click(confirm());
+    expect(calls).toBe(1);
+    release?.();
+    await waitFor(() => expect(screen.queryByLabelText("سبب الإلغاء")).toBeNull());
+  });
+});
+
+describe("VoidReasonNotice — the reason on the voided document", () => {
+  it("states the reason a reversed invoice was voided for, and says nothing on any other invoice", () => {
+    const { unmount } = renderWithProviders(<VoidReasonNotice invoice={{ ...invoice("reversed"), voidReason: "صدرت للعميل الخطأ" }} />, { transport: stubTransport({}), initialSession: testAdminSession });
+    expect(screen.getByRole("note")).toHaveTextContent("سبب الإلغاء: صدرت للعميل الخطأ");
+    unmount();
+    renderWithProviders(<VoidReasonNotice invoice={invoice("confirmed")} />, { transport: stubTransport({}), initialSession: testAdminSession });
+    expect(screen.queryByRole("note")).toBeNull();
   });
 });

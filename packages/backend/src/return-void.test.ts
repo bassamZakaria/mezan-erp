@@ -104,6 +104,21 @@ describe("voiding a confirmed sales return", () => {
     expect(await returnedQty("/sales-returns", "RV-S-1")).toEqual([12]);
   });
 
+  it("takes out exactly the value the return put in when a purchase has moved the average since the sale", async () => {
+    await confirmedSale("RV-S-7");
+    await confirmedPurchase("RV-S-7-BUY");
+    const stockBefore = await position();
+    const ledgerBefore = await kit.invariants();
+    await confirmedSalesReturn("RV-S-7-R", "RV-S-7", "2");
+    const returned = await position();
+    expect(returned[2]).not.toBe(stockBefore[2]);
+    const voided = await kit.call("POST", "/sales-returns/RV-S-7-R/void", { reason: REASON });
+    expect([voided.status, voided.body.status], JSON.stringify(voided.body)).toEqual([200, "reversed"]);
+    expect(await position()).toEqual(stockBefore);
+    expect(await kit.invariants()).toEqual(ledgerBefore);
+    expect((await kit.invariants()).inventory).toBe(0n);
+  });
+
   it("requires a reason and its own permission, and a refusal moves nothing", async () => {
     await confirmedSale("RV-S-2");
     await confirmedSalesReturn("RV-S-2-R", "RV-S-2", "1");

@@ -20,6 +20,7 @@ export {
   signedQty,
   occurredAtFromDocumentDate,
   signedValue,
+  movementValue,
   type StockMovement,
   type StockMovementDirection,
   type StockSourceDocType,

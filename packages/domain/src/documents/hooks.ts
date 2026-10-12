@@ -13,6 +13,7 @@ import type { CostCategory } from "../contracting/cost-category.js";
  */
 
 import type { Money, Qty } from "../money/index.js";
+import { extend } from "../inventory/wac-math.js";
 import type { GateableActionType } from "../workflow/index.js";
 
 /* --- Numbering hook (via the numbering engine) ---------------------------- */
@@ -115,6 +116,8 @@ export interface DocumentStockLine {
   readonly qty: Qty;
   /** Required for an IN line (receipt cost); ignored for OUT (moving average used). */
   readonly unitCost?: Money;
+  /** Only on a line that mirrors a recorded movement: the exact value that movement moved. */
+  readonly value?: Money;
   /** Set only when this line moves in a warehouse other than the plan's own. */
   readonly warehouseId?: string;
 }
@@ -192,14 +195,17 @@ export interface MirrorableStockMovement {
   readonly qty: Qty;
   /** The cost the movement actually recorded — a receipt cost on an IN, the moving average on an OUT. */
   readonly unitCost: Money;
+  /** The exact value it moved; absent on a row written before it was stored. */
+  readonly value?: Money | null;
 }
 
 /**
  * Build the plan that undoes `movements`, keyed to the reversing document.
  *
- * Every line comes back at the cost it left at — read off the movement, never
- * re-derived from the document — so the reversal is valuation-neutral and the
- * position returns to exactly where it stood. Value-only movements (a landed
+ * Every line moves back the VALUE its movement moved — read off the movement,
+ * never re-derived from the document, a rounded unit cost or today's moving
+ * average — so the position returns to exactly where it stood and to what the
+ * mirrored journal entry returns the control account to. Value-only movements (a landed
  * cost) carry no quantity and are not reversed here.
  */
 export function mirrorStockPlan(
@@ -226,6 +232,7 @@ export function mirrorStockPlan(
       direction: m.direction === "IN" ? ("OUT" as const) : ("IN" as const),
       qty: m.qty,
       unitCost: m.unitCost,
+      value: m.value ?? extend(m.qty, m.unitCost),
       ...(m.warehouseId === planWarehouse ? {} : { warehouseId: m.warehouseId }),
     })),
   };

@@ -27,7 +27,7 @@
 
 import { Money, Qty, allocate } from "../money/index.js";
 import { CostLayer, drawDownLayer, layerRemainingValue, orderLayersForConsumption } from "./cost-layer.js";
-import { StockMovement, isRevaluation, signedQty } from "./movement.js";
+import { StockMovement, isRevaluation, movementValue, signedQty } from "./movement.js";
 import { extend, unitCostOf } from "./wac-math.js";
 
 export interface WacPosition {
@@ -178,7 +178,7 @@ export function replay(
       continue;
     }
     if (m.direction === "IN") {
-      totalValue = totalValue.add(extend(m.qty, m.unitCost));
+      totalValue = totalValue.add(movementValue(m));
       onHand = onHand.add(m.qty);
       layers.push({
         id: m.id,
@@ -215,7 +215,7 @@ export function replay(
       // be identical in both, or replaying a ledger the engine wrote would
       // report the difference as `cacheDrift` — turning the fix into a
       // permanent false corruption signal on every fully-sold item.
-      const cogs = remainingAfter.isZero() ? totalValue : extend(m.qty, issuedAt);
+      const cogs = m.value ?? (remainingAfter.isZero() ? totalValue : extend(m.qty, issuedAt));
       totalValue = totalValue.add(cogs.negate());
       onHand = remainingAfter;
       layers = consumeLayers(layers, m.qty);

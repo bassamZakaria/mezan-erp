@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { Money, Qty, StockLedgerService, NegativeStockError } from "@mezan/domain";
+import { Money, Qty, StockLedgerService, NegativeStockError, movementValue, replay } from "@mezan/domain";
 import { createSqliteStockLedgerStore, type SqliteStockLedgerHandle } from "./stock-ledger-store.js";
 
 const handles: SqliteStockLedgerHandle[] = [];
@@ -53,6 +53,44 @@ describe("SqliteStockLedgerStore — round-trip & scaled-integer storage", () =>
     expect(m?.qty.toString()).toBe("10.500000");
     expect(m?.unitCost.toString()).toBe("3.250000");
     expect(m?.reason).toBe("INITIAL_STOCK");
+  });
+});
+
+describe("SqliteStockLedgerStore — the value a movement moved", () => {
+  it("stores the exact value of a drain, which quantity × the rounded unit cost does not give, and replays to the stored position", async () => {
+    const { store, service } = newService();
+    const plan = (sourceDocId: string, lines: Parameters<typeof service.applyDocumentStockPlan>[0]["lines"]) =>
+      service.applyDocumentStockPlan({ sourceDocType: "SALES_INVOICE", sourceDocId, sourceDocNumber: sourceDocId, warehouseId: "W1", lines });
+    await plan("GRN-1", [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("10") }]);
+    await plan("GRN-2", [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("10.01") }]);
+    await plan("ISS-1", [{ itemId: "I1", direction: "OUT", qty: Qty.fromMajor("3") }]);
+    const drain = (await store.ledger.listByPosition("I1", "W1")).at(-1);
+    expect([drain?.unitCost.toString(), drain?.value?.toString()]).toEqual(["10.006667", "30.020000"]);
+    await plan("ISS-1:void", [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("3"), unitCost: drain!.unitCost, value: drain!.value ?? undefined }]);
+    const detail = await service.getBalanceDetail("I1", "W1");
+    const again = replay("I1", "W1", await store.ledger.listByPosition("I1", "W1"));
+    expect([detail.onHand.toString(), detail.totalValue.toString()]).toEqual(["3.000000", "30.020000"]);
+    expect([again.onHand.toString(), again.totalValue.toString()]).toEqual(["3.000000", "30.020000"]);
+  });
+
+  it("reads a row written before the column as quantity × unit cost, and adds the column to a file that lacks it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mezan-stock-value-"));
+    const file = join(dir, "t.db");
+    const first = createSqliteStockLedgerStore(file);
+    await first.ledger.append({
+      id: "M1", itemId: "I1", warehouseId: "W1", direction: "IN", qty: Qty.fromMajor("3"), unitCost: Money.fromMajor("10.006667"),
+      sourceDocType: "ADJUSTMENT", sourceDocId: "ADJ1", sourceDocNumber: null, reason: "INITIAL_STOCK", occurredAt: "2026-03-01T00:00:00.000Z",
+    });
+    first.close();
+    const raw = new Database(file);
+    raw.exec("ALTER TABLE stock_movement DROP COLUMN value");
+    raw.close();
+    const reopened = createSqliteStockLedgerStore(file);
+    handles.push(reopened);
+    const [legacy] = await reopened.ledger.listByPosition("I1", "W1");
+    expect(legacy?.value ?? null).toBeNull();
+    expect(movementValue(legacy!).toString()).toBe("30.020001");
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 

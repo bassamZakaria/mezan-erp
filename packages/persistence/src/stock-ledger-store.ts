@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS stock_movement (
   batch_no          TEXT,
   expiry_date       TEXT,
   value_delta       INTEGER,
+  value             INTEGER,
   revalues_doc_id   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_movement_position ON stock_movement(item_id, warehouse_id, seq);
@@ -130,6 +131,11 @@ function addMissingColumns(sqlite: Database.Database): void {
   const hasMovementColumn = (name: string) => movementColumns.some((c) => c.name === name);
   if (!hasMovementColumn("value_delta")) sqlite.exec(`ALTER TABLE stock_movement ADD COLUMN value_delta INTEGER`);
   if (!hasMovementColumn("revalues_doc_id")) sqlite.exec(`ALTER TABLE stock_movement ADD COLUMN revalues_doc_id TEXT`);
+  // INVARIANT: nullable and never backfilled in SQL. A row written before the
+  // column reads NULL, which the domain reads as quantity × unit cost in exact
+  // bigint arithmetic; multiplying the two scaled integers here would leave
+  // SQLite's 64-bit range and round through a float.
+  if (!hasMovementColumn("value")) sqlite.exec(`ALTER TABLE stock_movement ADD COLUMN value INTEGER`);
   sqlite.exec(
     `CREATE INDEX IF NOT EXISTS idx_layer_expiry ON cost_layer(expiry_date, seq) WHERE expiry_date IS NOT NULL`,
   );
@@ -150,6 +156,7 @@ interface MovementRow {
   batch_no: string | null;
   expiry_date: string | null;
   value_delta: number | null;
+  value: number | null;
   revalues_doc_id: string | null;
 }
 
@@ -192,6 +199,7 @@ function toMovement(row: MovementRow): StockMovement {
     batchNo: row.batch_no,
     expiryDate: row.expiry_date,
     valueDelta: row.value_delta === null ? null : Money.fromScaled(row.value_delta),
+    value: row.value === null || row.value === undefined ? null : Money.fromScaled(row.value),
     revaluesSourceDocId: row.revalues_doc_id,
   };
 }
@@ -252,11 +260,11 @@ class SqliteStockLedgerStore {
       INSERT INTO stock_movement
         (id, item_id, warehouse_id, direction, qty, unit_cost,
          source_doc_type, source_doc_id, source_doc_number, reason, occurred_at,
-         batch_no, expiry_date, value_delta, revalues_doc_id)
+         batch_no, expiry_date, value_delta, revalues_doc_id, value)
       VALUES
         (@id, @item_id, @warehouse_id, @direction, @qty, @unit_cost,
          @source_doc_type, @source_doc_id, @source_doc_number, @reason, @occurred_at,
-         @batch_no, @expiry_date, @value_delta, @revalues_doc_id)
+         @batch_no, @expiry_date, @value_delta, @revalues_doc_id, @value)
     `);
     this.selectMovByPosition = sqlite.prepare(
       `SELECT * FROM stock_movement WHERE item_id = ? AND warehouse_id = ? ORDER BY occurred_at, seq`,
@@ -333,6 +341,7 @@ class SqliteStockLedgerStore {
       expiry_date: movement.expiryDate ?? null,
       value_delta: movement.valueDelta ? movement.valueDelta.toScaledNumber() : null,
       revalues_doc_id: movement.revaluesSourceDocId ?? null,
+      value: movement.value ? movement.value.toScaledNumber() : null,
     });
   }
 

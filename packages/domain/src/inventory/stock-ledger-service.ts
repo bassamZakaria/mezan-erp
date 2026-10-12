@@ -403,6 +403,13 @@ export class StockLedgerService {
     qty: Qty;
     /** For IN: the receipt cost. For OUT: ignored (moving average used). */
     unitCost?: Money;
+    /**
+     * INVARIANT: set ONLY by a reversal mirroring a recorded movement — the
+     * exact value that movement moved. It replaces quantity × cost on an IN and
+     * the moving average on an OUT, so the position returns to the value the
+     * mirrored journal entry returns the control account to.
+     */
+    value?: Money;
     sourceDocType: StockSourceDocType;
     sourceDocId: string;
     sourceDocNumber: string | null;
@@ -434,7 +441,7 @@ export class StockLedgerService {
         throw new InvalidStockMovementError(["حركة الإدخال تتطلب تكلفة الوحدة"]);
       }
       unitCost = input.unitCost;
-      const value = extend(input.qty, unitCost);
+      const value = input.value ?? extend(input.qty, unitCost);
       newOnHand = snap.onHand.add(input.qty);
       newTotalValue = snap.totalValue.add(value);
       signed = value;
@@ -487,7 +494,7 @@ export class StockLedgerService {
       // and the control account move together by construction, so there is no
       // window in which they disagree. `wac.ts`'s replay applies the identical
       // rule, or `cacheDrift` would report this fix as corruption.
-      const cogs = projected.isZero() ? snap.totalValue : extend(input.qty, unitCost);
+      const cogs = input.value ?? (projected.isZero() ? snap.totalValue : extend(input.qty, unitCost));
       newOnHand = projected;
       newTotalValue = snap.totalValue.add(cogs.negate());
       signed = cogs.negate();
@@ -500,6 +507,7 @@ export class StockLedgerService {
       direction: input.direction,
       qty: input.qty,
       unitCost,
+      value: input.direction === "IN" ? signed : signed.negate(),
       sourceDocType: input.sourceDocType,
       sourceDocId: input.sourceDocId,
       sourceDocNumber: input.sourceDocNumber,
@@ -958,6 +966,7 @@ export class StockLedgerService {
       readonly direction: StockMovementDirection;
       readonly qty: Qty;
       readonly unitCost?: Money;
+      readonly value?: Money;
       readonly warehouseId?: string;
     }[];
     readonly occurredAt?: string;
@@ -976,6 +985,7 @@ export class StockLedgerService {
           direction: line.direction,
           qty: line.qty,
           unitCost: line.unitCost,
+          value: line.value,
           sourceDocType: plan.sourceDocType,
           sourceDocId: plan.sourceDocId,
           sourceDocNumber: plan.sourceDocNumber,

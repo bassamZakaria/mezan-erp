@@ -3,7 +3,7 @@ import { Button, SidePanel } from "@mezan/ui";
 import { TaxRateStatusCode } from "@mezan/domain";
 import { InvoiceDocumentKind, TaxClassificationFilingOutcomeCode, type TaxRateDTO } from "@mezan/contracts";
 import { useApi } from "../data/ApiContext";
-import { ClassifiableDocument, useClassifyLineTax, useVatEnabled } from "../data/hooks";
+import { ClassifiableDocument, useClassifyLineTax, useRetryEtaReceipt, useVatEnabled } from "../data/hooks";
 import { DocumentReadPermission, sessionMayRead } from "../data/document-read-permissions";
 import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -25,7 +25,13 @@ const RECEIPT_OUTCOME_MESSAGE: Partial<Record<TaxClassificationFilingOutcomeCode
   [TaxClassificationFilingOutcomeCode.Reissued]: "classifyTax.outcome.reissued",
   [TaxClassificationFilingOutcomeCode.ReissuePending]: "classifyTax.outcome.reissuePending",
   [TaxClassificationFilingOutcomeCode.ReissueRefused]: "classifyTax.outcome.reissueRefused",
+  [TaxClassificationFilingOutcomeCode.ReissueFailed]: "classifyTax.outcome.reissueFailed",
 };
+
+interface ReceiptOutcome {
+  readonly text: string;
+  readonly failed: boolean;
+}
 
 export interface ClassifyLineTaxActionProps {
   readonly document: ClassifiableDocument;
@@ -48,7 +54,8 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
   const [open, setOpen] = useState(openedExternally);
   const [taxRateId, setTaxRateId] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [receiptOutcome, setReceiptOutcome] = useState<string | null>(null);
+  const retryReceipt = useRetryEtaReceipt();
+  const [receiptOutcome, setReceiptOutcome] = useState<ReceiptOutcome | null>(null);
 
   // The system's rate classifies a sale only for a tenant outside VAT; the
   // server refuses it everywhere else, so it is offered nowhere else.
@@ -88,14 +95,30 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
     setError(null);
     try {
       const result = await classify.mutateAsync({ documentId, lineId: line.lineId, taxRateId, withLineIds: companions.map((other) => other.lineId) });
-      const outcomeKey = RECEIPT_OUTCOME_MESSAGE[result.filing];
-      if (!outcomeKey) {
+      const outcome = outcomeOf(result.filing, result.filingMessage);
+      if (!outcome) {
         closePanel();
         return;
       }
-      setReceiptOutcome(result.filingMessage ? `${t(outcomeKey)} ${result.filingMessage}` : t(outcomeKey));
+      setReceiptOutcome(outcome);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("classifyTax.error.failed"));
+    }
+  }
+
+  function outcomeOf(filing: TaxClassificationFilingOutcomeCode | null, message?: string): ReceiptOutcome | null {
+    const outcomeKey = filing ? RECEIPT_OUTCOME_MESSAGE[filing] : undefined;
+    if (!outcomeKey) return null;
+    return { text: message ? `${t(outcomeKey)} ${message}` : t(outcomeKey), failed: filing === TaxClassificationFilingOutcomeCode.ReissueFailed };
+  }
+
+  async function retry() {
+    if (retryReceipt.isPending) return;
+    try {
+      const result = await retryReceipt.mutateAsync({ documentId });
+      setReceiptOutcome(outcomeOf(result.filing, result.filingMessage) ?? { text: t("classifyTax.outcome.nothingLeft"), failed: false });
+    } catch (err) {
+      setReceiptOutcome({ text: err instanceof Error ? err.message : t("classifyTax.outcome.reissueFailed"), failed: true });
     }
   }
 
@@ -111,9 +134,19 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
           <div className="flex flex-col gap-[14px]">
             <div role="status" className="rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12.5px] text-ink">
               <p className="font-semibold">{t("classifyTax.outcome.classified", { line: line.label })}</p>
-              <p className="mt-[6px]">{receiptOutcome}</p>
+              {receiptOutcome.failed ? null : <p className="mt-[6px]">{receiptOutcome.text}</p>}
             </div>
-            <div className="flex justify-end">
+            {receiptOutcome.failed ? (
+              <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+                {receiptOutcome.text}
+              </div>
+            ) : null}
+            <div className="flex justify-end gap-[9px]">
+              {receiptOutcome.failed ? (
+                <Button type="button" onClick={() => void retry()} disabled={retryReceipt.isPending}>
+                  {t("classifyTax.outcome.retry")}
+                </Button>
+              ) : null}
               <Button type="button" variant="primary" onClick={closePanel}>
                 {t("classifyTax.done")}
               </Button>

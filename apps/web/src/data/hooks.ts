@@ -223,6 +223,7 @@ import type {
   EditSalesInvoiceDraftLineDTO,
   VoidSalesInvoiceDTO,
   LineTaxClassificationDTO,
+  EtaReceiptRetryDTO,
   SessionDTO,
   SettleVanTripDTO,
   StartPhysicalCountDTO,
@@ -3121,6 +3122,20 @@ export function useClassifyLineTax(document: ClassifiableDocument) {
       return res.json<LineTaxClassificationDTO>();
     },
     onSuccess: () => invalidateAfterTaxClassification(queryClient, document),
+  });
+}
+
+export function useRetryEtaReceipt() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaReceiptRetryDTO, ApiError, { documentId: string }>({
+    mutationFn: async ({ documentId }) => {
+      const res = await request(`/${ClassifiableDocument.SalesInvoice}/${encodeURIComponent(documentId)}/eta-receipt/retry`, { method: "POST", body: "{}" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("classifyTax.outcome.reissueFailed"), t));
+      return res.json<EtaReceiptRetryDTO>();
+    },
+    onSuccess: () => invalidateAfterTaxClassification(queryClient, ClassifiableDocument.SalesInvoice),
   });
 }
 

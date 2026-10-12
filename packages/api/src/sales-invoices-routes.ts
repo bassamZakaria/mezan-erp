@@ -74,6 +74,7 @@ import {
   confirmSalesInvoiceSchema,
   salesInvoicePaymentSchema,
   voidSalesInvoiceSchema,
+  etaReceiptRetrySchema,
   editSalesInvoiceDraftLineSchema,
   salesInvoiceListQuerySchema,
   salesInvoiceSchema,
@@ -1248,6 +1249,19 @@ export function createSalesInvoicesRoutes(
     } catch (err) {
       return taxClassificationRefusal(c, err) ?? handleDomainError(c, err);
     }
+  });
+
+  app.post("/:id/eta-receipt/retry", gate("sales.invoice.classify_tax"), async (c) => {
+    const invoice = await visibleInvoice(c, service(c));
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
+    const correction = (await deps.afterTaxClassified?.(invoice.id)) ?? null;
+    return c.json(
+      etaReceiptRetrySchema.parse({
+        documentId: invoice.id,
+        filing: correction?.outcome ?? null,
+        ...(correction?.message ? { filingMessage: correction.message } : {}),
+      }),
+    );
   });
 
   app.post("/:id/confirm", gate("sales.invoice.confirm"), async (c) => {

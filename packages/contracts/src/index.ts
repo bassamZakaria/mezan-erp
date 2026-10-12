@@ -303,6 +303,8 @@ export {
   nameJournalLineTaxSchema,
   type NameJournalLineTaxDTO,
   lineTaxClassificationSchema,
+  etaReceiptRetrySchema,
+  type EtaReceiptRetryDTO,
   TaxClassificationFilingOutcomeCode,
   TaxCalculationTypeCode,
   TaxRateStatusCode,

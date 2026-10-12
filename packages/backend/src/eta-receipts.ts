@@ -100,6 +100,47 @@ export interface EtaReceiptCorrection {
   readonly message?: string;
 }
 
+const ARABIC_TEXT = /[\u0600-\u06FF]/;
+const RECEIPT_FAILURE_FALLBACK = "راجع تسجيل جهاز الإيصالات واتصاله بالمنظومة ثم أعد المحاولة.";
+
+function receiptFailureReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  return ARABIC_TEXT.test(message) ? message : RECEIPT_FAILURE_FALLBACK;
+}
+
+// INVARIANT: the classification has already committed when this runs, so a
+// failure here never undoes it — but it is REPORTED. Swallowing it told the
+// accountant the receipt was handled while the authority still held nothing.
+export function createAfterTaxClassified(deps: {
+  readonly receipts: Pick<EtaReceiptIssuer, "correctInvoiceReceiptAfterClassification" | "reissueReturnReceipt" | "issueReturnReceipt" | "scheduleSubmission">;
+  readonly returnsOf: (invoiceId: string) => Promise<readonly { readonly id: string; readonly docNo: string | null; readonly status: string; readonly reversesDocId: string | null }[]>;
+  readonly log?: (message: string, error: unknown) => void;
+}): (invoiceId: string) => Promise<EtaReceiptCorrection | null> {
+  const log = deps.log ?? ((message: string, error: unknown) => console.error(message, error));
+  return async (invoiceId) => {
+    const failures: string[] = [];
+    let correction: EtaReceiptCorrection | null = null;
+    try {
+      correction = await deps.receipts.correctInvoiceReceiptAfterClassification(invoiceId);
+    } catch (error) {
+      log(`[eta] could not issue the receipt of ${invoiceId} after its tax was classified`, error);
+      failures.push(receiptFailureReason(error));
+    }
+    for (const returned of await deps.returnsOf(invoiceId)) {
+      if (!isStandingReturn(returned)) continue;
+      try {
+        const refund = (await deps.receipts.reissueReturnReceipt(returned.id)) ?? (await deps.receipts.issueReturnReceipt(returned.id));
+        if (refund) deps.receipts.scheduleSubmission();
+      } catch (error) {
+        log(`[eta] could not issue the refund receipt of ${returned.id} after its tax was classified`, error);
+        failures.push(`تعذّر إصدار إيصال المرتجع ${returned.docNo ?? returned.id}: ${receiptFailureReason(error)}`);
+      }
+    }
+    if (failures.length === 0) return correction;
+    return { outcome: TaxClassificationFilingOutcome.ReissueFailed, message: [correction?.message, ...failures].filter(Boolean).join(" ") };
+  };
+}
+
 const PENDING_WITH_AUTHORITY: ReadonlySet<string> = new Set([
   EtaSubmissionStatusCode.Ready,
   EtaSubmissionStatusCode.PendingSignature,

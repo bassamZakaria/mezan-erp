@@ -276,10 +276,10 @@ import {
   createSalesInvoiceTaxFiling,
   createSalesReturnTaxFiling,
   createEtaReturnCreditNoteRebuilder,
-  type EtaReceiptCorrection,
   createEtaInvoiceRequeueRebuilder,
   createEtaReceiptIssuer,
   createReturnEtaEnqueueBridge,
+  createAfterTaxClassified,
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
 import { createAuthRoutes } from "./auth-routes.js";
@@ -3502,23 +3502,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // gets it now, and a rejected one is corrected — once per rejection.
       // Best-effort, as at confirm: the classification stands either way, and
       // the reply says what actually became of the receipt.
-      afterTaxClassified: async (invoiceId) => {
-        let correction: EtaReceiptCorrection | null = null;
-        try {
-          correction = await etaReceipts.correctInvoiceReceiptAfterClassification(invoiceId);
-        } catch (error) {
-          console.error(`[eta] could not issue the receipt of ${invoiceId} after its tax was classified`, error);
-        }
-        for (const returned of await salesReturnStore.listByLineRef?.("sourceInvoiceId", [invoiceId], { status: "confirmed" }) ?? []) {
-          try {
-            const refund = (await etaReceipts.reissueReturnReceipt(returned.id)) ?? (await etaReceipts.issueReturnReceipt(returned.id));
-            if (refund) etaReceipts.scheduleSubmission();
-          } catch (error) {
-            console.error(`[eta] could not issue the refund receipt of ${returned.id} after its tax was classified`, error);
-          }
-        }
-        return correction;
-      },
+      afterTaxClassified: createAfterTaxClassified({
+        receipts: etaReceipts,
+        returnsOf: async (invoiceId) => (await salesReturnStore.listByLineRef?.("sourceInvoiceId", [invoiceId], { status: "confirmed" })) ?? [],
+      }),
       settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {

@@ -166,6 +166,7 @@ export enum TaxClassificationFilingOutcomeCode {
   Reissued = "reissued",
   ReissuePending = "reissue_pending",
   ReissueRefused = "reissue_refused",
+  ReissueFailed = "reissue_failed",
 }
 
 export const lineTaxClassificationSchema = z.object({
@@ -179,6 +180,13 @@ export const lineTaxClassificationSchema = z.object({
   filing: z.nativeEnum(TaxClassificationFilingOutcomeCode),
   filingMessage: z.string().optional(),
 });
+
+export const etaReceiptRetrySchema = z.object({
+  documentId: z.string().min(1),
+  filing: z.nativeEnum(TaxClassificationFilingOutcomeCode).nullable(),
+  filingMessage: z.string().optional(),
+});
+export type EtaReceiptRetryDTO = z.infer<typeof etaReceiptRetrySchema>;
 
 export type ClassifyLineTaxDTO = z.infer<typeof classifyLineTaxSchema>;
 export type LineTaxClassificationDTO = z.infer<typeof lineTaxClassificationSchema>;

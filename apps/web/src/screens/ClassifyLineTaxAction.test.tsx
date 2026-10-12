@@ -160,6 +160,37 @@ describe("ClassifyLineTaxAction — «تصنيف ضريبة البند» on a po
     await waitFor(() => expect(screen.queryByText(/تعذّر إعادة إصدار/)).toBeNull());
   });
 
+  it("says the reissue failed, in Arabic, and retries it from the same panel until it lands (finding 12)", async () => {
+    const retried: string[] = [];
+    let attempts = 0;
+    const classified = { documentId: "INV-1", documentNumber: "INV-000001", lineIds: ["L1"], taxRateId: "VAT-EXEMPT", taxRateName: "معفى من الضريبة", taxRatePercent: 0, journalLinesNamed: 1 };
+    const transport = stubTransport({
+      "POST /sales-invoices/*/lines/*/classify-tax": () => ({ body: { ...classified, filing: "reissue_failed", filingMessage: "تعذّر الاتصال بجهاز الإيصالات." } }),
+      "POST /sales-invoices/*/eta-receipt/retry": (_init, path) => {
+        retried.push(path);
+        attempts += 1;
+        return attempts === 1
+          ? { body: { documentId: "INV-1", filing: "reissue_failed", filingMessage: "تعذّر الاتصال بجهاز الإيصالات." } }
+          : { body: { documentId: "INV-1", filing: "reissued" } };
+      },
+    });
+    renderWithProviders(
+      <ClassifyLineTaxAction document={ClassifiableDocument.SalesInvoice} documentId="INV-1" posted line={LINES[0]!} lines={LINES} taxRates={TAX_RATES} />,
+      { transport, initialSession: testAdminSession },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /تصنيف ضريبة البند/ }));
+    pick("معفى من الضريبة · 0٪");
+    fireEvent.click(screen.getByRole("button", { name: "تصنيف" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("لم يُصدر الإيصال الإلكتروني بعد التصنيف: تعذّر الاتصال بجهاز الإيصالات.");
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    await waitFor(() => expect(retried).toHaveLength(1));
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر الاتصال بجهاز الإيصالات.");
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect(await screen.findByText(/أُعيد إصدار الإيصال الإلكتروني المرفوض بالتصنيف الجديد/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إعادة المحاولة" })).toBeNull();
+    expect(retried).toEqual(["/sales-invoices/INV-1/eta-receipt/retry", "/sales-invoices/INV-1/eta-receipt/retry"]);
+  });
+
   it("tells a tenant with no 0% rate of its own to create one, and offers the Tax Rates screen to whoever may manage them", async () => {
     renderWithProviders(
       <ClassifyLineTaxAction document={ClassifiableDocument.SalesInvoice} documentId="INV-1" posted line={LINES[0]!} lines={LINES} taxRates={TAX_RATES.filter((rate) => rate.rate !== 0)} />,

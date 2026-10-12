@@ -149,7 +149,7 @@ export {
 } from "./primitives/DocumentStatusStepper";
 
 export { Kbd, modKeyLabel, type KbdProps, type KbdTone } from "./primitives/Kbd";
-export { SidePanel, type SidePanelProps } from "./primitives/SidePanel";
+export { SidePanel, useInEditScope, type SidePanelProps } from "./primitives/SidePanel";
 export { MoneyInput, type MoneyInputProps } from "./primitives/MoneyInput";
 export { QtyInput, type QtyInputProps } from "./primitives/QtyInput";
 export { EntityPicker, type EntityPickerProps, type EntityPickerOption } from "./primitives/EntityPicker";

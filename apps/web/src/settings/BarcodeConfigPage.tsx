@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { Card, DocumentDetail, Button, StatusPill, IconButton } from "@mezan/ui";
 import { validateBarcodeConfig, type BarcodeConfig, type EmbeddedBarcodeRule } from "@mezan/domain";
 import type { BarcodeConfigDTO } from "@mezan/contracts";
@@ -94,6 +95,14 @@ function RuleCard({
 }
 
 export function BarcodeConfigPage() {
+  return (
+    <ReadOnlyFields>
+      <BarcodeConfigPageContent />
+    </ReadOnlyFields>
+  );
+}
+
+function BarcodeConfigPageContent() {
   const { t } = useAppTranslation();
   const query = useBarcodeConfig();
   const updateMutation = useUpdateBarcodeConfig();

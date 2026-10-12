@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
 import type { TenantSettingsDTO, UpdateTenantSettingsDTO } from "@mezan/contracts";
 import { useSettings, useUpdateSettings, useSendTestEmail } from "../data/hooks";
@@ -557,6 +558,14 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
 }
 
 export function SettingsGeneral() {
+  return (
+    <ReadOnlyFields>
+      <SettingsGeneralContent />
+    </ReadOnlyFields>
+  );
+}
+
+function SettingsGeneralContent() {
   const { t } = useAppTranslation();
   const query = useSettings();
 

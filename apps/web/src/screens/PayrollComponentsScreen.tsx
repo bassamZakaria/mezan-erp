@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ReadOnlyFields } from "../shell/ReadOnlyForm";
+import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import {
   Button,
   Card,
@@ -277,7 +277,7 @@ export function PayrollComponentsScreen() {
           />
           <ToggleField label={t("payrollComponents.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />
           <div className="mt-[6px] flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setFormOpen(false)}>
+            <Button type="button" {...READ_ONLY_KEEP} onClick={() => setFormOpen(false)}>
               {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary" disabled={createComponent.isPending || updateComponent.isPending}>

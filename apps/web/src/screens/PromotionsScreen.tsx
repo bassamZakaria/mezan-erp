@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ReadOnlyFields } from "../shell/ReadOnlyForm";
+import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import {
   Button,
   Card,
@@ -726,7 +726,7 @@ export function PromotionsScreen() {
           ) : null}
 
           <div className="flex gap-2 pt-2">
-            <Button variant="default" onClick={() => setPanelOpen(false)}>
+            <Button variant="default" {...READ_ONLY_KEEP} onClick={() => setPanelOpen(false)}>
               {t("common.cancel")}
             </Button>
             <Button

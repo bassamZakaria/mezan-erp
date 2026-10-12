@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { ReadOnlyFields } from "../shell/ReadOnlyForm";
+import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { matchesSearch } from "@mezan/domain";
 import {
   useFormat,
@@ -747,7 +747,7 @@ export function ChartOfAccountsScreen() {
           ) : null}
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setFormOpen(false)}>
+            <Button type="button" {...READ_ONLY_KEEP} onClick={() => setFormOpen(false)}>
               {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">

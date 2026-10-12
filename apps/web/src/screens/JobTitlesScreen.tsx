@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ReadOnlyFields } from "../shell/ReadOnlyForm";
+import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { Button, Card, DocumentList, EmptyState, EntityPicker, SidePanel, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type EntityPickerOption, type PillTone } from "@mezan/ui";
 import type { JobTitleDTO } from "@mezan/contracts";
 import { TextField, ToggleField } from "../settings/form-controls";
@@ -232,7 +232,7 @@ export function JobTitlesScreen() {
             <TextField label={t("jobTitles.nameArabic")} value={editNameAr} onChange={setEditNameAr} />
             <ToggleField label={t("common.active")} checked={editActive} onChange={setEditActive} />
             <div className="mt-[6px] flex justify-end gap-[9px]">
-              <Button type="button" onClick={() => setSelectedId(null)}>
+              <Button type="button" {...READ_ONLY_KEEP} onClick={() => setSelectedId(null)}>
                 {t("common.cancel")}
               </Button>
               <Button type="submit" variant="primary">
@@ -259,7 +259,7 @@ export function JobTitlesScreen() {
           <TextField label={t("jobTitles.jobTitle2")} value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
           <TextField label={t("jobTitles.nameArabic")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
           <div className="mt-[6px] flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setFormOpen(false)}>
+            <Button type="button" {...READ_ONLY_KEEP} onClick={() => setFormOpen(false)}>
               {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">

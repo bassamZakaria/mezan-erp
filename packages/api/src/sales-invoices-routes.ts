@@ -552,6 +552,27 @@ export function createSalesInvoicesRoutes(
     if (!ctx) return false;
     return !can(ctx, "sales.invoice.view") && !can(ctx, "sales.invoice.view_all");
   };
+  // An own-records caller who names no salesperson IS the salesperson:
+  // otherwise the invoice they just raised is one they can neither open nor
+  // confirm.
+  const ownSalespersonForUnnamed = async (c: Context): Promise<string | null> => {
+    if (!ownVisibilityOnly(c)) return null;
+    const own = await ownSalespersonIdOf(c);
+    return own === NO_SUCH_ACTOR ? null : own;
+  };
+  const NOT_FOUND_BODY = { error: "NOT_FOUND" } as const;
+  // SECURITY: the ONE place a route under `/:id` resolves its invoice. A
+  // caller whose only grant is the own-records tier is answered as if a
+  // colleague's invoice did not exist — on a read and on every action alike,
+  // and before the request body is looked at, so nothing about the invoice can
+  // be probed through a validation error
+  // (`invoice-sub-route-visibility.test.ts` walks every mounted sub-route).
+  const visibleInvoice = async (c: Context, svc: SalesInvoiceService): Promise<SalesInvoice | null> => {
+    const invoice = await svc.findByIdOrDocNo(c.req.param("id") ?? "");
+    if (!invoice) return null;
+    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) return null;
+    return invoice;
+  };
   const maySeeCost = (c: Context) => {
     const ctx = getAuthContext(c);
     return ctx ? can(ctx, "sales.invoice.view_cost") : false;
@@ -645,7 +666,7 @@ export function createSalesInvoicesRoutes(
       customerTaxExemptionRateId: customerTax.taxExemptionRateId,
       warehouseId: d.warehouseId,
       branchId: d.branchId,
-      salespersonId: d.salespersonId ?? null,
+      salespersonId: d.salespersonId ?? (await ownSalespersonForUnnamed(c)),
       salespersonNameAr: d.salespersonNameAr ?? null,
       projectId: d.projectId ?? null,
       couponCode: d.couponCode ?? null,
@@ -1064,13 +1085,8 @@ export function createSalesInvoicesRoutes(
     // By id OR by document number: a deep link carries the number, and now
     // that the list is a page the screen can no longer resolve one from the
     // rows it happens to hold.
-    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    // A `view_own` holder gets 404, not 403: whether an invoice they may not
-    // see exists at all is itself information.
-    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
-      return c.json({ error: "NOT_FOUND" }, 404);
-    }
+    const invoice = await visibleInvoice(c, svc);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
     return c.json({
       ...serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), maySeeCost(c)),
       // N-9: the screen keeps this and sends it back, so a second till acting on
@@ -1088,15 +1104,12 @@ export function createSalesInvoicesRoutes(
     if (!deps.taxTags || !deps.taxRates) {
       return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
     }
+    const svc = service(c);
+    const invoice = await visibleInvoice(c, svc);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
     const parsed = classifyLineTaxSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
-    const svc = service(c);
-    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
-      return c.json({ error: "NOT_FOUND" }, 404);
     }
     try {
       const result = await svc.classifyLineTax(invoice.id, {
@@ -1140,13 +1153,13 @@ export function createSalesInvoicesRoutes(
     if (!deps.taxTags || !deps.taxRates) {
       return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
     }
+    const svc = service(c);
+    const invoice = await visibleInvoice(c, svc);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
     const parsed = nameJournalLineTaxSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const svc = service(c);
-    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
     try {
       const result = await svc.nameJournalLineTax(invoice.id, {
         lineRef: c.req.param("lineId"),
@@ -1175,6 +1188,9 @@ export function createSalesInvoicesRoutes(
   });
 
   app.post("/:id/confirm", gate("sales.invoice.confirm"), async (c) => {
+    const svc = service(c);
+    const target = await visibleInvoice(c, svc);
+    if (!target) return c.json(NOT_FOUND_BODY, 404);
     let body: unknown = {};
     try {
       body = await c.req.json();
@@ -1185,12 +1201,11 @@ export function createSalesInvoicesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const stale = await refuseStaleDocument(c, deps.versionGuard, c.req.param("id"), expectedVersionOf(body));
+    const stale = await refuseStaleDocument(c, deps.versionGuard, target.id, expectedVersionOf(body));
     if (stale) return stale;
-    const svc = service(c);
     const ctx = getAuthContext(c);
     try {
-      const result = await svc.confirm(c.req.param("id"), {
+      const result = await svc.confirm(target.id, {
         requestId: parsed.data.requestId,
         actor: ctx?.userId,
         actorRoles: gateActorRoles(c),
@@ -1233,18 +1248,20 @@ export function createSalesInvoicesRoutes(
   });
 
   app.post("/:id/cancel", gate("sales.invoice.delete_draft"), async (c) => {
+    const svc = service(c);
+    const target = await visibleInvoice(c, svc);
+    if (!target) return c.json(NOT_FOUND_BODY, 404);
     let body: unknown = {};
     try {
       body = await c.req.json();
     } catch {
       body = {};
     }
-    const stale = await refuseStaleDocument(c, deps.versionGuard, c.req.param("id"), expectedVersionOf(body));
+    const stale = await refuseStaleDocument(c, deps.versionGuard, target.id, expectedVersionOf(body));
     if (stale) return stale;
-    const svc = service(c);
     try {
       const invoice = await deps.repo.transaction(async () => {
-        const cancelled = await svc.cancel(c.req.param("id"));
+        const cancelled = await svc.cancel(target.id);
         await deps.onDraftCancelled?.(cancelled);
         return cancelled;
       });
@@ -1256,26 +1273,20 @@ export function createSalesInvoicesRoutes(
   });
 
   app.get("/:id/print-context", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
+    const invoice = await visibleInvoice(c, service(c));
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
     if (!deps.printContext) return c.json({ error: "PRINT_CONTEXT_UNAVAILABLE", message: "بيانات الطباعة غير متاحة على هذا الخادم." }, 501);
-    const invoice = await service(c).findByIdOrDocNo(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
-      return c.json({ error: "NOT_FOUND" }, 404);
-    }
     return c.json(await deps.printContext(invoice));
   });
 
   app.patch("/:id/lines/:lineId", gate("sales.invoice.edit"), async (c) => {
+    const svc = service(c);
+    const invoice = await visibleInvoice(c, svc);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
     const body: unknown = await c.req.json().catch(() => null);
     const parsed = editSalesInvoiceDraftLineSchema.safeParse(body);
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
-    const svc = service(c);
-    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
-      return c.json({ error: "NOT_FOUND" }, 404);
     }
     const stale = await refuseStaleDocument(c, deps.versionGuard, invoice.id, expectedVersionOf(body));
     if (stale) return stale;
@@ -1312,8 +1323,8 @@ export function createSalesInvoicesRoutes(
    */
   app.post("/:id/void", gate("sales.invoice.void"), async (c) => {
     const svc = service(c);
-    const requested = await svc.findByIdOrDocNo(c.req.param("id"));
-    if (!requested) return c.json({ error: "NOT_FOUND" }, 404);
+    const requested = await visibleInvoice(c, svc);
+    if (!requested) return c.json(NOT_FOUND_BODY, 404);
 
     const date = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
     try {
@@ -1435,7 +1446,10 @@ export function createSalesInvoicesRoutes(
    * about the same payment forever (D1).
    */
   app.post("/:id/payments", gate("sales.invoice.edit"), async (c) => {
-    const parsed = salesInvoicePaymentSchema.safeParse(await c.req.json());
+    const svc = service(c);
+    const target = await visibleInvoice(c, svc);
+    if (!target) return c.json(NOT_FOUND_BODY, 404);
+    const parsed = salesInvoicePaymentSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
@@ -1445,10 +1459,9 @@ export function createSalesInvoicesRoutes(
         503,
       );
     }
-    const svc = service(c);
     const amount = Money.fromMajor(parsed.data.amount);
     try {
-      const id = c.req.param("id");
+      const id = target.id;
       const existing = await svc.findById(id);
       // A collection happens when it happens. Defaulting to the INVOICE's
       // date backdated every receipt to the day the invoice was raised — it

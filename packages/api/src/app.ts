@@ -95,7 +95,6 @@ import {
   type AssetCategoryRepository,
   type AssetRepository,
   VoucherService,
-  SalesInvoiceService,
   type ApprovalRequestRecord,
   type GateableActionType,
   MODULE_CATALOG,

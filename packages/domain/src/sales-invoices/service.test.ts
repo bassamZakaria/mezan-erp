@@ -23,7 +23,6 @@ import {
   TaxRateClassificationPercentError,
   TaxRateNotFoundError,
   TaxRatePercentMismatchError,
-  TaxRateUnverifiableError,
   type TaxRate,
   SYSTEM_NOT_SUBJECT_TAX_RATE,
   SYSTEM_NOT_SUBJECT_TAX_RATE_ID,

@@ -1059,10 +1059,18 @@ export function createPurchasesRoutes(
    */
   const hiddenFromOwn = (c: Context, invoice: PurchaseInvoice) =>
     ownInvoiceVisibilityOnly(c) && invoice.createdBy !== getAuthContext(c)?.userId;
+  const NOT_FOUND_BODY = { error: "NOT_FOUND" } as const;
+  // SECURITY: the ONE place a route under `/invoices/:id` resolves its
+  // invoice — reads and actions alike, before the body is looked at
+  // (`invoice-sub-route-visibility.test.ts` walks every mounted sub-route).
+  const visibleInvoice = async (c: Context): Promise<PurchaseInvoice | null> => {
+    const invoice = await deps.invoices.findById(c.req.param("id") ?? "");
+    return invoice && !hiddenFromOwn(c, invoice) ? invoice : null;
+  };
 
   app.get("/invoices/:id", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
-    const invoice = await deps.invoices.findById(c.req.param("id"));
-    if (!invoice || hiddenFromOwn(c, invoice)) return c.json({ error: "NOT_FOUND" }, 404);
+    const invoice = await visibleInvoice(c);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
     return c.json({
       ...serializeInvoice(
         invoice,
@@ -1084,8 +1092,8 @@ export function createPurchasesRoutes(
    * surviving layers.
    */
   app.get("/invoices/:id/fulfilment", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
-    const invoice = await deps.invoices.findById(c.req.param("id"));
-    if (!invoice || hiddenFromOwn(c, invoice)) return c.json({ error: "NOT_FOUND" }, 404);
+    const invoice = await visibleInvoice(c);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
 
     const receipt = invoice.receiptId ? await deps.receipts.findById(invoice.receiptId) : null;
     const sourceDocId = receipt ? receipt.id : invoice.status === "confirmed" ? invoice.id : null;
@@ -1156,7 +1164,9 @@ export function createPurchasesRoutes(
    * allocation sub-ledger all move together.
    */
   app.post("/invoices/:id/payments", gate("purchases.invoice.edit"), async (c) => {
-    const parsed = purchaseInvoicePaymentSchema.safeParse(await c.req.json());
+    const invoice = await visibleInvoice(c);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
+    const parsed = purchaseInvoicePaymentSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
@@ -1166,8 +1176,6 @@ export function createPurchasesRoutes(
         503,
       );
     }
-    const invoice = await deps.invoices.findById(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
     if (invoice.status !== "confirmed") {
       return c.json(
         { error: "INVOICE_NOT_PAYABLE", message: "لا يمكن السداد إلا على فاتورة مؤكدة." },
@@ -1343,12 +1351,12 @@ export function createPurchasesRoutes(
     if (!deps.taxTags || !deps.taxRates) {
       return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
     }
+    const existing = await visibleInvoice(c);
+    if (!existing) return c.json(NOT_FOUND_BODY, 404);
     const parsed = classifyLineTaxSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const existing = await deps.invoices.findById(c.req.param("id"));
-    if (!existing || hiddenFromOwn(c, existing)) return c.json({ error: "NOT_FOUND" }, 404);
     try {
       const result = await classifyPurchaseInvoiceLineTax(
         existing.id,
@@ -1381,12 +1389,12 @@ export function createPurchasesRoutes(
     if (!deps.taxTags || !deps.taxRates) {
       return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
     }
+    const existing = await visibleInvoice(c);
+    if (!existing) return c.json(NOT_FOUND_BODY, 404);
     const parsed = nameJournalLineTaxSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const existing = await deps.invoices.findById(c.req.param("id"));
-    if (!existing || hiddenFromOwn(c, existing)) return c.json({ error: "NOT_FOUND" }, 404);
     try {
       const result = await namePurchaseInvoiceJournalLineTax(
         existing.id,
@@ -1412,6 +1420,7 @@ export function createPurchasesRoutes(
   });
 
   app.post("/invoices/:id/confirm", gate("purchases.invoice.confirm"), async (c) => {
+    if (!(await visibleInvoice(c))) return c.json(NOT_FOUND_BODY, 404);
     const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
     if (stale) return stale;
     try {
@@ -1440,6 +1449,7 @@ export function createPurchasesRoutes(
     const layers = deps.layers;
     const glReverse = deps.glReverse;
     app.post("/invoices/:id/cancel", gate("purchases.invoice.void"), async (c) => {
+      if (!(await visibleInvoice(c))) return c.json(NOT_FOUND_BODY, 404);
       const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
       if (stale) return stale;
       const target = await deps.invoices.findById(c.req.param("id"));

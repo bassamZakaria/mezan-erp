@@ -145,6 +145,7 @@ async function harness(
   const collectionNumbering = new NextNumberService(new MemSeq());
   const deps: SalesInvoiceRoutesDeps = {
     repo,
+    users: { findById: async (id: string) => ({ id, employeeId: `emp-${id}` }) as Awaited<ReturnType<NonNullable<SalesInvoiceRoutesDeps["users"]>["findById"]>> },
     taxPolicy: () => ({ enabled: true, defaultRatePercent: 0, inclusive: false }),
     taxRates: { list: async () => [] },
     ...(opts.returns ? { returns: opts.returns } : {}),
@@ -203,6 +204,7 @@ function req(path: string, init: RequestInit & { permissions?: string; roleCodes
 }
 
 const draftBody = {
+  salespersonId: "emp-u1",
   date: "2026-08-22",
   dueDate: "2026-09-21",
   customerId: "cust-1",

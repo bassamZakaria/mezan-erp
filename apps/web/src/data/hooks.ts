@@ -709,7 +709,7 @@ export function useItems(filter: ItemListFilter = {}): UseQueryResult<ItemDTO[],
   const { request, session } = useApi();
   return useQuery<ItemDTO[], ApiError>({
     queryKey: ["items", filter],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.Items),
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.itemsCouldNotBeLoaded"), t);
@@ -3071,6 +3071,25 @@ export function useConfirmSalesInvoice() {
   });
 }
 
+export function useVoidSalesInvoice() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesInvoiceDTO, ApiError, { id: string; reason: string }>({
+    mutationFn: async ({ id, reason }) => {
+      const res = await request(`/sales-invoices/${encodeURIComponent(id)}/void`, { method: "POST", body: JSON.stringify({ reason }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2"), t));
+      return res.json<SalesInvoiceDTO>();
+    },
+    onSuccess: () => {
+      invalidateSalesInvoices(queryClient);
+      for (const key of ["journal-entries", "gl", "stock-balance", "eta-submissions", "eta", "dashboard", "financial-reports", "audit"]) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
+    },
+  });
+}
+
 export type ConfirmedSalesInvoiceDTO = SalesInvoiceDTO & { held: boolean; taxRecalculated?: { message: string } };
 
 export enum ClassifiableDocument {
@@ -3404,7 +3423,7 @@ export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<ProjectDTO[], ApiError>({
     queryKey: ["projects"],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.Projects),
     queryFn: async () => {
       const res = await request("/projects");
       if (!res.ok) throw await loaderError(res, t("api.projectsCouldNotBeLoaded"), t);
@@ -5970,7 +5989,7 @@ export function useSalesReturns(filter: SalesReturnListFilter = {}): UseQueryRes
   const { request, session } = useApi();
   return useQuery<SalesReturnDocumentDTO[], ApiError>({
     queryKey: ["sales-returns", filter],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.SalesReturns, DocumentReadPermission.SalesReturnsOwn),
     queryFn: async () => {
       const qs = salesReturnParams(filter).toString();
       const res = await request(`/sales-returns${qs ? `?${qs}` : ""}`);
@@ -6275,7 +6294,7 @@ export function useInstallmentPlans(filter: InstallmentPlanListFilter = {}): Use
   const { request, session } = useApi();
   return useQuery<InstallmentPlanDocumentDTO[], ApiError>({
     queryKey: ["installment-plans", filter],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.InstallmentPlans),
     queryFn: async () => {
       const qs = installmentPlanParams(filter).toString();
       const res = await request(`/installments/plans${qs ? `?${qs}` : ""}`);
@@ -7634,7 +7653,7 @@ export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
   const { request, session } = useApi();
   return useQuery<number, ApiError>({
     queryKey: ["workflow-requests", "pending-count"],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.Workflow),
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/workflow/requests/pending-count");
@@ -7690,7 +7709,7 @@ export function useItemUnits(): UseQueryResult<ItemUnitDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<ItemUnitDTO[], ApiError>({
     queryKey: ["item-units"],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.Items),
     queryFn: async () => {
       const res = await request("/item-units");
       if (!res.ok) throw await loaderError(res, t("api.unitsOfMeasureCouldNot"), t);

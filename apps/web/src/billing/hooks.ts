@@ -1,3 +1,4 @@
+import { DocumentReadPermission, sessionMayRead } from "../data/document-read-permissions";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   CardCheckoutDTO,
@@ -19,7 +20,7 @@ export function useTenantBilling(): UseQueryResult<TenantBillingDTO | null, ApiE
   const { request, session } = useApi();
   return useQuery<TenantBillingDTO | null, ApiError>({
     queryKey: ["billing", "subscription"],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.Subscription),
     retry: false,
     queryFn: async () => {
       const res = await request("/billing/subscription");

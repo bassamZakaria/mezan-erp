@@ -87,6 +87,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { ClassifyLineTaxAction } from "./ClassifyLineTaxAction";
 import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
 import { DraftLineEditAction } from "./DraftLineEditAction";
+import { VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { todayIso } from "../lib/dates";
@@ -1503,6 +1504,7 @@ function InvoiceDetailView({
               {t("salesInvoices.confirm")}
             </Button>
           ) : null}
+          <VoidSalesInvoiceAction invoice={invoice} />
           <Button onClick={onPrint}>{t("salesInvoices.share.print")}</Button>
         </>
       }

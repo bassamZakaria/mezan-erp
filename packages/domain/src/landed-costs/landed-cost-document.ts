@@ -45,8 +45,8 @@ export interface LandedCostGlAccounts {
    * product is sold on (D75).
    */
   readonly accruedLandedCostPayableId: string;
-  /** Carries the cost from the document date until the stock absorbs it, and keeps the share of goods already issued. */
-  readonly unabsorbedCostAccountId?: string;
+  /** INVARIANT: a balance-sheet account. It carries the cost from the document date to the absorption day and ends at zero, so no month's profit holds a cost its stock had not yet taken (landed-cost-two-dates.test.ts). */
+  readonly clearingAccountId?: string;
 }
 
 /** The day a landed cost's stock effect is stamped: its own date unless it was absorbed later. */
@@ -104,7 +104,7 @@ export function createLandedCostDocumentType(
       // per-category split (it is one aggregate absorption), so the debit
       // takes the first line's explicit category or "materials" (D-01).
       const costCategory: CostCategory = doc.lines.find((l) => l.costCategory)?.costCategory ?? "materials";
-      if (landedCostAbsorptionDate(doc) !== doc.date && accounts.unabsorbedCostAccountId) {
+      if (landedCostAbsorptionDate(doc) !== doc.date && accounts.clearingAccountId) {
         return {
           sourceDocType: DOC_TYPE,
           sourceDocId: doc.id,
@@ -112,7 +112,7 @@ export function createLandedCostDocumentType(
           date: doc.date,
           memo: doc.memo || `تكلفة إضافية ${doc.docNo ?? doc.id}`,
           lines: [
-            { accountId: accounts.unabsorbedCostAccountId, debit: total, credit: Money.zero(), projectId, ...(projectId ? { costCategory } : {}) },
+            { accountId: accounts.clearingAccountId, debit: total, credit: Money.zero(), projectId, ...(projectId ? { costCategory } : {}) },
             { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total, projectId },
           ],
         };

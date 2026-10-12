@@ -59,8 +59,12 @@ export interface LandedCostGlPosting {
 export interface LandedCostUnabsorbedGlPort {
   /** Dr the unabsorbed-cost account / Cr inventory: the share of goods already issued, out of a cost inventory was debited for whole. */
   postUnabsorbed(posting: LandedCostGlPosting): Promise<void>;
-  /** Dr inventory / Cr the unabsorbed-cost account: the share inventory takes, out of a cost that account carried whole. */
+  /** Dr inventory / Cr the unabsorbed-cost account: on a reversal, the share that left with issued goods, back out of cost of sales. */
   postAbsorbed(posting: LandedCostGlPosting): Promise<void>;
+  /** Dr inventory / Cr clearing, on the absorption day: the share the goods still on hand take. */
+  postAbsorbedFromClearing(posting: LandedCostGlPosting): Promise<void>;
+  /** Dr the unabsorbed-cost account / Cr clearing, on the absorption day: the share of goods already issued. */
+  postIssuedFromClearing(posting: LandedCostGlPosting): Promise<void>;
   /** Mirrors one of this document's side entries; answers its amount, or null when it never posted. */
   reverseSideEntry(entryId: string, opts: { readonly reversalId: string; readonly date: string }): Promise<Money | null>;
 }
@@ -220,13 +224,24 @@ export class LandedCostService {
     if (this.gl && absorptionDate !== document.date) {
       if (absorbedTotal.scaled !== 0n) {
         absorptionJournalEntryId = absorptionEntryId(document.id);
-        await this.gl.postAbsorbed({
+        await this.gl.postAbsorbedFromClearing({
           entryId: absorptionJournalEntryId,
           date: absorptionDate,
           memo: `تحميل التكلفة الإضافية على المخزون القائم — ${label}`,
           sourceDocId: document.id,
           sourceDocNumber: document.docNo,
           amount: absorbedTotal,
+        });
+      }
+      if (unabsorbedTotal.scaled !== 0n) {
+        unabsorbedJournalEntryId = unabsorbedEntryId(document.id);
+        await this.gl.postIssuedFromClearing({
+          entryId: unabsorbedJournalEntryId,
+          date: absorptionDate,
+          memo: `نصيب بضاعة صُرفت من التكلفة الإضافية — ${label}`,
+          sourceDocId: document.id,
+          sourceDocNumber: document.docNo,
+          amount: unabsorbedTotal,
         });
       }
     } else if (this.gl && unabsorbedTotal.scaled !== 0n) {

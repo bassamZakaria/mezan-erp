@@ -126,6 +126,8 @@ async function harness() {
         glDeps,
       );
     },
+    postAbsorbedFromClearing: async () => undefined,
+    postIssuedFromClearing: async () => undefined,
     reverseSideEntry: async () => null,
   });
 

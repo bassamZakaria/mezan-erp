@@ -814,28 +814,40 @@ export async function run(ctx: Ctx): Promise<void> {
     check("the goods really had left before the cost landed", beforeIssue.onHand > 0, `on hand before the issue ${beforeIssue.onHand}`);
   });
 
-  // --- 9. Landed costs: BY_QUANTITY on the seeded draft LC-DEMO-2 ---------
-  await scenario("purchases: landed cost BY_QUANTITY (LC-DEMO-2) allocates 100% of the total to its single target", async () => {
+  // --- 9. Landed costs: the seeded draft LC-DEMO-2 and its two dates --------
+  await scenario("purchases: landed cost LC-DEMO-2 keeps its own document date for the accrual and is absorbed on the confirm day — through the clearing account, which ends at zero", async () => {
     const lc = await req("GET", "/landed-costs/LC-DEMO-2");
     check("LC-DEMO-2 is still draft (seeded that way)", lc.body?.status === "draft", lc.body?.status);
+    check("its document date is the freight bill's own date, 2026-08-21", lc.body?.date === "2026-08-21", String(lc.body?.date));
     const line = lc.body.lines[0];
     checkEq("single target (oil, qty 120) already computed allocatedAmount=750 at create time", n(line.allocatedAmount), 750);
     checkEq("new unit cost = 72 + 750/120 = 78.25", n(line.newUnitCost), 78.25);
 
     const before = await itemBalance("ITEM-DEMO-2");
     const beforeInv = await ctx.invariants();
+    const ledgerBefore = { clearing: await accountBalance("1240"), accrued: await accountBalance("2130"), inventory: await accountBalance("1200"), costOfSales: await accountBalance("5100") };
     const confirm = await req("POST", "/landed-costs/LC-DEMO-2/confirm", {});
-    check("the seeded draft, dated the day of oil's latest movement, confirms as shipped", confirm.status === 200 && confirm.body?.document?.status === "confirmed", JSON.stringify(confirm.body).slice(0, 150));
+    check("the seeded draft confirms", confirm.status === 200 && confirm.body?.document?.status === "confirmed", JSON.stringify(confirm.body).slice(0, 150));
+    const document = confirm.body?.document ?? {};
+    check("the document date is unchanged by the confirm", document.date === "2026-08-21", String(document.date));
+    check(
+      "the absorption day is the confirm day, never before the document date nor before oil's latest movement",
+      typeof document.absorptionDate === "string" && document.absorptionDate >= "2026-08-21" && document.absorptionDate <= landedCostDate,
+      `${String(document.absorptionDate)} (today ${landedCostDate})`,
+    );
+    const absorbed = n(confirm.body?.absorbedTotal);
+    const unabsorbed = n(confirm.body?.unabsorbedTotal);
+    checkEq("the share the oil on hand takes and the share of oil already issued add up to the 750 entered", absorbed + unabsorbed, 750);
 
     const after = await itemBalance("ITEM-DEMO-2");
-    checkEq("oil's inventory value rose by exactly 750 (independent /inventory/balance check)", after.totalValue - before.totalValue, 750, 0.01);
+    checkEq("oil's inventory value rose by exactly the absorbed share (independent /inventory/balance check)", after.totalValue - before.totalValue, absorbed, 0.01);
+    checkEq("GL 2130 accrued the whole 750", -(await accountBalance("2130")) + ledgerBefore.accrued, 750);
+    checkEq("GL 1200 took the absorbed share", (await accountBalance("1200")) - ledgerBefore.inventory, absorbed);
+    checkEq("cost of sales took the share of oil already issued", (await accountBalance("5100")) - ledgerBefore.costOfSales, unabsorbed);
+    checkEq("the clearing account 1240 carried the cost between the two dates and ends where it started", await accountBalance("1240"), ledgerBefore.clearing);
     const afterInv = await ctx.invariants();
     checkEq("inventory still reconciles to GL 1200", afterInv.inventory, beforeInv.inventory);
-    // Unlike scenario 8's 2-target-line landed cost, LC-DEMO-2 has exactly ONE target line, so the
-    // create-backend.ts double-counting bug can't manifest (summing the total "per line" is correct
-    // when there's only one line) — AP sub-ledger and GL both take the same +750, so the reconciliation
-    // diff itself stays flat, proving the bug is specifically about line COUNT, not landed costs generally.
-    checkEq("AP still reconciles (single target line — GL 2100 and the sub-ledger both moved by the same +750)", afterInv.ap, beforeInv.ap);
+    checkEq("AP still reconciles — a landed cost accrues to 2130, never to the supplier control account", afterInv.ap, beforeInv.ap);
   });
 
   // --- 10. The documented no-GL-entry gap on a confirmed-but-uninvoiced receipt ---

@@ -435,6 +435,7 @@ const LANDED_COST_GL_ACCOUNTS = {
   // and GL 2100 disagree by every landed cost posted (D75).
   accruedLandedCostPayableId: "2130",
   unabsorbedCostAccountId: "5100",
+  clearingAccountId: "1240",
 };
 
 /**
@@ -1913,7 +1914,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: auditSink,
     auditModule: "purchases",
   });
-  const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
+  const landedCostGlAccounts = { ...LANDED_COST_GL_ACCOUNTS };
+  const landedCostDocuments = new DocumentService(createLandedCostDocumentType(landedCostGlAccounts), {
     repo: landedCostStore,
     numbering: { next: (opts) => ledger.numbering.next("LANDED_COST", { branchId: opts?.branchId }) },
     gl: documentGl,
@@ -1952,6 +1954,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
     postUnabsorbed: (posting) => postLandedCostSideEntry(posting, LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId, LANDED_COST_GL_ACCOUNTS.inventoryAccountId),
     postAbsorbed: (posting) => postLandedCostSideEntry(posting, LANDED_COST_GL_ACCOUNTS.inventoryAccountId, LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId),
+    postAbsorbedFromClearing: (posting) => postLandedCostSideEntry(posting, landedCostGlAccounts.inventoryAccountId, landedCostGlAccounts.clearingAccountId),
+    postIssuedFromClearing: async (posting) => {
+      if (landedCostGlAccounts.clearingAccountId === landedCostGlAccounts.unabsorbedCostAccountId) return;
+      await postLandedCostSideEntry(posting, landedCostGlAccounts.unabsorbedCostAccountId, landedCostGlAccounts.clearingAccountId);
+    },
     reverseSideEntry: async (entryId, opts) => {
       const entry = await ledger.findById(entryId);
       if (!entry || entry.status !== "posted") return null;
@@ -2751,8 +2758,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   {
     const { added, skipped } = await addMissingStandardAccounts(accounts);
     if (added.length > 0) console.info(`[chart-of-accounts] added standard account(s) ${added.join(", ")}`);
-    if (skipped.length > 0) {
-      console.warn(`[chart-of-accounts] ${skipped.join(", ")} already used by another account; map the fx.* slots in account routing`);
+    const fxSkipped = skipped.filter((id) => id !== LANDED_COST_GL_ACCOUNTS.clearingAccountId);
+    if (fxSkipped.length > 0) {
+      console.warn(`[chart-of-accounts] ${fxSkipped.join(", ")} already used by another account; map the fx.* slots in account routing`);
+    }
+    if (skipped.includes(LANDED_COST_GL_ACCOUNTS.clearingAccountId)) {
+      // INVARIANT: a landed cost never posts into an account the tenant keeps for something else — it waits in cost of sales as it did before the clearing account existed (landed-cost-clearing-backfill.test.ts).
+      landedCostGlAccounts.clearingAccountId = landedCostGlAccounts.unabsorbedCostAccountId;
+      console.warn(`[chart-of-accounts] ${LANDED_COST_GL_ACCOUNTS.clearingAccountId} is used by another account; a landed cost dated before its confirm day waits in ${landedCostGlAccounts.unabsorbedCostAccountId}`);
     }
   }
 

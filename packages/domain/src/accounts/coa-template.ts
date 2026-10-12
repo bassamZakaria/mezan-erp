@@ -28,6 +28,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "1210", code: "1210", nameAr: "مخزون المواد الخام", nameEn: "Raw Materials Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1220", code: "1220", nameAr: "مخزون المنتجات التامة", nameEn: "Finished Goods Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1230", code: "1230", nameAr: "أعمال تحت التنفيذ — مقاولات", nameEn: "Contract Work in Progress", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
+  { id: "1240", code: "1240", nameAr: "تكاليف واردة تحت التسوية", nameEn: "Landed Costs In Clearing", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1250", code: "1250", nameAr: "إنتاج تحت التشغيل", nameEn: "Work In Progress", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1300", code: "1300", nameAr: "النقدية", nameEn: "Cash", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: true },
   { id: "1300-1", code: "1300-1", nameAr: "صندوق نقدي الفرع الرئيسي", nameEn: "Main Branch Cash Drawer", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
@@ -204,7 +205,7 @@ export async function seedStandardChartOfAccounts(repo: AccountRepository): Prom
 }
 
 /** Template accounts added after books were already being kept; a chart seeded before them lacks them. */
-export const LATER_STANDARD_ACCOUNT_IDS: readonly string[] = ["4920", "4940", "5920", "5940"];
+export const LATER_STANDARD_ACCOUNT_IDS: readonly string[] = ["4920", "4940", "5920", "5940", "1240"];
 
 export interface AddedStandardAccounts {
   readonly added: readonly string[];

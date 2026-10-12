@@ -82,6 +82,7 @@ export const updateUserSchema = z
     ...userBaseFields,
     password: z.string().min(8, "Password must be at least 8 characters").optional(),
     pin: pinSchema.nullable().optional(),
+    newOwnerUserId: z.string().trim().min(1).optional(),
     ...sodAcknowledgeFields,
   })
   .refine((v) => v.isCompanyAdmin !== (v.roleId !== null), {
@@ -104,6 +105,16 @@ export enum ErasureRetention {
  * «محو البيانات الشخصية» — the admin types the account's current email to
  * confirm which person is being erased, and records the request it answers.
  */
+export const deactivateUserSchema = z.object({
+  newOwnerUserId: z.string().trim().min(1).optional(),
+});
+
+export enum OwnerHandOverOutcome {
+  Verified = "verified",
+  Pending = "pending",
+  Failed = "failed",
+}
+
 export const eraseUserSchema = z.object({
   confirmEmail: z.string().trim().min(1),
   reason: z.string().trim().min(3).max(500),
@@ -123,6 +134,7 @@ export const userErasureResultSchema = z.object({
   /** True when the account was already erased and this call changed nothing — the retry of a deletion request is not a failure. */
   alreadyErased: z.boolean(),
   retained: z.array(z.nativeEnum(ErasureRetention)),
+  ownerHandOver: z.nativeEnum(OwnerHandOverOutcome).optional(),
 });
 
 export type UserDTO = z.infer<typeof userSchema>;

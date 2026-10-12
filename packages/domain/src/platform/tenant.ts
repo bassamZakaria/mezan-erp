@@ -26,10 +26,22 @@ export interface Tenant {
   readonly ownerEmail: string;
   readonly ownerUserId: string | null;
   readonly ownerContactVerified: boolean;
+  /** Set when no account inside the tenant can be named its owner. Nothing guesses one: the platform console assigns it. */
+  readonly ownerNeeded?: boolean;
+  readonly pendingOwner?: PendingOwner | null;
   readonly status: TenantStatus;
   readonly dbFile: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+export interface PendingOwner {
+  readonly userId: string;
+  readonly email: string;
+  readonly requestedBy: string;
+  readonly requestedAt: string;
+  /** sha256 of the link mailed to the previously recorded owner address; null when no mail could be sent. */
+  readonly tokenHash: string | null;
 }
 
 export interface TenantRepository {
@@ -186,19 +198,61 @@ export function tenantWithOwnerContact(tenant: Tenant, owner: TenantOwnerAccount
     ownerUserId: owner.id,
     ownerEmail: settled ? email : tenant.ownerEmail,
     ownerContactVerified: settled,
+    ...(tenant.ownerNeeded ? { ownerNeeded: false } : {}),
     updatedAt: at,
   };
   const unchanged =
-    next.ownerUserId === tenant.ownerUserId && next.ownerEmail === tenant.ownerEmail && next.ownerContactVerified === tenant.ownerContactVerified;
+    next.ownerUserId === tenant.ownerUserId &&
+    next.ownerEmail === tenant.ownerEmail &&
+    next.ownerContactVerified === tenant.ownerContactVerified &&
+    (tenant.ownerNeeded ?? false) === false;
   return unchanged ? null : next;
 }
 
-export function tenantHandedTo(tenant: Tenant, successor: TenantOwnerAccount, verified: boolean, now: string): Tenant {
+/** Null when the tenant is already flagged, or a successor is already waiting to be confirmed. */
+export function tenantNeedingOwner(tenant: Tenant, now: string): Tenant | null {
+  const at = isoTimestamp(now);
+  if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  if (tenant.ownerNeeded === true || tenant.pendingOwner) return null;
+  return { ...tenant, ownerNeeded: true, updatedAt: at };
+}
+
+function successorOf(successor: TenantOwnerAccount, now: string): { readonly at: string; readonly email: string } {
   const at = isoTimestamp(now);
   const email = normalizeEmail(successor.email);
   const reasons: string[] = [];
   if (!at) reasons.push("الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)");
   if (email === "") reasons.push("بريد المالك مطلوب");
   if (!at || reasons.length > 0) throw new InvalidTenantError(reasons);
-  return { ...tenant, ownerUserId: successor.id, ownerEmail: email, ownerContactVerified: verified, updatedAt: at };
+  return { at, email };
+}
+
+export function tenantHandedTo(tenant: Tenant, successor: TenantOwnerAccount, now: string): Tenant {
+  const { at, email } = successorOf(successor, now);
+  return {
+    ...tenant,
+    ownerUserId: successor.id,
+    ownerEmail: email,
+    ownerContactVerified: true,
+    ...(tenant.ownerNeeded ? { ownerNeeded: false } : {}),
+    ...(tenant.pendingOwner ? { pendingOwner: null } : {}),
+    updatedAt: at,
+  };
+}
+
+// SECURITY: a successor nobody the platform trusts has confirmed owns nothing
+// yet. The recorded owner and address stay exactly where they were.
+export function tenantWithPendingOwner(
+  tenant: Tenant,
+  successor: TenantOwnerAccount,
+  request: { readonly requestedBy: string; readonly tokenHash: string | null },
+  now: string,
+): Tenant {
+  const { at, email } = successorOf(successor, now);
+  return { ...tenant, pendingOwner: { userId: successor.id, email, requestedBy: request.requestedBy, requestedAt: at, tokenHash: request.tokenHash }, updatedAt: at };
+}
+
+export function tenantWithPendingOwnerConfirmed(tenant: Tenant, now: string): Tenant {
+  if (!tenant.pendingOwner) throw new InvalidTenantError(["لا يوجد مالك بانتظار التأكيد لهذه المنشأة"]);
+  return tenantHandedTo(tenant, { id: tenant.pendingOwner.userId, email: tenant.pendingOwner.email }, now);
 }

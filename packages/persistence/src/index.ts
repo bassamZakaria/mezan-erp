@@ -370,3 +370,4 @@ export {
 export * from "./pos/index.js";
 export * from "./enh/index.js";
 export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";
+export { createSqliteCredentialResetMarks, type CredentialResetMarks } from "./credential-reset-marks.js";

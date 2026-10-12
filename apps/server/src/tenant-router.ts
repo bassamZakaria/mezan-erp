@@ -2,13 +2,13 @@ import { Hono, type MiddlewareHandler } from "hono";
 import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
-import { createBackend, type BackendHandle, type PlatformHandle, type SignedInUser } from "@mezan/backend";
+import { createBackend, type BackendHandle, type CompanyAdminAccount, type PlatformHandle, type SignedInUser } from "@mezan/backend";
 import type { SqliteOpenOptions } from "@mezan/persistence";
 import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
 import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
-import { tenantIsServed, TenantStatusCode } from "@mezan/domain";
+import { tenantIsServed, TenantStatusCode, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
-import { createOwnerContact } from "./owner-contact.js";
+import { createOwnerContact, OwnerCandidateNotFoundError, OwnerConfirmation, PREVIOUS_OWNER_ACTOR, type PendingHandOverMail } from "./owner-contact.js";
 import { settleTenantDbFile } from "./tenant-db-file.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
@@ -26,6 +26,8 @@ export interface TenantRouterOptions {
   readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, hooks: TenantBackendHooks) => Promise<BackendHandle>;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
+  /** Mails the previously recorded owner address the link that confirms a pending hand-over. Without it a pending hand-over is confirmed from the console only. */
+  readonly mailPendingHandOver?: (mail: PendingHandOverMail) => Promise<void>;
 }
 
 export interface TenantBackendHooks {
@@ -60,6 +62,11 @@ export interface TenantRouter {
   readonly app: Hono;
   backendFor(code: string): Promise<BackendHandle>;
   reconcileOwner(code: string): Promise<void>;
+  ownerCandidates(tenantId: string): Promise<CompanyAdminAccount[]>;
+  assignOwner(input: { readonly tenantId: string; readonly userId: string; readonly actor: string }): Promise<Tenant>;
+  confirmPendingOwner(input: { readonly tenantId: string; readonly actor: string }): Promise<Tenant>;
+  /** Null when the token names no pending hand-over, or its successor can no longer administer the tenant. */
+  confirmPendingOwnerByToken(token: string): Promise<Tenant | null>;
   evict(tenantId: string): Promise<void>;
   invalidate(code: string): void;
   sweep(): Promise<void>;
@@ -101,14 +108,19 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     }
     return r;
   };
-  const ownerContact = createOwnerContact({ platform: options.platform, now: options.now ?? (() => new Date()) });
+  const ownerContact = createOwnerContact({
+    platform: options.platform,
+    now: options.now ?? (() => new Date()),
+    mailPendingHandOver: options.mailPendingHandOver,
+  });
   const hooksFor = (code: string): TenantBackendHooks => ({
     onUserEmailChanged: (change) => ownerContact.emailChanged(code, change),
     onUserSignedIn: (user) => ownerContact.signedIn(code, user),
     companyOwner: {
       currentOwnerUserId: async () => {
-        await reconcileOwner(code);
-        return (await options.platform.stores.tenants.findByCode(code))?.ownerUserId ?? null;
+        await reconcileOwner(code).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
+        const tenant = await options.platform.stores.tenants.findByCode(code);
+        return tenant ? ownerContact.effectiveOwnerUserId(code, await cache.get(tenant.id)) : null;
       },
       handOver: (input) => ownerContact.handOver(code, input),
     },
@@ -154,6 +166,12 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const tenant = await options.platform.stores.tenants.findByCode(code);
     if (!tenant || tenant.status === TenantStatusCode.Archived) return;
     await ownerContact.reconcile(code, await cache.get(tenant.id));
+  }
+
+  async function liveTenant(tenantId: string): Promise<Tenant> {
+    const tenant = await options.platform.stores.tenants.findById(tenantId);
+    if (!tenant || tenant.status === TenantStatusCode.Archived) throw new Error("TENANT_NOT_FOUND");
+    return tenant;
   }
 
   const app = new Hono();
@@ -210,6 +228,27 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return cache.get(tenant.id);
     },
     reconcileOwner,
+    async ownerCandidates(tenantId) {
+      return (await cache.get((await liveTenant(tenantId)).id)).companyAdmins();
+    },
+    async assignOwner({ tenantId, userId, actor }) {
+      const tenant = await liveTenant(tenantId);
+      return ownerContact.assign(tenant.id, userId, actor, await cache.get(tenant.id));
+    },
+    async confirmPendingOwner({ tenantId, actor }) {
+      const tenant = await liveTenant(tenantId);
+      return ownerContact.confirmPending(tenant.id, actor, OwnerConfirmation.PlatformConsole, await cache.get(tenant.id));
+    },
+    async confirmPendingOwnerByToken(token) {
+      const tenant = await ownerContact.pendingByToken(token);
+      if (!tenant || tenant.status === TenantStatusCode.Archived) return null;
+      try {
+        return await ownerContact.confirmPending(tenant.id, PREVIOUS_OWNER_ACTOR, OwnerConfirmation.PreviousOwnerLink, await cache.get(tenant.id));
+      } catch (err) {
+        if (err instanceof OwnerCandidateNotFoundError) return null;
+        throw err;
+      }
+    },
     evict: (tenantId) => cache.evict(tenantId),
     invalidate(code) { resolvers.get(code)?.invalidate(); },
     sweep: () => cache.sweep(),

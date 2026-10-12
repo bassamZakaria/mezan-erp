@@ -357,7 +357,7 @@ describe("createTenantRouter", () => {
         dataDir,
         sweepEveryMs: 0,
         now: () => new Date(T),
-        openBackend: async () => ({ app: stub, sessions: createSessionRegistry(), ownerAccount: vi.fn(async () => null), resetOwnerPin: vi.fn(), backupTo: vi.fn(), drain: vi.fn(), close: vi.fn() }),
+        openBackend: async () => ({ app: stub, sessions: createSessionRegistry(), ownerAccount: vi.fn(async () => null), companyAdmins: vi.fn(async () => []), recordOwnerAssigned: vi.fn(), resetOwnerPin: vi.fn(), backupTo: vi.fn(), drain: vi.fn(), close: vi.fn() }),
       });
       routers.push(router);
       return { router, captured };

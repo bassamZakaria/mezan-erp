@@ -1,6 +1,6 @@
 export {
-  createBackend, OwnerPinResetOutcome,
-  type BackendHandle, type CreateBackendOptions, type OwnerAccount, type OwnerAccountQuery, type ResetOwnerPinCommand, type SignedInUser,
+  createBackend, OwnerPinResetOutcome, COMPANY_OWNER_ASSIGNED_AUDIT,
+  type BackendHandle, type CreateBackendOptions, type CompanyAdminAccount, type OwnerAccount, type OwnerAccountQuery, type ResetOwnerPinCommand, type SignedInUser,
 } from "./create-backend.js";
 export {
   seedIfEmpty,

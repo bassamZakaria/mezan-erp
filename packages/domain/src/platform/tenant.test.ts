@@ -7,6 +7,9 @@ import {
   archiveTenant,
   tenantWithOwnerContact,
   tenantHandedTo,
+  tenantNeedingOwner,
+  tenantWithPendingOwner,
+  tenantWithPendingOwnerConfirmed,
   releaseTenant,
   releasedTenantCode,
   OwnerContactProof,
@@ -193,11 +196,47 @@ describe("tenantWithOwnerContact", () => {
     expect(() => tenantWithOwnerContact(linked, { id: "U-OWNER", email: "a@b.eg" }, OwnerContactProof.OwnerActed, "soon")).toThrow(InvalidTenantError);
   });
 
-  it("hands the tenant to a successor, verified only when told so", () => {
-    expect(tenantHandedTo(linked, { id: "U-NEXT", email: "Next@Cyag.EG" }, false, LATER)).toEqual({
-      ...linked, ownerUserId: "U-NEXT", ownerEmail: "next@cyag.eg", ownerContactVerified: false, updatedAt: LATER,
+  it("hands the tenant to a successor as its verified owner, clearing a pending successor and the owner-needed flag", () => {
+    expect(tenantHandedTo(linked, { id: "U-NEXT", email: "Next@Cyag.EG" }, LATER)).toEqual({
+      ...linked, ownerUserId: "U-NEXT", ownerEmail: "next@cyag.eg", ownerContactVerified: true, updatedAt: LATER,
     });
-    expect(tenantHandedTo(linked, { id: "U-NEXT", email: "next@cyag.eg" }, true, LATER).ownerContactVerified).toBe(true);
+    const waiting = tenantWithPendingOwner({ ...linked, ownerNeeded: true }, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "tenant:cyag:U-PEER", tokenHash: "h" }, LATER);
+    expect(tenantHandedTo(waiting, { id: "U-NEXT", email: "next@cyag.eg" }, LATER)).toMatchObject({ ownerUserId: "U-NEXT", ownerNeeded: false, pendingOwner: null });
+  });
+
+  it("records a pending successor without moving the recorded owner, address or verification", () => {
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: " Peer@Cyag.EG " }, { requestedBy: "tenant:cyag:U-PEER", tokenHash: "h" }, LATER);
+
+    expect(waiting).toEqual({
+      ...linked,
+      pendingOwner: { userId: "U-PEER", email: "peer@cyag.eg", requestedBy: "tenant:cyag:U-PEER", requestedAt: LATER, tokenHash: "h" },
+      updatedAt: LATER,
+    });
+    expect(() => tenantWithPendingOwner(linked, { id: "U-PEER", email: " " }, { requestedBy: "x", tokenHash: null }, LATER)).toThrow(InvalidTenantError);
+  });
+
+  it("confirms a pending successor as the verified owner, and refuses when none is waiting", () => {
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "tenant:cyag:U-PEER", tokenHash: "h" }, LATER);
+
+    expect(tenantWithPendingOwnerConfirmed(waiting, LATER)).toEqual({
+      ...linked, ownerUserId: "U-PEER", ownerEmail: "peer@cyag.eg", ownerContactVerified: true, pendingOwner: null, updatedAt: LATER,
+    });
+    expect(() => tenantWithPendingOwnerConfirmed(linked, LATER)).toThrow(InvalidTenantError);
+  });
+
+  it("flags a tenant as needing an owner once, and never while a successor is waiting", () => {
+    expect(tenantNeedingOwner(linked, LATER)).toEqual({ ...linked, ownerNeeded: true, updatedAt: LATER });
+    expect(tenantNeedingOwner({ ...linked, ownerNeeded: true }, LATER)).toBeNull();
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "x", tokenHash: null }, LATER);
+    expect(tenantNeedingOwner(waiting, LATER)).toBeNull();
+  });
+
+  it("clears the owner-needed flag when the owner is linked", () => {
+    expect(tenantWithOwnerContact({ ...linked, ownerNeeded: true }, { id: "U-OWNER", email: linked.ownerEmail }, OwnerContactProof.Unproven, LATER)).toMatchObject({ ownerNeeded: false });
+  });
+
+  it("never links an account other than the one already named as owner", () => {
+    expect(tenantWithOwnerContact(linked, { id: "U-OTHER", email: linked.ownerEmail }, OwnerContactProof.OwnerActed, LATER)).toBeNull();
   });
 });
 

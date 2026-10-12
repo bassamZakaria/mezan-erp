@@ -15,6 +15,7 @@ import {
   type Account,
   type SalesReturnDocument,
   type DocumentWorkflowGate,
+  EtaSubmissionStatusCode,
 } from "@mezan/domain";
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "@mezan/persistence";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
@@ -95,6 +96,8 @@ async function harness(
     maxLineDiscountPercent?: number;
     returns?: SalesInvoiceRoutesDeps["returns"];
     withoutStockRestore?: boolean;
+    etaSubmissionStatusOf?: SalesInvoiceRoutesDeps["etaSubmissionStatusOf"];
+    withdrawUnsentEtaSubmission?: SalesInvoiceRoutesDeps["withdrawUnsentEtaSubmission"];
     now?: string;
     workflow?: DocumentWorkflowGate;
   } = {},
@@ -159,6 +162,8 @@ async function harness(
     stock: createSalesInvoiceStockHook(stockService),
     ...(opts.workflow ? { workflow: opts.workflow } : {}),
     ...(opts.withoutStockRestore ? {} : { stockRestore: createInventoryStockHook(stockService) }),
+    ...(opts.etaSubmissionStatusOf ? { etaSubmissionStatusOf: opts.etaSubmissionStatusOf } : {}),
+    ...(opts.withdrawUnsentEtaSubmission ? { withdrawUnsentEtaSubmission: opts.withdrawUnsentEtaSubmission } : {}),
     now: () => opts.now ?? NOW,
     idGen: (() => { let n = 0; return () => `inv-${++n}`; })(),
     /**
@@ -407,6 +412,45 @@ describe("what the confirm route feeds the workflow gate", () => {
  * cancelled. Every assertion here is on the books, not on the status flag.
  */
 const VOID_BODY = JSON.stringify({ reason: "صدرت بالخطأ" });
+
+const VOID_WITH_VIEW = "sales.invoice.void,sales.invoice.view";
+
+describe("voiding an invoice the tax authority holds, or is about to", () => {
+  async function confirmedWith(status: EtaSubmissionStatusCode | null) {
+    const withdrawn: string[] = [];
+    const h = await harness({
+      etaSubmissionStatusOf: async () => status,
+      withdrawUnsentEtaSubmission: async (invoice) => {
+        withdrawn.push(invoice.id);
+      },
+    });
+    const create = await h.app.fetch(req("/", { method: "POST", body: JSON.stringify(draftBody), permissions: "sales.invoice.create" }));
+    const { id } = (await create.json()) as { id: string };
+    await h.app.fetch(req(`/${id}/confirm`, { method: "POST", body: "{}", permissions: "sales.invoice.confirm" }));
+    const res = await h.app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID_WITH_VIEW }));
+    const stored = await h.repo.findById(id);
+    return { res, body: (await res.json()) as { error?: string; message?: string; messageEn?: string }, stored, withdrawn, id };
+  }
+
+  it.each([
+    [EtaSubmissionStatusCode.Submitted, "ETA_INVOICE_AWAITING_VERDICT", "انتظر"],
+    [EtaSubmissionStatusCode.Accepted, "ETA_INVOICE_ACCEPTED", "مرتجع"],
+  ])("refuses while the e-invoice is %s: the books never drop VAT the authority keeps", async (status, code, way) => {
+    const { res, body, stored, withdrawn } = await confirmedWith(status);
+    expect([res.status, body.error]).toEqual([409, code]);
+    expect(body.message).toContain(way);
+    expect(body.messageEn).toBeTruthy();
+    expect([stored?.status, withdrawn]).toEqual(["confirmed", []]);
+  });
+
+  it.each([[EtaSubmissionStatusCode.Ready], [EtaSubmissionStatusCode.PendingSignature], [EtaSubmissionStatusCode.Error], [EtaSubmissionStatusCode.Excluded], [null]])(
+    "proceeds while the e-invoice is %s, and withdraws it in the same act",
+    async (status) => {
+      const { res, stored, withdrawn, id } = await confirmedWith(status);
+      expect([res.status, stored?.status, withdrawn]).toEqual([200, "reversed", [id]]);
+    },
+  );
+});
 
 describe("voiding a confirmed invoice", () => {
   const VOID = "sales.invoice.void";

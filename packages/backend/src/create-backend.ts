@@ -3456,6 +3456,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           (await salesInvoices.list({ sourceQuoteId: quoteId })).filter((other) => other.status !== SalesInvoiceStatusCode.Cancelled).map((other) => other.id),
         );
       },
+      etaSubmissionStatusOf: async (invoice) => (await etaService.findByInternalId(invoice.docNo ?? invoice.id))?.status ?? null,
       withdrawUnsentEtaSubmission: async (invoice) => {
         const submission = await etaService.findByInternalId(invoice.docNo ?? invoice.id);
         if (!submission || ETA_REQUEUE_MODE[submission.status] !== EtaRequeueMode.Automatic) return;

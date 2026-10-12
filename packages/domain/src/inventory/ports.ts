@@ -148,4 +148,6 @@ export interface InventoryGlPosting {
 
 export interface InventoryGlPostingPort {
   post(posting: InventoryGlPosting): Promise<void>;
+  /** Mirrors the entry a stock document posted under its own id. Answers the original's lines, or null when the document posted no entry. */
+  reverse?(entryId: string, opts: { readonly reversalId: string; readonly date: string; readonly memo: string }): Promise<readonly InventoryGlPostingLine[] | null>;
 }

@@ -299,6 +299,10 @@ export {
   InvalidEmployeeTransitionError,
   EmployeeNotTerminatedError,
   TerminationRecoveryAlreadyCollectedError,
+  PayrollRunDisbursedError,
+  PayrollRunNotApprovedError,
+  PayrollRunHasTerminationAdjustmentError,
+  AdvancePartlyRepaidError,
   UserNotLinkedToEmployeeError,
   ContractNotFoundError,
   InvalidContractError,
@@ -359,6 +363,7 @@ export {
   getGarnishmentKindLabel,
   createGarnishment,
   applyGarnishmentRecovery,
+  reverseGarnishmentRecovery,
   releaseGarnishment,
   createGarnishmentProvider,
 } from "./garnishment.js";
@@ -475,3 +480,6 @@ export {
   type PayrollServiceSpan,
   type PayrollWindow,
 } from "./payroll-population.js";
+
+export { reversePayrollRunApproval, unwindPayrollDisbursementVoucher, type ReversePayrollApprovalDeps, type ReversePayrollApprovalOptions } from "./reverse-payroll-approval.js";
+export { cancelEmployeeAdvance, type CancelEmployeeAdvanceDeps, type CancelEmployeeAdvanceOptions } from "./cancel-advance.js";

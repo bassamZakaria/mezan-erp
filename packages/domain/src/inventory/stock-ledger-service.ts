@@ -23,6 +23,8 @@ import {
   InvalidStockMovementError,
   SameWarehouseTransferError,
   UncostedDeficitIssueError,
+  StockAdjustmentNotFoundError,
+  StockAdjustmentAlreadyReversedError,
 } from "./errors.js";
 import {
   StockMovement,
@@ -672,6 +674,71 @@ export class StockLedgerService {
         valueDelta,
         movementIds,
       });
+    });
+  }
+
+  /**
+   * عكس تسوية مخزون. Each line comes back the other way: a decrease returns at
+   * the cost it left at, an increase leaves at the moving average the position
+   * carries now. INVARIANT: the ledger follows the VALUE THE STOCK MOVED, not
+   * the mirror of the original entry — the mirror posts first and the
+   * difference, when the average has moved since, posts beside it on the same
+   * day, so stock and GL 1200 tie at every month end.
+   */
+  async reverseAdjustment(command: ReverseAdjustmentCommand): Promise<{ valueMoved: Money }> {
+    const original = (await this.movementsOfSourceDoc(command.adjustmentId)).filter((m) => m.sourceDocType === "ADJUSTMENT" && !m.qty.isZero());
+    if (original.length === 0) throw new StockAdjustmentNotFoundError(command.adjustmentId);
+    if ((await this.movementsOfSourceDoc(command.reversalId)).length > 0) throw new StockAdjustmentAlreadyReversedError(command.adjustmentId);
+    await this.assertPeriodOpen(command.occurredAt);
+    const number = original[0]?.sourceDocNumber ?? null;
+    const date = command.occurredAt.slice(0, 10);
+
+    return this.runInTransaction(async () => {
+      let originalValue = Money.zero();
+      let valueMoved = Money.zero();
+      for (let i = 0; i < original.length; i++) {
+        const movement = original[i] as StockMovement;
+        const value = extend(movement.qty, movement.unitCost);
+        originalValue = originalValue.add(movement.direction === "IN" ? value : value.negate());
+        const { signedValue } = await this.applyMovement({
+          movementId: `${command.reversalId}:${i}`,
+          itemId: movement.itemId,
+          warehouseId: movement.warehouseId,
+          direction: movement.direction === "IN" ? "OUT" : "IN",
+          qty: movement.qty,
+          unitCost: movement.unitCost,
+          sourceDocType: "ADJUSTMENT",
+          sourceDocId: command.reversalId,
+          sourceDocNumber: number,
+          reason: movement.reason,
+          occurredAt: command.occurredAt,
+        });
+        valueMoved = valueMoved.add(signedValue);
+      }
+
+      const memo = command.memo ?? `عكس تسوية مخزون ${number ?? command.adjustmentId}`;
+      const mirrored = (await this.deps.gl?.reverse?.(command.adjustmentId, { reversalId: `${command.reversalId}:MIRROR`, date, memo })) ?? null;
+      const residual = originalValue.add(valueMoved);
+      if (mirrored && this.deps.gl && residual.scaled !== 0n) {
+        const inventoryLine = mirrored.find((line) => (originalValue.scaled > 0n ? line.debit.scaled > 0n : line.credit.scaled > 0n));
+        const counterpartLine = mirrored.find((line) => line !== inventoryLine);
+        if (inventoryLine && counterpartLine) {
+          const magnitude = residual.scaled < 0n ? residual.negate() : residual;
+          const up = residual.scaled > 0n;
+          await this.deps.gl.post({
+            sourceDocType: "ADJUSTMENT",
+            sourceDocId: command.reversalId,
+            sourceDocNumber: number,
+            date,
+            memo: `${memo} — فرق متوسط التكلفة`,
+            lines: [
+              { ...inventoryLine, debit: up ? magnitude : Money.zero(), credit: up ? Money.zero() : magnitude },
+              { ...counterpartLine, debit: up ? Money.zero() : magnitude, credit: up ? magnitude : Money.zero() },
+            ],
+          });
+        }
+      }
+      return { valueMoved };
     });
   }
 
@@ -1433,6 +1500,14 @@ export class StockLedgerService {
 }
 
 /** Build the balanced Dr/Cr posting for a value-impacting adjustment. */
+export interface ReverseAdjustmentCommand {
+  readonly adjustmentId: string;
+  /** Source-document id of the compensating movements. */
+  readonly reversalId: string;
+  readonly occurredAt: string;
+  readonly memo?: string;
+}
+
 function buildAdjustmentPosting(
   command: PostAdjustmentCommand,
   valueDelta: Money,

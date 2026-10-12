@@ -45,6 +45,8 @@ export {
 export {
   ExpiredStockError,
   NegativeStockError,
+  StockAdjustmentNotFoundError,
+  StockAdjustmentAlreadyReversedError,
   UncostedDeficitIssueError,
   InvalidStockMovementError,
   SameWarehouseTransferError,

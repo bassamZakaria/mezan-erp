@@ -1,4 +1,3 @@
-import { postingRefusalResponse } from "./posting-refusal.js";
 import { tenantStockMoment } from "./tenant-day.js";
 import { Hono, type Context } from "hono";
 import {
@@ -34,7 +33,9 @@ import {
   postedTransferListQuerySchema,
   itemStockSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse } from "./document-reversal.js";
+import { StockAdjustmentAlreadyReversedError, StockAdjustmentNotFoundError, type AuditSink } from "@mezan/domain";
 
 /**
  * Permission-gated routes for the costing + stock-ledger engine (docs/archive/catalog/03).
@@ -140,8 +141,10 @@ function serializePostedTransfer(t: PostedTransfer) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
-  const postingRefusal = postingRefusalResponse(c, err);
+  const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
+  if (err instanceof StockAdjustmentNotFoundError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
+  if (err instanceof StockAdjustmentAlreadyReversedError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   if (err instanceof NegativeStockError) {
     return c.json(
       {
@@ -197,6 +200,12 @@ function requireQuery(c: Context, name: string): string {
   return value;
 }
 
+export interface InventoryAdjustmentReversalDeps {
+  /** The adjustment documents: one of those is reversed on its own route so its state follows. */
+  readonly documents?: { findById(id: string): Promise<unknown | null> };
+  readonly audit?: AuditSink;
+}
+
 export function createInventoryRoutes(
   service: StockLedgerService,
   resolveAuthContext: AuthContextResolver,
@@ -214,6 +223,7 @@ export function createInventoryRoutes(
    * switched it off does not want a counter clerk quoting another branch's stock.
    */
   settings?: SettingsRepository,
+  reversal?: InventoryAdjustmentReversalDeps,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -408,6 +418,41 @@ export function createInventoryRoutes(
         })),
       });
       return c.json({ ok: true }, 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/adjustments/:id/reverse", gate("inventory.adjustment.confirm"), async (c) => {
+    const adjustmentId = c.req.param("id");
+    const posted = await service.getPostedAdjustment(adjustmentId);
+    if (posted) {
+      const refusal = warehouseScopeRefusal(c, [posted.warehouseId]);
+      if (refusal) return refusal;
+    }
+    if (await reversal?.documents?.findById(adjustmentId)) {
+      return c.json(
+        {
+          error: "STOCK_ADJUSTMENT_HAS_DOCUMENT",
+          message: "هذه التسوية مستند في شاشة تسويات المخزون؛ اعكسها من هناك لتتغير حالة المستند مع المخزون والقيد.",
+          messageEn: "This adjustment is a document on the stock adjustments screen; reverse it there so the document's state moves with the stock and the entry.",
+        },
+        409,
+      );
+    }
+    try {
+      const { date, memo } = await readReversalRequest(c);
+      const occurredAt = await tenantStockMoment(c, date ?? posted?.occurredAt);
+      const reversalId = `${adjustmentId}:REVERSAL`;
+      await service.reverseAdjustment({ adjustmentId, reversalId, occurredAt, memo });
+      await recordDocumentReversal(reversal?.audit, {
+        module: "inventory",
+        entityType: "STOCK_ADJUSTMENT",
+        entityId: adjustmentId,
+        actor: getAuthContext(c)?.userId ?? "system",
+        details: { reversalDocId: reversalId, date: occurredAt.slice(0, 10) },
+      });
+      return c.json({ adjustmentId, reversalId, date: occurredAt.slice(0, 10) }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

@@ -376,19 +376,33 @@ async function undoPayRecovery(employee: Employee, today: string, payroll: Termi
     attempt += 1;
   }
   if (current === null) return;
-  const advance = await payroll.advances.findById(current);
+  await undoTerminationRecovery(current, employee.id, today, payroll, `عكس تسوية أجر إنهاء الخدمة لتصحيح تاريخ آخر يوم عمل (${terminatedAt})`);
+}
+
+export type TerminationRecoveryUndoDeps = Pick<TerminationPayrollDeps, "runs" | "gl"> & {
+  readonly payslips: Pick<PayslipRepository, "listByEmployeeId" | "create">;
+  readonly advances: Pick<EmployeeAdvanceRepository, "findById" | "update">;
+};
+
+export function isTerminationRecoveryEntry(entryId: string | null): boolean {
+  return entryId !== null && entryId.startsWith("TERMINATION-RECOVERY-JE:");
+}
+
+/** Takes one booked recovery back whole: its advance is cancelled, its entry reversed, and every unpaid payslip it reduced gets its net back. */
+export async function undoTerminationRecovery(id: string, employeeId: string, today: string, payroll: TerminationRecoveryUndoDeps, memo: string): Promise<void> {
+  const advance = await payroll.advances.findById(id);
   if (advance) {
-    if (advanceRecovered(advance).scaled > 0n) throw new TerminationRecoveryAlreadyCollectedError(employee.id, advance.number);
+    if (advanceRecovered(advance).scaled > 0n) throw new TerminationRecoveryAlreadyCollectedError(employeeId, advance.number);
     await payroll.advances.update({ ...advance, status: EmployeeAdvanceStatusCode.Cancelled });
   }
-  await reverseJournalEntry(recoveryEntryId(current), payroll.gl, {
-    reversalId: `${recoveryEntryId(current)}:REVERSED`,
+  await reverseJournalEntry(recoveryEntryId(id), payroll.gl, {
+    reversalId: `${recoveryEntryId(id)}:REVERSED`,
     date: today,
-    memo: `عكس تسوية أجر إنهاء الخدمة لتصحيح تاريخ آخر يوم عمل (${terminatedAt})`,
+    memo,
   });
   const runs = new Map((await payroll.runs.list()).map((run) => [run.id, run]));
-  for (const payslip of await payroll.payslips.listByEmployeeId(employee.id)) {
-    const line = payslip.lines.find((candidate) => isAdjustment(candidate) && candidate.referenceId === current);
+  for (const payslip of await payroll.payslips.listByEmployeeId(employeeId)) {
+    const line = payslip.lines.find((candidate) => isAdjustment(candidate) && candidate.referenceId === id);
     const run = runs.get(payslip.runId);
     if (!line || !run || run.status !== PayrollRunStatusCode.Approved) continue;
     await payroll.payslips.create({

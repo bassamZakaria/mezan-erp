@@ -138,6 +138,23 @@ export function applyGarnishmentRecovery(
   };
 }
 
+/** Takes back what a payroll run withheld when that run's approval is reversed; an order the withholding had completed is in force again. */
+export function reverseGarnishmentRecovery(
+  current: GarnishmentRecord,
+  amount: Money,
+  now: () => string = () => new Date().toISOString(),
+): GarnishmentRecord {
+  if (amount.scaled <= 0n) return current;
+  const undone = amount.scaled > current.recovered.scaled ? current.recovered.scaled : amount.scaled;
+  return {
+    ...current,
+    outstanding: Money.fromScaled(current.outstanding.scaled + undone),
+    recovered: Money.fromScaled(current.recovered.scaled - undone),
+    active: current.active || current.outstanding.scaled === 0n,
+    updatedAt: now(),
+  };
+}
+
 /** Stops an order early — released, appealed, or superseded. */
 export function releaseGarnishment(current: GarnishmentRecord, now: () => string = () => new Date().toISOString()): GarnishmentRecord {
   return { ...current, active: false, updatedAt: now() };

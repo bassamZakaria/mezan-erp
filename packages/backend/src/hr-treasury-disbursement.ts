@@ -66,5 +66,8 @@ export function createHrTreasuryDisbursementPort(
   return {
     disburse: (request) => post(request, "other_expense"),
     receive: (request) => post(request, "other_income"),
+    reverse: async (voucherId, opts) => {
+      await vouchers.reverseVoucher(voucherId, opts);
+    },
   };
 }

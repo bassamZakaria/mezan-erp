@@ -36,7 +36,9 @@ import {
   recordPhysicalCountEntriesSchema,
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { readReversalRequest, recordDocumentReversal } from "./document-reversal.js";
+import type { AuditSink } from "@mezan/domain";
 import { tenantDay } from "./tenant-day.js";
 
 /**
@@ -240,6 +242,7 @@ function handleDocumentError(c: Context, err: unknown): Response {
 export function createStockAdjustmentsRoutes(
   service: DocumentService<StockAdjustmentDocLine>,
   resolveAuthContext: AuthContextResolver,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -282,6 +285,29 @@ export function createStockAdjustmentsRoutes(
       }
       const { document, held } = await service.confirm(c.req.param("id"));
       return c.json({ document: serializeAdjustment(document), held });
+    } catch (err) {
+      return handleDocumentError(c, err);
+    }
+  });
+
+  app.post("/:id/reverse", gate("inventory.adjustment.confirm"), async (c) => {
+    try {
+      const id = c.req.param("id");
+      const existing = await service.findById(id);
+      if (existing) {
+        const refusal = warehouseScopeRefusal(c, existing.lines.map((l) => l.warehouseId));
+        if (refusal) return refusal;
+      }
+      const { date, memo } = await readReversalRequest(c);
+      const { original, reversal } = await service.reverse(id, { reversalId: `${id}:REVERSAL`, date, memo });
+      await recordDocumentReversal(audit, {
+        module: "inventory",
+        entityType: "STOCK_ADJUSTMENT",
+        entityId: id,
+        actor: getAuthContext(c)?.userId ?? "system",
+        details: { docNo: original.docNo, reversalDocId: reversal.id, date: reversal.date },
+      });
+      return c.json({ original: serializeAdjustment(original), reversal: serializeAdjustment(reversal) }, 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }

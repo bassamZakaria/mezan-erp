@@ -1,4 +1,4 @@
-import { postingRefusalResponse } from "./posting-refusal.js";
+import { reversalRefusalResponse } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -97,7 +97,7 @@ function serialize(cheque: Cheque, asOfDate: string, allocations: readonly Vouch
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
-  const postingRefusal = postingRefusalResponse(c, err);
+  const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
@@ -416,6 +416,26 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "BOUNCE", cheque);
+      return c.json(await present(cheque, asOf()));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/return", gate("cheques.bounce"), async (c) => {
+    const parsed = bounceChequeSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const cheque = await service.returnCollected({
+        chequeId: c.req.param("id"),
+        date: await postingDay(c, parsed.data.date),
+        journalEntryId: idGen(),
+        collectionReversalId: idGen(),
+        actor: actorOf(c),
+      });
+      await auditTransition(c, "RETURN", cheque);
       return c.json(await present(cheque, asOf()));
     } catch (err) {
       return handleDomainError(c, err);

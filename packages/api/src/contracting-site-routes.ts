@@ -1,4 +1,5 @@
-import { postingRefusalResponse } from "./posting-refusal.js";
+import { readReversalRequest, reversalRefusalResponse } from "./document-reversal.js";
+import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
   ExpiredStockError,
@@ -166,8 +167,11 @@ function serializeEquipmentHours(row: EquipmentHoursRow) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
-  const postingRefusal = postingRefusalResponse(c, err);
+  const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
+  if (err instanceof SiteDocumentStatusError && err.messageEn) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  }
   if (err instanceof SiteDocumentNotFoundError || err instanceof ProjectNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -366,6 +370,16 @@ export function createContractingSiteRoutes(
 
   // --- عهدة المواد ---
 
+  app.post("/consumptions/:id/reverse", gate("inventory.adjustment.confirm"), async (c) => {
+    try {
+      const { date, memo } = await readReversalRequest(c);
+      const consumption = await service.reverseConsumption(c.req.param("id"), { reversalId: randomUUID(), date, memo, actor: callerUserId(c) ?? null });
+      return c.json(serializeConsumption(consumption));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
   app.get("/custody", gate("projects.project.view"), async (c) => {
     const projectId = c.req.query("projectId");
     const warehouseId = c.req.query("warehouseId");
@@ -450,6 +464,16 @@ export function createContractingSiteRoutes(
   });
 
   // --- الاستثناءات والتجميعات ---
+
+  app.post("/equipment-logs/:id/reverse", gate("projects.project.manage"), async (c) => {
+    try {
+      const { date, memo } = await readReversalRequest(c);
+      const log = await service.reverseEquipmentLog(c.req.param("id"), { reversalId: randomUUID(), date, memo, actor: callerUserId(c) ?? null });
+      return c.json(serializeEquipmentLog(log));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
 
   app.get("/unreceived", gate("inventory.transfer.view"), async (c) => {
     const raw = Number(c.req.query("olderThanDays") ?? "0");

@@ -43,6 +43,10 @@ import {
   closeFiscalYear,
   planYearEndClose,
   YearAlreadyClosedError,
+  YearNotClosedError,
+  FollowingYearClosedError,
+  reopenFiscalYear,
+  standingYearClose,
   NothingToCloseError,
   recordVatFiling,
   amendVatFiling,
@@ -57,6 +61,7 @@ import {
   type CurrencyBalanceGroup,
 } from "@mezan/domain";
 import { tenantDay } from "./tenant-day.js";
+import { readReversalRequest } from "./document-reversal.js";
 import {
   createGlJournalEntrySchema,
   updateGlJournalEntrySchema,
@@ -235,6 +240,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof YearAlreadyClosedError) {
     return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof YearNotClosedError || err instanceof FollowingYearClosedError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof NothingToCloseError) {
     return c.json({ error: err.code, message: err.message }, 422);
@@ -423,8 +431,9 @@ export function createGlRoutes(
     if (!Number.isInteger(year) || year < 1900 || year > 9999) {
       return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة." }, 400);
     }
-    const entry = await deps.ledger.findById(`YEAR-CLOSE:${year}`);
-    return c.json({ year, closed: entry !== null, entry: entry ? serialize(entry) : null });
+    const entry = await standingYearClose(deps.ledger, year);
+    const followingClosed = (await standingYearClose(deps.ledger, year + 1)) !== null;
+    return c.json({ year, closed: entry !== null, reopenable: entry !== null && !followingClosed, entry: entry ? serialize(entry) : null });
   });
 
   /**
@@ -496,6 +505,20 @@ export function createGlRoutes(
         expensesClosed: result.expensesClosed.toString(),
         accountsClosed: result.accountsClosed,
       }, 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/year-end-close/:year/reopen", gate("accounting.period.reopen"), async (c) => {
+    const year = Number(c.req.param("year"));
+    if (!Number.isInteger(year) || year < 1900 || year > 9999) {
+      return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة.", messageEn: "Invalid year." }, 400);
+    }
+    try {
+      const { memo } = await readReversalRequest(c);
+      const result = await reopenFiscalYear(year, { ...postingDeps(c), ledger: deps.ledger, accounts: deps.accounts }, { reversalId: idGen(), memo });
+      return c.json({ year, journalEntryId: result.journalEntryId, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null, reversalDate: result.reversal.date }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

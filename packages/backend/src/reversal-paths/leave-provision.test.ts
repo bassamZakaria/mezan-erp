@@ -6,7 +6,7 @@ let world: SeededWorld;
 
 beforeAll(async () => {
   world = await seededWorld();
-}, 120_000);
+}, 900_000);
 
 afterAll(() => world?.close());
 

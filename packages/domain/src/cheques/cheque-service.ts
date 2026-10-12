@@ -33,7 +33,7 @@
  */
 
 import { Money } from "../money/index.js";
-import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
+import { postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
 import { carryingBaseOf, convertFromBase, shareOfBase } from "../exchange-rates/convert.js";
 import type {
   Cheque,
@@ -110,6 +110,11 @@ export interface BounceChequeCommand {
   readonly journalEntryId: string;
   readonly date?: string;
   readonly actor?: string;
+}
+
+export interface ReturnCollectedChequeCommand extends BounceChequeCommand {
+  /** Id for the entry that mirrors the collection. */
+  readonly collectionReversalId: string;
 }
 
 export interface ReplaceChequeCommand {
@@ -363,7 +368,35 @@ export class ChequeService {
     return this.deps.cheques.transaction(async () => {
       const cheque = await this.require(cmd.chequeId);
       assertChequeTransition(cheque, "bounce");
+      return this.postBounce(cheque, cmd, cmd.date ?? this.now().slice(0, 10));
+    });
+  }
 
+  /**
+   * شيك محصَّل ردّه البنك. The collection entry is mirrored — with the bank
+   * line's own currency and rate, so a foreign bank gives back exactly what it
+   * took in — and the cheque then bounces as one never collected does.
+   */
+  async returnCollected(cmd: ReturnCollectedChequeCommand): Promise<Cheque> {
+    return this.deps.cheques.transaction(async () => {
+      const cheque = await this.require(cmd.chequeId);
+      assertChequeTransition(cheque, "return");
+      const date = cmd.date ?? this.now().slice(0, 10);
+      if (cheque.collectionJournalEntryId) {
+        const collection = await this.deps.gl.ledger.findById(cheque.collectionJournalEntryId);
+        if (collection && date < collection.date.slice(0, 10)) throw new ReversalDateBeforeOriginalError(collection.id, date, collection.date);
+        await reverseJournalEntry(cheque.collectionJournalEntryId, this.deps.gl, {
+          reversalId: cmd.collectionReversalId,
+          date,
+          memo: `ردّ البنك للشيك المحصَّل رقم ${cheque.chequeNumber}`,
+        });
+      }
+      return this.postBounce(cheque, cmd, date);
+    });
+  }
+
+  private async postBounce(cheque: Cheque, cmd: BounceChequeCommand, date: string): Promise<Cheque> {
+    {
       const lines =
         cheque.direction === "incoming"
           ? [
@@ -375,7 +408,6 @@ export class ChequeService {
               { accountId: cheque.counterpartyGlAccountId, debit: Money.zero(), credit: cheque.amount },
             ];
 
-      const date = cmd.date ?? this.now().slice(0, 10);
       const entry = await postJournalEntry(
         {
           id: cmd.journalEntryId,
@@ -401,7 +433,7 @@ export class ChequeService {
       await this.deps.cheques.update(updated);
       await this.deps.raisedBy?.onBounced(updated, { date, actor: this.actorOf(cmd) });
       return updated;
-    });
+    }
   }
 
   /**

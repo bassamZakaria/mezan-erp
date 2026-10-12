@@ -1,6 +1,7 @@
 import { Money, Qty, allocate } from "../../money/index.js";
 import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
-import { postJournalEntry, type JournalPostingDeps } from "../../gl/index.js";
+import { postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, type JournalPostingDeps } from "../../gl/index.js";
+import { mirrorStockPlan } from "../../documents/hooks.js";
 import { extend } from "../../inventory/wac-math.js";
 import { occurredAtFromDocumentDate } from "../../inventory/movement.js";
 import type { StockLedgerService } from "../../inventory/stock-ledger-service.js";
@@ -139,6 +140,13 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function sumQty(values: readonly Qty[]): Qty {
   return values.reduce((total, q) => total.add(q), Qty.zero());
+}
+
+export interface SiteReversalOptions {
+  readonly reversalId: string;
+  readonly date?: string;
+  readonly memo?: string;
+  readonly actor?: string | null;
 }
 
 export class SiteService {
@@ -567,6 +575,81 @@ export class SiteService {
       },
     });
     return saved;
+  }
+
+  /**
+   * عكس استهلاك مواد. The goods come back to the site store at the cost they
+   * left at and the entry is mirrored. INVARIANT: the stock movement and the
+   * mirror entry carry the same day, so stock and GL 1200 tie at every month end.
+   */
+  async reverseConsumption(id: string, opts: SiteReversalOptions): Promise<MaterialConsumption> {
+    const consumption = await this.deps.consumptions.findById(id);
+    if (!consumption) throw new SiteDocumentNotFoundError(id);
+    if (consumption.status !== "confirmed") {
+      throw new SiteDocumentStatusError("مستند الاستهلاك ليس معتمداً، فلا يمكن عكسه.", "The consumption is not confirmed, so it cannot be reversed.");
+    }
+    const date = opts.date ?? consumption.date;
+    if (date < consumption.date) throw new ReversalDateBeforeOriginalError(consumption.journalEntryId ?? consumption.id, date, consumption.date);
+    const gl = { ...this.deps.gl, actor: opts.actor ?? this.deps.gl.actor };
+
+    const saved = await this.run(async () => {
+      const mirrored = mirrorStockPlan(
+        { sourceDocType: "MATERIAL_CONSUMPTION", sourceDocId: opts.reversalId, sourceDocNumber: consumption.docNo, warehouseId: consumption.warehouseId, date, lines: [] },
+        await this.deps.stockLedger.getMovementsOfDocument(consumption.id),
+      );
+      if (mirrored) {
+        await this.deps.stockLedger.applyDocumentStockPlan({
+          sourceDocType: "MATERIAL_CONSUMPTION",
+          sourceDocId: mirrored.sourceDocId,
+          sourceDocNumber: mirrored.sourceDocNumber,
+          warehouseId: mirrored.warehouseId,
+          lines: mirrored.lines,
+          occurredAt: occurredAtFromDocumentDate(date),
+        });
+      }
+      const reversal = consumption.journalEntryId
+        ? (await reverseJournalEntry(consumption.journalEntryId, gl, { reversalId: opts.reversalId, date, memo: opts.memo ?? `عكس استهلاك مواد ${consumption.docNo ?? consumption.id}` })).reversal
+        : null;
+      const reversed: MaterialConsumption = { ...consumption, status: "reversed" };
+      await this.deps.consumptions.save(reversed);
+      await recordTransition(this.deps.audit, {
+        entityType: "MATERIAL_CONSUMPTION",
+        entityId: consumption.id,
+        action: "REVERSE",
+        actor: opts.actor ?? "system",
+        severity: "WARNING",
+        details: { docNo: consumption.docNo, projectId: consumption.projectId, totalCost: consumption.totalCost.toString(), journalEntryId: consumption.journalEntryId, reversalId: reversal?.id ?? null, date },
+      });
+      return reversed;
+    });
+    return saved;
+  }
+
+  async reverseEquipmentLog(id: string, opts: SiteReversalOptions): Promise<EquipmentLog> {
+    const log = await this.deps.equipmentLogs.findById(id);
+    if (!log) throw new SiteDocumentNotFoundError(id);
+    if (log.status !== "confirmed" || !log.journalEntryId) {
+      throw new SiteDocumentStatusError("سجل التشغيل ليس معتمداً، فلا يمكن عكسه.", "The equipment log is not confirmed, so it cannot be reversed.");
+    }
+    const entryId = log.journalEntryId;
+    const date = opts.date ?? log.date;
+    if (date < log.date) throw new ReversalDateBeforeOriginalError(entryId, date, log.date);
+    const gl = { ...this.deps.gl, actor: opts.actor ?? this.deps.gl.actor };
+
+    return this.run(async () => {
+      const { reversal } = await reverseJournalEntry(entryId, gl, { reversalId: opts.reversalId, date, memo: opts.memo ?? `عكس تشغيل معدات ${log.docNo ?? log.id}` });
+      const reversed: EquipmentLog = { ...log, status: "reversed" };
+      await this.deps.equipmentLogs.save(reversed);
+      await recordTransition(this.deps.audit, {
+        entityType: "EQUIPMENT_LOG",
+        entityId: log.id,
+        action: "REVERSE",
+        actor: opts.actor ?? "system",
+        severity: "WARNING",
+        details: { docNo: log.docNo, projectId: log.projectId, assetId: log.assetId, amount: log.amount.toString(), journalEntryId: entryId, reversalId: reversal.id, date },
+      });
+      return reversed;
+    });
   }
 
   // --- عهدة المواد المرتجعة ---

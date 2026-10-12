@@ -4,6 +4,7 @@ import { DOCUMENT_STATUS_LABELS_AR, type DocumentStatus } from "./status.js";
 
 export class InvalidDocumentTransitionError extends Error {
   readonly code = "INVALID_DOCUMENT_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly docType: string,
     readonly docId: string,
@@ -11,6 +12,7 @@ export class InvalidDocumentTransitionError extends Error {
     readonly to: DocumentStatus,
   ) {
     super(`لا يمكن نقل المستند ${docId} من "${DOCUMENT_STATUS_LABELS_AR[from]}" إلى "${DOCUMENT_STATUS_LABELS_AR[to]}".`);
+    this.messageEn = `Document ${docId} cannot move from "${from}" to "${to}".`;
     this.name = "InvalidDocumentTransitionError";
   }
 }

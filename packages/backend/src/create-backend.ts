@@ -132,6 +132,7 @@ import {
   createProductTemplateSpecificationUsage,
   recordSecurityEvent,
   unwindAdvanceVoucher,
+  unwindPayrollDisbursementVoucher,
   type VoucherAdvanceUnwindPort,
   type Entitlements,
   type RealisedFxPort,
@@ -904,7 +905,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrLeaveAccrualBatches = createSqliteLeaveAccrualBatchRepository(sqlite);
   const hrAdvances = createSqliteEmployeeAdvanceRepository(sqlite);
   const advanceVoucherUnwind: VoucherAdvanceUnwindPort = {
-    onVoucherReversed: (voucherId) => unwindAdvanceVoucher(voucherId, { advances: hrAdvances }),
+    onVoucherReversed: async (voucherId) =>
+      (await unwindAdvanceVoucher(voucherId, { advances: hrAdvances })) || (await unwindPayrollDisbursementVoucher(voucherId, { runs: hrPayrollRuns })),
   };
   const hrClockCredentials = createSqliteClockCredentialRepository(sqlite);
   const hrChallenges = createSqliteWebauthnChallengeRepository(sqlite);
@@ -3484,6 +3486,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       raisedBy: chequeRaisedByVoucher,
       bankLegFx: chequeBankLegFx,
       realisedFx,
+      audit: auditSink,
     },
     bankReconciliation: {
       statements: bankStatements.statements,
@@ -3597,7 +3600,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       transactor: configTransactor,
     },
     // --- phase4/inventory-ops ---
-    stockAdjustments: { service: stockAdjustments },
+    stockAdjustments: { service: stockAdjustments, audit: auditSink },
     stockTransfers: { service: stockTransfers },
     physicalCounts: { service: physicalCounts },
     // --- phase11/crm-projects-assets-field ---

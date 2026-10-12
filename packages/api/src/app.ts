@@ -414,6 +414,7 @@ export interface CreateAppOptions {
    */
   readonly stockAdjustments?: {
     readonly service: DocumentService<StockAdjustmentDocLine>;
+    readonly audit?: AuditSink;
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /** Mounts `/inventory/stock-transfers` (docs/archive/catalog/03 §"تحويلات المخزون") when present. */
@@ -1381,6 +1382,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         options.inventory.reservations,
         options.accountRouting?.repo,
         options.settingsStore,
+        { documents: options.stockAdjustments?.service, audit: options.stockAdjustments?.audit },
       ),
     );
   }
@@ -1581,7 +1583,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.stockAdjustments) {
     app.route(
       "/inventory/stock-adjustments",
-      createStockAdjustmentsRoutes(options.stockAdjustments.service, (options.stockAdjustments.resolveAuthContext ?? resolveAuth)),
+      createStockAdjustmentsRoutes(options.stockAdjustments.service, (options.stockAdjustments.resolveAuthContext ?? resolveAuth), options.stockAdjustments.audit),
     );
   }
   if (options.stockTransfers) {

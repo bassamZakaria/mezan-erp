@@ -1,7 +1,7 @@
 import { Money } from "../money/index.js";
 import { recordSensitiveEvent } from "../audit/index.js";
 import type { JournalEntry } from "../journal.js";
-import { postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
+import { nextEntryGenerationId, postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
 import { HrProvisionLaterPostingError, HrProvisionPostingNotFoundError, InvalidPayrollRunError } from "./errors.js";
 
 /**
@@ -111,7 +111,7 @@ export async function postHrProvision(cmd: PostHrProvisionCommand, deps: PostHrP
 
   const entry = await postJournalEntry(
     {
-      id: await freeProvisionEntryId(cmd.kind, cmd.asOfDate, deps.gl),
+      id: await nextEntryGenerationId(deps.gl.ledger, `HR-PROVISION:${cmd.kind}:${cmd.asOfDate}`),
       date: cmd.asOfDate,
       memo: `${definition.labelAr} — تسوية حتى ${cmd.asOfDate}`,
       source: "system",
@@ -135,17 +135,6 @@ export async function postHrProvision(cmd: PostHrProvisionCommand, deps: PostHrP
 
 function provisionSourceDocId(kind: HrProvisionKind, asOfDate: string): string {
   return `${kind}:${asOfDate}`;
-}
-
-async function freeProvisionEntryId(kind: HrProvisionKind, asOfDate: string, gl: JournalPostingDeps): Promise<string> {
-  const base = `HR-PROVISION:${kind}:${asOfDate}`;
-  const first = await gl.ledger.findById(base);
-  if (!first || first.status !== "reversed") return base;
-  for (let generation = 2; ; generation += 1) {
-    const candidate = `${base}#${generation}`;
-    const taken = await gl.ledger.findById(candidate);
-    if (!taken || taken.status !== "reversed") return candidate;
-  }
 }
 
 export interface HrProvisionPosting {

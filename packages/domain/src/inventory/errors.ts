@@ -258,3 +258,23 @@ export class InvalidVariantSelectionError extends Error {
     this.name = "InvalidVariantSelectionError";
   }
 }
+
+export class StockAdjustmentNotFoundError extends Error {
+  readonly code = "STOCK_ADJUSTMENT_NOT_FOUND";
+  readonly messageEn: string;
+  constructor(readonly adjustmentId: string) {
+    super(`تسوية المخزون "${adjustmentId}" غير موجودة.`);
+    this.messageEn = `Stock adjustment "${adjustmentId}" was not found.`;
+    this.name = "StockAdjustmentNotFoundError";
+  }
+}
+
+export class StockAdjustmentAlreadyReversedError extends Error {
+  readonly code = "STOCK_ADJUSTMENT_ALREADY_REVERSED";
+  readonly messageEn: string;
+  constructor(readonly adjustmentId: string) {
+    super(`تسوية المخزون "${adjustmentId}" سبق عكسها.`);
+    this.messageEn = `Stock adjustment "${adjustmentId}" has already been reversed.`;
+    this.name = "StockAdjustmentAlreadyReversedError";
+  }
+}

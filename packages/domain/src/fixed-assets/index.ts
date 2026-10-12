@@ -74,3 +74,5 @@ export {
   AssetAlreadyDepreciatedError,
   LaterDepreciationRunExistsError,
 } from "./errors.js";
+
+export { undoAssetDisposal, assetDisposalEntryId, AssetNotDisposedError, ASSET_DISPOSAL_DOC_TYPE, type UndoAssetDisposalDeps, type UndoAssetDisposalOptions } from "./undo-asset-disposal.js";

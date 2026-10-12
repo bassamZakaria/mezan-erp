@@ -377,6 +377,55 @@ export class InvalidPayrollRunError extends Error {
   }
 }
 
+export class PayrollRunDisbursedError extends Error {
+  readonly code = "PAYROLL_RUN_DISBURSED";
+  readonly messageEn: string;
+  constructor(
+    readonly runNumber: string,
+    readonly disbursementVoucherId: string | null,
+  ) {
+    super(`مسير الرواتب ${runNumber} مصروف. اعكس سند صرفه من شاشة السندات أولاً ليعود «معتمد»، ثم ألغِ اعتماده.`);
+    this.messageEn = `Payroll run ${runNumber} has been paid out. Reverse its disbursement voucher on the vouchers screen first, so the run returns to approved, then cancel its approval.`;
+    this.name = "PayrollRunDisbursedError";
+  }
+}
+
+export class PayrollRunNotApprovedError extends Error {
+  readonly code = "PAYROLL_RUN_NOT_APPROVED";
+  readonly messageEn: string;
+  constructor(
+    readonly runNumber: string,
+    readonly status: PayrollRunStatus,
+  ) {
+    super(`مسير الرواتب ${runNumber} حالته "${getPayrollRunStatusLabel(status)}" وليس معتمداً، فلا يوجد اعتماد يُلغى.`);
+    this.messageEn = `Payroll run ${runNumber} is "${status}", not approved, so there is no approval to cancel.`;
+    this.name = "PayrollRunNotApprovedError";
+  }
+}
+
+export class PayrollRunHasTerminationAdjustmentError extends Error {
+  readonly code = "PAYROLL_RUN_HAS_TERMINATION_ADJUSTMENT";
+  readonly messageEn: string;
+  constructor(readonly runNumber: string) {
+    super(`مسير الرواتب ${runNumber} عليه تسوية إنهاء خدمة خُصمت من صافي أحد كشوفه. صحّح تاريخ إنهاء الخدمة إلى آخر يوم مدفوع ليُرفع الخصم، ثم ألغِ الاعتماد.`);
+    this.messageEn = `Payroll run ${runNumber} carries a termination adjustment taken off one of its payslips. Correct the termination date to the last paid day so the adjustment is lifted, then cancel the approval.`;
+    this.name = "PayrollRunHasTerminationAdjustmentError";
+  }
+}
+
+export class AdvancePartlyRepaidError extends Error {
+  readonly code = "ADVANCE_PARTLY_REPAID";
+  readonly messageEn: string;
+  constructor(
+    readonly advanceNumber: string,
+    readonly recovered: string,
+  ) {
+    super(`لا يمكن إلغاء السلفة ${advanceNumber}: سُدّد منها ${recovered}. اعكس السداد أولاً (سند القبض أو اعتماد المسير الذي خصمها)، أو اتركها تُستكمل.`);
+    this.messageEn = `Advance ${advanceNumber} cannot be cancelled: ${recovered} of it has been repaid. Reverse what was repaid first (the receipt voucher, or the approval of the payroll run that deducted it), or let it run its course.`;
+    this.name = "AdvancePartlyRepaidError";
+  }
+}
+
 export class HrProvisionPostingNotFoundError extends Error {
   readonly code = "HR_PROVISION_POSTING_NOT_FOUND";
   readonly messageEn: string;

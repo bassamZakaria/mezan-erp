@@ -61,6 +61,13 @@ import {
   hrProvisionMovement,
   postHrProvision,
   listHrProvisionPostings,
+  reversePayrollRunApproval,
+  cancelEmployeeAdvance,
+  PayrollRunDisbursedError,
+  PayrollRunNotApprovedError,
+  PayrollRunHasTerminationAdjustmentError,
+  AdvancePartlyRepaidError,
+  TerminationRecoveryAlreadyCollectedError,
   reverseHrProvision,
   HrProvisionPostingNotFoundError,
   HrProvisionLaterPostingError,
@@ -334,6 +341,15 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (reversalRefusal) return reversalRefusal;
   if (err instanceof HrProvisionPostingNotFoundError) return c.json(withMessageEn(err), 404);
   if (err instanceof HrProvisionLaterPostingError) return c.json(withMessageEn(err), 409);
+  if (err instanceof PayrollRunDisbursedError) return c.json({ ...withMessageEn(err), disbursementVoucherId: err.disbursementVoucherId }, 409);
+  if (
+    err instanceof PayrollRunNotApprovedError ||
+    err instanceof PayrollRunHasTerminationAdjustmentError ||
+    err instanceof AdvancePartlyRepaidError ||
+    err instanceof TerminationRecoveryAlreadyCollectedError
+  ) {
+    return c.json(withMessageEn(err), 409);
+  }
   if (
     err instanceof EmployeeAdvanceNotFoundError ||
     err instanceof PayrollRunNotFoundError ||
@@ -543,6 +559,25 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
       const next = rejectEmployeeAdvance(advance, actorOf(c));
       await deps.advances.update(next);
       return c.json(serializeAdvance(next));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/advances/:id/cancel", gate("hr.advance.approve"), async (c) => {
+    try {
+      const { date } = await readReversalRequest(c);
+      const advance = await cancelEmployeeAdvance(
+        c.req.param("id"),
+        {
+          advances: deps.advances,
+          treasury: deps.treasury,
+          terminationRecovery: { runs: deps.runs, payslips: deps.payslips },
+          gl: { ...deps.gl, actor: actorOf(c) },
+        },
+        { reversalId: idGen(), date, today: await tenantToday(c) },
+      );
+      return c.json(serializeAdvance(advance));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -1084,6 +1119,20 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
         accounts: deps.accounts,
         idGen,
       });
+      return c.json(serializeRun(run));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/payroll/runs/:id/reverse-approval", gate("hr.payroll.void"), async (c) => {
+    try {
+      const { date, memo } = await readReversalRequest(c);
+      const run = await reversePayrollRunApproval(
+        c.req.param("id"),
+        { runs: deps.runs, payslips: deps.payslips, advances: deps.advances, garnishments: deps.garnishmentRegister, gl: { ...deps.gl, actor: actorOf(c) } },
+        { reversalId: idGen(), date, memo },
+      );
       return c.json(serializeRun(run));
     } catch (err) {
       return handleDomainError(c, err);

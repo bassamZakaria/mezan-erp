@@ -59,7 +59,7 @@ export interface SiteReceipt {
   readonly confirmedAt: string | null;
 }
 
-export type MaterialConsumptionStatus = "draft" | "confirmed";
+export type MaterialConsumptionStatus = "draft" | "confirmed" | "reversed";
 
 export interface MaterialConsumptionLine {
   readonly itemId: string;
@@ -113,7 +113,7 @@ export interface CustodyItem {
   readonly notes: string | null;
 }
 
-export type EquipmentLogStatus = "draft" | "confirmed";
+export type EquipmentLogStatus = "draft" | "confirmed" | "reversed";
 
 export interface EquipmentLog {
   readonly id: string;

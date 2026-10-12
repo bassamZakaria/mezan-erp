@@ -543,10 +543,10 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
       const rows = sqlite
         .prepare(
           `SELECT source_doc_id AS asset_id, MIN(date) AS date FROM journal_entry
-            WHERE source_doc_type = ? AND status IN (${placeholders(LEDGER_EFFECTIVE_STATUSES)}) AND source_doc_id IS NOT NULL
+            WHERE source_doc_type = ? AND status = ? AND reverses_entry_id IS NULL AND source_doc_id IS NOT NULL
             GROUP BY source_doc_id`,
         )
-        .all(ASSET_DISPOSAL_DOC_TYPE, ...LEDGER_EFFECTIVE_STATUSES) as { asset_id: string; date: string }[];
+        .all(ASSET_DISPOSAL_DOC_TYPE, StoredStatus.Posted) as { asset_id: string; date: string }[];
       return rows.map((row) => ({ assetId: row.asset_id, date: row.date }));
     },
     auditedSeals(periodId) {

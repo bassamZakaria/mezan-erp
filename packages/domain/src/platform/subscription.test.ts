@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Money } from "../money/money.js";
 import { PlanKind, type Plan, type PlanRepository } from "./plan.js";
 import {
-  addPeriod, applyRenewal, startSubscription, renewSubscription, changePlan, markPastDue,
+  addPeriod, applyRenewal, settledPeriodEnd, startSubscription, renewSubscription, changePlan, markPastDue,
   suspendSubscription, resumeSubscription, cancelSubscription, billingAnchorDayOf, inferBillingAnchorDay, setBillingAnchorDay,
   type Subscription, type SubscriptionRepository,
 } from "./subscription.js";
@@ -55,6 +55,11 @@ describe("addPeriod", () => {
   it("adds a calendar month, clamping to the last day", () => {
     expect(addPeriod("2026-01-31T10:00:00.000Z", "monthly")).toBe("2026-02-28T10:00:00.000Z");
     expect(addPeriod("2026-03-15T00:00:00.000Z", "monthly")).toBe("2026-04-15T00:00:00.000Z");
+  });
+  it("carries December into January of the next year, at midday and just after midnight in Cairo", () => {
+    expect(addPeriod("2026-12-31T10:00:00.000Z", "monthly")).toBe("2027-01-31T10:00:00.000Z");
+    expect(addPeriod("2026-12-30T22:30:00.000Z", "monthly")).toBe("2027-01-30T22:30:00.000Z");
+    expect(settledPeriodEnd({ currentPeriodStart: "2026-12-30T22:30:00.000Z", currentPeriodEnd: "2027-01-30T22:30:00.000Z", billingCycle: "monthly" })).toBe("2027-01-30T22:30:00.000Z");
   });
   it("adds a calendar year, clamping 29 February", () => {
     expect(addPeriod("2028-02-29T00:00:00.000Z", "yearly")).toBe("2029-02-28T00:00:00.000Z");
@@ -317,6 +322,53 @@ describe("the billing day is the business day in Cairo, not the UTC day", () => 
 
     expect(renewed.billingAnchorDay).toBe(10);
     expect(renewed.currentPeriodEnd).toBe("2026-04-09T23:30:00.000Z");
+  });
+});
+
+describe("a period end an earlier build computed in UTC, which is already the 1st of the next month in Cairo", () => {
+  const legacy = (over: Partial<Subscription>): Subscription => ({
+    id: "S-LEGACY", tenantId: "T1", planId: "PLAN-CORE", previousPlanId: null, status: "active", billingCycle: "monthly", trialEndsAt: null,
+    addOnModules: [], extraSeats: 0, extraBranches: 0, extraWarehouses: 0, graceDays: 0, cancelledAt: null,
+    createdAt: "2026-01-30T22:30:00.000Z", updatedAt: "2026-01-30T22:30:00.000Z",
+    currentPeriodStart: "2026-01-30T22:30:00.000Z", currentPeriodEnd: "2026-02-28T22:30:00.000Z", ...over,
+  });
+  const PAID_ON_20_FEB = "2026-02-20T10:00:00.000Z";
+
+  it.each([
+    ["no stored anchor", undefined, "2026-03-30T22:30:00.000Z"],
+    ["the UTC day as its anchor", 30, "2026-03-29T22:30:00.000Z"],
+    ["the Cairo day as its anchor", 31, "2026-03-30T22:30:00.000Z"],
+  ])("buys one month for one payment, ending in March, with %s", (_, billingAnchorDay, end) => {
+    const renewed = applyRenewal(legacy(billingAnchorDay === undefined ? {} : { billingAnchorDay }), PAID_ON_20_FEB);
+
+    expect(renewed.currentPeriodStart).toBe("2026-02-27T22:30:00.000Z");
+    expect(renewed.currentPeriodEnd).toBe(end);
+  });
+
+  it("is read as the last day of its own month", () => {
+    expect(settledPeriodEnd(legacy({}))).toBe("2026-02-27T22:30:00.000Z");
+    expect(settledPeriodEnd(legacy({ createdAt: "2026-03-30T22:30:00.000Z", currentPeriodStart: "2026-03-30T22:30:00.000Z", currentPeriodEnd: "2026-04-30T22:30:00.000Z" }))).toBe(
+      "2026-04-29T21:30:00.000Z",
+    );
+    expect(
+      settledPeriodEnd(legacy({ billingCycle: "yearly", createdAt: "2024-02-28T22:30:00.000Z", currentPeriodStart: "2024-02-28T22:30:00.000Z", currentPeriodEnd: "2025-02-28T22:30:00.000Z" })),
+    ).toBe("2025-02-27T22:30:00.000Z");
+  });
+
+  it("leaves alone a period end that is where the Cairo calendar puts it", () => {
+    const midMonth = legacy({ createdAt: "2026-01-14T23:00:00.000Z", currentPeriodStart: "2026-01-14T23:00:00.000Z", currentPeriodEnd: "2026-02-14T23:00:00.000Z" });
+    const firstOfMonth = legacy({ createdAt: "2026-01-31T22:30:00.000Z", currentPeriodStart: "2026-03-31T22:30:00.000Z", currentPeriodEnd: "2026-04-30T22:30:00.000Z", billingAnchorDay: 1 });
+    const anchorMovedMidPeriod = legacy({ currentPeriodStart: "2026-01-31T10:00:00.000Z", currentPeriodEnd: "2026-02-28T10:00:00.000Z", billingAnchorDay: 27 });
+
+    for (const row of [midMonth, firstOfMonth, anchorMovedMidPeriod]) expect(settledPeriodEnd(row)).toBe(row.currentPeriodEnd);
+    expect(applyRenewal(midMonth, "2026-02-10T10:00:00.000Z").currentPeriodEnd).toBe("2026-03-14T23:00:00.000Z");
+  });
+
+  it("still starts a lapsed renewal at the moment it was paid", () => {
+    const renewed = applyRenewal(legacy({}), "2026-03-05T10:00:00.000Z");
+
+    expect(renewed.currentPeriodStart).toBe("2026-03-05T10:00:00.000Z");
+    expect(renewed.currentPeriodEnd).toBe("2026-04-05T10:00:00.000Z");
   });
 });
 

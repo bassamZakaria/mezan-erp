@@ -196,6 +196,50 @@ describe("createSqlitePlatformStores", () => {
     });
   });
 
+  describe("period ends an earlier build computed in UTC", () => {
+    async function storedBefore(db: InstanceType<typeof Database>) {
+      const before = createSqlitePlatformStores(db);
+      await before.subscriptions.save({
+        ...sub, id: "S-SPILLED", tenantId: "T-SPILLED", createdAt: "2026-01-30T22:30:00.000Z",
+        currentPeriodStart: "2026-01-30T22:30:00.000Z", currentPeriodEnd: "2026-02-28T22:30:00.000Z",
+      });
+      await before.subscriptions.save({
+        ...sub, id: "S-MIDMONTH", tenantId: "T-MIDMONTH", createdAt: "2026-01-14T23:00:00.000Z",
+        currentPeriodStart: "2026-01-14T23:00:00.000Z", currentPeriodEnd: "2026-02-14T23:00:00.000Z",
+      });
+      await before.subscriptions.save({
+        ...sub, id: "S-ENDED", tenantId: "T-ENDED", status: "cancelled", cancelledAt: NOW, createdAt: "2026-01-30T22:30:00.000Z",
+        currentPeriodStart: "2026-01-30T22:30:00.000Z", currentPeriodEnd: "2026-02-28T22:30:00.000Z",
+      });
+      db.exec("DELETE FROM platform_migration WHERE name LIKE '%period-end%'");
+    }
+
+    it("moves a month-end period end that spilled into the 1st in Cairo back to the last day of its month, once", async () => {
+      const db = new Database(":memory:");
+      await storedBefore(db);
+
+      const first = createSqlitePlatformStores(db);
+      const repaired = await first.subscriptions.findById("S-SPILLED");
+      await first.subscriptions.save({ ...repaired!, currentPeriodEnd: "2026-02-28T22:30:00.000Z" });
+      const second = createSqlitePlatformStores(db);
+
+      expect(repaired?.currentPeriodEnd).toBe("2026-02-27T22:30:00.000Z");
+      expect((await second.subscriptions.findById("S-SPILLED"))?.currentPeriodEnd).toBe("2026-02-28T22:30:00.000Z");
+      db.close();
+    });
+
+    it("touches neither a mid-month period nor a cancelled subscription", async () => {
+      const db = new Database(":memory:");
+      await storedBefore(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect((await subscriptions.findById("S-MIDMONTH"))?.currentPeriodEnd).toBe("2026-02-14T23:00:00.000Z");
+      expect((await subscriptions.findById("S-ENDED"))?.currentPeriodEnd).toBe("2026-02-28T22:30:00.000Z");
+      db.close();
+    });
+  });
+
   describe("anchor days stored as the UTC day by an earlier build", () => {
     const stored = (over: Partial<Subscription>): Subscription => ({ ...sub, ...over });
 

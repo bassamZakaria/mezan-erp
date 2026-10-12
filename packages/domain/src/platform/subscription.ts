@@ -160,6 +160,22 @@ export function addPeriod(startIso: string, cycle: BillingCycle, anchorDay: numb
   return instantOfBusinessClock({ ...start, year: year + Math.floor(month / 12), month: month % 12, day: Math.min(anchorDay, lastDay) }).toISOString();
 }
 
+function businessDateOrdinal(iso: string): number {
+  const clock = businessClock(new Date(iso));
+  return Date.UTC(clock.year, clock.month, clock.day) / DAY_MS;
+}
+
+// An earlier build added the period in UTC. For a period that starts between
+// midnight in Cairo and midnight UTC on the 29th to the 31st, the UTC clamp to
+// the month's last day is already the 1st of the next month in Cairo, and a
+// renewal counted from there would skip a month. That exact signature, and
+// nothing else, is read as the last day of the month it was meant for.
+export function settledPeriodEnd(s: Pick<Subscription, "currentPeriodStart" | "currentPeriodEnd" | "billingCycle" | "billingAnchorDay">): string {
+  const intended = addPeriod(s.currentPeriodStart, s.billingCycle, billingAnchorDayOf(s));
+  const spilled = businessDayOfMonth(s.currentPeriodEnd) === 1 && businessDateOrdinal(s.currentPeriodEnd) === businessDateOrdinal(intended) + 1;
+  return spilled ? intended : s.currentPeriodEnd;
+}
+
 /** CONTRACT: `renewedAt` is when each renewal was RECORDED (not when it was paid), oldest first. Null means the history does not settle the day. */
 export function inferBillingAnchorDay(
   s: Pick<Subscription, "createdAt" | "billingCycle" | "currentPeriodStart" | "currentPeriodEnd">,
@@ -335,8 +351,9 @@ function requireNow(cmd: SubscriptionCommand): string {
 export function applyRenewal(s: Subscription, nowIso: string): Subscription {
   const now = requireNow({ id: s.id, now: nowIso });
   assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue], SubscriptionStatusKind.Active);
-  const lapsed = s.currentPeriodEnd < now;
-  const periodStart = lapsed ? now : s.currentPeriodEnd;
+  const periodEnd = settledPeriodEnd(s);
+  const lapsed = periodEnd < now;
+  const periodStart = lapsed ? now : periodEnd;
   const billingAnchorDay = lapsed ? businessDayOfMonth(now) : billingAnchorDayOf(s);
   return {
     ...s,

@@ -4,6 +4,7 @@ import {
   InvalidTenantError,
   Money,
   pendingOwnerExpiresAt,
+  settledPeriodEnd,
   type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement, type CardCheckoutStatus,
   type PaymentProviderId,
   type Payment, type PaymentRepository,
@@ -525,6 +526,26 @@ function repairUtcBillingAnchors(sqlite: Database.Database): void {
         else setAnchor.run(day, row.id, row.billing_anchor_day);
       }
       done.run(UTC_ANCHOR_REPAIR, new Date().toISOString());
+    })
+    .immediate();
+}
+
+const PERIOD_END_REPAIR = "2026-10-period-end-cairo-repair";
+
+// REQUIRED ORDERING: after the anchor repairs, because the day a period was
+// meant to end on is read from the anchor they settle.
+function repairSpilledPeriodEnds(sqlite: Database.Database): void {
+  if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(PERIOD_END_REPAIR)) return;
+  const live = sqlite.prepare(`SELECT * FROM subscription WHERE status <> ?`);
+  const setEnd = sqlite.prepare(`UPDATE subscription SET current_period_end = ? WHERE id = ? AND current_period_end = ?`);
+  const done = sqlite.prepare(`INSERT INTO platform_migration (name, applied_at) VALUES (?, ?)`);
+  sqlite
+    .transaction(() => {
+      for (const row of live.all(SubscriptionStatusKind.Cancelled) as SubscriptionRow[]) {
+        const settled = settledPeriodEnd(toSubscription(row));
+        if (settled !== row.current_period_end) setEnd.run(settled, row.id, row.current_period_end);
+      }
+      done.run(PERIOD_END_REPAIR, new Date().toISOString());
     })
     .immediate();
 }
@@ -1072,6 +1093,7 @@ export function createSqlitePlatformStores(
   guardOneDbFilePerTenant(sqlite);
   backfillBillingAnchors(sqlite);
   repairUtcBillingAnchors(sqlite);
+  repairSpilledPeriodEnds(sqlite);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),

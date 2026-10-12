@@ -94,6 +94,9 @@ describe("D111 · a scoped family whose create lets the branch be left out says 
     createTreasuryAccountSchema: "/treasury-accounts",
     createCostCenterSchema: null,
     createCustomerSchema: null,
+    // A bank charge takes its statement's branch; only on a company-level
+    // statement may one be named, and none named leaves it «غير مخصص».
+    createEntryFromLineSchema: null,
   };
   const createSchemas = Object.entries(contracts).filter(([name, schema]) => /^(create|open)\w+Schema$/.test(name) && branchMayBeLeftOut(schema));
 

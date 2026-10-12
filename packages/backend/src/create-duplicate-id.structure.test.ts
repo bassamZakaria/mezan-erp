@@ -1,4 +1,5 @@
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -114,7 +115,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createConfigInstanceSchema: { route: "/manufacturing/config-instances", table: "config_instance" },
   createContractSchema: { route: "/hr/contracts", table: "hr_contract" },
   createCostCenterSchema: { route: "/cost-centers", table: "cost_center" },
-  createCustomerSchema: { route: "/customers", table: "customer" },
+  createCustomerSchema: { route: "/customers", table: "customer", body: (sampled) => ({ ...sampled, openingBalance: "500.00", openingBalanceDate: TODAY }) },
   createDepartmentSchema: { route: "/hr/departments", table: "hr_department" },
   createEmployeeAdvanceSchema: { route: "/hr/advances", table: "hr_employee_advance" },
   createEmployeeSchema: { route: "/hr/employees", table: "hr_employee" },
@@ -130,7 +131,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createItemCategorySchema: { route: "/item-categories", table: "item_category" },
   createItemSchema: { route: "/items", table: "item" },
   createJobTitleSchema: { route: "/hr/job-titles", table: "hr_job_title" },
-  createLabelLayoutSchema: { route: "/label-layouts", table: "label_layout" },
+  createLabelLayoutSchema: { route: "/label-layouts", table: "label_layout", body: (sampled) => ({ ...sampled, pageSize: "A4", columns: 3, rows: 8, labelWidthMm: 50, labelHeightMm: 25, columnGapMm: 2, rowGapMm: 2, marginBlockMm: 5, marginInlineMm: 5, barcodeHeightMm: 10 }) },
   createLandedCostSchema: { route: "/landed-costs", table: "framework_document", existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'LANDED_COST' ORDER BY id LIMIT 1" },
   createLeadSchema: { route: "/crm/leads", table: "crm_lead" },
   createLeavePolicySchema: { route: "/hr/leave-policies", table: "hr_leave_policy" },
@@ -144,7 +145,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createPipelineStageSchema: { route: "/crm/pipeline-stages", table: "crm_pipeline_stage" },
   createPriceListSchema: { route: "/price-lists", table: "price_list" },
   createProgressCertificateSchema: { route: "/contracting/certificates", table: "contracting_certificate" },
-  createProjectSchema: { route: "/projects", table: "project" },
+  createProjectSchema: { route: "/projects", table: "project", body: (sampled) => ({ ...sampled, costCenterId: "CC-NO-SUCH-CENTER" }) },
   createPromotionSchema: { route: "/promotions", table: "promotion" },
   createPurchaseInvoiceSchema: { route: "/purchases/invoices", table: "purchase_invoice", body: (_e, id) => purchaseDocument(id) },
   createPurchaseOrderSchema: { route: "/purchases/orders", table: "purchase_order" },
@@ -161,8 +162,8 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createStockTransferSchema: { route: "/inventory/stock-transfers/draft", table: "stock_transfer_document" },
   createSubCertificateSchema: { route: "/contracting/subcontract-certificates", table: "subcontract_certificate" },
   createSubcontractSchema: { route: "/contracting/subcontracts", table: "subcontract" },
-  createSupplierSchema: { route: "/suppliers", table: "supplier" },
-  createTaxRateSchema: { route: "/tax-rates", table: "tax_rate" },
+  createSupplierSchema: { route: "/suppliers", table: "supplier", body: (sampled) => ({ ...sampled, openingBalance: "500.00" }) },
+  createTaxRateSchema: { route: "/tax-rates", table: "tax_rate", body: (sampled) => ({ ...sampled, isDefault: true }) },
   createTreasuryAccountSchema: { route: "/treasury-accounts", table: "treasury_account" },
   createVanSchema: { route: "/field/vans", table: "van" },
   createVariationOrderSchema: { route: "/contracting/variation-orders", table: "contract_variation_order" },
@@ -182,7 +183,11 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   startPhysicalCountSchema: { route: "/inventory/physical-counts", table: "physical_count" },
   upsertItemBrandSchema: { route: "/item-brands", table: "item_brand" },
   upsertItemSeasonSchema: { route: "/item-seasons", table: "item_season" },
-  upsertTaxGroupSchema: { route: "/tax-groups", table: "tax_group" },
+  upsertTaxGroupSchema: {
+    route: "/tax-groups",
+    table: "tax_group",
+    body: (sampled, _id, sqlite) => ({ ...sampled, members: (sampled.members as Record<string, unknown>[]).map((member) => ({ ...member, taxRateId: firstId(sqlite, "tax_rate") })) }),
+  },
   upsertConfigurableProductSchema: { route: "/manufacturing/configurable-products", table: "configurable_product" },
   addManualLineSchema: {
     route: "/bank-statements/:id/lines",
@@ -300,10 +305,35 @@ afterAll(() => {
   handle?.close();
 });
 
-function tableCounts(): Record<string, number> {
+function tableFingerprints(): Record<string, string> {
   const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[];
-  return Object.fromEntries(tables.map(({ name }) => [name, (sqlite.prepare(`SELECT count(*) AS n FROM "${name}"`).get() as { n: number }).n]));
+  return Object.fromEntries(
+    tables.map(({ name }) => {
+      const rows = (sqlite.prepare(`SELECT * FROM "${name}"`).all() as unknown[]).map((row) => JSON.stringify(row)).sort();
+      return [name, `${rows.length}:${createHash("sha1").update(rows.join("\n")).digest("hex")}`];
+    }),
+  );
 }
+
+const DOMAIN_SOURCES = join(dirname(fileURLToPath(import.meta.url)), "../../domain/src");
+const ID_PRE_CHECK = /\b(refuseExistingId|refuseTakenId|assertRecordIdIsNew)\s*\(/g;
+
+function sourceFilesUnder(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return sourceFilesUnder(path);
+    return name.endsWith(".ts") && !name.includes(".test.") ? [path] : [];
+  });
+}
+
+describe("a duplicate id is refused by the store's insert-only write alone", () => {
+  it("no route or domain service looks the id up first", () => {
+    const preChecks = [...sourceFilesUnder(ROUTE_SOURCES), ...sourceFilesUnder(DOMAIN_SOURCES)].flatMap((path) =>
+      [...readFileSync(path, "utf8").matchAll(ID_PRE_CHECK)].map((match) => `${path.split("/packages/")[1]}: ${match[1]}`),
+    );
+    expect(preChecks).toEqual([]);
+  });
+});
 
 describe("every create schema with a caller-supplied id is covered", () => {
   it("maps each one to a route, or says why it creates nothing", () => {
@@ -354,16 +384,16 @@ describe("a create that names an existing record's id is refused and writes noth
     expect((contracts as Record<string, any>)[schemaName].safeParse(body).success, `the body the test sends is not a valid ${schemaName}: ${JSON.stringify(body).slice(0, 300)}`).toBe(true);
 
     const rowBefore = JSON.stringify(sqlite.prepare(`SELECT * FROM "${entry.table}" WHERE "${idColumn}" = ?`).get(id));
-    const countsBefore = tableCounts();
+    const before = tableFingerprints();
     const res = await admin("POST", path, body);
     const rowAfter = JSON.stringify(sqlite.prepare(`SELECT * FROM "${entry.table}" WHERE "${idColumn}" = ?`).get(id));
-    const countsAfter = tableCounts();
+    const after = tableFingerprints();
     outcomes.push(`${schemaName}\t${path}\t${res.status}\t${res.body?.error ?? ""}\t${rowBefore === rowAfter ? "row-same" : "ROW-CHANGED"}\t${JSON.stringify(res.body).slice(0, 160)}`);
 
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(409);
     expect(res.body?.error).toBe(entry.refusedAs ?? RecordErrorCode.DuplicateId);
     expect(res.body?.message).toMatch(ARABIC);
     expect(rowAfter).toBe(rowBefore);
-    expect(countsAfter).toEqual(countsBefore);
+    expect(after).toEqual(before);
   });
 });

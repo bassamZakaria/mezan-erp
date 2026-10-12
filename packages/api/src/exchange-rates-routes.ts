@@ -3,7 +3,6 @@ import { AuditChangeAction, type AuditSink, type ExchangeRate, type ExchangeRate
 import { createExchangeRateSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
-import { refuseExistingId } from "./duplicate-id.js";
 
 const AUDITED_EXCHANGE_RATE_FIELDS = ["currency", "rate", "effectiveDate", "rateType", "source", "status"] as const;
 
@@ -43,8 +42,6 @@ export function createExchangeRatesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const taken = refuseExistingId(c, await repo.findById(parsed.data.id), parsed.data.id);
-    if (taken) return taken;
     const rate: ExchangeRate = {
       id: parsed.data.id,
       currency: parsed.data.currency,

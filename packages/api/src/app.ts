@@ -232,6 +232,7 @@ import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
 import { createProfileRoutes } from "./profile-routes.js";
 import { ApprovalRequestUntrustedError, DuplicateRecordIdError } from "@mezan/domain";
 import { duplicateIdRefusal } from "./duplicate-id.js";
+import type { ConfigTransactor } from "./config-transactor.js";
 
 function defaultEntitlementsResolver(): EntitlementsResolver {
   const entitlements: Entitlements = createEntitlements({
@@ -394,6 +395,8 @@ export interface CreateAppOptions {
   readonly customerOpeningBalances?: PartyOpeningBalancePoster;
   /** The supplier-side twin of {@link customerOpeningBalances} (B-2). */
   readonly supplierOpeningBalances?: PartyOpeningBalancePoster;
+  /** The transaction a create route shares with what it writes beside the record, so a refused create leaves nothing. */
+  readonly createTransactor?: ConfigTransactor;
   /** مجموعات الضرائب (R6.4) — mounts `/tax-groups` when present. */
   readonly taxGroupRepo?: TaxGroupRepository;
   /** Mounts `/tax-rates` (docs/archive/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
@@ -1113,13 +1116,14 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         // (B-2, D241) — a second, screen-only posting path is exactly the bug
         // this defect was.
         options.customerOpeningBalances,
+        options.createTransactor,
       ),
     );
   }
   if (options.supplierStore) {
     app.route(
       "/suppliers",
-      createSuppliersRouter(options.supplierStore, resolveAuth, supplierPayables, options.auditSink, options.supplierOpeningBalances),
+      createSuppliersRouter(options.supplierStore, resolveAuth, supplierPayables, options.auditSink, options.supplierOpeningBalances, options.createTransactor),
     );
   }
 

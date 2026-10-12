@@ -41,7 +41,6 @@ export {
   updateItemCategory,
   DuplicateItemUnitCodeError,
   ItemUnitNotFoundError,
-  DuplicateItemCategoryError,
   ItemCategoryNotFoundError,
   InvalidItemCategoryError,
   type ItemCatalogStatus,

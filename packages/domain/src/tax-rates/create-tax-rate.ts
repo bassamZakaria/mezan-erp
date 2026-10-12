@@ -1,6 +1,5 @@
 import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository } from "./tax-rate.js";
 import { DuplicateTaxCodeError, InvalidTaxRateError } from "./errors.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateTaxRateCommand {
   readonly id: string;
@@ -42,15 +41,9 @@ export function validateNewTaxRate(command: CreateTaxRateCommand, existing: read
  */
 export async function createTaxRate(command: CreateTaxRateCommand, repo: TaxRateRepository): Promise<TaxRate> {
   const existing = await repo.list();
-  assertRecordIdIsNew(existing.find((row) => row.id === command.id), command.id);
   validateNewTaxRate(command, existing);
 
   const isDefault = command.isDefault ?? false;
-  if (isDefault) {
-    for (const other of existing) {
-      if (other.isDefault) await repo.update({ ...other, isDefault: false });
-    }
-  }
 
   const taxRate: TaxRate = {
     id: command.id,
@@ -65,6 +58,12 @@ export async function createTaxRate(command: CreateTaxRateCommand, repo: TaxRate
     status: "active",
   };
 
+  // ORDERING: the insert goes first — it is what refuses a taken id, and a refused create must not have un-defaulted another rate.
   await repo.create(taxRate);
+  if (isDefault) {
+    for (const other of existing) {
+      if (other.isDefault) await repo.update({ ...other, isDefault: false });
+    }
+  }
   return taxRate;
 }

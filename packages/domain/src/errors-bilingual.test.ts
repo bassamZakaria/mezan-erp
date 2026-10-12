@@ -48,7 +48,6 @@ import {
 import {
   DuplicateItemUnitCodeError as CatalogDuplicateItemUnitCodeError,
   ItemUnitNotFoundError as CatalogItemUnitNotFoundError,
-  DuplicateItemCategoryError as CatalogDuplicateItemCategoryError,
   ItemCategoryNotFoundError as CatalogItemCategoryNotFoundError,
   InvalidItemCategoryError as CatalogInvalidItemCategoryError,
 } from "./items/item-catalog.js";
@@ -184,7 +183,6 @@ describe("domain errors are bilingual (D280)", () => {
     // items/item-catalog.js (a separate, same-named error set — see report for why both exist)
     ["item-catalog.js DuplicateItemUnitCodeError", new CatalogDuplicateItemUnitCodeError("PCS")],
     ["item-catalog.js ItemUnitNotFoundError", new CatalogItemUnitNotFoundError("PCS")],
-    ["item-catalog.js DuplicateItemCategoryError", new CatalogDuplicateItemCategoryError("cat-1")],
     ["item-catalog.js ItemCategoryNotFoundError", new CatalogItemCategoryNotFoundError("cat-1")],
     ["item-catalog.js InvalidItemCategoryError", new CatalogInvalidItemCategoryError("لا يمكن أن تكون الفئة أباً لنفسها.", "A category cannot be its own parent.")],
     // promotions

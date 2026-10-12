@@ -1,3 +1,4 @@
+import { insertOnly } from "../records/test-helpers/insert-only.js";
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import {
@@ -21,7 +22,7 @@ const ACCOUNTS: HistoricalSalesImportGlAccounts = {
 class InMemoryArchives implements HistoricalSalesArchiveRepository {
   readonly rows = new Map<string, HistoricalSalesArchive>();
   async create(archive: HistoricalSalesArchive): Promise<void> {
-    this.rows.set(archive.id, archive);
+    insertOnly(this.rows, archive.id, archive);
   }
   async list(): Promise<HistoricalSalesArchive[]> {
     return [...this.rows.values()];

@@ -3076,6 +3076,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     supplierStore: suppliers,
     customerOpeningBalances,
     supplierOpeningBalances,
+    createTransactor: configTransactor,
     accounts: { repo: accounts },
     items: { repo: items, snapshots: stockLedger.snapshots },
     accountRouting: { repo: accountRouting },

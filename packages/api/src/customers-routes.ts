@@ -28,7 +28,8 @@ import {
 } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { tenantToday } from "./tenant-day.js";
-import { duplicateIdRefusal, refuseExistingId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 /** Resolves a price list by id, so `priceListId` can be checked against the real resource. */
@@ -170,6 +171,8 @@ export function createCustomersRouter(
   receivables?: CustomerReceivablesSource,
   /** Posts the customer's رصيد افتتاحي into the ledger (Dr 1105 / Cr 3210) — see suppliers-routes.ts (B-2, D241). */
   openingBalances?: PartyOpeningBalancePoster,
+  /** SECURITY: makes a refused create — a taken id included — leave no opening-balance entry behind. */
+  transactor?: ConfigTransactor,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -368,8 +371,6 @@ export function createCustomersRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const taken = refuseExistingId(c, await repo.findById(parsed.data.id), parsed.data.id);
-    if (taken) return taken;
     const restrictedOnCreate = sharedFieldRefusal(c, CUSTOMERS_PREFIX, null, parsed.data);
     if (restrictedOnCreate) return restrictedOnCreate;
     const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "C");
@@ -393,9 +394,11 @@ export function createCustomersRouter(
       });
       // The GL post goes FIRST: a refused period must leave behind no customer
       // carrying an opening balance the control account never heard about.
-      await postOpeningBalance(customer, openingBalanceDate);
-      await repo.insert(customer);
-      await record(c, customer, AuditChangeAction.Create);
+      await atomically(transactor, async () => {
+        await postOpeningBalance(customer, openingBalanceDate);
+        await repo.insert(customer);
+        await record(c, customer, AuditChangeAction.Create);
+      });
       return c.json(serialize(customer), 201);
     } catch (err) {
       return handleDomainError(c, err);

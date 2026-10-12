@@ -9,7 +9,6 @@ import {
 } from "@mezan/domain";
 import { upsertTaxGroupSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
-import { refuseExistingId } from "./duplicate-id.js";
 
 /**
  * مجموعات الضرائب (R6.4), mounted at `/tax-groups`.
@@ -57,8 +56,6 @@ export function createTaxGroupsRoutes(
   app.post("/", gate("accounting.tax.manage"), async (c) => {
     const parsed = upsertTaxGroupSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const taken = refuseExistingId(c, await repo.findById(parsed.data.id), parsed.data.id);
-    if (taken) return taken;
     const group: TaxGroup = {
       ...parsed.data,
       nameEn: parsed.data.nameEn ?? null,

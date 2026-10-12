@@ -3,7 +3,6 @@ import { createBranch, updateBranch, InvalidBranchError, type BranchRepository }
 import { createBranchSchema, updateBranchSchema } from "@mezan/contracts";
 import { branchGrantOf, createAuthenticatedGate, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { canSeeUnattributed } from "./branch-view.js";
-import { refuseExistingId } from "./duplicate-id.js";
 
 /** Branch CRUD routes (docs/archive/catalog/09 §"إدارة الفروع"), gated by admin.branches.*. */
 export function createBranchesRoutes(
@@ -46,8 +45,6 @@ export function createBranchesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const taken = refuseExistingId(c, await store.findById(parsed.data.id), parsed.data.id);
-    if (taken) return taken;
     const limit = c.get("entitlements")?.limits?.branches;
     if (limit !== undefined && (await store.findAll()).length >= limit) {
       return c.json(

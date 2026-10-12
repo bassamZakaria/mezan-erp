@@ -7,7 +7,8 @@ import { createPermissionGate, type AuthContextResolver } from "./permission-gat
 import { recordFieldChanges } from "./admin-audit.js";
 import type { PartyOpeningBalancePoster } from "./customers-routes.js";
 import { tenantToday } from "./tenant-day.js";
-import { duplicateIdRefusal, refuseExistingId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
@@ -100,6 +101,8 @@ export function createSuppliersRouter(
   audit?: AuditSink,
   /** Posts the supplier's رصيد افتتاحي into the ledger (Dr 3210 / Cr 2100) — see customers-routes.ts (B-2). */
   openingBalances?: PartyOpeningBalancePoster,
+  /** SECURITY: makes a refused create — a taken id included — leave no opening-balance entry behind. */
+  transactor?: ConfigTransactor,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -207,8 +210,6 @@ export function createSuppliersRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const taken = refuseExistingId(c, await repo.findById(parsed.data.id), parsed.data.id);
-    if (taken) return taken;
     const restrictedOnCreate = sharedFieldRefusal(c, SUPPLIERS_PREFIX, null, parsed.data);
     if (restrictedOnCreate) return restrictedOnCreate;
     const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "S");
@@ -225,9 +226,11 @@ export function createSuppliersRouter(
       // The GL post goes FIRST (matches customers-routes.ts): a refused
       // period must leave behind no supplier carrying a balance the control
       // account never heard about.
-      await openingBalances?.post(supplier);
-      await repo.insert(supplier);
-      await auditSupplier(c, supplier, AuditChangeAction.Create);
+      await atomically(transactor, async () => {
+        await openingBalances?.post(supplier);
+        await repo.insert(supplier);
+        await auditSupplier(c, supplier, AuditChangeAction.Create);
+      });
       return c.json(serialize(supplier), 201);
     } catch (err) {
       return handleDomainError(c, err);

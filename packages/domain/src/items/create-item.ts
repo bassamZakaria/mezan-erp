@@ -4,7 +4,6 @@ import { ItemStatusCode, type AlternateUnit, type CostingMethod, type EtaCodeTyp
 import { DuplicateItemCodeError, InvalidItemError } from "./errors.js";
 import { collectItemFieldErrors, validateGlAccountRefs } from "./validation.js";
 import { itemTypeTracksStock } from "./item-type.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateItemCommand {
   readonly id: string;
@@ -140,7 +139,6 @@ export async function createItem(
 ): Promise<Item> {
   const manualCode = command.code?.trim();
   const autoAssign = manualCode === undefined || manualCode === "";
-  assertRecordIdIsNew(await repo.findById(command.id), command.id);
 
   for (let attempt = 0; ; attempt++) {
     const existing = await repo.list();

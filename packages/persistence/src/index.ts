@@ -380,3 +380,4 @@ export {
 } from "./idempotent-request-store.js";
 export { createSqliteAccountLockStore, type SqliteAccountLockStore, type StoredAccountLock } from "./account-lock-store.js";
 export { drainForeignWrites, drainUntransactedAudits, keepRecent } from "./untransacted-audits.js";
+export { createFileSecurityEventFallback, securityFallbackFor, type FileSecurityEventFallbackOptions } from "./security-fallback-file.js";

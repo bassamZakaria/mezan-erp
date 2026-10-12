@@ -1,7 +1,7 @@
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   ALL_SCOPE,
-  recordSecurityEvent,
+  recordSecurityEventOrFallback,
   verifyPlatformLogin,
   type PlatformRole,
 } from "@mezan/domain";
@@ -28,7 +28,6 @@ export interface PlatformAuthDeps {
   readonly sessions: SessionRegistry;
   readonly now: () => Date;
   readonly loginThrottle?: LoginThrottle;
-  readonly onAuditError?: (err: unknown) => void;
   /** Where a request came from. Defaults to the socket's peer; the cloud passes the address its trusted proxy saw. */
   readonly sourceOf?: (c: Context) => string | null;
 }
@@ -46,12 +45,11 @@ function lockedOut(c: Context, seconds: number) {
 
 export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
   const { platform, sessions, now } = deps;
-  const onAuditError = deps.onAuditError ?? ((err: unknown) => console.error(err));
   const throttle = deps.loginThrottle ?? createLoginThrottle(() => now().getTime());
   const sourceOf = deps.sourceOf ?? requestOrigin;
 
   function security(c: Context, action: string, severity: "CRITICAL" | "WARNING" | "INFO", details: Record<string, unknown>) {
-    return recordSecurityEvent(platform.audit, {
+    return recordSecurityEventOrFallback(platform.audit, {
       module: "platform",
       entityType: "PLATFORM_USER",
       entityId: typeof details["userId"] === "string" ? (details["userId"] as string) : null,
@@ -60,7 +58,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
       severity,
       timestamp: now().toISOString(),
       details: { ...details, origin: sourceOf(c) ?? "host" },
-    }).catch(onAuditError);
+    });
   }
 
   function roleOf(roleCode: string | null): PlatformRole | null {

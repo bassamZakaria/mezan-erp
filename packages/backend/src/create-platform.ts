@@ -4,6 +4,7 @@ import { reportTurnYield } from "@mezan/api";
 import {
   createSqlitePlatformStores, createSqliteAuditSink, createScryptHasher,
   type SqlitePlatformStoresHandle, type SqliteConnectionInput, type SqliteOpenOptions,
+  securityFallbackFor,
 } from "@mezan/persistence";
 
 export interface CreatePlatformOptions {
@@ -62,6 +63,7 @@ export async function createPlatform(options: CreatePlatformOptions = {}): Promi
   const stores = createSqlitePlatformStores(options.dbPath ?? ":memory:", options.connection);
   const now = options.now ?? (() => new Date());
   const audit = createSqliteAuditSink(stores.sqlite);
+  audit.unrecorded = securityFallbackFor(options.dbPath);
   const outsideTheTurn = <T>(work: () => Promise<T>): Promise<T> => audit.outsideTurn(work);
   const inTheTurn = <T>(label: string, work: () => Promise<T>): Promise<T> =>
     audit.turn(work, { onYield: () => reportTurnYield(`platform ${label}`) });

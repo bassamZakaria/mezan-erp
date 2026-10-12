@@ -4,7 +4,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import {
   ALL_SCOPE,
   createAuthContext,
-  recordSecurityEvent,
+  recordSecurityEventOrFallback,
   type AuditSink,
   type AuthContext,
   type ScopeSelection,
@@ -503,7 +503,7 @@ export function sessionOriginReporting(sessions: SessionRegistry, audit: AuditSi
     if (token) {
       const { refusal, addressChange } = sessionLookup(sessions, c, token);
       if (addressChange) {
-        await recordSecurityEvent(audit, {
+        await recordSecurityEventOrFallback(audit, {
           module: "auth",
           entityType: "AUTH_USER",
           entityId: addressChange.userId,
@@ -511,10 +511,10 @@ export function sessionOriginReporting(sessions: SessionRegistry, audit: AuditSi
           actor: addressChange.userId,
           severity: "INFO",
           details: { from: addressChange.from, to: addressChange.to },
-        }).catch(() => undefined);
+        });
       }
       if (refusal?.reason === SessionRefusalKind.Device) {
-        await recordSecurityEvent(audit, {
+        await recordSecurityEventOrFallback(audit, {
           module: "auth",
           entityType: "AUTH_USER",
           entityId: refusal.userId,
@@ -522,10 +522,10 @@ export function sessionOriginReporting(sessions: SessionRegistry, audit: AuditSi
           actor: refusal.userId,
           severity: "CRITICAL",
           details: { issuedFrom: refusal.issuedFrom, presentedFrom: refusal.presentedFrom, method: c.req.method, path: new URL(c.req.url).pathname },
-        }).catch(() => undefined);
+        });
       }
       if (refusal?.reason === "moved") {
-        await recordSecurityEvent(audit, {
+        await recordSecurityEventOrFallback(audit, {
           module: "auth",
           entityType: "AUTH_USER",
           entityId: refusal.userId,
@@ -539,7 +539,7 @@ export function sessionOriginReporting(sessions: SessionRegistry, audit: AuditSi
             path: new URL(c.req.url).pathname,
           },
           // A forensic write must never turn a refusal into a 500.
-        }).catch(() => undefined);
+        });
       }
     }
     await next();

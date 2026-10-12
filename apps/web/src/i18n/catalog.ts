@@ -8019,6 +8019,9 @@ const webAr = {
 
   "securityReports.gapsTitle": "ما لا يستطيع هذا التقرير الإجابة عنه",
   "securityReports.watchlistTitle": "قائمة المراقبة",
+  "securityReports.unrecordedTitle": "أحداث أمنية لم يتمكّن سجل التدقيق من تسجيلها",
+  "securityReports.unrecordedHelp": "حُفظت هذه الأحداث في ملف احتياطي بجوار قاعدة البيانات لأن سجل التدقيق رفضها وقت وقوعها. راجع سلامة قاعدة البيانات ومساحة القرص.",
+  "securityReports.unrecordedNone": "لم يفُت سجلَّ التدقيق أيُّ حدث أمني",
 
   "securityReports.exceptions.col.actor": "المستخدم",
   "securityReports.exceptions.col.actionLabelAr": "الحدث",
@@ -17521,6 +17524,9 @@ const webEn: Record<WebTranslationKey, string> = {
 
   "securityReports.gapsTitle": "What this report cannot answer",
   "securityReports.watchlistTitle": "Watch list",
+  "securityReports.unrecordedTitle": "Security events the audit log could not record",
+  "securityReports.unrecordedHelp": "These events were kept in a fallback file beside the database because the audit log refused them when they happened. Check the database and the disk space.",
+  "securityReports.unrecordedNone": "The audit log missed no security event",
 
   "securityReports.exceptions.col.actor": "User",
   "securityReports.exceptions.col.actionLabelAr": "Event",

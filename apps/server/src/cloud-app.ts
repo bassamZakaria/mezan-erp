@@ -5,7 +5,7 @@ import { bodyLimit } from "hono/body-limit";
 import path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type MiddlewareHandler } from "hono";
-import { createPlatform, createPlatformAuth, createPlatformRoutes, type PlatformHandle } from "@mezan/backend";
+import { createPlatform, createPlatformAuth, createPlatformRoutes, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
 import { BodyLimitRefusal, createSessionRegistry } from "@mezan/api";
 import { TenantNotFoundError } from "@mezan/domain";
 import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
@@ -119,10 +119,10 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     if (created) console.log(`[cloud] reviewer tenant "${env.reviewTenant.code}" seeded; every login uses MEZAN_REVIEW_PIN.`);
   }
 
-  const provisionTenantForRoutes = (cmd: CreateTenantRequestDTO & { actorId: string }): Promise<ProvisionResultDTO> =>
-    provisionTenant(cmd, { platform, router, now });
+  const provisionTenantForRoutes = (cmd: CreateTenantRequestDTO & { actorId: string }, activation: RecordedActivation): Promise<ProvisionResultDTO> =>
+    provisionTenant(cmd, { platform, router, now, activation });
 
-  const provisionRetryForRoutes = async (input: { tenantId: string } & ProvisionRetryRequestDTO): Promise<ProvisionResultDTO> => {
+  const provisionRetryForRoutes = async (input: { tenantId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation): Promise<ProvisionResultDTO> => {
     const tenant = await platform.stores.tenants.findById(input.tenantId);
     if (!tenant) throw new TenantNotFoundError(input.tenantId);
     const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
@@ -140,7 +140,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
         billingCycle,
         trial: live ? live.status === "trialing" : (input.trial ?? false),
       },
-      { platform, router, now },
+      { platform, router, now, activation },
     );
   };
 

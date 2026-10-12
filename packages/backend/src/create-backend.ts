@@ -117,6 +117,8 @@ import {
   type EventCode,
   createProductTemplateSpecificationUsage,
   recordSecurityEvent,
+  recordSecurityEventOrFallback,
+  type AuditSink,
   unwindAdvanceVoucher,
   type VoucherAdvanceUnwindPort,
   type Entitlements,
@@ -233,6 +235,7 @@ import {
   createSqliteSequenceConfigStore,
   createSqliteSequenceStore,
   CURRENT_SCHEMA_VERSION,
+  securityFallbackFor,
 } from "@mezan/persistence";
 import {
   EtaService,
@@ -496,6 +499,7 @@ function fanOutDocumentEvents(...publishers: readonly DocumentEventPublisher[]):
 
 export interface BackendHandle {
   readonly app: App;
+  readonly audit: AuditSink;
   /**
    * الإيصال الإلكتروني — issues a consumer sale's (or return's) e-receipt
    * synchronously, on the chain of the device serial given. The POS till calls
@@ -694,6 +698,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const auditSink = createSqliteAuditSink(sqlite, {
     ...(options.connection?.key ? { chainKey: deriveAuditChainKey(options.connection.key) } : {}),
   });
+  auditSink.unrecorded = securityFallbackFor(dbPath);
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
   const userPreferences = createSqliteUserPreferencesStore(sqlite);
   const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
@@ -2901,7 +2906,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     if (now - last < 60_000) return;
     refusalSeenAt.set(key, now);
     if (refusalSeenAt.size > 5_000) refusalSeenAt.clear();
-    void recordSecurityEvent(auditSink, {
+    void recordSecurityEventOrFallback(auditSink, {
       module: "admin",
       entityType: "PERMISSION",
       entityId: refusal.permission,
@@ -2909,7 +2914,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       actor: refusal.userId,
       severity: "WARNING",
       details: { permission: refusal.permission, method: refusal.method, path: refusal.path },
-    }).catch(() => undefined);
+    });
   };
 
   /**
@@ -3195,7 +3200,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     attachments: { repo: attachments },
     labelLayouts: { repo: labelLayouts },
     sequences: { counters: sequenceCounters, config: sequenceConfig, audit: auditSink, transactor: configTransactor },
-    audit: { store: auditSink },
+    audit: { store: auditSink, unrecorded: auditSink.unrecorded },
     auditSink,
     barcodeConfigStore: barcodeConfig,
     taxRateRepo: taxRates,
@@ -4361,6 +4366,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   return {
     app,
+    audit: auditSink,
     sessions,
     credentialsResetByAdministrator,
     etaReceipts,

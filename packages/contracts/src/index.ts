@@ -87,6 +87,10 @@ export {
   type SodConflictRowDTO,
   type SodQueryDTO,
   type SodReportDTO,
+  unrecordedSecurityEventSchema,
+  unrecordedSecurityEventsSchema,
+  type UnrecordedSecurityEventDTO,
+  type UnrecordedSecurityEventsDTO,
 } from "./security-reports.js";
 
 export { sodConflictSchema, sodAcknowledgeFields, type SodConflictDTO } from "./sod.js";

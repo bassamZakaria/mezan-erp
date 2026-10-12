@@ -108,6 +108,29 @@ export interface AuditSink {
    * For work that is not the database — a hash, a child process, a socket.
    */
   outsideTurn?<T>(fn: () => Promise<T>): Promise<T>;
+  /** Where a security event that accompanies no write goes when `append` refuses it. */
+  unrecorded?: SecurityEventFallback;
+}
+
+export interface UnrecordedSecurityEvent {
+  readonly at: string;
+  readonly module: string;
+  readonly action: string;
+  readonly severity: string;
+  readonly actor: string;
+  readonly entityId: string | null;
+  readonly details: Record<string, unknown> | null;
+  readonly reason: string;
+}
+
+export interface UnrecordedSecurityEvents {
+  readonly count: number;
+  readonly recent: readonly UnrecordedSecurityEvent[];
+}
+
+export interface SecurityEventFallback {
+  record(entry: UnrecordedSecurityEvent): void;
+  summary(limit?: number): UnrecordedSecurityEvents;
 }
 
 /** An event that had to be recorded with the write it describes, and could not be: that write must not commit. */

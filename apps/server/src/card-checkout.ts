@@ -3,6 +3,7 @@ import {
   applyRenewal,
   cardCheckoutAmount,
   recordSecurityEvent,
+  recordSecurityEventOrFallback,
   CardCheckoutAttentionCause,
   CardCheckoutFailureReason,
   CardCheckoutResolution,
@@ -230,8 +231,17 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     });
   }
 
-  async function audit(action: CardCheckoutAuditAction, entityId: string | null, details: Record<string, unknown>, severity: EventSeverity = EventSeverity.Info) {
-    await auditEvent(action, entityId, details, severity, provider.id).catch((err) => log("audit write failed", err));
+  function audit(action: CardCheckoutAuditAction, entityId: string | null, details: Record<string, unknown>, severity: EventSeverity = EventSeverity.Info): Promise<void> {
+    return recordSecurityEventOrFallback(platform.audit, {
+      module: "platform",
+      entityType: "PLATFORM",
+      entityId,
+      action,
+      actor: provider.id,
+      severity,
+      timestamp: nowIso(),
+      details,
+    });
   }
 
   function mustRecord(action: CardCheckoutAuditAction, entityId: string | null, details: Record<string, unknown>, severity: EventSeverity): Promise<void> {

@@ -26,6 +26,7 @@ import {
   type AllocatableInvoiceRepository,
   type BarcodeConfigRepository,
   type AuditQueryPort,
+  type SecurityEventFallback,
   ForeignWriteError,
   type AuditSink,
   type LabelLayoutRepository,
@@ -366,7 +367,7 @@ export interface CreateAppOptions {
    */
   readonly onPermissionRefused?: PermissionRefusalReporter;
   /** Mounts `/audit` — the read-only audit query surface — when present. */
-  readonly audit?: { readonly store: AuditQueryPort; readonly resolveAuthContext?: AuthContextResolver };
+  readonly audit?: { readonly store: AuditQueryPort; readonly unrecorded?: SecurityEventFallback; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
   readonly labelLayouts?: {
     readonly repo: LabelLayoutRepository;
@@ -1446,7 +1447,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/security-reports",
       createSecurityReportsRoutes(
-        { audit: options.audit.store, users: uow.users, roles: uow.roles, settings: options.settingsStore },
+        { audit: options.audit.store, unrecorded: options.audit.unrecorded, users: uow.users, roles: uow.roles, settings: options.settingsStore },
         auditAuth,
       ),
     );

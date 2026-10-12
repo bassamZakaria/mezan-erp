@@ -66,7 +66,12 @@ export {
   recordSensitiveEvent,
   auditBranchFromScope,
   branchScopedAuditSink,
+  createMemorySecurityEventFallback,
+  recordSecurityEventOrFallback,
+  withoutSecrets,
+  UNRECORDED_RECENT_LIMIT,
 } from "./audit/index.js";
+export type { SecurityEventFallback, UnrecordedSecurityEvent, UnrecordedSecurityEvents } from "./audit/index.js";
 export type {
   AuditSeverity,
   AuditStream,

@@ -21,3 +21,10 @@ export type {
   AuditQueryPort,
 } from "./audit-event.js";
 export { auditBranchFromScope, branchScopedAuditSink } from "./branch-scope.js";
+export {
+  createMemorySecurityEventFallback,
+  recordSecurityEventOrFallback,
+  withoutSecrets,
+  UNRECORDED_RECENT_LIMIT,
+} from "./security-fallback.js";
+export type { SecurityEventFallback, UnrecordedSecurityEvent, UnrecordedSecurityEvents } from "./security-fallback.js";

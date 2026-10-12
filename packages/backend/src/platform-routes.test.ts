@@ -10,12 +10,13 @@ import {
   startSubscription,
   CardCheckoutResolution,
   CardCheckoutStatus,
+  PlanKind,
   type CardCheckout,
 } from "@mezan/domain";
 import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
-import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, type PlatformCardCheckoutPort } from "./platform-routes.js";
+import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, type PlatformCardCheckoutPort, type RecordedActivation } from "./platform-routes.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
@@ -72,33 +73,40 @@ async function buildRig(): Promise<Rig> {
   let idCounter = 0;
   const idOf = () => `ID-${++idCounter}`;
 
-  const provisionTenant = async (cmd: CreateTenantRequestDTO & { actorId: string }): Promise<ProvisionResultDTO> => {
+  const provisionTenant = async (cmd: CreateTenantRequestDTO & { actorId: string }, activation: RecordedActivation): Promise<ProvisionResultDTO> => {
     provisioned.push(cmd);
     const nowIso = FIXED_NOW().toISOString();
     const tenant = await createTenant(
       { id: idOf(), code: cmd.code, nameAr: cmd.nameAr, nameEn: cmd.nameEn ?? null, ownerEmail: cmd.ownerEmail, now: nowIso },
       platform.stores.tenants,
     );
-    const active = await activateTenant({ id: tenant.id, now: nowIso }, platform.stores.tenants);
-    await startSubscription(
-      { id: idOf(), tenantId: tenant.id, planId: cmd.planId, billingCycle: cmd.billingCycle, trial: cmd.trial, now: nowIso },
-      platform.stores.subscriptions,
-      platform.stores.plans,
-    );
-    return { tenant: active, adminEmail: cmd.ownerEmail, adminPin: "482913" };
-  };
-
-  const provisionRetry = async ({ tenantId, planId, billingCycle, trial }: { tenantId: string } & ProvisionRetryRequestDTO): Promise<ProvisionResultDTO> => {
-    const nowIso = FIXED_NOW().toISOString();
-    const tenant = await activateTenant({ id: tenantId, now: nowIso }, platform.stores.tenants);
-    const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
-    if (!live) {
+    const active = await activation(async () => {
       await startSubscription(
-        { id: idOf(), tenantId: tenant.id, planId: planId ?? "PLAN-CORE", billingCycle: billingCycle ?? "monthly", trial: trial ?? false, now: nowIso },
+        { id: idOf(), tenantId: tenant.id, planId: cmd.planId, billingCycle: cmd.billingCycle, trial: cmd.trial, now: nowIso },
         platform.stores.subscriptions,
         platform.stores.plans,
       );
-    }
+      return activateTenant({ id: tenant.id, now: nowIso }, platform.stores.tenants);
+    });
+    return { tenant: active, adminEmail: cmd.ownerEmail, adminPin: "482913" };
+  };
+
+  const provisionRetry = async (
+    { tenantId, planId, billingCycle, trial }: { tenantId: string } & ProvisionRetryRequestDTO,
+    activation: RecordedActivation,
+  ): Promise<ProvisionResultDTO> => {
+    const nowIso = FIXED_NOW().toISOString();
+    const tenant = await activation(async () => {
+      const live = await platform.stores.subscriptions.findLiveByTenant(tenantId);
+      if (!live) {
+        await startSubscription(
+          { id: idOf(), tenantId, planId: planId ?? "PLAN-CORE", billingCycle: billingCycle ?? "monthly", trial: trial ?? false, now: nowIso },
+          platform.stores.subscriptions,
+          platform.stores.plans,
+        );
+      }
+      return activateTenant({ id: tenantId, now: nowIso }, platform.stores.tenants);
+    });
     return { tenant, adminEmail: tenant.ownerEmail, adminPin: null };
   };
 
@@ -608,32 +616,180 @@ describe("createPlatformRoutes", () => {
     expect(rig.invalidated).toEqual(["acme"]);
   });
 
-  it("logs an audit failure through onAuditError instead of swallowing it, and the request still succeeds", async () => {
-    const rig = await buildRig();
-    const { body } = await provisionOne(rig);
-    const id = body.tenant.id;
+  describe("a console mutation whose event the audit log refuses", () => {
+    function refusing(rig: Rig, action: string): () => void {
+      const append = rig.platform.audit.append.bind(rig.platform.audit);
+      rig.platform.audit.append = async (event) => {
+        if (event.action === action) throw new Error("audit sink down");
+        await append(event);
+      };
+      return () => {
+        rig.platform.audit.append = append;
+      };
+    }
+    const post = (rig: Rig, path: string, body?: unknown) =>
+      rig.app.fetch(req(path, rig.ownerToken, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
+    const tenantOf = async (rig: Rig, id: string) => ({
+      status: (await rig.platform.stores.tenants.findById(id))?.status,
+      subscription: await rig.platform.stores.subscriptions.findLiveByTenant(id),
+    });
+    async function expectRefused(res: Response) {
+      expect(res.status).toBe(503);
+      expect(await json(res)).toMatchObject({ error: "AUDIT_UNAVAILABLE", message: expect.stringMatching(/[\u0600-\u06FF]/) });
+    }
 
-    const auditErrors: unknown[] = [];
-    const brokenPlatform: PlatformHandle = {
-      ...rig.platform,
-      audit: {
-        append: async () => { throw new Error("audit sink down"); },
-        query: rig.platform.audit.query.bind(rig.platform.audit),
-      },
-    };
-    const brokenApp = createPlatformRoutes({
-      platform: brokenPlatform,
-      auth: rig.auth,
-      now: FIXED_NOW,
-      provisionTenant: async () => { throw new Error("not used in this test"); },
-      invalidateEntitlements: () => undefined,
-      onAuditError: (err) => { auditErrors.push(err); },
+    it.each([
+      ["suspend", "TENANT_SUSPENDED", "active"],
+      ["archive", "TENANT_ARCHIVED", "active"],
+    ])("answers 503 and leaves the tenant as it was on %s", async (step, action, statusBefore) => {
+      const rig = await buildRig();
+      const { body } = await provisionOne(rig);
+      rig.invalidated.length = 0;
+      const restore = refusing(rig, action);
+
+      await expectRefused(await post(rig, `/tenants/${body.tenant.id}/${step}`));
+
+      expect((await tenantOf(rig, body.tenant.id)).status).toBe(statusBefore);
+      expect(rig.invalidated).toEqual([]);
+      restore();
+      expect((await post(rig, `/tenants/${body.tenant.id}/${step}`)).status).toBe(200);
+      expect((await rig.platform.audit.query("security", 100)).filter((event) => event.action === action)).toHaveLength(1);
     });
 
-    const res = await brokenApp.fetch(req(`/tenants/${id}/suspend`, rig.ownerToken, { method: "POST" }));
-    expect(res.status).toBe(200);
-    expect(auditErrors).toHaveLength(1);
-    expect((auditErrors[0] as Error).message).toBe("audit sink down");
+    it("answers 503 and leaves a suspended tenant suspended on resume", async () => {
+      const rig = await buildRig();
+      const { body } = await provisionOne(rig);
+      await post(rig, `/tenants/${body.tenant.id}/suspend`);
+      refusing(rig, "TENANT_RESUMED");
+
+      await expectRefused(await post(rig, `/tenants/${body.tenant.id}/resume`));
+
+      expect((await tenantOf(rig, body.tenant.id)).status).toBe("suspended");
+    });
+
+    it.each([
+      ["cancel", "SUBSCRIPTION_CANCELLED", undefined],
+      ["suspend", "SUBSCRIPTION_SUSPENDED", { reason: "unpaid" }],
+    ])("answers 503 and leaves the subscription as it was on subscription %s", async (step, action, payload) => {
+      const rig = await buildRig();
+      const { body } = await provisionOne(rig);
+      const before = await tenantOf(rig, body.tenant.id);
+      refusing(rig, action);
+
+      await expectRefused(await post(rig, `/tenants/${body.tenant.id}/subscription/${step}`, payload));
+
+      expect((await tenantOf(rig, body.tenant.id)).subscription).toEqual(before.subscription);
+    });
+
+    it("answers 503 and keeps the plan on a plan change, and resumes nothing on a resume", async () => {
+      const rig = await buildRig();
+      const { body, planId } = await provisionOne(rig);
+      const other = (await plans(rig)).find((plan) => plan.id !== planId)!;
+      refusing(rig, "SUBSCRIPTION_PLAN_CHANGED");
+      await expectRefused(await post(rig, `/tenants/${body.tenant.id}/subscription/change-plan`, { planId: other.id }));
+      expect((await tenantOf(rig, body.tenant.id)).subscription?.planId).toBe(planId);
+
+      await post(rig, `/tenants/${body.tenant.id}/subscription/suspend`, { reason: "unpaid" });
+      refusing(rig, "SUBSCRIPTION_RESUMED");
+      await expectRefused(await post(rig, `/tenants/${body.tenant.id}/subscription/resume`, { reason: "paid" }));
+      expect((await tenantOf(rig, body.tenant.id)).subscription?.status).toBe("suspended");
+    });
+
+    it("answers 503 and starts no subscription", async () => {
+      const rig = await buildRig();
+      const nowIso = FIXED_NOW().toISOString();
+      const tenant = await activateTenant(
+        { id: (await createTenant({ id: "T-BARE", code: "bare", nameAr: "بلا اشتراك", ownerEmail: "bare@example.com", now: nowIso }, rig.platform.stores.tenants)).id, now: nowIso },
+        rig.platform.stores.tenants,
+      );
+      const core = (await plans(rig)).find((plan) => plan.code === "core")!;
+      refusing(rig, "SUBSCRIPTION_STARTED");
+
+      await expectRefused(await post(rig, `/tenants/${tenant.id}/subscription`, { planId: core.id, billingCycle: "monthly", trial: false }));
+
+      expect(await rig.platform.stores.subscriptions.findLiveByTenant(tenant.id)).toBeNull();
+    });
+
+    it("answers 503 and creates, changes or retires no plan", async () => {
+      const rig = await buildRig();
+      const core = (await rig.platform.stores.plans.list()).find((plan) => plan.code === "core")!;
+      const draft = {
+        code: "unrecorded", nameAr: "غير مسجّلة", nameEn: "Unrecorded", modules: ["accounting"], features: {}, seatsIncluded: 1, branchesIncluded: 1,
+        warehousesIncluded: 1, priceMonthly: "10.00", priceYearly: "100.00", trialDays: 0, isPublic: false, sortOrder: 99,
+      };
+      refusing(rig, "PLAN_CREATED");
+      await expectRefused(await post(rig, "/plans", draft));
+      expect((await rig.platform.stores.plans.list()).map((plan) => plan.code)).not.toContain("unrecorded");
+
+      refusing(rig, "PLAN_RETIRED");
+      const spare = (await rig.platform.stores.plans.list()).find((plan) => plan.code !== "core" && plan.kind !== PlanKind.Free)!;
+      await expectRefused(await post(rig, `/plans/${spare.id}/retire`));
+      expect((await rig.platform.stores.plans.findById(spare.id))?.status).toBe("active");
+
+      refusing(rig, "PLAN_UPDATED");
+      const edited = await rig.app.fetch(req(`/plans/${core.id}`, rig.ownerToken, {
+        method: "PUT",
+        body: JSON.stringify({ ...draft, code: undefined, nameAr: "اسم جديد", nameEn: core.nameEn }),
+      }));
+      await expectRefused(edited);
+      expect((await rig.platform.stores.plans.findById(core.id))?.nameAr).toBe(core.nameAr);
+    });
+
+    it("keeps a sweep's summary event in the fallback, where the owner can read it and support cannot", async () => {
+      const rig = await buildRig();
+      const sweeping = createPlatformRoutes({
+        platform: rig.platform,
+        auth: rig.auth,
+        now: FIXED_NOW,
+        provisionTenant: async () => { throw new Error("not used in this test"); },
+        invalidateEntitlements: () => undefined,
+        cardCheckout: { sweep: async () => ({ examined: 1, paid: 0, declined: 0, unapplied: 0, expired: 0, stillPending: 1, alreadySettled: 0 }) } as unknown as PlatformCardCheckoutPort,
+      });
+      refusing(rig, "CARD_CHECKOUT_SWEEP_RUN");
+
+      const swept = await sweeping.fetch(req("/card-checkouts/sweep", rig.ownerToken, { method: "POST" }));
+
+      expect(swept.status).toBe(200);
+      const unrecorded = (await json(await sweeping.fetch(req("/security/unrecorded", rig.ownerToken)))) as { count: number; recent: { action: string; reason: string }[] };
+      expect(unrecorded.count).toBe(1);
+      expect(unrecorded.recent[0]).toMatchObject({ action: "CARD_CHECKOUT_SWEEP_RUN", reason: "audit sink down" });
+      expect((await sweeping.fetch(req("/security/unrecorded", rig.supportToken))).status).toBe(403);
+    });
+
+    it("answers 503 and deactivates no platform user", async () => {
+      const rig = await buildRig();
+      refusing(rig, "PLATFORM_USER_DEACTIVATED");
+
+      await expectRefused(await post(rig, "/users/PU-SUPPORT/deactivate"));
+
+      expect((await rig.platform.stores.platformUsers.findById("PU-SUPPORT"))?.status).toBe("active");
+    });
+
+    it("answers 503 on a retried provisioning and leaves the tenant waiting to be provisioned", async () => {
+      const rig = await buildRig();
+      const nowIso = FIXED_NOW().toISOString();
+      const tenant = await createTenant({ id: "T-WAIT", code: "wait", nameAr: "تنتظر", ownerEmail: "wait@example.com", now: nowIso }, rig.platform.stores.tenants);
+      refusing(rig, "TENANT_PROVISION_RETRIED");
+
+      await expectRefused(await post(rig, `/tenants/${tenant.id}/provision`));
+
+      expect((await rig.platform.stores.tenants.findById(tenant.id))?.status).toBe("provisioning");
+      expect(await rig.platform.stores.subscriptions.findLiveByTenant(tenant.id)).toBeNull();
+    });
+
+    it("answers 503 on a new tenant and leaves it unactivated and unsubscribed", async () => {
+      const rig = await buildRig();
+      refusing(rig, "TENANT_PROVISIONED");
+
+      const { res, body } = await provisionOne(rig);
+
+      expect(res.status).toBe(503);
+      expect(body).toMatchObject({ error: "AUDIT_UNAVAILABLE" });
+      const registered = await rig.platform.stores.tenants.findByCode("acme");
+      expect(registered?.status ?? "absent").not.toBe("active");
+      expect(registered ? await rig.platform.stores.subscriptions.findLiveByTenant(registered.id) : null).toBeNull();
+      expect(rig.invalidated).toEqual([]);
+    });
   });
 
   it("retries provisioning for a tenant stuck in `provisioning`, returning the DTO and invalidating", async () => {

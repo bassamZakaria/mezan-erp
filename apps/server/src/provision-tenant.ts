@@ -1,6 +1,6 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { activateTenant, createTenant, startSubscription, TenantCodeTakenError, type BillingCycle, type Tenant } from "@mezan/domain";
-import type { PlatformHandle } from "@mezan/backend";
+import { PlatformAuditUnavailableError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
 import type { TenantRouter } from "./tenant-router.js";
 
 export interface ProvisionTenantCommand {
@@ -19,6 +19,7 @@ export interface ProvisionTenantDeps {
   readonly router: TenantRouter;
   readonly now: () => Date;
   readonly pinOf?: () => string;
+  readonly activation?: RecordedActivation;
 }
 
 export interface ProvisionTenantResult {
@@ -103,7 +104,8 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
   try {
     const { adminPin } = await platform.outsideTheTurn(() => prepareTenantDatabase(cmd, registered, deps));
 
-    const tenant = await platform.inTheTurn("tenant activation", async () => {
+    const recorded: RecordedActivation = deps.activation ?? ((activate) => activate());
+    const tenant = await platform.inTheTurn("tenant activation", () => recorded(async () => {
       const live = await platform.stores.subscriptions.findLiveByTenant(registered.id);
       if (!live) {
         await startSubscription(
@@ -120,11 +122,11 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
         );
       }
       return registered.status === "provisioning" ? activateTenant({ id: registered.id, now: nowIso }, platform.stores.tenants) : registered;
-    });
+    }));
 
     return { tenant, adminEmail: cmd.ownerEmail, adminPin };
   } catch (err) {
-    if (err instanceof TenantCodeTakenError) throw err;
+    if (err instanceof TenantCodeTakenError || err instanceof PlatformAuditUnavailableError) throw err;
     throw new TenantProvisioningError(registered.id, err);
   }
 }

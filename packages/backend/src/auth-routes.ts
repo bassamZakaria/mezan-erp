@@ -6,6 +6,7 @@ import {
   InvalidUserError,
   DuplicateUserEmailError,
   recordSecurityEvent,
+  recordSecurityEventOrFallback,
   seatsOverLimitRefusal,
   type AuditSink,
   type Entitlements,
@@ -249,7 +250,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
 
   function security(c: Context, action: string, severity: "CRITICAL" | "WARNING" | "INFO", details: Record<string, unknown>) {
     if (!deps.audit) return Promise.resolve();
-    return recordSecurityEvent(deps.audit, {
+    return recordSecurityEventOrFallback(deps.audit, {
       module: "auth",
       entityType: "AUTH_USER",
       entityId: typeof details["userId"] === "string" ? (details["userId"] as string) : null,
@@ -257,8 +258,6 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       actor: typeof details["userId"] === "string" ? (details["userId"] as string) : "anonymous",
       severity,
       details: { ...details, origin: requestOrigin(c) ?? "host" },
-    }).catch((err: unknown) => {
-      console.error(`[security] ${severity} ${action} could not be recorded in the audit log`, { ...details, origin: requestOrigin(c) ?? "host" }, err);
     });
   }
 

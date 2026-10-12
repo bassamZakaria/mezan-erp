@@ -19,6 +19,7 @@ import {
   deriveEntitlements,
   subscriptionLicenseState,
   recordSecurityEvent,
+  recordSecurityEventOrFallback,
   InvalidTenantError,
   TenantNotFoundError,
   TenantCodeTakenError,
@@ -118,12 +119,11 @@ export interface CreatePlatformRoutesOptions {
   readonly platform: PlatformHandle;
   readonly auth: PlatformAuth;
   readonly now: () => Date;
-  readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }) => Promise<ProvisionResultDTO>;
+  readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
-  readonly provisionRetry?: (input: { tenantId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
+  readonly provisionRetry?: (input: { tenantId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;
-  readonly onAuditError?: (err: unknown) => void;
   /** Absent when card checkout is not configured on this deployment; the routes then answer 503. */
   readonly cardCheckout?: PlatformCardCheckoutPort;
 }
@@ -221,7 +221,7 @@ function asServerDomainFailure(err: unknown): { readonly code: string; readonly 
   return { code: shape.code, message: err.message, ...(typeof shape.tenantId === "string" ? { tenantId: shape.tenantId } : {}) };
 }
 
-class PlatformAuditUnavailableError extends Error {
+export class PlatformAuditUnavailableError extends Error {
   readonly code = "AUDIT_UNAVAILABLE";
   constructor(cause: unknown) {
     super("تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى.", { cause });
@@ -292,9 +292,13 @@ function domainErrorResponse(c: Context, err: unknown): Response {
   throw err;
 }
 
+// REQUIRED ORDERING: a provisioner runs its last platform writes — the
+// subscription and the tenant's activation — INSIDE this, so they commit with
+// the event that records them or not at all.
+export type RecordedActivation = (activate: () => Promise<Tenant>) => Promise<Tenant>;
+
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
   const { platform, auth, now, provisionTenant, provisionRetry, invalidateEntitlements, idOf = randomUUID } = options;
-  const onAuditError = options.onAuditError ?? ((err: unknown) => console.error(err));
   const nowIso = () => now().toISOString();
 
   async function requireTenant(id: string): Promise<Tenant> {
@@ -314,18 +318,17 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     for (const code of codes) invalidateEntitlements(code);
   }
 
-  async function audit(c: Context, action: string, entityId: string | null, details: Record<string, unknown>) {
-    const platformUser = c.get("platformUser");
-    await recordSecurityEvent(platform.audit, {
+  function noted(c: Context, action: string, entityId: string | null, details: Record<string, unknown>): Promise<void> {
+    return recordSecurityEventOrFallback(platform.audit, {
       module: "platform",
       entityType: "PLATFORM",
       entityId,
       action,
-      actor: platformUser?.id ?? "unknown",
+      actor: c.get("platformUser")?.id ?? "unknown",
       severity: "INFO",
       timestamp: nowIso(),
       details: { ...details, origin: auth.sourceOf(c) ?? "host" },
-    }).catch(onAuditError);
+    });
   }
 
   interface RecordedWrite<T> {
@@ -356,6 +359,12 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     return platform.audit.atomic ? platform.audit.atomic(together) : together();
   }
 
+  const activationRecordedAs = (c: Context, action: string): RecordedActivation => (activate) =>
+    recordedWith(c, async () => {
+      const tenant = await activate();
+      return { value: tenant, action, entityId: tenant.id, details: { code: tenant.code } };
+    });
+
   const requireAny = auth.requirePlatform();
   const requireOwner = auth.requirePlatform("owner");
 
@@ -383,9 +392,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const platformUser = c.get("platformUser")!;
     try {
-      const result = await provisionTenant({ ...parsed.data, actorId: platformUser.id });
+      const result = await provisionTenant({ ...parsed.data, actorId: platformUser.id }, activationRecordedAs(c, "TENANT_PROVISIONED"));
       invalidateEntitlements(result.tenant.code);
-      await audit(c, "TENANT_PROVISIONED", result.tenant.id, { code: result.tenant.code });
       return c.json(result, 201);
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -402,9 +410,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         return c.json({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" }, 409);
       }
       if (!provisionRetry) throw new Error("provisionRetry dependency is not configured");
-      const result = await provisionRetry({ tenantId: tenant.id, ...parsed.data });
+      const result = await provisionRetry({ tenantId: tenant.id, ...parsed.data }, activationRecordedAs(c, "TENANT_PROVISION_RETRIED"));
       invalidateEntitlements(result.tenant.code);
-      await audit(c, "TENANT_PROVISION_RETRIED", result.tenant.id, { code: result.tenant.code });
       return c.json(result, 200);
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -413,9 +420,11 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
 
   app.post("/tenants/:id/suspend", requireOwner, async (c) => {
     try {
-      const tenant = await suspendTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
+      const tenant = await recordedWith(c, async () => {
+        const moved = await suspendTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
+        return { value: moved, action: "TENANT_SUSPENDED", entityId: moved.id, details: {} };
+      });
       invalidateEntitlements(tenant.code);
-      await audit(c, "TENANT_SUSPENDED", tenant.id, {});
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -424,9 +433,11 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
 
   app.post("/tenants/:id/resume", requireOwner, async (c) => {
     try {
-      const tenant = await resumeTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
+      const tenant = await recordedWith(c, async () => {
+        const moved = await resumeTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
+        return { value: moved, action: "TENANT_RESUMED", entityId: moved.id, details: {} };
+      });
       invalidateEntitlements(tenant.code);
-      await audit(c, "TENANT_RESUMED", tenant.id, {});
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -435,9 +446,11 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
 
   app.post("/tenants/:id/archive", requireOwner, async (c) => {
     try {
-      const tenant = await archiveTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
+      const tenant = await recordedWith(c, async () => {
+        const moved = await archiveTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
+        return { value: moved, action: "TENANT_ARCHIVED", entityId: moved.id, details: {} };
+      });
       invalidateEntitlements(tenant.code);
-      await audit(c, "TENANT_ARCHIVED", tenant.id, {});
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -449,13 +462,15 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const tenant = await requireTenant(c.req.param("id"));
-      await startSubscription(
-        { id: idOf(), tenantId: tenant.id, ...parsed.data, now: nowIso() },
-        platform.stores.subscriptions,
-        platform.stores.plans,
-      );
+      await recordedWith(c, async () => {
+        await startSubscription(
+          { id: idOf(), tenantId: tenant.id, ...parsed.data, now: nowIso() },
+          platform.stores.subscriptions,
+          platform.stores.plans,
+        );
+        return { value: null, action: "SUBSCRIPTION_STARTED", entityId: tenant.id, details: { planId: parsed.data.planId } };
+      });
       invalidateEntitlements(tenant.code);
-      await audit(c, "SUBSCRIPTION_STARTED", tenant.id, { planId: parsed.data.planId });
       return c.json(await tenantSummary(platform, tenant, nowIso()), 201);
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -473,10 +488,12 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const tenant = await requireTenant(c.req.param("id"));
-      const subscription = await requireLiveSubscription(tenant);
-      await changePlan({ id: subscription.id, planId: parsed.data.planId, now: nowIso() }, platform.stores.subscriptions, platform.stores.plans);
+      await recordedWith(c, async () => {
+        const subscription = await requireLiveSubscription(tenant);
+        await changePlan({ id: subscription.id, planId: parsed.data.planId, now: nowIso() }, platform.stores.subscriptions, platform.stores.plans);
+        return { value: null, action: "SUBSCRIPTION_PLAN_CHANGED", entityId: tenant.id, details: { planId: parsed.data.planId } };
+      });
       invalidateEntitlements(tenant.code);
-      await audit(c, "SUBSCRIPTION_PLAN_CHANGED", tenant.id, { planId: parsed.data.planId });
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -486,10 +503,12 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.post("/tenants/:id/subscription/cancel", requireOwner, async (c) => {
     try {
       const tenant = await requireTenant(c.req.param("id"));
-      const subscription = await requireLiveSubscription(tenant);
-      await cancelSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
+      await recordedWith(c, async () => {
+        const subscription = await requireLiveSubscription(tenant);
+        await cancelSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
+        return { value: null, action: "SUBSCRIPTION_CANCELLED", entityId: tenant.id, details: {} };
+      });
       invalidateEntitlements(tenant.code);
-      await audit(c, "SUBSCRIPTION_CANCELLED", tenant.id, {});
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -501,10 +520,12 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const tenant = await requireTenant(c.req.param("id"));
-      const subscription = await requireLiveSubscription(tenant);
-      await suspendSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
+      await recordedWith(c, async () => {
+        const subscription = await requireLiveSubscription(tenant);
+        await suspendSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
+        return { value: null, action: "SUBSCRIPTION_SUSPENDED", entityId: tenant.id, details: { reason: parsed.data.reason } };
+      });
       invalidateEntitlements(tenant.code);
-      await audit(c, "SUBSCRIPTION_SUSPENDED", tenant.id, { reason: parsed.data.reason });
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -516,10 +537,12 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const tenant = await requireTenant(c.req.param("id"));
-      const subscription = await requireLiveSubscription(tenant);
-      await resumeSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
+      await recordedWith(c, async () => {
+        const subscription = await requireLiveSubscription(tenant);
+        await resumeSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
+        return { value: null, action: "SUBSCRIPTION_RESUMED", entityId: tenant.id, details: { reason: parsed.data.reason } };
+      });
       invalidateEntitlements(tenant.code);
-      await audit(c, "SUBSCRIPTION_RESUMED", tenant.id, { reason: parsed.data.reason });
       return c.json(await tenantSummary(platform, tenant, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -594,7 +617,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       const tenant = await requireTenant(c.req.param("id"));
       const checkout = await options.cardCheckout.open({ tenantId: tenant.id, actorId: `platform:${platformUser.id}`, request: c.req.raw });
-      await audit(c, "CARD_CHECKOUT_REQUESTED", tenant.id, { checkoutId: checkout.id, amount: checkout.amount.toString() });
+      await noted(c, "CARD_CHECKOUT_REQUESTED", tenant.id, { checkoutId: checkout.id, amount: checkout.amount.toString() });
       return c.json(serializeCardCheckout(checkout), 201);
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -632,7 +655,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         409,
       );
     }
-    await audit(c, PlatformCardCheckoutAuditAction.SweepRun, null, { ...result });
+    await noted(c, PlatformCardCheckoutAuditAction.SweepRun, null, { ...result });
     return c.json(result);
   });
 
@@ -689,7 +712,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     const parsed = planCreateRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const plan = await createPlan(
+      const plan = await recordedWith(c, async () => {
+        const created = await createPlan(
         {
           id: idOf(),
           code: parsed.data.code,
@@ -710,9 +734,10 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
           now: nowIso(),
         },
         platform.stores.plans,
-      );
+        );
+        return { value: created, action: "PLAN_CREATED", entityId: created.id, details: { code: created.code } };
+      });
       await invalidateTenantsOnPlan(plan.id);
-      await audit(c, "PLAN_CREATED", plan.id, { code: plan.code });
       return c.json(serializePlan(plan), 201);
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -724,7 +749,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const { priceMonthly, priceYearly, kind, ...rest } = parsed.data;
     try {
-      const plan = await updatePlan(
+      const plan = await recordedWith(c, async () => {
+        const updated = await updatePlan(
         {
           id: c.req.param("id"),
           ...rest,
@@ -734,9 +760,10 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         },
         platform.stores.plans,
         (planId) => platform.stores.subscriptions.hasLiveByPlan(planId),
-      );
+        );
+        return { value: updated, action: "PLAN_UPDATED", entityId: updated.id, details: { code: updated.code } };
+      });
       await invalidateTenantsOnPlan(plan.id);
-      await audit(c, "PLAN_UPDATED", plan.id, { code: plan.code });
       return c.json(serializePlan(plan));
     } catch (err) {
       return domainErrorResponse(c, err);
@@ -745,13 +772,20 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
 
   app.post("/plans/:id/retire", requireOwner, async (c) => {
     try {
-      const plan = await retirePlan({ id: c.req.param("id") }, platform.stores.plans);
+      const plan = await recordedWith(c, async () => {
+        const retired = await retirePlan({ id: c.req.param("id") }, platform.stores.plans);
+        return { value: retired, action: "PLAN_RETIRED", entityId: retired.id, details: { code: retired.code } };
+      });
       await invalidateTenantsOnPlan(plan.id);
-      await audit(c, "PLAN_RETIRED", plan.id, { code: plan.code });
       return c.json(serializePlan(plan));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
+  });
+
+  app.get("/security/unrecorded", requireOwner, (c) => {
+    const { count, recent } = platform.audit.unrecorded?.summary() ?? { count: 0, recent: [] };
+    return c.json({ count, recent: recent.map(({ at, module, action, severity, actor, entityId, reason }) => ({ at, module, action, severity, actor, entityId, reason })) });
   });
 
   app.get("/users", requireAny, async (c) => {
@@ -778,8 +812,10 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.post("/users/:id/deactivate", requireOwner, async (c) => {
     const platformUser = c.get("platformUser")!;
     try {
-      const user = await deactivatePlatformUser({ id: c.req.param("id"), actorId: platformUser.id }, platform.stores.platformUsers);
-      await audit(c, "PLATFORM_USER_DEACTIVATED", user.id, {});
+      const user = await recordedWith(c, async () => {
+        const deactivated = await deactivatePlatformUser({ id: c.req.param("id"), actorId: platformUser.id }, platform.stores.platformUsers);
+        return { value: deactivated, action: "PLATFORM_USER_DEACTIVATED", entityId: deactivated.id, details: {} };
+      });
       return c.json(serializePlatformUser(user));
     } catch (err) {
       return domainErrorResponse(c, err);

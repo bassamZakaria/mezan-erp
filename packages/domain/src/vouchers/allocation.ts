@@ -17,7 +17,7 @@
  */
 
 import { Money } from "../money/index.js";
-import { convertFromBase, convertToBase } from "../exchange-rates/convert.js";
+import { convertFromBase, convertToBase, shareOfBase } from "../exchange-rates/convert.js";
 import {
   AllocationAlreadyReversedError,
   AllocationExceedsError,
@@ -129,7 +129,9 @@ export interface SettlementRates {
 export interface SettlementSplit {
   /** What the invoice is relieved of, at its booked rate. */
   readonly relief: Money;
-  /** What the voucher gives less `relief`: positive when the settlement is worth more base than the booking. */
+  /** What the settlement takes of the invoice's standing revaluation, signed on the control account's natural side. */
+  readonly revaluationShare?: Money;
+  /** What the voucher gives less what the invoice was carried at (`relief` and `revaluationShare`). */
   readonly fxDifference: Money;
   /** The most voucher money this invoice can still absorb at the settlement rate. */
   readonly capacity: Money;
@@ -143,20 +145,26 @@ export interface SettlementSplit {
  * a rounding residue. Without rates, or at the booked rate, relief is the
  * amount itself.
  */
-export function settlementSplit(amount: Money, outstanding: Money, rates?: SettlementRates | null): SettlementSplit {
-  if (!rates || Money.fromMajor(rates.invoiceRate).scaled === Money.fromMajor(rates.settlementRate).scaled) {
+export function settlementSplit(amount: Money, outstanding: Money, rates?: SettlementRates | null, unconsumedShare: Money = Money.zero()): SettlementSplit {
+  const sameRate = rates ? Money.fromMajor(rates.invoiceRate).scaled === Money.fromMajor(rates.settlementRate).scaled : true;
+  if (!rates || (sameRate && unconsumedShare.scaled === 0n)) {
     return { relief: amount, fxDifference: Money.zero(), capacity: outstanding };
   }
   const foreignOutstanding = convertFromBase(outstanding, rates.invoiceRate);
-  const capacity = convertToBase(foreignOutstanding, rates.settlementRate);
+  const capacity = sameRate ? outstanding : convertToBase(foreignOutstanding, rates.settlementRate);
   let relief: Money;
+  let revaluationShare: Money;
   if (amount.scaled >= capacity.scaled) {
     relief = outstanding;
+    revaluationShare = unconsumedShare;
   } else {
-    const converted = convertToBase(convertFromBase(amount, rates.settlementRate), rates.invoiceRate);
+    const foreignSettled = convertFromBase(amount, rates.settlementRate);
+    const converted = sameRate ? amount : convertToBase(foreignSettled, rates.invoiceRate);
     relief = converted.scaled > outstanding.scaled ? outstanding : converted;
+    revaluationShare = relief.scaled === outstanding.scaled ? unconsumedShare : shareOfBase(unconsumedShare, foreignSettled, foreignOutstanding);
   }
-  return { relief, fxDifference: Money.fromScaled(amount.scaled - relief.scaled), capacity };
+  const fxDifference = Money.fromScaled(amount.scaled - relief.scaled - revaluationShare.scaled);
+  return revaluationShare.scaled === 0n ? { relief, fxDifference, capacity } : { relief, revaluationShare, fxDifference, capacity };
 }
 
 /** Persistence port for allocations. */

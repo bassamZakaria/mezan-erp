@@ -32,6 +32,13 @@ export const FX_REALISED_LINE_MEMO = "فروق عملة محققة";
 /** Memo on the two control-account lines of a settlement entry (D260); FX revaluation reads their foreign amounts. */
 export const FX_SETTLEMENT_LINE_MEMO = "تسوية فاتورة بعملة أجنبية";
 
+/**
+ * Memo on the line that takes a consumed revaluation off the control account.
+ * It is the revaluation's own memo: FX revaluation reads such a line as base
+ * only, and the aging ladders net it against the restatement it relieves.
+ */
+export const FX_REVALUATION_SHARE_MEMO = "إعادة تقييم عملات أجنبية";
+
 /** What a settlement needs to know about rates and where the difference goes. */
 export interface RealisedFxPort {
   /** The currency and rate a foreign invoice was booked at; null for a base-currency one. */
@@ -132,12 +139,13 @@ export function buildRealisedFxLines(input: RealisedFxPostingInput, accounts: Fx
   const diff = input.split.fxDifference.scaled;
   const moneyRate = input.money.fxRate ?? null;
   const moneyCurrency = moneyRate ? (input.money.currency ?? null) : null;
-  if (diff === 0n && moneyRate && moneyCurrency === input.currency && sameRate(moneyRate, input.invoiceRate)) return null;
+  const share = input.split.revaluationShare?.scaled ?? 0n;
+  if (diff === 0n && share === 0n && moneyRate && moneyCurrency === input.currency && sameRate(moneyRate, input.invoiceRate)) return null;
   const zero = Money.zero();
   const receivable = input.invoice.kind === "sales";
   const branchId = input.branchId ?? null;
   const partyId = input.invoice.partyId;
-  const used = Money.fromScaled(input.split.relief.scaled + diff);
+  const used = Money.fromScaled(input.split.relief.scaled + share + diff);
   const relief = input.split.relief;
   const lines: JournalLineInput[] = [
     {
@@ -161,6 +169,20 @@ export function buildRealisedFxLines(input: RealisedFxPostingInput, accounts: Fx
       branchId,
     },
   ];
+  if (share !== 0n) {
+    const magnitude = Money.fromScaled(share < 0n ? -share : share);
+    const relievesDebit = receivable ? share > 0n : share < 0n;
+    lines.push({
+      accountId: input.controlAccountId,
+      debit: relievesDebit ? zero : magnitude,
+      credit: relievesDebit ? magnitude : zero,
+      memo: FX_REVALUATION_SHARE_MEMO,
+      currency: input.currency,
+      fxRate: input.invoiceRate,
+      partyId,
+      branchId,
+    });
+  }
   if (diff !== 0n) {
     const magnitude = Money.fromScaled(diff < 0n ? -diff : diff);
     const gain = receivable ? diff > 0n : diff < 0n;

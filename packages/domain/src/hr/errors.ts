@@ -377,6 +377,33 @@ export class InvalidPayrollRunError extends Error {
   }
 }
 
+export class HrProvisionPostingNotFoundError extends Error {
+  readonly code = "HR_PROVISION_POSTING_NOT_FOUND";
+  readonly messageEn: string;
+  constructor(
+    readonly labelAr: string,
+    readonly asOfDate: string,
+  ) {
+    super(`لا يوجد قيد قائم لـ${labelAr} بتاريخ ${asOfDate}.`);
+    this.messageEn = `There is no standing provision posting dated ${asOfDate}.`;
+    this.name = "HrProvisionPostingNotFoundError";
+  }
+}
+
+export class HrProvisionLaterPostingError extends Error {
+  readonly code = "HR_PROVISION_LATER_POSTING_EXISTS";
+  readonly messageEn: string;
+  constructor(
+    readonly labelAr: string,
+    readonly asOfDate: string,
+    readonly laterDate: string,
+  ) {
+    super(`${labelAr} بتاريخ ${asOfDate} بُنيت عليه تسوية لاحقة بتاريخ ${laterDate}. اعكس تسوية ${laterDate} أولاً ثم هذه.`);
+    this.messageEn = `The provision dated ${asOfDate} has a later posting dated ${laterDate} measured on top of it. Reverse the ${laterDate} posting first, then this one.`;
+    this.name = "HrProvisionLaterPostingError";
+  }
+}
+
 /** Raised when a payroll-run status transition is not allowed by its state machine. */
 export class InvalidPayrollRunTransitionError extends Error {
   readonly code = "INVALID_PAYROLL_RUN_TRANSITION";

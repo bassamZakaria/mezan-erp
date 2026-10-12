@@ -114,6 +114,19 @@ export class WritedownRunNotDraftError extends Error {
   }
 }
 
+export class WritedownRunNotPostedError extends Error {
+  readonly code = "WRITEDOWN_RUN_NOT_POSTED";
+  readonly messageEn: string;
+  constructor(
+    readonly runId: string,
+    readonly status: string,
+  ) {
+    super(`دفعة مخصص هبوط المخزون "${runId}" حالتها "${status}" وليست مُرحَّلة، فلا يمكن عكسها.`);
+    this.messageEn = `Inventory write-down run "${runId}" is "${status}", not posted, so it cannot be reversed.`;
+    this.name = "WritedownRunNotPostedError";
+  }
+}
+
 /** Raised when a write-down run already exists for a given period + warehouse scope (and isn't cancelled). */
 export class DuplicateWritedownPeriodError extends Error {
   readonly code = "DUPLICATE_WRITEDOWN_PERIOD";

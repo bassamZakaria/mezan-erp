@@ -1,4 +1,3 @@
-import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -6,6 +5,8 @@ import {
   createDefaultSettings,
   tenantAgingPolicy,
   postWritedownRun,
+  reverseWritedownRun,
+  WritedownRunNotPostedError,
   WritedownRunNotFoundError,
   WritedownRunNotDraftError,
   DuplicateWritedownPeriodError,
@@ -17,7 +18,8 @@ import {
 } from "@mezan/domain";
 import type { WacSnapshotRepository, StockLedgerRepository } from "@mezan/domain";
 import { createWritedownRunSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { readReversalRequest, reversalRefusalResponse } from "./document-reversal.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
@@ -70,8 +72,11 @@ function serializeRun(run: WritedownRun) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
-  const postingRefusal = postingRefusalResponse(c, err);
-  if (postingRefusal) return postingRefusal;
+  const reversalRefusal = reversalRefusalResponse(c, err);
+  if (reversalRefusal) return reversalRefusal;
+  if (err instanceof WritedownRunNotPostedError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  }
   if (err instanceof WritedownRunNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -145,6 +150,20 @@ export function createInventoryWritedownRoutes(
         gl: deps.gl,
         accounts: deps.accounts,
       });
+      return c.json(serializeRun(run));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/reverse", gate("inventory.writedown.run"), async (c) => {
+    try {
+      const { date, memo } = await readReversalRequest(c);
+      const run = await reverseWritedownRun(
+        c.req.param("id"),
+        { runs: deps.runs, gl: { ...deps.gl, actor: getAuthContext(c)?.userId ?? "system" } },
+        { reversalId: idGen(), date, memo },
+      );
       return c.json(serializeRun(run));
     } catch (err) {
       return handleDomainError(c, err);

@@ -195,6 +195,7 @@ export {
 export {
   WritedownRunNotFoundError,
   WritedownRunNotDraftError,
+  WritedownRunNotPostedError,
   DuplicateWritedownPeriodError,
   NoSlowMovingStockError,
 } from "./errors.js";
@@ -202,6 +203,7 @@ export {
 export { createWritedownRun, type CreateWritedownRunCommand, type CreateWritedownRunDeps } from "./create-writedown-run.js";
 
 export { postWritedownRun, type PostWritedownRunDeps } from "./post-writedown-run.js";
+export { reverseWritedownRun, type ReverseWritedownRunDeps, type ReverseWritedownRunOptions } from "./reverse-writedown-run.js";
 
 // --- inv/labels-templates-writedown — product templates (attribute CRUD + variant/SKU generator) ---
 

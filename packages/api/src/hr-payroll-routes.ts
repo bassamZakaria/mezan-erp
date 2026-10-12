@@ -1,4 +1,5 @@
 import { postingRefusalResponse } from "./posting-refusal.js";
+import { readReversalRequest, reversalRefusalResponse } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -59,6 +60,10 @@ import {
   getHrProvisionDefinition,
   hrProvisionMovement,
   postHrProvision,
+  listHrProvisionPostings,
+  reverseHrProvision,
+  HrProvisionPostingNotFoundError,
+  HrProvisionLaterPostingError,
   createLeaveLiabilityReport,
   runReport,
   type AuditSink,
@@ -325,8 +330,10 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
-  const postingRefusal = postingRefusalResponse(c, err);
-  if (postingRefusal) return postingRefusal;
+  const reversalRefusal = reversalRefusalResponse(c, err);
+  if (reversalRefusal) return reversalRefusal;
+  if (err instanceof HrProvisionPostingNotFoundError) return c.json(withMessageEn(err), 404);
+  if (err instanceof HrProvisionLaterPostingError) return c.json(withMessageEn(err), 409);
   if (
     err instanceof EmployeeAdvanceNotFoundError ||
     err instanceof PayrollRunNotFoundError ||
@@ -885,12 +892,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
   if (ledger && leave) {
     async function provisionState(kind: HrProvisionKind, asOfDate: string) {
       const definition = getHrProvisionDefinition(kind);
-      let balance = 0n;
-      for (const entry of await ledger!.list({ status: "posted" })) {
-        for (const line of entry.lines) {
-          if (line.accountId === definition.liabilityAccountId) balance += line.credit.scaled - line.debit.scaled;
-        }
-      }
+      const balance = -(await deps.gl.ledger.accountBalance(definition.liabilityAccountId)).balance.scaled;
       const outcome = runReport(createLeaveLiabilityReport(), { asOfDate }, {
         employees: await deps.employees.list(),
         contracts: await deps.contracts.list(),
@@ -957,6 +959,42 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
           return c.json({ error: err.code, message: err.message }, 422);
         }
         throw err;
+      }
+    });
+
+    app.get("/payroll/provisions/:kind/postings", gate("hr.payroll.view"), async (c) => {
+      const kind = parseKind(c.req.param("kind"));
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision kind." }, 404);
+      const postings = await listHrProvisionPostings(kind, { ledger: deps.gl.ledger });
+      const latestStanding = postings.find((posting) => posting.entry.status === "posted")?.asOfDate ?? null;
+      const { liabilityAccountId } = getHrProvisionDefinition(kind);
+      return c.json({
+        postings: postings.map((posting) => ({
+          kind,
+          asOfDate: posting.asOfDate,
+          journalEntryId: posting.entry.id,
+          journalEntryNo: posting.entry.entryNo ?? null,
+          status: posting.entry.status,
+          movement: Money.fromScaled(posting.entry.lines.reduce((sum, line) => (line.accountId === liabilityAccountId ? sum + line.credit.scaled - line.debit.scaled : sum), 0n)).toString(),
+          reversible: posting.entry.status === "posted" && posting.asOfDate === latestStanding,
+          reversalEntryId: posting.reversal?.id ?? null,
+          reversalEntryNo: posting.reversal?.entryNo ?? null,
+          reversalDate: posting.reversal?.date ?? null,
+        })),
+      });
+    });
+
+    app.post("/payroll/provisions/:kind/:asOfDate/reverse", gate("hr.payroll.void"), async (c) => {
+      const kind = parseKind(c.req.param("kind"));
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision kind." }, 404);
+      const asOfDate = c.req.param("asOfDate");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح.", messageEn: "Invalid date." }, 400);
+      try {
+        const { date, memo } = await readReversalRequest(c);
+        const result = await reverseHrProvision(kind, asOfDate, { gl: { ...deps.gl, actor: getAuthContext(c)?.userId ?? "system" } }, { reversalId: idGen(), date, memo });
+        return c.json({ kind, asOfDate, journalEntryId: result.journalEntryId, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null, reversalDate: result.reversal.date }, 201);
+      } catch (err) {
+        return handleDomainError(c, err);
       }
     });
   }

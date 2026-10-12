@@ -323,6 +323,8 @@ export {
   InvalidEmployeeAdvanceTransitionError,
   PayrollRunNotFoundError,
   InvalidPayrollRunError,
+  HrProvisionPostingNotFoundError,
+  HrProvisionLaterPostingError,
   InvalidPayrollRunTransitionError,
   DuplicatePayrollPeriodError,
   NoPayableEmployeesError,
@@ -435,7 +437,8 @@ export type { EndOfServiceSettlement, EndOfServiceSettlementInput } from "./end-
 export { calculateEndOfServiceSettlement } from "./end-of-service.js";
 
 export type { HrProvisionKind, HrProvisionDefinition, PostHrProvisionCommand, PostHrProvisionDeps, HrProvisionResult } from "./post-hr-provision.js";
-export { HR_PROVISION_DEFINITIONS, getHrProvisionDefinition, hrProvisionMovement, postHrProvision } from "./post-hr-provision.js";
+export { HR_PROVISION_DEFINITIONS, getHrProvisionDefinition, hrProvisionMovement, postHrProvision, listHrProvisionPostings, reverseHrProvision } from "./post-hr-provision.js";
+export type { HrProvisionPosting, ReverseHrProvisionOptions, HrProvisionReversalResult } from "./post-hr-provision.js";
 
 export type { PayrollStatutoryFlag, PayrollStatutoryFlagRepository } from "./statutory-flag.js";
 export { PAYROLL_STATUTORY_FLAG_CODE, DEFAULT_PAYROLL_STATUTORY_FLAG } from "./statutory-flag.js";

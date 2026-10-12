@@ -12,7 +12,7 @@ afterAll(() => world?.close());
 
 const setPeriod = (id: string, status: string) => world.sqlite.prepare(`UPDATE fiscal_period SET status = ? WHERE id = ?`).run(status, id);
 const close = (year: number) => world.request("POST", "/gl/year-end-close", { year, retainedEarningsAccountId: "3900" });
-const reopen = (year: number) => world.request("POST", `/gl/year-end-close/${year}/reopen`, {});
+const reopen = (year: number) => world.request("POST", `/gl/year-end-close/${year}/reopen`, { memo: "سبب العكس" });
 
 describe("reopening a closed year", () => {
   it("reverses the closing entry on the year's last day, only while the following year is not closed and December is open", async () => {

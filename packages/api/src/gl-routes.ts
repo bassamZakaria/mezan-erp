@@ -61,7 +61,7 @@ import {
   type CurrencyBalanceGroup,
 } from "@mezan/domain";
 import { tenantDay } from "./tenant-day.js";
-import { readReversalRequest } from "./document-reversal.js";
+import { readReversalRequest, requireReversalReason } from "./document-reversal.js";
 import {
   ReversalPermission,
   createGlJournalEntrySchema,
@@ -511,7 +511,7 @@ export function createGlRoutes(
     }
   });
 
-  app.post("/year-end-close/:year/reopen", gate(ReversalPermission.YearEndClose), async (c) => {
+  app.post("/year-end-close/:year/reopen", gate(ReversalPermission.YearEndClose), requireReversalReason, async (c) => {
     const year = Number(c.req.param("year"));
     if (!Number.isInteger(year) || year < 1900 || year > 9999) {
       return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة.", messageEn: "Invalid year." }, 400);

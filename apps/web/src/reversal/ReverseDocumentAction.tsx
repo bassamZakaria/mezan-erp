@@ -8,10 +8,7 @@ import { ApiError, readError } from "../data/hooks";
 import { TextAreaField, TextField } from "../settings/form-controls";
 import { useAppTranslation } from "../i18n";
 
-export type ActionReversalType = Exclude<
-  ReversalDocumentType,
-  ReversalDocumentType.LandedCost | ReversalDocumentType.DepreciationRun | ReversalDocumentType.RecurringJournalTemplate
->;
+export type ActionReversalType = Exclude<ReversalDocumentType, ReversalDocumentType.LandedCost | ReversalDocumentType.DepreciationRun>;
 
 export interface ReversalTarget {
   readonly id: string;

@@ -22,7 +22,7 @@ const runEntries = (id: string) =>
   world.sqlite.prepare(`SELECT status FROM journal_entry WHERE source_doc_type = 'PAYROLL_RUN' AND source_doc_id = ? AND reverses_entry_id IS NULL ORDER BY created_at, id`).all(id) as { status: string }[];
 const recovered = (advanceId: string) =>
   (world.sqlite.prepare(`SELECT installments_json AS j FROM hr_employee_advance WHERE id = ?`).get(advanceId) as { j: string }).j;
-const unapprove = (id: string, body: Record<string, unknown> = {}) => world.request("POST", `/hr/payroll/runs/${id}/reverse-approval`, body);
+const unapprove = (id: string, body: Record<string, unknown> = {}) => world.request("POST", `/hr/payroll/runs/${id}/reverse-approval`, { memo: "سبب العكس", ...body });
 
 describe("cancelling the approval of a payroll run", () => {
   it("reverses the approval entry of an approved run not yet paid out, gives the advances their recoveries back, and returns the run to calculated", async () => {

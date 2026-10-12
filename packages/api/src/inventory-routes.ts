@@ -35,7 +35,7 @@ import {
   itemStockSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
-import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse } from "./document-reversal.js";
+import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { StockAdjustmentAlreadyReversedError, StockAdjustmentNotFoundError, type AuditSink } from "@mezan/domain";
 
 /**
@@ -424,7 +424,7 @@ export function createInventoryRoutes(
     }
   });
 
-  app.post("/adjustments/:id/reverse", gate(ReversalPermission.StockAdjustment), async (c) => {
+  app.post("/adjustments/:id/reverse", gate(ReversalPermission.StockAdjustment), requireReversalReason, async (c) => {
     const adjustmentId = c.req.param("id");
     const posted = await service.getPostedAdjustment(adjustmentId);
     if (posted) {

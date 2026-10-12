@@ -66,7 +66,7 @@ import {
   withinScope,
 } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
-import { readReversalRequest } from "./document-reversal.js";
+import { readReversalRequest, requireReversalReason } from "./document-reversal.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
@@ -488,7 +488,7 @@ export function createFixedAssetsRoutes(
     }
   });
 
-  app.post("/:id/undo-disposal", gate(ReversalPermission.AssetDisposal), async (c) => {
+  app.post("/:id/undo-disposal", gate(ReversalPermission.AssetDisposal), requireReversalReason, async (c) => {
     try {
       const { date, memo } = await readReversalRequest(c);
       const asset = await undoAssetDisposal(

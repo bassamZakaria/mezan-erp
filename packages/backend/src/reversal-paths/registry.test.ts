@@ -50,6 +50,22 @@ describe("the named reversal path of every entry type the journal refuses", () =
     expect([...declared].sort()).toEqual([...routed].sort());
   });
 
+  const urlOf = (route: string) => route.replace(/:year/, "1999").replace(/:kind/, "leave").replace(/:asOfDate/, "1999-01-01").replace(/:\w+/g, "NO-SUCH-DOCUMENT");
+
+  it.each(Object.entries(DOCUMENT_REVERSAL_PATHS).filter(([, path]) => path.takesReason))("%s refuses a reversal with no reason, in Arabic, before it looks anything up", async (_type, path) => {
+    for (const body of [{}, { memo: "" }, { memo: "   " }, { memo: 7 }]) {
+      const res = await world.request(path.method, urlOf(path.route), body);
+      expect(`${res.status} ${String(res.body.error)}`, JSON.stringify(body)).toBe("422 REVERSAL_REASON_REQUIRED");
+      expect(String(res.body.message)).toMatch(ARABIC);
+      expect(String(res.body.messageEn)).not.toMatch(ARABIC);
+    }
+  });
+
+  it.each(Object.entries(DOCUMENT_REVERSAL_PATHS).filter(([, path]) => !path.takesReason))("%s takes no reason and does not ask for one", async (_type, path) => {
+    const res = await world.request(path.method, urlOf(path.route), {});
+    expect(String(res.body.error)).not.toBe("REVERSAL_REASON_REQUIRED");
+  });
+
   it("covers the twelve entry types that had no way to be reversed", () => {
     for (const type of TWELVE) expect(DOCUMENT_REVERSAL_PATHS[type], type).toBeDefined();
   });

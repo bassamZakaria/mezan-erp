@@ -11,7 +11,7 @@ beforeAll(async () => {
 afterAll(() => world?.close());
 
 const preview = async (asOfDate: string) => (await world.request("GET", `/hr/payroll/provisions/leave/preview?asOfDate=${asOfDate}`)).body as { postedBalance: string; movement: string };
-const reverse = (asOfDate: string) => world.request("POST", `/hr/payroll/provisions/leave/${asOfDate}/reverse`, {});
+const reverse = (asOfDate: string) => world.request("POST", `/hr/payroll/provisions/leave/${asOfDate}/reverse`, { memo: "سبب العكس" });
 
 describe("reversing a leave provision posting", () => {
   it("takes the movement back off 2180 through the provision's own route and lets the same date be provisioned again", async () => {

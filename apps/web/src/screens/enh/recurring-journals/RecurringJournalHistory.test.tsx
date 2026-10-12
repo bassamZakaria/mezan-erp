@@ -17,26 +17,31 @@ function show(onReverse: (runId: string, body: unknown) => { status?: number; bo
   renderWithProviders(<RecurringJournalHistory />, { transport, initialSession: testAdminSession });
 }
 
+async function reverseFromMenu(period: string, reason: string) {
+  fireEvent.click(await screen.findByRole("button", { name: `إجراءات ${period}` }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "عكس قيد الدورة" }));
+  const confirm = await screen.findByRole("button", { name: "عكس قيد الدورة" });
+  expect(confirm).toBeDisabled();
+  fireEvent.change(screen.getByLabelText(/سبب/), { target: { value: reason } });
+  fireEvent.click(confirm);
+}
+
 describe("reversing a recurring run's entry from the run history", () => {
-  it("sends the reversal for that run only, dated today", async () => {
+  it("asks for a reason first, then sends the reversal for that run only, with the reason", async () => {
     const sent: [string, unknown][] = [];
     show((runId, body) => {
       sent.push([runId, body]);
       return { status: 201, body: { runId, entryStatus: "reversed" } };
     });
-    fireEvent.click(await screen.findByRole("button", { name: "إجراءات 2026-09" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "عكس قيد الدورة" }));
-    fireEvent.click(await screen.findByRole("button", { name: "عكس قيد الدورة" }));
+    await reverseFromMenu("2026-09", "قيد مكرر بالخطأ");
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]![0]).toBe("r1");
-    expect(sent[0]![1]).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+    expect(sent[0]![1]).toEqual({ memo: "قيد مكرر بالخطأ" });
   });
 
   it("shows the server's refusal", async () => {
     show(() => ({ status: 409, body: { message: "القيد مسودة ولم يُرحَّل بعد." } }));
-    fireEvent.click(await screen.findByRole("button", { name: "إجراءات 2026-10" }));
-    fireEvent.click(screen.getByRole("menuitem", { name: "عكس قيد الدورة" }));
-    fireEvent.click(await screen.findByRole("button", { name: "عكس قيد الدورة" }));
+    await reverseFromMenu("2026-10", "سبب");
     expect(await screen.findByText("القيد مسودة ولم يُرحَّل بعد.")).toBeInTheDocument();
   });
 });
@@ -67,11 +72,8 @@ describe("a period that was reversed and generated again", () => {
       sent.push(runId);
       return { status: 201, body: { runId, entryStatus: "reversed" } };
     }, [second, first]);
-    const menus = await screen.findAllByRole("button", { name: "إجراءات 2026-09" });
-    expect(menus).toHaveLength(1);
-    fireEvent.click(menus[0]!);
-    fireEvent.click(screen.getByRole("menuitem", { name: "عكس قيد الدورة" }));
-    fireEvent.click(await screen.findByRole("button", { name: "عكس قيد الدورة" }));
+    expect(await screen.findAllByRole("button", { name: "إجراءات 2026-09" })).toHaveLength(1);
+    await reverseFromMenu("2026-09", "سبب العكس");
     await waitFor(() => expect(sent).toEqual(["r1b"]));
   });
 });

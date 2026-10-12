@@ -17,7 +17,7 @@ import {
   type RowMenuItem,
 } from "@mezan/ui";
 import { Money } from "@mezan/domain";
-import { RecurringJournalFrequencyDTO, RecurringJournalTemplateStatusDTO } from "@mezan/contracts";
+import { RecurringJournalFrequencyDTO, RecurringJournalTemplateStatusDTO, ReversalDocumentType } from "@mezan/contracts";
 import {
   useAccounts,
   useAllRecurringJournalSkips,
@@ -31,7 +31,6 @@ import {
   usePartyControlAccounts,
   ApiError,
   useRecurringJournalRuns,
-  useReverseRecurringJournalRun,
   useRecurringJournalSkips,
   useRecurringJournalTemplates,
   useSetRecurringJournalTemplateStatus,
@@ -53,6 +52,7 @@ import { useEntityName } from "../../../lib/entity-names";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
 import { ScreenTabs } from "../../ScreenTabs";
+import { useReverseDocumentAction } from "../../../reversal/ReverseDocumentAction";
 
 const PAGE_SIZE = 25;
 
@@ -595,22 +595,7 @@ interface RecurringJournalHistoryRow {
 
 export function RecurringJournalHistory() {
   const { t } = useAppTranslation();
-  const reverseRun = useReverseRecurringJournalRun();
-  const [reversingId, setReversingId] = useState<string | null>(null);
-  const [reverseError, setReverseError] = useState<string | null>(null);
-
-  async function reverse(runId: string) {
-    if (reversingId !== null) return;
-    setReversingId(runId);
-    setReverseError(null);
-    try {
-      await reverseRun.mutateAsync({ runId, date: todayIso() });
-    } catch (err) {
-      setReverseError(err instanceof ApiError ? err.message : t("recurringJournals.reverseFailed"));
-    } finally {
-      setReversingId(null);
-    }
-  }
+  const reversal = useReverseDocumentAction(ReversalDocumentType.RecurringJournalTemplate);
 
   const runsQuery = useRecurringJournalRuns();
   const skipsQuery = useAllRecurringJournalSkips();
@@ -711,11 +696,6 @@ export function RecurringJournalHistory() {
 
   return (
     <>
-      {reverseError ? (
-        <div role="alert" className="mb-[12px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {reverseError}
-        </div>
-      ) : null}
     <DocumentList<RecurringJournalHistoryRow>
       title={t("recurringJournals.tab.history")}
       columns={columns}
@@ -724,10 +704,8 @@ export function RecurringJournalHistory() {
       rowAction={(row) => {
         const run = row.run;
         if (!run || row.kind === RecurringJournalHistoryKind.Reversed) return null;
-        const items: RowMenuItem[] = [
-          { key: "reverse", label: t("recurringJournals.reverseRunEntry"), tone: "danger" as const, disabled: reversingId === run.id, confirm: { title: t("recurringJournals.reverseRunEntry"), consequence: t("recurringJournals.reverseConfirmBody", { name: nameById.get(run.templateId) ?? run.templateId, period: run.period }), confirmLabel: t("recurringJournals.reverseRunEntry") }, onSelect: () => void reverse(run.id) },
-        ];
-        return <RowMenu items={items} label={t("common.rowActionsFor", { name: run.period })} />;
+        const items = reversal.menuItems({ id: run.id, params: { id: run.id }, subject: `${nameById.get(run.templateId) ?? run.templateId} — ${run.period}` });
+        return items.length > 0 ? <RowMenu items={items} label={t("common.rowActionsFor", { name: run.period })} /> : null;
       }}
       loading={runsQuery.isLoading || skipsQuery.isLoading}
       loadFailed={runsQuery.isError || skipsQuery.isError}
@@ -736,6 +714,7 @@ export function RecurringJournalHistory() {
       onPageChange={setPage}
       emptyState={<EmptyState title={t("recurringJournals.noHistory")} description={t("recurringJournals.subtitle")} />}
     />
+      {reversal.dialog}
     </>
   );
 }

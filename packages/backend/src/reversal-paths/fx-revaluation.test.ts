@@ -28,10 +28,10 @@ describe("reversing an FX revaluation that does not reverse itself", () => {
     const listed = (await world.request("GET", "/revaluation/runs")).body.runs as { entryId: string; status: string; reversible: boolean }[];
     expect(listed.find((r) => r.entryId === entryId)).toMatchObject({ status: "posted", reversible: true });
 
-    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", `/revaluation/runs/${entryId}/reverse`, {}));
+    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", `/revaluation/runs/${entryId}/reverse`, { memo: "سبب العكس" }));
     expect(entry(world, entryId).status).toBe("posted");
 
-    const reversed = await world.request("POST", `/revaluation/runs/${entryId}/reverse`, {});
+    const reversed = await world.request("POST", `/revaluation/runs/${entryId}/reverse`, { memo: "سبب العكس" });
 
     expect(reversed.status, JSON.stringify(reversed.body)).toBe(201);
     expect(entry(world, entryId).status).toBe("reversed");
@@ -41,13 +41,13 @@ describe("reversing an FX revaluation that does not reverse itself", () => {
     expect(auditRows(world, "FX_REVALUATION", entryId, "REVERSE")).toBe(1);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
-    const again = await world.request("POST", `/revaluation/runs/${entryId}/reverse`, {});
+    const again = await world.request("POST", `/revaluation/runs/${entryId}/reverse`, { memo: "سبب العكس" });
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 JOURNAL_ENTRY_ALREADY_REVERSED");
     expect(String(again.body.messageEn)).toContain("already");
   });
 
   it("answers 404 in both languages for an entry that is not a revaluation", async () => {
-    const res = await world.request("POST", "/revaluation/runs/LC-DEMO-1/reverse", {});
+    const res = await world.request("POST", "/revaluation/runs/LC-DEMO-1/reverse", { memo: "سبب العكس" });
     expect(`${res.status} ${String(res.body.error)}`).toBe("404 FX_REVALUATION_RUN_NOT_FOUND");
     expect(typeof res.body.messageEn).toBe("string");
   });

@@ -1636,23 +1636,6 @@ export function useRecurringJournalRuns(limit = 200): UseQueryResult<RecurringJo
   });
 }
 
-export function useReverseRecurringJournalRun() {
-  const { t } = useAppTranslation();
-  const { request } = useApi();
-  const queryClient = useQueryClient();
-  return useMutation<{ runId: string; entryStatus: string }, ApiError, { runId: string; date: string }>({
-    mutationFn: async ({ runId, date }) => {
-      const res = await request(`/gl/recurring/runs/${encodeURIComponent(runId)}/reverse`, { method: "POST", body: JSON.stringify({ date }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("recurringJournals.reverseFailed"), t));
-      return res.json<{ runId: string; entryStatus: string }>();
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["recurring-journal-runs"] });
-      void queryClient.invalidateQueries({ queryKey: ["journal-entries"] });
-    },
-  });
-}
-
 export function useDueRecurringJournals(): UseQueryResult<{ asOfDate: string; due: DueRecurringJournalDTO[] }, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();

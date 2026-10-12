@@ -1,5 +1,5 @@
 import { postingRefusalResponse } from "./posting-refusal.js";
-import { readReversalRequest, reversalRefusalResponse } from "./document-reversal.js";
+import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -1022,7 +1022,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
       });
     });
 
-    app.post("/payroll/provisions/:kind/:asOfDate/reverse", gate(ReversalPermission.HrLeaveProvision), async (c) => {
+    app.post("/payroll/provisions/:kind/:asOfDate/reverse", gate(ReversalPermission.HrLeaveProvision), requireReversalReason, async (c) => {
       const kind = parseKind(c.req.param("kind"));
       if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision kind." }, 404);
       const asOfDate = c.req.param("asOfDate");
@@ -1128,7 +1128,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     }
   });
 
-  app.post("/payroll/runs/:id/reverse-approval", gate(ReversalPermission.PayrollRun), async (c) => {
+  app.post("/payroll/runs/:id/reverse-approval", gate(ReversalPermission.PayrollRun), requireReversalReason, async (c) => {
     try {
       const { date, memo } = await readReversalRequest(c);
       const run = await reversePayrollRunApproval(

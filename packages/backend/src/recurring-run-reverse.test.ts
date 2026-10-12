@@ -49,7 +49,7 @@ describe("reversing a recurring run", () => {
     );
     for (let i = 0; i < 205; i += 1) insert.run(`RRR-FILL-${i}`, `RRR-TEMPLATE-${i}`, `RRR-ENTRY-${i}`);
 
-    const refused = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-06-30" });
+    const refused = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-06-30", memo: "سبب العكس" });
 
     expect(`${refused.status} ${String(refused.body.error)}`).toBe("422 REVERSAL_DATE_BEFORE_ORIGINAL");
     world.sqlite.prepare(`DELETE FROM recurring_journal_run WHERE id LIKE 'RRR-FILL-%'`).run();
@@ -59,7 +59,7 @@ describe("reversing a recurring run", () => {
     const run = julyRun();
     expect(await dueFor(run.templateId)).not.toContain("2026-07");
 
-    const reversed = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-10-05" });
+    const reversed = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-10-05", memo: "سبب العكس" });
     expect(reversed.status, JSON.stringify(reversed.body)).toBe(201);
     expect((await recurringFindings("fp-2026-07")).find((f) => f.ref === `${run.templateId}:2026-07`)).toMatchObject({ passed: false, state: "reversed" });
     expect(await dueFor(run.templateId)).toContain("2026-07");
@@ -89,7 +89,7 @@ describe("reversing a recurring run", () => {
     const listed = ((await world.request("GET", "/gl/recurring/runs?limit=500")).body as unknown as Record<string, unknown>[]).filter((r) => r.templateId === run.templateId && r.period === "2026-07");
     expect(listed.map((r) => r.generation).sort()).toEqual([1, 2]);
 
-    const superseded = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-10-06" });
+    const superseded = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-10-06", memo: "سبب العكس" });
     expect(`${superseded.status} ${String(superseded.body.error)}`).toBe("409 JOURNAL_ENTRY_ALREADY_REVERSED");
   });
 
@@ -97,7 +97,7 @@ describe("reversing a recurring run", () => {
     const draft = world.sqlite
       .prepare(`SELECT r.id FROM recurring_journal_run r JOIN journal_entry e ON e.id = r.journal_entry_id WHERE e.status = 'draft' LIMIT 1`)
       .get() as { id: string };
-    const refused = await world.request("POST", `/gl/recurring/runs/${draft.id}/reverse`, {});
+    const refused = await world.request("POST", `/gl/recurring/runs/${draft.id}/reverse`, { memo: "سبب العكس" });
     expect(`${refused.status} ${String(refused.body.error)}`).toBe("409 JOURNAL_ENTRY_NOT_POSTED");
     expect(String(refused.body.message)).toMatch(/[\u0600-\u06FF]/);
     expect(String(refused.body.messageEn)).toContain("not posted");

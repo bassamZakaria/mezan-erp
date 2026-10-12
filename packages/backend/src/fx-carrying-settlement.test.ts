@@ -167,7 +167,7 @@ describe("a foreign invoice settled after a revaluation that does not reverse it
     await rate("fx-settle", "48.70", "2026-09-10");
     await collect("v-all", "48700", "al-1");
 
-    const refused = await world.request("POST", `/revaluation/runs/${runId}/reverse`, {});
+    const refused = await world.request("POST", `/revaluation/runs/${runId}/reverse`, { memo: "سبب العكس" });
     expect(`${refused.status} ${String(refused.body.error)}`).toBe("409 FX_REVALUATION_SHARE_CONSUMED");
     expect(String(refused.body.message)).toMatch(/[؀-ۿ]/);
 

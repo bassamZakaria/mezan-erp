@@ -21,7 +21,7 @@ describe("a recurring period whose run was reversed", () => {
     const standing = await world.request("POST", `/gl/recurring/templates/${run.templateId}/skip`, { period: "2026-07", note: "لا يلزم" });
     expect(`${standing.status} ${String(standing.body.error)}`).toBe("409 RECURRING_JOURNAL_PERIOD_ALREADY_GENERATED");
 
-    expect((await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-10-05" })).status).toBe(201);
+    expect((await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-10-05", memo: "سبب العكس" })).status).toBe(201);
     expect(await dueFor()).toContain("2026-07");
 
     const skipped = await world.request("POST", `/gl/recurring/templates/${run.templateId}/skip`, { period: "2026-07", note: "أُلغي إيجار يوليو" });

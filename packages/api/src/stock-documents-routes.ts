@@ -38,7 +38,7 @@ import {
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
-import { readReversalRequest, recordDocumentReversal } from "./document-reversal.js";
+import { readReversalRequest, recordDocumentReversal, requireReversalReason } from "./document-reversal.js";
 import type { AuditSink } from "@mezan/domain";
 import { tenantDay } from "./tenant-day.js";
 
@@ -294,7 +294,7 @@ export function createStockAdjustmentsRoutes(
     }
   });
 
-  app.post("/:id/reverse", gate(ReversalPermission.StockAdjustment), async (c) => {
+  app.post("/:id/reverse", gate(ReversalPermission.StockAdjustment), requireReversalReason, async (c) => {
     try {
       const id = c.req.param("id");
       const existing = await service.findById(id);

@@ -7,7 +7,7 @@ import { REVERSAL_SCREENS } from "./reversal-screens";
 import { reversalAr, reversalEn } from "./strings";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const OWN_HOOK = new Set<ReversalDocumentType>([ReversalDocumentType.LandedCost, ReversalDocumentType.DepreciationRun, ReversalDocumentType.RecurringJournalTemplate]);
+const OWN_HOOK = new Set<ReversalDocumentType>([ReversalDocumentType.LandedCost, ReversalDocumentType.DepreciationRun]);
 const WITHOUT_SCREEN: Partial<Record<ReversalDocumentType, string>> = {
   [ReversalDocumentType.Adjustment]: "a direct stock post has no list in the web app; documents are reversed from the stock adjustments screen",
 };

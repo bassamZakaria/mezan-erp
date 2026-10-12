@@ -25,10 +25,10 @@ describe("reversing a stock adjustment document", () => {
     expect(position().qty - before.position.qty).toBe(10n * EGP);
     expect(world.balance("1200") - before.inventory).toBe(10n * EGP);
     await expectJournalRouteClosed(world, "ADJ-REV-1");
-    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/reverse", {}));
+    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/reverse", { memo: "سبب العكس" }));
     expect(position().qty - before.position.qty).toBe(10n * EGP);
 
-    const reversed = await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/reverse", {});
+    const reversed = await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/reverse", { memo: "سبب العكس" });
 
     expect(reversed.status, JSON.stringify(reversed.body)).toBe(201);
     expect((reversed.body.original as { status: string }).status).toBe("reversed");
@@ -39,7 +39,7 @@ describe("reversing a stock adjustment document", () => {
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
     expect(await inventoryAsOf("2026-08-31")).toBe("0.000000");
 
-    const again = await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/reverse", {});
+    const again = await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/reverse", { memo: "سبب العكس" });
     expect(again.status, JSON.stringify(again.body)).toBe(409);
     expect(typeof again.body.messageEn).toBe("string");
   });
@@ -48,7 +48,7 @@ describe("reversing a stock adjustment document", () => {
     const before = { position: position(), inventory: world.balance("1200") };
     await world.request("POST", "/inventory/stock-adjustments/draft", { id: "ADJ-REV-2", date: "2026-08-19", lines: [line("OUT", "3")] });
     expect((await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-2/confirm", {})).status).toBe(200);
-    expect((await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-2/reverse", {})).status).toBe(201);
+    expect((await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-2/reverse", { memo: "سبب العكس" })).status).toBe(201);
     expect(position()).toEqual(before.position);
     expect(world.balance("1200")).toBe(before.inventory);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
@@ -62,9 +62,9 @@ describe("reversing an adjustment posted through the direct route", () => {
     expect(posted.status, JSON.stringify(posted.body)).toBe(201);
     expect(before.position.qty - position().qty).toBe(2n * EGP);
     await expectJournalRouteClosed(world, "ADJ-DIRECT-1");
-    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", "/inventory/adjustments/ADJ-DIRECT-1/reverse", {}));
+    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", "/inventory/adjustments/ADJ-DIRECT-1/reverse", { memo: "سبب العكس" }));
 
-    const reversed = await world.request("POST", "/inventory/adjustments/ADJ-DIRECT-1/reverse", {});
+    const reversed = await world.request("POST", "/inventory/adjustments/ADJ-DIRECT-1/reverse", { memo: "سبب العكس" });
 
     expect(reversed.status, JSON.stringify(reversed.body)).toBe(201);
     expect(position()).toEqual(before.position);
@@ -73,7 +73,7 @@ describe("reversing an adjustment posted through the direct route", () => {
     expect(auditRows(world, "STOCK_ADJUSTMENT", "ADJ-DIRECT-1", "REVERSE")).toBe(1);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
-    const again = await world.request("POST", "/inventory/adjustments/ADJ-DIRECT-1/reverse", {});
+    const again = await world.request("POST", "/inventory/adjustments/ADJ-DIRECT-1/reverse", { memo: "سبب العكس" });
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 STOCK_ADJUSTMENT_ALREADY_REVERSED");
     expect(typeof again.body.messageEn).toBe("string");
   });
@@ -81,7 +81,7 @@ describe("reversing an adjustment posted through the direct route", () => {
   it("sends an adjustment that has a document to that document's own reverse", async () => {
     await world.request("POST", "/inventory/stock-adjustments/draft", { id: "ADJ-REV-3", date: "2026-08-19", lines: [line("OUT", "1")] });
     await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-3/confirm", {});
-    const res = await world.request("POST", "/inventory/adjustments/ADJ-REV-3/reverse", {});
+    const res = await world.request("POST", "/inventory/adjustments/ADJ-REV-3/reverse", { memo: "سبب العكس" });
     expect(`${res.status} ${String(res.body.error)}`).toBe("409 STOCK_ADJUSTMENT_HAS_DOCUMENT");
     expect(typeof res.body.messageEn).toBe("string");
   });

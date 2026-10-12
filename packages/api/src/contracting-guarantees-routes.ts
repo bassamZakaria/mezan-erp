@@ -1,7 +1,7 @@
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
-import { readReversalRequest, reversalRefusalResponse } from "./document-reversal.js";
+import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import {
   GuaranteeAmountExceedsValueError,
   GuaranteeBankAccountInvalidError,
@@ -337,7 +337,7 @@ export function createContractingGuaranteesRoutes(
     );
   });
 
-  app.post("/:id/reverse-last", gate(ReversalPermission.LetterOfGuarantee), async (c) => {
+  app.post("/:id/reverse-last", gate(ReversalPermission.LetterOfGuarantee), requireReversalReason, async (c) => {
     const { date, memo } = await readReversalRequest(c);
     return act(c, (id) => service.reverseLastPosting(id, { reversalId: randomUUID(), date, memo, userId: actorId(c) }));
   });

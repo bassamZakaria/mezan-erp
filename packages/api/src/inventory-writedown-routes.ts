@@ -19,7 +19,7 @@ import {
 import type { WacSnapshotRepository, StockLedgerRepository } from "@mezan/domain";
 import { ReversalPermission, createWritedownRunSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
-import { readReversalRequest, reversalRefusalResponse } from "./document-reversal.js";
+import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
@@ -156,7 +156,7 @@ export function createInventoryWritedownRoutes(
     }
   });
 
-  app.post("/:id/reverse", gate(ReversalPermission.WritedownRun), async (c) => {
+  app.post("/:id/reverse", gate(ReversalPermission.WritedownRun), requireReversalReason, async (c) => {
     try {
       const { date, memo } = await readReversalRequest(c);
       const run = await reverseWritedownRun(

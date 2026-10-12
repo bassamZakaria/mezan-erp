@@ -1,4 +1,4 @@
-import type { Context } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
 import {
   JournalEntryAlreadyReversedError,
   JournalEntryNotFoundError,
@@ -25,6 +25,19 @@ export function reversalRefusalResponse(c: Context, err: unknown): Response | nu
   }
   return null;
 }
+
+const REVERSAL_REASON_REQUIRED = {
+  error: "REVERSAL_REASON_REQUIRED",
+  message: "اكتب سبب العكس؛ لا يُعكس مستند مرحَّل بلا سبب مسجَّل.",
+  messageEn: "Give the reason for the reversal; a posted document is not reversed without one on record.",
+} as const;
+
+/** INVARIANT: mounted on every registry route whose `takesReason` is true (reversal-paths/registry.test.ts) — the screen's own check is a convenience, this is the control. */
+export const requireReversalReason: MiddlewareHandler = async (c, next) => {
+  const body = (await c.req.json().catch(() => null)) as { memo?: unknown } | null;
+  if (typeof body?.memo !== "string" || body.memo.trim() === "") return c.json(REVERSAL_REASON_REQUIRED, 422);
+  await next();
+};
 
 export interface ReversalRequest {
   readonly date: string | undefined;

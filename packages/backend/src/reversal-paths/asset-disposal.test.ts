@@ -23,10 +23,10 @@ describe("undoing an asset disposal", () => {
     const [posting] = disposalEntries();
     expect(posting).toMatchObject({ status: "posted" });
     await expectJournalRouteClosed(world, posting!.id);
-    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", "/assets/ASSET-DEMO-5/undo-disposal", {}));
+    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", "/assets/ASSET-DEMO-5/undo-disposal", { memo: "سبب العكس" }));
     expect(asset().status).toBe("disposed");
 
-    const undone = await world.request("POST", "/assets/ASSET-DEMO-5/undo-disposal", {});
+    const undone = await world.request("POST", "/assets/ASSET-DEMO-5/undo-disposal", { memo: "سبب العكس" });
 
     expect(undone.status, JSON.stringify(undone.body)).toBe(200);
     expect(undone.body).toMatchObject({ id: "ASSET-DEMO-5", status: "active" });
@@ -36,7 +36,7 @@ describe("undoing an asset disposal", () => {
     expect(auditRows(world, "ASSET", "ASSET-DEMO-5", "UNDO_DISPOSAL")).toBe(1);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
-    const again = await world.request("POST", "/assets/ASSET-DEMO-5/undo-disposal", {});
+    const again = await world.request("POST", "/assets/ASSET-DEMO-5/undo-disposal", { memo: "سبب العكس" });
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 ASSET_NOT_DISPOSED");
     expect(typeof again.body.messageEn).toBe("string");
 
@@ -49,7 +49,7 @@ describe("undoing an asset disposal", () => {
     await world.request("POST", "/assets/ASSET-DEMO-4/dispose", { date: "2026-08-05" });
     const datesBefore = world.sqlite.prepare(`SELECT COUNT(*) AS n FROM journal_entry WHERE source_doc_type = 'ASSET_DISPOSAL' AND source_doc_id = 'ASSET-DEMO-4' AND status = 'posted' AND reverses_entry_id IS NULL`).get() as { n: number };
     expect(datesBefore.n).toBe(1);
-    expect((await world.request("POST", "/assets/ASSET-DEMO-4/undo-disposal", {})).status).toBe(200);
+    expect((await world.request("POST", "/assets/ASSET-DEMO-4/undo-disposal", { memo: "سبب العكس" })).status).toBe(200);
     const drafted = await world.request("POST", "/assets/depreciation/runs", { period: "2026-08" });
     expect(drafted.status, JSON.stringify(drafted.body)).toBe(201);
     expect((drafted.body.lines as { assetId: string }[]).some((l) => l.assetId === "ASSET-DEMO-4")).toBe(true);

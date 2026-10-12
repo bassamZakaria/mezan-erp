@@ -1,4 +1,4 @@
-import { readReversalRequest, reversalRefusalResponse } from "./document-reversal.js";
+import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -371,7 +371,7 @@ export function createContractingSiteRoutes(
 
   // --- عهدة المواد ---
 
-  app.post("/consumptions/:id/reverse", gate(ReversalPermission.MaterialConsumption), async (c) => {
+  app.post("/consumptions/:id/reverse", gate(ReversalPermission.MaterialConsumption), requireReversalReason, async (c) => {
     try {
       const { date, memo } = await readReversalRequest(c);
       const consumption = await service.reverseConsumption(c.req.param("id"), { reversalId: randomUUID(), date, memo, actor: callerUserId(c) ?? null });
@@ -466,7 +466,7 @@ export function createContractingSiteRoutes(
 
   // --- الاستثناءات والتجميعات ---
 
-  app.post("/equipment-logs/:id/reverse", gate(ReversalPermission.EquipmentLog), async (c) => {
+  app.post("/equipment-logs/:id/reverse", gate(ReversalPermission.EquipmentLog), requireReversalReason, async (c) => {
     try {
       const { date, memo } = await readReversalRequest(c);
       const log = await service.reverseEquipmentLog(c.req.param("id"), { reversalId: randomUUID(), date, memo, actor: callerUserId(c) ?? null });

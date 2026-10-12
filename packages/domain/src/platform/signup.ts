@@ -111,6 +111,7 @@ export interface SignupRequestRepository {
   provisioningFence(tokenHash: string, claimId: string): Promise<number | null>;
   releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
   followOwnerEmail(code: string, before: string, after: string): Promise<void>;
+  /** Retires every request for the code AND drops any provisioning claim held on them, so a holder mid-provision loses its turn. */
   releaseByCode(code: string): Promise<void>;
 }
 

@@ -1,19 +1,16 @@
-import { existsSync, mkdirSync, renameSync } from "node:fs";
-import path from "node:path";
 import type { PlatformHandle } from "@mezan/backend";
 import { withSqliteTransaction } from "@mezan/persistence";
 import {
+  AuditSeverityCode,
   cancelSubscription,
-  InvalidTenantTransitionError,
   recordSecurityEvent,
-  releasedTenantCode,
   releaseTenant,
-  tenantDbFile,
-  TenantStatusCode,
   type Tenant,
 } from "@mezan/domain";
 import { platformActor } from "./provision-tenant.js";
-import { tenantDbPath, type TenantRouter } from "./tenant-router.js";
+import type { TenantRouter } from "./tenant-router.js";
+
+export const TENANT_RELEASED_AUDIT = "TENANT_RELEASED";
 
 export interface ReleaseTenantDeps {
   readonly platform: PlatformHandle;
@@ -22,51 +19,35 @@ export interface ReleaseTenantDeps {
   readonly now: () => Date;
 }
 
-const SQLITE_SIDE_FILES = ["", "-wal", "-shm"] as const;
-
-function moveDatabase(from: string, to: string): void {
-  mkdirSync(path.dirname(to), { recursive: true });
-  for (const suffix of SQLITE_SIDE_FILES) {
-    if (existsSync(`${from}${suffix}`)) renameSync(`${from}${suffix}`, `${to}${suffix}`);
-  }
-}
-
-// REQUIRED ORDERING: the database file is moved aside BEFORE the platform row
-// lets go of the code. The next signup under that code opens `tenants/<code>.db`;
-// if the old file were still there it would open the old company's books.
-// A failure after the move leaves a provisioning tenant with no file, which a
-// second release, or a provisioning retry, completes.
+// REQUIRED ORDERING: the status check, the claim drop and the archive are ONE
+// write transaction, and the tenant's backend is closed only after it commits.
+// A provisioning that activated first makes `releaseTenant` throw before
+// anything of the live tenant is touched. The database file is never moved.
 export async function releaseProvisioningTenant(deps: ReleaseTenantDeps, input: { readonly tenant: Tenant; readonly actorId: string }): Promise<Tenant> {
   const { platform } = deps;
-  const tenant = await platform.stores.tenants.findById(input.tenant.id);
-  if (!tenant || tenant.status !== TenantStatusCode.Provisioning) {
-    throw new InvalidTenantTransitionError(tenant?.status ?? input.tenant.status, TenantStatusCode.Archived);
-  }
   const at = deps.now().toISOString();
-  await deps.router.evict(tenant.code);
-  moveDatabase(tenantDbPath(deps.dataDir, tenant.dbFile), tenantDbPath(deps.dataDir, tenantDbFile(releasedTenantCode(tenant.id))));
-
-  const released = await withSqliteTransaction(
+  const { before, released } = await withSqliteTransaction(
     platform.stores.sqlite,
     async () => {
-      const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
+      const after = await releaseTenant({ id: input.tenant.id, now: at }, platform.stores.tenants);
+      const live = await platform.stores.subscriptions.findLiveByTenant(after.id);
       if (live) await cancelSubscription({ id: live.id, now: at }, platform.stores.subscriptions);
-      await platform.stores.signupRequests.releaseByCode(tenant.code);
-      const after = await releaseTenant({ id: tenant.id, now: at }, platform.stores.tenants);
+      await platform.stores.signupRequests.releaseByCode(input.tenant.code);
       await recordSecurityEvent(platform.audit, {
         module: "platform",
         entityType: "PLATFORM",
-        entityId: tenant.id,
-        action: "TENANT_RELEASED",
+        entityId: after.id,
+        action: TENANT_RELEASED_AUDIT,
         actor: platformActor(input.actorId),
-        severity: "CRITICAL",
+        severity: AuditSeverityCode.Critical,
         timestamp: at,
-        details: { code: tenant.code, releasedAs: after.code, cancelledSubscriptionId: live?.id ?? null },
+        details: { code: input.tenant.code, releasedAs: after.code, cancelledSubscriptionId: live?.id ?? null },
       });
-      return after;
+      return { before: input.tenant, released: after };
     },
     "BEGIN IMMEDIATE",
   );
-  deps.router.invalidate(tenant.code);
+  await deps.router.evict(released.id);
+  deps.router.invalidate(before.code);
   return released;
 }

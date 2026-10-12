@@ -172,10 +172,12 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
   test("each tenant has its own database file on disk, and A's customer is written only into A's", async ({ request }) => {
     const token = await platformToken(request);
     const response = await request.get(`${SAAS_API_URL}/api/platform/tenants`, { headers: { authorization: `Bearer ${token}` } });
-    const listed = (await response.json()) as { tenant: { code: string; dbFile: string } }[];
-    const dbFileOf = (code: string): string => listed.find((row) => row.tenant.code === code)?.tenant.dbFile ?? "";
-    expect(dbFileOf(tenantA.code)).toBe(`tenants/${tenantA.code}.db`);
-    expect(dbFileOf(tenantB.code)).toBe(`tenants/${tenantB.code}.db`);
+    const listed = (await response.json()) as { tenant: { id: string; code: string; dbFile: string } }[];
+    const rowOf = (code: string) => listed.find((row) => row.tenant.code === code)?.tenant;
+    const dbFileOf = (code: string): string => rowOf(code)?.dbFile ?? "";
+    expect(dbFileOf(tenantA.code)).toBe(`tenants/${rowOf(tenantA.code)?.id}.db`);
+    expect(dbFileOf(tenantB.code)).toBe(`tenants/${rowOf(tenantB.code)?.id}.db`);
+    expect(dbFileOf(tenantA.code)).not.toBe(dbFileOf(tenantB.code));
 
     const platformDir = process.env[PLATFORM_DIR_ENV] ?? "";
     expect(platformDir, `${PLATFORM_DIR_ENV} names the directory the server was started on`).not.toBe("");

@@ -43,6 +43,12 @@ export interface TenantRepository {
    * another writer moved the owner first; nothing is written then.
    */
   compareAndSetOwner(before: Tenant, after: Tenant, sideEffect: () => Promise<void>): Promise<boolean>;
+  /**
+   * Writes `after`'s status and code only while the stored row still carries
+   * `before`'s. False when another writer moved the tenant first.
+   */
+  compareAndSetStatus(before: Tenant, after: Tenant): Promise<boolean>;
+  setDbFile(id: string, from: string, to: string): Promise<boolean>;
 }
 
 export interface CreateTenantCommand {
@@ -54,13 +60,20 @@ export interface CreateTenantCommand {
   readonly now: string;
 }
 
-export function tenantDbFile(code: string): string {
-  return `tenants/${code}.db`;
+const FILE_SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
+// SECURITY: a tenant's database is named by its id, never its code. A code is
+// handed to the next company once a tenant is released; an id never is, so a
+// reused code can never open another company's books.
+export function tenantDbFile(tenantId: string): string {
+  if (!FILE_SAFE_ID.test(tenantId)) throw new InvalidTenantError(["معرّف المنشأة لا يصلح اسمًا لملف قاعدة البيانات"]);
+  return `tenants/${tenantId}.db`;
 }
 
 function validate(cmd: CreateTenantCommand): string[] {
   const reasons: string[] = [];
   if (cmd.id.trim() === "") reasons.push("المعرّف مطلوب");
+  else if (!FILE_SAFE_ID.test(cmd.id)) reasons.push("معرّف المنشأة لا يصلح اسمًا لملف قاعدة البيانات");
   if (!isValidSlug(cmd.code)) reasons.push("الرمز يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية");
   const nameProblem = companyNameProblem(cmd.nameAr);
   if (nameProblem === CompanyNameProblem.Empty) reasons.push("الاسم بالعربية مطلوب");
@@ -84,7 +97,7 @@ export async function createTenant(cmd: CreateTenantCommand, repo: TenantReposit
     ownerUserId: null,
     ownerContactVerified: true,
     status: TenantStatusCode.Provisioning,
-    dbFile: tenantDbFile(cmd.code),
+    dbFile: tenantDbFile(cmd.id),
     createdAt: now,
     updatedAt: now,
   };
@@ -118,8 +131,14 @@ async function transition(
     throw new InvalidTenantTransitionError(current.status, to);
   }
   const next: Tenant = { ...current, status: to, updatedAt: now };
-  await repo.save(next);
-  return next;
+  return moved(current, next, repo);
+}
+
+async function moved(current: Tenant, next: Tenant, repo: TenantRepository): Promise<Tenant> {
+  if (await repo.compareAndSetStatus(current, next)) return next;
+  const latest = await repo.findById(current.id);
+  if (!latest) throw new TenantNotFoundError(current.id);
+  throw new InvalidTenantTransitionError(latest.status, next.status);
 }
 
 export const activateTenant = (cmd: TenantTransitionCommand, repo: TenantRepository) => transition(cmd, TenantStatusCode.Active, repo, [TenantStatusCode.Provisioning]);
@@ -131,17 +150,14 @@ export function releasedTenantCode(id: string): string {
   return `released-${id}`;
 }
 
-/** REQUIRED ORDERING: the caller moves the tenant's database file to the released path before this is written. */
 export async function releaseTenant(cmd: TenantTransitionCommand, repo: TenantRepository): Promise<Tenant> {
   const now = isoTimestamp(cmd.now);
   if (!now) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
   const current = await repo.findById(cmd.id);
   if (!current) throw new TenantNotFoundError(cmd.id);
   if (current.status !== TenantStatusCode.Provisioning) throw new InvalidTenantTransitionError(current.status, TenantStatusCode.Archived);
-  const code = releasedTenantCode(current.id);
-  const next: Tenant = { ...current, status: TenantStatusCode.Archived, code, dbFile: tenantDbFile(code), updatedAt: now };
-  await repo.save(next);
-  return next;
+  const next: Tenant = { ...current, status: TenantStatusCode.Archived, code: releasedTenantCode(current.id), updatedAt: now };
+  return moved(current, next, repo);
 }
 
 export interface TenantOwnerAccount {

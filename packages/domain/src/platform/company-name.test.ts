@@ -16,6 +16,8 @@ function tenants(): TenantRepository & { rows: Tenant[] } {
     async list() { return rows; },
     async save(t) { rows.push(t); },
     async compareAndSetOwner() { return false; },
+    async compareAndSetStatus() { return false; },
+    async setDbFile() { return false; },
   };
 }
 

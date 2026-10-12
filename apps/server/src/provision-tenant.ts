@@ -2,6 +2,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import { activateTenant, createTenant, normalizeEmail, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
 import { OwnerPinResetOutcome, TenantOwnerAccountNotFoundError, type PlatformHandle } from "@mezan/backend";
 import { tenantDTOOf, type ProvisionResultDTO } from "@mezan/contracts";
+import { withSqliteTransaction } from "@mezan/persistence";
 import type { TenantRouter } from "./tenant-router.js";
 
 export interface ProvisionTenantCommand {
@@ -130,36 +131,48 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
       }
     }
 
-    const live = await deps.platform.stores.subscriptions.findLiveByTenant(tenant.id);
+    // REQUIRED ORDERING: each platform write re-checks the claim and the
+    // tenant's status inside the write transaction that makes it. A release
+    // that archived the tenant meanwhile must find nothing started after it.
+    const { tenants, subscriptions, plans, sqlite } = deps.platform.stores;
+    const stillProvisionable = async (): Promise<Tenant> => {
+      await stillOurs();
+      const latest = await tenants.findById(tenant.id);
+      if (!latest || latest.status === TenantStatusCode.Archived) throw new ProvisioningSupersededError();
+      return latest;
+    };
+    const live = await subscriptions.findLiveByTenant(tenant.id);
     await stillOurs();
-    if (!live) {
-      await startSubscription(
-        {
-          id: randomUUID(),
-          tenantId: tenant.id,
-          planId: cmd.planId,
-          billingCycle: cmd.billingCycle,
-          trial: cmd.trial,
-          now: nowIso,
-        },
-        deps.platform.stores.subscriptions,
-        deps.platform.stores.plans,
-      );
-    }
+    await withSqliteTransaction(
+      sqlite,
+      async () => {
+        await stillProvisionable();
+        if (live || (await subscriptions.findLiveByTenant(tenant.id))) return;
+        await startSubscription(
+          { id: randomUUID(), tenantId: tenant.id, planId: cmd.planId, billingCycle: cmd.billingCycle, trial: cmd.trial, now: nowIso },
+          subscriptions,
+          plans,
+        );
+      },
+      "BEGIN IMMEDIATE",
+    );
 
     await deps.router
       .reconcileOwner(tenant.code)
       .catch((err: unknown) => console.error(`[cloud] owner of "${tenant.code}" could not be linked while provisioning`, err));
-    await stillOurs();
-    if (tenant.status === TenantStatusCode.Provisioning) {
-      const latest = await deps.platform.stores.tenants.findById(tenant.id);
-      tenant =
-        latest?.status === TenantStatusCode.Active ? latest : await activateTenant({ id: tenant.id, now: nowIso }, deps.platform.stores.tenants);
-    }
+    tenant = await withSqliteTransaction(
+      sqlite,
+      async () => {
+        const latest = await stillProvisionable();
+        return latest.status === TenantStatusCode.Provisioning ? activateTenant({ id: tenant.id, now: nowIso }, tenants) : latest;
+      },
+      "BEGIN IMMEDIATE",
+    );
 
     return { tenant, adminEmail: cmd.ownerEmail, adminPin };
   } catch (err) {
     if (err instanceof TenantCodeTakenError || err instanceof ProvisioningSupersededError) throw err;
+    if (deps.stillOurs && !(await deps.stillOurs().catch(() => true))) throw new ProvisioningSupersededError();
     throw new TenantProvisioningError(tenant.id, err);
   }
 }

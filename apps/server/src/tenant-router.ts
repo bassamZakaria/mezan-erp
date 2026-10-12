@@ -9,6 +9,7 @@ import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { tenantIsServed, TenantStatusCode } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { createOwnerContact } from "./owner-contact.js";
+import { settleTenantDbFile } from "./tenant-db-file.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
 
@@ -59,7 +60,7 @@ export interface TenantRouter {
   readonly app: Hono;
   backendFor(code: string): Promise<BackendHandle>;
   reconcileOwner(code: string): Promise<void>;
-  evict(code: string): Promise<void>;
+  evict(tenantId: string): Promise<void>;
   invalidate(code: string): void;
   sweep(): Promise<void>;
   close(): Promise<void>;
@@ -124,15 +125,26 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       companyOwner: hooks.companyOwner,
     });
   });
+  // SECURITY: open backends are keyed by tenant id, never by code. A code is
+  // reused once its tenant is released; keyed by code, the next company under
+  // that code could be handed the previous company's open database.
+  const openCodes = new Map<string, string>();
   const cache: BackendCache<BackendHandle> = createBackendCache({
     idleMs: options.idleMs,
     sweepEveryMs: options.sweepEveryMs,
     now: options.now ? () => options.now!().getTime() : undefined,
-    onEvict: (code) => { resolvers.delete(code); },
-    open: async (code) => {
-      const tenant = await options.platform.stores.tenants.findByCode(code);
-      if (!tenant) throw new Error("TENANT_NOT_FOUND");
+    onEvict: (tenantId) => {
+      const code = openCodes.get(tenantId);
+      openCodes.delete(tenantId);
+      if (code) resolvers.delete(code);
+    },
+    open: async (tenantId) => {
+      const stored = await options.platform.stores.tenants.findById(tenantId);
+      if (!stored) throw new Error("TENANT_NOT_FOUND");
+      const tenant = await settleTenantDbFile(options.platform.stores.tenants, options.dataDir, stored);
+      const { code } = tenant;
       const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(code));
+      openCodes.set(tenantId, code);
       await ownerContact.reconcile(code, backend).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled on open`, err));
       return backend;
     },
@@ -141,7 +153,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   async function reconcileOwner(code: string): Promise<void> {
     const tenant = await options.platform.stores.tenants.findByCode(code);
     if (!tenant || tenant.status === TenantStatusCode.Archived) return;
-    await ownerContact.reconcile(code, await cache.get(code));
+    await ownerContact.reconcile(code, await cache.get(tenant.id));
   }
 
   const app = new Hono();
@@ -183,7 +195,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     if (!tenant || !tenantIsServed(tenant)) {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
-    const backend = await cache.get(code);
+    const backend = await cache.get(tenant.id);
     const prefixLen = c.req.routePath.length - REST_PATTERN.length;
     const subPath = c.req.path.slice(prefixLen) || "/";
     const targetUrl = new URL(`${subPath}${new URL(c.req.raw.url).search}`, c.req.raw.url);
@@ -195,14 +207,14 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     async backendFor(code) {
       const tenant = await options.platform.stores.tenants.findByCode(code);
       if (!tenant || tenant.status === TenantStatusCode.Archived) throw new Error("TENANT_NOT_FOUND");
-      return cache.get(code);
+      return cache.get(tenant.id);
     },
     reconcileOwner,
-    evict: (code) => cache.evict(code),
+    evict: (tenantId) => cache.evict(tenantId),
     invalidate(code) { resolvers.get(code)?.invalidate(); },
     sweep: () => cache.sweep(),
     close: () => cache.close(),
-    openTenants: () => cache.openCodes(),
+    openTenants: () => cache.openCodes().flatMap((tenantId) => openCodes.get(tenantId) ?? []),
   };
 }
 

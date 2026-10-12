@@ -29,6 +29,13 @@ function memoryRepo(seed: Tenant[] = []): TenantRepository & { rows: Map<string,
     async list() { return [...rows.values()]; },
     async save(t) { rows.set(t.id, t); },
     async compareAndSetOwner() { return false; },
+    async compareAndSetStatus(before, after) {
+      const stored = rows.get(after.id);
+      if (!stored || stored.status !== before.status || stored.code !== before.code) return false;
+      rows.set(after.id, { ...stored, status: after.status, code: after.code, updatedAt: after.updatedAt });
+      return true;
+    },
+    async setDbFile() { return false; },
   };
 }
 
@@ -36,14 +43,20 @@ const NOW = "2026-09-13T10:00:00.000Z";
 const cmd = { id: "T1", code: "cyag", nameAr: "سياج", nameEn: "Cyag", ownerEmail: " Owner@Cyag.EG ", now: NOW };
 
 describe("createTenant", () => {
-  it("creates a provisioning tenant with a derived db file and a normalised email", async () => {
+  it("creates a provisioning tenant whose database file is named by its id, and a normalised email", async () => {
     const repo = memoryRepo();
     const t = await createTenant(cmd, repo);
     expect(t).toEqual({
       id: "T1", code: "cyag", nameAr: "سياج", nameEn: "Cyag", ownerEmail: "owner@cyag.eg", ownerUserId: null, ownerContactVerified: true,
-      status: "provisioning", dbFile: "tenants/cyag.db", createdAt: NOW, updatedAt: NOW,
+      status: "provisioning", dbFile: "tenants/T1.db", createdAt: NOW, updatedAt: NOW,
     });
     expect(repo.rows.get("T1")).toEqual(t);
+  });
+
+  it("refuses an id that cannot name a file", async () => {
+    for (const id of ["../platform", "a/b", "t.1", "-lead", "a b"]) {
+      await expect(createTenant({ ...cmd, id }, memoryRepo())).rejects.toThrow(InvalidTenantError);
+    }
   });
 
   it("refuses a bad slug, an empty Arabic name and an empty email, all at once", async () => {
@@ -189,15 +202,16 @@ describe("tenantWithOwnerContact", () => {
 });
 
 describe("releaseTenant", () => {
-  it("archives a provisioning tenant under a code and database file of its own, so the code it held is free", async () => {
+  it("archives a provisioning tenant under a code of its own and keeps its database file, so the code it held is free", async () => {
     const repo = memoryRepo();
     const t = await createTenant(cmd, repo);
 
     const released = await releaseTenant({ id: t.id, now: "2026-09-14T08:00:00.000Z" }, repo);
 
     expect(released).toEqual({
-      ...t, status: "archived", code: "released-T1", dbFile: "tenants/released-T1.db", updatedAt: "2026-09-14T08:00:00.000Z",
+      ...t, status: "archived", code: "released-T1", updatedAt: "2026-09-14T08:00:00.000Z",
     });
+    expect(released.dbFile).toBe("tenants/T1.db");
     expect(await repo.findByCode("cyag")).toBeNull();
     expect(releasedTenantCode("T1")).toBe("released-T1");
   });

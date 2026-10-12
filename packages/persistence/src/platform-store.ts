@@ -231,8 +231,15 @@ class SqliteTenantStore implements TenantRepository {
   private readonly byCode: Database.Statement;
   private readonly all: Database.Statement;
   private readonly ownerUpdate: Database.Statement;
+  private readonly statusUpdate: Database.Statement;
+  private readonly dbFileUpdate: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
+    this.statusUpdate = sqlite.prepare(
+      `UPDATE tenant SET status = @status, code = @code, updated_at = @updatedAt
+       WHERE id = @id AND status = @beforeStatus AND code = @beforeCode`,
+    );
+    this.dbFileUpdate = sqlite.prepare(`UPDATE tenant SET db_file = @to WHERE id = @id AND db_file = @from`);
     this.upsert = sqlite.prepare(
       `INSERT INTO tenant (id, code, name_ar, name_en, owner_email, owner_user_id, owner_contact_verified, status, db_file, created_at, updated_at)
        VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @ownerUserId, @ownerContactVerified, @status, @dbFile, @createdAt, @updatedAt)
@@ -271,6 +278,20 @@ class SqliteTenantStore implements TenantRepository {
       ownerUserId: t.ownerUserId, ownerContactVerified: t.ownerContactVerified ? 1 : 0,
       status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
     });
+  }
+
+  async compareAndSetStatus(before: Tenant, after: Tenant): Promise<boolean> {
+    assertKnownStatus("tenant", after.status, TENANT_STATUSES);
+    return (
+      this.statusUpdate.run({
+        id: after.id, status: after.status, code: after.code, updatedAt: after.updatedAt,
+        beforeStatus: before.status, beforeCode: before.code,
+      }).changes === 1
+    );
+  }
+
+  async setDbFile(id: string, from: string, to: string): Promise<boolean> {
+    return this.dbFileUpdate.run({ id, from, to }).changes === 1;
   }
 
   async compareAndSetOwner(before: Tenant, after: Tenant, sideEffect: () => Promise<void>): Promise<boolean> {
@@ -817,8 +838,12 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   private readonly claimedAt: Database.Statement;
   private readonly fenceOf: Database.Statement;
   private readonly releaseCode: Database.Statement;
+  private readonly dropClaimsOfCode: Database.Statement;
 
   constructor(sqlite: Database.Database) {
+    this.dropClaimsOfCode = sqlite.prepare(
+      `DELETE FROM signup_provision_claim WHERE token_hash IN (SELECT token_hash FROM signup_request WHERE code = ?)`,
+    );
     const dropStaleClaim = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claimed_at < ?`);
     const insertClaim = sqlite.prepare(`INSERT OR IGNORE INTO signup_provision_claim (token_hash, claim_id, claimed_at) VALUES (?, ?, ?)`);
     const takeFence = sqlite.prepare(`INSERT INTO provision_fence (taken_at) VALUES (?)`);
@@ -895,6 +920,7 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   }
 
   async releaseByCode(code: string): Promise<void> {
+    this.dropClaimsOfCode.run(code);
     this.releaseCode.run(SignupRequestStatus.Released, code);
   }
 

@@ -1003,7 +1003,7 @@ describe("releasing a tenant stuck in provisioning", () => {
     return { dataDir, platform, tenant, oldToken, working };
   }
 
-  it("archives it under a code of its own, sets its database aside, and frees the code for a new signup that gets a new database", async () => {
+  it("archives it under a code of its own, leaves its database where it was, and frees the code for a new signup that gets a new database", async () => {
     const { dataDir, platform, tenant, oldToken, working } = await stuckTenant("freed");
     const oldFile = path.join(dataDir, tenant.dbFile);
     expect(existsSync(oldFile)).toBe(true);
@@ -1011,8 +1011,8 @@ describe("releasing a tenant stuck in provisioning", () => {
     const released = await releaseProvisioningTenant({ platform, router: working.router, dataDir, now: () => new Date(T) }, { tenant, actorId: "op-1" });
 
     expect(released).toMatchObject({ id: tenant.id, status: TenantStatusCode.Archived, code: `released-${tenant.id}` });
-    expect(existsSync(oldFile)).toBe(false);
-    expect(existsSync(path.join(dataDir, released.dbFile))).toBe(true);
+    expect(existsSync(oldFile)).toBe(true);
+    expect(released.dbFile).toBe(tenant.dbFile);
     expect(await platform.stores.tenants.findByCode("freed")).toBeNull();
     const rows = await platform.audit.query("security");
     expect(rows.filter((row) => row.action === "TENANT_RELEASED")).toMatchObject([
@@ -1030,6 +1030,7 @@ describe("releasing a tenant stuck in provisioning", () => {
     const verified = (await (await send(working.signup, "/verify", { token: newToken })).json()) as VerifyBody;
     expect(verified.tenant).toMatchObject({ code: "freed", status: TenantStatusCode.Active });
     expect(verified.tenant.id).not.toBe(tenant.id);
+    expect((await platform.stores.tenants.findByCode("freed"))?.dbFile).not.toBe(tenant.dbFile);
     const signedIn = await working.router.app.fetch(
       new Request("http://ignored/auth/login", {
         method: "POST",

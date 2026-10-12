@@ -56,7 +56,6 @@ export interface VoucherAllocation {
    * Absent means equal to `amount`.
    */
   readonly invoiceAmount?: Money | null;
-  /** What it took of the invoice's standing revaluation, signed on the control account's natural side. Absent means none. */
   readonly revaluationShare?: Money | null;
   /** The settlement entry this allocation posted, if any: its realised difference (D221) and the move of the money into the invoice's currency (D260). */
   readonly fxEntryId?: string | null;
@@ -78,12 +77,10 @@ export function allocationInvoiceAmount(allocation: VoucherAllocation): Money {
   return allocation.invoiceAmount ?? allocation.amount;
 }
 
-/** The realised exchange difference an allocation carries: what the voucher gave less what the invoice was carried at. */
 export function allocationFxDifference(allocation: VoucherAllocation): Money {
   return Money.fromScaled(allocation.amount.scaled - allocationInvoiceAmount(allocation).scaled - (allocation.revaluationShare?.scaled ?? 0n));
 }
 
-/** Where each revaluation's per-item restatement is kept. */
 export interface FxRevaluationShareRecord {
   readonly entryId: string;
   readonly accountId: string;
@@ -101,11 +98,6 @@ export interface FxRevaluationShareRepository {
   listItemIds(): Promise<readonly string[]>;
 }
 
-/**
- * The revaluation still standing on an invoice: what every revaluation entry
- * that has not been reversed restated it by, less what its active allocations
- * have already taken.
- */
 export async function unconsumedRevaluationShare(
   invoiceId: string,
   deps: {
@@ -173,9 +165,7 @@ export interface SettlementRates {
 export interface SettlementSplit {
   /** What the invoice is relieved of, at its booked rate. */
   readonly relief: Money;
-  /** What the settlement takes of the invoice's standing revaluation, signed on the control account's natural side. */
   readonly revaluationShare?: Money;
-  /** What the voucher gives less what the invoice was carried at (`relief` and `revaluationShare`). */
   readonly fxDifference: Money;
   /** The most voucher money this invoice can still absorb at the settlement rate. */
   readonly capacity: Money;
@@ -285,7 +275,6 @@ export interface AllocateInput {
    * booked rate and the difference is returned for posting (D221).
    */
   readonly rates?: (invoice: AllocatableInvoice) => Promise<SettlementRates | null>;
-  /** The revaluation still standing on a foreign invoice, signed on the control account's natural side. */
   readonly unconsumedShare?: (invoice: AllocatableInvoice) => Promise<Money>;
   /**
    * Runs after every check and before anything is written, with the split;

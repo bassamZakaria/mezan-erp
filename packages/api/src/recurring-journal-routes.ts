@@ -410,11 +410,6 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     return c.json(await withEntryState(await deps.runs.list(Number.isFinite(limit) ? limit : undefined)));
   });
 
-  /**
-   * عكس قيد الدورة. A run's entry is reversed HERE, not from the journal: the
-   * run is what the worklist and the month's close read, and both read its
-   * state off this entry.
-   */
   app.post("/runs/:id/reverse", gate(ReversalPermission.RecurringJournalRun), gate("accounting.journal.post"), requireReversalReason, async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; memo?: unknown } | null;
     const run = await deps.runs.findById(c.req.param("id"));

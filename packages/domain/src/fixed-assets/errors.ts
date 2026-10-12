@@ -126,7 +126,6 @@ export class DepreciationRunNotPostedError extends Error {
   }
 }
 
-/** Raised when a draft depreciation run is still open for a given period + branch: it is posted or discarded before another is drafted. */
 export class DuplicateDepreciationPeriodError extends Error {
   readonly code = "DUPLICATE_DEPRECIATION_PERIOD";
   readonly messageEn: string;
@@ -140,7 +139,6 @@ export class DuplicateDepreciationPeriodError extends Error {
   }
 }
 
-/** Raised when every asset on a draft run was already charged the period's depreciation by another posted run: nothing is left to post. */
 export class AssetAlreadyDepreciatedError extends Error {
   readonly code = "ASSET_ALREADY_DEPRECIATED";
   readonly messageEn: string;

@@ -24,15 +24,9 @@ export interface ReconciliationRoutesDeps {
   readonly ledger: LedgerRepository;
   /** Yields the sub-ledger balances to check against their GL control accounts. */
   readonly resolveControls: () => Promise<readonly ReconciliationControl[]>;
-  /** Every account and document holding none of its foreign currency while base is still carried on it. */
   readonly foreignResidues?: () => Promise<readonly ForeignResidue[]>;
 }
 
-/**
- * The one place a sub-ledger balance is set against its GL control account.
- * `/reconciliation` and the period-close checklist both call this, so the two
- * can never state different differences for the same control.
- */
 export async function reconcileControls(
   ledger: Pick<LedgerRepository, "accountBalance">,
   controls: readonly ReconciliationControl[],

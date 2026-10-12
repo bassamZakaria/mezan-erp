@@ -121,7 +121,6 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
   const { queries, fxRuns } = store;
   const accountBalances = ledgerBalances(stores.ledger);
 
-  // A currency is foreign-and-open when a monetary account still holds some of it. A treasury line posted before lines carried a currency is read at the rate of its own day; one whose day has no approved rate cannot be read at all, and its currency stays listed until a rate is entered.
   async function openForeignBalances(window: PeriodCloseWindow) {
     const tagged = queries.openFxLineGroups(window.endDate).map((group) => asPostedLine(group, window.endDate));
     const unreadable = new Set<string>();
@@ -188,7 +187,6 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
 
     bankAccountsWithMovement: async (window) =>
       queries.bankAccountsWithMovement(window).map((account) => ({ treasuryAccountId: account.treasuryAccountId, label: account.name, firstMovementDate: account.firstMovementDate })),
-    // Who a run for the month would pay — the run's own predicate and bindings, asked of the month — less whoever a posted run has paid.
     async payrollDue(window) {
       const period = { periodStart: window.startDate, periodEnd: window.endDate };
       const capabilities = payrollCapabilities(ctx.payrollBindings, BASE_CURRENCY);

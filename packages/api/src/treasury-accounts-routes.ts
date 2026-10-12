@@ -99,7 +99,6 @@ export function createTreasuryAccountsRoutes(
    * Repointing one silently is the treasury twin of raising a credit limit.
    */
   audit?: AuditSink,
-  /** What each foreign-currency account holds in its own currency; absent = the list reports none. */
   foreignBalances?: () => Promise<readonly ForeignTreasuryBalance[]>,
 ) {
   const app = new Hono();
@@ -156,7 +155,6 @@ export function createTreasuryAccountsRoutes(
     return rows;
   }
 
-  /** A foreign-currency account also says what it holds in its own currency; a base-currency one carries nulls. */
   async function withForeignBalance(accounts: readonly TreasuryAccount[]) {
     const rows = new Map(((await foreignBalances?.()) ?? []).map((row) => [row.treasuryAccountId, row]));
     return accounts.map((account) => {

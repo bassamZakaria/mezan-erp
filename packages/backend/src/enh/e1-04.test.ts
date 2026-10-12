@@ -57,7 +57,6 @@ async function world(activeModules: readonly string[] | null = null) {
   return { sqlite, request, check, requestAs };
 }
 
-// Fills every NOT NULL column the caller did not name, so a test states only the columns its check reads — on the REAL table.
 function insert(sqlite: Sqlite, table: string, values: Record<string, string | number | null>): void {
   const columns = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string; type: string; notnull: number; dflt_value: unknown; pk: number }[];
   if (columns.length === 0) throw new Error(`table ${table} does not exist`);

@@ -604,12 +604,6 @@ export class GuaranteeService {
    * letter existed, or in the future, is either a mistake or a backdate past a
    * period the books have closed — and both were accepted.
    */
-  /**
-   * عكس آخر حركة. A letter's postings stack — issue, reductions, then a release
-   * or a call — so only the latest standing one is undone, and the letter goes
-   * back to what it was before it. A movement a certificate made is undone by
-   * voiding the certificate.
-   */
   async reverseLastPosting(id: string, command: ReverseGuaranteePostingCommand): Promise<LetterOfGuarantee> {
     const current = await this.require(id);
     const step = await this.latestPosting(current);

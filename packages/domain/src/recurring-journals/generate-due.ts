@@ -20,13 +20,10 @@ export interface GenerateDueRecurringJournalsDeps extends JournalPostingDeps {
 }
 
 export interface RecurringRunStanding {
-  /** The run that covers the period, when its entry still stands. */
   readonly standing: RecurringJournalRun | null;
-  /** A run whose entry was reversed: the period is due again, and the run that regenerates it takes this one's place. */
   readonly reversed: RecurringJournalRun | null;
 }
 
-/** A period is covered by a run only while that run's entry stands. */
 export async function recurringRunStanding(
   deps: { readonly runs: Pick<RecurringJournalRunRepository, "findByTemplateAndPeriod">; readonly ledger: Pick<JournalPostingDeps["ledger"], "findById"> },
   templateId: string,

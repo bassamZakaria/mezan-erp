@@ -126,13 +126,6 @@ export interface TenantSettings {
    * off, and the admin bypass that used to be unconditional is gone.
    */
   readonly contractingSingleOperatorMode: boolean;
-  /**
-   * وضع المشغّل الواحد لإقفال الفترات. An accounting control of its own, not
-   * the contracting switch above: with it off, the user who reopened or
-   * overrode a period's close is held to the second-user rule like everyone
-   * else. A tenant that had the contracting switch on keeps that behaviour —
-   * the stored value seeds this one the first time it is read.
-   */
   readonly periodCloseSingleOperatorMode: boolean;
 
   // --- سياسة المخزون (Inventory policy) ---

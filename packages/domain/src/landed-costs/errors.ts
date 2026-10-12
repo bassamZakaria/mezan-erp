@@ -47,7 +47,6 @@ export class StockMovementBeforeLandedCostError extends Error {
   }
 }
 
-/** Raised when a landed cost is dated before a stock movement already recorded on a position it targets: stock and the ledger must carry it on the same day. */
 export class LandedCostDateBeforeStockMovementError extends Error {
   readonly code = "LANDED_COST_DATE_BEFORE_STOCK_MOVEMENT";
   readonly messageEn: string;
@@ -64,7 +63,6 @@ export class LandedCostDateBeforeStockMovementError extends Error {
   }
 }
 
-/** Raised when a purchase document is cancelled while a confirmed landed cost still stands on it. */
 export class LandedCostStandsOnDocumentError extends Error {
   readonly code = "LANDED_COST_STANDS_ON_DOCUMENT";
   readonly messageEn: string;

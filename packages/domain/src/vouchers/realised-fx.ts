@@ -47,11 +47,8 @@ export interface RealisedFxPort {
   rateOn(currency: string, date: string): Promise<string | null>;
   /** Where a realised difference posts, read at each posting so a tenant's account routing applies at once (D229). */
   differenceAccounts(): Promise<FxDifferenceAccounts>;
-  /** The revaluation still standing on a foreign invoice, signed on its control account's natural side. Absent = none. */
   revaluationShare?(invoice: AllocatableInvoice): Promise<Money>;
-  /** What the revaluations still standing between two days restated `foreign` of a treasury account's money by, debit-positive. */
   treasuryRevaluationShare?(treasuryAccountId: string, foreign: Money, fromDate: string, toDate: string): Promise<Money>;
-  /** What a foreign-currency treasury account holds on `asOfDate`: its own currency, and the base the ledger carries it at. Absent = money leaves at the document's rate. */
   treasuryPosition?(treasuryAccountId: string, asOfDate: string): Promise<{ readonly foreign: Money; readonly base: Money } | null>;
 }
 

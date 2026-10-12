@@ -210,7 +210,6 @@ export const periodCloseSummarySchema = z.object({
   closingCredit: moneyString,
   accountCount: z.number().int(),
   sha256: z.string().min(1),
-  /** False when the stored row no longer hashes to its own seal, or the seal is not the one the audit trail recorded. */
   sealValid: z.boolean(),
 });
 

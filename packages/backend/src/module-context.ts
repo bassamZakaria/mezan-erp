@@ -69,16 +69,12 @@ export interface BackendModuleContext {
   /** Issues a sale's e-receipt synchronously with the terminal's serial and tender (D283). */
   readonly etaReceipts: EtaReceiptIssuer;
   readonly stores: BackendStores;
-  /** The sub-ledger balances `/reconciliation` proves — the same resolver, so an area never re-derives them. */
   readonly reconciliationControls: (asOfDate?: string) => Promise<readonly ReconciliationControl[]>;
-  /** What the mounted payroll routes can price a run with, so an area judging who a run would pay asks the same question the run does. */
   readonly payrollBindings: PayrollBindings;
-  /** Foreign-currency treasury accounts and the approved rate table, for reading their balances in their own currency. */
   readonly treasuryFx: {
     foreignCurrencyByGlAccount(): Promise<ReadonlyMap<string, string>>;
     rateOn(currency: string, date: string): Promise<string | null>;
   };
-  /** Where the guided-close area hands its guard to the core `/fiscal-periods` routes; until it does, close and lock refuse. */
   readonly periodCloseGuard: PeriodCloseGuardSlot;
   readonly addCloser: (closer: { close(): void }) => void;
 }

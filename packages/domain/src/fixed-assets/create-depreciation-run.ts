@@ -20,7 +20,6 @@ export interface CreateDepreciationRunCommand {
 export interface CreateDepreciationRunDeps {
   readonly runs: DepreciationRunRepository;
   readonly assets: AssetRepository;
-  /** When supplied, a run is not even drafted for a month that is closed or locked: it could never post. */
   readonly periods?: Pick<FiscalPeriodRepository, "findByDate">;
 }
 
@@ -32,11 +31,6 @@ function parsePeriod(period: string): DepreciationPeriod {
   return { year: Number(match[1]), month: Number(match[2]) };
 }
 
-/**
- * Whether the period's runs account for every asset that has depreciation to
- * charge in it. A run is scoped to a branch, so "some run exists" was true as
- * soon as ONE branch had run and the reminder went quiet for all the others.
- */
 export function depreciationRunsCoverPeriod(assets: readonly Asset[], runs: readonly DepreciationRun[], period: string): boolean {
   const periodRuns = runs.filter((run) => run.period === period && run.status !== "cancelled");
   if (periodRuns.length === 0) return false;
@@ -61,7 +55,6 @@ export async function createDepreciationRun(
   const branchId = cmd.branchId ?? null;
 
   const periodRuns = (await deps.runs.list()).filter((run) => run.period === cmd.period && run.status !== "cancelled");
-  // A posted run does not close the month to its scope: an asset it left out still gets a supplementary run.
   if (periodRuns.some((run) => run.branchId === branchId && run.status === "draft")) {
     throw new DuplicateDepreciationPeriodError(cmd.period, branchId);
   }
@@ -72,7 +65,6 @@ export async function createDepreciationRun(
     if (fiscalPeriod) assertOpenForPosting(fiscalPeriod);
   }
   const allAssets = await deps.assets.list();
-  // A run is scoped to a branch, but an asset is charged once a month whichever run reaches it first.
   const alreadyOnARun = new Set(periodRuns.flatMap((run) => run.lines.map((line) => line.assetId)));
   const eligible = allAssets.filter((asset) => {
     if (!DEPRECIABLE_ASSET_STATUSES.has(asset.status) || alreadyOnARun.has(asset.id)) return false;

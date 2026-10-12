@@ -39,7 +39,6 @@ export interface DocumentReversalPath {
   readonly method: "POST";
   readonly route: string;
   readonly permission: ReversalPermission;
-  /** The permission that gated this route before it had one of its own; every role that held it was given `permission` once. */
   readonly replaces: string;
   readonly takesReason: boolean;
   readonly takesDate: boolean;
@@ -64,7 +63,6 @@ export const DOCUMENT_REVERSAL_PATHS: Readonly<Record<ReversalDocumentType, Docu
   [ReversalDocumentType.RecurringJournalTemplate]: { method: "POST", route: "/gl/recurring/runs/:id/reverse", permission: ReversalPermission.RecurringJournalRun, replaces: "accounting.recurring.manage", takesReason: true, takesDate: true },
 };
 
-/** Old permission → the reversal permissions its holders were given, read off the registry so the two cannot drift. */
 export function reversalPermissionSuccessors(): ReadonlyMap<string, readonly ReversalPermission[]> {
   const out = new Map<string, ReversalPermission[]>();
   for (const path of Object.values(DOCUMENT_REVERSAL_PATHS)) {
@@ -75,7 +73,6 @@ export function reversalPermissionSuccessors(): ReadonlyMap<string, readonly Rev
   return out;
 }
 
-/** The permissions a role holds, with the reversal permission of every older one it carries. */
 export function withReversalPermissions(permissions: readonly string[]): string[] {
   const successors = reversalPermissionSuccessors();
   const out = [...permissions];

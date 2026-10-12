@@ -86,7 +86,6 @@ export async function reversePayrollRunApproval(runId: string, deps: ReversePayr
   });
 }
 
-/** A reversed disbursement voucher puts the money back in the safe, so its run is owed again: «معتمد». */
 export async function unwindPayrollDisbursementVoucher(voucherId: string, deps: { readonly runs: Pick<PayrollRunRepository, "list" | "update"> }): Promise<boolean> {
   const run = (await deps.runs.list()).find((candidate) => candidate.disbursementVoucherId === voucherId && candidate.status === PayrollRunStatusCode.Disbursed);
   if (!run) return false;

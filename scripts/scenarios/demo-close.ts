@@ -5,18 +5,6 @@ const LIVE_MONTH = "08";
 const LIVE_MONTH_BLOCKERS = ["bank_statements", "depreciation", "drafts", "fx_revaluation", "recurring_journals"];
 const periodId = (month: string) => `fp-2026-${month}`;
 
-/**
- * الإقفال الموجَّه على بيانات العرض — what the demo tenant ships with, read
- * BEFORE any other suite touches it: January to July closed clean — payroll
- * paid, the recurring entry posted, every asset depreciated, the bank statement
- * finalized, no override anywhere — and the live month refused for reasons
- * that are really there.
- *
- * It then reopens January to July. Every suite after this one was written to
- * post into those months — back-dated entries, a month closed and reopened, a
- * VAT window filed — and each closes and reopens what it needs itself. The
- * sealed summaries asserted here are append-only, so reopening erases nothing.
- */
 export async function run(ctx: Ctx): Promise<void> {
   const { scenario, req, rows, check, checkEq } = ctx;
   const same = (label: string, actual: unknown, expected: unknown) => check(label, actual === expected, `${JSON.stringify(actual)} ≠ ${JSON.stringify(expected)}`);

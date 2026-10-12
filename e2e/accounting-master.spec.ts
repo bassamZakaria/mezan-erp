@@ -251,9 +251,6 @@ test.describe("Treasury accounts", () => {
   });
 
   test("lists the seeded treasury accounts with type and status", async ({ page }) => {
-    // demo-seed.ts's TREASURY_ACCOUNTS (cash, the EGP bank, the USD bank) plus
-    // the van cash custody account. The total is not pinned: treasury-vouchers
-    // and sales-invoices add accounts of their own to this shared tenant.
     await expect(page.getByText(/عرض \d+ من \d+ حساب/)).toBeVisible();
     const usdRow = row(page, "البنك الأهلي — دولار");
     await expect(usdRow.getByText("بنكي", { exact: true })).toBeVisible();
@@ -366,11 +363,6 @@ test.describe("Fiscal periods", () => {
 
   const OVERRIDE_REASON = "تجاوز لاختبار دورة حياة الفترة";
 
-  /**
-   * A month with anything still open on it — every sandbox month owes a payroll
-   * run — is not closed from the list: the refusal opens the close workspace,
-   * and the close goes through there with a stated reason.
-   */
   async function closeWithOverride(page: Page, month: string): Promise<void> {
     const period = row(page, month, false);
     await period.getByRole("button", { name: /^إجراءات/ }).click();
@@ -387,7 +379,6 @@ test.describe("Fiscal periods", () => {
     await expect(row(page, month, false).getByText("مغلقة")).toBeVisible();
   }
 
-  /** The user who closed a month over failing checks cannot also lock it over them: the lock is refused and says who must do it. */
   async function expectLockNeedsASecondUser(page: Page, month: string): Promise<void> {
     const period = row(page, month, false);
     await period.getByRole("button", { name: /^إجراءات/ }).click();

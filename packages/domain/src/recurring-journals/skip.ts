@@ -11,7 +11,6 @@ export interface SkipRecurringJournalOccurrenceDeps {
   readonly templates: Pick<RecurringJournalTemplateRepository, "findById">;
   readonly runs: Pick<RecurringJournalRunRepository, "findByTemplateAndPeriod">;
   readonly skips: RecurringJournalSkipRepository;
-  /** Status of a run's entry: a run whose entry was reversed covers nothing, so its period may be skipped. */
   readonly entryStatusOf?: (journalEntryId: string) => Promise<string | null>;
   readonly audit?: AuditSink;
   readonly now?: () => string;

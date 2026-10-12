@@ -150,7 +150,6 @@ export interface PayrollRegisterRow {
   readonly advanceRecovery: number;
   readonly otherDeductions: number;
   readonly totalDeductions: number;
-  /** Pay for days after a last day, taken off the net after approval; not a deduction the approval entry credited. */
   readonly terminationAdjustment: number;
   readonly netPay: number;
   readonly employerContributions: number;

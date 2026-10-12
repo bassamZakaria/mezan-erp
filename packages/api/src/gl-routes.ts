@@ -114,7 +114,6 @@ export interface GlRoutesDeps {
    * balance is base-currency.
    */
   readonly openPartyDocuments?: () => Promise<readonly OpenPartyDocument[]>;
-  /** Foreign-currency treasury accounts and what each holds in its own currency. */
   readonly treasuryCurrencyBalances?: () => Promise<readonly ForeignTreasuryBalance[]>;
   /** The tenant's base currency; defaults to EGP. */
   readonly baseCurrency?: () => Promise<string> | string;

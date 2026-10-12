@@ -245,7 +245,6 @@ export interface CreateWorkOrderDeps {
   readonly boms: BomRepository;
   readonly numbering: NextNumberService;
   readonly now?: () => string;
-  /** The tenant's calendar day for this posting, resolved at the route. */
   readonly postingDay?: string;
 }
 
@@ -363,7 +362,6 @@ export interface WorkOrderStockDeps {
   readonly workOrders: WorkOrderRepository;
   readonly stock: ManufacturingStockPort;
   readonly now?: () => string;
-  /** The tenant's calendar day for this posting, resolved at the route. */
   readonly postingDay?: string;
 }
 
@@ -1000,7 +998,6 @@ export interface CompleteWorkOrderDeps {
   readonly gl: ManufacturingGlPostingPort;
   readonly accounts: WorkOrderGlAccounts;
   readonly now?: () => string;
-  /** The tenant's calendar day for this posting, resolved at the route. */
   readonly postingDay?: string;
 }
 

@@ -43,9 +43,7 @@ export const treasuryLegFxSchema = z.object({
   currency: z.string(),
   fxRate: z.string(),
   foreignAmount: moneyString,
-  /** What the money that left a foreign-currency account was carried at, in base. */
   carryingBase: z.string().optional(),
-  /** فروق عملة محققة posted in the voucher's entry: positive is a gain. */
   realised: z.string().optional(),
   realisedAccountId: z.string().optional(),
 });
@@ -68,9 +66,7 @@ export const voucherSchema = z.object({
    * (B-4/B-5).
    */
   fxRate: z.string().nullable(),
-  /** What the movement is in a foreign-currency treasury account's own currency, stamped at confirm; null on a base-currency account. */
   treasuryFx: treasuryLegFxSchema.nullable().optional(),
-  /** The same for the destination account of a transfer. */
   counterTreasuryFx: treasuryLegFxSchema.nullable().optional(),
   /** `amount` converted at `fxRate` — what the GL, the treasury and every allocation hold. */
   baseAmount: z.string(),
@@ -116,7 +112,6 @@ export const createVoucherSchema = z.object({
   branchId: z.string().min(1),
   paymentMethod: voucherPaymentMethodSchema,
   treasuryAccountId: z.string().min(1),
-  /** Derived from the treasury account; a request that states it must state the account's own. */
   treasuryGlAccountId: z.string().min(1).optional(),
   counterpartyGlAccountId: z.string().nullish(),
   counterTreasuryAccountId: z.string().nullish(),
@@ -191,7 +186,6 @@ export const createAllocationSchema = z.object({
  * voucher.
  */
 export const createCollectionSchema = z.object({
-  /** The currency the collection is stated in: the treasury account's own when omitted, or the base currency on a foreign-currency account. */
   currency: z.string().optional(),
   id: z.string().min(1).optional(),
   date: isoDateOrInstant.optional(),

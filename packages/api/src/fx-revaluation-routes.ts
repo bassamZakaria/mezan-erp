@@ -53,21 +53,13 @@ export interface FxRevaluationRoutesDeps {
   readonly events?: JournalPostingDeps["events"];
   readonly now?: () => string;
   readonly idGen?: () => string;
-  /**
-   * Records that a revaluation RAN as of a date, whether or not it posted: when
-   * no rate moved there is no entry, and without this the period close could
-   * not tell "revalued, nothing to book" from "never revalued".
-   */
   readonly recordRun?: (run: FxRevaluationRun) => void;
-  /** The open receivable and payable documents behind each party control balance, by `openFxItemsKey`. */
   readonly openFxItems?: () => Promise<ReadonlyMap<string, readonly OpenFxItem[]>>;
   readonly saveShares?: (entryId: string, shares: readonly FxRevaluationShare[]) => Promise<void>;
-  /** Whether a settlement still standing has taken part of what this run restated. */
   readonly sharesConsumed?: (entryId: string) => Promise<boolean>;
   readonly foreignResidues?: (asOfDate?: string) => Promise<readonly ForeignResidue[]>;
   readonly realisedDifferenceAccounts?: () => Promise<FxDifferenceAccounts>;
   readonly releaseItemShare?: (itemId: string, date: string) => Promise<void>;
-  /** GL account → currency, for every treasury account kept in a foreign currency: its untagged lines are read at the rate of their own date. */
   readonly foreignTreasuryCurrencies?: () => Promise<ReadonlyMap<string, string>>;
 }
 

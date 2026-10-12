@@ -196,7 +196,6 @@ export interface PurchasesRoutesDeps {
   readonly layers?: CostLayerRepository;
   /** GL reversal hook for cancelling a confirmed purchase invoice. Required together with `layers`. */
   readonly glReverse?: PurchaseGlReversalPort;
-  /** Numbers of the confirmed landed costs standing on a receipt or invoice; a document carrying one is not cancelled under it. */
   readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
   readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
   /** Append-only audit sink; when present every confirm/cancel below is recorded on the `sensitive` stream. */

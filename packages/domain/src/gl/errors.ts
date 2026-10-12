@@ -155,7 +155,6 @@ export class ReversalDateBeforeOriginalError extends Error {
   }
 }
 
-/** Raised when the journal's own reverse action is asked to reverse an entry a document posted: the document is reversed instead, so it and its sub-ledger move with the entry. */
 export class JournalEntryOwnedByDocumentError extends Error {
   readonly code = "JOURNAL_ENTRY_OWNED_BY_DOCUMENT";
   readonly messageEn: string;
@@ -170,7 +169,6 @@ export class JournalEntryOwnedByDocumentError extends Error {
   }
 }
 
-/** Raised when the journal's own reverse action is asked to reverse a reversing entry. */
 export class JournalReversalNotReversibleError extends Error {
   readonly code = "JOURNAL_REVERSAL_NOT_REVERSIBLE";
   readonly messageEn: string;
@@ -186,13 +184,6 @@ export class JournalReversalNotReversibleError extends Error {
 
 const JOURNAL_LIKE_SOURCE_DOC_TYPES: ReadonlySet<string> = new Set(["INITIAL_BALANCE"]);
 
-/**
- * Only a journal reverses from the journal: an entry a document posted is
- * reversed by reversing that document, and a reversing entry is not reversed
- * at all — a recurring run's entry is reversed through its run. An imported
- * opening trial balance is a plain journal with no document behind it, so it
- * still reverses here.
- */
 export function assertReversibleFromJournal(entry: {
   readonly id: string;
   readonly entryNo?: string | null;

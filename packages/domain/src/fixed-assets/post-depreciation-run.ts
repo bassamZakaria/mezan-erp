@@ -173,7 +173,6 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
   });
 }
 
-/** Discards a draft run that will not be posted. A posted run is reversed instead: it has an entry and asset balances to take back. */
 export async function discardDepreciationRun(runId: string, deps: Pick<PostDepreciationRunDeps, "runs">): Promise<DepreciationRun> {
   const run = await deps.runs.findById(runId);
   if (!run) throw new DepreciationRunNotFoundError(runId);

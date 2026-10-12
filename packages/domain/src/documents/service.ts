@@ -239,7 +239,6 @@ export class DocumentService<Line> {
     return returned;
   }
 
-  /** Replaces a draft's lines in place; the confirm that follows posts what the lines then say. */
   async amendDraftLines(id: string, lines: readonly Line[]): Promise<FrameworkDocument<Line>> {
     const existing = await this.require(id);
     if (existing.status !== "draft") assertTransition(this.def.code, id, existing.status, "draft");
@@ -278,7 +277,6 @@ export class DocumentService<Line> {
       // assertTransition gives the precise error (only active → reversed is legal).
       assertTransition(this.def.code, id, existing.status, "reversed");
     }
-    // Reversing a reversal re-posts the original's effect under a document every sub-ledger reads as "a reversal": the control account moves and no sub-ledger follows.
     if (existing.reversesDocId) throw new ReversalNotReversibleError(this.def.code, id);
     const resolvedDate = opts.date ?? existing.date;
     // A reversal dated before the document it reverses would restate a day

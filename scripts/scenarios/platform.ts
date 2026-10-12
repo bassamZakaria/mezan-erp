@@ -1187,9 +1187,6 @@ async function taxSettingsAreLive(ctx: Ctx): Promise<void> {
     });
     const a = await req("POST", "/assets", asset("SCN-SET-ASSET-A", "2027-05-20"));
     const b = await req("POST", "/assets", asset("SCN-SET-ASSET-B", "2027-06-20"));
-    // Next year's May and June: every 2026 month already carries a depreciation
-    // run — the demo's own through July, other suites' from August — and a
-    // second run for a month is refused.
     check("two identical assets, each acquired on the 20th of its own month", a.status === 201 && b.status === 201, `${a.status}/${b.status}`);
 
     // 31,000 over 10 months is 3,100 a month; May has 31 days and the asset was

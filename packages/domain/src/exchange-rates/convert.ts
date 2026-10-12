@@ -69,7 +69,6 @@ export function carryingBaseOf(position: { readonly foreign: Money; readonly bas
   return { covered: foreignOut, base: Money.fromScaled(divRound(position.base.scaled * foreignOut.scaled, position.foreign.scaled)) };
 }
 
-/** `amount` scaled by `part / whole`, half-away-from-zero; the whole when `part` is the whole. */
 export function shareOfBase(amount: Money, part: Money, whole: Money): Money {
   if (whole.scaled === 0n || part.scaled === whole.scaled) return amount;
   return Money.fromScaled(divRound(amount.scaled * part.scaled, whole.scaled));

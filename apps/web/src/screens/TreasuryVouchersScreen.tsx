@@ -949,7 +949,6 @@ const EMPTY_RATES: readonly TreasuryCurrencyRate[] = [];
 
 interface CreateDraft {
   amount: number | null;
-  /** Empty = the treasury account's own currency. */
   currency: string;
   paymentMethod: VoucherPaymentMethod;
   treasuryAccountId: string;
@@ -1069,7 +1068,6 @@ function CreateVoucherView({
     [draft.treasuryAccountId, draft.counterTreasuryAccountId, def?.direction, treasuryAccounts],
   );
   const accountCurrencies = new Set([...chosenTreasuryAccounts.map((account) => account.currency), BASE_CURRENCY]);
-  // The voucher is stated in its treasury account's currency unless the user picked the base currency on a foreign account.
   const voucherCurrency = draft.currency !== "" && accountCurrencies.has(draft.currency) ? draft.currency : (chosenTreasuryAccounts[0]?.currency ?? BASE_CURRENCY);
 
   const buildLine = useCallback((): VoucherLine | null => {

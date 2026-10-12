@@ -72,7 +72,6 @@ export const landedCostDocumentSchema = z.object({
   docType: z.literal("LANDED_COST"),
   docNo: z.string().nullable(),
   date: z.string(),
-  /** The day the stock took the cost; null on a draft. Later than `date` when the invoice arrived after the goods. */
   absorptionDate: z.string().nullable().optional(),
   memo: z.string(),
   status: documentStatusSchema,

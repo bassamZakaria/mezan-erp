@@ -26,14 +26,8 @@ export interface PeriodCloseDecisionInput {
   readonly overrideReason: string | null;
   readonly canOverride: boolean;
   readonly actor: string;
-  /**
-   * Who closed the period being locked; null when no close of it is on record,
-   * in the summaries or the audit trail. Nobody can then be shown to be the
-   * closer, so the lock rests on the recorded override reason alone.
-   */
   readonly closedBy: string | null;
   readonly singleOperatorMode: boolean;
-  /** The actor's grant is `"*"`. The single-operator switch waives the second person for this actor only, as it does in contracting. */
   readonly wildcardAdmin: boolean;
 }
 

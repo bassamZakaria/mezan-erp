@@ -258,7 +258,6 @@ export const createPurchaseInvoiceSchema = z.object({
   /** بُعد المشروع — optional; omit to inherit the receipt's (create-from-receipt) or leave unset. */
   projectId: z.string().min(1).nullable().optional(),
   lines: z.array(createPurchaseInvoiceLineSchema).min(1).optional(),
-  /** With `receiptId` and no `lines`: the quantity to bill per receipt line, at the receipt's cost. Omit to bill everything the receipt still has uninvoiced. */
   receiptQuantities: z.array(z.object({ lineIndex: z.number().int().min(0), qty: positiveDecimalString })).min(1).optional(),
 });
 

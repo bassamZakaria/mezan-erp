@@ -82,7 +82,6 @@ export interface FixedAssetsRoutesDeps {
   readonly categories: AssetCategoryRepository;
   readonly assets: AssetRepository;
   readonly runs: DepreciationRunRepository;
-  /** Lets a run be refused before it is drafted for a closed or locked month. */
   readonly periods?: Pick<FiscalPeriodRepository, "findByDate">;
   readonly gl: JournalPostingDeps;
   readonly defaultAccounts: {

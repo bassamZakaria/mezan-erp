@@ -172,12 +172,6 @@ export interface ChequeLedgerDays {
   readonly undone: string | null;
 }
 
-/**
- * The days a cheque's credit to its party arose and, if it bounced, was undone
- * — read off the entries that posted them. A bounce recorded with no entry id
- * falls back to the tenant day it was recorded on, never to the issue date:
- * that would un-credit the party from the day the cheque was written.
- */
 export function chequeLedgerDays(
   cheque: Pick<Cheque, "status" | "issueDate" | "creationJournalEntryId" | "bounceJournalEntryId" | "bouncedAt">,
   entryDate: (entryId: string) => string | undefined,

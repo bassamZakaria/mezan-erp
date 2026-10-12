@@ -205,7 +205,6 @@ export interface SalesInvoice {
   readonly reversedByInvoiceId: string | null;
 }
 
-/** The journal entry a void posts. Its DATE is the day the invoice stopped standing in the ledger. */
 export function salesInvoiceVoidEntryId(invoiceId: string): string {
   return `${invoiceId}:void`;
 }

@@ -57,22 +57,15 @@ export interface LandedCostGlPosting {
 }
 
 export interface LandedCostUnabsorbedGlPort {
-  /** Dr the unabsorbed-cost account / Cr inventory: the share of goods already issued, out of a cost inventory was debited for whole. */
   postUnabsorbed(posting: LandedCostGlPosting): Promise<void>;
-  /** Dr inventory / Cr the unabsorbed-cost account: on a reversal, the share that left with issued goods, back out of cost of sales. */
   postAbsorbed(posting: LandedCostGlPosting): Promise<void>;
-  /** Dr inventory / Cr clearing, on the absorption day: the share the goods still on hand take. */
   postAbsorbedFromClearing(posting: LandedCostGlPosting): Promise<void>;
-  /** Dr the unabsorbed-cost account / Cr clearing, on the absorption day: the share of goods already issued. */
   postIssuedFromClearing(posting: LandedCostGlPosting): Promise<void>;
-  /** Mirrors one of this document's side entries; answers its amount, or null when it never posted. */
   reverseSideEntry(entryId: string, opts: { readonly reversalId: string; readonly date: string }): Promise<Money | null>;
 }
 
 export interface LandedCostServiceOptions {
-  /** Runs a confirm or a reverse as one unit: document, stock and every entry, or none of them. */
   readonly transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
-  /** The document whose cost layers a target's goods sit in: an invoice raised from a receipt names the receipt. Absent = the target document itself. */
   readonly layerOwnerOf?: (sourceDocId: string) => Promise<string>;
 }
 
@@ -82,14 +75,11 @@ export interface LandedCostConfirmResult extends ConfirmResult<LandedCostLine> {
   /** The reclassification entry, when there was an unabsorbed remainder and a GL port to post it through. */
   readonly unabsorbedJournalEntryId: string | null;
   readonly absorbedTotal: Money;
-  /** The confirm-day entry that moves the on-hand share into inventory, when the document is dated earlier. */
   readonly absorptionJournalEntryId: string | null;
 }
 
 export interface LandedCostConfirmOptions extends ConfirmOptions {
-  /** The tenant's day at confirm: the stock takes the cost today, whatever date the document carries. */
   readonly today?: string;
-  /** Overrides the confirm day; never earlier than the document date or the position's last movement. */
   readonly absorptionDate?: string;
 }
 
@@ -121,12 +111,6 @@ export class LandedCostService {
       .map((doc) => doc.docNo ?? doc.id);
   }
 
-  /**
-   * Reverses a confirmed landed cost: the ledger entry is mirrored and each
-   * position gives the cost back. Refused once goods have left a targeted
-   * position since — part of the cost is then in cost of sales, and a mirror
-   * would take it out of stock that never carried it.
-   */
   /**
    * عكس التكلفة الإضافية، حتى بعد صرف جزء من البضاعة. What the goods still on
    * hand carry comes off the stock; what left with issued goods has already

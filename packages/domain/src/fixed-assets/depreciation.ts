@@ -62,7 +62,6 @@ function daysBetween(a: string, b: string): number {
   return Math.round((bUtc - aUtc) / 86_400_000);
 }
 
-/** One predicate for the engine, for drafting and for the close check: an asset under maintenance is still in service, and depreciation does not pause for it. */
 export const DEPRECIABLE_ASSET_STATUSES: ReadonlySet<Asset["status"]> = new Set<Asset["status"]>(["active", "under_maintenance"]);
 
 /**

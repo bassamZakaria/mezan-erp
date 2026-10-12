@@ -374,8 +374,6 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
 
   const window: PayrollWindow = { periodStart: run.periodStart, periodEnd: run.periodEnd };
   const capabilities = payrollCapabilities({ attendanceBound: deps.workedTime !== undefined, exchangeRatesBound: deps.exchangeRates !== undefined }, run.currency);
-  // Everyone who served a day of the PERIOD, not today's staff list: a run for
-  // June still owes June's pay to someone who has left since.
   const employees = (await deps.employees.list()).filter((e) => inServiceDuring(e, window) && (run.branchId === null || e.branchId === run.branchId));
 
   const inputs: EmployeePayrollInput[] = [];

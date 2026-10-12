@@ -22,7 +22,6 @@ export enum ForeignResidueKind {
   Item = "item",
 }
 
-/** Base money left where no foreign money is: on an account in one currency, or as revaluation standing on a settled document. */
 export interface ForeignResidue {
   readonly kind: ForeignResidueKind;
   readonly ref: string;
@@ -30,7 +29,6 @@ export interface ForeignResidue {
   readonly base: Money;
 }
 
-/** Below one piastre a residue is what rounding leaves behind and may be swept to realised differences. */
 export const FX_ROUNDING_RESIDUE_LIMIT = Money.fromMajor("0.01");
 
 export function isRoundingResidue(residue: ForeignResidue): boolean {
@@ -38,7 +36,6 @@ export function isRoundingResidue(residue: ForeignResidue): boolean {
   return magnitude !== 0n && magnitude < FX_ROUNDING_RESIDUE_LIMIT.scaled;
 }
 
-/** The accounts among `balances` that hold none of their currency and still carry base. */
 export function accountForeignResidues(balances: readonly OpenFxBalance[]): ForeignResidue[] {
   return balances
     .filter((balance) => balance.foreignAmount.scaled === 0n && balance.bookedBase.scaled !== 0n)
@@ -59,17 +56,14 @@ export interface OpenFxBalance {
   readonly label?: string;
 }
 
-/** One open receivable or payable document behind a control account's foreign balance. */
 export interface OpenFxItem {
   readonly itemId: string;
   readonly kind: "sales" | "purchase";
   readonly partyId: string;
   readonly foreignOutstanding: Money;
-  /** What the item is carried at in base on the account's natural side: its open booked amount and the revaluation still standing on it. */
   readonly carryingBase: Money;
 }
 
-/** What one revaluation restated one open item by, signed on the control account's natural side. */
 export interface FxRevaluationShare {
   readonly accountId: string;
   readonly itemId: string;
@@ -83,12 +77,6 @@ export function openFxItemsKey(accountId: string, currency: string): string {
   return `${accountId} ${currency}`;
 }
 
-/**
- * Splits an account's restatement across its open items: each takes what
- * brings it to the closing rate, and whatever the account moved beyond that is
- * spread by foreign amount, largest remainder first, so the shares sum to the
- * account's delta exactly.
- */
 export function attributeRevaluation(delta: bigint, items: readonly OpenFxItem[], closingRate: string): bigint[] {
   const own = items.map((item) => convertToBase(item.foreignOutstanding, closingRate).scaled - item.carryingBase.scaled);
   const residual = delta - own.reduce((sum, value) => sum + value, 0n);
@@ -105,7 +93,6 @@ export interface FxRevaluationConfig {
   readonly gainAccountId: string;
   /** فروق عملة مدينة — FX loss account (expense). */
   readonly lossAccountId: string;
-  /** The open items behind each party control balance, by {@link openFxItemsKey}; supplied, the restatement is posted per item. */
   readonly openItems?: ReadonlyMap<string, readonly OpenFxItem[]>;
 }
 
@@ -296,7 +283,6 @@ export function deriveOpenFxBalances(
   return balances.sort((a, b) => (a.accountId === b.accountId ? a.currency.localeCompare(b.currency) : a.accountId.localeCompare(b.accountId)));
 }
 
-/** What a foreign-currency treasury account holds in its own currency, beside the base amount the ledger books it at. */
 export interface ForeignTreasuryBalance {
   readonly treasuryAccountId: string;
   readonly name: string;
@@ -304,11 +290,9 @@ export interface ForeignTreasuryBalance {
   readonly currency: string;
   readonly foreignBalance: Money;
   readonly baseBalance: Money;
-  /** How many of the account's lines carry no currency of their own and were read at the rate of their date. */
   readonly derivedLines: number;
 }
 
-/** One ledger line on a foreign-currency treasury account that carries no currency of its own, read at the rate in force on its date. */
 export interface DerivedTreasuryFxLine {
   readonly entryId: string;
   readonly accountId: string;
@@ -318,14 +302,6 @@ export interface DerivedTreasuryFxLine {
   readonly foreignAmount: Money;
 }
 
-/**
- * A line posted on a foreign-currency treasury account before treasury lines
- * carried a currency has a base amount and nothing else. Its foreign amount is
- * DERIVED here — the account's currency at the approved rate of the line's own
- * date — for reading only: the posted line is never rewritten, and every
- * derived line is returned so the caller can show it as such. A date with no
- * approved rate leaves the line as it is.
- */
 export async function withDerivedTreasuryFx<L extends Pick<PostedLine, "entryId" | "accountId" | "date" | "currency" | "fxRate" | "debit" | "credit">>(
   lines: readonly L[],
   foreignTreasuryCurrencyByAccount: ReadonlyMap<string, string>,
@@ -389,12 +365,6 @@ const BASE_ONLY_MEMOS: ReadonlySet<string> = new Set([FX_REVALUATION_LINE_MEMO, 
 /** `sourceDocType` of a revaluation entry and, through the mirror, of its reversal. */
 export const FX_REVALUATION_DOC_TYPE = "FX_REVALUATION";
 
-/**
- * Net (debit-positive) of what revaluation and its reversals posted to
- * `accountId` among `lines` without naming a party (D194). A restatement
- * posted against an open item names its party and is read with that party's
- * own lines.
- */
 export function fxRevaluationNet(
   lines: readonly Pick<PostedLine, "accountId" | "source" | "memo" | "debit" | "credit" | "partyId">[],
   accountId: string,

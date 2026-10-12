@@ -1046,8 +1046,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return { allowNegativeStock: current.allowNegativeStock, allowBackorder: current.allowBackorder };
     },
     transaction: stockLedger.transaction,
-    // A tenant that never generated a period has no calendar to be outside of.
-    // Once it has one, a day no period covers is refused as the GL refuses it.
     periodGate: async (date) => {
       const period = await fiscalPeriods.findByDate(date);
       if (period) return assertOpenForPosting(period);
@@ -2347,7 +2345,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return value;
   }
 
-  /** GL account → currency of every treasury account kept in a foreign currency. */
   async function foreignTreasuryCurrencies(): Promise<ReadonlyMap<string, string>> {
     const base = ((await settings.get()) ?? createDefaultSettings()).currency;
     const byGlAccount = new Map<string, string>();
@@ -2357,7 +2354,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return byGlAccount;
   }
 
-  /** What each foreign-currency treasury account holds in its own currency, beside the base amount the ledger books it at. */
   async function foreignTreasuryBalances(asOfDate?: string): Promise<ForeignTreasuryBalance[]> {
     const byGlAccount = await foreignTreasuryCurrencies();
     if (byGlAccount.size === 0) return [];
@@ -2404,7 +2400,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       upTo(certificate.approvedAt ?? certificate.executionDate) && (certificate.status !== "voided" || !upTo(certificate.voidedAt));
     type ChainLink = { id: string; status: DocumentStatus; date: string; reversesDocId: string | null; reversedByDocId: string | null };
     const linksById = <T extends ChainLink>(docs: readonly T[]): ReadonlyMap<string, T> => new Map(docs.map((d) => [d.id, d]));
-    // A reversal is never counted on its own: its effect is read through the document it reverses, link by link down the chain.
     const frameworkPresence = (doc: ChainLink, docs: ReadonlyMap<string, ChainLink>): bigint => {
       if (doc.reversesDocId) return 0n;
       const dates = [doc.date];
@@ -2490,7 +2485,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      */
     const chequeEffect = { receivable: 0n, payable: 0n };
     const allCheques = await cheques.list();
-    // Each side of a cheque is read on the day its own journal entry is dated: `bouncedAt` is the instant the bounce was recorded, and a replacement's entry is not dated on the day written on the cheque.
     const chequeEntryDates = await entryDatesOf(allCheques.flatMap((cheque) => [cheque.creationJournalEntryId, cheque.bounceJournalEntryId]));
     for (const cheque of allCheques) {
       const { raised, undone } = chequeLedgerDays(cheque, (entryId) => chequeEntryDates.get(entryId));
@@ -2613,7 +2607,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       if (line.accountId === AP_CONTROL) apScaled -= net;
     }
 
-    // بضاعة واردة لم تُفوتر: read live from the quantity each receipt line still has uninvoiced, and as of a past day from the documents that had posted by then — a receipt at its cost, less what each invoice on it had billed at that cost.
     const receiptRows = await goodsReceipts.list();
     let grniScaled = 0n;
     if (asOfDate === undefined) {
@@ -2670,7 +2663,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
     /** Only a certificate whose deductions entry is actually on the ledger, and was not reversed. */
     const postedCertificates = certificates.filter((c) => c.journalEntryId !== null && standingCertificate(c));
-    // A subcontractor certificate is read on the day its own entry is dated; `approvedAt` is the instant the approval was recorded. A posted one is never cancelled, and a recognition run's reversal is dated the run's own period end, so each stands or is gone on one day at every reading.
     const subCertificateEntryDates = await entryDatesOf(subCerts.map((c) => c.journalEntryId));
     const postedSubCertificates = subCerts.filter(
       (c) => c.journalEntryId !== null && upTo(subCertificateEntryDates.get(c.journalEntryId) ?? c.approvedAt ?? c.executionDate),

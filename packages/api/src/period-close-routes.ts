@@ -65,14 +65,12 @@ export interface SealedPeriodCloseSummary {
   readonly sealValid: boolean;
 }
 
-/** What the caller's licence covers, where a check belongs to a module the tenant may not hold. */
 export interface PeriodCloseScope {
   readonly payrollEntitled: boolean;
 }
 
 const HR_MODULE = "hr";
 
-/** No entitlements bound means no licensing in play, which is every module. */
 export function periodCloseScopeOf(c: Context): PeriodCloseScope {
   const entitlements = c.get("entitlements");
   return { payrollEntitled: entitlements ? hasModule(entitlements, HR_MODULE) : true };

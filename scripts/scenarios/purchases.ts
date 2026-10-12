@@ -18,7 +18,6 @@ const VAT = 14;
 
 export async function run(ctx: Ctx): Promise<void> {
   const { req, rows, n, check, checkEq, scenario } = ctx;
-  // A landed cost is dated no earlier than the latest movement of the stock it revalues, and earlier suites move stock today.
   const landedCostDate = String((await req("GET", "/financial-reports/trial-balance")).body?.params?.asOfDate ?? "");
 
   async function itemBalance(itemId: string) {
@@ -818,7 +817,6 @@ export async function run(ctx: Ctx): Promise<void> {
     check("the goods really had left before the cost landed", beforeIssue.onHand > 0, `on hand before the issue ${beforeIssue.onHand}`);
   });
 
-  // --- 9. Landed costs: the seeded draft LC-DEMO-2 and its two dates --------
   await scenario("purchases: landed cost LC-DEMO-2 keeps its own document date for the accrual and is absorbed on the day its confirm names — through the clearing account, which ends at zero", async () => {
     const lc = await req("GET", "/landed-costs/LC-DEMO-2");
     check("LC-DEMO-2 is still draft (seeded that way)", lc.body?.status === "draft", lc.body?.status);

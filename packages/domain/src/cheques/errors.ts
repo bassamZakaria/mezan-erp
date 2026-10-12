@@ -62,7 +62,6 @@ export class ReplacementAmountMismatchError extends Error {
   }
 }
 
-/** Raised when a cheque clears through a foreign-currency bank account on a day with no approved rate for that currency: the line would not say what the account holds. */
 export class ChequeBankRateMissingError extends Error {
   readonly code = "FX_RATE_MISSING";
   readonly messageEn: string;

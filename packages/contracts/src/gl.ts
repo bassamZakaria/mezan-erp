@@ -198,7 +198,6 @@ export const treasuryCurrencyBalanceSchema = z.object({
   currency: z.string(),
   foreignBalance: z.string(),
   baseBalance: z.string(),
-  /** Lines carrying no currency of their own, read at the approved rate of their own date. */
   derivedLines: z.number().int(),
 });
 export type TreasuryCurrencyBalanceDTO = z.infer<typeof treasuryCurrencyBalanceSchema>;
@@ -209,7 +208,6 @@ export const partyCurrencyBalanceReportSchema = z.object({
   payables: z.array(currencyBalanceGroupSchema),
   receivableTotalBase: z.string(),
   payableTotalBase: z.string(),
-  /** Foreign-currency treasury accounts: what each holds in its own currency and the base amount the ledger books that at. */
   treasury: z.array(treasuryCurrencyBalanceSchema).optional(),
 });
 

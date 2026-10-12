@@ -55,15 +55,7 @@ export interface VoucherLine {
    * the FX revaluation's open position forever (B-5).
    */
   readonly fxRate?: string | null;
-  /**
-   * What the movement is in the TREASURY account's own currency, stamped at
-   * confirm when that account is a foreign-currency one: its currency, the
-   * approved rate of the voucher's date and the foreign amount that moved. The
-   * bank line carries the currency and the rate, so FX revaluation can restate
-   * the balance. Null on a base-currency account.
-   */
   readonly treasuryFx?: TreasuryLegFx | null;
-  /** The same, for the destination account of a transfer. */
   readonly counterTreasuryFx?: TreasuryLegFx | null;
   readonly branchId: string;
   readonly paymentMethod: VoucherPaymentMethod;
@@ -113,17 +105,13 @@ export interface VoucherLine {
 
 export interface TreasuryLegFx {
   readonly currency: string;
-  /** Base units per one unit of {@link currency}. */
   readonly fxRate: string;
   readonly foreignAmount: Money;
-  /** What the money that LEFT the account was carried at in base — its weighted-average cost. Absent on money coming in. */
   readonly carryingBase?: Money;
-  /** فروق عملة محققة: base at the document's rate less {@link carryingBase}; positive is a gain. Posted in the voucher's own entry. */
   readonly realised?: Money;
   readonly realisedAccountId?: string;
 }
 
-/** The two lines that bring a foreign treasury account's relief from the document rate to its carrying amount: base only on the account, the difference on the realised account. */
 function realisedTreasuryLines(treasuryGlAccountId: string, leg: TreasuryLegFx | null | undefined, projectId: string | null): DocumentGlPosting["lines"] {
   if (!leg?.realised || leg.realised.scaled === 0n || !leg.realisedAccountId) return [];
   const gain = leg.realised.scaled > 0n;
@@ -164,12 +152,6 @@ export function isStandingVoucher(doc: VoucherDocument): boolean {
   return (doc.status === "confirmed" || doc.status === "posted") && !doc.reversesDocId;
 }
 
-/**
- * Whether a voucher's effect stood on `asOfDate`, read down its reversal chain:
- * each link undoes the one before it from the day it is dated, so a voucher
- * whose reversal was itself reversed stands again from that day. A reversal is
- * never counted on its own.
- */
 export function voucherStandsAsOf(doc: VoucherDocument, byId: ReadonlyMap<string, VoucherDocument>, asOfDate: string | undefined): boolean {
   if (doc.reversesDocId) return false;
   const dates = [doc.date];
@@ -256,10 +238,6 @@ export function voucherBaseWithholding(line: VoucherLine): Money {
 
 function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   const { treasuryGlAccountId } = line;
-  // The GL holds base amounts on every account. A foreign-currency voucher
-  // converts at the rate stamped on it at confirm (B-4), and a foreign-currency
-  // treasury account's line carries that account's currency and rate beside
-  // the base amount, so the balance it holds in its own currency is defined.
   const amount = voucherBaseAmount(line);
   // The counterparty leg carries the currency and the rate it was booked at,
   // or FX revaluation can never see that this settlement closed the position

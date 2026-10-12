@@ -20,7 +20,6 @@ export const treasuryAccountSchema = z.object({
   bankAccountNumber: z.string().nullable(),
   branchId: z.string().min(1),
   glAccountId: z.string().nullable(),
-  /** What a foreign-currency account holds in its own currency, the base amount the ledger books that at, and how many of its lines were read at a derived rate. Null on a base-currency account. */
   foreignBalance: z.string().nullable().optional(),
   foreignBalanceBase: z.string().nullable().optional(),
   foreignBalanceDerivedLines: z.number().int().nullable().optional(),

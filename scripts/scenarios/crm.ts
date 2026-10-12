@@ -277,8 +277,6 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("the entry balances: debit == credit",
       n(debitLine.debit) + n(plantDebit.debit), n(creditLine.credit) + n(plantCredit.credit));
 
-    // The demo now carries a posted run for every month from the asset's first (2024-03, prorated 17/31 days)
-    // through 2026-07 — 1,480.645161 + 28 × 2,700.00 = 77,080.645161 — so this run ADDS its 2,700.00 to that.
     const asset1 = await req("GET", "/assets/ASSET-DEMO-1");
     checkEq("this run added exactly its own 2,700.00 to AST-0001's accumulated depreciation",
       n(asset1.body.accumulatedDepreciation) - accumulatedBefore, 2700);

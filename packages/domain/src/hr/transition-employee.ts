@@ -18,7 +18,6 @@ export function terminateEmployee(employee: Employee, effectiveDate: string, lat
   return withTerminationDate(employee, effectiveDate, latestAllowed);
 }
 
-/** The employee as terminated on `effectiveDate`, after the checks every termination date passes — a first one or a corrected one. */
 export function withTerminationDate(employee: Employee, effectiveDate: string, latestAllowed: string = effectiveDate): Employee {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) || Number.isNaN(Date.parse(`${effectiveDate}T00:00:00.000Z`))) {
     throw new InvalidEmployeeError(["تاريخ إنهاء الخدمة مطلوب بصيغة YYYY-MM-DD"], ["The termination date is required as YYYY-MM-DD"]);

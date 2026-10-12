@@ -57,7 +57,6 @@ export const ALLOWED_PAYROLL_RUN_TRANSITIONS: Record<PayrollRunStatus, readonly 
   cancelled: [],
 };
 
-/** A run in one of these can no longer be recalculated: what it paid stands. */
 export const PAYROLL_RUN_FINAL_STATUSES: ReadonlySet<PayrollRunStatus> = new Set<PayrollRunStatus>(["approved", "disbursed"]);
 
 export function canTransitionPayrollRun(from: PayrollRunStatus, to: PayrollRunStatus): boolean {
@@ -153,18 +152,11 @@ export const PAYROLL_UNIMPLEMENTED_RULES_STATUTORY: readonly PayrollUnimplemente
 ] as const;
 
 /** The gaps behind a run's nets: the statutory list only when the run was computed with statutory rules. */
-/**
- * The engine annualises one payslip's taxable pay ×12. On a part-month payslip
- * that understates the year's income, so the tax withheld is too low or zero,
- * and no annual settlement is run to correct it: the payslip, the run and the
- * month's close all say so rather than let the figure pass as final.
- */
 export const PART_MONTH_TAX_NOTICE = {
   ar: "ضريبة كسب العمل على هذا الكشف احتُسبت على أجر جزء من الشهر محوَّلاً إلى سنة كاملة، فقد تقل عن المستحق أو تكون صفراً. الفرق يُسوّى في التسوية الضريبية السنوية، والنظام لا يجريها.",
   en: "Income tax on this payslip was computed on part of a month's pay annualised to a full year, so it may be lower than due or zero. The difference is settled in the annual tax settlement, which the system does not run.",
 } as const;
 
-/** Whether a payslip is a part-month one computed with statutory deductions on. */
 export function isPartMonthTaxedPayslip(payslip: Pick<Payslip, "paidDays" | "periodDays" | "insurableWage" | "lines">): boolean {
   if (payslip.paidDays >= payslip.periodDays) return false;
   return payslip.insurableWage.scaled > 0n || payslip.lines.some((line) => line.source === "income_tax" || line.source === "social_insurance_employee");
@@ -179,7 +171,6 @@ export enum PayslipLineKindCode {
   Earning = "earning",
   Deduction = "deduction",
   EmployerContribution = "employer_contribution",
-  /** Pay for days after a last day, taken off an approved net by its own entry — never part of what the approval entry credited. */
   TerminationAdjustment = "termination_adjustment",
 }
 

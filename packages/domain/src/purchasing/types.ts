@@ -105,7 +105,6 @@ export interface PurchaseGlPosting {
   readonly date: string;
   readonly memo: string;
   readonly lines: readonly PurchaseGlPostingLine[];
-  /** A second entry of the same document: appended to the entry id the adapter derives from `sourceDocId`, so the two never collide. */
   readonly entrySuffix?: string;
 }
 
@@ -140,7 +139,6 @@ export interface PurchaseGlAccounts {
    * no such account configured must fall back to.
    */
   readonly goodsReceivedNotInvoicedAccountId?: string;
-  /** فروق أسعار الشراء — takes the part of an invoice-versus-receipt cost difference the goods on hand can no longer carry. Absent = that part stays on inventory. */
   readonly priceVarianceAccountId?: string;
 }
 
@@ -153,24 +151,18 @@ export interface PurchaseStockPostingPort {
   postReceipt(command: PostReceiptCommand): Promise<void>;
   /** Undo a prior `postReceipt` (cancellation). `StockLedgerService.reverseReceipt` satisfies this structurally. */
   reverseReceipt(command: ReverseReceiptCommand): Promise<void>;
-  /** Carries an invoice-versus-receipt cost difference into the receipt's goods still on hand; absent = nothing is carried and the whole difference is a variance. */
   applyReceiptCostVariance?(command: ReceiptCostVarianceCommand): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money; readonly occurredAt?: string }>;
-  /** Takes back what `applyReceiptCostVariance` carried for a document. Resolves false when goods have left the position since, and nothing is written. */
   reverseReceiptCostVariance?(command: { readonly varianceDocId: string; readonly reversalId: string; readonly positions: readonly { itemId: string; warehouseId: string }[]; readonly occurredAt: string }): Promise<{ readonly takenBack: boolean; readonly occurredOn: string | null }>;
 }
 
 export interface ReceiptCostVarianceCommand {
-  /** The invoice that states the cost. */
   readonly varianceDocId: string;
   readonly varianceDocNumber: string | null;
-  /** The receipt whose layers hold the goods. */
   readonly receiptId: string;
   readonly itemId: string;
   readonly warehouseId: string;
-  /** Signed: positive when the invoice costs more than the receipt recorded. */
   readonly valueDelta: Money;
   readonly occurredAt: string;
-  /** The day the difference is stamped when the position already moved on a day after `occurredAt`: stock that left at the old cost keeps it, and the goods still on hand take theirs from this day on. */
   readonly lateOccurredAt?: string;
 }
 

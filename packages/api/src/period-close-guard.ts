@@ -73,7 +73,6 @@ export interface PeriodCloseGuardDeps {
   readonly singleOperatorMode: () => Promise<boolean>;
   readonly listSummaries: (periodId: string) => Promise<readonly SealedPeriodCloseSummary[]>;
   readonly changeToken: () => number;
-  /** Null when the audit sink cannot write inside the commit's transaction; nothing is then closed or locked. */
   readonly commit: ((request: PeriodCloseCommitRequest) => PeriodCloseCommitOutcome) | null;
 }
 

@@ -26,7 +26,6 @@ export const DOC_TYPE = "LANDED_COST";
 export interface LandedCostLine extends AllocatedLandedCostLine {
   readonly costItems: readonly LandedCostItemEntry[];
   readonly distributionMethod: LandedCostDistributionMethod;
-  /** The day the stock takes the cost — the confirm day. Absent on a draft and on a document absorbed on its own date. */
   readonly absorptionDate?: string | null;
 }
 
@@ -49,7 +48,6 @@ export interface LandedCostGlAccounts {
   readonly clearingAccountId?: string;
 }
 
-/** The day a landed cost's stock effect is stamped: its own date unless it was absorbed later. */
 export function landedCostAbsorptionDate(doc: Pick<LandedCostDocument, "date" | "lines">): string {
   return doc.lines[0]?.absorptionDate ?? doc.date;
 }

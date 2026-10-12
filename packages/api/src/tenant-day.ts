@@ -46,7 +46,6 @@ export async function tenantToday(c: Context, override?: () => string): Promise<
   return override ? override() : tenantDay(c, new Date().toISOString());
 }
 
-/** The stock-ledger stamp of a posting that carries no document date: the tenant's calendar day, the one its GL entry is dated, never the UTC day of the instant. */
 export async function tenantStockMoment(c: Context, value?: string | null, now?: () => string): Promise<string> {
   return occurredAtFromDocumentDate(await tenantDay(c, value ?? now?.() ?? new Date().toISOString()));
 }

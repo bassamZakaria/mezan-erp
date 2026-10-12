@@ -100,9 +100,6 @@ export function findSequenceGapsInWindow(documents: readonly NumberedDocument[],
       if (value < low) low = value;
       if (value > high) high = value;
     }
-    // The month's first number follows the last one issued before it. Without
-    // this anchor a number skipped exactly at a month boundary sat between two
-    // windows and was reported in neither.
     for (const value of bucket.before) {
       if (value < low && (previous === null || value > previous)) previous = value;
     }

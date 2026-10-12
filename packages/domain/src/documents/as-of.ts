@@ -4,7 +4,6 @@ export interface LedgerPresenceInput {
   readonly endedOn: string | null;
 }
 
-// The ledger keeps a document and its reversal where each is DATED, so presence ends on the reversal's date, not on the day it was recorded. -1 is a reversal dated before the document it undoes.
 export function ledgerPresenceAsOf(doc: LedgerPresenceInput, asOfDate: string | undefined): -1 | 0 | 1 {
   if (asOfDate === undefined) return doc.live ? 1 : 0;
   if (!doc.live && doc.endedOn === null) return 0;
@@ -13,7 +12,6 @@ export function ledgerPresenceAsOf(doc: LedgerPresenceInput, asOfDate: string | 
   return (posted - ended) as -1 | 0 | 1;
 }
 
-// `linkDates` is the document's own date followed by the date of each reversal down its chain: every link undoes the one before it, from the day it is dated.
 export function reversalChainPresenceAsOf(linkDates: readonly string[], asOfDate: string | undefined): number {
   let presence = 0;
   linkDates.forEach((date, index) => {

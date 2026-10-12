@@ -5728,8 +5728,6 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       const periods = (await get(app, "/fiscal-periods")) as { id: string; startDate: string; endDate: string }[];
       const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
       at("2026-09-02");
-      // The real backend registers the pre-close guard (D176 C-3): August still carries an open USD balance that
-      // was never revalued, so a bare close is refused and names that check; the close goes through by override.
       const bareClose = await post(app, `/fiscal-periods/${august.id}/close`, {}, admin(app));
       expect(bareClose.status).toBe(409);
       expect(((await bareClose.json()) as { failedChecks: string[] }).failedChecks).toEqual(["fx_revaluation"]);

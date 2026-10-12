@@ -66,7 +66,6 @@ function assertOpeningBalanceBound(accountId: string, openingBalance: Money): vo
  * account statement page. Re-validates the cash-can't-go-negative rule.
  */
 export interface TreasuryAccountMovementProbe {
-  /** Whether any journal line has ever been posted to this ledger account. */
   hasPostedLines(glAccountId: string): Promise<boolean>;
 }
 

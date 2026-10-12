@@ -158,7 +158,6 @@ describe("VoucherService — a foreign-currency voucher", () => {
     const arLine = entry.lines.find((l) => l.accountId === "1100")!;
     expect(arLine.currency).toBe("USD");
     expect(arLine.fxRate).toBe("49.35");
-    // The cash leg sits on a USD treasury account: it carries the account's currency and the rate, and the voucher records the dollars that moved.
     const cashLine = entry.lines.find((l) => l.accountId === "1300-1")!;
     expect({ currency: cashLine.currency, fxRate: cashLine.fxRate }).toEqual({ currency: "USD", fxRate: "49.35" });
     expect(voucherLine(document).treasuryFx).toEqual({ currency: "USD", fxRate: "49.35", foreignAmount: Money.fromMajor("1000") });

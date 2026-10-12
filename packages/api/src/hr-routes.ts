@@ -147,7 +147,6 @@ export interface HrRoutesDeps extends Partial<HrTimeLeaveDeps> {
   readonly tenantSettings?: Pick<SettingsRepository, "get">;
 }
 
-// The wire carries the closed sets as validated strings; each is mapped to its domain member here, exhaustively, so a value added on one side fails to compile until the other knows it.
 const EMPLOYEE_STATUS_FROM_WIRE: Readonly<Record<TransitionEmployeeDTO["status"], EmployeeRefStatus>> = {
   active: EmployeeRefStatus.Active,
   on_leave: EmployeeRefStatus.OnLeave,

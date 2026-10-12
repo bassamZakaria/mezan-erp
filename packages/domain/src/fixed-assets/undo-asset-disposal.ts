@@ -34,11 +34,6 @@ export interface UndoAssetDisposalOptions {
   readonly memo?: string;
 }
 
-/**
- * إلغاء التخلص من أصل. The disposal entry is reversed and the asset returns to
- * service at the accumulated depreciation it was disposed with, so later runs
- * charge it again.
- */
 export async function undoAssetDisposal(assetId: string, deps: UndoAssetDisposalDeps, opts: UndoAssetDisposalOptions): Promise<Asset> {
   const asset = await deps.assets.findById(assetId);
   if (!asset) throw new AssetNotFoundError(assetId);

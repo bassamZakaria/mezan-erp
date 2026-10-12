@@ -178,7 +178,6 @@ export function previewHistoricalImport(
     else byKey.set(key, [row]);
   }
 
-  // The archive holds one document per (type, number): the same number under two parties cannot both be written.
   const firstRowsByNumber = new Map<string, number[]>();
   for (const bucket of byKey.values()) {
     const first = bucket[0]!;
@@ -313,8 +312,6 @@ export async function importHistoricalPurchaseDocuments(
         createdBy: command.createdBy ?? "system",
         createdAt: nowIso(deps),
       };
-      // The entry first: if the ledger refuses it — a closed month — nothing is
-      // archived, or the sub-ledger would owe a balance no entry carries.
       if (!archive.settled && deps.gl && deps.accounts) {
         const isReturn = archive.docType === "PURCHASE_RETURN";
         const lines: HistoricalImportGlPostingLine[] = isReturn

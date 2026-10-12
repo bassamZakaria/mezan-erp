@@ -185,7 +185,6 @@ export interface PeriodCloseBankStatement {
   readonly periodStart: string;
   readonly periodEnd: string;
   readonly finalized: boolean;
-  /** Finalized over unmatched lines or a difference that was not zero. */
   readonly forced: boolean;
   readonly unmatchedLines: number;
 }
@@ -193,7 +192,6 @@ export interface PeriodCloseBankStatement {
 export interface PeriodCloseBankAccount {
   readonly treasuryAccountId: string;
   readonly label: string;
-  /** The first day in the window the account's GL moved; statements have to run unbroken from here to the window's end. */
   readonly firstMovementDate: string;
 }
 
@@ -201,7 +199,6 @@ export interface PeriodClosePayrollDue {
   readonly dueEmployees: number;
   readonly uncoveredEmployees: number;
   readonly hasUnpostedRun: boolean;
-  /** Part-month payslips whose income tax awaits an annual settlement the engine does not run; reported, never blocking. */
   readonly partMonthTaxedPayslips?: number;
 }
 
@@ -250,7 +247,6 @@ export interface PeriodCloseSources {
   payrollDue(window: PeriodCloseWindow): Promise<PeriodClosePayrollDue>;
   foreignCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
   fxRevaluedCurrencies(window: PeriodCloseWindow): Promise<readonly string[]>;
-  /** Monetary accounts holding none of a foreign currency while the ledger still carries a base amount on them in it. */
   foreignResidues(window: PeriodCloseWindow): Promise<readonly PeriodCloseForeignResidue[]>;
   recurringDue(window: PeriodCloseWindow): Promise<readonly PeriodCloseRecurringDue[]>;
   depreciation(window: PeriodCloseWindow): Promise<readonly PeriodCloseDepreciationGroup[]>;

@@ -1332,7 +1332,6 @@ export interface JournalEntryDTO {
   readonly postedAt: string | null;
   readonly reversesEntryId: string | null;
   readonly reversedByEntryId: string | null;
-  /** False for an entry a document owns and for a reversing entry: neither is reversed from the journal. */
   readonly reversibleFromJournal?: boolean;
   /** The document this entry came from, and the module derived from it (R6.3). */
   readonly sourceDocType: string | null;
@@ -4577,7 +4576,6 @@ function useFiscalPeriodTransition(action: FiscalPeriodTransitionAction, fallbac
     mutationFn: async (id) => {
       const res = await request(`/fiscal-periods/${id}/${action}`, { method: "POST" });
       if (!res.ok) {
-        // Read ONCE: over HTTP the body is a stream, and a second read rejects.
         const refusal = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
         throw new ApiError(res.status, refusal.message ? refusal.message : fallbackMessage, undefined, undefined, refusal.error);
       }

@@ -16,7 +16,6 @@ export interface TreasuryCurrencyAccount {
 
 const USABLE_RATE_STATUSES: ReadonlySet<string> = new Set(["approved", "locked"]);
 
-/** The rate the server will stamp: the latest approved one on or before the voucher's date. */
 export function approvedRateOn(rates: readonly TreasuryCurrencyRate[], currency: string, date: string): string | null {
   const usable = rates.filter((rate) => rate.currency === currency && USABLE_RATE_STATUSES.has(rate.status) && rate.effectiveDate <= date);
   return usable.sort((a, b) => (a.effectiveDate < b.effectiveDate ? 1 : -1))[0]?.rate ?? null;
@@ -26,14 +25,12 @@ function twoDecimals(amount: Money): string {
   return roundMoney(amount, 2, "HALF_UP").toString().slice(0, -4);
 }
 
-/** A number field's value as money: stated to the micro-unit, never through its binary expansion. */
 function statedAmount(amount: number | null): Money {
   return amount === null || !Number.isFinite(amount) || Math.abs(amount) >= 1e15 ? Money.zero() : Money.fromMajor(amount.toFixed(6));
 }
 
 interface TreasuryCurrencyNoticeProps {
   readonly baseCurrency: string;
-  /** The treasury accounts the voucher touches: its own, and the destination of a transfer. */
   readonly accounts: readonly TreasuryCurrencyAccount[];
   readonly voucherCurrency: string;
   readonly onVoucherCurrencyChange: (currency: string) => void;

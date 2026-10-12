@@ -18,7 +18,6 @@ export interface DepreciationRunLine {
   readonly costCategory?: CostCategory | null;
 }
 
-/** A drafted line the posting left out because another posted run had already charged that asset for the period. */
 export interface DepreciationRunSkippedLine {
   readonly assetId: string;
   readonly assetCode: string;

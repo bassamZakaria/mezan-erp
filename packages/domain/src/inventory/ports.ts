@@ -16,7 +16,6 @@ export interface StockLedgerRepository {
   append(movement: StockMovement): Promise<void>;
   /** Movements for one position, in ledger order (occurredAt, then insertion). */
   listByPosition(itemId: string, warehouseId: string): Promise<readonly StockMovement[]>;
-  /** The day of the latest standing landed-cost absorption on a position, or null. Optional; a caller falls back to `listByPosition`. */
   latestLandedCostAbsorptionDay?(itemId: string, warehouseId: string): Promise<string | null>;
   listByItem(itemId: string): Promise<readonly StockMovement[]>;
   listByWarehouse(warehouseId: string): Promise<readonly StockMovement[]>;
@@ -150,6 +149,5 @@ export interface InventoryGlPosting {
 
 export interface InventoryGlPostingPort {
   post(posting: InventoryGlPosting): Promise<void>;
-  /** Mirrors the entry a stock document posted under its own id. Answers the original's lines, or null when the document posted no entry. */
   reverse?(entryId: string, opts: { readonly reversalId: string; readonly date: string; readonly memo: string }): Promise<readonly InventoryGlPostingLine[] | null>;
 }

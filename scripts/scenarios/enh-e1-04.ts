@@ -8,17 +8,6 @@ const OVERRIDE_DRAFT_ID = "SCN-PC-DRAFT-2";
 const REASON = "SCN-PC: إقفال يونيو قبل ترحيل قيد التسوية باعتماد المدير المالي";
 const CLOSER_ONLY = { "x-user-id": "SCN-PC-CLOSER", "x-permissions": "accounting.period.close,accounting.period.reopen" };
 
-/**
- * Guided month-end close (ENH-E1-04, D176 C-3), through the routes the close
- * workspace calls.
- *
- * It runs in a fiscal year of its own, generated here and older than anything
- * the tenant holds. Every 2026 month already fails a check or two on the demo
- * (a recurring draft, no depreciation run) and other suites leave their own
- * drafts behind, so "allowed after fixing" can only be proven in a month whose
- * ONLY failing check is the one this scenario creates. The year stays behind,
- * as seams' 2027 does; its June is handed back open.
- */
 export const scenario: ScenarioFragment = {
   smokePaths: [`/period-close/${SEEDED_PERIOD}/checks`, `/period-close/${SEEDED_PERIOD}/summaries`],
 

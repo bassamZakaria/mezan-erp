@@ -114,7 +114,6 @@ export interface BounceChequeCommand {
 }
 
 export interface ReturnCollectedChequeCommand extends BounceChequeCommand {
-  /** Id for the entry that mirrors the collection. */
   readonly collectionReversalId: string;
 }
 
@@ -175,7 +174,6 @@ export interface ChequeServiceDeps {
   readonly raisedBy?: ChequeRaisingDocumentPort;
   /** Rates and accounts for the realised exchange difference a cheque settling a foreign invoice posts (D221). */
   readonly realisedFx?: RealisedFxPort;
-  /** The currency and the day's approved rate of a bank account kept in a foreign currency, so the line a collection posts on it says what it holds; null for a base-currency account. */
   readonly bankLegFx?: (bankGlAccountId: string, date: string) => Promise<{ readonly currency: string; readonly fxRate: string | null } | null>;
 }
 
@@ -297,7 +295,6 @@ export class ChequeService {
     return updated;
   }
 
-  /** An outgoing cheque's money leaves a foreign-currency bank at what the bank carries it at; the difference from the day's rate is realised in the clearing entry. */
   private async realisedOnClearing(cheque: Cheque, bankGlAccountId: string, leg: { currency: string; fxRate: string }, date: string): Promise<JournalLineInput[]> {
     const port = this.deps.realisedFx;
     const position = cheque.bankTreasuryAccountId ? ((await port?.treasuryPosition?.(cheque.bankTreasuryAccountId, date)) ?? null) : null;
@@ -373,11 +370,6 @@ export class ChequeService {
     });
   }
 
-  /**
-   * شيك محصَّل ردّه البنك. The collection entry is mirrored — with the bank
-   * line's own currency and rate, so a foreign bank gives back exactly what it
-   * took in — and the cheque then bounces as one never collected does.
-   */
   async returnCollected(cmd: ReturnCollectedChequeCommand): Promise<Cheque> {
     return this.deps.cheques.transaction(async () => {
       const cheque = await this.require(cmd.chequeId);

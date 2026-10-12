@@ -176,7 +176,6 @@ function bankStatementState(statement: PeriodCloseBankStatement): PeriodCloseFin
   return statement.forced ? PeriodCloseFindingState.ForcedFinalization : PeriodCloseFindingState.Ok;
 }
 
-/** The first day from `from` to `to` that no statement spans, or null when they run unbroken to `to`. */
 function firstUncoveredDay(statements: readonly PeriodCloseBankStatement[], from: string, to: string): string | null {
   let cursor = from;
   for (const statement of [...statements].sort((a, b) => a.periodStart.localeCompare(b.periodStart))) {
@@ -207,7 +206,6 @@ const bankCheck: PeriodCloseCheckDefinition = {
     });
     for (const account of accounts) {
       const own = statements.filter((s) => s.treasuryAccountId === account.treasuryAccountId);
-      // An unfinalized statement already fails as itself; it still spans its days, so they are not reported twice.
       const uncovered = firstUncoveredDay(own, account.firstMovementDate, window.endDate);
       if (uncovered === null) continue;
       findings.push(

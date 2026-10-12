@@ -24,12 +24,6 @@ async function postInto(error: Error) {
   return { status: res.status, body: (await res.json()) as Record<string, unknown> };
 }
 
-/**
- * Landed costs, sales returns and purchase returns confirm through the posting
- * engine and map none of its refusals, so a confirm dated into a closed month
- * answered 500 «خطأ داخلي» and the operator was never told the period was shut.
- * The last net now names the refusal for every route that forgot to.
- */
 describe("createApp — the last net", () => {
   it("answers a closed-period refusal as 422 with the period's own message, not 500", async () => {
     const error = new PeriodNotOpenForPostingError("fp-2026-10", "closed");

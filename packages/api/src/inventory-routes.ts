@@ -202,7 +202,6 @@ function requireQuery(c: Context, name: string): string {
 }
 
 export interface InventoryAdjustmentReversalDeps {
-  /** The adjustment documents: one of those is reversed on its own route so its state follows. */
   readonly documents?: { findById(id: string): Promise<unknown | null> };
   readonly audit?: AuditSink;
 }

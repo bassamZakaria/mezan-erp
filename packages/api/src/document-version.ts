@@ -108,7 +108,6 @@ export type RequestedReversalDate = { readonly ok: true; readonly date: string |
 
 const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
-/** The day a cancel or void is to be dated, when the caller names one. Absent means today. */
 export function requestedReversalDate(body: unknown): RequestedReversalDate {
   const value = body && typeof body === "object" ? (body as { date?: unknown }).date : undefined;
   if (value === undefined || value === null) return { ok: true, date: undefined };

@@ -149,11 +149,6 @@ export async function boot() {
     return m[1] ? -units : units;
   }
 
-  /**
-   * بضاعة واردة لم تُفوتر (GL 2120) holds exactly, per confirmed receipt line,
-   * the quantity no invoice has billed yet at the receipt's cost — whatever
-   * price an invoice stated for the quantity it did bill.
-   */
   async function goodsReceivedNotInvoicedGap(): Promise<bigint | null> {
     const receipts = await req("GET", "/purchases/receipts?status=confirmed&pageSize=10000");
     const ledger = await req("GET", "/gl/accounts/2120/ledger");

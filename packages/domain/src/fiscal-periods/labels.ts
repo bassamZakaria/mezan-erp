@@ -42,7 +42,6 @@ export function fiscalPeriodLabel(period: FiscalPeriodRef): BilingualText {
 
 const GENERATED_PERIOD_ID = /^fp-(\d{4})-(\d{2})$/;
 
-/** A caller that holds only the period's id still gets the month named, when the id is a generated one. */
 export function fiscalPeriodRefOf(period: FiscalPeriodRef | string): FiscalPeriodRef | null {
   if (typeof period !== "string") return period;
   const match = GENERATED_PERIOD_ID.exec(period);

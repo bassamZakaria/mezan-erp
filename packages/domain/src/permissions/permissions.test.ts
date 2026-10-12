@@ -100,10 +100,8 @@ describe("permission catalog", () => {
     expect(isSensitive("pos.discount.approve")).toBe(true);
     expect(isSensitive("accounting.cockpit.view")).toBe(true);
     expect(isSensitive("treasury.cash_forecast.view")).toBe(true);
-    // Nine: overriding the pre-close checks closes a month the books say is not ready (ENH-E1-04).
     expect(isSensitive("accounting.period.override_close")).toBe(true);
     expect(isSensitive("accounting.period.close")).toBe(false);
-    // Twenty-four: each of the fifteen reversal permissions undoes posted money or stock.
     expect(PERMISSIONS.filter((p) => p.code.endsWith(".reverse")).every((p) => p.sensitive)).toBe(true);
     expect(isSensitive("purchases.landed_cost.void")).toBe(false);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;

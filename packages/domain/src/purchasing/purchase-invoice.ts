@@ -208,7 +208,6 @@ export interface ConfirmPurchaseInvoiceResult {
 }
 
 export interface CancelPurchaseInvoiceDeps extends PurchaseAuditDeps {
-  /** Numbers of the confirmed landed costs standing on a document; one that carries any is not cancelled under them. */
   readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
   readonly invoices: PurchaseInvoiceRepository;
   readonly stock: PurchaseStockPostingPort;
@@ -223,7 +222,6 @@ function nowIso(deps: { now?: () => string }): string {
   return deps.now ? deps.now() : new Date().toISOString();
 }
 
-/** The journal entry a cancel posts. Its DATE is the day the invoice stopped standing in the ledger. */
 export function purchaseInvoiceCancelEntryId(invoiceId: string): string {
   return `${invoiceId}:cancel`;
 }
@@ -559,11 +557,8 @@ export function baseReceiptLines(qty: Qty, unitCost: Money, rate?: string | null
 
 /** Build the balanced Dr/Cr posting for a confirmed invoice (pure). */
 export interface ReceiptCostVariance {
-  /** Per invoice line, what the receipt accrued for the quantity that line bills — the amount that clears بضاعة واردة لم تُفوتر. */
   readonly relievedByLine: readonly Money[];
-  /** The part of (invoiced − received) carried into the goods still on hand on the invoice's own day; signed. */
   readonly absorbed: Money;
-  /** The part posted to purchase price variance in the invoice's entry; signed. */
   readonly unabsorbed: Money;
 }
 
@@ -695,16 +690,9 @@ export const PURCHASE_INVOICE_LATE_VARIANCE_SUFFIX = ":variance";
 
 interface CarriedReceiptVariance {
   readonly variance: ReceiptCostVariance;
-  /** The share of the difference the goods on hand took on a day later than the invoice's, with that day: stock and GL 1200 must move on the same one. */
   readonly late: { readonly day: string; readonly amount: Money }[];
 }
 
-/**
- * Per invoice line: the quantity billed at the receipt's cost clears the
- * accrual, and (invoice price − receipt cost) × billed quantity is that ITEM's
- * difference, carried into its own goods still on hand; what they cannot carry
- * is the variance.
- */
 async function carryReceiptCostVariance(
   invoice: PurchaseInvoice,
   receipt: GoodsReceipt,
@@ -817,7 +805,6 @@ export async function confirmPurchaseInvoice(
   const runAtomically = deps.gl.transaction?.bind(deps.gl) ?? (<T,>(fn: () => Promise<T>) => fn());
 
   const confirmed = await runAtomically(async () => {
-    // Read INSIDE the transaction: two drafts can be raised on one receipt while neither is confirmed, and together they may bill no more than it received.
     let billings: ReceiptLineBilling[][] | null = null;
     let latePostings: PurchaseGlPosting[] = [];
     if (invoice.receiptId) {
@@ -940,7 +927,6 @@ export async function cancelPurchaseInvoice(
   return atomically(deps, async () => {
   if (invoice.status === "confirmed") {
     const inventoryLines = invoice.lines.filter((l) => l.kind === "inventory" && l.itemId !== null);
-    // The goods of a from-receipt invoice sit in layers the RECEIPT created: under the receipt's id, in the receipt's warehouse, for the receipt's items.
     const sourceReceipt = invoice.receiptId ? ((await deps.receipts?.findById(invoice.receiptId)) ?? null) : null;
     const tracked = inventoryLines.some((l) => l.receiptBillings !== undefined);
     const positions = sourceReceipt && !tracked
@@ -963,7 +949,6 @@ export async function cancelPurchaseInvoice(
         sourceDocType: "PURCHASE_INVOICE",
         sourceDocId: invoice.id,
         positions,
-        // The day the GL reversal is dated, so stock and GL 1200 leave together.
         occurredAt: occurredAtFromDocumentDate(cancelDate),
       });
     }
@@ -985,7 +970,6 @@ export async function cancelPurchaseInvoice(
             memo: `عكس فرق سعر فاتورة مشتريات ${invoice.number}`,
           });
         } catch (err) {
-          // Only an invoice whose variance landed on a later day than its own has this entry.
           if (!(err instanceof JournalEntryNotFoundError)) throw err;
           break;
         }
@@ -997,7 +981,6 @@ export async function cancelPurchaseInvoice(
       date: cancelDate,
       memo: `عكس فاتورة مشتريات ${invoice.number}`,
     });
-    // An invoice confirmed before billing was tracked per line cleared the whole receipt: while one still stands, the receipt stays billed.
     if (invoice.receiptId && deps.receipts && (await untrackedConfirmedInvoicesOnReceipt(deps.invoices, invoice.receiptId, invoice.id)).length === 0) {
       await unbillGoodsReceipt(invoice.receiptId, tracked ? inventoryLines.flatMap((l) => l.receiptBillings ?? []) : null, { receipts: deps.receipts });
     }

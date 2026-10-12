@@ -73,12 +73,6 @@ export class MissingHookError extends Error {
   }
 }
 
-/**
- * A stock plan reached the ledger without its document's date. Stamping the
- * wall clock instead put a June return's goods into October while its journal
- * entry sat in June, so inventory and GL 1200 disagreed at every month end in
- * between.
- */
 export class StockPlanDateRequiredError extends Error {
   readonly code = "STOCK_PLAN_DATE_REQUIRED";
   readonly messageEn: string;

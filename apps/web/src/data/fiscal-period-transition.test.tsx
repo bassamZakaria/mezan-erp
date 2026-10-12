@@ -12,7 +12,6 @@ import { testAdminSession } from "./test-support";
 import type { Transport } from "./transport";
 import { ApiError, useClosePeriod, useLockPeriod } from "./hooks";
 
-/** The browser transport's shape: a fetch Response, whose body can be read exactly once. */
 function httpTransport(status: number, body: unknown, seen: string[] = []): Transport {
   return (path, init) => {
     seen.push(`${init?.method ?? "GET"} ${path}`);

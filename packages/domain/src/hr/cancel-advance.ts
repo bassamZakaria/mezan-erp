@@ -14,7 +14,6 @@ export interface CancelEmployeeAdvanceDeps {
 
 export interface CancelEmployeeAdvanceOptions {
   readonly reversalId: string;
-  /** The day the disbursement voucher's reversal is dated; the voucher's own day when absent. */
   readonly date?: string;
   readonly today: string;
 }
@@ -26,11 +25,6 @@ function toPiasters(scaled: bigint): string {
 
 const CANCELLABLE_UNPAID: ReadonlySet<string> = new Set([EmployeeAdvanceStatusCode.Pending, EmployeeAdvanceStatusCode.Approved]);
 
-/**
- * إلغاء سلفة. One not yet paid out is simply cancelled. One paid out and not
- * repaid has its disbursement voucher reversed — or, when a termination raised
- * it, that whole recovery taken back — so 1160 and the advance move together.
- */
 export async function cancelEmployeeAdvance(advanceId: string, deps: CancelEmployeeAdvanceDeps, opts: CancelEmployeeAdvanceOptions): Promise<EmployeeAdvance> {
   const advance = await deps.advances.findById(advanceId);
   if (!advance) throw new EmployeeAdvanceNotFoundError(advanceId);

@@ -206,7 +206,6 @@ export async function run(ctx: Ctx): Promise<void> {
     // gains another foreign position (the demo's USD bank receipt did exactly
     // that). The requirement being asserted is about this liability.
     check("a liability that grew in base currency is a LOSS, never a gain", n(detail?.gainLoss) === -4000, `gainLoss=${detail?.gainLoss}`);
-    // The tenant's other USD positions — the demo's USD bank is one, now that its lines carry a currency — revalue in the same preview; what this liability adds to the gain side is the total less theirs.
     const gainOfOthers = ((preview.body?.details ?? []) as any[]).filter((d) => d.accountId !== USD_LIABILITY && n(d.gainLoss) > 0).reduce((sum, d) => sum + n(d.gainLoss), 0);
     check("and this position puts nothing on the gain side", n(preview.body?.totalLoss) >= 4000 && Math.abs(n(preview.body?.totalGain) - gainOfOthers) < 0.000001,
       `loss=${n(preview.body?.totalLoss)} gain=${n(preview.body?.totalGain)} others=${gainOfOthers}`);

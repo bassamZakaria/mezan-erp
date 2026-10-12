@@ -47,7 +47,6 @@ async function postRecurringEntry(app: App, month: string): Promise<void> {
   await step(app, "POST", `/gl/journal-entries/${encodeURIComponent(run.journalEntryId)}/post`, {});
 }
 
-// The statement is DERIVED from the bank GL account's posted movements — in the bank's own wording, quoting the transfer reference the books hold where there is one — and matched line for line. A bank charge the books do not hold yet is the one line that is booked FROM the statement instead.
 async function reconcileBankStatement(app: App, month: string): Promise<void> {
   const periodStart = `${month}-01`;
   const periodEnd = lastDayOf(month);
@@ -120,7 +119,6 @@ async function close(app: App, month: string, body: { overrideReason?: string })
 export async function seedGuidedClose(app: App): Promise<void> {
   for (const month of CLOSED_MONTHS) if (!DEPRECIATED_BY_HISTORY.has(month)) await postDepreciation(app, month);
   await postDepreciation(app, SUPPLEMENTARY_DEPRECIATION);
-  // A draft the «ترحيل» action has something to act on (D54), in a month that is still open.
   await step(app, "POST", "/assets/depreciation/runs", DRAFT_RUN);
 
   for (const month of CLOSED_MONTHS) {

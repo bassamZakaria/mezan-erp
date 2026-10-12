@@ -190,7 +190,6 @@ export interface ConfirmGoodsReceiptDeps extends PurchaseAuditDeps {
 }
 
 export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
-  /** Numbers of the confirmed landed costs standing on a document; one that carries any is not cancelled under them. */
   readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
   readonly receipts: GoodsReceiptRepository;
   readonly orders: PurchaseOrderRepository;
@@ -205,11 +204,6 @@ export function goodsReceiptCancelEntryId(receiptId: string): string {
   return `${receiptId}:cancel`;
 }
 
-/**
- * A layer that was fully issued is REMOVED from the store, so "no layer of this
- * document" means consumed, not untouched. Reading it as untouched let a cancel
- * credit GL 1200 for goods that had already left through cost of sales.
- */
 export function receiptLayersConsumed(layers: readonly CostLayer[], sourceDocId: string): boolean {
   const mine = layers.filter((l) => l.sourceDocId === sourceDocId);
   return mine.length === 0 || mine.some((l) => l.remainingQty.compare(l.originalQty) !== 0);
@@ -220,7 +214,6 @@ export interface StockPosition {
   readonly warehouseId: string;
 }
 
-// One document may carry the same item on several lines; its layers are found per position, so a repeated position must be visited once.
 export function distinctPositions(positions: readonly StockPosition[]): StockPosition[] {
   const seen = new Set<string>();
   return positions.filter((p) => {
@@ -585,7 +578,6 @@ export async function cancelGoodsReceipt(
       sourceDocType: "PURCHASE_RECEIPT",
       sourceDocId: receipt.id,
       positions,
-      // The day the GL reversal is dated, so stock and GL 1200 leave together.
       occurredAt: occurredAtFromDocumentDate(cancelDate),
     });
 
@@ -596,7 +588,6 @@ export async function cancelGoodsReceipt(
         memo: `عكس إذن استلام ${receipt.number}`,
       });
     } catch (err) {
-      // A receipt confirmed while no accrual account was configured posted no entry: there is nothing to reverse.
       if (!(err instanceof JournalEntryNotFoundError)) throw err;
     }
 
@@ -633,7 +624,6 @@ export async function billGoodsReceipt(id: string, billings: readonly ReceiptLin
   await deps.receipts.update(withBilling(receipt, billings, 1));
 }
 
-/** `billings` null = an invoice confirmed before billing was tracked per line: it cleared the whole receipt, so the whole receipt is released. */
 export async function unbillGoodsReceipt(id: string, billings: readonly ReceiptLineBilling[] | null, deps: Pick<ConfirmGoodsReceiptDeps, "receipts">): Promise<void> {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) return;

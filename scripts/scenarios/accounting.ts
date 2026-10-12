@@ -274,8 +274,6 @@ export async function run(ctx: Ctx): Promise<void> {
       ctx.check("the fiscal year has January/February/March periods to test against", Boolean(jan && feb && mar), `periods=${periods.length}`);
       if (!jan || !feb || !mar) return;
 
-      // The demo month carries real unfinished work (a recurring draft, no depreciation run), so the guided
-      // close (D176 C-3) refuses a bare close; this scenario is about the POSTING gate, and closes by override.
       const closeJan = await ctx.req("POST", `/fiscal-periods/${jan.id}/close`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
       ctx.check("closing an open period succeeds", closeJan.status === 200 && closeJan.body?.status === "closed", `status ${closeJan.status}`);
 
@@ -313,7 +311,6 @@ export async function run(ctx: Ctx): Promise<void> {
         `status ${lockFromOpen.status} body ${JSON.stringify(lockFromOpen.body)}`,
       );
 
-      // February ships closed clean, so the scenario leaves real unfinished work in it: a draft entry is what the checks are there to catch.
       const febDraft = await ctx.req("POST", "/gl/journal-entries/draft", {
         id: "SCN-JE-FEB-DRAFT",
         date: feb.startDate,
@@ -325,7 +322,6 @@ export async function run(ctx: Ctx): Promise<void> {
       });
       ctx.check("a draft entry is left in February", febDraft.status === 201, `status ${febDraft.status} ${JSON.stringify(febDraft.body).slice(0, 140)}`);
 
-      // Closed by a second identity: overriding a LOCK takes a different user from the one who closed the month.
       const closeFeb = await ctx.req(
         "POST",
         `/fiscal-periods/${feb.id}/close`,
@@ -1542,7 +1538,6 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
     ctx.check("a draft dated into March saves without touching the ledger", draft.status === 201 && draft.body?.status === "draft", `status ${draft.status} body ${JSON.stringify(draft.body).slice(0, 160)}`);
     ctx.check("and carries no entry number, because it has not been posted", draft.body?.entryNo === null, String(draft.body?.entryNo));
 
-    // D176 C-3, fixed: this used to assert the close was ACCEPTED in silence. It is now refused, and names the draft.
     const bareClose = await ctx.req("POST", `/fiscal-periods/${march.id}/close`, {});
     const draftsCheck = (bareClose.body?.checklist?.checks ?? []).find((c: any) => c.code === "drafts");
     const strandedJournals = (draftsCheck?.findings ?? []).find((f: any) => f.ref === "journal_entry");

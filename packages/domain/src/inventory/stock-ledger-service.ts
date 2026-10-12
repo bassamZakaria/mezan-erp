@@ -111,11 +111,6 @@ export interface StockLedgerServiceDeps {
   readonly transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Clock for `occurredAt` defaults. Defaults to `Date.now`-based ISO. */
   readonly clock?: () => string;
-  /**
-   * Refuses a movement dated into a fiscal period that is not open. A transfer
-   * posts nothing to the GL, so the posting engine's own gate never saw it and
-   * stock kept moving inside a locked month.
-   */
   readonly periodGate?: (date: string) => Promise<void>;
   /**
    * Last-resort unit cost for an issue out of a position that holds nothing and
@@ -983,8 +978,6 @@ export class StockLedgerService {
         await this.assertNotBeforeLandedCost(pos.itemId, pos.warehouseId, occurredAt);
         const layers = await this.deps.layers.listByPosition(pos.itemId, pos.warehouseId);
         const mine = layers.filter((l) => l.sourceDocId === command.sourceDocId);
-        // A fully issued layer is removed from the store. Reversing "nothing"
-        // here let the caller reverse the GL for goods that had already left.
         if (mine.length === 0) {
           throw new InvalidStockMovementError([
             `بضاعة المستند "${command.sourceDocId}" من الصنف "${pos.itemId}" صُرفت بالكامل، فلا يمكن عكس استلامها`,
@@ -1179,18 +1172,15 @@ export class StockLedgerService {
     });
   }
 
-  /** The period gate every movement passes, for a caller that must be refused by it before any other rule speaks. */
   async assertMovementDateOpen(occurredAt: string): Promise<void> {
     await this.assertPeriodOpen(occurredAt);
   }
 
-  /** The day of the latest movement recorded on a position, or null when it has none. */
   async latestMovementDay(itemId: string, warehouseId: string): Promise<string | null> {
     const movements = await this.deps.ledger.listByPosition(itemId, warehouseId);
     return movements.reduce<string | null>((latest, m) => (latest === null || m.occurredAt.slice(0, 10) > latest ? m.occurredAt.slice(0, 10) : latest), null);
   }
 
-  /** The value-only movement a landed-cost document appended to a position, and whether anything has left the position since. */
   async landedCostRevaluationState(line: { readonly itemId: string; readonly warehouseId: string; readonly landedCostDocId: string }): Promise<{ readonly applied: boolean; readonly issuedSince: boolean }> {
     const movements = await this.deps.ledger.listByPosition(line.itemId, line.warehouseId);
     const index = movements.findIndex((m) => m.sourceDocType === "LANDED_COST" && m.sourceDocId === line.landedCostDocId && isRevaluation(m));
@@ -1198,12 +1188,6 @@ export class StockLedgerService {
     return { applied: true, issuedSince: movements.slice(index + 1).some((m) => m.direction === "OUT" && !isRevaluation(m)) };
   }
 
-  /**
-   * Takes a landed cost back off a position: the mirror value-only movement,
-   * against the same receipt's layers. Answers the value the position actually
-   * gave up — less than the cost when goods carrying it have left since, and
-   * the caller books that difference against cost of sales.
-   */
   async reverseLandedCostRevaluation(line: {
     readonly itemId: string;
     readonly warehouseId: string;
@@ -1516,7 +1500,6 @@ export class StockLedgerService {
 /** Build the balanced Dr/Cr posting for a value-impacting adjustment. */
 export interface ReverseAdjustmentCommand {
   readonly adjustmentId: string;
-  /** Source-document id of the compensating movements. */
   readonly reversalId: string;
   readonly occurredAt: string;
   readonly memo?: string;
@@ -1554,7 +1537,6 @@ function buildAdjustmentPosting(
   };
 }
 
-/** The absorption day of the latest landed cost still standing on a position; a reversal's mirror movement takes its own landed cost off the list. */
 export function standingLandedCostDay(movements: readonly StockMovement[]): string | null {
   const standing: { receipt: string; amount: bigint; day: string }[] = [];
   for (const movement of movements) {

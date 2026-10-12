@@ -392,7 +392,6 @@ export interface CreateAppOptions {
   readonly treasuryAccountRepo?: TreasuryAccountRepository;
   /** Mounts `/fiscal-periods` (docs/archive/catalog/04 "الفترات المالية") when present — omit it for no `/fiscal-periods` route. */
   readonly fiscalPeriodRepo?: FiscalPeriodRepository;
-  /** Without one, close and lock refuse (ENH-E1-04): an unchecked close is never the default. */
   readonly periodCloseGuard?: PeriodCloseGuardSource;
   /**
    * Mounts `/inventory` (docs/archive/catalog/03 — the costing + stock-ledger engine)
@@ -1745,9 +1744,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
    * JSON body in the shape every client already parses.
    */
   app.onError((err, c) => {
-    // The posting engine refuses a date in a shut or missing period on EVERY
-    // route that posts, and only some route files map it. Same answer the GL
-    // route gives, so no confirm reports a closed month as «خطأ داخلي».
     const refusal = postingRefusalResponse(c, err);
     if (refusal) return refusal;
     try {

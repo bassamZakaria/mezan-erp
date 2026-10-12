@@ -627,7 +627,6 @@ const ADVANCES = [
   { id: "ADV-DEMO-5", employeeId: "EMP-DEMO-6", amount: "10000", installmentCount: 10, firstDeductionDate: "2026-09-01", reason: "شراء دراجة بخارية", flow: "rejected", disburseDate: null },
 ];
 
-/** January to June are settled, July is posted and awaiting its transfer, August is still محتسب. */
 const PAYROLL_RUNS = [
   { id: "PR-DEMO-2026-01", year: 2026, month: 1, stage: "disbursed", disburseDate: "2026-01-31" },
   { id: "PR-DEMO-2026-02", year: 2026, month: 2, stage: "disbursed", disburseDate: "2026-02-28" },

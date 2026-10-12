@@ -282,10 +282,8 @@ export interface PeriodCloseBankAccountRow {
 }
 
 export interface PeriodClosePayrollRunsRow {
-  /** Employees holding a payslip in an approved or disbursed run for the month. */
   readonly paidEmployeeIds: readonly string[];
   readonly hasUnpostedRun: boolean;
-  /** Part-month payslips in an approved or disbursed run computed with statutory deductions on. */
   readonly partMonthTaxedPayslips: number;
 }
 
@@ -339,7 +337,6 @@ export interface PeriodCloseQueries {
   recurringRuns(): PeriodCloseRecurringRunRow[];
   recurringSkips(): PeriodCloseRecurringSkipRow[];
   openFxLineGroups(toDate: string): PeriodCloseFxLineGroup[];
-  /** Lines on a foreign-currency treasury account that carry no currency of their own, summed per account and day. */
   untaggedTreasuryLineGroups(toDate: string): PeriodCloseUntaggedTreasuryGroup[];
   etaErrorIds(window: PeriodCloseWindow): string[];
   assetDisposalDates(): { assetId: string; date: string }[];
@@ -572,7 +569,6 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
 
 function createFxRunLog(sqlite: Database.Database): FxRevaluationRunLog {
   const insert = sqlite.prepare(`INSERT INTO fx_revaluation_run (as_of_date, currency, entry_id, ran_by, ran_at) VALUES (?, ?, ?, ?, ?)`);
-  // A revaluation auto-reverses the day AFTER the period end and still stands at it. One whose reversal is dated on or before the period end was undone and covers nothing.
   const undoneBy = (entry: string, asOf: string) =>
     `EXISTS (SELECT 1 FROM journal_entry undone JOIN journal_entry undo ON undo.id = undone.reversed_by_entry_id WHERE undone.id = ${entry} AND substr(undo.date, 1, 10) <= ${asOf})`;
   type Stamp = { currency: string; at: string };
@@ -589,14 +585,12 @@ function createFxRunLog(sqlite: Database.Database): FxRevaluationRunLog {
     sqlite
       .prepare(`SELECT jl.currency AS currency, MAX(COALESCE(je.posted_at, je.created_at)) AS at ${foreignLines} AND je.date <= ? GROUP BY jl.currency`)
       .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, asOfDate) as Stamp[];
-  // The entry a revaluation posted IS the revaluation: it stands in the ledger whether or not a run row was ever written for it.
   const revaluationEntries = (asOfDate: string) =>
     sqlite
       .prepare(
         `SELECT jl.currency AS currency, MAX(COALESCE(je.posted_at, je.created_at)) AS at ${foreignLines} AND je.source_doc_type = ? AND substr(je.date, 1, 10) = ? AND je.reverses_entry_id IS NULL AND NOT ${undoneBy("je.id", "?")} GROUP BY jl.currency`,
       )
       .all(BASE_CURRENCY, ...LEDGER_EFFECTIVE_STATUSES, FX_REVALUATION_DOC_TYPE, asOfDate, asOfDate) as Stamp[];
-  // A foreign treasury balance whose lines carry no currency and rate: the revaluation cannot see it, so no run has revalued it.
   const unseenTreasuryCurrencies = (asOfDate: string) =>
     sqlite
       .prepare(
@@ -645,15 +639,6 @@ export interface PeriodCloseCommit {
   readonly appendAudit: (event: AuditEvent) => void;
 }
 
-/**
- * The close's critical section. `changeToken` is SQLite's `total_changes()` for
- * the ONE connection every store shares: if it is unchanged between the moment
- * the checks were read and the moment `commit` runs, no row anywhere was
- * written in between, so the checklist that was judged is still the truth.
- * `commit` re-reads it, moves the period, writes the summary and the audit row
- * in a single synchronous transaction of its own, and reports `Stale` — having
- * written nothing — when anything moved or another transaction is open.
- */
 export interface PeriodCloseCriticalSection {
   changeToken(): number;
   commit(input: PeriodCloseCommit): PeriodCloseCommitOutcome;
@@ -677,9 +662,6 @@ function createCriticalSection(sqlite: Database.Database, summaries: SqlitePerio
 
   return {
     changeToken,
-    // An open transaction here belongs to ANOTHER request parked on an await:
-    // better-sqlite3 would nest this commit in it as a savepoint, and that
-    // request's rollback would undo a close already answered 200.
     commit: (input) => (sqlite.inTransaction ? PeriodCloseCommitOutcome.Stale : commit(input)),
   };
 }

@@ -56,8 +56,6 @@ exactlyZero("baseline", start);
 
 const only = new Set(process.argv.slice(2));
 
-// ALWAYS, and first: it reads the demo's closed months as shipped, then reopens
-// them — the state every other suite, run alone or together, was written against.
 {
   process.stdout.write("  demo-close…");
   const before = ctx.passes.length + ctx.failures.length;

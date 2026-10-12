@@ -40,7 +40,6 @@ function latest(...days: readonly string[]): string {
   return days.reduce((a, b) => (a > b ? a : b));
 }
 
-/** `amount × part / whole`, to the piastre, half away from zero. */
 function piastreShare(amount: bigint, part: number, whole: number): bigint {
   const numerator = amount * BigInt(part);
   const denominator = BigInt(whole) * PIASTRE;
@@ -53,11 +52,6 @@ export interface PayslipPaidSpan {
   readonly paidThrough: string;
 }
 
-/**
- * The days a payslip paid for. A payslip stores how many days it paid, not
- * which: they start where the payroll population starts them — the later of
- * the period, the hire and the contract start — and run for `paidDays`.
- */
 export function payslipPaidSpan(
   payslip: Pick<Payslip, "periodStart" | "periodEnd" | "paidDays">,
   hireDate: string,
@@ -70,13 +64,10 @@ export function payslipPaidSpan(
 
 export interface PayslipOverpayment {
   readonly payslipId: string;
-  /** Days on the tenant's day divisor, the unit the pay was priced in. */
   readonly days: number;
   readonly divisor: number;
-  /** Per expense account, to the piastre; the parts sum to {@link gross} exactly. */
   readonly lines: readonly { readonly accountId: string | null; readonly amount: Money }[];
   readonly gross: Money;
-  /** The share of the payslip's withheld income tax that belongs to those days, to the piastre. */
   readonly incomeTax: Money;
   readonly incomeTaxAccountId: string | null;
 }
@@ -123,16 +114,11 @@ export function payslipOverpaymentAfter(
 
 export interface TerminationPayRecovery {
   readonly id: string;
-  /** Null when nothing had been paid out for the days: the whole of it came off what is owed to the employee. */
   readonly advance: EmployeeAdvance | null;
   readonly days: number;
-  /** What the payroll charged for the days: the expense credited back. */
   readonly gross: Money;
-  /** What the employee owes back — the advance. */
   readonly amount: Money;
-  /** What came off the unpaid net of approved payslips (Dr رواتب مستحقة). */
   readonly payableReduced: Money;
-  /** Income tax withheld on the days, taken back off the tax payable. */
   readonly taxRelief: Money;
   readonly journalEntryId: string;
   readonly paidThrough: string;
@@ -156,13 +142,11 @@ export interface TerminationPayrollDeps {
 
 export interface TerminateEmployeeDeps {
   readonly employees: Pick<EmployeeRepository, "findById" | "update">;
-  /** Absent = no payroll is bound, so nothing was paid and nothing can be owed back. */
   readonly payroll?: TerminationPayrollDeps;
   readonly now?: () => string;
 }
 
 export interface TerminateEmployeeCommand {
-  /** Last day of service; today when the caller names none. */
   readonly effectiveDate: string | null;
   readonly today: string;
 }
@@ -201,13 +185,6 @@ function paidThroughOf(paid: readonly PaidPayslip[]): string | null {
   return paid.reduce<string | null>((max, { span }) => (max === null || span.paidThrough > max ? span.paidThrough : max), null);
 }
 
-/**
- * Books the pay for days after `effectiveDate`. An approved payslip not yet
- * paid out has its net reduced and رواتب مستحقة debited; one already paid out
- * raises an advance for what the employee received — gross less the income
- * tax withheld on the days, which comes back off the tax payable. Insurance
- * stays as filed: it is a monthly contribution. One entry, dated today.
- */
 async function bookPayRecovery(employee: Employee, effectiveDate: string, today: string, paid: readonly PaidPayslip[], payroll: TerminationPayrollDeps, stamp: string): Promise<TerminationPayRecovery | null> {
   const paidThrough = paidThroughOf(paid);
   if (paidThrough === null) return null;
@@ -340,12 +317,6 @@ function atomically<T>(deps: TerminateEmployeeDeps, fn: () => Promise<T>): Promi
   return deps.payroll ? deps.payroll.gl.ledger.transaction(fn) : fn();
 }
 
-/**
- * Ends an employee's service. The last day may be any day up to the later of
- * today and the last day an approved payroll already paid. Pay for the days in
- * between is booked by {@link bookPayRecovery}; the entry, the payslips, the
- * advance and the employee change together or not at all.
- */
 export async function terminateEmployeeService(employeeId: string, command: TerminateEmployeeCommand, deps: TerminateEmployeeDeps): Promise<TerminateEmployeeResult> {
   const current = await deps.employees.findById(employeeId);
   if (!current) throw new EmployeeNotFoundError(employeeId);
@@ -363,7 +334,6 @@ export async function terminateEmployeeService(employeeId: string, command: Term
   });
 }
 
-/** Takes back what a termination booked for the pay after the last day: the entry is reversed today, an uncollected advance is cancelled, and an unpaid payslip gets its net back. */
 async function undoPayRecovery(employee: Employee, today: string, payroll: TerminationPayrollDeps): Promise<void> {
   const terminatedAt = employee.terminatedAt as string;
   let attempt = 0;
@@ -388,7 +358,6 @@ export function isTerminationRecoveryEntry(entryId: string | null): boolean {
   return entryId !== null && entryId.startsWith("TERMINATION-RECOVERY-JE:");
 }
 
-/** Takes one booked recovery back whole: its advance is cancelled, its entry reversed, and every unpaid payslip it reduced gets its net back. */
 export async function undoTerminationRecovery(id: string, employeeId: string, today: string, payroll: TerminationRecoveryUndoDeps, memo: string): Promise<void> {
   const advance = await payroll.advances.findById(id);
   if (advance) {
@@ -416,11 +385,6 @@ export async function undoTerminationRecovery(id: string, employeeId: string, to
   }
 }
 
-/**
- * تصحيح تاريخ إنهاء الخدمة. «منتهية خدمته» is terminal, so a wrong last day is
- * corrected in place: what the first date booked is undone, the date changes,
- * and the pay after the new date is booked afresh — one transaction.
- */
 export async function correctTerminationDate(employeeId: string, command: { readonly effectiveDate: string; readonly today: string }, deps: TerminateEmployeeDeps): Promise<TerminateEmployeeResult> {
   const current = await deps.employees.findById(employeeId);
   if (!current) throw new EmployeeNotFoundError(employeeId);

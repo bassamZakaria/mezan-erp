@@ -166,7 +166,6 @@ export interface VoucherServiceDeps {
   readonly ledger: LedgerRepository;
   readonly accounts: Pick<AccountRepository, "findById">;
   readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
-  /** Filed VAT returns: a voucher is not posted into a month whose return is filed, like every other document. */
   readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly numbering: NextNumberService;
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
@@ -329,7 +328,6 @@ export class VoucherService {
     const treasury = await this.deps.treasuryAccounts.findById(cmd.treasuryAccountId);
     const base = this.deps.baseCurrency ?? BASE_CURRENCY;
     const currency = cmd.currency ?? treasury?.currency ?? base;
-    // One line carries one rate: the voucher and each treasury account it touches may differ only when one side of the pair is the base currency.
     const counterTreasury = cmd.counterTreasuryAccountId ? await this.deps.treasuryAccounts.findById(cmd.counterTreasuryAccountId) : null;
     for (const account of [treasury, counterTreasury]) {
       if (!account?.currency || account.currency === base || currency === base || account.currency === currency) continue;
@@ -471,7 +469,6 @@ export class VoucherService {
     let line = original;
     if (line.currency && line.currency !== base && !line.fxRate) line = { ...line, fxRate: await approvedRate(line.currency) };
 
-    // What the movement is in each foreign treasury account's own currency: the voucher's own figure when it is stated in that currency, else the base amount at the day's approved rate.
     const legFx = async (accountId: string | null, baseMoved: Money, statedMoved: Money): Promise<TreasuryLegFx | null> => {
       const account = accountId ? await this.deps.treasuryAccounts.findById(accountId) : null;
       if (!account?.currency || account.currency === base) return null;
@@ -495,12 +492,6 @@ export class VoucherService {
     return stamped;
   }
 
-  /**
-   * Money leaving a foreign-currency treasury account is relieved at what the
-   * account carries it at, and the difference from the document's rate is a
-   * realised exchange difference of this voucher. Read at confirm, never from
-   * the request: a figure the caller stamped is not a carrying amount.
-   */
   private async atCarrying(treasuryAccountId: string, leg: TreasuryLegFx, baseMoved: Money, date: string): Promise<TreasuryLegFx> {
     const plain: TreasuryLegFx = { currency: leg.currency, fxRate: leg.fxRate, foreignAmount: leg.foreignAmount };
     const port = this.deps.realisedFx;

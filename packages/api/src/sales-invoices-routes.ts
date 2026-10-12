@@ -169,7 +169,6 @@ export interface SalesInvoiceRoutesDeps {
     invoiceId: string,
     options: { readonly paymentMethod?: EtaReceiptPaymentMethod },
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
-  /** Takes what a standing revaluation restated a voided invoice by off its control account, as a realised difference. */
   readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
   /** Whether the invoice has an e-receipt; a receipted sale is refused a void. */
   readonly hasEtaReceipt?: (invoiceId: string) => Promise<boolean>;
@@ -1203,7 +1202,6 @@ export function createSalesInvoicesRoutes(
     const date = requested.date ?? (today < invoice.date ? invoice.date : today);
     try {
       if (date < invoice.date) throw new ReversalDateBeforeOriginalError(invoice.id, date, invoice.date);
-      // ONE transaction: a reversal entry committed without the goods back and the status moved leaves GL 1200 below the stock it describes.
       const { voided, reversal } = await deps.repo.transaction(async () => {
         const reversal = await deps.gl.reverse(journalEntryId, {
           reversalId: salesInvoiceVoidEntryId(invoice.id),
@@ -1213,8 +1211,6 @@ export function createSalesInvoicesRoutes(
         if (stockLines.length > 0) {
           await deps.stockRestore!.apply({
             sourceDocType: "SALES_INVOICE",
-            // A separate source id from the issue, whose movement ids are
-            // `${invoice.id}:${index}` — reusing it would collide in the ledger.
             sourceDocId: salesInvoiceVoidEntryId(invoice.id),
             sourceDocNumber: invoice.docNo,
             warehouseId: invoice.warehouseId,

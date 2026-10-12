@@ -75,3 +75,24 @@ export class SalesInvoiceLineNotFoundError extends Error {
     this.name = "SalesInvoiceLineNotFoundError";
   }
 }
+
+/**
+ * An approval was given for one set of figures and the invoice would post
+ * another: the VAT setting moved while it waited. It is handed back as a draft
+ * carrying the recalculated figures, and posts only on a fresh approval.
+ */
+export class ApprovedSalesInvoiceReratedError extends Error {
+  readonly code = "APPROVED_DOCUMENT_RERATED";
+  readonly messageEn: string;
+  constructor(
+    readonly invoiceId: string,
+    readonly approvedTotal: string,
+    readonly recalculatedTotal: string,
+  ) {
+    super(
+      `تغيّر إعداد ضريبة القيمة المضافة بعد إرسال الفاتورة للموافقة: الإجمالي الموافَق عليه ${approvedTotal} وأصبح بعد إعادة الاحتساب ${recalculatedTotal}. لم تُرحَّل الفاتورة، وأُعيدت مسودةً بالأرقام الجديدة — أرسلها للموافقة من جديد.`,
+    );
+    this.messageEn = `The VAT setting changed after this invoice was sent for approval: the approved total was ${approvedTotal} and it is now ${recalculatedTotal}. Nothing was posted; the invoice is a draft again with the new figures — send it for approval again.`;
+    this.name = "ApprovedSalesInvoiceReratedError";
+  }
+}

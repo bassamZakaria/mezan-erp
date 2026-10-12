@@ -59,7 +59,7 @@ import {
   can,
   type SalesInvoicePricingDeps,
   type ContractBillingRoutingPort,
-  type SalesInvoiceTaxPolicy,
+  type SalesTaxPolicySource,
   type TaxRateRepository,
   type UserRepository,
   EtaReceiptedSaleVoidRefusedError,
@@ -85,6 +85,7 @@ import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { taxClassificationRefusal, taxRateRefusal } from "./tax-rate-refusal.js";
 import { customerTaxProfileOf, type CustomerTaxProfileSource } from "./customer-tax-profile.js";
+import { buildSalesInvoiceService, type SalesItemTaxSource } from "./sales-invoice-service.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
@@ -132,8 +133,8 @@ export interface SalesInvoiceRoutesDeps {
   /** Refuses an invoice naming a customer, warehouse, branch or cost centre no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
   /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
-  readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
-  readonly taxRates?: Pick<TaxRateRepository, "list">;
+  readonly taxPolicy: SalesTaxPolicySource;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
   /** Where a customer's tax exemption is read from; a request body is never believed (D79). */
   readonly customerTax?: CustomerTaxProfileSource;
   readonly taxTags?: SalesInvoiceServiceDeps["taxTags"];
@@ -227,7 +228,7 @@ export interface SalesInvoiceRoutesDeps {
    */
   readonly printContext?: (invoice: SalesInvoice) => Promise<SalesInvoicePrintContext>;
   readonly onDraftCancelled?: (invoice: SalesInvoice) => Promise<void>;
-  readonly itemTax?: (itemId: string) => Promise<{ readonly taxRatePercent: number } | null>;
+  readonly itemTax?: SalesItemTaxSource;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -589,37 +590,7 @@ export function createSalesInvoicesRoutes(
   }
 
   function service(c: Context): SalesInvoiceService {
-    const svcDeps: SalesInvoiceServiceDeps = {
-      repo: deps.repo,
-      numbering: deps.numbering,
-      gl: deps.gl,
-      stock: deps.stock,
-      workflow: deps.workflow,
-      creditControl: deps.creditControl,
-      promotions: deps.promotions,
-      pricing: deps.pricing,
-      taxPolicy: deps.taxPolicy,
-      taxRates: deps.taxRates,
-      taxRerating: {
-        customerExemptionRateId: async (customerId) => {
-          const profile = await customerTaxProfileOf(deps.customerTax, customerId);
-          return profile.taxExempt ? profile.taxExemptionRateId : null;
-        },
-        itemTax: async (itemId) => (await deps.itemTax?.(itemId)) ?? null,
-      },
-      taxTags: deps.taxTags,
-      taxFiling: deps.taxFiling,
-      taxDependents: deps.taxDependents,
-      exchangeRates: deps.exchangeRates,
-      baseCurrency: deps.baseCurrency,
-      contractBilling: deps.contractBilling,
-      audit: deps.audit,
-      events: deps.events,
-      allocatable: deps.allocatable,
-      now: deps.now,
-      actor: getAuthContext(c)?.userId ?? "system",
-    };
-    return new SalesInvoiceService(svcDeps);
+    return buildSalesInvoiceService(deps, getAuthContext(c)?.userId ?? "system");
   }
 
   function totalsFor(svc: SalesInvoiceService, invoice: SalesInvoice): SalesInvoiceTotals {

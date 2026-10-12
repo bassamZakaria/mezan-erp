@@ -254,6 +254,13 @@ export interface DocumentWorkflowDecision {
 
 export interface DocumentWorkflowGate {
   evaluate(input: DocumentWorkflowInput): Promise<DocumentWorkflowDecision>;
+  /**
+   * The document behind a decided request no longer stands as it was judged:
+   * a rejected draft was edited, or an approved one would post other figures.
+   * Its next confirm is judged afresh. A gate that keeps no requests has
+   * nothing to reopen.
+   */
+  reopen?(requestId: string): Promise<void>;
 }
 
 /* --- Domain events (decoupled from the notification catalog) ------------- */

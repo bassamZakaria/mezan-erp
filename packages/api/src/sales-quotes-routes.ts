@@ -41,6 +41,7 @@ import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { taxRateRefusal } from "./tax-rate-refusal.js";
 import { customerTaxProfileOf, type CustomerTaxProfileSource } from "./customer-tax-profile.js";
+import { buildSalesInvoiceService, type SalesInvoiceServiceWiring } from "./sales-invoice-service.js";
 import {
   documentVersionOf,
   documentVersionsOf,
@@ -95,11 +96,7 @@ export interface SalesQuoteRoutesDeps {
    * and the convert route responds 501 — this module never depends on
    * sales-invoices being mounted.
    */
-  readonly invoice?: {
-    readonly repo: SalesInvoiceRepository;
-    readonly numbering: DocumentNumberingHook;
-    readonly gl: DocumentGlHook;
-    readonly stock: SalesInvoiceStockHook;
+  readonly invoice?: SalesInvoiceServiceWiring & {
     /**
      * The same monthly invoice quota `POST /sales-invoices` applies. Converting
      * a quote raises a NEW sale, so it counts; without this the limit is one
@@ -552,16 +549,7 @@ export function createSalesQuotesRoutes(
     }
 
     const ctx = getAuthContext(c);
-    const invoiceSvc = new SalesInvoiceService({
-      repo: deps.invoice.repo,
-      numbering: deps.invoice.numbering,
-      gl: deps.invoice.gl,
-      stock: deps.invoice.stock,
-      taxRates: deps.taxRates,
-      taxPolicy: deps.taxPolicy,
-      now: deps.now,
-      actor: ctx?.userId ?? "system",
-    });
+    const invoiceSvc = buildSalesInvoiceService(deps.invoice, ctx?.userId ?? "system");
     const customerTax = await customerTaxProfileOf(deps.customerTax, quote.customerId);
     const cmd: CreateSalesInvoiceCommand = {
       id: d.id ?? idGen(),

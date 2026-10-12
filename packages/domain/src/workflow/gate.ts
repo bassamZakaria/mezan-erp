@@ -365,6 +365,17 @@ export function resubmit(
   };
 }
 
+/**
+ * The document behind a DECIDED request changed after the decision — a
+ * rejected draft was edited, or an approved one no longer carries the figures
+ * that were approved. The request goes back to «طلب تعديل», so the document's
+ * next confirm restarts the chain instead of reading a stale verdict.
+ */
+export function reopenForModification(request: ApprovalRequest): ApprovalRequest | null {
+  if (request.status !== "rejected" && request.status !== "approved") return null;
+  return { ...request, status: "modification_requested" };
+}
+
 function appendDecision(
   request: ApprovalRequest,
   record: DecisionRecord,

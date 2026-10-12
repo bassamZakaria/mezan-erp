@@ -157,6 +157,8 @@ async function harness(includeInvoiceBridge: boolean, taxRates?: SalesQuoteRoute
 
     invoice = {
       repo: invoiceRepo,
+      taxPolicy: () => ({ enabled: true, defaultRatePercent: 0, inclusive: false }),
+      taxRates: taxRates ?? { list: async () => [] },
       numbering: { next: () => new NextNumberService(new MemSeq()).next("SALES_INVOICE") },
       gl: glHook,
       stock: createSalesInvoiceStockHook(stockService),

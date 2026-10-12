@@ -145,6 +145,8 @@ async function harness(
   const collectionNumbering = new NextNumberService(new MemSeq());
   const deps: SalesInvoiceRoutesDeps = {
     repo,
+    taxPolicy: () => ({ enabled: true, defaultRatePercent: 0, inclusive: false }),
+    taxRates: { list: async () => [] },
     ...(opts.returns ? { returns: opts.returns } : {}),
     ...(opts.maxLineDiscountPercent === undefined
       ? {}

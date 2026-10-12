@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { PLAIN_SALES_TAX_DEPS } from "./test-support.js";
 import { Money, Qty } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import { InMemoryAccountRepository } from "../accounts/test-helpers/in-memory-account-repository.js";
@@ -100,6 +101,7 @@ async function baseDeps(
   const numbering = new NextNumberService(new InMemorySequenceStore());
 
   const svc = new SalesInvoiceService({
+    ...PLAIN_SALES_TAX_DEPS,
     repo,
     numbering: { next: () => numbering.next("SALES_INVOICE") },
     gl: glHook,
@@ -720,15 +722,15 @@ describe("SalesInvoiceService.createDraft — the tax rate's identity (D79)", ()
     expect(vat[0]).toMatchObject({ taxRateId: "VAT14", taxRatePercent: 14 });
   });
 
-  it("without the tax rate master wired, a percent-only line keeps its percent and stores no id", async () => {
+  it("on a tenant whose rate table is empty, a percent-only line keeps its percent and stores no id", async () => {
     const { svc } = await baseDeps();
     const invoice = await svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRatePercent: 14 })] }));
     expect(invoice.lines[0]).toMatchObject({ taxRateId: null, taxRatePercent: 14 });
   });
 
-  it("without the tax rate master wired, a line that NAMES a rate is refused — never stored with the id dropped", async () => {
+  it("on a tenant whose rate table is empty, a line that NAMES a rate is refused — never stored with the id dropped", async () => {
     const { svc, repo } = await baseDeps();
-    await expect(svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "EXEMPT" })] }))).rejects.toBeInstanceOf(TaxRateUnverifiableError);
+    await expect(svc.createDraft(draftCmd({ lines: [serviceLine("L1", { taxRateId: "EXEMPT" })] }))).rejects.toBeInstanceOf(TaxRateNotFoundError);
     expect(await repo.findById("inv-1")).toBeNull();
   });
 

@@ -73,6 +73,8 @@ async function harness() {
 
   const deps: SalesInvoiceRoutesDeps = {
     repo,
+    taxPolicy: () => ({ enabled: true, defaultRatePercent: 0, inclusive: false }),
+    taxRates: { list: async () => [] },
     // The two id spaces must DIFFER in this harness. They used to be the same
     // string, which is why D147 — `view_own` comparing an employee id against a
     // user id — passed every test in this file while showing a real rep nothing.

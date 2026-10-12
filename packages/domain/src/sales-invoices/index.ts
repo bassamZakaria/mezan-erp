@@ -71,6 +71,7 @@ export {
   type SalesTaxReratingPort,
   type EditSalesInvoiceDraftLineCommand,
   SalesInvoiceDraftAuditAction,
+  SalesInvoiceLifecycleAuditAction,
   type SalesInvoicePricingDeps,
   type ContractBillingRouting,
   type ContractBillingRoutingPort,
@@ -98,6 +99,7 @@ export {
 } from "./promotion-adapter.js";
 
 export {
+  ApprovedSalesInvoiceReratedError,
   InvalidSalesInvoiceError,
   SalesInvoiceNotFoundError,
   DuplicateSalesInvoiceError,

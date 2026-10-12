@@ -19,6 +19,7 @@ import { Money } from "../money/index.js";
 import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import {
   ApprovalRequestRejectedError,
+  reopenApprovalForModification,
   resubmitApproval,
   startApproval,
   submitApproval,
@@ -240,6 +241,9 @@ export function createDocumentWorkflowGate(
         submitterRoles: input.submitterRoles,
       });
       return { granted: request.status === "approved", requestId: request.id };
+    },
+    async reopen(requestId) {
+      if (requests) await reopenApprovalForModification(requestId, requests);
     },
   };
 }

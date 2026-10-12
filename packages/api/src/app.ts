@@ -146,6 +146,7 @@ import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
+import { buildSalesInvoiceService } from "./sales-invoice-service.js";
 import { createSalesInvoiceQuota } from "./plan-quota-wiring.js";
 import { createPlanUsageRoutes } from "./plan-usage-routes.js";
 import { planLocationsBinding } from "./plan-locations.js";
@@ -463,7 +464,7 @@ export interface CreateAppOptions {
    * exposure via `createSalesInvoiceCustomerExposureHook`) — omit either
    * store to get exactly today's behaviour (no credit check at all).
    */
-  readonly salesInvoices?: SalesInvoiceRoutesDeps;
+  readonly salesInvoices?: SalesInvoiceAppDeps;
   /**
    * Mounts the historical sales-document import (docs/archive/catalog/01 §"استيراد
    * فواتير سابقة" / §"استيراد مرتجعات سابقة") under `/sales/historical-import`
@@ -1148,83 +1149,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     }
   }
   const salesTaxPolicy = salesTaxPolicyOf(options);
-  if (options.salesInvoices) {
-    const salesInvoices = options.salesInvoices;
-    // Auto-wire credit control (docs/archive/catalog/01/09 §"الرقابة الائتمانية") when
-    // the caller supplied the tenant-settings + customer stores but didn't
-    // already hand-wire `creditControl` themselves.
-    const creditControl =
-      salesInvoices.creditControl ??
-      (options.settingsStore && options.customerStore
-        ? {
-            exposure: createSalesInvoiceCustomerExposureHook(salesInvoices.repo),
-            getCreditLimit: async (customerId: string) => {
-              const customer = await options.customerStore?.findById(customerId);
-              return customer?.creditLimit ?? Money.zero();
-            },
-            getPolicy: async () => {
-              const settings = await options.settingsStore?.get();
-              return {
-                enabled: settings?.creditControlEnabled ?? false,
-                mode: settings?.creditControlMode ?? "WARNING",
-              };
-            },
-          }
-        : undefined);
-    // Auto-wire promotion evaluation on confirm when the composition has a
-    // promotion store but didn't hand-wire the hook itself — otherwise a
-    // tenant with promotions configured would silently never apply one.
-    const promotions =
-      salesInvoices.promotions ??
-      (options.promotionRepo
-        ? createSalesInvoicePromotionHook(options.promotionRepo, {
-            categoryOfItem: async (itemId: string) => (await options.items?.repo.findById(itemId))?.categoryId ?? null,
-          })
-        : undefined);
-    app.route(
-      "/sales-invoices",
-      createSalesInvoicesRoutes(
-        {
-          ...salesInvoices,
-          creditControl,
-          promotions,
-          // DEC-31 rule 6 — the monthly invoice quota, counted from the stored
-          // rows of the tenant's own calendar month and re-counted inside the
-          // write transaction. Auto-wired so a composition cannot mount the
-          // create route with the limit quietly missing.
-          quota:
-            salesInvoices.quota ??
-            createSalesInvoiceQuota(salesInvoices.repo, (fn) => uow.transaction(fn)),
-          // `view_own` narrows on `salespersonId`, which holds an Employee id.
-          // Without this port it would be compared against a user id and match
-          // nothing, so a real rep would see no invoices at all (D147).
-          users: salesInvoices.users ?? uow.users,
-          returns: salesInvoices.returns ?? options.salesReturns?.service,
-          // Auto-wire the tenant's VAT rules (§"الضريبة") the same way credit
-          // control is: a draft is stamped with the mode in force when it was
-          // raised, so changing the setting never restates a posted invoice.
-          currencyCheck:
-            salesInvoices.currencyCheck ??
-            (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),
-          // Without this a permitted foreign currency still posts at par: the
-          // currency check only decides whether the code is allowed, never what
-          // it is worth (D24).
-          exchangeRates: salesInvoices.exchangeRates ?? options.exchangeRateRepo,
-          taxRates: salesInvoices.taxRates ?? options.taxRateRepo,
-          customerTax: salesInvoices.customerTax ?? (options.customerStore ? customerTaxProfileFrom(options.customerStore) : undefined),
-          taxPolicy: salesTaxPolicy,
-          discountPolicy:
-            salesInvoices.discountPolicy ??
-            (options.settingsStore
-              ? async () => {
-                  const settings = (await options.settingsStore!.get()) ?? createDefaultSettings();
-                  return { maxLineDiscountPercent: settings.maxLineDiscountPercent };
-                }
-              : undefined),
-        },
-        resolveAuth,
-      ),
-    );
+  const salesInvoiceWiring = wireSalesInvoices(options, uow);
+  if (salesInvoiceWiring) {
+    app.route("/sales-invoices", createSalesInvoicesRoutes(salesInvoiceWiring, resolveAuth));
   }
   if (options.salesHistoricalImport) {
     app.route(
@@ -1263,19 +1190,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     const salesQuotes = options.salesQuotes;
     // Auto-wire "إنشاء من عرض سعر" (convert to invoice) from the salesInvoices
     // deps when both are supplied and the caller didn't already set it.
-    const invoice =
-      salesQuotes.invoice ??
-      (options.salesInvoices
-        ? {
-            repo: options.salesInvoices.repo,
-            numbering: options.salesInvoices.numbering,
-            gl: options.salesInvoices.gl,
-            stock: options.salesInvoices.stock,
-            quota:
-              options.salesInvoices.quota ??
-              createSalesInvoiceQuota(options.salesInvoices.repo, (fn) => uow.transaction(fn)),
-          }
-        : undefined);
+    const invoice = salesQuotes.invoice ?? salesInvoiceWiring;
     app.route("/sales-quotes", createSalesQuotesRoutes(
         {
           ...salesQuotes,
@@ -1748,7 +1663,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createWorkflowRoutes(
         {
           ...options.workflow,
-          heldDocuments: options.workflow.heldDocuments ?? buildHeldDocumentResolver(options),
+          heldDocuments: options.workflow.heldDocuments ?? buildHeldDocumentResolver(options, salesInvoiceWiring),
           audit: options.workflow.audit ?? options.auditSink,
           // An approval step may only name a role that exists, so the code an
           // approval is matched on can never be freed and re-taken.
@@ -1801,11 +1716,70 @@ export type App = ReturnType<typeof createApp>;
 // INVARIANT: the ONE place the app resolves the tenant's VAT switch for a
 // sale. The invoice routes, the quote routes (and their conversion) and the
 // approval of a held invoice all read it from here.
-function salesTaxPolicyOf(options: CreateAppOptions): SalesTaxPolicySource | undefined {
-  return options.salesInvoices?.taxPolicy ?? (options.settingsStore ? salesTaxPolicySource(options.settingsStore) : undefined);
+function salesTaxPolicyOf(options: CreateAppOptions): SalesTaxPolicySource {
+  return options.salesInvoices?.taxPolicy ?? salesTaxPolicySource(options.settingsStore ?? DEFAULT_SETTINGS_SOURCE);
 }
 
-function buildHeldDocumentResolver(options: CreateAppOptions) {
+const DEFAULT_SETTINGS_SOURCE = { get: async () => null };
+const NO_TAX_RATES = { list: async () => [] };
+
+/** What a composition hands the app: the tax sources may be left to the app's own stores. */
+export type SalesInvoiceAppDeps = Omit<SalesInvoiceRoutesDeps, "taxPolicy" | "taxRates"> & Partial<Pick<SalesInvoiceRoutesDeps, "taxPolicy" | "taxRates">>;
+
+// INVARIANT: the sales-invoice wiring is completed ONCE. The invoice routes, a
+// quote's conversion and the approval of a held invoice are all handed this
+// same object, so a dependency auto-wired for one of them is wired for all.
+function wireSalesInvoices(options: CreateAppOptions, uow: UnitOfWork): SalesInvoiceRoutesDeps | undefined {
+  const salesInvoices = options.salesInvoices;
+  if (!salesInvoices) return undefined;
+  const settingsStore = options.settingsStore;
+  const customerStore = options.customerStore;
+  const creditControl =
+    salesInvoices.creditControl ??
+    (settingsStore && customerStore
+      ? {
+          exposure: createSalesInvoiceCustomerExposureHook(salesInvoices.repo),
+          getCreditLimit: async (customerId: string) => (await customerStore.findById(customerId))?.creditLimit ?? Money.zero(),
+          getPolicy: async () => {
+            const settings = await settingsStore.get();
+            return { enabled: settings?.creditControlEnabled ?? false, mode: settings?.creditControlMode ?? "WARNING" };
+          },
+        }
+      : undefined);
+  const promotions =
+    salesInvoices.promotions ??
+    (options.promotionRepo
+      ? createSalesInvoicePromotionHook(options.promotionRepo, {
+          categoryOfItem: async (itemId: string) => (await options.items?.repo.findById(itemId))?.categoryId ?? null,
+        })
+      : undefined);
+  return {
+    ...salesInvoices,
+    creditControl,
+    promotions,
+    // DEC-31 rule 6 — the monthly invoice quota, re-counted inside the write
+    // transaction. Auto-wired so the create route is never mounted without it.
+    quota: salesInvoices.quota ?? createSalesInvoiceQuota(salesInvoices.repo, (fn) => uow.transaction(fn)),
+    // `view_own` narrows on `salespersonId`, which holds an Employee id (D147).
+    users: salesInvoices.users ?? uow.users,
+    returns: salesInvoices.returns ?? options.salesReturns?.service,
+    currencyCheck: salesInvoices.currencyCheck ?? (settingsStore ? createCurrencyCheck(settingsStore) : undefined),
+    // A permitted foreign currency still posts at par without a rate (D24).
+    exchangeRates: salesInvoices.exchangeRates ?? options.exchangeRateRepo,
+    taxRates: salesInvoices.taxRates ?? options.taxRateRepo ?? NO_TAX_RATES,
+    customerTax: salesInvoices.customerTax ?? (customerStore ? customerTaxProfileFrom(customerStore) : undefined),
+    taxPolicy: salesTaxPolicyOf(options),
+    discountPolicy:
+      salesInvoices.discountPolicy ??
+      (settingsStore
+        ? async () => ({ maxLineDiscountPercent: ((await settingsStore.get()) ?? createDefaultSettings()).maxLineDiscountPercent })
+        : undefined),
+  };
+}
+
+const HELD_DOCUMENT_SYSTEM_ACTOR = "system";
+
+function buildHeldDocumentResolver(options: CreateAppOptions, salesInvoices: SalesInvoiceRoutesDeps | undefined) {
   const fromDocumentService = <L>(svc: DocumentService<L>): HeldDocumentActions => ({
     heldRequestId: async (docId) => (await svc.findById(docId))?.workflowRequestId ?? null,
     confirm: async (docId, actor) => {
@@ -1832,15 +1806,14 @@ function buildHeldDocumentResolver(options: CreateAppOptions) {
       },
     };
   }
-  if (options.salesInvoices) {
-    const invoices = { ...options.salesInvoices, taxPolicy: salesTaxPolicyOf(options) };
+  if (salesInvoices) {
     actions.SALES_INVOICE_CONFIRM = {
-      heldRequestId: async (docId) => (await new SalesInvoiceService(invoices).findById(docId))?.workflowRequestId ?? null,
+      heldRequestId: async (docId) => (await salesInvoices.repo.findById(docId))?.workflowRequestId ?? null,
       confirm: async (docId, actor) => {
-        await new SalesInvoiceService({ ...invoices, actor }).confirm(docId);
+        await buildSalesInvoiceService(salesInvoices, actor).confirm(docId);
       },
       returnToDraft: async (docId) => {
-        await new SalesInvoiceService(invoices).returnToDraft(docId);
+        await buildSalesInvoiceService(salesInvoices, HELD_DOCUMENT_SYSTEM_ACTOR).returnToDraft(docId);
       },
     };
   }

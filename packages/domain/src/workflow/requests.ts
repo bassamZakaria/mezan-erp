@@ -10,6 +10,7 @@ import {
   startApproval,
   decide as gateDecide,
   resubmit as gateResubmit,
+  reopenForModification,
   type ApprovalRequest,
   type DecisionInput,
   type GateConfig,
@@ -107,6 +108,21 @@ export async function resubmitApproval(
   if (!existing) throw new ApprovalRequestNotFoundError(id);
   const { request } = gateResubmit(existing, input);
   const record: ApprovalRequestRecord = { ...request, entityLabel: existing.entityLabel, createdAt: existing.createdAt, updatedAt: now() };
+  await repo.save(record);
+  return record;
+}
+
+/** Hands a decided request back for modification; a pending or unknown one is left as it is. */
+export async function reopenApprovalForModification(
+  id: string,
+  repo: ApprovalRequestRepository,
+  now: () => string = () => new Date().toISOString(),
+): Promise<ApprovalRequestRecord | null> {
+  const existing = await repo.findById(id);
+  if (!existing) return null;
+  const reopened = reopenForModification(existing);
+  if (!reopened) return null;
+  const record: ApprovalRequestRecord = { ...existing, ...reopened, updatedAt: now() };
   await repo.save(record);
   return record;
 }

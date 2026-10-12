@@ -270,6 +270,8 @@ describe("a classification never saves the invoice whole", () => {
       numbering: { next: async () => ({ formatted: "INV-X" }) } as never,
       gl: {} as never,
       stock: {} as never,
+      taxPolicy: () => ({ enabled: true, defaultRatePercent: 0, inclusive: false }),
+      taxRerating: { customerExemptionRateId: async () => null, itemTax: async () => null },
       taxRates: { list: async () => [{ id: "EXEMPT", code: "EXEMPT", name: "معفى", rate: 0, status: TaxRateStatusCode.Active, etaSubType: "V003" } as TaxRate] },
       taxTags: {
         retagUnnamedTaxRate: async () => {

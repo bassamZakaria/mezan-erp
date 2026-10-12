@@ -14,6 +14,9 @@ import {
   type InstallmentCollectPort,
   type SessionRegistry,
   sendNotificationEmail,
+  customerTaxProfileFrom,
+  salesTaxRerating,
+  type SalesItemTaxSource,
 } from "@mezan/api";
 import {
   ALL_SCOPE,
@@ -701,6 +704,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const customers = createSqliteCustomerRepository(sqlite);
   const suppliers = createSqliteSupplierRepository(sqlite);
   const items = createSqliteItemStore(sqlite);
+  const salesItemTax: SalesItemTaxSource = async (itemId) => {
+    const item = await items.findById(itemId);
+    return item ? { taxRatePercent: item.taxRatePercent } : null;
+  };
+  const salesInvoiceTaxRerating = salesTaxRerating(customerTaxProfileFrom(customers), salesItemTax);
   const itemCatalog = createSqliteItemCatalogStores(sqlite);
   const accountRouting = createSqliteAccountRoutingStore(sqlite);
   const taxGroups = createSqliteTaxGroupStore(sqlite);
@@ -1238,6 +1246,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         gl: createSalesInvoiceGlHook(salesInvoiceGl),
         stock: createSalesInvoiceStockHook(stockService),
         taxRates,
+        taxRerating: salesInvoiceTaxRerating,
         allocatable: vouchers.invoices,
         audit: auditSink,
         // INVARIANT: the SAME publisher the /sales/invoices routes use. A
@@ -1446,6 +1455,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         gl: createSalesInvoiceGlHook(salesInvoiceGl),
         stock: createSalesInvoiceStockHook(stockService),
         taxRates,
+        taxRerating: salesInvoiceTaxRerating,
         allocatable: vouchers.invoices,
         audit: auditSink,
         // INVARIANT: NOT `salesInvoiceEvents`. A retention release is a
@@ -3428,10 +3438,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           etaQrValue: receipt?.qrValue ?? null,
         };
       },
-      itemTax: async (itemId) => {
-        const item = await items.findById(itemId);
-        return item ? { taxRatePercent: item.taxRatePercent } : null;
-      },
+      itemTax: salesItemTax,
       onDraftCancelled: async (invoice) => {
         await new SalesQuoteService({
           repo: salesQuotes,

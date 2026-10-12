@@ -52,13 +52,13 @@ function handsOverPolicy(source: ts.SourceFile, argument: ts.Expression | undefi
   });
 }
 
-function constructionsIn(file: string, text: string): { readonly where: string; readonly withPolicy: boolean }[] {
+function constructionsIn(file: string, text: string): { readonly where: string; readonly service: string; readonly withPolicy: boolean }[] {
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
-  const found: { where: string; withPolicy: boolean }[] = [];
+  const found: { where: string; service: string; withPolicy: boolean }[] = [];
   const visit = (node: ts.Node): void => {
     if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && SERVICES.includes(node.expression.text)) {
       const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
-      found.push({ where: `${file.split("/packages/")[1] ?? file}:${line + 1}`, withPolicy: handsOverPolicy(source, node.arguments?.[0]) });
+      found.push({ where: `${file.split("/packages/")[1] ?? file}:${line + 1}`, service: node.expression.text, withPolicy: handsOverPolicy(source, node.arguments?.[0]) });
     }
     ts.forEachChild(node, visit);
   };
@@ -70,7 +70,14 @@ describe("every sales invoice and quote service is built with the tenant's VAT p
   const constructions = ROOTS.flatMap(sourceFiles).flatMap((file) => constructionsIn(file, readFileSync(file, "utf8")));
 
   it("finds the constructions it is meant to guard", () => {
-    expect(constructions.length).toBeGreaterThanOrEqual(8);
+    expect(constructions.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("the API builds a sales invoice service in ONE place, which every route, conversion and approval calls", () => {
+    const inApi = constructions.filter((construction) => construction.service === "SalesInvoiceService" && construction.where.startsWith("api/src/"));
+    expect(inApi.map((construction) => construction.where.replace(/:\d+$/, ""))).toEqual(["api/src/sales-invoice-service.ts"]);
+    const callers = sourceFiles(HERE).filter((file) => readFileSync(file, "utf8").includes("buildSalesInvoiceService("));
+    expect(callers.map((file) => file.slice(HERE.length + 1)).sort()).toEqual(["app.ts", "sales-invoice-service.ts", "sales-invoices-routes.ts", "sales-quotes-routes.ts"]);
   });
 
   it("none is built without `taxPolicy`", () => {

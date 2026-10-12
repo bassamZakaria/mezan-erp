@@ -99,6 +99,8 @@ export interface CollectChequeCommand {
   readonly chequeId: string;
   /** The bank treasury account's GL account (resolved by the caller from `TreasuryAccountRepository`). */
   readonly bankGlAccountId: string;
+  /** The bank account the money lands in, when it is not the one the cheque was deposited at. */
+  readonly bankTreasuryAccountId?: string;
   readonly journalEntryId: string;
   readonly date?: string;
   readonly actor?: string;
@@ -299,16 +301,17 @@ export class ChequeService {
   async collect(cmd: CollectChequeCommand): Promise<Cheque> {
     const cheque = await this.require(cmd.chequeId);
     assertChequeTransition(cheque, "collect");
+    const treasuryAccountId = cmd.bankTreasuryAccountId ?? cheque.bankTreasuryAccountId ?? null;
 
     const lines =
       cheque.direction === "incoming"
         ? [
-            { accountId: cmd.bankGlAccountId, debit: cheque.amount, credit: Money.zero() },
+            { accountId: cmd.bankGlAccountId, debit: cheque.amount, credit: Money.zero(), treasuryAccountId },
             { accountId: cheque.controlAccounts.underCollectionAccountId, debit: Money.zero(), credit: cheque.amount },
           ]
         : [
             { accountId: cheque.controlAccounts.underCollectionAccountId, debit: cheque.amount, credit: Money.zero() },
-            { accountId: cmd.bankGlAccountId, debit: Money.zero(), credit: cheque.amount },
+            { accountId: cmd.bankGlAccountId, debit: Money.zero(), credit: cheque.amount, treasuryAccountId },
           ];
     const entry = await postJournalEntry(
       {
@@ -327,6 +330,7 @@ export class ChequeService {
     const updated: Cheque = {
       ...cheque,
       status: "collected",
+      bankTreasuryAccountId: treasuryAccountId,
       collectedAt: this.now(),
       collectedBy: this.actorOf(cmd),
       collectionJournalEntryId: entry.id,

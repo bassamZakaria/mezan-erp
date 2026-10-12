@@ -101,6 +101,12 @@ function serialize(cheque: Cheque, asOfDate: string, allocations: readonly Vouch
   };
 }
 
+export enum ChequeCollectRefusalCode {
+  BankAccountRequired = "CHEQUE_BANK_ACCOUNT_REQUIRED",
+  BankAccountFixed = "CHEQUE_BANK_ACCOUNT_FIXED",
+  NotABankAccount = "CHEQUE_NOT_A_BANK_ACCOUNT",
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
@@ -388,20 +394,56 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     }
   });
 
+  const collectRefusal = (c: Context, error: ChequeCollectRefusalCode, message: string, messageEn: string) => c.json({ error, message, messageEn }, 422);
+
+  /**
+   * LEDGER INVARIANT: a cheque is collected into the bank account it was
+   * deposited at. Only when that account is gone or no longer active may the
+   * request name another — an active BANK account — so the entry is never
+   * posted to no account and a closed account never strands a cheque.
+   */
+  async function collectionBank(c: Context, storedAccountId: string | null | undefined, body: { bankTreasuryAccountId?: string; bankGlAccountId?: string }) {
+    const stored = storedAccountId ? await deps.treasuryAccounts.findById(storedAccountId) : null;
+    const storedUsable = stored !== null && stored.status === "active" && !!stored.glAccountId;
+    if (storedUsable && body.bankTreasuryAccountId && body.bankTreasuryAccountId !== stored.id) {
+      return collectRefusal(
+        c,
+        ChequeCollectRefusalCode.BankAccountFixed,
+        "الشيك مودَع في حساب بنكي نشط ويُحصَّل فيه؛ لا يُحوَّل التحصيل إلى حساب آخر.",
+        "The cheque is deposited at an active bank account and is collected there; the collection cannot be redirected.",
+      );
+    }
+    const targetId = storedUsable ? stored.id : body.bankTreasuryAccountId;
+    if (!targetId) {
+      return collectRefusal(
+        c,
+        ChequeCollectRefusalCode.BankAccountRequired,
+        "الحساب البنكي المودَع فيه الشيك غير مسجَّل أو لم يعد نشطًا. اختر الحساب البنكي النشط الذي حُصِّل فيه الشيك.",
+        "The bank account this cheque was deposited at is not on record or is no longer active. Choose the active bank account it was collected into.",
+      );
+    }
+    const target = await treasuryLedgerAccount(c, deps.treasuryAccounts, targetId, body.bankGlAccountId);
+    if (target instanceof Response) return target;
+    if (target.type !== "bank") {
+      return collectRefusal(c, ChequeCollectRefusalCode.NotABankAccount, "يُحصَّل الشيك في حساب بنكي، لا في خزينة نقدية.", "A cheque is collected into a bank account, not a cash drawer.");
+    }
+    return target;
+  }
+
   app.post("/:id/collect", gate("cheques.collect"), async (c) => {
     const parsed = collectChequeSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const deposited = await service.findById(c.req.param("id"));
-    const bank = deposited?.bankTreasuryAccountId
-      ? await treasuryLedgerAccount(c, deps.treasuryAccounts, deposited.bankTreasuryAccountId, parsed.data.bankGlAccountId)
-      : null;
+    // A cheque in any other state is refused by its own lifecycle, which says why.
+    const bank = deposited?.status === "deposited" ? await collectionBank(c, deposited.bankTreasuryAccountId, parsed.data) : null;
     if (bank instanceof Response) return bank;
     try {
       const cheque = await service.collect({
         chequeId: c.req.param("id"),
         bankGlAccountId: bank?.glAccountId ?? "",
+        ...(bank ? { bankTreasuryAccountId: bank.id } : {}),
         date: await tenantDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),

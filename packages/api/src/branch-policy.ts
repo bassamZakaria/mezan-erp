@@ -233,19 +233,21 @@ const CREATED_RECORD_ID_KEY = "id";
 
 /**
  * SECURITY: a create that names the id of a record the session may not see is
- * answered exactly as a reference to a record that is not there. The handler's
+ * answered exactly as a reference to a record that is not there — in a scoped
+ * family and in a shared one whose rows a branch can own. The handler's
  * own «this id is taken» is left for ids the session can already read, so the
  * 409 never says that another branch holds a record under that id.
  */
 async function claimedIdRefusal(c: Context, session: Session, entry: BranchPolicyEntry, routePath: string, body: unknown): Promise<Response | null> {
-  if (c.req.method !== "POST" || paramNamesOf(routePath).length > 0 || entry.policy !== BranchPolicy.Scoped) return null;
+  const sharedData = entry.policy === BranchPolicy.MasterDataShared;
+  if (c.req.method !== "POST" || paramNamesOf(routePath).length > 0 || (entry.policy !== BranchPolicy.Scoped && !sharedData)) return null;
   const kind = entry.params?.[CREATED_RECORD_ID_KEY];
   if (!kind || body === null || typeof body !== "object" || Array.isArray(body)) return null;
   const claimed = (body as Record<string, unknown>)[CREATED_RECORD_ID_KEY];
   if (typeof claimed !== "string" || claimed === "") return null;
   const standing = standingOf(session, await lookup(session, kind, claimed));
   if (standing === Standing.Absent || standing === Standing.Granted || standing === Standing.PartlyForeign) return null;
-  if (standing === Standing.Unattributed && (entry.unownedIsCompanys || session.seesUnattributed)) return null;
+  if (standing === Standing.Unattributed && (sharedData || entry.unownedIsCompanys || session.seesUnattributed)) return null;
   return branchRefusal(c, BranchRefusalCode.NotFound);
 }
 

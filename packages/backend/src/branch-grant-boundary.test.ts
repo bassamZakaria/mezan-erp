@@ -2106,12 +2106,40 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
 
   it("a shared cost centre cannot be renamed through the create route by any session", async () => {
     const before = rowOf("cost_center", "CC-DEMO-1");
-    for (const caller of [alex, alexStar, bothBranches, admin]) {
+    for (const caller of [bothBranches, admin]) {
       const res = await caller("POST", "/cost-centers", sampleOf(contracts.createCostCenterSchema, { id: "CC-DEMO-1" }));
       expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(409);
       expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
       expect(rowOf("cost_center", "CC-DEMO-1")).toBe(before);
     }
+  });
+
+  it("a shared record another branch owns is not confirmed to exist by a create that names its id", async () => {
+    expect((await admin("POST", "/customers", { id: "ZZ-D111-R5-CUST-MAIN", nameAr: "عميل الفرع الرئيسي", branchId: MAIN })).status).toBe(201);
+    expect((await admin("POST", "/suppliers", { id: "ZZ-D111-R5-SUPP-MAIN", nameAr: "مورد الفرع الرئيسي" })).status).toBe(201);
+    sqlite.prepare("UPDATE supplier SET branch_id = ? WHERE id = 'ZZ-D111-R5-SUPP-MAIN'").run(MAIN);
+    const unknownReference = await alex("POST", "/sales-returns", { id: "D111-R5-UNKNOWN-REF", date: TODAY, sourceInvoiceId: "D111-R5-NO-SUCH-INVOICE", lines: [] });
+    const owned: (readonly [route: string, table: string, id: string, body: Record<string, unknown>])[] = [
+      ["/cost-centers", "cost_center", "CC-DEMO-1", sampleOf(contracts.createCostCenterSchema, { id: "CC-DEMO-1" }) as Record<string, unknown>],
+      ["/customers", "customer", "ZZ-D111-R5-CUST-MAIN", { id: "ZZ-D111-R5-CUST-MAIN", nameAr: "استيلاء" }],
+      ["/suppliers", "supplier", "ZZ-D111-R5-SUPP-MAIN", { id: "ZZ-D111-R5-SUPP-MAIN", nameAr: "استيلاء" }],
+    ];
+    for (const [route, table, id, body] of owned) {
+      const before = rowOf(table, id);
+      for (const caller of [alex, alexStar]) {
+        const res = await caller("POST", route, body);
+        expect(res.status, `${route} ${JSON.stringify(res.body).slice(0, 200)}`).toBe(404);
+        expect(res.body).toEqual(unknownReference.body);
+        expect(rowOf(table, id)).toBe(before);
+      }
+    }
+  });
+
+  it("a shared record no branch owns is every branch's to read, so its id is simply taken", async () => {
+    const company = one<{ id: string }>("SELECT id FROM cost_center WHERE branch_id IS NULL OR branch_id = '' LIMIT 1")!.id;
+    const res = await alex("POST", "/cost-centers", sampleOf(contracts.createCostCenterSchema, { id: company }));
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(409);
+    expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
   });
 
   it("the HQ bank stays out of a branch user's reach after the attempt", async () => {
@@ -2988,5 +3016,77 @@ describe("D111 round 5 · a refund is booked to its return's branch and paid fro
     expect(one<{ b: string }>("SELECT branch_id AS b FROM voucher WHERE id = ?", res.body.voucherId)!.b).toBe(ALEX);
     const fromSellingBranch = await admin("POST", "/sales-returns/D111-R5-XRET-ADMIN/refund", { amount: "5.00", treasuryAccountId: "TR-DEMO-CASH", paymentMethod: "cash" });
     expect(fromSellingBranch.status).toBe(422);
+  });
+});
+
+describe("D111 round 5 · a cheque is collected into a real, active bank account", () => {
+  const cheque = (id: string, number: string) => ({
+    id,
+    direction: "incoming",
+    chequeNumber: number,
+    bankName: "بنك الاختبار",
+    amount: "250.00",
+    issueDate: TODAY,
+    dueDate: TODAY,
+    branchId: MAIN,
+    partyId: "CUST-DEMO-2",
+    counterpartyGlAccountId: "1105",
+    controlAccounts: { underCollectionAccountId: "1320" },
+  });
+  const entries = () => one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n;
+  const linesOnNoAccount = () => one<{ n: number }>("SELECT count(*) AS n FROM journal_line WHERE account_id = ''")!.n;
+  const stateOf = (id: string) => one<{ status: string; bank: string | null }>("SELECT status, bank_treasury_account_id AS bank FROM cheque WHERE id = ?", id)!;
+
+  it("a deposited cheque with no bank account on record is not collected onto no account: the bank account is asked for", async () => {
+    expect((await admin("POST", "/cheques", cheque("D111-R5-CHQ-NOBANK", "D111-R5-0001"))).status).toBe(201);
+    expect((await admin("POST", "/cheques/D111-R5-CHQ-NOBANK/deposit", { bankTreasuryAccountId: "TR-DEMO-BANK" })).status).toBe(200);
+    sqlite.prepare("UPDATE cheque SET bank_treasury_account_id = NULL WHERE id = 'D111-R5-CHQ-NOBANK'").run();
+    const before = entries();
+    const res = await admin("POST", "/cheques/D111-R5-CHQ-NOBANK/collect", {});
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(422);
+    expect(res.body?.error).toBe("CHEQUE_BANK_ACCOUNT_REQUIRED");
+    expect(res.body?.message).toMatch(ARABIC);
+    expect(entries()).toBe(before);
+    expect(linesOnNoAccount()).toBe(0);
+    expect(stateOf("D111-R5-CHQ-NOBANK").status).toBe("deposited");
+
+    const chosen = await admin("POST", "/cheques/D111-R5-CHQ-NOBANK/collect", { bankTreasuryAccountId: "TR-DEMO-BANK" });
+    expect(chosen.status, JSON.stringify(chosen.body).slice(0, 300)).toBe(200);
+    expect(stateOf("D111-R5-CHQ-NOBANK")).toEqual({ status: "collected", bank: "TR-DEMO-BANK" });
+  });
+
+  it("a cheque deposited at an account since deactivated is collected into another active bank account chosen at collect time", async () => {
+    expect((await admin("POST", "/treasury-accounts", { id: "D111-R5-TR-OLD-BANK", code: "R5-OLD", name: "بنك مغلق", type: "bank", currency: "EGP", branchId: MAIN, glAccountId: "1310" })).status).toBe(201);
+    expect((await admin("POST", "/cheques", cheque("D111-R5-CHQ-OLDBANK", "D111-R5-0002"))).status).toBe(201);
+    expect((await admin("POST", "/cheques/D111-R5-CHQ-OLDBANK/deposit", { bankTreasuryAccountId: "D111-R5-TR-OLD-BANK" })).status).toBe(200);
+    expect((await admin("PATCH", "/treasury-accounts/D111-R5-TR-OLD-BANK", { status: "inactive" })).status).toBe(200);
+
+    const before = entries();
+    const stuck = await admin("POST", "/cheques/D111-R5-CHQ-OLDBANK/collect", {});
+    expect(stuck.status).toBe(422);
+    expect(stuck.body?.error).toBe("CHEQUE_BANK_ACCOUNT_REQUIRED");
+    const intoDrawer = await admin("POST", "/cheques/D111-R5-CHQ-OLDBANK/collect", { bankTreasuryAccountId: "TR-DEMO-CASH" });
+    expect(intoDrawer.status, JSON.stringify(intoDrawer.body).slice(0, 200)).toBe(422);
+    expect(intoDrawer.body?.message).toMatch(ARABIC);
+    expect(entries()).toBe(before);
+
+    const collected = await admin("POST", "/cheques/D111-R5-CHQ-OLDBANK/collect", { bankTreasuryAccountId: "TR-DEMO-BANK" });
+    expect(collected.status, JSON.stringify(collected.body).slice(0, 300)).toBe(200);
+    expect(stateOf("D111-R5-CHQ-OLDBANK")).toEqual({ status: "collected", bank: "TR-DEMO-BANK" });
+    const entryId = one<{ id: string }>("SELECT collection_journal_entry_id AS id FROM cheque WHERE id = 'D111-R5-CHQ-OLDBANK'")!.id;
+    expect(all<{ a: string; t: string | null }>("SELECT account_id AS a, treasury_account_id AS t FROM journal_line WHERE entry_id = ? AND debit > 0", entryId)).toEqual([{ a: "1310", t: "TR-DEMO-BANK" }]);
+  });
+
+  it("a cheque whose bank account is still active is not redirected to another one", async () => {
+    expect((await admin("POST", "/cheques", cheque("D111-R5-CHQ-FIXED", "D111-R5-0003"))).status).toBe(201);
+    expect((await admin("POST", "/cheques/D111-R5-CHQ-FIXED/deposit", { bankTreasuryAccountId: "TR-DEMO-BANK" })).status).toBe(200);
+    expect((await admin("POST", "/treasury-accounts", { id: "D111-R5-TR-BANK-2", code: "R5-B2", name: "بنك آخر", type: "bank", currency: "EGP", branchId: MAIN, glAccountId: "1310" })).status).toBe(201);
+    const before = entries();
+    const res = await admin("POST", "/cheques/D111-R5-CHQ-FIXED/collect", { bankTreasuryAccountId: "D111-R5-TR-BANK-2" });
+    expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(422);
+    expect(res.body?.error).toBe("CHEQUE_BANK_ACCOUNT_FIXED");
+    expect(res.body?.message).toMatch(ARABIC);
+    expect(entries()).toBe(before);
+    expect(stateOf("D111-R5-CHQ-FIXED")).toEqual({ status: "deposited", bank: "TR-DEMO-BANK" });
   });
 });

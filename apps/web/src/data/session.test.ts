@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
+import { resolvePermissions } from "@mezan/domain";
 import {
   authHeaders,
   clearSessionExpired,
@@ -12,7 +13,9 @@ import {
   persistScopeSelection,
   persistSession,
   persistTenantCode,
+  ReadPermission,
   rememberTenantCodeForEmail,
+  sessionHolds,
   sessionExpiredPending,
   tenantCodeForEmail,
   type ScopeSelection,
@@ -250,5 +253,30 @@ describe("authHeaders", () => {
     expect(headers).not.toHaveProperty("x-permissions");
     expect(headers).not.toHaveProperty("x-user-id");
     expect(headers).not.toHaveProperty("x-role-code");
+  });
+});
+
+describe("sessionHolds — a permission held only by implication is held", () => {
+  const holding = (...permissions: string[]): Session => ({ ...validSession, permissions });
+
+  it("answers for a permission the session names", () => {
+    expect(sessionHolds(holding("admin.users.view"), ReadPermission.Users)).toBe(true);
+    expect(sessionHolds(holding("sales.invoice.view"), ReadPermission.Users)).toBe(false);
+    expect(sessionHolds(null, ReadPermission.Users)).toBe(false);
+  });
+
+  it("answers for a read the server grants through a dependency, as the server's own table resolves it", () => {
+    expect(sessionHolds(holding("admin.users.unlock"), ReadPermission.Users)).toBe(true);
+    expect(sessionHolds(holding("hr.employee.terminate"), ReadPermission.Employees)).toBe(true);
+    expect(sessionHolds(holding("hr.contract.view"), ReadPermission.Employees)).toBe(true);
+    for (const granted of ["admin.users.unlock", "hr.employee.terminate", "hr.contract.view"]) {
+      for (const read of Object.values(ReadPermission)) {
+        expect(sessionHolds(holding(granted), read), `${granted} → ${read}`).toBe(resolvePermissions([granted]).has(read));
+      }
+    }
+  });
+
+  it("the tenant admin holds every read", () => {
+    for (const read of Object.values(ReadPermission)) expect(sessionHolds(holding("*"), read)).toBe(true);
   });
 });

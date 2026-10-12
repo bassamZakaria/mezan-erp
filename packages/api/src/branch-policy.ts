@@ -276,8 +276,11 @@ async function bodyRefusal(c: Context, session: Session, entry: BranchPolicyEntr
     if (standing === Standing.Foreign || standing === Standing.PartlyForeign) {
       return branchRefusal(c, NAMED_LOCATION_KINDS.has(kind) ? BranchRefusalCode.BranchOutOfScope : BranchRefusalCode.NotFound);
     }
+    // SECURITY: a warehouse or a cash account nobody holds answers exactly as
+    // one another branch holds, so the refusal does not say which ids exist.
+    if (standing === Standing.Absent && NAMED_LOCATION_KINDS.has(kind)) return branchRefusal(c, BranchRefusalCode.BranchOutOfScope);
     const meaningIsKnown = declared !== undefined || !AMBIGUOUS_REFERENCE_KEYS.has(reference.key);
-    if (standing === Standing.Absent && meaningIsKnown && !NAMED_LOCATION_KINDS.has(kind)) return branchRefusal(c, BranchRefusalCode.NotFound);
+    if (standing === Standing.Absent && meaningIsKnown) return branchRefusal(c, BranchRefusalCode.NotFound);
   }
   return null;
 }
@@ -494,6 +497,7 @@ async function queryRefusal(c: Context, session: Session, entry: BranchPolicyEnt
       if (id === "") continue;
       const standing = standingOf(session, await lookup(session, kind, id));
       if (standing === Standing.Foreign || standing === Standing.PartlyForeign) return branchRefusal(c, BranchRefusalCode.BranchOutOfScope);
+      if (standing === Standing.Absent && NAMED_LOCATION_KINDS.has(kind)) return branchRefusal(c, BranchRefusalCode.BranchOutOfScope);
     }
   }
   return null;
@@ -538,10 +542,17 @@ function sameFieldValue(stored: unknown, sent: unknown): boolean {
  * sends unchanged, or at its default on create, is not a change.
  */
 export function sharedFieldRefusal(c: Context, prefix: string, stored: Readonly<Record<string, unknown>> | null, sent: Readonly<Record<string, unknown>>): Response | null {
-  if (!c.get(BRANCH_SESSION_KEY)) return null;
+  const session = c.get(BRANCH_SESSION_KEY);
+  if (!session) return null;
   const entry = branchPolicyFor(prefix);
   if (!entry?.branchEditableFields) return null;
-  const open = new Set([...entry.branchEditableFields, ...(stored === null ? (entry.branchCreatableFields ?? []) : [])]);
+  const owner = stored?.["branchId"];
+  const ownedByTheSession = stored === null || (typeof owner === "string" && session.grant.includes(owner));
+  const open = new Set([
+    ...entry.branchEditableFields,
+    ...(stored === null ? (entry.branchCreatableFields ?? []) : []),
+    ...(ownedByTheSession ? (entry.branchOwnedFields ?? []) : []),
+  ]);
   const fields = Object.keys(sent).filter((field) => !open.has(field) && sent[field] !== undefined && !sameFieldValue(stored ? stored[field] : CREATED_ACTIVE[field], sent[field]));
   if (fields.length === 0) return null;
   return c.json({ ...BRANCH_REFUSALS[BranchRefusalCode.SharedFieldRestricted], fields }, 403);

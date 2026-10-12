@@ -73,6 +73,8 @@ import {
   SuggestionNotFoundError,
   SuggestionNotPendingError,
   TreasuryAccountNumberMissingError,
+  StatementBranchMismatchError,
+  StatementBranchRequiredError,
   TreasuryAccountOutOfBranchScopeError,
   ZeroAmountLineError,
 } from "./errors.js";
@@ -110,6 +112,7 @@ export interface ImportStatementCommand {
   readonly openingBalance: Money;
   readonly closingBalance: Money;
   readonly statementNumber?: string | null;
+  readonly branchId?: string | null;
   /** An Excel statement is converted to CSV text in the browser and arrives here as CSV; this records where it came from. */
   readonly source?: BankStatementSource.Csv | BankStatementSource.Excel;
 }
@@ -124,6 +127,7 @@ export interface ImportStatementFileCommand {
   readonly openingBalance?: Money | null;
   readonly closingBalance?: Money | null;
   readonly statementNumber?: string | null;
+  readonly branchId?: string | null;
 }
 
 /**
@@ -195,6 +199,8 @@ export interface CreateEntryCommand {
   readonly ruleId?: string | null;
   readonly memo?: string | null;
   readonly date?: string | null;
+  /** The branch a charge on a company-level statement is booked to. */
+  readonly branchId?: string | null;
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
 }
@@ -302,12 +308,19 @@ export class BankReconciliationService {
     return account;
   }
 
-  private statementBranchOf(account: TreasuryAccount | null): string | null {
-    if (account?.branchId) return account.branchId;
-    if (this.deps.soleBranchId) return this.deps.soleBranchId;
-    if (account && this.deps.branchScope && this.deps.readsUnattributed === false) {
-      throw new TreasuryAccountOutOfBranchScopeError(account.id);
+  /**
+   * LEDGER INVARIANT: a statement is its account's branch's. Only a
+   * company-level account takes a stated branch — the one a user of several
+   * branches must name — and with none stated it stays the company's.
+   */
+  private statementBranchOf(account: TreasuryAccount | null, stated?: string | null): string | null {
+    if (account?.branchId) {
+      if (stated && stated !== account.branchId) throw new StatementBranchMismatchError();
+      return account.branchId;
     }
+    if (stated) return stated;
+    if (this.deps.soleBranchId) return this.deps.soleBranchId;
+    if (account && this.deps.branchScope && this.deps.readsUnattributed === false) throw new StatementBranchRequiredError();
     return null;
   }
 
@@ -336,7 +349,7 @@ export class BankReconciliationService {
       {
         id: cmd.id,
         treasuryAccountId: cmd.treasuryAccountId,
-        branchId: this.statementBranchOf(account),
+        branchId: this.statementBranchOf(account, cmd.branchId),
         currency: account?.currency ?? this.baseCurrency(),
         importFingerprint: this.fingerprintOf(cmd.treasuryAccountId, source, {
           periodStart: cmd.periodStart,
@@ -439,7 +452,7 @@ export class BankReconciliationService {
       {
         id: cmd.id,
         treasuryAccountId: cmd.treasuryAccountId,
-        branchId: this.statementBranchOf(account),
+        branchId: this.statementBranchOf(account, cmd.branchId),
         currency: account?.currency ?? parsed.currency ?? this.baseCurrency(),
         importFingerprint: this.fingerprintOf(cmd.treasuryAccountId, source, {
           periodStart,
@@ -767,6 +780,8 @@ export class BankReconciliationService {
 
     const date = cmd.date ?? line.date;
     if (date < line.date) throw new EntryDateBeforeLineError(line.date, date);
+    if (cmd.branchId && statement.branchId && cmd.branchId !== statement.branchId) throw new StatementBranchMismatchError();
+    const chargeBranchId = statement.branchId ?? cmd.branchId ?? null;
     const kind = line.amount.scaled > 0n ? BankEntryKind.Interest : BankEntryKind.BankCharge;
     const memo = cmd.memo?.trim() || `${ENTRY_KIND_LABEL[kind]} — ${line.description}`.trim();
 
@@ -777,7 +792,7 @@ export class BankReconciliationService {
         date,
         amount: line.amount.scaled < 0n ? line.amount.negate() : line.amount,
         treasuryAccountId: statement.treasuryAccountId,
-        branchId: statement.branchId,
+        branchId: chargeBranchId,
         counterAccountId: accountId,
         costCenterId,
         memo,

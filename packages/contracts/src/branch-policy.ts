@@ -117,6 +117,12 @@ export interface BranchPolicyEntry {
   readonly headOfficeCreates?: boolean;
   /** Fields a branch-restricted session may also state when it CREATES the record, because the record cannot exist without them. */
   readonly branchCreatableFields?: readonly string[];
+  /**
+   * Fields a branch-restricted session may set when it creates the record and
+   * afterwards on a record ITS OWN branch owns — never on the company's record
+   * or another branch's.
+   */
+  readonly branchOwnedFields?: readonly string[];
   /** POST sub-paths of a read-only family that compute and store nothing. */
   readonly readPosts?: readonly string[];
   /** A family that moves stock between two warehouses, so its warehouses need not share the document's branch. */
@@ -256,7 +262,12 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   readOnly("/promotions", { readPosts: ["/evaluate"] }),
   readOnly("/manufacturing/boms"),
   readOnly("/manufacturing/configurable-products"),
-  shared("/customers", { id: K.Customer }, [...RECORD_IDENTITY_FIELDS, ...CONTACT_FIELDS, "branchId", "address"]),
+  {
+    ...shared("/customers", { id: K.Customer }, [...RECORD_IDENTITY_FIELDS, ...CONTACT_FIELDS, "address"]),
+    // SECURITY: `branchId` is here, not among the always-editable fields — a
+    // branch that could claim the company's customer would then own its tax identity.
+    branchOwnedFields: ["branchId", "taxNumber", "nationalId", "etaBuyerType", "commercialRegistrationNumber"],
+  },
   shared("/suppliers", { id: K.Supplier }, [...RECORD_IDENTITY_FIELDS, ...CONTACT_FIELDS, "addressCity", "addressDistrict", "addressStreet"]),
   shared("/cost-centers", { id: K.CostCenter }),
 

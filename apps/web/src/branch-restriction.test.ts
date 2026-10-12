@@ -27,10 +27,13 @@ describe("what a branch-restricted session is shown is read from the server's ow
 
   it("every company-wide family the server declares is tied to the screens or actions it backs, so a new one cannot be forgotten", () => {
     const surfaced = [...Object.values(NAV_ITEM_API), ...Object.values(BRANCH_GATED_ACTION_API)];
-    const forgotten = BRANCH_POLICY_TABLE.filter((entry) => entry.policy === BranchPolicy.CompanyWide)
-      .map((entry) => entry.prefix)
-      .filter((prefix) => !COMPANY_WIDE_WITHOUT_A_SURFACE.includes(prefix) && !surfaced.some((path) => path === prefix || path.startsWith(`${prefix}/`)));
+    const companyWide = BRANCH_POLICY_TABLE.filter((entry) => entry.policy === BranchPolicy.CompanyWide).map((entry) => entry.prefix);
+    const tied = (prefix: string) => COMPANY_WIDE_WITHOUT_A_SURFACE.includes(prefix) || surfaced.some((path) => path === prefix || path.startsWith(`${prefix}/`));
+    const withinATiedFamily = (prefix: string) => companyWide.some((family) => prefix.startsWith(`${family}/`) && tied(family));
+    const forgotten = companyWide.filter((prefix) => !tied(prefix) && !withinATiedFamily(prefix));
     expect(forgotten).toEqual([]);
+    expect(withinATiedFamily("/contracting/site/issues")).toBe(true);
+    expect(withinATiedFamily("/no-such-family/site")).toBe(false);
   });
 
   it("every read-only family the server declares is a screen in the web map or part of one, so a new one cannot be forgotten", () => {

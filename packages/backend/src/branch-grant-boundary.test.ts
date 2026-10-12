@@ -2046,6 +2046,9 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     vanId: one<{ id: string }>("SELECT id FROM van ORDER BY id LIMIT 1")!.id,
     employeeId: one<{ id: string }>("SELECT id FROM hr_employee ORDER BY id LIMIT 1")!.id,
     sourceWarehouseId: MAIN_WAREHOUSE,
+    sourceTreasuryAccountId: "TR-DEMO-CASH",
+    vanWarehouseId: "WH-DEMO-VAN",
+    vanTreasuryAccountId: "TR-DEMO-VAN",
     currency: "EGP",
     date: TODAY,
   });
@@ -2862,8 +2865,9 @@ describe("D111 round 4 · a bank charge on the company's account takes the branc
     expect(one("SELECT branch_id FROM bank_statement WHERE id = 'R4-STMT-NONE'")).toEqual({ branch_id: null });
 
     const byTwoBranches = await bothBranches("POST", "/bank-statements/import", imported("R4-STMT-BOTH"));
-    expect(byTwoBranches.status, JSON.stringify(byTwoBranches.body).slice(0, 240)).toBe(403);
-    expect(byTwoBranches.body.message).toMatch(ARABIC);
+    expect(byTwoBranches.status, JSON.stringify(byTwoBranches.body).slice(0, 240)).toBe(400);
+    expect(byTwoBranches.body.error).toBe("BRANCH_REQUIRED");
+    expect(byTwoBranches.body.message).toMatch(/الفرع/);
     expect(one("SELECT id FROM bank_statement WHERE id = 'R4-STMT-BOTH'")).toBeUndefined();
     const reading = await bothBranchesWithUnattributed("POST", "/bank-statements/import", imported("R4-STMT-BOTH-U"));
     expect(reading.status, JSON.stringify(reading.body).slice(0, 240)).toBe(201);
@@ -2877,6 +2881,56 @@ describe("D111 round 4 · a bank charge on the company's account takes the branc
     const unattributed = await chargeOn("R4-STMT-NONE");
     expect(unattributed.voucher).toBe("");
     expect(unattributed.lines).toEqual([null, null]);
+  });
+
+  it("a user of several branches says which branch the statement on the company's account is for", async () => {
+    const res = await bothBranches("POST", "/bank-statements/import", { ...imported("R5-STMT-BOTH-ALEX"), branchId: ALEX });
+    expect(res.status, JSON.stringify(res.body).slice(0, 240)).toBe(201);
+    expect(one("SELECT branch_id FROM bank_statement WHERE id = 'R5-STMT-BOTH-ALEX'")).toEqual({ branch_id: ALEX });
+    expect((await alex("GET", "/bank-statements/R5-STMT-BOTH-ALEX")).status).toBe(200);
+    const charged = await chargeOn("R5-STMT-BOTH-ALEX");
+    expect(charged.lines).toEqual([ALEX, ALEX]);
+  });
+
+  it("a branch outside the grant, or one that is not the account's own, is refused and nothing is stored", async () => {
+    const outside = await alex("POST", "/bank-statements/import", { ...imported("R5-STMT-ALEX-MAIN"), branchId: MAIN });
+    expect(outside.status).toBe(403);
+    expect(outside.body?.message).toMatch(ARABIC);
+    const notItsOwn = await admin("POST", "/bank-statements/import", { ...imported("R5-STMT-WRONG"), treasuryAccountId: "TR-DEMO-BANK", branchId: ALEX });
+    expect(notItsOwn.status, JSON.stringify(notItsOwn.body).slice(0, 240)).toBe(422);
+    expect(notItsOwn.body?.error).toBe("STATEMENT_BRANCH_NOT_THE_ACCOUNTS");
+    expect(notItsOwn.body?.message).toMatch(ARABIC);
+    expect(one("SELECT count(*) AS n FROM bank_statement WHERE id IN ('R5-STMT-ALEX-MAIN', 'R5-STMT-WRONG')")).toEqual({ n: 0 });
+  });
+
+  it("head office's statement on the company's account stays the company's, and each charge takes the branch named for it, or none", async () => {
+    const res = await admin("POST", "/bank-statements/import", {
+      ...imported("R5-STMT-HQ"),
+      rawCsv: `Date,Description,Amount,Ref\n${TODAY},مصاريف فرع الإسكندرية,-11.00,R5-A\n${TODAY},مصاريف عامة,-7.00,R5-B\n`,
+      closingBalance: "-18.00",
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 240)).toBe(201);
+    expect(one("SELECT branch_id FROM bank_statement WHERE id = 'R5-STMT-HQ'")).toEqual({ branch_id: null });
+    const [forAlex, general] = all<{ id: string }>("SELECT id FROM statement_line WHERE statement_id = 'R5-STMT-HQ' ORDER BY amount").map((row) => row.id);
+    const linesOf = (entryId: string) => all<{ b: string | null }>("SELECT branch_id AS b FROM journal_line WHERE entry_id = ?", entryId).map((row) => row.b);
+
+    const named = await admin("POST", `/bank-statements/R5-STMT-HQ/lines/${forAlex}/create-entry`, { accountId: "5200", branchId: ALEX });
+    expect(named.status, JSON.stringify(named.body).slice(0, 240)).toBe(201);
+    expect(linesOf(named.body.entryId)).toEqual([ALEX, ALEX]);
+    const unnamed = await admin("POST", `/bank-statements/R5-STMT-HQ/lines/${general}/create-entry`, { accountId: "5200" });
+    expect(unnamed.status, JSON.stringify(unnamed.body).slice(0, 240)).toBe(201);
+    expect(linesOf(unnamed.body.entryId)).toEqual([null, null]);
+  });
+
+  it("a charge on a branch's own statement cannot be booked to another branch", async () => {
+    expect((await alex("POST", "/bank-statements/import", imported("R5-STMT-ALEX-2"))).status).toBe(201);
+    const line = one<{ id: string }>("SELECT id FROM statement_line WHERE statement_id = 'R5-STMT-ALEX-2'")!.id;
+    const entries = one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n;
+    const res = await admin("POST", `/bank-statements/R5-STMT-ALEX-2/lines/${line}/create-entry`, { accountId: "5200", branchId: MAIN });
+    expect(res.status, JSON.stringify(res.body).slice(0, 240)).toBe(422);
+    expect(res.body?.error).toBe("STATEMENT_BRANCH_NOT_THE_ACCOUNTS");
+    expect(res.body?.message).toMatch(ARABIC);
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n).toBe(entries);
   });
 });
 
@@ -3088,5 +3142,85 @@ describe("D111 round 5 · a cheque is collected into a real, active bank account
     expect(res.body?.message).toMatch(ARABIC);
     expect(entries()).toBe(before);
     expect(stateOf("D111-R5-CHQ-FIXED")).toEqual({ status: "deposited", bank: "TR-DEMO-BANK" });
+  });
+});
+
+describe("D111 round 5 · a counter clerk records the tax identity of a customer of its own branch", () => {
+  const identity = { taxNumber: "311-222-333", nationalId: "29001011234567", etaBuyerType: "business", commercialRegistrationNumber: "CR-7788" } as const;
+  const stored = (id: string) => one<{ tax_number: string | null; national_id: string | null; eta_buyer_type: string; branch_id: string | null }>("SELECT tax_number, national_id, eta_buyer_type, branch_id FROM customer WHERE id = ?", id)!;
+
+  it("sets it when it creates the customer, who lands in its branch", async () => {
+    const res = await alex("POST", "/customers", { id: "D111-R5-CUST-COUNTER", nameAr: "عميل الشباك", phone: "01000000000", ...identity });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
+    expect(stored("D111-R5-CUST-COUNTER")).toEqual({ tax_number: identity.taxNumber, national_id: identity.nationalId, eta_buyer_type: "business", branch_id: ALEX });
+  });
+
+  it("corrects it later on a customer of its own branch", async () => {
+    const res = await alex("PATCH", "/customers/D111-R5-CUST-COUNTER", { taxNumber: "311-222-334", etaBuyerType: "individual" });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    expect(stored("D111-R5-CUST-COUNTER")).toMatchObject({ tax_number: "311-222-334", eta_buyer_type: "individual" });
+  });
+
+  it("still cannot set a credit limit, an opening balance or a price list while doing so", async () => {
+    for (const body of [{ creditLimit: "5000.00" }, { openingBalance: "100.00" }, { paymentTermsDays: 90 }]) {
+      const created = await alex("POST", "/customers", { id: "D111-R5-CUST-GREEDY", nameAr: "عميل", ...identity, ...body });
+      expect(created.status, JSON.stringify(created.body).slice(0, 200)).toBe(403);
+      expect(created.body?.error).toBe("SHARED_FIELD_RESTRICTED");
+      const edited = await alex("PATCH", "/customers/D111-R5-CUST-COUNTER", body);
+      expect(edited.status).toBe(403);
+    }
+    expect(one("SELECT id FROM customer WHERE id = 'D111-R5-CUST-GREEDY'")).toBeUndefined();
+  });
+
+  it("cannot touch the tax identity of the company's customer or of another branch's", async () => {
+    const company = stored("CUST-DEMO-2");
+    expect(company.branch_id).toBeNull();
+    const onCompany = await alex("PATCH", "/customers/CUST-DEMO-2", { taxNumber: "999" });
+    expect(onCompany.status).toBe(403);
+    expect(onCompany.body?.error).toBe("SHARED_FIELD_RESTRICTED");
+    await alex("PATCH", "/customers/CUST-DEMO-2", { branchId: ALEX });
+    expect(stored("CUST-DEMO-2")).toEqual(company);
+
+    expect((await admin("POST", "/customers", { id: "ZZ-D111-R5-CUST-MAIN-ID", nameAr: "عميل الرئيسي", branchId: MAIN, taxNumber: "100-100-100" })).status).toBe(201);
+    const onForeign = await alex("PATCH", "/customers/ZZ-D111-R5-CUST-MAIN-ID", { taxNumber: "999" });
+    expect([403, 404]).toContain(onForeign.status);
+    expect(onForeign.body?.message).toMatch(ARABIC);
+    expect(stored("ZZ-D111-R5-CUST-MAIN-ID").tax_number).toBe("100-100-100");
+  });
+});
+
+describe("D111 round 5 · a warehouse or a cash account nobody holds answers as one another branch holds", () => {
+  it("in a document body", async () => {
+    const pairs: (readonly [label: string, path: string, body: (id: string) => unknown, foreign: string])[] = [
+      ["warehouse on an invoice", "/sales-invoices", (id) => salesInvoice(`D111-R5-LOC-${id.length}`, ALEX, id), MAIN_WAREHOUSE],
+      ["cash account on a voucher", "/vouchers", (id) => voucher(`D111-R5-LOC-V-${id.length}`, ALEX, id, "1300-ALEX"), "TR-DEMO-BANK"],
+      ["warehouse on a transfer line", "/inventory/stock-transfers/draft", (id) => ({ id: `D111-R5-LOC-T-${id.length}`, date: TODAY, memo: "", lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId: ALEX_WAREHOUSE, toWarehouseId: id, qty: "1" }] }), MAIN_WAREHOUSE],
+    ];
+    for (const [label, path, body, foreign] of pairs) {
+      for (const caller of [alex, alexStar]) {
+        const held = await caller("POST", path, body(foreign));
+        const nobody = await caller("POST", path, body("D111-R5-NO-SUCH-PLACE"));
+        expect(held.status, label).toBe(403);
+        expect(nobody.status, `${label} ${JSON.stringify(nobody.body).slice(0, 200)}`).toBe(held.status);
+        expect(nobody.body, label).toEqual(held.body);
+        expect(nobody.body?.message).toMatch(ARABIC);
+      }
+    }
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM sales_invoice WHERE id LIKE 'D111-R5-LOC-%'")!.n).toBe(0);
+    expect(one<{ n: number }>("SELECT count(*) AS n FROM voucher WHERE id LIKE 'D111-R5-LOC-%'")!.n).toBe(0);
+  });
+
+  it("in a stock query", async () => {
+    const held = await alex("GET", `/inventory/stock-balance?warehouseId=${MAIN_WAREHOUSE}`);
+    const nobody = await alex("GET", "/inventory/stock-balance?warehouseId=D111-R5-NO-SUCH-PLACE");
+    expect(held.status).toBe(403);
+    expect(nobody.status).toBe(held.status);
+    expect(nobody.body).toEqual(held.body);
+  });
+
+  it("an unrestricted session is still told plainly that the place does not exist", async () => {
+    const res = await admin("POST", "/sales-invoices", salesInvoice("D111-R5-LOC-ADMIN", ALEX, "D111-R5-NO-SUCH-PLACE"));
+    expect([404, 422]).toContain(res.status);
+    expect(one("SELECT id FROM sales_invoice WHERE id = 'D111-R5-LOC-ADMIN'")).toBeUndefined();
   });
 });

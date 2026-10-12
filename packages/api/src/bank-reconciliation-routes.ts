@@ -49,6 +49,8 @@ import {
   SuggestionNotPendingError,
   TreasuryAccountNotFoundError,
   TreasuryAccountNumberMissingError,
+  StatementBranchMismatchError,
+  StatementBranchRequiredError,
   TreasuryAccountOutOfBranchScopeError,
   TreasuryAccountUnpostableError,
   UnbalancedEntryError,
@@ -254,6 +256,8 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateStatementImportError) {
     return refuse(err, 409, { existingStatementId: err.existingStatementId, existingStatementNumber: err.existingStatementNumber });
   }
+  if (err instanceof StatementBranchRequiredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
+  if (err instanceof StatementBranchMismatchError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   if (err instanceof StatementOutOfBranchScopeError || err instanceof TreasuryAccountOutOfBranchScopeError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 403);
   }
@@ -546,6 +550,7 @@ export function createBankReconciliationRoutes(
         openingBalance: Money.fromMajor(d.openingBalance),
         closingBalance: Money.fromMajor(d.closingBalance),
         statementNumber: d.statementNumber ?? null,
+        branchId: d.branchId ?? null,
         source: d.source === StatementSourceCode.Excel ? BankStatementSource.Excel : BankStatementSource.Csv,
       });
       const withNumbers = await service.withEntryNumbers(lines);
@@ -573,6 +578,7 @@ export function createBankReconciliationRoutes(
         openingBalance: d.openingBalance ? Money.fromMajor(d.openingBalance) : null,
         closingBalance: d.closingBalance ? Money.fromMajor(d.closingBalance) : null,
         statementNumber: d.statementNumber ?? null,
+        branchId: d.branchId ?? null,
       });
       const withNumbers = await service.withEntryNumbers(lines);
       return c.json({ ...serializeStatement(statement), lines: withNumbers.map(serializeLine) }, 201);
@@ -662,6 +668,7 @@ export function createBankReconciliationRoutes(
         ruleId: d.ruleId ?? null,
         memo: d.memo ?? null,
         date: d.date ?? null,
+        branchId: d.branchId ?? null,
         actor: callerUserId(c),
         actorRoles: callerRoleCodes(c),
       });

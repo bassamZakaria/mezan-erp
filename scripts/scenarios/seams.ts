@@ -206,9 +206,11 @@ export async function run(ctx: Ctx): Promise<void> {
     // gains another foreign position (the demo's USD bank receipt did exactly
     // that). The requirement being asserted is about this liability.
     check("a liability that grew in base currency is a LOSS, never a gain", n(detail?.gainLoss) === -4000, `gainLoss=${detail?.gainLoss}`);
-    const gainOfOthers = ((preview.body?.details ?? []) as any[]).filter((d) => d.accountId !== USD_LIABILITY && n(d.gainLoss) > 0).reduce((sum, d) => sum + n(d.gainLoss), 0);
-    check("and this position puts nothing on the gain side", n(preview.body?.totalLoss) >= 4000 && Math.abs(n(preview.body?.totalGain) - gainOfOthers) < 0.000001,
-      `loss=${n(preview.body?.totalLoss)} gain=${n(preview.body?.totalGain)} others=${gainOfOthers}`);
+    const gainOfOthers = ((preview.body?.details ?? []) as any[])
+      .filter((d) => d.accountId !== USD_LIABILITY)
+      .reduce((sum, d) => sum + ((ctx.scaled(d.gainLoss) ?? 0n) > 0n ? (ctx.scaled(d.gainLoss) ?? 0n) : 0n), 0n);
+    check("and this position puts nothing on the gain side: the total gain is the other positions' gain to the micro-unit", n(preview.body?.totalLoss) >= 4000 && ctx.scaled(preview.body?.totalGain) === gainOfOthers,
+      `loss=${n(preview.body?.totalLoss)} gain=${String(preview.body?.totalGain)} others=${gainOfOthers}`);
 
     const posted = await req("POST", "/revaluation/post", { date: MONTH_END, currencies: ["USD"], autoReverse: true });
     check("posting the revaluation succeeds", posted.status === 200 || posted.status === 201, `status ${posted.status} ${JSON.stringify(posted.body).slice(0, 250)}`);

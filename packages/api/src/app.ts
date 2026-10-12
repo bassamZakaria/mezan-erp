@@ -1423,6 +1423,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               return tags.nameChosenLines(entryId, lineIndexes, taxRatePercent, taxRateId, expected);
             },
           },
+          postedJournalLines: async (invoiceId) =>
+            ((await purchases.gl.ledger.findById(`PI-JE:${invoiceId}`)) ?? (await purchases.gl.ledger.findById(`HIST-PI-JE:${invoiceId}`)))?.lines ?? null,
           glReverse: purchases.layers ? glReversePort : undefined,
           accounts: purchases.accounts,
           allocatable: purchases.allocatable,

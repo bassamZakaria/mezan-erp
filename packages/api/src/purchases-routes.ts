@@ -48,6 +48,7 @@ import {
   InvalidDocumentError,
   AllocationMismatchError,
   DEFAULT_PURCHASE_POLICY,
+  type ClassifyPurchaseInvoiceLineTaxDeps,
   type PurchaseOrder,
   type PurchaseOrderRepository,
   type GoodsReceipt,
@@ -151,6 +152,8 @@ export interface PurchasesRoutesDeps {
    */
   readonly transactor?: PurchaseTransactor;
   readonly taxTags?: PurchaseInvoiceTaxTagPort;
+  /** The lines of the entry an invoice posted, so a classification expects the accounts it really used. */
+  readonly postedJournalLines?: ClassifyPurchaseInvoiceLineTaxDeps["postedLines"];
   readonly taxDependents?: TaxClassificationDependentsPort;
   readonly accounts: PurchaseGlAccounts;
   readonly allocatable?: AllocatableInvoiceRepository;
@@ -1384,7 +1387,7 @@ export function createPurchasesRoutes(
       const result = await classifyPurchaseInvoiceLineTax(
         existing.id,
         { lineRef: c.req.param("lineId"), withLineRefs: parsed.data.withLineIds, taxRateId: parsed.data.taxRateId },
-        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, taxDependents: deps.taxDependents, accounts: deps.accounts, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
+        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, taxDependents: deps.taxDependents, accounts: deps.accounts, postedLines: deps.postedJournalLines, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
       );
       await stampDocumentModifier(deps.invoiceVersions, result.invoice.id, actor(c));
       return c.json(
@@ -1422,7 +1425,7 @@ export function createPurchasesRoutes(
       const result = await namePurchaseInvoiceJournalLineTax(
         existing.id,
         { lineRef: c.req.param("lineId"), withLineRefs: parsed.data.withLineIds, taxRateId: parsed.data.taxRateId, journalLineIndexes: parsed.data.journalLineIndexes },
-        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, taxDependents: deps.taxDependents, accounts: deps.accounts, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
+        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, taxDependents: deps.taxDependents, accounts: deps.accounts, postedLines: deps.postedJournalLines, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
       );
       await stampDocumentModifier(deps.invoiceVersions, result.invoice.id, actor(c));
       return c.json(

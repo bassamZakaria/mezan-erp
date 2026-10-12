@@ -22,6 +22,7 @@ import {
   type TaxClassificationPlan,
   type TaxRateRepository,
 } from "../tax-rates/index.js";
+import type { Money } from "../money/index.js";
 import { isRetentionRelease } from "../documents/invoice-document-kind.js";
 import { atomically, type PurchaseAuditDeps } from "./audit.js";
 import { PurchaseInvoiceNotFoundError } from "./errors.js";
@@ -58,16 +59,45 @@ export interface ClassifyPurchaseInvoiceLineTaxDeps extends PurchaseAuditDeps {
    */
   readonly accounts?: PurchaseGlAccounts;
   readonly baseCurrency?: string;
+  /**
+   * The lines of the entry the invoice ACTUALLY posted. An invoice confirmed
+   * under accounts of its own — a subcontract certificate books its work to
+   * the subcontract's account, never the chain's expense account — is rebuilt
+   * with those, so the lines it expects are the lines its entry holds.
+   */
+  readonly postedLines?: (invoiceId: string) => Promise<readonly PostedPurchaseJournalLine[] | null>;
 }
 
-function expectedPurchaseTaxJournalLines(
+export interface PostedPurchaseJournalLine {
+  readonly accountId: string;
+  readonly debit: Money;
+  readonly credit: Money;
+}
+
+// INVARIANT: only the expense account is ever the caller's own (see the two
+// subcontract confirms); every other account is the chain's. It is read off
+// the entry only when exactly ONE debit account is none of the chain's —
+// anything else keeps the defaults, and the match then refuses.
+export function postedPurchaseAccounts(defaults: PurchaseGlAccounts, posted: readonly PostedPurchaseJournalLine[]): PurchaseGlAccounts {
+  const chain = new Set(
+    [defaults.inventoryAccountId, defaults.payableAccountId, defaults.taxAccountId, defaults.freightAccountId, defaults.expenseAccountId, defaults.goodsReceivedNotInvoicedAccountId].filter(
+      (accountId): accountId is string => typeof accountId === "string",
+    ),
+  );
+  const own = [...new Set(posted.filter((line) => line.debit.scaled > 0n && !chain.has(line.accountId)).map((line) => line.accountId))];
+  return own.length === 1 ? { ...defaults, expenseAccountId: own[0] } : defaults;
+}
+
+async function expectedPurchaseTaxJournalLines(
   invoice: PurchaseInvoice,
   tax: AppliedTaxRate,
-  deps: Pick<ClassifyPurchaseInvoiceLineTaxDeps, "accounts" | "baseCurrency">,
-): ExpectedTaxJournalLine[] | undefined {
+  deps: Pick<ClassifyPurchaseInvoiceLineTaxDeps, "accounts" | "baseCurrency" | "postedLines">,
+): Promise<ExpectedTaxJournalLine[] | undefined> {
   if (!deps.accounts) return undefined;
+  const posted = (await deps.postedLines?.(invoice.id)) ?? null;
+  const accounts = posted ? postedPurchaseAccounts(deps.accounts, posted) : deps.accounts;
   const fx = invoice.fxRate ? { rate: invoice.fxRate, baseCurrency: deps.baseCurrency ?? "EGP" } : undefined;
-  return buildInvoicePosting(invoice, deps.accounts, fx)
+  return buildInvoicePosting(invoice, accounts, fx)
     .lines.filter((line) => line.taxRatePercent === tax.taxRatePercent && (line.taxRateId ?? null) === tax.taxRateId)
     .map((line) => ({ accountId: line.accountId, debit: line.debit, credit: line.credit }));
 }
@@ -140,7 +170,7 @@ export async function classifyPurchaseInvoiceLineTax(
     let journalLinesNamed = 0;
     let chosenJournalLines: ChosenJournalLinesNamed | null = null;
     if (deps.taxTags) {
-      const expected = expectedPurchaseTaxJournalLines(existing, plan.before, deps);
+      const expected = await expectedPurchaseTaxJournalLines(existing, plan.before, deps);
       if (request.journalLineIndexes) {
         chosenJournalLines = await deps.taxTags.nameChosenLines(existing.id, request.journalLineIndexes, plan.before.taxRatePercent, request.taxRateId, expected ?? []);
         journalLinesNamed = chosenJournalLines.after.length;
@@ -217,7 +247,7 @@ export async function namePurchaseInvoiceJournalLineTax(
     const taxRateName = taxRates?.find((rate) => rate.id === taxRateId)?.name ?? taxRateId;
     if (request.taxRateId && request.taxRateId !== taxRateId) throw new TaxRateAlreadyClassifiedError(taxRateId, taxRateName);
     const stored: AppliedTaxRate = { taxRateId, taxRatePercent: line.taxRatePercent };
-    const expected = expectedPurchaseTaxJournalLines(existing, stored, deps);
+    const expected = await expectedPurchaseTaxJournalLines(existing, stored, deps);
     if (!deps.taxTags || !expected) throw new TaxClassificationJournalUntaggedError(existing.number);
     const journalLines = await deps.taxTags.nameChosenLines(existing.id, request.journalLineIndexes, stored.taxRatePercent, taxRateId, expected);
     const lineRefs = existing.lines

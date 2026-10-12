@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AuditEvent, AuditSink } from "../audit/index.js";
 import { Money, Qty } from "../money/index.js";
-import { TaxRateAlreadyClassifiedError, type TaxRate } from "../tax-rates/index.js";
-import { classifyPurchaseInvoiceLineTax } from "./classify-line-tax.js";
+import { createJournalTaxTagPort } from "../gl/tax-tag.js";
+import { TaxClassificationJournalUntaggedError, TaxRateAlreadyClassifiedError, type ExpectedTaxJournalLine, type TaxRate } from "../tax-rates/index.js";
+import { classifyPurchaseInvoiceLineTax, postedPurchaseAccounts } from "./classify-line-tax.js";
 import type { PurchaseInvoice } from "./purchase-invoice.js";
 import { InMemoryPurchaseInvoices } from "./test-helpers.js";
 import { PurchaseInvoiceStatusCode } from "./types.js";
@@ -76,3 +77,74 @@ describe("classifying a purchase line that already names the rate asked for (fin
     expect(audit.events).toEqual([]);
   });
 });
+
+describe("an invoice posted to an account of its own — a subcontract certificate's work in progress (D79, declared 7)", () => {
+  const DEFAULTS = { inventoryAccountId: "1200", payableAccountId: "2100", taxAccountId: "1400", expenseAccountId: "5910" };
+  const POSTED = [
+    { accountId: "1230", debit: Money.fromMajor("1000"), credit: Money.zero() },
+    { accountId: "2100", debit: Money.zero(), credit: Money.fromMajor("1000") },
+  ];
+
+  function legacySubcontractInvoice() {
+    const invoices = new InMemoryPurchaseInvoices();
+    const invoice = {
+      id: "pi-sub", number: "PINV-000077", supplierId: "sub-1", date: "2026-08-23", dueDate: null, supplierInvoiceNumber: null,
+      branchId: "MAIN", warehouseId: "WH-1", currency: "EGP", notes: null, receiptId: null, status: PurchaseInvoiceStatusCode.Confirmed,
+      createdBy: "u", createdAt: "2026-08-23T00:00:00.000Z",
+      lines: [{ itemId: null, kind: "expense", description: "مستخلص باطن", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("1000"), taxRatePercent: 0, taxRateId: null, costCategory: "subcontract" }],
+    } as unknown as PurchaseInvoice;
+    invoices.rows.set(invoice.id, invoice);
+    let journal = [
+      { accountId: "1230", debit: Money.fromMajor("1000"), credit: Money.zero(), taxRatePercent: null as number | null, taxRateId: null as string | null },
+      { accountId: "2100", debit: Money.zero(), credit: Money.fromMajor("1000"), taxRatePercent: null as number | null, taxRateId: null as string | null },
+    ];
+    const tags = createJournalTaxTagPort({
+      ledger: {
+        findById: async () => ({ id: "PI-JE:pi-sub", date: "2026-08-23", lines: journal }) as never,
+        retagUnnamedTaxRate: async () => 0,
+        tagJournalLines: async (_id: string, indexes: readonly number[], taxRatePercent: number, taxRateId: string) => {
+          journal = journal.map((line, index) => (indexes.includes(index) ? { ...line, taxRatePercent, taxRateId } : line));
+          return indexes.length;
+        },
+      },
+    });
+    const deps = {
+      invoices,
+      taxRates: { list: async () => MASTER },
+      accounts: DEFAULTS,
+      taxTags: {
+        retagUnnamedTaxRate: (_id: string, percent: number, rateId: string, expected?: readonly ExpectedTaxJournalLine[]) => tags.retagUnnamedTaxRate("PI-JE:pi-sub", percent, rateId, expected),
+        nameChosenLines: (_id: string, indexes: readonly number[], percent: number, rateId: string, expected: readonly ExpectedTaxJournalLine[]) =>
+          tags.nameChosenLines("PI-JE:pi-sub", indexes, percent, rateId, expected),
+      },
+    };
+    return { deps, invoices, journal: () => journal.map((line) => [line.accountId, line.taxRateId]) };
+  }
+
+  it("names the line the entry really posted, on the account it really posted to", async () => {
+    const { deps, invoices, journal } = legacySubcontractInvoice();
+    const classified = await classifyPurchaseInvoiceLineTax("pi-sub", { lineRef: "0", taxRateId: "EXEMPT" }, { ...deps, postedLines: async () => POSTED });
+    expect(classified.journalLinesNamed).toBe(1);
+    expect(journal()).toEqual([["1230", "EXEMPT"], ["2100", null]]);
+    expect(invoices.rows.get("pi-sub")?.lines[0]?.taxRateId).toBe("EXEMPT");
+  });
+
+  it("without the posted entry it can only expect the default expense account, and refuses rather than leave the entry unnamed", async () => {
+    const { deps, invoices, journal } = legacySubcontractInvoice();
+    await expect(classifyPurchaseInvoiceLineTax("pi-sub", { lineRef: "0", taxRateId: "EXEMPT" }, deps)).rejects.toBeInstanceOf(TaxClassificationJournalUntaggedError);
+    expect(journal()).toEqual([["1230", null], ["2100", null]]);
+    expect(invoices.rows.get("pi-sub")?.lines[0]?.taxRateId).toBeNull();
+  });
+
+  it("reads the account an expense line posted to off the entry: the one debit account that is no default of the chain", () => {
+    const posted = [
+      { accountId: "1230", debit: Money.fromMajor("1000"), credit: Money.zero() },
+      { accountId: "1400", debit: Money.fromMajor("140"), credit: Money.zero() },
+      { accountId: "2100", debit: Money.zero(), credit: Money.fromMajor("1140") },
+    ];
+    expect(postedPurchaseAccounts(DEFAULTS, posted).expenseAccountId).toBe("1230");
+    expect(postedPurchaseAccounts(DEFAULTS, [{ accountId: "5910", debit: Money.fromMajor("1"), credit: Money.zero() }]).expenseAccountId).toBe("5910");
+    expect(postedPurchaseAccounts(DEFAULTS, [...posted, { accountId: "1240", debit: Money.fromMajor("1"), credit: Money.zero() }]).expenseAccountId).toBe("5910");
+  });
+});
+

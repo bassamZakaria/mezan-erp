@@ -120,6 +120,9 @@ import {
 } from "./customers-routes.js";
 import { createSuppliersRouter, type SupplierPayablesSource } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
+import { pendingPricingGuard } from "./pending-pricing-guard.js";
+import { validationMessages } from "./validation-message.js";
+import { InvalidDecimalLiteralError } from "@mezan/domain";
 import {
   createItemCategoriesRoutes,
   createItemBrandsRoutes,
@@ -1009,6 +1012,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // The tenant's timezone, published to every handler below so a route can
   // narrow an instant on the wire to the tenant's own calendar day before the
   // command is built (tenant-day.ts). Registered before every route.
+  app.use("*", validationMessages());
   app.use("*", tenantTimeZoneMiddleware(options.settingsStore));
 
   // Bound per app, not per process: two backends in one process must not share
@@ -1054,6 +1058,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // resolves the session, which revokes a token presented from elsewhere, and
   // resolving first would leave that theft unrecorded.
   app.use("*", branchPolicyEnforcement({ resolveAuthContext: resolveAuth, directory: options.branchDirectory }));
+  if (options.items) app.use("*", pendingPricingGuard(options.items.repo, resolveAuth));
   app.get("/license/state", async (c) =>
     c.json(resolveLicenseState ? await resolveLicenseState(c) : WRITABLE_LICENSE_STATE),
   );
@@ -1838,6 +1843,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
    */
   app.onError((err, c) => {
     if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+    if (err instanceof InvalidDecimalLiteralError) return c.json({ error: err.code, message: err.messageAr, messageEn: err.messageEn }, 400);
     if (err instanceof ApprovalRequestUntrustedError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
     try {
       console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);

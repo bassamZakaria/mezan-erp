@@ -219,6 +219,7 @@ export {
   costingMethodSchema,
   settableCostingMethodSchema,
   itemStatusSchema,
+  ItemStatusCode,
   etaCodeTypeSchema,
   alternateUnitSchema,
   itemSchema,
@@ -1876,3 +1877,4 @@ export {
   type BranchPolicyEntry,
   type BranchRefusalBody,
 } from "./branch-policy.js";
+export { decimalRateString, MONEY_STRING_RULES, moneyString, nonNegativeMoneyString, nonNegativeQuantityString, quantityString } from "./money-string.js";

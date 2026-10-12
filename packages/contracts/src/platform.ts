@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { entitlementsSchema } from "./entitlements.js";
-import { nonNegativeMoneyString } from "./money-string.js";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 
 /**
  * Wire contracts for the platform console
@@ -324,7 +324,7 @@ export const tenantBillingSchema = z.object({
       currentPeriodEnd: z.string(),
       planNameAr: z.string(),
       planNameEn: z.string(),
-      amountDue: z.string(),
+      amountDue: moneyString,
       planKind: planKindSchema,
     })
     .nullable(),

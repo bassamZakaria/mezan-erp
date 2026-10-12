@@ -76,7 +76,7 @@ export const assetSchema = z.object({
   /** بُعد المشروع — the contracting project this asset is assigned to. */
   projectId: z.string().nullable(),
   /** سعر الساعة الداخلي — the rate in force TODAY. What a log is priced at comes from `rateHistory`. */
-  internalHourlyRate: z.string().nullable(),
+  internalHourlyRate: moneyString.nullable(),
   /** تاريخ سعر الساعة الداخلي, oldest first. A log resolves the row effective on its own date. */
   rateHistory: z.array(assetInternalRateRowSchema),
 });

@@ -8,10 +8,14 @@ export type {
   AlternateUnit,
   ItemSpecificationValue,
 } from "./item.js";
+export { ItemStatusCode } from "./item.js";
 export {
   DuplicateItemCodeError,
   ItemNotFoundError,
   InvalidItemError,
+  ItemPriceRequiredError,
+  ItemStatusNotSettableError,
+  ItemPendingPricingError,
   DuplicateItemSpecificationCodeError,
   ItemSpecificationNotFoundError,
   InvalidItemSpecificationError,

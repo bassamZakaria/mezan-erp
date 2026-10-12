@@ -20,11 +20,11 @@ import {
   can,
   matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema, pageQuerySchema, DEFAULT_PAGE_SIZE } from "@mezan/contracts";
-import { grantedWarehouseIdsOf, sharedFieldRefusal } from "./branch-policy.js";
+import { grantedWarehouseIdsOf, isBranchRestrictedRequest, sharedFieldRefusal } from "./branch-policy.js";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
-import { DuplicateRecordIdError } from "@mezan/domain";
+import { DuplicateRecordIdError, ItemPriceRequiredError, ItemStatusCode, ItemStatusNotSettableError } from "@mezan/domain";
 
 export const AUDITED_ITEM_FIELDS = [
   "code",
@@ -67,6 +67,7 @@ export const AUDITED_ITEM_FIELDS = [
  * payload, not nulled: a null reads as "this item has no cost".
  */
 const ITEMS_PREFIX = "/items";
+const ITEM_STATUS_CHIPS: ReadonlySet<string> = new Set(Object.values(ItemStatusCode));
 
 function serialize(item: Item, showCost = true) {
   const cost = showCost ? { costPrice: item.costPrice?.toString() ?? null } : {};
@@ -134,6 +135,9 @@ function handleDomainError(c: Context, err: unknown) {
   }
   if (err instanceof InvalidItemError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
+  }
+  if (err instanceof ItemPriceRequiredError || err instanceof ItemStatusNotSettableError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }
@@ -286,7 +290,7 @@ export function createItemsRouter(
 
     const chip = filter.status;
     if (chip && chip !== "all") {
-      if (chip === "active" || chip === "inactive") rows = rows.filter((r) => r.item.status === chip);
+      if (ITEM_STATUS_CHIPS.has(chip)) rows = rows.filter((r) => r.item.status === chip);
       else if (chip === "low_stock") rows = rows.filter((r) => r.stockState === "low");
       else if (chip === "out_of_stock") rows = rows.filter((r) => r.stockState === "out");
       else {
@@ -340,8 +344,9 @@ export function createItemsRouter(
     const rows = await listFilteredItems(c, withoutStatus);
     const counts: Record<string, number> = {
       all: rows.length,
-      active: 0,
-      inactive: 0,
+      [ItemStatusCode.Active]: 0,
+      [ItemStatusCode.Inactive]: 0,
+      [ItemStatusCode.PendingPricing]: 0,
       low_stock: 0,
       out_of_stock: 0,
     };
@@ -408,6 +413,7 @@ export function createItemsRouter(
       const item = await createItem(
         {
           ...parsed.data,
+          awaitsPricing: isBranchRestrictedRequest(c),
           alternateUnits: toAlternateUnits(parsed.data.alternateUnits),
           salePrice: toMoney(parsed.data.salePrice),
           costPrice: toMoney(parsed.data.costPrice),

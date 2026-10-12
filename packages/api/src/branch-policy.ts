@@ -156,6 +156,10 @@ export function branchDirectoryOf(c: Context): BranchDirectory | undefined {
   return c.get(BRANCH_DIRECTORY_KEY);
 }
 
+export function isBranchRestrictedRequest(c: Context): boolean {
+  return c.get(BRANCH_SESSION_KEY) !== undefined;
+}
+
 export function grantedWarehouseIdsOf(c: Context): readonly string[] | undefined {
   return c.get(GRANTED_WAREHOUSES_KEY);
 }

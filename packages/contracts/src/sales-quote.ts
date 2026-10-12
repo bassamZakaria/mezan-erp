@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyString } from "./money-string.js";
+import { moneyString, quantityString } from "./money-string.js";
 
 /**
  * Wire contracts for Sales Quotations (docs/archive/catalog/01-sales.md §"عروض الأسعار").
@@ -20,14 +20,14 @@ export const salesQuoteStatusSchema = z.enum([
 
 export const salesQuoteDiscountSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("percent"), percent: z.number().min(0).max(100) }),
-  z.object({ type: z.literal("amount"), amount: z.string() }),
+  z.object({ type: z.literal("amount"), amount: moneyString }),
 ]);
 
 export const createSalesQuoteLineSchema = z.object({
   lineId: z.string().min(1),
   itemId: z.string().min(1),
   itemNameAr: z.string().min(1),
-  qty: z.string(),
+  qty: quantityString,
   unitPrice: moneyString,
   discountPercent: z.number().min(0).max(100).optional(),
   taxRatePercent: z.number().min(0).optional(),

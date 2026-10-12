@@ -24,7 +24,7 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import type { AlternateUnitDTO, CostingMethodDTO, CreateItemDTO, EtaCodeTypeDTO, ItemDTO, ItemStatusDTO, ItemTypeDTO } from "@mezan/contracts";
+import { ItemStatusCode, type AlternateUnitDTO, type CostingMethodDTO, type CreateItemDTO, type EtaCodeTypeDTO, type ItemDTO, type ItemStatusDTO, type ItemTypeDTO } from "@mezan/contracts";
 import { ITEM_TYPES, itemTypeTracksStock } from "@mezan/domain";
 import {
   useAccounts,
@@ -77,8 +77,16 @@ const TYPE_TONE: Record<ItemTypeDTO, PillTone> = {
   consumable: "neutral",
   recipe: "info",
 };
-const STATUS_KEY: Record<ItemStatusDTO, AppTranslationKey> = { active: "common.active", inactive: "common.inactive" };
-const STATUS_TONE: Record<ItemStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
+const STATUS_KEY: Record<ItemStatusDTO, AppTranslationKey> = {
+  [ItemStatusCode.Active]: "common.active",
+  [ItemStatusCode.Inactive]: "common.inactive",
+  [ItemStatusCode.PendingPricing]: "items.status.pendingPricing",
+};
+const STATUS_TONE: Record<ItemStatusDTO, PillTone> = {
+  [ItemStatusCode.Active]: "success",
+  [ItemStatusCode.Inactive]: "neutral",
+  [ItemStatusCode.PendingPricing]: "warning",
+};
 const COSTING_KEY: Record<CostingMethodDTO, AppTranslationKey> = { WAC: "items.weightedAverageWac", FIFO: "items.oldestFirstFifo" };
 const ETA_CODE_TYPE_LABEL: Record<EtaCodeTypeDTO, string> = { EGS: "EGS", GPC: "GPC" };
 
@@ -755,6 +763,8 @@ export function ItemsScreen() {
   const totalCount = counts.all ?? 0;
   const activeCount = counts.active ?? 0;
   const lowStockCount = counts.low_stock ?? 0;
+  const pendingPricingCount = counts[ItemStatusCode.PendingPricing] ?? 0;
+  const branchSeat = locked.isLocked("salePrice");
   const outOfStockCount = counts.out_of_stock ?? 0;
 
   // What the server returned IS the page, already in the requested order.
@@ -951,10 +961,19 @@ export function ItemsScreen() {
     },
   ];
 
+  const pendingPricingNotice = editingId
+    ? draft.status === ItemStatusCode.PendingPricing
+      ? t(branchSeat ? "items.pendingPricing.editNotice.branch" : "items.pendingPricing.editNotice.headOffice")
+      : null
+    : branchSeat
+      ? t("items.pendingPricing.createNotice")
+      : null;
+
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: totalCount },
     { key: "active", label: t("common.active"), count: activeCount },
     { key: "inactive", label: t("common.inactive"), count: counts.inactive ?? 0 },
+    { key: ItemStatusCode.PendingPricing, label: t("items.status.pendingPricing"), count: pendingPricingCount },
     // The type axis shares one `status` parameter with the state axis, so the
     // route answers for it under a `type:` prefix.
     ...ITEM_TYPES.map((type) => ({ key: type, label: t(TYPE_KEY[type]), count: counts[`type:${type}`] ?? 0 })),
@@ -1036,7 +1055,12 @@ export function ItemsScreen() {
                   {etaFields}
                 </SectionCard>
               </LockedFieldset>
-              {editingId ? (
+              {editingId && draft.status === ItemStatusCode.PendingPricing ? (
+                <SectionCard title={t("items.section.status")} columns={1}>
+                  <StatusPill label={t("items.status.pendingPricing")} tone="warning" />
+                  <p className="text-[11.5px] text-ink-faint">{t("items.pendingPricing.statusHint")}</p>
+                </SectionCard>
+              ) : editingId ? (
                 <SectionCard title={t("items.section.status")} columns={1}>
                   <SelectField
                     label={t("common.status")}
@@ -1044,8 +1068,8 @@ export function ItemsScreen() {
                     onChange={(v) => setDraft((d) => ({ ...d, status: v as ItemStatusDTO }))}
                     {...locked.props("status")}
                     options={[
-                      { value: "active", label: t("common.active") },
-                      { value: "inactive", label: t("common.inactive") },
+                      { value: ItemStatusCode.Active, label: t("common.active") },
+                      { value: ItemStatusCode.Inactive, label: t("common.inactive") },
                     ]}
                   />
                 </SectionCard>
@@ -1053,6 +1077,11 @@ export function ItemsScreen() {
             </>
           }
         >
+        {pendingPricingNotice ? (
+          <p data-testid="item-pending-pricing-notice" role="note" className="rounded-[8px] border border-warning bg-warning-soft px-[12px] py-[8px] text-[12.5px] text-warning-ink">
+            {pendingPricingNotice}
+          </p>
+        ) : null}
         <SectionCard title={t("items.section.identity")} description={t("items.section.identityHint")}>
         <SelectField
           label={t("items.itemType")}
@@ -1614,6 +1643,16 @@ export function ItemsScreen() {
           { label: t("items.nonStockItems"), value: <span className="mz-num">{stats.nonStock ?? 0}</span> },
         ]}
         attentionBanners={[
+          {
+            key: ItemStatusCode.PendingPricing,
+            label: t(branchSeat ? "items.banner.pendingPricing.branch" : "items.banner.pendingPricing.headOffice", { count: pendingPricingCount }),
+            count: pendingPricingCount,
+            tone: "warning",
+            onApply: () => {
+              setStatusChipKey(ItemStatusCode.PendingPricing);
+              setPage(1);
+            },
+          },
           {
             key: "out_of_stock",
             label: t("items.banner.outOfStock", { count: outOfStockCount }),

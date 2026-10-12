@@ -1,6 +1,6 @@
 import type { Account } from "../accounts/index.js";
 import type { Money } from "../money/index.js";
-import type { AlternateUnit, CostingMethod, EtaCodeType, Item, ItemRepository, ItemStatus, ItemType, ItemSpecificationValue } from "./item.js";
+import { ItemStatusCode, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType, type ItemSpecificationValue } from "./item.js";
 import { DuplicateItemCodeError, InvalidItemError } from "./errors.js";
 import { collectItemFieldErrors, validateGlAccountRefs } from "./validation.js";
 import { itemTypeTracksStock } from "./item-type.js";
@@ -8,6 +8,8 @@ import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateItemCommand {
   readonly id: string;
+  /** SECURITY: decided by the server from the session, never read from the request. */
+  readonly awaitsPricing?: boolean;
   /** Omitted or blank, the server allocates the next free `ITM-######` code. */
   readonly code?: string;
   readonly nameAr: string;
@@ -60,7 +62,7 @@ export function nextItemCode(existing: readonly Item[]): string {
 }
 
 function buildCandidate(command: CreateItemCommand & { code: string }): Item {
-  const status: ItemStatus = "active";
+  const status: ItemStatus = command.awaitsPricing ? ItemStatusCode.PendingPricing : ItemStatusCode.Active;
   return {
     id: command.id,
     code: command.code,
@@ -77,8 +79,8 @@ function buildCandidate(command: CreateItemCommand & { code: string }): Item {
     seasonId: command.seasonId ?? null,
     specifications: command.specifications ?? [],
     costingMethod: command.costingMethod ?? "WAC",
-    salePrice: command.salePrice ?? null,
-    costPrice: command.costPrice ?? null,
+    salePrice: command.awaitsPricing ? null : (command.salePrice ?? null),
+    costPrice: command.awaitsPricing ? null : (command.costPrice ?? null),
     taxRatePercent: command.taxRatePercent ?? 14,
     trackInventory: command.trackInventory ?? itemTypeTracksStock(command.type),
     trackBatches: command.trackBatches ?? false,

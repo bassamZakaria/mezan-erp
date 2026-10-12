@@ -38,6 +38,7 @@ export type SeedSessionMinter = (grant: {
   userId: string;
   permissions: readonly string[];
   roleCode: string | null;
+  branchScope?: readonly string[];
 }) => string;
 
 let mintSeedSession: SeedSessionMinter | null = null;
@@ -55,6 +56,15 @@ export function seedActorHeaders(userId: string, permissions: readonly string[] 
     authorization: `Bearer ${mintSeedSession({ userId, permissions, roleCode })}`,
     "x-branch-scope": "*",
     "x-warehouse-scope": "*",
+  };
+}
+
+/** Headers that act as `userId` granted only `branchScope` — what a branch's own clerk holds. */
+export function seedBranchActorHeaders(userId: string, permissions: readonly string[], branchScope: readonly string[]): Record<string, string> {
+  if (!mintSeedSession) throw new Error("[demo-seed] no session minter — setSeedSessionToken was never called");
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${mintSeedSession({ userId, permissions, roleCode: null, branchScope })}`,
   };
 }
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
-import { moneyString } from "./money-string.js";
+import { decimalRateString, moneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
 
@@ -56,9 +56,9 @@ export const voucherSchema = z.object({
    * digits posted as base and the settlement was invisible to FX revaluation
    * (B-4/B-5).
    */
-  fxRate: z.string().nullable(),
+  fxRate: decimalRateString.nullable(),
   /** `amount` converted at `fxRate` — what the GL, the treasury and every allocation hold. */
-  baseAmount: z.string(),
+  baseAmount: moneyString,
   branchId: z.string(),
   paymentMethod: voucherPaymentMethodSchema,
   treasuryAccountId: z.string(),
@@ -77,7 +77,7 @@ export const voucherSchema = z.object({
   withholdingAmount: moneyString.nullable(),
   withholdingRatePercent: z.number().nullable(),
   /** What actually leaves the treasury: amount − withholdingAmount. */
-  netPaidAmount: z.string(),
+  netPaidAmount: moneyString,
   journalEntryId: z.string().nullable(),
   confirmedAt: z.string().nullable(),
   /**
@@ -151,7 +151,7 @@ export const voucherAllocationSchema = z.object({
   invoiceId: z.string(),
   amount: moneyString,
   /** What the invoice was relieved of at its booked rate; differs from `amount` by the realised exchange difference (D221). */
-  invoiceAmount: z.string().optional(),
+  invoiceAmount: moneyString.optional(),
   fxDifference: z.string().optional(),
   fxEntryId: z.string().nullable().optional(),
   status: allocationStatusSchema,
@@ -209,7 +209,7 @@ export const collectionResultSchema = z.object({
 
 /** The allocation summary returned alongside a voucher. */
 export const allocationSummarySchema = z.object({
-  voucherAmount: z.string(),
+  voucherAmount: moneyString,
   allocated: z.string(),
   unallocated: z.string(),
   fullyAllocated: z.boolean(),

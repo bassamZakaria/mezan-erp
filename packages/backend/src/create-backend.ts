@@ -4286,8 +4286,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         branchScope: ALL_SCOPE,
         warehouseScope: ALL_SCOPE,
       }),
-      mint: ({ userId, permissions, roleCode }) =>
-        sessions.issue({ userId, permissions, roleCode, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }),
+      mint: ({ userId, permissions, roleCode, branchScope }) =>
+        sessions.issue({ userId, permissions, roleCode, branchScope: branchScope ? [...branchScope] : ALL_SCOPE, warehouseScope: ALL_SCOPE }),
       audit: auditSink,
     });
   }

@@ -194,3 +194,33 @@ export class ItemSpecificationInUseError extends Error {
     this.name = "ItemSpecificationInUseError";
   }
 }
+
+export class ItemPriceRequiredError extends Error {
+  readonly code = "ITEM_PRICE_REQUIRED";
+  readonly messageEn: string;
+  constructor(readonly itemId: string) {
+    super("الصنف بانتظار التسعير: حدّد سعر البيع أولاً، ولا يُفعَّل الصنف قبل تسعيره.");
+    this.messageEn = "This item is waiting to be priced: set its sale price first.";
+    this.name = "ItemPriceRequiredError";
+  }
+}
+
+export class ItemStatusNotSettableError extends Error {
+  readonly code = "ITEM_STATUS_NOT_SETTABLE";
+  readonly messageEn: string;
+  constructor(readonly itemId: string) {
+    super("حالة «بانتظار التسعير» يحددها النظام عند إنشاء الصنف من فرع، ولا يمكن إعادة صنف مُسعَّر إليها.");
+    this.messageEn = "“Waiting to be priced” is set by the system when a branch creates an item; a priced item cannot be put back into it.";
+    this.name = "ItemStatusNotSettableError";
+  }
+}
+
+export class ItemPendingPricingError extends Error {
+  readonly code = "ITEM_PENDING_PRICING";
+  readonly messageEn: string;
+  constructor(readonly items: readonly { readonly id: string; readonly nameAr: string }[]) {
+    super(`لا يمكن استخدام صنف بانتظار التسعير في مستند: ${items.map((item) => `«${item.nameAr}»`).join("، ")}. يُتاح الصنف بعد أن تسعّره الإدارة.`);
+    this.messageEn = `An item waiting to be priced cannot be put on a document: ${items.map((item) => item.id).join(", ")}. It becomes available once head office prices it.`;
+    this.name = "ItemPendingPricingError";
+  }
+}

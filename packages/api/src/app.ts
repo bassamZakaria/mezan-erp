@@ -301,6 +301,8 @@ export interface CreateAppOptions {
    * injected separately — omit it and the app behaves exactly as before (no
    * `/items` routes), same as any existing caller.
    */
+  /** The header the tenant's cash and bank ledger accounts sit under, from its account routing. */
+  readonly cashAndBankParentAccountId?: () => Promise<string | null>;
   readonly items?: {
     readonly repo: ItemRepository;
     readonly resolveAuthContext?: AuthContextResolver;
@@ -1147,7 +1149,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         resolveAuth,
         options.gl?.ledger,
         options.auditSink,
-        options.accounts ? { accounts: options.accounts.repo } : undefined,
+        options.accounts ? { accounts: options.accounts.repo, cashAndBankParentAccountId: options.cashAndBankParentAccountId } : undefined,
       ),
     );
   }

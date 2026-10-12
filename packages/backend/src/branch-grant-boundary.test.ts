@@ -1003,7 +1003,7 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
   it("finding 6 · the dashboard is folded from the caller's own branch lines", async () => {
     const cashOf = (where: string) =>
       one<{ net: number }>(
-        `SELECT COALESCE(SUM(l.debit - l.credit), 0) AS net FROM journal_line l JOIN journal_entry e ON e.id = l.entry_id JOIN account a ON a.id = l.account_id WHERE e.status IN ('posted', 'reversed') AND a.type = 'asset' AND a.code LIKE '13%' AND a.is_header = 0 AND ${where}`,
+        `SELECT COALESCE(SUM(l.debit - l.credit), 0) AS net FROM journal_line l JOIN journal_entry e ON e.id = l.entry_id JOIN account a ON a.id = l.account_id WHERE e.status IN ('posted', 'reversed') AND a.type = 'asset' AND a.is_header = 0 AND (a.id IN (SELECT gl_account_id FROM treasury_account WHERE gl_account_id IS NOT NULL) OR (a.parent_id = '1300' AND a.id <> '1340')) AND ${where}`,
       )!.net;
     const whole = await admin("GET", "/dashboard/summary");
     expect(scaled(whole.body.gl.cash)).toBe(BigInt(cashOf("1 = 1")));

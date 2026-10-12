@@ -1,8 +1,7 @@
 import type { Account, AccountRepository } from "../accounts/account.js";
+import { routedAccountId } from "../accounts/account-routing.js";
+import { CASH_AND_BANK_ROUTING_KEY } from "./cash-and-bank-accounts.js";
 import type { TreasuryAccount } from "./treasury-account.js";
-
-/** The headers a cash or bank ledger account sits under in the standard chart («النقدية»). */
-export const CASH_AND_BANK_PARENT_ACCOUNT_IDS: readonly string[] = ["1300"];
 
 export enum TreasuryLedgerAccountFault {
   Missing = "missing",
@@ -43,15 +42,17 @@ export class InvalidTreasuryLedgerAccountError extends Error {
 
 export interface TreasuryLedgerAccountDeps {
   readonly accounts: Pick<AccountRepository, "findById">;
+  readonly cashAndBankParentAccountId?: () => Promise<string | null>;
 }
 
 const MAX_CHART_DEPTH = 32;
 
-async function sitsUnderCashOrBank(account: Account, accounts: Pick<AccountRepository, "findById">): Promise<boolean> {
+async function sitsUnderCashOrBank(account: Account, deps: TreasuryLedgerAccountDeps): Promise<boolean> {
+  const cashAndBankParentId = deps.cashAndBankParentAccountId ? await deps.cashAndBankParentAccountId() : routedAccountId(null, CASH_AND_BANK_ROUTING_KEY);
   let parentId = account.parentId;
   for (let depth = 0; parentId && depth < MAX_CHART_DEPTH; depth++) {
-    if (CASH_AND_BANK_PARENT_ACCOUNT_IDS.includes(parentId)) return true;
-    parentId = (await accounts.findById(parentId))?.parentId ?? null;
+    if (parentId === cashAndBankParentId) return true;
+    parentId = (await deps.accounts.findById(parentId))?.parentId ?? null;
   }
   return false;
 }
@@ -75,7 +76,7 @@ export async function assertTreasuryLedgerAccount(
   if (!account) return refuse(TreasuryLedgerAccountFault.Missing);
   if (account.status !== "active") refuse(TreasuryLedgerAccountFault.Inactive);
   if (account.isHeader) refuse(TreasuryLedgerAccountFault.Header);
-  if (account.type !== "asset" || !(await sitsUnderCashOrBank(account, deps.accounts))) refuse(TreasuryLedgerAccountFault.NotCashOrBank);
+  if (account.type !== "asset" || !(await sitsUnderCashOrBank(account, deps))) refuse(TreasuryLedgerAccountFault.NotCashOrBank);
   const clash = others.some((other) => other.id !== candidate.id && other.glAccountId === glAccountId && other.currency !== candidate.currency);
   if (clash) refuse(TreasuryLedgerAccountFault.OtherCurrency);
 }

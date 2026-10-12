@@ -2835,6 +2835,45 @@ describe("createBackend — financial statements over real posted GL (file-backe
     expect(retained?.amount).toBeCloseTo(35000, 2);
   });
 
+  it("a cash drawer nobody hand-listed is still cash: the van drawer, a second branch's drawer and the dollar account sit in the cash section and in closing cash", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    for (const [id, nameAr] of [["1300-2", "صندوق المندوب"], ["1300-ALEX", "صندوق فرع الإسكندرية"], ["1310-USD", "حساب بنكي بالدولار"]] as const) {
+      expect((await post(app, "/accounts", { id, code: id, nameAr, type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false }, admin(app))).status, id).toBe(201);
+    }
+    await postEntry(app, "je-van", "2026-05-01", "عهدة نقدية للمندوب", [line("1300-2", "7000", "0"), line("1300-1", "0", "7000")]);
+    await postEntry(app, "je-alex", "2026-05-02", "تمويل صندوق الفرع", [line("1300-ALEX", "3000", "0"), line("3100", "0", "3000")]);
+    await postEntry(app, "je-usd", "2026-05-03", "إيداع بالحساب الدولاري", [line("1310-USD", "1500", "0"), line("3100", "0", "1500")]);
+
+    const sheet = (await getReport(app, "/balance-sheet?asOfDate=2026-12-31")) as unknown as { rows: { code: string; sectionKey: string; amount: number }[] };
+    for (const code of ["1300-1", "1300-2", "1300-ALEX", "1310-USD"]) expect(sheet.rows.find((row) => row.code === code)?.sectionKey, code).toBe("cash");
+    const cashSection = sheet.rows.filter((row) => row.sectionKey === "cash").reduce((sum, row) => sum + row.amount, 0);
+    expect(cashSection).toBeCloseTo(195000 + 3000 + 1500, 2);
+
+    const flow = (await getReport(app, "/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31")) as unknown as { rows: { closingCash: number }[]; reconciliation: { withinTolerance: boolean } };
+    expect(flow.rows[0]?.closingCash).toBeCloseTo(199500, 2);
+    expect(flow.reconciliation.withinTolerance).toBe(true);
+  });
+
+  it("the dashboard's cash tile is the same set: a guarantee margin is not cash, though its code starts with 13", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    const cashOf = async () => Number(((await (await app.fetch(new Request("http://local/dashboard/summary", { headers: admin(app) }))).json()) as DashboardSummaryDTO).gl.cash);
+    expect(await cashOf()).toBeCloseTo(195000, 2);
+    await postEntry(app, "je-margin-2", "2026-05-05", "غطاء خطاب ضمان", [line("1340", "20000", "0"), line("1300-1", "0", "20000")]);
+    expect(await cashOf()).toBeCloseTo(175000, 2);
+    const flow = (await getReport(app, "/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31")) as unknown as { rows: { closingCash: number }[] };
+    expect(flow.rows[0]?.closingCash).toBeCloseTo(175000, 2);
+  });
+
+  it("restricted cash held as a guarantee margin stays out of cash, as before", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    await postEntry(app, "je-margin", "2026-05-04", "غطاء خطاب ضمان", [line("1340", "10000", "0"), line("1300-1", "0", "10000")]);
+    const sheet = (await getReport(app, "/balance-sheet?asOfDate=2026-12-31")) as unknown as { rows: { code: string; sectionKey: string }[] };
+    expect(sheet.rows.find((row) => row.code === "1340")?.sectionKey).toBe("current-asset");
+  });
+
   it("cash flow ties out (opening + net change = closing) from real cash movements", async () => {
     const app = await newFileBackedBackend();
     await seedLedger(app);

@@ -128,6 +128,9 @@ import {
   BASE_CURRENCY,
   EVENT_BRANCH_IDS_KEY,
   correctedSeededRolePermissions,
+  CASH_AND_BANK_ROUTING_KEY,
+  RESTRICTED_CASH_ROUTING_KEY,
+  cashAndBankLedgerAccountIds,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -3035,7 +3038,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return { voucherId };
   };
 
+  const resolveCashAndBankParentAccountId = async () => routedAccountId(await accountRouting.get(), CASH_AND_BANK_ROUTING_KEY);
+  const resolveCashAndBankAccountIds = async (): Promise<readonly string[]> => {
+    const [routing, chart, treasury] = await Promise.all([accountRouting.get(), accounts.list(), treasuryAccounts.list()]);
+    return cashAndBankLedgerAccountIds(chart, {
+      parentAccountId: routedAccountId(routing, CASH_AND_BANK_ROUTING_KEY),
+      restrictedAccountIds: [routedAccountId(routing, RESTRICTED_CASH_ROUTING_KEY)],
+      treasuryLedgerAccountIds: treasury.map((account) => account.glAccountId),
+    });
+  };
+
   const app = createApp(uow, {
+    cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
     resolveAuthContext,
     security: { sessions, loginThrottle },
     onPermissionRefused,
@@ -4065,7 +4079,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       ledger,
       accounts,
       vatAccounts: { outputVatAccountId: "2200", inputVatAccountId: "1400" },
-      cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
+      cashAccountIds: resolveCashAndBankAccountIds,
       otherIncomeExpenseAccountIds,
       branchOfEntry: resolveEntryBranches,
     },
@@ -4144,6 +4158,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       countItems: async () => (await items.list()).length,
       uow,
       otherIncomeExpenseAccountIds,
+      cashAccountIds: resolveCashAndBankAccountIds,
     }, resolveAuthContext),
   );
   // Unconditional: a route mounted only when an optional dep happens to be

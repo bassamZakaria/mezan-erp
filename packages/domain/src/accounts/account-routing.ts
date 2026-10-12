@@ -103,6 +103,7 @@ export const ACCOUNT_ROUTING_SLOTS: readonly AccountRoutingSlot[] = [
   { key: "control.receivable", section: "control", labelAr: "حساب مراقبة ذمم العملاء", labelEn: "Accounts receivable control", defaultAccountId: "1105" },
   { key: "control.payable", section: "control", labelAr: "حساب مراقبة ذمم الموردين", labelEn: "Accounts payable control", defaultAccountId: "2100" },
   { key: "control.inventory", section: "control", labelAr: "حساب مراقبة المخزون", labelEn: "Inventory control", defaultAccountId: "1200" },
+  { key: "control.cash_and_bank", section: "control", labelAr: "النقدية والبنوك — الحساب الرئيسي الذي تتفرع منه الصناديق والحسابات البنكية", labelEn: "Cash and bank — the header every drawer and bank account sits under", defaultAccountId: "1300" },
 
   // --- فروق العملة (D229) ---
   { key: "fx.realised_gain", section: "fx", labelAr: "أرباح فروق العملة المحققة", labelEn: "Realised exchange gains", defaultAccountId: "4920" },

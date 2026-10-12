@@ -65,7 +65,7 @@ export interface FinancialReportsRoutesDeps {
    * flow. Omit only when the chart of accounts follows the 11xx-is-cash code
    * convention `classifyAccount()` falls back to.
    */
-  readonly cashAccountIds?: readonly string[];
+  readonly cashAccountIds?: () => Promise<readonly string[]>;
   /** The accounts the income statement shows below operating profit, resolved per request from the tenant's routing (D229). */
   readonly otherIncomeExpenseAccountIds?: () => Promise<readonly string[]>;
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the tenant's calendar day. */
@@ -152,17 +152,18 @@ export function createFinancialReportsRoutes(
     bounds: { fromDate?: string; toDate?: string },
     preloadedAccounts?: readonly Account[],
   ): Promise<GlReportContext> {
-    const [accounts, journalEntries, otherIncomeExpenseAccountIds] = await Promise.all([
+    const [accounts, journalEntries, otherIncomeExpenseAccountIds, cashAccountIds] = await Promise.all([
       preloadedAccounts ? Promise.resolve(preloadedAccounts) : deps.accounts.list(),
       loadJournalEntries(bounds),
       deps.otherIncomeExpenseAccountIds?.(),
+      deps.cashAccountIds?.(),
     ]);
     // The scope rides on the context, not on the query: it has to cut at the
     // posted LINE, and `ledger.list` can only bound whole entries by date.
     return {
       accounts,
       journalEntries: readableEntries(c, journalEntries),
-      cashAccountIds: deps.cashAccountIds,
+      cashAccountIds,
       ...(otherIncomeExpenseAccountIds ? { otherIncomeExpenseAccountIds } : {}),
       branchScope: branchScopeOf(c),
     };

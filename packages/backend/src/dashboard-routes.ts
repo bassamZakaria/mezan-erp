@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import {
-  DASHBOARD_VIEW_PERMISSION,
   Money,
   type Account,
   type AccountRepository,
@@ -39,6 +38,7 @@ export interface DashboardDeps {
   readonly uow: Pick<UnitOfWork, "users">;
   /** Revenue accounts the income statement shows as other income (D229); they net against expenses here too, so the tile ties to its revenue section. */
   readonly otherIncomeExpenseAccountIds?: () => Promise<readonly string[]>;
+  readonly cashAccountIds: () => Promise<readonly string[]>;
   readonly now?: () => Date;
 }
 
@@ -94,7 +94,7 @@ export function createDashboardRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const now = deps.now ?? (() => new Date());
 
-  app.get("/dashboard/summary", gate(DASHBOARD_VIEW_PERMISSION), gate("accounting.journal.view"), async (c) => {
+  app.get("/dashboard/summary", gate("dashboard.view"), gate("accounting.journal.view"), async (c) => {
     const fromDate = c.req.query("fromDate") || undefined;
     const toDate = c.req.query("toDate") || undefined;
 
@@ -117,7 +117,8 @@ export function createDashboardRoutes(
     const { revenue, expenses } = periodPnl(inRange, typeById, otherIncome);
     const netProfit = revenue.add(expenses.negate());
     const net = netByAccountAsOf(onTheBooks, toDate);
-    const cash = sumNaturalBalanceWhere(net, accounts, (a) => a.type === "asset" && a.code.startsWith("13"));
+    const cashAccountIds = new Set(await deps.cashAccountIds());
+    const cash = sumNaturalBalanceWhere(net, accounts, (a) => cashAccountIds.has(a.id));
     // Customer receivables only — what the aging report means by the word.
     // Summing the whole 11xx subtree swept in employee advances and an
     // inventory provision, so the tile and the report never agreed (D37).

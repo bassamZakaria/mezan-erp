@@ -11,6 +11,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be an ISO date (YY
 
 export const siteIssueStatusSchema = z.enum(["draft", "issued", "partially_received", "received"]);
 export const siteDocumentStatusSchema = z.enum(["draft", "confirmed"]);
+export const sitePostedDocumentStatusSchema = z.enum(["draft", "confirmed", "reversed"]);
 
 export const siteIssueLineSchema = z.object({
   itemId: z.string().min(1),
@@ -89,7 +90,7 @@ export const materialConsumptionSchema = z.object({
   /** عقد الباطن الذي صُرفت له المواد — prefills the sub certificate's deduction. */
   subcontractId: z.string().nullable(),
   notes: z.string().nullable(),
-  status: siteDocumentStatusSchema,
+  status: sitePostedDocumentStatusSchema,
   lines: z.array(materialConsumptionLineSchema),
   /** The value the stock ledger moved on confirm — "0.000000" while a draft. */
   totalCost: moneyString,
@@ -147,7 +148,7 @@ export const equipmentLogSchema = z.object({
   amount: moneyString,
   boqLineId: z.string().nullable(),
   notes: z.string().nullable(),
-  status: siteDocumentStatusSchema,
+  status: sitePostedDocumentStatusSchema,
   journalEntryId: z.string().nullable(),
   createdAt: z.string(),
   confirmedAt: z.string().nullable(),

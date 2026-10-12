@@ -1,3 +1,5 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
@@ -132,6 +134,7 @@ function blankLine(direction: StockMovementDirection): LineDraft {
 }
 
 export function StockAdjustmentsScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.StockAdjustment);
   const effectText = useDocumentEffectText();
   const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
@@ -468,6 +471,7 @@ export function StockAdjustmentsScreen() {
             ...(d.status === "draft"
               ? [{ key: "confirm", label: t("stockAdj.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
               : []),
+            ...(d.status === "confirmed" ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
         }}
@@ -493,6 +497,7 @@ export function StockAdjustmentsScreen() {
           />
         }
       />
+      {reversal.dialog}
     </div>
   );
 }

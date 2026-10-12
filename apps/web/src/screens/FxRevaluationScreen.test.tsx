@@ -50,10 +50,13 @@ const EMPTY_BALANCES: PartyCurrencyBalanceReportDTO = {
   payableTotalBase: "0",
 };
 
+const NO_RUNS = (): StubResult => ({ body: { runs: [] } });
+
 function balancesHandlers(body: PartyCurrencyBalanceReportDTO = EMPTY_BALANCES): Record<string, () => StubResult> {
   return {
     "GET /settings/currencies": () => ({ body: ALLOWED }),
     "GET /gl/balances-by-currency": () => ({ body }),
+    "GET /revaluation/runs": NO_RUNS,
   };
 }
 
@@ -72,6 +75,7 @@ describe("FxRevaluationScreen — preview", () => {
     renderWithProviders(<FxRevaluationScreen />, {
       initialSession: testAdminSession,
       transport: stubTransport({
+        "GET /revaluation/runs": NO_RUNS,
         ...balancesHandlers(),
         "POST /revaluation/preview": (init) => {
           posted = JSON.parse(String(init?.body));
@@ -100,6 +104,7 @@ describe("FxRevaluationScreen — preview", () => {
     renderWithProviders(<FxRevaluationScreen />, {
       initialSession: testAdminSession,
       transport: stubTransport({
+        "GET /revaluation/runs": NO_RUNS,
         ...balancesHandlers(),
         "POST /revaluation/preview": (init) => {
           posted = JSON.parse(String(init?.body));
@@ -119,6 +124,7 @@ describe("FxRevaluationScreen — preview", () => {
     renderWithProviders(<FxRevaluationScreen />, {
       initialSession: testAdminSession,
       transport: stubTransport({
+        "GET /revaluation/runs": NO_RUNS,
         ...balancesHandlers(),
         "POST /revaluation/preview": (init) => {
           posted = JSON.parse(String(init?.body));
@@ -138,6 +144,7 @@ describe("FxRevaluationScreen — preview", () => {
     renderWithProviders(<FxRevaluationScreen />, {
       initialSession: testAdminSession,
       transport: stubTransport({
+        "GET /revaluation/runs": NO_RUNS,
         ...balancesHandlers(),
         "POST /revaluation/preview": (init) => {
           posted = JSON.parse(String(init?.body));
@@ -156,6 +163,7 @@ describe("FxRevaluationScreen — preview", () => {
     renderWithProviders(<FxRevaluationScreen />, {
       initialSession: testAdminSession,
       transport: stubTransport({
+        "GET /revaluation/runs": NO_RUNS,
         ...balancesHandlers(),
         "POST /revaluation/preview": () => ({ status: 500, body: { error: "INTERNAL" } }),
       }),
@@ -188,6 +196,7 @@ describe("FxRevaluationScreen — post", () => {
     renderWithProviders(<FxRevaluationScreen />, {
       initialSession: testAdminSession,
       transport: stubTransport({
+        "GET /revaluation/runs": NO_RUNS,
         ...balancesHandlers(),
         "POST /revaluation/post": (init) => {
           posted = JSON.parse(String(init?.body));
@@ -220,6 +229,7 @@ describe("FxRevaluationScreen — post", () => {
     renderWithProviders(<FxRevaluationScreen />, {
       initialSession: testAdminSession,
       transport: stubTransport({
+        "GET /revaluation/runs": NO_RUNS,
         ...balancesHandlers(),
         "POST /revaluation/post": () => ({
           status: 409,
@@ -301,6 +311,7 @@ describe("FxRevaluationScreen — party balances by currency", () => {
     renderWithProviders(<FxRevaluationScreen />, {
       initialSession: testAdminSession,
       transport: stubTransport({
+        "GET /revaluation/runs": NO_RUNS,
         "GET /settings/currencies": () => ({ body: ALLOWED }),
         "GET /gl/balances-by-currency": () => ({ status: 500, body: { error: "INTERNAL" } }),
       }),
@@ -308,5 +319,41 @@ describe("FxRevaluationScreen — party balances by currency", () => {
     // guards §4.5 #13 — the hook's message, which carries the support code.
     expect(await screen.findByText(/تعذّر تحميل الأرصدة حسب العملة\. \(رمز 500\)/)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("INTERNAL")).not.toBeInTheDocument());
+  });
+});
+
+describe("FxRevaluationScreen — posted runs", () => {
+  const run = (overrides: Record<string, unknown> = {}) => ({
+    entryId: "je-fx-1", entryNo: "JE-000410", date: "2026-07-31", memo: "إعادة تقييم يوليو", status: "posted", reversible: true, reversalEntryId: null, reversalEntryNo: null, reversalDate: null, ...overrides,
+  });
+
+  it("lists each posted run and reverses a standing one through its own route with the stated reason", async () => {
+    const bodies: unknown[] = [];
+    let reversed = false;
+    renderWithProviders(<FxRevaluationScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        ...balancesHandlers(),
+        "GET /revaluation/runs": () => ({ body: { runs: [reversed ? run({ status: "reversed", reversible: false, reversalEntryId: "je-fx-2", reversalEntryNo: "JE-000455", reversalDate: "2026-08-02" }) : run()] } }),
+        "POST /revaluation/runs/je-fx-1/reverse": (init) => {
+          bodies.push(JSON.parse((init?.body as string) ?? "{}"));
+          reversed = true;
+          return { body: {} };
+        },
+      }),
+    });
+    expect(await screen.findByText("JE-000410")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "عكس إعادة التقييم" }));
+    const dialog = screen.getByRole("dialog", { name: "عكس تشغيل إعادة تقييم العملات؟" });
+    fireEvent.change(within(dialog).getByLabelText("سبب العكس"), { target: { value: "سعر الإقفال أُدخل خطأ" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "عكس إعادة التقييم" }));
+    await waitFor(() => expect(bodies).toEqual([{ memo: "سعر الإقفال أُدخل خطأ" }]));
+    expect(await screen.findByText("عُكس بالقيد JE-000455 بتاريخ 2026-08-02")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "عكس إعادة التقييم" })).not.toBeInTheDocument();
+  });
+
+  it("says so when nothing has been posted", async () => {
+    renderWithProviders(<FxRevaluationScreen />, { initialSession: testAdminSession, transport: stubTransport(balancesHandlers()) });
+    expect(await screen.findByText("لم يُرحَّل أي تشغيل إعادة تقييم بعد.")).toBeInTheDocument();
   });
 });

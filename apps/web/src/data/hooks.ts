@@ -4814,7 +4814,10 @@ export function useFxRevaluationPost() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRevaluationCouldNotBe2"), t));
       return res.json<FxRevaluationPostResultDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reconciliation"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["reconciliation"] });
+      void queryClient.invalidateQueries({ queryKey: ["revaluation"] });
+    },
   });
 }
 

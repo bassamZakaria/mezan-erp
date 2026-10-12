@@ -1,3 +1,5 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
@@ -105,6 +107,7 @@ const ACTION_KEY = {
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function ChequesScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.Cheque);
   const { t, locale } = useAppTranslation();
   const [mode, setMode] = useState<"list" | "create">("list");
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
@@ -335,6 +338,7 @@ export function ChequesScreen() {
               disabled: pendingId === c.id,
               onSelect: () => void runAction(c, action),
             })),
+            ...(c.status === "collected" ? reversal.menuItems({ id: c.id, params: { id: c.id }, subject: c.chequeNumber ?? c.id }) : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: c.chequeNumber ?? c.id })} />;
         }}
@@ -366,6 +370,7 @@ export function ChequesScreen() {
           )
         }
       />
+      {reversal.dialog}
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("cheques.detailTitle", { number: selected.chequeNumber }) : t("cheques.cheques")}>
         {selected ? (

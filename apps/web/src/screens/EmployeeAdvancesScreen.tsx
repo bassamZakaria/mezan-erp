@@ -1,3 +1,5 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
@@ -69,6 +71,7 @@ function blankDraft(): AdvanceDraft {
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function EmployeeAdvancesScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.EmployeeAdvance);
   const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const query = useEmployeeAdvances();
@@ -302,6 +305,7 @@ export function EmployeeAdvancesScreen() {
                   },
                 ]
               : []),
+            ...(a.status === "pending" || a.status === "approved" || a.status === "disbursed" ? reversal.menuItems({ id: a.id, params: { id: a.id }, subject: a.number }) : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.number })} />;
         }}
@@ -327,6 +331,7 @@ export function EmployeeAdvancesScreen() {
           />
         }
       />
+      {reversal.dialog}
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.number : ""}>
         {selected ? (

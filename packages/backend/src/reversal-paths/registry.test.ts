@@ -1,5 +1,5 @@
 import { ALL_SCOPE, PermissionLabelLocale, getPermission, permissionHumanLabel } from "@mezan/domain";
-import { DOCUMENT_REVERSAL_PATHS } from "@mezan/api";
+import { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType } from "@mezan/api";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 
@@ -11,7 +11,10 @@ beforeAll(async () => {
 
 afterAll(() => world?.close());
 
-const TWELVE = ["FX_REVALUATION", "PAYROLL_RUN", "EMPLOYEE_ADVANCE", "CHEQUE", "YEAR_END_CLOSE", "ASSET_DISPOSAL", "HR_LEAVE_PROVISION", "STOCK_ADJUSTMENT", "ADJUSTMENT", "WRITEDOWN_RUN", "LETTER_OF_GUARANTEE", "EQUIPMENT_LOG", "MATERIAL_CONSUMPTION"];
+const TWELVE = [
+  ReversalDocumentType.FxRevaluation, ReversalDocumentType.PayrollRun, ReversalDocumentType.EmployeeAdvance, ReversalDocumentType.Cheque, ReversalDocumentType.YearEndClose, ReversalDocumentType.AssetDisposal, ReversalDocumentType.HrLeaveProvision,
+  ReversalDocumentType.StockAdjustment, ReversalDocumentType.Adjustment, ReversalDocumentType.WritedownRun, ReversalDocumentType.LetterOfGuarantee, ReversalDocumentType.EquipmentLog, ReversalDocumentType.MaterialConsumption,
+];
 const ARABIC = /[؀-ۿ]/;
 
 describe("the named reversal path of every entry type the journal refuses", () => {

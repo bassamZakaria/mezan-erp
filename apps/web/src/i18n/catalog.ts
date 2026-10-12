@@ -3,6 +3,7 @@ import { PermissionLabelLocale, permissionLabelTranslations } from "@mezan/domai
 import { posAr, posEn } from "../screens/pos/nav";
 import { enhAr, enhEn } from "../screens/enh/nav";
 import { hrSelfAr, hrSelfEn } from "../screens/hr-self-strings";
+import { reversalAr, reversalEn } from "../reversal/strings";
 
 /**
  * The web app's own strings. Arabic is the source language and `webEn` is typed
@@ -9459,6 +9460,7 @@ const webAr = {
   ...posAr,
   ...enhAr,
   ...hrSelfAr,
+  ...reversalAr,
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -18920,6 +18922,7 @@ const webEn: Record<WebTranslationKey, string> = {
   ...posEn,
   ...enhEn,
   ...hrSelfEn,
+  ...reversalEn,
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

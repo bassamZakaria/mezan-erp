@@ -1851,3 +1851,4 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, reversalRoute, type DocumentReversalPath } from "./document-reversal.js";

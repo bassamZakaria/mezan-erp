@@ -1,3 +1,5 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
@@ -151,6 +153,7 @@ function NetPayQualifierBadge({ statutory }: { statutory: boolean }) {
 }
 
 export function PayrollRunsScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.PayrollRun);
   const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const query = usePayrollRuns();
@@ -390,6 +393,7 @@ export function PayrollRunsScreen() {
           // Disbursing needs a treasury account and a branch the row cannot supply — the menu opens the panel that collects them.
           if (r.status === "approved") {
             items.push({ key: "disburse", label: t("payroll.payOut"), onSelect: openRow });
+            items.push(...reversal.menuItems({ id: r.id, params: { id: r.id }, subject: r.number }));
           }
           return <RowMenu items={items} label={t("common.rowActionsFor", { name: r.number })} />;
         }}
@@ -415,6 +419,7 @@ export function PayrollRunsScreen() {
           />
         }
       />
+      {reversal.dialog}
 
       <SidePanel open={selectedId !== null} onClose={() => setSelectedId(null)} title={detail ? detail.number : ""}>
         {detail ? (

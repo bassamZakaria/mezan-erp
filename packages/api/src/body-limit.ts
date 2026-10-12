@@ -1,7 +1,8 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { isMutatingRequest } from "./audit-boundary.js";
-import type { AuthContextResolver } from "./permission-gate.js";
+import { unauthenticated, type AuthContextResolver } from "./permission-gate.js";
+import { readSessionToken } from "./session-auth.js";
 
 const KIB = 1024;
 const MIB = 1024 * KIB;
@@ -23,6 +24,8 @@ export enum BodyLimitRefusal {
 // below a document's size by their own schemas, so the routes that carry them
 // are not here. A preview and its commit read the same file: both are.
 const UPLOAD_PATH = /\/(attachments|data-migration|historical-import|import|import-file|commit|clock|boq)(\/|$)/;
+
+const OPEN_TO_ANONYMOUS = /^\/(auth|bootstrap)\//;
 
 export function bodyLimitFor(path: string, signedIn: boolean): BodyLimitBytes {
   if (!signedIn) return BodyLimitBytes.Anonymous;
@@ -51,9 +54,13 @@ export function requestBodyLimit(resolveAuthContext: AuthContextResolver): Middl
     [BodyLimitBytes.Document]: bodyLimit({ maxSize: BodyLimitBytes.Document, onError: tooLarge }),
     [BodyLimitBytes.Upload]: bodyLimit({ maxSize: BodyLimitBytes.Upload, onError: tooLarge }),
   };
+  const endedSession = bodyLimit({ maxSize: BodyLimitBytes.Anonymous, onError: unauthenticated });
   return async (c, next) => {
     if (!isMutatingRequest(c)) return next();
     const signedIn = (await resolveAuthContext(c)).authenticated;
+    // SECURITY: a token the server no longer knows buys no room — the body is
+    // still held to the anonymous limit — only a truthful answer: sign in again.
+    if (!signedIn && readSessionToken(c) !== null && !OPEN_TO_ANONYMOUS.test(c.req.path)) return endedSession(c, next);
     return limits[bodyLimitFor(c.req.path, signedIn)](c, next);
   };
 }

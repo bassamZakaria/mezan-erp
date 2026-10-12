@@ -255,6 +255,32 @@ describe("how much of a request the server will hold", () => {
     expect(res.status).toBe(413);
   });
 
+  it("tells a caller whose session has ended to sign in again, not that the document is too large, and still holds no more than the anonymous limit", async () => {
+    const t = await open();
+    const ended = { "content-type": "application/json", authorization: "Bearer a-session-that-has-ended" };
+
+    const declared = await t.call("POST", "/item-brands", padded(70 * 1024), ended);
+    expect(declared).toMatchObject({ status: 401, body: { error: "SESSION_EXPIRED", message: expect.stringContaining("سجّل الدخول") } });
+
+    const chunk = new TextEncoder().encode("x".repeat(16 * 1024));
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (pulled >= 64) controller.close();
+        else controller.enqueue(chunk);
+        pulled += 1;
+      },
+    });
+    const streamed = await t.handle.app.fetch(
+      new Request("http://local/item-brands", { method: "POST", body, headers: ended, duplex: "half" } as RequestInit),
+    );
+    expect(streamed.status).toBe(401);
+    expect(pulled * chunk.byteLength).toBeLessThanOrEqual(2 * 64 * 1024);
+
+    const small = await t.call("POST", "/item-brands", padded(1024), ended);
+    expect(small.status).toBe(401);
+  });
+
   it("gives a signed-in caller room for a document and not for a file on a route that takes none", async () => {
     const t = await open();
 

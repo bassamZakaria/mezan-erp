@@ -166,7 +166,7 @@ export function moduleRefusalFor(c: Context, permission: string): Response | nul
  * signed in and this particular thing is not yours". A screen that guesses
  * shows an empty list instead, which reads as data.
  */
-function unauthenticated(c: Parameters<MiddlewareHandler>[0]) {
+export function unauthenticated(c: Parameters<MiddlewareHandler>[0]) {
   return c.json(
     { error: "SESSION_EXPIRED", message: "انتهت الجلسة. سجّل الدخول من جديد." },
     401,

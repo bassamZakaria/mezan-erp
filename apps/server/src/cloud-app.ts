@@ -159,8 +159,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const resetOwnerPinForRoutes = (input: { tenant: Tenant; actorId: string }): Promise<OwnerPinResetResultDTO> =>
     resetTenantOwnerPin({ platform, router, now }, input);
 
-  const reconcileOwnerQuietly = (code: string): Promise<void> =>
-    router.reconcileOwner(code).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
+  const reconcileOwnerQuietly = (tenant: Tenant): Promise<void> =>
+    router.reconcileOwnerOf(tenant.id).catch((err: unknown) => console.error(`[cloud] owner contact of "${tenant.code}" could not be reconciled`, err));
 
   let testProvider: PaymobTestProvider | null = null;
   let cardCheckout: CardCheckoutService | null = null;
@@ -184,7 +184,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     ownerCandidates: (tenant) => router.ownerCandidates(tenant.id),
     assignOwner: ({ tenant, userId, actorId }) => router.assignOwner({ tenantId: tenant.id, userId, actor: platformActor(actorId) }),
     confirmPendingOwner: ({ tenant, actorId }) => router.confirmPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
-    reconcileOwner: (tenant) => reconcileOwnerQuietly(tenant.code),
+    reconcileOwner: reconcileOwnerQuietly,
     reconcileOpenOwners: () => router.reconcileOpenOwners(),
     invalidateEntitlements: router.invalidate,
     cardCheckout: checkoutService

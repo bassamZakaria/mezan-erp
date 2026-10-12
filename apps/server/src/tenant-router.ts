@@ -67,7 +67,11 @@ export interface OpenTenant {
 export interface TenantRouter {
   readonly app: Hono;
   backendFor(code: string): Promise<BackendHandle>;
+  // SECURITY: a caller that already holds a tenant resolves by id. A code is
+  // handed to another company once its tenant is released.
+  backendOf(tenantId: string): Promise<BackendHandle>;
   reconcileOwner(code: string): Promise<void>;
+  reconcileOwnerOf(tenantId: string): Promise<void>;
   /** Reconciles every OPEN tenant without counting as use, so listing tenants never keeps an idle one open. */
   reconcileOpenOwners(): Promise<void>;
   ownerCandidates(tenantId: string): Promise<CompanyAdminAccount[]>;
@@ -106,16 +110,15 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     now: options.now ?? (() => new Date()),
     mailPendingHandOver: options.mailPendingHandOver,
   });
-  const hooksFor = (code: string): TenantBackendHooks => ({
-    onUserEmailChanged: (change) => ownerContact.emailChanged(code, change),
-    onUserSignedIn: (user) => ownerContact.signedIn(code, user),
+  const hooksFor = (tenantId: string, code: string): TenantBackendHooks => ({
+    onUserEmailChanged: (change) => ownerContact.emailChanged(tenantId, change),
+    onUserSignedIn: (user) => ownerContact.signedIn(tenantId, user),
     companyOwner: {
       currentOwnerUserId: async () => {
-        await reconcileOwner(code).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
-        const tenant = await options.platform.stores.tenants.findByCode(code);
-        return tenant ? ownerContact.effectiveOwnerUserId(code, await cache.get(tenant.id)) : null;
+        await reconcileOwnerOf(tenantId).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
+        return ownerContact.effectiveOwnerUserId(tenantId, await cache.get(tenantId));
       },
-      handOver: (input) => ownerContact.handOver(code, input),
+      handOver: (input) => ownerContact.handOver(tenantId, input),
     },
   });
   const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks) => {
@@ -148,17 +151,22 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       if (!stored) throw new Error("TENANT_NOT_FOUND");
       const tenant = await settleTenantDbFile(options.platform.stores.tenants, options.dataDir, stored, { waitMs: options.dbFileWaitMs });
       const { code } = tenant;
-      const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(code));
+      const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(tenantId, code));
       openCodes.set(tenantId, code);
-      await ownerContact.reconcile(code, backend).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled on open`, err));
+      await ownerContact.reconcile(tenantId, backend).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled on open`, err));
       return backend;
     },
   });
 
+  async function reconcileOwnerOf(tenantId: string): Promise<void> {
+    const tenant = await options.platform.stores.tenants.findById(tenantId);
+    if (!tenant || tenant.status === TenantStatusCode.Archived) return;
+    await ownerContact.reconcile(tenant.id, await cache.get(tenant.id));
+  }
+
   async function reconcileOwner(code: string): Promise<void> {
     const tenant = await options.platform.stores.tenants.findByCode(code);
-    if (!tenant || tenant.status === TenantStatusCode.Archived) return;
-    await ownerContact.reconcile(code, await cache.get(tenant.id));
+    if (tenant) await reconcileOwnerOf(tenant.id);
   }
 
   async function liveTenant(tenantId: string): Promise<Tenant> {
@@ -225,14 +233,18 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       if (!tenant || tenant.status === TenantStatusCode.Archived) throw new Error("TENANT_NOT_FOUND");
       return cache.get(tenant.id);
     },
+    async backendOf(tenantId) {
+      return cache.get((await liveTenant(tenantId)).id);
+    },
     reconcileOwner,
+    reconcileOwnerOf,
     async reconcileOpenOwners() {
       await Promise.all(
         [...openCodes].map(async ([tenantId, code]) => {
           const open = cache.peek(tenantId);
           if (!open) return;
           await ownerContact
-            .reconcile(code, await open)
+            .reconcile(tenantId, await open)
             .catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
         }),
       );

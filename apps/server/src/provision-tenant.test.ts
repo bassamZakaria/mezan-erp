@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createBackend, createPlatform, OwnerPinResetOutcome, TenantOwnerAccountNotFoundError, type BackendHandle, type PlatformHandle } from "@mezan/backend";
-import { createTenant, retirePlan, startSubscription, TenantCodeTakenError, TenantStatusCode } from "@mezan/domain";
+import { createTenant, releaseTenant, retirePlan, startSubscription, TenantCodeTakenError, TenantStatusCode } from "@mezan/domain";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
 import { provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
@@ -439,5 +439,39 @@ describe("provisionTenant", () => {
       expect((await login(backend, cmd.ownerEmail, "777777")).status).toBe(200);
       expect(resume.planId).toBe("PLAN-BUSINESS");
     });
+  });
+});
+
+describe("a code released and registered again while its first tenant is still being provisioned", () => {
+  it("never seeds, claims or links the owner inside the company that took the code", async () => {
+    const platform = await newPlatform();
+    const router = newRouter(platform);
+    const { tenants } = platform.stores;
+    let intervened = false;
+    const takeTheCode = async (): Promise<void> => {
+      if (intervened) return;
+      intervened = true;
+      const first = await tenants.findByCode("reused");
+      await releaseTenant({ id: first!.id, now: T }, tenants);
+      await createTenant({ id: "t-second", code: "reused", nameAr: "الشركة الثانية", ownerEmail: "second@reused.example", now: T }, tenants);
+    };
+    const racing: TenantRouter = {
+      ...router,
+      backendFor: async (code) => (await takeTheCode(), router.backendFor(code)),
+      backendOf: async (tenantId) => (await takeTheCode(), router.backendOf(tenantId)),
+    };
+
+    const outcome = await provisionTenant(
+      { code: "reused", nameAr: "الشركة الأولى", ownerEmail: "first@reused.example", ownerNameAr: "المالك الأول", planId: "PLAN-CORE", billingCycle: "monthly", trial: true },
+      { platform, router: racing, now: () => new Date(T), pinOf: () => "111111" },
+    ).catch((err: unknown) => err);
+
+    expect(outcome).toBeInstanceOf(Error);
+    const second = await router.backendOf("t-second");
+    const status = (await (await second.app.fetch(new Request("http://tenant.internal/bootstrap/status"))).json()) as { claimed: boolean };
+    expect(status.claimed).toBe(false);
+    expect((await login(second, "first@reused.example", "111111")).status).not.toBe(200);
+    expect(await tenants.findById("t-second")).toMatchObject({ ownerEmail: "second@reused.example", ownerUserId: null, status: TenantStatusCode.Provisioning });
+    expect(await platform.stores.subscriptions.findLiveByTenant("t-second")).toBeNull();
   });
 });

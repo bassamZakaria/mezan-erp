@@ -536,8 +536,8 @@ describe("erasing the recorded owner", () => {
     const contact = createOwnerContact({ platform: c.platform, now, mailPendingHandOver: async (mail) => void sent.push(mail.to) });
     const handOver = { fromUserId: String(owner["id"]), toUserId: peer.id, toEmail: "second@indigo.example", actorId: peer.id };
 
-    expect(await contact.handOver("indigo", handOver)).toBe("pending");
-    expect(await contact.handOver("indigo", handOver)).toBe("pending");
+    expect(await contact.handOver(co.tenantId, handOver)).toBe("pending");
+    expect(await contact.handOver(co.tenantId, handOver)).toBe("pending");
 
     expect(await ownerAudit(c, OwnerContactAudit.HandOverPending)).toHaveLength(1);
     expect(sent).toEqual(["owner@indigo.example"]);

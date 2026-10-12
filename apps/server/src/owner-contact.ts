@@ -81,12 +81,12 @@ export class NoPendingOwnerError extends Error {
 
 export interface OwnerContact {
   // SECURITY: never moves the recorded address. Only the owner's own act does.
-  reconcile(code: string, backend: OwnerBackend): Promise<void>;
+  reconcile(tenantId: string, backend: OwnerBackend): Promise<void>;
   // SECURITY: the account the owner rules protect, known even before the platform row names it by id.
-  effectiveOwnerUserId(code: string, backend: OwnerBackend): Promise<string | null>;
-  emailChanged(code: string, change: UserEmailChange): Promise<void>;
-  signedIn(code: string, user: SignedInUser): Promise<void>;
-  handOver(code: string, input: OwnerHandOver): Promise<OwnerHandOverOutcome>;
+  effectiveOwnerUserId(tenantId: string, backend: OwnerBackend): Promise<string | null>;
+  emailChanged(tenantId: string, change: UserEmailChange): Promise<void>;
+  signedIn(tenantId: string, user: SignedInUser): Promise<void>;
+  handOver(tenantId: string, input: OwnerHandOver): Promise<OwnerHandOverOutcome>;
   assign(tenantId: string, userId: string, actor: string, backend: AssigningBackend): Promise<Tenant>;
   confirmPending(tenantId: string, actor: string, by: OwnerConfirmation, backend: AssigningBackend): Promise<Tenant>;
   pendingByToken(token: string): Promise<Tenant | null>;
@@ -137,13 +137,15 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
     });
   }
 
-  async function settle(code: string, actor: string, next: (tenant: Tenant, at: string) => Promise<Tenant | null> | Tenant | null): Promise<void> {
+  // SECURITY: every owner write resolves its tenant by id. A code is handed to
+  // another company once its tenant is released.
+  async function settle(tenantId: string, actorOf: (tenant: Tenant) => string, next: (tenant: Tenant, at: string) => Promise<Tenant | null> | Tenant | null): Promise<void> {
     for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
-      const tenant = await tenants.findByCode(code);
+      const tenant = await tenants.findById(tenantId);
       if (!tenant) return;
       const after = await next(tenant, deps.now().toISOString());
       if (!after) return;
-      if (await write(tenant, after, changeOf(tenant, after), actor, {})) return;
+      if (await write(tenant, after, changeOf(tenant, after), actorOf(tenant), {})) return;
     }
   }
 
@@ -196,42 +198,42 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
   }
 
   return {
-    async reconcile(code, backend) {
-      await settle(code, RECONCILE_ACTOR, async (tenant, at) => {
+    async reconcile(tenantId, backend) {
+      await settle(tenantId, () => RECONCILE_ACTOR, async (tenant, at) => {
         const account = await recordedAccount(tenant, backend);
         if (!account || !account.canAdminister) return tenant.status === TenantStatusCode.Provisioning ? null : tenantNeedingOwner(tenant, at);
         return tenantWithOwnerContact(tenant, account, OwnerContactProof.Unproven, at);
       });
     },
 
-    async effectiveOwnerUserId(code, backend) {
-      const tenant = await tenants.findByCode(code);
+    async effectiveOwnerUserId(tenantId, backend) {
+      const tenant = await tenants.findById(tenantId);
       if (!tenant) return null;
       if (tenant.ownerUserId !== null) return tenant.ownerUserId;
       const account = await backend.ownerAccount({ email: tenant.ownerEmail });
       return account?.canAdminister ? account.id : null;
     },
 
-    async emailChanged(code, change) {
+    async emailChanged(tenantId, change) {
       const owner = { id: change.userId, email: change.after };
       const ownAct = change.userId === change.actorId && change.actorCredentialIsOwn !== false;
       const proof = ownAct ? OwnerContactProof.OwnerActed : OwnerContactProof.Unproven;
-      await settle(code, tenantActor(code, change.actorId), (tenant, at) =>
+      await settle(tenantId, (tenant) => tenantActor(tenant.code, change.actorId), (tenant, at) =>
         tenant.ownerUserId === change.userId ? tenantWithOwnerContact(tenant, owner, proof, at) : null,
       );
     },
 
-    async signedIn(code, user) {
+    async signedIn(tenantId, user) {
       const owner = { id: user.userId, email: user.email };
       const proof = user.credentialIsOwn ? OwnerContactProof.OwnerActed : OwnerContactProof.Unproven;
-      await settle(code, tenantActor(code, user.userId), (tenant, at) =>
+      await settle(tenantId, (tenant) => tenantActor(tenant.code, user.userId), (tenant, at) =>
         ownerOf(tenant, owner, user.email, user.canAdminister) ? tenantWithOwnerContact(tenant, owner, proof, at) : null,
       );
     },
 
-    async handOver(code, input) {
+    async handOver(tenantId, input) {
       for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
-        const tenant = await tenants.findByCode(code);
+        const tenant = await tenants.findById(tenantId);
         if (!tenant) throw new Error("TENANT_NOT_FOUND");
         const done = alreadyHandedOver(tenant, input) ?? (await handOverOnce(tenant, input, deps.now().toISOString()));
         if (done) return done;

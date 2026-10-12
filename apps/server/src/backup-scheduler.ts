@@ -193,7 +193,7 @@ export async function runBackups(options: RunBackupsOptions): Promise<void> {
   for (const open of options.router.openTenants()) {
     const tenant = await options.platform.stores.tenants.findById(open.id);
     if (!tenant || tenant.status === TenantStatusCode.Archived) continue;
-    const backend = await options.router.backendFor(tenant.code);
+    const backend = await options.router.backendOf(tenant.id);
     const folder = tenantBackupFolder(options.dir, tenant.id);
     adoptLegacyBackups(options.dir, tenant);
     await verify(await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp));

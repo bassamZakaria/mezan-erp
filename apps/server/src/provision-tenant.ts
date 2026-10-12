@@ -95,7 +95,7 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
     ));
 
   try {
-    const backend = await deps.router.backendFor(tenant.code);
+    const backend = await deps.router.backendOf(tenant.id);
 
     await backend.app.fetch(new Request("http://tenant.internal/bootstrap/seed", { method: "POST" }));
 
@@ -165,7 +165,7 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
     );
 
     await deps.router
-      .reconcileOwner(tenant.code)
+      .reconcileOwnerOf(tenant.id)
       .catch((err: unknown) => console.error(`[cloud] owner of "${tenant.code}" could not be linked while provisioning`, err));
     tenant = await withSqliteTransaction(
       sqlite,

@@ -15,8 +15,8 @@ export async function resetTenantOwnerPin(
   deps: ResetTenantOwnerPinDeps,
   input: { readonly tenant: Tenant; readonly actorId: string },
 ): Promise<OwnerPinResetResultDTO> {
-  const backend = await deps.router.backendFor(input.tenant.code);
-  await deps.router.reconcileOwner(input.tenant.code);
+  const backend = await deps.router.backendOf(input.tenant.id);
+  await deps.router.reconcileOwnerOf(input.tenant.id);
   const tenant = await deps.platform.stores.tenants.findById(input.tenant.id);
   if (!tenant) throw new TenantNotFoundError(input.tenant.id);
   const account = await backend.ownerAccount(tenant.ownerUserId === null ? { email: tenant.ownerEmail } : { userId: tenant.ownerUserId });

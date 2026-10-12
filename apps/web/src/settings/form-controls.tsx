@@ -8,7 +8,7 @@ import {
   TextArea,
   TextInput,
 } from "@mezan/ui";
-import { useReadOnlyControl } from "../shell/ReadOnlyForm";
+import { ReadOnlyFields, useReadOnlyControl } from "../shell/ReadOnlyForm";
 
 /**
  * Thin Settings-tab wrappers over the @mezan/ui form primitives: they only
@@ -331,7 +331,7 @@ export function FormPage({
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      {children}
+      <ReadOnlyFields>{children}</ReadOnlyFields>
     </div>
   );
 }

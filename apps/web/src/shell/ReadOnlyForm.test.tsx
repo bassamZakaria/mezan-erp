@@ -2,9 +2,9 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import { SidePanel } from "@mezan/ui";
+import { Button, IconButton, SidePanel } from "@mezan/ui";
 import { Field, NumberField, SelectField, TextAreaField, TextField, ToggleField } from "../settings/form-controls";
-import { ReadOnlyFields, ReadOnlyForm, READ_ONLY_KEEP } from "./ReadOnlyForm";
+import { READ_ONLY_CLOSE, READ_ONLY_KEEP, ReadOnlyFields, ReadOnlyForm } from "./ReadOnlyForm";
 
 const REASON = "إعداد مشترك لكل الفروع — تعدّله الإدارة.";
 
@@ -134,5 +134,53 @@ describe("a shared configuration form, for a branch-restricted user (D111)", () 
     );
     expect(screen.getByLabelText("الكود")).toBeEnabled();
     expect(screen.getByRole("button", { name: "حفظ" })).toBeEnabled();
+  });
+});
+
+describe("a read-only screen's own create, submit and delete controls (D111)", () => {
+  const REASON_AR = "للعرض فقط: هذه البيانات تُدار من الإدارة العامة.";
+  const Screen = ({ saving = false }: { saving?: boolean }) => (
+    <ReadOnlyForm reason={REASON_AR}>
+      <Button variant="primary">إضافة ضريبة</Button>
+      <Button variant="danger-outline">حذف</Button>
+      <Button>تصدير</Button>
+      <input aria-label="بحث" />
+      <IconButton aria-label="حذف الصف" {...READ_ONLY_CLOSE}>
+        ×
+      </IconButton>
+      <IconButton aria-label="فتح">›</IconButton>
+      <form>
+        <Button type="submit" disabled={saving}>
+          إضافة
+        </Button>
+        <Button {...READ_ONLY_KEEP}>إلغاء</Button>
+      </form>
+    </ReadOnlyForm>
+  );
+
+  it("closes each one and says why in Arabic, and leaves search, export, opening a row and Cancel alone", () => {
+    render(<Screen />);
+    for (const name of ["إضافة ضريبة", "حذف", "حذف الصف", "إضافة"]) {
+      const control = screen.getByRole("button", { name });
+      expect(control, name).toBeDisabled();
+      expect(control, name).toHaveAttribute("title", REASON_AR);
+    }
+    for (const name of ["تصدير", "فتح", "إلغاء"]) expect(screen.getByRole("button", { name }), name).toBeEnabled();
+    expect(screen.getByRole("textbox", { name: "بحث" })).toBeEnabled();
+  });
+
+  it("closes again a control a re-render re-enabled", async () => {
+    const view = render(<Screen saving />);
+    view.rerender(<Screen saving={false} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "إضافة" })).toBeDisabled());
+  });
+
+  it("closes nothing where the screen is not read-only", () => {
+    render(
+      <ReadOnlyForm reason={null}>
+        <Button variant="primary">إضافة ضريبة</Button>
+      </ReadOnlyForm>,
+    );
+    expect(screen.getByRole("button", { name: "إضافة ضريبة" })).toBeEnabled();
   });
 });

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import {
   Button,
   Card,
@@ -143,6 +144,7 @@ export function ExchangeRatesScreen() {
       {error ? <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">{error}</div> : null}
 
       {adding ? (
+        <ReadOnlyFields>
         <div className="mb-[16px] rounded-lg border border-border bg-surface p-[16px_18px]">
           <div className="flex flex-wrap items-end gap-[12px]">
             <div className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.foreignCurrency")}
@@ -162,9 +164,10 @@ export function ExchangeRatesScreen() {
               <TextInput size="sm" type="date" aria-label={t("fxRates.effectiveFrom")} value={draft.effectiveDate} onChange={(e) => setDraft((d) => ({ ...d, effectiveDate: e.target.value }))} />
             </label>
             <Button variant="primary" onClick={submitAdd}>{t("common.save")}</Button>
-            <Button onClick={() => setAdding(false)}>{t("common.cancel")}</Button>
+            <Button {...READ_ONLY_KEEP} onClick={() => setAdding(false)}>{t("common.cancel")}</Button>
           </div>
         </div>
+        </ReadOnlyFields>
       ) : null}
 
       <DocumentList<ExchangeRateDTO>

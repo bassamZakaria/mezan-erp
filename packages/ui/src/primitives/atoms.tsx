@@ -48,6 +48,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   return (
     <button
       ref={ref}
+      data-variant={variant}
       className={cn(
         "inline-flex items-center gap-[7px] rounded-md border font-semibold transition-colors disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-3 disabled:text-ink-faint disabled:shadow-none",
         buttonVariantClass[variant],

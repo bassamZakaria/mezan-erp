@@ -110,7 +110,7 @@ export function SidePanel({ open, onClose, title, description, children, classNa
             </svg>
           </IconButton>
         </div>
-        <div className="px-[21px] py-[19px]">
+        <div className="px-[21px] py-[19px]" data-edit-scope="">
           <EditScopeContext.Provider value={true}>{children}</EditScopeContext.Provider>
         </div>
       </div>

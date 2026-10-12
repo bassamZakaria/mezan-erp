@@ -32,6 +32,7 @@ import {
   useCostCenters,
   useStatementMatchCandidates,
   useTreasuryAccounts,
+  useBranches,
   useUnmatchStatementLine,
 } from "../data/hooks";
 import {
@@ -234,6 +235,7 @@ export function StatementWorkspace({
                     key={line.id}
                     statementId={statement.id}
                     treasuryAccountId={statement.treasuryAccountId}
+                    companyLevel={statement.branchId === null}
                     line={line}
                     item={itemsByLine.get(line.id)}
                     candidates={candidates.data ?? []}
@@ -434,6 +436,11 @@ function SuggestionRow({
   );
 }
 
+export function useGrantedBranchOptions(): EntityPickerOption[] {
+  const branches = useBranches();
+  return useMemo(() => (branches.data ?? []).filter((branch) => branch.active).map((branch) => ({ id: branch.id, label: branch.name })), [branches.data]);
+}
+
 function useCounterAccountOptions(): EntityPickerOption[] {
   const nameOf = useEntityName();
   const accounts = useAccounts();
@@ -462,6 +469,7 @@ function useCostCenterOptions(): { value: string; label: string }[] {
 
 function ReviewLineCard({
   statementId,
+  companyLevel,
   line,
   item,
   candidates,
@@ -471,6 +479,7 @@ function ReviewLineCard({
 }: {
   statementId: string;
   treasuryAccountId: string;
+  companyLevel: boolean;
   line: StatementLineDTO;
   item: ReviewItemDTO | undefined;
   candidates: readonly MatchCandidateDTO[];
@@ -485,12 +494,14 @@ function ReviewLineCard({
   const createEntry = useCreateEntryFromLine();
   const accountOptions = useCounterAccountOptions();
   const costCenterOptions = useCostCenterOptions();
+  const branchOptions = useGrantedBranchOptions();
 
   const [mode, setMode] = useState<"manual" | "entry" | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const rule = item?.rule ?? null;
   const [accountId, setAccountId] = useState(rule?.accountId ?? "");
   const [costCenterId, setCostCenterId] = useState(rule?.costCenterId ?? "");
+  const [branchId, setBranchId] = useState("");
   const [date, setDate] = useState(line.date);
   const [memo, setMemo] = useState("");
 
@@ -633,6 +644,19 @@ function ReviewLineCard({
             emptyMessage={t("bankRecX.noAccounts")}
           />
           <SelectField label={t("bankRecX.costCenter")} value={costCenterId} onChange={setCostCenterId} options={costCenterOptions} />
+          {companyLevel ? (
+            <div>
+              <EntityPicker
+                label={t("bankRecX.chargeBranch")}
+                value={branchOptions.find((o) => o.id === branchId) ?? null}
+                onChange={(o) => setBranchId(o?.id ?? "")}
+                options={branchOptions}
+                placeholder={t("bankRecX.chargeBranchPlaceholder")}
+                emptyMessage={t("bankRecX.noBranches")}
+              />
+              <p className="mt-[4px] text-[11.5px] text-ink-faint">{t("bankRecX.chargeBranchHint")}</p>
+            </div>
+          ) : null}
           <TextField label={t("bankRecX.entryDate")} type="date" value={date} onChange={setDate} hint={t("bankRecX.entryDateHint")} />
           <TextField label={t("bankRecX.memo")} value={memo} onChange={setMemo} placeholder={line.description} />
           <div>
@@ -649,6 +673,7 @@ function ReviewLineCard({
                       costCenterId: costCenterId === "" ? null : costCenterId,
                       date,
                       memo: memo.trim() === "" ? null : memo.trim(),
+                      ...(companyLevel ? { branchId: branchId === "" ? null : branchId } : {}),
                     },
                   });
                   setMode(null);

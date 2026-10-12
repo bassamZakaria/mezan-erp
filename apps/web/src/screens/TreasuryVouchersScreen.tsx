@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useApi } from "../data/ApiContext";
+import { sessionHolds } from "../data/session";
 import { useQueryClient } from "@tanstack/react-query";
 import { APPROVAL_STANDING_KEY, ReapprovalNotice } from "../shell/ReapprovalNotice";
 import {
@@ -81,6 +83,9 @@ import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** السندات النقدية (Treasury Vouchers) — docs/archive/catalog/04, on the real `/vouchers` API. */
+
+const VOUCHER_CREATE_PERMISSIONS: readonly string[] = ["treasury.cash_voucher.create", "treasury.customer_refund.create", "treasury.transfer.create", "contracting.certificate.collect"];
+const VOUCHER_CONFIRM_PERMISSIONS: readonly string[] = ["treasury.cash_voucher.confirm", "treasury.customer_refund.confirm", "treasury.transfer.confirm", "contracting.certificate.collect"];
 
 const STATUS_KEY: Record<VoucherStatusDTO, AppTranslationKey> = {
   draft: "vouchers.status.draft",
@@ -272,6 +277,12 @@ export function TreasuryVouchersScreen() {
    * next one until the first came back.
    */
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const confirmRow = useConfirmVoucher();
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const { session } = useApi();
+  const mayCreate = VOUCHER_CREATE_PERMISSIONS.some((permission) => sessionHolds(session, permission));
+  const mayConfirm = VOUCHER_CONFIRM_PERMISSIONS.some((permission) => sessionHolds(session, permission));
 
   const documents = query.data ?? [];
   const customers = customersQuery.data ?? EMPTY;
@@ -413,13 +424,20 @@ export function TreasuryVouchersScreen() {
           </Button>
         </Card>
       ) : null}
+      {confirmError ? (
+        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {confirmError}
+        </div>
+      ) : null}
       <DocumentList<VoucherRowDTO>
         title={t("vouchers.cashVouchers")}
         description={t("vouchers.receiptsDisbursementsAndTransfersOne")}
         actions={
-          <Button variant="primary" onClick={() => subPage.open("new")}>
-            {t("vouchers.newVoucher")}
-          </Button>
+          mayCreate ? (
+            <Button variant="primary" onClick={() => subPage.open("new")}>
+              {t("vouchers.newVoucher")}
+            </Button>
+          ) : null
         }
         listKey="treasury-vouchers"
         statsCollapsible
@@ -535,6 +553,27 @@ export function TreasuryVouchersScreen() {
               { key: "print", label: t("vouchers.action.print"), onSelect: () => subPage.open(d.docNo ?? d.id, "print") },
               // A confirmed voucher is REVERSED, never cancelled — the entry
               // it posted is immutable. Only a draft can be voided outright.
+              ...(d.status === "draft" && mayConfirm
+                ? [
+                    {
+                      key: "confirm",
+                      label: t("vouchers.action.confirm"),
+                      disabled: confirmingId === d.id,
+                      onSelect: () => {
+                        if (confirmingId !== null) return;
+                        setConfirmingId(d.id);
+                        setConfirmError(null);
+                        confirmRow.mutate(
+                          { id: d.id },
+                          {
+                            onError: (err) => setConfirmError(err.message),
+                            onSettled: () => setConfirmingId(null),
+                          },
+                        );
+                      },
+                    },
+                  ]
+                : []),
               ...(d.status === "draft"
                 ? [
                     {
@@ -575,7 +614,7 @@ export function TreasuryVouchersScreen() {
           <EmptyState
             title={t("vouchers.noMatchingVouchers")}
             description={t("vouchers.emptyBody")}
-            action={{ label: t("vouchers.newVoucher"), onClick: () => subPage.open("new") }}
+            action={mayCreate ? { label: t("vouchers.newVoucher"), onClick: () => subPage.open("new") } : undefined}
           />
         }
       />
@@ -985,6 +1024,9 @@ function CreateVoucherView({
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
   const createCollection = useCreateCollection();
+  const { session } = useApi();
+  const mayConfirm = VOUCHER_CONFIRM_PERMISSIONS.some((permission) => sessionHolds(session, permission));
+  const [draftSaved, setDraftSaved] = useState(false);
   const branchesQuery = useBranches();
   const costCentersQuery = useCostCenters();
   const projectsQuery = useProjects();
@@ -1105,7 +1147,7 @@ function CreateVoucherView({
     setBusy(true);
     setError(null);
     try {
-      if (line.voucherType === "customer_collection" && line.customerId) {
+      if (mayConfirm && line.voucherType === "customer_collection" && line.customerId) {
         const collected = await createCollection.mutateAsync({
           date: draft.date,
           memo: draft.memo || voucherLabel(def),
@@ -1150,6 +1192,10 @@ function CreateVoucherView({
         withholdingRatePercent: line.withholdingRatePercent ?? null,
         withholdingGlAccountId: line.withholdingGlAccountId ?? null,
       });
+      if (!mayConfirm) {
+        setDraftSaved(true);
+        return;
+      }
       const confirmed = await confirmVoucher.mutateAsync({ id: created.id });
       // An approval gate holds the confirm: the voucher exists, nothing was
       // posted, and closing the wizard here reported plain success for money
@@ -1192,6 +1238,24 @@ function CreateVoucherView({
     );
   }
 
+  if (draftSaved) {
+    return (
+      <div className="w-full max-w-[560px]">
+        <h1 className="mb-[16px] mt-[5px] font-display text-2xl font-bold text-ink">{t("vouchers.draftSavedTitle")}</h1>
+        <Card className="flex flex-col gap-[12px] p-[18px]">
+          <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+            {t("vouchers.draftSavedBody")}
+          </div>
+          <div className="flex items-center justify-end">
+            <Button variant="primary" onClick={onDone}>
+              {t("vouchers.heldBackToList")}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   if (heldVoucher) {
     return (
       <div className="w-full max-w-[560px]">
@@ -1230,7 +1294,7 @@ function CreateVoucherView({
         <div className="flex items-center gap-[9px]">
           <Button onClick={onDone}>{t("common.cancel")}</Button>
           <Button variant="primary" disabled={!canSubmit} onClick={submitVoucher}>
-            {t("vouchers.createAndConfirm")}
+            {t(mayConfirm ? "vouchers.createAndConfirm" : "vouchers.saveDraftForConfirmation")}
           </Button>
         </div>
       </div>

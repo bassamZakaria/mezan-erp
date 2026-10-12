@@ -137,6 +137,7 @@ carries query parameters too; they are never read as proof of payment.
 | `MEZAN_PAYMOB_PUBLIC_URL` | Public `https://` origin of this deployment. Required with live keys: the callback goes to `<url>/api/billing/paymob/webhook` and the customer returns to `<url>/…` (or to the tenant's own subdomain under `MEZAN_TENANT_DOMAIN`). |
 | `MEZAN_PAYMOB_API_KEY` | Optional; the dashboard **API key** (Settings → Account Info) — a different credential from the secret key. It buys the bearer token (`POST /api/auth/tokens`, 60 min) that `POST /api/ecommerce/orders/transaction_inquiry` needs. Without it the reconciliation sweep cannot ask Paymob about a checkout whose callback never arrived, so it settles and expires nothing and reports every checkout as `unavailable`. |
 | `MEZAN_PAYMOB_BASE_URL` | Optional; default `https://accept.paymob.com` (Egypt). |
+| `MEZAN_PAYMOB_NOT_FOUND_CONFIRMED` | Optional; default off. `1` lets the reconciliation sweep read Paymob's not-found answer (`HTTP 404` with exactly `{"detail":"Not found."}`) as "no transaction for this order" and expire the checkout. That shape is not in Paymob's public documentation, so while this is off the sweep expires nothing on it: the checkout stays `pending`, marked «بحاجة لمراجعة» (`NEEDS_ATTENTION`, cause `unreadable`), for a person to resolve from the console. Turn it on only after the manual check below. |
 | `MEZAN_PAYMOB_TEST_MODE` | `1` runs the local test double when no keys are set; `0` turns card checkout off in dev. |
 
 The four keys are all-or-nothing: setting some but not all refuses to start, as
@@ -164,6 +165,44 @@ set per intention (`notification_url`), so the integration's own callback field
 may stay empty. Run one real low-value payment and one decline, and watch the
 console's «الدفع بالبطاقة» card and the platform audit log for
 `PAYMENT_RECORDED` / `CARD_PAYMENT_DECLINED`.
+
+### Confirming Paymob's not-found answer (manual, once per Paymob account)
+
+The inquiry answer for an order that has no transaction is the one answer that
+lets the sweep expire a checkout, and Paymob documents only the 200 answer. The
+shape the server recognises — `HTTP 404` with a body that is exactly
+`{"detail":"Not found."}` — was seen from Paymob but never confirmed against a
+sandbox account from this repository. Until it is, `MEZAN_PAYMOB_NOT_FOUND_CONFIRMED`
+stays off and that answer is put in front of a person.
+
+To confirm it:
+
+1. In the Paymob dashboard (test mode), copy the **API key** (Settings →
+   Account Info) and the test card **integration id**.
+2. Optionally make one test payment and note its Paymob **order id**.
+3. Run the contract test against the sandbox:
+
+   ```bash
+   MEZAN_PAYMOB_SANDBOX_API_KEY=<api key> \
+   MEZAN_PAYMOB_SANDBOX_INTEGRATION_ID=<integration id> \
+   MEZAN_PAYMOB_SANDBOX_PAID_ORDER_ID=<order id, optional> \
+   pnpm exec vitest run apps/server/src/paymob-contract.test.ts
+   ```
+
+   `MEZAN_PAYMOB_SANDBOX_BASE_URL` overrides the host (default
+   `https://accept.paymob.com`). Without the API key the file skips itself.
+4. If "answers an order with no transaction in a recognised not-found shape"
+   passes, set `MEZAN_PAYMOB_NOT_FOUND_CONFIRMED=1` on the deployment and
+   restart it. If it fails, the message prints the status and body Paymob
+   sent: add that answer as a fixture under
+   `apps/server/src/fixtures/paymob-inquiry/` and as an entry in
+   `PAYMOB_NOT_FOUND_SHAPES` (`apps/server/src/paymob-inquiry.ts`), re-run, and
+   only then turn the setting on.
+
+A checkout flagged while the setting was off stays `pending`, so the next sweep
+after the setting is turned on asks Paymob about it again — unless a person
+has already resolved it from the console's «الدفع بالبطاقة» card, which the
+sweep never overrides.
 
 ## Adding a hosted testing environment later
 

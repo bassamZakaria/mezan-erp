@@ -14,6 +14,7 @@ export type PaymobEnv =
       readonly publicUrl: string;
       /** The dashboard API key the transaction-inquiry API authenticates with. Without it, stuck checkouts cannot be reconciled. */
       readonly apiKey?: string;
+      readonly notFoundShapeConfirmed: boolean;
     }
   | { readonly mode: "test"; readonly publicUrl?: string }
   | { readonly mode: "off" };
@@ -99,6 +100,7 @@ function parsePaymob(env: Record<string, string | undefined>, testByDefault: boo
       integrationIds,
       publicUrl,
       ...(apiKey ? { apiKey } : {}),
+      notFoundShapeConfirmed: env["MEZAN_PAYMOB_NOT_FOUND_CONFIRMED"] === "1",
     };
   }
   const test = testFlag === "1" || (testByDefault && testFlag !== "0");

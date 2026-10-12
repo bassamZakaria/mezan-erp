@@ -145,6 +145,7 @@ describe("parseEnv", () => {
         hmacSecret: "hmac-live",
         integrationIds: [101, 102],
         publicUrl: "https://pay.mezan.test",
+        notFoundShapeConfirmed: false,
       },
       platformSmtp: {
         smtpEnabled: true,
@@ -200,5 +201,18 @@ describe("parseEnv", () => {
 
   it("refuses a Paymob inquiry API key with no live keys to go with it", () => {
     expect(() => parseEnv({ MEZAN_PAYMOB_API_KEY: "dashboard-key" })).toThrow(/MEZAN_PAYMOB_API_KEY/);
+  });
+});
+
+describe("MEZAN_PAYMOB_NOT_FOUND_CONFIRMED", () => {
+  const live = {
+    MEZAN_PAYMOB_SECRET_KEY: "sk", MEZAN_PAYMOB_PUBLIC_KEY: "pk", MEZAN_PAYMOB_HMAC_SECRET: "hm", MEZAN_PAYMOB_INTEGRATION_ID: "4242",
+    MEZAN_PAYMOB_PUBLIC_URL: "https://app.mezan.test",
+  };
+
+  it("is off unless set to 1, so an unconfirmed not-found answer cannot expire a checkout", () => {
+    expect(parseEnv(live).paymob).toMatchObject({ mode: "live", notFoundShapeConfirmed: false });
+    expect(parseEnv({ ...live, MEZAN_PAYMOB_NOT_FOUND_CONFIRMED: "true" }).paymob).toMatchObject({ notFoundShapeConfirmed: false });
+    expect(parseEnv({ ...live, MEZAN_PAYMOB_NOT_FOUND_CONFIRMED: "1" }).paymob).toMatchObject({ notFoundShapeConfirmed: true });
   });
 });

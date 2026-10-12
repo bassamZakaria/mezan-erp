@@ -31,6 +31,13 @@ export const PAYMOB_NOT_FOUND_SHAPES: readonly PaymobNotFoundShape[] = [
   { name: "404 with the framework's not-found detail", status: 404, matches: (body) => isExactly(body, { detail: "Not found." }) },
 ];
 
+export interface PaymobInquiryReadOptions {
+  // MONEY CONSTRAINT: off by default. Only a deployment whose operator ran the
+  // manual sandbox check (docs/ENVIRONMENTS.md) may read the not-found shape
+  // as "no transaction" and let the sweep expire a checkout on it.
+  readonly notFoundShapeConfirmed?: boolean;
+}
+
 const PROVIDER_WIDE_STATUSES: ReadonlySet<number> = new Set([401, 403, 408, 429]);
 const SERVER_ERRORS_FROM = 500;
 const SUCCESS_FROM = 200;
@@ -61,8 +68,13 @@ export function readPaymobInquiryAnswer(
   body: unknown,
   integrationIds: readonly number[],
   request: ProviderInquiryRequest,
+  options: PaymobInquiryReadOptions = {},
 ): ProviderInquiry {
-  if (PAYMOB_NOT_FOUND_SHAPES.some((shape) => shape.status === status && shape.matches(body))) return { status: ProviderInquiryStatus.None };
+  if (PAYMOB_NOT_FOUND_SHAPES.some((shape) => shape.status === status && shape.matches(body))) {
+    return options.notFoundShapeConfirmed === true
+      ? { status: ProviderInquiryStatus.None }
+      : unreadable(`HTTP ${status} in the not-found shape, which this deployment has not confirmed against Paymob's sandbox`);
+  }
   if (status >= SERVER_ERRORS_FROM || PROVIDER_WIDE_STATUSES.has(status)) return { status: ProviderInquiryStatus.Unavailable, reason: `HTTP ${status}` };
   if (status < SUCCESS_FROM || status >= SUCCESS_BELOW) return unreadable(`HTTP ${status} that is not a recognised answer`);
   return readPaymobTransaction(body, integrationIds, request);

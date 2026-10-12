@@ -493,10 +493,26 @@ describe("card checkout — sweeping checkouts whose callback never arrived", ()
     expect((await reload(r, checkout)).status).toBe("paid");
   });
 
-  it("puts a checkout in front of a person on a 404 that is not Paymob's own answer, never expiring it, and expires it on the one that is", async () => {
-    let answer = () => new Response("<html>404 Not Found</html>", { status: 404, headers: { "content-type": "text/html" } });
+  it("never expires a checkout on Paymob's not-found answer while the deployment has not confirmed that shape: a person looks at it", async () => {
     const live = createPaymobProvider(
       { baseUrl: "https://accept.paymob.test/", secretKey: "sk", publicKey: "pk", hmacSecret: "hmac", integrationIds: [158], apiKey: "key" },
+      (async (input: Parameters<typeof fetch>[0]) =>
+        String(input).endsWith("/api/auth/tokens")
+          ? new Response(JSON.stringify({ token: "bearer" }), { status: 200 })
+          : new Response(JSON.stringify({ detail: "Not found." }), { status: 404, headers: { "content-type": "application/json" } })) as typeof fetch,
+    );
+    const r = await rig((provider) => ({ ...provider, inquireTransaction: (request) => live.inquireTransaction(request) }));
+    const checkout = await r.open();
+    r.advance(SWEEP_EXPIRE_AFTER_MS * 3);
+
+    expect(await r.service.sweepPending()).toMatchObject({ examined: 1, unavailable: 0, needsAttention: 1, expired: 0 });
+    expect(await reload(r, checkout)).toMatchObject({ status: "pending", failureReason: "NEEDS_ATTENTION", attentionCause: CardCheckoutAttentionCause.Unreadable });
+  });
+
+  it("puts a checkout in front of a person on a 404 that is not Paymob's own answer, never expiring it, and expires it on the one that is once that shape is confirmed", async () => {
+    let answer = () => new Response("<html>404 Not Found</html>", { status: 404, headers: { "content-type": "text/html" } });
+    const live = createPaymobProvider(
+      { baseUrl: "https://accept.paymob.test/", secretKey: "sk", publicKey: "pk", hmacSecret: "hmac", integrationIds: [158], apiKey: "key", notFoundShapeConfirmed: true },
       (async (input: Parameters<typeof fetch>[0]) =>
         String(input).endsWith("/api/auth/tokens") ? new Response(JSON.stringify({ token: "bearer" }), { status: 200 }) : answer()) as typeof fetch,
     );

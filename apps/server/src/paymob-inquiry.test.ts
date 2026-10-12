@@ -22,7 +22,22 @@ const INTEGRATIONS = [4242];
 
 describe("reading Paymob's answer to a transaction inquiry", () => {
   it.each(fixtures)("reads %s as its fixture says", (_name, fixture) => {
-    expect(readPaymobInquiryAnswer(fixture.status, fixture.body, INTEGRATIONS, request).status).toBe(fixture.expect);
+    expect(readPaymobInquiryAnswer(fixture.status, fixture.body, INTEGRATIONS, request, { notFoundShapeConfirmed: true }).status).toBe(fixture.expect);
+  });
+
+  it("puts the not-found shape in front of a person until the deployment says the sandbox check confirmed it", () => {
+    const [, notFound] = fixtures.find(([name]) => name === "undocumented-404-detail-not-found")!;
+
+    const unconfirmed = readPaymobInquiryAnswer(notFound.status, notFound.body, INTEGRATIONS, request);
+    expect(unconfirmed.status).toBe(ProviderInquiryStatus.Unreadable);
+    expect(readPaymobInquiryAnswer(notFound.status, notFound.body, INTEGRATIONS, request, { notFoundShapeConfirmed: false }).status).toBe(ProviderInquiryStatus.Unreadable);
+    expect(readPaymobInquiryAnswer(notFound.status, notFound.body, INTEGRATIONS, request, { notFoundShapeConfirmed: true }).status).toBe(ProviderInquiryStatus.None);
+  });
+
+  it("reads every other fixture the same whether or not the shape is confirmed", () => {
+    for (const [name, fixture] of fixtures.filter(([, f]) => f.expect !== ProviderInquiryStatus.None)) {
+      expect(readPaymobInquiryAnswer(fixture.status, fixture.body, INTEGRATIONS, request).status, name).toBe(fixture.expect);
+    }
   });
 
   it("holds a fixture for every answer Paymob's public documentation describes, and only those are marked documented", () => {

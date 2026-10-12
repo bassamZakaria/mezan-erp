@@ -23,6 +23,7 @@ export interface PaymobLiveConfig {
   readonly hmacSecret: string;
   readonly integrationIds: readonly number[];
   readonly apiKey?: string;
+  readonly notFoundShapeConfirmed?: boolean;
 }
 
 export class PaymentProviderError extends Error {
@@ -86,7 +87,7 @@ function createPaymobInquiryClient(config: PaymobLiveConfig, base: string, fetch
         response = await ask(token, request);
       }
       const body: unknown = await response.json().catch(() => undefined);
-      return readPaymobInquiryAnswer(response.status, body, config.integrationIds, request);
+      return readPaymobInquiryAnswer(response.status, body, config.integrationIds, request, { notFoundShapeConfirmed: config.notFoundShapeConfirmed === true });
     } catch (err) {
       return unavailable(err instanceof Error ? err.name : "network error");
     }

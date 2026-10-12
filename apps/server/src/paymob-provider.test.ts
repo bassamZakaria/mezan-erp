@@ -252,9 +252,12 @@ describe("Paymob transaction inquiry", () => {
     expect(fetched.calls).toHaveLength(0);
   });
 
-  it("reads Paymob's own not-found answer as no transaction for the order", async () => {
-    const { provider } = inquiring(() => json({ detail: "Not found." }, 404));
-    expect(await provider.inquireTransaction(request)).toEqual({ status: ProviderInquiryStatus.None });
+  it("reads Paymob's own not-found answer as no transaction for the order only where the deployment confirmed that shape", async () => {
+    const confirmed = inquiring(() => json({ detail: "Not found." }, 404), { notFoundShapeConfirmed: true });
+    expect(await confirmed.provider.inquireTransaction(request)).toEqual({ status: ProviderInquiryStatus.None });
+
+    const unconfirmed = inquiring(() => json({ detail: "Not found." }, 404));
+    expect(await unconfirmed.provider.inquireTransaction(request)).toMatchObject({ status: ProviderInquiryStatus.Unreadable });
   });
 
   it.each([

@@ -1,5 +1,4 @@
-import { resolvePermissions } from "@mezan/domain";
-import type { Session } from "./session";
+import { sessionHolds, type Session } from "./session";
 
 export enum DocumentReadPermission {
   Customers = "sales.customer.view",
@@ -23,13 +22,10 @@ export enum DocumentReadPermission {
   Subscription = "admin.settings.view",
 }
 
-const EVERY_PERMISSION = "*";
-
 // SECURITY: this decides only whether a READ is worth sending — the server
-// decides whether it is allowed. It follows the catalog's own implications, so
-// a holder of `classify_tax` is known to read tax rates as the server knows it.
+// decides whether it is allowed. INVARIANT: the rule itself — the catalog's
+// own implications, as the server resolves a grant — is stated ONCE, in
+// `sessionHolds`; this is its any-of mode and resolves nothing itself.
 export function sessionMayRead(session: Session | null, ...anyOf: readonly DocumentReadPermission[]): boolean {
-  if (session === null) return false;
-  const held = resolvePermissions(session.permissions);
-  return held.has(EVERY_PERMISSION) || anyOf.some((permission) => held.has(permission));
+  return anyOf.some((permission) => sessionHolds(session, permission));
 }

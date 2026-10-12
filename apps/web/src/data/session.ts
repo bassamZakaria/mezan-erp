@@ -1,4 +1,5 @@
 import { sessionSchema, type SessionDTO } from "@mezan/contracts";
+import { resolvePermissions } from "@mezan/domain";
 
 export type Session = SessionDTO;
 
@@ -275,6 +276,21 @@ export enum ReadPermission {
   Employees = "hr.employee.view",
 }
 
+const resolvedBySession = new WeakMap<readonly string[], ReadonlySet<string>>();
+
+/**
+ * Whether the session holds a permission, by the SAME dependency table the
+ * server resolves a grant with (`resolvePermissions`). An exact match on the
+ * raw grant left a query disabled for a role that holds its read only through
+ * a dependency, while the server would have answered it.
+ */
 export function sessionHolds(session: Session | null, permission: string): boolean {
-  return session !== null && (session.permissions.includes(EVERY_PERMISSION) || session.permissions.includes(permission));
+  if (session === null) return false;
+  if (session.permissions.includes(EVERY_PERMISSION)) return true;
+  let resolved = resolvedBySession.get(session.permissions);
+  if (!resolved) {
+    resolved = resolvePermissions(session.permissions);
+    resolvedBySession.set(session.permissions, resolved);
+  }
+  return resolved.has(permission);
 }

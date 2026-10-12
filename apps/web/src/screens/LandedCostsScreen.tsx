@@ -386,7 +386,8 @@ export function LandedCostsScreen() {
 
   const columns: DocumentListColumn<(typeof documents)[number]>[] = [
     { key: "docNo", header: t("landedCosts.col.docNo"), render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</span> },
-    { key: "date", header: t("common.date"), render: (d) => <span className="mz-num">{d.date}</span> },
+    { key: "date", header: t("landedCosts.col.documentDate"), render: (d) => <span className="mz-num">{d.date}</span> },
+    { key: "absorptionDate", header: t("landedCosts.col.absorptionDate"), render: (d) => <span className="mz-num">{d.absorptionDate ?? "—"}</span> },
     {
       key: "warehouse",
       header: t("common.warehouse"),

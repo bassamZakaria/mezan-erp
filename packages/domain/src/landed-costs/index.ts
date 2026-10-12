@@ -23,12 +23,15 @@ export {
   type LandedCostLine,
   type LandedCostDocument,
   type LandedCostGlAccounts,
+  landedCostAbsorptionDate,
 } from "./landed-cost-document.js";
 
 export {
   LandedCostService,
   type LandedCostConfirmResult,
   type LandedCostUnabsorbedGlPort,
+  type LandedCostGlPosting,
+  type LandedCostConfirmOptions,
   type UnabsorbedLandedCost,
 } from "./service.js";
 
@@ -36,6 +39,5 @@ export {
   EmptyLandedCostTargetsError,
   ZeroLandedCostWeightError,
   LandedCostDateBeforeStockMovementError,
-  LandedCostGoodsIssuedError,
   LandedCostStandsOnDocumentError,
 } from "./errors.js";

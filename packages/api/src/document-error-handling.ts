@@ -1,7 +1,6 @@
 import type { Context } from "hono";
 import {
   LandedCostDateBeforeStockMovementError,
-  LandedCostGoodsIssuedError,
   LandedCostStandsOnDocumentError,
   ApprovalRequestRejectedError,
   DocumentNotFoundError,
@@ -41,7 +40,6 @@ export function handleDocumentError(c: Context, err: unknown): Response {
   }
   if (
     err instanceof LandedCostDateBeforeStockMovementError ||
-    err instanceof LandedCostGoodsIssuedError ||
     err instanceof LandedCostStandsOnDocumentError
   ) {
     return c.json(

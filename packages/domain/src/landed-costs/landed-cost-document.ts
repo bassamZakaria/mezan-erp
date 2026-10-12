@@ -26,6 +26,8 @@ export const DOC_TYPE = "LANDED_COST";
 export interface LandedCostLine extends AllocatedLandedCostLine {
   readonly costItems: readonly LandedCostItemEntry[];
   readonly distributionMethod: LandedCostDistributionMethod;
+  /** The day the stock takes the cost — the confirm day. Absent on a draft and on a document absorbed on its own date. */
+  readonly absorptionDate?: string | null;
 }
 
 export type LandedCostDocument = FrameworkDocument<LandedCostLine>;
@@ -43,6 +45,13 @@ export interface LandedCostGlAccounts {
    * product is sold on (D75).
    */
   readonly accruedLandedCostPayableId: string;
+  /** Carries the cost from the document date until the stock absorbs it, and keeps the share of goods already issued. */
+  readonly unabsorbedCostAccountId?: string;
+}
+
+/** The day a landed cost's stock effect is stamped: its own date unless it was absorbed later. */
+export function landedCostAbsorptionDate(doc: Pick<LandedCostDocument, "date" | "lines">): string {
+  return doc.lines[0]?.absorptionDate ?? doc.date;
 }
 
 function totalAllocated(lines: readonly LandedCostLine[]): Money {
@@ -95,6 +104,19 @@ export function createLandedCostDocumentType(
       // per-category split (it is one aggregate absorption), so the debit
       // takes the first line's explicit category or "materials" (D-01).
       const costCategory: CostCategory = doc.lines.find((l) => l.costCategory)?.costCategory ?? "materials";
+      if (landedCostAbsorptionDate(doc) !== doc.date && accounts.unabsorbedCostAccountId) {
+        return {
+          sourceDocType: DOC_TYPE,
+          sourceDocId: doc.id,
+          sourceDocNumber: doc.docNo,
+          date: doc.date,
+          memo: doc.memo || `تكلفة إضافية ${doc.docNo ?? doc.id}`,
+          lines: [
+            { accountId: accounts.unabsorbedCostAccountId, debit: total, credit: Money.zero(), projectId, ...(projectId ? { costCategory } : {}) },
+            { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total, projectId },
+          ],
+        };
+      }
       return {
         sourceDocType: DOC_TYPE,
         sourceDocId: doc.id,

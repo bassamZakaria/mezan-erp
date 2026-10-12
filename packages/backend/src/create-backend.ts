@@ -78,6 +78,7 @@ import {
   createLandedCostDocumentType,
   LANDED_COST_DOC_TYPE,
   LandedCostService,
+  type LandedCostGlPosting,
   installmentPlanDocumentType,
   stockAdjustmentDocumentType,
   stockTransferDocumentType,
@@ -1930,39 +1931,35 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: auditSink,
     auditModule: "purchases",
   });
+  const postLandedCostSideEntry = async (posting: LandedCostGlPosting, debitAccountId: string, creditAccountId: string): Promise<void> => {
+    await postJournalEntry(
+      {
+        id: posting.entryId,
+        date: posting.date,
+        memo: posting.memo,
+        source: "system",
+        sourceDocType: LANDED_COST_DOC_TYPE,
+        sourceDocId: posting.sourceDocId,
+        sourceDocNumber: posting.sourceDocNumber,
+        lines: [
+          { accountId: debitAccountId, debit: posting.amount, credit: Money.zero() },
+          { accountId: creditAccountId, debit: Money.zero(), credit: posting.amount },
+        ],
+      },
+      salesInvoiceGl,
+    );
+  };
   const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
-    postUnabsorbed: async (posting) => {
-      await postJournalEntry(
-        {
-          id: posting.entryId,
-          date: posting.date,
-          memo: posting.memo,
-          source: "system",
-          sourceDocType: LANDED_COST_DOC_TYPE,
-          sourceDocId: posting.sourceDocId,
-          sourceDocNumber: posting.sourceDocNumber,
-          lines: [
-            {
-              accountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
-              debit: posting.amount,
-              credit: Money.zero(),
-            },
-            {
-              accountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
-              debit: Money.zero(),
-              credit: posting.amount,
-            },
-          ],
-        },
-        salesInvoiceGl,
-      );
-    },
-    reverseUnabsorbed: async (entryId, opts) => {
+    postUnabsorbed: (posting) => postLandedCostSideEntry(posting, LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId, LANDED_COST_GL_ACCOUNTS.inventoryAccountId),
+    postAbsorbed: (posting) => postLandedCostSideEntry(posting, LANDED_COST_GL_ACCOUNTS.inventoryAccountId, LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId),
+    reverseSideEntry: async (entryId, opts) => {
       const entry = await ledger.findById(entryId);
-      if (!entry || entry.status !== "posted") return;
+      if (!entry || entry.status !== "posted") return null;
       await reverseJournalEntry(entryId, salesInvoiceGl, { reversalId: opts.reversalId, date: opts.date });
+      return Money.sum(entry.lines.map((line) => line.debit));
     },
   }, {
+    transaction: (fn) => ledger.transaction(fn),
     layerOwnerOf: async (sourceDocId) => (await purchaseInvoices.findById(sourceDocId))?.receiptId ?? sourceDocId,
   });
   const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {

@@ -239,6 +239,15 @@ export class DocumentService<Line> {
     return returned;
   }
 
+  /** Replaces a draft's lines in place; the confirm that follows posts what the lines then say. */
+  async amendDraftLines(id: string, lines: readonly Line[]): Promise<FrameworkDocument<Line>> {
+    const existing = await this.require(id);
+    if (existing.status !== "draft") assertTransition(this.def.code, id, existing.status, "draft");
+    const amended: FrameworkDocument<Line> = { ...existing, lines };
+    await this.deps.repo.update(amended);
+    return amended;
+  }
+
   /** Cancel a draft/pending document (never a live one — those are reversed). */
   async cancel(id: string): Promise<FrameworkDocument<Line>> {
     const existing = await this.require(id);

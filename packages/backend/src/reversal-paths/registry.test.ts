@@ -1,0 +1,48 @@
+import { ALL_SCOPE, PermissionLabelLocale, getPermission, permissionHumanLabel } from "@mezan/domain";
+import { DOCUMENT_REVERSAL_PATHS } from "@mezan/api";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+
+let world: SeededWorld;
+
+beforeAll(async () => {
+  world = await seededWorld();
+}, 900_000);
+
+afterAll(() => world?.close());
+
+const TWELVE = ["FX_REVALUATION", "PAYROLL_RUN", "EMPLOYEE_ADVANCE", "CHEQUE", "YEAR_END_CLOSE", "ASSET_DISPOSAL", "HR_LEAVE_PROVISION", "STOCK_ADJUSTMENT", "ADJUSTMENT", "WRITEDOWN_RUN", "LETTER_OF_GUARANTEE", "EQUIPMENT_LOG", "MATERIAL_CONSUMPTION"];
+const ARABIC = /[؀-ۿ]/;
+
+describe("the named reversal path of every entry type the journal refuses", () => {
+  it.each(Object.entries(DOCUMENT_REVERSAL_PATHS))("%s is gated by a catalogued permission whose entity is labelled in Arabic and English", (_type, path) => {
+    const permission = getPermission(path.permission);
+    expect(permission, path.permission).toBeDefined();
+    expect(permissionHumanLabel(path.permission, PermissionLabelLocale.Ar)).toMatch(ARABIC);
+    const english = permissionHumanLabel(path.permission, PermissionLabelLocale.En);
+    expect(english).not.toMatch(ARABIC);
+  });
+
+  it.each(Object.entries(DOCUMENT_REVERSAL_PATHS))("%s answers on its route: gated, not missing", async (_type, path) => {
+    const url = path.route.replace(/:year/, "1999").replace(/:kind/, "leave").replace(/:asOfDate/, "1999-01-01").replace(/:\w+/g, "NO-SUCH-DOCUMENT");
+    const token = world.backend.sessions.issue({ userId: "nobody", permissions: [], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const res = await world.backend.app.fetch(new Request(`http://local${url}`, { method: path.method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}" }));
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { permission?: string }).permission).toBe(path.permission);
+  });
+
+  it("covers the twelve entry types that had no way to be reversed", () => {
+    for (const type of TWELVE) expect(DOCUMENT_REVERSAL_PATHS[type], type).toBeDefined();
+  });
+
+  it("the journal's own reverse stays closed for every document-owned entry in the seeded books", async () => {
+    const rows = world.sqlite
+      .prepare(`SELECT source_doc_type AS type, MAX(id) AS id FROM journal_entry WHERE status = 'posted' AND reverses_entry_id IS NULL AND source_doc_type IS NOT NULL AND source_doc_type <> 'INITIAL_BALANCE' GROUP BY source_doc_type`)
+      .all() as { type: string; id: string }[];
+    expect(rows.length).toBeGreaterThan(10);
+    for (const row of rows) {
+      const res = await world.request("POST", `/gl/journal-entries/${encodeURIComponent(row.id)}/reverse`, {});
+      expect(`${row.type} ${res.status} ${String(res.body.error)}`).toBe(`${row.type} 422 JOURNAL_ENTRY_OWNED_BY_DOCUMENT`);
+    }
+  });
+});

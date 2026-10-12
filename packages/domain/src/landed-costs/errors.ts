@@ -48,22 +48,6 @@ export class LandedCostDateBeforeStockMovementError extends Error {
   }
 }
 
-/** Raised when a landed cost cannot be reversed because goods left the position after it raised their cost: part of it is already in cost of sales. */
-export class LandedCostGoodsIssuedError extends Error {
-  readonly code = "LANDED_COST_GOODS_ISSUED";
-  readonly messageEn: string;
-  constructor(
-    readonly landedCostId: string,
-    readonly itemId: string,
-  ) {
-    super(
-      `لا يمكن عكس التكلفة الإضافية "${landedCostId}": الصنف "${itemId}" صُرف منه بعد تحميل التكلفة عليه، فجزء منها دخل تكلفة المبيعات بالفعل. عالج الفرق بتسوية مخزون أو قيد يدوي.`,
-    );
-    this.messageEn = `Landed cost "${landedCostId}" cannot be reversed: item "${itemId}" has been issued since the cost was loaded onto it, so part of it is already in cost of sales. Correct the difference with a stock adjustment or a manual journal.`;
-    this.name = "LandedCostGoodsIssuedError";
-  }
-}
-
 /** Raised when a purchase document is cancelled while a confirmed landed cost still stands on it. */
 export class LandedCostStandsOnDocumentError extends Error {
   readonly code = "LANDED_COST_STANDS_ON_DOCUMENT";

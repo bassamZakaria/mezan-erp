@@ -28,7 +28,7 @@ const draftLandedCost = (id: string, itemId: string, sourceInvoiceId: string, da
   });
 async function landedCost(id: string, itemId: string, sourceInvoiceId: string) {
   expect((await draftLandedCost(id, itemId, sourceInvoiceId)).status).toBe(201);
-  const confirmed = await world.request("POST", `/landed-costs/${id}/confirm`, {});
+  const confirmed = await world.request("POST", `/landed-costs/${id}/confirm`, { absorptionDate: DAY });
   expect(confirmed.status).toBe(200);
   return (confirmed.body.document as { docNo: string }).docNo;
 }
@@ -92,7 +92,7 @@ describe("a landed cost standing on a purchase", () => {
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 
-  it("is not reversed once goods have been issued at the raised cost: the refusal says so and nothing moves", async () => {
+  it("is reversed after goods have been issued at the raised cost: what left with them is credited back to cost of sales and stock still ties", async () => {
     await item("LCR-C");
     await directInvoice("LCR-PI3", "LCR-C");
     await landedCost("LCR-LC3", "LCR-C", "LCR-PI3");
@@ -102,34 +102,29 @@ describe("a landed cost standing on a purchase", () => {
     };
     await world.request("POST", "/sales-invoices", sale);
     expect((await world.request("POST", "/sales-invoices/LCR-SI/confirm", {})).status).toBe(200);
-    const entries = world.count("journal_entry");
+    const reversed = await world.request("POST", "/landed-costs/LCR-LC3/reverse", {});
 
-    const refused = await world.request("POST", "/landed-costs/LCR-LC3/reverse", {});
-
-    expect(refused.status).toBe(422);
-    expect(refused.body).toMatchObject({ error: "LANDED_COST_GOODS_ISSUED" });
-    expect(String(refused.body.message)).toContain("صُرف");
-    expect(world.count("journal_entry")).toBe(entries);
+    expect(reversed.status, JSON.stringify(reversed.body)).toBe(201);
+    expect((reversed.body.original as { status: string }).status).toBe("reversed");
+    expect(world.count("journal_entry", "id LIKE '%:ISSUED'")).toBe(1);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });
 
 describe("the date of a landed cost", () => {
-  it("is refused when earlier than the latest stock movement of a targeted position, naming the earliest day allowed, and nothing is posted", async () => {
+  it("is kept when earlier than the latest stock movement of a targeted position: the stock takes the cost no earlier than that movement", async () => {
     await item("LCR-D");
     await directInvoice("LCR-PI4", "LCR-D");
     expect((await draftLandedCost("LCR-LC4", "LCR-D", "LCR-PI4", "2026-10-01")).status).toBe(201);
-    const entries = world.count("journal_entry");
 
-    const refused = await world.request("POST", "/landed-costs/LCR-LC4/confirm", {});
+    const confirmed = await world.request("POST", "/landed-costs/LCR-LC4/confirm", {});
 
-    expect(refused.status).toBe(422);
-    expect(refused.body).toMatchObject({
-      error: "LANDED_COST_DATE_BEFORE_STOCK_MOVEMENT",
-      message: 'تاريخ التكلفة الإضافية 2026-10-01 يسبق آخر حركة مخزون على الصنف "LCR-D" بتاريخ 2026-10-05. أقرب تاريخ مسموح به هو 2026-10-05، ليبقى المخزون والأستاذ العام على التاريخ نفسه.',
-      earliestAllowedDate: "2026-10-05",
-    });
-    expect(world.count("journal_entry")).toBe(entries);
-    expect((world.sqlite.prepare(`SELECT status FROM framework_document WHERE id = 'LCR-LC4'`).get() as { status: string }).status).toBe("draft");
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    const document = confirmed.body.document as { date: string; absorptionDate: string };
+    expect(document.date).toBe("2026-10-01");
+    expect(document.absorptionDate >= "2026-10-05").toBe(true);
+    const asOf = (await world.request("GET", "/reconciliation?asOf=2026-10-04")).body.rows as { key: string; difference: string }[];
+    expect(asOf.find((row) => row.key === "inventory")?.difference).toBe("0.000000");
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });

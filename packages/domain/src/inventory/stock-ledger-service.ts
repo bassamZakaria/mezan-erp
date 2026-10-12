@@ -1189,8 +1189,9 @@ export class StockLedgerService {
 
   /**
    * Takes a landed cost back off a position: the mirror value-only movement,
-   * against the same receipt's layers. Exact only while nothing has left the
-   * position since the cost was loaded — the caller refuses otherwise.
+   * against the same receipt's layers. Answers the value the position actually
+   * gave up — less than the cost when goods carrying it have left since, and
+   * the caller books that difference against cost of sales.
    */
   async reverseLandedCostRevaluation(line: {
     readonly itemId: string;
@@ -1198,11 +1199,12 @@ export class StockLedgerService {
     readonly landedCostDocId: string;
     readonly reversalDocId: string;
     readonly occurredAt: string;
-  }): Promise<void> {
-    await this.runInTransaction(async () => {
+  }): Promise<Money> {
+    return this.runInTransaction(async () => {
       const movements = await this.deps.ledger.listByPosition(line.itemId, line.warehouseId);
       const applied = movements.find((m) => m.sourceDocType === "LANDED_COST" && m.sourceDocId === line.landedCostDocId && isRevaluation(m));
-      if (!applied) return;
+      if (!applied) return Money.zero();
+      const before = replay(line.itemId, line.warehouseId, movements);
       const last = movements[movements.length - 1]?.occurredAt;
       if (last && last.slice(0, 10) > line.occurredAt.slice(0, 10)) {
         throw new LandedCostDateBeforeStockMovementError(line.occurredAt.slice(0, 10), line.itemId, last.slice(0, 10));
@@ -1224,7 +1226,8 @@ export class StockLedgerService {
         valueDelta: applied.valueDelta,
         revaluesSourceDocId: applied.revaluesSourceDocId,
       });
-      await this.rebuildWithin(line.itemId, line.warehouseId);
+      const after = await this.rebuildWithin(line.itemId, line.warehouseId);
+      return Money.fromScaled(before.totalValue.scaled - after.totalValue.scaled);
     });
   }
 

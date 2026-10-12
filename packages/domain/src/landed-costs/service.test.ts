@@ -109,6 +109,24 @@ async function harness() {
         glDeps,
       );
     },
+    postAbsorbed: async (posting) => {
+      await postJournalEntry(
+        {
+          id: posting.entryId,
+          date: posting.date,
+          memo: posting.memo,
+          source: "system",
+          sourceDocId: posting.sourceDocId,
+          sourceDocNumber: posting.sourceDocNumber,
+          lines: [
+            { accountId: ACCOUNTS.inventoryAccountId, debit: posting.amount, credit: Money.zero() },
+            { accountId: ACCOUNTS.unabsorbedCostAccountId, debit: Money.zero(), credit: posting.amount },
+          ],
+        },
+        glDeps,
+      );
+    },
+    reverseSideEntry: async () => null,
   });
 
   return { service, documents, repo, ledger, stockService, layers, stockLedger };

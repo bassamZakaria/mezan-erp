@@ -429,10 +429,6 @@ const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
 const JOURNAL_VIEW_PERMISSION = "accounting.journal.view";
 const REVERSED_STATUS: SalesInvoice["status"] = "reversed";
 
-enum StockDirection {
-  In = "IN",
-}
-
 enum SalesInvoiceAuditAction {
   Void = "VOID",
 }
@@ -442,13 +438,13 @@ enum SalesInvoiceVoidRefusalCode {
   HasReturns = "INVOICE_HAS_RETURNS",
   NotPosted = "INVOICE_NOT_POSTED",
   StockRestoreUnavailable = "STOCK_RESTORE_UNAVAILABLE",
-  IssueCostUnknown = "ISSUE_COST_UNKNOWN",
+  IssueMovementMissing = "ISSUE_MOVEMENT_MISSING",
 }
 
 class SalesInvoiceVoidRefusal extends Error {
   constructor(
     readonly status: 404 | 409 | 503,
-    readonly body: { readonly error: string; readonly message: string },
+    readonly body: { readonly error: string; readonly message: string; readonly messageEn?: string },
   ) {
     super(body.message);
     this.name = "SalesInvoiceVoidRefusal";
@@ -1390,20 +1386,12 @@ export function createSalesInvoicesRoutes(
             message: "الفاتورة ليس لها قيد يومية لعكسه.",
           });
         }
-        const stockLines = current.lines.filter((l) => l.isStock && !l.qty.isZero());
+        const stockLines = current.lines.filter((l) => l.isStock && !l.baseQty.isZero());
         const stockRestore = deps.stockRestore;
-        if (stockLines.length > 0 && !stockRestore) {
+        if (stockLines.length > 0 && !stockRestore?.reverse) {
           throw new SalesInvoiceVoidRefusal(503, {
             error: SalesInvoiceVoidRefusalCode.StockRestoreUnavailable,
             message: "إلغاء الفاتورة يتطلب إرجاع المخزون؛ وحدة المخزون غير مفعّلة.",
-          });
-        }
-        // Restoring at a cost the document does not carry would put stock back at
-        // zero value and leave GL 1200 permanently above the valuation report.
-        if (stockLines.some((l) => l.unitCost === null)) {
-          throw new SalesInvoiceVoidRefusal(409, {
-            error: SalesInvoiceVoidRefusalCode.IssueCostUnknown,
-            message: "لا يمكن إرجاع المخزون: تكلفة الصرف غير مسجّلة على الفاتورة.",
           });
         }
 
@@ -1412,22 +1400,30 @@ export function createSalesInvoicesRoutes(
           date,
           memo: `عكس فاتورة مبيعات ${current.docNo ?? current.id}`,
         });
-        if (stockLines.length > 0 && stockRestore) {
-          await stockRestore.apply({
-            sourceDocType: SALES_INVOICE_DOC_TYPE,
-            // A separate source id from the issue, whose movement ids are
-            // `${invoice.id}:${index}` — reusing it would collide in the ledger.
-            sourceDocId: `${current.id}:void`,
-            sourceDocNumber: current.docNo,
-            warehouseId: current.warehouseId,
-            date,
-            lines: stockLines.map((l) => ({
-              itemId: l.itemId,
-              direction: StockDirection.In,
-              qty: l.qty,
-              unitCost: l.unitCost as Money,
-            })),
-          });
+        if (stockLines.length > 0 && stockRestore?.reverse) {
+          // INVARIANT: the goods go back as the ledger recorded them leaving —
+          // base units, the warehouse each was drawn from and the average each
+          // left at — never as the invoice line states them. A line sold by
+          // the carton names 1 where the ledger issued 12.
+          const restored = await stockRestore.reverse(
+            {
+              sourceDocType: SALES_INVOICE_DOC_TYPE,
+              sourceDocId: `${current.id}:void`,
+              sourceDocNumber: current.docNo,
+              warehouseId: current.warehouseId,
+              date,
+              lines: [],
+            },
+            current.id,
+          );
+          const issuedAtCost = stockLines.some((l) => l.unitCost !== null && l.unitCost.scaled !== 0n);
+          if (issuedAtCost && restored.valueMoved.scaled === 0n) {
+            throw new SalesInvoiceVoidRefusal(409, {
+              error: SalesInvoiceVoidRefusalCode.IssueMovementMissing,
+              message: "لا يمكن إرجاع المخزون: حركة صرف هذه الفاتورة غير موجودة في دفتر المخزون.",
+              messageEn: "The stock cannot be put back: this invoice's issue movement is not in the stock ledger.",
+            });
+          }
         }
         const next: SalesInvoice = { ...current, status: REVERSED_STATUS };
         if (!(await deps.repo.writeFields(next, [SalesInvoiceField.Status], { status: [current.status] }))) {

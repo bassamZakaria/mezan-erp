@@ -3204,7 +3204,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           for (const invoice of invoices) {
             for (const line of invoice.lines) {
               if (!line.isStock) continue;
-              lines.push({ itemId: line.itemId, warehouseId: invoice.warehouseId, qty: line.qty });
+              lines.push({ itemId: line.itemId, warehouseId: invoice.warehouseId, qty: line.baseQty });
             }
           }
           for (const transfer of transfers) {

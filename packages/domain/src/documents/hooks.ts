@@ -115,6 +115,8 @@ export interface DocumentStockLine {
   readonly qty: Qty;
   /** Required for an IN line (receipt cost); ignored for OUT (moving average used). */
   readonly unitCost?: Money;
+  /** Set only when this line moves in a warehouse other than the plan's own. */
+  readonly warehouseId?: string;
 }
 
 export interface DocumentStockPlan {
@@ -207,18 +209,24 @@ export function mirrorStockPlan(
   const moved = movements.filter((m) => !m.qty.isZero());
   if (moved.length === 0) return null;
   const warehouses = [...new Set(moved.map((m) => m.warehouseId))];
-  if (warehouses.length > 1) {
+  const directions = new Set(moved.map((m) => m.direction));
+  // An issue the engine sourced from several warehouses goes back to each of
+  // them; a movement set that went OUT of one warehouse and IN to another is a
+  // transfer, and mirroring it line by line would not be valuation-neutral.
+  if (warehouses.length > 1 && directions.size > 1) {
     throw new Error("لا يمكن عكس حركة مخزنية موزّعة على أكثر من مستودع");
   }
+  const planWarehouse = warehouses[0] as string;
   return {
     ...plan,
-    warehouseId: warehouses[0] as string,
+    warehouseId: planWarehouse,
     toWarehouseId: undefined,
     lines: moved.map((m) => ({
       itemId: m.itemId,
       direction: m.direction === "IN" ? ("OUT" as const) : ("IN" as const),
       qty: m.qty,
       unitCost: m.unitCost,
+      ...(m.warehouseId === planWarehouse ? {} : { warehouseId: m.warehouseId }),
     })),
   };
 }

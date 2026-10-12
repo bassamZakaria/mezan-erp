@@ -958,6 +958,7 @@ export class StockLedgerService {
       readonly direction: StockMovementDirection;
       readonly qty: Qty;
       readonly unitCost?: Money;
+      readonly warehouseId?: string;
     }[];
     readonly occurredAt?: string;
   }): Promise<DocumentStockPlanResult> {
@@ -971,7 +972,7 @@ export class StockLedgerService {
         const { signedValue } = await this.applyMovement({
           movementId: `${plan.sourceDocId}:${i}`,
           itemId: line.itemId,
-          warehouseId: plan.warehouseId,
+          warehouseId: line.warehouseId ?? plan.warehouseId,
           direction: line.direction,
           qty: line.qty,
           unitCost: line.unitCost,

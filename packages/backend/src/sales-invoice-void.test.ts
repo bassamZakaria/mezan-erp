@@ -8,11 +8,11 @@ const BUSINESS_CUSTOMER = "CUST-DEMO-1";
 
 let kit: BackendKit;
 
-async function confirmedStockSale(id: string) {
+async function confirmedStockSale(id: string, line: Record<string, unknown> = {}) {
   const created = await kit.call("POST", "/sales-invoices", {
     id, date: TODAY, dueDate: "2026-09-23", customerId: BUSINESS_CUSTOMER, customerNameAr: "عميل", warehouseId: WAREHOUSE, branchId: "BR-MAIN",
     arAccountId: "1105", taxAccountId: "2200",
-    lines: [{ lineId: "A", itemId: STOCK_ITEM, itemNameAr: "صنف", isStock: true, qty: "2", unitPrice: "100", revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", taxRateId: "VAT14" }],
+    lines: [{ lineId: "A", itemId: STOCK_ITEM, itemNameAr: "صنف", isStock: true, qty: "2", unitPrice: "100", revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", taxRateId: "VAT14", ...line }],
   });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const confirmed = await kit.call("POST", `/sales-invoices/${id}/confirm`, {});
@@ -52,6 +52,21 @@ describe("voiding a confirmed stock invoice", () => {
     expect(await kit.invariants()).toEqual(ledgerBefore);
   });
 
+  it("puts back the pieces a line sold by the carton issued, so quantity and average cost stand where they stood", async () => {
+    const before = await balance();
+    const ledgerBefore = await kit.invariants();
+    await confirmedStockSale("VOID-CARTON-1", { qty: "1", unitFactor: 12, unitPrice: "1200" });
+    const issued = await balance();
+    expect(Number(before.onHand) - Number(issued.onHand)).toBe(12);
+
+    const voided = await kit.call("POST", "/sales-invoices/VOID-CARTON-1/void", { reason: "خطأ" });
+    expect([voided.status, voided.body.status], JSON.stringify(voided.body)).toEqual([200, "reversed"]);
+
+    const after = await balance();
+    expect([after.onHand, after.totalValue, after.averageCost]).toEqual([before.onHand, before.totalValue, before.averageCost]);
+    expect(await kit.invariants()).toEqual(ledgerBefore);
+  });
+
   it("writes nothing when the reversal is refused: the goods stay out and the invoice stays confirmed", async () => {
     const invoice = await confirmedStockSale("VOID-STOCK-2");
     const issued = await balance();
@@ -72,6 +87,44 @@ describe("voiding a confirmed stock invoice", () => {
     const after = await submissionOf(invoice.docNo);
     expect(after?.status).toBe("excluded");
     expect(after?.exclusionReason).toContain(invoice.docNo);
+  });
+});
+
+describe("a line sold by the carton, everywhere its quantity is read", () => {
+  const reserved = async () =>
+    rowsOf((await kit.call("GET", `/inventory/stock-balance?warehouseId=${WAREHOUSE}`)).body).find((row) => row.itemId === STOCK_ITEM)?.reserved;
+
+  it("reserves its pieces while it is a draft", async () => {
+    const before = Number(await reserved());
+    const created = await kit.call("POST", "/sales-invoices", {
+      id: "CARTON-DRAFT-1", date: TODAY, dueDate: "2026-09-23", customerId: BUSINESS_CUSTOMER, customerNameAr: "عميل", warehouseId: WAREHOUSE, branchId: "BR-MAIN",
+      arAccountId: "1105", taxAccountId: "2200",
+      lines: [{ lineId: "A", itemId: STOCK_ITEM, itemNameAr: "صنف", isStock: true, qty: "1", unitFactor: 12, unitPrice: "1200", revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", taxRateId: "VAT14" }],
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(Number(await reserved()) - before).toBe(12);
+    expect((await kit.call("POST", "/sales-invoices/CARTON-DRAFT-1/cancel", {})).status).toBe(200);
+  });
+
+  it("is returned in pieces: a full return puts all twelve back and the ledger still agrees", async () => {
+    const before = await balance();
+    const ledgerBefore = await kit.invariants();
+    await confirmedStockSale("CARTON-RET-1", { qty: "1", unitFactor: 12, unitPrice: "1200" });
+    const drafted = await kit.call("POST", "/sales-returns/from-invoice", {
+      id: "CARTON-RET-1-R", date: TODAY, memo: "", warehouseId: WAREHOUSE, sourceInvoiceId: "CARTON-RET-1", reason: "DEFECTIVE",
+      requested: [{ itemId: STOCK_ITEM, sourceLineId: "A", qty: "12" }],
+    });
+    expect(drafted.status, JSON.stringify(drafted.body)).toBe(201);
+    expect((await kit.call("POST", "/sales-returns/CARTON-RET-1-R/confirm", {})).status).toBe(200);
+    const after = await balance();
+    expect([after.onHand, after.totalValue, after.averageCost]).toEqual([before.onHand, before.totalValue, before.averageCost]);
+    const ledgerAfter = await kit.invariants();
+    expect([ledgerAfter.tb, ledgerAfter.inventory]).toEqual([ledgerBefore.tb, ledgerBefore.inventory]);
+    const over = await kit.call("POST", "/sales-returns/from-invoice", {
+      id: "CARTON-RET-1-R2", date: TODAY, memo: "", warehouseId: WAREHOUSE, sourceInvoiceId: "CARTON-RET-1", reason: "DEFECTIVE",
+      requested: [{ itemId: STOCK_ITEM, sourceLineId: "A", qty: "1" }],
+    });
+    expect(over.status).toBeGreaterThanOrEqual(400);
   });
 });
 

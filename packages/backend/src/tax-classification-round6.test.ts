@@ -104,3 +104,22 @@ describe("classifying a line twice under the same rate", () => {
     expect(await kit.auditRows("PURCHASE_INVOICE", "R6-PRETRY", "CLASSIFY_LINE_TAX")).toHaveLength(1);
   });
 });
+
+describe("a return raised against a line while it was being classified", () => {
+  it("is named when the classification is asked for again, line and entry", async () => {
+    const stock = { lineId: "A", itemId: "ITEM-DEMO-2", itemNameAr: "صنف", isStock: true, qty: "2", unitPrice: "100", revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", ...UNNAMED_ZERO };
+    await confirmedSale("R6-LATE", [stock]);
+    const [classified, drafted] = await Promise.all([
+      classifySale("R6-LATE", "A"),
+      kit.call("POST", "/sales-returns/from-invoice", { id: "R6-LATE-R", date: TODAY, memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "R6-LATE", reason: "DEFECTIVE", requested: [{ itemId: "ITEM-DEMO-2", sourceLineId: "A", qty: "1" }] }),
+    ]);
+    expect([classified.status, drafted.status]).toEqual([200, 201]);
+    expect((await kit.call("POST", "/sales-returns/R6-LATE-R/confirm", {})).status).toBe(200);
+    expect((await classifySale("R6-LATE", "A")).status).toBe(200);
+    const returned = (await kit.call("GET", "/sales-returns/R6-LATE-R")).body;
+    expect(namesOf(returned.lines)).toEqual([EXEMPT_RATE]);
+    const tagged = (await kit.journalLines(returned.journalEntryId)).filter((line) => line.taxRatePercent !== null);
+    expect(tagged.map((line) => line.taxRateId)).toEqual(tagged.map(() => EXEMPT_RATE));
+    expect(tagged.length).toBeGreaterThan(0);
+  });
+});

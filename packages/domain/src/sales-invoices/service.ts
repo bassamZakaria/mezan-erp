@@ -1064,7 +1064,12 @@ export class SalesInvoiceService {
       const taxRates = this.deps.taxRates ? await this.deps.taxRates.list() : null;
       const postedLines = existing.lines.map((l) => ({ lineRef: l.lineId, label: l.itemNameAr, stored: { taxRateId: l.taxRateId ?? null, taxRatePercent: l.taxRatePercent } }));
       const standing = alreadyClassifiedAs(taxRates, postedLines, request);
-      if (standing) return { invoice: existing, plan: standing, journalLinesNamed: 0, filing: TaxClassificationFilingOutcome.NotQueued };
+      if (standing) {
+        // A return drafted while the first classification ran never heard of
+        // it; asking again carries the standing rate to it and nothing else.
+        await this.deps.taxDependents?.carry({ sourceDocumentId: existing.id, taxRatePercent: standing.before.taxRatePercent, taxRateId: request.taxRateId });
+        return { invoice: existing, plan: standing, journalLinesNamed: 0, filing: TaxClassificationFilingOutcome.NotQueued };
+      }
       const plan = planTaxClassification(taxRates, postedLines, request);
       if (isSystemTaxRate(request.taxRateId) && this.deps.taxPolicy && (await this.deps.taxPolicy()).enabled) {
         throw new SystemTaxRateOnlyError(request.taxRateId, plan.taxRateName);

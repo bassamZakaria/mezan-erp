@@ -108,7 +108,10 @@ export async function classifyPurchaseInvoiceLineTax(
       stored: { taxRateId: line.taxRateId ?? null, taxRatePercent: line.taxRatePercent },
     }));
     const standing = alreadyClassifiedAs(taxRates, postedLines, request);
-    if (standing) return { invoice: existing, plan: standing, journalLinesNamed: 0 };
+    if (standing) {
+      await deps.taxDependents?.carry({ sourceDocumentId: existing.id, taxRatePercent: standing.before.taxRatePercent, taxRateId: request.taxRateId });
+      return { invoice: existing, plan: standing, journalLinesNamed: 0 };
+    }
     const plan = planTaxClassification(taxRates, postedLines, request);
     if (isSystemTaxRate(request.taxRateId)) throw new SystemTaxRateOnlyError(request.taxRateId, plan.taxRateName);
     // ORDER MATTERS: the journal goes first — it is what refuses a filed VAT

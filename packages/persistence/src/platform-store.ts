@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
 import {
+  InvalidTenantError,
   Money,
   type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement, type CardCheckoutStatus,
   type PaymentProviderId,
@@ -215,6 +216,29 @@ function addMissingColumns(sqlite: Database.Database): void {
   if (!onTenant.has("pending_owner")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN pending_owner TEXT`);
 }
 
+const TENANT_DB_FILE_INDEX = "idx_tenant_db_file";
+
+// REQUIRED ORDERING: look for duplicates before building the index. Two rows
+// naming one file is two companies in one set of books; the platform refuses
+// to start and names the rows, and nothing is changed for an operator to undo.
+function guardOneDbFilePerTenant(sqlite: Database.Database): void {
+  const shared = sqlite
+    .prepare(`SELECT db_file AS dbFile, group_concat(id, ', ') AS ids FROM (SELECT db_file, id FROM tenant ORDER BY id) GROUP BY db_file HAVING count(*) > 1`)
+    .all() as { dbFile: string; ids: string }[];
+  if (shared.length > 0) {
+    throw new Error(
+      `the platform database names one tenant database file from more than one tenant row; fix the rows before starting: ${shared
+        .map((row) => `"${row.dbFile}" <- tenants ${row.ids}`)
+        .join("; ")}`,
+    );
+  }
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${TENANT_DB_FILE_INDEX} ON tenant(db_file)`);
+}
+
+function isDbFileTaken(err: unknown): boolean {
+  return err instanceof Error && "code" in err && err.code === "SQLITE_CONSTRAINT_UNIQUE" && err.message.includes("tenant.db_file");
+}
+
 interface TenantRow {
   id: string; code: string; name_ar: string; name_en: string | null; owner_email: string;
   owner_user_id: string | null; owner_contact_verified: number;
@@ -291,12 +315,17 @@ class SqliteTenantStore implements TenantRepository {
 
   async save(t: Tenant): Promise<void> {
     assertKnownStatus("tenant", t.status, TENANT_STATUSES);
-    this.upsert.run({
-      id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
-      ownerUserId: t.ownerUserId, ownerContactVerified: t.ownerContactVerified ? 1 : 0,
-      ownerNeeded: t.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(t),
-      status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
-    });
+    try {
+      this.upsert.run({
+        id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
+        ownerUserId: t.ownerUserId, ownerContactVerified: t.ownerContactVerified ? 1 : 0,
+        ownerNeeded: t.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(t),
+        status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
+      });
+    } catch (err) {
+      if (isDbFileTaken(err)) throw new InvalidTenantError(["ملف قاعدة بيانات هذه المنشأة مسجّل لمنشأة أخرى"]);
+      throw err;
+    }
   }
 
   async compareAndSetStatus(before: Tenant, after: Tenant): Promise<boolean> {
@@ -310,7 +339,12 @@ class SqliteTenantStore implements TenantRepository {
   }
 
   async setDbFile(id: string, from: string, to: string): Promise<boolean> {
-    return this.dbFileUpdate.run({ id, from, to }).changes === 1;
+    try {
+      return this.dbFileUpdate.run({ id, from, to }).changes === 1;
+    } catch (err) {
+      if (isDbFileTaken(err)) return false;
+      throw err;
+    }
   }
 
   async compareAndSetOwner(before: Tenant, after: Tenant, sideEffect: () => Promise<void>): Promise<boolean> {
@@ -1019,6 +1053,7 @@ export function createSqlitePlatformStores(
   const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
+  guardOneDbFilePerTenant(sqlite);
   backfillBillingAnchors(sqlite);
   repairUtcBillingAnchors(sqlite);
   return {

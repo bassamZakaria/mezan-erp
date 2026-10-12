@@ -17,6 +17,7 @@ export {
   type SqliteDriver,
   type SqliteOpenOptions,
 } from "./sqlite-connection.js";
+export { holdSqliteFile, SqliteFileBusyError, type HeldSqliteFile } from "./sqlite-file-hold.js";
 export {
   schema,
   journalEntry,

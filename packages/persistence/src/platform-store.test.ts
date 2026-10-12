@@ -304,7 +304,7 @@ describe("createSqlitePlatformStores", () => {
   it("refuses duplicate tenant codes, plan codes and platform emails", async () => {
     const stores = createSqlitePlatformStores(":memory:");
     await stores.tenants.save(tenant);
-    await expect(stores.tenants.save({ ...tenant, id: "T2" })).rejects.toThrow(/UNIQUE/);
+    await expect(stores.tenants.save({ ...tenant, id: "T2", dbFile: "tenants/T2.db" })).rejects.toThrow(/UNIQUE/);
     await stores.plans.save(plan);
     await expect(stores.plans.save({ ...plan, id: "P2" })).rejects.toThrow(/UNIQUE/);
     await stores.platformUsers.save(user);

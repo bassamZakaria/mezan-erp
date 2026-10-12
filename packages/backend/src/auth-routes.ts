@@ -115,7 +115,7 @@ async function tenantName(settings: SettingsRepository): Promise<string> {
  * @mezan/api's session-auth.ts), so it is read from `requestOrigin(c)` and
  * never from anything in the request body or headers.
  */
-async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null, deviceBound = false): Promise<SessionDTO> {
+async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null, device: DeviceBinding | null = null): Promise<SessionDTO> {
   let permissions: string[];
   let roleCode: string | null = null;
   if (user.isCompanyAdmin) {
@@ -143,17 +143,21 @@ async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null
     // permissions travel too, but only so the UI can hide what the user cannot
     // do — the server re-reads them from this session on every request and
     // never from what comes back.
-    ...issueSession(deps.sessions, { userId: user.id, permissions, roleCode, branchScope: user.branchScope, warehouseScope: user.warehouseScope }, origin, deviceBound),
+    ...issueSession(deps.sessions, { userId: user.id, permissions, roleCode, branchScope: user.branchScope, warehouseScope: user.warehouseScope }, origin, device),
   };
 }
 
-function issueSession(sessions: SessionRegistry, grant: SessionGrant, origin: string | null, deviceBound: boolean): { token: string; deviceSecret?: string } {
-  return deviceBound ? sessions.issueDeviceBound(grant, origin) : { token: sessions.issue(grant, origin) };
+interface DeviceBinding {
+  readonly heldSecret: string | null;
+}
+
+function issueSession(sessions: SessionRegistry, grant: SessionGrant, origin: string | null, device: DeviceBinding | null): { token: string; deviceSecret?: string } {
+  return device ? sessions.issueDeviceBound(grant, origin, device.heldSecret) : { token: sessions.issue(grant, origin) };
 }
 
 /** A client that keeps a secret in the device's own secure storage asks for a session bound to it instead of to its address. */
-function wantsDeviceBinding(c: Context): boolean {
-  return c.req.header(DEVICE_BINDING_HEADER) === "1";
+function deviceBindingOf(c: Context): DeviceBinding | null {
+  return c.req.header(DEVICE_BINDING_HEADER) === "1" ? { heldSecret: c.req.header(DEVICE_SECRET_HEADER) ?? null } : null;
 }
 
 /**
@@ -415,7 +419,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: signedIn.id, username: needle });
     // The session is bound to the origin the CREDENTIAL was verified from, so
     // the till that logged in is the only place the token it got back works.
-    return c.json(await toSession(signedIn, deps, requestOrigin(c), wantsDeviceBinding(c)));
+    return c.json(await toSession(signedIn, deps, requestOrigin(c), deviceBindingOf(c)));
   });
 
   app.post("/auth/step-up", async (c) => {

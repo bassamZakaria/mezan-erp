@@ -138,7 +138,7 @@ export interface SessionRegistry {
   // SESSION, never a credential on its own — every request still needs the
   // bearer token, so a browser that held it in a cookie would gain no
   // cross-site request surface from it.
-  issueDeviceBound(grant: SessionGrant, origin?: string | null): DeviceBoundSession;
+  issueDeviceBound(grant: SessionGrant, origin?: string | null, heldSecret?: string | null): DeviceBoundSession;
   needsStepUp(token: string): boolean;
   confirmStepUp(token: string): void;
   find(token: string, origin?: string | null, device?: string | null): SessionGrant | null;
@@ -297,7 +297,21 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
     issue(grant, origin = null) {
       return open(grant, origin, null);
     },
-    issueDeviceBound(grant, origin = null) {
+    issueDeviceBound(grant, origin = null, heldSecret = null) {
+      // SECURITY: a secret the caller presents is adopted only when a LIVE
+      // session of the SAME user was issued with it. Anything else — a value
+      // the server never issued, or another user's secret planted on this
+      // device — is discarded for a fresh one, so a sign-in can never be bound
+      // to a secret somebody else chose.
+      if (heldSecret) {
+        const heldHash = hashToken(heldSecret);
+        const at = now();
+        const onThisDevice = [...byHash].filter(([, session]) => session.deviceHash !== null && tokensMatch(session.deviceHash, heldHash) && !expired(session, at));
+        if (onThisDevice.some(([, session]) => session.userId === grant.userId)) {
+          return { token: open(grant, origin, heldHash), deviceSecret: heldSecret };
+        }
+        for (const [key] of onThisDevice) byHash.delete(key);
+      }
       const deviceSecret = randomBytes(32).toString("base64url");
       return { token: open(grant, origin, hashToken(deviceSecret)), deviceSecret };
     },

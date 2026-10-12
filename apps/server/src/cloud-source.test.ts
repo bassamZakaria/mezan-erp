@@ -165,6 +165,41 @@ describe("a cloud caller behind the two-hop proxy", () => {
       expect((await h.send("/api/profile", { token: body.token, tenant: "acme" })).status).toBe(401);
     });
 
+    it("keeps both sessions when one user signs in on two browsers, on a browser and a phone, or with no device binding, all from one address", async () => {
+      const h = await boot();
+      const admin = await provision(h);
+      const first = await browserSignIn(h, admin);
+      const second = await browserSignIn(h, admin);
+      const phone = (await (await h.send("/api/auth/login", {
+        method: "POST", tenant: "acme", headers: { "x-mezan-device-binding": "1" }, body: JSON.stringify({ username: admin.adminEmail, pin: admin.adminPin }),
+      })).json()) as { token: string; deviceSecret: string };
+      const plainA = (await (await signIn(h, admin)).json()) as { token: string };
+      const plainB = (await (await signIn(h, admin)).json()) as { token: string };
+
+      const statuses = [
+        (await h.send("/api/profile", { token: first.body.token, tenant: "acme", headers: { cookie: first.cookie } })).status,
+        (await h.send("/api/profile", { token: second.body.token, tenant: "acme", headers: { cookie: second.cookie } })).status,
+        (await h.send("/api/profile", { token: phone.token, tenant: "acme", headers: { "x-mezan-device": phone.deviceSecret } })).status,
+        (await h.send("/api/profile", { token: plainA.token, tenant: "acme" })).status,
+        (await h.send("/api/profile", { token: plainB.token, tenant: "acme" })).status,
+        (await h.send("/api/profile", { token: first.body.token, tenant: "acme", headers: { cookie: first.cookie } })).status,
+      ];
+      expect(statuses).toEqual([200, 200, 200, 200, 200, 200]);
+    });
+
+    it("keeps the first tab signed in when the same user signs in again in the same browser, and records no rejected device", async () => {
+      const h = await boot();
+      const admin = await provision(h);
+      const first = await browserSignIn(h, admin);
+      const second = await browserSignIn(h, admin, { cookie: first.cookie });
+      const browser = { tenant: "acme", headers: { cookie: second.cookie } };
+
+      expect((await h.send("/api/profile", { ...browser, token: first.body.token })).status).toBe(200);
+      expect((await h.send("/api/profile", { ...browser, token: second.body.token })).status).toBe(200);
+      const audit = await (await h.send("/api/audit?action=SESSION_DEVICE_REJECTED", { ...browser, token: second.body.token })).text();
+      expect(audit).not.toContain('"action":"SESSION_DEVICE_REJECTED"');
+    });
+
     it("is cleared on sign-out", async () => {
       const h = await boot();
       const admin = await provision(h);

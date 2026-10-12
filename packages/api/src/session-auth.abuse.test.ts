@@ -288,3 +288,37 @@ describe("token reader and comparison", () => {
     expect(tokensMatch("abc", "")).toBe(false);
   });
 });
+
+describe("a second sign-in from a device that already holds a session's secret", () => {
+  const grantOf = (userId: string) => ({ userId, permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+
+  it("keeps the same user's first session alive, bound to the secret the device already holds", () => {
+    const sessions = createSessionRegistry();
+    const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    const second = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10", first.deviceSecret);
+
+    expect(second.deviceSecret).toBe(first.deviceSecret);
+    expect(second.token).not.toBe(first.token);
+    expect(sessions.inspect(first.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-1");
+    expect(sessions.inspect(second.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-1");
+  });
+
+  it("ends another user's session on that device quietly, so its token is unknown and not reported as stolen", () => {
+    const sessions = createSessionRegistry();
+    const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    const second = sessions.issueDeviceBound(grantOf("u-2"), "41.33.10.10", first.deviceSecret);
+
+    expect(second.deviceSecret).not.toBe(first.deviceSecret);
+    expect(sessions.inspect(first.token, "41.33.10.10", second.deviceSecret)).toEqual({ grant: null, refusal: null });
+    expect(sessions.inspect(second.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-2");
+  });
+
+  it("never adopts a secret no live session was issued with", () => {
+    const sessions = createSessionRegistry();
+    const planted = "attacker-chosen-secret";
+    const issued = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10", planted);
+
+    expect(issued.deviceSecret).not.toBe(planted);
+    expect(sessions.inspect(issued.token, "41.33.10.10", planted).grant).toBeNull();
+  });
+});

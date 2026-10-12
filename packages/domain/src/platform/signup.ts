@@ -102,9 +102,9 @@ export interface SignupRequestRepository {
    * transition; only this method's WHERE clause makes it safe to run twice.
    */
   tryMarkVerified(tokenHash: string, nowIso: string): Promise<SignupRequest | null>;
-  /** A claim taken before `staleBeforeIso` must be taken over: its holder died mid-provision and will never release it. */
+  // CONTRACT: a claim taken before `staleBeforeIso` must be taken over; its holder died mid-provision and will never release it.
   tryClaimProvisioning(tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string): Promise<boolean>;
-  /** False once another caller has taken the claim over: the holder must stop before it hands out a PIN. */
+  // CONTRACT: false once another caller has taken the claim over; the holder must stop before it hands out a PIN.
   renewProvisioning(tokenHash: string, claimId: string, nowIso: string): Promise<boolean>;
   provisioningClaimedAt(tokenHash: string): Promise<string | null>;
   /** INVARIANT: higher than every claim taken before it, on any token. Null once the claim is no longer this caller's. */
@@ -113,7 +113,7 @@ export interface SignupRequestRepository {
   takeProvisionFence(nowIso: string): Promise<number>;
   releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
   followOwnerEmail(code: string, before: string, after: string): Promise<void>;
-  /** Retires every request for the code AND drops any provisioning claim held on them, so a holder mid-provision loses its turn. */
+  // CONTRACT: retires every request for the code AND drops any provisioning claim held on them, so a holder mid-provision loses its turn.
   releaseByCode(code: string): Promise<void>;
 }
 

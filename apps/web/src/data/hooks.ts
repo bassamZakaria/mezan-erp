@@ -305,6 +305,7 @@ import type {
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
 import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
+import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
@@ -469,7 +470,7 @@ function retryAfterSecondsOf(res: TransportResponse): number | undefined {
 const PLATFORM_LOOKUP_JITTER = 0.2;
 const PERMANENT_LOOKUP_REFUSALS: readonly number[] = [400, 401, 403, 410];
 
-// The spread keeps every till that lost the same host from looking again in
+// INVARIANT: the spread keeps every till that lost the same host from looking again in
 // the same instant. A wait the server asked for is never shortened by it.
 export function platformLookupRetryDelay(failureCount: number, error: unknown, random: () => number = Math.random): number {
   const backoff = PLATFORM_LOOKUP_FIRST_RETRY_MS * 2 ** Math.min(failureCount, 16);
@@ -1891,9 +1892,9 @@ export function useSetUserStatus() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<UserDTO, ApiError, { id: string; status: "active" | "inactive"; newOwnerUserId?: string }>({
+  return useMutation<UserDTO, ApiError, { id: string; status: UserStatusCode; newOwnerUserId?: string }>({
     mutationFn: async ({ id, status, newOwnerUserId }) => {
-      const res = await request(`/users/${id}/${status === "active" ? "activate" : "deactivate"}`, {
+      const res = await request(`/users/${id}/${status === UserStatusCode.Active ? "activate" : "deactivate"}`, {
         method: "POST",
         ...(newOwnerUserId ? { body: JSON.stringify({ newOwnerUserId }) } : {}),
       });

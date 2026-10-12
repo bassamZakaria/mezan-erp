@@ -261,7 +261,6 @@ function toTenant(r: TenantRow): Tenant {
   };
 }
 
-// A request recorded before it carried its own deadline lapses seven days after it was asked for.
 function pendingOwnerOf(stored: string): PendingOwner {
   const read = JSON.parse(stored) as Omit<PendingOwner, "expiresAt"> & { expiresAt?: string };
   return { ...read, expiresAt: read.expiresAt ?? pendingOwnerExpiresAt(read.requestedAt) };
@@ -505,7 +504,7 @@ function backfillBillingAnchors(sqlite: Database.Database): void {
 
 const UTC_ANCHOR_REPAIR = "2026-10-billing-anchor-utc-repair";
 
-// Corrects only an anchor that is provably the UTC day of the subscription's
+// INVARIANT: corrects only an anchor that is provably the UTC day of the subscription's
 // creation, and only to the day its own payment history reproduces. Anything
 // the history does not settle is marked for the platform owner, never guessed.
 function repairUtcBillingAnchors(sqlite: Database.Database): void {
@@ -974,7 +973,7 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
     this.takeFence = takeFence;
     const stampFence = sqlite.prepare(`UPDATE signup_provision_claim SET fence = ? WHERE token_hash = ? AND claim_id = ?`);
     this.fenceOf = sqlite.prepare(`SELECT fence FROM signup_provision_claim WHERE token_hash = ? AND claim_id = ?`);
-    // IMMEDIATE: the stale-claim delete and the insert must be one write transaction,
+    // REQUIRED ORDERING: IMMEDIATE, because the stale-claim delete and the insert must be one write transaction,
     // or two processes can both delete the same dead claim and both believe they hold it.
     this.claim = sqlite
       .transaction((tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string) => {

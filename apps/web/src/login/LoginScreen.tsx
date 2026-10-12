@@ -37,7 +37,7 @@ function formatWait(seconds: number): string {
   if (seconds < 120) return `${seconds}s`;
   return `${Math.ceil(seconds / 60)}m`;
 }
-// Offered only on a desktop host running the demo seed. Any other sign-in opens
+// SECURITY: offered only on a desktop host running the demo seed. Any other sign-in opens
 // on an empty email field: a real company's sign-in must never name an account.
 const DEMO_SEED_ADMIN_EMAIL = "admin@cyag.example";
 
@@ -75,7 +75,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const login = useLogin();
   const queryClient = useQueryClient();
 
-  // Must stay the first hook: a layout effect here runs before any query in the tree
+  // REQUIRED ORDERING: must stay the first hook: a layout effect here runs before any query in the tree
   // subscribes, so no request is ever sent under the previous operator's company.
   useLayoutEffect(() => {
     if (tenantCodeIsLeftover()) clearTenantCode();
@@ -243,7 +243,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
   const [expired, setExpired] = useState(sessionExpiredPending);
-  // REQUIRED: the flag is cleared by something the person does, never by this
+  // REQUIRED ORDERING: the flag is cleared by something the person does, never by this
   // screen mounting. A sign-out by the server is followed by a navigation that
   // mounts the screen a second time, and a notice consumed by the first mount
   // was gone before anyone could read it.

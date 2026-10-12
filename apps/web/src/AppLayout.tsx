@@ -2,7 +2,7 @@ import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AppShell, SkeletonTable, filterNavGroups, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
-import { ALL_SCOPE } from "@mezan/domain";
+import { ALL_SCOPE, type UserStatusCode } from "@mezan/domain";
 import type { BranchDTO, EraseUserDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
 
@@ -516,7 +516,7 @@ export function AppLayout() {
     }
   }
 
-  async function handleToggleUserStatus(userId: string, status: "active" | "inactive", newOwnerUserId?: string) {
+  async function handleToggleUserStatus(userId: string, status: UserStatusCode, newOwnerUserId?: string) {
     try {
       const value = await setUserStatus.mutateAsync({ id: userId, status, ...(newOwnerUserId ? { newOwnerUserId } : {}) });
       return { ok: true, value };

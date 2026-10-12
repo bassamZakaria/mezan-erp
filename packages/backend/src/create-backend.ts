@@ -540,7 +540,6 @@ export interface BackendHandle {
   readonly app: App;
   ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null>;
   companyAdmins(): Promise<CompanyAdminAccount[]>;
-  /** The platform named this account the company's owner: written to the tenant's own audit, and its credential counts as its own again. */
   recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void>;
   /**
    * SECURITY: deliberately NOT an HTTP route. A route would be reachable through

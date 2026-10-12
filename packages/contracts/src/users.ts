@@ -51,7 +51,6 @@ export const userSchema = z.object({
   createdAt: z.string(),
   /** When the person's data was erased (D348); the row then carries only placeholders. */
   erasedAt: z.string().nullable().optional(),
-  /** True on the one account the platform records as the company's owner; absent where no platform does. */
   isCompanyOwner: z.boolean().optional(),
   ownerHandOver: z.nativeEnum(OwnerHandOverOutcome).optional(),
 });

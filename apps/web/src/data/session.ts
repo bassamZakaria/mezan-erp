@@ -159,17 +159,12 @@ export function clearTenantCode(): void {
 }
 
 const TENANT_CODE_CONFIRMED_KEY = "mezan.tenantCodeConfirmed";
-// Not a secret, only a name for this page load. `crypto.randomUUID` is absent on
+// INVARIANT: not a secret, only a name for this page load. `crypto.randomUUID` is absent on
 // the plain-http LAN origin a till runs on, and would stop the app loading there.
 const PAGE_LOAD_ID = `${Date.now()}:${Math.random()}`;
 
-/**
- * The company code the operator now at the machine typed and confirmed on the
- * sign-in screen. It holds for this page load only and is ended by a sign-in:
- * a reload, or the next operator, gets a neutral screen again. Kept in tab
- * storage with the load's id rather than in a module variable so nothing has
- * to be reset between two mounts of the screen.
- */
+// SECURITY: holds for this page load only and is ended by a sign-in, so a
+// reload, or the next operator at the machine, gets a neutral screen again.
 export function markTenantCodeConfirmed(code: string): void {
   getTabStorage()?.setItem(TENANT_CODE_CONFIRMED_KEY, JSON.stringify({ code, load: PAGE_LOAD_ID }));
 }

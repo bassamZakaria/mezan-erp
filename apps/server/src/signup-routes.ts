@@ -141,7 +141,6 @@ export interface SignupRoutesOptions {
   readonly provisionWaitMs?: number;
   readonly provisionHeartbeatMs?: number;
   readonly sourceReporter?: SourceReporter;
-  /** Absent means no platform mail is configured: the verification link is shown to the caller instead of mailed. */
   readonly mailer?: PlatformMailer;
 }
 
@@ -272,7 +271,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
 
     const verifyUrl = `${origin}/signup/verify?token=${encodeURIComponent(token)}`;
 
-    // No platform mail configured at all is dev mode, by deployment choice.
+    // SECURITY: no platform mail configured at all is dev mode, by deployment choice.
     // Showing the link back to whoever submitted the form is safe ONLY then:
     // once mail is configured a delivery failure never leaks a link for an
     // address the caller does not control.

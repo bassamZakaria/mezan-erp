@@ -95,7 +95,6 @@ export interface UserEmailChange {
   readonly before: string;
   readonly after: string;
   readonly actorId: string;
-  /** False when the actor signed in with a credential somebody else set; absent when nobody tracks it. */
   readonly actorCredentialIsOwn?: boolean;
 }
 

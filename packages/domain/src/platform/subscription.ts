@@ -43,7 +43,6 @@ export interface Subscription {
   readonly extraWarehouses: number;
   readonly currentPeriodStart: string;
   readonly currentPeriodEnd: string;
-  /** Absent only on rows stored before it existed; {@link billingAnchorDayOf} answers for those. */
   readonly billingAnchorDay?: number;
   readonly billingAnchorNeedsReview?: boolean;
   readonly trialEndsAt: string | null;
@@ -129,7 +128,7 @@ function asUtc(clock: BusinessClock): number {
   return Date.UTC(clock.year, clock.month, clock.day, clock.hour, clock.minute, clock.second, clock.millisecond);
 }
 
-// Two passes on purpose: a clock on the far side of a summer-time change must land on its own offset.
+// INVARIANT: two passes on purpose; a clock on the far side of a summer-time change must land on its own offset.
 function instantOfBusinessClock(clock: BusinessClock): Date {
   const wanted = asUtc(clock);
   let instant = wanted;
@@ -165,7 +164,7 @@ function businessDateOrdinal(iso: string): number {
   return Date.UTC(clock.year, clock.month, clock.day) / DAY_MS;
 }
 
-// An earlier build added the period in UTC. For a period that starts between
+// INVARIANT: an earlier build added the period in UTC. For a period that starts between
 // midnight in Cairo and midnight UTC on the 29th to the 31st, the UTC clamp to
 // the month's last day is already the 1st of the next month in Cairo, and a
 // renewal counted from there would skip a month. That exact signature, and
@@ -194,11 +193,9 @@ export function inferBillingAnchorDay(
   return sameMonths && neverLater ? anchor : null;
 }
 
-/**
- * An earlier build stored the UTC day of month as the anchor. For a
- * subscription created between midnight in Cairo and midnight UTC that is the
- * day BEFORE its real billing day. True only for that exact signature.
- */
+// INVARIANT: an earlier build stored the UTC day of month as the anchor. For a
+// subscription created between midnight in Cairo and midnight UTC that is the
+// day BEFORE its real billing day. True only for that exact signature.
 export function anchorIsUtcDayOfCreation(s: Pick<Subscription, "createdAt" | "billingAnchorDay">): boolean {
   const utcDay = new Date(s.createdAt).getUTCDate();
   return s.billingAnchorDay === utcDay && utcDay !== businessDayOfMonth(s.createdAt);

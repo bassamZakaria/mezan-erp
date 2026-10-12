@@ -191,13 +191,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     return users.some((u) => u.id !== SEED_ADMIN_USER_ID);
   }
 
-  /**
-   * Writes the claim once. Never cleared, and unreachable from `PUT /settings`.
-   *
-   * The company name rides in the SAME write and nowhere earlier: this route is
-   * anonymous, so a name written before the claim is recorded would let a
-   * refused or failed request rename somebody else's tenant.
-   */
+  // SECURITY: writes the claim once; it is never cleared and is unreachable
+  // from `PUT /settings`. The company name rides in the SAME write and nowhere
+  // earlier: this route is anonymous, so a name written before the claim is
+  // recorded would let a refused or failed request rename somebody else's tenant.
   async function recordTenantClaim(at: string, companyName: string): Promise<void> {
     const settings = await deps.settings.get();
     if (!settings || settings.tenantClaimedAt) return;

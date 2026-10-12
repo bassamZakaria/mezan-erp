@@ -20,7 +20,6 @@ export const loginRequestSchema = z.object({
   pin: z.string().regex(/^\d{6}$/),
 });
 
-/** What an anonymous caller is told a claimed tenant is called: the product's name, the same for every tenant. */
 export const UNDISCLOSED_TENANT_NAME = "Mezan";
 
 /** The authenticated session — identity + effective authority. */
@@ -86,7 +85,6 @@ export const bootstrapSeedResultSchema = z.object({
    * out of a brand-new install inside ninety seconds.
    */
   claimed: z.boolean().optional(),
-  /** True only on an install started on the demo seed, whose sign-in may name the seed admin. */
   demoSeeded: z.boolean().optional(),
 });
 

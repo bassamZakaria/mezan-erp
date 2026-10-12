@@ -11,7 +11,6 @@ export interface BackendCacheOptions<H extends CachedHandle> {
 
 export interface BackendCache<H> {
   get(code: string): Promise<H>;
-  /** An open handle, without counting as use: the idle sweep still closes it on time. Undefined when none is open. */
   peek(code: string): Promise<H> | undefined;
   sweep(): Promise<void>;
   evict(code: string): Promise<void>;

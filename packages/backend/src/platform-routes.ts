@@ -130,9 +130,9 @@ export interface CreatePlatformRoutesOptions {
   readonly confirmPendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   readonly declinePendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   readonly resendPendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
-  /** Must not throw: it runs in front of a read. */
+  // CONTRACT: must not throw; it runs in front of a read.
   readonly reconcileOwner?: (tenant: Tenant) => Promise<void>;
-  /** Only tenants whose backend is already open: the list must not open every tenant's database to draw itself. */
+  // CONTRACT: only tenants whose backend is already open. The list must not open every tenant's database to draw itself.
   readonly reconcileOpenOwners?: () => Promise<void>;
   readonly invalidateEntitlements: (code: string) => void;
   readonly idOf?: () => string;
@@ -216,7 +216,6 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
 
 /** Codes for the `apps/server`-only error classes (`provision-tenant.ts`'s `TenantProvisioningError` and `PlanRequiredError`) that map to 422 here. `@mezan/backend` cannot import an `apps/*` class, so each is recognised by shape (`.code` plus, for a provisioning failure, the tenant id it left in `provisioning`) instead of `instanceof`. */
 const SERVER_DOMAIN_ERROR_CODES = new Set(["TENANT_PROVISIONING_FAILED", "PLAN_REQUIRED"]);
-/** `apps/server`'s owner-assignment refusals, recognised by `.code` for the same reason; they answer 409. */
 const SERVER_OWNER_CONFLICT_CODES = new Set(["TENANT_OWNER_CANDIDATE_NOT_FOUND", "TENANT_NO_PENDING_OWNER", "TENANT_PENDING_OWNER_EXPIRED"]);
 
 function asServerDomainFailure(err: unknown): { readonly code: string; readonly message: string; readonly tenantId?: string } | null {
@@ -440,7 +439,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
-  // The CRITICAL audit rows, on the platform and inside the tenant, are written
+  // REQUIRED ORDERING: the CRITICAL audit rows, on the platform and inside the tenant, are written
   // by the dependency in the same step as the change: a route-level row could
   // be recorded for an assignment that then failed.
   app.post("/tenants/:id/owner", requireOwner, async (c) => {

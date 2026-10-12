@@ -32,7 +32,7 @@ export interface UsersPageProps {
   warehouses: { id: string; name: string; branchId: string }[];
   employees: { id: string; name: string; position: string }[];
   onSave: (draft: UserFormDraft, editingId: string | null) => Promise<StoreResult<UserDTO>>;
-  onToggleStatus: (userId: string, status: UserStatusDTO, newOwnerUserId?: string) => Promise<StoreResult<UserDTO>>;
+  onToggleStatus: (userId: string, status: UserStatusCode, newOwnerUserId?: string) => Promise<StoreResult<UserDTO>>;
   /**
    * Clears a failed-login lockout.
    *
@@ -69,7 +69,6 @@ export interface UserFormDraft {
   /** ENH-051 — set together, only when assigning a role trips a conflict. */
   sodAcknowledge?: boolean;
   sodReason?: string;
-  /** Sent only when the company's owner deactivates their own account or drops their own admin access. */
   newOwnerUserId?: string;
 }
 
@@ -171,7 +170,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     if (key) setEraseNotice(t(key));
   }
 
-  async function toggleStatus(row: UserDTO, status: UserStatusDTO, newOwnerUserId?: string): Promise<boolean> {
+  async function toggleStatus(row: UserDTO, status: UserStatusCode, newOwnerUserId?: string): Promise<boolean> {
     if (togglingId !== null) return false;
     setStatusError(null);
     setTogglingId(row.id);

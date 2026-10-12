@@ -23,7 +23,6 @@ export interface CloudEnv {
   readonly publicOrigin?: string;
   readonly tenantDomain?: string;
   readonly trustProxy: boolean;
-  /** Which address a request is counted and bound against (client-source.ts). */
   readonly clientSource: ClientSourceOptions;
   readonly originSecret?: string;
   readonly sqliteExclusive: boolean;

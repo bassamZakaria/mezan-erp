@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Mirrors `companyNameProblem` in @mezan/domain by hand, because this package cannot import it;
+// INVARIANT: mirrors `companyNameProblem` in @mezan/domain by hand, because this package cannot import it;
 // `apps/server/src/company-name-parity.test.ts` fails when the two disagree.
 export const COMPANY_NAME_MAX_LENGTH = 200;
 

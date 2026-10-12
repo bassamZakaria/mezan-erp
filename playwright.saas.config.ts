@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 import { DEFAULT_BROWSER_CLIENT, MAIN_SERVER_TODAY, PLATFORM_DIR_ENV, SAAS_API_PORT, SAAS_API_URL, SAAS_WEB_PORT, SAAS_WEB_URL, browserSource } from "./e2e/saas/support/env";
 import { API_SERVER_COMMAND, BOOT_TIMEOUT_MS, RunDir, apiServerEnv, newRunDir, removeAbandonedRunDirs } from "./e2e/saas/support/servers";
 
-// Playwright evaluates this file again in every worker. Only the runner creates the
+// INVARIANT: Playwright evaluates this file again in every worker. Only the runner creates the
 // directory; workers inherit it through the environment, so a spec that inspects the
 // tenant files on disk looks at the directory the server was actually given.
 const inherited = process.env[PLATFORM_DIR_ENV];

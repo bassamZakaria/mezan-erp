@@ -26,7 +26,6 @@ export interface Tenant {
   readonly ownerEmail: string;
   readonly ownerUserId: string | null;
   readonly ownerContactVerified: boolean;
-  /** Set when no account inside the tenant can be named its owner. Nothing guesses one: the platform console assigns it. */
   readonly ownerNeeded?: boolean;
   readonly pendingOwner?: PendingOwner | null;
   readonly ownerRecordDue?: OwnerRecordDue | null;
@@ -42,7 +41,6 @@ export interface PendingOwner {
   readonly requestedBy: string;
   readonly requestedAt: string;
   readonly expiresAt: string;
-  /** sha256 of the link mailed to the previously recorded owner address; null when no mail could be sent. */
   readonly tokenHash: string | null;
 }
 
@@ -78,13 +76,13 @@ export interface TenantRepository {
   list(): Promise<Tenant[]>;
   save(tenant: Tenant): Promise<void>;
   /**
-   * Writes `after`'s owner fields only while the stored row still carries
+   * CONTRACT: writes `after`'s owner fields only while the stored row still carries
    * `before`'s, then runs `sideEffect` in the SAME transaction. False when
    * another writer moved the owner first; nothing is written then.
    */
   compareAndSetOwner(before: Tenant, after: Tenant, sideEffect: () => Promise<void>): Promise<boolean>;
   /**
-   * Writes `after`'s status and code only while the stored row still carries
+   * CONTRACT: writes `after`'s status and code only while the stored row still carries
    * `before`'s. False when another writer moved the tenant first.
    */
   compareAndSetStatus(before: Tenant, after: Tenant): Promise<boolean>;
@@ -237,7 +235,6 @@ export function tenantWithOwnerContact(tenant: Tenant, owner: TenantOwnerAccount
   return unchanged ? null : next;
 }
 
-/** Null when the tenant is already flagged, or a successor is already waiting to be confirmed. */
 export function tenantNeedingOwner(tenant: Tenant, now: string): Tenant | null {
   const at = isoTimestamp(now);
   if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);

@@ -43,7 +43,6 @@ export interface CreateCloudAppOptions {
   readonly authMiddleware?: MiddlewareHandler;
   readonly transformIndexHtml?: (html: string) => string;
   readonly backups?: { start(): () => void };
-  /** Replaces the SMTP mailer built from `env.platformSmtp`. Mail is sent only when that config is present. */
   readonly mailer?: PlatformMailer;
   readonly seedDemo?: (deps: {
     readonly platform: PlatformHandle;

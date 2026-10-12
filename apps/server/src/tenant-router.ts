@@ -35,7 +35,6 @@ export interface TenantRouterOptions {
   readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, hooks: TenantBackendHooks) => Promise<BackendHandle>;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
-  /** Mails the previously recorded owner address the link that confirms a pending hand-over. Without it a pending hand-over is confirmed from the console only. */
   readonly mailPendingHandOver?: (mail: PendingHandOverMail) => Promise<void>;
 }
 
@@ -80,7 +79,6 @@ export interface TenantRouter {
   backendOf(tenantId: string): Promise<BackendHandle>;
   reconcileOwner(code: string): Promise<void>;
   reconcileOwnerOf(tenantId: string): Promise<void>;
-  /** Reconciles every OPEN tenant without counting as use, so listing tenants never keeps an idle one open. */
   reconcileOpenOwners(): Promise<void>;
   ownerCandidates(tenantId: string): Promise<CompanyAdminAccount[]>;
   assignOwner(input: { readonly tenantId: string; readonly userId: string; readonly actor: string }): Promise<Tenant>;
@@ -93,7 +91,6 @@ export interface TenantRouter {
   invalidate(code: string): void;
   sweep(): Promise<void>;
   close(): Promise<void>;
-  /** Tenants with a currently open (cached) backend — an idle-evicted or never-opened tenant is absent. */
   openTenants(): OpenTenant[];
 }
 

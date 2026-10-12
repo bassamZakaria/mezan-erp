@@ -60,14 +60,13 @@ export const createPlatformUserRequestSchema = z.object({
   role: platformRoleSchema,
 });
 
-// Mirrors `TenantStatusCode` in @mezan/domain by hand, because this package cannot import it;
+// INVARIANT: mirrors `TenantStatusCode` in @mezan/domain by hand, because this package cannot import it;
 // `apps/server/src/company-name-parity.test.ts` fails when the two disagree.
 export enum TenantWireStatus {
   Provisioning = "provisioning",
   Active = "active",
   Suspended = "suspended",
   Archived = "archived",
-  /** Never stored: see `SubscriptionStatusCode.Unknown`. */
   Unknown = "unknown",
 }
 
@@ -111,7 +110,7 @@ export const tenantSchema = z.object({
   updatedAt: isoLikeSchema,
 });
 
-/** The one place a stored tenant becomes its wire shape: every route that answers a tenant goes through it. */
+// INVARIANT: the one place a stored tenant becomes its wire shape. Every route that answers a tenant goes through it.
 export function tenantDTOOf(
   stored: Omit<z.infer<typeof tenantSchema>, "status" | "ownerNeeded" | "pendingOwner"> & {
     readonly status: string;
@@ -136,7 +135,7 @@ export enum TenantResolveMode {
   Code = "code",
 }
 
-/** Name-free on purpose: anyone who guesses a tenant code can ask, so it answers only whether that tenant is usable. */
+// SECURITY: name-free on purpose. Anyone who guesses a tenant code can ask, so it answers only whether that tenant is usable.
 export interface PlatformResolveDTO {
   readonly mode: TenantResolveMode;
   readonly exists: boolean;
@@ -212,7 +211,7 @@ export enum SubscriptionStatusCode {
   PastDue = "past_due",
   Suspended = "suspended",
   Cancelled = "cancelled",
-  /** Never stored: what a read answers for a stored value this build does not recognise, so one odd row cannot fail a whole list. */
+  // CONTRACT: never stored. It is what a read answers for a stored value this build does not recognise, so one odd row cannot fail a whole list.
   Unknown = "unknown",
 }
 

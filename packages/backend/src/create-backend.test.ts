@@ -404,6 +404,8 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
     expect(created.status).toBe(201);
     expect((await created.json()) as { status: string }).toMatchObject({ status: "pending" });
 
+    const bank = await post(app, "/treasury-accounts", { id: "ta-bank1", code: "BANK-1", name: "البنك", type: "bank", currency: "EGP", branchId: "BR-MAIN", glAccountId: "1310" }, admin(app));
+    expect(bank.status).toBe(201);
     const deposited = await post(app, "/cheques/chq-1/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app));
     expect(deposited.status).toBe(200);
 

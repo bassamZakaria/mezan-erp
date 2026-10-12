@@ -394,7 +394,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     try {
       const cheque = await service.collect({
         chequeId: c.req.param("id"),
-        bankGlAccountId: bank?.glAccountId ?? parsed.data.bankGlAccountId ?? "",
+        bankGlAccountId: bank?.glAccountId ?? "",
         date: await postingDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),

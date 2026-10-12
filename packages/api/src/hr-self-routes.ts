@@ -65,6 +65,7 @@ import { recordAdminEvent } from "./admin-audit.js";
 import { serializeAttendance } from "./hr-time-leave-routes.js";
 import { serializeAdvance, serializePayslip } from "./hr-payroll-routes.js";
 import { tenantClock } from "./tenant-day.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
 import {
   InMemoryChallengeStore,
   CHALLENGE_TTL_MS,
@@ -87,6 +88,8 @@ export interface HrSelfRoutesDeps {
   readonly holidays: Pick<HolidayRepository, "list">;
   readonly leaveRequests: LeaveRequestRepository;
   readonly numbering: { next(code: string): Promise<{ readonly formatted: string }> };
+  /** The transaction a create shares with the number it mints, so a refused create — a taken id included — spends no number. */
+  readonly transactor?: ConfigTransactor;
   readonly attendance?: AttendanceRepository;
   readonly leaveBalances?: Pick<LeaveBalanceRepository, "find" | "update">;
   readonly advances?: EmployeeAdvanceRepository;
@@ -184,8 +187,10 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
     const me = await caller(c);
     if (!me) return notLinked(c);
     try {
-      const number = (await deps.numbering.next("LEAVE_REQUEST")).formatted;
-      const request = await createLeaveRequest({ ...parsed.data, id: parsed.data.id ?? randomUUID(), number, employeeId: me.employee.id }, deps.leaveRequests);
+      const request = await atomically(deps.transactor, async () => {
+        const number = (await deps.numbering.next("LEAVE_REQUEST")).formatted;
+        return createLeaveRequest({ ...parsed.data, id: parsed.data.id ?? randomUUID(), number, employeeId: me.employee.id }, deps.leaveRequests);
+      });
       return c.json(serializeLeaveRequest(request), 201);
     } catch (err) {
       if (err instanceof InvalidLeaveRequestError) return domainRefusal(c, err, 422);
@@ -280,19 +285,21 @@ export function createHrSelfRoutes(deps: HrSelfRoutesDeps, resolveAuthContext: A
       try {
         const pending = (await advances.listByEmployeeId(me.employee.id)).find((a) => a.status === "pending");
         if (pending) throw new PendingAdvanceExistsError(pending.number);
-        const number = (await deps.numbering.next("EMPLOYEE_ADVANCE")).formatted;
-        const advance = await requestEmployeeAdvance(
-          {
-            id: randomUUID(),
-            number,
-            employeeId: me.employee.id,
-            amount: Money.fromMajor(parsed.data.amount),
-            installmentCount: parsed.data.installmentCount,
-            firstDeductionDate: parsed.data.firstDeductionDate,
-            reason: parsed.data.reason ?? null,
-          },
-          advances,
-        );
+        const advance = await atomically(deps.transactor, async () => {
+          const number = (await deps.numbering.next("EMPLOYEE_ADVANCE")).formatted;
+          return requestEmployeeAdvance(
+            {
+              id: randomUUID(),
+              number,
+              employeeId: me.employee.id,
+              amount: Money.fromMajor(parsed.data.amount),
+              installmentCount: parsed.data.installmentCount,
+              firstDeductionDate: parsed.data.firstDeductionDate,
+              reason: parsed.data.reason ?? null,
+            },
+            advances,
+          );
+        });
         return c.json(serializeAdvance(advance), 201);
       } catch (err) {
         if (err instanceof PendingAdvanceExistsError) return domainRefusal(c, err, 409);

@@ -101,7 +101,8 @@ import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 import { tenantToday } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
-import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
@@ -123,6 +124,8 @@ export interface HrPayrollRoutesDeps {
   readonly accounts: PayrollGlAccounts;
   /** Same shape as `NextNumberService.next(code)`. */
   readonly numbering: { next(code: string): Promise<{ readonly formatted: string }> };
+  /** The transaction a create shares with the number it mints, so a refused create — a taken id included — spends no number. */
+  readonly transactor?: ConfigTransactor;
   /** Bound to the treasury voucher engine; absent = disbursement endpoints answer 409. */
   readonly treasury?: TreasuryDisbursementPort;
   /** Bound by the attendance/leave side of HR; absent = no unpaid-leave day is deducted. */
@@ -430,8 +433,6 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     app.post("/payroll/components", gate("hr.payroll.create"), async (c) => {
       const parsed = createPayrollComponentSchema.safeParse(await c.req.json());
       if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-      const takenId = await refuseTakenId(c, parsed.data.id, (id) => components.findById(id));
-      if (takenId) return takenId;
       try {
         const existing = await components.findByCode(parsed.data.code.trim());
         if (existing) throw new DuplicatePayrollComponentError(parsed.data.code);
@@ -495,20 +496,22 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     try {
       const employee = await deps.employees.findById(parsed.data.employeeId);
       if (!employee) throw new EmployeeNotFoundError(parsed.data.employeeId);
-      const number = (await deps.numbering.next("EMPLOYEE_ADVANCE")).formatted;
-      const advance = await requestEmployeeAdvance(
-        {
-          id: parsed.data.id ?? idGen(),
-          number,
-          employeeId: parsed.data.employeeId,
-          amount: Money.fromMajor(parsed.data.amount),
-          currency: parsed.data.currency,
-          installmentCount: parsed.data.installmentCount,
-          firstDeductionDate: parsed.data.firstDeductionDate,
-          reason: parsed.data.reason ?? null,
-        },
-        deps.advances,
-      );
+      const advance = await atomically(deps.transactor, async () => {
+        const number = (await deps.numbering.next("EMPLOYEE_ADVANCE")).formatted;
+        return requestEmployeeAdvance(
+          {
+            id: parsed.data.id ?? idGen(),
+            number,
+            employeeId: parsed.data.employeeId,
+            amount: Money.fromMajor(parsed.data.amount),
+            currency: parsed.data.currency,
+            installmentCount: parsed.data.installmentCount,
+            firstDeductionDate: parsed.data.firstDeductionDate,
+            reason: parsed.data.reason ?? null,
+          },
+          deps.advances,
+        );
+      });
       return c.json(serializeAdvance(advance), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -667,8 +670,6 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     app.post("/payroll/garnishments", gate("hr.payroll.create"), async (c) => {
       const parsed = createGarnishmentSchema.safeParse(await c.req.json().catch(() => ({})));
       if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-      const takenId = await refuseTakenId(c, parsed.data.id, (id) => garnishmentRegister.findById(id));
-      if (takenId) return takenId;
       if (!(await deps.employees.findById(parsed.data.employeeId))) {
         return c.json({ error: "EMPLOYEE_NOT_FOUND", message: "الموظف غير موجود." }, 404);
       }
@@ -986,15 +987,17 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     const runBranchRefusal = await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Branch, ids: [parsed.data.branchId] }]);
     if (runBranchRefusal) return runBranchRefusal;
     try {
-      const run = await createPayrollRun(
-        {
-          id: parsed.data.id ?? idGen(),
-          year: parsed.data.year,
-          month: parsed.data.month,
-          branchId: parsed.data.branchId ?? null,
-          currency: parsed.data.currency,
-        },
-        { runs: deps.runs, numbering: deps.numbering },
+      const run = await atomically(deps.transactor, () =>
+        createPayrollRun(
+          {
+            id: parsed.data.id ?? idGen(),
+            year: parsed.data.year,
+            month: parsed.data.month,
+            branchId: parsed.data.branchId ?? null,
+            currency: parsed.data.currency,
+          },
+          { runs: deps.runs, numbering: deps.numbering },
+        ),
       );
       return c.json(serializeRun(run), 201);
     } catch (err) {

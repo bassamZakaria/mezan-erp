@@ -1,6 +1,5 @@
 import { InvalidJobTitleError } from "./errors.js";
 import type { JobTitle, JobTitleRepository } from "./job-title.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateJobTitleCommand {
   readonly id: string;
@@ -18,7 +17,6 @@ function validate(command: CreateJobTitleCommand): string[] {
 
 /** Creates and persists a new job title, scoped to one department. */
 export async function createJobTitle(command: CreateJobTitleCommand, repo: JobTitleRepository): Promise<JobTitle> {
-  assertRecordIdIsNew(await repo.findById(command.id), command.id);
   const reasons = validate(command);
   if (reasons.length > 0) throw new InvalidJobTitleError(reasons);
 

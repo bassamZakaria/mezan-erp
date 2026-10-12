@@ -72,7 +72,7 @@ import {
 } from "@mezan/contracts";
 import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
-import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
@@ -282,8 +282,6 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
   app.post("/attendance", gate("hr.attendance.edit"), async (c) => {
     const parsed = recordAttendanceSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.attendance.findById(id));
-    if (takenId) return takenId;
     try {
       const employee = await deps.employees.findById(parsed.data.employeeId);
       if (!employee) throw new EmployeeNotFoundError(parsed.data.employeeId);
@@ -445,8 +443,6 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
   app.post("/leave-policies", gate("hr.leave_policy.edit"), async (c) => {
     const parsed = createLeavePolicySchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.leavePolicies.findById(id));
-    if (takenId) return takenId;
     try {
       const duplicate = await deps.leavePolicies.findByLeaveType(parsed.data.leaveType);
       if (duplicate) throw new DuplicateLeavePolicyError(parsed.data.leaveType);

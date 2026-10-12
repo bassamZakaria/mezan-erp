@@ -26,6 +26,7 @@ interface CreateRoute {
   readonly refusedAs?: string;
   readonly existingIdSql?: string;
   readonly pathFor?: (sqlite: Sqlite) => string;
+  readonly arrange?: (sqlite: Sqlite) => void;
   readonly body?: (sampled: any, id: string, sqlite: Sqlite) => Record<string, unknown>;
 }
 
@@ -113,7 +114,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createChequeSchema: { route: "/cheques", table: "cheque" },
   createCollectionSchema: { route: "/vouchers/collections", table: "voucher" },
   createConfigInstanceSchema: { route: "/manufacturing/config-instances", table: "config_instance" },
-  createContractSchema: { route: "/hr/contracts", table: "hr_contract" },
+  createContractSchema: { route: "/hr/contracts", table: "hr_contract", body: (sampled) => ({ ...sampled, monthlySalary: "5000.00", allowances: [], deductions: [] }) },
   createCostCenterSchema: { route: "/cost-centers", table: "cost_center" },
   createCustomerSchema: { route: "/customers", table: "customer", body: (sampled) => ({ ...sampled, openingBalance: "500.00", openingBalanceDate: TODAY }) },
   createDepartmentSchema: { route: "/hr/departments", table: "hr_department" },
@@ -134,14 +135,22 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createLabelLayoutSchema: { route: "/label-layouts", table: "label_layout", body: (sampled) => ({ ...sampled, pageSize: "A4", columns: 3, rows: 8, labelWidthMm: 50, labelHeightMm: 25, columnGapMm: 2, rowGapMm: 2, marginBlockMm: 5, marginInlineMm: 5, barcodeHeightMm: 10 }) },
   createLandedCostSchema: { route: "/landed-costs", table: "framework_document", existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'LANDED_COST' ORDER BY id LIMIT 1" },
   createLeadSchema: { route: "/crm/leads", table: "crm_lead" },
-  createLeavePolicySchema: { route: "/hr/leave-policies", table: "hr_leave_policy" },
+  createLeavePolicySchema: {
+    route: "/hr/leave-policies",
+    table: "hr_leave_policy",
+    arrange: (sqlite) => sqlite.prepare("DELETE FROM hr_leave_policy WHERE id = (SELECT id FROM hr_leave_policy ORDER BY id DESC LIMIT 1)").run(),
+    body: (sampled, _id, sqlite) => {
+      const held = new Set((sqlite.prepare("SELECT leave_type AS type FROM hr_leave_policy").all() as { type: string }[]).map((row) => row.type));
+      return { ...sampled, leaveType: contracts.leaveTypeSchema.options.find((type) => !held.has(type)) };
+    },
+  },
   createLeaveRequestSchema: { route: "/hr/leave-requests", table: "hr_leave_request" },
   createMaterialConsumptionSchema: { route: "/contracting/site/consumptions", table: "material_consumption" },
   createNotificationRuleSchema: { route: "/notification-rules", table: "notification_rule" },
   createOpportunitySchema: { route: "/crm/opportunities", table: "crm_opportunity" },
   createActivitySchema: { route: "/crm/activities", table: "crm_activity" },
   createPayrollComponentSchema: { route: "/hr/payroll/components", table: "hr_payroll_component" },
-  createPayrollRunSchema: { route: "/hr/payroll/runs", table: "hr_payroll_run" },
+  createPayrollRunSchema: { route: "/hr/payroll/runs", table: "hr_payroll_run", body: (sampled) => ({ ...sampled, year: 2099, month: 1 }) },
   createPipelineStageSchema: { route: "/crm/pipeline-stages", table: "crm_pipeline_stage" },
   createPriceListSchema: { route: "/price-lists", table: "price_list" },
   createProgressCertificateSchema: { route: "/contracting/certificates", table: "contracting_certificate" },
@@ -177,7 +186,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   issueCustodySchema: { route: "/contracting/site/custody", table: "site_custody" },
   openVanTripSchema: { route: "/field/van-trips", table: "van_trip" },
   postRecognitionRunSchema: { route: "/contracting/recognition/runs", table: "contracting_recognition_run" },
-  recordAttendanceSchema: { route: "/hr/attendance", table: "hr_attendance" },
+  recordAttendanceSchema: { route: "/hr/attendance", table: "hr_attendance", body: (sampled) => ({ ...sampled, date: "2099-01-05" }) },
   recordVatFilingSchema: { route: "/gl/vat-filings", table: "vat_filing" },
   selfCreateLeaveRequestSchema: { route: "/hr/self/leave-requests", table: "hr_leave_request" },
   startPhysicalCountSchema: { route: "/inventory/physical-counts", table: "physical_count" },
@@ -375,6 +384,7 @@ describe("a create that names an existing record's id is refused and writes noth
 
   it.each(Object.entries(CREATE_ROUTES))("%s", async (schemaName, entry) => {
     const idColumn = entry.idColumn ?? "id";
+    entry.arrange?.(sqlite);
     const existing = sqlite.prepare(entry.existingIdSql ?? `SELECT * FROM "${entry.table}" ORDER BY "${idColumn}" LIMIT 1`).get() as Record<string, unknown> | undefined;
     expect(existing, `${entry.table} has no seeded row to collide with`).toBeDefined();
     const id = String(existing![idColumn]);

@@ -46,7 +46,6 @@ import {
   PayrollFxRateMissingError,
   PayrollRunNotFoundError,
 } from "./errors.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 /**
  * The payroll calculation engine (docs/archive/catalog/06 "الرواتب").
@@ -132,7 +131,6 @@ export async function createPayrollRun(
   cmd: CreatePayrollRunCommand,
   deps: Pick<PayrollCalculationDeps, "runs" | "numbering">,
 ): Promise<PayrollRun> {
-  assertRecordIdIsNew(await deps.runs.findById(cmd.id), cmd.id);
   const reasons: string[] = [];
   if (!Number.isInteger(cmd.year) || cmd.year < 1900) reasons.push("السنة مطلوبة");
   if (!Number.isInteger(cmd.month) || cmd.month < 1 || cmd.month > 12) reasons.push("الشهر يجب أن يكون بين 1 و 12");

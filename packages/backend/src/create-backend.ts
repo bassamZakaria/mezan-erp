@@ -3473,6 +3473,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     // --- hr/master-data ---
     hr: {
+      transactor: configTransactor,
       departments: hrDepartments,
       jobTitles: hrJobTitles,
       employees: hrEmployees,

@@ -1,6 +1,5 @@
 import type { GateableActionType } from "../workflow/action-types.js";
 import { InvalidLeaveRequestError, InvalidLeaveRequestTransitionError } from "./errors.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 /**
  * LeaveRequest — docs/archive/catalog/06-crm-hr.md "طلبات الإجازات". The leave-type
@@ -119,7 +118,6 @@ function validate(command: Pick<CreateLeaveRequestCommand, "employeeId" | "start
 
 /** Creates and persists a new leave request. New requests always start "pending" (docs/archive/catalog/06 approval workflow). */
 export async function createLeaveRequest(command: CreateLeaveRequestCommand, repo: LeaveRequestRepository): Promise<LeaveRequest> {
-  assertRecordIdIsNew(await repo.findById(command.id), command.id);
   const reasons = validate(command);
   if (reasons.length > 0) throw new InvalidLeaveRequestError(reasons);
 

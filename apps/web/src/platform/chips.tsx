@@ -1,5 +1,5 @@
 import { StatusPill, type PillTone } from "@mezan/ui";
-import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type LicenseStateNameDTO, type SubscriptionStatusDTO, type TenantStatusDTO } from "@mezan/contracts";
+import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type LicenseStateNameDTO, type SubscriptionStatusDTO, type TenantDTO, type TenantStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const TENANT_STATUS_TONE: Record<TenantStatusDTO, PillTone> = {
@@ -45,9 +45,15 @@ export function LicenseStateChip({ state }: { state: LicenseStateNameDTO }) {
   return <StatusPill label={t(LICENSE_STATE_LABEL[state])} tone={LICENSE_STATE_TONE[state]} />;
 }
 
-export function OwnerContactChip({ verified }: { verified: boolean }) {
+export function OwnerContactChip({ tenant }: { tenant: Pick<TenantDTO, "ownerContactVerified" | "ownerNeeded" | "pendingOwner"> }) {
   const { t } = useAppTranslation();
-  return verified ? null : <StatusPill label={t("platform.tenants.ownerUnverified")} tone="warning" />;
+  return (
+    <>
+      {tenant.ownerNeeded ? <StatusPill label={t("platform.tenants.ownerNeeded")} tone="danger" /> : null}
+      {tenant.pendingOwner ? <StatusPill label={t("platform.tenants.ownerPending")} tone="warning" /> : null}
+      {tenant.ownerContactVerified ? null : <StatusPill label={t("platform.tenants.ownerUnverified")} tone="warning" />}
+    </>
+  );
 }
 
 export function BillingDayReviewChip({ needsReview }: { needsReview: boolean }) {

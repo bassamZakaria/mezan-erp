@@ -462,6 +462,7 @@ export function AppLayout() {
       // الملف الشخصي — so this carries the stored value through untouched.
       photoUrl: draft.photoUrl ?? null,
       ...(draft.sodAcknowledge ? { acknowledge: draft.sodAcknowledge, reason: draft.sodReason?.trim() } : {}),
+      ...(draft.newOwnerUserId ? { newOwnerUserId: draft.newOwnerUserId } : {}),
     };
     try {
       const value = editingId
@@ -515,9 +516,9 @@ export function AppLayout() {
     }
   }
 
-  async function handleToggleUserStatus(userId: string, status: "active" | "inactive") {
+  async function handleToggleUserStatus(userId: string, status: "active" | "inactive", newOwnerUserId?: string) {
     try {
-      const value = await setUserStatus.mutateAsync({ id: userId, status });
+      const value = await setUserStatus.mutateAsync({ id: userId, status, ...(newOwnerUserId ? { newOwnerUserId } : {}) });
       return { ok: true, value };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : t("app.userStatusFailed") };

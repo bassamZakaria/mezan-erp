@@ -1879,9 +1879,12 @@ export function useSetUserStatus() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<UserDTO, ApiError, { id: string; status: "active" | "inactive" }>({
-    mutationFn: async ({ id, status }) => {
-      const res = await request(`/users/${id}/${status === "active" ? "activate" : "deactivate"}`, { method: "POST" });
+  return useMutation<UserDTO, ApiError, { id: string; status: "active" | "inactive"; newOwnerUserId?: string }>({
+    mutationFn: async ({ id, status, newOwnerUserId }) => {
+      const res = await request(`/users/${id}/${status === "active" ? "activate" : "deactivate"}`, {
+        method: "POST",
+        ...(newOwnerUserId ? { body: JSON.stringify({ newOwnerUserId }) } : {}),
+      });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserSStatusCould"), t));
       return res.json<UserDTO>();
     },

@@ -14,7 +14,7 @@ import { createSessionRegistry } from "@mezan/api";
 import { SubscriptionStatusKind, TenantNotFoundError, type Tenant } from "@mezan/domain";
 import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
-import { provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
+import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
 import { releaseProvisioningTenant } from "./release-tenant.js";
 import { createSourceReporter } from "./client-source.js";
@@ -35,12 +35,16 @@ import {
   trustedReturnOrigin,
 } from "./billing-routes.js";
 import type { CloudEnv } from "./env.js";
+import { pendingHandOverEmail, smtpMailer, type PlatformMailer } from "./platform-mail.js";
+import { tenantPublicOrigin } from "./public-origin.js";
 
 export interface CreateCloudAppOptions {
   readonly now?: () => Date;
   readonly authMiddleware?: MiddlewareHandler;
   readonly transformIndexHtml?: (html: string) => string;
   readonly backups?: { start(): () => void };
+  /** Replaces the SMTP mailer built from `env.platformSmtp`. Mail is sent only when that config is present. */
+  readonly mailer?: PlatformMailer;
   readonly seedDemo?: (deps: {
     readonly platform: PlatformHandle;
     readonly router: TenantRouter;
@@ -95,9 +99,20 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const auth = createPlatformAuth({ platform, sessions, now });
   const sourceReporter = createSourceReporter();
 
+  const mailer = env.platformSmtp ? (options.mailer ?? smtpMailer(env.platformSmtp)) : undefined;
+
   const router = createTenantRouter({
     platform,
     dataDir: env.platformDir,
+    mailPendingHandOver: mailer
+      ? async ({ tenant, to, successorEmail, token }) => {
+          const origin = tenantPublicOrigin(env, tenant.code);
+          if (origin === null) throw new Error("no public origin is configured (set MEZAN_PUBLIC_URL or MEZAN_TENANT_DOMAIN)");
+          const link = `${origin}/signup/owner-handover?token=${encodeURIComponent(token)}`;
+          const sent = await mailer.send(to, pendingHandOverEmail({ link, companyName: tenant.nameAr, successorEmail }));
+          if (sent.outcome !== "sent") throw new Error(`the hand-over mail was not delivered (${sent.outcome})`);
+        }
+      : undefined,
     tenantDomain: env.tenantDomain,
     trustForwardedHost: env.trustProxy,
     allowTenantHeader: true,
@@ -166,6 +181,9 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     provisionRetry: provisionRetryForRoutes,
     resetOwnerPin: resetOwnerPinForRoutes,
     releaseTenant: (input) => releaseProvisioningTenant({ platform, router, dataDir: env.platformDir, now }, input),
+    ownerCandidates: (tenant) => router.ownerCandidates(tenant.id),
+    assignOwner: ({ tenant, userId, actorId }) => router.assignOwner({ tenantId: tenant.id, userId, actor: platformActor(actorId) }),
+    confirmPendingOwner: ({ tenant, actorId }) => router.confirmPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
     reconcileOwner: (tenant) => reconcileOwnerQuietly(tenant.code),
     reconcileOpenOwners: async () => {
       await Promise.all(router.openTenants().map(reconcileOwnerQuietly));
@@ -242,7 +260,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // otherwise swallow the console's routes first.
   root.route("/api/platform", platformApp);
   root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now }));
-  root.route(SIGNUP_BASE_PATH, createSignupRoutes({ platform, router, env, now, sourceReporter }));
+  root.route(SIGNUP_BASE_PATH, createSignupRoutes({ platform, router, env, now, sourceReporter, mailer }));
   root.route("/api", router.app);
 
   if (checkoutService && testProvider) {

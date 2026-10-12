@@ -67,3 +67,9 @@ export async function verifySignup(token: string): Promise<VerifySignupResultDTO
   if (!res.ok) throw await readError(res, "تعذّر تفعيل الحساب");
   return res.json<VerifySignupResultDTO>();
 }
+
+export async function confirmOwnerHandOver(token: string): Promise<void> {
+  const body: VerifySignupRequestDTO = { token };
+  const res = await transport("/owner-handover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) throw await readError(res, "تعذّر تأكيد نقل الملكية");
+}

@@ -51,6 +51,7 @@ import {
 import {
   createTenantRequestSchema,
   provisionRetryRequestSchema,
+  assignOwnerRequestSchema,
   setBillingAnchorDayRequestSchema,
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
@@ -67,6 +68,7 @@ import {
   type ProvisionRetryRequestDTO,
   type ProvisionResultDTO,
   type OwnerPinResetResultDTO,
+  type OwnerCandidateDTO,
   type TenantSummaryDTO,
   type TenantDTO,
   type PlanDTO,
@@ -95,6 +97,9 @@ export interface CreatePlatformRoutesOptions {
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
   readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string }) => Promise<OwnerPinResetResultDTO>;
   readonly releaseTenant?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
+  readonly ownerCandidates?: (tenant: Tenant) => Promise<OwnerCandidateDTO[]>;
+  readonly assignOwner?: (input: { tenant: Tenant; userId: string; actorId: string }) => Promise<Tenant>;
+  readonly confirmPendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   /** Must not throw: it runs in front of a read. */
   readonly reconcileOwner?: (tenant: Tenant) => Promise<void>;
   /** Only tenants whose backend is already open: the list must not open every tenant's database to draw itself. */
@@ -181,6 +186,8 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
 
 /** Codes for the `apps/server`-only error classes (`provision-tenant.ts`'s `TenantProvisioningError` and `PlanRequiredError`) that map to 422 here. `@mezan/backend` cannot import an `apps/*` class, so each is recognised by shape (`.code` plus, for a provisioning failure, the tenant id it left in `provisioning`) instead of `instanceof`. */
 const SERVER_DOMAIN_ERROR_CODES = new Set(["TENANT_PROVISIONING_FAILED", "PLAN_REQUIRED"]);
+/** `apps/server`'s owner-assignment refusals, recognised by `.code` for the same reason; they answer 409. */
+const SERVER_OWNER_CONFLICT_CODES = new Set(["TENANT_OWNER_CANDIDATE_NOT_FOUND", "TENANT_NO_PENDING_OWNER"]);
 
 function asServerDomainFailure(err: unknown): { readonly code: string; readonly message: string; readonly tenantId?: string } | null {
   if (!(err instanceof Error)) return null;
@@ -202,6 +209,9 @@ function domainErrorResponse(c: Context, err: unknown): Response {
   const serverFailure = asServerDomainFailure(err);
   if (serverFailure) {
     return c.json({ error: serverFailure.code, message: serverFailure.message, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
+  }
+  if (err instanceof Error && SERVER_OWNER_CONFLICT_CODES.has(String((err as { code?: unknown }).code))) {
+    return c.json({ error: (err as unknown as { code: string }).code, message: err.message }, 409);
   }
   if (err instanceof Error && (err as { code?: unknown }).code === "PAYMENT_PROVIDER_ERROR") {
     console.error(err);
@@ -243,7 +253,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 }
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
-  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
+  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, ownerCandidates, assignOwner, confirmPendingOwner, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
   const onAuditError = options.onAuditError ?? ((err: unknown) => console.error(err));
   const nowIso = () => now().toISOString();
 
@@ -352,6 +362,49 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const released = await releaseTenant({ tenant, actorId: c.get("platformUser")!.id });
       invalidateEntitlements(tenant.code);
       return c.json(await tenantSummary(platform, released, nowIso()));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  const isLive = (tenant: Tenant): boolean => tenant.status === TenantStatusCode.Active || tenant.status === TenantStatusCode.Suspended;
+  const TENANT_NOT_LIVE_FOR_OWNER = { error: "TENANT_NOT_LIVE", message: "لا يُعيَّن مالك إلا لمنشأة نشطة أو موقوفة" } as const;
+
+  app.get("/tenants/:id/owner/candidates", requireOwner, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!isLive(tenant)) return c.json(TENANT_NOT_LIVE_FOR_OWNER, 409);
+      if (!ownerCandidates) throw new Error("ownerCandidates dependency is not configured");
+      return c.json(await ownerCandidates(tenant));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  // The CRITICAL audit rows, on the platform and inside the tenant, are written
+  // by the dependency in the same step as the change: a route-level row could
+  // be recorded for an assignment that then failed.
+  app.post("/tenants/:id/owner", requireOwner, async (c) => {
+    const parsed = assignOwnerRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!isLive(tenant)) return c.json(TENANT_NOT_LIVE_FOR_OWNER, 409);
+      if (!assignOwner) throw new Error("assignOwner dependency is not configured");
+      const assigned = await assignOwner({ tenant, userId: parsed.data.userId, actorId: c.get("platformUser")!.id });
+      return c.json(await tenantSummary(platform, assigned, nowIso()));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/owner/confirm", requireOwner, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!isLive(tenant)) return c.json(TENANT_NOT_LIVE_FOR_OWNER, 409);
+      if (!confirmPendingOwner) throw new Error("confirmPendingOwner dependency is not configured");
+      const confirmed = await confirmPendingOwner({ tenant, actorId: c.get("platformUser")!.id });
+      return c.json(await tenantSummary(platform, confirmed, nowIso()));
     } catch (err) {
       return domainErrorResponse(c, err);
     }

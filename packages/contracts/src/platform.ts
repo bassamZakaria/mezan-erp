@@ -78,6 +78,22 @@ export function tenantStatusOf(stored: string): TenantWireStatus {
   return parsed.success ? parsed.data : TenantWireStatus.Unknown;
 }
 
+export const pendingOwnerSchema = z.object({
+  userId: z.string().min(1),
+  email: z.string().min(1),
+  requestedAt: isoLikeSchema,
+});
+
+export const ownerCandidateSchema = z.object({
+  id: z.string().min(1),
+  nameAr: z.string(),
+  email: z.string().min(1),
+});
+
+export const assignOwnerRequestSchema = z.object({
+  userId: z.string().trim().min(1),
+});
+
 export const tenantSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),
@@ -85,6 +101,8 @@ export const tenantSchema = z.object({
   nameEn: z.string().nullable(),
   ownerEmail: z.string().min(1),
   ownerContactVerified: z.boolean(),
+  ownerNeeded: z.boolean(),
+  pendingOwner: pendingOwnerSchema.nullable(),
   status: tenantStatusSchema,
   dbFile: z.string().min(1),
   createdAt: isoLikeSchema,
@@ -92,10 +110,20 @@ export const tenantSchema = z.object({
 });
 
 /** The one place a stored tenant becomes its wire shape: every route that answers a tenant goes through it. */
-export function tenantDTOOf(stored: Omit<z.infer<typeof tenantSchema>, "status"> & { readonly status: string }): z.infer<typeof tenantSchema> {
+export function tenantDTOOf(
+  stored: Omit<z.infer<typeof tenantSchema>, "status" | "ownerNeeded" | "pendingOwner"> & {
+    readonly status: string;
+    readonly ownerNeeded?: boolean;
+    readonly pendingOwner?: z.infer<typeof pendingOwnerSchema> | null;
+  },
+): z.infer<typeof tenantSchema> {
+  const pending = stored.pendingOwner ?? null;
   return {
     id: stored.id, code: stored.code, nameAr: stored.nameAr, nameEn: stored.nameEn, ownerEmail: stored.ownerEmail,
-    ownerContactVerified: stored.ownerContactVerified, status: tenantStatusOf(stored.status), dbFile: stored.dbFile, createdAt: stored.createdAt, updatedAt: stored.updatedAt,
+    ownerContactVerified: stored.ownerContactVerified, ownerNeeded: stored.ownerNeeded === true,
+    // SECURITY: the confirmation token's hash never leaves the server.
+    pendingOwner: pending ? { userId: pending.userId, email: pending.email, requestedAt: pending.requestedAt } : null,
+    status: tenantStatusOf(stored.status), dbFile: stored.dbFile, createdAt: stored.createdAt, updatedAt: stored.updatedAt,
   };
 }
 
@@ -430,6 +458,9 @@ export type CreateTenantRequestDTO = z.infer<typeof createTenantRequestSchema>;
 export type ProvisionRetryRequestDTO = z.infer<typeof provisionRetryRequestSchema>;
 export type ProvisionResultDTO = z.infer<typeof provisionResultSchema>;
 export type OwnerPinResetResultDTO = z.infer<typeof ownerPinResetResultSchema>;
+export type OwnerCandidateDTO = z.infer<typeof ownerCandidateSchema>;
+export type AssignOwnerRequestDTO = z.infer<typeof assignOwnerRequestSchema>;
+export type PendingOwnerDTO = z.infer<typeof pendingOwnerSchema>;
 export type StartSubscriptionRequestDTO = z.infer<typeof startSubscriptionRequestSchema>;
 export type ChangePlanRequestDTO = z.infer<typeof changePlanRequestSchema>;
 export type SubscriptionSuspendRequestDTO = z.infer<typeof subscriptionSuspendRequestSchema>;

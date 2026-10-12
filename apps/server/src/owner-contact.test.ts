@@ -342,6 +342,19 @@ describe("the platform's record of a tenant's owner", () => {
     expect(await ownerAudit(c, OwnerContactAudit.EmailChanged)).toEqual([]);
   });
 
+  it("does not follow an email changed in a session opened with a PIN the console issued", async () => {
+    const c = await cloud();
+    const co = await company(c, "raven");
+    const owner = await co.user("owner@raven.example");
+    const reset = await resetTenantOwnerPin({ platform: c.platform, router: c.router }, { tenant: await co.recorded(), actorId: "op-1" });
+    const session = (await co.signIn("owner@raven.example", reset.adminPin)).token;
+
+    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "inbox@elsewhere.example" }, session)).status).toBe(200);
+
+    expect(await co.recorded()).toMatchObject({ ownerEmail: "owner@raven.example", ownerContactVerified: false });
+    expect(await ownerAudit(c, OwnerContactAudit.EmailChanged)).toEqual([]);
+  });
+
   it("clears the unverified mark without an email change when the owner puts their address back", async () => {
     const c = await cloud();
     const co = await company(c, "foxtrot");
@@ -564,6 +577,42 @@ describe("erasing the recorded owner", () => {
   });
 });
 
+describe("the platform assigning a tenant's owner", () => {
+  it("writes one CRITICAL platform row naming the operator, the previous owner and the new one, and clears a pending successor", async () => {
+    const c = await cloud();
+    const co = await company(c, "juno");
+    const peer = await secondAdmin(co);
+    const third = await secondAdmin(co, "third@juno.example");
+    const owner = await co.user("owner@juno.example");
+    await co.call("POST", `/users/${String(owner["id"])}/erase`, { confirmEmail: "owner@juno.example", reason: "طلب محو", newOwnerUserId: peer.id }, peer.token);
+
+    const assigned = await c.router.assignOwner({ tenantId: co.tenantId, userId: third.id, actor: "platform:op-1" });
+
+    expect(assigned).toMatchObject({ ownerUserId: third.id, ownerEmail: "third@juno.example", ownerContactVerified: true, pendingOwner: null });
+    const rows = (await c.platform.audit.query("security")).filter((row) => row.action === OwnerContactAudit.Assigned);
+    expect(rows).toMatchObject([
+      { actor: "platform:op-1", severity: "CRITICAL", entityId: co.tenantId, details: { code: "juno", fromUserId: owner["id"], toUserId: third.id, confirmedBy: "platform-console" } },
+    ]);
+  });
+
+  it("makes a sign-in with a console-issued PIN count again once the platform has confirmed that account as the owner", async () => {
+    const c = await cloud();
+    const co = await company(c, "lotus");
+    const owner = await ownerMovedWhilePlatformWasDown(c, co, "inbox@elsewhere.example");
+    const reset = await resetTenantOwnerPin({ platform: c.platform, router: c.router }, { tenant: await co.recorded(), actorId: "op-1" });
+    expect((await co.signIn("inbox@elsewhere.example", reset.adminPin)).status).toBe(200);
+    expect((await co.recorded()).ownerEmail).toBe("owner@lotus.example");
+
+    await c.router.assignOwner({ tenantId: co.tenantId, userId: String(owner["id"]), actor: "platform:op-1" });
+
+    expect(await co.recorded()).toMatchObject({ ownerEmail: "inbox@elsewhere.example", ownerContactVerified: true });
+    const session = (await co.signIn("inbox@elsewhere.example", reset.adminPin)).token;
+    const account = ((await co.call("GET", "/users", undefined, session)).json as Record<string, unknown>[]).find((user) => user["id"] === owner["id"]);
+    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...account, email: "final@lotus.example" }, session)).status).toBe(200);
+    expect(await co.recorded()).toMatchObject({ ownerEmail: "final@lotus.example", ownerContactVerified: true });
+  });
+});
+
 describe("the owner stepping down", () => {
   it("is refused when the owner deactivates or demotes their own account without naming a successor", async () => {
     const c = await cloud();
@@ -600,6 +649,23 @@ describe("the owner stepping down", () => {
     expect(c.mails).toEqual([]);
     const reset = await resetTenantOwnerPin({ platform: c.platform, router: c.router }, { tenant: await co.recorded(), actorId: "op-1" });
     expect((await co.signIn("second@whiskey.example", reset.adminPin)).status).toBe(200);
+  });
+});
+
+describe("the owner stepping down from a session opened with a console-issued PIN", () => {
+  it("is recorded as pending, because that session proves nothing about who holds the PIN", async () => {
+    const c = await cloud();
+    const co = await company(c, "sable");
+    const peer = await secondAdmin(co);
+    const owner = await co.user("owner@sable.example");
+    const reset = await resetTenantOwnerPin({ platform: c.platform, router: c.router }, { tenant: await co.recorded(), actorId: "op-1" });
+    const session = (await co.signIn("owner@sable.example", reset.adminPin)).token;
+
+    const stepped = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, status: "inactive", newOwnerUserId: peer.id }, session);
+
+    expect(stepped.status).toBe(200);
+    expect(await co.recorded()).toMatchObject({ ownerUserId: owner["id"], ownerEmail: "owner@sable.example", pendingOwner: { userId: peer.id } });
+    expect(await ownerAudit(c, OwnerContactAudit.HandedOver)).toEqual([]);
   });
 });
 

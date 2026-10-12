@@ -6,6 +6,7 @@ import type {
   ChangePlanRequestDTO,
   CreateTenantRequestDTO,
   PlanDTO,
+  OwnerCandidateDTO,
   OwnerPinResetResultDTO,
   ProvisionResultDTO,
   ProvisionRetryRequestDTO,
@@ -184,6 +185,32 @@ export function useArchiveTenantMutation() {
 
 export function useReleaseTenantMutation() {
   return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/release`, () => undefined, "platform.tenantDetail.release");
+}
+
+export function useOwnerCandidates(tenantId: string, enabled: boolean) {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  return useQuery<OwnerCandidateDTO[], PlatformApiError>({
+    queryKey: ["platform", "tenants", tenantId, "ownerCandidates"],
+    enabled,
+    queryFn: async () => {
+      const res = await request(`/tenants/${tenantId}/owner/candidates`);
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.owner.loadFailed"));
+      return res.json<OwnerCandidateDTO[]>();
+    },
+  });
+}
+
+export function useAssignOwnerMutation() {
+  return useSummaryMutation<{ tenantId: string; userId: string }>(
+    ({ tenantId }) => `/tenants/${tenantId}/owner`,
+    ({ userId }) => ({ userId }),
+    "platform.tenantDetail.owner.assignFailed",
+  );
+}
+
+export function useConfirmPendingOwnerMutation() {
+  return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/owner/confirm`, () => undefined, "platform.tenantDetail.owner.confirmFailed");
 }
 
 export function useSetBillingAnchorDayMutation() {

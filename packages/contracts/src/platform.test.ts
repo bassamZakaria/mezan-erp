@@ -74,7 +74,7 @@ describe("createPlatformUserRequestSchema", () => {
 describe("tenantSchema", () => {
   const tenant = {
     id: "t1", code: "acme", nameAr: "شركة أكمي", nameEn: "Acme Co", ownerEmail: "owner@acme.test",
-    ownerContactVerified: true, status: "active" as const, dbFile: "tenants/acme.db",
+    ownerContactVerified: true, ownerNeeded: false, pendingOwner: null, status: "active" as const, dbFile: "tenants/acme.db",
     createdAt: "2026-09-14T00:00:00.000Z", updatedAt: "2026-09-14T00:00:00.000Z",
   };
 
@@ -107,7 +107,7 @@ describe("createTenantRequestSchema", () => {
 describe("provisionResultSchema", () => {
   const tenant = {
     id: "t1", code: "acme", nameAr: "شركة أكمي", nameEn: null, ownerEmail: "owner@acme.test",
-    ownerContactVerified: true, status: "provisioning" as const, dbFile: "tenants/acme.db",
+    ownerContactVerified: true, ownerNeeded: false, pendingOwner: null, status: "provisioning" as const, dbFile: "tenants/acme.db",
     createdAt: "2026-09-14T00:00:00.000Z", updatedAt: "2026-09-14T00:00:00.000Z",
   };
   const result = { tenant, adminEmail: "owner@acme.test", adminPin: "123456" };
@@ -324,7 +324,7 @@ describe("licenseStateViewSchema", () => {
 describe("tenantSummarySchema", () => {
   const tenant = {
     id: "t1", code: "acme", nameAr: "شركة أكمي", nameEn: null, ownerEmail: "owner@acme.test",
-    ownerContactVerified: true, status: "active" as const, dbFile: "tenants/acme.db",
+    ownerContactVerified: true, ownerNeeded: false, pendingOwner: null, status: "active" as const, dbFile: "tenants/acme.db",
     createdAt: "2026-09-14T00:00:00.000Z", updatedAt: "2026-09-14T00:00:00.000Z",
   };
   const payment = {

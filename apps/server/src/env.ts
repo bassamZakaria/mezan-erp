@@ -18,6 +18,8 @@ export type PaymobEnv =
 
 export interface CloudEnv {
   readonly platformDir: string;
+  /** The origin every mailed link is built on (`MEZAN_PUBLIC_URL`). Never taken from a request header. */
+  readonly publicOrigin?: string;
   readonly tenantDomain?: string;
   readonly trustProxy: boolean;
   /** Which address a request is counted and bound against (client-source.ts). */
@@ -207,9 +209,15 @@ function parseClientSource(env: Record<string, string | undefined>): ClientSourc
   return { trustedProxyHops: hops, trustViewerAddress: viewer, compareViewerAddress: trustProxy && originSecret };
 }
 
+function publicOriginOf(env: Record<string, string | undefined>): { readonly publicOrigin?: string } {
+  const value = trimmedOrUndefined(env["MEZAN_PUBLIC_URL"]);
+  return value ? { publicOrigin: parseOrigin(value, "MEZAN_PUBLIC_URL") } : {};
+}
+
 export function parseEnv(env: Record<string, string | undefined> = process.env, options: ParseEnvOptions = {}): CloudEnv {
   return {
     platformDir: env["MEZAN_PLATFORM_DIR"] ?? ".data/platform",
+    ...publicOriginOf(env),
     tenantDomain: trimmedOrUndefined(env["MEZAN_TENANT_DOMAIN"]),
     trustProxy: flag(env["MEZAN_TRUST_PROXY"]),
     clientSource: parseClientSource(env),

@@ -39,6 +39,8 @@ const tenantSummary: TenantSummaryDTO = {
     ownerEmail: "owner@acme.test",
     status: TenantWireStatus.Active,
     ownerContactVerified: true,
+    ownerNeeded: false,
+    pendingOwner: null,
     dbFile: "tenants/acme.db",
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-01T00:00:00.000Z",
@@ -140,6 +142,24 @@ describe("TenantsPage", () => {
     });
     afterEach(() => {
       window.matchMedia = original;
+    });
+
+    it("marks on its own card a tenant with no owner on record and one whose hand-over awaits confirmation, and no other", async () => {
+      const ownerless: TenantSummaryDTO = { ...tenantSummary, tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "ownerless", ownerNeeded: true } };
+      const waiting: TenantSummaryDTO = {
+        ...tenantSummary,
+        tenant: { ...tenantSummary.tenant, id: "tenant-3", code: "waiting", pendingOwner: { userId: "U-2", email: "second@acme.test", requestedAt: "2026-10-01T09:00:00.000Z" } },
+      };
+      renderWithPlatformProviders(<TenantsPage />, {
+        transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [tenantSummary, ownerless, waiting] }) }),
+        initialSession: testPlatformSession,
+      });
+
+      const cardOf = async (code: string) => (await screen.findByText(code)).closest("li") as HTMLElement;
+      expect(within(await cardOf("ownerless")).getByText("المنشأة بلا مالك محدَّد")).toBeInTheDocument();
+      expect(within(await cardOf("waiting")).getByText("نقل ملكية بانتظار التأكيد")).toBeInTheDocument();
+      expect(screen.getAllByText("المنشأة بلا مالك محدَّد")).toHaveLength(1);
+      expect(screen.getAllByText("نقل ملكية بانتظار التأكيد")).toHaveLength(1);
     });
 
     it("lists each tenant as a card that carries its status, licence and its own «عرض» action, with no table to scroll sideways", async () => {

@@ -14,7 +14,8 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
-import { LicenseStateChip, OwnerContactChip, TenantStatusChip } from "./chips";
+import { LicenseStateChip, TenantStatusChip } from "./chips";
+import { TenantOwnerCard } from "./TenantOwnerCard";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { CardCheckoutChip, CheckoutOutcomeNotice, TestModeChip, absoluteCheckoutUrl } from "../billing/CardCheckoutStatus";
@@ -213,13 +214,7 @@ export function TenantDetailPage() {
           <TenantStatusChip status={tenant.status} />
           <LicenseStateChip state={licenseState.state} />
         </div>
-        <p className="mt-[2px] flex flex-wrap items-center gap-[8px] text-[12.5px] text-ink-muted">
-          <span>{t("platform.tenantDetail.ownerEmail")}: {tenant.ownerEmail}</span>
-          <OwnerContactChip verified={tenant.ownerContactVerified} />
-        </p>
-        {tenant.ownerContactVerified ? null : (
-          <p className="mt-[2px] text-[12px] text-warning-ink">{t("platform.tenantDetail.ownerUnverifiedHint")}</p>
-        )}
+        <TenantOwnerCard tenant={tenant} isOwner={isOwner} onError={onMutationError} />
       </div>
 
       {mutationError ? (

@@ -3046,8 +3046,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const app = createApp(uow, {
     resolveAuthContext,
     security: { sessions, loginThrottle },
-    ...(options.onUserEmailChanged ? { onUserEmailChanged: options.onUserEmailChanged } : {}),
-    ...(options.companyOwner ? { companyOwner: options.companyOwner } : {}),
+    ...(options.onUserEmailChanged
+      ? { onUserEmailChanged: (change) => options.onUserEmailChanged!({ ...change, actorCredentialIsOwn: !credentialResets.has(change.actorId) }) }
+      : {}),
+    ...(options.companyOwner
+      ? {
+          companyOwner: {
+            currentOwnerUserId: () => options.companyOwner!.currentOwnerUserId(),
+            handOver: (input) => options.companyOwner!.handOver({ ...input, actorCredentialIsOwn: !credentialResets.has(input.actorId) }),
+          },
+        }
+      : {}),
     onUserCredentialSetByOther: (userId, actorId) => credentialResets.mark(userId, new Date().toISOString(), actorId),
     onPermissionRefused,
     // The LAN routes need the SAME session registry the auth routes issue

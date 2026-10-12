@@ -17,7 +17,6 @@ import {
   type SignupRequest,
   type Tenant,
 } from "@mezan/domain";
-import { sendNotificationEmail } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import {
   startSignupRequestSchema,
@@ -29,6 +28,8 @@ import {
 } from "@mezan/contracts";
 import { provisionResultDTOOf, provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
 import { forwardedOrigin } from "./billing-routes.js";
+import { trustedPublicOrigin } from "./public-origin.js";
+import type { PlatformMailer } from "./platform-mail.js";
 import { callerSource, requireCloudSource, type SourceReporter } from "./client-source.js";
 import { createRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
@@ -139,6 +140,8 @@ export interface SignupRoutesOptions {
   readonly provisionWaitMs?: number;
   readonly provisionHeartbeatMs?: number;
   readonly sourceReporter?: SourceReporter;
+  /** Absent means no platform mail is configured: the verification link is shown to the caller instead of mailed. */
+  readonly mailer?: PlatformMailer;
 }
 
 // SECURITY: these routes are public and carry no session. `POST /` only
@@ -224,6 +227,17 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       return c.json({ error: "DISPOSABLE_EMAIL", message: "لا يمكن استخدام بريد إلكتروني مؤقّت للتسجيل" }, 400);
     }
 
+    // SECURITY: a link that will be MAILED is built only on an origin this
+    // deployment trusts, and decided before anything is recorded. With no
+    // trusted origin the signup is refused: a mailed link on a caller-chosen
+    // host hands the activation token to that host.
+    const mailer = options.mailer;
+    const origin = mailer ? trustedPublicOrigin(c.req.raw, env) : forwardedOrigin(c.req.raw, env.trustProxy);
+    if (origin === null) {
+      console.error("[signup] refused: mail is configured but no public origin is (set MEZAN_PUBLIC_URL or MEZAN_TENANT_DOMAIN)");
+      return c.json({ error: "SIGNUP_LINK_ORIGIN_UNKNOWN", message: "التسجيل غير متاح الآن. حاول لاحقًا أو تواصل مع الدعم." }, 503);
+    }
+
     // DEC-31 rule 1 — every sign-up is a reverse trial on the TOP public paid
     // plan, whatever plan the form named. The plan the visitor browsed is a
     // shop window; the 14 days are always on everything, and day 15 lands on
@@ -254,20 +268,17 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       return signupErrorResponse(c, err);
     }
 
-    const origin = forwardedOrigin(c.req.raw, env.trustProxy);
     const verifyUrl = `${origin}/signup/verify?token=${encodeURIComponent(token)}`;
 
+    // No platform mail configured at all is dev mode, by deployment choice.
+    // Showing the link back to whoever submitted the form is safe ONLY then:
+    // once mail is configured a delivery failure never leaks a link for an
+    // address the caller does not control.
     let devVerifyUrl: string | null = null;
-    if (!env.platformSmtp) {
-      // No platform SMTP configured at all — dev mode, by deployment choice.
-      // Showing the link back to whoever just submitted this form is safe
-      // ONLY because that is true; the moment SMTP is configured this branch
-      // never runs, so a delivery hiccup below can never leak a link for an
-      // email address the caller does not control.
+    if (!mailer) {
       devVerifyUrl = verifyUrl;
     } else {
-      const mail = verificationEmail(verifyUrl, body.nameAr);
-      const result = await sendNotificationEmail(env.platformSmtp, body.ownerEmail, mail);
+      const result = await mailer.send(body.ownerEmail, verificationEmail(verifyUrl, body.nameAr));
       if (result.outcome !== "sent") {
         console.error(`[signup] verification email to a pending tenant could not be delivered (${result.outcome}): ${result.detail}`);
       }
@@ -365,6 +376,22 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       await claims.releaseProvisioning(tokenHash, claimId);
     }
   }
+
+  // SECURITY: the token is the only credential here, and it was mailed to the
+  // previously recorded owner address. Every failure answers the same way.
+  app.post("/owner-handover", async (c) => {
+    const ip = callerSource(c);
+    const wait = verifyIpLimit.retryAfter(ip);
+    if (wait > 0) return tooManyRequests(c, wait);
+    verifyIpLimit.consume(ip);
+
+    const parsed = verifySignupRequestSchema.safeParse(await c.req.json().catch(() => null));
+    const confirmed = parsed.success ? await router.confirmPendingOwnerByToken(parsed.data.token) : null;
+    if (!confirmed) {
+      return c.json({ error: "OWNER_HANDOVER_LINK_INVALID", message: "رابط التأكيد غير صالح أو سبق استخدامه." }, 400);
+    }
+    return c.json({ confirmed: true });
+  });
 
   app.post("/verify", async (c) => {
     const ip = callerSource(c);

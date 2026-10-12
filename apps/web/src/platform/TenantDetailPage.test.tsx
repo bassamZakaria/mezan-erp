@@ -51,6 +51,8 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
       ownerEmail: "owner@acme.test",
       status: TenantWireStatus.Active,
       ownerContactVerified: true,
+      ownerNeeded: false,
+      pendingOwner: null,
       dbFile: "tenants/acme.db",
       createdAt: "2026-09-01T00:00:00.000Z",
       updatedAt: "2026-09-01T00:00:00.000Z",
@@ -345,7 +347,7 @@ describe("TenantDetailPage", () => {
     renderDetail({ transport, session: testPlatformSession });
 
     expect(await screen.findByText("بريد المالك غير مؤكَّد")).toBeInTheDocument();
-    expect(screen.getByText(/غيّر مدير آخر بريد دخول المالك/)).toBeInTheDocument();
+    expect(screen.getByText(/بريد دخول حساب المالك يختلف عن البريد المسجَّل هنا/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة تعيين رمز المالك" }));
     fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
 
@@ -665,5 +667,101 @@ describe("TenantDetailPage", () => {
     expect(await screen.findByText("REF-1")).toBeInTheDocument();
     expect(posted).toMatchObject({ amount: "500.00", reference: "REF-1" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  describe("the tenant's owner", () => {
+    const admins = [
+      { id: "U-1", nameAr: "سارة المالكة", email: "owner@acme.test" },
+      { id: "U-2", nameAr: "خالد المدير", email: "second@acme.test" },
+    ];
+
+    it("flags a tenant with no owner, and assigns the admin the platform owner picks only after asking", async () => {
+      const assigned: unknown[] = [];
+      let release: (() => void) | undefined;
+      const answered = new Promise<void>((resolve) => (release = resolve));
+      const stub = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: assigned.length === 0 ? makeSummary({ ownerNeeded: true }) : makeSummary({ ownerEmail: "second@acme.test" }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "GET /tenants/tenant-1/owner/candidates": () => ({ body: admins }),
+        "POST /tenants/tenant-1/owner": (init) => {
+          assigned.push(JSON.parse(String(init?.body)));
+          return { body: makeSummary({ ownerEmail: "second@acme.test" }) };
+        },
+      });
+      const transport: Transport = async (path, init) => {
+        const response: TransportResponse = await stub(path, init);
+        if (init?.method === "POST") await answered;
+        return response;
+      };
+      renderDetail({ transport, session: testPlatformSession });
+
+      expect(await screen.findByText("المنشأة بلا مالك محدَّد")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "تعيين مالك" }));
+      const second = (await screen.findByText("second@acme.test")).closest("li") as HTMLElement;
+      const first = screen.getByText("سارة المالكة").closest("li") as HTMLElement;
+      fireEvent.click(within(second).getByRole("button", { name: "تعيين مالكًا" }));
+      const dialog = await screen.findByRole("dialog", { name: "تعيين مالك المنشأة؟" });
+      expect(dialog).toHaveTextContent("second@acme.test");
+      expect(assigned).toEqual([]);
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "تعيين" }));
+
+      await waitFor(() => expect(assigned).toEqual([{ userId: "U-2" }]));
+      expect(within(second).getByRole("button", { name: "تعيين مالكًا" })).toBeDisabled();
+      expect(within(first).getByRole("button", { name: "تعيين مالكًا" })).toBeEnabled();
+      await act(async () => release?.());
+      await waitFor(() => expect(screen.queryByText("المنشأة بلا مالك محدَّد")).not.toBeInTheDocument());
+      expect(screen.getByText(/بريد المالك: second@acme\.test/)).toBeInTheDocument();
+    });
+
+    it("shows a pending hand-over with who asked for it, and confirms it only after asking", async () => {
+      let confirms = 0;
+      const pending = makeSummary({ pendingOwner: { userId: "U-2", email: "second@acme.test", requestedAt: "2026-10-01T09:00:00.000Z" } });
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: confirms === 0 ? pending : makeSummary({ ownerEmail: "second@acme.test" }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "POST /tenants/tenant-1/owner/confirm": () => {
+          confirms += 1;
+          return { body: makeSummary({ ownerEmail: "second@acme.test" }) };
+        },
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      expect(await screen.findByText("نقل ملكية بانتظار التأكيد")).toBeInTheDocument();
+      expect(screen.getByText(/second@acme\.test/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "تأكيد نقل الملكية" }));
+      const dialog = await screen.findByRole("dialog", { name: "تأكيد نقل ملكية المنشأة؟" });
+      expect(dialog).toHaveTextContent("owner@acme.test");
+      expect(dialog).toHaveTextContent("second@acme.test");
+      expect(confirms).toBe(0);
+      fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد النقل" }));
+
+      await waitFor(() => expect(confirms).toBe(1));
+      await waitFor(() => expect(screen.queryByText("نقل ملكية بانتظار التأكيد")).not.toBeInTheDocument());
+    });
+
+    it("shows the state but no owner action to a support operator, nor for a tenant that is not live", async () => {
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary({ ownerNeeded: true, pendingOwner: { userId: "U-2", email: "second@acme.test", requestedAt: "2026-10-01T09:00:00.000Z" } }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: supportSession });
+
+      expect(await screen.findByText("نقل ملكية بانتظار التأكيد")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "تعيين مالك" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "تأكيد نقل الملكية" })).not.toBeInTheDocument();
+    });
+
+    it("explains an unverified owner address without blaming one cause", async () => {
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary({ ownerContactVerified: false }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      expect(
+        await screen.findByText("بريد دخول حساب المالك يختلف عن البريد المسجَّل هنا، ولم يثبت بعد أن المالك نفسه هو من غيّره. يبقى البريد المسجَّل كما هو حتى يسجّل المالك دخوله برمزه الخاص، أو تؤكّد أنت مالك المنشأة من هنا."),
+      ).toBeInTheDocument();
+    });
   });
 });

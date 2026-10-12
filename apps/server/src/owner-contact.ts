@@ -48,6 +48,7 @@ export interface OwnerHandOver {
   readonly toUserId: string;
   readonly toEmail: string;
   readonly actorId: string;
+  readonly actorCredentialIsOwn?: boolean;
 }
 
 export interface PendingHandOverMail {
@@ -162,7 +163,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
     // SECURITY: only the owner's own act hands the tenant over at once. Anyone
     // else's nomination, for themself or for a third account, waits for the
     // platform or for the previously recorded owner address to confirm it.
-    if (input.actorId === input.fromUserId) {
+    if (input.actorId === input.fromUserId && input.actorCredentialIsOwn !== false) {
       const moved = await write(tenant, tenantHandedTo(tenant, successor, at), { action: OwnerContactAudit.HandedOver, severity: AuditSeverityCode.Critical }, actor, details);
       return moved ? OwnerHandOverOutcome.Verified : null;
     }
@@ -213,7 +214,8 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
 
     async emailChanged(code, change) {
       const owner = { id: change.userId, email: change.after };
-      const proof = change.userId === change.actorId ? OwnerContactProof.OwnerActed : OwnerContactProof.Unproven;
+      const ownAct = change.userId === change.actorId && change.actorCredentialIsOwn !== false;
+      const proof = ownAct ? OwnerContactProof.OwnerActed : OwnerContactProof.Unproven;
       await settle(code, tenantActor(code, change.actorId), (tenant, at) =>
         tenant.ownerUserId === change.userId ? tenantWithOwnerContact(tenant, owner, proof, at) : null,
       );

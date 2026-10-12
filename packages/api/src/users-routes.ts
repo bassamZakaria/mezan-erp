@@ -95,6 +95,8 @@ export interface UserEmailChange {
   readonly before: string;
   readonly after: string;
   readonly actorId: string;
+  /** False when the actor signed in with a credential somebody else set; absent when nobody tracks it. */
+  readonly actorCredentialIsOwn?: boolean;
 }
 
 export { OwnerHandOverOutcome };
@@ -123,7 +125,13 @@ export interface CompanyOwnerPort {
   currentOwnerUserId(): Promise<string | null>;
   // REQUIRED ORDERING: called only after the tenant's own write has committed,
   // and safe to call twice for the same hand-over.
-  handOver(input: { readonly fromUserId: string; readonly toUserId: string; readonly toEmail: string; readonly actorId: string }): Promise<OwnerHandOverOutcome>;
+  handOver(input: {
+    readonly fromUserId: string;
+    readonly toUserId: string;
+    readonly toEmail: string;
+    readonly actorId: string;
+    readonly actorCredentialIsOwn?: boolean;
+  }): Promise<OwnerHandOverOutcome>;
 }
 
 export interface UsersRoutesOptions {
@@ -536,7 +544,8 @@ export function createUsersRoutes(
 
   app.get("/", gate("admin.users.view"), async (c) => {
     const users = await uow.users.list();
-    return c.json(users.map(serializeUser));
+    const ownerId = owner ? await owner.currentOwnerUserId() : null;
+    return c.json(users.map((user) => (owner ? { ...serializeUser(user), isCompanyOwner: user.id === ownerId } : serializeUser(user))));
   });
 
   app.get("/:id", gate("admin.users.view"), async (c) => {

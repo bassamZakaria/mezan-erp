@@ -41,6 +41,7 @@ import type { PaymobTestProvider } from "./paymob-provider.js";
 import type { CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
 import { resolveTenantCode } from "./tenant-resolver.js";
+import { trustedPublicOrigin } from "./public-origin.js";
 
 export const PAYMOB_WEBHOOK_PATH = "/api/billing/paymob/webhook";
 const MAX_WEBHOOK_BYTES = 256 * 1024;
@@ -54,22 +55,8 @@ export function forwardedOrigin(request: Request, trustProxy: boolean): string {
   return `${proto === "https" || proto === "http" ? proto : url.protocol.replace(":", "")}://${host}`;
 }
 
-/**
- * The origin a browser is sent back to after the hosted checkout. Only the
- * configured public URL or one of this deployment's own tenant subdomains —
- * never a host the caller merely claims.
- */
 export function trustedReturnOrigin(request: Request, env: CloudEnv): string {
-  const publicUrl = env.paymob.mode === "off" ? undefined : env.paymob.publicUrl;
-  if (env.tenantDomain && publicUrl) {
-    const raw = (env.trustProxy ? request.headers.get("x-forwarded-host") : null) ?? request.headers.get("host") ?? "";
-    const host = raw.split(",")[0]!.trim().toLowerCase().replace(/:\d+$/, "");
-    const domain = env.tenantDomain.toLowerCase();
-    if (host.endsWith(`.${domain}`) && !host.slice(0, -(domain.length + 1)).includes(".")) {
-      return `${new URL(publicUrl).protocol}//${host}`;
-    }
-  }
-  return publicUrl ?? forwardedOrigin(request, env.trustProxy);
+  return trustedPublicOrigin(request, env) ?? forwardedOrigin(request, env.trustProxy);
 }
 
 export function notificationUrl(request: Request, env: CloudEnv): string {

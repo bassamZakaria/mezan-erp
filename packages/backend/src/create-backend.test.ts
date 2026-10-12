@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
 import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, createSupplier as buildSupplier, createEntitlements, toTenantDay } from "@mezan/domain";
 import { createSqliteCustomerRepository, createSqliteLedgerStore, createSqliteSupplierRepository, openSqliteConnection } from "@mezan/persistence";
@@ -4346,11 +4346,15 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
   const demoEntitlements = () =>
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
 
+  let seeded: BackendHandle;
+  beforeAll(async () => {
+    seeded = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
+    registries.set(seeded.app, seeded.sessions);
+  }, 60000);
+  afterAll(() => seeded.close());
+
   it("seeds more than zero customers, reachable over the real HTTP surface", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
-    handles.push(handle);
-    registries.set(handle.app, handle.sessions);
-    const res = await handle.app.fetch(new Request("http://local/customers", { headers: admin(handle.app) }));
+    const res = await seeded.app.fetch(new Request("http://local/customers", { headers: admin(seeded.app) }));
     expect(res.status).toBe(200);
     const customersList = (await res.json()) as unknown[];
     expect(customersList.length).toBeGreaterThan(0);
@@ -4363,10 +4367,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
    * confirms a live invoice the authority never hears about.
    */
   it("an approved progress certificate's invoice reaches the ETA queue exactly once", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
-    handles.push(handle);
-    registries.set(handle.app, handle.sessions);
-    const app = handle.app;
+    const app = seeded.app;
 
     const certRes = await app.fetch(new Request("http://local/contracting/certificates", { headers: admin(app) }));
     expect(certRes.status).toBe(200);

@@ -26,14 +26,17 @@ import { Money, Qty } from "../money/index.js";
  * a stored status — it's derived from the due date on an unpaid confirmed
  * invoice (see {@link isOverdue}).
  */
-export type SalesInvoiceStatus =
-  | "draft"
-  | "pending"
-  | "confirmed"
-  | "partially_paid"
-  | "paid"
-  | "cancelled"
-  | "reversed";
+export enum SalesInvoiceStatusCode {
+  Draft = "draft",
+  Pending = "pending",
+  Confirmed = "confirmed",
+  PartiallyPaid = "partially_paid",
+  Paid = "paid",
+  Cancelled = "cancelled",
+  Reversed = "reversed",
+}
+
+export type SalesInvoiceStatus = `${SalesInvoiceStatusCode}`;
 
 /** Statuses in which the invoice is live in the ledger / AR sub-ledger. */
 export const SALES_INVOICE_ACTIVE_STATUSES: ReadonlySet<SalesInvoiceStatus> = new Set([
@@ -143,6 +146,8 @@ export interface SalesInvoice {
   readonly documentKind?: InvoiceDocumentKind;
   /** Why a posted invoice was voided, as the person voiding it stated; null on any other invoice. */
   readonly voidReason?: string | null;
+  /** The quote this invoice was raised from, stamped by the conversion and by nothing else. */
+  readonly sourceQuoteId?: string | null;
   /** Sequential number (INV-…) stamped on confirm; null while draft/pending. */
   readonly docNo: string | null;
   readonly status: SalesInvoiceStatus;

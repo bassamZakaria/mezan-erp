@@ -162,16 +162,21 @@ export class SalesQuoteService {
    * quote and sales invoice modules — not exposed as its own HTTP route here.
    */
   async markConverted(id: string, invoiceId: string): Promise<SalesQuote> {
-    const existing = await this.require(id);
-    assertTransition(id, existing.status, "converted");
-    const converted: SalesQuote = {
-      ...existing,
-      status: "converted",
-      convertedAt: this.now(),
-      convertedInvoiceId: invoiceId,
-    };
-    await this.deps.repo.update(converted);
-    return converted;
+    // INVARIANT: the status is read and written inside ONE transaction, so of
+    // two conversions of the same quote the second reads `converted` and is
+    // refused — a quote never stands behind two invoices.
+    return this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      assertTransition(id, existing.status, "converted");
+      const converted: SalesQuote = {
+        ...existing,
+        status: "converted",
+        convertedAt: this.now(),
+        convertedInvoiceId: invoiceId,
+      };
+      await this.deps.repo.update(converted);
+      return converted;
+    });
   }
 
   /**
@@ -179,10 +184,13 @@ export class SalesQuoteService {
    * exists. Cancelling that draft hands the quote back as accepted, so the
    * customer's agreed quote can be raised again instead of being stranded.
    */
-  async reopenConvertedBy(invoiceId: string): Promise<SalesQuote | null> {
+  async reopenConvertedBy(invoiceId: string, otherLiveInvoicesOf?: (quoteId: string) => Promise<readonly string[]>): Promise<SalesQuote | null> {
     return this.deps.repo.transaction(async () => {
       const quote = (await this.deps.repo.list({ status: "converted" })).find((candidate) => candidate.convertedInvoiceId === invoiceId);
       if (!quote) return null;
+      // A quote another live invoice was also raised from stays converted:
+      // handing it back would let it be invoiced a further time.
+      if (((await otherLiveInvoicesOf?.(quote.id)) ?? []).some((id) => id !== invoiceId)) return null;
       const reopened: SalesQuote = { ...quote, status: "accepted", convertedAt: null, convertedInvoiceId: null };
       await this.deps.repo.update(reopened);
       return reopened;

@@ -61,7 +61,7 @@ import type {
 import type { GateableActionType } from "../workflow/index.js";
 import type { CreditControlMode } from "../settings/settings.js";
 import { checkCustomerCredit, CreditLimitExceededError, type CreditCheckResult } from "../credit-control/index.js";
-import { SALES_INVOICE_STATUS_LABELS_AR, SALES_INVOICE_ACTIVE_STATUSES } from "./sales-invoice.js";
+import { SALES_INVOICE_STATUS_LABELS_AR, SALES_INVOICE_ACTIVE_STATUSES, SalesInvoiceStatusCode } from "./sales-invoice.js";
 import type {
   SalesInvoice,
   SalesInvoiceDiscount,
@@ -302,6 +302,8 @@ export interface CreateSalesInvoiceCommand {
    * document the customer agreed to.
    */
   readonly sourcePricing?: SalesPricingMode;
+  /** SERVER-DERIVED by a quote's conversion; never mapped from a request body. */
+  readonly sourceQuoteId?: string | null;
   readonly lines: readonly CreateSalesInvoiceLine[];
 }
 
@@ -460,9 +462,9 @@ export class SalesInvoiceService {
       // on that approval: it goes back to its submitter as a draft carrying the
       // recalculated lines, and its request is reopened in this transaction so
       // the next confirm is judged afresh.
-      if (taxRecalculated && stored.status === "pending") {
-        assertTransition(id, stored.status, "draft");
-        const handedBack: SalesInvoice = { ...fresh, status: "draft", workflowRequestId: null };
+      if (taxRecalculated && stored.status === SalesInvoiceStatusCode.Pending) {
+        assertTransition(id, stored.status, SalesInvoiceStatusCode.Draft);
+        const handedBack: SalesInvoice = { ...fresh, status: SalesInvoiceStatusCode.Draft, workflowRequestId: null };
         if (!(await this.deps.repo.replaceUnposted(handedBack, { status: [stored.status] }))) throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, id);
         await this.deps.workflow?.reopen?.(stored.workflowRequestId ?? requestId);
         await this.recordAudit(SalesInvoiceLifecycleAuditAction.ReturnReratedToDraft, handedBack, AuditSeverityCode.Warning, {
@@ -862,7 +864,7 @@ export class SalesInvoiceService {
   async editDraftLine(id: string, lineId: string, change: EditSalesInvoiceDraftLineCommand): Promise<SalesInvoice> {
     return this.deps.repo.transaction(async () => {
       const existing = await this.require(id);
-      if (existing.status !== "draft") throw new SalesInvoiceNotDraftError(id, existing.status);
+      if (existing.status !== SalesInvoiceStatusCode.Draft) throw new SalesInvoiceNotDraftError(id, existing.status);
       const before = existing.lines.find((line) => line.lineId === lineId);
       if (!before) throw new SalesInvoiceLineNotFoundError(id, lineId);
       const policy = await this.resolveTaxPolicy();
@@ -1007,6 +1009,7 @@ export class SalesInvoiceService {
       salespersonId: cmd.salespersonId ?? null,
       salespersonNameAr: cmd.salespersonNameAr ?? null,
       projectId: cmd.projectId ?? null,
+      sourceQuoteId: cmd.sourceQuoteId ?? null,
       currency: cmd.currency ?? "EGP",
       couponCode: cmd.couponCode ?? null,
       appliedPromotion: null,

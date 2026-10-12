@@ -180,4 +180,35 @@ describe("two operations on one stored document land as one story", () => {
       },
     });
   });
+
+  it("one quote converted twice at once: one invoice is raised, the other conversion is refused and leaves no draft behind", async () => {
+    const convert = (quoteId: string, invoiceId: string) =>
+      kit.call("POST", `/sales-quotes/${quoteId}/convert-to-invoice`, {
+        id: invoiceId, dueDate: "2026-09-30", warehouseId: "WH-MAIN", arAccountId: "1105", taxAccountId: "2200",
+        lines: [{ lineId: "A", isStock: false, revenueAccountId: "4100" }],
+      });
+    await raceBothOrders<string>(kit, "RC-CONVERT", {
+      outcome: RaceOutcome.ExactlyOneWins,
+      arrange: async (tag) => {
+        const quoted = await kit.call("POST", "/sales-quotes", {
+          id: tag, date: TODAY, expiryDate: "2026-09-30", customerId: "CUST-DEMO-1", customerNameAr: "عميل", branchId: "BR-MAIN",
+          lines: [{ lineId: "A", itemId: "ITEM-DEMO-10", itemNameAr: "خدمة", qty: "1", unitPrice: "100", taxRateId: "VAT14" }],
+        });
+        expect(quoted.status, JSON.stringify(quoted.body)).toBe(201);
+        for (const action of ["send", "accept"]) expect((await kit.call("POST", `/sales-quotes/${tag}/${action}`, {})).status).toBe(200);
+        return tag;
+      },
+      first: (id) => convert(id, `${id}-I1`),
+      second: (id) => convert(id, `${id}-I2`),
+      agree: async ({ fixture, first, second }) => {
+        const [won, lost] = first.status === 201 ? [`${fixture}-I1`, `${fixture}-I2`] : [`${fixture}-I2`, `${fixture}-I1`];
+        const loser = first.status === 201 ? second : first;
+        expect(loser.status, JSON.stringify(loser.body)).toBe(409);
+        expect(loser.body.message).toMatch(/[\u0600-\u06FF]/);
+        const quote = (await kit.call("GET", `/sales-quotes/${fixture}`)).body;
+        expect([quote.status, quote.convertedInvoiceId]).toEqual(["converted", won]);
+        expect([(await kit.call("GET", `/sales-invoices/${won}`)).status, (await kit.call("GET", `/sales-invoices/${lost}`)).status]).toEqual([200, 404]);
+      },
+    });
+  });
 });

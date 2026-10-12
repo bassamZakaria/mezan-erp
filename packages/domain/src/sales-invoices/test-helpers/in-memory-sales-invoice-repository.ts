@@ -56,6 +56,7 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
       .filter((inv) => (filter.status ? inv.status === filter.status : true))
       .filter((inv) => (filter.statusIn ? filter.statusIn.includes(inv.status) : true))
       .filter((inv) => (filter.customerId ? inv.customerId === filter.customerId : true))
+      .filter((inv) => (filter.sourceQuoteId ? inv.sourceQuoteId === filter.sourceQuoteId : true))
       .filter((inv) => (filter.fromDate ? inv.date >= filter.fromDate : true))
       .filter((inv) => (filter.toDate ? inv.date <= filter.toDate : true))
       .filter((inv) => (filter.branchScope ? inv.branchId == null || filter.branchScope.includes(inv.branchId) : true))

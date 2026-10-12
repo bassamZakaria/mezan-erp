@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS sales_invoice (
   reverses_invoice_id    TEXT REFERENCES sales_invoice(id),
   reversed_by_invoice_id TEXT REFERENCES sales_invoice(id),
   document_kind          TEXT NOT NULL DEFAULT 'standard',
-  void_reason            TEXT
+  void_reason            TEXT,
+  source_quote_id        TEXT
 );
 CREATE TABLE IF NOT EXISTS sales_invoice_line (
   invoice_id           TEXT NOT NULL REFERENCES sales_invoice(id),
@@ -137,6 +138,7 @@ const ADDED_COLUMNS: readonly (readonly [string, string])[] = [
   ["project_id", "TEXT"],
   ["document_kind", `TEXT NOT NULL DEFAULT '${InvoiceDocumentKind.Standard}'`],
   ["void_reason", "TEXT"],
+  ["source_quote_id", "TEXT"],
 ];
 
 /** Line columns added after the table shipped — see {@link ADDED_COLUMNS}. */
@@ -181,6 +183,7 @@ interface InvoiceRow {
   customer_name_ar: string;
   document_kind: string | null;
   void_reason: string | null;
+  source_quote_id: string | null;
   customer_tax_exempt: number;
   tax_inclusive: number | null;
   warehouse_id: string;
@@ -316,6 +319,7 @@ function invoiceParams(invoice: SalesInvoice) {
     customer_name_ar: invoice.customerNameAr,
     document_kind: invoice.documentKind ?? InvoiceDocumentKind.Standard,
     void_reason: invoice.voidReason ?? null,
+    source_quote_id: invoice.sourceQuoteId ?? null,
     customer_tax_exempt: invoice.customerTaxExempt ? 1 : 0,
     tax_inclusive: invoice.taxInclusive ? 1 : 0,
     warehouse_id: invoice.warehouseId,
@@ -389,7 +393,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         currency, fx_rate, notes, internal_notes,
         discount_type, discount_percent, discount_amount, ar_account_id, tax_account_id,
         amount_paid, created_at, confirmed_at, journal_entry_id, workflow_request_id,
-        reverses_invoice_id, reversed_by_invoice_id, document_kind, void_reason
+        reverses_invoice_id, reversed_by_invoice_id, document_kind, void_reason, source_quote_id
       ) VALUES (
         @id, @doc_type, @doc_no, @status, @date, @due_date, @customer_id, @customer_name_ar,
         @customer_tax_exempt, @tax_inclusive, @warehouse_id, @branch_id, @salesperson_id, @salesperson_name_ar,
@@ -399,7 +403,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         @currency, @fx_rate, @notes, @internal_notes,
         @discount_type, @discount_percent, @discount_amount, @ar_account_id, @tax_account_id,
         @amount_paid, @created_at, @confirmed_at, @journal_entry_id, @workflow_request_id,
-        @reverses_invoice_id, @reversed_by_invoice_id, @document_kind, @void_reason
+        @reverses_invoice_id, @reversed_by_invoice_id, @document_kind, @void_reason, @source_quote_id
       )
     `);
     this.updateInvoice = sqlite.prepare(`
@@ -443,7 +447,8 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         reverses_invoice_id = @reverses_invoice_id,
         reversed_by_invoice_id = @reversed_by_invoice_id,
         document_kind = @document_kind,
-        void_reason = @void_reason
+        void_reason = @void_reason,
+        source_quote_id = @source_quote_id
       WHERE id = @id
     `);
     this.deleteLines = sqlite.prepare(`DELETE FROM sales_invoice_line WHERE invoice_id = ?`);
@@ -549,7 +554,8 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       .lte("date", filter.toDate)
       .eq("branch_id", filter.branchId)
       .eq("warehouse_id", filter.warehouseId)
-      .eq("salesperson_id", filter.salespersonId);
+      .eq("salesperson_id", filter.salespersonId)
+      .eq("source_quote_id", filter.sourceQuoteId);
     if (filter.statusIn) {
       // An empty set matches nothing, exactly as the caller asked — falling
       // through to "no clause" would widen it to every status.
@@ -666,6 +672,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       customerNameAr: row.customer_name_ar,
       documentKind: row.document_kind === InvoiceDocumentKind.RetentionRelease ? InvoiceDocumentKind.RetentionRelease : InvoiceDocumentKind.Standard,
       voidReason: row.void_reason ?? null,
+      sourceQuoteId: row.source_quote_id ?? null,
       customerTaxExempt: row.customer_tax_exempt === 1,
       taxInclusive: row.tax_inclusive === 1,
       warehouseId: row.warehouse_id,

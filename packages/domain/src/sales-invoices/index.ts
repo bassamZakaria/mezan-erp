@@ -14,6 +14,7 @@ export {
   type SalesInvoiceLineDiscountType,
   type AppliedSalesInvoicePromotion,
   type AppliedPromotionLineDiscount,
+  SalesInvoiceStatusCode,
   SALES_INVOICE_ACTIVE_STATUSES,
   SALES_INVOICE_TERMINAL_STATUSES,
   SALES_INVOICE_STATUS_LABELS_AR,

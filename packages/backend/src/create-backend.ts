@@ -100,6 +100,7 @@ import {
   createInventoryGlPostingHook,
   PAYROLL_GL_ACCOUNTS,
   PhysicalCountService,
+  SalesInvoiceStatusCode,
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
   purchaseInvoiceLineTax,
@@ -3451,7 +3452,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
           taxRates,
           taxPolicy: salesTaxPolicySource(settings),
-        }).reopenConvertedBy(invoice.id);
+        }).reopenConvertedBy(invoice.id, async (quoteId) =>
+          (await salesInvoices.list({ sourceQuoteId: quoteId })).filter((other) => other.status !== SalesInvoiceStatusCode.Cancelled).map((other) => other.id),
+        );
       },
       withdrawUnsentEtaSubmission: async (invoice) => {
         const submission = await etaService.findByInternalId(invoice.docNo ?? invoice.id);

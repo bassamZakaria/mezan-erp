@@ -566,6 +566,7 @@ export function createSalesQuotesRoutes(
       arAccountId: d.arAccountId,
       taxAccountId: d.taxAccountId,
       sourcePricing: SalesPricingMode.TaxExclusive,
+      sourceQuoteId: quote.id,
       lines: quote.lines.map((l) => {
         const acc = byLineId.get(l.lineId);
         if (!acc) throw new Error(`unreachable: line ${l.lineId} validated above`);
@@ -587,12 +588,18 @@ export function createSalesQuotesRoutes(
     };
 
     try {
-      const { refusal, value } = await withQuota(c, deps.invoice?.quota, QuotaKind.SalesInvoicesPerMonth, () =>
-        invoiceSvc.createDraft(cmd),
-      );
-      if (refusal) return quotaRefusalResponse(c, refusal);
-      const invoice = value!;
-      const converted = await quoteSvc.markConverted(quote.id, invoice.id);
+      // INVARIANT: the draft and the quote's move to «محوَّل» are ONE
+      // transaction. The conversion that reaches the quote second finds it
+      // converted and is refused, and the draft it had raised is rolled back
+      // with it — never left standing beside the winner's.
+      const outcome = await deps.repo.transaction(async () => {
+        const quota = await withQuota(c, deps.invoice?.quota, QuotaKind.SalesInvoicesPerMonth, () => invoiceSvc.createDraft(cmd));
+        if (quota.refusal) return { refusal: quota.refusal } as const;
+        const raised = quota.value!;
+        return { refusal: null, invoice: raised, converted: await quoteSvc.markConverted(quote.id, raised.id) } as const;
+      });
+      if (outcome.refusal) return quotaRefusalResponse(c, outcome.refusal);
+      const { invoice, converted } = outcome;
       return c.json(
         {
           quote: serialize(converted, totalsFor(quoteSvc, converted)),

@@ -52,3 +52,38 @@ describe("a collected cheque the bank returns", () => {
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });
+
+describe("a cheque collected into the USD bank and then returned", () => {
+  const usdBank = async () =>
+    ((await world.request("GET", "/gl/balances-by-currency")).body.treasury as { treasuryAccountId: string; foreignBalance: string; baseBalance: string }[]).find((row) => row.treasuryAccountId === "TR-DEMO-BANK-USD");
+  const bankLine = (entryId: string) =>
+    world.sqlite.prepare(`SELECT debit, credit, currency, fx_rate AS fxRate FROM journal_line WHERE entry_id = ? AND account_id = '1310-USD'`).safeIntegers().all(entryId);
+
+  it("gives back the dollars it took in at the rate it took them in, with no exchange difference", async () => {
+    const before = { bank: await usdBank(), base: world.balance("1310-USD"), receivable: world.balance("1105"), realisedGain: world.balance("4920"), realisedLoss: world.balance("5920") };
+    const created = await world.request("POST", "/cheques", {
+      id: "RET-USD", direction: "incoming", chequeNumber: "N-RET-USD", bankName: "بنك مصر", issueDate: "2026-09-02", dueDate: "2026-09-02", branchId: "BR-MAIN", partyId: "CUST-DEMO-1",
+      counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" }, amount: "987.00",
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect((await world.request("POST", "/cheques/RET-USD/deposit", { bankTreasuryAccountId: "TR-DEMO-BANK-USD" })).status).toBe(200);
+    const collected = await world.request("POST", "/cheques/RET-USD/collect", { bankGlAccountId: "1310-USD", date: "2026-09-05" });
+    expect(collected.status, JSON.stringify(collected.body)).toBe(200);
+    const collectionEntryId = String(collected.body.collectionJournalEntryId);
+    expect(bankLine(collectionEntryId)).toEqual([{ debit: 987_000_000n, credit: 0n, currency: "USD", fxRate: "49.35" }]);
+    expect(world.balance("1310-USD") - before.base).toBe(987_000_000n);
+
+    const returned = await world.request("POST", "/cheques/RET-USD/return", { date: "2026-09-10" });
+
+    expect(returned.status, JSON.stringify(returned.body)).toBe(200);
+    const reversalId = entry(world, collectionEntryId).reversedBy as string;
+    expect(entry(world, reversalId).date).toBe("2026-09-10");
+    expect(bankLine(reversalId)).toEqual([{ debit: 0n, credit: 987_000_000n, currency: "USD", fxRate: "49.35" }]);
+    expect(world.balance("1310-USD")).toBe(before.base);
+    expect(await usdBank()).toEqual(before.bank);
+    expect(world.balance("1105")).toBe(before.receivable);
+    expect(world.balance("4920")).toBe(before.realisedGain);
+    expect(world.balance("5920")).toBe(before.realisedLoss);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});

@@ -1,4 +1,5 @@
 import { postingRefusalResponse } from "./posting-refusal.js";
+import { reversalRefusalResponse } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -72,6 +73,7 @@ export interface RecurringJournalRoutesDeps {
   readonly projects?: JournalPostingDeps["projects"];
   readonly projectRequiredAccountIds?: JournalPostingDeps["projectRequiredAccountIds"];
   readonly audit?: AuditSink;
+  readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly events?: GlEventPublisher;
   readonly now?: () => string;
   readonly idGen?: () => string;
@@ -410,6 +412,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
           numbering: deps.numbering,
           projects: deps.projects,
           audit: deps.audit,
+          vatFilings: deps.vatFilings,
           events: deps.events,
           now: deps.now,
           actor: getAuthContext(c)?.userId ?? "system",
@@ -421,7 +424,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
         201,
       );
     } catch (err) {
-      return handleDomainError(c, err);
+      return reversalRefusalResponse(c, err) ?? handleDomainError(c, err);
     }
   });
 

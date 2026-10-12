@@ -8,6 +8,7 @@ import {
   createSqliteRecurringJournalRunRepository,
   createSqliteRecurringJournalSkipRepository,
   createSqliteRecurringJournalTemplateRepository,
+  createSqliteVatFilingStore,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { registerCashCommitmentSource } from "./e1-02.js";
@@ -62,6 +63,7 @@ export const area: BackendArea = {
           resolvePartyControlAccounts,
           partyExists,
           audit: ctx.audit,
+          vatFilings: createSqliteVatFilingStore(ctx.sqlite),
           dueDepreciation: {
             hasDepreciableAssets: async () => (await assets.list()).some((asset) => DEPRECIABLE_ASSET_STATUSES.has(asset.status)),
             hasRunForPeriod: async (period) => depreciationRunsCoverPeriod(await assets.list(), await depreciationRuns.list(), period),

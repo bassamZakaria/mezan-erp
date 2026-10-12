@@ -81,4 +81,14 @@ describe("reversing a recurring run", () => {
     expect((again.body.generated as unknown[]).length).toBe(0);
     expect(world.count("recurring_journal_run", `template_id = '${run.templateId}' AND period = '2026-07'`)).toBe(1);
   });
+
+  it("refuses a run whose entry is still a draft, in both languages", async () => {
+    const draft = world.sqlite
+      .prepare(`SELECT r.id FROM recurring_journal_run r JOIN journal_entry e ON e.id = r.journal_entry_id WHERE e.status = 'draft' LIMIT 1`)
+      .get() as { id: string };
+    const refused = await world.request("POST", `/gl/recurring/runs/${draft.id}/reverse`, {});
+    expect(`${refused.status} ${String(refused.body.error)}`).toBe("409 JOURNAL_ENTRY_NOT_POSTED");
+    expect(String(refused.body.message)).toMatch(/[\u0600-\u06FF]/);
+    expect(String(refused.body.messageEn)).toContain("not posted");
+  });
 });

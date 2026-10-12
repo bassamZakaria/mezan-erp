@@ -335,6 +335,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             </div>
             {row.nameEn ? <div className="mz-lat text-[11.5px] text-ink-faint">{row.nameEn}</div> : null}
             <div className="mz-lat text-[11px] text-ink-faint">{row.email}</div>
+            {onErase && row.isCompanyOwner && !row.erasedAt ? <div className="mt-[2px] text-[11.5px] leading-[1.6] text-ink-muted">{t("users.owner.eraseRefused")}</div> : null}
           </div>
         </div>
       ),
@@ -376,9 +377,6 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       align: "end",
       render: (row) => (
         <div className="flex items-center justify-end gap-[6px]">
-          {onErase && !row.erasedAt && row.isCompanyOwner ? (
-            <span className="max-w-[220px] text-end text-[11.5px] leading-[1.6] text-ink-muted">{t("users.owner.eraseRefused")}</span>
-          ) : null}
           {onErase && !row.erasedAt && !row.isCompanyOwner ? (
             <Button
               size="sm"

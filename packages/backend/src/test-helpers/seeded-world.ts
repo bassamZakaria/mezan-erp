@@ -16,15 +16,13 @@ export interface SeededWorld {
   readonly backend: BackendHandle;
   readonly sqlite: Sqlite;
   request(method: string, url: string, body?: unknown): Promise<Answer>;
-  invariants(): Promise<Record<"tb" | "inventory" | "ar" | "ap", string>>;
-  fiveInvariants(): Promise<Record<"tb" | "inventory" | "ar" | "ap" | "grni", string>>;
+  invariants(): Promise<Record<"tb" | "inventory" | "ar" | "ap" | "grni", string>>;
   balance(accountId: string, asOfDate?: string): bigint;
   count(table: string, where?: string): number;
   close(): void;
 }
 
-export const INVARIANTS_ZERO = { tb: "0", inventory: "0.000000", ar: "0.000000", ap: "0.000000" } as const;
-export const FIVE_INVARIANTS_ZERO = { ...INVARIANTS_ZERO, grni: "0.000000" } as const;
+export const INVARIANTS_ZERO = { tb: "0", inventory: "0.000000", ar: "0.000000", ap: "0.000000", grni: "0.000000" } as const;
 
 export async function seededWorld(options: Partial<CreateBackendOptions> = {}): Promise<SeededWorld> {
   const dir = mkdtempSync(path.join(tmpdir(), "mezan-world-"));
@@ -49,7 +47,7 @@ export async function seededWorld(options: Partial<CreateBackendOptions> = {}): 
     }
   }
 
-  async function fiveInvariants() {
+  async function invariants() {
     const recon = (await request("GET", "/reconciliation")).body as { rows: { key: string; difference: string }[] };
     const diff = (key: string): string => recon.rows.find((r) => r.key === key)?.difference ?? "missing";
     const tb = sqlite
@@ -63,11 +61,7 @@ export async function seededWorld(options: Partial<CreateBackendOptions> = {}): 
     backend,
     sqlite,
     request,
-    async invariants() {
-      const { tb, inventory, ar, ap } = await fiveInvariants();
-      return { tb, inventory, ar, ap };
-    },
-    fiveInvariants,
+    invariants,
     balance(accountId, asOfDate = "9999-12-31") {
       const row = sqlite
         .prepare(

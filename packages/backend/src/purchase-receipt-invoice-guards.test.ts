@@ -33,6 +33,10 @@ const confirmInvoice = (id: string) => world.request("POST", `/purchases/invoice
 const cancelInvoice = (id: string) => world.request("POST", `/purchases/invoices/${id}/cancel`, {});
 const cancelReceipt = (id: string, body: unknown = {}) => world.request("POST", `/purchases/receipts/${id}/cancel`, body);
 const receiptRow = (id: string) => world.sqlite.prepare(`SELECT status, invoiced FROM goods_receipt WHERE id = ?`).get(id) as { status: string; invoiced: number };
+function rewriteLines(table: "goods_receipt" | "purchase_invoice", id: string, rewrite: (line: Record<string, unknown>) => Record<string, unknown>) {
+  const row = world.sqlite.prepare(`SELECT lines FROM ${table} WHERE id = ?`).get(id) as { lines: string };
+  world.sqlite.prepare(`UPDATE ${table} SET lines = ? WHERE id = ?`).run(JSON.stringify((JSON.parse(row.lines) as Record<string, unknown>[]).map(rewrite)), id);
+}
 const invoiceStatus = (id: string) => (world.sqlite.prepare(`SELECT status FROM purchase_invoice WHERE id = ?`).get(id) as { status: string }).status;
 
 describe("one receipt is invoiced once", () => {
@@ -61,7 +65,13 @@ describe("one receipt is invoiced once", () => {
     await draftInvoice("G2B-PI1", { receiptId });
     await draftInvoice("G2B-PI2", { receiptId });
     expect((await confirmInvoice("G2B-PI1")).status).toBe(200);
-    world.sqlite.prepare(`UPDATE purchase_invoice SET status = 'confirmed' WHERE id = 'G2B-PI2'`).run();
+    rewriteLines("goods_receipt", receiptId, ({ invoicedQty: _billed, ...line }) => line);
+    world.sqlite.prepare(`UPDATE goods_receipt SET invoiced = 0 WHERE id = ?`).run(receiptId);
+    expect((await confirmInvoice("G2B-PI2")).status).toBe(200);
+    for (const invoiceId of ["G2B-PI1", "G2B-PI2"]) rewriteLines("purchase_invoice", invoiceId, ({ receiptBillings: _billings, ...line }) => line);
+    rewriteLines("goods_receipt", receiptId, ({ invoicedQty: _billed, ...line }) => line);
+    world.sqlite.prepare(`UPDATE goods_receipt SET invoiced = 1 WHERE id = ?`).run(receiptId);
+    expect((await world.invariants()).grni).toBe("500.000000");
 
     expect((await cancelInvoice("G2B-PI1")).status).toBe(200);
 
@@ -69,7 +79,7 @@ describe("one receipt is invoiced once", () => {
     const refused = await cancelReceipt(receiptId);
     expect(`${refused.status} ${String(refused.body.error)}`).toBe("422 GOODS_RECEIPT_ALREADY_INVOICED");
     expect(receiptRow(receiptId).status).toBe("confirmed");
-    world.sqlite.prepare(`UPDATE purchase_invoice SET status = 'draft' WHERE id = 'G2B-PI2'`).run();
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 
   it("cancelling the only invoice frees the receipt to be invoiced again", async () => {

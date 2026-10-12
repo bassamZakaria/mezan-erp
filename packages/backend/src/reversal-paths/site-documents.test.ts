@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, entry, expectJournalRouteClosed, expectRefusedInClosedPeriod } from "./world.js";
 
 let world: SeededWorld;
@@ -27,7 +27,7 @@ describe("reversing an equipment log", () => {
     expect(before.wip - world.balance(WIP)).toBe(log.amount);
     expect(world.balance("5160") - before.recovery).toBe(log.amount);
     expect(auditRows(world, "EQUIPMENT_LOG", log.id, "REVERSE")).toBe(1);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
     const again = await world.request("POST", `/contracting/site/equipment-logs/${log.id}/reverse`, {});
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 SITE_DOCUMENT_STATUS");
@@ -58,7 +58,7 @@ describe("reversing a material consumption", () => {
     expect(world.balance("1200") - before.inventory).toBe(doc.cost);
     expect(position().qty).toBeGreaterThan(before.position.qty);
     expect(auditRows(world, "MATERIAL_CONSUMPTION", "CON-DEMO-SUB-1", "REVERSE")).toBe(1);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
     const monthEnd = (await world.request("GET", `/reconciliation?asOf=${doc.month}-31`)).body.rows as { key: string; difference: string }[];
     expect(monthEnd.find((r) => r.key === "inventory")?.difference).toBe("0.000000");
 

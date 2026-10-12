@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, entry, expectJournalRouteClosed, expectRefusedInClosedPeriod } from "./world.js";
 
 let world: SeededWorld;
@@ -39,7 +39,7 @@ describe("reversing an FX revaluation that does not reverse itself", () => {
     expect(world.balance("1310-USD")).toBe(bankBefore);
     expect((await usdFinding())?.passed).toBe(false);
     expect(auditRows(world, "FX_REVALUATION", entryId, "REVERSE")).toBe(1);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
     const again = await world.request("POST", `/revaluation/runs/${entryId}/reverse`, {});
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 JOURNAL_ENTRY_ALREADY_REVERSED");

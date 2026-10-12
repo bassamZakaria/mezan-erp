@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, entry, expectJournalRouteClosed, expectRefusedInClosedPeriod } from "./world.js";
 
 let world: SeededWorld;
@@ -34,7 +34,7 @@ describe("undoing an asset disposal", () => {
     expect(entry(world, posting!.id).status).toBe("reversed");
     expect({ cost: world.balance("1500"), gain: world.balance("4500"), loss: world.balance("5450"), bank: world.balance("1310") }).toEqual({ cost: before.cost, gain: before.gain, loss: before.loss, bank: before.bank });
     expect(auditRows(world, "ASSET", "ASSET-DEMO-5", "UNDO_DISPOSAL")).toBe(1);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
     const again = await world.request("POST", "/assets/ASSET-DEMO-5/undo-disposal", {});
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 ASSET_NOT_DISPOSED");

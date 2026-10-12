@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, entry, expectJournalRouteClosed, expectRefusedInClosedPeriod } from "./world.js";
 
 let world: SeededWorld;
@@ -36,7 +36,7 @@ describe("reversing a stock adjustment document", () => {
     expect(position().qty).toBe(before.position.qty);
     expect(world.balance("1200") - before.inventory).toBe(position().value - before.position.value);
     expect(auditRows(world, "STOCK_ADJUSTMENT", "ADJ-REV-1", "REVERSE")).toBe(1);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
     expect(await inventoryAsOf("2026-08-31")).toBe("0.000000");
 
     const again = await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/reverse", {});
@@ -51,7 +51,7 @@ describe("reversing a stock adjustment document", () => {
     expect((await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-2/reverse", {})).status).toBe(201);
     expect(position()).toEqual(before.position);
     expect(world.balance("1200")).toBe(before.inventory);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });
 
@@ -71,7 +71,7 @@ describe("reversing an adjustment posted through the direct route", () => {
     expect(world.balance("1200")).toBe(before.inventory);
     expect(entry(world, "ADJ-DIRECT-1").status).toBe("reversed");
     expect(auditRows(world, "STOCK_ADJUSTMENT", "ADJ-DIRECT-1", "REVERSE")).toBe(1);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
     const again = await world.request("POST", "/inventory/adjustments/ADJ-DIRECT-1/reverse", {});
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 STOCK_ADJUSTMENT_ALREADY_REVERSED");

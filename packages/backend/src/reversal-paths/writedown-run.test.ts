@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, entry, expectJournalRouteClosed, expectRefusedInClosedPeriod } from "./world.js";
 
 let world: SeededWorld;
@@ -35,7 +35,7 @@ describe("reversing an inventory write-down run", () => {
     expect(entry(world, run.entryId).status).toBe("reversed");
     expect(world.balance("1190") - provisionBefore).toBe(run.total);
     expect(auditRows(world, "WRITEDOWN_RUN", run.id, "REVERSE")).toBe(1);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
     const again = await world.request("POST", `/inventory/writedown-runs/${run.id}/reverse`, {});
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 WRITEDOWN_RUN_NOT_POSTED");

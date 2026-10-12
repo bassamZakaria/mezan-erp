@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
 
 let world: SeededWorld;
 
@@ -64,7 +64,7 @@ describe("a freight invoice that arrives after part of the goods has left", () =
     expect(accruedBefore - world.balance("2130", "2026-08-31")).toBe(100n * EGP);
     expect(await inventoryTie("2026-08-31")).toBe("0.000000");
     expect(await inventoryTie("2026-09-30")).toBe("0.000000");
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
     expect((await world.request("GET", "/landed-costs/LCB-1")).body).toMatchObject({ date: "2026-08-10", absorptionDate: confirmDay });
   });
 
@@ -83,7 +83,7 @@ describe("a freight invoice that arrives after part of the goods has left", () =
     expect(before.expensed - world.balance("5100")).toBe(80n * EGP);
     expect(await inventoryTie("2026-08-31")).toBe("0.000000");
     expect(await inventoryTie("2026-09-30")).toBe("0.000000");
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 
   it("the seeded draft confirms on its natural date, before stock that has since moved", async () => {
@@ -91,6 +91,6 @@ describe("a freight invoice that arrives after part of the goods has left", () =
     const confirmed = await world.request("POST", "/landed-costs/LC-DEMO-2/confirm", {});
     expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
     expect(await inventoryTie("2026-08-31")).toBe("0.000000");
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, entry, expectJournalRouteClosed } from "./world.js";
 
 let world: SeededWorld;
@@ -49,7 +49,7 @@ describe("cancelling the approval of a payroll run", () => {
     expect(world.balance("1160") - advancesBefore).toBe(entryAdvanceCredit.n);
     if (entryAdvanceCredit.n > 0n) expect(recovered("ADV-DEMO-1")).not.toBe(scheduleBefore);
     expect(auditRows(world, "PAYROLL_RUN", "PR-DEMO-2", "REVERSE_APPROVAL")).toBe(1);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
     const again = await unapprove("PR-DEMO-2", { date: "2026-08-03" });
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 PAYROLL_RUN_NOT_APPROVED");
@@ -62,7 +62,7 @@ describe("cancelling the approval of a payroll run", () => {
     const approvedAgain = await world.request("POST", "/hr/payroll/runs/PR-DEMO-3/approve", {});
     expect(approvedAgain.status, JSON.stringify(approvedAgain.body)).toBe(200);
     expect(runEntries("PR-DEMO-3").map((e) => e.status)).toEqual(["reversed", "posted"]);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 
   it("refuses a run already paid out until its disbursement voucher is reversed, then lets it go", async () => {
@@ -79,6 +79,6 @@ describe("cancelling the approval of a payroll run", () => {
 
     expect((await unapprove("PR-DEMO-1", { date: "2026-08-04" })).status).toBe(200);
     expect(run("PR-DEMO-1").status).toBe("calculated");
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });

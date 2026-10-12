@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, entry, expectJournalRouteClosed } from "./world.js";
 
 let world: SeededWorld;
@@ -49,7 +49,7 @@ describe("reopening a closed year", () => {
     expect(world.balance("3900")).toBe(retainedBefore);
     expect((await world.request("GET", "/gl/year-end-close/2024")).body).toMatchObject({ closed: false });
     expect(auditRows(world, "FISCAL_YEAR", "2024", "REOPEN")).toBe(1);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
     const notClosed = await reopen(2024);
     expect(`${notClosed.status} ${String(notClosed.body.error)}`).toBe("409 YEAR_NOT_CLOSED");

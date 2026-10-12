@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FIVE_INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
+import { INVARIANTS_ZERO, seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 import { auditRows, expectJournalRouteClosed, expectRefusedInClosedPeriod } from "./world.js";
 
 let world: SeededWorld;
@@ -63,7 +63,7 @@ describe("reversing a letter of guarantee's postings", () => {
     expect(balances()).toEqual(start);
     expect(postings().find((p) => p.id === issueEntry!.id)?.status).toBe("reversed");
     expect(auditRows(world, "LETTER_OF_GUARANTEE", ID, "REVERSE")).toBe(3);
-    expect(await world.fiveInvariants()).toEqual(FIVE_INVARIANTS_ZERO);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
     const nothing = await undo();
     expect(`${nothing.status} ${String(nothing.body.error)}`).toBe("409 GUARANTEE_NOTHING_TO_REVERSE");

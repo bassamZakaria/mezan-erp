@@ -406,6 +406,26 @@ describe("TreasuryVouchersScreen — reversal (D270)", () => {
   });
 });
 
+describe("TreasuryVouchersScreen — an allocation on a revalued invoice", () => {
+  it("shows the invoice relieved at what it was carried at, so applied less relieved is the realised difference", async () => {
+    renderScreen({
+      allocations: {
+        "cv-1": [
+          { id: "alloc-r", voucherId: "cv-1", invoiceId: "inv-1", amount: "48700.000000", invoiceAmount: "48000.000000", revaluationShare: "450.000000", carryingAmount: "48450.000000", fxDifference: "250.000000", status: "active", createdAt: "2026-09-10T10:00:00.000Z", reversedAt: null },
+        ],
+      },
+    });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+    const row = (await screen.findByText("INV-000001")).closest("tr")!;
+    expect(within(row).getByText("48,700.00")).toBeInTheDocument();
+    expect(within(row).getByText("48,450.00")).toBeInTheDocument();
+    expect(within(row).getByText("250.00")).toBeInTheDocument();
+    expect(within(row).getByText("ربح")).toBeInTheDocument();
+    expect(within(row).queryByText("48,000.00")).not.toBeInTheDocument();
+  });
+});
+
 describe("TreasuryVouchersScreen — allocation table (D228)", () => {
   it("shows per allocation what was applied, what the invoice was relieved of and the realised difference as a gain or a loss", async () => {
     renderScreen({

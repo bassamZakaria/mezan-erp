@@ -148,6 +148,8 @@ function serializeAllocation(a: VoucherAllocation) {
     invoiceId: a.invoiceId,
     amount: a.amount.toString(),
     invoiceAmount: allocationInvoiceAmount(a).toString(),
+    revaluationShare: (a.revaluationShare ?? Money.zero()).toString(),
+    carryingAmount: Money.fromScaled(allocationInvoiceAmount(a).scaled + (a.revaluationShare?.scaled ?? 0n)).toString(),
     fxDifference: allocationFxDifference(a).toString(),
     fxEntryId: a.fxEntryId ?? null,
     status: a.status,

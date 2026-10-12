@@ -88,6 +88,8 @@ describe("a foreign invoice settled after a revaluation that does not reverse it
 
     expect(fx()).toEqual({ control1105: "0.000000", control2100: "0.000000", unrealised: "450.000000", realised: "250.000000" });
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+    const { allocations } = (await world.request("GET", "/vouchers/v-all/allocations")).body as { allocations: Record<string, unknown>[] };
+    expect(allocations).toEqual([expect.objectContaining({ amount: "48700.000000", invoiceAmount: "48000.000000", revaluationShare: "450.000000", carryingAmount: "48450.000000", fxDifference: "250.000000" })]);
   });
 
   it("receivable, loss: restated −450 and collected at 47.30 — 450 unrealised loss and 250 realised loss", async () => {

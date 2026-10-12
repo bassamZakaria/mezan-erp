@@ -778,7 +778,7 @@ function VoucherDetailView({
                     const inv = invoiceById.get(a.invoiceId);
                     const base = Money.fromMajor(a.amount);
                     const applied = doc.fxRate ? convertFromBase(base, doc.fxRate) : base;
-                    const relieved = a.invoiceAmount ?? a.amount;
+                    const relieved = a.carryingAmount ?? a.invoiceAmount ?? a.amount;
                     const difference = Money.fromMajor(a.fxDifference ?? "0").scaled;
                     const isGain = def.allocationKind === "purchase" ? difference < 0n : difference > 0n;
                     return (

@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import {
   createDefaultSettings,
   DEFAULT_PRINT_TEMPLATE_CONFIG,
-  PERMISSIONS,
   type PrintTemplateConfigRepository,
   type SettingsRepository,
 } from "@mezan/domain";
@@ -21,18 +20,41 @@ export interface PrintTemplateConfigRoutesDeps {
   readonly settings?: Pick<SettingsRepository, "get">;
 }
 
-const VIEW_ACTIONS: readonly string[] = ["view", "view_own", "view_all"];
-const SETTINGS_MODULE_PREFIX = "admin.";
+export enum PrintableDocumentFamily {
+  SalesInvoice = "sales_invoice",
+  SalesQuote = "sales_quote",
+  SalesReturn = "sales_return",
+  PurchaseOrder = "purchase_order",
+  GoodsReceipt = "goods_receipt",
+  PurchaseInvoice = "purchase_invoice",
+  PurchaseReturn = "purchase_return",
+  JournalEntry = "journal_entry",
+  TreasuryVoucher = "treasury_voucher",
+  PartyStatement = "party_statement",
+  Payslip = "payslip",
+}
 
-// SECURITY: the template and the letterhead are what a printed document
-// carries, so whoever may VIEW a document may read them — and nobody else.
-// Editing the template stays behind `admin.settings.edit`, and the letterhead
-// is the six company fields every printed invoice already shows, never the
-// tenant's settings.
-export const DOCUMENT_VIEW_PERMISSIONS: readonly string[] = PERMISSIONS.map((permission) => permission.code).filter((code) => {
-  const action = code.slice(code.lastIndexOf(".") + 1);
-  return VIEW_ACTIONS.includes(action) && !code.startsWith(SETTINGS_MODULE_PREFIX);
-});
+// SECURITY: the template and the letterhead are what a PRINTED DOCUMENT
+// carries, so they are read by whoever may view one of the documents that
+// prints — the families below, each with the view permissions its own routes
+// accept — and by nobody else. The list is explicit on purpose: "any view
+// permission" let a caller who may only see the item catalogue read them.
+// Editing the template stays behind `admin.settings.edit`.
+export const PRINTABLE_DOCUMENT_VIEW_PERMISSIONS: Readonly<Record<PrintableDocumentFamily, readonly string[]>> = {
+  [PrintableDocumentFamily.SalesInvoice]: ["sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"],
+  [PrintableDocumentFamily.SalesQuote]: ["sales.quote.view", "sales.quote.view_own"],
+  [PrintableDocumentFamily.SalesReturn]: ["sales.return.view", "sales.return.view_own"],
+  [PrintableDocumentFamily.PurchaseOrder]: ["purchases.order.view"],
+  [PrintableDocumentFamily.GoodsReceipt]: ["purchases.receipt.view"],
+  [PrintableDocumentFamily.PurchaseInvoice]: ["purchases.invoice.view", "purchases.invoice.view_own"],
+  [PrintableDocumentFamily.PurchaseReturn]: ["purchases.return.view"],
+  [PrintableDocumentFamily.JournalEntry]: ["accounting.journal.view"],
+  [PrintableDocumentFamily.TreasuryVoucher]: ["treasury.cash_voucher.view"],
+  [PrintableDocumentFamily.PartyStatement]: ["sales.customer.view", "purchases.supplier.view"],
+  [PrintableDocumentFamily.Payslip]: ["hr.payroll.view"],
+};
+
+export const DOCUMENT_VIEW_PERMISSIONS: readonly string[] = [...new Set(Object.values(PRINTABLE_DOCUMENT_VIEW_PERMISSIONS).flat())];
 
 export function createPrintTemplateConfigRoutes(
   deps: PrintTemplateConfigRoutesDeps,

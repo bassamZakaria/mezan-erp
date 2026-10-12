@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_PRINT_TEMPLATE_CONFIG, type PrintTemplateConfig, type PrintTemplateConfigRepository } from "@mezan/domain";
-import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
+import { DEFAULT_PRINT_TEMPLATE_CONFIG, isKnownPermission, type PrintTemplateConfig, type PrintTemplateConfigRepository } from "@mezan/domain";
+import { DOCUMENT_VIEW_PERMISSIONS, PRINTABLE_DOCUMENT_VIEW_PERMISSIONS, PrintableDocumentFamily, createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 class InMemoryPrintTemplateConfigRepo implements PrintTemplateConfigRepository {
@@ -34,6 +34,24 @@ describe("print-template-config-routes — GET", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as PrintTemplateConfig;
     expect(body).toEqual(DEFAULT_PRINT_TEMPLATE_CONFIG);
+  });
+
+  it("serves the template and the letterhead to a caller who may view a printable document, and to nobody else", async () => {
+    const { app } = newApp();
+    for (const path of ["/", "/letterhead"]) {
+      for (const permissions of ["sales.invoice.view_own", "purchases.invoice.view", "treasury.cash_voucher.view", "admin.settings.view"]) {
+        expect([path, permissions, (await app.fetch(req(path, { permissions }))).status]).not.toEqual([path, permissions, 403]);
+      }
+      for (const permissions of ["inventory.item.view", "inventory.stock.view", "sales.promotion.view", "sales.price_list.view", "workflow.view"]) {
+        expect([path, permissions, (await app.fetch(req(path, { permissions }))).status]).toEqual([path, permissions, 403]);
+      }
+    }
+  });
+
+  it("names every printable family's view permissions from the catalog, and nothing that is not a document", () => {
+    expect(Object.keys(PRINTABLE_DOCUMENT_VIEW_PERMISSIONS).sort()).toEqual(Object.values(PrintableDocumentFamily).sort());
+    for (const code of DOCUMENT_VIEW_PERMISSIONS) expect(isKnownPermission(code), code).toBe(true);
+    expect(DOCUMENT_VIEW_PERMISSIONS).not.toContain("inventory.item.view");
   });
 
   it("403s without admin.settings.view", async () => {

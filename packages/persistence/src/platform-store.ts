@@ -860,6 +860,7 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   private readonly fenceOf: Database.Statement;
   private readonly releaseCode: Database.Statement;
   private readonly dropClaimsOfCode: Database.Statement;
+  private readonly takeFence: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     this.dropClaimsOfCode = sqlite.prepare(
@@ -868,6 +869,7 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
     const dropStaleClaim = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claimed_at < ?`);
     const insertClaim = sqlite.prepare(`INSERT OR IGNORE INTO signup_provision_claim (token_hash, claim_id, claimed_at) VALUES (?, ?, ?)`);
     const takeFence = sqlite.prepare(`INSERT INTO provision_fence (taken_at) VALUES (?)`);
+    this.takeFence = takeFence;
     const stampFence = sqlite.prepare(`UPDATE signup_provision_claim SET fence = ? WHERE token_hash = ? AND claim_id = ?`);
     this.fenceOf = sqlite.prepare(`SELECT fence FROM signup_provision_claim WHERE token_hash = ? AND claim_id = ?`);
     // IMMEDIATE: the stale-claim delete and the insert must be one write transaction,
@@ -938,6 +940,10 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
 
   async provisioningFence(tokenHash: string, claimId: string): Promise<number | null> {
     return (this.fenceOf.get(tokenHash, claimId) as { fence: number | null } | undefined)?.fence ?? null;
+  }
+
+  async takeProvisionFence(nowIso: string): Promise<number> {
+    return Number(this.takeFence.run(nowIso).lastInsertRowid);
   }
 
   async releaseByCode(code: string): Promise<void> {

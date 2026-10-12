@@ -8,6 +8,7 @@ export interface ResetTenantOwnerPinDeps {
   readonly platform: PlatformHandle;
   readonly router: TenantRouter;
   readonly pinOf?: () => string;
+  readonly now?: () => Date;
 }
 
 export async function resetTenantOwnerPin(
@@ -21,12 +22,16 @@ export async function resetTenantOwnerPin(
   const account = await backend.ownerAccount(tenant.ownerUserId === null ? { email: tenant.ownerEmail } : { userId: tenant.ownerUserId });
   if (!account) throw new TenantOwnerAccountNotFoundError();
   const adminPin = (deps.pinOf ?? generateOwnerPin)();
+  // SECURITY: the console's PIN takes a fence of its own, newer than any signup
+  // claim still in flight, so a holder that wakes up later cannot write over it.
+  const fence = await deps.platform.stores.signupRequests.takeProvisionFence((deps.now ?? (() => new Date()))().toISOString());
   const outcome = await backend.resetOwnerPin({
     userId: account.id,
     email: account.email,
     pin: adminPin,
     onlyIfNeverSignedIn: false,
     actor: platformActor(input.actorId),
+    fence,
   });
   if (outcome !== OwnerPinResetOutcome.Reset) throw new TenantOwnerAccountNotFoundError();
   return { adminEmail: tenant.ownerEmail, signInEmail: account.email, adminPin };

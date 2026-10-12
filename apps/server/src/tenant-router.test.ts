@@ -327,7 +327,7 @@ describe("createTenantRouter", () => {
   });
 
   describe("openTenants", () => {
-    it("lists only codes with a currently cached backend, and drops one closed", async () => {
+    it("lists only tenants with a currently cached backend, by id and code, and drops one closed", async () => {
       const platform = await seedPlatform();
       const { router } = newRouter(platform);
 
@@ -335,7 +335,8 @@ describe("createTenantRouter", () => {
 
       await router.backendFor("cyag");
       await router.backendFor("nile");
-      expect(router.openTenants().sort()).toEqual(["cyag", "nile"]);
+      expect(router.openTenants().map((tenant) => tenant.code).sort()).toEqual(["cyag", "nile"]);
+      for (const tenant of router.openTenants()) expect((await platform.stores.tenants.findByCode(tenant.code))?.id).toBe(tenant.id);
 
       await router.close();
       expect(router.openTenants()).toEqual([]);

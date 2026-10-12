@@ -1,5 +1,5 @@
 import { emailDomain, normalizeEmail } from "../users/save-user.js";
-import { isValidSlug } from "./slug.js";
+import { isReservedTenantCode, isValidSlug, RESERVED_TENANT_CODE_MESSAGE } from "./slug.js";
 import { CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
 import { isoTimestamp } from "./validation.js";
 import type { BillingCycle } from "./subscription.js";
@@ -109,6 +109,8 @@ export interface SignupRequestRepository {
   provisioningClaimedAt(tokenHash: string): Promise<string | null>;
   /** INVARIANT: higher than every claim taken before it, on any token. Null once the claim is no longer this caller's. */
   provisioningFence(tokenHash: string, claimId: string): Promise<number | null>;
+  /** INVARIANT: higher than every fence taken before it, by a signup claim or by the console. */
+  takeProvisionFence(nowIso: string): Promise<number>;
   releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
   followOwnerEmail(code: string, before: string, after: string): Promise<void>;
   /** Retires every request for the code AND drops any provisioning claim held on them, so a holder mid-provision loses its turn. */
@@ -133,6 +135,7 @@ function validate(cmd: StartSignupCommand): string[] {
   const reasons: string[] = [];
   if (cmd.id.trim() === "") reasons.push("المعرّف مطلوب");
   if (!isValidSlug(cmd.code)) reasons.push("رمز المنشأة يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية");
+  else if (isReservedTenantCode(cmd.code)) reasons.push(RESERVED_TENANT_CODE_MESSAGE);
   const nameProblem = companyNameProblem(cmd.nameAr);
   if (nameProblem === CompanyNameProblem.Empty) reasons.push("اسم المنشأة بالعربية مطلوب");
   else if (nameProblem) reasons.push(companyNameProblemAr(nameProblem));

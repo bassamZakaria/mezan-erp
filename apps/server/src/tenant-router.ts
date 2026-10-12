@@ -58,6 +58,11 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
   };
 }
 
+export interface OpenTenant {
+  readonly id: string;
+  readonly code: string;
+}
+
 export interface TenantRouter {
   readonly app: Hono;
   backendFor(code: string): Promise<BackendHandle>;
@@ -71,8 +76,8 @@ export interface TenantRouter {
   invalidate(code: string): void;
   sweep(): Promise<void>;
   close(): Promise<void>;
-  /** Codes with a currently open (cached) tenant backend — an idle-evicted or never-opened tenant is absent. */
-  openTenants(): string[];
+  /** Tenants with a currently open (cached) backend — an idle-evicted or never-opened tenant is absent. */
+  openTenants(): OpenTenant[];
 }
 
 export function tenantDbPath(dataDir: string, dbFile: string): string {
@@ -253,7 +258,11 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     invalidate(code) { resolvers.get(code)?.invalidate(); },
     sweep: () => cache.sweep(),
     close: () => cache.close(),
-    openTenants: () => cache.openCodes().flatMap((tenantId) => openCodes.get(tenantId) ?? []),
+    openTenants: () =>
+      cache.openCodes().flatMap((id) => {
+        const code = openCodes.get(id);
+        return code === undefined ? [] : [{ id, code }];
+      }),
   };
 }
 

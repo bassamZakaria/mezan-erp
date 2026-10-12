@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
-import { activateTenant, createTenant } from "@mezan/domain";
+import { activateTenant, createTenant, TenantStatusCode } from "@mezan/domain";
 import { openSqliteConnection } from "@mezan/persistence";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
 import { createBackupScheduler, runBackups, startBackupTimer } from "./backup-scheduler.js";
@@ -74,7 +74,7 @@ async function pollUntil(predicate: () => boolean, timeoutMs = 5_000, intervalMs
 }
 
 describe("runBackups", () => {
-  it("writes the platform backup and one backup per OPEN tenant, skipping a tenant never opened", async () => {
+  it("writes the platform backup and one backup per OPEN tenant in a folder named by the tenant id, skipping a tenant never opened", async () => {
     const platform = await newPlatform();
     await seedTenant(platform, "cyag");
     await seedTenant(platform, "nile");
@@ -86,11 +86,12 @@ describe("runBackups", () => {
 
     const stamp = "2026-01-15T00-00-00.000Z";
     const platformFile = path.join(dir, "backups", "platform", `${stamp}.sqlite`);
-    const cyagFile = path.join(dir, "backups", "cyag", `${stamp}.sqlite`);
+    const cyagFile = path.join(dir, "backups", "tenants", "t-cyag", `${stamp}.sqlite`);
 
     expect(existsSync(platformFile)).toBe(true);
     expect(existsSync(cyagFile)).toBe(true);
-    expect(existsSync(path.join(dir, "backups", "nile"))).toBe(false);
+    expect(readdirSync(path.join(dir, "backups")).sort()).toEqual(["platform", "tenants"]);
+    expect(readdirSync(path.join(dir, "backups", "tenants"))).toEqual(["t-cyag"]);
 
     assertOpenableSqlite(platformFile);
     assertOpenableSqlite(cyagFile);
@@ -104,6 +105,88 @@ describe("runBackups", () => {
     const tables = tenantCopy.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'account'").all();
     expect(tables).toHaveLength(1);
     tenantCopy.close();
+  });
+
+  it("never lets a tenant's backup land in the platform's folder, whatever the tenant is called", async () => {
+    const platform = await newPlatform();
+    const tenant = await createTenant({ id: "t-odd", code: "platform", nameAr: "منشأة", ownerEmail: "o@x.example", now: T }, platform.stores.tenants);
+    await activateTenant({ id: tenant.id, now: T }, platform.stores.tenants);
+    const router = newRouter(platform);
+    await router.backendFor("platform");
+    const dir = tempDir("mezan-backup-dir-");
+
+    await runBackups({ platform, router, dir, now: () => new Date(T) });
+
+    const platformFile = path.join(dir, "backups", "platform", "2026-01-15T00-00-00.000Z.sqlite");
+    const { sqlite: copy } = openSqliteConnection(platformFile);
+    expect(copy.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'tenant'").all()).toHaveLength(1);
+    copy.close();
+    expect(readdirSync(path.join(dir, "backups", "platform")).filter((f) => f.endsWith(".sqlite"))).toHaveLength(1);
+    expect(existsSync(path.join(dir, "backups", "tenants", "t-odd", "2026-01-15T00-00-00.000Z.sqlite"))).toBe(true);
+  });
+
+  it("gives a company that re-registered a released code a backup folder of its own", async () => {
+    const platform = await newPlatform();
+    await seedTenant(platform, "shared");
+    const router = newRouter(platform);
+    await router.backendFor("shared");
+    const dir = tempDir("mezan-backup-dir-");
+    await runBackups({ platform, router, dir, now: () => new Date(T) });
+    const first = await platform.stores.tenants.findByCode("shared");
+    await platform.stores.tenants.compareAndSetStatus(first!, { ...first!, status: TenantStatusCode.Archived, code: "released-t-shared" });
+    await router.evict("t-shared");
+    const second = await createTenant({ id: "t-second", code: "shared", nameAr: "ثانية", ownerEmail: "n@x.example", now: T }, platform.stores.tenants);
+    await activateTenant({ id: second.id, now: T }, platform.stores.tenants);
+    await router.backendFor("shared");
+
+    await runBackups({ platform, router, dir, now: () => new Date("2026-01-16T00:00:00.000Z") });
+
+    expect(readdirSync(path.join(dir, "backups", "tenants")).sort()).toEqual(["t-second", "t-shared"]);
+    expect(readdirSync(path.join(dir, "backups", "tenants", "t-shared")).filter((f) => f.endsWith(".sqlite"))).toEqual(["2026-01-15T00-00-00.000Z.sqlite"]);
+    expect(readdirSync(path.join(dir, "backups", "tenants", "t-second")).filter((f) => f.endsWith(".sqlite"))).toEqual(["2026-01-16T00-00-00.000Z.sqlite"]);
+  });
+
+  describe("a backup folder kept under the tenant's code by an earlier build", () => {
+    async function legacyWorld(files: Record<string, string>) {
+      const platform = await newPlatform();
+      await seedTenant(platform, "cyag");
+      const router = newRouter(platform);
+      await router.backendFor("cyag");
+      const dir = tempDir("mezan-backup-dir-");
+      const legacy = path.join(dir, "backups", "cyag");
+      mkdirSync(legacy, { recursive: true });
+      for (const [name, bytes] of Object.entries(files)) writeFileSync(path.join(legacy, name), bytes);
+      return { platform, router, dir, legacy, adopted: path.join(dir, "backups", "tenants", "t-cyag") };
+    }
+
+    it("moves the tenant's own backups into the id folder and leaves in place every file older than the tenant, which belonged to an earlier holder of the code", async () => {
+      const w = await legacyWorld({
+        "2025-12-01T00-00-00.000Z.sqlite": "AN EARLIER COMPANY",
+        "2026-01-15T00-00-00.000Z.sqlite": "OURS AT CREATION",
+        "2026-01-20T00-00-00.000Z.sqlite": "OURS LATER",
+        "verify.jsonl": "{}",
+      });
+
+      await runBackups({ platform: w.platform, router: w.router, dir: w.dir, now: () => new Date("2026-02-01T00:00:00.000Z") });
+
+      expect(readdirSync(w.legacy).sort()).toEqual(["2025-12-01T00-00-00.000Z.sqlite", "verify.jsonl"]);
+      expect(readFileSync(path.join(w.legacy, "2025-12-01T00-00-00.000Z.sqlite"), "utf8")).toBe("AN EARLIER COMPANY");
+      expect(readFileSync(path.join(w.adopted, "2026-01-15T00-00-00.000Z.sqlite"), "utf8")).toBe("OURS AT CREATION");
+      expect(readFileSync(path.join(w.adopted, "2026-01-20T00-00-00.000Z.sqlite"), "utf8")).toBe("OURS LATER");
+      expect(existsSync(path.join(w.adopted, "2026-02-01T00-00-00.000Z.sqlite"))).toBe(true);
+    });
+
+    it("never overwrites a backup already in the id folder, and a second run changes nothing", async () => {
+      const w = await legacyWorld({ "2026-01-20T00-00-00.000Z.sqlite": "LEGACY COPY" });
+      mkdirSync(w.adopted, { recursive: true });
+      writeFileSync(path.join(w.adopted, "2026-01-20T00-00-00.000Z.sqlite"), "ALREADY HERE");
+
+      await runBackups({ platform: w.platform, router: w.router, dir: w.dir, now: () => new Date("2026-02-01T00:00:00.000Z") });
+      await runBackups({ platform: w.platform, router: w.router, dir: w.dir, now: () => new Date("2026-02-02T00:00:00.000Z") });
+
+      expect(readFileSync(path.join(w.adopted, "2026-01-20T00-00-00.000Z.sqlite"), "utf8")).toBe("ALREADY HERE");
+      expect(readFileSync(path.join(w.legacy, "2026-01-20T00-00-00.000Z.sqlite"), "utf8")).toBe("LEGACY COPY");
+    });
   });
 
   it("keeps the newest `keep` backups per folder and deletes the rest", async () => {

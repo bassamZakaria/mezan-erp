@@ -47,6 +47,8 @@ import {
   type PlatformUser,
   type CardCheckout,
   CardCheckoutUnavailableError,
+  isReservedTenantCode,
+  RESERVED_TENANT_CODE_MESSAGE,
 } from "@mezan/domain";
 import {
   createTenantRequestSchema,
@@ -322,6 +324,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.post("/tenants", requireOwner, async (c) => {
     const parsed = createTenantRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    if (isReservedTenantCode(parsed.data.code)) return c.json({ error: "TENANT_CODE_RESERVED", message: RESERVED_TENANT_CODE_MESSAGE }, 422);
     const platformUser = c.get("platformUser")!;
     try {
       const result = await provisionTenant({ ...parsed.data, actorId: platformUser.id });

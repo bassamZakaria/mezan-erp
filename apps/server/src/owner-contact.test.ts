@@ -258,9 +258,9 @@ describe("the platform's record of a tenant's owner", () => {
       c.faults[fault] = false;
 
       expect(changed.status).toBe(200);
-      expect((await co.user("moved@delta.example"))["id"]).toBe(owner["id"]);
       expect(await co.recorded()).toEqual(before);
       expect(await ownerAudit(c, OwnerContactAudit.EmailChanged)).toEqual([]);
+      expect((await co.user("moved@delta.example"))["id"]).toBe(owner["id"]);
 
       await c.router.reconcileOwner("delta");
       expect(await co.recorded()).toMatchObject({ ownerEmail: "owner@delta.example", ownerContactVerified: false });

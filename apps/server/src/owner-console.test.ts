@@ -213,3 +213,33 @@ describe("the link a signup mails", () => {
     expect(await free.json()).toEqual({ available: true });
   });
 });
+
+describe("a company code the platform keeps for itself", () => {
+  const signup = (code: string) =>
+    JSON.stringify({ code, nameAr: "متجر الياسمين", ownerEmail: `owner@${code}.example`, ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly" });
+
+  it.each(["platform", "released-abc", "api", "www", "admin", "demo"])("is refused at signup in Arabic and reported as taken: %s", async (code) => {
+    const w = await world();
+
+    const started = await w.cloud.send("/api/signup", { method: "POST", body: signup(code) });
+    const checked = await w.cloud.send(`/api/signup/check-code?code=${code}`);
+
+    expect(started.status).toBe(400);
+    expect(String(((await started.json()) as { message: string }).message)).toContain("رمز المنشأة محجوز للنظام. اختر رمزًا آخر.");
+    expect(await checked.json()).toEqual({ available: false });
+    expect(w.sent).toEqual([]);
+  });
+
+  it("is refused when the platform owner creates a tenant from the console, and no tenant is recorded", async () => {
+    const w = await world();
+
+    const created = await w.platformCall("POST", "/tenants", {
+      code: "platform", nameAr: "شركة", ownerEmail: "o@x.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: true,
+    });
+
+    expect(created.status).toBe(422);
+    expect(created.json).toMatchObject({ error: "TENANT_CODE_RESERVED", message: "رمز المنشأة محجوز للنظام. اختر رمزًا آخر." });
+    const listed = await w.cloud.send("/api/platform/tenants", { token: w.platform });
+    expect(((await listed.json()) as { tenant: { code: string } }[]).map((row) => row.tenant.code)).toEqual(["nile"]);
+  });
+});

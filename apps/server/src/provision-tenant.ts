@@ -107,15 +107,19 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
     if (claimed) {
       if (tenant.status !== TenantStatusCode.Provisioning) throw new TenantCodeTakenError(cmd.code);
       const freshPin = pinOf();
+      // SECURITY: every provisioning PIN is fenced. A caller with no claim of
+      // its own (the console) takes a fresh fence here, newer than any signup
+      // claim still in flight.
+      const fence = deps.fence ?? (await deps.platform.stores.signupRequests.takeProvisionFence(nowIso));
       const outcome = await backend.resetOwnerPin({
         email: cmd.ownerEmail,
         pin: freshPin,
         onlyIfNeverSignedIn: true,
         actor: cmd.actorId ? platformActor(cmd.actorId) : PROVISIONING_ACTOR,
-        ...(deps.fence === undefined ? {} : { fence: deps.fence }),
+        fence,
       });
       if (outcome === OwnerPinResetOutcome.Superseded) throw new ProvisioningSupersededError();
-      if (outcome === OwnerPinResetOutcome.OwnerNotFound) throw new TenantOwnerAccountNotFoundError();
+      if (outcome === OwnerPinResetOutcome.OwnerNotFound || outcome === OwnerPinResetOutcome.OwnerVanished) throw new TenantOwnerAccountNotFoundError();
       if (outcome === OwnerPinResetOutcome.Reset) adminPin = freshPin;
     } else {
       adminPin = pinOf();
@@ -142,6 +146,9 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
       return latest;
     };
     const live = await subscriptions.findLiveByTenant(tenant.id);
+    // REQUIRED ORDERING: checked once more BEFORE the write transaction opens.
+    // A holder that already lost its claim must not take the write lock at all:
+    // the holder that superseded it is about to need it.
     await stillOurs();
     await withSqliteTransaction(
       sqlite,

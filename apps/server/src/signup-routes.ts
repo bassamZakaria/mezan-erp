@@ -3,6 +3,7 @@ import { Hono, type Context } from "hono";
 import {
   InvalidSignupError,
   isDisposableEmailDomain,
+  isReservedTenantCode,
   PlanNotFoundError,
   SignupActivationIncompleteError,
   SignupAlreadyActivatedError,
@@ -193,7 +194,8 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       return c.json({ error: "VALIDATION_ERROR", message: "صيغة الرمز غير صالحة" }, 400);
     }
     const nowIso = now().toISOString();
-    const taken = (await platform.stores.tenants.findByCode(code)) || (await platform.stores.signupRequests.findActiveByCode(code, nowIso));
+    const taken =
+      isReservedTenantCode(code) || (await platform.stores.tenants.findByCode(code)) || (await platform.stores.signupRequests.findActiveByCode(code, nowIso));
     return c.json({ available: !taken });
   });
 

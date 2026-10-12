@@ -29,6 +29,7 @@ import {
   type UnreceivedRow,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createEquipmentLogSchema,
   createMaterialConsumptionSchema,
   createSiteIssueSchema,
@@ -370,7 +371,7 @@ export function createContractingSiteRoutes(
 
   // --- عهدة المواد ---
 
-  app.post("/consumptions/:id/reverse", gate("inventory.adjustment.confirm"), async (c) => {
+  app.post("/consumptions/:id/reverse", gate(ReversalPermission.MaterialConsumption), async (c) => {
     try {
       const { date, memo } = await readReversalRequest(c);
       const consumption = await service.reverseConsumption(c.req.param("id"), { reversalId: randomUUID(), date, memo, actor: callerUserId(c) ?? null });
@@ -465,7 +466,7 @@ export function createContractingSiteRoutes(
 
   // --- الاستثناءات والتجميعات ---
 
-  app.post("/equipment-logs/:id/reverse", gate("projects.project.manage"), async (c) => {
+  app.post("/equipment-logs/:id/reverse", gate(ReversalPermission.EquipmentLog), async (c) => {
     try {
       const { date, memo } = await readReversalRequest(c);
       const log = await service.reverseEquipmentLog(c.req.param("id"), { reversalId: randomUUID(), date, memo, actor: callerUserId(c) ?? null });

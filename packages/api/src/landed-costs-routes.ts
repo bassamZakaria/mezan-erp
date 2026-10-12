@@ -12,7 +12,7 @@ import {
   type LandedCostLine,
   type LandedCostService,
 } from "@mezan/domain";
-import { createLandedCostSchema } from "@mezan/contracts";
+import { ReversalPermission, createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
@@ -163,7 +163,7 @@ export function createLandedCostsRoutes(
     }
   });
 
-  app.post("/:id/reverse", gate("purchases.landed_cost.void"), async (c) => {
+  app.post("/:id/reverse", gate(ReversalPermission.LandedCost), async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; reversalId?: unknown } | null;
     if (body?.date !== undefined && body.date !== null && (typeof body.date !== "string" || body.date.trim() === "")) {
       return c.json({ error: "VALIDATION_ERROR", message: "تاريخ العكس يجب أن يكون نصاً بصيغة YYYY-MM-DD.", messageEn: "The reversal date must be a YYYY-MM-DD string." }, 400);

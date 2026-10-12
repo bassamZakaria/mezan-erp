@@ -30,6 +30,7 @@ import {
   type TreasuryAccountRepository,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   callGuaranteeSchema,
   createGuaranteeSchema,
   reduceGuaranteeSchema,
@@ -336,7 +337,7 @@ export function createContractingGuaranteesRoutes(
     );
   });
 
-  app.post("/:id/reverse-last", gate(RELEASE), async (c) => {
+  app.post("/:id/reverse-last", gate(ReversalPermission.LetterOfGuarantee), async (c) => {
     const { date, memo } = await readReversalRequest(c);
     return act(c, (id) => service.reverseLastPosting(id, { reversalId: randomUUID(), date, memo, userId: actorId(c) }));
   });

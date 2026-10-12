@@ -102,6 +102,7 @@ import {
   type UnpaidLeaveDaysProvider,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createEmployeeAdvanceSchema,
   createPayrollRunSchema,
   createPayrollComponentSchema,
@@ -566,7 +567,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     }
   });
 
-  app.post("/advances/:id/cancel", gate("hr.advance.approve"), async (c) => {
+  app.post("/advances/:id/cancel", gate(ReversalPermission.EmployeeAdvance), async (c) => {
     try {
       const { date } = await readReversalRequest(c);
       const advance = await cancelEmployeeAdvance(
@@ -1021,7 +1022,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
       });
     });
 
-    app.post("/payroll/provisions/:kind/:asOfDate/reverse", gate("hr.payroll.void"), async (c) => {
+    app.post("/payroll/provisions/:kind/:asOfDate/reverse", gate(ReversalPermission.HrLeaveProvision), async (c) => {
       const kind = parseKind(c.req.param("kind"));
       if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision kind." }, 404);
       const asOfDate = c.req.param("asOfDate");
@@ -1127,7 +1128,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     }
   });
 
-  app.post("/payroll/runs/:id/reverse-approval", gate("hr.payroll.void"), async (c) => {
+  app.post("/payroll/runs/:id/reverse-approval", gate(ReversalPermission.PayrollRun), async (c) => {
     try {
       const { date, memo } = await readReversalRequest(c);
       const run = await reversePayrollRunApproval(

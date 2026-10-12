@@ -55,6 +55,13 @@ describe("ReverseDocumentAction", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it("renders nothing for a seat that holds only the permission the route used to ride on", () => {
+    const { transport } = transportWith(() => ({ body: {} }));
+    renderWithProviders(<ReverseDocumentAction type={ReversalDocumentType.WritedownRun} target={{ id: "run-a", params: { id: "run-a" }, subject: "تشغيل مايو" }} />, { transport, initialSession: session(["inventory.writedown.view", DOCUMENT_REVERSAL_PATHS[ReversalDocumentType.WritedownRun].replaces]) });
+    expect(DOCUMENT_REVERSAL_PATHS[ReversalDocumentType.WritedownRun].permission).toBe("inventory.writedown.reverse");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
   it("shows the action to a seat holding the permission the registry names", () => {
     const { transport } = transportWith(() => ({ body: {} }));
     renderWithProviders(<ReverseDocumentAction type={ReversalDocumentType.WritedownRun} target={{ id: "run-a", params: { id: "run-a" }, subject: "تشغيل مايو" }} />, { transport, initialSession: session([DOCUMENT_REVERSAL_PATHS[ReversalDocumentType.WritedownRun].permission]) });

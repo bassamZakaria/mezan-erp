@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ALL_PERMISSION_CODES, WILDCARD_PERMISSION, getPermission } from "@mezan/domain";
+import { ReversalPermission } from "@mezan/contracts";
 
 /**
  * Which permission codes any route actually gates on.
@@ -55,6 +56,11 @@ function gatedCodes(): ReadonlySet<string> {
           const resolved = constants.get(name[1] as string);
           if (resolved) found.add(resolved);
         }
+      }
+      const reversal: Readonly<Record<string, string>> = ReversalPermission;
+      for (const match of source.matchAll(/gate\(\s*ReversalPermission\.([A-Za-z]+)/g)) {
+        const code = reversal[match[1] as string];
+        if (code) found.add(code);
       }
     }
   };

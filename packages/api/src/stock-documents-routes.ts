@@ -30,6 +30,7 @@ import {
   matchesSearch,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createStockAdjustmentSchema,
   createStockTransferSchema,
   startPhysicalCountSchema,
@@ -293,7 +294,7 @@ export function createStockAdjustmentsRoutes(
     }
   });
 
-  app.post("/:id/reverse", gate("inventory.adjustment.confirm"), async (c) => {
+  app.post("/:id/reverse", gate(ReversalPermission.StockAdjustment), async (c) => {
     try {
       const id = c.req.param("id");
       const existing = await service.findById(id);

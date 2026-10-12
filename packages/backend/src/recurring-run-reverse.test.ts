@@ -33,7 +33,7 @@ const dueFor = async (templateId: string) =>
 describe("reversing a recurring run", () => {
   it("needs the right to post journals as well as to manage recurring entries", async () => {
     const run = julyRun();
-    const token = world.backend.sessions.issue({ userId: "limited", permissions: ["accounting.recurring.manage", "accounting.recurring.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const token = world.backend.sessions.issue({ userId: "limited", permissions: ["accounting.recurring.reverse", "accounting.recurring.manage", "accounting.recurring.view"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
     const res = await world.backend.app.fetch(
       new Request(`http://local/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ date: "2026-10-05" }) }),
     );

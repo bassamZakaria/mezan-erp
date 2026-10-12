@@ -49,6 +49,7 @@ import {
   type RecurringJournalTemplateRepository,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createRecurringJournalTemplateSchema,
   generateDueRecurringJournalsSchema,
   saveJournalEntryAsTemplateSchema,
@@ -414,7 +415,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
    * run is what the worklist and the month's close read, and both read its
    * state off this entry.
    */
-  app.post("/runs/:id/reverse", gate("accounting.recurring.manage"), gate("accounting.journal.post"), async (c) => {
+  app.post("/runs/:id/reverse", gate(ReversalPermission.RecurringJournalRun), gate("accounting.journal.post"), async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; memo?: unknown } | null;
     const run = await deps.runs.findById(c.req.param("id"));
     if (!run) return c.json({ error: "RECURRING_JOURNAL_RUN_NOT_FOUND", message: "دورة القيد المتكرر غير موجودة.", messageEn: "The recurring journal run does not exist." }, 404);

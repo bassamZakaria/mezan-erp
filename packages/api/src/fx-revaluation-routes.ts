@@ -34,7 +34,7 @@ import {
   isRoundingResidue,
   postJournalEntry,
 } from "@mezan/domain";
-import { fxRevaluationRequestSchema } from "@mezan/contracts";
+import { ReversalPermission, fxRevaluationRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { tenantDay } from "./tenant-day.js";
 import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse } from "./document-reversal.js";
@@ -299,7 +299,7 @@ export function createFxRevaluationRoutes(
     return c.json({ runs });
   });
 
-  app.post("/runs/:entryId/reverse", gate("accounting.journal.post"), async (c) => {
+  app.post("/runs/:entryId/reverse", gate(ReversalPermission.FxRevaluation), async (c) => {
     const original = await deps.ledger.findById(c.req.param("entryId"));
     if (!original || original.sourceDocType !== FX_REVALUATION_DOC_TYPE || original.reversesEntryId) return c.json(RUN_NOT_FOUND, 404);
     try {

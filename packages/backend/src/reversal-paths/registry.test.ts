@@ -1,5 +1,6 @@
-import { ALL_SCOPE, PermissionLabelLocale, getPermission, permissionHumanLabel } from "@mezan/domain";
+import { ALL_PERMISSION_CODES, ALL_SCOPE, PermissionLabelLocale, getPermission, isSensitive, permissionHumanLabel } from "@mezan/domain";
 import { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType } from "@mezan/api";
+import { ReversalPermission } from "@mezan/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seededWorld, type SeededWorld } from "../test-helpers/seeded-world.js";
 
@@ -32,6 +33,21 @@ describe("the named reversal path of every entry type the journal refuses", () =
     const res = await world.backend.app.fetch(new Request(`http://local${url}`, { method: path.method, headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}" }));
     expect(res.status).toBe(403);
     expect(((await res.json()) as { permission?: string }).permission).toBe(path.permission);
+  });
+
+  it("every registry type maps to exactly one reversal permission of its own kind that exists in the catalog, and the catalog holds no reversal permission without a route", () => {
+    const declared = new Set<string>(Object.values(ReversalPermission));
+    for (const [type, path] of Object.entries(DOCUMENT_REVERSAL_PATHS)) {
+      expect(declared.has(path.permission), `${type} → ${path.permission}`).toBe(true);
+      expect(path.permission.endsWith(".reverse"), `${type} → ${path.permission}`).toBe(true);
+      expect(getPermission(path.permission), path.permission).toBeDefined();
+      expect(isSensitive(path.permission), `${path.permission} is money-reversing`).toBe(true);
+      expect(path.replaces, `${type} still rides on ${path.replaces}`).not.toBe(path.permission);
+      expect(getPermission(path.replaces), path.replaces).toBeDefined();
+    }
+    const routed = new Set(Object.values(DOCUMENT_REVERSAL_PATHS).map((path) => path.permission));
+    expect(ALL_PERMISSION_CODES.filter((code) => code.endsWith(".reverse")).sort()).toEqual([...routed].sort());
+    expect([...declared].sort()).toEqual([...routed].sort());
   });
 
   it("covers the twelve entry types that had no way to be reversed", () => {

@@ -27,6 +27,7 @@ import {
   type StockReservations,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   postAdjustmentSchema,
   postTransferSchema,
   postedAdjustmentListQuerySchema,
@@ -423,7 +424,7 @@ export function createInventoryRoutes(
     }
   });
 
-  app.post("/adjustments/:id/reverse", gate("inventory.adjustment.confirm"), async (c) => {
+  app.post("/adjustments/:id/reverse", gate(ReversalPermission.StockAdjustment), async (c) => {
     const adjustmentId = c.req.param("id");
     const posted = await service.getPostedAdjustment(adjustmentId);
     if (posted) {

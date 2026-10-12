@@ -51,6 +51,7 @@ import {
   sortInternalRateHistory,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createAssetCategorySchema,
   createAssetSchema,
   createDepreciationRunSchema,
@@ -487,7 +488,7 @@ export function createFixedAssetsRoutes(
     }
   });
 
-  app.post("/:id/undo-disposal", gate("assets.dispose"), async (c) => {
+  app.post("/:id/undo-disposal", gate(ReversalPermission.AssetDisposal), async (c) => {
     try {
       const { date, memo } = await readReversalRequest(c);
       const asset = await undoAssetDisposal(
@@ -617,7 +618,7 @@ export function createFixedAssetsRoutes(
    * gave voucher reversals, one bounded context over — never the run's own
    * period-end day, which would restate a period already reported.
    */
-  app.post("/depreciation/runs/:id/reverse", gate("assets.depreciation.run"), async (c) => {
+  app.post("/depreciation/runs/:id/reverse", gate(ReversalPermission.DepreciationRun), async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { date?: string; memo?: string };
     try {
       const run = await reverseDepreciationRun(

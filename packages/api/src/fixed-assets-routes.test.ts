@@ -402,7 +402,7 @@ describe("fixed-assets router — depreciation run full flow", () => {
     ).json()) as { journalEntryId: string };
 
     const reverseRes = await app.fetch(
-      req(`/depreciation/runs/${draftRun.id}/reverse`, { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({}) }),
+      req(`/depreciation/runs/${draftRun.id}/reverse`, { method: "POST", permissions: "assets.depreciation.reverse", body: JSON.stringify({}) }),
     );
     expect(reverseRes.status).toBe(200);
     expect((await reverseRes.json()) as { status: string }).toMatchObject({ status: "cancelled" });
@@ -415,7 +415,7 @@ describe("fixed-assets router — depreciation run full flow", () => {
 
     // Not twice.
     const again = await app.fetch(
-      req(`/depreciation/runs/${draftRun.id}/reverse`, { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({}) }),
+      req(`/depreciation/runs/${draftRun.id}/reverse`, { method: "POST", permissions: "assets.depreciation.reverse", body: JSON.stringify({}) }),
     );
     expect(again.status).toBe(409);
   });
@@ -445,7 +445,7 @@ describe("fixed-assets router — depreciation run full flow", () => {
     const res = await app.fetch(
       req(`/depreciation/runs/${draftRun.id}/reverse`, {
         method: "POST",
-        permissions: "assets.depreciation.run",
+        permissions: "assets.depreciation.reverse",
         body: JSON.stringify({ date: "2026-04-15" }),
       }),
     );
@@ -482,7 +482,7 @@ describe("fixed-assets router — depreciation run full flow", () => {
     // "today" is asserted against the harness's own clock value, not a
     // hardcoded date that would rot.
     const reverseRes = await app.fetch(
-      req(`/depreciation/runs/${draftRun.id}/reverse`, { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({}) }),
+      req(`/depreciation/runs/${draftRun.id}/reverse`, { method: "POST", permissions: "assets.depreciation.reverse", body: JSON.stringify({}) }),
     );
     expect(reverseRes.status).toBe(200);
     const original = await ledger.findById(posted.journalEntryId);
@@ -515,7 +515,7 @@ describe("fixed-assets router — depreciation run full flow", () => {
     const res = await app.fetch(
       req(`/depreciation/runs/${draftRun.id}/reverse`, {
         method: "POST",
-        permissions: "assets.depreciation.run",
+        permissions: "assets.depreciation.reverse",
         body: JSON.stringify({ date: "2026-01-15" }),
       }),
     );
@@ -554,7 +554,7 @@ describe("fixed-assets router — depreciation run full flow", () => {
     await app.fetch(req(`/depreciation/runs/${run2.id}/post`, { method: "POST", permissions: "assets.depreciation.run" }));
 
     const blocked = await app.fetch(
-      req(`/depreciation/runs/${run1.id}/reverse`, { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({}) }),
+      req(`/depreciation/runs/${run1.id}/reverse`, { method: "POST", permissions: "assets.depreciation.reverse", body: JSON.stringify({}) }),
     );
     expect(blocked.status).toBe(422);
     const body = (await blocked.json()) as { error: string; messageEn: string };
@@ -570,7 +570,7 @@ describe("fixed-assets router — depreciation run full flow", () => {
     const reverse2 = await app.fetch(
       req(`/depreciation/runs/${run2.id}/reverse`, {
         method: "POST",
-        permissions: "assets.depreciation.run",
+        permissions: "assets.depreciation.reverse",
         body: JSON.stringify({ date: "2026-04-30" }),
       }),
     );
@@ -578,19 +578,21 @@ describe("fixed-assets router — depreciation run full flow", () => {
     const reverse1 = await app.fetch(
       req(`/depreciation/runs/${run1.id}/reverse`, {
         method: "POST",
-        permissions: "assets.depreciation.run",
+        permissions: "assets.depreciation.reverse",
         body: JSON.stringify({ date: "2026-04-30" }),
       }),
     );
     expect(reverse1.status).toBe(200);
   });
 
-  it("rejects POST /depreciation/runs/:id/reverse without assets.depreciation.run", async () => {
+  it("rejects POST /depreciation/runs/:id/reverse without assets.depreciation.reverse", async () => {
     const { app } = await newApp();
     const res = await app.fetch(
       req("/depreciation/runs/run-x/reverse", { method: "POST", permissions: "assets.depreciation.view", body: JSON.stringify({}) }),
     );
     expect(res.status).toBe(403);
+    const withRunOnly = await app.fetch(req("/depreciation/runs/run-x/reverse", { method: "POST", permissions: "assets.depreciation.run", body: JSON.stringify({}) }));
+    expect(withRunOnly.status).toBe(403);
   });
 
   it("GET /depreciation/runs/:id 404s an unknown run", async () => {

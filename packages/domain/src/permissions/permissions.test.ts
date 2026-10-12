@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 249 permissions across 19 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 264 permissions across 19 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -43,13 +43,17 @@ describe("permission catalog", () => {
     // period-close-routes.ts`) — closing or locking over a failed pre-close
     // check is a separate authority from closing a clean month.
     //
+    // 249 → 264. Each named reversal route is gated by a permission of its own
+    // (`packages/contracts/src/document-reversal.ts`): fifteen codes over
+    // sixteen routes, the two stock-adjustment routes sharing one.
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(249);
+    expect(PERMISSIONS).toHaveLength(264);
     expect(MODULES).toHaveLength(19);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(249);
+    expect(summed).toBe(264);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -99,8 +103,11 @@ describe("permission catalog", () => {
     // Nine: overriding the pre-close checks closes a month the books say is not ready (ENH-E1-04).
     expect(isSensitive("accounting.period.override_close")).toBe(true);
     expect(isSensitive("accounting.period.close")).toBe(false);
+    // Twenty-four: each of the fifteen reversal permissions undoes posted money or stock.
+    expect(PERMISSIONS.filter((p) => p.code.endsWith(".reverse")).every((p) => p.sensitive)).toBe(true);
+    expect(isSensitive("purchases.landed_cost.void")).toBe(false);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(9);
+    expect(sensitiveCount).toBe(24);
   });
 
   it("marks the one platform-admin-only permission", () => {

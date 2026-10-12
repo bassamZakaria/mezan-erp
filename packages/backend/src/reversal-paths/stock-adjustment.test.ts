@@ -19,7 +19,7 @@ const inventoryAsOf = async (asOf: string) => ((await world.request("GET", `/rec
 describe("reversing a stock adjustment document", () => {
   it("takes an increase back out at what the stock is carried at, and the ledger follows the stock to the piastre", async () => {
     const before = { position: position(), inventory: world.balance("1200") };
-    const drafted = await world.request("POST", "/inventory/stock-adjustments/draft", { id: "ADJ-REV-1", date: "2026-08-14", memo: "زيادة بالخطأ", lines: [line("IN", "10", "1.00")] });
+    const drafted = await world.request("POST", "/inventory/stock-adjustments/draft", { id: "ADJ-REV-1", date: "2026-08-18", memo: "زيادة بالخطأ", lines: [line("IN", "10", "1.00")] });
     expect(drafted.status, JSON.stringify(drafted.body)).toBe(201);
     expect((await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/confirm", {})).status).toBe(200);
     expect(position().qty - before.position.qty).toBe(10n * EGP);
@@ -46,7 +46,7 @@ describe("reversing a stock adjustment document", () => {
 
   it("puts a decrease back at the cost it left at", async () => {
     const before = { position: position(), inventory: world.balance("1200") };
-    await world.request("POST", "/inventory/stock-adjustments/draft", { id: "ADJ-REV-2", date: "2026-08-16", lines: [line("OUT", "3")] });
+    await world.request("POST", "/inventory/stock-adjustments/draft", { id: "ADJ-REV-2", date: "2026-08-19", lines: [line("OUT", "3")] });
     expect((await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-2/confirm", {})).status).toBe(200);
     expect((await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-2/reverse", {})).status).toBe(201);
     expect(position()).toEqual(before.position);

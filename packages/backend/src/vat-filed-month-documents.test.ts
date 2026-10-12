@@ -50,7 +50,7 @@ describe("a month whose VAT return is filed takes no new posting, whatever the d
   it("a sales invoice", async () => {
     await world.request("POST", "/sales-invoices", {
       id: "VATF-SI", date: DAY, dueDate: "2026-11-23", customerId: "CUST-DEMO-1", customerNameAr: "عميل", warehouseId: "WH-MAIN", branchId: "BR-MAIN", arAccountId: "1105", taxAccountId: "2200",
-      lines: [{ lineId: "L1", itemId: "ITEM-DEMO-1", itemNameAr: "صنف", isStock: true, qty: "1", unitPrice: "100", taxRatePercent: 14, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200" }],
+      lines: [{ lineId: "L1", itemId: "ITEM-DEMO-2", itemNameAr: "صنف", isStock: true, qty: "1", unitPrice: "100", taxRatePercent: 14, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200" }],
     });
     expect(refusedAsFiled(await world.request("POST", "/sales-invoices/VATF-SI/confirm", {}))).toBe(FILED);
   });

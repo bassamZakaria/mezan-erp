@@ -38,7 +38,7 @@ const STANDING: Record<ReversalDocumentType, () => Promise<Record<string, string
     return { kind: "leave", asOfDate: "2026-08-31" };
   },
   [ReversalDocumentType.StockAdjustment]: async () => {
-    await ok("POST", "/inventory/stock-adjustments/draft", { id: "VATR-ADJ", date: "2026-08-14", lines: [{ itemId: "ITEM-DEMO-1", warehouseId: "WH-MAIN", reason: "OTHER", direction: "IN", qty: "2", unitCost: "1.00" }] });
+    await ok("POST", "/inventory/stock-adjustments/draft", { id: "VATR-ADJ", date: "2026-08-18", lines: [{ itemId: "ITEM-DEMO-1", warehouseId: "WH-MAIN", reason: "OTHER", direction: "IN", qty: "2", unitCost: "1.00" }] });
     await ok("POST", "/inventory/stock-adjustments/VATR-ADJ/confirm", {});
     return { id: "VATR-ADJ" };
   },

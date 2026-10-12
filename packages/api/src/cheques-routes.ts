@@ -29,6 +29,7 @@ import {
   type TreasuryAccountRepository,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createChequeSchema,
   depositChequeSchema,
   collectChequeSchema,
@@ -431,7 +432,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     }
   });
 
-  app.post("/:id/return", gate("cheques.bounce"), async (c) => {
+  app.post("/:id/return", gate(ReversalPermission.Cheque), async (c) => {
     const parsed = bounceChequeSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);

@@ -1,3 +1,4 @@
+import { reversalPermissionSuccessors } from "@mezan/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createApp,
@@ -165,6 +166,7 @@ import {
   withSqliteTransaction,
   type SqliteOpenOptions,
   createSqliteUnitOfWork,
+  grantSuccessorPermissionsOnce,
   createSqliteAccountRepository,
   createSqliteSettingsStore,
   createSqliteVatFilingStore,
@@ -650,6 +652,8 @@ export interface CreateBackendOptions {
  */
 const CERTIFICATE_AR_ACCOUNT_ID = "1105";
 
+const REVERSAL_PERMISSIONS_GRANT = "reversal_permissions";
+
 export async function createBackend(options: CreateBackendOptions = {}): Promise<BackendHandle> {
   if (options.seedAdminPin !== undefined && options.seedDemoData !== true) {
     throw new Error("createBackend: seedAdminPin is only accepted together with seedDemoData: true");
@@ -705,6 +709,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const labelLayouts = createSqliteLabelLayoutStore(sqlite);
 
   const uow = createSqliteUnitOfWork(sqlite);
+  grantSuccessorPermissionsOnce(sqlite, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
   const settings = createSqliteSettingsStore(sqlite);
   const vatFilings = createSqliteVatFilingStore(sqlite);
   const simplifiedRegime = createSqliteSimplifiedRegimeStore(sqlite);

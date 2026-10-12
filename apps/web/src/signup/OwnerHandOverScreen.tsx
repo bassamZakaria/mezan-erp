@@ -3,7 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Button, Card } from "@mezan/ui";
 import { useAppTranslation } from "../i18n";
 import { SignupLayout } from "./SignupLayout";
-import { confirmOwnerHandOver, type SignupApiError } from "./signup-api";
+import { confirmOwnerHandOver, SignupApiError } from "./signup-api";
 
 // SECURITY: opening this page confirms nothing. Mail scanners follow links
 // before a person does, so the hand-over is confirmed only by the button.
@@ -11,7 +11,8 @@ export function OwnerHandOverScreen() {
   const { t } = useAppTranslation();
   const [params] = useSearchParams();
   const token = params.get("token");
-  const confirm = useMutation<void, SignupApiError, string>({ mutationFn: confirmOwnerHandOver });
+  const confirm = useMutation<void, unknown, string>({ mutationFn: confirmOwnerHandOver });
+  const refused = confirm.error instanceof SignupApiError;
 
   return (
     <SignupLayout>
@@ -28,11 +29,11 @@ export function OwnerHandOverScreen() {
             <p className="text-[13px] leading-[1.9] text-ink-muted">{t("signup.ownerHandOver.explain")}</p>
             {confirm.isError ? (
               <p role="alert" className="text-[13px] font-semibold text-danger-ink">
-                {confirm.error.message}
+                {confirm.error instanceof SignupApiError ? confirm.error.message : t("signup.error.network")}
               </p>
             ) : null}
             <Button variant="primary" className="w-full" disabled={confirm.isPending} onClick={() => confirm.mutate(token)}>
-              {confirm.isPending ? t("signup.ownerHandOver.working") : t("signup.ownerHandOver.confirm")}
+              {confirm.isPending ? t("signup.ownerHandOver.working") : confirm.isError && !refused ? t("common.retry") : t("signup.ownerHandOver.confirm")}
             </Button>
           </>
         )}

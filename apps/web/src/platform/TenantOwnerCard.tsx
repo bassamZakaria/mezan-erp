@@ -3,24 +3,45 @@ import { Button, ConfirmDialog } from "@mezan/ui";
 import { TenantWireStatus, type OwnerCandidateDTO, type TenantDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 import { OwnerContactChip } from "./chips";
-import type { PlatformApiError } from "./api";
-import { useAssignOwnerMutation, useConfirmPendingOwnerMutation, useOwnerCandidates } from "./hooks";
+import { useAssignOwnerMutation, useConfirmPendingOwnerMutation, useDeclinePendingOwnerMutation, useOwnerCandidates, useResendPendingOwnerMutation } from "./hooks";
 
 function canAssignOwner(tenant: TenantDTO): boolean {
   return tenant.status === TenantWireStatus.Active || tenant.status === TenantWireStatus.Suspended;
 }
 
-export function TenantOwnerCard({ tenant, isOwner, onError }: { tenant: TenantDTO; isOwner: boolean; onError: (err: PlatformApiError) => void }) {
+enum PendingOwnerAct {
+  Confirm = "confirm",
+  Decline = "decline",
+  Resend = "resend",
+}
+
+function pendingHintKey(pending: NonNullable<TenantDTO["pendingOwner"]>, expired: boolean) {
+  if (expired) return "platform.tenantDetail.owner.pendingExpiredHint" as const;
+  return pending.linkMailed ? ("platform.tenantDetail.owner.pendingHint" as const) : ("platform.tenantDetail.owner.pendingUnmailedHint" as const);
+}
+
+export function TenantOwnerCard({ tenant, isOwner, onError }: { tenant: TenantDTO; isOwner: boolean; onError: (err: unknown) => void }) {
   const { t } = useAppTranslation();
   const [picking, setPicking] = useState(false);
   const [chosen, setChosen] = useState<OwnerCandidateDTO | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
-  const [confirmingPending, setConfirmingPending] = useState(false);
+  const [asking, setAsking] = useState<PendingOwnerAct.Confirm | PendingOwnerAct.Decline | null>(null);
+  const [acting, setActing] = useState<PendingOwnerAct | null>(null);
   const actionable = isOwner && canAssignOwner(tenant);
   const candidates = useOwnerCandidates(tenant.id, actionable && picking);
   const assignOwner = useAssignOwnerMutation();
   const confirmPending = useConfirmPendingOwnerMutation();
+  const declinePending = useDeclinePendingOwnerMutation();
+  const resendPending = useResendPendingOwnerMutation();
   const pending = tenant.pendingOwner;
+  const expired = pending ? new Date(pending.expiresAt).getTime() <= Date.now() : false;
+
+  const actOnPending = (act: PendingOwnerAct) => {
+    if (acting !== null) return;
+    setActing(act);
+    const mutation = act === PendingOwnerAct.Confirm ? confirmPending : act === PendingOwnerAct.Decline ? declinePending : resendPending;
+    mutation.mutate(tenant.id, { onError, onSettled: () => setActing(null) });
+  };
 
   const assign = (candidate: OwnerCandidateDTO) => {
     if (assigningId !== null) return;
@@ -46,10 +67,20 @@ export function TenantOwnerCard({ tenant, isOwner, onError }: { tenant: TenantDT
       {tenant.ownerContactVerified ? null : <p className="mt-[2px] text-[12px] text-warning-ink">{t("platform.tenantDetail.ownerUnverifiedHint")}</p>}
       {pending ? (
         <p className="mt-[4px] flex flex-wrap items-center gap-[8px] text-[12px] text-warning-ink">
-          <span>{t("platform.tenantDetail.owner.pendingHint", { email: pending.email })}</span>
-          {actionable ? (
-            <Button variant="default" size="sm" disabled={confirmPending.isPending} onClick={() => setConfirmingPending(true)}>
+          <span>{t(pendingHintKey(pending, expired), { email: pending.email })}</span>
+          {actionable && !expired ? (
+            <Button variant="default" size="sm" disabled={acting !== null} onClick={() => setAsking(PendingOwnerAct.Confirm)}>
               {t("platform.tenantDetail.owner.confirmPending")}
+            </Button>
+          ) : null}
+          {actionable ? (
+            <Button variant="default" size="sm" disabled={acting !== null} onClick={() => actOnPending(PendingOwnerAct.Resend)}>
+              {t("platform.tenantDetail.owner.resendPending")}
+            </Button>
+          ) : null}
+          {actionable ? (
+            <Button variant="ghost" size="sm" disabled={acting !== null} onClick={() => setAsking(PendingOwnerAct.Decline)}>
+              {t("platform.tenantDetail.owner.declinePending")}
             </Button>
           ) : null}
         </p>
@@ -93,16 +124,28 @@ export function TenantOwnerCard({ tenant, isOwner, onError }: { tenant: TenantDT
         onCancel={() => setChosen(null)}
       />
       <ConfirmDialog
-        open={confirmingPending}
+        open={asking === PendingOwnerAct.Confirm}
         title={t("platform.tenantDetail.owner.confirmPending.title")}
         consequence={t("platform.tenantDetail.owner.confirmPending.consequence", { from: tenant.ownerEmail, to: pending?.email ?? "" })}
         confirmLabel={t("platform.tenantDetail.owner.confirmPending.confirm")}
         tone="danger"
         onConfirm={() => {
-          setConfirmingPending(false);
-          confirmPending.mutate(tenant.id, { onError });
+          setAsking(null);
+          actOnPending(PendingOwnerAct.Confirm);
         }}
-        onCancel={() => setConfirmingPending(false)}
+        onCancel={() => setAsking(null)}
+      />
+      <ConfirmDialog
+        open={asking === PendingOwnerAct.Decline}
+        title={t("platform.tenantDetail.owner.declinePending.title")}
+        consequence={t("platform.tenantDetail.owner.declinePending.consequence", { owner: tenant.ownerEmail, to: pending?.email ?? "" })}
+        confirmLabel={t("platform.tenantDetail.owner.declinePending.confirm")}
+        tone="danger"
+        onConfirm={() => {
+          setAsking(null);
+          actOnPending(PendingOwnerAct.Decline);
+        }}
+        onCancel={() => setAsking(null)}
       />
     </div>
   );

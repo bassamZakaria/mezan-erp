@@ -158,7 +158,7 @@ export function TenantDetailPage() {
   const [retryBillingCycle, setRetryBillingCycle] = useState<BillingCycleDTO>("monthly");
   const [retryTrial, setRetryTrial] = useState(true);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const onMutationError = (err: PlatformApiError) => setMutationError(err.message);
+  const onMutationError = (err: unknown) => setMutationError(err instanceof PlatformApiError ? err.message : t("platform.error.network"));
 
   const summary = tenantQuery.data;
   if (!summary) {

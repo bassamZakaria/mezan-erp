@@ -57,6 +57,31 @@ describe("the owner hand-over confirmation page", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("رابط التأكيد غير صالح أو سبق استخدامه.");
   });
 
+  it("says in Arabic that the connection failed, never the browser's own words, and confirms on the retry", async () => {
+    let down = true;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      down ? Promise.reject(new TypeError("Failed to fetch")) : Promise.resolve(new Response(JSON.stringify({ confirmed: true }), { status: 200, headers: { "content-type": "application/json" } })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <AppI18nProvider>
+        <QueryClientProvider client={new QueryClient()}>
+          <MemoryRouter initialEntries={["/signup/owner-handover?token=the-token"]}>
+            <SignupApp />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </AppI18nProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "أؤكّد نقل الملكية" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر الاتصال بالخادم. تحقّق من اتصالك بالإنترنت ثم أعد المحاولة.");
+    expect(screen.queryByText(/Failed to fetch/)).not.toBeInTheDocument();
+    down = false;
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect(await screen.findByText("تم تأكيد نقل الملكية. أصبح الحساب الجديد مالك المنشأة.")).toBeInTheDocument();
+  });
+
   it("says the link is incomplete when it carries no token, and offers nothing to press", async () => {
     open(200, {}, "/signup/owner-handover");
 

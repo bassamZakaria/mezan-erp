@@ -213,6 +213,14 @@ export function useConfirmPendingOwnerMutation() {
   return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/owner/confirm`, () => undefined, "platform.tenantDetail.owner.confirmFailed");
 }
 
+export function useDeclinePendingOwnerMutation() {
+  return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/owner/decline`, () => undefined, "platform.tenantDetail.owner.declineFailed");
+}
+
+export function useResendPendingOwnerMutation() {
+  return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/owner/resend`, () => undefined, "platform.tenantDetail.owner.resendFailed");
+}
+
 export function useSetBillingAnchorDayMutation() {
   return useSummaryMutation<{ tenantId: string; day: number }>(
     ({ tenantId }) => `/tenants/${tenantId}/subscription/anchor-day`,

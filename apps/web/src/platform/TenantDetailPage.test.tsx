@@ -679,6 +679,8 @@ describe("TenantDetailPage", () => {
       { id: "U-2", nameAr: "خالد المدير", email: "second@acme.test" },
     ];
 
+    const WAITING = { userId: "U-2", email: "second@acme.test", requestedAt: "2026-10-01T09:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", linkMailed: true };
+
     it("flags a tenant with no owner, and assigns the admin the platform owner picks only after asking", async () => {
       const assigned: unknown[] = [];
       let release: (() => void) | undefined;
@@ -720,7 +722,7 @@ describe("TenantDetailPage", () => {
 
     it("shows a pending hand-over with who asked for it, and confirms it only after asking", async () => {
       let confirms = 0;
-      const pending = makeSummary({ pendingOwner: { userId: "U-2", email: "second@acme.test", requestedAt: "2026-10-01T09:00:00.000Z" } });
+      const pending = makeSummary({ pendingOwner: WAITING });
       const transport = stubPlatformTransport({
         "GET /tenants/tenant-1": () => ({ body: confirms === 0 ? pending : makeSummary({ ownerEmail: "second@acme.test" }) }),
         "GET /plans": () => ({ body: [plan, plan2] }),
@@ -744,9 +746,77 @@ describe("TenantDetailPage", () => {
       await waitFor(() => expect(screen.queryByText("نقل ملكية بانتظار التأكيد")).not.toBeInTheDocument());
     });
 
+    function pendingTransport(pendingOwner: typeof WAITING, posts: string[] = []) {
+      let dropped = false;
+      let current = pendingOwner;
+      return stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: dropped ? makeSummary({}) : makeSummary({ pendingOwner: current }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "POST /tenants/tenant-1/owner/decline": () => {
+          posts.push("decline");
+          dropped = true;
+          return { body: makeSummary({}) };
+        },
+        "POST /tenants/tenant-1/owner/resend": () => {
+          posts.push("resend");
+          current = { ...pendingOwner, expiresAt: "2099-01-01T00:00:00.000Z", linkMailed: true };
+          return { body: makeSummary({ pendingOwner: current }) };
+        },
+      });
+    }
+
+    it("says the previous owner was mailed a link only when one was", async () => {
+      renderDetail({ transport: pendingTransport({ ...WAITING, linkMailed: false }), session: testPlatformSession });
+
+      expect(await screen.findByText(/لم يُرسل رابط تأكيد إلى بريد المالك السابق/)).toBeInTheDocument();
+      expect(screen.queryByText(/من الرابط المرسل إلى بريده/)).not.toBeInTheDocument();
+    });
+
+    it("declines a pending hand-over only after asking, and the request is gone", async () => {
+      const posts: string[] = [];
+      renderDetail({ transport: pendingTransport(WAITING, posts), session: testPlatformSession });
+
+      fireEvent.click(await screen.findByRole("button", { name: "إلغاء طلب النقل" }));
+      const dialog = await screen.findByRole("dialog", { name: "إلغاء طلب نقل الملكية؟" });
+      expect(dialog).toHaveTextContent("second@acme.test");
+      expect(posts).toEqual([]);
+      fireEvent.click(within(dialog).getByRole("button", { name: "إلغاء الطلب" }));
+
+      await waitFor(() => expect(posts).toEqual(["decline"]));
+      await waitFor(() => expect(screen.queryByText("نقل ملكية بانتظار التأكيد")).not.toBeInTheDocument());
+    });
+
+    it("shows a lapsed hand-over as expired, offers to send the link again or decline it, and no longer offers to confirm it", async () => {
+      const posts: string[] = [];
+      renderDetail({ transport: pendingTransport({ ...WAITING, expiresAt: "2020-01-01T00:00:00.000Z" }, posts), session: testPlatformSession });
+
+      expect(await screen.findByText(/انتهت مهلة تأكيد هذا الطلب/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "تأكيد نقل الملكية" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "إلغاء طلب النقل" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "إرسال الرابط من جديد" }));
+
+      await waitFor(() => expect(posts).toEqual(["resend"]));
+      expect(await screen.findByRole("button", { name: "تأكيد نقل الملكية" })).toBeInTheDocument();
+      expect(screen.queryByText(/انتهت مهلة تأكيد هذا الطلب/)).not.toBeInTheDocument();
+    });
+
+    it("says in Arabic that the connection failed when an owner action cannot reach the server", async () => {
+      const stub = pendingTransport(WAITING);
+      const transport: Transport = async (path, init) => {
+        if (init?.method === "POST") throw new TypeError("Failed to fetch");
+        return stub(path, init);
+      };
+      renderDetail({ transport, session: testPlatformSession });
+
+      fireEvent.click(await screen.findByRole("button", { name: "إرسال الرابط من جديد" }));
+
+      expect(await screen.findByText("تعذّر الاتصال بالخادم. تحقّق من الاتصال ثم أعد المحاولة.")).toBeInTheDocument();
+      expect(screen.queryByText(/Failed to fetch/)).not.toBeInTheDocument();
+    });
+
     it("shows the state but no owner action to a support operator, nor for a tenant that is not live", async () => {
       const transport = stubPlatformTransport({
-        "GET /tenants/tenant-1": () => ({ body: makeSummary({ ownerNeeded: true, pendingOwner: { userId: "U-2", email: "second@acme.test", requestedAt: "2026-10-01T09:00:00.000Z" } }) }),
+        "GET /tenants/tenant-1": () => ({ body: makeSummary({ ownerNeeded: true, pendingOwner: WAITING }) }),
         "GET /plans": () => ({ body: [plan, plan2] }),
       });
       renderDetail({ transport, session: supportSession });

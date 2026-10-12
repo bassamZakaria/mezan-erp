@@ -148,7 +148,7 @@ describe("TenantsPage", () => {
       const ownerless: TenantSummaryDTO = { ...tenantSummary, tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "ownerless", ownerNeeded: true } };
       const waiting: TenantSummaryDTO = {
         ...tenantSummary,
-        tenant: { ...tenantSummary.tenant, id: "tenant-3", code: "waiting", pendingOwner: { userId: "U-2", email: "second@acme.test", requestedAt: "2026-10-01T09:00:00.000Z" } },
+        tenant: { ...tenantSummary.tenant, id: "tenant-3", code: "waiting", pendingOwner: { userId: "U-2", email: "second@acme.test", requestedAt: "2026-10-01T09:00:00.000Z", expiresAt: "2026-10-08T09:00:00.000Z", linkMailed: true } },
       };
       renderWithPlatformProviders(<TenantsPage />, {
         transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [tenantSummary, ownerless, waiting] }) }),

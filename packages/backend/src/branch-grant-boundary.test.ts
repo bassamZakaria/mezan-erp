@@ -2632,9 +2632,10 @@ describe("D111 round 4 · the lists a picker needs are open to every signed-in u
     }
   });
 
-  it("the seeded branch manager holds what its dashboard, an invoice and a voucher ask for", async () => {
+  it("the seeded branch manager holds what its dashboard and an invoice ask for, and confirms a voucher it may not write", async () => {
     const permissions = JSON.parse(one<{ permissions: string }>("SELECT permissions FROM role WHERE code = 'BRANCH_MANAGER'")!.permissions) as string[];
-    for (const code of ["accounting.journal.view", "sales.invoice.create", "treasury.cash_voucher.create"]) expect(permissions, code).toContain(code);
+    for (const code of ["dashboard.view", "accounting.journal.view", "sales.invoice.create", "treasury.cash_voucher.confirm"]) expect(permissions, code).toContain(code);
+    expect(permissions).not.toContain("treasury.cash_voucher.create");
     const manager = callerFor(handle.sessions.issue({ userId: "USER-R4-MANAGER", permissions, roleCode: "BRANCH_MANAGER", branchScope: [ALEX], warehouseScope: ALL_SCOPE }));
     expect((await manager("GET", "/dashboard/summary")).status).toBe(200);
   });

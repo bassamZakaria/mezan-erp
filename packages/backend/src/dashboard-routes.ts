@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import {
+  DASHBOARD_VIEW_PERMISSION,
   Money,
   type Account,
   type AccountRepository,
@@ -93,7 +94,7 @@ export function createDashboardRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const now = deps.now ?? (() => new Date());
 
-  app.get("/dashboard/summary", gate("accounting.journal.view"), async (c) => {
+  app.get("/dashboard/summary", gate(DASHBOARD_VIEW_PERMISSION), gate("accounting.journal.view"), async (c) => {
     const fromDate = c.req.query("fromDate") || undefined;
     const toDate = c.req.query("toDate") || undefined;
 

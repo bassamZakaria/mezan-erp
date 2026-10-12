@@ -1,7 +1,7 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
-import { AppShell, SkeletonTable, filterNavGroups, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
+import { AppShell, SkeletonTable, filterNavGroups, isNavItemVisible, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
 import { BranchRestrictedAccess, type BranchDTO, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
@@ -22,7 +22,7 @@ import {
 } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { isBranchRestricted, navItemAccess, withoutBranchUnavailable } from "./branch-restriction";
-import { BranchReadOnlyNotice, BranchUnavailableState } from "./shell/BranchRestrictionNotices";
+import { BranchReadOnlyNotice, BranchUnavailableState, DashboardNotPermittedState } from "./shell/BranchRestrictionNotices";
 import { ReadOnlyForm } from "./shell/ReadOnlyForm";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
@@ -314,11 +314,15 @@ export function AppLayout() {
    * the wordmark is a button. A named, hoverable icon costs 32px and removes
    * the guess; the lockup stays a link for everyone who already reaches for it.
    */
+  const dashboardPermitted = useMemo(
+    () => isNavItemVisible(buildTopNavItem(t), { permissions: session?.permissions ?? EMPTY, activeModules: null }),
+    [session?.permissions, t],
+  );
   const directNavItems = useMemo(() => {
     const pinned = groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key));
     const home: NavItem = { ...buildTopNavItem(t), onClick: () => navigate("dashboard") };
-    return [home, ...pinned];
-  }, [groups, navigate, t]);
+    return dashboardPermitted ? [home, ...pinned] : pinned;
+  }, [dashboardPermitted, groups, navigate, t]);
 
   /**
    * The six workspaces of the column, الإعداد والصلاحيات among them.
@@ -422,10 +426,11 @@ export function AppLayout() {
   }, [request, setSession, setActiveScreen, queryClient]);
 
   const routedTopNavItem = useMemo(() => {
+    if (!dashboardPermitted) return undefined;
     const topNavItem = buildTopNavItem(t);
     const key = topNavItem.key;
     return isRoutable(key) ? { ...topNavItem, onClick: () => navigate(key) } : topNavItem;
-  }, [navigate, t]);
+  }, [dashboardPermitted, navigate, t]);
 
   const createOnCurrentScreen = useCallback(() => {
     // A screen that wired `useScreenIntent` opens its own create flow;
@@ -651,7 +656,9 @@ export function AppLayout() {
 
         Suspense still wraps it for anything a screen suspends on internally.
       */}
-      {screenAccess === BranchRestrictedAccess.Unavailable ? (
+      {activeScreen === "dashboard" && !dashboardPermitted ? (
+        <DashboardNotPermittedState />
+      ) : screenAccess === BranchRestrictedAccess.Unavailable ? (
         <BranchUnavailableState onGoHome={() => setActiveScreen("dashboard")} />
       ) : (
         <>

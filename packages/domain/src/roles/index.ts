@@ -12,3 +12,4 @@ export {
   RoleInUseError,
   type SaveRoleCommand,
 } from "./save-role.js";
+export { correctedSeededRolePermissions, DASHBOARD_VIEW_PERMISSION, SEEDED_ROLE_CODES, SeededRoleCode } from "./seeded-role-corrections.js";

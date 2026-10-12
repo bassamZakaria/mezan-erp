@@ -1,7 +1,7 @@
 import type { App } from "@mezan/api";
 import { loadSeededUsers, step } from "./shared.js";
 import type { SeedPerson } from "./fragments.js";
-import { fragmentGrantsFor, fragmentPeople, fragmentRoles, seedLicensing } from "./fragment-registry.js";
+import { fragmentGrantsFor, fragmentPeople, fragmentRoles, seedLicensing, type SeedLicensing } from "./fragment-registry.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -55,14 +55,17 @@ const VAN_WAREHOUSE_ID = "WH-DEMO-VAN";
 /** Every employee's own tier; each role below that a person with an HR file holds carries it too. */
 const SELF_SERVICE = ["hr.self.leave", "hr.self.payslip", "hr.self.advance", "hr.self.attendance", "hr.self.clock"] as const;
 
+const DASHBOARD_PERMISSION = "dashboard.view";
+
 const ROLES = [
   {
     code: "ACCOUNTANT",
     name: "محاسب",
-    description: "يقيّد ويراجع الحركات المالية ويقفل الفترة.",
+    description: "يقيّد الحركات المالية ويرحّلها ويراجعها.",
     permissions: [
       "accounting.journal.view",
       "accounting.journal.create",
+      "accounting.journal.post",
       "accounting.coa.view",
       "accounting.period.view",
       "accounting.reports.view",
@@ -138,11 +141,10 @@ const ROLES = [
   {
     code: "FINANCE_MANAGER",
     name: "المدير المالي",
-    description: "يعتمد القيود وفواتير الشراء والرواتب ويقفل الفترة المالية.",
+    description: "يعتمد فواتير الشراء والرواتب ويقفل الفترة المالية.",
     permissions: [
       "accounting.coa.view",
       "accounting.journal.view",
-      "accounting.journal.post",
       "accounting.period.view",
       "accounting.period.close",
       "accounting.reports.view",
@@ -215,12 +217,11 @@ const ROLES = [
   {
     code: "TREASURY_CASHIER",
     name: "أمين الخزنة",
-    description: "يحصّل ويصرف ويودع الشيكات ويطابق كشف البنك.",
+    description: "يحرّر سندات القبض والصرف ويودع الشيكات ويطابق كشف البنك — ولا يعتمد سنداته.",
     permissions: [
       "treasury.account.view",
       "treasury.cash_voucher.view",
       "treasury.cash_voucher.create",
-      "treasury.cash_voucher.confirm",
       "treasury.allocation.view",
       "treasury.allocation.manage",
       "treasury.transfer.create",
@@ -261,7 +262,6 @@ const ROLES = [
       "hr.attendance.edit",
       "hr.leave.view",
       "hr.leave.create",
-      "hr.leave.approve",
       "hr.advance.view",
       "hr.advance.create",
       "hr.contract.view",
@@ -299,7 +299,7 @@ const ROLES = [
   {
     code: "BRANCH_MANAGER",
     name: "مدير الفرع",
-    description: "يتابع بيع وشراء ومخزون فرعه ويعتمد إجازات فريقه.",
+    description: "يتابع بيع وشراء ومخزون فرعه ويعتمد سندات الخزينة وإجازات فريقه.",
     permissions: [
       "accounting.journal.view",
       "accounting.coa.view",
@@ -321,7 +321,6 @@ const ROLES = [
       "inventory.count.confirm",
       "inventory.adjustment.view",
       "treasury.cash_voucher.view",
-      "treasury.cash_voucher.create",
       "treasury.cash_voucher.confirm",
       "accounting.reports.view",
       "hr.employee.view",
@@ -606,6 +605,22 @@ interface SeededRole {
   readonly code: string;
 }
 
+export interface SeededRoleGrant {
+  readonly code: string;
+  readonly name: string;
+  readonly description: string;
+  readonly permissions: string[];
+}
+
+export function seededRoles(licensing: SeedLicensing): SeededRoleGrant[] {
+  return [...ROLES, ...fragmentRoles(licensing)].map((role) => ({
+    code: role.code,
+    name: role.name,
+    description: role.description,
+    permissions: [...new Set([DASHBOARD_PERMISSION, ...role.permissions, ...fragmentGrantsFor(role.code, licensing)])],
+  }));
+}
+
 export async function seedAccess(app: App): Promise<void> {
   // --- النطاقات المسموحة للبريد ---
   // Read-modify-write: settings is one bag and a PUT replaces it, so writing
@@ -624,22 +639,12 @@ export async function seedAccess(app: App): Promise<void> {
   const roleIdByCode = new Map<string, string>();
   const licensing = await seedLicensing(app);
   const extraRoles = fragmentRoles(licensing);
-  for (const role of [...ROLES, ...extraRoles]) {
+  for (const role of seededRoles(licensing)) {
     const created = (await step(app, "POST", "/roles", {
       code: role.code,
       name: role.name,
       description: role.description,
-      permissions: [...new Set([...role.permissions, ...fragmentGrantsFor(role.code, licensing)])],
-      // ENH-051: a small shop's own roles genuinely overlap (FINANCE_MANAGER
-      // both posts journals and closes the period; TREASURY_CASHIER both
-      // writes and confirms a voucher) — that overlap is the realistic finding
-      // this seed exists to demonstrate on the SoD report, not a defect to
-      // dodge. Sent on every role, not only the ones known to conflict today:
-      // a later lane's `roleGrants` can introduce a new overlap on any role
-      // code, and the seed must never crash on the 409 that is working as
-      // designed.
-      acknowledge: true,
-      reason: "دور تجريبي — منشأة صغيرة لا تطبق فصلاً كاملاً للمهام بين كل الأدوار.",
+      permissions: role.permissions,
     })) as SeededRole;
     roleIdByCode.set(role.code, created.id);
   }
@@ -670,11 +675,7 @@ export async function seedAccess(app: App): Promise<void> {
       // purpose: a demo whose logins each need a different code is a demo
       // nobody signs into twice.
       pin: "123456",
-      // ENH-051 — see the matching note on the role POST above: this seed's
-      // own roles carry a real overlap, so assigning one is expected to trip
-      // the same 409 and must carry the same override.
-      acknowledge: true,
-      reason: "دور تجريبي — منشأة صغيرة لا تطبق فصلاً كاملاً للمهام بين كل الأدوار.",
+      ...(roleId === null ? { acknowledge: true, reason: "مدير المنشأة — صلاحية كاملة في وضع المشغّل الواحد." } : {}),
     });
   }
   await loadSeededUsers(app);

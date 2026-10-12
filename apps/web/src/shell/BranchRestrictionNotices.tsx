@@ -25,3 +25,14 @@ export function BranchReadOnlyNotice() {
     </p>
   );
 }
+
+export function DashboardNotPermittedState() {
+  const { t } = useAppTranslation();
+  return (
+    <section data-testid="dashboard-not-permitted" role="status" className="mx-auto flex max-w-[52ch] flex-col items-center gap-[12px] px-[16px] py-[56px] text-center">
+      <Lock aria-hidden className="size-[28px] text-ink-faint" />
+      <h1 className="font-display text-[20px] font-bold text-ink">{t("dashboard.notPermitted.title")}</h1>
+      <p className="text-[13px] text-ink-muted">{t("dashboard.notPermitted.body")}</p>
+    </section>
+  );
+}

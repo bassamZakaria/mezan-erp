@@ -127,10 +127,13 @@ import {
   tenantTodayIso,
   BASE_CURRENCY,
   EVENT_BRANCH_IDS_KEY,
+  correctedSeededRolePermissions,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
   withSqliteTransaction,
+  createSqliteUpgradeLedger,
+  UpgradeStepId,
   type SqliteOpenOptions,
   createSqliteUnitOfWork,
   createSqliteAccountRepository,
@@ -2602,6 +2605,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     labelLayouts,
   };
   await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
+
+  const upgradeLedger = createSqliteUpgradeLedger(sqlite);
+  await upgradeLedger.runOnce(UpgradeStepId.SeededRoleDutySplit, async () => {
+    const corrected: string[] = [];
+    for (const role of await uow.roles.list()) {
+      const permissions = correctedSeededRolePermissions(role.code, role.permissions);
+      if (!permissions) continue;
+      await uow.roles.save({ ...role, permissions });
+      corrected.push(role.code);
+    }
+    if (corrected.length > 0) console.info(`[roles] separated duties and granted dashboard.view on seeded role(s) ${corrected.join(", ")}`);
+  });
 
   /**
    * Books seeded before a template account existed get it now (D229: the

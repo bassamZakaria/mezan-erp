@@ -19,6 +19,7 @@ const ALWAYS_LICENSED_MODULES: ReadonlySet<string> = new Set([
   "workflow",
   "admin",
   "audit",
+  "dashboard",
 ]);
 
 /** Catalog module id -> entitlement module id, only where they differ. */

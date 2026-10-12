@@ -82,6 +82,7 @@ const CORE_MODULES: readonly ModuleDef[] = [
   // one": the certificate's preparer, certifier, approver and collector are four
   // different people, and one `manage` right cannot express that.
   { id: "contracting", labelAr: "المقاولات", count: 12 },
+  { id: "dashboard", labelAr: "لوحة التحكم", count: 1 },
 ];
 
 /**
@@ -405,6 +406,8 @@ const ROWS: readonly Row[] = [
   ["contracting.guarantee.view"],
   ["contracting.guarantee.manage", "contracting.guarantee.view"],
   ["contracting.guarantee.release", "contracting.guarantee.view", "s"],
+
+  ["dashboard.view"],
 ];
 
 function expand(row: Row): PermissionDef {

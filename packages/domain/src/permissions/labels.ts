@@ -163,6 +163,7 @@ export const PERMISSION_ENTITY_LABELS = {
   warehouses: { ar: "المستودعات", en: "Warehouses" },
   wo: { ar: "أمر تصنيع", en: "Work order" },
   workflow: { ar: "سير العمل", en: "Workflow" },
+  dashboard: { ar: "لوحة التحكم", en: "Dashboard" },
   writedown: { ar: "تخفيض القيمة", en: "Write-down" },
   cockpit: { ar: "لوحة المالك", en: "owner cockpit" },
   cash_forecast: { ar: "توقع السيولة", en: "cash forecast" },

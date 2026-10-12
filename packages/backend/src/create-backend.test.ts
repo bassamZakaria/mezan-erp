@@ -125,6 +125,16 @@ describe("createBackend — seeded app", () => {
     expect(signedInElsewhere.status).toBe(403);
   });
 
+  it("the dashboard asks for dashboard.view as well as the ledger read it folds", async () => {
+    const app = await newBackend();
+    const as = (permissions: string[]) => app.fetch(new Request("http://local/dashboard/summary", { headers: sessionHeaders(app, "u-dash", permissions) }));
+    const ledgerOnly = await as(["accounting.journal.view"]);
+    expect(ledgerOnly.status).toBe(403);
+    expect(((await ledgerOnly.json()) as { permission?: string }).permission).toBe("dashboard.view");
+    expect((await as(["dashboard.view"])).status).toBe(403);
+    expect((await as(["dashboard.view", "accounting.journal.view"])).status).toBe(200);
+  });
+
   it("bootstrap/seed is idempotent and reports counts", async () => {
     const app = await newBackend();
     const res = await post(app, "/bootstrap/seed", {});

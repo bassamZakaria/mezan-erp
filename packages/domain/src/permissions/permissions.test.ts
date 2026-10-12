@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 249 permissions across 19 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 250 permissions across 20 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -42,13 +42,18 @@ describe("permission catalog", () => {
     // every GL read (`packages/api/src/branch-view.ts`): a branch-granted
     // session sees the lines that carry no branch only when it holds it.
     //
+    // 249 → 250, 19 → 20 modules. D111 brought `dashboard.view` back as the
+    // one code of a `dashboard` module, now that `GET /dashboard/summary`
+    // (`packages/backend/src/dashboard-routes.ts`) and the home entry of the
+    // rail both check it.
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(249);
-    expect(MODULES).toHaveLength(19);
+    expect(PERMISSIONS).toHaveLength(250);
+    expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(249);
+    expect(summed).toBe(250);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {

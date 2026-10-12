@@ -419,6 +419,35 @@ describe("AppLayout — command palette", () => {
   });
 });
 
+describe("AppLayout — dashboard.view", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+  const handlers = () => ({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+  const seat = (permissions: string[]): Session => ({ ...testAdminSession, permissions });
+
+  it("a seat holding dashboard.view has the dashboard icon and its screen", async () => {
+    renderLayout(stubTransport(handlers()), [pathForRoute("dashboard")], seat(["dashboard.view", "sales.invoice.view"]));
+    expect(await screen.findByRole("button", { name: "لوحة التحكم" })).toBeInTheDocument();
+    expect(screen.getByTestId("location-probe")).toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-not-permitted")).not.toBeInTheDocument();
+  });
+
+  it("a seat without it has no dashboard icon, and the dashboard path says why in Arabic instead of drawing the screen", async () => {
+    renderLayout(stubTransport(handlers()), [pathForRoute("dashboard")], seat(["sales.invoice.view"]));
+    const notice = await screen.findByTestId("dashboard-not-permitted");
+    expect(notice).toHaveTextContent("لوحة التحكم غير متاحة لدورك");
+    expect(screen.queryByRole("button", { name: "لوحة التحكم" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
+  });
+
+  it("the same seat still reaches every other screen its role opens", async () => {
+    renderLayout(stubTransport(handlers()), [pathForRoute("notifications")], seat(["sales.invoice.view"]));
+    expect(await screen.findByTestId("location-probe")).toHaveTextContent(pathForRoute("notifications"));
+    expect(screen.queryByTestId("dashboard-not-permitted")).not.toBeInTheDocument();
+  });
+});
+
 describe("AppLayout — nav entitlements", () => {
   afterEach(() => {
     persistSession(null);

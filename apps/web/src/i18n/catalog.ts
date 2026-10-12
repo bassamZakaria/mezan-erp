@@ -467,6 +467,8 @@ const webAr = {
 
   "shell.scope.branchCount": "الفروع: {count}",
   "branchRestriction.unavailable.title": "هذه الشاشة غير متاحة لحساب مقيّد بفروع",
+  "dashboard.notPermitted.title": "لوحة التحكم غير متاحة لدورك",
+  "dashboard.notPermitted.body": "دورك لا يحمل صلاحية «عرض — لوحة التحكم». اختر شاشة من القائمة، أو اطلب من مدير النظام إضافة الصلاحية إلى دورك.",
   "branchRestriction.unavailable.body": "بياناتها على مستوى الشركة كلها، وحسابك مصرّح له بفروع محددة. اطلب من الإدارة ما تحتاجه منها.",
   "branchRestriction.unavailable.goHome": "العودة إلى لوحة المعلومات",
   "branchRestriction.readOnly": "للعرض فقط: هذه الإعدادات تسري على كل الفروع، ولا يغيّرها حساب مقيّد بفروع محددة.",
@@ -9910,6 +9912,8 @@ const webEn: Record<WebTranslationKey, string> = {
 
   "shell.scope.branchCount": "{count} branches",
   "branchRestriction.unavailable.title": "This screen is not available to a branch-restricted account",
+  "dashboard.notPermitted.title": "The dashboard is not available to your role",
+  "dashboard.notPermitted.body": "Your role does not hold “View — Dashboard”. Pick a screen from the menu, or ask the administrator to add the permission to your role.",
   "branchRestriction.unavailable.body": "Its data covers the whole company, and your account is granted specific branches. Ask head office for what you need from it.",
   "branchRestriction.unavailable.goHome": "Back to the dashboard",
   "branchRestriction.readOnly": "Read-only: these settings apply to every branch and cannot be changed by an account restricted to specific branches.",

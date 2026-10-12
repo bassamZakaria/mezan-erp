@@ -82,6 +82,8 @@ export const pendingOwnerSchema = z.object({
   userId: z.string().min(1),
   email: z.string().min(1),
   requestedAt: isoLikeSchema,
+  expiresAt: isoLikeSchema,
+  linkMailed: z.boolean(),
 });
 
 export const ownerCandidateSchema = z.object({
@@ -114,7 +116,7 @@ export function tenantDTOOf(
   stored: Omit<z.infer<typeof tenantSchema>, "status" | "ownerNeeded" | "pendingOwner"> & {
     readonly status: string;
     readonly ownerNeeded?: boolean;
-    readonly pendingOwner?: z.infer<typeof pendingOwnerSchema> | null;
+    readonly pendingOwner?: { readonly userId: string; readonly email: string; readonly requestedAt: string; readonly expiresAt: string; readonly tokenHash: string | null } | null;
   },
 ): z.infer<typeof tenantSchema> {
   const pending = stored.pendingOwner ?? null;
@@ -122,7 +124,9 @@ export function tenantDTOOf(
     id: stored.id, code: stored.code, nameAr: stored.nameAr, nameEn: stored.nameEn, ownerEmail: stored.ownerEmail,
     ownerContactVerified: stored.ownerContactVerified, ownerNeeded: stored.ownerNeeded === true,
     // SECURITY: the confirmation token's hash never leaves the server.
-    pendingOwner: pending ? { userId: pending.userId, email: pending.email, requestedAt: pending.requestedAt } : null,
+    pendingOwner: pending
+      ? { userId: pending.userId, email: pending.email, requestedAt: pending.requestedAt, expiresAt: pending.expiresAt, linkMailed: pending.tokenHash !== null }
+      : null,
     status: tenantStatusOf(stored.status), dbFile: stored.dbFile, createdAt: stored.createdAt, updatedAt: stored.updatedAt,
   };
 }

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createBackend, createPlatform, type BackendHandle, type PlatformHandle } from "@mezan/backend";
+import { createBackend, createPlatform, PlatformAuditUnavailableError, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { withSqliteTransaction } from "@mezan/persistence";
 import {
   activateTenant,
@@ -69,6 +69,20 @@ describe("releasing a tenant stuck in provisioning", () => {
     expect(readdirSync(path.join(dataDir, "tenants"))).toEqual(before);
     expect(readFileSync(path.join(dataDir, tenant.dbFile), "utf8")).toBe("THE BOOKS");
     expect(await platform.stores.tenants.findByCode("stuck")).toBeNull();
+  });
+
+  it("releases nothing when the platform audit cannot record it: the tenant stays provisioning under its own code", async () => {
+    const { dataDir, platform } = await world();
+    const tenant = await createTenant({ id: "t-audit", code: "audited", nameAr: "شركة", ownerEmail: "o@audited.example", now: T }, platform.stores.tenants);
+    const audit = Object.create(platform.audit) as PlatformHandle["audit"];
+    audit.append = async () => {
+      throw new Error("the platform audit refused the row");
+    };
+
+    const refused = await releaseProvisioningTenant({ platform: { ...platform, audit }, router: quietRouter, dataDir, now }, { tenant, actorId: "op-1" }).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(PlatformAuditUnavailableError);
+    expect(await platform.stores.tenants.findById(tenant.id)).toMatchObject({ code: "audited", status: TenantStatusCode.Provisioning });
   });
 
   it("leaves a tenant that activated while the release waited its turn live, with its database and the tenants directory untouched", async () => {

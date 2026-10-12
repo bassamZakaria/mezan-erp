@@ -127,6 +127,7 @@ import {
   UserStatusCode,
   isErasedUser,
   AuditSeverityCode,
+  type OwnerRecordDue,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -500,6 +501,9 @@ export enum OwnerPinResetOutcome {
 
 export const COMPANY_OWNER_ASSIGNED_AUDIT = "COMPANY_OWNER_ASSIGNED";
 
+export type OwnerAssignedRecord = OwnerRecordDue;
+const OWNER_ASSIGNED_LOOKBACK = 500;
+
 export interface ResetOwnerPinCommand {
   readonly userId?: string | null;
   readonly email: string;
@@ -537,7 +541,7 @@ export interface BackendHandle {
   ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null>;
   companyAdmins(): Promise<CompanyAdminAccount[]>;
   /** The platform named this account the company's owner: written to the tenant's own audit, and its credential counts as its own again. */
-  recordOwnerAssigned(input: { readonly userId: string; readonly previousUserId: string | null; readonly actor: string; readonly confirmedBy: string }): Promise<void>;
+  recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void>;
   /**
    * SECURITY: deliberately NOT an HTTP route. A route would be reachable through
    * the tenant router and the desktop LAN mount; this is callable only by code
@@ -4311,8 +4315,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       .map((user) => ({ id: user.id, nameAr: user.nameAr, email: user.email }));
   }
 
-  async function recordOwnerAssigned(input: { readonly userId: string; readonly previousUserId: string | null; readonly actor: string; readonly confirmedBy: string }): Promise<void> {
+  // CONTRACT: idempotent on `eventId`. The platform asks again after a crash
+  // until it has seen this succeed, so the same event must leave one row.
+  async function recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void> {
     credentialResets.clear(input.userId);
+    const { events } = await auditSink.queryEvents({ stream: "security", action: COMPANY_OWNER_ASSIGNED_AUDIT, entityId: input.userId, limit: OWNER_ASSIGNED_LOOKBACK });
+    if (events.some((row) => (row.details as Record<string, unknown> | undefined)?.["eventId"] === input.eventId)) return;
     await recordSecurityEvent(auditSink, {
       module: "admin",
       entityType: "USER",
@@ -4320,7 +4328,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       action: COMPANY_OWNER_ASSIGNED_AUDIT,
       actor: input.actor,
       severity: AuditSeverityCode.Critical,
-      details: { previousUserId: input.previousUserId, confirmedBy: input.confirmedBy, origin: SecurityEventOrigin.Platform },
+      details: { previousUserId: input.previousUserId, confirmedBy: input.confirmedBy, eventId: input.eventId, origin: SecurityEventOrigin.Platform },
     });
   }
 

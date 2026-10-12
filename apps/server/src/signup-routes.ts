@@ -30,7 +30,7 @@ import {
 import { provisionResultDTOOf, provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
 import { forwardedOrigin } from "./billing-routes.js";
 import { trustedPublicOrigin } from "./public-origin.js";
-import type { PlatformMailer } from "./platform-mail.js";
+import { MailOutcome, type PlatformMailer } from "./platform-mail.js";
 import { callerSource, requireCloudSource, type SourceReporter } from "./client-source.js";
 import { createRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
@@ -281,7 +281,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       devVerifyUrl = verifyUrl;
     } else {
       const result = await mailer.send(body.ownerEmail, verificationEmail(verifyUrl, body.nameAr));
-      if (result.outcome !== "sent") {
+      if (result.outcome !== MailOutcome.Sent) {
         console.error(`[signup] verification email to a pending tenant could not be delivered (${result.outcome}): ${result.detail}`);
       }
     }

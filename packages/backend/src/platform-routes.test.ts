@@ -281,6 +281,22 @@ describe("createPlatformRoutes", () => {
     expect(JSON.stringify(row)).not.toContain(RESET_PIN);
   });
 
+  it("answers 503 in Arabic, and records no reset, when the audit of an owner PIN reset cannot be written", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const append = rig.platform.audit.append.bind(rig.platform.audit);
+    rig.platform.audit.append = async (event) => {
+      if (event.action === "TENANT_OWNER_PIN_RESET") throw new Error("the platform audit refused the row");
+      return append(event);
+    };
+
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(503);
+    expect(await json(res)).toMatchObject({ error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." });
+    expect(JSON.stringify(await json(await rig.app.fetch(req(`/tenants/${body.tenant.id}`, rig.ownerToken))))).not.toContain(RESET_PIN);
+  });
+
   it("refuses the owner PIN reset to a support operator, for an archived tenant, and when the owner's account is gone", async () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);

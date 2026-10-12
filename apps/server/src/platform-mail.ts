@@ -5,12 +5,29 @@ export interface PlatformMail {
   readonly body: string;
 }
 
-export interface PlatformMailer {
-  send(to: string, mail: PlatformMail): Promise<{ readonly outcome: string; readonly detail?: string }>;
+export enum MailOutcome {
+  Sent = "sent",
+  Offline = "offline",
+  Rejected = "rejected",
 }
 
+export interface PlatformMailer {
+  send(to: string, mail: PlatformMail): Promise<{ readonly outcome: MailOutcome; readonly detail?: string }>;
+}
+
+const OUTCOME_OF_SMTP: Readonly<Record<Awaited<ReturnType<typeof sendNotificationEmail>>["outcome"], MailOutcome>> = {
+  sent: MailOutcome.Sent,
+  offline: MailOutcome.Offline,
+  rejected: MailOutcome.Rejected,
+};
+
 export function smtpMailer(config: SmtpConfig): PlatformMailer {
-  return { send: (to, mail) => sendNotificationEmail(config, to, mail) };
+  return {
+    send: async (to, mail) => {
+      const result = await sendNotificationEmail(config, to, mail);
+      return { outcome: OUTCOME_OF_SMTP[result.outcome], detail: result.detail };
+    },
+  };
 }
 
 export function pendingHandOverEmail(input: { readonly link: string; readonly companyName: string; readonly successorEmail: string }): PlatformMail {

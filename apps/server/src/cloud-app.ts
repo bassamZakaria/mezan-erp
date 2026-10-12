@@ -35,7 +35,7 @@ import {
   trustedReturnOrigin,
 } from "./billing-routes.js";
 import type { CloudEnv } from "./env.js";
-import { pendingHandOverEmail, smtpMailer, type PlatformMailer } from "./platform-mail.js";
+import { MailOutcome, pendingHandOverEmail, smtpMailer, type PlatformMailer } from "./platform-mail.js";
 import { tenantPublicOrigin } from "./public-origin.js";
 
 export interface CreateCloudAppOptions {
@@ -110,7 +110,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
           if (origin === null) throw new Error("no public origin is configured (set MEZAN_PUBLIC_URL or MEZAN_TENANT_DOMAIN)");
           const link = `${origin}/signup/owner-handover?token=${encodeURIComponent(token)}`;
           const sent = await mailer.send(to, pendingHandOverEmail({ link, companyName: tenant.nameAr, successorEmail }));
-          if (sent.outcome !== "sent") throw new Error(`the hand-over mail was not delivered (${sent.outcome})`);
+          if (sent.outcome !== MailOutcome.Sent) throw new Error(`the hand-over mail was not delivered (${sent.outcome})`);
         }
       : undefined,
     tenantDomain: env.tenantDomain,
@@ -156,7 +156,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     return provisionResultDTOOf(provisioned);
   };
 
-  const resetOwnerPinForRoutes = (input: { tenant: Tenant; actorId: string }): Promise<OwnerPinResetResultDTO> =>
+  const resetOwnerPinForRoutes = (input: { tenant: Tenant; actorId: string; recordAudit: () => Promise<void> }): Promise<OwnerPinResetResultDTO> =>
     resetTenantOwnerPin({ platform, router, now }, input);
 
   const reconcileOwnerQuietly = (tenant: Tenant): Promise<void> =>
@@ -184,6 +184,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     ownerCandidates: (tenant) => router.ownerCandidates(tenant.id),
     assignOwner: ({ tenant, userId, actorId }) => router.assignOwner({ tenantId: tenant.id, userId, actor: platformActor(actorId) }),
     confirmPendingOwner: ({ tenant, actorId }) => router.confirmPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
+    declinePendingOwner: ({ tenant, actorId }) => router.declinePendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
+    resendPendingOwner: ({ tenant, actorId }) => router.resendPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
     reconcileOwner: reconcileOwnerQuietly,
     reconcileOpenOwners: () => router.reconcileOpenOwners(),
     invalidateEntitlements: router.invalidate,

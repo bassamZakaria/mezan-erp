@@ -29,6 +29,7 @@ export interface Tenant {
   /** Set when no account inside the tenant can be named its owner. Nothing guesses one: the platform console assigns it. */
   readonly ownerNeeded?: boolean;
   readonly pendingOwner?: PendingOwner | null;
+  readonly ownerRecordDue?: OwnerRecordDue | null;
   readonly status: TenantStatus;
   readonly dbFile: string;
   readonly createdAt: string;
@@ -40,8 +41,35 @@ export interface PendingOwner {
   readonly email: string;
   readonly requestedBy: string;
   readonly requestedAt: string;
+  readonly expiresAt: string;
   /** sha256 of the link mailed to the previously recorded owner address; null when no mail could be sent. */
   readonly tokenHash: string | null;
+}
+
+// CONTRACT: the tenant's own audit row for an owner the platform set. It is
+// written to the platform row in the same write as the owner, and stays there
+// until the tenant's database has recorded it under this event id.
+export enum OwnerConfirmation {
+  PlatformConsole = "platform-console",
+  PreviousOwnerLink = "previous-owner-link",
+}
+
+export interface OwnerRecordDue {
+  readonly eventId: string;
+  readonly userId: string;
+  readonly previousUserId: string | null;
+  readonly actor: string;
+  readonly confirmedBy: OwnerConfirmation;
+}
+
+export const PENDING_OWNER_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function pendingOwnerExpiresAt(requestedAt: string): string {
+  return new Date(new Date(requestedAt).getTime() + PENDING_OWNER_MAX_AGE_MS).toISOString();
+}
+
+export function pendingOwnerExpired(pending: Pick<PendingOwner, "expiresAt">, now: string): boolean {
+  return new Date(now).getTime() >= new Date(pending.expiresAt).getTime();
 }
 
 export interface TenantRepository {
@@ -249,7 +277,40 @@ export function tenantWithPendingOwner(
   now: string,
 ): Tenant {
   const { at, email } = successorOf(successor, now);
-  return { ...tenant, pendingOwner: { userId: successor.id, email, requestedBy: request.requestedBy, requestedAt: at, tokenHash: request.tokenHash }, updatedAt: at };
+  return { ...tenant, pendingOwner: { userId: successor.id, email, requestedBy: request.requestedBy, requestedAt: at, expiresAt: pendingOwnerExpiresAt(at), tokenHash: request.tokenHash },
+    updatedAt: at,
+  };
+}
+
+function pendingOf(tenant: Tenant): PendingOwner {
+  if (!tenant.pendingOwner) throw new InvalidTenantError(["لا يوجد مالك بانتظار التأكيد لهذه المنشأة"]);
+  return tenant.pendingOwner;
+}
+
+export function tenantWithPendingOwnerDeclined(tenant: Tenant, now: string): Tenant {
+  pendingOf(tenant);
+  const at = isoTimestamp(now);
+  if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  return { ...tenant, pendingOwner: null, updatedAt: at };
+}
+
+export enum PendingOwnerLink {
+  Reissued = "reissued",
+  Withdrawn = "withdrawn",
+}
+
+// SECURITY: a reissued link restarts the seven days and replaces the old
+// token; a withdrawn one leaves the request waiting for the console alone.
+export function tenantWithPendingOwnerLink(tenant: Tenant, link: PendingOwnerLink, tokenHash: string | null, now: string): Tenant {
+  const pending = pendingOf(tenant);
+  const at = isoTimestamp(now);
+  if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  const next: PendingOwner = link === PendingOwnerLink.Reissued ? { ...pending, requestedAt: at, expiresAt: pendingOwnerExpiresAt(at), tokenHash } : { ...pending, tokenHash: null };
+  return { ...tenant, pendingOwner: next, updatedAt: at };
+}
+
+export function tenantWithOwnerRecordDue(tenant: Tenant, due: OwnerRecordDue | null): Tenant {
+  return { ...tenant, ownerRecordDue: due };
 }
 
 export function tenantWithPendingOwnerConfirmed(tenant: Tenant, now: string): Tenant {

@@ -3,6 +3,7 @@ import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput
 import {
   InvalidTenantError,
   Money,
+  pendingOwnerExpiresAt,
   type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement, type CardCheckoutStatus,
   type PaymentProviderId,
   type Payment, type PaymentRepository,
@@ -12,7 +13,7 @@ import {
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
   type Subscription, SubscriptionStatusKind, anchorIsUtcDayOfCreation, inferBillingAnchorDay,
-  type PendingOwner, type Tenant, type TenantRepository, TenantStatusCode,
+  type OwnerRecordDue, type PendingOwner, type Tenant, type TenantRepository, TenantStatusCode,
 } from "@mezan/domain";
 
 const TENANT_STATUSES: readonly string[] = Object.values(TenantStatusCode);
@@ -33,6 +34,7 @@ CREATE TABLE IF NOT EXISTS tenant (
   owner_contact_verified INTEGER NOT NULL DEFAULT 1,
   owner_needed INTEGER NOT NULL DEFAULT 0,
   pending_owner TEXT,
+  owner_record_due TEXT,
   status       TEXT NOT NULL,
   db_file      TEXT NOT NULL,
   created_at   TEXT NOT NULL,
@@ -214,6 +216,7 @@ function addMissingColumns(sqlite: Database.Database): void {
   if (!onTenant.has("owner_contact_verified")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_contact_verified INTEGER NOT NULL DEFAULT 1`);
   if (!onTenant.has("owner_needed")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_needed INTEGER NOT NULL DEFAULT 0`);
   if (!onTenant.has("pending_owner")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN pending_owner TEXT`);
+  if (!onTenant.has("owner_record_due")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_record_due TEXT`);
 }
 
 const TENANT_DB_FILE_INDEX = "idx_tenant_db_file";
@@ -242,7 +245,7 @@ function isDbFileTaken(err: unknown): boolean {
 interface TenantRow {
   id: string; code: string; name_ar: string; name_en: string | null; owner_email: string;
   owner_user_id: string | null; owner_contact_verified: number;
-  owner_needed: number; pending_owner: string | null;
+  owner_needed: number; pending_owner: string | null; owner_record_due: string | null;
   status: Tenant["status"]; db_file: string; created_at: string; updated_at: string;
 }
 
@@ -252,16 +255,29 @@ function toTenant(r: TenantRow): Tenant {
     ownerUserId: r.owner_user_id, ownerContactVerified: r.owner_contact_verified === 1,
     status: r.status, dbFile: r.db_file, createdAt: r.created_at, updatedAt: r.updated_at,
     ...(r.owner_needed === 1 ? { ownerNeeded: true } : {}),
-    ...(r.pending_owner === null ? {} : { pendingOwner: JSON.parse(r.pending_owner) as PendingOwner }),
+    ...(r.pending_owner === null ? {} : { pendingOwner: pendingOwnerOf(r.pending_owner) }),
+    ...(r.owner_record_due === null ? {} : { ownerRecordDue: JSON.parse(r.owner_record_due) as OwnerRecordDue }),
   };
+}
+
+// A request recorded before it carried its own deadline lapses seven days after it was asked for.
+function pendingOwnerOf(stored: string): PendingOwner {
+  const read = JSON.parse(stored) as Omit<PendingOwner, "expiresAt"> & { expiresAt?: string };
+  return { ...read, expiresAt: read.expiresAt ?? pendingOwnerExpiresAt(read.requestedAt) };
 }
 
 function storedPendingOwner(tenant: Tenant): string | null {
   const pending = tenant.pendingOwner;
   if (!pending) return null;
   return JSON.stringify({
-    userId: pending.userId, email: pending.email, requestedBy: pending.requestedBy, requestedAt: pending.requestedAt, tokenHash: pending.tokenHash,
+    userId: pending.userId, email: pending.email, requestedBy: pending.requestedBy, requestedAt: pending.requestedAt, expiresAt: pending.expiresAt, tokenHash: pending.tokenHash,
   });
+}
+
+function storedOwnerRecordDue(tenant: Tenant): string | null {
+  const due = tenant.ownerRecordDue;
+  if (!due) return null;
+  return JSON.stringify({ eventId: due.eventId, userId: due.userId, previousUserId: due.previousUserId, actor: due.actor, confirmedBy: due.confirmedBy });
 }
 
 class SqliteTenantStore implements TenantRepository {
@@ -280,19 +296,19 @@ class SqliteTenantStore implements TenantRepository {
     );
     this.dbFileUpdate = sqlite.prepare(`UPDATE tenant SET db_file = @to WHERE id = @id AND db_file = @from`);
     this.upsert = sqlite.prepare(
-      `INSERT INTO tenant (id, code, name_ar, name_en, owner_email, owner_user_id, owner_contact_verified, owner_needed, pending_owner, status, db_file, created_at, updated_at)
-       VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @ownerUserId, @ownerContactVerified, @ownerNeeded, @pendingOwner, @status, @dbFile, @createdAt, @updatedAt)
+      `INSERT INTO tenant (id, code, name_ar, name_en, owner_email, owner_user_id, owner_contact_verified, owner_needed, pending_owner, owner_record_due, status, db_file, created_at, updated_at)
+       VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @ownerUserId, @ownerContactVerified, @ownerNeeded, @pendingOwner, @ownerRecordDue, @status, @dbFile, @createdAt, @updatedAt)
        ON CONFLICT(id) DO UPDATE SET
          code = @code, name_ar = @nameAr, name_en = @nameEn, owner_email = @ownerEmail,
          owner_user_id = @ownerUserId, owner_contact_verified = @ownerContactVerified,
-         owner_needed = @ownerNeeded, pending_owner = @pendingOwner,
+         owner_needed = @ownerNeeded, pending_owner = @pendingOwner, owner_record_due = @ownerRecordDue,
          status = @status, db_file = @dbFile, created_at = @createdAt, updated_at = @updatedAt`,
     );
     this.ownerUpdate = sqlite.prepare(
       `UPDATE tenant SET owner_email = @ownerEmail, owner_user_id = @ownerUserId, owner_contact_verified = @ownerContactVerified,
-         owner_needed = @ownerNeeded, pending_owner = @pendingOwner, updated_at = @updatedAt
+         owner_needed = @ownerNeeded, pending_owner = @pendingOwner, owner_record_due = @ownerRecordDue, updated_at = @updatedAt
        WHERE id = @id AND owner_email = @beforeEmail AND owner_user_id IS @beforeUserId AND owner_contact_verified = @beforeVerified
-         AND owner_needed = @beforeNeeded AND pending_owner IS @beforePending`,
+         AND owner_needed = @beforeNeeded AND pending_owner IS @beforePending AND owner_record_due IS @beforeRecordDue`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM tenant WHERE id = ?`);
     this.byCode = sqlite.prepare(`SELECT * FROM tenant WHERE code = ?`);
@@ -319,7 +335,7 @@ class SqliteTenantStore implements TenantRepository {
       this.upsert.run({
         id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
         ownerUserId: t.ownerUserId, ownerContactVerified: t.ownerContactVerified ? 1 : 0,
-        ownerNeeded: t.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(t),
+        ownerNeeded: t.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(t), ownerRecordDue: storedOwnerRecordDue(t),
         status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
       });
     } catch (err) {
@@ -354,9 +370,9 @@ class SqliteTenantStore implements TenantRepository {
         const result = this.ownerUpdate.run({
           id: after.id, ownerEmail: after.ownerEmail, ownerUserId: after.ownerUserId,
           ownerContactVerified: after.ownerContactVerified ? 1 : 0, updatedAt: after.updatedAt,
-          ownerNeeded: after.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(after),
+          ownerNeeded: after.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(after), ownerRecordDue: storedOwnerRecordDue(after),
           beforeEmail: before.ownerEmail, beforeUserId: before.ownerUserId, beforeVerified: before.ownerContactVerified ? 1 : 0,
-          beforeNeeded: before.ownerNeeded === true ? 1 : 0, beforePending: storedPendingOwner(before),
+          beforeNeeded: before.ownerNeeded === true ? 1 : 0, beforePending: storedPendingOwner(before), beforeRecordDue: storedOwnerRecordDue(before),
         });
         if (result.changes !== 1) return false;
         await sideEffect();

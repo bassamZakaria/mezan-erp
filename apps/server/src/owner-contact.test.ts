@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openSqliteConnection } from "@mezan/persistence";
-import { createPlatform, type PlatformHandle } from "@mezan/backend";
+import { createPlatform, PlatformAuditUnavailableError, type PlatformHandle } from "@mezan/backend";
 import type { Tenant } from "@mezan/domain";
 import { createCardCheckoutService } from "./card-checkout.js";
-import { createOwnerContact, OwnerCandidateNotFoundError, OwnerContactAudit } from "./owner-contact.js";
+import { createOwnerContact, OwnerCandidateNotFoundError, OwnerConfirmation, OwnerContactAudit } from "./owner-contact.js";
 import { createPaymobTestProvider } from "./paymob-provider.js";
 import { provisionTenant } from "./provision-tenant.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
@@ -600,6 +600,152 @@ describe("a hand-over the platform cannot take as the owner's own act", () => {
 
     expect(await ownerAudit(c, OwnerContactAudit.HandOverPending)).toHaveLength(1);
     expect(sent).toEqual(["owner@indigo.example"]);
+  });
+});
+
+describe("the platform console's own acts on a pending hand-over", () => {
+  it("declines it with one CRITICAL row naming the operator, and the row and the change are one write", async () => {
+    const c = await cloud();
+    const co = await company(c, "delta2");
+    const peer = await secondAdmin(co);
+    const { owner } = await ownerStepsDownOnConsolePin(c, co, peer.id);
+    const before = await co.recorded();
+
+    c.faults.auditRefuses = true;
+    const unaudited = await c.router.declinePendingOwner({ tenantId: co.tenantId, actor: "platform:op-1" }).catch((err: unknown) => err);
+    c.faults.auditRefuses = false;
+    const stillPending = await co.recorded();
+    const declined = await c.router.declinePendingOwner({ tenantId: co.tenantId, actor: "platform:op-1" });
+
+    expect(unaudited).toBeInstanceOf(PlatformAuditUnavailableError);
+    expect(stillPending).toEqual(before);
+    expect(declined).toMatchObject({ ownerUserId: owner["id"], ownerEmail: "owner@delta2.example", pendingOwner: null });
+    const rows = (await c.platform.audit.query("security")).filter((row) => row.action === OwnerContactAudit.HandOverDeclined);
+    expect(rows).toMatchObject([{ actor: "platform:op-1", severity: "CRITICAL", entityId: co.tenantId, details: { code: "delta2", toUserId: peer.id } }]);
+  });
+
+  it("sends the link again with one row naming the operator, and the old link dies with the new one's birth", async () => {
+    const c = await cloud();
+    const co = await company(c, "echo2");
+    const peer = await secondAdmin(co);
+    await ownerStepsDownOnConsolePin(c, co, peer.id);
+    const first = c.mails[0]?.token ?? "";
+
+    await c.router.resendPendingOwner({ tenantId: co.tenantId, actor: "platform:op-1" });
+
+    expect(c.mails).toHaveLength(2);
+    expect(c.mails[1]).toMatchObject({ to: "owner@echo2.example", successorEmail: "second@echo2.example" });
+    expect(c.mails[1]?.token).not.toBe(first);
+    expect(await c.router.confirmPendingOwnerByToken(first)).toBeNull();
+    const rows = (await c.platform.audit.query("security")).filter((row) => row.action === OwnerContactAudit.HandOverLinkResent);
+    expect(rows).toMatchObject([{ actor: "platform:op-1", entityId: co.tenantId }]);
+    expect(await c.router.confirmPendingOwnerByToken(c.mails[1]?.token ?? "")).toMatchObject({ ownerUserId: peer.id });
+  });
+});
+
+describe("the audit of an owner the console assigns or confirms", () => {
+  const assignedInTenant = (co: Company, token: string) => tenantAudit(co, "COMPANY_OWNER_ASSIGNED", token);
+
+  it("changes nothing when the platform audit cannot record the assignment", async () => {
+    const c = await cloud();
+    const co = await company(c, "foxtrot2");
+    const peer = await secondAdmin(co);
+    const before = await co.recorded();
+
+    c.faults.auditRefuses = true;
+    const refused = await c.router.assignOwner({ tenantId: co.tenantId, userId: peer.id, actor: "platform:op-1" }).catch((err: unknown) => err);
+    c.faults.auditRefuses = false;
+
+    expect(refused).toBeInstanceOf(PlatformAuditUnavailableError);
+    expect(await co.recorded()).toEqual(before);
+    expect(await assignedInTenant(co, peer.token)).toEqual([]);
+  });
+
+  it("writes the tenant's own row on the next open when it could not be written at the time, exactly once", async () => {
+    const c = await cloud();
+    const co = await company(c, "hotel2");
+    const peer = await secondAdmin(co);
+    const backend = await c.router.backendOf(co.tenantId);
+    const record = backend.recordOwnerAssigned;
+    backend.recordOwnerAssigned = async () => {
+      throw new Error("the tenant database refused the row");
+    };
+
+    const assigned = await c.router.assignOwner({ tenantId: co.tenantId, userId: peer.id, actor: "platform:op-1" });
+    const missing = await assignedInTenant(co, peer.token);
+    backend.recordOwnerAssigned = record;
+    await c.router.reconcileOwner("hotel2");
+    await c.router.reconcileOwner("hotel2");
+
+    expect(assigned).toMatchObject({ ownerUserId: peer.id });
+    expect(missing).toEqual([]);
+    expect(await assignedInTenant(co, peer.token)).toMatchObject([{ entityId: peer.id, actor: "platform:op-1", details: { confirmedBy: "platform-console" } }]);
+    expect((await co.recorded()).ownerRecordDue ?? null).toBeNull();
+  });
+
+  it("writes the tenant's own row once even when it is asked to write the same event twice", async () => {
+    const c = await cloud();
+    const co = await company(c, "india2");
+    const peer = await secondAdmin(co);
+    const backend = await c.router.backendOf(co.tenantId);
+    const event = { eventId: "evt-1", userId: peer.id, previousUserId: null, actor: "platform:op-1", confirmedBy: OwnerConfirmation.PlatformConsole };
+
+    await backend.recordOwnerAssigned(event);
+    await backend.recordOwnerAssigned(event);
+
+    expect(await assignedInTenant(co, peer.token)).toHaveLength(1);
+  });
+
+  it("records the confirmation of a pending hand-over the same way", async () => {
+    const c = await cloud();
+    const co = await company(c, "kilo2");
+    const peer = await secondAdmin(co);
+    await ownerStepsDownOnConsolePin(c, co, peer.id);
+    const backend = await c.router.backendOf(co.tenantId);
+    const record = backend.recordOwnerAssigned;
+    backend.recordOwnerAssigned = async () => {
+      throw new Error("the tenant database refused the row");
+    };
+
+    await c.router.confirmPendingOwner({ tenantId: co.tenantId, actor: "platform:op-1" });
+    backend.recordOwnerAssigned = record;
+    await c.router.reconcileOwner("kilo2");
+
+    expect(await assignedInTenant(co, peer.token)).toMatchObject([{ entityId: peer.id, details: { confirmedBy: "platform-console" } }]);
+  });
+});
+
+describe("a console PIN reset the platform audit cannot record", () => {
+  it("resets nothing: the owner's own PIN still signs in", async () => {
+    const c = await cloud();
+    const co = await company(c, "lima2");
+    const fenceBefore = await c.platform.stores.signupRequests.takeProvisionFence(T);
+
+    const refused = await resetTenantOwnerPin(
+      { platform: c.platform, router: c.router },
+      { tenant: await co.recorded(), actorId: "op-1", recordAudit: async () => { throw new PlatformAuditUnavailableError(new Error("down")); } },
+    ).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(PlatformAuditUnavailableError);
+    expect((await co.signIn("owner@lima2.example", co.ownerPin)).status).toBe(200);
+    expect(await c.platform.stores.signupRequests.takeProvisionFence(T)).toBe(fenceBefore + 1);
+  });
+
+  it("writes its audit row before the PIN moves", async () => {
+    const c = await cloud();
+    const co = await company(c, "mike2");
+    const order: string[] = [];
+    const backend = await c.router.backendOf(co.tenantId);
+    const resetPin = backend.resetOwnerPin;
+    backend.resetOwnerPin = (cmd) => (order.push("pin"), resetPin(cmd));
+
+    const reset = await resetTenantOwnerPin(
+      { platform: c.platform, router: c.router },
+      { tenant: await co.recorded(), actorId: "op-1", recordAudit: async () => void order.push("audit") },
+    );
+
+    expect(order).toEqual(["audit", "pin"]);
+    expect((await co.signIn("owner@mike2.example", reset.adminPin)).status).toBe(200);
   });
 });
 

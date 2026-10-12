@@ -8,7 +8,15 @@ import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
 import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { tenantIsServed, TenantStatusCode, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
-import { createOwnerContact, OwnerCandidateNotFoundError, OwnerConfirmation, PREVIOUS_OWNER_ACTOR, type PendingHandOverMail } from "./owner-contact.js";
+import {
+  createOwnerContact,
+  NoPendingOwnerError,
+  OwnerCandidateNotFoundError,
+  OwnerConfirmation,
+  PendingOwnerExpiredError,
+  PREVIOUS_OWNER_ACTOR,
+  type PendingHandOverMail,
+} from "./owner-contact.js";
 import { settleTenantDbFile, TenantDbFileError } from "./tenant-db-file.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { requestHost, resolveTenantCode, tenantSlugOfHost, TENANT_HEADER } from "./tenant-resolver.js";
@@ -77,7 +85,9 @@ export interface TenantRouter {
   ownerCandidates(tenantId: string): Promise<CompanyAdminAccount[]>;
   assignOwner(input: { readonly tenantId: string; readonly userId: string; readonly actor: string }): Promise<Tenant>;
   confirmPendingOwner(input: { readonly tenantId: string; readonly actor: string }): Promise<Tenant>;
-  /** Null when the token names no pending hand-over, or its successor can no longer administer the tenant. */
+  declinePendingOwner(input: { readonly tenantId: string; readonly actor: string }): Promise<Tenant>;
+  resendPendingOwner(input: { readonly tenantId: string; readonly actor: string }): Promise<Tenant>;
+  // SECURITY: null for every link that confirms nothing, whatever the reason, so the caller answers them all alike.
   confirmPendingOwnerByToken(token: string): Promise<Tenant | null>;
   evict(tenantId: string): Promise<void>;
   invalidate(code: string): void;
@@ -266,9 +276,15 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       try {
         return await ownerContact.confirmPending(tenant.id, PREVIOUS_OWNER_ACTOR, OwnerConfirmation.PreviousOwnerLink, await cache.get(tenant.id));
       } catch (err) {
-        if (err instanceof OwnerCandidateNotFoundError) return null;
+        if (err instanceof OwnerCandidateNotFoundError || err instanceof PendingOwnerExpiredError || err instanceof NoPendingOwnerError) return null;
         throw err;
       }
+    },
+    async declinePendingOwner({ tenantId, actor }) {
+      return ownerContact.declinePending((await liveTenant(tenantId)).id, actor);
+    },
+    async resendPendingOwner({ tenantId, actor }) {
+      return ownerContact.resendPending((await liveTenant(tenantId)).id, actor);
     },
     evict: (tenantId) => cache.evict(tenantId),
     invalidate(code) { resolvers.get(code)?.invalidate(); },

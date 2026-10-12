@@ -28,6 +28,7 @@ export {
   createPlatformRoutes,
   serializeCardCheckout,
   TenantOwnerAccountNotFoundError,
+  PlatformAuditUnavailableError,
   type CreatePlatformRoutesOptions,
   type PlatformCardCheckoutPort,
 } from "./platform-routes.js";

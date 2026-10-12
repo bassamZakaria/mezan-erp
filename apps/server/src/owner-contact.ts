@@ -1,17 +1,24 @@
-import { createHash, randomBytes } from "node:crypto";
-import type { BackendHandle, PlatformHandle, SignedInUser } from "@mezan/backend";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { PlatformAuditUnavailableError, type BackendHandle, type PlatformHandle, type SignedInUser } from "@mezan/backend";
 import { OwnerHandOverOutcome, type UserEmailChange } from "@mezan/api";
 import {
   AuditSeverityCode,
   normalizeEmail,
+  OwnerConfirmation,
   OwnerContactProof,
+  PendingOwnerLink,
+  pendingOwnerExpired,
   recordSecurityEvent,
   tenantHandedTo,
   tenantNeedingOwner,
   tenantWithOwnerContact,
+  tenantWithOwnerRecordDue,
   tenantWithPendingOwner,
   tenantWithPendingOwnerConfirmed,
+  tenantWithPendingOwnerDeclined,
+  tenantWithPendingOwnerLink,
   TenantStatusCode,
+  type OwnerRecordDue,
   type Tenant,
   type TenantOwnerAccount,
 } from "@mezan/domain";
@@ -23,14 +30,15 @@ export enum OwnerContactAudit {
   Verified = "TENANT_OWNER_CONTACT_VERIFIED",
   HandedOver = "TENANT_OWNER_HANDED_OVER",
   HandOverPending = "TENANT_OWNER_HAND_OVER_PENDING",
+  HandOverDeclined = "TENANT_OWNER_HAND_OVER_DECLINED",
+  HandOverLinkResent = "TENANT_OWNER_HAND_OVER_LINK_RESENT",
+  HandOverLinkUnsent = "TENANT_OWNER_HAND_OVER_LINK_UNSENT",
   OwnerNeeded = "TENANT_OWNER_NEEDED",
   Assigned = "TENANT_OWNER_ASSIGNED",
+  TenantRecordWritten = "TENANT_OWNER_RECORD_WRITTEN",
 }
 
-export enum OwnerConfirmation {
-  PlatformConsole = "platform-console",
-  PreviousOwnerLink = "previous-owner-link",
-}
+export { OwnerConfirmation };
 
 export const RECONCILE_ACTOR = "platform:owner-reconcile";
 export const PREVIOUS_OWNER_ACTOR = "platform:previous-owner-link";
@@ -59,6 +67,7 @@ export interface PendingHandOverMail {
 }
 
 type OwnerBackend = Pick<BackendHandle, "ownerAccount">;
+type RecordingBackend = Pick<BackendHandle, "recordOwnerAssigned">;
 type AssigningBackend = Pick<BackendHandle, "companyAdmins" | "recordOwnerAssigned">;
 
 export class OwnerCandidateNotFoundError extends Error {
@@ -79,9 +88,18 @@ export class NoPendingOwnerError extends Error {
   }
 }
 
+export class PendingOwnerExpiredError extends Error {
+  readonly code = "TENANT_PENDING_OWNER_EXPIRED";
+
+  constructor() {
+    super("انتهت مهلة تأكيد نقل الملكية. أرسل رابط التأكيد من جديد أو ألغِ الطلب.");
+    this.name = "PendingOwnerExpiredError";
+  }
+}
+
 export interface OwnerContact {
   // SECURITY: never moves the recorded address. Only the owner's own act does.
-  reconcile(tenantId: string, backend: OwnerBackend): Promise<void>;
+  reconcile(tenantId: string, backend: OwnerBackend & RecordingBackend): Promise<void>;
   // SECURITY: the account the owner rules protect, known even before the platform row names it by id.
   effectiveOwnerUserId(tenantId: string, backend: OwnerBackend): Promise<string | null>;
   emailChanged(tenantId: string, change: UserEmailChange): Promise<void>;
@@ -89,6 +107,9 @@ export interface OwnerContact {
   handOver(tenantId: string, input: OwnerHandOver): Promise<OwnerHandOverOutcome>;
   assign(tenantId: string, userId: string, actor: string, backend: AssigningBackend): Promise<Tenant>;
   confirmPending(tenantId: string, actor: string, by: OwnerConfirmation, backend: AssigningBackend): Promise<Tenant>;
+  declinePending(tenantId: string, actor: string): Promise<Tenant>;
+  resendPending(tenantId: string, actor: string): Promise<Tenant>;
+  // SECURITY: null for a link older than the age limit, exactly as for a link that names nothing.
   pendingByToken(token: string): Promise<Tenant | null>;
 }
 
@@ -115,15 +136,19 @@ export interface OwnerContactDeps {
   readonly now: () => Date;
   readonly mailPendingHandOver?: (mail: PendingHandOverMail) => Promise<void>;
   readonly tokenOf?: () => string;
+  readonly eventIdOf?: () => string;
 }
 
 export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
   const { tenants, signupRequests } = deps.platform.stores;
   const tokenOf = deps.tokenOf ?? (() => randomBytes(32).toString("base64url"));
+  const eventIdOf = deps.eventIdOf ?? randomUUID;
 
   async function write(before: Tenant, after: Tenant, change: Change, actor: string, details: Record<string, unknown>): Promise<boolean> {
     return tenants.compareAndSetOwner(before, after, async () => {
       if (after.ownerEmail !== before.ownerEmail) await signupRequests.followOwnerEmail(before.code, before.ownerEmail, after.ownerEmail);
+      // REQUIRED ORDERING: the audit row is written inside the transaction that
+      // moves the owner. A row that cannot be written rolls the change back.
       await recordSecurityEvent(deps.platform.audit, {
         module: "platform",
         entityType: "PLATFORM",
@@ -133,8 +158,45 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
         severity: change.severity,
         timestamp: after.updatedAt,
         details: { code: after.code, before: before.ownerEmail, after: after.ownerEmail, userId: after.ownerUserId, ...details },
+      }).catch((cause: unknown) => {
+        throw new PlatformAuditUnavailableError(cause);
       });
     });
+  }
+
+  async function mailLink(tenant: Tenant, pending: Tenant, token: string | null, actor: string): Promise<boolean> {
+    if (token === null || !deps.mailPendingHandOver || !pending.pendingOwner) return false;
+    try {
+      await deps.mailPendingHandOver({ tenant: pending, to: tenant.ownerEmail, successorEmail: pending.pendingOwner.email, token });
+      return true;
+    } catch (err) {
+      console.error(`[cloud] the pending hand-over of "${tenant.code}" is recorded, but mailing its confirmation link failed`, err);
+      // SECURITY: a link nobody received must not stay redeemable, and the
+      // console must not say one was mailed.
+      const unsent = tenantWithPendingOwnerLink(pending, PendingOwnerLink.Withdrawn, null, deps.now().toISOString());
+      await write(pending, unsent, { action: OwnerContactAudit.HandOverLinkUnsent, severity: AuditSeverityCode.Warning }, actor, { toUserId: pending.pendingOwner.userId }).catch(
+        (failure: unknown) => console.error(`[cloud] the unsent confirmation link of "${tenant.code}" could not be withdrawn`, failure),
+      );
+      return false;
+    }
+  }
+
+  async function flushOwnerRecord(tenantId: string, backend: RecordingBackend): Promise<void> {
+    const tenant = await tenants.findById(tenantId);
+    const due = tenant?.ownerRecordDue;
+    if (!tenant || !due) return;
+    await backend.recordOwnerAssigned(due);
+    await write(tenant, tenantWithOwnerRecordDue(tenant, null), { action: OwnerContactAudit.TenantRecordWritten, severity: AuditSeverityCode.Info }, due.actor, { eventId: due.eventId });
+  }
+
+  function flushOwnerRecordQuietly(tenantId: string, backend: RecordingBackend): Promise<void> {
+    return flushOwnerRecord(tenantId, backend).catch((err: unknown) =>
+      console.error(`[cloud] the owner of tenant "${tenantId}" is recorded on the platform; the tenant's own audit row is still due and is retried on the next open`, err),
+    );
+  }
+
+  function recordDue(userId: string, previousUserId: string | null, actor: string, confirmedBy: OwnerConfirmation): OwnerRecordDue {
+    return { eventId: eventIdOf(), userId, previousUserId, actor, confirmedBy };
   }
 
   // SECURITY: every owner write resolves its tenant by id. A code is handed to
@@ -173,16 +235,11 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
     const pending = tenantWithPendingOwner(tenant, successor, { requestedBy: actor, tokenHash: token === null ? null : hashHandOverToken(token) }, at);
     const recorded = await write(tenant, pending, { action: OwnerContactAudit.HandOverPending, severity: AuditSeverityCode.Critical }, actor, details);
     if (!recorded) return null;
-    if (token !== null) {
-      await deps
-        .mailPendingHandOver?.({ tenant: pending, to: tenant.ownerEmail, successorEmail: pending.pendingOwner?.email ?? input.toEmail, token })
-        .catch((err: unknown) => console.error(`[cloud] the pending hand-over of "${tenant.code}" was recorded, but mailing its confirmation link failed`, err));
-    }
-    return OwnerHandOverOutcome.Pending;
+    return (await mailLink(tenant, pending, token, actor)) ? OwnerHandOverOutcome.Pending : OwnerHandOverOutcome.PendingUnmailed;
   }
 
   function alreadyHandedOver(tenant: Tenant, input: OwnerHandOver): OwnerHandOverOutcome | null {
-    if (tenant.pendingOwner?.userId === input.toUserId) return OwnerHandOverOutcome.Pending;
+    if (tenant.pendingOwner?.userId === input.toUserId) return tenant.pendingOwner.tokenHash === null ? OwnerHandOverOutcome.PendingUnmailed : OwnerHandOverOutcome.Pending;
     if (tenant.ownerUserId === input.toUserId) return OwnerHandOverOutcome.Verified;
     return null;
   }
@@ -199,6 +256,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
 
   return {
     async reconcile(tenantId, backend) {
+      await flushOwnerRecordQuietly(tenantId, backend);
       await settle(tenantId, () => RECONCILE_ACTOR, async (tenant, at) => {
         const account = await recordedAccount(tenant, backend);
         if (!account || !account.canAdminister) return tenant.status === TenantStatusCode.Provisioning ? null : tenantNeedingOwner(tenant, at);
@@ -245,14 +303,15 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
       const account = (await backend.companyAdmins()).find((admin) => admin.id === userId);
       if (!account) throw new OwnerCandidateNotFoundError();
       const before = await tenants.findById(tenantId);
+      const due = recordDue(account.id, before?.ownerUserId ?? null, actor, OwnerConfirmation.PlatformConsole);
       const assigned = await settleOwner(
         tenantId,
-        (tenant, at) => tenantHandedTo(tenant, account, at),
+        (tenant, at) => tenantWithOwnerRecordDue(tenantHandedTo(tenant, account, at), due),
         { action: OwnerContactAudit.Assigned, severity: AuditSeverityCode.Critical },
         actor,
-        { fromUserId: before?.ownerUserId ?? null, toUserId: account.id, confirmedBy: OwnerConfirmation.PlatformConsole },
+        { fromUserId: due.previousUserId, toUserId: account.id, confirmedBy: OwnerConfirmation.PlatformConsole, eventId: due.eventId },
       );
-      await backend.recordOwnerAssigned({ userId: account.id, previousUserId: before?.ownerUserId ?? null, actor, confirmedBy: OwnerConfirmation.PlatformConsole });
+      await flushOwnerRecordQuietly(tenantId, backend);
       return assigned;
     },
 
@@ -260,21 +319,54 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
       const before = await tenants.findById(tenantId);
       const pending = before?.pendingOwner;
       if (!before || !pending) throw new NoPendingOwnerError();
+      if (pendingOwnerExpired(pending, deps.now().toISOString())) throw new PendingOwnerExpiredError();
       if (!(await backend.companyAdmins()).some((admin) => admin.id === pending.userId)) throw new OwnerCandidateNotFoundError();
+      const due = recordDue(pending.userId, before.ownerUserId, actor, by);
       const confirmed = await settleOwner(
         tenantId,
-        (tenant, at) => tenantWithPendingOwnerConfirmed(tenant, at),
+        (tenant, at) => tenantWithOwnerRecordDue(tenantWithPendingOwnerConfirmed(tenant, at), due),
         { action: OwnerContactAudit.HandedOver, severity: AuditSeverityCode.Critical },
         actor,
-        { fromUserId: before.ownerUserId, toUserId: pending.userId, confirmedBy: by },
+        { fromUserId: before.ownerUserId, toUserId: pending.userId, confirmedBy: by, eventId: due.eventId },
       );
-      await backend.recordOwnerAssigned({ userId: pending.userId, previousUserId: before.ownerUserId, actor, confirmedBy: by });
+      await flushOwnerRecordQuietly(tenantId, backend);
       return confirmed;
+    },
+
+    async declinePending(tenantId, actor) {
+      const before = await tenants.findById(tenantId);
+      const pending = before?.pendingOwner;
+      if (!before || !pending) throw new NoPendingOwnerError();
+      return settleOwner(
+        tenantId,
+        (tenant, at) => tenantWithPendingOwnerDeclined(tenant, at),
+        { action: OwnerContactAudit.HandOverDeclined, severity: AuditSeverityCode.Critical },
+        actor,
+        { fromUserId: before.ownerUserId, toUserId: pending.userId, requestedBy: pending.requestedBy },
+      );
+    },
+
+    async resendPending(tenantId, actor) {
+      const before = await tenants.findById(tenantId);
+      const pending = before?.pendingOwner;
+      if (!before || !pending) throw new NoPendingOwnerError();
+      const token = deps.mailPendingHandOver ? tokenOf() : null;
+      const reissued = await settleOwner(
+        tenantId,
+        (tenant, at) => tenantWithPendingOwnerLink(tenant, PendingOwnerLink.Reissued, token === null ? null : hashHandOverToken(token), at),
+        { action: OwnerContactAudit.HandOverLinkResent, severity: AuditSeverityCode.Warning },
+        actor,
+        { toUserId: pending.userId },
+      );
+      await mailLink(before, reissued, token, actor);
+      return (await tenants.findById(tenantId)) ?? reissued;
     },
 
     async pendingByToken(token) {
       const hash = hashHandOverToken(token);
-      return (await tenants.list()).find((tenant) => tenant.pendingOwner?.tokenHash === hash) ?? null;
+      const found = (await tenants.list()).find((tenant) => tenant.pendingOwner?.tokenHash === hash);
+      if (!found?.pendingOwner || pendingOwnerExpired(found.pendingOwner, deps.now().toISOString())) return null;
+      return found;
     },
   };
 }

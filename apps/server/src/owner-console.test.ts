@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { SmtpConfig } from "@mezan/api";
 import { bootCloudHarness, type CloudHarness, type SendInit } from "./cloud-harness.js";
-import type { PlatformMail } from "./platform-mail.js";
+import { MailOutcome, type PlatformMail } from "./platform-mail.js";
 
 const harnesses: CloudHarness[] = [];
 afterEach(async () => {
@@ -29,12 +29,26 @@ interface World {
   signIn(username: string, pin: string): Promise<string>;
 }
 
-async function world(vars: Record<string, string> = { MEZAN_PUBLIC_URL: "https://app.mezan.example" }): Promise<World> {
+interface Setup {
+  readonly clock?: { at: Date };
+  readonly mailFails?: { on: boolean };
+}
+
+async function world(vars: Record<string, string> = { MEZAN_PUBLIC_URL: "https://app.mezan.example" }, setup: Setup = {}): Promise<World> {
   const sent: Sent[] = [];
   const cloud = await bootCloudHarness({
     vars,
     env: { platformSmtp: SMTP },
-    options: { mailer: { send: async (to, mail) => (sent.push({ to, mail }), { outcome: "sent" }) } },
+    options: {
+      ...(setup.clock ? { now: () => setup.clock!.at } : {}),
+      mailer: {
+        send: async (to, mail) => {
+          if (setup.mailFails?.on) return { outcome: MailOutcome.Rejected, detail: "smtp down" };
+          sent.push({ to, mail });
+          return { outcome: MailOutcome.Sent };
+        },
+      },
+    },
   });
   harnesses.push(cloud);
   const platform = await cloud.platformToken();
@@ -74,6 +88,18 @@ async function addAdmin(w: World, ownerToken: string, email: string, pin: string
 }
 
 const tenantOf = (json: Record<string, unknown>) => json["tenant"] as Record<string, unknown>;
+
+async function ownerStepsDownOnConsolePin(w: World): Promise<{ peer: string; peerToken: string; owner: Record<string, unknown> }> {
+  const ownerToken = await w.signIn("owner@nile.example", w.ownerPin);
+  const owner = ((await w.tenantCall("GET", "/users", ownerToken)).json as Record<string, unknown>[]).find((user) => user["email"] === "owner@nile.example") ?? {};
+  const peer = await addAdmin(w, ownerToken, "second@nile.example", "222222");
+  const peerToken = await w.signIn("second@nile.example", "222222");
+  const reset = await w.platformCall("POST", `/tenants/${w.tenantId}/owner-pin/reset`);
+  const session = await w.signIn("owner@nile.example", String(reset.json["adminPin"]));
+  const stepped = await w.tenantCall("PUT", `/users/${String(owner["id"])}`, session, { ...owner, status: "inactive", newOwnerUserId: peer });
+  expect(stepped.status).toBe(200);
+  return { peer, peerToken, owner };
+}
 
 describe("the platform owner assigns a tenant's owner from the console", () => {
   it("lists the tenant's active company admins, to the platform owner only", async () => {
@@ -120,18 +146,6 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
     expect(empty.status).toBe(400);
     expect(tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)).toEqual(before);
   });
-
-  async function ownerStepsDownOnConsolePin(w: World): Promise<{ peer: string; peerToken: string; owner: Record<string, unknown> }> {
-    const ownerToken = await w.signIn("owner@nile.example", w.ownerPin);
-    const owner = ((await w.tenantCall("GET", "/users", ownerToken)).json as Record<string, unknown>[]).find((user) => user["email"] === "owner@nile.example") ?? {};
-    const peer = await addAdmin(w, ownerToken, "second@nile.example", "222222");
-    const peerToken = await w.signIn("second@nile.example", "222222");
-    const reset = await w.platformCall("POST", `/tenants/${w.tenantId}/owner-pin/reset`);
-    const session = await w.signIn("owner@nile.example", String(reset.json["adminPin"]));
-    const stepped = await w.tenantCall("PUT", `/users/${String(owner["id"])}`, session, { ...owner, status: "inactive", newOwnerUserId: peer });
-    expect(stepped.status).toBe(200);
-    return { peer, peerToken, owner };
-  }
 
   it("lets a peer admin erase the former owner only after the console has assigned another owner, and refuses it in Arabic before", async () => {
     const w = await world();
@@ -203,6 +217,110 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
     expect(w.sent).toEqual([]);
     expect(tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)).toMatchObject({ pendingOwner: { userId: peer } });
     expect((await w.platformCall("POST", `/tenants/${w.tenantId}/owner/confirm`)).status).toBe(200);
+  });
+});
+
+describe("a pending hand-over that is not confirmed", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const START = new Date("2026-10-13T09:00:00.000Z");
+  const tokenIn = (w: World, index: number) => new URL(/https:\/\/\S+/.exec(w.sent[index]?.mail.body ?? "")?.[0] ?? "https://none.invalid").searchParams.get("token") ?? "";
+  const confirmByLink = (w: World, token: string) => w.cloud.send("/api/signup/owner-handover", { method: "POST", body: JSON.stringify({ token }) });
+  const pendingOf = async (w: World) => tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)["pendingOwner"] as Record<string, unknown> | null;
+
+  async function pendingWorld(setup: Setup = {}, vars?: Record<string, string>) {
+    const clock = { at: START };
+    const w = await world(vars, { clock, ...setup });
+    const made = await ownerStepsDownOnConsolePin(w);
+    return { w, clock, ...made };
+  }
+
+  it("stops answering its link seven days after it was asked for, with the same answer a wrong link gets, and shows when it lapses", async () => {
+    const { w, clock } = await pendingWorld();
+    const token = tokenIn(w, 0);
+    expect(await pendingOf(w)).toMatchObject({ requestedAt: START.toISOString(), expiresAt: new Date(START.getTime() + 7 * DAY).toISOString(), linkMailed: true });
+
+    clock.at = new Date(START.getTime() + 7 * DAY);
+    const late = await confirmByLink(w, token);
+    const wrong = await confirmByLink(w, "not-a-token");
+
+    expect(late.status).toBe(400);
+    expect(await late.json()).toEqual(await wrong.json());
+    expect(tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)).toMatchObject({ ownerEmail: "owner@nile.example", pendingOwner: { email: "second@nile.example" } });
+  });
+
+  it("still answers its link one second before the seven days are up", async () => {
+    const { w, clock } = await pendingWorld();
+
+    clock.at = new Date(START.getTime() + 7 * DAY - 1000);
+
+    expect((await confirmByLink(w, tokenIn(w, 0))).status).toBe(200);
+  });
+
+  it("is refused in Arabic from the console too once it has lapsed, until the link is sent again", async () => {
+    const { w, clock } = await pendingWorld();
+    const first = tokenIn(w, 0);
+    clock.at = new Date(START.getTime() + 8 * DAY);
+
+    const lapsed = await w.platformCall("POST", `/tenants/${w.tenantId}/owner/confirm`);
+    const resent = await w.platformCall("POST", `/tenants/${w.tenantId}/owner/resend`);
+
+    expect(lapsed.status).toBe(409);
+    expect(lapsed.json).toMatchObject({ error: "TENANT_PENDING_OWNER_EXPIRED", message: "انتهت مهلة تأكيد نقل الملكية. أرسل رابط التأكيد من جديد أو ألغِ الطلب." });
+    expect(resent.status).toBe(200);
+    expect(tenantOf(resent.json)["pendingOwner"]).toMatchObject({ requestedAt: clock.at.toISOString(), linkMailed: true });
+    expect(w.sent).toHaveLength(2);
+    expect(w.sent[1]?.to).toBe("owner@nile.example");
+    expect((await confirmByLink(w, first)).status).toBe(400);
+    expect((await confirmByLink(w, tokenIn(w, 1))).status).toBe(200);
+  });
+
+  it("is declined from the console by the platform owner only: the request is dropped and its link stops answering", async () => {
+    const { w } = await pendingWorld();
+    const token = tokenIn(w, 0);
+
+    const declined = await w.platformCall("POST", `/tenants/${w.tenantId}/owner/decline`);
+    const again = await w.platformCall("POST", `/tenants/${w.tenantId}/owner/decline`);
+    const unauthenticated = await w.platformCall("POST", `/tenants/${w.tenantId}/owner/decline`, undefined, null);
+
+    expect(declined.status).toBe(200);
+    expect(tenantOf(declined.json)).toMatchObject({ ownerEmail: "owner@nile.example", pendingOwner: null });
+    expect(again.status).toBe(409);
+    expect(again.json).toMatchObject({ error: "TENANT_NO_PENDING_OWNER", message: "لا يوجد مالك بانتظار التأكيد لهذه المنشأة" });
+    expect(unauthenticated.status).toBe(401);
+    expect((await confirmByLink(w, token)).status).toBe(400);
+  });
+
+  it("says no link was mailed when the mail could not be delivered, to the owner and on the console, and that link confirms nothing", async () => {
+    const mailFails = { on: true };
+    const clock = { at: START };
+    const w = await world(undefined, { clock, mailFails });
+    const ownerToken = await w.signIn("owner@nile.example", w.ownerPin);
+    const owner = ((await w.tenantCall("GET", "/users", ownerToken)).json as Record<string, unknown>[]).find((user) => user["email"] === "owner@nile.example") ?? {};
+    const peer = await addAdmin(w, ownerToken, "second@nile.example", "222222");
+    const reset = await w.platformCall("POST", `/tenants/${w.tenantId}/owner-pin/reset`);
+    const session = await w.signIn("owner@nile.example", String(reset.json["adminPin"]));
+
+    const stepped = await w.tenantCall("PUT", `/users/${String(owner["id"])}`, session, { ...owner, status: "inactive", newOwnerUserId: peer });
+
+    expect(stepped.json).toMatchObject({ ownerHandOver: "pending_unmailed" });
+    expect(await pendingOf(w)).toMatchObject({ email: "second@nile.example", linkMailed: false });
+    mailFails.on = false;
+    const resent = await w.platformCall("POST", `/tenants/${w.tenantId}/owner/resend`);
+    expect(tenantOf(resent.json)["pendingOwner"]).toMatchObject({ linkMailed: true });
+    expect(w.sent).toHaveLength(1);
+  });
+
+  it("says a link was mailed when one was", async () => {
+    const { w } = await pendingWorld();
+
+    expect(await pendingOf(w)).toMatchObject({ linkMailed: true });
+  });
+
+  it("says no link was mailed when no public origin is configured", async () => {
+    const { w } = await pendingWorld({}, {});
+
+    expect(await pendingOf(w)).toMatchObject({ linkMailed: false });
+    expect(w.sent).toEqual([]);
   });
 });
 

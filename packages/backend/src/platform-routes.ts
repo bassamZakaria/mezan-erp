@@ -121,11 +121,15 @@ export interface CreatePlatformRoutesOptions {
   readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }) => Promise<ProvisionResultDTO>;
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
-  readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string }) => Promise<OwnerPinResetResultDTO>;
+  // REQUIRED ORDERING: `recordAudit` is called inside the platform transaction
+  // that fences the reset, before the PIN moves. When it throws, nothing changes.
+  readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string; recordAudit: () => Promise<void> }) => Promise<OwnerPinResetResultDTO>;
   readonly releaseTenant?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   readonly ownerCandidates?: (tenant: Tenant) => Promise<OwnerCandidateDTO[]>;
   readonly assignOwner?: (input: { tenant: Tenant; userId: string; actorId: string }) => Promise<Tenant>;
   readonly confirmPendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
+  readonly declinePendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
+  readonly resendPendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   /** Must not throw: it runs in front of a read. */
   readonly reconcileOwner?: (tenant: Tenant) => Promise<void>;
   /** Only tenants whose backend is already open: the list must not open every tenant's database to draw itself. */
@@ -213,7 +217,7 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
 /** Codes for the `apps/server`-only error classes (`provision-tenant.ts`'s `TenantProvisioningError` and `PlanRequiredError`) that map to 422 here. `@mezan/backend` cannot import an `apps/*` class, so each is recognised by shape (`.code` plus, for a provisioning failure, the tenant id it left in `provisioning`) instead of `instanceof`. */
 const SERVER_DOMAIN_ERROR_CODES = new Set(["TENANT_PROVISIONING_FAILED", "PLAN_REQUIRED"]);
 /** `apps/server`'s owner-assignment refusals, recognised by `.code` for the same reason; they answer 409. */
-const SERVER_OWNER_CONFLICT_CODES = new Set(["TENANT_OWNER_CANDIDATE_NOT_FOUND", "TENANT_NO_PENDING_OWNER"]);
+const SERVER_OWNER_CONFLICT_CODES = new Set(["TENANT_OWNER_CANDIDATE_NOT_FOUND", "TENANT_NO_PENDING_OWNER", "TENANT_PENDING_OWNER_EXPIRED"]);
 
 function asServerDomainFailure(err: unknown): { readonly code: string; readonly message: string; readonly tenantId?: string } | null {
   if (!(err instanceof Error)) return null;
@@ -231,7 +235,20 @@ export class TenantOwnerAccountNotFoundError extends Error {
   }
 }
 
+export class PlatformAuditUnavailableError extends Error {
+  readonly code = "AUDIT_UNAVAILABLE";
+  constructor(cause: unknown) {
+    super("تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى.", { cause });
+    this.name = "PlatformAuditUnavailableError";
+  }
+  readonly messageEn = "The audit log could not record this action, so nothing was saved. Try again.";
+}
+
 function domainErrorResponse(c: Context, err: unknown): Response {
+  if (err instanceof PlatformAuditUnavailableError) {
+    console.error(err.cause);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 503);
+  }
   const serverFailure = asServerDomainFailure(err);
   if (serverFailure) {
     return c.json({ error: serverFailure.code, message: serverFailure.message, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
@@ -279,7 +296,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 }
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
-  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, ownerCandidates, assignOwner, confirmPendingOwner, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
+  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
   const onAuditError = options.onAuditError ?? ((err: unknown) => console.error(err));
   const nowIso = () => now().toISOString();
 
@@ -319,6 +336,21 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       timestamp: nowIso(),
       details: { ...details, origin: requestOrigin(c) ?? "host" },
     }).catch(onAuditError);
+  }
+
+  async function auditOrRefuse(c: Context, action: string, entityId: string, details: Record<string, unknown>, severity: AuditSeverity) {
+    await recordSecurityEvent(platform.audit, {
+      module: "platform",
+      entityType: "PLATFORM",
+      entityId,
+      action,
+      actor: c.get("platformUser")?.id ?? "unknown",
+      severity,
+      timestamp: nowIso(),
+      details: { ...details, origin: requestOrigin(c) ?? "host" },
+    }).catch((cause: unknown) => {
+      throw new PlatformAuditUnavailableError(cause);
+    });
   }
 
   const requireAny = auth.requirePlatform();
@@ -437,6 +469,30 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
+  app.post("/tenants/:id/owner/decline", requireOwner, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!isLive(tenant)) return c.json(TENANT_NOT_LIVE_FOR_OWNER, 409);
+      if (!declinePendingOwner) throw new Error("declinePendingOwner dependency is not configured");
+      const declined = await declinePendingOwner({ tenant, actorId: c.get("platformUser")!.id });
+      return c.json(await tenantSummary(platform, declined, nowIso()));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.post("/tenants/:id/owner/resend", requireOwner, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!isLive(tenant)) return c.json(TENANT_NOT_LIVE_FOR_OWNER, 409);
+      if (!resendPendingOwner) throw new Error("resendPendingOwner dependency is not configured");
+      const resent = await resendPendingOwner({ tenant, actorId: c.get("platformUser")!.id });
+      return c.json(await tenantSummary(platform, resent, nowIso()));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
   const ownerPinResetRefused = (c: Context, tenantId: string | null, reason: string, actorId?: string) =>
     audit(c, "TENANT_OWNER_PIN_RESET_REFUSED", tenantId, { reason }, "CRITICAL", actorId);
 
@@ -454,8 +510,13 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         return c.json({ error: "TENANT_NOT_LIVE", message: "لا يُعاد تعيين رمز المالك إلا لمنشأة نشطة أو موقوفة" }, 409);
       }
       if (!resetOwnerPin) throw new Error("resetOwnerPin dependency is not configured");
-      const result = await resetOwnerPin({ tenant, actorId: platformUser.id });
-      await audit(c, "TENANT_OWNER_PIN_RESET", tenant.id, { code: tenant.code, adminEmail: result.adminEmail }, "CRITICAL");
+      let audited = false;
+      const recordAudit = async (): Promise<void> => {
+        await auditOrRefuse(c, "TENANT_OWNER_PIN_RESET", tenant.id, { code: tenant.code, adminEmail: tenant.ownerEmail }, "CRITICAL");
+        audited = true;
+      };
+      const result = await resetOwnerPin({ tenant, actorId: platformUser.id, recordAudit });
+      if (!audited) await recordAudit();
       return c.json(result, 200);
     } catch (err) {
       if (err instanceof TenantOwnerAccountNotFoundError) {

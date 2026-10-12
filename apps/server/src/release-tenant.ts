@@ -1,4 +1,4 @@
-import type { PlatformHandle } from "@mezan/backend";
+import { PlatformAuditUnavailableError, type PlatformHandle } from "@mezan/backend";
 import { withSqliteTransaction } from "@mezan/persistence";
 import {
   AuditSeverityCode,
@@ -42,6 +42,8 @@ export async function releaseProvisioningTenant(deps: ReleaseTenantDeps, input: 
         severity: AuditSeverityCode.Critical,
         timestamp: at,
         details: { code: input.tenant.code, releasedAs: after.code, cancelledSubscriptionId: live?.id ?? null },
+      }).catch((cause: unknown) => {
+        throw new PlatformAuditUnavailableError(cause);
       });
       return { before: input.tenant, released: after };
     },

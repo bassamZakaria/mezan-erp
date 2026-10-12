@@ -10,6 +10,11 @@ import {
   tenantNeedingOwner,
   tenantWithPendingOwner,
   tenantWithPendingOwnerConfirmed,
+  tenantWithPendingOwnerDeclined,
+  tenantWithPendingOwnerLink,
+  pendingOwnerExpired,
+  pendingOwnerExpiresAt,
+  PendingOwnerLink,
   releaseTenant,
   releasedTenantCode,
   OwnerContactProof,
@@ -209,7 +214,7 @@ describe("tenantWithOwnerContact", () => {
 
     expect(waiting).toEqual({
       ...linked,
-      pendingOwner: { userId: "U-PEER", email: "peer@cyag.eg", requestedBy: "tenant:cyag:U-PEER", requestedAt: LATER, tokenHash: "h" },
+      pendingOwner: { userId: "U-PEER", email: "peer@cyag.eg", requestedBy: "tenant:cyag:U-PEER", requestedAt: LATER, expiresAt: pendingOwnerExpiresAt(LATER), tokenHash: "h" },
       updatedAt: LATER,
     });
     expect(() => tenantWithPendingOwner(linked, { id: "U-PEER", email: " " }, { requestedBy: "x", tokenHash: null }, LATER)).toThrow(InvalidTenantError);
@@ -222,6 +227,33 @@ describe("tenantWithOwnerContact", () => {
       ...linked, ownerUserId: "U-PEER", ownerEmail: "peer@cyag.eg", ownerContactVerified: true, pendingOwner: null, updatedAt: LATER,
     });
     expect(() => tenantWithPendingOwnerConfirmed(linked, LATER)).toThrow(InvalidTenantError);
+  });
+
+  it("gives a pending successor seven days, to the millisecond", () => {
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "x", tokenHash: "h" }, LATER).pendingOwner!;
+
+    expect(waiting.expiresAt).toBe("2026-09-21T08:00:00.000Z");
+    expect(pendingOwnerExpired(waiting, "2026-09-21T07:59:59.999Z")).toBe(false);
+    expect(pendingOwnerExpired(waiting, "2026-09-21T08:00:00.000Z")).toBe(true);
+  });
+
+  it("drops a declined successor and leaves the recorded owner alone, and refuses when none is waiting", () => {
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "x", tokenHash: "h" }, NOW);
+
+    expect(tenantWithPendingOwnerDeclined(waiting, LATER)).toEqual({ ...linked, pendingOwner: null, updatedAt: LATER });
+    expect(() => tenantWithPendingOwnerDeclined(linked, LATER)).toThrow(InvalidTenantError);
+  });
+
+  it("restarts the seven days when the link is reissued, and keeps them when the link is withdrawn", () => {
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "x", tokenHash: "h" }, NOW);
+
+    expect(tenantWithPendingOwnerLink(waiting, PendingOwnerLink.Reissued, "h2", LATER).pendingOwner).toMatchObject({
+      requestedAt: LATER, expiresAt: pendingOwnerExpiresAt(LATER), tokenHash: "h2", userId: "U-PEER",
+    });
+    expect(tenantWithPendingOwnerLink(waiting, PendingOwnerLink.Withdrawn, null, LATER).pendingOwner).toMatchObject({
+      requestedAt: NOW, expiresAt: pendingOwnerExpiresAt(NOW), tokenHash: null,
+    });
+    expect(() => tenantWithPendingOwnerLink(linked, PendingOwnerLink.Reissued, "h", LATER)).toThrow(InvalidTenantError);
   });
 
   it("flags a tenant as needing an owner once, and never while a successor is waiting", () => {

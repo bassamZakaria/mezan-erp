@@ -49,6 +49,7 @@ import { EMPTY } from "../lib/empty";
 import { ReturnJournalCard } from "./ReturnJournalCard";
 import { ReturnFamily, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/archive/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
 
@@ -87,6 +88,7 @@ export function SalesReturnsScreen() {
   const createReturn = useCreateSalesReturnFromInvoice();
   const refundReturn = useRefundSalesReturn();
   const confirmReturn = useConfirmSalesReturn();
+  const resubmit = useResubmitForApproval(ResubmitFamily.SalesReturns);
   const cancelReturn = useCancelSalesReturn();
   const mayVoid = useMayVoidReturn(ReturnFamily.Sales);
   const [voidTarget, setVoidTarget] = useState<VoidableReturn | null>(null);
@@ -517,6 +519,7 @@ export function SalesReturnsScreen() {
             </div>
             {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
             {refundNotice ? <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-success-ink">{refundNotice}</div> : null}
+            <ResubmitForApprovalAction family={ResubmitFamily.SalesReturns} document={selected} />
             {selected.status === "draft" ? (
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => confirmExisting(selected.id)}>
@@ -619,6 +622,7 @@ export function SalesReturnsScreen() {
           </Button>
         </Card>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<(typeof documents)[number]>
         title={t("salesReturns.title")}
         description={t("salesReturns.description")}
@@ -695,6 +699,7 @@ export function SalesReturnsScreen() {
                   { key: "cancel", label: t("common.cancel"), tone: "danger" as const, onSelect: () => void cancelExisting(d.id) },
                 ]
               : []),
+              ...resubmitRowMenuItems(resubmit, d),
             ...(d.awaitingRefund
               ? [{ key: "refund", label: t("salesReturns.refund.submit"), onSelect: () => subPage.open(d.docNo ?? d.id) }]
               : []),

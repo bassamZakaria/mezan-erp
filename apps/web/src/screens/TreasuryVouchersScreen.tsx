@@ -77,6 +77,7 @@ import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** السندات النقدية (Treasury Vouchers) — docs/archive/catalog/04, on the real `/vouchers` API. */
 
@@ -261,6 +262,7 @@ export function TreasuryVouchersScreen() {
   const voucherStats = useVoucherStats(listFilter).data ?? {};
   const branches = useBranches().data ?? [];
   const cancelVoucher = useCancelVoucher();
+  const resubmit = useResubmitForApproval(ResubmitFamily.Vouchers);
   /**
    * WHICH voucher is being cancelled, not merely that one is.
    *
@@ -411,6 +413,7 @@ export function TreasuryVouchersScreen() {
           </Button>
         </Card>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<VoucherRowDTO>
         title={t("vouchers.cashVouchers")}
         description={t("vouchers.receiptsDisbursementsAndTransfersOne")}
@@ -552,6 +555,7 @@ export function TreasuryVouchersScreen() {
                     },
                   ]
                 : []),
+              ...resubmitRowMenuItems(resubmit, d),
             ]}
           />
         )}
@@ -885,6 +889,9 @@ function VoucherDetailView({
         effects={(effects?.effects ?? []).map((e) => e.description)}
         tabs={tabs}
       />
+      <div className="mt-[16px]">
+        <ResubmitForApprovalAction family={ResubmitFamily.Vouchers} document={doc} />
+      </div>
       <ConfirmDialog
         open={reverseConfirmOpen}
         title={t("vouchers.reverseConfirmTitle")}

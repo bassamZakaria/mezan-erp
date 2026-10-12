@@ -43,6 +43,7 @@ import { EMPTY } from "../lib/empty";
 import { ReturnJournalCard } from "./ReturnJournalCard";
 import { ReturnFamily, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/archive/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
 
@@ -85,6 +86,7 @@ export function PurchaseReturnsScreen() {
   const confirmReturn = useConfirmPurchaseReturn();
   const cancelReturn = useCancelPurchaseReturn();
   const mayVoid = useMayVoidReturn(ReturnFamily.Purchases);
+  const resubmit = useResubmitForApproval(ResubmitFamily.PurchaseReturns);
   const [voidTarget, setVoidTarget] = useState<VoidableReturn | null>(null);
 
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
@@ -403,6 +405,7 @@ export function PurchaseReturnsScreen() {
               ))}
             </div>
             {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
+            <ResubmitForApprovalAction family={ResubmitFamily.PurchaseReturns} document={selected} />
             {selected.status === "draft" ? (
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => confirmExisting(selected.id)}>
@@ -436,6 +439,7 @@ export function PurchaseReturnsScreen() {
           </Button>
         </Card>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<(typeof documents)[number]>
         title={t("purchaseReturns.title")}
         description={t("purchaseReturns.description")}
@@ -483,6 +487,7 @@ export function PurchaseReturnsScreen() {
                   { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
                 ]
               : []),
+              ...resubmitRowMenuItems(resubmit, d),
             ...(mayVoid(d) ? [{ key: "void", label: t("purchaseReturns.void"), tone: "danger" as const, onSelect: () => setVoidTarget(d) }] : []),
           ];
           return (

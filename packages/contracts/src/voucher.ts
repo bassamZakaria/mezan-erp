@@ -3,6 +3,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { moneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { documentApprovalSchema } from "./workflow.js";
 
 /**
  * Wire contracts for Treasury Vouchers (docs/archive/catalog/04 §"السندات النقدية") —
@@ -79,6 +80,8 @@ export const voucherSchema = z.object({
   /** What actually leaves the treasury: amount − withholdingAmount. */
   netPaidAmount: z.string(),
   journalEntryId: z.string().nullable(),
+  workflowRequestId: z.string().nullable().optional(),
+  approval: documentApprovalSchema.nullable().optional(),
   confirmedAt: z.string().nullable(),
   /**
    * On a reversal's mirror: the voucher it reverses. The mirror is saved

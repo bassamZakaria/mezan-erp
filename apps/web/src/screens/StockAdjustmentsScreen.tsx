@@ -56,6 +56,7 @@ import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** تسويات المخزون (Stock Adjustments) — docs/archive/catalog/03. List + detail + create, on the real document-framework API. */
 
@@ -211,6 +212,7 @@ export function StockAdjustmentsScreen() {
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const listConfirm = useConfirmStockAdjustment();
+  const resubmit = useResubmitForApproval(ResubmitFamily.StockAdjustments);
 
   const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
   const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
@@ -373,6 +375,9 @@ export function StockAdjustmentsScreen() {
             },
           ]}
         />
+        <div className="mt-[16px]">
+          <ResubmitForApprovalAction family={ResubmitFamily.StockAdjustments} document={selected} />
+        </div>
       </div>
     );
   }
@@ -395,6 +400,7 @@ export function StockAdjustmentsScreen() {
           {rowError}
         </div>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<StockAdjustmentDocumentDTO>
         title={t("stockAdj.stockAdjustments")}
         description={t("stockAdj.draftConfirmedAdjustmentsThatChange")}
@@ -468,6 +474,7 @@ export function StockAdjustmentsScreen() {
             ...(d.status === "draft"
               ? [{ key: "confirm", label: t("stockAdj.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
               : []),
+            ...resubmitRowMenuItems(resubmit, d),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
         }}

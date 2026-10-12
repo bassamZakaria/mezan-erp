@@ -31,6 +31,22 @@ export class ZeroLandedCostWeightError extends Error {
   }
 }
 
+export class StockMovementBeforeLandedCostError extends Error {
+  readonly code = "STOCK_MOVEMENT_BEFORE_LANDED_COST";
+  readonly messageEn: string;
+  constructor(
+    readonly date: string,
+    readonly itemId: string,
+    readonly earliestAllowedDate: string,
+  ) {
+    super(
+      `حركة المخزون بتاريخ ${date} على الصنف "${itemId}" تسبق تحميل تكلفة إضافية على الرصيد نفسه بتاريخ ${earliestAllowedDate}. أقرب تاريخ مسموح به هو ${earliestAllowedDate}؛ أو اعكس التكلفة الإضافية أولاً.`,
+    );
+    this.messageEn = `The stock movement dated ${date} on item "${itemId}" is before a landed cost the same position absorbed on ${earliestAllowedDate}. The earliest date allowed is ${earliestAllowedDate}; or reverse the landed cost first.`;
+    this.name = "StockMovementBeforeLandedCostError";
+  }
+}
+
 /** Raised when a landed cost is dated before a stock movement already recorded on a position it targets: stock and the ledger must carry it on the same day. */
 export class LandedCostDateBeforeStockMovementError extends Error {
   readonly code = "LANDED_COST_DATE_BEFORE_STOCK_MOVEMENT";

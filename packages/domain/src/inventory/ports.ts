@@ -16,6 +16,8 @@ export interface StockLedgerRepository {
   append(movement: StockMovement): Promise<void>;
   /** Movements for one position, in ledger order (occurredAt, then insertion). */
   listByPosition(itemId: string, warehouseId: string): Promise<readonly StockMovement[]>;
+  /** The day of the latest standing landed-cost absorption on a position, or null. Optional; a caller falls back to `listByPosition`. */
+  latestLandedCostAbsorptionDay?(itemId: string, warehouseId: string): Promise<string | null>;
   listByItem(itemId: string): Promise<readonly StockMovement[]>;
   listByWarehouse(warehouseId: string): Promise<readonly StockMovement[]>;
   /** Every distinct (itemId, warehouseId) that has at least one movement. */

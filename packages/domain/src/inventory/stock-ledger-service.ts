@@ -32,7 +32,7 @@ import {
   StockSourceDocType,
   isRevaluation,
 } from "./movement.js";
-import { LandedCostDateBeforeStockMovementError } from "../landed-costs/errors.js";
+import { LandedCostDateBeforeStockMovementError, StockMovementBeforeLandedCostError } from "../landed-costs/errors.js";
 import {
   foldPostedAdjustments,
   foldPostedTransfers,
@@ -349,6 +349,15 @@ export class StockLedgerService {
     await this.deps.periodGate?.(occurredAt.slice(0, 10));
   }
 
+  /** INVARIANT: no quantity movement is dated before a landed cost its position has absorbed — the replay would cost it without the landed cost while the ledger posted it with (landed-cost-backdated-movement.test.ts). */
+  private async assertNotBeforeLandedCost(itemId: string, warehouseId: string, occurredAt: string): Promise<void> {
+    const absorbedOn = this.deps.ledger.latestLandedCostAbsorptionDay
+      ? await this.deps.ledger.latestLandedCostAbsorptionDay(itemId, warehouseId)
+      : standingLandedCostDay(await this.deps.ledger.listByPosition(itemId, warehouseId));
+    const day = occurredAt.slice(0, 10);
+    if (absorbedOn !== null && day < absorbedOn) throw new StockMovementBeforeLandedCostError(day, itemId, absorbedOn);
+  }
+
   private now(): string {
     return (this.deps.clock ?? (() => new Date().toISOString()))();
   }
@@ -435,6 +444,7 @@ export class StockLedgerService {
     if (input.qty.isNegative() || input.qty.isZero()) {
       throw new InvalidStockMovementError(["الكمية يجب أن تكون رقماً موجباً"]);
     }
+    await this.assertNotBeforeLandedCost(input.itemId, input.warehouseId, input.occurredAt);
     const snap = await this.loadSnapshot(input.itemId, input.warehouseId);
 
     let unitCost: Money;
@@ -970,6 +980,7 @@ export class StockLedgerService {
 
     await this.runInTransaction(async () => {
       for (const pos of command.positions) {
+        await this.assertNotBeforeLandedCost(pos.itemId, pos.warehouseId, occurredAt);
         const layers = await this.deps.layers.listByPosition(pos.itemId, pos.warehouseId);
         const mine = layers.filter((l) => l.sourceDocId === command.sourceDocId);
         // A fully issued layer is removed from the store. Reversing "nothing"
@@ -1541,4 +1552,21 @@ function buildAdjustmentPosting(
     memo: `Stock adjustment ${command.adjustmentNumber ?? command.adjustmentId} (${command.reason})`,
     lines,
   };
+}
+
+/** The absorption day of the latest landed cost still standing on a position; a reversal's mirror movement takes its own landed cost off the list. */
+export function standingLandedCostDay(movements: readonly StockMovement[]): string | null {
+  const standing: { receipt: string; amount: bigint; day: string }[] = [];
+  for (const movement of movements) {
+    if (movement.sourceDocType !== "LANDED_COST" || !isRevaluation(movement)) continue;
+    const receipt = movement.revaluesSourceDocId ?? movement.sourceDocId;
+    const amount = movement.valueDelta?.scaled ?? 0n;
+    if (movement.direction === "IN") {
+      standing.push({ receipt, amount, day: movement.occurredAt.slice(0, 10) });
+      continue;
+    }
+    const undone = standing.findIndex((entry) => entry.receipt === receipt && entry.amount === amount);
+    if (undone !== -1) standing.splice(undone, 1);
+  }
+  return standing.reduce<string | null>((latest, entry) => (latest === null || entry.day > latest ? entry.day : latest), null);
 }

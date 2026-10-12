@@ -79,6 +79,7 @@ export type {
 
 export {
   StockLedgerService,
+  standingLandedCostDay,
   type StockLedgerServiceDeps,
   type StockLedgerPolicy,
   type StockLedgerPolicySource,

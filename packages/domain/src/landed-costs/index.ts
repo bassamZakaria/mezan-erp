@@ -39,5 +39,6 @@ export {
   EmptyLandedCostTargetsError,
   ZeroLandedCostWeightError,
   LandedCostDateBeforeStockMovementError,
+  StockMovementBeforeLandedCostError,
   LandedCostStandsOnDocumentError,
 } from "./errors.js";

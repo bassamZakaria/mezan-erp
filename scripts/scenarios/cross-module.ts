@@ -647,7 +647,7 @@ export async function run(ctx: Ctx): Promise<void> {
       }],
     });
     check("the landed cost drafts against the receipt", landed.status === 201, `status ${landed.status} ${JSON.stringify(landed.body).slice(0, 250)}`);
-    const lcConfirm = await req("POST", "/landed-costs/SCN-X-LC-1/confirm", {});
+    const lcConfirm = await req("POST", "/landed-costs/SCN-X-LC-1/confirm", { absorptionDate: TODAY });
     check("the landed cost confirms", lcConfirm.status === 200, `status ${lcConfirm.status} ${JSON.stringify(lcConfirm.body).slice(0, 250)}`);
 
     const costAfter = (await stock(itemId)).averageCost;

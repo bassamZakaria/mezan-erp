@@ -665,6 +665,10 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // --- 8. Landed costs: BY_VALUE, exact allocation, unit-cost bump ---------
   await scenario("purchases: landed cost BY_VALUE allocation sums EXACTLY to the total entered and raises each target's unit cost by its share", async () => {
+    for (const [id, nameAr] of [["SCN-ITEM-LC1-RICE", "أرز لسيناريو التكلفة الإضافية"], ["SCN-ITEM-LC1-SUGAR", "سكر لسيناريو التكلفة الإضافية"]] as const) {
+      const item = await req("POST", "/items", { id, code: id, nameAr, type: "stock", baseUnitCode: "PCS", trackInventory: true, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200" });
+      check(`a position of the landed cost's own: ${id}`, item.status === 201, item.status.toString());
+    }
     const invoice = await req("POST", "/purchases/invoices", {
       id: "SCN-PI-LC1",
       supplierId: "SUPP-DEMO-1",
@@ -672,16 +676,16 @@ export async function run(ctx: Ctx): Promise<void> {
       branchId: BRANCH_ID,
       warehouseId: WAREHOUSE_ID,
       lines: [
-        { itemId: "ITEM-DEMO-1", kind: "inventory", qty: "100", unitCost: "140", taxRatePercent: VAT },
-        { itemId: "ITEM-DEMO-3", kind: "inventory", qty: "300", unitCost: "31", taxRatePercent: VAT },
+        { itemId: "SCN-ITEM-LC1-RICE", kind: "inventory", qty: "100", unitCost: "140", taxRatePercent: VAT },
+        { itemId: "SCN-ITEM-LC1-SUGAR", kind: "inventory", qty: "300", unitCost: "31", taxRatePercent: VAT },
       ],
     });
     check("source invoice for landed cost created", invoice.status === 201, invoice.status.toString());
     const invConfirm = await req("POST", "/purchases/invoices/SCN-PI-LC1/confirm", {});
     check("source invoice confirmed (posts its own stock IN — manual, no receipt)", invConfirm.status === 200, invConfirm.status.toString());
 
-    const beforeRice = await itemBalance("ITEM-DEMO-1");
-    const beforeSugar = await itemBalance("ITEM-DEMO-3");
+    const beforeRice = await itemBalance("SCN-ITEM-LC1-RICE");
+    const beforeSugar = await itemBalance("SCN-ITEM-LC1-SUGAR");
 
     // Reproduces LC-DEMO-1's exact numbers: rice 100@140=14,000, sugar 300@31=9,300 (total value 23,300); SHIPPING 1,800 + CLEARANCE 700 = 2,500.
     const lc = await req("POST", "/landed-costs", {
@@ -694,13 +698,13 @@ export async function run(ctx: Ctx): Promise<void> {
         { costType: "CLEARANCE", description: "تخليص جمركي", amount: "700" },
       ],
       targets: [
-        { itemId: "ITEM-DEMO-1", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-LC1", sourceInvoiceNumber: null, qty: "100", unitCost: "140" },
-        { itemId: "ITEM-DEMO-3", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-LC1", sourceInvoiceNumber: null, qty: "300", unitCost: "31" },
+        { itemId: "SCN-ITEM-LC1-RICE", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-LC1", sourceInvoiceNumber: null, qty: "100", unitCost: "140" },
+        { itemId: "SCN-ITEM-LC1-SUGAR", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-LC1", sourceInvoiceNumber: null, qty: "300", unitCost: "31" },
       ],
     });
     check("landed cost document created as draft", lc.status === 201 && lc.body.status === "draft", lc.status.toString());
-    const l1 = lc.body.lines.find((l: any) => l.itemId === "ITEM-DEMO-1");
-    const l2 = lc.body.lines.find((l: any) => l.itemId === "ITEM-DEMO-3");
+    const l1 = lc.body.lines.find((l: any) => l.itemId === "SCN-ITEM-LC1-RICE");
+    const l2 = lc.body.lines.find((l: any) => l.itemId === "SCN-ITEM-LC1-SUGAR");
     checkEq("allocated amounts sum EXACTLY to the 2,500 entered (no rounding leak)", n(l1.allocatedAmount) + n(l2.allocatedAmount), 2500, 0.0001);
     check(
       "rice's allocation is close to its by-value share (14,000/23,300 * 2,500 ≈ 1,502.15)",
@@ -714,8 +718,8 @@ export async function run(ctx: Ctx): Promise<void> {
     const lcConfirm = await req("POST", "/landed-costs/SCN-LC-1/confirm", {});
     check("landed cost confirms and applies the revaluation", lcConfirm.status === 200 && lcConfirm.body?.document?.status === "confirmed", JSON.stringify(lcConfirm.body).slice(0, 150));
 
-    const afterRice = await itemBalance("ITEM-DEMO-1");
-    const afterSugar = await itemBalance("ITEM-DEMO-3");
+    const afterRice = await itemBalance("SCN-ITEM-LC1-RICE");
+    const afterSugar = await itemBalance("SCN-ITEM-LC1-SUGAR");
     checkEq("rice's inventory VALUE rose by exactly its allocated amount (independent /inventory/balance check)", afterRice.totalValue - beforeRice.totalValue, n(l1.allocatedAmount), 0.01);
     checkEq("sugar's inventory VALUE rose by exactly its allocated amount", afterSugar.totalValue - beforeSugar.totalValue, n(l2.allocatedAmount), 0.01);
 
@@ -815,7 +819,7 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   // --- 9. Landed costs: the seeded draft LC-DEMO-2 and its two dates --------
-  await scenario("purchases: landed cost LC-DEMO-2 keeps its own document date for the accrual and is absorbed on the confirm day — through the clearing account, which ends at zero", async () => {
+  await scenario("purchases: landed cost LC-DEMO-2 keeps its own document date for the accrual and is absorbed on the day its confirm names — through the clearing account, which ends at zero", async () => {
     const lc = await req("GET", "/landed-costs/LC-DEMO-2");
     check("LC-DEMO-2 is still draft (seeded that way)", lc.body?.status === "draft", lc.body?.status);
     check("its document date is the freight bill's own date, 2026-08-21", lc.body?.date === "2026-08-21", String(lc.body?.date));
@@ -826,13 +830,13 @@ export async function run(ctx: Ctx): Promise<void> {
     const before = await itemBalance("ITEM-DEMO-2");
     const beforeInv = await ctx.invariants();
     const ledgerBefore = { clearing: await accountBalance("1240"), accrued: await accountBalance("2130"), inventory: await accountBalance("1200"), costOfSales: await accountBalance("5100") };
-    const confirm = await req("POST", "/landed-costs/LC-DEMO-2/confirm", {});
+    const confirm = await req("POST", "/landed-costs/LC-DEMO-2/confirm", { absorptionDate: "2026-08-24" });
     check("the seeded draft confirms", confirm.status === 200 && confirm.body?.document?.status === "confirmed", JSON.stringify(confirm.body).slice(0, 150));
     const document = confirm.body?.document ?? {};
     check("the document date is unchanged by the confirm", document.date === "2026-08-21", String(document.date));
     check(
-      "the absorption day is the confirm day, never before the document date nor before oil's latest movement",
-      typeof document.absorptionDate === "string" && document.absorptionDate >= "2026-08-21" && document.absorptionDate <= landedCostDate,
+      "the absorption day is the day the confirm names, three days after the document date and on the day of the scenarios' own documents",
+      document.absorptionDate === "2026-08-24",
       `${String(document.absorptionDate)} (today ${landedCostDate})`,
     );
     const absorbed = n(confirm.body?.absorbedTotal);
@@ -1104,6 +1108,10 @@ export async function run(ctx: Ctx): Promise<void> {
   await scenario(
     "purchases (R4.7): BY_VALUE, BY_QUANTITY and BY_WEIGHT each allocate a landed cost EXACTLY, to the cent, on a total that does not divide evenly",
     async () => {
+      for (const id of ["SCN-ITEM-BASIS-1", "SCN-ITEM-BASIS-2", "SCN-ITEM-BASIS-3"]) {
+        const item = await req("POST", "/items", { id, code: id, nameAr: `صنف توزيع ${id.slice(-1)}`, type: "stock", baseUnitCode: "PCS", trackInventory: true, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200" });
+        checkEq(`a position of the basis comparison's own: ${id}`, item.status, 201);
+      }
       const invoice = await req("POST", "/purchases/invoices", {
         id: "SCN-PI-BASIS",
         supplierId: "SUPP-DEMO-1",
@@ -1111,9 +1119,9 @@ export async function run(ctx: Ctx): Promise<void> {
         branchId: BRANCH_ID,
         warehouseId: WAREHOUSE_ID,
         lines: [
-          { itemId: "ITEM-DEMO-1", kind: "inventory", qty: "7", unitCost: "13", taxRatePercent: VAT },
-          { itemId: "ITEM-DEMO-2", kind: "inventory", qty: "11", unitCost: "17", taxRatePercent: VAT },
-          { itemId: "ITEM-DEMO-3", kind: "inventory", qty: "13", unitCost: "19", taxRatePercent: VAT },
+          { itemId: "SCN-ITEM-BASIS-1", kind: "inventory", qty: "7", unitCost: "13", taxRatePercent: VAT },
+          { itemId: "SCN-ITEM-BASIS-2", kind: "inventory", qty: "11", unitCost: "17", taxRatePercent: VAT },
+          { itemId: "SCN-ITEM-BASIS-3", kind: "inventory", qty: "13", unitCost: "19", taxRatePercent: VAT },
         ],
       });
       checkEq("a three-line source invoice for the basis comparison is created", invoice.status, 201);
@@ -1124,9 +1132,9 @@ export async function run(ctx: Ctx): Promise<void> {
       // must place every last piastre.
       const TOTAL = 1000.01;
       const targets = [
-        { itemId: "ITEM-DEMO-1", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-BASIS", sourceInvoiceNumber: null, qty: "7", unitCost: "13", weight: "3" },
-        { itemId: "ITEM-DEMO-2", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-BASIS", sourceInvoiceNumber: null, qty: "11", unitCost: "17", weight: "5" },
-        { itemId: "ITEM-DEMO-3", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-BASIS", sourceInvoiceNumber: null, qty: "13", unitCost: "19", weight: "7" },
+        { itemId: "SCN-ITEM-BASIS-1", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-BASIS", sourceInvoiceNumber: null, qty: "7", unitCost: "13", weight: "3" },
+        { itemId: "SCN-ITEM-BASIS-2", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-BASIS", sourceInvoiceNumber: null, qty: "11", unitCost: "17", weight: "5" },
+        { itemId: "SCN-ITEM-BASIS-3", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-BASIS", sourceInvoiceNumber: null, qty: "13", unitCost: "19", weight: "7" },
       ];
 
       const bases: { method: string; id: string; weights: number[] }[] = [
@@ -1198,11 +1206,11 @@ export async function run(ctx: Ctx): Promise<void> {
       // Confirming one of them must move the stock value by exactly what it
       // allocated, and leave the sub-ledger reconciled to GL 1200.
       const beforeInv = await ctx.invariants();
-      const before1 = await itemBalance("ITEM-DEMO-1");
+      const before1 = await itemBalance("SCN-ITEM-BASIS-1");
       const confirm = await req("POST", "/landed-costs/SCN-LC-BASIS-W/confirm", {});
       checkEq("the BY_WEIGHT document confirms", confirm.status, 200);
       const w1 = n((await req("GET", "/landed-costs/SCN-LC-BASIS-W")).body.lines[0].allocatedAmount);
-      const after1 = await itemBalance("ITEM-DEMO-1");
+      const after1 = await itemBalance("SCN-ITEM-BASIS-1");
       checkEq("the first line's stock VALUE rose by exactly its by-weight allocation", after1.totalValue - before1.totalValue, w1, 0.0000005);
       const afterInv = await ctx.invariants();
       checkEq("and the inventory sub-ledger still reconciles to GL 1200 exactly", afterInv.inventory, beforeInv.inventory);

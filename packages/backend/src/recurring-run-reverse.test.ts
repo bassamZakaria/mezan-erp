@@ -79,7 +79,18 @@ describe("reversing a recurring run", () => {
 
     const again = await world.request("POST", "/gl/recurring/generate-due", { asOfDate: "2026-07-31", templateIds: [run.templateId] });
     expect((again.body.generated as unknown[]).length).toBe(0);
-    expect(world.count("recurring_journal_run", `template_id = '${run.templateId}' AND period = '2026-07'`)).toBe(1);
+    expect(world.count("recurring_journal_run", `template_id = '${run.templateId}' AND period = '2026-07'`)).toBe(2);
+
+    const history = ((await world.request("GET", `/gl/recurring/templates/${encodeURIComponent(run.templateId)}/runs`)).body as unknown as Record<string, unknown>[]).filter((r) => r.period === "2026-07");
+    expect(history).toEqual([
+      expect.objectContaining({ generation: 2, journalEntryId: fresh?.journalEntryId, entryStatus: "posted", current: true, reversedByEntryId: null, reversedByEntryNo: null, reversedOn: null }),
+      expect.objectContaining({ id: run.id, generation: 1, journalEntryId: run.journalEntryId, entryStatus: "reversed", current: false, reversedByEntryId: reversed.body.reversalEntryId, reversedByEntryNo: reversed.body.reversalEntryNo, reversedOn: "2026-10-05" }),
+    ]);
+    const listed = ((await world.request("GET", "/gl/recurring/runs?limit=500")).body as unknown as Record<string, unknown>[]).filter((r) => r.templateId === run.templateId && r.period === "2026-07");
+    expect(listed.map((r) => r.generation).sort()).toEqual([1, 2]);
+
+    const superseded = await world.request("POST", `/gl/recurring/runs/${encodeURIComponent(run.id)}/reverse`, { date: "2026-10-06" });
+    expect(`${superseded.status} ${String(superseded.body.error)}`).toBe("409 JOURNAL_ENTRY_ALREADY_REVERSED");
   });
 
   it("refuses a run whose entry is still a draft, in both languages", async () => {

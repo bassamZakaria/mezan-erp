@@ -25,10 +25,8 @@ export interface RecurringJournalRunRepository {
   findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalRun | null>;
   listByTemplate(templateId: string): Promise<readonly RecurringJournalRun[]>;
   list(limit?: number): Promise<readonly RecurringJournalRun[]>;
-  /** Returns `true` if this call recorded the run, `false` if (template, period) was already claimed. */
+  /** Returns `true` if this call recorded the run, `false` if that generation of (template, period) was already claimed. */
   save(run: RecurringJournalRun): Promise<boolean>;
-  /** Hands a (template, period) whose run was reversed to the run that regenerates it. Returns `false` when `previousRunId` no longer holds the period. */
-  replace(previousRunId: string, run: RecurringJournalRun): Promise<boolean>;
 }
 
 /**

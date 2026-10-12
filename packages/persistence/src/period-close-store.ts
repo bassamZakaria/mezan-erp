@@ -473,7 +473,8 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
     recurringRuns() {
       const rows = sqlite
         .prepare(
-          `SELECT r.template_id, r.period, je.status FROM recurring_journal_run r LEFT JOIN journal_entry je ON je.id = r.journal_entry_id`,
+          `SELECT r.template_id, r.period, je.status FROM recurring_journal_run r LEFT JOIN journal_entry je ON je.id = r.journal_entry_id
+            WHERE r.generation = (SELECT MAX(newer.generation) FROM recurring_journal_run newer WHERE newer.template_id = r.template_id AND newer.period = r.period)`,
         )
         .all() as { template_id: string; period: string; status: string | null }[];
       return rows.map((row) => ({ templateId: row.template_id, period: row.period, entryStatus: row.status }));

@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { CURRENT_SCHEMA_VERSION } from "@mezan/persistence";
 
 /**
  * `backup-hooks.ts` imports electron's `app` for the on-close schedule. The
@@ -167,7 +168,7 @@ describe("backupThenMigrate — the books are safe before the schema moves", () 
    */
   it("takes NO backup when the database is already at this build's schema", async () => {
     const { db, backupsDir } = await seededDb();
-    db.pragma("user_version = 1");
+    db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
 
     const result = await backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3" });
 
@@ -177,7 +178,7 @@ describe("backupThenMigrate — the books are safe before the schema moves", () 
 
   it("still runs the migration step on a launch that skips the backup", async () => {
     const { db, backupsDir } = await seededDb();
-    db.pragma("user_version = 1");
+    db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
     const migrate = vi.fn(async () => {});
 
     await backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3", migrate });

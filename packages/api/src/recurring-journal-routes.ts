@@ -24,6 +24,7 @@ import {
   RecurringJournalTemplateStatus,
   UnbalancedEntryError,
   type RecurringJournalFrequency,
+  type RecurringJournalRun,
   type RecurringJournalSkip,
   createRecurringJournalTemplate,
   dueDepreciationPeriods,
@@ -233,8 +234,26 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     return c.json(serializeTemplate(template));
   });
 
+  async function withEntryState(runs: readonly RecurringJournalRun[]) {
+    return Promise.all(
+      runs.map(async (run) => {
+        const entry = await deps.ledger.findById(run.journalEntryId);
+        const reversal = entry?.reversedByEntryId ? await deps.ledger.findById(entry.reversedByEntryId) : null;
+        const newest = await deps.runs.findByTemplateAndPeriod(run.templateId, run.period);
+        return {
+          ...run,
+          entryStatus: entry?.status ?? null,
+          current: newest?.id === run.id,
+          reversedByEntryId: reversal?.id ?? null,
+          reversedByEntryNo: reversal?.entryNo ?? null,
+          reversedOn: reversal ? reversal.date.slice(0, 10) : null,
+        };
+      }),
+    );
+  }
+
   app.get("/templates/:id/runs", gate("accounting.recurring.view"), async (c) => {
-    return c.json(await deps.runs.listByTemplate(c.req.param("id")));
+    return c.json(await withEntryState(await deps.runs.listByTemplate(c.req.param("id"))));
   });
 
   app.post("/templates", gate("accounting.recurring.manage"), async (c) => {
@@ -387,7 +406,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.get("/runs", gate("accounting.recurring.view"), async (c) => {
     const limitParam = c.req.query("limit");
     const limit = limitParam ? Number(limitParam) : undefined;
-    return c.json(await deps.runs.list(Number.isFinite(limit) ? limit : undefined));
+    return c.json(await withEntryState(await deps.runs.list(Number.isFinite(limit) ? limit : undefined)));
   });
 
   /**

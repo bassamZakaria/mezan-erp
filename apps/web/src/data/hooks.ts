@@ -1554,16 +1554,28 @@ export interface RecurringJournalTemplateDTO {
   readonly updatedAt: string;
 }
 
+export enum RecurringJournalRunEntryStatusDTO {
+  Draft = "draft",
+  Posted = "posted",
+  Reversed = "reversed",
+}
+
 export interface RecurringJournalRunDTO {
   readonly id: string;
   readonly templateId: string;
   readonly period: string;
+  readonly generation?: number;
   readonly journalEntryId: string;
   readonly journalEntryNo: string | null;
   readonly reversalJournalEntryId: string | null;
   readonly reversalJournalEntryNo: string | null;
   readonly generatedAt: string;
   readonly generatedBy: string;
+  readonly entryStatus?: RecurringJournalRunEntryStatusDTO | null;
+  readonly current?: boolean;
+  readonly reversedByEntryId?: string | null;
+  readonly reversedByEntryNo?: string | null;
+  readonly reversedOn?: string | null;
 }
 
 export interface DueRecurringJournalDTO {

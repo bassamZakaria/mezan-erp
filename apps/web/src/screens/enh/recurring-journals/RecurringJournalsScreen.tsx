@@ -40,6 +40,7 @@ import {
   useUpdateRecurringJournalTemplate,
   type DueRecurringJournalDTO,
   type RecurringJournalRunDTO,
+  RecurringJournalRunEntryStatusDTO,
   type RecurringJournalSkipDTO,
   type RecurringJournalTemplateDTO,
   type RecurringJournalTemplateLineDTO,
@@ -579,6 +580,7 @@ function DueTab() {
 enum RecurringJournalHistoryKind {
   Generated = "generated",
   Skipped = "skipped",
+  Reversed = "reversed",
 }
 
 interface RecurringJournalHistoryRow {
@@ -622,7 +624,7 @@ export function RecurringJournalHistory() {
   const rows: RecurringJournalHistoryRow[] = useMemo(() => {
     const generated = runs.map((run) => ({
       key: `run:${run.id}`,
-      kind: RecurringJournalHistoryKind.Generated,
+      kind: run.entryStatus === RecurringJournalRunEntryStatusDTO.Reversed ? RecurringJournalHistoryKind.Reversed : RecurringJournalHistoryKind.Generated,
       templateId: run.templateId,
       period: run.period,
       at: run.generatedAt,
@@ -648,12 +650,17 @@ export function RecurringJournalHistory() {
     { key: "templateId", header: t("recurringJournals.name"), render: (row) => nameById.get(row.templateId) ?? row.templateId },
     { key: "period", header: t("recurringJournals.period"), render: (row) => <span className="mz-num">{row.period}</span> },
     {
+      key: "generation",
+      header: t("recurringJournals.generation"),
+      render: (row) => (row.run ? <span className="mz-num" data-generation>{row.run.generation ?? 1}</span> : <span className="text-ink-faint">—</span>),
+    },
+    {
       key: "kind",
       header: t("recurringJournals.kind"),
       render: (row) => (
         <StatusPill
           label={t(`recurringJournals.kind.${row.kind}`)}
-          tone={row.kind === RecurringJournalHistoryKind.Generated ? "success" : "neutral"}
+          tone={row.kind === RecurringJournalHistoryKind.Generated ? "success" : row.kind === RecurringJournalHistoryKind.Reversed ? "danger" : "neutral"}
         />
       ),
     },
@@ -683,6 +690,22 @@ export function RecurringJournalHistory() {
         );
       },
     },
+    {
+      key: "runReversal",
+      header: t("recurringJournals.runReversal"),
+      render: (row) => {
+        const run = row.run;
+        if (!run?.reversedByEntryId) return <span className="text-ink-faint">—</span>;
+        return (
+          <span className="inline-flex flex-wrap items-center gap-[6px]">
+            <button type="button" className="text-brand underline" onClick={() => nav.openScreenAt("journals", [run.reversedByEntryNo ?? run.reversedByEntryId ?? ""])}>
+              {run.reversedByEntryNo ?? run.reversedByEntryId}
+            </button>
+            <span className="mz-num text-ink-muted">{run.reversedOn}</span>
+          </span>
+        );
+      },
+    },
     { key: "at", header: t("recurringJournals.generatedAt"), render: (row) => <span className="mz-num text-ink-muted">{row.at.slice(0, 10)}</span> },
   ];
 
@@ -700,7 +723,7 @@ export function RecurringJournalHistory() {
       rowKey={(row) => row.key}
       rowAction={(row) => {
         const run = row.run;
-        if (!run) return null;
+        if (!run || row.kind === RecurringJournalHistoryKind.Reversed) return null;
         const items: RowMenuItem[] = [
           { key: "reverse", label: t("recurringJournals.reverseRunEntry"), tone: "danger" as const, disabled: reversingId === run.id, confirm: { title: t("recurringJournals.reverseRunEntry"), consequence: t("recurringJournals.reverseConfirmBody", { name: nameById.get(run.templateId) ?? run.templateId, period: run.period }), confirmLabel: t("recurringJournals.reverseRunEntry") }, onSelect: () => void reverse(run.id) },
         ];

@@ -174,6 +174,7 @@ async function generateOnePeriod(
     id: idGen(),
     templateId: template.id,
     period,
+    generation: reversed ? reversed.generation + 1 : 1,
     journalEntryId: entry.id,
     journalEntryNo: entry.entryNo ?? null,
     reversalJournalEntryId: reversalId,
@@ -181,7 +182,7 @@ async function generateOnePeriod(
     generatedAt: deps.now ? deps.now() : new Date().toISOString(),
     generatedBy: deps.actor ?? "system",
   };
-  const claimed = reversed ? await deps.runs.replace(reversed.id, run) : await deps.runs.save(run);
+  const claimed = await deps.runs.save(run);
 
   if (!claimed) {
     // Lost the race: a concurrent call recorded this (template, period)

@@ -6,7 +6,7 @@ import { openSqliteConnection } from "@mezan/persistence";
 import { createPlatform, type PlatformHandle } from "@mezan/backend";
 import type { Tenant } from "@mezan/domain";
 import { createCardCheckoutService } from "./card-checkout.js";
-import { createOwnerContact, OwnerContactAudit } from "./owner-contact.js";
+import { createOwnerContact, OwnerCandidateNotFoundError, OwnerContactAudit } from "./owner-contact.js";
 import { createPaymobTestProvider } from "./paymob-provider.js";
 import { provisionTenant } from "./provision-tenant.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
@@ -417,70 +417,126 @@ describe("the platform's record of a tenant's owner", () => {
   });
 });
 
+const OWNER_ERASURE_REFUSAL = {
+  error: "OWNER_ACCOUNT_PROTECTED",
+  message: "هذا حساب مالك المنشأة ولا تُمحى بياناته. ينقل المالك ملكية المنشأة إلى مدير آخر أولًا، وبعدها يُمحى حسابه كأي حساب آخر.",
+};
+
+async function ownerStepsDownOnConsolePin(c: Cloud, co: Company, successorId: string): Promise<{ owner: Record<string, unknown>; status: number }> {
+  const owner = await co.user(`owner@${co.code}.example`);
+  const reset = await resetTenantOwnerPin({ platform: c.platform, router: c.router }, { tenant: await co.recorded(), actorId: "op-1" });
+  const session = (await co.signIn(`owner@${co.code}.example`, reset.adminPin)).token;
+  const stepped = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, status: "inactive", newOwnerUserId: successorId }, session);
+  return { owner, status: stepped.status };
+}
+
 describe("erasing the recorded owner", () => {
   const erase = (co: Company, id: string, body: Record<string, unknown>, token: string) => co.call("POST", `/users/${id}/erase`, body, token);
 
-  it("is refused until another company admin is named as the new owner", async () => {
+  it("is refused for a peer admin, whoever they name as the new owner, and nothing about the owner changes", async () => {
     const c = await cloud();
     const co = await company(c, "juliet");
     const peer = await secondAdmin(co);
+    const third = await secondAdmin(co, "third@juliet.example");
     const owner = await co.user("owner@juliet.example");
     const before = await co.recorded();
+    const request = { confirmEmail: "owner@juliet.example", reason: "طلب محو" };
 
-    const bare = await erase(co, String(owner["id"]), { confirmEmail: "owner@juliet.example", reason: "طلب محو" }, peer.token);
-    const toSelf = await erase(co, String(owner["id"]), { confirmEmail: "owner@juliet.example", reason: "طلب محو", newOwnerUserId: owner["id"] }, peer.token);
+    const bare = await erase(co, String(owner["id"]), request, peer.token);
+    const forSelf = await erase(co, String(owner["id"]), { ...request, newOwnerUserId: peer.id }, peer.token);
+    const forThird = await erase(co, String(owner["id"]), { ...request, newOwnerUserId: third.id }, peer.token);
 
-    expect(bare.status).toBe(422);
-    expect(bare.json).toMatchObject({ error: "OWNER_SUCCESSOR_REQUIRED", message: "هذا الحساب هو مالك المنشأة. اختر مديرًا آخر للمنشأة ليصبح المالك قبل محو بياناته." });
-    expect(toSelf.status).toBe(422);
+    for (const refusal of [bare, forSelf, forThird]) {
+      expect(refusal.status).toBe(403);
+      expect(refusal.json).toMatchObject(OWNER_ERASURE_REFUSAL);
+    }
     expect(await co.recorded()).toEqual(before);
-    expect((await co.user("owner@juliet.example"))["id"]).toBe(owner["id"]);
+    expect(await co.user("owner@juliet.example")).toMatchObject({ id: owner["id"], status: "active", isCompanyAdmin: true });
+    expect(c.mails).toEqual([]);
+    expect(await ownerAudit(c, OwnerContactAudit.HandOverPending)).toEqual([]);
+    expect(await tenantAudit(co, "PERSONAL_DATA_ERASED", peer.token)).toEqual([]);
   });
 
-  it("records a hand-over a peer admin named for themself as PENDING: the recorded owner and address stay, and the old address is mailed", async () => {
+  it("is refused for the owner themself with the same reason", async () => {
+    const c = await cloud();
+    const co = await company(c, "golf2");
+    const owner = await co.user("owner@golf2.example");
+
+    const refused = await erase(co, String(owner["id"]), { confirmEmail: "owner@golf2.example", reason: "طلب محو" }, (await co.signIn("owner@golf2.example", co.ownerPin)).token);
+
+    expect(refused.status).toBe(403);
+    expect(refused.json).toMatchObject(OWNER_ERASURE_REFUSAL);
+  });
+
+  it("is allowed once the owner has handed the company over: the former owner is an ordinary account", async () => {
     const c = await cloud();
     const co = await company(c, "kilo");
     const peer = await secondAdmin(co);
     const owner = await co.user("owner@kilo.example");
+    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, status: "inactive", newOwnerUserId: peer.id })).status).toBe(200);
 
-    const erased = await erase(co, String(owner["id"]), { confirmEmail: "owner@kilo.example", reason: "طلب محو", newOwnerUserId: peer.id }, peer.token);
+    const erased = await erase(co, String(owner["id"]), { confirmEmail: "owner@kilo.example", reason: "طلب محو" }, peer.token);
 
     expect(erased.status).toBe(200);
-    expect(erased.json).toMatchObject({ ownerHandOver: "pending" });
-    expect(await co.recorded()).toMatchObject({
-      ownerUserId: owner["id"],
-      ownerEmail: "owner@kilo.example",
-      pendingOwner: { userId: peer.id, email: "second@kilo.example", requestedBy: `tenant:kilo:${peer.id}` },
-    });
-    expect(await ownerAudit(c, OwnerContactAudit.HandOverPending)).toEqual([
-      expect.objectContaining({ code: "kilo", fromUserId: owner["id"], toUserId: peer.id }),
-    ]);
-    expect(await ownerAudit(c, OwnerContactAudit.HandedOver)).toEqual([]);
-    expect(c.mails).toEqual([expect.objectContaining({ to: "owner@kilo.example", code: "kilo", successorEmail: "second@kilo.example" })]);
-    expect(await tenantAudit(co, "COMPANY_OWNER_HAND_OVER", peer.token)).toMatchObject([
-      { entityId: peer.id, severity: "CRITICAL", details: { fromUserId: owner["id"], toUserId: peer.id, outcome: "pending" } },
-    ]);
+    expect(erased.json).toMatchObject({ alreadyErased: false });
+    expect(await co.recorded()).toMatchObject({ ownerUserId: peer.id, ownerEmail: "second@kilo.example", ownerContactVerified: true });
   });
 
-  it("keeps a hand-over a peer admin named for a third admin pending too", async () => {
+  it("is allowed once the platform has assigned another admin as the owner", async () => {
     const c = await cloud();
     const co = await company(c, "romeo");
     const peer = await secondAdmin(co);
-    const third = await secondAdmin(co, "third@romeo.example");
     const owner = await co.user("owner@romeo.example");
+    await c.router.assignOwner({ tenantId: co.tenantId, userId: peer.id, actor: "platform:op-1" });
 
-    const erased = await erase(co, String(owner["id"]), { confirmEmail: "owner@romeo.example", reason: "طلب محو", newOwnerUserId: third.id }, peer.token);
+    const erased = await erase(co, String(owner["id"]), { confirmEmail: "owner@romeo.example", reason: "طلب محو" }, peer.token);
 
-    expect(erased.json).toMatchObject({ ownerHandOver: "pending" });
-    expect(await co.recorded()).toMatchObject({ ownerEmail: "owner@romeo.example", pendingOwner: { userId: third.id, email: "third@romeo.example" } });
+    expect(erased.status).toBe(200);
+    expect(await co.recorded()).toMatchObject({ ownerUserId: peer.id, ownerEmail: "second@romeo.example" });
+  });
+
+  it("erases anyone who is not the owner without asking for a successor", async () => {
+    const c = await cloud();
+    const co = await company(c, "mike");
+    const peer = await secondAdmin(co);
+    const before = await co.recorded();
+
+    const erased = await erase(co, peer.id, { confirmEmail: "second@mike.example", reason: "طلب محو" }, (await co.signIn("owner@mike.example", co.ownerPin)).token);
+
+    expect(erased.status).toBe(200);
+    expect(await co.recorded()).toEqual(before);
+  });
+});
+
+describe("a hand-over the platform cannot take as the owner's own act", () => {
+  it("is recorded as PENDING: the recorded owner and address stay, and the old address is mailed", async () => {
+    const c = await cloud();
+    const co = await company(c, "sable");
+    const peer = await secondAdmin(co);
+
+    const { owner, status } = await ownerStepsDownOnConsolePin(c, co, peer.id);
+
+    expect(status).toBe(200);
+    expect(await co.recorded()).toMatchObject({
+      ownerUserId: owner["id"],
+      ownerEmail: "owner@sable.example",
+      pendingOwner: { userId: peer.id, email: "second@sable.example", requestedBy: `tenant:sable:${String(owner["id"])}` },
+    });
+    expect(await ownerAudit(c, OwnerContactAudit.HandOverPending)).toEqual([
+      expect.objectContaining({ code: "sable", fromUserId: owner["id"], toUserId: peer.id }),
+    ]);
+    expect(await ownerAudit(c, OwnerContactAudit.HandedOver)).toEqual([]);
+    expect(c.mails).toEqual([expect.objectContaining({ to: "owner@sable.example", code: "sable", successorEmail: "second@sable.example" })]);
+    expect(await tenantAudit(co, "COMPANY_OWNER_HAND_OVER", peer.token)).toMatchObject([
+      { entityId: peer.id, severity: "CRITICAL", details: { fromUserId: owner["id"], toUserId: peer.id, outcome: "pending" } },
+    ]);
   });
 
   it("makes the pending successor the verified owner when the previous owner opens the link they were mailed, once", async () => {
     const c = await cloud();
     const co = await company(c, "sierra");
     const peer = await secondAdmin(co);
-    const owner = await co.user("owner@sierra.example");
-    await erase(co, String(owner["id"]), { confirmEmail: "owner@sierra.example", reason: "طلب محو", newOwnerUserId: peer.id }, peer.token);
+    await ownerStepsDownOnConsolePin(c, co, peer.id);
     const token = c.mails[0]?.token ?? "";
 
     expect(await c.router.confirmPendingOwnerByToken("not-the-token")).toBeNull();
@@ -494,22 +550,23 @@ describe("erasing the recorded owner", () => {
     expect((await co.signIn("second@sierra.example", reset.adminPin)).status).toBe(200);
   });
 
-  it("commits the erasure first and the hand-over after: a platform that refuses the hand-over leaves the tenant flagged, not owned by the actor", async () => {
+  it("refuses the link, and the console, once the successor is no longer an active admin, and the pending hand-over stays as it was", async () => {
     const c = await cloud();
-    const co = await company(c, "tango");
+    const co = await company(c, "oscar");
     const peer = await secondAdmin(co);
-    const owner = await co.user("owner@tango.example");
+    const third = await secondAdmin(co, "third@oscar.example");
+    await ownerStepsDownOnConsolePin(c, co, peer.id);
+    const token = c.mails[0]?.token ?? "";
+    const before = await co.recorded();
+    expect((await co.call("POST", `/users/${peer.id}/deactivate`, undefined, third.token)).status).toBe(200);
 
-    c.faults.ownerWriteRefuses = true;
-    const erased = await erase(co, String(owner["id"]), { confirmEmail: "owner@tango.example", reason: "طلب محو", newOwnerUserId: peer.id }, peer.token);
-    c.faults.ownerWriteRefuses = false;
+    const byLink = await c.router.confirmPendingOwnerByToken(token);
+    const byConsole = await c.router.confirmPendingOwner({ tenantId: co.tenantId, actor: "platform:op-1" }).catch((err: unknown) => err);
 
-    expect(erased.status).toBe(200);
-    expect(erased.json).toMatchObject({ ownerHandOver: "failed" });
-    const users = (await co.call("GET", "/users", undefined, peer.token)).json as Record<string, unknown>[];
-    expect(users.find((user) => user["id"] === owner["id"])?.["email"]).not.toBe("owner@tango.example");
-    await c.router.reconcileOwner("tango");
-    expect(await co.recorded()).toMatchObject({ ownerUserId: owner["id"], ownerEmail: "owner@tango.example", ownerNeeded: true });
+    expect(byLink).toBeNull();
+    expect(byConsole).toBeInstanceOf(OwnerCandidateNotFoundError);
+    expect(await co.recorded()).toEqual(before);
+    expect(await ownerAudit(c, OwnerContactAudit.HandedOver)).toEqual([]);
   });
 
   it("retries a hand-over whose first write lost a race, and records it once", async () => {
@@ -517,11 +574,13 @@ describe("erasing the recorded owner", () => {
     const co = await company(c, "uniform");
     const peer = await secondAdmin(co);
     const owner = await co.user("owner@uniform.example");
+    const reset = await resetTenantOwnerPin({ platform: c.platform, router: c.router }, { tenant: await co.recorded(), actorId: "op-1" });
+    const session = (await co.signIn("owner@uniform.example", reset.adminPin)).token;
 
     c.faults.ownerWritesLost = 1;
-    const erased = await erase(co, String(owner["id"]), { confirmEmail: "owner@uniform.example", reason: "طلب محو", newOwnerUserId: peer.id }, peer.token);
+    const stepped = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, status: "inactive", newOwnerUserId: peer.id }, session);
 
-    expect(erased.json).toMatchObject({ ownerHandOver: "pending" });
+    expect(stepped.status).toBe(200);
     expect((await co.recorded()).pendingOwner).toMatchObject({ userId: peer.id });
     expect(await ownerAudit(c, OwnerContactAudit.HandOverPending)).toHaveLength(1);
     expect(c.mails).toHaveLength(1);
@@ -542,39 +601,6 @@ describe("erasing the recorded owner", () => {
     expect(await ownerAudit(c, OwnerContactAudit.HandOverPending)).toHaveLength(1);
     expect(sent).toEqual(["owner@indigo.example"]);
   });
-
-  it("refuses a successor who is not an active company admin", async () => {
-    const c = await cloud();
-    const co = await company(c, "lima");
-    const peer = await secondAdmin(co);
-    const roles = (await co.call("GET", "/roles")).json as { id: string }[];
-    const clerk = await co.call("POST", "/users", {
-      nameAr: "موظف", nameEn: null, email: "clerk@lima.example", phone: null, roleId: roles[0]?.id, isCompanyAdmin: false,
-      employeeId: null, branchScope: "*", warehouseScope: "*", status: "active", password: "clerk-password-1", acknowledge: true, reason: "اختبار",
-    });
-    const owner = await co.user("owner@lima.example");
-    const before = await co.recorded();
-
-    const refused = await erase(
-      co, String(owner["id"]),
-      { confirmEmail: "owner@lima.example", reason: "طلب محو", newOwnerUserId: (clerk.json as Record<string, unknown>)["id"] }, peer.token,
-    );
-
-    expect(refused.status).toBe(422);
-    expect(await co.recorded()).toEqual(before);
-  });
-
-  it("erases anyone who is not the owner without asking for a successor", async () => {
-    const c = await cloud();
-    const co = await company(c, "mike");
-    const peer = await secondAdmin(co);
-    const before = await co.recorded();
-
-    const erased = await erase(co, peer.id, { confirmEmail: "second@mike.example", reason: "طلب محو" }, (await co.signIn("owner@mike.example", co.ownerPin)).token);
-
-    expect(erased.status).toBe(200);
-    expect(await co.recorded()).toEqual(before);
-  });
 });
 
 describe("the platform assigning a tenant's owner", () => {
@@ -583,8 +609,8 @@ describe("the platform assigning a tenant's owner", () => {
     const co = await company(c, "juno");
     const peer = await secondAdmin(co);
     const third = await secondAdmin(co, "third@juno.example");
-    const owner = await co.user("owner@juno.example");
-    await co.call("POST", `/users/${String(owner["id"])}/erase`, { confirmEmail: "owner@juno.example", reason: "طلب محو", newOwnerUserId: peer.id }, peer.token);
+    const { owner } = await ownerStepsDownOnConsolePin(c, co, peer.id);
+    expect((await co.recorded()).pendingOwner).toMatchObject({ userId: peer.id });
 
     const assigned = await c.router.assignOwner({ tenantId: co.tenantId, userId: third.id, actor: "platform:op-1" });
 
@@ -652,20 +678,43 @@ describe("the owner stepping down", () => {
   });
 });
 
-describe("the owner stepping down from a session opened with a console-issued PIN", () => {
-  it("is recorded as pending, because that session proves nothing about who holds the PIN", async () => {
+describe("an owner's step-down the platform cannot record", () => {
+  it("is committed first and handed over after: a platform that refuses the hand-over leaves the tenant flagged, not owned by the successor", async () => {
     const c = await cloud();
-    const co = await company(c, "sable");
+    const co = await company(c, "tango");
     const peer = await secondAdmin(co);
-    const owner = await co.user("owner@sable.example");
-    const reset = await resetTenantOwnerPin({ platform: c.platform, router: c.router }, { tenant: await co.recorded(), actorId: "op-1" });
-    const session = (await co.signIn("owner@sable.example", reset.adminPin)).token;
+    const owner = await co.user("owner@tango.example");
 
-    const stepped = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, status: "inactive", newOwnerUserId: peer.id }, session);
+    c.faults.ownerWriteRefuses = true;
+    const stepped = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, status: "inactive", newOwnerUserId: peer.id });
+    c.faults.ownerWriteRefuses = false;
 
     expect(stepped.status).toBe(200);
-    expect(await co.recorded()).toMatchObject({ ownerUserId: owner["id"], ownerEmail: "owner@sable.example", pendingOwner: { userId: peer.id } });
-    expect(await ownerAudit(c, OwnerContactAudit.HandedOver)).toEqual([]);
+    expect(await tenantAudit(co, "COMPANY_OWNER_HAND_OVER", peer.token)).toMatchObject([{ details: { outcome: "failed" } }]);
+    const users = (await co.call("GET", "/users", undefined, peer.token)).json as Record<string, unknown>[];
+    expect(users.find((user) => user["id"] === owner["id"])?.["status"]).toBe("inactive");
+    await c.router.reconcileOwner("tango");
+    expect(await co.recorded()).toMatchObject({ ownerUserId: owner["id"], ownerEmail: "owner@tango.example", ownerNeeded: true });
+  });
+
+  it("is refused when the successor named is not an active company admin", async () => {
+    const c = await cloud();
+    const co = await company(c, "lima");
+    await secondAdmin(co);
+    const roles = (await co.call("GET", "/roles")).json as { id: string }[];
+    const clerk = await co.call("POST", "/users", {
+      nameAr: "موظف", nameEn: null, email: "clerk@lima.example", phone: null, roleId: roles[0]?.id, isCompanyAdmin: false,
+      employeeId: null, branchScope: "*", warehouseScope: "*", status: "active", password: "clerk-password-1", acknowledge: true, reason: "اختبار",
+    });
+    const owner = await co.user("owner@lima.example");
+    const before = await co.recorded();
+
+    const refused = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, status: "inactive", newOwnerUserId: (clerk.json as Record<string, unknown>)["id"] });
+
+    expect(refused.status).toBe(422);
+    expect(refused.json).toMatchObject({ error: "OWNER_SUCCESSOR_REQUIRED" });
+    expect(await co.recorded()).toEqual(before);
+    expect((await co.user("owner@lima.example"))["status"]).toBe("active");
   });
 });
 
@@ -714,8 +763,8 @@ describe("a tenant whose owner the platform does not know by id", () => {
     c.faults.ownerWriteRefuses = false;
 
     expect(takeover.status).toBe(403);
-    expect(bareErase.status).toBe(422);
-    expect(bareErase.json).toMatchObject({ error: "OWNER_SUCCESSOR_REQUIRED" });
+    expect(bareErase.status).toBe(403);
+    expect(bareErase.json).toMatchObject(OWNER_ERASURE_REFUSAL);
     expect((await co.recorded()).ownerUserId).toBeNull();
   });
 

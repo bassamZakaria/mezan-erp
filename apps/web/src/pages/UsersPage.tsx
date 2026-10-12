@@ -124,6 +124,13 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
   };
 }
 
+const HAND_OVER_NOTICE_KEYS: Readonly<Record<OwnerHandOverOutcome, AppTranslationKey | null>> = {
+  [OwnerHandOverOutcome.Verified]: null,
+  [OwnerHandOverOutcome.Pending]: "users.owner.handOverPending",
+  [OwnerHandOverOutcome.PendingUnmailed]: "users.owner.handOverPendingUnmailed",
+  [OwnerHandOverOutcome.Failed]: "users.owner.handOverFailed",
+};
+
 export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus, onUnlock, onErase }: UsersPageProps) {
   const { t } = useAppTranslation();
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
@@ -145,7 +152,6 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   const [eraseTarget, setEraseTarget] = useState<UserDTO | null>(null);
   const [eraseEmail, setEraseEmail] = useState("");
   const [eraseReason, setEraseReason] = useState("");
-  const [eraseSuccessorId, setEraseSuccessorId] = useState("");
   const [eraseError, setEraseError] = useState<string | null>(null);
   const [eraseNotice, setEraseNotice] = useState<string | null>(null);
   const [erasingId, setErasingId] = useState<string | null>(null);
@@ -160,6 +166,11 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       .filter((u) => u.id !== ownerId && u.isCompanyAdmin && u.status === UserStatusCode.Active && !u.erasedAt)
       .map((u) => ({ value: u.id, label: `${u.nameAr} — ${u.email}` }));
 
+  function announceHandOver(outcome: OwnerHandOverOutcome | undefined) {
+    const key = outcome === undefined ? undefined : HAND_OVER_NOTICE_KEYS[outcome];
+    if (key) setEraseNotice(t(key));
+  }
+
   async function toggleStatus(row: UserDTO, status: UserStatusDTO, newOwnerUserId?: string): Promise<boolean> {
     if (togglingId !== null) return false;
     setStatusError(null);
@@ -167,6 +178,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     try {
       const result = newOwnerUserId === undefined ? await onToggleStatus(row.id, status) : await onToggleStatus(row.id, status, newOwnerUserId);
       if (!result.ok) setStatusError(result.error ?? t("users.statusChangeFailed"));
+      else announceHandOver(result.value?.ownerHandOver);
       return result.ok;
     } finally {
       setTogglingId(null);
@@ -266,6 +278,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     setSaving(false);
     if (result.ok) {
       setPanelOpen(false);
+      announceHandOver(result.value?.ownerHandOver);
     } else {
       setFormError(result.error ?? t("users.couldNotSaveTheUser"));
     }
@@ -275,7 +288,6 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     setEraseTarget(user);
     setEraseEmail("");
     setEraseReason("");
-    setEraseSuccessorId("");
     setEraseError(null);
     setEraseNotice(null);
   }
@@ -287,30 +299,20 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       setEraseError(t("users.erase.confirmRequired"));
       return;
     }
-    if (eraseTarget.isCompanyOwner && eraseSuccessorId === "") {
-      setEraseError(t("users.owner.successorRequired"));
-      return;
-    }
     setErasingId(eraseTarget.id);
     const result = await onErase(eraseTarget.id, {
       confirmEmail: eraseEmail.trim(),
       reason: eraseReason.trim(),
-      ...(eraseSuccessorId === "" ? {} : { newOwnerUserId: eraseSuccessorId }),
     });
     setErasingId(null);
     if (!result.ok) {
       setEraseError(result.error ?? t("users.erase.failed"));
       return;
     }
-    const done = result.value?.alreadyErased ? t("users.erase.alreadyErased") : t("users.erase.done");
-    const handOver = result.value?.ownerHandOver;
-    const handOverNote =
-      handOver === OwnerHandOverOutcome.Pending ? t("users.owner.handOverPending") : handOver === OwnerHandOverOutcome.Failed ? t("users.owner.handOverFailed") : "";
-    setEraseNotice(handOverNote === "" ? done : `${done} ${handOverNote}`);
+    setEraseNotice(result.value?.alreadyErased ? t("users.erase.alreadyErased") : t("users.erase.done"));
     setEraseTarget(null);
   }
 
-  const successorOptions = eraseTarget?.isCompanyOwner === true ? successorsOf(eraseTarget.id) : [];
   const editingOwner = editingId !== null && users.some((u) => u.id === editingId && u.isCompanyOwner === true);
   const ownerSteppingDown = editingOwner && (draft.status !== UserStatusCode.Active || !draft.isCompanyAdmin);
   const roleOptions: EntityPickerOption[] = roles.map((r) => ({ id: r.id, label: r.name, sublabel: r.code }));
@@ -375,7 +377,10 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       align: "end",
       render: (row) => (
         <div className="flex items-center justify-end gap-[6px]">
-          {onErase && !row.erasedAt ? (
+          {onErase && !row.erasedAt && row.isCompanyOwner ? (
+            <span className="max-w-[220px] text-end text-[11.5px] leading-[1.6] text-ink-muted">{t("users.owner.eraseRefused")}</span>
+          ) : null}
+          {onErase && !row.erasedAt && !row.isCompanyOwner ? (
             <Button
               size="sm"
               variant="ghost"
@@ -648,15 +653,6 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             onChange={setEraseReason}
             placeholder={t("users.erase.reasonPlaceholder")}
           />
-          {successorOptions.length > 0 ? (
-            <Select
-              label={t("users.erase.newOwnerLabel")}
-              value={eraseSuccessorId}
-              onChange={setEraseSuccessorId}
-              options={successorOptions}
-              placeholder={t("users.erase.newOwnerPlaceholder")}
-            />
-          ) : null}
           <div className="flex justify-end gap-[9px] border-t border-border pt-[14px]">
             <Button variant="ghost" onClick={() => setEraseTarget(null)}>{t("common.cancel")}</Button>
             <Button variant="danger-outline" disabled={erasingId !== null} onClick={() => void handleErase()}>

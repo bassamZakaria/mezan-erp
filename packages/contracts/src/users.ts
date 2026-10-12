@@ -19,6 +19,13 @@ const pinSchema = z.string().regex(/^\d{6}$/, "PIN must be exactly 6 digits");
 const loginEmailSchema = z.string().trim().toLowerCase().email();
 
 /** Wire shape returned to clients — secrets never cross this boundary. */
+export enum OwnerHandOverOutcome {
+  Verified = "verified",
+  Pending = "pending",
+  PendingUnmailed = "pending_unmailed",
+  Failed = "failed",
+}
+
 export const userSchema = z.object({
   id: z.string().min(1),
   /**
@@ -46,6 +53,7 @@ export const userSchema = z.object({
   erasedAt: z.string().nullable().optional(),
   /** True on the one account the platform records as the company's owner; absent where no platform does. */
   isCompanyOwner: z.boolean().optional(),
+  ownerHandOver: z.nativeEnum(OwnerHandOverOutcome).optional(),
 });
 
 const userBaseFields = {
@@ -111,16 +119,9 @@ export const deactivateUserSchema = z.object({
   newOwnerUserId: z.string().trim().min(1).optional(),
 });
 
-export enum OwnerHandOverOutcome {
-  Verified = "verified",
-  Pending = "pending",
-  Failed = "failed",
-}
-
 export const eraseUserSchema = z.object({
   confirmEmail: z.string().trim().min(1),
   reason: z.string().trim().min(3).max(500),
-  newOwnerUserId: z.string().trim().min(1).optional(),
 });
 
 export const userErasureResultSchema = z.object({
@@ -136,7 +137,6 @@ export const userErasureResultSchema = z.object({
   /** True when the account was already erased and this call changed nothing — the retry of a deletion request is not a failure. */
   alreadyErased: z.boolean(),
   retained: z.array(z.nativeEnum(ErasureRetention)),
-  ownerHandOver: z.nativeEnum(OwnerHandOverOutcome).optional(),
 });
 
 export type UserDTO = z.infer<typeof userSchema>;

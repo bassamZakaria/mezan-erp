@@ -121,19 +121,44 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
     expect(tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)).toEqual(before);
   });
 
-  async function peerErasesOwner(w: World): Promise<{ peer: string; peerToken: string }> {
+  async function ownerStepsDownOnConsolePin(w: World): Promise<{ peer: string; peerToken: string; owner: Record<string, unknown> }> {
     const ownerToken = await w.signIn("owner@nile.example", w.ownerPin);
-    const owner = ((await w.tenantCall("GET", "/users", ownerToken)).json as Record<string, unknown>[]).find((user) => user["email"] === "owner@nile.example");
+    const owner = ((await w.tenantCall("GET", "/users", ownerToken)).json as Record<string, unknown>[]).find((user) => user["email"] === "owner@nile.example") ?? {};
     const peer = await addAdmin(w, ownerToken, "second@nile.example", "222222");
     const peerToken = await w.signIn("second@nile.example", "222222");
-    const erased = await w.tenantCall("POST", `/users/${String(owner?.["id"])}/erase`, peerToken, { confirmEmail: "owner@nile.example", reason: "طلب محو", newOwnerUserId: peer });
-    expect(erased.json).toMatchObject({ ownerHandOver: "pending" });
-    return { peer, peerToken };
+    const reset = await w.platformCall("POST", `/tenants/${w.tenantId}/owner-pin/reset`);
+    const session = await w.signIn("owner@nile.example", String(reset.json["adminPin"]));
+    const stepped = await w.tenantCall("PUT", `/users/${String(owner["id"])}`, session, { ...owner, status: "inactive", newOwnerUserId: peer });
+    expect(stepped.status).toBe(200);
+    return { peer, peerToken, owner };
   }
 
-  it("shows a hand-over a peer admin asked for as pending, and confirming it makes the successor the verified owner once", async () => {
+  it("lets a peer admin erase the former owner only after the console has assigned another owner, and refuses it in Arabic before", async () => {
     const w = await world();
-    const { peer } = await peerErasesOwner(w);
+    const ownerToken = await w.signIn("owner@nile.example", w.ownerPin);
+    const owner = ((await w.tenantCall("GET", "/users", ownerToken)).json as Record<string, unknown>[]).find((user) => user["email"] === "owner@nile.example") ?? {};
+    const peer = await addAdmin(w, ownerToken, "second@nile.example", "222222");
+    const peerToken = await w.signIn("second@nile.example", "222222");
+    const erase = () => w.tenantCall("POST", `/users/${String(owner["id"])}/erase`, peerToken, { confirmEmail: "owner@nile.example", reason: "طلب محو", newOwnerUserId: peer });
+
+    const before = await erase();
+    const assigned = await w.platformCall("POST", `/tenants/${w.tenantId}/owner`, { userId: peer });
+    const after = await erase();
+
+    expect(before.status).toBe(403);
+    expect(before.json).toMatchObject({
+      error: "OWNER_ACCOUNT_PROTECTED",
+      message: "هذا حساب مالك المنشأة ولا تُمحى بياناته. ينقل المالك ملكية المنشأة إلى مدير آخر أولًا، وبعدها يُمحى حسابه كأي حساب آخر.",
+    });
+    expect(assigned.status).toBe(200);
+    expect(after.status).toBe(200);
+    expect(after.json).toMatchObject({ alreadyErased: false });
+    expect(tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)).toMatchObject({ ownerEmail: "second@nile.example", ownerContactVerified: true });
+  });
+
+  it("shows a hand-over the owner asked for on a console-issued PIN as pending, and confirming it makes the successor the verified owner once", async () => {
+    const w = await world();
+    const { peer } = await ownerStepsDownOnConsolePin(w);
 
     const pending = tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json);
     expect(pending).toMatchObject({ ownerEmail: "owner@nile.example", pendingOwner: { userId: peer, email: "second@nile.example" } });
@@ -150,7 +175,7 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
 
   it("mails the previously recorded owner a link on the configured origin, and the link confirms the hand-over exactly once", async () => {
     const w = await world();
-    await peerErasesOwner(w);
+    await ownerStepsDownOnConsolePin(w);
 
     expect(w.sent).toHaveLength(1);
     expect(w.sent[0]?.to).toBe("owner@nile.example");
@@ -173,7 +198,7 @@ describe("the platform owner assigns a tenant's owner from the console", () => {
 
   it("records the hand-over as pending with no link when no public origin is configured, so only the console can confirm it", async () => {
     const w = await world({});
-    const { peer } = await peerErasesOwner(w);
+    const { peer } = await ownerStepsDownOnConsolePin(w);
 
     expect(w.sent).toEqual([]);
     expect(tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)).toMatchObject({ pendingOwner: { userId: peer } });

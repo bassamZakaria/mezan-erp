@@ -13,8 +13,10 @@
 /** Raised when an operation references a journal-entry id that does not exist. */
 export class JournalEntryNotFoundError extends Error {
   readonly code = "JOURNAL_ENTRY_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly entryId: string) {
     super(`تعذّر العثور على القيد "${entryId}".`);
+    this.messageEn = `Journal entry "${entryId}" was not found.`;
     this.name = "JournalEntryNotFoundError";
   }
 }
@@ -38,11 +40,13 @@ export class JournalEntryNotDraftError extends Error {
  */
 export class JournalEntryNotPostedError extends Error {
   readonly code = "JOURNAL_ENTRY_NOT_POSTED";
+  readonly messageEn: string;
   constructor(
     readonly entryId: string,
     readonly status: string,
   ) {
     super(`القيد "${entryId}" حالته "${status}" وليس مُرحَّلاً، فلا يمكن عكسه.`);
+    this.messageEn = `Journal entry "${entryId}" is "${status}", not posted, so it cannot be reversed.`;
     this.name = "JournalEntryNotPostedError";
   }
 }
@@ -50,11 +54,13 @@ export class JournalEntryNotPostedError extends Error {
 /** Raised when reversing an entry that has already been reversed (append-only: never reverse twice). */
 export class JournalEntryAlreadyReversedError extends Error {
   readonly code = "JOURNAL_ENTRY_ALREADY_REVERSED";
+  readonly messageEn: string;
   constructor(
     readonly entryId: string,
     readonly reversedByEntryId: string,
   ) {
     super(`القيد "${entryId}" سبق عكسه بالقيد "${reversedByEntryId}".`);
+    this.messageEn = `Journal entry "${entryId}" was already reversed by entry "${reversedByEntryId}".`;
     this.name = "JournalEntryAlreadyReversedError";
   }
 }

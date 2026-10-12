@@ -1,4 +1,3 @@
-import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -9,6 +8,9 @@ import {
   withDerivedTreasuryFx,
   type DerivedTreasuryFxLine,
   nextDay,
+  reverseJournalEntry,
+  FX_REVALUATION_DOC_TYPE,
+  ReversalDateBeforeOriginalError,
   FxRateMissingError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
@@ -24,6 +26,7 @@ import {
 import { fxRevaluationRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { tenantDay } from "./tenant-day.js";
+import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse } from "./document-reversal.js";
 
 export interface FxRevaluationRoutesDeps {
   readonly ledger: LedgerRepository;
@@ -35,6 +38,7 @@ export interface FxRevaluationRoutesDeps {
   /** Where the unrealised gain and loss post, read per request so the tenant's `fx.unrealised_*` routing applies (D229). */
   differenceAccounts(): Promise<FxDifferenceAccounts>;
   readonly audit?: JournalPostingDeps["audit"];
+  readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly events?: JournalPostingDeps["events"];
   readonly now?: () => string;
   readonly idGen?: () => string;
@@ -79,8 +83,8 @@ function serializeResult(computed: FxRevaluationResult, date: string, autoRevers
 }
 
 function handleError(c: Context, err: unknown): Response {
-  const postingRefusal = postingRefusalResponse(c, err);
-  if (postingRefusal) return postingRefusal;
+  const reversalRefusal = reversalRefusalResponse(c, err);
+  if (reversalRefusal) return reversalRefusal;
   if (err instanceof FxRateMissingError) {
     return c.json({ error: err.code, message: err.message, currency: err.currency }, 422);
   }
@@ -187,6 +191,64 @@ export function createFxRevaluationRoutes(
         },
         201,
       );
+    } catch (err) {
+      return handleError(c, err);
+    }
+  });
+
+  const RUN_NOT_FOUND = {
+    error: "FX_REVALUATION_RUN_NOT_FOUND",
+    message: "تشغيل إعادة تقييم العملات غير موجود.",
+    messageEn: "The FX revaluation run does not exist.",
+  } as const;
+
+  app.get("/runs", gate("accounting.journal.view"), async (c) => {
+    const entries = await deps.ledger.list({ sourceDocTypes: [FX_REVALUATION_DOC_TYPE] });
+    const byId = new Map(entries.map((entry) => [entry.id, entry]));
+    const runs = entries
+      .filter((entry) => !entry.reversesEntryId)
+      .map((entry) => {
+        const reversal = entry.reversedByEntryId ? (byId.get(entry.reversedByEntryId) ?? null) : null;
+        return {
+          entryId: entry.id,
+          entryNo: entry.entryNo ?? null,
+          date: entry.date,
+          memo: entry.memo ?? null,
+          status: entry.status,
+          reversible: entry.status === "posted",
+          reversalEntryId: reversal?.id ?? null,
+          reversalEntryNo: reversal?.entryNo ?? null,
+          reversalDate: reversal?.date ?? null,
+        };
+      })
+      .sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1));
+    return c.json({ runs });
+  });
+
+  app.post("/runs/:entryId/reverse", gate("accounting.journal.post"), async (c) => {
+    const original = await deps.ledger.findById(c.req.param("entryId"));
+    if (!original || original.sourceDocType !== FX_REVALUATION_DOC_TYPE || original.reversesEntryId) return c.json(RUN_NOT_FOUND, 404);
+    try {
+      const { date, memo } = await readReversalRequest(c);
+      const reversalDate = date ?? original.date.slice(0, 10);
+      if (reversalDate < original.date.slice(0, 10)) throw new ReversalDateBeforeOriginalError(original.id, reversalDate, original.date);
+      const actor = getAuthContext(c)?.userId ?? "system";
+      const result = await deps.ledger.transaction(async () => {
+        const reversed = await reverseJournalEntry(
+          original.id,
+          { ledger: deps.ledger, accounts: deps.accounts, periods: deps.periods, numbering: deps.numbering, projects: deps.projects, audit: deps.audit, vatFilings: deps.vatFilings, events: deps.events, now: deps.now, actor },
+          { reversalId: idGen(), date: reversalDate, memo: memo ?? `عكس إعادة تقييم العملات الأجنبية (${original.entryNo ?? original.id})` },
+        );
+        await recordDocumentReversal(deps.audit, {
+          module: "accounting",
+          entityType: FX_REVALUATION_DOC_TYPE,
+          entityId: original.id,
+          actor,
+          details: { entryId: original.id, entryNo: original.entryNo ?? null, revaluationDate: original.date, reversalId: reversed.reversal.id, reversalNo: reversed.reversal.entryNo ?? null, date: reversalDate },
+        });
+        return reversed;
+      });
+      return c.json({ entryId: original.id, entryStatus: result.original.status, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null, reversalDate }, 201);
     } catch (err) {
       return handleError(c, err);
     }

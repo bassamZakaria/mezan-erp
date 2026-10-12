@@ -3539,6 +3539,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     costCenterPl: { ledger, accounts, costCenters },
     fxRevaluation: {
       recordRun: (run) => fxRevaluationRuns.record(run),
+      audit: auditSink,
+      vatFilings,
       ledger,
       accounts,
       periods: fiscalPeriods,

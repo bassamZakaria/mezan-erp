@@ -16,13 +16,13 @@ export interface SeededWorld {
   readonly backend: BackendHandle;
   readonly sqlite: Sqlite;
   request(method: string, url: string, body?: unknown): Promise<Answer>;
-  invariants(): Promise<Record<"tb" | "inventory" | "ar" | "ap", string>>;
+  invariants(): Promise<Record<"tb" | "inventory" | "ar" | "ap" | "grni", string>>;
   balance(accountId: string, asOfDate?: string): bigint;
   count(table: string, where?: string): number;
   close(): void;
 }
 
-export const INVARIANTS_ZERO = { tb: "0", inventory: "0.000000", ar: "0.000000", ap: "0.000000" } as const;
+export const INVARIANTS_ZERO = { tb: "0", inventory: "0.000000", ar: "0.000000", ap: "0.000000", grni: "0.000000" } as const;
 
 export async function seededWorld(options: Partial<CreateBackendOptions> = {}): Promise<SeededWorld> {
   const dir = mkdtempSync(path.join(tmpdir(), "mezan-world-"));
@@ -58,7 +58,7 @@ export async function seededWorld(options: Partial<CreateBackendOptions> = {}): 
         .prepare(`SELECT COALESCE(SUM(jl.debit - jl.credit), 0) AS net FROM journal_line jl JOIN journal_entry je ON je.id = jl.entry_id WHERE je.status IN ('posted', 'reversed')`)
         .safeIntegers()
         .get() as { net: bigint };
-      return { tb: tb.net.toString(), inventory: diff("inventory"), ar: diff("ar"), ap: diff("ap") };
+      return { tb: tb.net.toString(), inventory: diff("inventory"), ar: diff("ar"), ap: diff("ap"), grni: diff("grni") };
     },
     balance(accountId, asOfDate = "9999-12-31") {
       const row = sqlite

@@ -114,6 +114,7 @@ describe("real router integration (App + routes.tsx)", () => {
         <App initialEntries={["/"]} />
       </AppProviders>,
     );
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني"), { target: { value: "admin@cyag.example" } });
     "123456".split("").forEach((digit, index) => {
       fireEvent.change(screen.getByLabelText(`رمز PIN رقم ${index + 1}`), { target: { value: digit } });
     });

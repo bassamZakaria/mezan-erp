@@ -39,6 +39,9 @@ import {
   useConfirmPurchaseInvoice,
   useConfirmPurchaseOrder,
   useConfirmSalesInvoice,
+  useClassifyLineTax,
+  useNameJournalLineTax,
+  ClassifiableDocument,
   useConfirmStockAdjustment,
   useConfirmVoucher,
   useCreateAccount,
@@ -786,6 +789,29 @@ describe("sales invoices", () => {
     expect(keys).toContainEqual(["treasury-accounts"]);
     expect(keys).toContainEqual(["dashboard"]);
     expect(spy).toHaveBeenCalledTimes(4);
+  });
+
+  it("a tax classification and a journal-line naming both make stale the document, its returns, its entry, the audit trail, the e-document queue and receipts, and the VAT report", async () => {
+    const reply = { documentId: "SI1", documentNumber: "INV-1", lineIds: ["A"], taxRateId: "VAT-EXEMPT", taxRateName: "معفى", taxRatePercent: 0, journalLinesNamed: 1, filing: "requeued" };
+    const moved = ["eta-submissions", "eta", "journal-entries", "gl", "audit", "entity-audit", "financial-reports", "vat-filings"];
+    const transport = stubTransport({
+      "POST /sales-invoices/SI1/lines/A/classify-tax": () => ({ body: reply }),
+      "POST /purchases/invoices/PI1/lines/0/journal-tax": () => ({ body: reply }),
+    });
+
+    const sales = makeWrapper(transport);
+    const salesSpy = vi.spyOn(sales.queryClient, "invalidateQueries");
+    const classify = renderHook(() => useClassifyLineTax(ClassifiableDocument.SalesInvoice), { wrapper: sales.Wrapper });
+    classify.result.current.mutate({ documentId: "SI1", lineId: "A", taxRateId: "VAT-EXEMPT", withLineIds: [] });
+    await waitFor(() => expect(classify.result.current.isSuccess).toBe(true));
+    expect(salesSpy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey[0]).sort()).toEqual(["sales-invoices", "sales-returns", ...moved].sort());
+
+    const purchases = makeWrapper(transport);
+    const purchaseSpy = vi.spyOn(purchases.queryClient, "invalidateQueries");
+    const name = renderHook(() => useNameJournalLineTax(ClassifiableDocument.PurchaseInvoice), { wrapper: purchases.Wrapper });
+    name.result.current.mutate({ documentId: "PI1", lineId: "0", journalLineIndexes: [0, 1], withLineIds: [] });
+    await waitFor(() => expect(name.result.current.isSuccess).toBe(true));
+    expect(purchaseSpy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey[0]).sort()).toEqual(["purchase-invoices", "purchase-returns", ...moved].sort());
   });
 });
 

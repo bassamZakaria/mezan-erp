@@ -1798,7 +1798,19 @@ function buildHeldDocumentResolver(options: CreateAppOptions, salesInvoices: Sal
   const actions: Partial<Record<GateableActionType, HeldDocumentActions>> = {};
   if (options.salesReturns) actions.SALES_RETURN_CONFIRM = fromDocumentService(options.salesReturns.service);
   if (options.purchaseReturns) actions.PURCHASE_RETURN_CONFIRM = fromDocumentService(options.purchaseReturns.service);
-  if (options.landedCosts) actions.PURCHASE_LANDED_COST_CONFIRM = fromDocumentService(options.landedCosts.documents);
+  if (options.landedCosts) {
+    const landedCosts = options.landedCosts;
+    actions.PURCHASE_LANDED_COST_CONFIRM = {
+      ...fromDocumentService(landedCosts.documents),
+      // INVARIANT: a landed cost posts through LandedCostService — the plain
+      // document confirm books the entry and leaves the cost layers where they were.
+      confirm: async (docId, actor) => {
+        await landedCosts.service.confirm(docId, { actor });
+      },
+    };
+  }
+  if (options.stockAdjustments) actions.INVENTORY_ADJUSTMENT_CONFIRM = fromDocumentService(options.stockAdjustments.service);
+  if (options.stockTransfers) actions.INVENTORY_TRANSFER_CONFIRM = fromDocumentService(options.stockTransfers.service);
   if (options.vouchers) {
     const vouchers = options.vouchers;
     actions.TREASURY_VOUCHER_CONFIRM = {

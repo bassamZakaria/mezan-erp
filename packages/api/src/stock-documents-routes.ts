@@ -35,8 +35,11 @@ import {
   recordPhysicalCountEntriesSchema,
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import type { DocumentApprovalDTO } from "@mezan/contracts";
+import { callerUserId, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
 import { tenantDay } from "./tenant-day.js";
+import { handleDocumentError as handleFrameworkDocumentError } from "./document-error-handling.js";
 
 /**
  * Document-layer routes for the phase4/inventory-ops document types, built on
@@ -48,8 +51,10 @@ import { tenantDay } from "./tenant-day.js";
  * layers never collide.
  */
 
-function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>) {
+function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>, approval: DocumentApprovalDTO | null = null) {
   return {
+    approval,
+    workflowRequestId: doc.workflowRequestId,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -74,8 +79,10 @@ function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>) {
   };
 }
 
-function serializeTransfer(doc: FrameworkDocument<StockTransferDocLine>) {
+function serializeTransfer(doc: FrameworkDocument<StockTransferDocLine>, approval: DocumentApprovalDTO | null = null) {
   return {
+    approval,
+    workflowRequestId: doc.workflowRequestId,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -230,7 +237,7 @@ function handleDocumentError(c: Context, err: unknown): Response {
   if (err instanceof SameWarehouseTransferError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
-  throw err;
+  return handleFrameworkDocumentError(c, err);
 }
 
 /** `/inventory/stock-adjustments` — draft/confirm CRUD over `stockAdjustmentDocumentType`. */
@@ -278,10 +285,21 @@ export function createStockAdjustmentsRoutes(
         if (refusal) return refusal;
       }
       const { document, held } = await service.confirm(c.req.param("id"));
-      return c.json({ document: serializeAdjustment(document), held });
+      return c.json({ document: serializeAdjustment(document, await approvalOf(service, document)), held });
     } catch (err) {
       return handleDocumentError(c, err);
     }
+  });
+
+  mountResubmitRoute(app, {
+    permission: gate("inventory.adjustment.confirm"),
+    refuse: async (c, id) => {
+      const doc = await service.findById(id);
+      return doc ? warehouseScopeRefusal(c, doc.lines.map((l) => l.warehouseId)) : undefined;
+    },
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c) }),
+    serialize: async (_c, doc) => serializeAdjustment(doc, await approvalOf(service, doc)),
+    onError: handleDocumentError,
   });
 
   interface AdjustmentListFilter extends StockDocListFilter {
@@ -325,7 +343,8 @@ export function createStockAdjustmentsRoutes(
 
   app.get("/", gate("inventory.adjustment.view"), async (c) => {
     const docs = await listFilteredAdjustments(c, parseAdjustmentQuery(c));
-    return c.json(docs.map(serializeAdjustment));
+    const approval = await approvalReader(service, docs);
+    return c.json(docs.map((doc) => serializeAdjustment(doc, approval(doc))));
   });
 
   /**
@@ -357,7 +376,7 @@ export function createStockAdjustmentsRoutes(
   app.get("/:id", gate("inventory.adjustment.view"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
     if (!doc) return c.json({ error: "DOCUMENT_NOT_FOUND" }, 404);
-    return c.json(serializeAdjustment(doc));
+    return c.json(serializeAdjustment(doc, await approvalOf(service, doc)));
   });
 
   return app;
@@ -412,10 +431,21 @@ export function createStockTransfersRoutes(
         if (refusal) return refusal;
       }
       const { document, held } = await service.confirm(c.req.param("id"));
-      return c.json({ document: serializeTransfer(document), held });
+      return c.json({ document: serializeTransfer(document, await approvalOf(service, document)), held });
     } catch (err) {
       return handleDocumentError(c, err);
     }
+  });
+
+  mountResubmitRoute(app, {
+    permission: gate("inventory.transfer.confirm"),
+    refuse: async (c, id) => {
+      const doc = await service.findById(id);
+      return doc ? warehouseScopeRefusal(c, doc.lines.flatMap((l) => [l.fromWarehouseId, l.toWarehouseId])) : undefined;
+    },
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c) }),
+    serialize: async (_c, doc) => serializeTransfer(doc, await approvalOf(service, doc)),
+    onError: handleDocumentError,
   });
 
   /**
@@ -448,7 +478,8 @@ export function createStockTransfersRoutes(
 
   app.get("/", gate("inventory.transfer.view"), async (c) => {
     const docs = await listFilteredTransfers(c, parseStockDocQuery(c));
-    return c.json(docs.map(serializeTransfer));
+    const approval = await approvalReader(service, docs);
+    return c.json(docs.map((doc) => serializeTransfer(doc, approval(doc))));
   });
 
   /**
@@ -478,7 +509,7 @@ export function createStockTransfersRoutes(
   app.get("/:id", gate("inventory.transfer.view"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
     if (!doc) return c.json({ error: "DOCUMENT_NOT_FOUND" }, 404);
-    return c.json(serializeTransfer(doc));
+    return c.json(serializeTransfer(doc, await approvalOf(service, doc)));
   });
 
   return app;

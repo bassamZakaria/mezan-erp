@@ -1,5 +1,6 @@
 /** Document-framework errors. Stable `code`s so the api/UI can branch on them. */
 
+import type { ApprovalStatus } from "../workflow/index.js";
 import { DOCUMENT_STATUS_LABELS_AR, type DocumentStatus } from "./status.js";
 
 export class InvalidDocumentTransitionError extends Error {
@@ -98,3 +99,25 @@ export class DocumentReversalRefusedError extends Error {
     this.name = "DocumentReversalRefusedError";
   }
 }
+
+export class DocumentResubmitRefusedError extends Error {
+  readonly code = "DOCUMENT_RESUBMIT_REFUSED";
+  readonly messageEn: string;
+  constructor(
+    readonly docType: string,
+    readonly docId: string,
+    readonly approvalStatus: ApprovalStatus | null,
+  ) {
+    super(RESUBMIT_REFUSAL_AR[approvalStatus ?? "none"]);
+    this.messageEn = `Document ${docType}/${docId} cannot be resubmitted: its approval request is ${approvalStatus ?? "absent"}, not rejected.`;
+    this.name = "DocumentResubmitRefusedError";
+  }
+}
+
+const RESUBMIT_REFUSAL_AR: Readonly<Record<ApprovalStatus | "none", string>> = {
+  none: "لا يوجد طلب موافقة مرفوض على هذا المستند حتى يُعاد إرساله.",
+  pending: "المستند بانتظار الموافقة بالفعل، ولا حاجة لإعادة إرساله.",
+  approved: "طلب الموافقة على هذا المستند معتمد بالفعل؛ أكِّد المستند بدلاً من إعادة إرساله.",
+  modification_requested: "طُلب تعديل هذا المستند؛ عدِّله ثم أكِّده ليُعرض على المعتمِد من جديد.",
+  rejected: "تعذّرت إعادة إرسال المستند للاعتماد.",
+};

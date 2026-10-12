@@ -25,6 +25,7 @@ import type {
   DocumentNumberingHook,
   DocumentStockHook,
   DocumentWorkflowGate,
+  DocumentApprovalView,
   DocumentEventPublisher,
   DocumentEventType,
   DocumentStockResult,
@@ -33,6 +34,7 @@ import { assertTransition, isActive, type DocumentStatus } from "./status.js";
 import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import {
   DocumentNotFoundError,
+  DocumentResubmitRefusedError,
   DuplicateDocumentError,
   InvalidDocumentError,
   MissingHookError,
@@ -147,7 +149,7 @@ export class DocumentService<Line> {
       if (!this.deps.workflow) throw new MissingHookError(this.def.code, "workflow");
       const decision = await this.deps.workflow.evaluate({
         actionType: this.def.gateActionType,
-        requestId: opts.requestId ?? `${id}:confirm`,
+        requestId: opts.requestId ?? this.requestIdOf(existing),
         submittedBy: opts.actor ?? this.deps.actor ?? "system",
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
         entityLabel: existing.docNo ?? existing.id,
@@ -272,6 +274,57 @@ export class DocumentService<Line> {
     return returned;
   }
 
+  /**
+   * Put a document whose approval request was REJECTED back in front of the
+   * approver, under the same request so the rejection stays in its history.
+   */
+  async resubmit(id: string, opts: ConfirmOptions = {}): Promise<FrameworkDocument<Line>> {
+    const gateActionType = this.def.gateActionType;
+    const workflow = this.deps.workflow;
+    if (!gateActionType || !workflow?.standing || !workflow.reopen) throw new MissingHookError(this.def.code, "workflow");
+    const standing = workflow.standing.bind(workflow);
+    const reopen = workflow.reopen.bind(workflow);
+    const actor = opts.actor ?? this.deps.actor ?? "system";
+    const held = await this.deps.repo.transaction(async () => {
+      const fresh = await this.require(id);
+      const requestId = opts.requestId ?? this.requestIdOf(fresh);
+      // SECURITY: `reopen` also reopens an APPROVED request. Only a request read
+      // as rejected inside this transaction may reach it, or a resubmit would
+      // discard an approval that is waiting to post.
+      const status = (await standing([requestId])).get(requestId)?.status ?? null;
+      if (status !== "rejected") throw new DocumentResubmitRefusedError(this.def.code, id, status);
+      assertTransition(this.def.code, id, fresh.status, "pending");
+      await this.assertConfirmable(fresh);
+      await reopen(requestId);
+      const decision = await workflow.evaluate({
+        actionType: gateActionType,
+        requestId,
+        submittedBy: actor,
+        submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
+        entityLabel: fresh.docNo ?? fresh.id,
+      });
+      const next: FrameworkDocument<Line> = { ...fresh, status: "pending", workflowRequestId: decision.requestId };
+      await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], fresh.status);
+      await this.recordAudit("RESUBMIT", next, "INFO", { actor });
+      return next;
+    });
+    this.emit("DOCUMENT_SUBMITTED", held);
+    return held;
+  }
+
+  /** The approval request standing behind each document, keyed by document id. One read for the whole page. */
+  async approvalsOf(docs: readonly FrameworkDocument<Line>[]): Promise<ReadonlyMap<string, DocumentApprovalView>> {
+    const standing = this.deps.workflow?.standing;
+    if (!this.def.gateActionType || !standing || docs.length === 0) return new Map();
+    const requestIds = new Map(docs.map((doc) => [this.requestIdOf(doc), doc.id]));
+    const views = await standing.call(this.deps.workflow, [...requestIds.keys()]);
+    return new Map([...views].map(([requestId, view]) => [requestIds.get(requestId) as string, view]));
+  }
+
+  private requestIdOf(doc: FrameworkDocument<Line>): string {
+    return doc.workflowRequestId ?? `${doc.id}:confirm`;
+  }
+
   /** Cancel a draft/pending document (never a live one — those are reversed). */
   async cancel(id: string): Promise<FrameworkDocument<Line>> {
     const cancelled = await this.deps.repo.transaction(async () => {
@@ -370,7 +423,7 @@ export class DocumentService<Line> {
       await this.write(original, [DocumentField.Status, DocumentField.ReversedByDocId], existing.status);
 
       await this.deps.afterReverse?.(original, reversal);
-      await this.recordAudit("REVERSE", original, "WARNING", { reversalId: reversal.id, reason: opts.reason, actor: opts.actor });
+      await this.recordAudit("REVERSE", original, "WARNING", { actor: opts.actor, reversalId: reversal.id, reason: opts.reason });
       this.emit("DOCUMENT_REVERSED", original, reversal.id);
       return { original, reversal };
     });
@@ -433,10 +486,10 @@ export class DocumentService<Line> {
   }
 
   private async recordAudit(
-    action: "CONFIRM" | "CANCEL" | "REVERSE",
+    action: "CONFIRM" | "CANCEL" | "REVERSE" | "RESUBMIT",
     doc: FrameworkDocument<Line>,
     severity: "INFO" | "WARNING",
-    reversal?: { readonly reversalId: string; readonly reason?: string; readonly actor?: string },
+    by: { readonly actor?: string; readonly reversalId?: string; readonly reason?: string } = {},
   ): Promise<void> {
     if (!this.deps.audit) return;
     await recordSensitiveEvent(this.deps.audit, {
@@ -444,15 +497,15 @@ export class DocumentService<Line> {
       entityType: this.def.code,
       entityId: doc.id,
       action,
-      actor: reversal?.actor ?? this.deps.actor ?? "system",
+      actor: by.actor ?? this.deps.actor ?? "system",
       branchId: this.def.branchOf?.(doc) ?? null,
       severity,
       details: {
         docId: doc.id,
         docNo: doc.docNo,
         status: doc.status as DocumentStatus,
-        ...(reversal ? { reversalId: reversal.reversalId } : {}),
-        ...(reversal?.reason ? { reason: reversal.reason } : {}),
+        ...(by.reversalId ? { reversalId: by.reversalId } : {}),
+        ...(by.reason ? { reason: by.reason } : {}),
       },
     });
   }

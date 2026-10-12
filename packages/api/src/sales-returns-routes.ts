@@ -28,6 +28,8 @@ import {
 import type { z } from "zod";
 import { type AuthContextResolver, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
+import type { DocumentApprovalDTO } from "@mezan/contracts";
 import { salesSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
@@ -66,9 +68,15 @@ function serializeLine(l: SalesReturnLine) {
   };
 }
 
-function serialize(doc: FrameworkDocument<SalesReturnLine>, refunds: readonly SalesReturnRefund[] = [], voidReason: string | null = null) {
+function serialize(
+  doc: FrameworkDocument<SalesReturnLine>,
+  refunds: readonly SalesReturnRefund[] = [],
+  voidReason: string | null = null,
+  approval: DocumentApprovalDTO | null = null,
+) {
   return {
     voidReason,
+    approval,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -329,7 +337,8 @@ export function createSalesReturnsRoutes(
 
   app.get("/", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
     const { rows, refunds } = await listFilteredReturns(c, parseListQuery(c));
-    return c.json(rows.map((doc) => serialize(doc, refunds.get(doc.id) ?? [])));
+    const approval = await approvalReader(service, rows);
+    return c.json(rows.map((doc) => serialize(doc, refunds.get(doc.id) ?? [], null, approval(doc))));
   });
 
   /**
@@ -421,7 +430,7 @@ export function createSalesReturnsRoutes(
         return c.json({ error: "NOT_FOUND" }, 404);
       }
     }
-    return c.json(serialize(doc, await refundsOf(doc.id), await voidReasonOf(service, doc)));
+    return c.json(serialize(doc, await refundsOf(doc.id), await voidReasonOf(service, doc), await approvalOf(service, doc)));
   });
 
   app.post("/", gate("sales.return.create"), async (c) => {
@@ -495,12 +504,19 @@ export function createSalesReturnsRoutes(
         actor: callerUserId(c),
       });
       return c.json({
-        document: serialize(result.document, await refundsOf(result.document.id)),
+        document: serialize(result.document, await refundsOf(result.document.id), null, await approvalOf(service, result.document)),
         held: result.held,
       });
     } catch (err) {
       return handleDocumentError(c, err);
     }
+  });
+
+  mountResubmitRoute(app, {
+    permission: gate("sales.return.confirm"),
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c) }),
+    serialize: async (_c, doc) => serialize(doc, await refundsOf(doc.id), null, await approvalOf(service, doc)),
+    onError: handleDocumentError,
   });
 
   app.post("/:id/cancel", gate("sales.return.void"), async (c) => {

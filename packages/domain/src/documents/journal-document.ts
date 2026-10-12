@@ -23,13 +23,14 @@ import {
   resubmitApproval,
   startApproval,
   submitApproval,
+  type ApprovalRequestRecord,
   type ApprovalRequestRepository,
   type GateConfig,
   type GateableActionType,
 } from "../workflow/index.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "./document.js";
 import { buildEffects } from "./effects.js";
-import type { DocumentGlHook, DocumentGlPosting, DocumentWorkflowGate } from "./hooks.js";
+import type { DocumentApprovalView, DocumentGlHook, DocumentGlPosting, DocumentWorkflowGate } from "./hooks.js";
 import { InvalidDocumentError } from "./errors.js";
 
 /** A single debit/credit line of a journal document. */
@@ -242,8 +243,26 @@ export function createDocumentWorkflowGate(
       });
       return { granted: request.status === "approved", requestId: request.id };
     },
+    async standing(requestIds) {
+      if (!requests || requestIds.length === 0) return new Map();
+      const wanted = new Set(requestIds);
+      const records =
+        requestIds.length === 1
+          ? [await requests.findById(requestIds[0] as string)]
+          : (await requests.list()).filter((record) => wanted.has(record.id));
+      return new Map(records.filter((record): record is ApprovalRequestRecord => record !== null).map((record) => [record.id, approvalViewOf(record)]));
+    },
     async reopen(requestId) {
       if (requests) await reopenApprovalForModification(requestId, requests);
     },
+  };
+}
+
+function approvalViewOf(record: ApprovalRequestRecord): DocumentApprovalView {
+  const rejection = [...record.decisions].reverse().find((decision) => decision.kind === "reject") ?? null;
+  return {
+    status: record.status,
+    rejectionReason: rejection?.comment?.trim() || null,
+    rejectedBy: rejection?.actorId ?? null,
   };
 }

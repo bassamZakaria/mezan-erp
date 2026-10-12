@@ -38,6 +38,7 @@ import {
 } from "./voucher-document.js";
 import { InvalidDocumentError, assertDocumentWritten } from "../documents/errors.js";
 import { DocumentField } from "../documents/document.js";
+import type { DocumentApprovalView } from "../documents/hooks.js";
 import { BASE_CURRENCY } from "../exchange-rates/exchange-rate.js";
 import {
   getVoucherTypeDefinition,
@@ -461,6 +462,15 @@ export class VoucherService {
     const stamped: VoucherDocument = { ...doc, lines: [{ ...line, fxRate: found.rate }] };
     await this.writeLine(stamped, doc.status);
     return stamped;
+  }
+
+  /** Put a voucher whose approval request was rejected back in front of the approver. */
+  async resubmitVoucher(id: string, opts: ConfirmVoucherOptions = {}): Promise<VoucherDocument> {
+    return this.service.resubmit(id, opts);
+  }
+
+  async approvalsOf(docs: readonly VoucherDocument[]): Promise<ReadonlyMap<string, DocumentApprovalView>> {
+    return this.service.approvalsOf(docs);
   }
 
   /** Hand a voucher held بانتظار الموافقة back to its submitter as a draft. */

@@ -15,6 +15,8 @@ import {
 import { createPurchaseReturnSchema, returnSourceLinesSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
+import type { DocumentApprovalDTO } from "@mezan/contracts";
 import { purchaseSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay } from "./tenant-day.js";
 import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
@@ -43,9 +45,10 @@ function serializeLine(l: PurchaseReturnLine) {
   };
 }
 
-function serialize(doc: FrameworkDocument<PurchaseReturnLine>, voidReason: string | null = null) {
+function serialize(doc: FrameworkDocument<PurchaseReturnLine>, voidReason: string | null = null, approval: DocumentApprovalDTO | null = null) {
   return {
     voidReason,
+    approval,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -176,7 +179,9 @@ export function createPurchaseReturnsRoutes(
   }
 
   app.get("/", gate("purchases.return.view"), async (c) => {
-    return c.json((await listFilteredReturns(c, parseListQuery(c))).map((doc) => serialize(doc)));
+    const rows = await listFilteredReturns(c, parseListQuery(c));
+    const approval = await approvalReader(service, rows);
+    return c.json(rows.map((doc) => serialize(doc, null, approval(doc))));
   });
 
   /**
@@ -237,7 +242,7 @@ export function createPurchaseReturnsRoutes(
   app.get("/:id", gate("purchases.return.view"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
     if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(doc, await voidReasonOf(service, doc)));
+    return c.json(serialize(doc, await voidReasonOf(service, doc), await approvalOf(service, doc)));
   });
 
   app.post("/", gate("purchases.return.create"), async (c) => {
@@ -331,10 +336,17 @@ export function createPurchaseReturnsRoutes(
   app.post("/:id/confirm", gate("purchases.return.confirm"), async (c) => {
     try {
       const result = await service.confirm(c.req.param("id"), { actor: callerUserId(c) });
-      return c.json({ document: serialize(result.document), held: result.held });
+      return c.json({ document: serialize(result.document, null, await approvalOf(service, result.document)), held: result.held });
     } catch (err) {
       return handleDocumentError(c, err);
     }
+  });
+
+  mountResubmitRoute(app, {
+    permission: gate("purchases.return.confirm"),
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c) }),
+    serialize: async (_c, doc) => serialize(doc, null, await approvalOf(service, doc)),
+    onError: handleDocumentError,
   });
 
   app.post("/:id/cancel", gate("purchases.return.void"), async (c) => {

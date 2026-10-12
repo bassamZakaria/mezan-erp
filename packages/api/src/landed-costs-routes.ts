@@ -13,6 +13,8 @@ import {
 import { createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
+import type { DocumentApprovalDTO } from "@mezan/contracts";
 import { tenantDay } from "./tenant-day.js";
 
 function serializeLine(l: LandedCostLine) {
@@ -38,8 +40,9 @@ function serializeLine(l: LandedCostLine) {
   };
 }
 
-function serialize(doc: FrameworkDocument<LandedCostLine>) {
+function serialize(doc: FrameworkDocument<LandedCostLine>, approval: DocumentApprovalDTO | null = null) {
   return {
+    approval,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -74,13 +77,14 @@ export function createLandedCostsRoutes(
   app.get("/", gate("purchases.landed_cost.view"), async (c) => {
     const status = c.req.query("status");
     const list = await documents.list({ status: status as never });
-    return c.json(list.map(serialize));
+    const approval = await approvalReader(documents, list);
+    return c.json(list.map((doc) => serialize(doc, approval(doc))));
   });
 
   app.get("/:id", gate("purchases.landed_cost.view"), async (c) => {
     const doc = await documents.findById(c.req.param("id"));
     if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(doc));
+    return c.json(serialize(doc, await approvalOf(documents, doc)));
   });
 
   app.post("/", gate("purchases.landed_cost.create"), async (c) => {
@@ -126,7 +130,7 @@ export function createLandedCostsRoutes(
     try {
       const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c) });
       return c.json({
-        document: serialize(result.document),
+        document: serialize(result.document, await approvalOf(documents, result.document)),
         held: result.held,
         // A landed cost that arrives after the goods were sold cannot raise the
         // basis of stock that is gone. That part is reclassified out of
@@ -145,6 +149,13 @@ export function createLandedCostsRoutes(
     } catch (err) {
       return handleDocumentError(c, err);
     }
+  });
+
+  mountResubmitRoute(app, {
+    permission: gate("purchases.landed_cost.confirm"),
+    resubmit: (c, id) => documents.resubmit(id, { actor: callerUserId(c) }),
+    serialize: async (_c, doc) => serialize(doc, await approvalOf(documents, doc)),
+    onError: handleDocumentError,
   });
 
   app.post("/:id/cancel", gate("purchases.landed_cost.void"), async (c) => {

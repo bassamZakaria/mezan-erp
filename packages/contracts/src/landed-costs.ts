@@ -3,6 +3,7 @@ import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { documentApprovalSchema } from "./workflow.js";
 
 /** Wire contracts for Landed Costs (التكاليف الإضافية، docs/archive/catalog/02). */
 
@@ -80,6 +81,7 @@ export const landedCostDocumentSchema = z.object({
   reversesDocId: z.string().nullable(),
   reversedByDocId: z.string().nullable(),
   workflowRequestId: z.string().nullable(),
+  approval: documentApprovalSchema.nullable().optional(),
   journalEntryId: z.string().nullable(),
 });
 

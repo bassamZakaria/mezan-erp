@@ -26,6 +26,20 @@ export const updateWorkflowConfigSchema = z.object({
 
 /** الموافقات — an in-flight or resolved approval instance. */
 export const approvalStatusSchema = z.enum(["pending", "approved", "rejected", "modification_requested"]);
+export enum DocumentApprovalStatus {
+  Pending = "pending",
+  Approved = "approved",
+  Rejected = "rejected",
+  ModificationRequested = "modification_requested",
+}
+
+/** The approval request standing behind a gated document, and why it was last rejected. */
+export const documentApprovalSchema = z.object({
+  status: approvalStatusSchema,
+  rejectionReason: z.string().nullable(),
+  rejectedBy: z.string().nullable(),
+});
+
 export const decisionKindSchema = z.enum(["approve", "reject", "request_modification", "bypass"]);
 
 export const decisionRecordSchema = z.object({
@@ -67,6 +81,7 @@ export type WorkflowConfigDTO = z.infer<typeof workflowConfigSchema>;
 export type CreateWorkflowConfigDTO = z.infer<typeof createWorkflowConfigSchema>;
 export type UpdateWorkflowConfigDTO = z.infer<typeof updateWorkflowConfigSchema>;
 export type ApprovalStatusDTO = z.infer<typeof approvalStatusSchema>;
+export type DocumentApprovalDTO = z.infer<typeof documentApprovalSchema>;
 export type DecisionKindDTO = z.infer<typeof decisionKindSchema>;
 export type DecisionRecordDTO = z.infer<typeof decisionRecordSchema>;
 export type ApprovalRequestDTO = z.infer<typeof approvalRequestSchema>;

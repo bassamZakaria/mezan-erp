@@ -2,6 +2,7 @@ import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { documentApprovalSchema } from "./workflow.js";
 
 /**
  * Wire contracts for Sales Returns (مرتجعات المبيعات، docs/archive/catalog/01), a
@@ -94,6 +95,7 @@ export const salesReturnDocumentSchema = z.object({
   reversedByDocId: z.string().nullable(),
   voidReason: z.string().nullable().optional(),
   workflowRequestId: z.string().nullable(),
+  approval: documentApprovalSchema.nullable().optional(),
   journalEntryId: z.string().nullable(),
   /** بانتظار دفع المبلغ — derived from the refund vouchers posted, never a stored flag. */
   awaitingRefund: z.boolean(),

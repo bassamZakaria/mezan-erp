@@ -3,6 +3,7 @@ import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { documentApprovalSchema } from "./workflow.js";
 
 /** Wire contracts for Purchase Returns (مرتجعات المشتريات، docs/archive/catalog/02). Mirrors sales-returns.ts. */
 
@@ -101,6 +102,7 @@ export const purchaseReturnDocumentSchema = z.object({
   reversedByDocId: z.string().nullable(),
   voidReason: z.string().nullable().optional(),
   workflowRequestId: z.string().nullable(),
+  approval: documentApprovalSchema.nullable().optional(),
   journalEntryId: z.string().nullable(),
 });
 

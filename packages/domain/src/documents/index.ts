@@ -40,6 +40,7 @@ export type {
   DocumentWorkflowInput,
   DocumentWorkflowDecision,
   DocumentWorkflowGate,
+  DocumentApprovalView,
   DocumentEventType,
   DocumentDomainEvent,
   DocumentEventPublisher,
@@ -71,6 +72,7 @@ export {
   InvalidDocumentError,
   DocumentChangedError,
   DocumentReversalRefusedError,
+  DocumentResubmitRefusedError,
   assertDocumentWritten,
 } from "./errors.js";
 

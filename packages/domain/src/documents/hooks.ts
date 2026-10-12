@@ -14,7 +14,7 @@ import type { CostCategory } from "../contracting/cost-category.js";
 
 import type { Money, Qty } from "../money/index.js";
 import { extend } from "../inventory/wac-math.js";
-import type { GateableActionType } from "../workflow/index.js";
+import type { ApprovalStatus, GateableActionType } from "../workflow/index.js";
 
 /* --- Numbering hook (via the numbering engine) ---------------------------- */
 
@@ -259,8 +259,16 @@ export interface DocumentWorkflowDecision {
   readonly requestId: string;
 }
 
+export interface DocumentApprovalView {
+  readonly status: ApprovalStatus;
+  readonly rejectionReason: string | null;
+  readonly rejectedBy: string | null;
+}
+
 export interface DocumentWorkflowGate {
   evaluate(input: DocumentWorkflowInput): Promise<DocumentWorkflowDecision>;
+  /** The standing requests among `requestIds`, keyed by request id. A gate that keeps no requests has none. */
+  standing?(requestIds: readonly string[]): Promise<ReadonlyMap<string, DocumentApprovalView>>;
   /**
    * The document behind a decided request no longer stands as it was judged:
    * a rejected draft was edited, or an approved one would post other figures.

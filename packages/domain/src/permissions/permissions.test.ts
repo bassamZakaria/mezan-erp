@@ -268,3 +268,13 @@ describe("three-tier visibility", () => {
     expect(visibilityTier(ctx, "hr.employee")).toBe("all");
   });
 });
+
+describe("raising a return implies reading the invoice it is raised against", () => {
+  it("a returns-only grant reads its own source invoices, sales and purchases alike, and nobody else's", () => {
+    expect([...resolvePermissions(["sales.return.create"])]).toEqual(expect.arrayContaining(["sales.return.view_own", "sales.invoice.view_own"]));
+    expect([...resolvePermissions(["purchases.return.create"])]).toEqual(expect.arrayContaining(["purchases.return.view", "purchases.invoice.view_own"]));
+    expect(resolvePermissions(["sales.return.create"]).has("sales.invoice.view")).toBe(false);
+    expect(resolvePermissions(["purchases.return.create"]).has("purchases.invoice.view")).toBe(false);
+  });
+});
+

@@ -31,6 +31,9 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// The salesperson of INV-DEMO-1: the returns role reads its OWN invoices and no others.
+const SUBMITTER_EMPLOYEE_ID = "EMP-DEMO-1";
+
 export async function run(ctx: Ctx): Promise<void> {
   const { req, rows, check, checkEq } = ctx;
 
@@ -253,7 +256,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const submitter = await req("POST", "/users", {
       nameAr: "SCN Submitter", nameEn: null, email: "scn-submitter@cyag.example", phone: null,
-      roleId: approverRoleId, isCompanyAdmin: false, employeeId: null,
+      roleId: approverRoleId, isCompanyAdmin: false, employeeId: SUBMITTER_EMPLOYEE_ID,
       branchScope: "*", warehouseScope: "*", status: "active", password: "SCN-password-1",
     });
     check("create SCN submitter user", submitter.status === 201, `${submitter.status}: ${JSON.stringify(submitter.body)}`);
@@ -279,7 +282,7 @@ export async function run(ctx: Ctx): Promise<void> {
   const returnLine = invoice.lines[0];
 
   function submitterHeaders(): Record<string, string> {
-    return nonAdmin(submitterUserId, "sales.invoice.view,sales.return.view_own,sales.return.create,sales.return.confirm,workflow.view", "SCN_SUBMITTER_ROLE");
+    return nonAdmin(submitterUserId, "sales.return.view_own,sales.return.create,sales.return.confirm,workflow.view", "SCN_SUBMITTER_ROLE");
   }
   function approverHeaders(): Record<string, string> {
     return nonAdmin(approverUserId, "workflow.view,workflow.approve,workflow.reject", "SCN_APPROVER");
@@ -419,10 +422,10 @@ export async function run(ctx: Ctx): Promise<void> {
         qty: "1", unitPrice: returnLine.unitPrice, taxRatePercent: returnLine.taxRatePercent,
         revenueAccountId: returnLine.revenueAccountId, cogsAccountId: returnLine.cogsAccountId, inventoryAccountId: returnLine.inventoryAccountId,
       }],
-    }, nonAdmin("SCN-USER-SALESREP", "sales.invoice.view_own,sales.invoice.create,sales.invoice.confirm", "SCN_SALESREP"));
+    }, nonAdmin(submitterUserId, "sales.invoice.view_own,sales.invoice.create,sales.invoice.confirm", "SCN_SALESREP"));
     check("create a draft sales invoice as a non-SUPERVISOR non-admin", create.status === 201, `${create.status}: ${JSON.stringify(create.body)}`);
 
-    const confirm = await req("POST", "/sales-invoices/SCN-INV-GATE-CHECK/confirm", {}, nonAdmin("SCN-USER-SALESREP", "sales.invoice.view_own,sales.invoice.create,sales.invoice.confirm", "SCN_SALESREP"));
+    const confirm = await req("POST", "/sales-invoices/SCN-INV-GATE-CHECK/confirm", {}, nonAdmin(submitterUserId, "sales.invoice.view_own,sales.invoice.create,sales.invoice.confirm", "SCN_SALESREP"));
     check(
       "SALES_INVOICE_CONFIRM's configured approval chain holds a non-SUPERVISOR submitter's confirm pending",
       confirm.body?.status === "pending",

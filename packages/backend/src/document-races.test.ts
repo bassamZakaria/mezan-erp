@@ -208,6 +208,28 @@ describe("two operations on one stored document land as one story", () => {
     });
   }, 120_000);
 
+  it("refund against refund: two that together exceed the return's credit — one is paid, the other is refused in Arabic and leaves no voucher", async () => {
+    const refund = (returnId: string) => kit.call("POST", `/sales-returns/${returnId}/refund`, { amount: "80", treasuryAccountId: "TR-DEMO-CASH", paymentMethod: "cash" });
+    await raceBothOrders<string>(kit, "RC-REFUND-2", {
+      outcome: RaceOutcome.ExactlyOneWins,
+      arrange: async (tag) => {
+        await confirmedSale(tag, [stockLine("A", { taxRateId: "VAT14" })]);
+        const returnId = await draftReturn(`${tag}-R`, tag, "A");
+        expect((await kit.call("POST", `/sales-returns/${returnId}/confirm`, {})).status).toBe(200);
+        return returnId;
+      },
+      first: refund,
+      second: refund,
+      agree: async ({ fixture, first, second }) => {
+        const refused = first.status === 200 ? second : first;
+        expect([refused.status, refused.body.error], JSON.stringify(refused.body)).toEqual([422, "SALES_RETURN_NOT_REFUNDABLE"]);
+        expect(refused.body.message).toMatch(/[\u0600-\u06FF]/);
+        const returned = (await kit.call("GET", `/sales-returns/${fixture}`)).body;
+        expect([returned.refunds.length, returned.refundedTotal, returned.refundDue]).toEqual([1, "80.000000", "34.000000"]);
+      },
+    });
+  }, 120_000);
+
   it("supplier payment against cancel: one of them wins, and a cancelled purchase invoice never holds an allocated payment", async () => {
     await raceBothOrders<string>(kit, "RC-PAY-CANCEL", {
       outcome: RaceOutcome.ExactlyOneWins,

@@ -200,6 +200,8 @@ function handleDomainError(c: Context, err: unknown): Response {
  * implemented by the coordinator outside this file (the domain service's
  * `markConverted` is ready for it).
  */
+const ACCEPTED_QUOTE_STATUS: SalesQuote["status"] = "accepted";
+
 export function createSalesQuotesRoutes(
   deps: SalesQuoteRoutesDeps,
   resolveAuthContext: AuthContextResolver,
@@ -523,12 +525,6 @@ export function createSalesQuotesRoutes(
     const quoteSvc = service(c);
     const quote = await quoteSvc.findById(c.req.param("id"));
     if (!quote) return c.json({ error: "NOT_FOUND" }, 404);
-    if (quote.status !== "accepted") {
-      return c.json(
-        { error: "INVALID_QUOTE_STATUS", message: "لا يمكن تحويل عرض السعر إلا بعد قبوله من العميل." },
-        409,
-      );
-    }
     const convertWarehouseRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Warehouse, ids: [d.warehouseId] },
     ]);
@@ -593,11 +589,16 @@ export function createSalesQuotesRoutes(
       // converted and is refused, and the draft it had raised is rolled back
       // with it — never left standing beside the winner's.
       const outcome = await deps.repo.transaction(async () => {
+        const standing = await quoteSvc.findById(quote.id);
+        if (standing?.status !== ACCEPTED_QUOTE_STATUS) return { refusal: null, notAccepted: true } as const;
         const quota = await withQuota(c, deps.invoice?.quota, QuotaKind.SalesInvoicesPerMonth, () => invoiceSvc.createDraft(cmd));
-        if (quota.refusal) return { refusal: quota.refusal } as const;
+        if (quota.refusal) return { refusal: quota.refusal, notAccepted: false } as const;
         const raised = quota.value!;
-        return { refusal: null, invoice: raised, converted: await quoteSvc.markConverted(quote.id, raised.id) } as const;
+        return { refusal: null, notAccepted: false, invoice: raised, converted: await quoteSvc.markConverted(quote.id, raised.id) } as const;
       });
+      if (outcome.notAccepted) {
+        return c.json({ error: "INVALID_QUOTE_STATUS", message: "لا يمكن تحويل عرض السعر إلا بعد قبوله من العميل." }, 409);
+      }
       if (outcome.refusal) return quotaRefusalResponse(c, outcome.refusal);
       const { invoice, converted } = outcome;
       return c.json(

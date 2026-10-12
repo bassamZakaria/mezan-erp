@@ -381,7 +381,7 @@ export class VoucherService {
       // The rate is resolved and STAMPED before anything is posted, exactly as
       // `confirmPurchaseInvoice` does it, so the GL amount, the treasury guard
       // and every allocation all read one base figure (B-4).
-      const stamped = await this.stampFxRate(existing);
+      const stamped = await this.deps.documents.transaction(async () => this.stampFxRate((await this.service.findById(id)) ?? existing));
       await assertCashBalanceAllows(voucherLine(stamped), {
         treasuryAccounts: this.deps.treasuryAccounts,
         ledger: this.deps.ledger,
@@ -614,12 +614,13 @@ export class VoucherService {
       const confirmed = await this.confirmVoucher(cmd.id, opts);
       if (confirmed.held) {
         if (requests.length === 0) return { document: confirmed.document, held: true, allocations: [], heldAllocations: [] };
-        await this.assertAllocationsFit(confirmed.document, requests, false);
+        const standing = (await this.service.findById(cmd.id)) ?? confirmed.document;
+        await this.assertAllocationsFit(standing, requests, false);
         const carrying: VoucherDocument = {
-          ...confirmed.document,
-          lines: [{ ...voucherLine(confirmed.document), heldAllocations: requests }],
+          ...standing,
+          lines: [{ ...voucherLine(standing), heldAllocations: requests }],
         };
-        await this.writeLine(carrying, confirmed.document.status);
+        await this.writeLine(carrying, standing.status);
         return { document: carrying, held: true, allocations: [], heldAllocations: requests };
       }
       const made = await this.applyAllocations(cmd.id, requests, confirmed.document, cmd.date);

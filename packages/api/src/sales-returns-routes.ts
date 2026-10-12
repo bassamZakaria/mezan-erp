@@ -565,19 +565,22 @@ export function createSalesReturnsRoutes(
 
     const amount = Money.fromMajor(parsed.data.amount);
     try {
-      assertRefundable(doc, await refundsOf(id), amount);
-      const posted = await refunds.post({
-        returnId: id,
-        customerId,
-        amount,
-        treasuryAccountId: parsed.data.treasuryAccountId,
-        paymentMethod: parsed.data.paymentMethod ?? "cash",
-        // A refund is paid on the day it is paid, not on the return's date —
-        // the same rule as the collection it mirrors.
-        date: (await tenantDay(c, parsed.data.date)) ?? (await tenantToday(c)),
-        memo: parsed.data.notes ?? `استرداد على المرتجع ${doc.docNo ?? doc.id}`,
-        referenceNo: parsed.data.referenceNo ?? null,
-        actor: callerUserId(c),
+      const date = (await tenantDay(c, parsed.data.date)) ?? (await tenantToday(c));
+      const posted = await service.withDocument(id, async (current) => {
+        assertRefundable(current, await refundsOf(id), amount);
+        return refunds.post({
+          returnId: id,
+          customerId,
+          amount,
+          treasuryAccountId: parsed.data.treasuryAccountId,
+          paymentMethod: parsed.data.paymentMethod ?? "cash",
+          // A refund is paid on the day it is paid, not on the return's date —
+          // the same rule as the collection it mirrors.
+          date,
+          memo: parsed.data.notes ?? `استرداد على المرتجع ${doc.docNo ?? doc.id}`,
+          referenceNo: parsed.data.referenceNo ?? null,
+          actor: callerUserId(c),
+        });
       });
       const settled = (await service.findById(id)) ?? doc;
       return c.json({

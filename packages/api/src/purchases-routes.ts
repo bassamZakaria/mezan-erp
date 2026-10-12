@@ -47,7 +47,6 @@ import {
   CashBalanceWouldGoNegativeError,
   InvalidDocumentError,
   AllocationMismatchError,
-  AllocationExceedsError,
   DEFAULT_PURCHASE_POLICY,
   type PurchaseOrder,
   type PurchaseOrderRepository,
@@ -395,8 +394,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     // same D20 shape: a refusal the caller can act on must not answer 500.
     err instanceof CashBalanceWouldGoNegativeError ||
     err instanceof InvalidDocumentError ||
-    err instanceof AllocationMismatchError ||
-    err instanceof AllocationExceedsError
+    err instanceof AllocationMismatchError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }

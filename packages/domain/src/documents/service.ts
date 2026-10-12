@@ -157,13 +157,13 @@ export class DocumentService<Line> {
         // pending → pending transition: the UI's confirm button stays clickable
         // while the request sits in the inbox.
         if (existing.status === "pending") return { document: existing, held: true };
-        assertTransition(this.def.code, id, existing.status, "pending");
-        const held: FrameworkDocument<Line> = {
-          ...existing,
-          status: "pending",
-          workflowRequestId: decision.requestId,
-        };
-        await this.write(held, [DocumentField.Status, DocumentField.WorkflowRequestId], existing.status);
+        const held = await this.deps.repo.transaction(async () => {
+          const fresh = await this.require(id);
+          assertTransition(this.def.code, id, fresh.status, "pending");
+          const next: FrameworkDocument<Line> = { ...fresh, status: "pending", workflowRequestId: decision.requestId };
+          await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], fresh.status);
+          return next;
+        });
         this.emit("DOCUMENT_SUBMITTED", held);
         return { document: held, held: true };
       }
@@ -374,6 +374,13 @@ export class DocumentService<Line> {
       this.emit("DOCUMENT_REVERSED", original, reversal.id);
       return { original, reversal };
     });
+  }
+
+  // INVARIANT: `fn` judges the document as it stands inside ONE transaction,
+  // and whatever it writes commits or rolls back with that read. A guard on a
+  // read made before the transaction lets two requests each pass alone.
+  async withDocument<T>(id: string, fn: (doc: FrameworkDocument<Line>) => Promise<T>): Promise<T> {
+    return this.deps.repo.transaction(async () => fn(await this.require(id)));
   }
 
   async findById(id: string): Promise<FrameworkDocument<Line> | null> {

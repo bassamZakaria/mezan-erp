@@ -464,13 +464,13 @@ export class SalesInvoiceService {
         // an illegal pending → pending transition.
         if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
 
-        assertTransition(id, existing.status, "pending");
-        const held: SalesInvoice = {
-          ...existing,
-          status: "pending",
-          workflowRequestId: decision.requestId,
-        };
-        await this.writeFields(held, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], existing.status);
+        const held = await this.deps.repo.transaction(async () => {
+          const fresh = await this.require(id);
+          assertTransition(id, fresh.status, "pending");
+          const next: SalesInvoice = { ...fresh, status: "pending", workflowRequestId: decision.requestId };
+          await this.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], fresh.status);
+          return next;
+        });
         this.emit("DOCUMENT_SUBMITTED", held);
         return { invoice: held, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: reratedBeforeGate };
       }

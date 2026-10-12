@@ -107,53 +107,55 @@ export class SalesQuoteService {
 
   /** Send a draft quote to the customer: allocates its doc number and marks مرسل. */
   async send(id: string): Promise<SalesQuote> {
-    const existing = await this.require(id);
-    this.validate(existing);
+    return this.change(id, async (existing) => {
+      this.validate(existing);
 
-    const effects = this.effectsOf(existing);
-    if (effects.blocked) {
-      throw new InvalidSalesQuoteError([
-        effects.blockedReason ?? "العرض غير قابل للإرسال في حالته الحالية.",
-      ]);
-    }
+      const effects = this.effectsOf(existing);
+      if (effects.blocked) {
+        throw new InvalidSalesQuoteError([
+          effects.blockedReason ?? "العرض غير قابل للإرسال في حالته الحالية.",
+        ]);
+      }
 
-    assertTransition(id, existing.status, "sent");
-    const number = await this.deps.numbering.next();
-    const sent: SalesQuote = {
-      ...existing,
-      docNo: number.formatted,
-      status: "sent",
-      sentAt: this.now(),
-    };
-    await this.deps.repo.update(sent);
-    return sent;
+      assertTransition(id, existing.status, "sent");
+      const number = await this.deps.numbering.next();
+      return { ...existing, docNo: number.formatted, status: "sent", sentAt: this.now() };
+    });
   }
 
   /** Record the customer's acceptance مقبول. */
   async accept(id: string): Promise<SalesQuote> {
-    const existing = await this.require(id);
-    assertTransition(id, existing.status, "accepted");
-    const accepted: SalesQuote = { ...existing, status: "accepted", respondedAt: this.now() };
-    await this.deps.repo.update(accepted);
-    return accepted;
+    return this.change(id, async (existing) => {
+      assertTransition(id, existing.status, "accepted");
+      return { ...existing, status: "accepted", respondedAt: this.now() };
+    });
   }
 
   /** Record the customer's rejection مرفوض. */
   async reject(id: string): Promise<SalesQuote> {
-    const existing = await this.require(id);
-    assertTransition(id, existing.status, "rejected");
-    const rejected: SalesQuote = { ...existing, status: "rejected", respondedAt: this.now() };
-    await this.deps.repo.update(rejected);
-    return rejected;
+    return this.change(id, async (existing) => {
+      assertTransition(id, existing.status, "rejected");
+      return { ...existing, status: "rejected", respondedAt: this.now() };
+    });
   }
 
   /** Cancel a draft/sent/accepted quote. */
   async cancel(id: string): Promise<SalesQuote> {
-    const existing = await this.require(id);
-    assertTransition(id, existing.status, "cancelled");
-    const cancelled: SalesQuote = { ...existing, status: "cancelled" };
-    await this.deps.repo.update(cancelled);
-    return cancelled;
+    return this.change(id, async (existing) => {
+      assertTransition(id, existing.status, "cancelled");
+      return { ...existing, status: "cancelled" };
+    });
+  }
+
+  // INVARIANT: a quote's status is read and written inside ONE transaction,
+  // so of two transitions racing each other the second judges what the first
+  // left — an accepted quote is never also cancelled, nor numbered twice.
+  private async change(id: string, next: (existing: SalesQuote) => Promise<SalesQuote>): Promise<SalesQuote> {
+    return this.deps.repo.transaction(async () => {
+      const changed = await next(await this.require(id));
+      await this.deps.repo.update(changed);
+      return changed;
+    });
   }
 
   /**

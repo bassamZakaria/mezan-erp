@@ -69,6 +69,7 @@ const FINDING_STATE_KEY: Readonly<Record<PeriodCloseFindingStateDTO, AppTranslat
   [PeriodCloseFindingStateDTO.Draft]: "periodClose.state.draft",
   [PeriodCloseFindingStateDTO.Pending]: "periodClose.state.pending",
   [PeriodCloseFindingStateDTO.NotFinalized]: "periodClose.state.not_finalized",
+  [PeriodCloseFindingStateDTO.Unreconciled]: "periodClose.state.unreconciled",
   [PeriodCloseFindingStateDTO.Mismatch]: "periodClose.state.mismatch",
   [PeriodCloseFindingStateDTO.Reversed]: "periodClose.state.reversed",
   [PeriodCloseFindingStateDTO.NotCovered]: "periodClose.state.not_covered",
@@ -175,6 +176,8 @@ export function findingFigure(finding: PeriodCloseFindingDTO, t: Translate, form
         numbers: finding.items.slice(0, MAX_LISTED_NUMBERS).join(t("periodClose.listSeparator")),
       });
     case PeriodCloseFindingKindDTO.BankStatement:
+      if (finding.state === PeriodCloseFindingStateDTO.Unreconciled) return t("periodClose.finding.statementUnmatched", { count: format.number(finding.count ?? 0) });
+      return finding.asOfDate ? t("periodClose.finding.asOf", { date: format.date(finding.asOfDate) }) : "";
     case PeriodCloseFindingKindDTO.ForeignCurrency:
       return finding.asOfDate ? t("periodClose.finding.asOf", { date: format.date(finding.asOfDate) }) : "";
     case PeriodCloseFindingKindDTO.Drafts:

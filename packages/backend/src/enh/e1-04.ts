@@ -182,6 +182,7 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
         periodEnd: statement.periodEnd,
         finalized: statement.finalized,
         forced: statement.forced,
+        unmatchedLines: statement.unmatchedLines,
       }));
     },
 

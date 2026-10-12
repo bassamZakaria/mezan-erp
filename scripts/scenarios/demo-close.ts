@@ -66,6 +66,13 @@ export async function run(ctx: Ctx): Promise<void> {
       JSON.stringify([...(refused.body?.failedChecks ?? [])].sort()) === JSON.stringify(LIVE_MONTH_BLOCKERS),
       JSON.stringify(refused.body?.failedChecks),
     );
+    const bank = ((await checklistOf(LIVE_MONTH))?.checks ?? []).find((c: any) => c.code === "bank_statements");
+    const statement = (bank?.findings ?? []).find((f: any) => f.ref === "BSTMT-DEMO-1");
+    const unmatched = rows((await req("GET", "/bank-statements/BSTMT-DEMO-1")).body?.lines).filter((line: any) => line.status !== "matched").length;
+    check("August's bank statement is on file with lines nobody has matched yet", unmatched > 0, `unmatched ${unmatched}`);
+    same("the checklist names it as an unreconciled statement", statement?.state, "unreconciled");
+    checkEq("and counts exactly the lines still to match", statement?.count, unmatched);
+    same("which is a blocker, not a note", statement?.passed, false);
     same("August is still open", await statusOf(LIVE_MONTH), "open");
     checkEq("and nothing was sealed for it", (await summariesOf(LIVE_MONTH)).length, 0);
   });

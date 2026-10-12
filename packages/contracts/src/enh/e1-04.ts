@@ -99,6 +99,7 @@ export enum PeriodCloseFindingStateDTO {
   Draft = "draft",
   Pending = "pending",
   NotFinalized = "not_finalized",
+  Unreconciled = "unreconciled",
   Mismatch = "mismatch",
   Reversed = "reversed",
   NotCovered = "not_covered",

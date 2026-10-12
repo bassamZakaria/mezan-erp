@@ -107,10 +107,17 @@ describe("evaluatePeriodClose", () => {
   });
 
   it("blocks on a bank statement that is not finalized and passes once every one is", async () => {
-    const open = { statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodStart: JUNE.startDate, periodEnd: JUNE.endDate, finalized: false, forced: false };
+    const open = { statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodStart: JUNE.startDate, periodEnd: JUNE.endDate, finalized: false, forced: false, unmatchedLines: 0 };
     expect((await evaluate({ bankStatements: async () => [open] })).blocking).toEqual([PeriodCloseCheckCode.BankStatements]);
     const done = await evaluate({ bankStatements: async () => [{ ...open, finalized: true }] });
     expect(checkOf(done, PeriodCloseCheckCode.BankStatements).status).toBe(PeriodCloseCheckStatus.Pass);
+  });
+
+  it("a statement with lines nobody has matched is unreconciled and says how many; with every line matched it is only not finalized", async () => {
+    const statement = { statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodStart: JUNE.startDate, periodEnd: JUNE.endDate, finalized: false, forced: false };
+    const finding = async (unmatchedLines: number) => checkOf(await evaluate({ bankStatements: async () => [{ ...statement, unmatchedLines }] }), PeriodCloseCheckCode.BankStatements).findings[0];
+    expect(await finding(11)).toMatchObject({ state: PeriodCloseFindingState.Unreconciled, count: 11, passed: false });
+    expect(await finding(0)).toMatchObject({ state: PeriodCloseFindingState.NotFinalized, count: null, passed: false });
   });
 
   it("blocks when a bank account moved in the period and has no statement at all", async () => {
@@ -121,7 +128,7 @@ describe("evaluatePeriodClose", () => {
 
     const covered = await evaluate({
       bankAccountsWithMovement: async () => [account],
-      bankStatements: async () => [{ statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodStart: JUNE.startDate, periodEnd: JUNE.endDate, finalized: true, forced: false }],
+      bankStatements: async () => [{ statementId: "BS-1", treasuryAccountId: "TA-1", label: "البنك الأهلي — 06/2026", periodStart: JUNE.startDate, periodEnd: JUNE.endDate, finalized: true, forced: false, unmatchedLines: 0 }],
     });
     expect(checkOf(covered, PeriodCloseCheckCode.BankStatements).status).toBe(PeriodCloseCheckStatus.Pass);
     expect(checkOf(await evaluate(), PeriodCloseCheckCode.BankStatements).status).toBe(PeriodCloseCheckStatus.NotApplicable);
@@ -130,7 +137,7 @@ describe("evaluatePeriodClose", () => {
   describe("a bank account that moved has to be covered to the last day of the month", () => {
     const account = { treasuryAccountId: "TA-1", label: "البنك الأهلي", firstMovementDate: "2026-06-04" };
     const statement = (id: string, periodStart: string, periodEnd: string, over: { finalized?: boolean; forced?: boolean } = {}) => ({
-      statementId: id, treasuryAccountId: "TA-1", label: `البنك الأهلي — ${id}`, periodStart, periodEnd, finalized: over.finalized ?? true, forced: over.forced ?? false,
+      statementId: id, treasuryAccountId: "TA-1", label: `البنك الأهلي — ${id}`, periodStart, periodEnd, finalized: over.finalized ?? true, forced: over.forced ?? false, unmatchedLines: 0,
     });
     const bank = async (statements: ReturnType<typeof statement>[]) =>
       checkOf(await evaluate({ bankAccountsWithMovement: async () => [account], bankStatements: async () => statements }), PeriodCloseCheckCode.BankStatements);

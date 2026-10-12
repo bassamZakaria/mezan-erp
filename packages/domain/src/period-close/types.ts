@@ -110,6 +110,7 @@ export enum PeriodCloseFindingState {
   Draft = "draft",
   Pending = "pending",
   NotFinalized = "not_finalized",
+  Unreconciled = "unreconciled",
   Mismatch = "mismatch",
   Reversed = "reversed",
   NotCovered = "not_covered",
@@ -186,6 +187,7 @@ export interface PeriodCloseBankStatement {
   readonly finalized: boolean;
   /** Finalized over unmatched lines or a difference that was not zero. */
   readonly forced: boolean;
+  readonly unmatchedLines: number;
 }
 
 export interface PeriodCloseBankAccount {

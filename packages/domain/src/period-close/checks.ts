@@ -172,7 +172,7 @@ const trialBalanceCheck: PeriodCloseCheckDefinition = {
 };
 
 function bankStatementState(statement: PeriodCloseBankStatement): PeriodCloseFindingState {
-  if (!statement.finalized) return PeriodCloseFindingState.NotFinalized;
+  if (!statement.finalized) return statement.unmatchedLines > 0 ? PeriodCloseFindingState.Unreconciled : PeriodCloseFindingState.NotFinalized;
   return statement.forced ? PeriodCloseFindingState.ForcedFinalization : PeriodCloseFindingState.Ok;
 }
 
@@ -201,6 +201,7 @@ const bankCheck: PeriodCloseCheckDefinition = {
         state,
         passed: state === PeriodCloseFindingState.Ok,
         fix: PeriodCloseFixTarget.BankReconciliation,
+        count: state === PeriodCloseFindingState.Unreconciled ? s.unmatchedLines : null,
         asOfDate: s.periodEnd,
       });
     });

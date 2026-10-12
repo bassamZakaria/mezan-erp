@@ -1,6 +1,6 @@
 import type { App } from "@mezan/api";
-import { ACCOUNTS, call, step } from "./shared.js";
-import { seedVatFiling } from "./treasury.js";
+import { ACCOUNTS, call, seedDecimal as decimal, seedScaled as scaled, step } from "./shared.js";
+import { bankNarrative, bookReferenceOf, seedVatFiling } from "./treasury.js";
 
 // Runs LAST: every step here posts into a month that must still be open, and the closes shut those months to everything seeded before them.
 
@@ -12,7 +12,6 @@ const DEPRECIATED_BY_HISTORY = new Set(["2026-01", "2026-02", "2026-03", "2026-0
 // The plant asset was registered after May's run had posted: May takes a supplementary run for it, before May's VAT return is filed.
 const SUPPLEMENTARY_DEPRECIATION = "2026-05";
 const DRAFT_RUN = { period: "2026-09", branchId: "BR-MAIN" } as const;
-const SCALE = 1_000_000n;
 
 interface LedgerLineRow {
   readonly entryId: string;
@@ -25,18 +24,6 @@ interface StatementLineRow {
   readonly id: string;
   readonly reference: string | null;
   readonly description: string;
-}
-
-function scaled(decimal: string): bigint {
-  const negative = decimal.startsWith("-");
-  const [whole = "0", fraction = ""] = decimal.replace("-", "").split(".");
-  const value = BigInt(whole) * SCALE + BigInt(fraction.padEnd(6, "0").slice(0, 6));
-  return negative ? -value : value;
-}
-
-function decimal(value: bigint): string {
-  const abs = value < 0n ? -value : value;
-  return `${value < 0n ? "-" : ""}${abs / SCALE}.${(abs % SCALE).toString().padStart(6, "0")}`;
 }
 
 function lastDayOf(month: string): string {
@@ -60,7 +47,7 @@ async function postRecurringEntry(app: App, month: string): Promise<void> {
   await step(app, "POST", `/gl/journal-entries/${encodeURIComponent(run.journalEntryId)}/post`, {});
 }
 
-// The statement is DERIVED from the bank GL account's posted movements and matched line for line. A bank charge the books do not hold yet is the one line that is booked FROM the statement instead.
+// The statement is DERIVED from the bank GL account's posted movements — in the bank's own wording, quoting the transfer reference the books hold where there is one — and matched line for line. A bank charge the books do not hold yet is the one line that is booked FROM the statement instead.
 async function reconcileBankStatement(app: App, month: string): Promise<void> {
   const periodStart = `${month}-01`;
   const periodEnd = lastDayOf(month);
@@ -74,17 +61,24 @@ async function reconcileBankStatement(app: App, month: string): Promise<void> {
     const seen = movements.get(line.entryId);
     movements.set(line.entryId, { date: line.date, amount: (seen?.amount ?? 0n) + net(line) });
   }
-  const rows = [...movements.entries()]
+  const moved = [...movements.entries()]
     .filter(([, movement]) => movement.amount !== 0n)
-    .sort(([, a], [, b]) => a.date.localeCompare(b.date) || (a.amount < b.amount ? -1 : a.amount > b.amount ? 1 : 0))
-    .map(([entryId, movement], index) => ({ entryId, ...movement, reference: `BS${month.replace("-", "")}${String(index + 1).padStart(4, "0")}` }));
+    .sort(([, a], [, b]) => a.date.localeCompare(b.date) || (a.amount < b.amount ? -1 : a.amount > b.amount ? 1 : 0));
+  const quoted = new Set<string>();
+  const rows: { entryId: string; date: string; amount: bigint; reference: string }[] = [];
+  for (const [index, [entryId, movement]] of moved.entries()) {
+    const held = await bookReferenceOf(app, entryId);
+    const reference = held && !quoted.has(held) ? held : `TRX${month.replace("-", "")}${String(index + 1).padStart(4, "0")}`;
+    quoted.add(reference);
+    rows.push({ entryId, ...movement, reference });
+  }
   if (rows.length === 0) throw new Error(`[demo-seed] GL ${ACCOUNTS.bank} did not move in ${month}; there is no statement to reconcile.`);
 
   const charge = month === BANK_CHARGE.month ? BANK_CHARGE : null;
   const closing = rows.reduce((sum, row) => sum + row.amount, opening) - (charge?.amount ?? 0n);
   const header = "التاريخ,البيان,مدين,دائن,المرجع";
   const csv = rows.map((row) =>
-    [row.date, row.amount > 0n ? "إيداع" : "تحويل صادر", row.amount < 0n ? decimal(-row.amount) : "", row.amount > 0n ? decimal(row.amount) : "", row.reference].join(","),
+    [row.date, bankNarrative(row.amount > 0n), row.amount < 0n ? decimal(-row.amount) : "", row.amount > 0n ? decimal(row.amount) : "", row.reference].join(","),
   );
   if (charge) csv.push([periodEnd, charge.description, decimal(charge.amount), "", ""].join(","));
   const statementId = `BSTMT-DEMO-${month}`;

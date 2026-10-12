@@ -298,6 +298,7 @@ export interface PeriodCloseBankStatementRow {
   readonly periodEnd: string;
   readonly finalized: boolean;
   readonly forced: boolean;
+  readonly unmatchedLines: number;
 }
 
 export interface PeriodCloseRecurringRunRow {
@@ -418,13 +419,14 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
       const rows = sqlite
         .prepare(
           `SELECT s.id, s.treasury_account_id, s.statement_number, s.period_start, s.period_end, s.status, ta.name AS account_name,
-                  (s.finalize_override_reason IS NOT NULL OR COALESCE(s.unmatched_at_finalize, 0) > 0) AS forced
+                  (s.finalize_override_reason IS NOT NULL OR COALESCE(s.unmatched_at_finalize, 0) > 0) AS forced,
+                  (SELECT COUNT(*) FROM statement_line l WHERE l.statement_id = s.id AND l.status <> 'matched') AS unmatched_lines
              FROM bank_statement s
              LEFT JOIN treasury_account ta ON ta.id = s.treasury_account_id
             WHERE s.period_start <= ? AND s.period_end >= ?
             ORDER BY s.period_end, s.id`,
         )
-        .all(window.endDate, window.startDate) as { id: string; treasury_account_id: string; statement_number: string | null; period_start: string; period_end: string; status: string; account_name: string | null; forced: number }[];
+        .all(window.endDate, window.startDate) as { id: string; treasury_account_id: string; statement_number: string | null; period_start: string; period_end: string; status: string; account_name: string | null; forced: number; unmatched_lines: number }[];
       return rows.map((row) => ({
         statementId: row.id,
         treasuryAccountId: row.treasury_account_id,
@@ -434,6 +436,7 @@ function createQueries(sqlite: Database.Database): PeriodCloseQueries {
         periodEnd: row.period_end,
         finalized: row.status === StoredStatus.StatementCompleted,
         forced: row.status === StoredStatus.StatementCompleted && row.forced === 1,
+        unmatchedLines: row.unmatched_lines,
       }));
     },
     bankAccountsWithMovement(window) {

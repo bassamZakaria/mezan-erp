@@ -218,6 +218,20 @@ export function nextBankTransferReference(): string {
 }
 
 /** A step the product refuses ahead of today is seeded only once its day has come, or the seed fails to boot on an earlier clock. */
+const SEED_MONEY_SCALE = 1_000_000n;
+
+export function seedScaled(decimal: string): bigint {
+  const negative = decimal.startsWith("-");
+  const [whole = "0", fraction = ""] = decimal.replace("-", "").split(".");
+  const value = BigInt(whole || "0") * SEED_MONEY_SCALE + BigInt(fraction.padEnd(6, "0").slice(0, 6) || "0");
+  return negative ? -value : value;
+}
+
+export function seedDecimal(value: bigint): string {
+  const abs = value < 0n ? -value : value;
+  return `${value < 0n ? "-" : ""}${abs / SEED_MONEY_SCALE}.${(abs % SEED_MONEY_SCALE).toString().padStart(6, "0")}`;
+}
+
 export function hasHappened(day: string): boolean {
   return day <= seedToday();
 }

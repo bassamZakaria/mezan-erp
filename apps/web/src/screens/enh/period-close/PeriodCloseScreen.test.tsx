@@ -266,3 +266,16 @@ describe("PeriodCloseScreen", () => {
     expect(within(history).getByRole("status")).toHaveTextContent("جارٍ التحميل");
   });
 });
+
+describe("a bank statement with lines nobody has matched", () => {
+  it("is named as an unreconciled statement with the number of lines still to match", async () => {
+    const unreconciled = check(PeriodCloseCheckCodeDTO.BankStatements, PeriodCloseCheckStatusDTO.Fail, [
+      finding({ kind: PeriodCloseFindingKindDTO.BankStatement, ref: "BSTMT-1", label: "البنك الأهلي — BS-2026-06", state: PeriodCloseFindingStateDTO.Unreconciled, passed: false, fix: PeriodCloseFixTargetDTO.BankReconciliation, count: 11, asOfDate: "2026-06-30" }),
+    ]);
+    renderScreen({ checklist: checklist({ checks: [unreconciled] }) });
+    await waitFor(() => expect(checkRow(PeriodCloseCheckCodeDTO.BankStatements)).toHaveTextContent("البنك الأهلي — BS-2026-06"));
+    const row = checkRow(PeriodCloseCheckCodeDTO.BankStatements);
+    expect(row).toHaveTextContent("كشف غير مسوّى");
+    expect(row).toHaveTextContent("بنود لم تُطابَق بعد: 11");
+  });
+});

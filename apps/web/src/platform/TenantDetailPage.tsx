@@ -706,6 +706,7 @@ function BillingAnchorDay({
   const { t } = useAppTranslation();
   const setAnchorDay = useSetBillingAnchorDayMutation();
   const [typed, setTyped] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const shown = typed ?? String(subscription.billingAnchorDay);
   const day = Number(shown);
   const valid = Number.isInteger(day) && day >= FIRST_DAY_OF_MONTH && day <= LAST_DAY_OF_MONTH;
@@ -730,10 +731,22 @@ function BillingAnchorDay({
             <Button
               size="sm"
               disabled={!changed || setAnchorDay.isPending}
-              onClick={() => setAnchorDay.mutate({ tenantId, day }, { onSuccess: () => setTyped(null), onError })}
+              onClick={() => setConfirming(true)}
             >
               {t("platform.tenantDetail.anchorDay.save")}
             </Button>
+            <ConfirmDialog
+              open={confirming}
+              title={t("platform.tenantDetail.anchorDay.confirm.title")}
+              consequence={t("platform.tenantDetail.anchorDay.confirm.consequence", { from: subscription.billingAnchorDay, to: day })}
+              confirmLabel={t("platform.tenantDetail.anchorDay.save")}
+              tone="danger"
+              onConfirm={() => {
+                setConfirming(false);
+                setAnchorDay.mutate({ tenantId, day }, { onSuccess: () => setTyped(null), onError });
+              }}
+              onCancel={() => setConfirming(false)}
+            />
           </span>
         ) : (
           <span className="mz-num font-semibold text-ink">{subscription.billingAnchorDay}</span>

@@ -185,9 +185,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     assignOwner: ({ tenant, userId, actorId }) => router.assignOwner({ tenantId: tenant.id, userId, actor: platformActor(actorId) }),
     confirmPendingOwner: ({ tenant, actorId }) => router.confirmPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
     reconcileOwner: (tenant) => reconcileOwnerQuietly(tenant.code),
-    reconcileOpenOwners: async () => {
-      await Promise.all(router.openTenants().map((tenant) => reconcileOwnerQuietly(tenant.code)));
-    },
+    reconcileOpenOwners: () => router.reconcileOpenOwners(),
     invalidateEntitlements: router.invalidate,
     cardCheckout: checkoutService
       ? {

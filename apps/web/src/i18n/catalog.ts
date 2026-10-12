@@ -525,6 +525,7 @@ const webAr = {
   "login.tenantCodeInvalid": "رمز المنشأة غير صالح",
   "login.companyUnconfirmed": "تعذّر التأكد من رمز المنشأة الآن. سنحاول تسجيل الدخول به كما هو.",
   "login.platformChecking": "جارٍ التحقق من المنشأة…",
+  "login.hostUnreachable": "تعذّر الوصول إلى الجهاز الرئيسي. تأكّد أنه يعمل وأن هذا الجهاز على الشبكة نفسها. سنعيد المحاولة تلقائيًا.",
 
   "dashboard.eyebrow": "نظرة عامة",
   "dashboard.greeting": "مرحباً، {name} · طاب يومك",
@@ -7878,6 +7879,8 @@ const webAr = {
   "platform.tenantDetail.archive": "أرشفة المنشأة",
   "platform.tenantDetail.anchorDay": "يوم الفوترة من الشهر",
   "platform.tenantDetail.anchorDay.save": "حفظ يوم الفوترة",
+  "platform.tenantDetail.anchorDay.confirm.title": "تغيير يوم الفوترة؟",
+  "platform.tenantDetail.anchorDay.confirm.consequence": "تغيير يوم الفوترة من {from} إلى {to} يطيل أو يقصّر الفترة المدفوعة التالية: التجديد القادم ينتهي في اليوم الجديد، لا في اليوم الحالي. الفترة الجارية لا تتغير.",
   "platform.tenantDetail.anchorDay.review": "يوم الفوترة يحتاج مراجعة",
   "platform.tenantDetail.anchorDay.reviewHint": "هذا الاشتراك أُنشئ قبل تسجيل يوم الفوترة، وسجلّ مدفوعاته لا يحسم اليوم الصحيح. راجعه واحفظ اليوم المتفق عليه.",
   "platform.tenantDetail.release": "أرشفة وتحرير الرمز",
@@ -10016,6 +10019,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "login.tenantCodeInvalid": "Invalid company code",
   "login.companyUnconfirmed": "The company code could not be confirmed right now. Sign-in will be tried with it as typed.",
   "login.platformChecking": "Checking your company…",
+  "login.hostUnreachable": "The host machine cannot be reached. Make sure it is running and that this device is on the same network. We will keep trying.",
 
   "dashboard.eyebrow": "Overview",
   "dashboard.greeting": "Welcome, {name} · have a good day",
@@ -17373,6 +17377,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "platform.tenantDetail.archive": "Archive tenant",
   "platform.tenantDetail.anchorDay": "Billing day of the month",
   "platform.tenantDetail.anchorDay.save": "Save billing day",
+  "platform.tenantDetail.anchorDay.confirm.title": "Change the billing day?",
+  "platform.tenantDetail.anchorDay.confirm.consequence": "Changing the billing day from {from} to {to} lengthens or shortens the next paid period: the next renewal ends on the new day, not the current one. The period running now does not change.",
   "platform.tenantDetail.anchorDay.review": "Billing day needs review",
   "platform.tenantDetail.anchorDay.reviewHint": "This subscription was created before the billing day was recorded, and its payment history does not settle the right day. Review it and save the agreed day.",
   "platform.tenantDetail.release": "Archive and free the code",

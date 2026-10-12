@@ -196,6 +196,102 @@ describe("createSqlitePlatformStores", () => {
     });
   });
 
+  describe("anchor days stored as the UTC day by an earlier build", () => {
+    const stored = (over: Partial<Subscription>): Subscription => ({ ...sub, ...over });
+
+    async function storedWithUtcAnchors(db: InstanceType<typeof Database>) {
+      const before = createSqlitePlatformStores(db);
+      await before.subscriptions.save(stored({
+        id: "S-MIDNIGHT", tenantId: "T-MIDNIGHT", createdAt: "2026-01-31T22:30:00.000Z",
+        currentPeriodStart: "2026-03-31T22:30:00.000Z", currentPeriodEnd: "2026-04-30T22:30:00.000Z", billingAnchorDay: 31,
+      }));
+      await before.payments.save({ ...payment, id: "P1", tenantId: "T-MIDNIGHT", subscriptionId: "S-MIDNIGHT", createdAt: "2026-02-20T10:00:00.000Z" });
+      await before.payments.save({ ...payment, id: "P2", tenantId: "T-MIDNIGHT", subscriptionId: "S-MIDNIGHT", createdAt: "2026-03-20T10:00:00.000Z" });
+      await before.subscriptions.save(stored({
+        id: "S-LATE-NIGHT", tenantId: "T-LATE-NIGHT", createdAt: "2026-01-14T23:00:00.000Z",
+        currentPeriodStart: "2026-03-14T23:00:00.000Z", currentPeriodEnd: "2026-04-14T23:00:00.000Z", billingAnchorDay: 14,
+      }));
+      await before.payments.save({ ...payment, id: "P3", tenantId: "T-LATE-NIGHT", subscriptionId: "S-LATE-NIGHT", createdAt: "2026-02-10T10:00:00.000Z" });
+      await before.payments.save({ ...payment, id: "P4", tenantId: "T-LATE-NIGHT", subscriptionId: "S-LATE-NIGHT", createdAt: "2026-03-10T10:00:00.000Z" });
+      await before.subscriptions.save(stored({
+        id: "S-UNSETTLED", tenantId: "T-UNSETTLED", createdAt: "2026-01-14T23:00:00.000Z",
+        currentPeriodStart: "2026-03-20T09:00:00.000Z", currentPeriodEnd: "2026-04-20T09:00:00.000Z", billingAnchorDay: 14,
+      }));
+      await before.payments.save({ ...payment, id: "P5", tenantId: "T-UNSETTLED", subscriptionId: "S-UNSETTLED", createdAt: "2026-03-20T09:00:00.000Z" });
+      await before.subscriptions.save(stored({
+        id: "S-DAYTIME", tenantId: "T-DAYTIME", createdAt: "2026-01-12T10:00:00.000Z",
+        currentPeriodStart: "2026-01-12T10:00:00.000Z", currentPeriodEnd: "2026-02-12T10:00:00.000Z", billingAnchorDay: 12,
+      }));
+      await before.subscriptions.save(stored({
+        id: "S-CHOSEN", tenantId: "T-CHOSEN", createdAt: "2026-01-14T23:00:00.000Z",
+        currentPeriodStart: "2026-01-14T23:00:00.000Z", currentPeriodEnd: "2026-02-14T23:00:00.000Z", billingAnchorDay: 20,
+      }));
+      db.exec("DELETE FROM platform_migration WHERE name LIKE '%utc%'");
+    }
+
+    it("moves an anchor that was the UTC day of a subscription created after midnight in Cairo to the Cairo day its history proves", async () => {
+      const db = new Database(":memory:");
+      await storedWithUtcAnchors(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect(await subscriptions.findById("S-MIDNIGHT")).toMatchObject({ billingAnchorDay: 1, currentPeriodEnd: "2026-04-30T22:30:00.000Z" });
+      expect((await subscriptions.findById("S-MIDNIGHT"))?.billingAnchorNeedsReview).toBeUndefined();
+      expect((await subscriptions.findById("S-LATE-NIGHT"))?.billingAnchorDay).toBe(15);
+      db.close();
+    });
+
+    it("marks for review, and leaves the stored day, where the history does not settle the Cairo day", async () => {
+      const db = new Database(":memory:");
+      await storedWithUtcAnchors(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect(await subscriptions.findById("S-UNSETTLED")).toMatchObject({ billingAnchorDay: 14, billingAnchorNeedsReview: true });
+      db.close();
+    });
+
+    it("touches no anchor that is already the Cairo day, nor one somebody chose", async () => {
+      const db = new Database(":memory:");
+      await storedWithUtcAnchors(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect(await subscriptions.findById("S-DAYTIME")).toMatchObject({ billingAnchorDay: 12 });
+      expect((await subscriptions.findById("S-DAYTIME"))?.billingAnchorNeedsReview).toBeUndefined();
+      expect(await subscriptions.findById("S-CHOSEN")).toMatchObject({ billingAnchorDay: 20 });
+      expect((await subscriptions.findById("S-CHOSEN"))?.billingAnchorNeedsReview).toBeUndefined();
+      db.close();
+    });
+
+    it("runs once: a day the platform owner sets afterwards is not moved back", async () => {
+      const db = new Database(":memory:");
+      await storedWithUtcAnchors(db);
+      const first = createSqlitePlatformStores(db);
+      const repaired = await first.subscriptions.findById("S-MIDNIGHT");
+      if (!repaired) throw new Error("the subscription is missing");
+      await first.subscriptions.save({ ...repaired, billingAnchorDay: 31 });
+
+      const again = createSqlitePlatformStores(db);
+
+      expect((await again.subscriptions.findById("S-MIDNIGHT"))?.billingAnchorDay).toBe(31);
+      db.close();
+    });
+  });
+
+  it("stores a review mark a renewal cleared, through the conditional write a renewal uses", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    const marked: Subscription = { ...sub, id: "S-MARKED", tenantId: "T-MARKED", billingAnchorNeedsReview: true };
+    await stores.subscriptions.save(marked);
+    const cleared: Subscription = { ...marked, billingAnchorDay: 9, billingAnchorNeedsReview: false, updatedAt: "2026-09-20T10:00:00.000Z" };
+
+    expect(await stores.subscriptions.compareAndSet(marked, cleared, async () => undefined)).toBe(true);
+
+    expect(await stores.subscriptions.findById("S-MARKED")).toMatchObject({ billingAnchorDay: 9 });
+    expect((await stores.subscriptions.findById("S-MARKED"))?.billingAnchorNeedsReview).toBeUndefined();
+    stores.close();
+  });
+
   it("refuses a second live subscription for one tenant at the database", async () => {
     const stores = createSqlitePlatformStores(":memory:");
     await stores.subscriptions.save(sub);

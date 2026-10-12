@@ -16,7 +16,7 @@ export {
 } from "./plan.js";
 export {
   DEFAULT_GRACE_DAYS, SubscriptionStatusKind, billingAnchorDayOf, inferBillingAnchorDay, setBillingAnchorDay,
-  startSubscription, renewSubscription, applyRenewal, changePlan, markPastDue,
+  startSubscription, renewSubscription, applyRenewal, anchorIsUtcDayOfCreation, changePlan, markPastDue,
   suspendSubscription, resumeSubscription, cancelSubscription,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
   type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,

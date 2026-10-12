@@ -263,6 +263,17 @@ describe("a renewal keeps the day the subscription is billed on", () => {
     expect(periodEndsAfterRenewingOnTime(paidLate, 1)).toEqual(["2027-04-10", "2027-05-10"]);
   });
 
+  it("clears the review mark when a lapsed renewal writes a new billing day, and keeps it when an on-time renewal wrote none", async () => {
+    const marked = { ...(await started("2027-01-31T10:00:00.000Z")), billingAnchorNeedsReview: true };
+
+    const paidLate = applyRenewal(marked, "2027-03-10T09:00:00.000Z");
+    const paidOnTime = applyRenewal(marked, "2027-02-10T09:00:00.000Z");
+
+    expect(paidLate.billingAnchorDay).toBe(10);
+    expect(paidLate.billingAnchorNeedsReview).toBe(false);
+    expect(paidOnTime.billingAnchorNeedsReview).toBe(true);
+  });
+
   it("carries the Cairo time of day of the period it renews, which is an hour earlier in UTC once summer time has begun", async () => {
     const renewed = applyRenewal(await started("2027-01-31T10:00:00.000Z"), "2027-02-01T00:00:00.000Z");
     expect(renewed.currentPeriodEnd).toBe("2027-03-31T10:00:00.000Z");

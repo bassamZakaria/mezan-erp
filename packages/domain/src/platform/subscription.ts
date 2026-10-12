@@ -178,6 +178,16 @@ export function inferBillingAnchorDay(
   return sameMonths && neverLater ? anchor : null;
 }
 
+/**
+ * An earlier build stored the UTC day of month as the anchor. For a
+ * subscription created between midnight in Cairo and midnight UTC that is the
+ * day BEFORE its real billing day. True only for that exact signature.
+ */
+export function anchorIsUtcDayOfCreation(s: Pick<Subscription, "createdAt" | "billingAnchorDay">): boolean {
+  const utcDay = new Date(s.createdAt).getUTCDate();
+  return s.billingAnchorDay === utcDay && utcDay !== businessDayOfMonth(s.createdAt);
+}
+
 export function addDays(iso: string, days: number): string {
   return new Date(new Date(iso).getTime() + days * DAY_MS).toISOString();
 }
@@ -335,6 +345,7 @@ export function applyRenewal(s: Subscription, nowIso: string): Subscription {
     currentPeriodStart: periodStart,
     currentPeriodEnd: addPeriod(periodStart, s.billingCycle, billingAnchorDay),
     billingAnchorDay,
+    ...(lapsed && s.billingAnchorNeedsReview ? { billingAnchorNeedsReview: false } : {}),
     updatedAt: now,
   };
 }

@@ -1,8 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { TenantResolveMode } from "@mezan/contracts";
-import { ApiError, platformLookupFailing, useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
+import { ApiError, isDesktopHost, platformLookupFailing, useBootstrapStatus, useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
+import { lastTenantMode, LookupHost, lookupHostOf, rememberTenantMode } from "./lookup-host";
 import { useAppVersion } from "../data/hub-hooks";
 import {
   clearSessionExpired,
@@ -36,12 +37,9 @@ function formatWait(seconds: number): string {
   if (seconds < 120) return `${seconds}s`;
   return `${Math.ceil(seconds / 60)}m`;
 }
-/**
- * The seed admin's EMAIL, not their display name — login used to match the full
- * name, a field any admin can edit and two people can share. Only used as the
- * fallback when this device remembers nobody.
- */
-const DEFAULT_USERNAME = "admin@cyag.example";
+// Offered only on a desktop host running the demo seed. Any other sign-in opens
+// on an empty email field: a real company's sign-in must never name an account.
+const DEMO_SEED_ADMIN_EMAIL = "admin@cyag.example";
 
 function openingTenantCode(): string | null {
   return tenantCodeIsLeftover() ? null : loadTenantCode();
@@ -90,9 +88,6 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const lookupRefusal = platformResolve.failureReason;
   const hostMessageNow =
     lookupRefusal instanceof ApiError && HOST_REFUSAL_STATUSES.includes(lookupRefusal.status) && lookupRefusal.message !== "" ? lookupRefusal.message : null;
-  // Changing the company clears the query cache, and with it the lookup's own
-  // failure count. What the lookup last said is kept here until it answers, so
-  // the company-code field does not vanish under the person typing in it.
   const [lastLookupFailure, setLastLookupFailure] = useState<{ readonly hostMessage: string | null } | null>(null);
   useEffect(() => {
     if (lookupFailingNow) setLastLookupFailure({ hostMessage: hostMessageNow });
@@ -100,7 +95,13 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   }, [lookupFailingNow, lookupAnswered, hostMessageNow]);
   const lookupFailing = lookupFailingNow || (lastLookupFailure !== null && !lookupAnswered);
   const hostMessage = lookupFailingNow ? hostMessageNow : lookupFailing ? (lastLookupFailure?.hostMessage ?? null) : null;
-  const companyCodeOffered = tenantMode === TenantResolveMode.Code || lookupFailing;
+  const lookupHost = useMemo(() => lookupHostOf(), []);
+  useEffect(() => {
+    if (tenantMode !== undefined) rememberTenantMode(tenantMode);
+  }, [tenantMode]);
+  const companyCodeUnknown = lookupFailing && lookupHost === LookupHost.Cloud && lastTenantMode() !== TenantResolveMode.Subdomain;
+  const companyCodeOffered = tenantMode === TenantResolveMode.Code || companyCodeUnknown;
+  const hostUnreachable = lookupFailing && lookupHost === LookupHost.LanTill;
   const [companyUnconfirmed, setCompanyUnconfirmed] = useState(false);
   const [tenantCode, setTenantCode] = useState(() => openingTenantCode() ?? "");
   const [resolvedCode, setResolvedCode] = useState(() => openingTenantCode() ?? "");
@@ -114,7 +115,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const [selected, setSelected] = useState<DeviceUser | null>(remembered[0] ?? null);
   /** True once «آخر» is chosen, or when the device remembers nobody at all. */
   const [typing, setTyping] = useState(remembered.length === 0);
-  const [username, setUsername] = useState(remembered[0]?.email ?? DEFAULT_USERNAME);
+  const [username, setUsername] = useState(remembered[0]?.email ?? "");
+  const demoSeed = useBootstrapStatus({ enabled: isDesktopHost() && remembered.length === 0 });
+  const demoSeeded = demoSeed.data?.demoSeeded === true;
+  useEffect(() => {
+    if (demoSeeded && isDesktopHost()) setUsername((current) => (current === "" ? DEMO_SEED_ADMIN_EMAIL : current));
+  }, [demoSeeded]);
 
   /**
    * Whether the OPERATOR NOW AT THE MACHINE has explicitly confirmed a
@@ -154,7 +160,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     if (!typing) {
       setSelected(list[0] ?? null);
       setTyping(list.length === 0);
-      setUsername(list[0]?.email ?? DEFAULT_USERNAME);
+      setUsername(list[0]?.email ?? "");
     }
     setPinDigits(Array(PIN_LENGTH).fill(""));
     setError(null);
@@ -400,6 +406,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
         {platformResolve.isLoading && !lookupFailing ? (
           <p className="mt-[4px] text-2xs text-ink-faint">{t("login.platformChecking")}</p>
+        ) : null}
+
+        {hostUnreachable ? (
+          <p role="status" className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink">
+            {t("login.hostUnreachable")}
+          </p>
         ) : null}
 
         {hostMessage ? (

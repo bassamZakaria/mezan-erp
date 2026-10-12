@@ -10,7 +10,7 @@ import {
   type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
-  type Subscription, SubscriptionStatusKind, inferBillingAnchorDay,
+  type Subscription, SubscriptionStatusKind, anchorIsUtcDayOfCreation, inferBillingAnchorDay,
   type PendingOwner, type Tenant, type TenantRepository, TenantStatusCode,
 } from "@mezan/domain";
 
@@ -452,6 +452,33 @@ function backfillBillingAnchors(sqlite: Database.Database): void {
     .immediate();
 }
 
+const UTC_ANCHOR_REPAIR = "2026-10-billing-anchor-utc-repair";
+
+// Corrects only an anchor that is provably the UTC day of the subscription's
+// creation, and only to the day its own payment history reproduces. Anything
+// the history does not settle is marked for the platform owner, never guessed.
+function repairUtcBillingAnchors(sqlite: Database.Database): void {
+  if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(UTC_ANCHOR_REPAIR)) return;
+  const anchored = sqlite.prepare(`SELECT * FROM subscription WHERE billing_anchor_day IS NOT NULL AND status <> ?`);
+  const renewals = sqlite.prepare(`SELECT created_at FROM payment WHERE subscription_id = ? ORDER BY created_at, id`);
+  const setAnchor = sqlite.prepare(`UPDATE subscription SET billing_anchor_day = ? WHERE id = ? AND billing_anchor_day = ?`);
+  const markForReview = sqlite.prepare(`UPDATE subscription SET billing_anchor_review = 1 WHERE id = ? AND billing_anchor_day = ?`);
+  const done = sqlite.prepare(`INSERT INTO platform_migration (name, applied_at) VALUES (?, ?)`);
+  sqlite
+    .transaction(() => {
+      for (const row of anchored.all(SubscriptionStatusKind.Cancelled) as SubscriptionRow[]) {
+        const subscription = toSubscription(row);
+        if (!anchorIsUtcDayOfCreation(subscription)) continue;
+        const recordedAt = (renewals.all(row.id) as { created_at: string }[]).map((payment) => payment.created_at);
+        const day = inferBillingAnchorDay(subscription, recordedAt);
+        if (day === null) markForReview.run(row.id, row.billing_anchor_day);
+        else setAnchor.run(day, row.id, row.billing_anchor_day);
+      }
+      done.run(UTC_ANCHOR_REPAIR, new Date().toISOString());
+    })
+    .immediate();
+}
+
 class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
   private readonly sqlite: Database.Database;
   private readonly upsert: Database.Statement;
@@ -495,7 +522,8 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
       `UPDATE subscription
           SET plan_id = @planId, previous_plan_id = @previousPlanId, status = @status, billing_cycle = @billingCycle,
               current_period_start = @currentPeriodStart, current_period_end = @currentPeriodEnd,
-              trial_ends_at = @trialEndsAt, billing_anchor_day = @billingAnchorDay, updated_at = @updatedAt
+              trial_ends_at = @trialEndsAt, billing_anchor_day = @billingAnchorDay, billing_anchor_review = @billingAnchorReview,
+              updated_at = @updatedAt
         WHERE id = @id AND plan_id = @beforePlanId AND status = @beforeStatus AND updated_at = @beforeUpdatedAt`,
     );
   }
@@ -534,7 +562,8 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
           id: after.id, planId: after.planId, previousPlanId: after.previousPlanId,
           status: after.status, billingCycle: after.billingCycle,
           currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd,
-          trialEndsAt: after.trialEndsAt, billingAnchorDay: after.billingAnchorDay ?? null, updatedAt: after.updatedAt,
+          trialEndsAt: after.trialEndsAt, billingAnchorDay: after.billingAnchorDay ?? null,
+          billingAnchorReview: after.billingAnchorNeedsReview === true ? 1 : 0, updatedAt: after.updatedAt,
           beforePlanId: before.planId, beforeStatus: before.status, beforeUpdatedAt: before.updatedAt,
         });
         if (result.changes !== 1) return false;
@@ -739,7 +768,8 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     );
     this.renewSubscription = sqlite.prepare(
       `UPDATE subscription SET status = @status, trial_ends_at = @trialEndsAt, current_period_start = @currentPeriodStart,
-         current_period_end = @currentPeriodEnd, billing_anchor_day = @billingAnchorDay, updated_at = @updatedAt
+         current_period_end = @currentPeriodEnd, billing_anchor_day = @billingAnchorDay, billing_anchor_review = @billingAnchorReview,
+         updated_at = @updatedAt
        WHERE id = @id AND status = @expectedStatus AND updated_at = @expectedUpdatedAt AND current_period_end = @expectedPeriodEnd`,
     );
     this.insertPayment = sqlite.prepare(
@@ -811,7 +841,8 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
       if (!moved) return "already-settled";
       const renewed = this.renewSubscription.run({
         id: after.id, status: after.status, trialEndsAt: after.trialEndsAt,
-        currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd, billingAnchorDay: after.billingAnchorDay ?? null, updatedAt: after.updatedAt,
+        currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd, billingAnchorDay: after.billingAnchorDay ?? null,
+        billingAnchorReview: after.billingAnchorNeedsReview === true ? 1 : 0, updatedAt: after.updatedAt,
         expectedStatus: before.status, expectedUpdatedAt: before.updatedAt, expectedPeriodEnd: before.currentPeriodEnd,
       });
       if (renewed.changes !== 1) throw new SubscriptionChanged();
@@ -989,6 +1020,7 @@ export function createSqlitePlatformStores(
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
   backfillBillingAnchors(sqlite);
+  repairUtcBillingAnchors(sqlite);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),

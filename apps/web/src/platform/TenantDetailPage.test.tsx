@@ -273,6 +273,10 @@ describe("TenantDetailPage", () => {
     expect(field).toHaveValue(28);
     fireEvent.change(field, { target: { value: "31" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ يوم الفوترة" }));
+    const dialog = await screen.findByRole("dialog", { name: "تغيير يوم الفوترة؟" });
+    expect(dialog).toHaveTextContent("تغيير يوم الفوترة من 28 إلى 31 يطيل أو يقصّر الفترة المدفوعة التالية");
+    expect(sent).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ يوم الفوترة" }));
 
     await waitFor(() => expect(sent).toEqual([{ day: 31 }]));
     await waitFor(() => expect(screen.queryByText("يوم الفوترة يحتاج مراجعة")).not.toBeInTheDocument());

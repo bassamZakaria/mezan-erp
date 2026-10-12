@@ -13,14 +13,22 @@ import { rememberDeviceUser } from "./device-users";
 import { MemoryRouter } from "react-router";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { Transport, TransportResponse } from "../data/transport";
-import { PLATFORM_LOOKUP_FIRST_RETRY_MS, PLATFORM_LOOKUP_MAX_RETRY_MS } from "../data/hooks";
+import { ApiError, PLATFORM_LOOKUP_FIRST_RETRY_MS, PLATFORM_LOOKUP_MAX_RETRY_MS, platformLookupRetryDelay } from "../data/hooks";
 
 function SessionProbe() {
   const { session } = useApi();
   return <span data-testid="session">{session?.nameAr ?? "none"}</span>;
 }
 
+const TYPED_EMAIL = "admin@cyag.example";
+
+function typeEmailWhenNoneIsOffered() {
+  const email = screen.queryByLabelText<HTMLInputElement>("البريد الإلكتروني");
+  if (email && email.value === "") fireEvent.change(email, { target: { value: TYPED_EMAIL } });
+}
+
 function fillPin(pin: string) {
+  typeEmailWhenNoneIsOffered();
   pin.split("").forEach((digit, index) => {
     fireEvent.change(screen.getByLabelText(`رمز PIN رقم ${index + 1}`), { target: { value: digit } });
   });
@@ -75,11 +83,51 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     document.documentElement.removeAttribute("data-theme");
   });
 
-  it("renders the plain sign-in heading and email field when the device remembers nobody", () => {
+  it("renders the plain sign-in heading and an EMPTY email field when the device remembers nobody", () => {
     document.documentElement.setAttribute("data-theme", theme);
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
     expect(screen.getByRole("heading", { name: "تسجيل الدخول" })).toBeInTheDocument();
-    expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("admin@cyag.example");
+    expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("");
+  });
+
+  describe("the demo seed admin's email", () => {
+    const desktop = globalThis as { mezan?: unknown };
+    const counts = { accounts: 50, taxRates: 3, branches: 1, warehouses: 1, fiscalPeriods: 12, users: 1, claimed: true };
+    afterEach(() => {
+      delete desktop.mezan;
+    });
+
+    it("is offered on a desktop host running the demo seed", async () => {
+      desktop.mezan = { licence: { status: async () => ({}) } };
+      const transport = stubTransport({ ...preAuth, "GET /bootstrap/status": () => ({ body: { ...counts, demoSeeded: true } }) });
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+
+      await waitFor(() => expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("admin@cyag.example"));
+    });
+
+    it("is not offered on a desktop host holding a real company's books", async () => {
+      desktop.mezan = { licence: { status: async () => ({}) } };
+      const asked: string[] = [];
+      const base = stubTransport({ ...preAuth, "GET /bootstrap/status": () => ({ body: { ...counts, demoSeeded: false } }) });
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: (path, init) => (asked.push(path), base(path, init)) });
+
+      await waitFor(() => expect(asked).toContain("/bootstrap/status"));
+      expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("");
+    });
+
+    it("is never offered on the cloud, and the cloud sign-in asks no tenant for it", async () => {
+      const asked: string[] = [];
+      const base = stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: false } }),
+        "GET /bootstrap/status": () => ({ body: { ...counts, demoSeeded: true } }),
+      });
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: (path, init) => (asked.push(path), base(path, init)) });
+
+      await screen.findByRole("textbox", { name: "رمز المنشأة" });
+      expect(screen.getByLabelText("البريد الإلكتروني")).toHaveValue("");
+      expect(asked).not.toContain("/bootstrap/status");
+    });
   });
 
   it("prefills the remembered device user's identity and preselects their face", () => {
@@ -667,7 +715,67 @@ describe("LoginScreen — SaaS company code", () => {
         header: (name: string) => (name.toLowerCase() === "retry-after" ? (retryAfter ?? null) : null),
       });
 
-    afterEach(() => vi.useRealTimers());
+    beforeEach(() => {
+      vi.spyOn(Math, "random").mockReturnValue(0.5);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+      delete (globalThis as { mezan?: unknown }).mezan;
+    });
+
+    it("offers no company-code field on a desktop host, which has exactly one company", async () => {
+      (globalThis as { mezan?: unknown }).mezan = { licence: { status: async () => ({}) } };
+      const { transport, state } = failingLookup(jsonFailure(500));
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+
+      await vi.waitFor(() => expect(state.lookups).toBeGreaterThan(0));
+      await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
+      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(screen.queryByRole("textbox", { name: "رمز المنشأة" })).not.toBeInTheDocument();
+    });
+
+    it("offers no company-code field on a host that last answered as a company's own subdomain", async () => {
+      const first = failingLookup(jsonFailure(500), { "GET /platform/resolve": () => ({ body: { mode: "subdomain", exists: true } }) });
+      first.state.failing = false;
+      const opened = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: first.transport });
+      await vi.waitFor(() => expect(first.state.lookups).toBe(1));
+      await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
+      opened.unmount();
+
+      const again = failingLookup(jsonFailure(503));
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: again.transport });
+
+      await vi.waitFor(() => expect(again.state.lookups).toBeGreaterThan(0));
+      await vi.waitFor(() => expect(screen.queryByText("جارٍ التحقق من المنشأة…")).not.toBeInTheDocument());
+      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(screen.queryByRole("textbox", { name: "رمز المنشأة" })).not.toBeInTheDocument();
+    });
+
+    it.each([400, 401, 403, 410])("stops looking after a %i, which no retry can change", async (status) => {
+      vi.useFakeTimers();
+      const { transport, state } = failingLookup(jsonFailure(status));
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(PLATFORM_LOOKUP_MAX_RETRY_MS * 10); });
+
+      expect(state.lookups).toBe(1);
+      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+    });
+
+    it("spreads its retries by up to a fifth either way, so a fleet of tills does not look again in the same instant", () => {
+      const early = platformLookupRetryDelay(2, new Error("down"), () => 0);
+      const late = platformLookupRetryDelay(2, new Error("down"), () => 1);
+      const even = platformLookupRetryDelay(2, new Error("down"), () => 0.5);
+
+      expect(even).toBe(PLATFORM_LOOKUP_FIRST_RETRY_MS * 4);
+      expect(early).toBe(even * 0.8);
+      expect(late).toBe(even * 1.2);
+      expect(platformLookupRetryDelay(2, new Error("down"), () => 0.1)).not.toBe(platformLookupRetryDelay(2, new Error("down"), () => 0.9));
+      expect(platformLookupRetryDelay(40, new Error("down"), () => 1)).toBe(PLATFORM_LOOKUP_MAX_RETRY_MS);
+      expect(platformLookupRetryDelay(0, new ApiError(429, "busy", undefined, 30), () => 0)).toBe(30_000);
+    });
 
     it.each([
       ["answers 500", jsonFailure(500)],
@@ -700,7 +808,7 @@ describe("LoginScreen — SaaS company code", () => {
       fillPin("123456");
 
       await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
-      expect(state.requests.filter((path) => path === "/tenant" || path === "/entitlements" || path === "/bootstrap/status")).toEqual([]);
+      expect(state.requests.filter((path) => !path.startsWith("/platform/resolve") && path !== "/auth/login")).toEqual([]);
     });
 
     it("signs in with a typed company code it could not confirm, and says so in a notice that blocks nothing", async () => {

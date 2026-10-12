@@ -4148,7 +4148,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         });
       }
     : undefined;
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: announceSignIn }));
+  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: announceSignIn, demoSeeded: options.seedDemoData === true }));
   app.route(
     "/",
     createDashboardRoutes({

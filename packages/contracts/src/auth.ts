@@ -86,6 +86,8 @@ export const bootstrapSeedResultSchema = z.object({
    * out of a brand-new install inside ninety seconds.
    */
   claimed: z.boolean().optional(),
+  /** True only on an install started on the demo seed, whose sign-in may name the seed admin. */
+  demoSeeded: z.boolean().optional(),
 });
 
 export type LoginRequestDTO = z.infer<typeof loginRequestSchema>;

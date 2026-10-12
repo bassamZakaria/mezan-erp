@@ -515,6 +515,7 @@ describe("AppLayout — nothing tenant-scoped is asked before a company is known
   afterEach(() => {
     persistSession(null);
     clearTenantCode();
+    localStorage.clear();
   });
 
   function signedOut(resolve: () => { status?: number; body: unknown }, claimed = true): string[] {
@@ -536,14 +537,14 @@ describe("AppLayout — nothing tenant-scoped is asked before a company is known
     return requests;
   }
 
-  it("asks for neither the claim status nor the entitlements on a cloud sign-in screen with no company code, then asks once a code is confirmed", async () => {
+  it("sends nothing but the company lookup from a cloud sign-in screen with no company code, then asks once a code is confirmed", async () => {
     clearTenantCode();
     const requests = signedOut(() => ({ body: { mode: "code", exists: false } }));
 
     expect(await screen.findByRole("textbox", { name: "رمز المنشأة" })).toBeInTheDocument();
     await waitFor(() => expect(requests).toContain("/platform/resolve"));
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(requests.filter((path) => path === "/bootstrap/status" || path === "/entitlements")).toEqual([]);
+    expect(requests.filter((path) => !path.startsWith("/platform/resolve"))).toEqual([]);
 
     act(() => persistTenantCode("acme"));
 
@@ -600,7 +601,7 @@ describe("AppLayout — nothing tenant-scoped is asked before a company is known
     const requests = signedOut(() => ({ status: 503, body: { error: "UPSTREAM" } }));
     await screen.findByRole("textbox", { name: "رمز المنشأة" });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(requests.filter((path) => path === "/bootstrap/status" || path === "/entitlements")).toEqual([]);
+    expect(requests.filter((path) => !path.startsWith("/platform/resolve"))).toEqual([]);
 
     act(() => persistTenantCode("acme"));
 

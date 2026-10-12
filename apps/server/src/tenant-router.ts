@@ -67,6 +67,8 @@ export interface TenantRouter {
   readonly app: Hono;
   backendFor(code: string): Promise<BackendHandle>;
   reconcileOwner(code: string): Promise<void>;
+  /** Reconciles every OPEN tenant without counting as use, so listing tenants never keeps an idle one open. */
+  reconcileOpenOwners(): Promise<void>;
   ownerCandidates(tenantId: string): Promise<CompanyAdminAccount[]>;
   assignOwner(input: { readonly tenantId: string; readonly userId: string; readonly actor: string }): Promise<Tenant>;
   confirmPendingOwner(input: { readonly tenantId: string; readonly actor: string }): Promise<Tenant>;
@@ -233,6 +235,17 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return cache.get(tenant.id);
     },
     reconcileOwner,
+    async reconcileOpenOwners() {
+      await Promise.all(
+        [...openCodes].map(async ([tenantId, code]) => {
+          const open = cache.peek(tenantId);
+          if (!open) return;
+          await ownerContact
+            .reconcile(code, await open)
+            .catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
+        }),
+      );
+    },
     async ownerCandidates(tenantId) {
       return (await cache.get((await liveTenant(tenantId)).id)).companyAdmins();
     },

@@ -466,14 +466,26 @@ function retryAfterSecondsOf(res: TransportResponse): number | undefined {
   return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
-export function platformLookupRetryDelay(failureCount: number, error: unknown): number {
-  const backoff = Math.min(PLATFORM_LOOKUP_MAX_RETRY_MS, PLATFORM_LOOKUP_FIRST_RETRY_MS * 2 ** Math.min(failureCount, 16));
+const PLATFORM_LOOKUP_JITTER = 0.2;
+const PERMANENT_LOOKUP_REFUSALS: readonly number[] = [400, 401, 403, 410];
+
+// The spread keeps every till that lost the same host from looking again in
+// the same instant. A wait the server asked for is never shortened by it.
+export function platformLookupRetryDelay(failureCount: number, error: unknown, random: () => number = Math.random): number {
+  const backoff = PLATFORM_LOOKUP_FIRST_RETRY_MS * 2 ** Math.min(failureCount, 16);
+  const spread = 1 + PLATFORM_LOOKUP_JITTER * (2 * random() - 1);
+  const jittered = Math.min(PLATFORM_LOOKUP_MAX_RETRY_MS, Math.round(backoff * spread));
   const asked = error instanceof ApiError && error.retryAfterSeconds !== undefined ? error.retryAfterSeconds * 1000 : 0;
-  return Math.min(PLATFORM_LOOKUP_MAX_RETRY_AFTER_MS, Math.max(asked, backoff));
+  return Math.min(PLATFORM_LOOKUP_MAX_RETRY_AFTER_MS, Math.max(asked, jittered));
 }
 
 export function noPlatformInFront(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
+}
+
+export function platformLookupWorthRetrying(error: unknown): boolean {
+  if (noPlatformInFront(error)) return false;
+  return !(error instanceof ApiError && PERMANENT_LOOKUP_REFUSALS.includes(error.status));
 }
 
 export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {
@@ -482,8 +494,8 @@ export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQuer
   return useQuery<PlatformResolveDTO, ApiError>({
     queryKey: ["platform", "resolve"],
     enabled: options.enabled ?? true,
-    retry: (_failureCount, error) => !noPlatformInFront(error),
-    retryDelay: platformLookupRetryDelay,
+    retry: (_failureCount, error) => platformLookupWorthRetrying(error),
+    retryDelay: (failureCount, error) => platformLookupRetryDelay(failureCount, error),
     queryFn: async () => {
       const res = await request("/platform/resolve");
       if (!res.ok) {
@@ -521,13 +533,13 @@ export function useCompanyKnown(): boolean {
 }
 
 /** What base data already exists — drives the wizard's seed checklist without triggering a seed. */
-export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
+export function useBootstrapStatus(options: { enabled?: boolean } = {}): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const companyKnown = useCompanyKnown();
   return useQuery<BootstrapSeedResultDTO, ApiError>({
     queryKey: ["bootstrap", "status"],
-    enabled: companyKnown,
+    enabled: companyKnown && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request("/bootstrap/status");
       if (!res.ok) throw await loaderError(res, t("api.theCoreDataStatusCould"), t);

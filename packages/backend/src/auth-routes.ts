@@ -26,6 +26,7 @@ import {
 import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
 
 export interface AuthRoutesDeps {
+  readonly demoSeeded?: boolean;
   readonly onSignedIn?: (user: { readonly userId: string; readonly email: string }) => Promise<void>;
   readonly uow: UnitOfWork;
   readonly hasher: SecretHasher;
@@ -361,7 +362,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * install inside ninety seconds. The client can now open the wizard instead.
    */
   app.get("/bootstrap/status", async (c) => {
-    return c.json({ ...(await currentCounts(deps.seedStores)), claimed: await tenantIsClaimed() });
+    return c.json({ ...(await currentCounts(deps.seedStores)), claimed: await tenantIsClaimed(), demoSeeded: deps.demoSeeded === true });
   });
 
   /**

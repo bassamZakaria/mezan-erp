@@ -515,6 +515,22 @@ describe("createTenantRouter", () => {
   });
 
   describe("cache eviction", () => {
+    it("still sweeps an idle tenant after the console's list reconciled every open tenant's owner", async () => {
+      const platform = await seedPlatform();
+      let t = new Date(T).getTime();
+      const { router } = newRouter(platform, { idleMs: 1000, ttlMs: 60_000, now: () => new Date(t) });
+      await router.backendFor("nile");
+      expect(router.openTenants().map((tenant) => tenant.code)).toEqual(["nile"]);
+
+      t += 900;
+      await router.reconcileOpenOwners();
+      t += 101;
+      await router.sweep();
+
+      expect(router.openTenants()).toEqual([]);
+    });
+
+
     it("rebuilds a tenant's resolver after its backend is evicted for being idle", async () => {
       const platform = await seedPlatform();
       let t = new Date(T).getTime();

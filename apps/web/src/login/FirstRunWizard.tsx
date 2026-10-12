@@ -32,7 +32,7 @@ import { PortableImportPanel } from "../settings/PortableImportPanel";
  * exist" — it drives which screen a signed-out visitor lands on, and rendering
  * it as a seed row would print a boolean in a column of quantities.
  */
-type SeedCountKey = Exclude<keyof BootstrapSeedResultDTO, "claimed">;
+type SeedCountKey = Exclude<keyof BootstrapSeedResultDTO, "claimed" | "demoSeeded">;
 
 const SEED_ROWS: readonly { key: SeedCountKey; labelKey: AppTranslationKey; hintKey: AppTranslationKey }[] = [
   { key: "accounts", labelKey: "firstRun.chartOfAccounts", hintKey: "firstRun.accountsHint" },

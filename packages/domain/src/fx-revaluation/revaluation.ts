@@ -1,4 +1,4 @@
-import { Money } from "../money/index.js";
+import { Money, allocateScaled } from "../money/index.js";
 import type { Account, AccountType, NaturalBalance } from "../accounts/account.js";
 import type { JournalEntry } from "../journal.js";
 import type { PostedLine } from "../gl/ledger.js";
@@ -31,6 +31,43 @@ export interface OpenFxBalance {
   readonly label?: string;
 }
 
+/** One open receivable or payable document behind a control account's foreign balance. */
+export interface OpenFxItem {
+  readonly itemId: string;
+  readonly kind: "sales" | "purchase";
+  readonly partyId: string;
+  readonly foreignOutstanding: Money;
+  /** What the item is carried at in base on the account's natural side: its open booked amount and the revaluation still standing on it. */
+  readonly carryingBase: Money;
+}
+
+/** What one revaluation restated one open item by, signed on the control account's natural side. */
+export interface FxRevaluationShare {
+  readonly accountId: string;
+  readonly itemId: string;
+  readonly kind: "sales" | "purchase";
+  readonly partyId: string;
+  readonly currency: string;
+  readonly amount: Money;
+}
+
+export function openFxItemsKey(accountId: string, currency: string): string {
+  return `${accountId} ${currency}`;
+}
+
+/**
+ * Splits an account's restatement across its open items: each takes what
+ * brings it to the closing rate, and whatever the account moved beyond that is
+ * spread by foreign amount, largest remainder first, so the shares sum to the
+ * account's delta exactly.
+ */
+export function attributeRevaluation(delta: bigint, items: readonly OpenFxItem[], closingRate: string): bigint[] {
+  const own = items.map((item) => convertToBase(item.foreignOutstanding, closingRate).scaled - item.carryingBase.scaled);
+  const residual = delta - own.reduce((sum, value) => sum + value, 0n);
+  const spread = allocateScaled(residual, items.map((item) => item.foreignOutstanding.scaled));
+  return own.map((value, index) => value + (spread[index] ?? 0n));
+}
+
 export interface FxRevaluationConfig {
   /** Posting date (period end) — also the effective date the closing rates were read for. */
   readonly date: string;
@@ -40,6 +77,8 @@ export interface FxRevaluationConfig {
   readonly gainAccountId: string;
   /** فروق عملة مدينة — FX loss account (expense). */
   readonly lossAccountId: string;
+  /** The open items behind each party control balance, by {@link openFxItemsKey}; supplied, the restatement is posted per item. */
+  readonly openItems?: ReadonlyMap<string, readonly OpenFxItem[]>;
 }
 
 /** Per-balance revaluation detail (for the "معاينة"/preview and audit). */
@@ -60,6 +99,7 @@ export interface FxRevaluationDetail {
 export interface FxRevaluationResult {
   readonly details: readonly FxRevaluationDetail[];
   readonly lines: readonly JournalLineInput[];
+  readonly shares: readonly FxRevaluationShare[];
   readonly totalGain: Money;
   readonly totalLoss: Money;
   /** True when at least one balance moved — i.e. there is a JE worth posting. */
@@ -78,6 +118,7 @@ export function computeFxRevaluation(
 ): FxRevaluationResult {
   const details: FxRevaluationDetail[] = [];
   const controlLines: JournalLineInput[] = [];
+  const shares: FxRevaluationShare[] = [];
   let totalGain = 0n;
   let totalLoss = 0n;
 
@@ -106,12 +147,17 @@ export function computeFxRevaluation(
     });
 
     if (delta === 0n) continue;
-    // The control account moves by `delta` on its own natural side: a positive
-    // delta debits an asset / credits a liability.
-    if (balance.naturalBalance === "debit") {
-      controlLines.push(lineFor(balance.accountId, delta, balance.currency, rate));
+    const side = balance.naturalBalance === "debit" ? 1n : -1n;
+    const items = (config.openItems?.get(openFxItemsKey(balance.accountId, balance.currency)) ?? []).filter((item) => item.foreignOutstanding.scaled > 0n);
+    if (items.length === 0) {
+      controlLines.push(lineFor(balance.accountId, side * delta, balance.currency, rate));
     } else {
-      controlLines.push(lineFor(balance.accountId, -delta, balance.currency, rate));
+      attributeRevaluation(delta, items, rate).forEach((amount, index) => {
+        const item = items[index]!;
+        if (amount === 0n) return;
+        controlLines.push({ ...lineFor(balance.accountId, side * amount, balance.currency, rate), partyId: item.partyId });
+        shares.push({ accountId: balance.accountId, itemId: item.itemId, kind: item.kind, partyId: item.partyId, currency: balance.currency, amount: Money.fromScaled(amount) });
+      });
     }
     if (gainLoss > 0n) totalGain += gainLoss;
     else totalLoss += -gainLoss;
@@ -128,6 +174,7 @@ export function computeFxRevaluation(
   return {
     details,
     lines,
+    shares,
     totalGain: Money.fromScaled(totalGain),
     totalLoss: Money.fromScaled(totalLoss),
     hasImpact: totalGain > 0n || totalLoss > 0n,
@@ -314,14 +361,19 @@ const BASE_ONLY_MEMOS: ReadonlySet<string> = new Set([FX_REVALUATION_LINE_MEMO, 
 /** `sourceDocType` of a revaluation entry and, through the mirror, of its reversal. */
 export const FX_REVALUATION_DOC_TYPE = "FX_REVALUATION";
 
-/** Net (debit-positive) of what revaluation and its reversals posted to `accountId` among `lines` (D194). */
+/**
+ * Net (debit-positive) of what revaluation and its reversals posted to
+ * `accountId` among `lines` without naming a party (D194). A restatement
+ * posted against an open item names its party and is read with that party's
+ * own lines.
+ */
 export function fxRevaluationNet(
-  lines: readonly Pick<PostedLine, "accountId" | "source" | "memo" | "debit" | "credit">[],
+  lines: readonly Pick<PostedLine, "accountId" | "source" | "memo" | "debit" | "credit" | "partyId">[],
   accountId: string,
 ): Money {
   let net = 0n;
   for (const line of lines) {
-    if (line.accountId !== accountId || line.source !== "system" || line.memo !== FX_REVALUATION_LINE_MEMO) continue;
+    if (line.accountId !== accountId || line.source !== "system" || line.memo !== FX_REVALUATION_LINE_MEMO || line.partyId) continue;
     net += line.debit.scaled - line.credit.scaled;
   }
   return Money.fromScaled(net);

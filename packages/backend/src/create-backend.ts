@@ -109,6 +109,12 @@ import {
   CUSTOMER_OPENING_BALANCE_DOC_TYPE,
   SUPPLIER_OPENING_BALANCE_DOC_TYPE,
   fxRevaluationNet,
+  openFxItemsKey,
+  unconsumedRevaluationShare,
+  invoiceOpenBalance,
+  returnedByInvoice,
+  convertFromBase,
+  type OpenFxItem,
   replay,
   type StockMovement,
   Qty,
@@ -2994,6 +3000,43 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const [realised, unrealised] = await Promise.all([fxDifferenceAccounts("realised"), fxDifferenceAccounts("unrealised")]);
     return [realised.gainAccountId, realised.lossAccountId, unrealised.gainAccountId, unrealised.lossAccountId];
   }
+  const revaluationEntryStands = async (entryId: string) => {
+    const entry = await ledger.findById(entryId);
+    return entry?.status === "posted" && !entry.reversedByEntryId;
+  };
+  const standingRevaluationShare = (invoiceId: string) =>
+    unconsumedRevaluationShare(invoiceId, { shares: vouchers.revaluationShares, allocations: vouchers.allocations, entryStands: revaluationEntryStands });
+  async function openFxItems(): Promise<ReadonlyMap<string, OpenFxItem[]>> {
+    const routing = await accountRouting.get();
+    const controlOf = { sales: routedAccountId(routing, "control.receivable") ?? "1105", purchase: routedAccountId(routing, "control.payable") ?? "2100" } as const;
+    const open = await vouchers.invoices.listOpen({});
+    const returned = await returnedByInvoice(invoiceReturnCredits, open);
+    const out = new Map<string, OpenFxItem[]>();
+    for (const invoice of open) {
+      const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
+      if (!booked) continue;
+      const openBase = invoiceOpenBalance(invoice, returned.get(invoice.id) ?? Money.zero());
+      if (openBase.scaled === 0n) continue;
+      const key = openFxItemsKey(controlOf[invoice.kind], booked.currency);
+      const items = out.get(key) ?? [];
+      items.push({
+        itemId: invoice.id,
+        kind: invoice.kind,
+        partyId: invoice.partyId,
+        foreignOutstanding: convertFromBase(openBase, booked.fxRate),
+        carryingBase: Money.fromScaled(openBase.scaled + (await standingRevaluationShare(invoice.id)).scaled),
+      });
+      out.set(key, items);
+    }
+    return out;
+  }
+  async function revaluationSharesConsumed(entryId: string): Promise<boolean> {
+    for (const share of await vouchers.revaluationShares.listByEntry(entryId)) {
+      const taken = (await vouchers.allocations.listByInvoice(share.itemId)).some((allocation) => allocation.status === "active" && (allocation.revaluationShare?.scaled ?? 0n) !== 0n);
+      if (taken) return true;
+    }
+    return false;
+  }
   /** The rates a settlement of a foreign invoice is measured with, and where the realised difference goes (D221, D229). */
   const realisedFx: RealisedFxPort = {
     async invoiceFx(invoiceId, kind) {
@@ -3008,6 +3051,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return (await exchangeRates.findRate(currency, date))?.rate ?? null;
     },
     differenceAccounts: () => fxDifferenceAccounts("realised"),
+    revaluationShare: (invoice) => standingRevaluationShare(invoice.id),
     async treasuryPosition(treasuryAccountId, asOfDate) {
       const held = (await foreignTreasuryBalances(asOfDate)).find((row) => row.treasuryAccountId === treasuryAccountId);
       if (!held) return null;
@@ -3563,6 +3607,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       exchangeRates,
       differenceAccounts: () => fxDifferenceAccounts("unrealised"),
       foreignTreasuryCurrencies,
+      openFxItems,
+      saveShares: (entryId, shares) => vouchers.revaluationShares.saveAll(shares.map((share) => ({ ...share, entryId }))),
+      sharesConsumed: revaluationSharesConsumed,
     },
     eta: {
       service: etaService,

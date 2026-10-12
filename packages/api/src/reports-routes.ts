@@ -96,6 +96,7 @@ import {
   isStandingVoucher,
   voucherStandsAsOf,
   fxRevaluationNet,
+  FX_REVALUATION_LINE_MEMO,
   FX_REALISED_DOC_TYPE,
   allocationInvoiceAmount,
   realisedFxReversalId,
@@ -707,7 +708,12 @@ async function partyOpenItems(
       // (D221, D265). On any other day the entry and its reversal stand as
       // items of their own, dated as they posted.
       if (line.sourceDocType === FX_REALISED_DOC_TYPE) {
-        if (await realisedFxAllocationLiveOn(deps, line.sourceDocId, asOf.asOfDate, asOf.entryDates)) continue;
+        const live = await realisedFxAllocationLiveOn(deps, line.sourceDocId, asOf.asOfDate, asOf.entryDates);
+        if (live && line.memo !== FX_REVALUATION_LINE_MEMO) continue;
+        if (live) {
+          items.push({ partyId: line.partyId, source: "journal", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.fromScaled(amount), branchId: line.branchId });
+          continue;
+        }
         const key = `${line.entryId} ${line.partyId}`;
         const item = realisedByEntry.get(key) ?? { partyId: line.partyId, source: "fx_difference", reference: line.entryNo ?? line.entryId, date: line.date, amount: Money.zero(), branchId: line.branchId, scaled: 0n };
         item.scaled += amount;

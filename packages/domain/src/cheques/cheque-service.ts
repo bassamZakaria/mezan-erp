@@ -473,6 +473,7 @@ export class ChequeService {
           ...(realisedFx
             ? {
                 rates: (invoice) => settlementRatesFor(realisedFx, invoice, money),
+                unconsumedShare: async (invoice) => (await realisedFx.revaluationShare?.(invoice)) ?? Money.zero(),
                 beforeSave: async (invoice, split, date) => {
                   const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
                   const rates = await settlementRatesFor(realisedFx, invoice, money);

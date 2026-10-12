@@ -22,6 +22,8 @@ import {
   type JournalPostingDeps,
   type LedgerRepository,
   type OpenFxBalance,
+  type OpenFxItem,
+  type FxRevaluationShare,
 } from "@mezan/domain";
 import { fxRevaluationRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
@@ -48,6 +50,11 @@ export interface FxRevaluationRoutesDeps {
    * not tell "revalued, nothing to book" from "never revalued".
    */
   readonly recordRun?: (run: FxRevaluationRun) => void;
+  /** The open receivable and payable documents behind each party control balance, by `openFxItemsKey`. */
+  readonly openFxItems?: () => Promise<ReadonlyMap<string, readonly OpenFxItem[]>>;
+  readonly saveShares?: (entryId: string, shares: readonly FxRevaluationShare[]) => Promise<void>;
+  /** Whether a settlement still standing has taken part of what this run restated. */
+  readonly sharesConsumed?: (entryId: string) => Promise<boolean>;
   /** GL account → currency, for every treasury account kept in a foreign currency: its untagged lines are read at the rate of their own date. */
   readonly foreignTreasuryCurrencies?: () => Promise<ReadonlyMap<string, string>>;
 }
@@ -117,7 +124,7 @@ export function createFxRevaluationRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
 
-  async function build(date: string, currencyFilter?: readonly string[]): Promise<{ balances: OpenFxBalance[]; config: FxRevaluationConfig; derived: DerivedTreasuryFxLine[] }> {
+  async function build(date: string, currencyFilter?: readonly string[], attribute = false): Promise<{ balances: OpenFxBalance[]; config: FxRevaluationConfig; derived: DerivedTreasuryFxLine[] }> {
     const posted = (await deps.ledger.listLines?.({ toDate: date })) ?? [];
     const { lines, derived } = await withDerivedTreasuryFx(posted, (await deps.foreignTreasuryCurrencies?.()) ?? new Map(), async (currency, on) => (await deps.exchangeRates.findRate(currency, on))?.rate ?? null);
     const accounts = await deps.accounts.list();
@@ -131,7 +138,8 @@ export function createFxRevaluationRoutes(
       if (rate) closingRates.set(currency, rate.rate);
     }
     const reported = filterSet ? derived.filter((line) => filterSet.has(line.currency)) : derived;
-    return { balances, config: { date, closingRates, ...(await deps.differenceAccounts()) }, derived: reported };
+    const openItems = attribute ? await deps.openFxItems?.() : undefined;
+    return { balances, config: { date, closingRates, ...(await deps.differenceAccounts()), ...(openItems ? { openItems } : {}) }, derived: reported };
   }
 
   app.post("/preview", gate("accounting.journal.post"), async (c) => {
@@ -153,7 +161,7 @@ export function createFxRevaluationRoutes(
     const autoReverse = parsed.data.autoReverse ?? true;
     const date = await tenantDay(c, parsed.data.date);
     try {
-      const { balances, config, derived } = await build(date, parsed.data.currencies);
+      const { balances, config, derived } = await build(date, parsed.data.currencies, !autoReverse);
       const postingDeps: JournalPostingDeps = {
         ledger: deps.ledger,
         accounts: deps.accounts,
@@ -172,6 +180,7 @@ export function createFxRevaluationRoutes(
           reversalId: idGen(),
           autoReverse,
         });
+        if (posted.entry && posted.computed.shares.length > 0) await deps.saveShares?.(posted.entry.id, posted.computed.shares);
         deps.recordRun?.({
           asOfDate: date,
           currencies: requested.length > 0 ? requested : [FX_REVALUATION_ALL_CURRENCIES],
@@ -200,6 +209,12 @@ export function createFxRevaluationRoutes(
     error: "FX_REVALUATION_RUN_NOT_FOUND",
     message: "تشغيل إعادة تقييم العملات غير موجود.",
     messageEn: "The FX revaluation run does not exist.",
+  } as const;
+
+  const SHARE_CONSUMED = {
+    error: "FX_REVALUATION_SHARE_CONSUMED",
+    message: "لا يمكن عكس إعادة التقييم: جزء منها دخل في تسوية فاتورة ما زالت قائمة. اعكس تخصيص السداد على الفاتورة أولاً.",
+    messageEn: "This revaluation cannot be reversed: a settlement still standing has taken part of it. Reverse the allocation on the invoice first.",
   } as const;
 
   app.get("/runs", gate("accounting.journal.view"), async (c) => {
@@ -232,6 +247,7 @@ export function createFxRevaluationRoutes(
       const { date, memo } = await readReversalRequest(c);
       const reversalDate = date ?? original.date.slice(0, 10);
       if (reversalDate < original.date.slice(0, 10)) throw new ReversalDateBeforeOriginalError(original.id, reversalDate, original.date);
+      if (await deps.sharesConsumed?.(original.id)) return c.json(SHARE_CONSUMED, 409);
       const actor = getAuthContext(c)?.userId ?? "system";
       const result = await deps.ledger.transaction(async () => {
         const reversed = await reverseJournalEntry(

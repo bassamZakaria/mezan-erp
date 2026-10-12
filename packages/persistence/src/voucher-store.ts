@@ -7,6 +7,8 @@ import {
   type AllocatableInvoiceRepository,
   type AllocationInvoiceKind,
   type AllocationRepository,
+  type FxRevaluationShareRecord,
+  type FxRevaluationShareRepository,
   type AllocationStatus,
   type CostCategory,
   type DocumentListFilter,
@@ -88,7 +90,8 @@ CREATE TABLE IF NOT EXISTS voucher_allocation (
   invoice_amount INTEGER,
   fx_entry_id TEXT,
   date        TEXT,
-  reversed_on TEXT
+  reversed_on TEXT,
+  revaluation_share INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_alloc_voucher ON voucher_allocation(voucher_id);
 CREATE INDEX IF NOT EXISTS idx_alloc_invoice ON voucher_allocation(invoice_id);
@@ -102,6 +105,17 @@ CREATE TABLE IF NOT EXISTS open_invoice (
   allocated  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_invoice_party ON open_invoice(party_id);
+CREATE TABLE IF NOT EXISTS fx_revaluation_share (
+  entry_id   TEXT NOT NULL,
+  item_id    TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  party_id   TEXT NOT NULL,
+  currency   TEXT NOT NULL,
+  amount     INTEGER NOT NULL,
+  PRIMARY KEY (entry_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_fx_share_item ON fx_revaluation_share(item_id);
 `;
 
 /** Voucher columns added after the table shipped — an existing books file migrates via `ALTER TABLE`. */
@@ -122,6 +136,7 @@ const ADDED_ALLOCATION_COLUMNS: readonly [string, string][] = [
   ["fx_entry_id", "TEXT"],
   ["date", "TEXT"],
   ["reversed_on", "TEXT"],
+  ["revaluation_share", "INTEGER"],
 ];
 
 function addMissingColumns(sqlite: Database.Database): void {
@@ -416,6 +431,7 @@ interface AllocationRow {
   fx_entry_id: string | null;
   date: string | null;
   reversed_on: string | null;
+  revaluation_share: bigint | null;
 }
 
 function toAllocation(row: AllocationRow): VoucherAllocation {
@@ -426,6 +442,7 @@ function toAllocation(row: AllocationRow): VoucherAllocation {
     amount: Money.fromScaled(row.amount),
     invoiceAmount: row.invoice_amount === null ? null : Money.fromScaled(row.invoice_amount),
     fxEntryId: row.fx_entry_id,
+    revaluationShare: row.revaluation_share === null ? null : Money.fromScaled(row.revaluation_share),
     status: row.status as AllocationStatus,
     createdAt: row.created_at,
     reversedAt: row.reversed_at,
@@ -442,8 +459,8 @@ class SqliteAllocationRepository implements AllocationRepository {
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO voucher_allocation (id, voucher_id, invoice_id, amount, status, created_at, reversed_at, invoice_amount, fx_entry_id, date, reversed_on)
-      VALUES (@id, @voucher_id, @invoice_id, @amount, @status, @created_at, @reversed_at, @invoice_amount, @fx_entry_id, @date, @reversed_on)
+      INSERT INTO voucher_allocation (id, voucher_id, invoice_id, amount, status, created_at, reversed_at, invoice_amount, fx_entry_id, date, reversed_on, revaluation_share)
+      VALUES (@id, @voucher_id, @invoice_id, @amount, @status, @created_at, @reversed_at, @invoice_amount, @fx_entry_id, @date, @reversed_on, @revaluation_share)
       ON CONFLICT(id) DO UPDATE SET status = excluded.status, reversed_at = excluded.reversed_at, reversed_on = excluded.reversed_on
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM voucher_allocation WHERE id = ?`).safeIntegers();
@@ -464,6 +481,7 @@ class SqliteAllocationRepository implements AllocationRepository {
       fx_entry_id: alloc.fxEntryId ?? null,
       date: alloc.date ?? null,
       reversed_on: alloc.reversedOn ?? null,
+      revaluation_share: alloc.revaluationShare ? alloc.revaluationShare.toScaledNumber() : null,
     });
   }
 
@@ -575,10 +593,68 @@ class SqliteInvoiceRepository implements AllocatableInvoiceRepository {
   }
 }
 
+interface ShareRow {
+  entry_id: string;
+  item_id: string;
+  account_id: string;
+  kind: string;
+  party_id: string;
+  currency: string;
+  amount: bigint;
+}
+
+function toShare(row: ShareRow): FxRevaluationShareRecord {
+  return {
+    entryId: row.entry_id,
+    itemId: row.item_id,
+    accountId: row.account_id,
+    kind: row.kind as AllocationInvoiceKind,
+    partyId: row.party_id,
+    currency: row.currency,
+    amount: Money.fromScaled(row.amount),
+  };
+}
+
+class SqliteRevaluationShareRepository implements FxRevaluationShareRepository {
+  private readonly insert: Database.Statement;
+  private readonly selectByItem: Database.Statement;
+  private readonly selectByEntry: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.insert = sqlite.prepare(`
+      INSERT INTO fx_revaluation_share (entry_id, item_id, account_id, kind, party_id, currency, amount)
+      VALUES (@entry_id, @item_id, @account_id, @kind, @party_id, @currency, @amount)
+    `);
+    this.selectByItem = sqlite.prepare(`SELECT * FROM fx_revaluation_share WHERE item_id = ? ORDER BY entry_id`).safeIntegers();
+    this.selectByEntry = sqlite.prepare(`SELECT * FROM fx_revaluation_share WHERE entry_id = ? ORDER BY item_id`).safeIntegers();
+  }
+
+  async saveAll(shares: readonly FxRevaluationShareRecord[]): Promise<void> {
+    for (const share of shares) {
+      this.insert.run({
+        entry_id: share.entryId,
+        item_id: share.itemId,
+        account_id: share.accountId,
+        kind: share.kind,
+        party_id: share.partyId,
+        currency: share.currency,
+        amount: share.amount.toScaledNumber(),
+      });
+    }
+  }
+  async listByItem(itemId: string): Promise<readonly FxRevaluationShareRecord[]> {
+    return (this.selectByItem.all(itemId) as ShareRow[]).map(toShare);
+  }
+  async listByEntry(entryId: string): Promise<readonly FxRevaluationShareRecord[]> {
+    return (this.selectByEntry.all(entryId) as ShareRow[]).map(toShare);
+  }
+}
+
 export interface SqliteVoucherStoreHandle {
   readonly documents: DocumentRepository<VoucherLine>;
   readonly allocations: AllocationRepository;
   readonly invoices: AllocatableInvoiceRepository;
+  readonly revaluationShares: FxRevaluationShareRepository;
   close(): void;
 }
 
@@ -592,6 +668,7 @@ export function createSqliteVoucherStore(path: SqliteConnectionInput = ":memory:
     documents: new SqliteVoucherRepository(sqlite),
     allocations: new SqliteAllocationRepository(sqlite),
     invoices: new SqliteInvoiceRepository(sqlite),
+    revaluationShares: new SqliteRevaluationShareRepository(sqlite),
     close: () => { if (owned) sqlite.close(); },
   };
 }

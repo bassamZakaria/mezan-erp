@@ -4541,7 +4541,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(list.filter((e) => e.sourceModule === "unknown")).toEqual([]);
   });
 
-  it("D194: both ladders age a foreign invoice at its booked EGP value, and still tie once revaluation restates the control accounts", async () => {
+  it("D194: both ladders age a foreign invoice at its booked EGP value, and at what it is carried at once a revaluation that does not reverse itself restates it", async () => {
     const app = await newBackend();
     await createCustomer(app, "cust-usd", "0");
     await createServiceItem(app);
@@ -4587,9 +4587,6 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(suppliers.rows.find((row: { supplierId: string }) => row.supplierId === "sup-sar")?.total).toBe("1320.000000");
     expect(suppliers.reconciliation).toMatchObject({ reportTotal: "1320.000000", referenceTotal: "1320.000000", withinTolerance: true });
 
-    // A month-end revaluation that is NOT auto-reversed restates both control
-    // accounts and touches no invoice: the ladders stay at the booked rate and
-    // the restatement is the one named reconciling item.
     await approvedRate(app, "fx-usd-2", "USD", "50.00", "2026-08-31");
     await approvedRate(app, "fx-sar-2", "SAR", "13.50", "2026-08-31");
     const revalued = await post(app, "/revaluation/post", { date: "2026-08-31", currencies: ["USD", "SAR"], autoReverse: false }, admin(app));
@@ -4598,19 +4595,19 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(-(await glBalance(app, "2100"))).toBe(1350);
 
     const customersAfter = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
-    expect(customersAfter.grandTotals.total).toBe("4800.000000");
+    expect(customersAfter.grandTotals.total).toBe("5000.000000");
     expect(customersAfter.reconciliation).toMatchObject({
-      referenceTotal: "4800.000000",
+      referenceTotal: "5000.000000",
       withinTolerance: true,
-      reconcilingItems: [{ key: "fxRevaluation", amount: "200.000000" }],
     });
+    expect(customersAfter.reconciliation.reconcilingItems ?? []).toEqual([]);
     const suppliersAfter = await get(app, "/reports/aging/suppliers?asOfDate=2026-08-31");
-    expect(suppliersAfter.grandTotals.total).toBe("1320.000000");
+    expect(suppliersAfter.grandTotals.total).toBe("1350.000000");
     expect(suppliersAfter.reconciliation).toMatchObject({
-      referenceTotal: "1320.000000",
+      referenceTotal: "1350.000000",
       withinTolerance: true,
-      reconcilingItems: [{ key: "fxRevaluation", amount: "30.000000" }],
     });
+    expect(suppliersAfter.reconciliation.reconcilingItems ?? []).toEqual([]);
     expect(await reconDiff(app, "ar")).toBe(0);
     expect(await reconDiff(app, "ap")).toBe(0);
   });

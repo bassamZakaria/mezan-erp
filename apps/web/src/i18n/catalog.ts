@@ -1373,6 +1373,11 @@ const webAr = {
   "journalTax.entryLine": "سطر {no}: {account} — مدين {debit} / دائن {credit}",
   "journalTax.confirm": "تسمية",
   "journalTax.error.pickLines": "اختر سطراً واحداً على الأقل من القيد.",
+  "voidReturn.title": "إلغاء المرتجع {number}",
+  "voidReturn.consequence": "يُرحَّل قيد عكسي مرتبط بقيد المرتجع، وتعود حركة المخزون كما كانت بتكلفتها، وترجع الكمية قابلة للإرجاع على الفاتورة ورصيد الطرف كما كان، ويُسحب مستنده الإلكتروني الذي لم يُرسل بعد. لا يُلغى مرتجع صُرف عليه رد مبلغ قبل عكس السند.",
+  "voidReturn.reason": "سبب الإلغاء",
+  "voidReturn.reasonShown": "سبب الإلغاء: {reason}",
+  "voidReturn.failed": "تعذّر إلغاء المرتجع.",
   "voidInvoice.action": "إلغاء الفاتورة",
   "voidInvoice.title": "إلغاء الفاتورة {number}",
   "voidInvoice.consequence": "يُرحَّل قيد عكسي مرتبط بقيد الفاتورة، وتعود بضاعتها إلى المخزون بتكلفة صرفها، وتخرج من رصيد العميل، ويُسحب مستندها الإلكتروني الذي لم يُرسل بعد. لا تُلغى فاتورة حُصّل عليها مبلغ أو صدر عليها مرتجع.",
@@ -10699,7 +10704,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "salesReturns.detailTitle": "Sales return",
   "salesReturns.sourceInvoice": "Source invoice: {number}",
   "salesReturns.confirm": "Confirm return",
-  "salesReturns.void": "Cancel return",
+  "salesReturns.void": "Void return",
 
   // sales — promotions
   "promotions.type.percentage": "Percentage discount",
@@ -10857,6 +10862,11 @@ const webEn: Record<WebTranslationKey, string> = {
   "journalTax.entryLine": "Line {no}: {account} — Dr {debit} / Cr {credit}",
   "journalTax.confirm": "Name",
   "journalTax.error.pickLines": "Pick at least one entry line.",
+  "voidReturn.title": "Void return {number}",
+  "voidReturn.consequence": "A reversing entry linked to the return's entry is posted, the stock movement is undone at its cost, the quantity is returnable on the invoice again and the party's balance stands as before, and its e-document that has not been sent is withdrawn. A return with a refund paid against it cannot be voided until the voucher is reversed.",
+  "voidReturn.reason": "Reason",
+  "voidReturn.reasonShown": "Voided because: {reason}",
+  "voidReturn.failed": "The return could not be voided.",
   "voidInvoice.action": "Void invoice",
   "voidInvoice.title": "Void invoice {number}",
   "voidInvoice.consequence": "A reversing entry linked to the invoice's entry is posted, its goods return to stock at the cost they left at, it leaves the customer's balance, and its e-document that has not been sent is withdrawn. An invoice with a collection or a return against it cannot be voided.",
@@ -11667,7 +11677,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "purchaseReturns.detailTitle": "Purchase return",
   "purchaseReturns.sourceInvoice": "Original invoice: {number}",
   "purchaseReturns.confirm": "Confirm return",
-  "purchaseReturns.void": "Cancel return",
+  "purchaseReturns.void": "Void return",
 
   // purchases — goods receipts
   "goodsReceipts.status.draft": "Draft",

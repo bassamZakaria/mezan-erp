@@ -99,6 +99,7 @@ export const purchaseReturnDocumentSchema = z.object({
   confirmedAt: z.string().nullable(),
   reversesDocId: z.string().nullable(),
   reversedByDocId: z.string().nullable(),
+  voidReason: z.string().nullable().optional(),
   workflowRequestId: z.string().nullable(),
   journalEntryId: z.string().nullable(),
 });

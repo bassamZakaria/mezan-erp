@@ -92,6 +92,7 @@ export const salesReturnDocumentSchema = z.object({
   confirmedAt: z.string().nullable(),
   reversesDocId: z.string().nullable(),
   reversedByDocId: z.string().nullable(),
+  voidReason: z.string().nullable().optional(),
   workflowRequestId: z.string().nullable(),
   journalEntryId: z.string().nullable(),
   /** بانتظار دفع المبلغ — derived from the refund vouchers posted, never a stored flag. */
@@ -117,6 +118,13 @@ export const refundSalesReturnSchema = z.object({
   referenceNo: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
 });
+
+/** POST /sales-returns/:id/void and its purchase twin — the reason is required and is kept on the reversal and its audit row. */
+export const voidReturnSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+  date: isoDateOrInstant.optional(),
+});
+export type VoidReturnDTO = z.infer<typeof voidReturnSchema>;
 
 export type SalesReturnReasonDTO = z.infer<typeof salesReturnReasonSchema>;
 export type SalesReturnLineDTO = z.infer<typeof salesReturnLineSchema>;

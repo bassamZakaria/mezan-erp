@@ -199,3 +199,5 @@ export {
   type EtaPrevalidationReceiverInput,
 } from "./prevalidate.js";
 export { summarizeEtaRejections, type EtaRejectionReasonGroup, type EtaRejectionsReport } from "./rejections-report.js";
+
+export { EtaVoidVerdict, etaVoidVerdictOf } from "./void-verdict.js";

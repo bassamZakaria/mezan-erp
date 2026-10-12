@@ -70,6 +70,7 @@ export {
   MissingHookError,
   InvalidDocumentError,
   DocumentChangedError,
+  DocumentReversalRefusedError,
   assertDocumentWritten,
 } from "./errors.js";
 
@@ -98,6 +99,7 @@ export {
 export {
   assertReturnTotalsWithinAvailable,
   createReturnConfirmGuard,
+  isStandingReturn,
   type ReturnConfirmGuard,
   type ReturnDocumentLine,
   type ReturnSourceInvoice,

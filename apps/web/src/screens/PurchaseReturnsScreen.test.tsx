@@ -215,8 +215,9 @@ describe("PurchaseReturnsScreen", () => {
     expect(await screen.findByText("شركة النيل للتوريدات")).toBeInTheDocument();
   });
 
-  it("confirms then cancels a draft return", async () => {
+  it("confirms a draft return, then voids it with a reason through its own route", async () => {
     let current: PurchaseReturnDocumentDTO[] = [purchaseReturn()];
+    const voidBodies: unknown[] = [];
     const transport = stubTransport({
       ...baseHandlers(current),
       "GET /purchase-returns": () => ({ body: current }),
@@ -224,8 +225,9 @@ describe("PurchaseReturnsScreen", () => {
         current = current.map((d) => (d.id === "pr-1" ? { ...d, status: "confirmed" as const, confirmedAt: "2026-08-21T10:00:00.000Z" } : d));
         return { body: { document: current[0], held: false } };
       },
-      "POST /purchase-returns/pr-1/cancel": () => {
-        current = current.map((d) => (d.id === "pr-1" ? { ...d, status: "cancelled" as const } : d));
+      "POST /purchase-returns/pr-1/void": (init) => {
+        voidBodies.push(JSON.parse((init?.body as string) ?? "{}"));
+        current = current.map((d) => (d.id === "pr-1" ? { ...d, status: "reversed" as const, voidReason: "خطأ" } : d));
         return { body: current[0] };
       },
     });
@@ -240,7 +242,12 @@ describe("PurchaseReturnsScreen", () => {
     fireEvent.click(within(detail).getByRole("button", { name: "تأكيد المرتجع" }));
     expect(await within(detail).findByRole("button", { name: "إلغاء المرتجع" })).toBeInTheDocument();
     fireEvent.click(within(detail).getByRole("button", { name: "إلغاء المرتجع" }));
-    await within(detail).findByText("ملغي");
+    expect(voidBodies).toEqual([]);
+    fireEvent.change(screen.getByLabelText("سبب الإلغاء"), { target: { value: "خطأ" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "إلغاء المرتجع" }).at(-1)!);
+    await within(detail).findByText("معكوس");
+    expect(voidBodies).toEqual([{ reason: "خطأ" }]);
+    expect(within(detail).getByRole("note")).toHaveTextContent("سبب الإلغاء: خطأ");
   });
 
   it("editing quantities across two real lines sends each line's own source line and quantity — and no cost, tax or returnable quantity, which the server reads off the invoice", async () => {

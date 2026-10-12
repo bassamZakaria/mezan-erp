@@ -831,6 +831,8 @@ export {
   buildSalesReturnFromInvoiceSchema,
   salesReturnDocumentSchema,
   refundSalesReturnSchema,
+  voidReturnSchema,
+  type VoidReturnDTO,
   type SalesReturnReasonDTO,
   type SalesReturnLineDTO,
   type CreateSalesReturnDTO,

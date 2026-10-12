@@ -11,6 +11,8 @@ export enum DocumentReadPermission {
   SalesInvoiceClassifyTax = "sales.invoice.classify_tax",
   PurchaseInvoiceClassifyTax = "purchases.invoice.classify_tax",
   SalesInvoiceVoid = "sales.invoice.void",
+  SalesReturnVoid = "sales.return.void",
+  PurchaseReturnVoid = "purchases.return.void",
   Items = "inventory.item.view",
   Projects = "projects.project.view",
   SalesReturns = "sales.return.view",

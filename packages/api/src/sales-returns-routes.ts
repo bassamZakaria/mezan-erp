@@ -4,6 +4,7 @@ import {
   Qty,
   assertRefundable,
   can,
+  isStandingReturn,
   buildSalesReturnLinesFromInvoice,
   isAwaitingRefund,
   refundDue,
@@ -29,6 +30,7 @@ import { type AuthContextResolver, callerUserId, createAnyPermissionGate, create
 import { handleDocumentError } from "./document-error-handling.js";
 import { salesSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
+import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReturn } from "./return-void.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
 
@@ -63,8 +65,9 @@ function serializeLine(l: SalesReturnLine) {
   };
 }
 
-function serialize(doc: FrameworkDocument<SalesReturnLine>, refunds: readonly SalesReturnRefund[] = []) {
+function serialize(doc: FrameworkDocument<SalesReturnLine>, refunds: readonly SalesReturnRefund[] = [], voidReason: string | null = null) {
   return {
+    voidReason,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -296,7 +299,8 @@ export function createSalesReturnsRoutes(
     // routes already apply.
     const scope = warehouseScopeOf(c);
     if (!scope && ownVisibilityOnly(c)) return { rows: [], refunds: new Map() };
-    let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    const returns = list.filter((doc) => !isReturnMirror(doc));
+    let rows = !scope ? returns : returns.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
     if (filter.customerId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.customerId === filter.customerId));
     }
@@ -365,7 +369,7 @@ export function createSalesReturnsRoutes(
     let refundDueTotal = Money.zero();
     for (const doc of rows) {
       const paid = refunds.get(doc.id) ?? [];
-      if (doc.status === "confirmed") {
+      if (isStandingReturn(doc)) {
         confirmed += 1;
         returnedTotal = returnedTotal.add(salesReturnGrandTotal(doc));
       }
@@ -415,7 +419,7 @@ export function createSalesReturnsRoutes(
         return c.json({ error: "NOT_FOUND" }, 404);
       }
     }
-    return c.json(serialize(doc, await refundsOf(doc.id)));
+    return c.json(serialize(doc, await refundsOf(doc.id), await voidReasonOf(service, doc)));
   });
 
   app.post("/", gate("sales.return.create"), async (c) => {
@@ -501,6 +505,25 @@ export function createSalesReturnsRoutes(
     try {
       const doc = await service.cancel(c.req.param("id"));
       return c.json(serialize(doc, await refundsOf(doc.id)));
+    } catch (err) {
+      return handleDocumentError(c, err);
+    }
+  });
+
+  app.post("/:id/void", gate("sales.return.void"), async (c) => {
+    const id = c.req.param("id");
+    if (ownVisibilityOnly(c)) {
+      const scope = warehouseScopeOf(c);
+      const doc = await service.findById(id);
+      if (!doc || !scope || !doc.lines.some((line) => scope.includes(line.warehouseId))) return c.json({ error: "NOT_FOUND" }, 404);
+    }
+    try {
+      const voided = await voidReturn(c, service, id);
+      if (!voided) return c.json(VOID_REASON_REQUIRED, 400);
+      return c.json({
+        ...serialize(voided.original, await refundsOf(id), voided.reason),
+        reversalJournalEntryId: voided.reversal.journalEntryId,
+      });
     } catch (err) {
       return handleDocumentError(c, err);
     }

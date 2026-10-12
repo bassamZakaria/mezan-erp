@@ -4,6 +4,7 @@ import {
   Qty,
   buildPurchaseReturnLinesFromInvoice,
   can,
+  isStandingReturn,
   purchaseReturnGrandTotal,
   purchaseReturnLineCredit,
   type DocumentService,
@@ -16,6 +17,7 @@ import { type AuthContextResolver, callerUserId, createPermissionGate, getAuthCo
 import { handleDocumentError } from "./document-error-handling.js";
 import { purchaseSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay } from "./tenant-day.js";
+import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReturn } from "./return-void.js";
 
 function serializeLine(l: PurchaseReturnLine) {
   return {
@@ -40,8 +42,9 @@ function serializeLine(l: PurchaseReturnLine) {
   };
 }
 
-function serialize(doc: FrameworkDocument<PurchaseReturnLine>) {
+function serialize(doc: FrameworkDocument<PurchaseReturnLine>, voidReason: string | null = null) {
   return {
+    voidReason,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -150,7 +153,8 @@ export function createPurchaseReturnsRoutes(
     // scope when any of its lines is — the same rule the stock-document
     // routes already apply.
     const scope = warehouseScopeOf(c);
-    let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    const returns = list.filter((doc) => !isReturnMirror(doc));
+    let rows = !scope ? returns : returns.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
     if (filter.supplierId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.supplierId === filter.supplierId));
     }
@@ -170,7 +174,7 @@ export function createPurchaseReturnsRoutes(
   }
 
   app.get("/", gate("purchases.return.view"), async (c) => {
-    return c.json((await listFilteredReturns(c, parseListQuery(c))).map(serialize));
+    return c.json((await listFilteredReturns(c, parseListQuery(c))).map((doc) => serialize(doc)));
   });
 
   /**
@@ -203,7 +207,7 @@ export function createPurchaseReturnsRoutes(
     let confirmed = 0;
     let returnedTotal = Money.zero();
     for (const doc of rows) {
-      if (doc.status !== "confirmed") continue;
+      if (!isStandingReturn(doc)) continue;
       confirmed += 1;
       returnedTotal = returnedTotal.add(purchaseReturnGrandTotal(doc));
     }
@@ -231,7 +235,7 @@ export function createPurchaseReturnsRoutes(
   app.get("/:id", gate("purchases.return.view"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
     if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(doc));
+    return c.json(serialize(doc, await voidReasonOf(service, doc)));
   });
 
   app.post("/", gate("purchases.return.create"), async (c) => {
@@ -335,6 +339,17 @@ export function createPurchaseReturnsRoutes(
     try {
       const doc = await service.cancel(c.req.param("id"));
       return c.json(serialize(doc));
+    } catch (err) {
+      return handleDocumentError(c, err);
+    }
+  });
+
+  app.post("/:id/void", gate("purchases.return.void"), async (c) => {
+    const id = c.req.param("id");
+    try {
+      const voided = await voidReturn(c, service, id);
+      if (!voided) return c.json(VOID_REASON_REQUIRED, 400);
+      return c.json({ ...serialize(voided.original, voided.reason), reversalJournalEntryId: voided.reversal.journalEntryId });
     } catch (err) {
       return handleDocumentError(c, err);
     }

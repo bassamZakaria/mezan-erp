@@ -151,7 +151,7 @@ describe("a line sold by the carton, everywhere its quantity is read", () => {
 });
 
 describe("voiding an invoice a confirmed return stands against", () => {
-  it("is refused with the real way forward, since a confirmed return cannot be undone", async () => {
+  it("is refused with both ways forward: void the return first, or return the rest", async () => {
     await confirmedStockSale("VOID-RET-1");
     const drafted = await kit.call("POST", "/sales-returns/from-invoice", {
       id: "VOID-RET-1-R", date: TODAY, memo: "", warehouseId: WAREHOUSE, sourceInvoiceId: "VOID-RET-1", reason: "DEFECTIVE",
@@ -164,6 +164,8 @@ describe("voiding an invoice a confirmed return stands against", () => {
     const refused = await kit.call("POST", "/sales-invoices/VOID-RET-1/void", { reason: "خطأ" });
     expect([refused.status, refused.body.error]).toEqual([409, "INVOICE_HAS_RETURNS"]);
     expect(refused.body.message).toContain("بمرتجع عن باقي كمياتها");
-    expect(refused.body.message).not.toMatch(/ألغِ المرتجع|اعكس المرتجع/);
+    expect(refused.body.message).toContain("ألغِ المرتجع أولاً");
+    expect((await kit.call("POST", "/sales-returns/VOID-RET-1-R/void", { reason: "خطأ" })).status).toBe(200);
+    expect((await kit.call("POST", "/sales-invoices/VOID-RET-1/void", { reason: "خطأ" })).body.status).toBe("reversed");
   });
 });

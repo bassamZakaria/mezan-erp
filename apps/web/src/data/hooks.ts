@@ -6101,6 +6101,29 @@ export function useCancelSalesReturn() {
   });
 }
 
+export enum ReturnFamily {
+  Sales = "sales-returns",
+  Purchases = "purchase-returns",
+}
+
+const RETURN_VOID_INVALIDATIONS = ["sales-returns", "purchase-returns", "sales-invoices", "purchase-invoices", "purchases", "journal-entries", "gl", "stock-balance", "eta-submissions", "eta", "dashboard", "financial-reports", "audit"];
+
+export function useVoidReturn(family: ReturnFamily) {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ id: string; status: string; voidReason?: string | null }, ApiError, { id: string; reason: string }>({
+    mutationFn: async ({ id, reason }) => {
+      const res = await request(`/${family}/${encodeURIComponent(id)}/void`, { method: "POST", body: JSON.stringify({ reason }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("voidReturn.failed"), t));
+      return res.json();
+    },
+    onSuccess: () => {
+      for (const key of RETURN_VOID_INVALIDATIONS) queryClient.invalidateQueries({ queryKey: [key] });
+    },
+  });
+}
+
 export interface PurchaseReturnListFilter {
   /** A stored document status, or the chip key `all`. */
   readonly status?: DocumentStatusDTO | "all";

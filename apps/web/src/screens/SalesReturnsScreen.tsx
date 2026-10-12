@@ -46,6 +46,7 @@ import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
 import { returnLinesTotal } from "./exact-line-totals";
 import { EMPTY } from "../lib/empty";
+import { ReturnFamily, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/archive/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
@@ -86,6 +87,8 @@ export function SalesReturnsScreen() {
   const refundReturn = useRefundSalesReturn();
   const confirmReturn = useConfirmSalesReturn();
   const cancelReturn = useCancelSalesReturn();
+  const mayVoid = useMayVoidReturn(ReturnFamily.Sales);
+  const [voidTarget, setVoidTarget] = useState<VoidableReturn | null>(null);
 
   const invoices = useMemo(
     () => (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled"),
@@ -591,11 +594,8 @@ export function SalesReturnsScreen() {
               <AttachmentsTab entityType="sales-return" entityId={selected.id} />
             </Card>
 
-            {selected.status === "confirmed" ? (
-              <Button variant="default" onClick={() => cancelExisting(selected.id)}>
-                {t("salesReturns.void")}
-              </Button>
-            ) : null}
+            <VoidReturnReasonNotice document={selected} />
+            <VoidReturnAction family={ReturnFamily.Sales} document={selected} />
           </div>
         ) : null}
     </div>
@@ -696,9 +696,7 @@ export function SalesReturnsScreen() {
             ...(d.awaitingRefund
               ? [{ key: "refund", label: t("salesReturns.refund.submit"), onSelect: () => subPage.open(d.docNo ?? d.id) }]
               : []),
-            ...(d.status === "confirmed"
-              ? [{ key: "void", label: t("salesReturns.void"), tone: "danger" as const, onSelect: () => void cancelExisting(d.id) }]
-              : []),
+            ...(mayVoid(d) ? [{ key: "void", label: t("salesReturns.void"), tone: "danger" as const, onSelect: () => setVoidTarget(d) }] : []),
           ];
           return <RowMenu items={menuItems} label={t("salesReturns.row.actionsFor", { doc: d.docNo ?? d.id })} />;
         }}
@@ -724,8 +722,7 @@ export function SalesReturnsScreen() {
           />
         }
       />
-
-
+      <VoidReturnDialog family={ReturnFamily.Sales} document={voidTarget} onClose={() => setVoidTarget(null)} />
     </div>
   );
 }

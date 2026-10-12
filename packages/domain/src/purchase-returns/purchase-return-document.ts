@@ -20,7 +20,7 @@ import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/doc
 import { buildEffects, type DocumentEffects } from "../documents/effects.js";
 import type { DocumentGlPosting, DocumentStockPlan } from "../documents/hooks.js";
 import { InvalidDocumentError } from "../documents/errors.js";
-import { assertReturnTotalsWithinAvailable } from "../documents/return-availability.js";
+import { assertReturnTotalsWithinAvailable, isStandingReturn } from "../documents/return-availability.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 
 export const DOC_TYPE = "PURCHASE_RETURN";
@@ -123,7 +123,7 @@ export function purchaseReturnCreditByInvoice(
 ): ReadonlyMap<string, Money> {
   const byInvoice = new Map<string, Money>();
   for (const doc of docs) {
-    if (doc.status !== "confirmed" || doc.reversesDocId) continue;
+    if (!isStandingReturn(doc)) continue;
     for (const line of doc.lines) {
       if (!line.sourceInvoiceId) continue;
       byInvoice.set(line.sourceInvoiceId, (byInvoice.get(line.sourceInvoiceId) ?? Money.zero()).add(purchaseReturnLineCredit(line)));

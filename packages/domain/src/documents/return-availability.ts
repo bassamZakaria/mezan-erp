@@ -15,6 +15,14 @@ export interface ReturnSourceInvoice {
   readonly lines: readonly ReturnableSourceLine[];
 }
 
+// INVARIANT: the ONE test of "this return stands". A voided return is
+// `reversed`; the mirror document that voided it is `confirmed` and names it
+// in `reversesDocId` — neither took anything off an invoice, a customer or a
+// supplier, and no aggregate may count either.
+export function isStandingReturn(doc: { readonly status: string; readonly reversesDocId?: string | null }): boolean {
+  return doc.status === "confirmed" && !doc.reversesDocId;
+}
+
 export type ReturnConfirmGuard<Line> = (doc: FrameworkDocument<Line>) => Promise<void>;
 
 function sourceLineKey(line: ReturnDocumentLine): string {

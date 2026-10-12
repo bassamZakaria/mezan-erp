@@ -56,6 +56,10 @@ export interface DocumentServiceDeps<Line> {
   readonly actorRoles?: readonly string[];
   /** INVARIANT: runs before the workflow gate and again as the first act of the confirm's transaction. */
   readonly confirmGuard?: (doc: FrameworkDocument<Line>) => Promise<void>;
+  /** INVARIANT: runs inside the reversal's transaction, on the row read there, before anything is mirrored. */
+  readonly reverseGuard?: (doc: FrameworkDocument<Line>) => Promise<void>;
+  /** INVARIANT: runs inside the reversal's transaction after both documents are written; a throw undoes the reversal. */
+  readonly afterReverse?: (original: FrameworkDocument<Line>, reversal: FrameworkDocument<Line>) => Promise<void>;
 }
 
 /** Command to open a new draft. Lines are the concrete type's line shape. */
@@ -79,6 +83,7 @@ export interface ReverseOptions {
   readonly date?: string;
   readonly memo?: string;
   readonly actor?: string;
+  readonly reason?: string;
 }
 
 export interface ConfirmResult<Line> {
@@ -303,6 +308,7 @@ export class DocumentService<Line> {
         // assertTransition gives the precise error (only active → reversed is legal).
         assertTransition(this.def.code, id, existing.status, "reversed");
       }
+      await this.deps.reverseGuard?.(existing);
       const resolvedDate = opts.date ?? existing.date;
       // A reversal dated before the document it reverses would restate a day
       // already reported (D270, voucher reversal). This is scoped to THIS
@@ -363,7 +369,8 @@ export class DocumentService<Line> {
       };
       await this.write(original, [DocumentField.Status, DocumentField.ReversedByDocId], existing.status);
 
-      await this.recordAudit("REVERSE", original, "WARNING", reversal.id);
+      await this.deps.afterReverse?.(original, reversal);
+      await this.recordAudit("REVERSE", original, "WARNING", { reversalId: reversal.id, reason: opts.reason, actor: opts.actor });
       this.emit("DOCUMENT_REVERSED", original, reversal.id);
       return { original, reversal };
     });
@@ -422,7 +429,7 @@ export class DocumentService<Line> {
     action: "CONFIRM" | "CANCEL" | "REVERSE",
     doc: FrameworkDocument<Line>,
     severity: "INFO" | "WARNING",
-    reversalId?: string,
+    reversal?: { readonly reversalId: string; readonly reason?: string; readonly actor?: string },
   ): Promise<void> {
     if (!this.deps.audit) return;
     await recordSensitiveEvent(this.deps.audit, {
@@ -430,14 +437,15 @@ export class DocumentService<Line> {
       entityType: this.def.code,
       entityId: doc.id,
       action,
-      actor: this.deps.actor ?? "system",
+      actor: reversal?.actor ?? this.deps.actor ?? "system",
       branchId: this.def.branchOf?.(doc) ?? null,
       severity,
       details: {
         docId: doc.id,
         docNo: doc.docNo,
         status: doc.status as DocumentStatus,
-        ...(reversalId ? { reversalId } : {}),
+        ...(reversal ? { reversalId: reversal.reversalId } : {}),
+        ...(reversal?.reason ? { reason: reversal.reason } : {}),
       },
     });
   }

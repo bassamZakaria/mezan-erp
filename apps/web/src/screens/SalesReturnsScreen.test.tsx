@@ -247,8 +247,9 @@ describe("SalesReturnsScreen", () => {
     expect(await screen.findByText("شركة الأمل للتجارة")).toBeInTheDocument();
   });
 
-  it("confirms then cancels a draft return", async () => {
+  it("confirms a draft return, then voids it with a reason through its own route", async () => {
     let current: SalesReturnDocumentDTO[] = [salesReturn()];
+    const voidBodies: unknown[] = [];
     const transport = stubTransport({
       ...baseHandlers(current),
       "GET /sales-returns": () => ({ body: current }),
@@ -256,8 +257,9 @@ describe("SalesReturnsScreen", () => {
         current = current.map((d) => (d.id === "sr-1" ? { ...d, status: "confirmed" as const, docNo: "SR-000001", confirmedAt: "2026-08-20T10:00:00.000Z" } : d));
         return { body: { document: current[0], held: false } };
       },
-      "POST /sales-returns/sr-1/cancel": () => {
-        current = current.map((d) => (d.id === "sr-1" ? { ...d, status: "cancelled" as const } : d));
+      "POST /sales-returns/sr-1/void": (init) => {
+        voidBodies.push(JSON.parse((init?.body as string) ?? "{}"));
+        current = current.map((d) => (d.id === "sr-1" ? { ...d, status: "reversed" as const, voidReason: "خطأ" } : d));
         return { body: current[0] };
       },
     });
@@ -269,7 +271,12 @@ describe("SalesReturnsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "تأكيد المرتجع" }));
     expect(await screen.findByRole("button", { name: "إلغاء المرتجع" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إلغاء المرتجع" }));
-    await waitFor(() => expect(screen.getByText("ملغي")).toBeInTheDocument());
+    expect(voidBodies).toEqual([]);
+    fireEvent.change(screen.getByLabelText("سبب الإلغاء"), { target: { value: "خطأ" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "إلغاء المرتجع" }).at(-1)!);
+    await waitFor(() => expect(screen.getByText("معكوس")).toBeInTheDocument());
+    expect(voidBodies).toEqual([{ reason: "خطأ" }]);
+    expect(screen.getByRole("note")).toHaveTextContent("سبب الإلغاء: خطأ");
   });
 
   it("picking a two-line invoice and editing quantities, then adding and removing a second line, reaches the request with real per-item quantities", async () => {

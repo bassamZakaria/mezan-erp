@@ -1,4 +1,5 @@
 import {
+  isStandingReturn,
   buildEtaPayload,
   buildPosReceiptInput,
   buildRefundReceiptInput,
@@ -860,7 +861,7 @@ export function createReturnEtaEnqueueBridge(deps: ReturnCreditNoteDeps & {
       void (async () => {
         const doc = await deps.returns.findById(event.docId);
         const first = doc?.lines[0];
-        if (!doc || !first) return;
+        if (!doc || !first || !isStandingReturn(doc)) return;
         const customer = await deps.customers.findById(first.customerId);
         if (!customer?.taxNumber) {
           if (await deps.issuer.issueReturnReceipt(doc.id)) deps.issuer.scheduleSubmission();

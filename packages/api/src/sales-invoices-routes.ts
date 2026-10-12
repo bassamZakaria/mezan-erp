@@ -1523,7 +1523,7 @@ export function createSalesInvoicesRoutes(
         if ((await creditFor(current.id)).scaled !== 0n) {
           throw new SalesInvoiceVoidRefusal(409, {
             error: SalesInvoiceVoidRefusalCode.HasReturns,
-            message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد، والمرتجع المؤكد لا يُلغى ولا يُعكس. صحّح الفاتورة بمرتجع عن باقي كمياتها بدلاً من إلغائها.",
+            message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد. ألغِ المرتجع أولاً من صفحته («إلغاء المرتجع» مع ذكر السبب) ثم ألغِ الفاتورة، أو صحّح الفاتورة بمرتجع عن باقي كمياتها.",
           });
         }
         const journalEntryId = current.journalEntryId;

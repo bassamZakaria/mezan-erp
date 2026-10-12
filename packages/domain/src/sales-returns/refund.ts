@@ -14,6 +14,7 @@
  */
 
 import { Money } from "../money/index.js";
+import { isStandingReturn } from "../documents/return-availability.js";
 import { salesReturnGrandTotal, type SalesReturnDocument } from "./sales-return-document.js";
 
 export class SalesReturnNotRefundableError extends Error {
@@ -60,7 +61,7 @@ export function sumRefunds(refunds: readonly SalesReturnRefund[]): Money {
 
 /** What the return still owes the customer: its grand total minus what confirmed vouchers already paid out. */
 export function refundDue(doc: SalesReturnDocument, refunds: readonly SalesReturnRefund[]): Money {
-  if (doc.status !== "confirmed") return Money.zero();
+  if (!isStandingReturn(doc)) return Money.zero();
   const remaining = salesReturnGrandTotal(doc).scaled - sumRefunds(refunds).scaled;
   return Money.fromScaled(remaining > 0n ? remaining : 0n);
 }
@@ -84,7 +85,7 @@ export function assertRefundable(
   refunds: readonly SalesReturnRefund[],
   amount: Money,
 ): void {
-  if (doc.status !== "confirmed") {
+  if (!isStandingReturn(doc)) {
     throw new SalesReturnNotRefundableError("لا يمكن رد مبلغ إلا على مرتجع مؤكد.");
   }
   if (amount.scaled <= 0n) {

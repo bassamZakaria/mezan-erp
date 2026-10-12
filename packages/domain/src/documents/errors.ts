@@ -87,3 +87,14 @@ export class DocumentChangedError extends Error {
 export function assertDocumentWritten(written: boolean, docType: string, docId: string): void {
   if (!written) throw new DocumentChangedError(docType, docId);
 }
+
+export class DocumentReversalRefusedError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly messageEn?: string,
+  ) {
+    super(message);
+    this.name = "DocumentReversalRefusedError";
+  }
+}

@@ -1502,8 +1502,8 @@ export function createPurchasesRoutes(
             if (((await returnedByInvoice([confirmed.id])).get(confirmed.id) ?? Money.zero()).scaled !== 0n) {
               throw new PurchaseInvoiceRouteRefusal(409, {
                 error: PurchaseInvoiceRefusalCode.HasReturns,
-                message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد.",
-                messageEn: "This invoice has a confirmed purchase return against it.",
+                message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد. ألغِ المرتجع أولاً من صفحته («إلغاء المرتجع» مع ذكر السبب) ثم ألغِ الفاتورة.",
+                messageEn: "This invoice has a confirmed purchase return against it. Void the return first from its own page, with a reason, then cancel the invoice.",
               });
             }
           },

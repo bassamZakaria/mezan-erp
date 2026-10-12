@@ -40,6 +40,7 @@ import {
   createJournalTaxTagPort,
   returnedQtyBySourceLine,
   createReturnConfirmGuard,
+  isStandingReturn,
   ensureSystemTaxRates,
   SALES_RETURN_DOC_TYPE,
   PURCHASE_RETURN_DOC_TYPE,
@@ -269,6 +270,7 @@ import {
   unitCostOf,
 } from "@mezan/domain";
 import { runExternalSigningCommand } from "./eta-signing-command.js";
+import { createEtaVoidPort, createSalesReturnVoidGuards } from "./eta-void.js";
 import {
   createEtaEnqueueBridge,
   createSalesInvoiceTaxFiling,
@@ -1892,6 +1894,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       unitMappings: etaStore.unitMappings,
     }),
   );
+  const standingSalesReturnRefunds = async (returnId: string) => {
+    const prefix = `REFUND:${returnId}:`;
+    return (await vouchers.documents.list())
+      .filter((doc) => doc.id.startsWith(prefix) && doc.status === "confirmed" && doc.reversesDocId === null)
+      .map((doc) => ({
+        voucherId: doc.id,
+        voucherNo: doc.docNo,
+        date: doc.date,
+        amount: doc.lines[0]?.amount ?? Money.zero(),
+      }));
+  };
+  const etaVoid = createEtaVoidPort(etaService);
+  const salesReturnVoid = createSalesReturnVoidGuards({ refundsOf: standingSalesReturnRefunds, eta: etaVoid });
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
     numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
@@ -1900,6 +1915,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     workflow: documentWorkflowGate,
     events: salesReturnEvents,
     confirmGuard: createReturnConfirmGuard(SALES_RETURN_DOC_TYPE, (id) => salesReturnInvoices.findConfirmedInvoice(id)),
+    reverseGuard: salesReturnVoid.guard,
+    afterReverse: salesReturnVoid.withdraw,
     /*
      * WITHOUT THIS the document's confirm and cancel write nothing to the
      * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
@@ -2521,7 +2538,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // control account moving while the sub-ledger stood still, so every tenant
     // that ever posted a return saw a false mismatch.
     for (const doc of salesReturnDocs) {
-      if (doc.status !== "confirmed") continue;
+      if (!isStandingReturn(doc)) continue;
       arScaled -= salesReturnGrandTotal(doc).scaled;
     }
     /**
@@ -2557,7 +2574,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // A purchase return debits AP; a landed cost credits it (the freight and
     // customs owed to a third party accrue to the same control account).
     for (const doc of purchaseReturnDocs) {
-      if (doc.status !== "confirmed") continue;
+      if (!isStandingReturn(doc)) continue;
       apScaled -= purchaseReturnGrandTotal(doc).scaled;
     }
     /**
@@ -4020,18 +4037,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
        * that prefix is the only link between the two, so it must not change.
        */
       refunds: {
-        async list(returnId: string) {
-          const prefix = `REFUND:${returnId}:`;
-          const all = await vouchers.documents.list();
-          return all
-            .filter((doc) => doc.id.startsWith(prefix) && doc.status === "confirmed" && doc.reversesDocId === null)
-            .map((doc) => ({
-              voucherId: doc.id,
-              voucherNo: doc.docNo,
-              date: doc.date,
-              amount: doc.lines[0]?.amount ?? Money.zero(),
-            }));
-        },
+        list: standingSalesReturnRefunds,
         async post(command) {
           const treasury = await treasuryAccounts.findById(command.treasuryAccountId);
           if (!treasury?.glAccountId) {

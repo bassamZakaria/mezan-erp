@@ -19,6 +19,7 @@ beforeAll(async () => {
     return { status: res.status, body: text ? JSON.parse(text) : null };
   };
   expect((await admin("POST", "/customers", { id: "CUST-DEC", code: "CUST-DEC", nameAr: "عميل", type: "company" })).status).toBe(201);
+  expect((await admin("POST", "/treasury-accounts", { id: "TR-DEC", code: "TR-DEC", name: "صندوق", type: "cash", currency: "EGP", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" })).status).toBe(201);
   expect((await admin("POST", "/items", { id: "ITEM-DEC", code: "ITEM-DEC", nameAr: "خدمة", type: "service", baseUnitCode: "PCS", salePrice: "10" })).status).toBe(201);
 });
 
@@ -46,7 +47,7 @@ const ROUTES: readonly (readonly [label: string, path: string, body: (value: str
   ["an exchange rate", "/exchange-rates", (value, n) => ({ id: `DEC-FX-${n}`, currency: "USD", rate: value, effectiveDate: "2026-08-22" })],
   ["a promotion's fixed amount", "/promotions", (value, n) => ({ id: `DEC-PR-${n}`, code: `DEC-PR-${n}`, nameAr: "عرض", type: "fixed_amount", amountValue: value, startDate: "2026-08-01", endDate: "2026-08-31" })],
   ["a promotion's minimum invoice value", "/promotions", (value, n) => ({ id: `DEC-PM-${n}`, code: `DEC-PM-${n}`, nameAr: "عرض", type: "percentage", percentValue: 5, minInvoiceValue: value, startDate: "2026-08-01", endDate: "2026-08-31" })],
-  ["a voucher amount", "/vouchers", (value, n) => ({ id: `DEC-V-${n}`, date: "2026-08-22", voucherType: "cash_receipt", amount: value, branchId: "BR-MAIN", paymentMethod: "cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "4100" })],
+  ["a voucher amount", "/vouchers", (value, n) => ({ id: `DEC-V-${n}`, date: "2026-08-22", memo: "سند", voucherType: "other_income", amount: value, branchId: "BR-MAIN", paymentMethod: "cash", treasuryAccountId: "TR-DEC", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "4100" })],
 ];
 
 describe("a malformed amount, quantity, price or rate is the caller's mistake: 400, in Arabic, and nothing is stored", () => {
@@ -57,6 +58,13 @@ describe("a malformed amount, quantity, price or rate is the caller's mistake: 4
       expect(res.status, `${JSON.stringify(value)} → ${JSON.stringify(res.body).slice(0, 200)}`).toBe(400);
       expect(res.body.message, JSON.stringify(value)).toMatch(ARABIC);
       expect(JSON.stringify((await admin("GET", path)).body).length, JSON.stringify(value)).toBe(before);
+    }
+  });
+
+  it("each body is refused for its decimal alone: the same body with a well-formed literal is accepted", async () => {
+    for (const [label, path, body] of ROUTES) {
+      const res = await admin("POST", path, body("7.50", 900));
+      expect(res.status, `${label}: ${JSON.stringify(res.body).slice(0, 300)}`).toBe(201);
     }
   });
 

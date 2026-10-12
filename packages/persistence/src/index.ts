@@ -370,3 +370,4 @@ export {
 export * from "./pos/index.js";
 export * from "./enh/index.js";
 export { createSqliteUpgradeLedger, UpgradeStepId, type UpgradeLedger } from "./upgrade-ledger.js";
+export { markApprovalsNeedingReapproval } from "./approval-request-store.js";

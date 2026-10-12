@@ -121,6 +121,7 @@ function serialize(doc: VoucherDocument) {
     journalEntryId: doc.journalEntryId,
     confirmedAt: doc.confirmedAt,
     reversesDocId: doc.reversesDocId ?? null,
+    workflowRequestId: doc.workflowRequestId ?? null,
     heldAllocations: (line.heldAllocations ?? []).map(serializeHeldAllocation),
   };
 }

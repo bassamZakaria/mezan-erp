@@ -25,7 +25,24 @@ export const updateWorkflowConfigSchema = z.object({
 });
 
 /** الموافقات — an in-flight or resolved approval instance. */
-export const approvalStatusSchema = z.enum(["pending", "approved", "rejected", "modification_requested"]);
+export enum ApprovalStatusCode {
+  Pending = "pending",
+  Approved = "approved",
+  Rejected = "rejected",
+  ModificationRequested = "modification_requested",
+  ReapprovalRequired = "reapproval_required",
+}
+const APPROVAL_STATUS_VALUES = Object.values(ApprovalStatusCode) as [`${ApprovalStatusCode}`, ...`${ApprovalStatusCode}`[]];
+export const approvalStatusSchema = z.enum(APPROVAL_STATUS_VALUES);
+
+export const approvalStandingSchema = z.object({
+  id: z.string(),
+  status: approvalStatusSchema,
+  /** Why the document cannot be confirmed on this request as it stands; null when nothing is in the way. */
+  reason: z.string().nullable(),
+  reasonEn: z.string().nullable(),
+});
+export type ApprovalStandingDTO = z.infer<typeof approvalStandingSchema>;
 export const decisionKindSchema = z.enum(["approve", "reject", "request_modification", "bypass"]);
 
 export const decisionRecordSchema = z.object({

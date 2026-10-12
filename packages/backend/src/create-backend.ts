@@ -136,6 +136,7 @@ import {
   openSqliteConnection,
   withSqliteTransaction,
   createSqliteUpgradeLedger,
+  markApprovalsNeedingReapproval,
   UpgradeStepId,
   type SqliteOpenOptions,
   createSqliteUnitOfWork,
@@ -2619,6 +2620,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       corrected.push(role.code);
     }
     if (corrected.length > 0) console.info(`[roles] separated duties and granted dashboard.view on seeded role(s) ${corrected.join(", ")}`);
+  });
+  await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
+    const marked = markApprovalsNeedingReapproval(sqlite);
+    if (marked.length > 0) console.info(`[workflow] ${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);
   });
 
   /**

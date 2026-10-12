@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { APPROVAL_STANDING_KEY, ReapprovalNotice } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -1239,6 +1241,7 @@ function InvoiceDetailView({
 }) {
   const { t, locale } = useAppTranslation();
   const detailConfirm = useConfirmSalesInvoice();
+  const queryClient = useQueryClient();
   const [detailConfirmError, setDetailConfirmError] = useState<string | null>(null);
   /** B3 — stated only for a consumer sale confirmed with no till; "" leaves the backend's own derivation. */
   const [detailReceiptPaymentMethod, setDetailReceiptPaymentMethod] = useState<EtaReceiptPaymentMethod | "">("");
@@ -1438,6 +1441,19 @@ function InvoiceDetailView({
               {detailConfirmError}
             </span>
           ) : null}
+          <ReapprovalNotice
+            requestId={invoice.status === "pending" ? (invoice.workflowRequestId ?? null) : null}
+            pending={detailConfirm.isPending}
+            onRequestAgain={async () => {
+              setDetailConfirmError(null);
+              try {
+                await detailConfirm.mutateAsync({ id: invoice.id, expectedVersion: invoice.version });
+                await queryClient.invalidateQueries({ queryKey: [APPROVAL_STANDING_KEY] });
+              } catch (err) {
+                setDetailConfirmError(errorMessage(err, t("common.failed")));
+              }
+            }}
+          />
         </>
       }
       /**

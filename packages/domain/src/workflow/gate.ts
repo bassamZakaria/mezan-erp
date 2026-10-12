@@ -28,11 +28,15 @@ export interface GateConfig {
   readonly steps: readonly GateStep[];
 }
 
-export type ApprovalStatus =
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "modification_requested";
+export enum ApprovalStatusCode {
+  Pending = "pending",
+  Approved = "approved",
+  Rejected = "rejected",
+  ModificationRequested = "modification_requested",
+  ReapprovalRequired = "reapproval_required",
+}
+
+export type ApprovalStatus = `${ApprovalStatusCode}`;
 
 export type DecisionKind = "approve" | "reject" | "request_modification";
 

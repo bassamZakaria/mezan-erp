@@ -148,8 +148,14 @@ function statsOf(rows: VoucherRowDTO[]): Record<string, number> {
   };
 }
 
-function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]> } = {}) {
-  let current = [...seededVouchers];
+function renderScreen({
+  heldOnConfirm = false,
+  allocations = seededAllocations,
+  heldOnStaleApproval = false,
+}: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]>; heldOnStaleApproval?: boolean } = {}) {
+  let current = heldOnStaleApproval ? seededVouchers.map((v) => (v.id === "cv-1" ? { ...v, status: "pending" as const, workflowRequestId: "cv-1:confirm" } : v)) : [...seededVouchers];
+  let standingStatus = "reapproval_required";
+  const confirmRequests: string[] = [];
   let nextSeq = 5;
   const allocationsByVoucher = { ...allocations };
   const reverseRequests: { date?: string }[] = [];
@@ -179,6 +185,14 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
     "GET /vouchers/cv-1": () => {
       const doc = current.find((v) => v.id === "cv-1")!;
       return { body: { ...doc, allocations: allocationsByVoucher["cv-1"] ?? [] } satisfies VoucherDetailDTO };
+    },
+    "GET /workflow/requests/*/standing": () => ({
+      body: { id: "cv-1:confirm", status: standingStatus, reason: standingStatus === "reapproval_required" ? STALE_APPROVAL_REASON : null, reasonEn: null },
+    }),
+    "POST /vouchers/cv-1/confirm": () => {
+      confirmRequests.push("cv-1");
+      standingStatus = "pending";
+      return { body: { ...current.find((v) => v.id === "cv-1")!, held: true } };
     },
     "GET /customers": () => ({ body: customers }),
     "GET /suppliers": () => ({ body: suppliers }),
@@ -245,8 +259,29 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
     </TestNavigation>,
     { transport, initialSession: testAdminSession },
   );
-  return { ...result, reverseRequests, collectionRequests };
+  return { ...result, reverseRequests, collectionRequests, confirmRequests };
 }
+
+const STALE_APPROVAL_REASON = "اعتُمد هذا المستند أو أُرسل للموافقة قبل تحديث النظام ولم يُرحَّل؛ الموافقة السابقة لم تعد صالحة للترحيل.";
+
+describe("TreasuryVouchersScreen — a voucher held on an approval given before the upgrade", () => {
+  it("says why on the voucher and requests approval again through its own confirm", async () => {
+    const { confirmRequests } = renderScreen({ heldOnStaleApproval: true });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent(STALE_APPROVAL_REASON);
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirmRequests).toEqual(["cv-1"]));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
+  });
+
+  it("a voucher that is not held shows no such notice", async () => {
+    renderScreen();
+    fireEvent.click(await screen.findByText("CV-000001"));
+    await screen.findByRole("tab", { name: /تخصيص على الفواتير/ });
+    expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument();
+  });
+});
 
 describe("TreasuryVouchersScreen — list", () => {
   it("renders the seeded vouchers and type-breakdown chips", async () => {

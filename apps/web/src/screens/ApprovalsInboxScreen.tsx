@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ApprovalStatusCode } from "@mezan/contracts";
 import {
   Button,
   Card,
@@ -265,7 +266,7 @@ export function ApprovalsInboxScreen() {
 function approvalTone(status: ApprovalRequestDTO["status"]): PillTone {
   if (status === "approved") return "success";
   if (status === "rejected") return "danger";
-  if (status === "modification_requested") return "warning";
+  if (status === "modification_requested" || status === ApprovalStatusCode.ReapprovalRequired) return "warning";
   return "neutral";
 }
 
@@ -273,6 +274,7 @@ function approvalStatusKey(status: ApprovalRequestDTO["status"]) {
   if (status === "approved") return "approvals.status.approved" as const;
   if (status === "rejected") return "approvals.status.rejected" as const;
   if (status === "modification_requested") return "approvals.status.changesRequested" as const;
+  if (status === ApprovalStatusCode.ReapprovalRequired) return "approvals.status.reapprovalRequired" as const;
   return "approvals.status.pending" as const;
 }
 

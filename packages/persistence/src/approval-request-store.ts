@@ -9,6 +9,7 @@ import type {
   GateStep,
 } from "@mezan/domain";
 import { insertingNew } from "./insert-new.js";
+import { ApprovalStatusCode } from "@mezan/domain";
 
 /**
  * SQLite-backed {@link ApprovalRequestRepository} (docs/archive/catalog/09 §الموافقات
@@ -181,4 +182,48 @@ export function createSqliteApprovalRequestStore(
   addDocumentColumns(sqlite);
   const store = new SqliteApprovalRequestStore(sqlite);
   return Object.assign(store, { close: () => { if (owned) sqlite.close(); } }) as SqliteApprovalRequestStoreHandle;
+}
+
+const HELD_DOCUMENT_STATUS = "pending";
+const STALE_REQUEST_STATUSES = ["pending", "approved"] as const;
+const UNVERIFIABLE_FINGERPRINT = "";
+
+interface HeldDocumentRow {
+  readonly id: string;
+  readonly branchId: string | null;
+}
+
+function heldDocumentOf(sqlite: Database.Database, requestId: string): HeldDocumentRow | null {
+  const tables = sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[];
+  for (const { name } of tables) {
+    const columns = new Set((sqlite.prepare(`PRAGMA table_info("${name}")`).all() as { name: string }[]).map((column) => column.name));
+    if (!columns.has("workflow_request_id") || !columns.has("status") || !columns.has("id")) continue;
+    const branch = columns.has("branch_id") ? "branch_id" : "NULL";
+    const row = sqlite.prepare(`SELECT id, ${branch} AS branchId FROM "${name}" WHERE workflow_request_id = ? AND status = ?`).get(requestId, HELD_DOCUMENT_STATUS) as HeldDocumentRow | undefined;
+    if (row) return row;
+  }
+  return null;
+}
+
+/**
+ * UPGRADE: a request written before requests carried their document's
+ * fingerprint cannot be honoured on confirm. Where its document is still held,
+ * the request is marked as needing re-approval and tied to that document, so
+ * the next confirm sends it through the chain again instead of refusing it.
+ */
+export function markApprovalsNeedingReapproval(sqlite: Database.Database, now: () => string = () => new Date().toISOString()): string[] {
+  sqlite.exec(CREATE_TABLE);
+  addDocumentColumns(sqlite);
+  const stale = sqlite
+    .prepare(`SELECT id FROM approval_request WHERE document_fingerprint IS NULL AND status IN (${STALE_REQUEST_STATUSES.map(() => "?").join(", ")})`)
+    .all(...STALE_REQUEST_STATUSES) as { id: string }[];
+  const mark = sqlite.prepare("UPDATE approval_request SET status = ?, document_id = ?, document_branch_id = ?, document_fingerprint = ?, updated_at = ? WHERE id = ?");
+  const marked: string[] = [];
+  for (const { id } of stale) {
+    const document = heldDocumentOf(sqlite, id);
+    if (!document) continue;
+    mark.run(ApprovalStatusCode.ReapprovalRequired, document.id, document.branchId, UNVERIFIABLE_FINGERPRINT, now(), id);
+    marked.push(id);
+  }
+  return marked;
 }

@@ -7,6 +7,7 @@
  */
 
 import {
+  ApprovalStatusCode,
   startApproval,
   decide as gateDecide,
   resubmit as gateResubmit,
@@ -75,6 +76,20 @@ export class ApprovalRequestUntrustedError extends Error {
   }
 }
 
+export const REAPPROVAL_REQUIRED_REASON_AR =
+  "اعتُمد هذا المستند أو أُرسل للموافقة قبل تحديث النظام ولم يُرحَّل؛ الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد ليمرّ المستند على سلسلة الاعتماد الحالية.";
+export const REAPPROVAL_REQUIRED_REASON_EN =
+  "This document was approved, or sent for approval, before the system was updated and was never posted; that approval can no longer post it. Request approval again so it goes through the approval chain in force.";
+
+export class ApprovalRequestReapprovalRequiredError extends Error {
+  readonly code = "APPROVAL_REAPPROVAL_REQUIRED" as const;
+  readonly messageEn = REAPPROVAL_REQUIRED_REASON_EN;
+  constructor(readonly id: string) {
+    super(REAPPROVAL_REQUIRED_REASON_AR);
+    this.name = "ApprovalRequestReapprovalRequiredError";
+  }
+}
+
 export class ApprovalRequestNotFoundError extends Error {
   readonly code = "APPROVAL_REQUEST_NOT_FOUND" as const;
   constructor(readonly id: string) {
@@ -121,6 +136,7 @@ export async function decideApproval(
 ): Promise<ApprovalRequestRecord> {
   const existing = await repo.findById(id);
   if (!existing) throw new ApprovalRequestNotFoundError(id);
+  if (existing.status === ApprovalStatusCode.ReapprovalRequired) throw new ApprovalRequestReapprovalRequiredError(id);
   const { request } = gateDecide(existing, input);
   const record: ApprovalRequestRecord = { ...request, entityLabel: existing.entityLabel, subject: existing.subject ?? null, createdAt: existing.createdAt, updatedAt: now() };
   await repo.save(record);

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { APPROVAL_STANDING_KEY, ReapprovalNotice } from "../shell/ReapprovalNotice";
 import {
   DocumentList,
   DocumentDetail,
@@ -602,6 +604,8 @@ function VoucherDetailView({
   const query = useVoucherDetail(id);
   const projectsQuery = useProjects();
   const reverseVoucher = useReverseVoucher();
+  const requestAgain = useConfirmVoucher();
+  const queryClient = useQueryClient();
   const createAllocation = useCreateAllocation();
   const reverseAllocation = useReverseAllocation();
 
@@ -866,6 +870,19 @@ function VoucherDetailView({
           {error}
         </div>
       ) : null}
+      <ReapprovalNotice
+        requestId={doc.status === "pending" ? (doc.workflowRequestId ?? null) : null}
+        pending={requestAgain.isPending}
+        onRequestAgain={async () => {
+          setError(null);
+          try {
+            await requestAgain.mutateAsync({ id: doc.id });
+            await queryClient.invalidateQueries({ queryKey: [APPROVAL_STANDING_KEY] });
+          } catch (err) {
+            setError(err instanceof Error ? err.message : t("common.failed"));
+          }
+        }}
+      />
       <DocumentDetail
         title={doc.docNo ?? t("vouchers.cashVoucher")}
         statusLabel={t(STATUS_KEY[doc.status])}

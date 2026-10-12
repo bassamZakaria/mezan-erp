@@ -14,6 +14,10 @@ import {
   DuplicateWorkflowConfigError,
   WorkflowConfigNotFoundError,
   ApprovalRequestNotFoundError,
+  ApprovalRequestReapprovalRequiredError,
+  ApprovalStatusCode,
+  REAPPROVAL_REQUIRED_REASON_AR,
+  REAPPROVAL_REQUIRED_REASON_EN,
   WorkflowError,
   type ApproverRoleResolver,
   type AuditSink,
@@ -23,7 +27,7 @@ import {
   type WorkflowConfigRepository,
 } from "@mezan/domain";
 import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext, permissionDeniedBody, roleCodesOf } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, roleCodesOf } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { BranchRecordKind, recordInBranchGrant } from "./branch-policy.js";
 
@@ -76,6 +80,16 @@ function serializeConfig(config: WorkflowConfigRecord) {
     updatedAt: config.updatedAt,
   };
 }
+
+const HELD_DOCUMENT_READ_PERMISSIONS: readonly string[] = [
+  "sales.invoice.view",
+  "sales.invoice.view_own",
+  "sales.return.view",
+  "purchases.invoice.view",
+  "purchases.return.view",
+  "purchases.landed_cost.view",
+  "treasury.cash_voucher.view",
+];
 
 function serializeRequest(request: ApprovalRequestRecord) {
   return {
@@ -130,6 +144,7 @@ export function createWorkflowRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
   const app = new Hono();
 
   /**
@@ -224,6 +239,23 @@ export function createWorkflowRoutes(
   });
 
   // --- الموافقات inbox ----------------------------------------------------
+
+  /**
+   * SECURITY: answers only whether a request stands and why not — never its
+   * chain, decisions or label — so the people who may read a held document can
+   * be told what it waits for without holding the approvals inbox.
+   */
+  app.get("/requests/:id/standing", gateAny("workflow.view", ...HELD_DOCUMENT_READ_PERMISSIONS), async (c) => {
+    const record = await deps.requests.findById(c.req.param("id"));
+    if (!record) return c.json({ error: "NOT_FOUND" }, 404);
+    const needsReapproval = record.status === ApprovalStatusCode.ReapprovalRequired;
+    return c.json({
+      id: record.id,
+      status: record.status,
+      reason: needsReapproval ? REAPPROVAL_REQUIRED_REASON_AR : null,
+      reasonEn: needsReapproval ? REAPPROVAL_REQUIRED_REASON_EN : null,
+    });
+  });
 
   app.get("/requests/pending", gate("workflow.view"), async (c) => {
     const roles = actorRoles(c);
@@ -346,6 +378,7 @@ export function createWorkflowRoutes(
       return c.json(serializeRequest(record));
     } catch (err) {
       if (err instanceof ApprovalRequestNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
+      if (err instanceof ApprovalRequestReapprovalRequiredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
       if (err instanceof WorkflowError) return c.json({ error: err.code, message: err.message }, 409);
       throw err;
     }

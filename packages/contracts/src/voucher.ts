@@ -86,6 +86,8 @@ export const voucherSchema = z.object({
    * skip it (D197, D200). Optional so older payloads still parse.
    */
   reversesDocId: z.string().nullish(),
+  /** The approval request a held voucher waits on; what its screen asks the standing of. */
+  workflowRequestId: z.string().nullish(),
   /** Allocations a collection carries while held for approval; the approved confirm applies them (D344). */
   heldAllocations: z.array(heldAllocationSchema).optional(),
 });

@@ -387,6 +387,31 @@ describe("SalesInvoicesScreen — an item waiting to be priced", () => {
   });
 });
 
+describe("SalesInvoicesScreen — an invoice held on an approval given before the upgrade", () => {
+  it("says why on the invoice and requests approval again through its own confirm", async () => {
+    const reason = "اعتُمد هذا المستند أو أُرسل للموافقة قبل تحديث النظام ولم يُرحَّل؛ الموافقة السابقة لم تعد صالحة للترحيل.";
+    const held = invoice({ id: "inv-held", docNo: "INV-000009", status: "pending", journalEntryId: null, confirmedAt: null, workflowRequestId: "inv-held:confirm" });
+    let standingStatus = "reapproval_required";
+    let confirmed = 0;
+    const transport = stubTransport({
+      ...baseHandlers([held]),
+      "GET /workflow/requests/*/standing": () => ({ body: { id: "inv-held:confirm", status: standingStatus, reason: standingStatus === "reapproval_required" ? reason : null, reasonEn: null } }),
+      "POST /sales-invoices/inv-held/confirm": () => {
+        confirmed += 1;
+        standingStatus = "pending";
+        return { body: { ...held, held: true } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000009"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent(reason);
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirmed).toBe(1));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
+  });
+});
+
 describe("SalesInvoicesScreen — payments", () => {
   it("records a payment against a confirmed invoice and advances it to مدفوع جزئياً", async () => {
     let current = [...seededInvoices];

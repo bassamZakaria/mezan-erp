@@ -47,6 +47,9 @@ export {
   ApprovalRequestNotFoundError,
   ApprovalRequestRejectedError,
   ApprovalRequestUntrustedError,
+  ApprovalRequestReapprovalRequiredError,
+  REAPPROVAL_REQUIRED_REASON_AR,
+  REAPPROVAL_REQUIRED_REASON_EN,
   type ApprovalSubject,
   type ApprovalRequestRecord,
   type ApprovalRequestRepository,
@@ -54,3 +57,4 @@ export {
 } from "./requests.js";
 
 export { documentFingerprint, sha256Hex } from "./fingerprint.js";
+export { ApprovalStatusCode } from "./gate.js";

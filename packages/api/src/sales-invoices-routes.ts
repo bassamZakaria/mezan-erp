@@ -228,6 +228,13 @@ export interface SalesInvoiceRoutesDeps {
    */
   readonly printContext?: (invoice: SalesInvoice) => Promise<SalesInvoicePrintContext>;
   readonly onDraftCancelled?: (invoice: SalesInvoice) => Promise<void>;
+  /**
+   * The document a draft was raised from — a quote it converts — with the
+   * figures that document was agreed at. A draft that has one is held to it:
+   * an edit that departs from those figures needs the price-override
+   * permission and is audited against them.
+   */
+  readonly sourceDocumentOf?: (invoiceId: string) => Promise<SalesInvoiceSourceDocument | null>;
   readonly itemTax?: SalesItemTaxSource;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
@@ -426,12 +433,21 @@ function withMessageEn(err: { code: string; message: string }) {
   return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
 }
 
+export interface SalesInvoiceSourceDocument {
+  readonly id: string;
+  readonly number: string;
+  readonly lines: readonly { readonly lineId: string; readonly qty: Qty; readonly unitPrice: Money; readonly taxRateId: string | null; readonly taxRatePercent: number }[];
+}
+
+const PRICE_OVERRIDE_PERMISSION = "sales.price.override";
+
 const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
 const JOURNAL_VIEW_PERMISSION = "accounting.journal.view";
 const REVERSED_STATUS: SalesInvoice["status"] = "reversed";
 
 enum SalesInvoiceAuditAction {
   Void = "VOID",
+  EditDraftBeyondSource = "EDIT_DRAFT_BEYOND_SOURCE",
 }
 
 enum SalesInvoiceVoidRefusalCode {
@@ -757,6 +773,25 @@ export function createSalesInvoicesRoutes(
    *
    * An admin (`"*"`) satisfies both, as it does every other permission.
    */
+  // INVARIANT: the guards a NEW invoice meets are run over the WHOLE invoice
+  // as an edit would leave it, through this same function — an edit is never a
+  // way to reach figures the create route would have refused.
+  function guardInputOf(invoice: SalesInvoice): { readonly lines: readonly LineInput[]; readonly discount: DiscountInput } {
+    return {
+      lines: invoice.lines.map((line) => ({
+        qty: line.qty.toString(),
+        unitPrice: line.unitPrice.toString(),
+        discountType: line.discountType,
+        discountPercent: line.discountPercent,
+        discountAmount: line.discountAmount.toString(),
+      })),
+      discount:
+        invoice.discount.type === "percent"
+          ? { type: "percent", percent: invoice.discount.percent }
+          : { type: "amount", amount: invoice.discount.amount.toString() },
+    };
+  }
+
   async function refuseUnapprovedDiscount(
     c: Context,
     body: { readonly lines: readonly LineInput[]; readonly discount?: DiscountInput },
@@ -1290,11 +1325,74 @@ export function createSalesInvoicesRoutes(
     }
     const stale = await refuseStaleDocument(c, deps.versionGuard, invoice.id, expectedVersionOf(body));
     if (stale) return stale;
+    const lineId = c.req.param("lineId");
+    const change = {
+      ...(parsed.data.qty !== undefined ? { qty: Qty.fromMajor(parsed.data.qty) } : {}),
+      ...(parsed.data.unitPrice !== undefined ? { unitPrice: Money.fromMajor(parsed.data.unitPrice) } : {}),
+      ...(parsed.data.taxRateId !== undefined ? { taxRateId: parsed.data.taxRateId } : {}),
+    };
+    const storedLine = invoice.lines.find((line) => line.lineId === lineId);
+    if (storedLine) {
+      const asEdited: SalesInvoice = {
+        ...invoice,
+        lines: invoice.lines.map((line) => (line.lineId === lineId ? { ...line, qty: change.qty ?? line.qty, unitPrice: change.unitPrice ?? line.unitPrice } : line)),
+      };
+      const guardRefusal = await refuseUnapprovedDiscount(c, guardInputOf(asEdited));
+      if (guardRefusal) return guardRefusal;
+    }
+    const source = (await deps.sourceDocumentOf?.(invoice.id)) ?? null;
+    const sourceLine = source?.lines.find((line) => line.lineId === lineId) ?? null;
+    const departs =
+      source !== null &&
+      storedLine !== undefined &&
+      (sourceLine === null ||
+        (change.qty ?? storedLine.qty).scaled !== sourceLine.qty.scaled ||
+        (change.unitPrice ?? storedLine.unitPrice).scaled !== sourceLine.unitPrice.scaled ||
+        (change.taxRateId !== undefined && change.taxRateId !== sourceLine.taxRateId));
+    if (source && departs) {
+      const ctx = getAuthContext(c);
+      if (!(ctx && can(ctx, PRICE_OVERRIDE_PERMISSION))) {
+        return c.json(
+          {
+            error: "DRAFT_DEPARTS_FROM_SOURCE",
+            permission: PRICE_OVERRIDE_PERMISSION,
+            message: `هذه المسودة صادرة عن عرض السعر ${source.number}، وتعديل كميتها أو سعرها أو ضريبتها بما يخالف العرض يحتاج صلاحية تعديل السعر.`,
+            messageEn: `This draft was raised from quote ${source.number}; changing its quantity, price or tax away from the quote needs the price-override permission.`,
+          },
+          403,
+        );
+      }
+    }
     try {
-      const edited = await svc.editDraftLine(invoice.id, c.req.param("lineId"), {
-        ...(parsed.data.qty !== undefined ? { qty: Qty.fromMajor(parsed.data.qty) } : {}),
-        ...(parsed.data.unitPrice !== undefined ? { unitPrice: Money.fromMajor(parsed.data.unitPrice) } : {}),
-        ...(parsed.data.taxRateId !== undefined ? { taxRateId: parsed.data.taxRateId } : {}),
+      const edited = await deps.repo.transaction(async () => {
+        const written = await svc.editDraftLine(invoice.id, lineId, change);
+        if (source && departs && storedLine) {
+          const after = written.lines.find((line) => line.lineId === lineId) ?? storedLine;
+          const figures = (line: { readonly qty: Qty; readonly unitPrice: Money; readonly taxRateId?: string | null; readonly taxRatePercent: number }) => ({
+            qty: line.qty.toString(),
+            unitPrice: line.unitPrice.toString(),
+            taxRateId: line.taxRateId ?? null,
+            taxRatePercent: line.taxRatePercent,
+          });
+          await recordAdminEvent(deps.audit, c, {
+            module: "sales",
+            entityType: SALES_INVOICE_DOC_TYPE,
+            entityId: invoice.id,
+            action: SalesInvoiceAuditAction.EditDraftBeyondSource,
+            severity: "WARNING",
+            details: {
+              lineId,
+              sourceDocumentId: source.id,
+              sourceDocumentNumber: source.number,
+              source: sourceLine ? figures(sourceLine) : null,
+              before: figures(storedLine),
+              after: figures(after),
+              grandTotalBefore: totalsFor(svc, invoice).grandTotal.toString(),
+              grandTotalAfter: totalsFor(svc, written).grandTotal.toString(),
+            },
+          });
+        }
+        return written;
       });
       await stampDocumentModifier(deps.versionGuard, edited.id, getAuthContext(c)?.userId);
       return c.json({

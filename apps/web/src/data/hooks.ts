@@ -3164,6 +3164,7 @@ export function useNameJournalLineTax(document: ClassifiableDocument) {
 export interface EditSalesInvoiceDraftLineAct extends EditSalesInvoiceDraftLineDTO {
   readonly invoiceId: string;
   readonly lineId: string;
+  readonly expectedVersion?: number;
 }
 
 export function useEditSalesInvoiceDraftLine() {

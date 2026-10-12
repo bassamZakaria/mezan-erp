@@ -3439,6 +3439,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         };
       },
       itemTax: salesItemTax,
+      sourceDocumentOf: async (invoiceId) => {
+        const quote = (await salesQuotes.list({ status: "converted" })).find((candidate) => candidate.convertedInvoiceId === invoiceId);
+        return quote
+          ? { id: quote.id, number: quote.docNo ?? quote.id, lines: quote.lines.map((line) => ({ lineId: line.lineId, qty: line.qty, unitPrice: line.unitPrice, taxRateId: line.taxRateId ?? null, taxRatePercent: line.taxRatePercent })) }
+          : null;
+      },
       onDraftCancelled: async (invoice) => {
         await new SalesQuoteService({
           repo: salesQuotes,

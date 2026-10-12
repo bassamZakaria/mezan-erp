@@ -14,7 +14,7 @@ const RATES = [
 ] as unknown as TaxRateDTO[];
 
 const LINE = { lineId: "A", itemNameAr: "خدمة", qty: "1.000000", unitPrice: "100.000000", taxRatePercent: 0, taxRateId: null };
-const invoice = (status: string) => ({ id: "INV-1", docNo: "INV-000001", status, lines: [LINE] }) as unknown as SalesInvoiceDTO;
+const invoice = (status: string) => ({ id: "INV-1", docNo: "INV-000001", status, version: 7, lines: [LINE] }) as unknown as SalesInvoiceDTO;
 const viewer: SessionDTO = { ...testAdminSession, permissions: ["sales.invoice.view"] };
 
 describe("DraftLineEditAction — «تعديل البند» on a draft", () => {
@@ -26,7 +26,7 @@ describe("DraftLineEditAction — «تعديل البند» on a draft", () => {
     expect(screen.queryByRole("button", { name: /تعديل البند/ })).toBeNull();
   });
 
-  it("sends only what changed as exact decimals, never offers the system rate, and shows the server's refusal", async () => {
+  it("sends only what changed as exact decimals with the version it read, never offers the system rate, and shows the server's refusal", async () => {
     const sent: unknown[] = [];
     let refuse = true;
     const transport = stubTransport({
@@ -47,7 +47,7 @@ describe("DraftLineEditAction — «تعديل البند» on a draft", () => {
     refuse = false;
     fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
     await waitFor(() => expect(sent).toHaveLength(2));
-    expect(sent[1]).toEqual({ qty: "2.5", taxRateId: "VAT14" });
+    expect(sent[1]).toEqual({ qty: "2.5", taxRateId: "VAT14", expectedVersion: 7 });
   });
 });
 

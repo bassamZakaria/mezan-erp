@@ -55,7 +55,7 @@ export function DraftLineEditAction({ invoice, line, taxRates }: DraftLineEditAc
     }
     setError(null);
     try {
-      await edit.mutateAsync({ invoiceId: invoice.id, lineId: line.lineId, ...change });
+      await edit.mutateAsync({ invoiceId: invoice.id, lineId: line.lineId, ...change, ...(invoice.version === undefined ? {} : { expectedVersion: invoice.version }) });
       setOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("draftLine.error.failed"));

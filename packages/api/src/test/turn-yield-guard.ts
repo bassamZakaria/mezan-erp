@@ -1,5 +1,5 @@
 import { afterEach, expect } from "vitest";
-import { drainForeignWrites, drainUntransactedAudits } from "@mezan/persistence";
+import { drainForeignWrites, drainUntransactedAudits } from "../../../persistence/src/untransacted-audits.js";
 import { drainTurnYields } from "../turn-yields.js";
 
 afterEach(() => {

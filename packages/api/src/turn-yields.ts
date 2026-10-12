@@ -1,4 +1,4 @@
-import { keepRecent } from "@mezan/persistence";
+import { keepRecent } from "../../persistence/src/untransacted-audits.js";
 
 const reported: string[] = [];
 

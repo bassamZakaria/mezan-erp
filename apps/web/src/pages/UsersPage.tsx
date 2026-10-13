@@ -15,7 +15,9 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import { ALL_SCOPE, detectSodConflicts, UserStatusCode, WILDCARD_PERMISSION, type ScopeSelection, type SodConflictMatch } from "@mezan/domain";
-import { ErasureRetention, OwnerHandOverOutcome, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO, type UserDTO, type UserErasureResultDTO, type UserStatusDTO } from "@mezan/contracts";
+import { ErasureRetention, type OwnerHandOverOutcome, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO, type UserDTO, type UserErasureResultDTO, type UserStatusDTO } from "@mezan/contracts";
+import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
+import { markOwnerHandOver } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlParam } from "../lib/url-state";
 
@@ -123,13 +125,6 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
   };
 }
 
-const HAND_OVER_NOTICE_KEYS: Readonly<Record<OwnerHandOverOutcome, AppTranslationKey | null>> = {
-  [OwnerHandOverOutcome.Verified]: null,
-  [OwnerHandOverOutcome.Pending]: "users.owner.handOverPending",
-  [OwnerHandOverOutcome.PendingUnmailed]: "users.owner.handOverPendingUnmailed",
-  [OwnerHandOverOutcome.Failed]: "users.owner.handOverFailed",
-};
-
 export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus, onUnlock, onErase }: UsersPageProps) {
   const { t } = useAppTranslation();
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
@@ -167,8 +162,9 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
 
   function announceHandOver(outcome: OwnerHandOverOutcome | undefined) {
     if (outcome === undefined) return;
-    const key = HAND_OVER_NOTICE_KEYS[outcome];
+    const key = OWNER_HAND_OVER_NOTICE_KEYS[outcome];
     setEraseNotice(key ? t(key) : null);
+    markOwnerHandOver(outcome);
   }
 
   async function toggleStatus(row: UserDTO, status: UserStatusCode, newOwnerUserId?: string): Promise<boolean> {

@@ -5,7 +5,9 @@ import { TenantResolveMode } from "@mezan/contracts";
 import { ApiError, isDesktopHost, platformLookupFailing, useBootstrapStatus, useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
 import { lastTenantMode, LookupHost, lookupHostOf, rememberTenantMode } from "./lookup-host";
 import { useAppVersion } from "../data/hub-hooks";
+import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
 import {
+  clearOwnerHandOver,
   clearSessionExpired,
   clearTenantCode,
   forgetTenantCodeForEmail,
@@ -14,6 +16,7 @@ import {
   markTenantCodeConfirmed,
   persistTenantCode,
   rememberTenantCodeForEmail,
+  pendingOwnerHandOver,
   sessionExpiredPending,
   tenantCodeIsLeftover,
   tenantCodeConfirmedThisVisit,
@@ -247,6 +250,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   // screen mounting. A sign-out by the server is followed by a navigation that
   // mounts the screen a second time, and a notice consumed by the first mount
   // was gone before anyone could read it.
+  const [handOver, setHandOver] = useState(pendingOwnerHandOver);
+  const handOverNoticeKey = handOver === null ? null : OWNER_HAND_OVER_NOTICE_KEYS[handOver];
+  function dismissHandOver() {
+    clearOwnerHandOver();
+    setHandOver(null);
+  }
   function acknowledgeExpiry() {
     if (!expired) return;
     clearSessionExpired();
@@ -295,6 +304,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
       {
         onSuccess: (session) => {
           clearSessionExpired();
+          clearOwnerHandOver();
           clearTenantCodeConfirmed();
           rememberDeviceUser(session);
           if (tenantMode === TenantResolveMode.Code && resolvedCode !== "") rememberTenantCodeForEmail(session.email, resolvedCode);
@@ -429,6 +439,14 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
             className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink"
           >
             {t("login.sessionExpired")}
+          </div>
+        ) : null}
+        {handOverNoticeKey ? (
+          <div role="status" className="mt-[12px] flex items-start gap-[8px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink">
+            <span className="flex-1">{t(handOverNoticeKey)}</span>
+            <Button size="sm" variant="ghost" onClick={dismissHandOver}>
+              {t("login.ownerHandOver.dismiss")}
+            </Button>
           </div>
         ) : null}
 

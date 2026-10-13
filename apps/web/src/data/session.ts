@@ -1,4 +1,4 @@
-import { sessionSchema, type SessionDTO } from "@mezan/contracts";
+import { OwnerHandOverOutcome, sessionSchema, type SessionDTO } from "@mezan/contracts";
 
 export type Session = SessionDTO;
 
@@ -86,6 +86,26 @@ export function sessionExpiredPending(): boolean {
 /** Clears the flag so the notice shows once, not on every later visit. */
 export function clearSessionExpired(): void {
   getTabStorage()?.removeItem(SESSION_EXPIRED_KEY);
+}
+
+const OWNER_HAND_OVER_KEY = "mezan.ownerHandOver";
+const UNSETTLED_HAND_OVERS: readonly OwnerHandOverOutcome[] = [OwnerHandOverOutcome.Pending, OwnerHandOverOutcome.PendingUnmailed, OwnerHandOverOutcome.Failed];
+
+// REQUIRED ORDERING: written by the screen that asked for the hand-over, read by
+// the sign-in screen. Stepping down ends the owner's session in the same
+// request, so a notice kept only on the Users page is never seen.
+export function markOwnerHandOver(outcome: OwnerHandOverOutcome): void {
+  if (UNSETTLED_HAND_OVERS.includes(outcome)) getTabStorage()?.setItem(OWNER_HAND_OVER_KEY, outcome);
+  else clearOwnerHandOver();
+}
+
+export function pendingOwnerHandOver(): OwnerHandOverOutcome | null {
+  const stored = getTabStorage()?.getItem(OWNER_HAND_OVER_KEY);
+  return UNSETTLED_HAND_OVERS.find((outcome) => outcome === stored) ?? null;
+}
+
+export function clearOwnerHandOver(): void {
+  getTabStorage()?.removeItem(OWNER_HAND_OVER_KEY);
 }
 
 export const NO_SCOPE_SELECTION: ScopeSelection = { branchId: null, warehouseId: null };

@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { clearOwnerHandOver, pendingOwnerHandOver } from "../data/session";
 import { render as rtlRender, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import type { RoleDTO, UserDTO } from "@mezan/contracts";
 import { UsersPage } from "./UsersPage";
 import { AppI18nProvider } from "../i18n";
+
+afterEach(() => clearOwnerHandOver());
 
 /** UsersPage keeps its status filter in the URL (useUrlParam), so it needs a router. */
 const render = (ui: React.ReactElement) =>
@@ -408,6 +411,19 @@ describe("UsersPage — the company's owner", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "تعطيل الحساب" }));
 
     expect(await screen.findByText(notice)).toBeInTheDocument();
+  });
+
+  it("leaves what became of the hand-over for the sign-in screen, because stepping down ends the owner's session", async () => {
+    const onToggleStatus = vi.fn().mockResolvedValue({ ok: true, value: { ...owner, status: "inactive", ownerHandOver: "pending" } });
+    renderPage({ users: [owner, peer], onToggleStatus });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "تعطيل" })[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "تعطيل حساب مالك المنشأة" });
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "المالك الجديد للمنشأة" }));
+    fireEvent.mouseDown((await screen.findAllByRole("option"))[0]!);
+    fireEvent.click(within(dialog).getByRole("button", { name: "تعطيل الحساب" }));
+
+    await waitFor(() => expect(pendingOwnerHandOver()).toBe("pending"));
   });
 
   it("says nothing more when the hand-over was verified at once", async () => {

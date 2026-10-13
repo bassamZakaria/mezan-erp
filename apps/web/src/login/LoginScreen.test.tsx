@@ -6,7 +6,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useSyncExternalStore, type ReactElement } from "react";
 import { LoginScreen } from "./LoginScreen";
 import { useApi, ApiProvider } from "../data/ApiContext";
-import { loadTenantCode, markSessionExpired, persistTenantCode, rememberTenantCodeForEmail, sessionExpiredPending, subscribeTenantCode } from "../data/session";
+import {
+  loadTenantCode,
+  markOwnerHandOver,
+  markSessionExpired,
+  pendingOwnerHandOver,
+  persistTenantCode,
+  rememberTenantCodeForEmail,
+  sessionExpiredPending,
+  subscribeTenantCode,
+} from "../data/session";
+import { OwnerHandOverOutcome } from "@mezan/contracts";
 import { createQueryClient } from "../data/queryClient";
 import { AppI18nProvider } from "../i18n";
 import { rememberDeviceUser } from "./device-users";
@@ -211,6 +221,55 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
 
     await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
     expect(sessionExpiredPending()).toBe(false);
+  });
+
+  it.each([
+    [OwnerHandOverOutcome.Pending, /نقل ملكية المنشأة بانتظار التأكيد: أُرسل رابط التأكيد إلى بريد المالك السابق/],
+    [OwnerHandOverOutcome.PendingUnmailed, /نقل ملكية المنشأة بانتظار تأكيد دعم المنصة: لم يُرسل رابط تأكيد/],
+    [OwnerHandOverOutcome.Failed, /تعذّر تسجيل المالك الجديد على المنصة/],
+  ])("tells the owner whose own step-down ended their session what became of the hand-over (%s), beside the session notice", (outcome, notice) => {
+    markSessionExpired();
+    markOwnerHandOver(outcome);
+    const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.getByText(notice)).toBeInTheDocument();
+    first.unmount();
+
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    fireEvent.change(screen.getByLabelText("رمز PIN رقم 1"), { target: { value: "1" } });
+
+    expect(screen.getByText(notice)).toBeInTheDocument();
+    expect(pendingOwnerHandOver()).toBe(outcome);
+  });
+
+  it("drops the hand-over notice when the person dismisses it, and does not bring it back on the next visit", () => {
+    markOwnerHandOver(OwnerHandOverOutcome.Pending);
+    const first = renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+
+    fireEvent.click(screen.getByRole("button", { name: "إخفاء" }));
+
+    expect(screen.queryByText(/نقل ملكية المنشأة بانتظار/)).not.toBeInTheDocument();
+    expect(pendingOwnerHandOver()).toBeNull();
+    first.unmount();
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.queryByText(/نقل ملكية المنشأة بانتظار/)).not.toBeInTheDocument();
+  });
+
+  it("clears the hand-over notice on a successful sign-in, and says nothing when the hand-over was verified at once", async () => {
+    markOwnerHandOver(OwnerHandOverOutcome.Verified);
+    expect(pendingOwnerHandOver()).toBeNull();
+    markOwnerHandOver(OwnerHandOverOutcome.Pending);
+    renderWithProviders(
+      <>
+        <LoginScreen onStartWizard={() => {}} />
+        <SessionProbe />
+      </>,
+      { transport: okTransport() },
+    );
+
+    fillPin("123456");
+
+    await waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent(testAdminSession.nameAr));
+    expect(pendingOwnerHandOver()).toBeNull();
   });
 
   it("shows the session-expired notice when the tab was left open past a dead token", () => {

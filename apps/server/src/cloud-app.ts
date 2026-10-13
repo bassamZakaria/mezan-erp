@@ -291,7 +291,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   // otherwise swallow the console's routes first.
   const platformBody = bodyLimit({
     maxSize: PLATFORM_BODY_BYTES,
-    onError: (c) => c.json({ error: BodyLimitRefusal.PayloadTooLarge, message: "حجم البيانات المرسلة أكبر من المسموح به." }, 413),
+    onError: (c) =>
+      c.json({ error: BodyLimitRefusal.PayloadTooLarge, message: "حجم البيانات المرسلة أكبر من المسموح به.", messageEn: "The request is larger than this route accepts." }, 413),
   });
   for (const mount of ["/api/platform/*", "/api/billing/*", "/api/signup/*"]) root.use(mount, platformBody);
   root.route("/api/platform", platformApp);

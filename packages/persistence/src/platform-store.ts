@@ -402,11 +402,11 @@ class SqliteTenantStore implements TenantRepository {
   }
 
   async discardProvisioning(id: string): Promise<boolean> {
-    return this.sqlite.transaction(() => {
+    return withSqliteTransaction(this.sqlite, async () => {
       if (this.discard.run(id, TenantStatusCode.Provisioning).changes === 0) return false;
       this.discardSubscriptions.run(id);
       return true;
-    })();
+    });
   }
 }
 

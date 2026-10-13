@@ -44,11 +44,8 @@ export interface VerifiedProviderTransaction {
 
 export enum ProviderInquiryStatus {
   Found = "found",
-  /** The provider said, in so many words, that it holds no transaction for this order. Silence or an odd answer is never this. */
   None = "none",
-  /** The provider answered about THIS order and the answer cannot be read or trusted. Other orders are unaffected. */
   Unreadable = "unreadable",
-  /** The provider itself could not be asked (network, credentials, outage); every other order would fare the same. */
   Unavailable = "unavailable",
 }
 
@@ -69,10 +66,7 @@ export interface PaymentProvider {
   createCheckout(input: CheckoutRequest): Promise<CheckoutSession>;
   /** `null` means the signature did not verify: nothing in the body may be acted on. */
   verifyWebhook(rawBody: string, signature: string): Promise<VerifiedProviderTransaction | null>;
-  /**
-   * Asks the provider what became of an order, for the callback that never
-   * arrived. Never throws for a provider-side failure: that is `Unavailable`
-   * or `Unreadable`, neither of which a caller may read as "no payment".
-   */
+  // CONTRACT: never throws for a provider-side failure. That is `Unavailable`
+  // or `Unreadable`, and neither may be read as "no payment".
   inquireTransaction(input: ProviderInquiryRequest): Promise<ProviderInquiry>;
 }

@@ -18,6 +18,7 @@ import {
   releaseTenant,
   releasedTenantCode,
   OwnerContactProof,
+  TenantStatusCode,
   type Tenant,
   type TenantRepository,
 } from "./tenant.js";
@@ -36,7 +37,7 @@ function memoryRepo(seed: Tenant[] = []): TenantRepository & { rows: Map<string,
     async findByCode(code) { return [...rows.values()].find((t) => t.code === code) ?? null; },
     async list() { return [...rows.values()]; },
     async save(t) { rows.set(t.id, t); },
-    async discardProvisioning(id) { return rows.get(id)?.status === "provisioning" && rows.delete(id); },
+    async discardProvisioning(id) { return rows.get(id)?.status === TenantStatusCode.Provisioning && rows.delete(id); },
     async compareAndSetOwner() { return false; },
     async compareAndSetStatus(before, after) {
       const stored = rows.get(after.id);

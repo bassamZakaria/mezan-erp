@@ -483,8 +483,8 @@ describe("LoginScreen — SaaS company code", () => {
   });
 
   it.each([
-    [429, { error: "TOO_MANY_REQUESTS", message: "طلبات كثيرة من هذا الجهاز. انتظر قليلاً ثم أعد المحاولة." }, "طلبات كثيرة من هذا الجهاز", /الحساب مقفل — بعد 60s/],
-    [503, { error: "DATABASE_BUSY", message: "قاعدة البيانات مشغولة بعملية لم تنتهِ، فلم يُنفَّذ طلبك. حاول مرة أخرى بعد قليل." }, "قاعدة البيانات مشغولة", /الخادم مشغول — أعد المحاولة بعد 60s/],
+    [429, { error: "TOO_MANY_REQUESTS", message: "طلبات كثيرة من هذا الجهاز. انتظر قليلاً ثم أعد المحاولة." }, "طلبات كثيرة من هذا الجهاز", /^حاول بعد 60 ثانية$/],
+    [503, { error: "DATABASE_BUSY", message: "قاعدة البيانات مشغولة بعملية لم تنتهِ، فلم يُنفَّذ طلبك. حاول مرة أخرى بعد قليل." }, "قاعدة البيانات مشغولة", /^الخادم مشغول — أعد المحاولة بعد 60 ثانية$/],
   ] as const)("holds the button for the wait a %i names only in its Retry-After header, as the host's own socket answers a till", async (status, body, said, held) => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
       transport: stubTransport({
@@ -498,6 +498,27 @@ describe("LoginScreen — SaaS company code", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(said);
     expect(screen.getByRole("button", { name: held })).toBeDisabled();
+  });
+
+  it("counts a throttle down once, in Arabic, on the button, and never calls it a locked account or leaves a second stale number beside it", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({ status: 429, body: { error: "TOO_MANY_ATTEMPTS", retryAfterSeconds: 3, message: "محاولات دخول كثيرة. حاول بعد 3 ثانية." } }),
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("123456");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/^محاولات دخول كثيرة\.$/);
+    expect(screen.getByRole("button", { name: "حاول بعد 3 ثوانٍ" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "حاول بعد ثانيتين" }, { timeout: 2500 })).toBeDisabled();
+    expect(document.body).not.toHaveTextContent(/الحساب مقفل|\ds\b/);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "دخول" })).toBeInTheDocument(), { timeout: 4000 });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("says the audit log could not record the sign-in, in the server's own words, without calling it a lock or a wrong PIN", async () => {

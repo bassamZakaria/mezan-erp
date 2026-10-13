@@ -63,7 +63,7 @@ export const AUDITED_MOUNTS: readonly AuditedMount[] = [
   { prefix: "/assets", only: /^\/([^/]+\/internal-hourly-rate|depreciation\/runs\/[^/]+\/discard)$/ },
   { prefix: "/revaluation", only: /^\/runs\/[^/]+\/reverse$/ },
   { prefix: "/inventory", only: /^\/(adjustments|stock-adjustments)\/[^/]+\/reverse$/ },
-  { prefix: "/sales-invoices", only: /^\/[^/]+\/void$/ },
+  { prefix: "/sales-invoices", only: /^\/[^/]+\/(void|lines\/[^/]+)$/ },
   { prefix: "/price-lists" },
   { prefix: "/promotions" },
   { prefix: "/notification-rules" },
@@ -308,9 +308,6 @@ enum Wait {
 // the shared connection would show it uncommitted rows, but it writes nothing,
 // so it never queues behind a turn that has no BEGIN open, and it is not counted
 // against the bound on queued writes.
-// A queued write is counted from the moment it queues to the moment it gets the
-// turn, times out or loses its client — whichever comes first — and one whose
-// client has gone is never run: the caller has already been told it failed.
 export function connectionTurn(audit: AuditSink | undefined, options: ConnectionTurnOptions = {}): MiddlewareHandler {
   const timeoutFor = typeof options.timeoutMs === "function" ? options.timeoutMs : () => (options.timeoutMs as number | undefined);
   const maxWaiting = options.maxWaiting ?? CONNECTION_TURN_MAX_WAITING;

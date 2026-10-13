@@ -341,6 +341,9 @@ import {
   createDefaultSettings,
   NotificationDispatcher,
   NotificationChannelState,
+  NotificationChannelCode,
+  NotificationPriorityCode,
+  NotificationReadStatusCode,
   ConnectionTurnLostError,
   SETTLED_AS,
   type DispatchOutcome,
@@ -1180,8 +1183,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // for why a translation step is needed at all). ---
   const notificationRules = createSqliteNotificationRuleStore(sqlite);
   const notifications = createSqliteNotificationStore(sqlite);
-  // Lock notices written by a build that stored the code and the link in the
-  // row: the lines that carry either are removed, the rest of the notice stays.
   removeNotificationLinesMatching(sqlite, ACCOUNT_LOCKED_NOTICE, STORED_UNLOCK_SECRET);
   const eventBus = new EventBus({
     onError: (error, event) => {
@@ -3471,7 +3472,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const notifyAccountLocked = async (event: AccountLockedEvent): Promise<void> => {
     const smtp = await securitySmtp();
-    const admins = (await uow.users.list()).filter((u) => u.isCompanyAdmin && u.status === "active");
+    const admins = (await uow.users.list()).filter((u) => u.isCompanyAdmin && u.status === UserStatusCode.Active);
     const createdAt = new Date().toISOString();
     const mailed = smtp !== null && event.unlockCode !== null;
     const unlockUrl = options.unlockLink && event.unlockLinkToken ? options.unlockLink(event.unlockLinkToken) : null;
@@ -3488,12 +3489,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         eventCode: ACCOUNT_LOCKED_NOTICE,
         title: "تم قفل حساب بعد محاولات دخول فاشلة",
         body: accountLockedNotice(event, mailed, unlockUrl !== null),
-        priority: "urgent",
-        channels: mailed ? ["in_app", "email"] : ["in_app"],
+        priority: NotificationPriorityCode.Urgent,
+        channels: mailed ? [NotificationChannelCode.InApp, NotificationChannelCode.Email] : [NotificationChannelCode.InApp],
         channelStatus: mailed
           ? { in_app: NotificationChannelState.Delivered, email: NotificationChannelState.Queued }
           : { in_app: NotificationChannelState.Delivered },
-        status: "unread",
+        status: NotificationReadStatusCode.Unread,
         payload: { userId: event.user.id, source: event.source },
         createdAt,
         readAt: null,
@@ -4075,16 +4076,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     idempotentRequests: createSqliteIdempotentRequestStore(sqlite),
     secrets,
     beforeTheTurn: auth.beforeTheTurn,
-    /**
-     * The one route a till can call before it trusts anything else, and the ONLY
-     * place host/client version skew is detectable.
-     *
-     * It used to answer `{ok:true}`, and the client compared nothing — so a till
-     * left on an old build after the host was updated kept talking to a schema it
-     * did not match, and the first symptom was wrong data rather than a refusal.
-     * EXTERNAL CONTRACT: main/lan-client.ts reads both fields at startup and
-     * blocks the client on a mismatch. Do not rename them.
-     */
+    // EXTERNAL CONTRACT: main/lan-client.ts reads both fields at startup and
+    // blocks the client on a mismatch. Do not rename them.
     health: () => ({
       ok: true,
       version: process.env["MEZAN_APP_VERSION"] ?? "0.0.0",

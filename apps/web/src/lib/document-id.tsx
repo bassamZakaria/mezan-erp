@@ -12,11 +12,9 @@ function isKeyReused(err: unknown): boolean {
   return err instanceof Error && (err as { code?: unknown }).code === IdempotencyRefusal.KeyReused;
 }
 
-// ONE id per document the user means to create. It survives an attempt whose
-// answer never arrived, so pressing save again is answered with the document
-// already created instead of creating a second; `renew` is called only once
-// everything the save does — a confirm after the create included — is known
-// to have succeeded.
+// CONTRACT: `renew` is called only once everything the save does — a confirm
+// after the create included — is known to have succeeded. Until then the same
+// id is resent, so a retry is answered with the document already created.
 export function useDocumentId(onAlreadySaved: (savedId: string) => void): DocumentId {
   const id = useRef(crypto.randomUUID());
   const handler = useRef(onAlreadySaved);

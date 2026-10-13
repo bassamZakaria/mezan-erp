@@ -264,6 +264,7 @@ describe("SalesReturnsScreen", () => {
     const [newButton] = screen.getAllByRole("button", { name: "مرتجع جديد" });
     fireEvent.click(newButton as HTMLElement);
     await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ كمسودة" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");

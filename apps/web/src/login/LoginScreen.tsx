@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent
 import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { TenantResolveMode } from "@mezan/contracts";
-import { AccountLockedError, ApiError, isDesktopHost, platformLookupFailing, useBootstrapStatus, useLogin, usePlatformResolve, useTenantInfo, useUnlockAccount } from "../data/hooks";
+import { AccountLockedError, ApiError, SignInRefusalCode, isDesktopHost, platformLookupFailing, useBootstrapStatus, useLogin, usePlatformResolve, useTenantInfo, useUnlockAccount } from "../data/hooks";
 import { lastTenantMode, LookupHost, lookupHostOf, rememberTenantMode } from "./lookup-host";
 import { useAppVersion } from "../data/hub-hooks";
 import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
@@ -23,7 +23,7 @@ import {
   tenantCodeConfirmedThisVisit,
   tenantCodeForEmail,
 } from "../data/session";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { displayName } from "../display-name";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
 // lan-ux
@@ -37,9 +37,24 @@ const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
  * A wait a person can act on. "900 ثانية" is not one — past two minutes the
  * honest unit is minutes, which is also what the server's own message says.
  */
-function formatWait(seconds: number): string {
-  if (seconds < 120) return `${seconds}s`;
-  return `${Math.ceil(seconds / 60)}m`;
+const WAIT_IN_MINUTES_FROM_SECONDS = 120;
+const FEW = 10;
+
+enum WaitUnit {
+  Seconds = "seconds",
+  Minutes = "minutes",
+}
+
+function waitKey(count: number, unit: WaitUnit): AppTranslationKey {
+  if (count === 1) return `login.wait.${unit}.one`;
+  if (count === 2) return `login.wait.${unit}.two`;
+  return count <= FEW ? `login.wait.${unit}.few` : `login.wait.${unit}.many`;
+}
+
+function formatWait(seconds: number, t: (key: AppTranslationKey, params?: Record<string, string | number>) => string): string {
+  if (seconds < WAIT_IN_MINUTES_FROM_SECONDS) return t(waitKey(seconds, WaitUnit.Seconds), { count: seconds });
+  const minutes = Math.ceil(seconds / 60);
+  return t(waitKey(minutes, WaitUnit.Minutes), { count: minutes });
 }
 // SECURITY: offered only on a desktop host running the demo seed. Any other sign-in opens
 // on an empty email field: a real company's sign-in must never name an account.
@@ -278,6 +293,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
    */
   const [lockedForSeconds, setLockedForSeconds] = useState(0);
   const [waitingOnBusyServer, setWaitingOnBusyServer] = useState(false);
+  const [errorEndsWithTheWait, setErrorEndsWithTheWait] = useState(false);
   const [unlockOffered, setUnlockOffered] = useState(false);
   const [unlockCode, setUnlockCode] = useState("");
   const [unlockedNotice, setUnlockedNotice] = useState(arrivedWith === SignInNotice.AccountUnlocked);
@@ -337,10 +353,13 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           if (tenantMode === TenantResolveMode.Code && resolvedCode !== "") rememberTenantCodeForEmail(session.email, resolvedCode);
         },
         onError: (err) => {
-          setError(err.message || t("login.error.generic"));
+          const timedWait = (err.status === 429 || err.status === SERVER_BUSY) && typeof err.retryAfterSeconds === "number";
+          const throttled = timedWait && err.code === SignInRefusalCode.TooManyAttempts;
+          setError(throttled ? t("login.tooManyAttempts") : err.message || t("login.error.generic"));
+          setErrorEndsWithTheWait(throttled);
           setUnlockOffered(err instanceof AccountLockedError && err.unlockByCode);
-          if ((err.status === 429 || err.status === SERVER_BUSY) && typeof err.retryAfterSeconds === "number") {
-            setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds)));
+          if (timedWait) {
+            setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds ?? 1)));
             setWaitingOnBusyServer(err.status === SERVER_BUSY);
             submittedFor.current = "";
           }
@@ -356,6 +375,11 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   // a lock is running, not on the number: depending on the count would tear
   // down and rebuild the interval every second.
   const isLocked = lockedForSeconds > 0;
+  useEffect(() => {
+    if (isLocked || !errorEndsWithTheWait) return;
+    setError(null);
+    setErrorEndsWithTheWait(false);
+  }, [isLocked, errorEndsWithTheWait]);
   useEffect(() => {
     if (!isLocked) return;
     const id = setInterval(() => setLockedForSeconds((s) => Math.max(0, s - 1)), 1000);
@@ -665,7 +689,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         ) : null}
 
         <Button type="submit" variant="primary" disabled={!canSubmit} className="mt-[16px] w-full justify-center py-[12px]">
-          {lockedForSeconds > 0 ? `${t(waitingOnBusyServer ? "login.busyFor" : "login.lockedFor")} ${formatWait(lockedForSeconds)}` : t("login.submit")}
+          {lockedForSeconds > 0 ? t(waitingOnBusyServer ? "login.busyFor" : "login.throttledFor", { wait: formatWait(lockedForSeconds, t) }) : t("login.submit")}
         </Button>
 
         <div className="mt-[16px] flex items-center gap-[10px] text-2xs text-ink-faint">

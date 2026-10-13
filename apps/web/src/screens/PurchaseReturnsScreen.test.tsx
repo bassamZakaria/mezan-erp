@@ -236,6 +236,7 @@ describe("PurchaseReturnsScreen", () => {
     );
     await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
     fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ كمسودة" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");

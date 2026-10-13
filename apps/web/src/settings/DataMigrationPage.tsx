@@ -135,6 +135,24 @@ function StepShell({
   );
 }
 
+type ParsedWorkbook = Awaited<ReturnType<typeof parseDataMigrationFile>>;
+
+async function readWorkbook(file: File, spec: Parameters<typeof parseDataMigrationFile>[1], t: Parameters<typeof parseDataMigrationFile>[2]): Promise<ParsedWorkbook | null> {
+  try {
+    return await parseDataMigrationFile(await file.arrayBuffer(), spec, t);
+  } catch {
+    return null;
+  }
+}
+
+async function answered<T>(ask: () => Promise<T>, onAnswer: (answer: T) => void, onRefusal: (message: string) => void, fallback: string): Promise<void> {
+  try {
+    onAnswer(await ask());
+  } catch (err) {
+    onRefusal(err instanceof Error && err.message !== "" ? err.message : fallback);
+  }
+}
+
 function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterStepDef; open: boolean; onToggle: () => void; registeredCount: number | undefined }) {
   const { t, locale } = useAppTranslation();
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -146,8 +164,12 @@ function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterS
 
   async function handleFile(file: File) {
     setResult(null);
-    const buffer = await file.arrayBuffer();
-    const parsed = await parseDataMigrationFile(buffer, def.spec, t);
+    const parsed = await readWorkbook(file, def.spec, t);
+    if (parsed === null) {
+      setRows(null);
+      setRefusal(t("dataMigration.unreadableFile"));
+      return;
+    }
     const tooLarge = oversizeImportRefusal(parsed.rows.length, locale);
     setRefusal(tooLarge);
     if (tooLarge !== null) {
@@ -155,14 +177,12 @@ function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterS
       return;
     }
     setRows([...parsed.rows]);
-    const previewResult = await preview.mutateAsync(parsed.rows);
-    setResult(previewResult);
+    await answered(() => preview.mutateAsync(parsed.rows), setResult, setRefusal, t("dataMigration.previewFailed"));
   }
 
   async function handleCommit() {
     if (!rows) return;
-    const commitResult = await commit.mutateAsync(rows);
-    setResult(commitResult);
+    await answered(() => commit.mutateAsync(rows), setResult, setRefusal, t("dataMigration.commitFailed"));
   }
 
   return (
@@ -219,8 +239,12 @@ function HistoricalStepCard({ def, open, onToggle, registeredCount }: { def: His
 
   async function handleFile(file: File) {
     setResult(null);
-    const buffer = await file.arrayBuffer();
-    const parsed = await parseDataMigrationFile(buffer, def.spec, t);
+    const parsed = await readWorkbook(file, def.spec, t);
+    if (parsed === null) {
+      setRows(null);
+      setRefusal(t("dataMigration.unreadableFile"));
+      return;
+    }
     const tooLarge = oversizeImportRefusal(parsed.rows.length, locale);
     setRefusal(tooLarge);
     if (tooLarge !== null) {
@@ -229,14 +253,12 @@ function HistoricalStepCard({ def, open, onToggle, registeredCount }: { def: His
     }
     const built = toRows(parsed.rows);
     setRows(built);
-    const previewResult = await preview.mutateAsync(built);
-    setResult(previewResult);
+    await answered(() => preview.mutateAsync(built), setResult, setRefusal, t("dataMigration.previewFailed"));
   }
 
   async function handleCommit() {
     if (!rows) return;
-    const commitResult = await commit.mutateAsync(rows);
-    setResult(commitResult);
+    await answered(() => commit.mutateAsync(rows), setResult, setRefusal, t("dataMigration.commitFailed"));
   }
 
   return (

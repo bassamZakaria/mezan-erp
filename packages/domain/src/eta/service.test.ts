@@ -330,7 +330,7 @@ describe("EtaService — one sender per document", () => {
     const first = svc.submit(queued.id);
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(await svc.submitAllReady()).toEqual({ submitted: [], queued: [queued.id] });
+    expect(await svc.submitAllReady()).toEqual({ submitted: [], queued: [queued.id], blocked: [] });
 
     slow.answer();
     await first;

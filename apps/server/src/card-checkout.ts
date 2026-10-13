@@ -620,8 +620,6 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
     return tally;
   }
 
-  // One sweep at a time per process: the timer and an operator pressing the
-  // button must not both be asking the provider about the same checkouts.
   function sweepPending(sweepOptions: CardCheckoutSweepOptions = {}): Promise<CardCheckoutSweepResult> {
     if (sweeping) return sweeping;
     sweeping = platform.inTheTurn("card checkout sweep", () => runSweep(sweepOptions)).finally(() => {

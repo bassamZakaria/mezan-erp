@@ -121,8 +121,6 @@ export interface UnrecordedSecurityEvent {
 export interface UnrecordedSecurityEvents {
   readonly count: number;
   readonly recent: readonly UnrecordedSecurityEvent[];
-  // Events counted above that can no longer be shown: `dropped` left the store
-  // when it made room, `corrupted` are still held and cannot be read.
   readonly dropped: number;
   readonly corrupted: number;
 }
@@ -132,7 +130,6 @@ export interface SecurityEventFallback {
   summary(limit?: number): UnrecordedSecurityEvents;
 }
 
-/** An event that had to be recorded with the write it describes, and could not be: that write must not commit. */
 export class AuditRecordingError extends Error {
   constructor(cause: unknown) {
     super("the audit log could not record this action", { cause });
@@ -140,7 +137,6 @@ export class AuditRecordingError extends Error {
   }
 }
 
-/** A statement issued from outside the chain that owns the open transaction: refused before it runs, because it would commit or vanish with somebody else's work. */
 export class ForeignWriteError extends Error {
   constructor(readonly statement: string) {
     super(`a write was issued inside another operation's open transaction and was refused: ${statement}`);

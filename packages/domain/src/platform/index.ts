@@ -59,7 +59,7 @@ export {
   type SignupRequest, type SignupRequestRepository, type StartSignupCommand,
 } from "./signup.js";
 export {
-  PlanKind, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, topPublicPaidPlan, defaultFreePlan,
+  PlanKind, PlanStatusCode, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, topPublicPaidPlan, defaultFreePlan,
   type PlanQuotas,
 } from "./plan.js";
 export {

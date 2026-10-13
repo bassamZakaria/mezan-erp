@@ -4,7 +4,11 @@ import { isValidSlug } from "./slug.js";
 import { isCount, isoTimestamp } from "./validation.js";
 import { FreePlanRemoval, FreePlanRequiredError, InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
 
-export type PlanStatus = "active" | "retired";
+export enum PlanStatusCode {
+  Active = "active",
+  Retired = "retired",
+}
+export type PlanStatus = `${PlanStatusCode}`;
 
 export enum PlanKind {
   Paid = "paid",
@@ -162,7 +166,7 @@ export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): 
 }
 
 async function anotherFreePlanIsActive(id: string, repo: PlanRepository): Promise<boolean> {
-  return (await repo.list()).some((p) => p.id !== id && p.kind === PlanKind.Free && p.status === "active");
+  return (await repo.list()).some((p) => p.id !== id && p.kind === PlanKind.Free && p.status === PlanStatusCode.Active);
 }
 
 export async function updatePlan(
@@ -191,7 +195,7 @@ export async function updatePlan(
   };
   const reasons = validate(next);
   if (reasons.length > 0) throw new InvalidPlanError(reasons);
-  if (current.kind === PlanKind.Free && next.kind !== PlanKind.Free && current.status === "active" && !(await anotherFreePlanIsActive(current.id, repo))) {
+  if (current.kind === PlanKind.Free && next.kind !== PlanKind.Free && current.status === PlanStatusCode.Active && !(await anotherFreePlanIsActive(current.id, repo))) {
     throw new FreePlanRequiredError(current.id, FreePlanRemoval.MadePaid);
   }
   const removed = current.modules.filter((m) => !next.modules.includes(m));

@@ -83,9 +83,7 @@ export interface IdempotentCreateOptions {
 }
 
 export interface IdempotentCreateMiddleware {
-  /** Registered AHEAD of the connection's turn: answers a resend, refuses a reused id. */
   readonly replay: MiddlewareHandler;
-  /** Registered INSIDE the turn: runs the create and keeps its answer in one transaction. */
   readonly record: MiddlewareHandler;
 }
 
@@ -103,9 +101,6 @@ function clientKey(body: unknown, field: IdempotencyKeyField): string | null {
   return typeof id === "string" && id !== "" ? id : null;
 }
 
-// The same create re-serialised by another client — or by the same one after a
-// reload — orders its keys differently. Keys are sorted; a list keeps its
-// order, because the order of an invoice's lines is part of what was asked.
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
   if (value === null || typeof value !== "object") return value;
@@ -114,15 +109,9 @@ function canonical(value: unknown): unknown {
   return sorted;
 }
 
-// A CREATE WHOSE ANSWER WAS LOST MUST NOT RUN TWICE. A till that timed out, a
-// browser that dropped its connection, a clerk who pressed the button again:
-// each resends the same create, and the first one may well have posted. The
-// client mints the document's id once per document it means to create, and that
-// id is the key — the same key with the same body is answered with the document
-// as it now stands, and with a different body it is refused.
-// The create and the record of its answer commit TOGETHER: an answer that
-// cannot be kept rolls the create back, so no caller is ever told a create
-// failed when the document exists.
+// REQUIRED: the create and the record of its answer commit TOGETHER. An answer
+// that cannot be kept rolls the create back, so no caller is ever told a
+// create failed when the document exists.
 export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCreateMiddleware {
   const { requests, resolveAuthContext, audit, readCurrent } = options;
   const now = options.now ?? (() => new Date());

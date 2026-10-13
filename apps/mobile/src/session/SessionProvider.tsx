@@ -24,9 +24,20 @@ export interface UnlockAccountInput {
   readonly code: string;
 }
 
+export enum SessionEnded {
+  Displaced = "displaced",
+  Expired = "expired",
+}
+
+const SESSION_DISPLACED_CODE = "SESSION_DISPLACED";
+
 export interface SessionState {
   readonly ready: boolean;
   readonly session: SessionDTO | null;
+  // Why the server ended the last session, kept for the sign-in screen to say;
+  // null after a sign-out the person asked for.
+  readonly sessionEnded: SessionEnded | null;
+  readonly acknowledgeSessionEnded: () => void;
   /** A stored session is present but the device owner has not confirmed it yet — the screens stay covered. */
   readonly locked: boolean;
   readonly unlock: (promptMessage: string, cancelLabel: string) => Promise<boolean>;
@@ -51,6 +62,8 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<SessionDTO | null>(null);
   const [locked, setLocked] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState<SessionEnded | null>(null);
+  const acknowledgeSessionEnded = useCallback(() => setSessionEnded(null), []);
   const sessionRef = useRef<SessionDTO | null>(null);
   sessionRef.current = session;
   const [connection, setConnection] = useState<Connection>({
@@ -151,7 +164,10 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
         );
       } catch (error) {
         // A dead token must end the session here, or every screen renders its own sign-in prompt.
-        if (error instanceof ApiError && error.failure === ApiFailure.Unauthorized && session) await signOut();
+        if (error instanceof ApiError && error.failure === ApiFailure.Unauthorized && session) {
+          setSessionEnded(error.code === SESSION_DISPLACED_CODE ? SessionEnded.Displaced : SessionEnded.Expired);
+          await signOut();
+        }
         throw error;
       }
     },
@@ -177,6 +193,7 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     await saveConnection(next);
     await saveSession(signedIn);
     setConnection(next);
+    setSessionEnded(null);
     setSession(signedIn);
     setLocked(false);
   }, []);
@@ -198,8 +215,8 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
   );
 
   const value = useMemo<SessionState>(
-    () => ({ ready, session, locked, unlock, connection, signIn, unlockAccount, signOut, request, can }),
-    [ready, session, locked, unlock, connection, signIn, unlockAccount, signOut, request, can],
+    () => ({ ready, session, locked, unlock, connection, signIn, unlockAccount, signOut, request, can, sessionEnded, acknowledgeSessionEnded }),
+    [ready, session, locked, unlock, connection, signIn, unlockAccount, signOut, request, can, sessionEnded, acknowledgeSessionEnded],
   );
 
   return (

@@ -3,6 +3,18 @@ export enum Locale {
   En = "en",
 }
 
+export enum WaitUnit {
+  Seconds = "seconds",
+  Minutes = "minutes",
+}
+
+export interface WaitForms {
+  readonly one: string;
+  readonly two: string;
+  readonly few: string;
+  readonly many: string;
+}
+
 export interface Strings {
   readonly appName: string;
   readonly signIn: {
@@ -16,10 +28,12 @@ export interface Strings {
     readonly pinLabel: string;
     readonly submit: string;
     readonly submitting: string;
-    readonly lockedFor: string;
+    readonly throttledFor: string;
     readonly busyFor: string;
-    readonly waitSeconds: string;
-    readonly waitMinutes: string;
+    readonly tooManyAttempts: string;
+    readonly wait: Readonly<Record<WaitUnit, WaitForms>>;
+    readonly sessionDisplaced: string;
+    readonly sessionExpired: string;
     readonly unlockCodeLabel: string;
     readonly unlockSubmit: string;
     readonly unlockDone: string;
@@ -235,10 +249,15 @@ const AR: Strings = {
     pinLabel: "الرقم السري (٦ أرقام)",
     submit: "دخول",
     submitting: "جارٍ الدخول…",
-    lockedFor: "الحساب مقفل — بعد",
+    throttledFor: "حاول بعد",
     busyFor: "الخادم مشغول — أعد المحاولة بعد",
-    waitSeconds: "ث",
-    waitMinutes: "د",
+    tooManyAttempts: "محاولات دخول كثيرة.",
+    wait: {
+      [WaitUnit.Seconds]: { one: "ثانية واحدة", two: "ثانيتين", few: "{count} ثوانٍ", many: "{count} ثانية" },
+      [WaitUnit.Minutes]: { one: "دقيقة واحدة", two: "دقيقتين", few: "{count} دقائق", many: "{count} دقيقة" },
+    },
+    sessionDisplaced: "سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.",
+    sessionExpired: "انتهت الجلسة. سجّل الدخول من جديد.",
     unlockCodeLabel: "رمز فكّ القفل",
     unlockSubmit: "فكّ القفل",
     unlockDone: "تم فكّ قفل الحساب. أدخل الرقم السري للدخول.",
@@ -452,10 +471,15 @@ const EN: Strings = {
     pinLabel: "PIN (6 digits)",
     submit: "Sign in",
     submitting: "Signing in…",
-    lockedFor: "Locked for",
+    throttledFor: "Try again in",
     busyFor: "Server busy — retry in",
-    waitSeconds: "s",
-    waitMinutes: "m",
+    tooManyAttempts: "Too many sign-in attempts.",
+    wait: {
+      [WaitUnit.Seconds]: { one: "1 second", two: "2 seconds", few: "{count} seconds", many: "{count} seconds" },
+      [WaitUnit.Minutes]: { one: "1 minute", two: "2 minutes", few: "{count} minutes", many: "{count} minutes" },
+    },
+    sessionDisplaced: "Another user signed in on this device, so your session here ended. Sign in again to continue.",
+    sessionExpired: "The session ended. Sign in again.",
     unlockCodeLabel: "Unlock code",
     unlockSubmit: "Unlock",
     unlockDone: "The account is unlocked. Enter your PIN to sign in.",

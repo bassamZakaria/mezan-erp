@@ -70,4 +70,4 @@ export {
   type PermissionLabelTranslations,
 } from "./labels.js";
 
-export { ShellRequest, SHELL_REQUESTS, holdsShellRequest, type ShellRequestGate } from "./shell-requests.js";
+export { ShellRequest, ShellRequestModule, SHELL_REQUESTS, holdsShellRequest, planServesShellRequest, type PlanModules, type ShellRequestGate } from "./shell-requests.js";

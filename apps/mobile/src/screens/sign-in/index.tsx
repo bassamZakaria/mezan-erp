@@ -6,9 +6,9 @@ import { Button, ButtonTone } from "@/components/button";
 import { LegalLinks } from "@/components/legal-links";
 import { TextField } from "@/components/text-field";
 import { ApiError, ApiFailure, describeApiError } from "@/api/errors";
-import { useStrings, type Strings } from "@/i18n";
+import { useStrings, WaitUnit, type Strings, type WaitForms } from "@/i18n";
 import { SizeClass, useFormPadding, useSizeClass } from "@/layout";
-import { useSession } from "@/session/SessionProvider";
+import { SessionEnded, useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
 
 const PIN_LENGTH = 6;
@@ -21,9 +21,23 @@ enum Hold {
   ServerBusy = "server-busy",
 }
 
+const FEW = 10;
+
+function counted(count: number, forms: WaitForms): string {
+  const form = count === 1 ? forms.one : count === 2 ? forms.two : count <= FEW ? forms.few : forms.many;
+  return form.replace("{count}", String(count));
+}
+
 function formatWait(seconds: number, strings: Strings): string {
-  if (seconds < SHOWN_AS_MINUTES_FROM) return `${seconds} ${strings.signIn.waitSeconds}`;
-  return `${Math.ceil(seconds / 60)} ${strings.signIn.waitMinutes}`;
+  if (seconds < SHOWN_AS_MINUTES_FROM) return counted(seconds, strings.signIn.wait[WaitUnit.Seconds]);
+  return counted(Math.ceil(seconds / 60), strings.signIn.wait[WaitUnit.Minutes]);
+}
+
+// The wait is counted down in ONE place, on the button. A throttle's own
+// sentence names a number of seconds that is stale a second later, so the
+// screen says what happened and leaves the number to the button.
+function refusalSentence(error: unknown, hold: Hold, strings: Strings): string {
+  return hold === Hold.Throttled ? strings.signIn.tooManyAttempts : describeApiError(error, strings);
 }
 
 function holdFor(error: unknown): { readonly hold: Hold; readonly seconds: number } {
@@ -38,7 +52,7 @@ export function SignIn() {
   const theme = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { connection, signIn, unlockAccount } = useSession();
+  const { connection, signIn, unlockAccount, sessionEnded, acknowledgeSessionEnded } = useSession();
   const formPadding = useFormPadding();
   const paired = useSizeClass() !== SizeClass.Compact;
 
@@ -56,6 +70,11 @@ export function SignIn() {
   const [unlocking, setUnlocking] = useState(false);
 
   const held = heldForSeconds > 0;
+  useEffect(() => {
+    if (held || hold !== Hold.Throttled) return;
+    setFailure(null);
+    setHold(Hold.None);
+  }, [held, hold]);
   useEffect(() => {
     if (!held) return;
     const timer = setInterval(() => {
@@ -82,7 +101,7 @@ export function SignIn() {
       })
       .catch((error: unknown) => {
         const wait = holdFor(error);
-        setFailure(describeApiError(error, strings));
+        setFailure(refusalSentence(error, wait.hold, strings));
         setHold(wait.hold);
         setHeldForSeconds(wait.seconds);
       })
@@ -103,11 +122,12 @@ export function SignIn() {
       pin,
     })
       .then(() => {
+        acknowledgeSessionEnded();
         router.replace("/(tabs)");
       })
       .catch((error: unknown) => {
         const wait = holdFor(error);
-        setFailure(describeApiError(error, strings));
+        setFailure(refusalSentence(error, wait.hold, strings));
         setUnlockOffered(error instanceof ApiError && error.failure === ApiFailure.Locked && error.unlockByCode);
         setHold(wait.hold);
         setHeldForSeconds(wait.seconds);
@@ -183,6 +203,11 @@ export function SignIn() {
           />
         </Pair>
 
+        {sessionEnded === null || failure !== null ? null : (
+          <Text accessibilityRole="alert" style={[styles.failure, { color: theme.negative }]} testID="sign-in-session-ended">
+            {sessionEnded === SessionEnded.Displaced ? strings.signIn.sessionDisplaced : strings.signIn.sessionExpired}
+          </Text>
+        )}
         {failure === null ? null : (
           <Text accessibilityRole="alert" style={[styles.failure, { color: theme.negative }]} testID="sign-in-failure">
             {failure}
@@ -219,7 +244,7 @@ export function SignIn() {
           disabled={!complete || held}
           label={
             held
-              ? `${hold === Hold.ServerBusy ? strings.signIn.busyFor : strings.signIn.lockedFor} ${formatWait(heldForSeconds, strings)}`
+              ? `${hold === Hold.ServerBusy ? strings.signIn.busyFor : strings.signIn.throttledFor} ${formatWait(heldForSeconds, strings)}`
               : busy
                 ? strings.signIn.submitting
                 : strings.signIn.submit

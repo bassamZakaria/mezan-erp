@@ -437,6 +437,7 @@ export function useLogin() {
 
 export enum SignInRefusalCode {
   AccountLocked = "ACCOUNT_LOCKED",
+  TooManyAttempts = "TOO_MANY_ATTEMPTS",
 }
 
 export class AccountLockedError extends ApiError {

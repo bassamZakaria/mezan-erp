@@ -104,7 +104,7 @@ const FAILURE_REASON_KEY: Readonly<Record<CardCheckoutFailureReason, AppTranslat
 };
 
 function canRenewSubscription(status: SubscriptionStatusDTO | undefined): boolean {
-  return status !== undefined && (RENEWABLE_SUBSCRIPTION_STATES as readonly string[]).includes(status);
+  return status !== undefined && RENEWABLE_SUBSCRIPTION_STATES.some((renewable) => renewable === status);
 }
 
 type AppliableCheckout = { readonly status: string; readonly providerRef: string | null; readonly failureReason: string | null };

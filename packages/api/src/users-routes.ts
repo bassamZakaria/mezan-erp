@@ -284,8 +284,9 @@ export function createUsersRoutes(
       });
     // A refusal on a route outside the audit boundary (erase) has no write to
     // share a transaction with, so its row takes one of its own.
-    const alone = audit?.atomic && audit.insideTransaction?.() !== true && !insideAuditBoundary(c);
-    return alone ? audit.atomic!(record) : record();
+    const atomic = audit?.atomic?.bind(audit);
+    const alone = atomic !== undefined && audit?.insideTransaction?.() !== true && !insideAuditBoundary(c);
+    return alone ? atomic(record) : record();
   }
 
   const saveOptions = async () => ({ allowedEmailDomains: (await readAllowedEmailDomains?.()) ?? [] });

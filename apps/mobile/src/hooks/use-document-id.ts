@@ -9,11 +9,9 @@ export interface DocumentId {
   readonly recover: (err: unknown) => boolean;
 }
 
-// ONE id per document the rep means to create. It survives a press whose
-// answer never arrived, so pressing again is answered with the document
-// already created instead of creating a second; `renew` is called only once
-// everything the press does — the confirm after the create included — is
-// known to have succeeded.
+// CONTRACT: `renew` is called only once everything the press does — the
+// confirm after the create included — is known to have succeeded. Until then
+// the same id is resent, so a retry is answered with the document already created.
 export function useDocumentId(onAlreadySaved: (savedId: string) => void): DocumentId {
   const id = useRef(makeDocumentId());
   const handler = useRef(onAlreadySaved);

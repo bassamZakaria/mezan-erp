@@ -6,13 +6,16 @@ import { SignIn } from "./index";
 const mockReplace = jest.fn();
 const mockSignIn = jest.fn();
 const mockUnlockAccount = jest.fn();
+const mockAcknowledge = jest.fn();
+let mockSessionEnded: string | null = null;
 
 jest.mock("expo-localization", () => ({ getLocales: () => [{ languageCode: "ar" }] }));
 jest.mock("expo-router", () => ({ useRouter: () => ({ replace: mockReplace }) }));
 jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 jest.mock("@/components/legal-links", () => ({ LegalLinks: () => null }));
 jest.mock("@/session/SessionProvider", () => ({
-  useSession: () => ({ connection: { baseUrl: "https://shop.example/api", tenantCode: "acme", email: "owner@shop.eg" }, signIn: mockSignIn, unlockAccount: mockUnlockAccount }),
+  SessionEnded: { Displaced: "displaced", Expired: "expired" },
+  useSession: () => ({ connection: { baseUrl: "https://shop.example/api", tenantCode: "acme", email: "owner@shop.eg" }, signIn: mockSignIn, unlockAccount: mockUnlockAccount, sessionEnded: mockSessionEnded, acknowledgeSessionEnded: mockAcknowledge }),
 }));
 
 const LOCKED_WITH_CODE = "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة. أُرسل رمز فكّ القفل إلى بريد مديري النظام: أدخله هنا، أو اطلب من مدير النظام فكّ القفل من شاشة المستخدمين.";
@@ -34,10 +37,43 @@ beforeEach(() => {
   mockReplace.mockReset();
   mockSignIn.mockReset();
   mockUnlockAccount.mockReset();
+  mockAcknowledge.mockReset();
+  mockSessionEnded = null;
 });
 
 afterEach(() => {
   jest.useRealTimers();
+});
+
+describe("the sign-in screen after the server ended the session", () => {
+  it("says another user signed in on this device when that is why the session ended", async () => {
+    mockSessionEnded = "displaced";
+    await render(<SignIn />);
+
+    expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.");
+  });
+
+  it("says the session ended when it simply expired", async () => {
+    mockSessionEnded = "expired";
+    await render(<SignIn />);
+
+    expect(screen.getByTestId("sign-in-session-ended").props.children).toBe("انتهت الجلسة. سجّل الدخول من جديد.");
+  });
+
+  it("says nothing of the kind when the person signed out themself", async () => {
+    await render(<SignIn />);
+
+    expect(screen.queryByTestId("sign-in-session-ended")).toBeNull();
+  });
+
+  it("takes the notice down once the person signs in again", async () => {
+    mockSessionEnded = "displaced";
+    mockSignIn.mockResolvedValue(undefined);
+    await render(<SignIn />);
+    await submitPin();
+
+    expect(mockAcknowledge).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the sign-in screen when the server refuses", () => {
@@ -106,7 +142,7 @@ describe("the sign-in screen when the server refuses", () => {
     await act(async () => fireEvent.changeText(screen.getByTestId("sign-in-unlock-code"), "AAAAAAAAAAAAAAAA"));
     await act(async () => fireEvent.press(screen.getByTestId("sign-in-unlock-submit")));
 
-    expect(screen.getByTestId("sign-in-failure").props.children).toBe("محاولات دخول كثيرة. حاول بعد 2 ثانية.");
+    expect(screen.getByTestId("sign-in-failure").props.children).toBe("محاولات دخول كثيرة.");
     expect(screen.getByTestId("sign-in-unlock-submit").props.accessibilityState?.disabled).toBe(true);
     await act(async () => fireEvent.press(screen.getByTestId("sign-in-unlock-submit")));
     expect(mockUnlockAccount).toHaveBeenCalledTimes(1);
@@ -120,17 +156,19 @@ describe("the sign-in screen when the server refuses", () => {
     await render(<SignIn />);
     await submitPin();
 
-    expect(screen.getByTestId("sign-in-failure").props.children).toBe("محاولات دخول كثيرة. حاول بعد 3 ثانية.");
-    expect(screen.getByText("الحساب مقفل — بعد 3 ث")).toBeTruthy();
+    expect(screen.getByTestId("sign-in-failure").props.children).toBe("محاولات دخول كثيرة.");
+    expect(screen.getByText("حاول بعد 3 ثوانٍ")).toBeTruthy();
+    expect(screen.queryByText(/الحساب مقفل|\d ث$/)).toBeNull();
     await act(async () => fireEvent.changeText(screen.getByTestId("sign-in-pin"), "123456"));
     expect(submitIsDisabled()).toBe(true);
     await act(async () => fireEvent.press(screen.getByTestId("sign-in-submit")));
     expect(mockSignIn).toHaveBeenCalledTimes(1);
 
     await act(async () => jest.advanceTimersByTime(1000));
-    expect(screen.getByText("الحساب مقفل — بعد 2 ث")).toBeTruthy();
+    expect(screen.getByText("حاول بعد ثانيتين")).toBeTruthy();
     await act(async () => jest.advanceTimersByTime(2000));
     expect(screen.getByText("دخول")).toBeTruthy();
+    expect(screen.queryByTestId("sign-in-failure")).toBeNull();
     expect(submitIsDisabled()).toBe(false);
   });
 
@@ -140,7 +178,7 @@ describe("the sign-in screen when the server refuses", () => {
     await submitPin();
 
     expect(screen.getByTestId("sign-in-failure").props.children).toContain("الخادم مشغول الآن");
-    expect(screen.getByText("الخادم مشغول — أعد المحاولة بعد 2 ث")).toBeTruthy();
+    expect(screen.getByText("الخادم مشغول — أعد المحاولة بعد ثانيتين")).toBeTruthy();
     expect(screen.queryByText(/الحساب مقفل/)).toBeNull();
   });
 

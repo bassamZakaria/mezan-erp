@@ -182,9 +182,6 @@ export interface SignInDecision {
 }
 
 /**
- * Every rule a sign-in is held to, in one place, so the route and the tests
- * ask the same questions in the same order.
- *
  * SECURITY: `source` null is the machine's own console and nothing else. It is
  * never refused by an account lock and its failures never count toward one —
  * the person at the machine can always get in, and physical access already

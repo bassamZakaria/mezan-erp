@@ -153,6 +153,53 @@ describe("classifying a line whose journal entry predates tax tags (D79 round 5)
     expect(payable).toHaveLength(1);
   });
 
+  it("names the work-in-progress line of a real subcontract certificate's invoice, on the account the certificate posted it to", async () => {
+    const as = (userId: string) => backend.sessions.issue({ userId, permissions: ["*"], roleCode: "*", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const step = async (userId: string, action: string, body: Record<string, string>) => {
+      const res = await backend.app.fetch(
+        new Request(`http://local/contracting/subcontract-certificates/SMST-DEMO-3/${action}`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${as(userId)}`, "x-branch-scope": "*", "x-warehouse-scope": "*" },
+          body: JSON.stringify(body),
+        }),
+      );
+      expect(res.status, `${action}: ${await res.clone().text()}`).toBe(200);
+    };
+    await step("USER-SUB-SITE", "measure", { measuredAt: "2026-09-01" });
+    await step("USER-SUB-OFFICE", "certify", { certifiedAt: "2026-09-02" });
+    await step("USER-SUB-FINANCE", "approve", { approvedAt: "2026-09-03" });
+
+    const certificate = (await call("GET", "/contracting/subcontract-certificates/SMST-DEMO-3")).body;
+    const invoiceId: string = certificate.invoice?.invoiceId ?? certificate.invoiceId;
+    expect(invoiceId, JSON.stringify(certificate).slice(0, 400)).toBeTruthy();
+    const entryId = `PI-JE:${invoiceId}`;
+    const posted = await journalTags(entryId);
+    const payableAndDefaults = new Set(["2100", "1400", "5910", "1200"]);
+    const ownAccounts = posted.map(([account]) => account as string).filter((account) => !payableAndDefaults.has(account));
+    expect(ownAccounts, JSON.stringify(posted)).toHaveLength(1);
+    const wipAccount = ownAccounts[0] as string;
+
+    stripJournalTaxTags(entryId);
+    const { sqlite } = openSqliteConnection(dbPath);
+    const stored = sqlite.prepare(`SELECT lines FROM purchase_invoice WHERE id = ?`).get(invoiceId) as { lines: string };
+    const untagged = (JSON.parse(stored.lines) as Record<string, unknown>[]).map((line) => ({ ...line, taxRateId: null }));
+    sqlite.prepare(`UPDATE purchase_invoice SET lines = ? WHERE id = ?`).run(JSON.stringify(untagged), invoiceId);
+    sqlite.close();
+    const legacy = (await call("GET", `/purchases/invoices/${invoiceId}`)).body;
+    expect(legacy.lines.map((l: { taxRateId: string | null }) => l.taxRateId)).toEqual([null]);
+    expect((await journalTags(entryId)).every(([, percent, rate]) => percent === null && rate === null)).toBe(true);
+    const rateId = legacy.lines[0].taxRatePercent === 0 ? "VAT-EXEMPT" : "VAT14";
+
+    const classified = await call("POST", `/purchases/invoices/${invoiceId}/lines/0/classify-tax`, { taxRateId: rateId });
+    expect([classified.status, classified.body.taxRateId], JSON.stringify(classified.body)).toEqual([200, rateId]);
+    expect(classified.body.journalLinesNamed).toBeGreaterThanOrEqual(1);
+    const named = await journalTags(entryId);
+    expect(named.find(([account]) => account === wipAccount)?.[2]).toBe(rateId);
+    expect(named.find(([account]) => account === "2100")?.[2]).toBeNull();
+    expect((await call("GET", `/purchases/invoices/${invoiceId}`)).body.lines[0].taxRateId).toBe(rateId);
+    expect((await call("GET", "/financial-reports/trial-balance")).body.grandTotals.debit).toBe((await call("GET", "/financial-reports/trial-balance")).body.grandTotals.credit);
+  });
+
   it("names a legacy return's own entry when its invoice line is classified, and reads a return line with no percent as unnamed, not as 0%", async () => {
     const stockLine = { lineId: "A", itemId: "ITEM-DEMO-2", itemNameAr: "صنف", isStock: true, qty: "2", unitPrice: "100", revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", taxRateId: null, taxRatePercent: 0 };
     expect((await call("POST", "/sales-invoices", { id: "T-L4", date: TODAY, dueDate: "2026-09-23", customerId: "CUST-DEMO-1", customerNameAr: "عميل", warehouseId: "WH-MAIN", branchId: "BR-MAIN", arAccountId: "1105", taxAccountId: "2200", lines: [stockLine] })).status).toBe(201);

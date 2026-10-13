@@ -1,0 +1,49 @@
+/*
+ * EXTERNAL CONTRACT with every printable view and with the shell: what is
+ * marked `mz-screen-only` never reaches paper, and every box between the
+ * document and the sheet is marked `mz-print-flow` so it stops being a flex
+ * column with its own height, padding and clipping. A printed document that
+ * shows tabs and breadcrumbs, or loses its total column off the edge of the
+ * sheet, is what these rules exist to prevent — a new box around the screen
+ * needs one of the two classes.
+ */
+@media print {
+  html,
+  body,
+  #root {
+    min-height: 0 !important;
+    height: auto !important;
+    background: transparent !important;
+  }
+
+  .mz-screen-only {
+    display: none !important;
+  }
+
+  .mz-print-flow {
+    display: block !important;
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: transparent !important;
+  }
+
+  .mz-print-page {
+    width: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    zoom: 1 !important;
+  }
+
+  .mz-print-page table {
+    width: 100% !important;
+  }
+
+  .mz-print-keep {
+    break-inside: avoid;
+  }
+}

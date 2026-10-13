@@ -1,5 +1,5 @@
 import { modKeyLabel, type CommandItem, type NavGroup, type NavItem } from "@mezan/ui";
-import { isModuleLicensed, type Entitlements, type ModuleId } from "@mezan/domain";
+import { isModuleLicensed, isModuleReadOnly, type Entitlements, type ModuleId } from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
 import { navGroupIcon, navItemIcon } from "./nav-icons";
 import { applyNavFragments, type NavFragment, type NavGroupSpec, type NavItemAccess } from "./fragments";
@@ -330,6 +330,17 @@ function moduleForNavItem(groupKey: string, itemKey: string): ModuleId | undefin
  * means "still loading" and returns `groups` untouched: filtering on a `null`
  * would flash the whole rail empty for an instant on every load.
  */
+export function moduleForScreen(screenKey: string): ModuleId | undefined {
+  const group = navGroupSpecs.find((spec) => spec.itemKeys.includes(screenKey) || (spec.sections ?? []).some((section) => section.itemKeys.includes(screenKey)));
+  return (group ? moduleForNavItem(group.key, screenKey) : undefined) ?? (NAV_ITEM_ACCESS[screenKey]?.module as ModuleId | undefined);
+}
+
+export function isScreenOutsideLicence(screenKey: string, entitlements: Entitlements | null): boolean {
+  if (!entitlements) return false;
+  const moduleId = moduleForScreen(screenKey);
+  return moduleId !== undefined && !isModuleLicensed(moduleId, entitlements) && !isModuleReadOnly(moduleId, entitlements);
+}
+
 export function filterNavGroupsByEntitlements(groups: readonly NavGroup[], entitlements: Entitlements | null): NavGroup[] {
   if (!entitlements) return [...groups];
   const isVisible = (groupKey: string, item: NavItem) => {

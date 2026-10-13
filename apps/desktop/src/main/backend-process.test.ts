@@ -264,6 +264,29 @@ describe("a worker that dies", () => {
     await expect(response.json()).resolves.toMatchObject({ error: "BACKEND_UNAVAILABLE" });
   });
 
+  it("a refused boot — an upgrade that rolled back — is not retried, and every answer says the data is untouched", async () => {
+    const fatal: string[] = [];
+    const { handle, workers } = start({
+      onFatal: (message) => fatal.push(message),
+      preUpdateArchivePath: () => "/backups/pre-update-2026.9.0.mezan-backup",
+    });
+    const refusal = "تعذّر تحديث قاعدة البيانات إلى هذا الإصدار من ميزان. بياناتك لم تُمَسّ";
+    workers[0]!.emit({ type: "boot-error", error: refusal, refusal: { code: "SCHEMA_UPGRADE_FAILED", message: refusal, messageEn: "The database could not be upgraded." } });
+    await handle.ready;
+    workers[0]!.exit(1);
+
+    expect(workers.length).toBe(1);
+    expect(fatal).toEqual([]);
+    expect(handle.bootRefusal()).toMatchObject({ code: "SCHEMA_UPGRADE_FAILED" });
+    const response = await handle.app.fetch(new Request("http://mezan.local/bootstrap/status"));
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: string; message: string; messageEn: string };
+    expect(body.error).toBe("SCHEMA_UPGRADE_FAILED");
+    expect(body.message).toContain("بياناتك لم تُمَسّ");
+    expect(body.message).toContain("/backups/pre-update-2026.9.0.mezan-backup");
+    expect(body.messageEn).toContain("could not be upgraded");
+  });
+
   it("settles the calls that were in flight rather than leaving them hanging", async () => {
     const { handle, workers } = start();
     const worker = workers[0]!;

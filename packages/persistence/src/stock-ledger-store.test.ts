@@ -5,7 +5,6 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { Money, Qty, StockLedgerService, NegativeStockError, movementValue, replay } from "@mezan/domain";
 import { createSqliteStockLedgerStore, type SqliteStockLedgerHandle } from "./stock-ledger-store.js";
-import { CURRENT_SCHEMA_VERSION } from "./schema-sync.js";
 
 const handles: SqliteStockLedgerHandle[] = [];
 afterEach(() => {
@@ -94,7 +93,7 @@ describe("SqliteStockLedgerStore — the value a movement moved", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it.each([1, 2])("brings a schema-%i file that lacks the column up to shape, keeps its rows and stamps the current schema", async (fileVersion) => {
+  it.each([1, 2])("brings a schema-%i file that lacks the column up to shape and keeps its rows; the version stamp is left to the upgrade that owns it", async (fileVersion) => {
     const dir = mkdtempSync(join(tmpdir(), "mezan-stock-value-schema-"));
     const file = join(dir, "t.db");
     const first = createSqliteStockLedgerStore(file);
@@ -124,7 +123,7 @@ describe("SqliteStockLedgerStore — the value a movement moved", () => {
     const stampedVersion = check.pragma("user_version", { simple: true });
     check.close();
     expect(columns).toContain("value");
-    expect(stampedVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(stampedVersion).toBe(fileVersion);
     rmSync(dir, { recursive: true, force: true });
   });
 });

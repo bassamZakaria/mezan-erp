@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createBackup } from "./backup-service.js";
 import { extractArchive } from "./archive.js";
 import { verifyArchive } from "./restore-service.js";
+import { BackupReason } from "./manifest.js";
 
 /**
  * Portable backups, against a REAL encrypted database.
@@ -47,7 +48,7 @@ describe("portable backups", () => {
       sqlite: db as unknown as Parameters<typeof createBackup>[0]["sqlite"],
       backupsDir,
       appVersion: "test",
-      reason: "scheduled",
+      reason: BackupReason.Scheduled,
       encrypted: true,
       portable: {
         key: KEY,
@@ -81,7 +82,7 @@ describe("portable backups", () => {
       sqlite: db as unknown as Parameters<typeof createBackup>[0]["sqlite"],
       backupsDir,
       appVersion: "test",
-      reason: "scheduled",
+      reason: BackupReason.Scheduled,
       encrypted: true,
     });
 
@@ -99,7 +100,7 @@ describe("write-time verification", () => {
       sqlite: db as unknown as Parameters<typeof createBackup>[0]["sqlite"],
       backupsDir: path.join(dir, "backups"),
       appVersion: "test",
-      reason: "scheduled",
+      reason: BackupReason.Scheduled,
       encrypted: true,
       portable: {
         key: KEY,

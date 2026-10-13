@@ -86,6 +86,7 @@ export interface AuthRoutesDeps {
   readonly claimedElsewhere?: () => Promise<boolean>;
   // SECURITY: false closes `/bootstrap/seed` for a tenant that already has books.
   readonly seedWhenEmpty?: boolean;
+  readonly onTenantClaimed?: () => Promise<void>;
 }
 
 export interface AccountLockedEvent {
@@ -661,6 +662,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
         return claimed;
       });
       if (!user) return alreadyClaimed(c, parsed.data.email);
+      await deps.onTenantClaimed?.();
       return c.json(await toSession(user, deps, requestOrigin(c)), 201);
     } catch (err) {
       // This used to hand back the EXISTING admin's session for wizard

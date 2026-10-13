@@ -38,7 +38,7 @@ export function QrCode({ value, quietZone = 4, label, className, style }: QrCode
       role="img"
       aria-label={label ?? value}
       viewBox={`0 0 ${span} ${span}`}
-      className={cn("block h-full w-full", className)}
+      className={cn("block", className ?? "h-full w-full")}
       style={style}
       shapeRendering="crispEdges"
     >

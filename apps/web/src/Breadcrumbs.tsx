@@ -125,7 +125,7 @@ export function Breadcrumbs({ screen }: { screen: ScreenKey }) {
   const backTarget = backSegment !== undefined ? (names[backSegment] ?? segmentLabel(backSegment, t)) : screenLabel;
 
   return (
-    <div className="mb-[10px] flex flex-wrap items-center gap-[10px]">
+    <div className="mz-screen-only mb-[10px] flex flex-wrap items-center gap-[10px]">
       <Button
         size="sm"
         variant="ghost"

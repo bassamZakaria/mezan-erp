@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type Database from "better-sqlite3";
+import { CURRENT_SCHEMA_VERSION } from "@mezan/persistence";
 import { ManifestValidationError } from "./errors.js";
 
 /**
@@ -10,16 +11,16 @@ import { ManifestValidationError } from "./errors.js";
  */
 export const MANIFEST_FORMAT = 1;
 
-/**
- * The current on-disk SQLite schema version this build writes. Desktop has
- * no migration runner yet (Phase 0 — only `journal_entry`/`journal_line`
- * exist, created idempotently by `createSqliteUnitOfWork`); this constant is
- * the seam the migration engine will bump once it exists (docs/archive/plan.md
- * §2.3 "Migrations"). Kept local to the backup module rather than imported
- * from @mezan/persistence so backups stay decoupled from that package's
- * internal schema shape.
- */
-export const CURRENT_SCHEMA_VERSION = 1;
+export { CURRENT_SCHEMA_VERSION };
+
+export enum BackupReason {
+  Manual = "manual",
+  Scheduled = "scheduled",
+  PreMigration = "pre-migration",
+  OnClose = "on-close",
+  PreUpdate = "pre-update",
+  PreRestore = "pre-restore",
+}
 
 export const manifestSchema = z.object({
   manifestFormat: z.number().int().positive(),
@@ -31,7 +32,7 @@ export const manifestSchema = z.object({
   /** Row count per user table, for a cheap post-restore sanity display. */
   tables: z.record(z.string(), z.number().int().nonnegative()),
   /** Reason this backup was taken — surfaced in the restore picker. */
-  reason: z.enum(["manual", "scheduled", "pre-migration", "on-close", "pre-update"]),
+  reason: z.nativeEnum(BackupReason),
   /**
    * ISO timestamp of the last successful FULL `PRAGMA integrity_check` this
    * install ran, carried forward on a backup that only re-proved itself the
@@ -51,8 +52,6 @@ export const manifestSchema = z.object({
 });
 
 export type BackupManifest = z.infer<typeof manifestSchema>;
-
-export type BackupReason = BackupManifest["reason"];
 
 /** Row counts for every user table (excludes SQLite's own `sqlite_*` tables). */
 export function countRows(sqlite: Database.Database): Record<string, number> {

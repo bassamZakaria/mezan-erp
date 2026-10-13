@@ -893,11 +893,25 @@ still open is the list that follows, and the certificates in §8.1.
     internet*, never *renew*. >30 days: still READ_ONLY, with a blocking notice. Only a
     **signed** answer from the licensing service moves that clock or revokes anything; an
     outage, a DNS hiccup or an offline shop is never read as a revocation.
-  - **The anti-rollback record is sealed to the database key.** `license-guard.json` in
-    userData holds the clock high-water mark, the last verified time and the install stamp
-    under an HMAC; deleting or editing it resolves to TAMPERED and read-only, not to a fresh
-    week. Deleting it also buys nothing, because the clock's origin is the licence's own
-    signed `notBefore`.
+  - **The anti-rollback record is sealed.** `license-guard.json` in userData holds the clock
+    high-water mark, the last verified time and the install stamp under an HMAC. On an
+    encrypted install the HMAC key is derived from the database key; on an install started
+    with `--allow-unencrypted-database` it is a secret the install mints for itself
+    (`license-guard.key`, beside the record, readable by the owner only). What each change
+    really does:
+    - **Editing** the record, stripping its HMAC, or deleting `license-guard.key` while the
+      record stays: TAMPERED, read-only (`GUARD_TAMPERED`).
+    - **Deleting** the record: the install
+      reads as never having checked in, so the clock starts at the licence's own signed
+      `notBefore` — not at today. Past seven days from that date it is read-only with
+      `CHECKIN_OVERDUE` until one signed check-in succeeds. It does not resolve to TAMPERED,
+      and it does not buy a fresh week.
+    - **A record an earlier build wrote with no HMAC** (unencrypted installs only) is sealed on
+      the first launch of this build. What it claimed about the last check-in and the install
+      date is dropped, so that install is read-only until its next signed check-in if the
+      licence started more than seven days ago.
+    The unencrypted case raises the bar from editing a date to forging an HMAC; it cannot
+    stop someone who reads the secret from the same folder. Encryption at rest is what does.
   - **The machine fingerprint is obtainable, by the owner, without a terminal.** It is on the
     licence banner, on `الإعدادات ← الأجهزة المتصلة`, and on the «معلومات الدعم» card in
     `الإعدادات ← عام` beside the version, the `LIC-*` code, the host URL and the paths — LTR,
@@ -1040,10 +1054,28 @@ pnpm licence:issue \
 ```
 
 Copy `license.mezan` into the host's userData directory — `%APPDATA%\Mezan` on Windows,
-`~/Library/Application Support/Mezan` on macOS — or import it from
+`~/Library/Application Support/Mezan` on macOS, `~/.config/Mezan` on Linux (logs:
+`~/Library/Logs/Mezan` on macOS, `<userData>/logs` elsewhere) — or import it from
 `الإعدادات ← الأجهزة المتصلة`, which puts it in the same place and shows the real verdict.
 There is no `licence.json` and no `main/licence-file.ts`; earlier revisions of this document
 described both, and a consultant who followed them produced an unlicensed install.
+
+**Installs made before the folder was named.** Earlier builds kept everything in a folder
+named after the package — `…/Application Support/desktop`, `%APPDATA%\desktop`,
+`~/.config/desktop` (logs in `~/Library/Logs/desktop`). On its first start this build renames
+that folder to `Mezan`, whole, in one step, and only when `Mezan` does not exist yet. It never
+copies and never merges:
+
+| What it finds | What it does |
+|---|---|
+| only `desktop`, holding books | renames it to `Mezan` and uses it |
+| `Mezan` exists but holds no books, `desktop` does | keeps using `desktop` where it is |
+| both hold books | uses the one whose `mezan.db` changed last, and shows a notice naming both paths |
+| the rename fails or does not verify (another volume, a file in use) | keeps using `desktop` where it is |
+
+The log's first lines say which (`[data-folder] …`). A launch given `--user-data-dir` is left
+alone. The application's own name is unchanged on purpose: the operating system's key store
+files the database key under it, so the Keychain entry is still `desktop Safe Storage`.
 
 `--bind` is what makes the file worth something: an unbound licence runs on every PC it is
 copied to. Pass `--bind` twice during a hardware handover so the shop is never between two

@@ -5,6 +5,9 @@ export {
 export {
   CURRENT_SCHEMA_VERSION,
   SchemaTooNewError,
+  SchemaUpgradeFailedError,
+  assertSchemaReadable,
+  holdsExistingBooks,
   readSchemaVersion,
   stampSchemaVersion,
 } from "./schema-sync.js";

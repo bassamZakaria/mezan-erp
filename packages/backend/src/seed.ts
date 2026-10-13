@@ -416,13 +416,14 @@ export async function seedIfEmpty(
 
 /** Current tenant counts WITHOUT seeding — what the first-run wizard reads to show which base data already exists. */
 export async function currentCounts(stores: SeedStores): Promise<BootstrapSeedResultDTO> {
-  const [accounts, taxRates, branches, warehouses, fiscalPeriods, users] = await Promise.all([
+  const [accounts, taxRates, branches, warehouses, fiscalPeriods, users, roles] = await Promise.all([
     stores.accounts.list(),
     stores.taxRates.list(),
     stores.branches.findAll(),
     stores.warehouses.findAll(),
     stores.fiscalPeriods.list(),
     stores.uow.users.list(),
+    stores.uow.roles.list(),
   ]);
   return {
     accounts: accounts.length,
@@ -431,5 +432,6 @@ export async function currentCounts(stores: SeedStores): Promise<BootstrapSeedRe
     warehouses: warehouses.length,
     fiscalPeriods: fiscalPeriods.length,
     users: users.length,
+    roles: roles.length,
   };
 }

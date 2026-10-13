@@ -299,7 +299,7 @@ export function AppShell({
   );
 
   return (
-    <div className={cn("flex min-h-screen flex-col bg-bg text-ink", className)}>
+    <div className={cn("mz-print-flow flex min-h-screen flex-col bg-bg text-ink", className)}>
       {/*
         Parked above the viewport rather than built out of `sr-only` +
         `focus:not-sr-only`: that pair resets `position` to static on focus, so
@@ -308,7 +308,7 @@ export function AppShell({
       */}
       <a
         href={`#${MAIN_ID}`}
-        className="fixed start-[8px] top-[-200px] z-50 inline-flex min-h-[var(--h-btn)] items-center whitespace-nowrap rounded-md border border-border-strong bg-surface px-[16px] text-sm font-semibold text-ink focus:top-[8px]"
+        className="mz-screen-only fixed start-[8px] top-[-200px] z-50 inline-flex min-h-[var(--h-btn)] items-center whitespace-nowrap rounded-md border border-border-strong bg-surface px-[16px] text-sm font-semibold text-ink focus:top-[8px]"
       >
         {t("shell.bar.skip")}
       </a>
@@ -323,7 +323,7 @@ export function AppShell({
       <div
         className={cn(
           SMALL_ONLY,
-          "sticky top-0 z-40 flex min-h-[var(--h-topbar)] items-center gap-[10px] border-b border-chrome-border bg-chrome px-[12px] text-chrome-ink",
+          "mz-screen-only sticky top-0 z-40 flex min-h-[var(--h-topbar)] items-center gap-[10px] border-b border-chrome-border bg-chrome px-[12px] text-chrome-ink",
         )}
       >
         <button
@@ -360,16 +360,16 @@ export function AppShell({
         <div
           aria-hidden
           onClick={() => setRailOpen(false)}
-          className={cn(SMALL_ONLY, "fixed inset-0 z-40 bg-[rgb(0_0_0/45%)]")}
+          className={cn(SMALL_ONLY, "mz-screen-only fixed inset-0 z-40 bg-[rgb(0_0_0/45%)]")}
         />
       ) : null}
 
-      <div className="flex min-h-0 flex-1 items-stretch">
+      <div className="mz-print-flow flex min-h-0 flex-1 items-stretch">
         <WorkspaceRail
           containerRef={railRef}
           /* Docked above the breakpoint; an overlay below it, and only when
              open — a hidden drawer must not sit in the tab order. */
-          className={cn(railOpen ? RAIL_OVERLAY : RAIL_DOCKED)}
+          className={cn("mz-screen-only", railOpen ? RAIL_OVERLAY : RAIL_DOCKED)}
           onNavigate={() => setRailOpen(false)}
           brand={
             /* The mark is the app's own balance-beam glyph (`BrandMark`) and the
@@ -445,7 +445,7 @@ export function AppShell({
           onOpenAllScreens={() => openAllScreens(null)}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="mz-print-flow flex min-w-0 flex-1 flex-col">
           {/* Row two no longer spans the full width — it starts where the
               column does, because it lists the screens OF the workspace that
               column has selected. It sticks under row one rather than with it:
@@ -454,7 +454,7 @@ export function AppShell({
               the offset stays correct if that control scale ever changes. */}
           {showScreensBar ? (
             <WorkspaceScreensBar
-              className="sticky top-0 z-30"
+              className="mz-screen-only sticky top-0 z-30"
               group={activeGroup}
               activeKey={activeNavKey}
               ariaLabel={
@@ -463,12 +463,12 @@ export function AppShell({
             />
           ) : null}
 
-          <div className="flex min-h-0 flex-1 items-stretch">
-            <main id={MAIN_ID} tabIndex={-1} className="min-w-0 flex-1 px-[24px] pb-[64px] pt-[20px]">
+          <div className="mz-print-flow flex min-h-0 flex-1 items-stretch">
+            <main id={MAIN_ID} tabIndex={-1} className="mz-print-flow min-w-0 flex-1 px-[24px] pb-[64px] pt-[20px]">
               {children}
             </main>
 
-            {gutter}
+            {gutter ? <div className="mz-screen-only contents">{gutter}</div> : null}
           </div>
         </div>
       </div>

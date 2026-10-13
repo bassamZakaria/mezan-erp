@@ -15,9 +15,10 @@ import {
   readIntegrityState,
   INTEGRITY_CHECK_INTERVAL_MS,
   BACKUP_FILE_EXTENSION,
+  reasonFromFileName,
 } from "./backup-service.js";
 import { extractArchive } from "./archive.js";
-import { parseManifest } from "./manifest.js";
+import { BackupReason, parseManifest } from "./manifest.js";
 import { cipherDriver, openTenantConnection, type TenantCipher } from "../main/encrypted-database.js";
 
 const dirs: string[] = [];
@@ -56,7 +57,7 @@ describe("createBackup", () => {
       sqlite: db,
       backupsDir,
       appVersion: "1.2.3",
-      reason: "manual",
+      reason: BackupReason.Manual,
     });
 
     expect(result.manifest.tables).toEqual({ journal_entry: 2 });
@@ -75,7 +76,7 @@ describe("createBackup", () => {
     const { db, dbPath } = await seededFileDb(dir);
     const backupsDir = path.join(dir, "backups");
 
-    const result = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "manual" });
+    const result = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.Manual });
 
     // The archived snapshot is a standalone, valid SQLite file distinct from
     // the live db path (proves .backup() ran rather than a plain fs.copyFile).
@@ -95,7 +96,7 @@ describe("createBackup", () => {
     const { db } = await seededFileDb(dir);
     const backupsDir = path.join(dir, "backups");
 
-    await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "manual" });
+    await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.Manual });
 
     const tmpContents = await readdir(path.join(backupsDir, ".tmp"));
     expect(tmpContents).toHaveLength(0);
@@ -121,7 +122,7 @@ describe("createBackup", () => {
       sqlite: db,
       backupsDir,
       appVersion: "1.0.0",
-      reason: "scheduled",
+      reason: BackupReason.Scheduled,
       retentionPolicy: { daily: 3, weekly: 0, monthly: 0 },
       now,
     });
@@ -182,7 +183,7 @@ describe("listBackups / backupFileName / parseCreatedAtFromFileName", () => {
     const base = await tmpDir();
     const { db } = await seededFileDb(base);
     const dir = path.join(base, "fresh-backups");
-    await createBackup({ sqlite: db, backupsDir: dir, appVersion: "1.0.0", reason: "manual" });
+    await createBackup({ sqlite: db, backupsDir: dir, appVersion: "1.0.0", reason: BackupReason.Manual });
     const { stat } = await import("node:fs/promises");
     expect((await stat(dir)).mode & 0o777).toBe(0o700);
   });
@@ -225,7 +226,7 @@ describe("createBackup — attachment compression policy", () => {
       sqlite: db,
       backupsDir,
       appVersion: "1.0.0",
-      reason: "manual",
+      reason: BackupReason.Manual,
       extraFiles: [
         { sourcePath: pngPath, archiveName: "logo.png" },
         { sourcePath: txtPath, archiveName: "note.txt" },
@@ -244,6 +245,39 @@ describe("createBackup — attachment compression policy", () => {
   });
 });
 
+describe("createBackup — what was asked for outlives what is automatic", () => {
+  it("«أخذ نسخة الآن» is still there after the on-close archive taken 14 seconds later, and each file says why it exists", async () => {
+    const dir = await tmpDir();
+    const { db } = await seededFileDb(dir);
+    const backupsDir = path.join(dir, "backups");
+    const asked = new Date("2026-10-13T17:40:35.000Z");
+    const closed = new Date("2026-10-13T17:40:49.000Z");
+
+    const manual = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.Manual, now: asked });
+    const onClose = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.OnClose, now: closed });
+
+    expect(onClose.removed).toEqual([]);
+    const listed = (await listBackups(backupsDir)).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    expect(listed.map((entry) => [entry.path, entry.reason])).toEqual([
+      [manual.archivePath, BackupReason.Manual],
+      [onClose.archivePath, BackupReason.OnClose],
+    ]);
+  });
+
+  it("the safety copy a restore takes survives the on-close archive of the same evening", async () => {
+    const dir = await tmpDir();
+    const { db } = await seededFileDb(dir);
+    const backupsDir = path.join(dir, "backups");
+    const safety = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.PreRestore, now: new Date("2026-10-13T17:46:00.000Z") });
+    const onClose = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.OnClose, now: new Date("2026-10-13T17:46:16.000Z") });
+
+    expect(onClose.removed).toEqual([]);
+    expect(reasonFromFileName(path.basename(safety.archivePath))).toBe(BackupReason.PreRestore);
+    expect(reasonFromFileName(backupFileName(new Date(), preUpdateLabel("2026.9.0")))).toBe(BackupReason.PreUpdate);
+    expect(reasonFromFileName(backupFileName(new Date("2026-08-01T00:00:00.000Z")))).toBeNull();
+  });
+});
+
 describe("createBackup — weekly integrity-check cadence", () => {
   it("runs the full check on the first backup, skips it on the next within 7 days, and preserves verify-before-retention either way", async () => {
     const dir = await tmpDir();
@@ -251,14 +285,14 @@ describe("createBackup — weekly integrity-check cadence", () => {
     const backupsDir = path.join(dir, "backups");
     const day1 = new Date("2026-09-01T08:00:00.000Z");
 
-    const first = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "scheduled", now: day1 });
+    const first = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.Scheduled, now: day1 });
     expect(first.manifest.lastIntegrityCheckAt).toBe(day1.toISOString());
     const stateAfterFirst = await readIntegrityState(backupsDir);
     expect(stateAfterFirst.lastIntegrityCheckAt).toBe(day1.toISOString());
 
     const day2 = new Date(day1.getTime() + 6 * 60 * 60 * 1000);
     db.prepare("INSERT INTO journal_entry (id, memo) VALUES (?, ?)").run("JE-3", "second day");
-    const second = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "scheduled", now: day2 });
+    const second = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.Scheduled, now: day2 });
     // Not due yet — the manifest carries the FIRST run's timestamp forward
     // rather than optimistically claiming a fresh proof that didn't happen.
     expect(second.manifest.lastIntegrityCheckAt).toBe(day1.toISOString());
@@ -274,7 +308,7 @@ describe("createBackup — weekly integrity-check cadence", () => {
     expect(parseManifest(extracted.manifestJson).checksum).toHaveLength(64);
 
     const day9 = new Date(day1.getTime() + INTEGRITY_CHECK_INTERVAL_MS + 60_000);
-    const third = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "scheduled", now: day9 });
+    const third = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.Scheduled, now: day9 });
     expect(third.manifest.lastIntegrityCheckAt).toBe(day9.toISOString());
   });
 
@@ -304,7 +338,7 @@ describe("createBackup — the copy itself off-thread (cipher opt-in)", () => {
         sqlite: db,
         backupsDir: path.join(dir, "backups"),
         appVersion: "1.0.0",
-        reason: "scheduled",
+        reason: BackupReason.Scheduled,
         encrypted: true,
         cipher: { key: KEY },
       });

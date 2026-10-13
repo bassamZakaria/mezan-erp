@@ -91,6 +91,19 @@ describe("PrintView", () => {
     expect(screen.queryByText("حفظ PDF")).not.toBeInTheDocument();
   });
 
+  it("on the desktop «حفظ PDF» saves the document under its own number", async () => {
+    const savePDF = vi.fn(async () => ({ ok: true, path: "/tmp/INV-000123.pdf" }));
+    (window as unknown as { mezan?: unknown }).mezan = { savePDF };
+    try {
+      render(<PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={createSampleInvoiceDocument()} />);
+      screen.getByText("حفظ PDF").click();
+      expect(savePDF).toHaveBeenCalledWith({ pageSize: "A4", landscape: false, defaultFileName: "INV-000123" });
+      expect(await screen.findByRole("status")).toHaveTextContent("/tmp/INV-000123.pdf");
+    } finally {
+      delete (window as unknown as { mezan?: unknown }).mezan;
+    }
+  });
+
   it("hides the toolbar entirely when showToolbar is false", () => {
     render(<PrintView config={DEFAULT_PRINT_TEMPLATE_CONFIG} document={createSampleInvoiceDocument()} showToolbar={false} />);
     expect(screen.queryByText("طباعة")).not.toBeInTheDocument();

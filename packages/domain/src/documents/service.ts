@@ -277,6 +277,7 @@ export class DocumentService<Line> {
       assertTransition(this.def.code, id, existing.status, DocumentStatusCode.Draft);
       const next: FrameworkDocument<Line> = { ...existing, status: DocumentStatusCode.Draft, workflowRequestId: null };
       await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], existing.status);
+      await this.withdrawApprovalOf(existing);
       await this.recordAudit("RETURN_TO_DRAFT", next, "INFO", { actor: opts.actor });
       return next;
     });
@@ -330,6 +331,18 @@ export class DocumentService<Line> {
 
   private async approvalLabelOf(doc: FrameworkDocument<Line>): Promise<string> {
     return doc.docNo ?? (await this.deps.approvalLabel?.(doc)) ?? this.def.labelAr;
+  }
+
+  // INVARIANT: an approval covers the document as it was held. One returned to
+  // draft is free to change, so its approved request goes back to «طلب تعديل»
+  // and the next confirm is judged afresh — never posted on the old verdict,
+  // and never refused for good because the verdict no longer stands.
+  private async withdrawApprovalOf(held: FrameworkDocument<Line>): Promise<void> {
+    const requestId = held.workflowRequestId;
+    const workflow = this.deps.workflow;
+    if (!requestId || !workflow?.standing || !workflow.reopen) return;
+    const status = (await workflow.standing([requestId])).get(requestId)?.status ?? null;
+    if (status === ApprovalStatusCode.Approved) await workflow.reopen(requestId);
   }
 
   private requestIdOf(doc: FrameworkDocument<Line>): string {

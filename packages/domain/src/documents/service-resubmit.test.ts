@@ -71,15 +71,27 @@ describe("DocumentService.resubmit", () => {
     expect((await service.approvalsOf([resubmitted])).get("d1")).toEqual({ status: "pending", rejectionReason: "سبب", rejectedBy: "boss" });
   });
 
-  it("refuses an approved request without reopening it, so the approval still posts the document", async () => {
+  it("an approved document returned to draft loses the approval: resubmit is not its path, and its next confirm is held for approval again", async () => {
     const { service, requests, audit, decide } = await heldDocument();
     await decide("approve");
     await service.returnToDraft("d1");
 
+    expect((await requests.findById("d1:confirm"))?.status).toBe("modification_requested");
+    await expect(service.resubmit("d1", { actor: "clerk" })).rejects.toBeInstanceOf(DocumentResubmitRefusedError);
+    expect(audit.events.map((event) => event.action)).toEqual(["RETURN_TO_DRAFT"]);
+
+    const again = await service.confirm("d1", { actor: "clerk" });
+    expect([again.held, again.document.status]).toEqual([true, "pending"]);
+    expect((await requests.findById("d1:confirm"))?.status).toBe("pending");
+  });
+
+  it("an approval still held posts the document: resubmit refuses it and leaves it approved", async () => {
+    const { service, requests, decide } = await heldDocument();
+    await decide("approve");
+
     await expect(service.resubmit("d1", { actor: "clerk" })).rejects.toBeInstanceOf(DocumentResubmitRefusedError);
 
     expect((await requests.findById("d1:confirm"))?.status).toBe("approved");
-    expect(audit.events.map((event) => event.action)).toEqual(["RETURN_TO_DRAFT"]);
     expect((await service.confirm("d1", { actor: "clerk" })).document.status).toBe("confirmed");
   });
 

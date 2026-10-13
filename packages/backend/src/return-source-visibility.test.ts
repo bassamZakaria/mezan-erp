@@ -90,6 +90,7 @@ describe("a purchase-returns role reads the source invoices of the warehouses it
     const text = await res.text();
     return { status: res.status, body: text ? JSON.parse(text) : null };
   }
+  const OUTSIDE_GRANT = ["WH-ELSEWHERE"] as const;
   const draft = (id: string) => ({
     id, date: TODAY, memo: "",
     lines: [{ itemId: "ITEM-DEMO-2", warehouseId: "WH-MAIN", supplierId: "SUPP-DEMO-1", sourceInvoiceId: "VIS-P", sourceInvoiceNumber: null, sourceLineId: "0", reason: "DEFECTIVE", qty: "1" }],
@@ -103,11 +104,19 @@ describe("a purchase-returns role reads the source invoices of the warehouses it
   });
 
   it("is refused, as if the invoice did not exist, for a warehouse outside its grant and when it holds no explicit grant at all", async () => {
-    for (const scope of [["WH-ELSEWHERE"], ALL_SCOPE] as const) {
+    const refusedAs = new Map<unknown, readonly [number, string]>([
+      [OUTSIDE_GRANT, [403, "WAREHOUSE_OUT_OF_SCOPE"]],
+      [ALL_SCOPE, [422, NOT_FOUND]],
+    ]);
+    for (const scope of [OUTSIDE_GRANT, ALL_SCOPE] as const) {
       const lines = await clerk("GET", "/purchase-returns/source-lines/VIS-P", undefined, scope);
       expect([lines.status, lines.body.error], JSON.stringify(scope)).toEqual([404, NOT_FOUND]);
+      const nobodyHolds = await clerk("GET", "/purchase-returns/source-lines/VIS-NO-SUCH-INVOICE", undefined, scope);
+      expect([nobodyHolds.status, nobodyHolds.body.error], JSON.stringify(scope)).toEqual([lines.status, lines.body.error]);
       const raised = await clerk("POST", "/purchase-returns", draft(`VIS-P-WH-X-${String(scope)}`), scope);
-      expect([raised.status, raised.body.error], JSON.stringify(scope)).toEqual([422, NOT_FOUND]);
+      expect([raised.status, raised.body.error], JSON.stringify(scope)).toEqual(refusedAs.get(scope));
+      expect(JSON.stringify(raised.body), JSON.stringify(scope)).not.toContain("VIS-P");
+      expect((await kit.call("GET", `/purchase-returns/VIS-P-WH-X-${String(scope)}`)).status).toBe(404);
     }
   });
 

@@ -4,7 +4,6 @@ import {
   createTaxRate,
   updateTaxRate,
   DuplicateTaxCodeError,
-  DuplicateTaxRateIdError,
   InvalidTaxRateError,
   TaxRateNotFoundError,
   TaxRateInUseError,
@@ -64,7 +63,7 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof TaxRateOnCustomerCardsError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, customerCount: err.customerCount }, 409);
   }
-  if (err instanceof DuplicateTaxCodeError || err instanceof DuplicateTaxRateIdError || err instanceof TaxRateInUseError || err instanceof SystemTaxRateLockedError || err instanceof ReservedTaxRateError) {
+  if (err instanceof DuplicateTaxCodeError || err instanceof TaxRateInUseError || err instanceof SystemTaxRateLockedError || err instanceof ReservedTaxRateError) {
     return refuse(err, 409);
   }
   if (err instanceof InvalidTaxRateError) {

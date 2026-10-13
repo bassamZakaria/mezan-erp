@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { decimalRateString, moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { decimalRateString, moneyString, nonNegativeMoneyString, nonNegativeQuantityString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { isoDateOrInstant } from "./iso-date.js";
 import { documentApprovalSchema } from "./workflow.js";
@@ -134,8 +134,8 @@ export type RefundSalesReturnDTO = z.infer<typeof refundSalesReturnSchema>;
 export const returnSourceLineSchema = z.object({
   sourceLineId: z.string().min(1),
   itemId: z.string().min(1),
-  soldQty: z.string(),
-  returnedQty: z.string(),
+  soldQty: nonNegativeQuantityString,
+  returnedQty: nonNegativeQuantityString,
 });
 
 export const returnSourceLinesSchema = z.object({

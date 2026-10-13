@@ -14,7 +14,7 @@ import {
 } from "@mezan/domain";
 import { createPurchaseReturnSchema, returnSourceLinesSchema } from "@mezan/contracts";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, callerUserId, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
-import { BranchRecordKind } from "./branch-policy.js";
+import { BranchRecordKind, recordInBranchGrant } from "./branch-policy.js";
 import { returnBranches, storedBranchesById, withinBranchScope } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
@@ -105,7 +105,9 @@ export function createPurchaseReturnsRoutes(
     if (!invoices) return undefined;
     if (!cache.has(sourceInvoiceId)) {
       const found = await invoices.findConfirmedInvoice(sourceInvoiceId);
-      cache.set(sourceInvoiceId, found && !purchaseSourceInvoiceHidden(getAuthContext(c), found, warehouseScopeOf(c)) ? found : null);
+      // SECURITY: an invoice of a branch outside the grant is hidden exactly as one this role may not read, so the refusal never tells the two apart from an id nobody holds.
+      const hidden = !found || purchaseSourceInvoiceHidden(getAuthContext(c), found, warehouseScopeOf(c)) || !(await recordInBranchGrant(c, BranchRecordKind.PurchaseInvoice, found.id));
+      cache.set(sourceInvoiceId, hidden ? null : found);
     }
     return cache.get(sourceInvoiceId) ?? null;
   }

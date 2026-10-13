@@ -813,6 +813,7 @@ export class StockLedgerService {
             sourceDocNumber: number,
             date,
             memo: `${memo} — فرق متوسط التكلفة`,
+            warehouseId: original[0]?.warehouseId ?? null,
             lines: [
               { ...inventoryLine, debit: up ? magnitude : Money.zero(), credit: up ? Money.zero() : magnitude },
               { ...counterpartLine, debit: up ? Money.zero() : magnitude, credit: up ? magnitude : Money.zero() },
@@ -997,6 +998,7 @@ export class StockLedgerService {
           sourceDocNumber: command.transferNumber ?? null,
           date: occurredAt.slice(0, 10),
           memo: `فرق تكلفة: تحويل غطّى كمية بيعت قبل وصوله ${command.transferNumber ?? command.transferId}`,
+          warehouseId: command.toWarehouseId,
           lines: [
             { accountId: debited, debit: magnitude, credit: Money.zero() },
             { accountId: credited, debit: Money.zero(), credit: magnitude },

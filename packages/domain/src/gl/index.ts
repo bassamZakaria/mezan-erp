@@ -39,6 +39,7 @@ export {
   assertPartyLines,
 } from "./post.js";
 export { branchOfPostingWarehouse, type WarehouseBranchLookup } from "./warehouse-branch.js";
+export { inBranchOf } from "./line-branch.js";
 export { createJournalTaxTagPort, JournalTaxTagUnsupportedError } from "./tax-tag.js";
 
 export {

@@ -3236,3 +3236,120 @@ describe("D111 round 5 · a warehouse or a cash account nobody holds answers as 
     expect(one("SELECT id FROM sales_invoice WHERE id = 'D111-R5-LOC-ADMIN'")).toBeUndefined();
   });
 });
+
+describe("D111 · a reversal, a void, a resubmit and a tax tag need the branch grant of the document they act on", () => {
+  const REASON = { memo: "سبب الاختبار", reason: "سبب الاختبار", date: TODAY };
+  const journalEntries = () => one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n;
+  const adjustment = (id: string) => ({
+    id,
+    date: TODAY,
+    lines: [{ itemId: "ITEM-DEMO-1", warehouseId: MAIN_WAREHOUSE, reason: "OTHER", direction: "IN", qty: "1", unitCost: "140" }],
+  });
+
+  async function confirmedAdjustment(id: string): Promise<void> {
+    const drafted = await admin("POST", "/inventory/stock-adjustments/draft", adjustment(id));
+    expect([201, 409], JSON.stringify(drafted.body).slice(0, 200)).toContain(drafted.status);
+    const confirmed = await admin("POST", `/inventory/stock-adjustments/${id}/confirm`, {});
+    expect([200, 409], JSON.stringify(confirmed.body).slice(0, 200)).toContain(confirmed.status);
+    expect(one<{ status: string }>("SELECT status FROM stock_adjustment_document WHERE id = ?", id)?.status).toBe("confirmed");
+  }
+
+  interface MainBranchAction {
+    readonly path: string;
+    readonly state: () => unknown;
+  }
+
+  const mainBranchActions = (): MainBranchAction[] => {
+    const postedRun = one<{ id: string }>("SELECT id FROM depreciation_run WHERE branch_id = ? AND status = 'posted' LIMIT 1", MAIN)!.id;
+    const adjustmentState = row("stock_adjustment_document", "D111-REV-ADJ", "status, journal_entry_id");
+    const landedCost = row("framework_document", "LC-DEMO-2", "status, journal_entry_id");
+    const salesReturn = row("framework_document", "SRT-DEMO-2", "status, journal_entry_id");
+    const purchaseReturn = row("framework_document", "PRT-DEMO-2", "status, journal_entry_id");
+    const salesInvoiceState = row("sales_invoice", "D111-MAIN-INV");
+    const purchaseInvoiceState = row("purchase_invoice", "D111-MAIN-PI");
+    return [
+      { path: "/inventory/stock-adjustments/D111-REV-ADJ/reverse", state: adjustmentState },
+      { path: "/inventory/stock-adjustments/D111-REV-ADJ/resubmit", state: adjustmentState },
+      { path: "/inventory/adjustments/D111-REV-ADJ/reverse", state: adjustmentState },
+      { path: "/landed-costs/LC-DEMO-2/reverse", state: landedCost },
+      { path: "/landed-costs/LC-DEMO-2/resubmit", state: landedCost },
+      { path: "/cheques/CHQ-DEMO-1/return", state: row("cheque", "CHQ-DEMO-1", "status") },
+      { path: "/assets/ASSET-DEMO-2/undo-disposal", state: row("asset", "ASSET-DEMO-2", "status") },
+      { path: `/assets/depreciation/runs/${postedRun}/reverse`, state: row("depreciation_run", postedRun, "status") },
+      { path: "/sales-returns/SRT-DEMO-2/void", state: salesReturn },
+      { path: "/sales-returns/SRT-DEMO-2/resubmit", state: salesReturn },
+      { path: "/sales-returns/SRT-DEMO-2/lines/0/journal-tax", state: salesReturn },
+      { path: "/purchase-returns/PRT-DEMO-2/void", state: purchaseReturn },
+      { path: "/purchase-returns/PRT-DEMO-2/resubmit", state: purchaseReturn },
+      { path: "/purchase-returns/PRT-DEMO-2/lines/0/journal-tax", state: purchaseReturn },
+      { path: "/sales-invoices/D111-MAIN-INV/void", state: salesInvoiceState },
+      { path: "/sales-invoices/D111-MAIN-INV/eta-receipt/retry", state: salesInvoiceState },
+      { path: "/sales-invoices/D111-MAIN-INV/lines/D111-MAIN-INV-L1/classify-tax", state: salesInvoiceState },
+      { path: "/sales-invoices/D111-MAIN-INV/lines/D111-MAIN-INV-L1/journal-tax", state: salesInvoiceState },
+      { path: "/purchases/invoices/D111-MAIN-PI/lines/0/classify-tax", state: purchaseInvoiceState },
+      { path: "/purchases/invoices/D111-MAIN-PI/lines/0/journal-tax", state: purchaseInvoiceState },
+      { path: "/vouchers/D111-MAIN-VCH/resubmit", state: row("voucher", "D111-MAIN-VCH", "status, journal_entry_id") },
+    ];
+  };
+
+  it("another branch's document refuses every one of them, in Arabic, and nothing is written", async () => {
+    await confirmedAdjustment("D111-REV-ADJ");
+    for (const action of mainBranchActions()) {
+      const before = action.state();
+      expect(before, `${action.path}: the document must exist in the seeded books`).toBeTruthy();
+      for (const [label, caller] of [["non-admin", alex], ["* admin granted one branch", alexStar]] as const) {
+        const entries = journalEntries();
+        const res = await caller("POST", action.path, { ...REASON, taxRateId: "VAT14" });
+        expect([403, 404], `${label} POST ${action.path} → ${res.status} ${JSON.stringify(res.body).slice(0, 200)}`).toContain(res.status);
+        expectRefusedInArabic(res);
+        expect(action.state(), `${label} POST ${action.path} must leave the stored row untouched`).toEqual(before);
+        expect(journalEntries(), `${label} POST ${action.path} must post nothing`).toBe(entries);
+      }
+    }
+  });
+
+  it.each([
+    ["POST", "/revaluation/runs/NO-SUCH-RUN/reverse"],
+    ["POST", "/gl/year-end-close/2025/reopen"],
+    ["POST", "/hr/payroll/provisions/leave/2026-01-31/reverse"],
+    ["POST", "/contracting/guarantees/NO-SUCH/reverse-last"],
+    ["POST", "/contracting/site/equipment-logs/NO-SUCH/reverse"],
+    ["POST", "/contracting/site/consumptions/NO-SUCH/reverse"],
+    ["GET", "/period-close/fp-2026-08/checks"],
+    ["GET", "/period-close/fp-2026-08/summaries"],
+  ] as const)("%s %s is the whole company's, and closed to a branch-restricted session whatever it holds", async (method, path) => {
+    for (const caller of [alex, alexStar]) {
+      const res = await caller(method, path, method === "POST" ? REASON : undefined);
+      expect(res.status, JSON.stringify(res.body).slice(0, 200)).toBe(403);
+      expect(res.body?.error).toBe("COMPANY_WIDE_REPORT");
+      expect(res.body?.message).toMatch(ARABIC);
+    }
+  });
+
+  it("a user granted the document's branch reverses it, and the reversal's lines stay in that branch", async () => {
+    await confirmedAdjustment("D111-REV-ADJ-OK");
+    const mainStar = callerFor(handle.sessions.issue({ userId: "USER-D111-MAIN-STAR", permissions: ["*"], roleCode: null, branchScope: [MAIN], warehouseScope: ALL_SCOPE }));
+    const reversed = await mainStar("POST", "/inventory/stock-adjustments/D111-REV-ADJ-OK/reverse", REASON);
+    expect([200, 201], JSON.stringify(reversed.body).slice(0, 300)).toContain(reversed.status);
+    expect(one<{ status: string }>("SELECT status FROM stock_adjustment_document WHERE id = 'D111-REV-ADJ-OK'")?.status).toBe("reversed");
+    const lines = all<{ id: string; memo: string | null; source_doc_id: string | null; branch_id: string | null; debit: number; credit: number }>(
+      "SELECT e.id, e.memo, e.source_doc_id, l.branch_id, l.debit, l.credit FROM journal_line l JOIN journal_entry e ON e.id = l.entry_id WHERE e.source_doc_id LIKE 'D111-REV-ADJ-OK%' OR e.id LIKE 'D111-REV-ADJ-OK%'",
+    );
+    expect(lines.length).toBeGreaterThanOrEqual(4);
+    expect(lines.filter((line) => line.branch_id !== MAIN)).toEqual([]);
+  });
+
+  it("a source invoice of another branch answers a return exactly as an invoice nobody holds", async () => {
+    const mainSales = one<{ id: string }>("SELECT id FROM sales_invoice WHERE branch_id = ? AND status = 'confirmed' LIMIT 1", MAIN)!.id;
+    const mainPurchase = one<{ id: string }>("SELECT id FROM purchase_invoice WHERE branch_id = ? AND status = 'confirmed' LIMIT 1", MAIN)!.id;
+    for (const [family, held] of [["/sales-returns", mainSales], ["/purchase-returns", mainPurchase]] as const) {
+      expect((await mainOnly("GET", `${family}/source-lines/${held}`)).status, family).toBe(200);
+      for (const caller of [alex, alexStar]) {
+        const foreign = await caller("GET", `${family}/source-lines/${held}`);
+        const absent = await caller("GET", `${family}/source-lines/D111-NO-SUCH-INVOICE`);
+        expect(foreign.status, family).toBe(404);
+        expect([foreign.status, foreign.body], family).toEqual([absent.status, absent.body]);
+      }
+    }
+  });
+});

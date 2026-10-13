@@ -1,6 +1,6 @@
 import { EtaVatSubTypeCode, TaxCalculationTypeCode, TaxRateStatusCode, type EtaVatSubType, type TaxCalculationType, type TaxRate, type TaxRateRepository } from "./tax-rate.js";
 import { assertNotReservedTaxRate } from "./system-tax-rates.js";
-import { DuplicateTaxCodeError, DuplicateTaxRateIdError, InvalidTaxRateError } from "./errors.js";
+import { DuplicateTaxCodeError, InvalidTaxRateError } from "./errors.js";
 
 export interface CreateTaxRateCommand {
   readonly id: string;
@@ -28,8 +28,6 @@ function assertValidRate(rate: number): void {
  * "الضرائب"): the code must be unique and the rate must be a 0–100 percentage.
  */
 export function validateNewTaxRate(command: CreateTaxRateCommand, existing: readonly TaxRate[]): void {
-  const sameId = existing.find((t) => t.id === command.id);
-  if (sameId) throw new DuplicateTaxRateIdError(sameId.id, sameId.name);
   assertNotReservedTaxRate({ ...command, etaSubType: command.etaSubType ?? EtaVatSubTypeCode.Auto });
   if (existing.some((t) => t.code === command.code)) {
     throw new DuplicateTaxCodeError(command.code);

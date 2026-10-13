@@ -16,7 +16,7 @@ import type { CostCategory } from "../contracting/cost-category.js";
  */
 
 import { Money } from "../money/index.js";
-import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import { inBranchOf, postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import {
   ApprovalRequestRejectedError,
   ApprovalRequestUntrustedError,
@@ -166,7 +166,7 @@ export function createJournalGlHook(deps: JournalPostingDeps, stockVariance?: St
           sourceDocType: posting.sourceDocType,
           sourceDocId: posting.sourceDocId,
           sourceDocNumber: posting.sourceDocNumber,
-          lines: [...posting.lines, ...stockVarianceLines(posting.stockVariance, stockVariance, BACK_ORDER_COVER_MEMO)].map((l) => ({
+          lines: [...posting.lines, ...inBranchOf(posting.lines, stockVarianceLines(posting.stockVariance, stockVariance, BACK_ORDER_COVER_MEMO))].map((l) => ({
             accountId: l.accountId,
             debit: l.debit,
             credit: l.credit,

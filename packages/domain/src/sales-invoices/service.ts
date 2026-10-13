@@ -59,6 +59,7 @@ import type {
   DocumentEventPublisher,
 } from "../documents/hooks.js";
 import { confirmRequestIdOf, statedBranchOf } from "../documents/hooks.js";
+import { ApprovalStatusCode } from "../workflow/gate.js";
 import type { GateableActionType } from "../workflow/index.js";
 import type { CreditControlMode } from "../settings/settings.js";
 import { checkCustomerCredit, CreditLimitExceededError, type CreditCheckResult } from "../credit-control/index.js";
@@ -666,6 +667,14 @@ export class SalesInvoiceService {
       assertTransition(id, existing.status, "draft");
       const next: SalesInvoice = { ...existing, status: "draft", workflowRequestId: null };
       await this.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], existing.status);
+      // INVARIANT: an approval covers the invoice as it was held; returned to
+      // draft, an approved request goes back to «طلب تعديل» so the next confirm
+      // is judged afresh rather than posted on, or refused over, the old verdict.
+      const requestId = existing.workflowRequestId;
+      const workflow = this.deps.workflow;
+      if (requestId && workflow?.standing && workflow.reopen && (await workflow.standing([requestId])).get(requestId)?.status === ApprovalStatusCode.Approved) {
+        await workflow.reopen(requestId);
+      }
       return next;
     });
     if (!returned) return this.require(id);

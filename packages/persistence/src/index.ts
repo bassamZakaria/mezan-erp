@@ -17,6 +17,7 @@ export {
   type SqliteDriver,
   type SqliteOpenOptions,
 } from "./sqlite-connection.js";
+export { holdSqliteFile, SqliteFileBusyError, type HeldSqliteFile } from "./sqlite-file-hold.js";
 export {
   schema,
   journalEntry,
@@ -370,3 +371,5 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";
+export { createSqliteCredentialResetMarks, type CredentialResetMarks } from "./credential-reset-marks.js";

@@ -57,7 +57,7 @@ export function PlatformLogin() {
   }
 
   return (
-    <div dir="rtl" className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
+    <div className="flex min-h-screen items-center justify-center bg-bg p-[24px]">
       <BrandMark
         aria-hidden
         className="pointer-events-none fixed bottom-[-70px] end-[-40px] h-[320px] w-[320px] text-brand opacity-10"
@@ -72,9 +72,9 @@ export function PlatformLogin() {
           <span className="mz-disp text-[17px] font-bold text-ink">{t("platform.brand.name")}</span>
         </div>
 
-        <h2 className="mt-[14px] font-display text-[21px] font-bold leading-[1.35] text-ink">
+        <h1 className="mt-[14px] font-display text-[21px] font-bold leading-[1.35] text-ink">
           {t("platform.login.title")}
-        </h2>
+        </h1>
 
         <label className="mt-[14px] flex flex-col gap-[6px]">
           <span className="text-xs font-semibold text-ink">{t("platform.login.email")}</span>

@@ -129,7 +129,7 @@ import { createItemSpecificationsRoutes } from "./item-specifications-routes.js"
 import { createAttachmentsRoutes } from "./attachments-routes.js";
 import { createAccountRoutingRoutes } from "./account-routing-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
-import { createUsersRoutes } from "./users-routes.js";
+import { createUsersRoutes, type UsersRoutesOptions } from "./users-routes.js";
 import { createUserErasurePort } from "./user-erasure.js";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
 import { createTaxGroupsRoutes } from "./tax-groups-routes.js";
@@ -356,6 +356,9 @@ export interface CreateAppOptions {
    * probing left no trace at all.
    */
   readonly onPermissionRefused?: PermissionRefusalReporter;
+  readonly onUserEmailChanged?: UsersRoutesOptions["onEmailChanged"];
+  readonly companyOwner?: UsersRoutesOptions["owner"];
+  readonly onUserCredentialSetByOther?: UsersRoutesOptions["onCredentialSetByOther"];
   /** Mounts `/audit` — the read-only audit query surface — when present. */
   readonly audit?: { readonly store: AuditQueryPort; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
@@ -1668,6 +1671,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     createUsersRoutes(uow, hasher, resolveAuth, {
       readAllowedEmailDomains: async () => (await options.settingsStore?.get())?.allowedEmailDomains ?? [],
       audit: options.auditSink,
+      onEmailChanged: options.onUserEmailChanged,
+      owner: options.companyOwner,
+      onCredentialSetByOther: options.onUserCredentialSetByOther,
       sessions: options.security?.sessions,
       loginThrottle: options.security?.loginThrottle,
       erasure: options.hr

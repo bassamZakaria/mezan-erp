@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { SmtpConfig } from "@mezan/api";
-import { requestOrigin, sendNotificationEmail } from "@mezan/api";
+import { sendNotificationEmail } from "@mezan/api";
 import { recordSecurityEvent } from "@mezan/domain";
 import type { PlatformHandle } from "@mezan/backend";
+import { callerSource, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type SourceReporter } from "./client-source.js";
 import { createRateLimiter, type RateLimiter } from "./rate-limit.js";
 import {
   ACCOUNT_DELETION,
@@ -33,7 +34,8 @@ export interface LegalRoutesDeps {
   readonly platform: PlatformHandle;
   readonly supportEmail?: string;
   readonly platformSmtp?: SmtpConfig;
-  readonly trustProxy: boolean;
+  readonly clientSource?: ClientSourceOptions;
+  readonly sourceReporter?: SourceReporter;
   readonly now: () => Date;
   readonly limiter?: RateLimiter;
   readonly send?: typeof sendNotificationEmail;
@@ -174,13 +176,7 @@ ${renderNotice(lang, notice)}
 </form>`;
 }
 
-function clientIp(c: Context, trustProxy: boolean): string {
-  if (trustProxy) {
-    const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-    if (forwarded) return forwarded;
-  }
-  return requestOrigin(c) ?? "unknown";
-}
+
 
 function fieldOf(body: Record<string, unknown>, name: string): string {
   const value = body[name];
@@ -225,12 +221,12 @@ export function createLegalRoutes(deps: LegalRoutesDeps): Hono {
 
   app.get(`/${LegalPage.AccountDeletion}`, (c) => deletionPage(c, languageOf(c), Notice.None, 200));
 
-  app.post(`/${LegalPage.AccountDeletion}`, bodyLimit({ maxSize: MAX_FORM_BYTES, onError: (c) => deletionPage(c, languageOf(c), Notice.Invalid, 400) }), async (c) => {
+  app.post(`/${LegalPage.AccountDeletion}`, requireCloudSource(deps.clientSource ?? SOCKET_ONLY, deps.sourceReporter), bodyLimit({ maxSize: MAX_FORM_BYTES, onError: (c) => deletionPage(c, languageOf(c), Notice.Invalid, 400) }), async (c) => {
     const lang = languageOf(c);
     if (!formEnabled || deps.supportEmail === undefined || deps.platformSmtp === undefined) {
       return deletionPage(c, lang, Notice.None, 200);
     }
-    const ip = clientIp(c, deps.trustProxy);
+    const ip = callerSource(c);
     if (limiter.retryAfter(ip) > 0) return deletionPage(c, lang, Notice.TooMany, 429);
     limiter.consume(ip);
 

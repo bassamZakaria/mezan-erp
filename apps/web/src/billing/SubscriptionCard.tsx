@@ -1,17 +1,18 @@
 import { useState } from "react";
 import { useLocation, useSearchParams } from "react-router";
 import { Button, Card, Money, useFormat } from "@mezan/ui";
-import type { BillingCycleDTO, SubscriptionStatusDTO } from "@mezan/contracts";
+import { SubscriptionStatusCode, type BillingCycleDTO, type SubscriptionStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { CardCheckoutChip, CheckoutOutcomeNotice, CHECKOUT_POLL_LIMIT_MS, TestModeChip } from "./CardCheckoutStatus";
 import { useStartRenewal, useTenantBilling, useTenantCheckout } from "./hooks";
 
 const STATUS_LABEL: Record<SubscriptionStatusDTO, AppTranslationKey> = {
-  trialing: "platform.subscriptionStatus.trialing",
-  active: "platform.subscriptionStatus.active",
-  past_due: "platform.subscriptionStatus.past_due",
-  suspended: "platform.subscriptionStatus.suspended",
-  cancelled: "platform.subscriptionStatus.cancelled",
+  [SubscriptionStatusCode.Trialing]: "platform.subscriptionStatus.trialing",
+  [SubscriptionStatusCode.Active]: "platform.subscriptionStatus.active",
+  [SubscriptionStatusCode.PastDue]: "platform.subscriptionStatus.past_due",
+  [SubscriptionStatusCode.Suspended]: "platform.subscriptionStatus.suspended",
+  [SubscriptionStatusCode.Cancelled]: "platform.subscriptionStatus.cancelled",
+  [SubscriptionStatusCode.Unknown]: "platform.status.unknown",
 };
 
 const CYCLE_LABEL: Record<BillingCycleDTO, AppTranslationKey> = {

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, waitFor, within } from "@testing-library/react";
-import type { TenantSettingsDTO } from "@mezan/contracts";
+import { COMPANY_NAME_MAX_LENGTH, type TenantSettingsDTO } from "@mezan/contracts";
 import { SettingsGeneral } from "./SettingsGeneral";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -425,28 +425,59 @@ describe("SettingsGeneral", () => {
     expect(textboxByLabel("اسم المنشأة")).toHaveValue("اسم لن يُحفظ");
   });
 
-  it("a blank required company name is rejected by the server (this screen has no client-side check), and the field stays empty rather than reverting to the loaded value", async () => {
+  it.each([
+    ["blank", "   ", "اسم المنشأة مطلوب."],
+    ["carrying a direction override", "شركة \u202Eevil", "اسم المنشأة يحتوي على رموز غير مسموح بها."],
+    ["longer than the limit", "ش".repeat(COMPANY_NAME_MAX_LENGTH + 1), `اسم المنشأة أطول من ${COMPANY_NAME_MAX_LENGTH} حرف.`],
+  ])("refuses a %s company name in Arabic before anything is sent, and keeps what was typed", async (_what, name, message) => {
     let putCalls = 0;
     const transport = stubTransport({
       "GET /settings": () => ({ body: baseSettings }),
-      "PUT /settings": (init) => {
+      "PUT /settings": () => {
         putCalls += 1;
-        const patch = JSON.parse((init?.body as string) ?? "{}") as Partial<TenantSettingsDTO>;
-        // Mirrors the real settings wire schema: companyName has a min(1).
-        if ((patch.companyName ?? "").trim() === "") {
-          return { status: 400, body: { error: "VALIDATION_ERROR" } };
-        }
-        return { body: { ...baseSettings, ...patch } };
+        return { body: baseSettings };
       },
     });
     renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
     await screen.findByRole("button", { name: "حفظ الإعدادات" });
     fireEvent.click(screen.getByRole("tab", { name: "بيانات المنشأة" }));
-    fireEvent.change(textboxByLabel("اسم المنشأة"), { target: { value: "" } });
+    expect(textboxByLabel("اسم المنشأة")).toHaveAttribute("maxlength", String(COMPANY_NAME_MAX_LENGTH));
+    fireEvent.change(textboxByLabel("اسم المنشأة"), { target: { value: name } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
 
-    expect(await screen.findByText(/^تعذر حفظ الإعدادات\. \(رمز \d{3}\)$/)).toBeInTheDocument();
-    expect(putCalls).toBe(1);
-    expect(textboxByLabel("اسم المنشأة")).toHaveValue("");
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(putCalls).toBe(0);
+    expect(textboxByLabel("اسم المنشأة")).toHaveValue(name);
+  });
+
+  it("takes the person to the company tab and marks the name field when a save from another tab meets a stored company name that is empty", async () => {
+    let putCalls = 0;
+    const transport = stubTransport({
+      "GET /settings": () => ({ body: { ...baseSettings, companyName: "" } }),
+      "PUT /settings": (init) => {
+        putCalls += 1;
+        return { body: JSON.parse(String(init?.body)) as unknown };
+      },
+    });
+    renderWithProviders(<SettingsGeneral />, { transport, initialSession: testAdminSession });
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
+    fireEvent.change(textboxByLabel("نسبة الضريبة الافتراضية (%)"), { target: { value: "15" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+
+    expect(screen.getByRole("tab", { name: "بيانات المنشأة" })).toHaveAttribute("aria-selected", "true");
+    const name = textboxByLabel("اسم المنشأة");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    expect(name).toHaveFocus();
+    expect(name).toHaveAccessibleDescription("اسم المنشأة مطلوب.");
+    expect(putCalls).toBe(0);
+
+    fireEvent.change(name, { target: { value: "شركة الاختبار" } });
+    expect(textboxByLabel("اسم المنشأة")).not.toHaveAttribute("aria-invalid", "true");
+    fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
+    await waitFor(() => expect(putCalls).toBe(1));
+    fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
+    expect(textboxByLabel("نسبة الضريبة الافتراضية (%)")).toHaveValue(15);
   });
 });

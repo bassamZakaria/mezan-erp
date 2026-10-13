@@ -5,6 +5,7 @@ import {
   ALL_SCOPE,
   InvalidUserError,
   DuplicateUserEmailError,
+  AuditSeverityCode,
   recordSecurityEvent,
   seatsOverLimitRefusal,
   type AuditSink,
@@ -14,7 +15,7 @@ import {
   type SettingsRepository,
   type User,
 } from "@mezan/domain";
-import { loginRequestSchema, bootstrapAdminRequestSchema, type SessionDTO } from "@mezan/contracts";
+import { loginRequestSchema, bootstrapAdminRequestSchema, UNDISCLOSED_TENANT_NAME, type SessionDTO } from "@mezan/contracts";
 import {
   createLoginThrottle,
   readSessionToken,
@@ -26,6 +27,8 @@ import {
 import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
 
 export interface AuthRoutesDeps {
+  readonly demoSeeded?: boolean;
+  readonly onSignedIn?: (user: { readonly userId: string; readonly email: string }) => Promise<void>;
   readonly uow: UnitOfWork;
   readonly hasher: SecretHasher;
   readonly settings: SettingsRepository;
@@ -50,7 +53,12 @@ export interface AuthRoutesDeps {
    * scenario rigs — and no seat check happens at all.
    */
   readonly resolveEntitlements?: (c: Context) => Promise<Entitlements | null | undefined> | Entitlements | null | undefined;
+  // SECURITY: the cloud platform's own record that this tenant has an owner.
+  // True closes the bootstrap routes whatever this database holds.
+  readonly claimedElsewhere?: () => Promise<boolean>;
 }
+
+export { UNDISCLOSED_TENANT_NAME };
 
 async function tenantName(settings: SettingsRepository): Promise<string> {
   const s = await settings.get();
@@ -144,7 +152,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
   let decoy: Promise<string> | null = null;
   const decoyHash = () => (decoy ??= deps.hasher.hash("mezan-login-timing-decoy"));
 
-  function security(c: Context, action: string, severity: "CRITICAL" | "WARNING" | "INFO", details: Record<string, unknown>) {
+  function security(c: Context, action: string, severity: AuditSeverityCode, details: Record<string, unknown>) {
     if (!deps.audit) return Promise.resolve();
     return recordSecurityEvent(deps.audit, {
       module: "auth",
@@ -181,17 +189,21 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * with one anonymous POST.
    */
   async function tenantIsClaimed(): Promise<boolean> {
+    if (await deps.claimedElsewhere?.()) return true;
     const settings = await deps.settings.get();
     if (settings?.tenantClaimedAt) return true;
     const users = await deps.uow.users.list();
     return users.some((u) => u.id !== SEED_ADMIN_USER_ID);
   }
 
-  /** Writes the claim once. Never cleared, and unreachable from `PUT /settings`. */
-  async function recordTenantClaim(at: string): Promise<void> {
+  // SECURITY: writes the claim once; it is never cleared and is unreachable
+  // from `PUT /settings`. The company name rides in the SAME write and nowhere
+  // earlier: this route is anonymous, so a name written before the claim is
+  // recorded would let a refused or failed request rename somebody else's tenant.
+  async function recordTenantClaim(at: string, companyName: string): Promise<void> {
     const settings = await deps.settings.get();
     if (!settings || settings.tenantClaimedAt) return;
-    await deps.settings.save({ ...settings, tenantClaimedAt: at });
+    await deps.settings.save({ ...settings, tenantClaimedAt: at, companyName });
   }
 
   /**
@@ -234,7 +246,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
 
     const waitSeconds = throttle.retryAfter(key);
     if (waitSeconds > 0) {
-      await security(c, "LOGIN_BLOCKED", "WARNING", { username: needle, retryAfterSeconds: waitSeconds });
+      await security(c, "LOGIN_BLOCKED", AuditSeverityCode.Warning, { username: needle, retryAfterSeconds: waitSeconds });
       return lockedOut(c, waitSeconds);
     }
 
@@ -254,10 +266,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       if (lockedFor > 0) {
         // The taxonomy in audit/audit-event.ts names account lockout as the
         // canonical CRITICAL event. It wrote nothing until now.
-        await security(c, "ACCOUNT_LOCKED", "CRITICAL", { username: needle, lockedForSeconds: lockedFor });
+        await security(c, "ACCOUNT_LOCKED", AuditSeverityCode.Critical, { username: needle, lockedForSeconds: lockedFor });
         return lockedOut(c, lockedFor);
       }
-      await security(c, "LOGIN_FAILED", "WARNING", { username: needle });
+      await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle });
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
     /**
@@ -276,7 +288,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
             nameAr: entitlements.planNameAr ?? entitlements.plan,
             nameEn: entitlements.planNameEn ?? entitlements.plan,
           });
-          await security(c, "LOGIN_REFUSED_SEATS", "WARNING", { userId: user.id, seats: entitlements.seats, active });
+          await security(c, "LOGIN_REFUSED_SEATS", AuditSeverityCode.Warning, { userId: user.id, seats: entitlements.seats, active });
           return c.json(refusal, 403);
         }
       }
@@ -284,7 +296,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     throttle.succeed(key);
     const at = new Date().toISOString();
     await recordSuccessfulLogin(user.id, at, deps.uow);
-    await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: user.id, username: needle });
+    await security(c, "LOGIN_SUCCEEDED", AuditSeverityCode.Info, { userId: user.id, username: needle });
+    await deps.onSignedIn?.({ userId: user.id, email: user.email }).catch((err: unknown) =>
+      console.error("[auth] the sign-in succeeded, but announcing it failed", err),
+    );
     // The session is bound to the origin the CREDENTIAL was verified from, so
     // the till that logged in is the only place the token it got back works.
     return c.json(await toSession(user, deps, requestOrigin(c)));
@@ -334,7 +349,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * host, gets the same generic placeholder a brand-new install would.
    */
   app.get("/tenant", async (c) => {
-    if (await tenantIsClaimed()) return c.json({ name: SEED_TENANT_NAME });
+    if (await tenantIsClaimed()) return c.json({ name: UNDISCLOSED_TENANT_NAME });
     return c.json({ name: await tenantName(deps.settings) });
   });
 
@@ -349,7 +364,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * install inside ninety seconds. The client can now open the wizard instead.
    */
   app.get("/bootstrap/status", async (c) => {
-    return c.json({ ...(await currentCounts(deps.seedStores)), claimed: await tenantIsClaimed() });
+    return c.json({ ...(await currentCounts(deps.seedStores)), claimed: await tenantIsClaimed(), demoSeeded: deps.demoSeeded === true });
   });
 
   /**
@@ -386,12 +401,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * with no credential.
    */
   app.post("/bootstrap/admin", async (c) => {
-    const parsed = bootstrapAdminRequestSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
+    const raw: unknown = await c.req.json().catch(() => null);
     if (await tenantIsClaimed()) {
-      await security(c, "BOOTSTRAP_REFUSED", "CRITICAL", { email: parsed.data.email });
+      const attempted = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>)["email"] : null;
+      await security(c, "BOOTSTRAP_REFUSED", AuditSeverityCode.Critical, { email: typeof attempted === "string" ? attempted.slice(0, 320) : null });
       return c.json(
         {
           error: "TENANT_ALREADY_PROVISIONED",
@@ -399,6 +412,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
         },
         409,
       );
+    }
+    const parsed = bootstrapAdminRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     await seedIfEmpty(deps.seedStores);
     try {
@@ -422,12 +439,12 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
         deps.uow,
         deps.hasher,
       );
-      await recordTenantClaim(new Date().toISOString());
+      await recordTenantClaim(new Date().toISOString(), parsed.data.companyName);
       await retireSeedAdmin();
       // The single highest-authority write in the product, and it recorded
       // nothing at all — so a company admin appearing from nowhere was
       // indistinguishable, afterwards, from one that had always been there.
-      await security(c, "TENANT_CLAIMED", "CRITICAL", {
+      await security(c, "TENANT_CLAIMED", AuditSeverityCode.Critical, {
         userId: user.id,
         email: user.email,
         seedAdminRetired: true,

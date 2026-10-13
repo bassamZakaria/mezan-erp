@@ -18,6 +18,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi } from "vitest";
+import { UserStatusCode } from "@mezan/domain";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -641,9 +642,9 @@ describe("user status transition", () => {
     });
     const { Wrapper } = makeWrapper(transport);
     const { result } = renderHook(() => useSetUserStatus(), { wrapper: Wrapper });
-    result.current.mutate({ id: "U1", status: "active" });
+    result.current.mutate({ id: "U1", status: UserStatusCode.Active });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    result.current.mutate({ id: "U1", status: "inactive" });
+    result.current.mutate({ id: "U1", status: UserStatusCode.Inactive });
     await waitFor(() => expect(seenPaths.length).toBe(2));
     expect(seenPaths[0]).toBe("/users/U1/activate");
     expect(seenPaths[1]).toBe("/users/U1/deactivate");

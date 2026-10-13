@@ -2,7 +2,7 @@ import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AppShell, SkeletonTable, filterNavGroups, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
-import { ALL_SCOPE } from "@mezan/domain";
+import { ALL_SCOPE, type UserStatusCode } from "@mezan/domain";
 import type { BranchDTO, EraseUserDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
 
@@ -10,6 +10,7 @@ import { useScopeSelector } from "./data/hub-hooks";
 import { displayName } from "./display-name";
 import { useProfile } from "./data/account-hooks";
 import { LoginScreen } from "./login/LoginScreen";
+import { PlanModule, planIncludesModule } from "./data/plan-modules";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { LicenceStatusNotice } from "./lan/ConnectedDevicesPanel";
 import {
@@ -198,8 +199,9 @@ export function AppLayout() {
   const branchesQuery = useBranches();
   const warehousesQuery = useWarehouses();
   const entitlementsQuery = useEntitlements();
-  const employeesQuery = useEmployees();
-  const jobTitlesQuery = useJobTitles();
+  const hrLicensed = planIncludesModule(entitlementsQuery, PlanModule.Hr);
+  const employeesQuery = useEmployees(hrLicensed);
+  const jobTitlesQuery = useJobTitles(hrLicensed);
   const pendingApprovalCountQuery = usePendingApprovalCount();
   const pendingApprovalCount = pendingApprovalCountQuery.data ?? 0;
   const unreadNotificationCount = useUnreadNotificationCount().data ?? 0;
@@ -460,6 +462,7 @@ export function AppLayout() {
       // الملف الشخصي — so this carries the stored value through untouched.
       photoUrl: draft.photoUrl ?? null,
       ...(draft.sodAcknowledge ? { acknowledge: draft.sodAcknowledge, reason: draft.sodReason?.trim() } : {}),
+      ...(draft.newOwnerUserId ? { newOwnerUserId: draft.newOwnerUserId } : {}),
     };
     try {
       const value = editingId
@@ -513,9 +516,9 @@ export function AppLayout() {
     }
   }
 
-  async function handleToggleUserStatus(userId: string, status: "active" | "inactive") {
+  async function handleToggleUserStatus(userId: string, status: UserStatusCode, newOwnerUserId?: string) {
     try {
-      const value = await setUserStatus.mutateAsync({ id: userId, status });
+      const value = await setUserStatus.mutateAsync({ id: userId, status, ...(newOwnerUserId ? { newOwnerUserId } : {}) });
       return { ok: true, value };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : t("app.userStatusFailed") };

@@ -7,6 +7,7 @@ import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, crea
 import { createSqliteCustomerRepository, createSqliteLedgerStore, createSqliteSupplierRepository, openSqliteConnection } from "@mezan/persistence";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
+import { SEED_TENANT_NAME } from "./seed.js";
 
 const handles: BackendHandle[] = [];
 afterEach(() => {
@@ -4357,6 +4358,24 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
     expect(res.status).toBe(200);
     const customersList = (await res.json()) as unknown[];
     expect(customersList.length).toBeGreaterThan(0);
+  }, 60000);
+
+  it("keeps the demo company's own name, and leaves its first-run claim closed", async () => {
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
+    handles.push(handle);
+    registries.set(handle.app, handle.sessions);
+
+    const claim = await handle.app.fetch(
+      new Request("http://local/bootstrap/admin", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nameAr: "دخيل", email: "second@demo.example", pin: "135791", companyName: "شركة أخرى" }),
+      }),
+    );
+    expect(claim.status).toBe(409);
+
+    const settings = await handle.app.fetch(new Request("http://local/settings", { headers: admin(handle.app) }));
+    expect(((await settings.json()) as { companyName: string }).companyName).toBe(SEED_TENANT_NAME);
   }, 60000);
 
   /**

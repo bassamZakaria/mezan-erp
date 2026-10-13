@@ -5,6 +5,7 @@ import {
   Checkbox,
   DocumentList,
   EntityPicker,
+  Select,
   SidePanel,
   StatusPill,
   TextInput,
@@ -13,8 +14,10 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import { ALL_SCOPE, detectSodConflicts, WILDCARD_PERMISSION, type ScopeSelection, type SodConflictMatch } from "@mezan/domain";
-import { ErasureRetention, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO, type UserDTO, type UserErasureResultDTO, type UserStatusDTO } from "@mezan/contracts";
+import { ALL_SCOPE, detectSodConflicts, UserStatusCode, WILDCARD_PERMISSION, type ScopeSelection, type SodConflictMatch } from "@mezan/domain";
+import { ErasureRetention, type OwnerHandOverOutcome, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO, type UserDTO, type UserErasureResultDTO, type UserStatusDTO } from "@mezan/contracts";
+import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
+import { markOwnerHandOver } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlParam } from "../lib/url-state";
 
@@ -31,7 +34,7 @@ export interface UsersPageProps {
   warehouses: { id: string; name: string; branchId: string }[];
   employees: { id: string; name: string; position: string }[];
   onSave: (draft: UserFormDraft, editingId: string | null) => Promise<StoreResult<UserDTO>>;
-  onToggleStatus: (userId: string, status: UserStatusDTO) => Promise<StoreResult<UserDTO>>;
+  onToggleStatus: (userId: string, status: UserStatusCode, newOwnerUserId?: string) => Promise<StoreResult<UserDTO>>;
   /**
    * Clears a failed-login lockout.
    *
@@ -68,6 +71,7 @@ export interface UserFormDraft {
   /** ENH-051 — set together, only when assigning a role trips a conflict. */
   sodAcknowledge?: boolean;
   sodReason?: string;
+  newOwnerUserId?: string;
 }
 
 const STATUS_KEY: Record<UserStatusDTO, AppTranslationKey> = { active: "common.active", inactive: "common.inactive" };
@@ -145,6 +149,58 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   const [eraseError, setEraseError] = useState<string | null>(null);
   const [eraseNotice, setEraseNotice] = useState<string | null>(null);
   const [erasingId, setErasingId] = useState<string | null>(null);
+  const [stepDownTarget, setStepDownTarget] = useState<UserDTO | null>(null);
+  const [stepDownSuccessorId, setStepDownSuccessorId] = useState("");
+  const [stepDownError, setStepDownError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const successorsOf = (ownerId: string) =>
+    users
+      .filter((u) => u.id !== ownerId && u.isCompanyAdmin && u.status === UserStatusCode.Active && !u.erasedAt)
+      .map((u) => ({ value: u.id, label: `${u.nameAr} — ${u.email}` }));
+
+  function announceHandOver(outcome: OwnerHandOverOutcome | undefined) {
+    if (outcome === undefined) return;
+    const key = OWNER_HAND_OVER_NOTICE_KEYS[outcome];
+    setEraseNotice(key ? t(key) : null);
+    markOwnerHandOver(outcome);
+  }
+
+  async function toggleStatus(row: UserDTO, status: UserStatusCode, newOwnerUserId?: string): Promise<boolean> {
+    if (togglingId !== null) return false;
+    setStatusError(null);
+    setTogglingId(row.id);
+    try {
+      const result = newOwnerUserId === undefined ? await onToggleStatus(row.id, status) : await onToggleStatus(row.id, status, newOwnerUserId);
+      if (!result.ok) setStatusError(result.error ?? t("users.statusChangeFailed"));
+      else announceHandOver(result.value?.ownerHandOver);
+      return result.ok;
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  function requestToggle(row: UserDTO) {
+    if (row.status === UserStatusCode.Active && row.isCompanyOwner) {
+      setStepDownTarget(row);
+      setStepDownSuccessorId("");
+      setStepDownError(null);
+      return;
+    }
+    void toggleStatus(row, row.status === UserStatusCode.Active ? UserStatusCode.Inactive : UserStatusCode.Active);
+  }
+
+  async function handleStepDown() {
+    if (!stepDownTarget) return;
+    if (stepDownSuccessorId === "") {
+      setStepDownError(t("users.owner.successorRequired"));
+      return;
+    }
+    const target = stepDownTarget;
+    setStepDownTarget(null);
+    await toggleStatus(target, UserStatusCode.Inactive, stepDownSuccessorId);
+  }
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles]);
 
@@ -208,11 +264,17 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       setFormError(t("users.sod.acknowledgeRequired"));
       return;
     }
+    if (ownerSteppingDown && !draft.newOwnerUserId) {
+      setFormError(t("users.owner.successorRequired"));
+      return;
+    }
     setSaving(true);
-    const result = await onSave(draft, editingId);
+    const { newOwnerUserId, ...fields } = draft;
+    const result = await onSave(ownerSteppingDown && newOwnerUserId ? { ...fields, newOwnerUserId } : fields, editingId);
     setSaving(false);
     if (result.ok) {
       setPanelOpen(false);
+      announceHandOver(result.value?.ownerHandOver);
     } else {
       setFormError(result.error ?? t("users.couldNotSaveTheUser"));
     }
@@ -234,7 +296,10 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       return;
     }
     setErasingId(eraseTarget.id);
-    const result = await onErase(eraseTarget.id, { confirmEmail: eraseEmail.trim(), reason: eraseReason.trim() });
+    const result = await onErase(eraseTarget.id, {
+      confirmEmail: eraseEmail.trim(),
+      reason: eraseReason.trim(),
+    });
     setErasingId(null);
     if (!result.ok) {
       setEraseError(result.error ?? t("users.erase.failed"));
@@ -244,6 +309,8 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     setEraseTarget(null);
   }
 
+  const editingOwner = editingId !== null && users.some((u) => u.id === editingId && u.isCompanyOwner === true);
+  const ownerSteppingDown = editingOwner && (draft.status !== UserStatusCode.Active || !draft.isCompanyAdmin);
   const roleOptions: EntityPickerOption[] = roles.map((r) => ({ id: r.id, label: r.name, sublabel: r.code }));
   const employeeOptions: EntityPickerOption[] = employees.map((e) => ({ id: e.id, label: e.name, sublabel: e.position }));
 
@@ -261,9 +328,11 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             <div className="flex items-center gap-[6px]">
               <span className="font-semibold text-ink">{row.nameAr}</span>
               {row.erasedAt ? <StatusPill label={t("users.erased")} tone="danger" /> : null}
+              {row.isCompanyOwner ? <StatusPill label={t("users.owner.badge")} tone="info" /> : null}
             </div>
             {row.nameEn ? <div className="mz-lat text-[11.5px] text-ink-faint">{row.nameEn}</div> : null}
             <div className="mz-lat text-[11px] text-ink-faint">{row.email}</div>
+            {onErase && row.isCompanyOwner && !row.erasedAt ? <div className="mt-[2px] text-[11.5px] leading-[1.6] text-ink-muted">{t("users.owner.eraseRefused")}</div> : null}
           </div>
         </div>
       ),
@@ -305,7 +374,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       align: "end",
       render: (row) => (
         <div className="flex items-center justify-end gap-[6px]">
-          {onErase && !row.erasedAt ? (
+          {onErase && !row.erasedAt && !row.isCompanyOwner ? (
             <Button
               size="sm"
               variant="ghost"
@@ -339,12 +408,13 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             <Button
               size="sm"
               variant="ghost"
+              disabled={togglingId === row.id}
               onClick={(e) => {
                 e.stopPropagation();
-                void onToggleStatus(row.id, row.status === "active" ? "inactive" : "active");
+                requestToggle(row);
               }}
             >
-              {row.status === "active" ? t("users.disable") : t("users.enable")}
+              {row.status === UserStatusCode.Active ? t("users.disable") : t("users.enable")}
             </Button>
           )}
         </div>
@@ -502,10 +572,50 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             />
           </FormSection>
 
+          {ownerSteppingDown ? (
+            <FormSection title={t("users.owner.stepDownTitle")}>
+              <p className="text-[12.5px] leading-[1.9] text-ink-muted">{t("users.owner.stepDownExplain")}</p>
+              <Select
+                label={t("users.owner.newOwnerLabel")}
+                value={draft.newOwnerUserId ?? ""}
+                onChange={(value) => setDraft((d) => ({ ...d, newOwnerUserId: value }))}
+                options={editingId ? successorsOf(editingId) : []}
+                placeholder={t("users.erase.newOwnerPlaceholder")}
+              />
+            </FormSection>
+          ) : null}
+
           <div className="flex justify-end gap-[9px] border-t border-border pt-[14px]">
             <Button variant="ghost" onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
             <Button variant="primary" disabled={saving} onClick={() => void handleSave()}>
               {saving ? t("users.saving") : t("users.saveTheUser")}
+            </Button>
+          </div>
+        </div>
+      </SidePanel>
+
+      <SidePanel
+        open={stepDownTarget !== null}
+        onClose={() => setStepDownTarget(null)}
+        title={t("users.owner.disableTitle")}
+        description={stepDownTarget ? t("users.erase.subject", { name: stepDownTarget.nameAr, email: stepDownTarget.email }) : ""}
+      >
+        <div className="flex flex-col gap-[14px]">
+          {stepDownError ? (
+            <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[9px] text-[12.5px] text-danger-ink">{stepDownError}</div>
+          ) : null}
+          <p className="text-[12.5px] leading-[1.9] text-ink-muted">{t("users.owner.stepDownExplain")}</p>
+          <Select
+            label={t("users.owner.newOwnerLabel")}
+            value={stepDownSuccessorId}
+            onChange={setStepDownSuccessorId}
+            options={stepDownTarget ? successorsOf(stepDownTarget.id) : []}
+            placeholder={t("users.erase.newOwnerPlaceholder")}
+          />
+          <div className="flex justify-end gap-[9px] border-t border-border pt-[14px]">
+            <Button variant="ghost" onClick={() => setStepDownTarget(null)}>{t("common.cancel")}</Button>
+            <Button variant="danger-outline" onClick={() => void handleStepDown()}>
+              {t("users.owner.disableConfirm")}
             </Button>
           </div>
         </div>
@@ -545,6 +655,15 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
           </div>
         </div>
       </SidePanel>
+
+      {statusError ? (
+        <div role="alert" className="fixed bottom-[18px] end-[18px] z-50 flex max-w-[min(92vw,460px)] items-center gap-[10px] rounded-md border border-danger bg-danger-soft px-[14px] py-[10px] text-[12.5px] text-danger-ink shadow-lg">
+          <span>{statusError}</span>
+          <Button size="sm" variant="ghost" onClick={() => setStatusError(null)}>
+            {t("users.owner.dismiss")}
+          </Button>
+        </div>
+      ) : null}
 
       {eraseNotice ? (
         <div className="fixed bottom-[18px] start-[18px] z-50 flex items-center gap-[10px] rounded-md border border-border bg-surface px-[14px] py-[10px] text-[12.5px] text-ink shadow-lg">

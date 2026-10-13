@@ -305,6 +305,8 @@ import type {
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
 import { ShellRequest, type DisplaySettingKey } from "@mezan/domain";
+import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
+import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { sessionMayAsk } from "./session";
 import type { TransportResponse } from "./transport";
@@ -456,18 +458,35 @@ export function useTenantInfo(
   });
 }
 
-/**
- * Deliberately name-free: this is an unauthenticated lookup anyone who knows
- * (or guesses) a tenant code can call, so it must never become a
- * name-enumeration oracle (see `tenant-router.ts`'s `/platform/resolve`).
- */
-export interface PlatformResolveDTO {
-  readonly mode: "subdomain" | "code";
-  readonly exists: boolean;
+export const PLATFORM_LOOKUP_FIRST_RETRY_MS = 1_000;
+export const PLATFORM_LOOKUP_MAX_RETRY_MS = 30_000;
+const PLATFORM_LOOKUP_MAX_RETRY_AFTER_MS = 5 * 60_000;
+const UNREADABLE_LOOKUP_STATUS = 502;
+const TENANT_RESOLVE_MODES: readonly string[] = Object.values(TenantResolveMode);
+
+function retryAfterSecondsOf(res: TransportResponse): number | undefined {
+  const seconds = Number(res.header?.("retry-after") ?? "");
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+}
+
+const PLATFORM_LOOKUP_JITTER = 0.2;
+const PERMANENT_LOOKUP_REFUSALS: readonly number[] = [400, 401, 403, 410];
+
+export function platformLookupRetryDelay(failureCount: number, error: unknown, random: () => number = Math.random): number {
+  const backoff = PLATFORM_LOOKUP_FIRST_RETRY_MS * 2 ** Math.min(failureCount, 16);
+  const spread = 1 + PLATFORM_LOOKUP_JITTER * (2 * random() - 1);
+  const jittered = Math.min(PLATFORM_LOOKUP_MAX_RETRY_MS, Math.round(backoff * spread));
+  const asked = error instanceof ApiError && error.retryAfterSeconds !== undefined ? error.retryAfterSeconds * 1000 : 0;
+  return Math.min(PLATFORM_LOOKUP_MAX_RETRY_AFTER_MS, Math.max(asked, jittered));
 }
 
 export function noPlatformInFront(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
+}
+
+export function platformLookupWorthRetrying(error: unknown): boolean {
+  if (noPlatformInFront(error)) return false;
+  return !(error instanceof ApiError && PERMANENT_LOOKUP_REFUSALS.includes(error.status));
 }
 
 export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {
@@ -476,15 +495,30 @@ export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQuer
   return useQuery<PlatformResolveDTO, ApiError>({
     queryKey: ["platform", "resolve"],
     enabled: options.enabled ?? true,
+    retry: (_failureCount, error) => platformLookupWorthRetrying(error),
+    retryDelay: (failureCount, error) => platformLookupRetryDelay(failureCount, error),
     queryFn: async () => {
       const res = await request("/platform/resolve");
-      if (!res.ok) throw await loaderError(res, t("api.theCompanySDetailsCould"));
-      return res.json<PlatformResolveDTO>();
+      if (!res.ok) {
+        const refused = await loaderError(res, t("api.theCompanySDetailsCould"));
+        throw new ApiError(res.status, refused.message, undefined, retryAfterSecondsOf(res));
+      }
+      const body = await res.json<Partial<PlatformResolveDTO> | null>().catch(() => null);
+      if (!body || typeof body.exists !== "boolean" || !TENANT_RESOLVE_MODES.includes(String(body.mode))) {
+        throw new ApiError(UNREADABLE_LOOKUP_STATUS, t("api.theCompanySDetailsCould"));
+      }
+      return { mode: body.mode as TenantResolveMode, exists: body.exists };
     },
   });
 }
 
-// SECURITY: a tenant-scoped request must never leave before a company is known. On a shared address that is the code the person typed and confirmed; with no platform in front (LAN, desktop) the only company there is, is known from the start.
+export function platformLookupFailing(resolve: Pick<UseQueryResult<PlatformResolveDTO, ApiError>, "data" | "failureCount" | "failureReason">): boolean {
+  return resolve.data === undefined && resolve.failureCount > 0 && !noPlatformInFront(resolve.failureReason);
+}
+
+// SECURITY (D-SAAS-06): a tenant-scoped request must never leave before a
+// company is known, and a lookup that failed knows nothing. While it fails the
+// only company there can be is one the person typed and confirmed.
 export function useCompanyKnown(): boolean {
   const { session } = useApi();
   const alreadyKnown = session !== null || isDesktopHost();
@@ -492,9 +526,10 @@ export function useCompanyKnown(): boolean {
   const storedCode = useSyncExternalStore(subscribeTenantCode, loadTenantCode, () => null);
   const companyTyped = storedCode !== null && storedCode !== "";
   if (alreadyKnown) return true;
-  if (resolve.isError) return noPlatformInFront(resolve.error) || companyTyped;
+  if (resolve.isError) return noPlatformInFront(resolve.error);
+  if (platformLookupFailing(resolve)) return companyTyped;
   if (!resolve.data) return false;
-  if (resolve.data.mode === "subdomain") return resolve.data.exists;
+  if (resolve.data.mode === TenantResolveMode.Subdomain) return resolve.data.exists;
   return companyTyped;
 }
 
@@ -1870,9 +1905,12 @@ export function useSetUserStatus() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<UserDTO, ApiError, { id: string; status: "active" | "inactive" }>({
-    mutationFn: async ({ id, status }) => {
-      const res = await request(`/users/${id}/${status === "active" ? "activate" : "deactivate"}`, { method: "POST" });
+  return useMutation<UserDTO, ApiError, { id: string; status: UserStatusCode; newOwnerUserId?: string }>({
+    mutationFn: async ({ id, status, newOwnerUserId }) => {
+      const res = await request(`/users/${id}/${status === UserStatusCode.Active ? "activate" : "deactivate"}`, {
+        method: "POST",
+        ...(newOwnerUserId ? { body: JSON.stringify({ newOwnerUserId }) } : {}),
+      });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserSStatusCould"), t));
       return res.json<UserDTO>();
     },
@@ -6486,12 +6524,12 @@ export function useUpdateDepartment() {
   });
 }
 
-export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
+export function useJobTitles(enabled = true): UseQueryResult<JobTitleDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JobTitleDTO[], ApiError>({
     queryKey: ["hr-job-titles"],
-    enabled: sessionMayAsk(session, ShellRequest.JobTitles),
+    enabled: sessionMayAsk(session, ShellRequest.JobTitles) && enabled,
     queryFn: async () => {
       const res = await request("/hr/job-titles");
       if (!res.ok) throw await loaderError(res, t("api.jobTitlesCouldNotBe"), t);
@@ -6528,12 +6566,12 @@ export function useUpdateJobTitle() {
   });
 }
 
-export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
+export function useEmployees(enabled = true): UseQueryResult<EmployeeDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<EmployeeDTO[], ApiError>({
     queryKey: ["hr-employees"],
-    enabled: sessionMayAsk(session, ShellRequest.Employees),
+    enabled: sessionMayAsk(session, ShellRequest.Employees) && enabled,
     queryFn: async () => {
       const res = await request("/hr/employees");
       if (!res.ok) throw await loaderError(res, t("api.employeesCouldNotBeLoaded"), t);

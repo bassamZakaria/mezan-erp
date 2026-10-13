@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { clearOwnerHandOver, pendingOwnerHandOver } from "../data/session";
 import { render as rtlRender, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import type { RoleDTO, UserDTO } from "@mezan/contracts";
 import { UsersPage } from "./UsersPage";
 import { AppI18nProvider } from "../i18n";
+
+afterEach(() => clearOwnerHandOver());
 
 /** UsersPage keeps its status filter in the URL (useUrlParam), so it needs a router. */
 const render = (ui: React.ReactElement) =>
@@ -311,6 +314,37 @@ describe("UsersPage — personal-data erasure (D348)", () => {
     );
   });
 
+  const NEW_OWNER_LABEL = "المالك الجديد للمنشأة";
+
+  it("does not offer erasing the company's owner, and says in Arabic that ownership must be handed over first", () => {
+    const admin: UserDTO = { ...user, isCompanyAdmin: true, isCompanyOwner: true };
+    const peer: UserDTO = { ...user, id: "user-9", nameAr: "هدى المديرة", email: "huda@cyag.test", isCompanyAdmin: true };
+    renderPage({ users: [admin, peer], onErase: vi.fn() });
+
+    expect(screen.getAllByRole("button", { name: "محو البيانات الشخصية" })).toHaveLength(1);
+    expect(screen.getByText("لا تُمحى بيانات مالك المنشأة قبل نقل الملكية إلى مدير آخر.")).toBeInTheDocument();
+  });
+
+  it("asks for no new owner when a company admin who is not the owner is erased", async () => {
+    const admin: UserDTO = { ...user, isCompanyAdmin: true, isCompanyOwner: false };
+    const peer: UserDTO = { ...user, id: "user-9", nameAr: "هدى المديرة", email: "huda@cyag.test", isCompanyAdmin: true, isCompanyOwner: true };
+    renderPage({ users: [admin, peer], onErase: vi.fn() });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "محو البيانات الشخصية" })[0]!);
+    await screen.findByLabelText("اكتب بريد الحساب للتأكيد");
+    expect(screen.queryByRole("combobox", { name: NEW_OWNER_LABEL })).not.toBeInTheDocument();
+  });
+
+  it("asks for no new owner when the account being erased is not a company admin", async () => {
+    const clerk: UserDTO = { ...user, isCompanyAdmin: false, roleId: "role-1" };
+    const peer: UserDTO = { ...user, id: "user-9", nameAr: "هدى المديرة", email: "huda@cyag.test", isCompanyAdmin: true };
+    renderPage({ users: [clerk, peer], onErase: vi.fn() });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "محو البيانات الشخصية" })[0]!);
+    await screen.findByLabelText("اكتب بريد الحساب للتأكيد");
+    expect(screen.queryByRole("combobox", { name: NEW_OWNER_LABEL })).not.toBeInTheDocument();
+  });
+
   it("surfaces a refusal from the server instead of closing", async () => {
     const onErase = vi.fn().mockResolvedValue({ ok: false, error: "لا يمكن محو بيانات آخر مدير شركة نشط." });
     renderPage({ onErase });
@@ -332,5 +366,131 @@ describe("UsersPage — personal-data erasure (D348)", () => {
     expect(screen.queryByRole("button", { name: "محو البيانات الشخصية" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "تفعيل" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "فكّ القفل" })).not.toBeInTheDocument();
+  });
+});
+
+describe("UsersPage — the company's owner", () => {
+  const owner: UserDTO = { ...user, isCompanyOwner: true };
+  const peer: UserDTO = { ...user, id: "user-9", nameAr: "هدى المديرة", email: "huda@cyag.test", isCompanyAdmin: true };
+
+  it("marks the owner's row", () => {
+    renderPage({ users: [owner, peer] });
+
+    expect(screen.getAllByText("مالك المنشأة")).toHaveLength(1);
+  });
+
+  it("asks who takes over before the owner's account is disabled, and sends the admin chosen", async () => {
+    const onToggleStatus = vi.fn().mockResolvedValue({ ok: true });
+    renderPage({ users: [owner, peer], onToggleStatus });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "تعطيل" })[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "تعطيل حساب مالك المنشأة" });
+    expect(onToggleStatus).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "تعطيل الحساب" }));
+    expect(await within(dialog).findByText("اختر مدير المنشأة الذي يصبح المالك قبل المتابعة.")).toBeInTheDocument();
+    expect(onToggleStatus).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "المالك الجديد للمنشأة" }));
+    fireEvent.mouseDown((await screen.findAllByRole("option"))[0]!);
+    fireEvent.click(within(dialog).getByRole("button", { name: "تعطيل الحساب" }));
+
+    await waitFor(() => expect(onToggleStatus).toHaveBeenCalledWith("user-1", "inactive", "user-9"));
+  });
+
+  it.each([
+    ["pending", /نقل ملكية المنشأة بانتظار التأكيد: أُرسل رابط التأكيد إلى بريد المالك السابق/],
+    ["pending_unmailed", /نقل ملكية المنشأة بانتظار تأكيد دعم المنصة: لم يُرسل رابط تأكيد/],
+    ["failed", /تعذّر تسجيل المالك الجديد على المنصة/],
+  ])("tells the owner what became of the hand-over after stepping down: %s", async (outcome, notice) => {
+    const onToggleStatus = vi.fn().mockResolvedValue({ ok: true, value: { ...owner, status: "inactive", ownerHandOver: outcome } });
+    renderPage({ users: [owner, peer], onToggleStatus });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "تعطيل" })[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "تعطيل حساب مالك المنشأة" });
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "المالك الجديد للمنشأة" }));
+    fireEvent.mouseDown((await screen.findAllByRole("option"))[0]!);
+    fireEvent.click(within(dialog).getByRole("button", { name: "تعطيل الحساب" }));
+
+    expect(await screen.findByText(notice)).toBeInTheDocument();
+  });
+
+  it("leaves what became of the hand-over for the sign-in screen, because stepping down ends the owner's session", async () => {
+    const onToggleStatus = vi.fn().mockResolvedValue({ ok: true, value: { ...owner, status: "inactive", ownerHandOver: "pending" } });
+    renderPage({ users: [owner, peer], onToggleStatus });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "تعطيل" })[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "تعطيل حساب مالك المنشأة" });
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "المالك الجديد للمنشأة" }));
+    fireEvent.mouseDown((await screen.findAllByRole("option"))[0]!);
+    fireEvent.click(within(dialog).getByRole("button", { name: "تعطيل الحساب" }));
+
+    await waitFor(() => expect(pendingOwnerHandOver()).toBe("pending"));
+  });
+
+  it("says nothing more when the hand-over was verified at once", async () => {
+    const onToggleStatus = vi.fn().mockResolvedValue({ ok: true, value: { ...owner, status: "inactive", ownerHandOver: "verified" } });
+    renderPage({ users: [owner, peer], onToggleStatus });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "تعطيل" })[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "تعطيل حساب مالك المنشأة" });
+    fireEvent.click(within(dialog).getByRole("combobox", { name: "المالك الجديد للمنشأة" }));
+    fireEvent.mouseDown((await screen.findAllByRole("option"))[0]!);
+    fireEvent.click(within(dialog).getByRole("button", { name: "تعطيل الحساب" }));
+
+    await waitFor(() => expect(onToggleStatus).toHaveBeenCalled());
+    expect(screen.queryByText(/نقل ملكية المنشأة بانتظار/)).not.toBeInTheDocument();
+  });
+
+  it("stops saying a confirmation link is waiting once a later hand-over needed none", async () => {
+    const onToggleStatus = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, value: { ...owner, status: "inactive", ownerHandOver: "pending" } })
+      .mockResolvedValueOnce({ ok: true, value: { ...owner, status: "inactive", ownerHandOver: "verified" } });
+    renderPage({ users: [owner, peer], onToggleStatus });
+    const stepDown = async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "تعطيل" })[0]!);
+      const dialog = await screen.findByRole("dialog", { name: "تعطيل حساب مالك المنشأة" });
+      fireEvent.click(within(dialog).getByRole("combobox", { name: "المالك الجديد للمنشأة" }));
+      fireEvent.mouseDown((await screen.findAllByRole("option"))[0]!);
+      fireEvent.click(within(dialog).getByRole("button", { name: "تعطيل الحساب" }));
+    };
+
+    await stepDown();
+    expect(await screen.findByText(/أُرسل رابط التأكيد إلى بريد المالك السابق/)).toBeInTheDocument();
+    await stepDown();
+
+    await waitFor(() => expect(onToggleStatus).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/نقل ملكية المنشأة بانتظار/)).not.toBeInTheDocument());
+  });
+
+  it("disables any other account without asking for a new owner", () => {
+    const onToggleStatus = vi.fn().mockResolvedValue({ ok: true });
+    renderPage({ users: [owner, peer], onToggleStatus });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "تعطيل" })[1]!);
+
+    expect(onToggleStatus).toHaveBeenCalledWith("user-9", "inactive");
+  });
+
+  it("shows the server's refusal when disabling an account fails", async () => {
+    const onToggleStatus = vi.fn().mockResolvedValue({ ok: false, error: "هذا حساب مالك المنشأة." });
+    renderPage({ users: [{ ...owner, isCompanyOwner: false }, peer], onToggleStatus });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "تعطيل" })[0]!);
+
+    expect(await screen.findByText("هذا حساب مالك المنشأة.")).toBeInTheDocument();
+  });
+
+  it("asks for the new owner in the edit form when the owner removes their own admin access, and sends it with the save", async () => {
+    const onSave = vi.fn().mockResolvedValue({ ok: true });
+    renderPage({ users: [owner, peer], onSave });
+
+    fireEvent.click(screen.getByText(owner.nameAr));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /مدير المنشأة/ }));
+    fireEvent.click(screen.getByRole("combobox", { name: "المالك الجديد للمنشأة" }));
+    fireEvent.mouseDown((await screen.findAllByRole("option")).find((option) => option.textContent?.includes("huda@cyag.test"))!);
+    fireEvent.click(screen.getByRole("button", { name: "حفظ المستخدم" }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0]?.[0]).toMatchObject({ isCompanyAdmin: false, newOwnerUserId: "user-9" });
   });
 });

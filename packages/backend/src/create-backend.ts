@@ -1,5 +1,6 @@
 import { reversalPermissionSuccessors } from "@mezan/contracts";
 import { createHash, randomUUID } from "node:crypto";
+import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import {
   createApp,
   createPeriodCloseGuardSlot,
@@ -179,6 +180,10 @@ import {
   type OpeningBalanceEntryRef,
   tenantTodayIso,
   BASE_CURRENCY,
+  UserStatusCode,
+  isErasedUser,
+  AuditSeverityCode,
+  type OwnerRecordDue,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -275,6 +280,8 @@ import {
   createDataMigrationTransactor,
   createSqliteBarcodeConfigStore,
   createSqliteUserPreferencesStore,
+  createSqliteOwnerPinFence,
+  createSqliteCredentialResetMarks,
   createSqliteAuditSink,
   createSqlitePeriodCloseStore,
   deriveAuditChainKey,
@@ -543,8 +550,58 @@ function fanOutDocumentEvents(...publishers: readonly DocumentEventPublisher[]):
   };
 }
 
+export enum SecurityEventOrigin {
+  Platform = "platform",
+}
+
+export { OwnerPinResetOutcome };
+
+export const COMPANY_OWNER_ASSIGNED_AUDIT = "COMPANY_OWNER_ASSIGNED";
+
+export type OwnerAssignedRecord = OwnerRecordDue;
+const OWNER_ASSIGNED_LOOKBACK = 500;
+
+export interface ResetOwnerPinCommand {
+  readonly userId?: string | null;
+  readonly email: string;
+  readonly pin: string;
+  readonly onlyIfNeverSignedIn: boolean;
+  readonly actor: string;
+  readonly fence?: number;
+}
+
+export interface OwnerAccount {
+  readonly id: string;
+  readonly email: string;
+  readonly canAdminister: boolean;
+}
+
+export type OwnerAccountQuery = { readonly userId: string } | { readonly email: string };
+
+export interface SignedInUser {
+  readonly userId: string;
+  readonly email: string;
+  readonly canAdminister: boolean;
+  readonly credentialIsOwn: boolean;
+}
+
+export interface CompanyAdminAccount {
+  readonly id: string;
+  readonly nameAr: string;
+  readonly email: string;
+}
+
 export interface BackendHandle {
   readonly app: App;
+  ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null>;
+  companyAdmins(): Promise<CompanyAdminAccount[]>;
+  recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void>;
+  /**
+   * SECURITY: deliberately NOT an HTTP route. A route would be reachable through
+   * the tenant router and the desktop LAN mount; this is callable only by code
+   * that already holds the handle (platform provisioning and the platform console).
+   */
+  resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome>;
   /**
    * الإيصال الإلكتروني — issues a consumer sale's (or return's) e-receipt
    * synchronously, on the chain of the device serial given. The POS till calls
@@ -634,6 +691,10 @@ export interface CreateBackendOptions {
    * writable.
    */
   readonly resolveLicenseState?: CreateAppOptions["resolveLicenseState"];
+  readonly onUserEmailChanged?: CreateAppOptions["onUserEmailChanged"];
+  readonly companyOwner?: CreateAppOptions["companyOwner"];
+  readonly onUserSignedIn?: (user: SignedInUser) => Promise<void>;
+  readonly claimedElsewhere?: () => Promise<boolean>;
   /**
    * The VERIFIED capability set every module-gated route group is checked
    * against, and that `GET /entitlements` and `/roles` report.
@@ -723,6 +784,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
   const userPreferences = createSqliteUserPreferencesStore(sqlite);
+  const ownerPinFence = createSqliteOwnerPinFence(sqlite);
+  const credentialResets = createSqliteCredentialResetMarks(sqlite);
   const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
   // The boundary a route-level config write shares with its audit row (D298).
   // Same shared connection the audit sink writes on, so the append nests as a
@@ -3528,6 +3591,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const app = createApp(uow, {
     resolveAuthContext,
     security: { sessions, loginThrottle },
+    ...(options.onUserEmailChanged
+      ? { onUserEmailChanged: (change) => options.onUserEmailChanged!({ ...change, actorCredentialIsOwn: !credentialResets.has(change.actorId) }) }
+      : {}),
+    ...(options.companyOwner
+      ? {
+          companyOwner: {
+            currentOwnerUserId: () => options.companyOwner!.currentOwnerUserId(),
+            handOver: (input) => options.companyOwner!.handOver({ ...input, actorCredentialIsOwn: !credentialResets.has(input.actorId) }),
+          },
+        }
+      : {}),
+    onUserCredentialSetByOther: (userId, actorId) => credentialResets.mark(userId, new Date().toISOString(), actorId),
     onPermissionRefused,
     // The LAN routes need the SAME session registry the auth routes issue
     // into, or a disconnect revokes a token nobody is holding.
@@ -4634,7 +4709,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       schemaVersion: CURRENT_SCHEMA_VERSION,
     }),
   );
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements }));
+  const announceSignIn = options.onUserSignedIn
+    ? async ({ userId, email }: { readonly userId: string; readonly email: string }): Promise<void> => {
+        const user = await uow.users.findById(userId);
+        await options.onUserSignedIn?.({
+          userId,
+          email,
+          canAdminister: user !== null && user.isCompanyAdmin && user.status === UserStatusCode.Active,
+          credentialIsOwn: !credentialResets.has(userId),
+        });
+      }
+    : undefined;
+  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: announceSignIn, demoSeeded: options.seedDemoData === true, claimedElsewhere: options.claimedElsewhere }));
   app.route(
     "/",
     createDashboardRoutes({
@@ -4795,9 +4881,78 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     });
   }
 
+  async function companyAdmins(): Promise<CompanyAdminAccount[]> {
+    return (await uow.users.list())
+      .filter((user) => user.isCompanyAdmin && user.status === UserStatusCode.Active && !isErasedUser(user))
+      .map((user) => ({ id: user.id, nameAr: user.nameAr, email: user.email }));
+  }
+
+  // CONTRACT: idempotent on `eventId`. The platform asks again after a crash
+  // until it has seen this succeed, so the same event must leave one row.
+  async function recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void> {
+    credentialResets.clear(input.userId);
+    const { events } = await auditSink.queryEvents({ stream: "security", action: COMPANY_OWNER_ASSIGNED_AUDIT, entityId: input.userId, limit: OWNER_ASSIGNED_LOOKBACK });
+    if (events.some((row) => (row.details as Record<string, unknown> | undefined)?.["eventId"] === input.eventId)) return;
+    await recordSecurityEvent(auditSink, {
+      module: "admin",
+      entityType: "USER",
+      entityId: input.userId,
+      action: COMPANY_OWNER_ASSIGNED_AUDIT,
+      actor: input.actor,
+      severity: AuditSeverityCode.Critical,
+      details: { previousUserId: input.previousUserId, confirmedBy: input.confirmedBy, eventId: input.eventId, origin: SecurityEventOrigin.Platform },
+    });
+  }
+
+  async function ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null> {
+    const user = "userId" in query ? await uow.users.findById(query.userId) : await uow.users.findByEmail(query.email.trim().toLowerCase());
+    if (!user || isErasedUser(user)) return null;
+    return { id: user.id, email: user.email, canAdminister: user.isCompanyAdmin && user.status === UserStatusCode.Active };
+  }
+
+  async function resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome> {
+    const owner = cmd.userId ? await uow.users.findById(cmd.userId) : await uow.users.findByEmail(cmd.email.trim().toLowerCase());
+    if (!owner || !owner.isCompanyAdmin || owner.status !== UserStatusCode.Active) return OwnerPinResetOutcome.OwnerNotFound;
+    if (cmd.onlyIfNeverSignedIn && owner.lastLoginAt !== null) return OwnerPinResetOutcome.AlreadySignedIn;
+    const pinHash = await hasher.hash(cmd.pin);
+    // SECURITY: the fence is compared and raised in the same transaction as the
+    // PIN write. A holder that lost its claim while it was paused arrives here
+    // with an older generation and writes nothing, so the PIN the newer holder
+    // handed out is the one that still signs in.
+    const written = await uow.transaction(async (tx) => {
+      if (cmd.fence !== undefined) {
+        if (cmd.fence < ownerPinFence.current()) return false;
+        ownerPinFence.raiseTo(cmd.fence);
+      }
+      const current = await tx.users.findById(owner.id);
+      if (!current) return OwnerPinResetOutcome.OwnerVanished;
+      await tx.users.save({ ...current, pinHash });
+      return true;
+    });
+    if (written === OwnerPinResetOutcome.OwnerVanished) return written;
+    if (!written) return OwnerPinResetOutcome.Superseded;
+    if (!cmd.onlyIfNeverSignedIn) credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
+    sessions.revokeUser(owner.id);
+    loginThrottle.succeed(owner.email.trim().toLowerCase());
+    await recordSecurityEvent(auditSink, {
+      module: "auth",
+      entityType: "USER",
+      entityId: owner.id,
+      action: "OWNER_PIN_RESET",
+      actor: cmd.actor,
+      severity: "CRITICAL",
+      details: { email: owner.email, onlyIfNeverSignedIn: cmd.onlyIfNeverSignedIn, origin: SecurityEventOrigin.Platform },
+    });
+    return OwnerPinResetOutcome.Reset;
+  }
+
   return {
     app,
     sessions,
+    ownerAccount,
+    companyAdmins,
+    recordOwnerAssigned,
+    resetOwnerPin,
     etaReceipts,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     async drain() {

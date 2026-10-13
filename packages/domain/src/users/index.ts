@@ -1,6 +1,7 @@
 export {
   type User,
   type UserStatus,
+  UserStatusCode,
   type UserRepository,
   type SecretHasher,
 } from "./user.js";

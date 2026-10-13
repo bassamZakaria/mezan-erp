@@ -141,11 +141,6 @@ export function DashboardScreen() {
   const supplierAging = useSupplierAging();
   const topProducts = useTopProducts(window);
   const attention = useAttentionData(window, today);
-  /**
-   * استثناءات المقاولات — the one contracting tile (design §06). Gated on the
-   * certificate-view right so a tenant that does not run contracting never sees
-   * a row about it.
-   */
   const mayViewContracting = (session?.permissions ?? []).some((p) => p === "*" || p === "contracting.certificate.view");
   const contractingLicensed = planIncludesModule(useEntitlements(), PlanModule.Contracting);
   const contractingExceptions = useContractingExceptionSummary(mayViewContracting && contractingLicensed);

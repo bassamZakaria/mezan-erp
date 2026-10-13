@@ -419,13 +419,13 @@ function testCheckoutPage(checkout: CardCheckout, tenantCode: string): string {
 </html>`;
 }
 
+const TEST_CHECKOUT_NOT_FOUND = "صفحة الدفع التجريبية غير موجودة";
+
 /**
  * The fake hosted checkout, mounted only when the test double is active. Its
  * buttons do not mark anything paid themselves: they sign a Paymob-shaped
  * callback with the test secret and run it through the same webhook handler.
  */
-const TEST_CHECKOUT_NOT_FOUND = "صفحة الدفع التجريبية غير موجودة";
-
 export function createTestCheckoutRoutes(options: {
   readonly platform: PlatformHandle;
   readonly service: CardCheckoutService;

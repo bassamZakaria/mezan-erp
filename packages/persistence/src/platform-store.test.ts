@@ -240,6 +240,54 @@ describe("createSqlitePlatformStores", () => {
     });
   });
 
+  describe("period ends an earlier build computed in UTC for a subscription that started on the 1st in Cairo", () => {
+    const SHORT = { createdAt: "2024-02-29T22:30:00.000Z", currentPeriodStart: "2024-02-29T22:30:00.000Z", currentPeriodEnd: "2024-03-29T22:30:00.000Z" };
+
+    async function storedBeforeTheSecondRepair(db: InstanceType<typeof Database>) {
+      const before = createSqlitePlatformStores(db);
+      await before.subscriptions.save({ ...sub, id: "S-SHORT", tenantId: "T-SHORT", ...SHORT });
+      await before.subscriptions.save({ ...sub, id: "S-SHORT-ON-1", tenantId: "T-SHORT-ON-1", ...SHORT, billingAnchorDay: 1 });
+      await before.subscriptions.save({ ...sub, id: "S-SHORT-ON-29", tenantId: "T-SHORT-ON-29", ...SHORT, billingAnchorDay: 29 });
+      await before.subscriptions.save({ ...sub, id: "S-SHORT-ENDED", tenantId: "T-SHORT-ENDED", status: "cancelled", cancelledAt: NOW, ...SHORT });
+      await before.subscriptions.save({
+        ...sub, id: "S-CURRENT", tenantId: "T-CURRENT", createdAt: "2024-02-29T22:30:00.000Z",
+        currentPeriodStart: "2024-02-29T22:30:00.000Z", currentPeriodEnd: "2024-03-31T22:30:00.000Z", billingAnchorDay: 1,
+      });
+      db.exec("DELETE FROM platform_migration WHERE name = '2026-10-period-end-utc-short-repair'");
+    }
+
+    it("are moved to the next 1st on a store the first period-end repair already ran on, once", async () => {
+      const db = new Database(":memory:");
+      await storedBeforeTheSecondRepair(db);
+      const markersBefore = (db.prepare("SELECT name FROM platform_migration ORDER BY name").all() as { name: string }[]).map((row) => row.name);
+
+      const first = createSqlitePlatformStores(db);
+      const repaired = await first.subscriptions.findById("S-SHORT");
+      const repairedOnTheFirst = await first.subscriptions.findById("S-SHORT-ON-1");
+      await first.subscriptions.save({ ...repaired!, currentPeriodEnd: SHORT.currentPeriodEnd });
+      const second = createSqlitePlatformStores(db);
+
+      expect(markersBefore).toContain("2026-10-period-end-cairo-repair");
+      expect(markersBefore).not.toContain("2026-10-period-end-utc-short-repair");
+      expect(repaired?.currentPeriodEnd).toBe("2024-03-31T22:30:00.000Z");
+      expect(repairedOnTheFirst?.currentPeriodEnd).toBe("2024-03-31T22:30:00.000Z");
+      expect((await second.subscriptions.findById("S-SHORT"))?.currentPeriodEnd).toBe(SHORT.currentPeriodEnd);
+      db.close();
+    });
+
+    it("touch neither a period anchored on another day, nor a cancelled subscription, nor a period the current build wrote", async () => {
+      const db = new Database(":memory:");
+      await storedBeforeTheSecondRepair(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect((await subscriptions.findById("S-SHORT-ON-29"))?.currentPeriodEnd).toBe(SHORT.currentPeriodEnd);
+      expect((await subscriptions.findById("S-SHORT-ENDED"))?.currentPeriodEnd).toBe(SHORT.currentPeriodEnd);
+      expect((await subscriptions.findById("S-CURRENT"))?.currentPeriodEnd).toBe("2024-03-31T22:30:00.000Z");
+      db.close();
+    });
+  });
+
   describe("anchor days stored as the UTC day by an earlier build", () => {
     const stored = (over: Partial<Subscription>): Subscription => ({ ...sub, ...over });
 

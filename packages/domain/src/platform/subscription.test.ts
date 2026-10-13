@@ -3,7 +3,7 @@ import { Money } from "../money/money.js";
 import { PlanKind, type Plan, type PlanRepository } from "./plan.js";
 import {
   addPeriod, applyRenewal, settledPeriodEnd, startSubscription, renewSubscription, changePlan, markPastDue,
-  suspendSubscription, resumeSubscription, cancelSubscription, billingAnchorDayOf, inferBillingAnchorDay, setBillingAnchorDay,
+  suspendSubscription, resumeSubscription, cancelSubscription, billingAnchorDayOf, inferBillingAnchorDay, setBillingAnchorDay, anchorIsUtcDayOfCreation,
   type Subscription, type SubscriptionRepository,
 } from "./subscription.js";
 import {
@@ -435,3 +435,133 @@ describe("setBillingAnchorDay", () => {
   });
 });
 
+
+describe("a period end an earlier build computed in UTC for a subscription that started on the 1st in Cairo", () => {
+  const legacy = (over: Partial<Subscription>): Subscription => ({
+    id: "S-SHORT", tenantId: "T1", planId: "PLAN-CORE", previousPlanId: null, status: "active", billingCycle: "monthly", trialEndsAt: null,
+    addOnModules: [], extraSeats: 0, extraBranches: 0, extraWarehouses: 0, graceDays: 0, cancelledAt: null,
+    createdAt: "2024-02-29T22:30:00.000Z", updatedAt: "2024-02-29T22:30:00.000Z",
+    currentPeriodStart: "2024-02-29T22:30:00.000Z", currentPeriodEnd: "2024-03-29T22:30:00.000Z", ...over,
+  });
+  const PAID_ON_28_MAR = "2024-03-28T10:00:00.000Z";
+
+  it.each([
+    ["no stored anchor", undefined],
+    ["the 1st as its anchor", 1],
+  ])("is read as the 1st of the next month, so one payment buys April and not two days, with %s", (_, billingAnchorDay) => {
+    const row = legacy(billingAnchorDay === undefined ? {} : { billingAnchorDay });
+
+    const renewed = applyRenewal(row, PAID_ON_28_MAR);
+
+    expect(settledPeriodEnd(row)).toBe("2024-03-31T22:30:00.000Z");
+    expect(renewed.currentPeriodStart).toBe("2024-03-31T22:30:00.000Z");
+    expect(renewed.currentPeriodEnd).toBe("2024-04-30T21:30:00.000Z");
+  });
+
+  it("is left where it is when the stored anchor is another day: the renewal already ends on that day a month later", () => {
+    const row = legacy({ billingAnchorDay: 29 });
+
+    const renewed = applyRenewal(row, PAID_ON_28_MAR);
+
+    expect(settledPeriodEnd(row)).toBe("2024-03-29T22:30:00.000Z");
+    expect(renewed.currentPeriodStart).toBe("2024-03-29T22:30:00.000Z");
+    expect(renewed.currentPeriodEnd).toBe("2024-04-28T21:30:00.000Z");
+  });
+
+  it("is settled once: the settled end is not moved again", () => {
+    const settled = settledPeriodEnd(legacy({}));
+
+    expect(settledPeriodEnd(legacy({ currentPeriodEnd: settled }))).toBe(settled);
+  });
+
+  it("is told apart from a short period the current build wrote after the owner moved the billing day", () => {
+    const anchorMovedBack = legacy({ currentPeriodStart: "2024-03-29T22:30:00.000Z", currentPeriodEnd: "2024-03-31T22:30:00.000Z", billingAnchorDay: 30 });
+
+    expect(settledPeriodEnd(anchorMovedBack)).toBe("2024-03-31T22:30:00.000Z");
+  });
+});
+
+describe("every period an earlier build could have written in UTC, for every hour a subscription could start in a leap year", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const HOUR_MS = 60 * 60 * 1000;
+  const CYCLES = ["monthly", "yearly"] as const;
+  const cairo = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  const inCairo = (iso: string): string => cairo.format(new Date(iso));
+  const cairoDayOf = (iso: string): number => Number(inCairo(iso).slice(8, 10));
+
+  function endTheEarlierBuildWrote(startIso: string, cycle: (typeof CYCLES)[number]): string {
+    const d = new Date(startIso);
+    const year = d.getUTCFullYear() + (cycle === "yearly" ? 1 : 0);
+    const month = d.getUTCMonth() + (cycle === "monthly" ? 1 : 0);
+    const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    return new Date(Date.UTC(year, month, Math.min(d.getUTCDate(), lastDay), d.getUTCHours(), d.getUTCMinutes())).toISOString();
+  }
+
+  const row = (start: string, cycle: (typeof CYCLES)[number], end: string, billingAnchorDay: number | undefined): Subscription => ({
+    id: "S-SWEEP", tenantId: "T1", planId: "PLAN-CORE", previousPlanId: null, status: "active", billingCycle: cycle, trialEndsAt: null,
+    addOnModules: [], extraSeats: 0, extraBranches: 0, extraWarehouses: 0, graceDays: 0, cancelledAt: null,
+    createdAt: start, updatedAt: start, currentPeriodStart: start, currentPeriodEnd: end, ...(billingAnchorDay === undefined ? {} : { billingAnchorDay }),
+  });
+
+  function withTheAnchorTheStoreSettles(s: Subscription): Subscription {
+    if (!anchorIsUtcDayOfCreation(s)) return s;
+    const day = inferBillingAnchorDay(s, []);
+    return day === null ? { ...s, billingAnchorNeedsReview: true } : { ...s, billingAnchorDay: day };
+  }
+
+  const oneCycle = (cycle: (typeof CYCLES)[number], fromIso: string, toIso: string): boolean => {
+    const days = Math.round((new Date(toIso).getTime() - new Date(fromIso).getTime()) / DAY_MS);
+    return cycle === "monthly" ? days >= 28 && days <= 31 : days >= 364 && days <= 366;
+  };
+
+  function* everyHourOf2024(): Generator<string> {
+    for (let at = Date.UTC(2024, 0, 1, 0, 30); at < Date.UTC(2025, 0, 1); at += HOUR_MS) yield new Date(at).toISOString();
+  }
+
+  it("is one cycle long once settled, and the renewal paid for it is one cycle long too (a year can be a day short across a summer-time change)", () => {
+    const offenders: string[] = [];
+    let rows = 0;
+    for (const start of everyHourOf2024()) {
+      for (const cycle of CYCLES) {
+        for (const anchor of new Set([undefined, cairoDayOf(start), new Date(start).getUTCDate()])) {
+          rows += 1;
+          const stored = withTheAnchorTheStoreSettles(row(start, cycle, endTheEarlierBuildWrote(start, cycle), anchor));
+          const settled = settledPeriodEnd(stored);
+          const renewed = applyRenewal(stored, new Date(new Date(settled).getTime() - 2 * DAY_MS).toISOString());
+          const sound =
+            renewed.currentPeriodStart === settled &&
+            settledPeriodEnd({ ...stored, currentPeriodEnd: settled }) === settled &&
+            oneCycle(cycle, start, settled) &&
+            oneCycle(cycle, renewed.currentPeriodStart, renewed.currentPeriodEnd);
+          if (!sound) offenders.push(`${inCairo(start)} ${cycle} anchor ${String(anchor)}: ${inCairo(stored.currentPeriodEnd)} read as ${inCairo(settled)}, renewed to ${inCairo(renewed.currentPeriodEnd)}`);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+    expect(rows).toBeGreaterThan(35_000);
+  });
+
+  it("never moves a period end the current build wrote, under its own anchor, an anchor the owner set, or after the owner moved the anchor or the cycle", () => {
+    const moved: string[] = [];
+    let rows = 0;
+    const check = (start: string, writtenUnder: number | undefined, read: Subscription): void => {
+      rows += 1;
+      if (settledPeriodEnd(read) === read.currentPeriodEnd) return;
+      moved.push(`${inCairo(start)} ${read.billingCycle} written under ${String(writtenUnder)}, read under ${String(read.billingAnchorDay)}: ${inCairo(read.currentPeriodEnd)} read as ${inCairo(settledPeriodEnd(read))}`);
+    };
+    for (const start of everyHourOf2024()) {
+      for (const cycle of CYCLES) {
+        for (const anchor of new Set([undefined, new Date(start).getUTCDate(), 1, 31])) {
+          const written = row(start, cycle, addPeriod(start, cycle, anchor), anchor);
+          check(start, anchor, written);
+          check(start, anchor, row(start, cycle, written.currentPeriodEnd, cairoDayOf(start)));
+          if (anchor === undefined) check(start, anchor, { ...written, billingCycle: cycle === "monthly" ? "yearly" : "monthly" });
+        }
+      }
+    }
+
+    expect(moved).toEqual([]);
+    expect(rows).toBeGreaterThan(120_000);
+  });
+});

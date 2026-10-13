@@ -530,11 +530,15 @@ function repairUtcBillingAnchors(sqlite: Database.Database): void {
 }
 
 const PERIOD_END_REPAIR = "2026-10-period-end-cairo-repair";
+const PERIOD_END_SHORT_REPAIR = "2026-10-period-end-utc-short-repair";
 
 // REQUIRED ORDERING: after the anchor repairs, because the day a period was
 // meant to end on is read from the anchor they settle.
-function repairSpilledPeriodEnds(sqlite: Database.Database): void {
-  if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(PERIOD_END_REPAIR)) return;
+// INVARIANT: one pass per marker, and neither marker may be dropped or merged.
+// Stores that ran the first pass ran it before `settledPeriodEnd` also read a
+// period that ends short of its day; only the second marker reaches them.
+function repairPeriodEnds(sqlite: Database.Database, marker: string): void {
+  if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(marker)) return;
   const live = sqlite.prepare(`SELECT * FROM subscription WHERE status <> ?`);
   const setEnd = sqlite.prepare(`UPDATE subscription SET current_period_end = ? WHERE id = ? AND current_period_end = ?`);
   const done = sqlite.prepare(`INSERT INTO platform_migration (name, applied_at) VALUES (?, ?)`);
@@ -544,7 +548,7 @@ function repairSpilledPeriodEnds(sqlite: Database.Database): void {
         const settled = settledPeriodEnd(toSubscription(row));
         if (settled !== row.current_period_end) setEnd.run(settled, row.id, row.current_period_end);
       }
-      done.run(PERIOD_END_REPAIR, new Date().toISOString());
+      done.run(marker, new Date().toISOString());
     })
     .immediate();
 }
@@ -1092,7 +1096,8 @@ export function createSqlitePlatformStores(
   guardOneDbFilePerTenant(sqlite);
   backfillBillingAnchors(sqlite);
   repairUtcBillingAnchors(sqlite);
-  repairSpilledPeriodEnds(sqlite);
+  repairPeriodEnds(sqlite, PERIOD_END_REPAIR);
+  repairPeriodEnds(sqlite, PERIOD_END_SHORT_REPAIR);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),

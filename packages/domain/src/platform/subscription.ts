@@ -164,15 +164,36 @@ function businessDateOrdinal(iso: string): number {
   return Date.UTC(clock.year, clock.month, clock.day) / DAY_MS;
 }
 
-// INVARIANT: an earlier build added the period in UTC. For a period that starts between
-// midnight in Cairo and midnight UTC on the 29th to the 31st, the UTC clamp to
-// the month's last day is already the 1st of the next month in Cairo, and a
-// renewal counted from there would skip a month. That exact signature, and
-// nothing else, is read as the last day of the month it was meant for.
+function periodEndInUtc(startIso: string, cycle: BillingCycle): string {
+  const start = new Date(startIso);
+  const year = start.getUTCFullYear() + (cycle === "yearly" ? 1 : 0);
+  const month = start.getUTCMonth() + (cycle === "monthly" ? 1 : 0);
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const day = Math.min(start.getUTCDate(), lastDay);
+  return new Date(Date.UTC(year, month, day, start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds(), start.getUTCMilliseconds())).toISOString();
+}
+
+// INVARIANT: an earlier build added the period in UTC (`periodEndInUtc`). For a
+// period that starts between midnight in Cairo and midnight UTC, two of its
+// ends are in the wrong month, and a renewal counted from either charges a
+// full cycle for less:
+//   - started on the 29th to the 31st: the UTC clamp to the month's last day is
+//     already the 1st of the next month in Cairo, and the renewal skips a month;
+//   - started on the 1st: UTC is still in the month before, so the end falls
+//     days short of the next 1st, and the renewal buys only those days.
+// Those exact signatures, and nothing else, are read as the day the period was
+// meant to end on. The second is read only while the anchor is the period's
+// own start day: under any other anchor the stored end already renews to it.
 export function settledPeriodEnd(s: Pick<Subscription, "currentPeriodStart" | "currentPeriodEnd" | "billingCycle" | "billingAnchorDay">): string {
-  const intended = addPeriod(s.currentPeriodStart, s.billingCycle, billingAnchorDayOf(s));
+  const anchorDay = billingAnchorDayOf(s);
+  const intended = addPeriod(s.currentPeriodStart, s.billingCycle, anchorDay);
   const spilled = businessDayOfMonth(s.currentPeriodEnd) === 1 && businessDateOrdinal(s.currentPeriodEnd) === businessDateOrdinal(intended) + 1;
-  return spilled ? intended : s.currentPeriodEnd;
+  const short =
+    anchorDay === businessDayOfMonth(s.currentPeriodStart) &&
+    businessDateOrdinal(s.currentPeriodEnd) < businessDateOrdinal(intended) &&
+    businessMonthOf(s.currentPeriodEnd) !== businessMonthOf(intended) &&
+    s.currentPeriodEnd === periodEndInUtc(s.currentPeriodStart, s.billingCycle);
+  return spilled || short ? intended : s.currentPeriodEnd;
 }
 
 /** CONTRACT: `renewedAt` is when each renewal was RECORDED (not when it was paid), oldest first. Null means the history does not settle the day. */

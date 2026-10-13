@@ -243,6 +243,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
         const newest = await deps.runs.findByTemplateAndPeriod(run.templateId, run.period);
         return {
           ...run,
+          journalEntryNo: entry?.entryNo ?? run.journalEntryNo ?? null,
           entryStatus: entry?.status ?? null,
           current: newest?.id === run.id,
           reversedByEntryId: reversal?.id ?? null,

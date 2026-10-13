@@ -158,6 +158,10 @@ describe("ReturnJournalCard — the return's entry and its journal-tax action", 
     expect(await screen.findByText("JE-000001")).toBeInTheDocument();
     expect(await screen.findAllByText("4100 — مردودات المبيعات")).toHaveLength(2);
     expect(await screen.findByRole("button", { name: "تسمية ضريبة سطر القيد" })).toBeInTheDocument();
+    const table = screen.getByRole("table");
+    expect(table).toHaveTextContent("214.00");
+    expect(table).not.toHaveTextContent("214.000000");
+    expect(table).not.toHaveTextContent("100.000000");
     unmount();
     renderWithProviders(<ReturnJournalCard family={ReturnFamily.Sales} document={RETURN} lineLabel={() => "أسمنت"} />, { transport, initialSession: session("sales.return.view") });
     await new Promise((resolve) => setTimeout(resolve, 20));

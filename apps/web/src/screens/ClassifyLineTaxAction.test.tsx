@@ -193,6 +193,26 @@ describe("ClassifyLineTaxAction — «تصنيف ضريبة البند» on a po
     expect(retried).toEqual(["/sales-invoices/INV-1/eta-receipt/retry", "/sales-invoices/INV-1/eta-receipt/retry"]);
   });
 
+  it("says the e-receipt was issued when a retry issues it for the first time, and offers no further retry", async () => {
+    const classified = { documentId: "INV-1", documentNumber: "INV-000001", lineIds: ["L1"], taxRateId: "VAT-EXEMPT", taxRateName: "معفى من الضريبة", taxRatePercent: 0, journalLinesNamed: 1 };
+    const transport = stubTransport({
+      "POST /sales-invoices/*/lines/*/classify-tax": () => ({ body: { ...classified, filing: "reissue_failed", filingMessage: "تعذّر الاتصال بجهاز الإيصالات." } }),
+      "POST /sales-invoices/*/eta-receipt/retry": () => ({ body: { documentId: "INV-1", filing: "issued" } }),
+    });
+    renderWithProviders(
+      <ClassifyLineTaxAction document={ClassifiableDocument.SalesInvoice} documentId="INV-1" posted line={LINES[0]!} lines={LINES} taxRates={TAX_RATES} />,
+      { transport, initialSession: testAdminSession },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /تصنيف ضريبة البند/ }));
+    pick("معفى من الضريبة · 0٪");
+    fireEvent.click(screen.getByRole("button", { name: "تصنيف" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("لم يُصدر الإيصال الإلكتروني بعد التصنيف");
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect(await screen.findByText("صدر الإيصال الإلكتروني للفاتورة وهو في طابور الإرسال إلى المصلحة.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إعادة المحاولة" })).toBeNull();
+    expect(screen.queryByText(/لا يوجد إيصال ينتظر الإصدار/)).toBeNull();
+  });
+
   it("keeps the failed-issue report and its retry on screen when the document reloads with the line now classified", async () => {
     const classified = { documentId: "INV-1", documentNumber: "INV-000001", lineIds: ["L1"], taxRateId: "VAT-EXEMPT", taxRateName: "معفى من الضريبة", taxRatePercent: 0, journalLinesNamed: 1 };
     const transport = stubTransport({

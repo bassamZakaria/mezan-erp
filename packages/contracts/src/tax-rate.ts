@@ -163,6 +163,7 @@ export enum TaxClassificationFilingOutcomeCode {
   NotQueued = "not_queued",
   Requeued = "requeued",
   FiledConsistent = "filed_consistent",
+  Issued = "issued",
   Reissued = "reissued",
   ReissuePending = "reissue_pending",
   ReissueRefused = "reissue_refused",

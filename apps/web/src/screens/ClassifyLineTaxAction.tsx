@@ -22,6 +22,7 @@ export const CLASSIFY_PERMISSION: Record<ClassifiableDocument, DocumentReadPermi
 };
 
 const RECEIPT_OUTCOME_MESSAGE: Partial<Record<TaxClassificationFilingOutcomeCode, AppTranslationKey>> = {
+  [TaxClassificationFilingOutcomeCode.Issued]: "classifyTax.outcome.issued",
   [TaxClassificationFilingOutcomeCode.Reissued]: "classifyTax.outcome.reissued",
   [TaxClassificationFilingOutcomeCode.ReissuePending]: "classifyTax.outcome.reissuePending",
   [TaxClassificationFilingOutcomeCode.ReissueRefused]: "classifyTax.outcome.reissueRefused",

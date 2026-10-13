@@ -1,4 +1,4 @@
-import { Card } from "@mezan/ui";
+import { Card, Money as MoneyValue } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
 import { DocumentReadPermission, sessionMayRead } from "../data/document-read-permissions";
 import { ReturnFamily, useAccounts, useJournalEntry, useTaxRates } from "../data/hooks";
@@ -65,8 +65,8 @@ export function ReturnJournalCard({ family, document, lineLabel }: { family: Ret
             {entryQuery.data.lines.map((line, index) => (
               <tr key={index} className="border-b border-border last:border-b-0">
                 <td className={`${CELL} text-ink`}>{accountLabel(line.accountId)}</td>
-                <td className={`${CELL} mz-num text-end`}>{line.debit}</td>
-                <td className={`${CELL} mz-num text-end`}>{line.credit}</td>
+                <td className={`${CELL} text-end`}><MoneyValue value={line.debit} showUnit={false} /></td>
+                <td className={`${CELL} text-end`}><MoneyValue value={line.credit} showUnit={false} /></td>
               </tr>
             ))}
           </tbody>

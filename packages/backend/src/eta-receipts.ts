@@ -458,8 +458,9 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
       const receiptNo = invoice.docNo ?? invoice.id;
       const latest = await latestReceiptOf(deps.eta, receiptNo);
       if (!latest) {
-        if (await this.issueInvoiceReceipt(invoiceId)) schedule();
-        return null;
+        if (!(await this.issueInvoiceReceipt(invoiceId))) return null;
+        schedule();
+        return { outcome: TaxClassificationFilingOutcome.Issued };
       }
       const awaitingReissue = latest.documentType === EtaDocumentTypeCode.Receipt && latest.internalId !== receiptNo && PENDING_WITH_AUTHORITY.has(latest.status);
       return awaitingReissue ? { outcome: TaxClassificationFilingOutcome.ReissuePending } : null;

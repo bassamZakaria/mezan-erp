@@ -1746,6 +1746,23 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
     expect((await receipt(app, issued!.receiptNo)).submission.payload.paymentMethod).toBe("V");
   });
 
+  it("the retry says the receipt was issued when the first attempt had no device, and that nothing is left once it is with the authority", async () => {
+    const handle = await createBackend({ dbPath: ":memory:" });
+    const app = keep(handle);
+    await createServiceItem(app);
+    await createCustomer(app, "cust-r-7", "0");
+    await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-r-7", "cust-r-7", "100"), branchId: "BR-MAIN" });
+    const confirm = await authedPost(app, "/sales-invoices/inv-r-7/confirm", {});
+    expect(((await confirm.json()) as { etaReceiptError: { code: string } }).etaReceiptError.code).toBe("ETA_DEVICE_SERIAL_NOT_REGISTERED");
+    await registerDevice(app);
+
+    const retried = await post(app, "/sales-invoices/inv-r-7/eta-receipt/retry", {}, admin(app));
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toEqual({ documentId: "inv-r-7", filing: "issued" });
+    const again = await post(app, "/sales-invoices/inv-r-7/eta-receipt/retry", {}, admin(app));
+    expect(await again.json()).toEqual({ documentId: "inv-r-7", filing: null });
+  });
+
   it("refuses a serial no device registered, rather than filing it", async () => {
     const handle = await createBackend({ dbPath: ":memory:" });
     const app = keep(handle);

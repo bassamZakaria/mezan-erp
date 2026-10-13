@@ -1,4 +1,3 @@
-import { refuseReservedEntryId } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -217,8 +216,6 @@ export function createPurchaseReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const reserved = refuseReservedEntryId(c, parsed.data.id);
-    if (reserved) return reserved;
     const requestInvoices = new Map<string, SourceInvoice>();
     for (const line of parsed.data.lines) {
       const refusal = refuseInconsistentLine(line, await lookupInvoice(requestInvoices, line.sourceInvoiceId));

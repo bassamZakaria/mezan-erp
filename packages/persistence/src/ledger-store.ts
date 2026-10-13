@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { childRowsByParent } from "./list-query.js";
 import {
+  DuplicateJournalEntryError,
   Money,
   NextNumberService,
   type JournalEntry,
@@ -211,7 +212,12 @@ class SqliteLedgerRepository implements LedgerRepository {
   }
 
   async save(entry: JournalEntry): Promise<void> {
-    this.insertEntry.run(entryParams(entry));
+    try {
+      this.insertEntry.run(entryParams(entry));
+    } catch (err) {
+      if ((err as { code?: unknown }).code === "SQLITE_CONSTRAINT_PRIMARYKEY") throw new DuplicateJournalEntryError(entry.id);
+      throw err;
+    }
     this.insertLines(entry.id, entry.lines);
   }
 

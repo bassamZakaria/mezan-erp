@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /** The warehouse types (docs/archive/catalog/09 §"إدارة المستودعات" + SITE for المقاولات). Duplicated here
  *  (rather than imported from @mezan/domain) because @mezan/contracts has no
@@ -23,7 +24,7 @@ export const warehouseSchema = z.object({
 
 /** POST /warehouses body. */
 export const createWarehouseSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().regex(/^[A-Z0-9_-]{1,20}$/),
   name: z.string().min(1),
   nameEn: z.string().nullable().optional(),

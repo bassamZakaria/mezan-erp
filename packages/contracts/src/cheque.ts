@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for the Cheque Register (docs/archive/catalog/04 §"سجل الشيكات").
@@ -27,7 +28,7 @@ export const chequeAllocationSchema = z.object({
 
 /** Apply part or all of a cheque against one of its party's open invoices. */
 export const createChequeAllocationSchema = z.object({
-  allocationId: z.string().min(1).optional(),
+  allocationId: clientSuppliedId.optional(),
   invoiceId: z.string().min(1),
   amount: moneyString,
   date: isoDateOrInstant.optional(),
@@ -67,7 +68,7 @@ export const chequeSchema = z.object({
 
 /** Record a newly received/issued cheque. */
 export const createChequeSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   direction: chequeDirectionSchema,
   chequeNumber: z.string().min(1),
   bankName: z.string().min(1),
@@ -100,7 +101,7 @@ export const bounceChequeSchema = z.object({
 /** Replace a bounced cheque with a new one of the same amount. */
 export const replaceChequeSchema = z.object({
   newCheque: z.object({
-    id: z.string().min(1).optional(),
+    id: clientSuppliedId.optional(),
     chequeNumber: z.string().min(1),
     bankName: z.string().min(1),
     bankBranchName: z.string().nullish(),

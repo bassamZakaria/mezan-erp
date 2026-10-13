@@ -15,7 +15,11 @@ export class ReservedJournalEntryIdError extends Error {
   }
 }
 
-// INVARIANT: every id the system mints for an entry of its own carries ":" between its owner and its role (FXR:…, PI-JE:…, …:void, …:REV) or one of the suffixes above; a new minted form must keep to that or be added here, or a caller can post under it.
+// INVARIANT: every id the system mints for an entry of its own carries ":" between its owner and its role (FXR:…, PI-JE:…, …:void, …:REVERSAL) or one of the suffixes above; a new minted form must keep to that or be added here, or a caller can post under it. The journal refuses such an id (assertEntryIdNotReserved) unless the posting site passes { mintedBySystem: true }, and the wire refuses it before that (contracts clientSuppliedId).
 export function isReservedJournalEntryId(id: string): boolean {
   return id.includes(SYSTEM_ENTRY_ID_SEPARATOR) || Object.values(SystemEntryIdSuffix).some((suffix) => id.endsWith(suffix));
+}
+
+export function assertEntryIdNotReserved(id: string, internal: { readonly mintedBySystem?: boolean }): void {
+  if (!internal.mintedBySystem && isReservedJournalEntryId(id)) throw new ReservedJournalEntryIdError(id);
 }

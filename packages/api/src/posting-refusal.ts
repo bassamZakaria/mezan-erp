@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { earliestOpenDayFrom, type FiscalPeriodRepository, type FiscalPeriodStatus, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, PostingBeforeRevaluationError, ReservedJournalEntryIdError, isReservedJournalEntryId, StockMovementBeforeRevaluationError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
+import { CLIENT_SUPPLIED_ID_REFUSAL_CODE, CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE, CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE_EN } from "@mezan/contracts";
+import { DuplicateJournalEntryError, earliestOpenDayFrom, type FiscalPeriodRepository, type FiscalPeriodStatus, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, PostingBeforeRevaluationError, ReservedJournalEntryIdError, StockMovementBeforeRevaluationError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
 
 type ReversalDayEnv = { Variables: { listFiscalPeriods?: () => Promise<readonly { status: FiscalPeriodStatus; startDate: string; endDate: string }[]>; reversalEarliestOpenDay?: string | null } };
 
@@ -18,11 +19,24 @@ export async function noteReversalOriginalDay(c: Context, originalDay: string | 
   env.set("reversalEarliestOpenDay", earliestOpenDayFrom(await list(), originalDay.slice(0, 10)));
 }
 
-export function refuseReservedEntryId(c: Context, id: string | null | undefined): Response | null {
-  if (!id || !isReservedJournalEntryId(id)) return null;
-  const refusal = new ReservedJournalEntryIdError(id);
-  return c.json({ error: refusal.code, message: refusal.message, messageEn: refusal.messageEn }, 422);
+function carriesClientIdRefusal(value: unknown): boolean {
+  if (value === CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE) return true;
+  if (Array.isArray(value)) return value.some(carriesClientIdRefusal);
+  return typeof value === "object" && value !== null && Object.values(value).some(carriesClientIdRefusal);
 }
+
+// INVARIANT: mounted on every route. A request schema refuses a reserved id inside its own safeParse and each route answers that as a bare 400; this is the one place that turns it into the Arabic 422 the screens show, so no route checks ids itself.
+export function clientSuppliedIdRefusalMiddleware(): MiddlewareHandler {
+  return async (c, next) => {
+    await next();
+    if (c.res.status !== 400 || !c.res.headers.get("content-type")?.includes("application/json")) return;
+    const body = (await c.res.clone().json().catch(() => null)) as { error?: unknown } | null;
+    if (body?.error !== "VALIDATION_ERROR" || !carriesClientIdRefusal(body)) return;
+    c.res = undefined;
+    c.res = c.json({ error: CLIENT_SUPPLIED_ID_REFUSAL_CODE, message: CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE, messageEn: CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE_EN }, 422);
+  };
+}
+
 
 export function postingRefusalResponse(c: Context, err: unknown): Response | null {
   if ((err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) && err.earliestOpenDate === null) {
@@ -42,6 +56,12 @@ export function postingRefusalResponse(c: Context, err: unknown): Response | nul
   }
   if (err instanceof PostingBeforeRevaluationError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, laterRun: err.runNo, earliestAllowedDate: err.earliestAllowedDate }, 422);
+  }
+  if (err instanceof ReservedJournalEntryIdError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  }
+  if (err instanceof DuplicateJournalEntryError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof StockPlanDateRequiredError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);

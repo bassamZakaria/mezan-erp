@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for Sales Quotations (docs/archive/catalog/01-sales.md §"عروض الأسعار").
@@ -35,7 +36,7 @@ export const createSalesQuoteLineSchema = z.object({
 
 /** Create a draft sales quote. */
 export const createSalesQuoteSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: z.string().min(1),
   expiryDate: z.string().min(1),
   customerId: z.string().min(1),
@@ -74,7 +75,7 @@ export const convertSalesQuoteLineSchema = z.object({
 });
 
 export const convertSalesQuoteToInvoiceSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: z.string().min(1).optional(),
   dueDate: z.string().min(1),
   warehouseId: z.string().min(1),

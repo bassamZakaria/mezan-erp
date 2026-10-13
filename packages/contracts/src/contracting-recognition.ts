@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
 import { recognitionPolicySchema } from "./contracting-contracts.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for تشغيل الاعتراف بالإيراد — the monthly EAS 48 cost-to-cost
@@ -91,7 +92,7 @@ export const recognitionPreviewSchema = recognitionFiguresSchema.extend({
 });
 
 export const postRecognitionRunSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   contractId: z.string().min(1),
   periodEnd: isoDate,
 });

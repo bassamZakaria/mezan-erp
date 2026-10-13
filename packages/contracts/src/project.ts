@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for projects (docs/archive/catalog/07-mfg-projects-assets.md
@@ -25,7 +26,7 @@ export const projectSchema = z.object({
 });
 
 export const createProjectSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),

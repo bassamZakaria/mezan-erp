@@ -1,4 +1,3 @@
-import { refuseReservedEntryId } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -366,8 +365,6 @@ export function createSalesReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const reserved = refuseReservedEntryId(c, parsed.data.id);
-    if (reserved) return reserved;
     for (const line of parsed.data.lines) {
       const refusal = await refuseInconsistentLine(line);
       if (refusal) return c.json(refusal, 422);
@@ -397,8 +394,6 @@ export function createSalesReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const reserved = refuseReservedEntryId(c, parsed.data.id);
-    if (reserved) return reserved;
     if (!invoices) {
       return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "إنشاء مرتجع من فاتورة يتطلب وحدة فواتير المبيعات." }, 503);
     }

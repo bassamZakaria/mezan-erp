@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { boqUnitSchema, vatBasisSchema } from "./contracting-contracts.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for المستخلص — the progress certificate (design §04).
@@ -223,7 +224,7 @@ const draftBody = {
 };
 
 export const createProgressCertificateSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   contractId: z.string().min(1),
   ...draftBody,
 });

@@ -243,6 +243,7 @@ async function bookPayRecovery(employee: Employee, effectiveDate: string, today:
       lines,
     },
     payroll.gl,
+    { mintedBySystem: true },
   );
 
   for (const { payslip, run, amount, standing } of adjusted) {
@@ -361,7 +362,7 @@ export async function undoTerminationRecovery(id: string, employeeId: string, to
     reversalId: `${recoveryEntryId(id)}:REVERSED`,
     date: today,
     memo,
-  });
+  }, { mintedBySystem: true });
   const runs = new Map((await payroll.runs.list()).map((run) => [run.id, run]));
   for (const payslip of await payroll.payslips.listByEmployeeId(employeeId)) {
     const line = payslip.lines.find((candidate) => isAdjustment(candidate) && candidate.referenceId === id);

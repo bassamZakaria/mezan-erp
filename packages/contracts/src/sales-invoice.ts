@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { moneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for Sales Invoices (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
@@ -69,7 +70,7 @@ export const createSalesInvoiceLineSchema = z.object({
 
 /** Create a draft sales invoice. */
 export const createSalesInvoiceSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: isoDateOrInstant,
   dueDate: z.string().min(1),
   customerId: z.string().min(1),
@@ -95,7 +96,7 @@ export const createSalesInvoiceSchema = z.object({
 
 /** Confirm a draft invoice (posts stock + the AR/revenue/COGS journal entry). */
 export const confirmSalesInvoiceSchema = z.object({
-  requestId: z.string().min(1).optional(),
+  requestId: clientSuppliedId.optional(),
   /**
    * N-9 — the `version` the screen was served. Sent back on the act so a second
    * till acting on a document that has already moved is refused with 409 rather

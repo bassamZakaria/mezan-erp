@@ -85,6 +85,7 @@ export interface CreateChequeCommand {
   readonly controlAccounts: ChequeControlAccounts;
   /** Id for the creation journal entry (domain stays pure — caller supplies ids). */
   readonly journalEntryId: string;
+  readonly journalEntryIdMintedBySystem?: boolean;
   readonly replacesChequeId?: string | null;
   /**
    * The RESOLVED acting user (D80). Every transition below takes one, and it
@@ -280,6 +281,7 @@ export class ChequeService {
         lines,
       },
       this.deps.gl,
+      { mintedBySystem: cmd.journalEntryIdMintedBySystem },
     );
   }
 

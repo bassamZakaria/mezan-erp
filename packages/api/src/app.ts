@@ -108,7 +108,7 @@ import {
 } from "./license-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
 import { tenantTimeZoneMiddleware } from "./tenant-day.js";
-import { fiscalPeriodsMiddleware } from "./posting-refusal.js";
+import { clientSuppliedIdRefusalMiddleware, fiscalPeriodsMiddleware } from "./posting-refusal.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
@@ -933,6 +933,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // command is built (tenant-day.ts). Registered before every route.
   app.use("*", tenantTimeZoneMiddleware(options.settingsStore));
   app.use("*", fiscalPeriodsMiddleware(options.fiscalPeriodRepo));
+  app.use("*", clientSuppliedIdRefusalMiddleware());
 
   // Bound per app, not per process: two backends in one process must not share
   // — or silently steal — each other's forensic trail. Registered before every
@@ -1433,6 +1434,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
             })),
           },
           purchases.gl,
+          { mintedBySystem: true },
         );
       },
       // The confirm's atomic boundary (B-7): GL entry, stock receipt, invoice
@@ -1445,7 +1447,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           reversalId: opts.reversalId,
           date: opts.date,
           memo: opts.memo,
-        });
+        }, { mintedBySystem: true });
       },
     };
     // Derive the 3-gate procurement strictness policy from the LIVE tenant
@@ -1539,6 +1541,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
             })),
           },
           mfg.gl,
+          { mintedBySystem: true },
         );
       },
     };

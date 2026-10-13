@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for HR payroll (docs/archive/catalog/06-crm-hr.md "الرواتب" and
@@ -58,7 +59,7 @@ export const employeeAdvanceSchema = z.object({
 });
 
 export const createEmployeeAdvanceSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   employeeId: z.string().min(1),
   amount: moneyString,
   currency: z.string().min(1).optional(),
@@ -78,7 +79,7 @@ export const treasuryDisbursementSchema = z.object({
 
 /** «سداد نقدي» — repaying an advance outside payroll. `repaymentId` is the idempotency key a retry must reuse. */
 export const repayEmployeeAdvanceSchema = treasuryDisbursementSchema.extend({
-  repaymentId: z.string().min(1).max(100),
+  repaymentId: clientSuppliedId,
   amount: moneyString,
   note: z.string().max(500).nullable().optional(),
 });
@@ -204,7 +205,7 @@ export const payrollRunDetailSchema = payrollRunSchema.extend({
 });
 
 export const createPayrollRunSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   year: z.number().int(),
   month: z.number().int().min(1).max(12),
   branchId: z.string().nullable().optional(),
@@ -248,7 +249,7 @@ export const payrollComponentSchema = z.object({
 });
 
 export const createPayrollComponentSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),
@@ -293,7 +294,7 @@ export const garnishmentSchema = z.object({
 });
 
 export const createGarnishmentSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   employeeId: z.string().min(1),
   kind: garnishmentKindSchema,
   reference: z.string().min(1),

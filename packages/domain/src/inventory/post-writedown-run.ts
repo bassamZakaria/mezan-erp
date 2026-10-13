@@ -43,6 +43,7 @@ export async function postWritedownRun(runId: string, deps: PostWritedownRunDeps
       ],
     },
     deps.gl,
+    { mintedBySystem: true },
   );
 
   const postedRun: WritedownRun = {

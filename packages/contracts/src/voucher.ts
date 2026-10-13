@@ -3,6 +3,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { moneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for Treasury Vouchers (docs/archive/catalog/04 §"السندات النقدية") —
@@ -103,7 +104,7 @@ export const voucherSchema = z.object({
 
 /** Create a voucher draft. */
 export const createVoucherSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: isoDateOrInstant,
   memo: z.string().optional(),
   voucherType: voucherTypeSchema,
@@ -132,12 +133,12 @@ export const createVoucherSchema = z.object({
 
 /** Confirm a draft voucher (posts GL, stamps CV- number). */
 export const confirmVoucherSchema = z.object({
-  requestId: z.string().min(1).optional(),
+  requestId: clientSuppliedId.optional(),
 });
 
 /** Reverse a confirmed voucher. */
 export const reverseVoucherSchema = z.object({
-  reversalId: z.string().min(1).optional(),
+  reversalId: clientSuppliedId.optional(),
   date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
 });
@@ -179,7 +180,7 @@ export const voucherAllocationSchema = z.object({
 
 /** Apply an allocation of part of a voucher onto one invoice. */
 export const createAllocationSchema = z.object({
-  allocationId: z.string().min(1).optional(),
+  allocationId: clientSuppliedId.optional(),
   invoiceId: z.string().min(1),
   amount: moneyString,
   date: isoDateOrInstant.optional(),
@@ -194,7 +195,7 @@ export const createAllocationSchema = z.object({
  */
 export const createCollectionSchema = z.object({
   currency: z.string().optional(),
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
   customerId: z.string().min(1),
@@ -209,11 +210,11 @@ export const createCollectionSchema = z.object({
   withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
-  requestId: z.string().min(1).optional(),
+  requestId: clientSuppliedId.optional(),
   allocations: z
     .array(
       z.object({
-        allocationId: z.string().min(1).optional(),
+        allocationId: clientSuppliedId.optional(),
         invoiceId: z.string().min(1),
         amount: moneyString.optional(),
       }),

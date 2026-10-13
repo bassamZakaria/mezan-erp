@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for قواعد الإشعارات / notification rules (docs/archive/catalog/09
@@ -36,7 +37,7 @@ export const notificationRuleSchema = z.object({
 });
 
 export const createNotificationRuleSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   name: z.string().min(1),
   eventCode: z.string().min(1),
   condition: notificationConditionSchema.nullish(),

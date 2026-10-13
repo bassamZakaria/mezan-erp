@@ -77,8 +77,10 @@ export class InactiveAccountError extends Error {
 /** Raised when a journal-entry id collides with an entry that already exists. */
 export class DuplicateJournalEntryError extends Error {
   readonly code = "DUPLICATE_JOURNAL_ENTRY";
+  readonly messageEn: string;
   constructor(readonly entryId: string) {
     super(`القيد "${entryId}" موجود بالفعل.`);
+    this.messageEn = `Journal entry "${entryId}" already exists.`;
     this.name = "DuplicateJournalEntryError";
   }
 }

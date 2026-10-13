@@ -102,7 +102,7 @@ export interface DocumentGlPostingResult {
 export interface DocumentGlHook {
   post(posting: DocumentGlPosting): Promise<DocumentGlPostingResult>;
   /** Reverse a previously posted entry (drives document reversal). */
-  reverse(journalEntryId: string, opts: { reversalId: string; date?: string; memo?: string }): Promise<DocumentGlPostingResult>;
+  reverse(journalEntryId: string, opts: { reversalId: string; date?: string; memo?: string; mintedBySystem?: boolean }): Promise<DocumentGlPostingResult>;
 }
 
 /* --- Stock-movement hook (via the stock-ledger engine) ------------------- */
@@ -177,7 +177,7 @@ export interface DocumentStockHook {
    * Optional only so an existing adapter that cannot reverse is a loud
    * `MissingHookError` at the call rather than a silent no-op.
    */
-  reverse?(plan: DocumentStockPlan, reversesDocId: string): Promise<DocumentStockResult>;
+  reverse?(plan: DocumentStockPlan, reversesDocId: string, internal?: { readonly mintedBySystem?: boolean }): Promise<DocumentStockResult>;
 }
 
 /** The part of a recorded stock movement `mirrorStockPlan` needs. */

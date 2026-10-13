@@ -8,7 +8,7 @@ import { postJournalEntry } from "../gl/post.js";
 import { reverseJournalEntry } from "../gl/reverse.js";
 import { FX_REVALUATION_DOC_TYPE, nextDay } from "../gl/revaluation-lock.js";
 import { convertToBase, convertFromBase, isBaseCurrency, FxRateMissingError } from "../exchange-rates/convert.js";
-import { FX_REALISED_LINE_MEMO } from "../vouchers/realised-fx.js";
+import { FX_REALISED_DOC_TYPE, FX_REALISED_LINE_MEMO } from "../vouchers/realised-fx.js";
 import { FxOpenItemType } from "../vouchers/allocation.js";
 import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
 
@@ -353,13 +353,20 @@ const BASE_ONLY_MEMOS: ReadonlySet<string> = new Set([FX_REVALUATION_LINE_MEMO, 
 /** `sourceDocType` of a revaluation entry and, through the mirror, of its reversal. */
 export { FX_REVALUATION_DOC_TYPE };
 
+const FX_RESTATING_DOC_TYPES: ReadonlySet<string> = new Set([FX_REVALUATION_DOC_TYPE, FX_REALISED_DOC_TYPE]);
+
+// INVARIANT: a restatement is known by the document type of its entry, which only the system's own posting sites set; the memo only tells the restated leg from the gain/loss leg inside such an entry. A memo alone proves nothing — a person can type it.
+export function isFxRestatementLine(line: Pick<PostedLine, "memo" | "sourceDocType">): boolean {
+  return line.memo === FX_REVALUATION_LINE_MEMO && FX_RESTATING_DOC_TYPES.has(line.sourceDocType ?? "");
+}
+
 export function fxRevaluationNet(
-  lines: readonly Pick<PostedLine, "accountId" | "source" | "memo" | "debit" | "credit" | "partyId">[],
+  lines: readonly Pick<PostedLine, "accountId" | "memo" | "sourceDocType" | "debit" | "credit" | "partyId">[],
   accountId: string,
 ): Money {
   let net = 0n;
   for (const line of lines) {
-    if (line.accountId !== accountId || line.source !== "system" || line.memo !== FX_REVALUATION_LINE_MEMO || line.partyId) continue;
+    if (line.accountId !== accountId || !isFxRestatementLine(line) || line.partyId) continue;
     net += line.debit.scaled - line.credit.scaled;
   }
   return Money.fromScaled(net);

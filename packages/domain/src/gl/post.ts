@@ -19,6 +19,7 @@ import {
 } from "../post-journal-entry.js";
 import type { LedgerRepository } from "./ledger.js";
 import { assertNotBeforeStandingRevaluation, type JournalPostingInternals } from "./revaluation-lock.js";
+import { assertEntryIdNotReserved } from "./reserved-entry-ids.js";
 import { isCostCategory } from "../contracting/cost-category.js";
 import type { ProjectRepository } from "../projects/project.js";
 import { ProjectNotFoundError } from "../projects/errors.js";
@@ -362,7 +363,9 @@ export async function assertVatNotFiled(
 export async function createJournalEntry(
   cmd: CreateJournalEntryCommand,
   deps: JournalPostingDeps,
+  internal: JournalPostingInternals = {},
 ): Promise<JournalEntry> {
+  assertEntryIdNotReserved(cmd.id, internal);
   assertEntryDate(cmd.date);
   assertEntryStructure(cmd.lines);
   assertBalanced(cmd.lines);
@@ -411,6 +414,7 @@ export async function postJournalEntry(
   deps: JournalPostingDeps,
   internal: JournalPostingInternals = {},
 ): Promise<JournalEntry> {
+  assertEntryIdNotReserved(cmd.id, internal);
   assertEntryDate(cmd.date);
   assertEntryStructure(cmd.lines);
   const { totalDebit, totalCredit } = assertBalanced(cmd.lines);

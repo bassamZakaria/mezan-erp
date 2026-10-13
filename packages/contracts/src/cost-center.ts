@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /** Wire contract for cost centers (docs/archive/catalog/04 "مراكز التكلفة"). */
 export const costCenterTypeSchema = z.enum(["general", "department", "project", "branch"]);
@@ -18,7 +19,7 @@ export const costCenterSchema = z.object({
 });
 
 export const createCostCenterSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),

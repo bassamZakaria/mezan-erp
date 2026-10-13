@@ -1174,7 +1174,7 @@ export class CertificateService {
           reversalId: voidJournalEntryId,
           date: input.date,
           memo: `عكس خصومات المستخلص ${current.docNo} — ${input.reasonAr.trim()}`,
-        });
+        }, { mintedBySystem: true });
         voidJournalEntryId = reversal.reversal.id;
       }
       if (current.invoiceId) {
@@ -1338,6 +1338,7 @@ export class CertificateService {
         lines,
       },
       this.deps.gl,
+      { mintedBySystem: true },
     );
   }
 

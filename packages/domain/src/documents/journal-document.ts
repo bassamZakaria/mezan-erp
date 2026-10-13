@@ -181,7 +181,7 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
         reversalId: opts.reversalId,
         date: opts.date,
         memo: opts.memo,
-      });
+      }, { mintedBySystem: opts.mintedBySystem });
       return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
     },
   };

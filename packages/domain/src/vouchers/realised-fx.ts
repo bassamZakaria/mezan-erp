@@ -220,6 +220,7 @@ export async function postRealisedFx(
       lines,
     },
     gl,
+    { mintedBySystem: true },
   );
   return id;
 }
@@ -293,6 +294,6 @@ export async function reverseRealisedFx(allocation: VoucherAllocation, gl: Journ
       reversalId: realisedFxReversalId(entryId),
       date: laterDay(date, entry.date.slice(0, 10)),
       memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})`,
-    });
+    }, { mintedBySystem: true });
   }
 }

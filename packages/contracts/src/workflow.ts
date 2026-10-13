@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /** إعدادات الموافقات — one step in a gate config: an ordered approver role + optional description. */
 export const gateStepSchema = z.object({
@@ -53,7 +54,7 @@ export const approvalRequestSchema = z.object({
 export const submitApprovalRequestSchema = z.object({
   actionType: z.string().min(1),
   entityLabel: z.string().min(1).optional(),
-  requestId: z.string().min(1).optional(),
+  requestId: clientSuppliedId.optional(),
 });
 
 /** `POST /workflow/requests/:id/decide` — the inbox's approve / reject / request-modification actions. */

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for Promotions (docs/archive/catalog/01-sales.md §"العروض").
@@ -53,7 +54,7 @@ export const promotionSchema = z.object({
 });
 
 export const createPromotionSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   code: z.string().min(1),
   priority: z.number().int().optional(),
   nameAr: z.string().min(1),

@@ -142,9 +142,10 @@ describe("createGlJournalEntrySchema", () => {
     if (!result.success) expect(result.error.flatten().fieldErrors).toHaveProperty("lines");
   });
 
-  it("rejects an out-of-enum source when supplied", () => {
-    const result = createGlJournalEntrySchema.safeParse({ ...entry, source: "auto" });
-    expect(result.success).toBe(false);
+  it.each(["system", "manual", "auto"])("drops a source the caller sends (%s): the route alone decides it", (source) => {
+    const result = createGlJournalEntrySchema.safeParse({ ...entry, source });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data).not.toHaveProperty("source");
   });
 
   it("preserves a line's cost centre, currency, fxRate and tax rate through the full entry", () => {

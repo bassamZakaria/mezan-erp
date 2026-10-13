@@ -192,7 +192,7 @@ export interface Outcome { oracle: string[]; tb: Map<string, bigint>; asOf: Reco
 
 export const AS_OF_DAYS = ["2026-08-31", "2026-09-30"] as const;
 
-export async function play(trial: Trial, ops: Op[]): Promise<Outcome> {
+export async function play(trial: Trial, ops: Op[], asOfDays: readonly string[] = AS_OF_DAYS): Promise<Outcome> {
   const world: SeededWorld = await seededWorld({ seedDemoData: false });
   const log: string[] = [];
   const refused: string[] = [];
@@ -368,7 +368,7 @@ export async function play(trial: Trial, ops: Op[]): Promise<Outcome> {
       if ((gap < 0n ? -gap : gap) > 50_000n) oracle.push(`${CONTROL[side]} expected ${fmt(expected)} (${parts.join(" + ")}) but holds ${fmt(row.net)} (gap ${fmt(gap)})`);
     }
     log.push(`foreignOpen ${[...foreignOpen.entries()].map(([i, v]) => `${trial.items[i]!.id}=${fmt(v)}`).join(" ")}`);
-    return { oracle, tb: snapshot("9999-12-31"), asOf: Object.fromEntries(AS_OF_DAYS.map((day) => [day, snapshot(day)])), inv, residue, log, refused };
+    return { oracle, tb: snapshot("9999-12-31"), asOf: Object.fromEntries(asOfDays.map((day) => [day, snapshot(day)])), inv, residue, log, refused };
   } finally {
     world.close();
   }

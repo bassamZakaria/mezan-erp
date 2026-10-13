@@ -76,6 +76,8 @@ export interface ReverseOptions {
   readonly date?: string;
   readonly memo?: string;
   readonly actor?: string;
+  // INVARIANT: set only by a route that built reversalId itself; a route that copies a caller's id here must leave it unset, or the journal's reserved-id refusal is switched off for that caller.
+  readonly mintedBySystem?: boolean;
 }
 
 export interface ConfirmResult<Line> {
@@ -298,6 +300,7 @@ export class DocumentService<Line> {
           reversalId: opts.reversalId,
           date: opts.date,
           memo: opts.memo,
+          mintedBySystem: opts.mintedBySystem,
         });
         reversalJournalEntryId = result.journalEntryId;
         reversalDocNo = result.journalEntryNo;
@@ -329,7 +332,7 @@ export class DocumentService<Line> {
         const plan = this.def.buildStockPlan(reversal);
         if (plan) {
           if (!this.deps.stock?.reverse) throw new MissingHookError(this.def.code, "stock");
-          await this.deps.stock.reverse(plan, existing.id);
+          await this.deps.stock.reverse(plan, existing.id, { mintedBySystem: opts.mintedBySystem });
         }
       }
 

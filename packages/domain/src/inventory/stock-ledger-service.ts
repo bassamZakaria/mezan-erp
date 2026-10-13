@@ -730,6 +730,7 @@ export class StockLedgerService {
             sourceDocNumber: number,
             date,
             memo: `${memo} — فرق متوسط التكلفة`,
+            mintedBySystem: command.mintedBySystem,
             lines: [
               { ...inventoryLine, debit: up ? magnitude : Money.zero(), credit: up ? Money.zero() : magnitude },
               { ...counterpartLine, debit: up ? Money.zero() : magnitude, credit: up ? magnitude : Money.zero() },
@@ -1490,6 +1491,7 @@ export interface ReverseAdjustmentCommand {
   readonly reversalId: string;
   readonly occurredAt: string;
   readonly memo?: string;
+  readonly mintedBySystem?: boolean;
 }
 
 function buildAdjustmentPosting(

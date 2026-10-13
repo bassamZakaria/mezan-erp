@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for the Field/Van Sales module (docs/archive/catalog/07-mfg-projects-assets.md
@@ -64,7 +65,7 @@ export const vanSchema = z.object({
 });
 
 export const createVanSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullish(),
@@ -97,7 +98,7 @@ export const vanTripSchema = z.object({
 });
 
 export const openVanTripSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   tripNo: z.string().nullable().optional(),
   date: isoDateOrInstant,
   branchId: z.string().min(1).optional(),
@@ -118,7 +119,7 @@ export const openVanTripSchema = z.object({
 });
 
 export const recordVanCashMovementSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   kind: vanTripCashMovementKindSchema,
   amount: decimalString,
   occurredAt: z.string().min(1),

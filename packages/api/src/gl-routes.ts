@@ -1,4 +1,4 @@
-import { postingRefusalResponse, refuseReservedEntryId } from "./posting-refusal.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -344,15 +344,13 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const reserved = refuseReservedEntryId(c, parsed.data.id);
-    if (reserved) return reserved;
     try {
       const entry = await postJournalEntry(
         {
           id: parsed.data.id,
           date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
-          source: parsed.data.source,
+          source: "manual",
           lines: parsed.data.lines.map((l) => ({
             accountId: l.accountId,
             debit: Money.fromMajor(l.debit),
@@ -531,15 +529,13 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const reserved = refuseReservedEntryId(c, parsed.data.id);
-    if (reserved) return reserved;
     try {
       const entry = await createJournalEntry(
         {
           id: parsed.data.id,
           date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
-          source: parsed.data.source,
+          source: "manual",
           lines: parsed.data.lines.map((l) => ({
             accountId: l.accountId,
             debit: Money.fromMajor(l.debit),
@@ -590,7 +586,7 @@ export function createGlRoutes(
         {
           date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
-          source: parsed.data.source,
+          source: "manual",
           lines: parsed.data.lines.map((l) => ({
             accountId: l.accountId,
             debit: Money.fromMajor(l.debit),
@@ -635,8 +631,6 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const reserved = refuseReservedEntryId(c, parsed.data.reversalId);
-    if (reserved) return reserved;
     try {
       const entryId = c.req.param("id");
       const resolvedDate = await tenantDay(c, parsed.data.date ?? (deps.now ? deps.now() : new Date().toISOString()));

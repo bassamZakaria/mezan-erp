@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /** Wire contract for exchange rates (docs/archive/catalog/04 "أسعار الصرف"). */
 export const exchangeRateTypeSchema = z.enum(["standard", "buy", "sell"]);
@@ -17,7 +18,7 @@ export const exchangeRateSchema = z.object({
 });
 
 export const createExchangeRateSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   currency: z.string().min(1),
   rate: z.string().min(1),
   effectiveDate: z.string().min(1),

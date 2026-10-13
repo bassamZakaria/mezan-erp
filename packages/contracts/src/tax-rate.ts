@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /** Wire contract for tax rates (docs/archive/catalog/04 "الضرائب"). */
 export const taxCalculationTypeSchema = z.enum(["exclusive", "inclusive"]);
@@ -33,7 +34,7 @@ export const taxRateSchema = z.object({
 });
 
 export const createTaxRateSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   name: z.string().min(1),
   rate: z.number(),
@@ -72,7 +73,7 @@ export const taxGroupMemberSchema = z.object({
 });
 
 export const upsertTaxGroupSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullish(),

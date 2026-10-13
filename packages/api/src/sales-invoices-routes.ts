@@ -1,4 +1,4 @@
-import { postingRefusalResponse, refuseReservedEntryId } from "./posting-refusal.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -589,8 +589,6 @@ export function createSalesInvoicesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const reserved = refuseReservedEntryId(c, parsed.data.id);
-    if (reserved) return reserved;
     const d = parsed.data;
     const currencyRefusal = await deps.currencyCheck?.(d.currency);
     if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);
@@ -1207,6 +1205,7 @@ export function createSalesInvoicesRoutes(
       const { voided, reversal } = await deps.repo.transaction(async () => {
         const reversal = await deps.gl.reverse(journalEntryId, {
           reversalId: salesInvoiceVoidEntryId(invoice.id),
+          mintedBySystem: true,
           date,
           memo: `عكس فاتورة مبيعات ${invoice.docNo ?? invoice.id}`,
         });

@@ -101,7 +101,6 @@ import {
   isActive,
   type DocumentStatus,
   purchaseInvoiceCancelEntryId,
-  FX_REVALUATION_LINE_MEMO,
   goodsReceiptCancelEntryId,
   goodsReceiptTotalCost,
   goodsReceiptUninvoicedCost,
@@ -110,6 +109,7 @@ import {
   CUSTOMER_OPENING_BALANCE_DOC_TYPE,
   SUPPLIER_OPENING_BALANCE_DOC_TYPE,
   fxRevaluationNet,
+  isFxRestatementLine,
   openFxItemsKey,
   unconsumedRevaluationShare,
   FxOpenItemType,
@@ -1381,7 +1381,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           reversalId: `${invoice.id}:void`,
           date,
           memo: `عكس فاتورة مستخلص ${invoice.docNo ?? invoice.id} — ${reasonAr}`,
-        });
+        }, { mintedBySystem: true });
       }
       await salesInvoices.update({ ...invoice, status: "reversed" });
       const sub = await vouchers.invoices.findById(invoiceId);
@@ -1622,6 +1622,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           })),
         },
         salesInvoiceGl,
+        { mintedBySystem: true },
       );
     },
   };
@@ -1998,6 +1999,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         ],
       },
       salesInvoiceGl,
+      { mintedBySystem: true },
     );
   };
   const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
@@ -2011,7 +2013,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     reverseSideEntry: async (entryId, opts) => {
       const entry = await ledger.findById(entryId);
       if (!entry || entry.status !== "posted") return null;
-      await reverseJournalEntry(entryId, salesInvoiceGl, { reversalId: opts.reversalId, date: opts.date });
+      await reverseJournalEntry(entryId, salesInvoiceGl, { reversalId: opts.reversalId, date: opts.date }, { mintedBySystem: true });
       return Money.sum(entry.lines.map((line) => line.debit));
     },
   }, {
@@ -2256,7 +2258,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         // never carried one) — the reversal names the party regardless, so
         // the sub-ledger can follow it even when the entry it offsets could not.
         linePatch: (line) => (line.accountId === controlAccountId ? { ...line, partyId: party.id } : line),
-      });
+      }, { mintedBySystem: true });
       reversed = true;
     }
 
@@ -2295,6 +2297,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             ],
       },
       salesInvoiceGl,
+      { mintedBySystem: true },
     );
     return true;
   }
@@ -2878,6 +2881,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // confirmed "inter_treasury_transfer" voucher between the two treasury
   // accounts, posted through the same GL engine every other voucher uses. ---
   const vanTripVoucherService = new VoucherService({
+    documentIdsMintedBySystem: true,
     documents: vouchers.documents,
     vatFilings,
     ledger,
@@ -3232,7 +3236,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }
     return out;
   }
-  // INVARIANT: runs in the run's own transaction, after its shares are saved — a relief dated in a closed period throws here and takes the run with it. Each release and each give-back is dated the day of the event that caused it, so the ledger read as of any day is the one the date order would have left.
+  // INVARIANT: runs in the run's own transaction, after its shares are saved — a relief dated in a closed period throws here and takes the run with it. Each release and each give-back is dated the day of the event that caused it, or the day of a standing run on the item if that is later, so the ledger read at a month end is the one the date order would have left, to the rounding of a share split; a day inside a month can still read differently (fx-order-independence.test.ts).
   async function releaseSharesRelievedSince(asOfDate: string, shared: readonly { readonly itemId: string; readonly itemType: FxOpenItemType; readonly amount: Money }[]): Promise<void> {
     const ownShare = new Map<string, { ref: FxOpenItemRef; share: bigint }>();
     for (const share of shared) {
@@ -3247,7 +3251,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         if (step.kind === FxItemEventKind.Reopening) {
           const release = released.get(step.ref);
           const entry = release && release.amount === step.amount.scaled ? await ledger.findById(release.entryId) : null;
-          if (entry) await reverseJournalEntry(entry.id, salesInvoiceGl, { reversalId: realisedFxReversalId(entry.id), date: laterDay(step.day, entry.date.slice(0, 10)), memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})` });
+          if (entry) await reverseJournalEntry(entry.id, salesInvoiceGl, { reversalId: realisedFxReversalId(entry.id), date: laterDay(step.day, entry.date.slice(0, 10)), memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})` }, { mintedBySystem: true });
           else await postShareRelease(ref, step.day, Money.fromScaled(-step.amount.scaled), step.by ? await fxDocumentNumber(step.by) : undefined);
           continue;
         }
@@ -3296,13 +3300,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     if (lines.length === 0) return null;
     let restatedOn = date;
     for (const record of records) {
-      if (await revaluationEntryStands(record.entryId)) restatedOn = laterDay(restatedOn, (await ledger.findById(record.entryId))?.date.slice(0, 10));
+      const run = await ledger.findById(record.entryId);
+      if (run?.sourceDocType === FX_REVALUATION_DOC_TYPE && run.status === "posted" && !run.reversedByEntryId) restatedOn = laterDay(restatedOn, run.date.slice(0, 10));
     }
     const entryId = releaseEntryId ?? `${FX_SHARE_RELEASE_ENTRY_PREFIX}${item.id}:${records.length}`;
     const itemNo = await fxDocumentNumber(item.id);
     await postJournalEntry(
       { id: entryId, date: restatedOn, memo: `إقفال إعادة تقييم قائمة على مستند أُقفل (${itemNo})`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, sourceDocId: item.id, sourceDocNumber: releasedBy ?? itemNo, lines },
       salesInvoiceGl,
+      { mintedBySystem: true },
     );
     await vouchers.revaluationShares.saveAll([{ ...share, entryId, amount: Money.fromScaled(-taken.scaled) }]);
     return entryId;
@@ -3375,7 +3381,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     async treasuryRevaluationShare(treasuryAccountId, foreign, fromDate, toDate) {
       const account = (await treasuryAccounts.list()).find((row) => row.id === treasuryAccountId);
       if (!account?.glAccountId) return Money.zero();
-      const restated = ((await ledger.listLines?.({ accountIds: [account.glAccountId], fromDate, toDate })) ?? []).filter((line) => line.source === "system" && line.memo === FX_REVALUATION_LINE_MEMO);
+      const restated = ((await ledger.listLines?.({ accountIds: [account.glAccountId], fromDate, toDate })) ?? []).filter(isFxRestatementLine);
       let share = 0n;
       for (const entryId of new Set(restated.map((line) => line.entryId))) {
         const entry = await ledger.findById(entryId);
@@ -3391,7 +3397,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const held = (await foreignTreasuryBalances(asOfDate)).find((row) => row.treasuryAccountId === treasuryAccountId);
       if (!held) return null;
       // INVARIANT: a revaluation that reverses itself is not cost. Both halves are left out, on whichever day each is dated, so the carrying amount is the same before and after the reversal lands.
-      const restated = ((await ledger.listLines?.({ accountIds: [held.glAccountId], toDate: asOfDate })) ?? []).filter((line) => line.source === "system" && line.memo === FX_REVALUATION_LINE_MEMO);
+      const restated = ((await ledger.listLines?.({ accountIds: [held.glAccountId], toDate: asOfDate })) ?? []).filter(isFxRestatementLine);
       let selfReversing = 0n;
       for (const entryId of new Set(restated.map((line) => line.entryId))) {
         const entry = await ledger.findById(entryId);
@@ -3459,6 +3465,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         realisedFx,
       }).reverseVoucher(doc.id, {
         reversalId: `${doc.id}:BOUNCED`,
+        mintedBySystem: true,
         date,
         memo: `عكس السند لارتداد الشيك رقم ${cheque.chequeNumber}`,
       });
@@ -3509,6 +3516,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         counterpartyGlAccountId: input.treasuryGlAccountId,
         controlAccounts: voucherChequeControls[input.direction],
         journalEntryId: `CHQ-JE:${input.voucherId}`,
+        journalEntryIdMintedBySystem: true,
         actor: input.actor,
       });
       return { chequeId: cheque.id };
@@ -3538,6 +3546,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }
     const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
     const service = new VoucherService({
+      documentIdsMintedBySystem: true,
       documents: vouchers.documents,
       vatFilings,
       ledger,
@@ -3757,6 +3766,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         }
         const voucherId = `PAY:${input.invoiceId}:${randomUUID()}`;
         const service = new VoucherService({
+          documentIdsMintedBySystem: true,
           documents: vouchers.documents,
           vatFilings,
           ledger,
@@ -4258,6 +4268,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
             },
             salesInvoiceGl,
+            { mintedBySystem: true },
           );
         },
         ...historicalImportGate,
@@ -4299,6 +4310,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             // A trial-balance row names no party, so a debtors or creditors
             // total would sit on 1105/2100 with no customer behind it (D212).
             { ...salesInvoiceGl, partyControlAccounts: await resolvePartyControlAccounts() },
+            { mintedBySystem: true },
           );
         } catch (err) {
           if (!(err instanceof PartyRequiredOnControlAccountError)) throw err;
@@ -4323,6 +4335,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
                 lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
               },
               salesInvoiceGl,
+              { mintedBySystem: true },
             );
           },
         },
@@ -4341,6 +4354,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
                 lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
               },
               salesInvoiceGl,
+              { mintedBySystem: true },
             );
           },
         },
@@ -4372,6 +4386,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
             },
             salesInvoiceGl,
+            { mintedBySystem: true },
           );
         },
         ...historicalImportGate,
@@ -4478,6 +4493,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           const customer = await customers.findById(command.customerId);
           const voucherId = `REFUND:${command.returnId}:${randomUUID()}`;
           const service = new VoucherService({
+            documentIdsMintedBySystem: true,
             documents: vouchers.documents,
             vatFilings,
             ledger,

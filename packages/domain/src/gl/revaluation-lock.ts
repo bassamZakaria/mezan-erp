@@ -44,8 +44,10 @@ export async function latestStandingRevaluation(currencies: ReadonlySet<string>,
   return latest;
 }
 
+// INVARIANT: no wire contract carries these; a route that copies one from a request body reopens what it guards.
 export interface JournalPostingInternals {
   readonly isRevaluationRun?: boolean;
+  readonly mintedBySystem?: boolean;
 }
 
 export interface RevaluationLockDeps {

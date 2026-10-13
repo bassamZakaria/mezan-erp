@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for Bank Statement Reconciliation (docs/archive/catalog/04
@@ -120,7 +121,7 @@ export const statementLineSchema = z.object({
 
 /** Import a CSV bank statement. The raw file content crosses as text. */
 export const importBankStatementSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   treasuryAccountId: z.string().min(1),
   rawCsv: z.string().min(1),
   mapping: columnMappingInputSchema,
@@ -135,7 +136,7 @@ export const importBankStatementSchema = z.object({
 
 /** Import an OFX or MT940 statement; balances and the period default to what the file states. */
 export const importStatementFileSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   treasuryAccountId: z.string().min(1),
   format: z.nativeEnum(StatementFileFormatCode),
   content: z.string().min(1),
@@ -195,7 +196,7 @@ export const matchStatementLineSchema = z.object({
 });
 
 export const addManualLineSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: z.string().min(1),
   description: z.string().min(1),
   reference: z.string().nullish(),

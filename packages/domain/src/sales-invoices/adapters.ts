@@ -56,7 +56,7 @@ export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHo
         reversalId: opts.reversalId,
         date: opts.date,
         memo: opts.memo,
-      });
+      }, { mintedBySystem: opts.mintedBySystem });
       return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
     },
   };

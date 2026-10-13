@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for HR master data (docs/archive/catalog/06-crm-hr.md "الموارد
@@ -25,7 +26,7 @@ export const departmentSchema = z.object({
 });
 
 export const createDepartmentSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   code: z.string().min(1),
   name: z.string().min(1),
   nameAr: z.string().nullable().optional(),
@@ -57,7 +58,7 @@ export const jobTitleSchema = z.object({
 });
 
 export const createJobTitleSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   departmentId: z.string().min(1),
   name: z.string().min(1),
   nameAr: z.string().nullable().optional(),
@@ -131,7 +132,7 @@ export const employeeSchema = z.object({
 });
 
 export const createEmployeeSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   firstNameAr: z.string().nullable().optional(),
@@ -216,14 +217,14 @@ export const contractSchema = z.object({
 });
 
 export const createContractLineItemSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   name: z.string().min(1),
   amount: moneyString,
   componentId: z.string().nullable().optional(),
 });
 
 export const createContractSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   employeeId: z.string().min(1),
   type: contractTypeSchema.optional(),
   payBasis: payBasisSchema.optional(),
@@ -249,7 +250,7 @@ export const holidaySchema = z.object({
 });
 
 export const createHolidaySchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: z.string().min(1),
   nameEn: z.string().min(1),
   nameAr: z.string().nullable().optional(),
@@ -285,7 +286,7 @@ export const leaveRequestSchema = z.object({
 });
 
 export const createLeaveRequestSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   /** Filing on behalf of another employee (the admin list's create action); omitted, the request is the caller's own. */
   employeeId: z.string().min(1).optional(),
   leaveType: leaveTypeSchema,
@@ -327,7 +328,7 @@ export const attendanceEntrySchema = z.object({
 });
 
 export const recordAttendanceSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   employeeId: z.string().min(1),
   date: isoDateSchema,
   checkIn: timeOfDaySchema.nullable().optional(),
@@ -426,7 +427,7 @@ export const leavePolicySchema = z.object({
 });
 
 export const createLeavePolicySchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   leaveType: leaveTypeSchema,
   entitlementDays: qtyDaysSchema,
   accrualFrequency: leaveAccrualFrequencySchema,

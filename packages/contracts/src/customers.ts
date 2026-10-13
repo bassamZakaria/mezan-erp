@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for a Customer (docs/archive/catalog/01-sales.md "العملاء"). Money
@@ -41,7 +42,7 @@ export const customerSchema = z.object({
 
 /** POST /customers body — matches the catalog's "Add customer" dialog defaults. */
 export const createCustomerSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   /** Omitted, the server allocates the next free code. */
   code: z.string().trim().min(1).optional(),
   /** The branch that owns this record; omitted, it is stamped from the creator's own scope (D71). */

@@ -82,7 +82,7 @@ import { allocationUndoDay, postRealisedFx, reverseRealisedFx, settlementRatesFo
 import { Money } from "../money/index.js";
 
 /** GL hook binding the REAL posting engine behind the framework, tagging vouchers as "system". */
-export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
+export function createVoucherGlHook(deps: JournalPostingDeps, internal: { readonly documentIdsMintedBySystem?: boolean } = {}): DocumentGlHook {
   return {
     async post(posting) {
       const entry = await postJournalEntry(
@@ -111,6 +111,7 @@ export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
           })),
         },
         deps,
+        { mintedBySystem: internal.documentIdsMintedBySystem },
       );
       return { journalEntryId: entry.id, journalEntryNo: entry.entryNo ?? null };
     },
@@ -119,7 +120,7 @@ export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
         reversalId: opts.reversalId,
         date: opts.date,
         memo: opts.memo,
-      });
+      }, { mintedBySystem: opts.mintedBySystem });
       return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
     },
   };
@@ -169,6 +170,8 @@ export interface VoucherChequeRegistrationPort {
 }
 
 export interface VoucherServiceDeps {
+  // INVARIANT: true only where the composition root builds the voucher's id itself (COLL:…, PAY:…); a service that saves a caller's id leaves it unset so the journal still refuses a reserved one.
+  readonly documentIdsMintedBySystem?: boolean;
   readonly documents: import("../documents/document.js").DocumentRepository<VoucherLine>;
   readonly ledger: LedgerRepository;
   readonly accounts: Pick<AccountRepository, "findById">;
@@ -310,7 +313,7 @@ export class VoucherService {
     this.service = new DocumentService(voucherDocumentType, {
       repo: deps.documents,
       numbering: { next: (opts) => deps.numbering.next("CASH_VOUCHER", { branchId: opts?.branchId }) },
-      gl: createVoucherGlHook(glDeps),
+      gl: createVoucherGlHook(glDeps, { documentIdsMintedBySystem: deps.documentIdsMintedBySystem }),
       workflow: createDocumentWorkflowGate(deps.resolveGateConfig ?? (() => null), deps.approvalRequests),
       audit: deps.audit,
       events: deps.events,
@@ -572,7 +575,7 @@ export class VoucherService {
    */
   async reverseVoucher(
     id: string,
-    opts: { reversalId: string; date?: string; memo?: string },
+    opts: { reversalId: string; date?: string; memo?: string; mintedBySystem?: boolean },
   ): Promise<{ original: VoucherDocument; reversal: VoucherDocument }> {
     if (await this.deps.cheques?.blocksReversal?.(id)) {
       throw new InvalidDocumentError(

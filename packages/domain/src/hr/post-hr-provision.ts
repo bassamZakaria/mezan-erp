@@ -121,6 +121,7 @@ export async function postHrProvision(cmd: PostHrProvisionCommand, deps: PostHrP
       lines,
     },
     deps.gl,
+    { mintedBySystem: true },
   );
 
   return {

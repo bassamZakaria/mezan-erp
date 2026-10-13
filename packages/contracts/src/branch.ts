@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /** Wire contract for a branch (docs/archive/catalog/09 §"إدارة الفروع"). */
 export const branchSchema = z.object({
@@ -15,7 +16,7 @@ export const branchSchema = z.object({
 
 /** POST /branches body. */
 export const createBranchSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().regex(/^[A-Z0-9_-]{1,20}$/),
   name: z.string().min(1),
   parentBranchId: z.string().min(1).nullable().optional(),

@@ -12,10 +12,10 @@ import {
   type LandedCostLine,
   type LandedCostService,
 } from "@mezan/domain";
-import { ReversalPermission, createLandedCostSchema } from "@mezan/contracts";
+import { ReversalPermission, clientSuppliedId, createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
-import { noteReversalOriginalDay, refuseReservedEntryId } from "./posting-refusal.js";
+import { noteReversalOriginalDay } from "./posting-refusal.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 
 function serializeLine(l: LandedCostLine) {
@@ -92,8 +92,6 @@ export function createLandedCostsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const reserved = refuseReservedEntryId(c, parsed.data.id);
-    if (reserved) return reserved;
     try {
       const costItems = parsed.data.costItems.map((ci) => ({
         costType: ci.costType,
@@ -171,11 +169,13 @@ export function createLandedCostsRoutes(
     if (body?.date !== undefined && body.date !== null && (typeof body.date !== "string" || body.date.trim() === "")) {
       return c.json({ error: "VALIDATION_ERROR", message: "تاريخ العكس يجب أن يكون نصاً بصيغة YYYY-MM-DD.", messageEn: "The reversal date must be a YYYY-MM-DD string." }, 400);
     }
+    const reversalId = clientSuppliedId.optional().safeParse(body?.reversalId === "" ? undefined : (body?.reversalId ?? undefined));
+    if (!reversalId.success) return c.json({ error: "VALIDATION_ERROR", details: reversalId.error.flatten() }, 400);
     try {
       const date = await tenantDay(c, typeof body?.date === "string" ? body.date : new Date().toISOString());
       await noteReversalOriginalDay(c, (await documents.findById(c.req.param("id")))?.date);
       const result = await landedCostService.reverse(c.req.param("id"), {
-        reversalId: typeof body?.reversalId === "string" && body.reversalId !== "" ? body.reversalId : randomUUID(),
+        reversalId: reversalId.data ?? randomUUID(),
         date,
       });
       return c.json({ original: serialize(result.original), reversal: serialize(result.reversal) }, 201);

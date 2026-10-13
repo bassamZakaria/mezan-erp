@@ -471,6 +471,7 @@ export function createFixedAssetsRoutes(
                     })),
                   },
                   deps.gl,
+                  { mintedBySystem: true },
                 );
               },
             },

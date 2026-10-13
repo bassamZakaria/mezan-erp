@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for price lists (docs/archive/catalog/01 "قوائم الأسعار"). Money is
@@ -36,7 +37,7 @@ export const priceListSchema = z.object({
 });
 
 export const createPriceListSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullish(),

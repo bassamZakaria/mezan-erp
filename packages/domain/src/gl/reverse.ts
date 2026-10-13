@@ -3,7 +3,9 @@ import { recordSensitiveEvent } from "../audit/index.js";
 import { assertBalanced, assertPeriodOpen, assertVatNotFiled, type JournalPostingDeps } from "./post.js";
 import { namingEarliestOpenDay } from "../fiscal-periods/errors.js";
 import { assertNotBeforeStandingRevaluation, type JournalPostingInternals } from "./revaluation-lock.js";
+import { assertEntryIdNotReserved } from "./reserved-entry-ids.js";
 import {
+  DuplicateJournalEntryError,
   JournalEntryAlreadyReversedError,
   JournalEntryNotFoundError,
   JournalEntryNotPostedError,
@@ -71,6 +73,7 @@ export async function reverseJournalEntry(
   opts: ReverseJournalEntryOptions,
   internal: JournalPostingInternals = {},
 ): Promise<ReverseJournalEntryResult> {
+  assertEntryIdNotReserved(opts.reversalId, internal);
   const original = await deps.ledger.findById(entryId);
   if (!original) throw new JournalEntryNotFoundError(entryId);
   // Check already-reversed before status: a reversed entry's status is
@@ -96,6 +99,7 @@ export async function reverseJournalEntry(
   const memo = opts.memo ?? `عكس القيد ${original.entryNo ?? original.id}`;
 
   const result = await deps.ledger.transaction(async () => {
+    if (await deps.ledger.findById(opts.reversalId)) throw new DuplicateJournalEntryError(opts.reversalId);
     const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);
     const reversal: JournalEntry = {
       id: opts.reversalId,

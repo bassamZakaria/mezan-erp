@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import {
   Money,
+  DuplicateJournalEntryError,
   postJournalEntry,
   reverseJournalEntry,
   netBalancesByAccount,
@@ -101,6 +102,28 @@ describe("SqliteLedgerStore — golden fixture: a multi-line entry reconciles ex
     expect(ledgerLines).toHaveLength(1);
     expect(ledgerLines[0]).toMatchObject({ entryNo: "JE-000001", debit: expect.anything() });
     expect(ledgerLines[0]?.debit.toString()).toBe("1150.750000");
+  });
+});
+
+describe("SqliteLedgerStore — an id that is already an entry", () => {
+  it("save answers the domain's duplicate refusal, never the storage engine's own error", async () => {
+    const { deps, ledger } = await harness();
+    const posted = await postJournalEntry(
+      {
+        id: "je-dup",
+        date: "2026-08-10",
+        memo: "قيد",
+        lines: [
+          { accountId: "1300-1", debit: Money.fromMajor("10"), credit: Money.zero() },
+          { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("10") },
+        ],
+      },
+      deps,
+    );
+    const again = ledger.save({ ...posted, entryNo: null, memo: "نسخة" });
+    await expect(again).rejects.toBeInstanceOf(DuplicateJournalEntryError);
+    await expect(again).rejects.toMatchObject({ entryId: "je-dup" });
+    expect((await ledger.findById("je-dup"))?.memo).toBe("قيد");
   });
 });
 

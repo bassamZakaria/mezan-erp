@@ -34,6 +34,7 @@ import { salesSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
 import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReasonsOf, voidReturn } from "./return-void.js";
+import { DOCUMENT_NOT_FOUND, MirrorAccess, createVisibleDocumentResolver } from "./document-visibility.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
 
@@ -158,6 +159,12 @@ export function createSalesReturnsRoutes(
   async function refundsOf(id: string): Promise<readonly SalesReturnRefund[]> {
     return refunds ? refunds.list(id) : [];
   }
+
+  const visibleReturn = createVisibleDocumentResolver(service, (c, doc) => {
+    const scope = warehouseScopeOf(c);
+    if (!scope) return !ownVisibilityOnly(c);
+    return doc.lines.some((line) => scope.includes(line.warehouseId));
+  });
 
   const SOURCE_INVOICE_NOT_FOUND = {
     error: "SOURCE_INVOICE_NOT_FOUND",
@@ -421,16 +428,8 @@ export function createSalesReturnsRoutes(
   });
 
   app.get("/:id", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
-    const doc = await service.findById(c.req.param("id"));
-    if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
-    // A `view_own` holder gets 404, not 403: whether a return they may not see
-    // exists at all is itself information, and the list already hides it.
-    if (ownVisibilityOnly(c)) {
-      const scope = warehouseScopeOf(c);
-      if (!scope || !doc.lines.some((line) => scope.includes(line.warehouseId))) {
-        return c.json({ error: "NOT_FOUND" }, 404);
-      }
-    }
+    const doc = await visibleReturn(c, MirrorAccess.Reachable);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
     return c.json(serialize(doc, await refundsOf(doc.id), await voidReasonOf(service, doc), await approvalOf(service, doc)));
   });
 
@@ -500,8 +499,10 @@ export function createSalesReturnsRoutes(
   });
 
   app.post("/:id/confirm", gate("sales.return.confirm"), async (c) => {
+    const visible = await visibleReturn(c);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const result = await service.confirm(c.req.param("id"), {
+      const result = await service.confirm(visible.id, {
         actor: callerUserId(c),
         actorRoles: callerRoleCodes(c),
       });
@@ -516,14 +517,17 @@ export function createSalesReturnsRoutes(
 
   mountResubmitRoute(app, {
     permission: gate("sales.return.confirm"),
+    refuse: async (c) => ((await visibleReturn(c)) ? undefined : c.json(DOCUMENT_NOT_FOUND, 404)),
     resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
     serialize: async (_c, doc) => serialize(doc, await refundsOf(doc.id), null, await approvalOf(service, doc)),
     onError: handleDocumentError,
   });
 
   app.post("/:id/cancel", gate("sales.return.void"), async (c) => {
+    const visible = await visibleReturn(c);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const doc = await service.cancel(c.req.param("id"), { actor: callerUserId(c) });
+      const doc = await service.cancel(visible.id, { actor: callerUserId(c) });
       return c.json(serialize(doc, await refundsOf(doc.id)));
     } catch (err) {
       return handleDocumentError(c, err);
@@ -531,21 +535,15 @@ export function createSalesReturnsRoutes(
   });
 
   app.post("/:id/lines/:lineId/journal-tax", gate("sales.invoice.classify_tax"), async (c) => {
-    const doc = await service.findById(c.req.param("id"));
-    const scope = warehouseScopeOf(c);
-    if (!doc || (ownVisibilityOnly(c) && (!scope || !doc.lines.some((line) => scope.includes(line.warehouseId))))) {
-      return c.json({ error: "NOT_FOUND", message: "المرتجع غير موجود." }, 404);
-    }
+    const doc = await visibleReturn(c);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
     return handleReturnJournalTax(c, doc, ["sales.return.view", "sales.return.view_own"], journalTax);
   });
 
   app.post("/:id/void", gate("sales.return.void"), async (c) => {
-    const id = c.req.param("id");
-    if (ownVisibilityOnly(c)) {
-      const scope = warehouseScopeOf(c);
-      const doc = await service.findById(id);
-      if (!doc || !scope || !doc.lines.some((line) => scope.includes(line.warehouseId))) return c.json({ error: "NOT_FOUND" }, 404);
-    }
+    const visible = await visibleReturn(c, MirrorAccess.Reachable);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
+    const id = visible.id;
     try {
       const voided = await voidReturn(c, service, id);
       if (!voided) return c.json(VOID_REASON_REQUIRED, 400);
@@ -575,9 +573,9 @@ export function createSalesReturnsRoutes(
     if (!refunds) {
       return c.json({ error: "REFUND_UNAVAILABLE", message: "الاسترداد يتطلب سند صرف؛ وحدة الخزينة غير مفعّلة." }, 503);
     }
-    const id = c.req.param("id");
-    const doc = await service.findById(id);
-    if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
+    const doc = await visibleReturn(c);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
+    const id = doc.id;
     const customerId = doc.lines[0]?.customerId;
     if (!customerId) return c.json({ error: "NO_CUSTOMER", message: "المرتجع بلا عميل." }, 422);
 

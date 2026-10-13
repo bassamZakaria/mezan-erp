@@ -21,6 +21,7 @@ import { purchaseSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay } from "./tenant-day.js";
 import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
 import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReasonsOf, voidReturn } from "./return-void.js";
+import { DOCUMENT_NOT_FOUND, MirrorAccess, anyLineInWarehouseScope, createVisibleDocumentResolver } from "./document-visibility.js";
 
 function serializeLine(l: PurchaseReturnLine) {
   return {
@@ -80,6 +81,7 @@ export function createPurchaseReturnsRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const visibleReturn = createVisibleDocumentResolver(service, (c, doc) => anyLineInWarehouseScope(c, doc.lines.map((line) => line.warehouseId)));
 
   type SourceInvoice = Awaited<ReturnType<PurchaseInvoiceLookupPort["findConfirmedInvoice"]>>;
   // Scoped to ONE request: `alreadyReturnedQty` moves every time a return
@@ -241,8 +243,8 @@ export function createPurchaseReturnsRoutes(
   });
 
   app.get("/:id", gate("purchases.return.view"), async (c) => {
-    const doc = await service.findById(c.req.param("id"));
-    if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
+    const doc = await visibleReturn(c, MirrorAccess.Reachable);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
     return c.json(serialize(doc, await voidReasonOf(service, doc), await approvalOf(service, doc)));
   });
 
@@ -335,8 +337,10 @@ export function createPurchaseReturnsRoutes(
   });
 
   app.post("/:id/confirm", gate("purchases.return.confirm"), async (c) => {
+    const visible = await visibleReturn(c);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const result = await service.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c) });
+      const result = await service.confirm(visible.id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) });
       return c.json({ document: serialize(result.document, null, await approvalOf(service, result.document)), held: result.held });
     } catch (err) {
       return handleDocumentError(c, err);
@@ -345,14 +349,17 @@ export function createPurchaseReturnsRoutes(
 
   mountResubmitRoute(app, {
     permission: gate("purchases.return.confirm"),
+    refuse: async (c) => ((await visibleReturn(c)) ? undefined : c.json(DOCUMENT_NOT_FOUND, 404)),
     resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
     serialize: async (_c, doc) => serialize(doc, null, await approvalOf(service, doc)),
     onError: handleDocumentError,
   });
 
   app.post("/:id/cancel", gate("purchases.return.void"), async (c) => {
+    const visible = await visibleReturn(c);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const doc = await service.cancel(c.req.param("id"), { actor: callerUserId(c) });
+      const doc = await service.cancel(visible.id, { actor: callerUserId(c) });
       return c.json(serialize(doc));
     } catch (err) {
       return handleDocumentError(c, err);
@@ -360,16 +367,15 @@ export function createPurchaseReturnsRoutes(
   });
 
   app.post("/:id/lines/:lineId/journal-tax", gate("purchases.invoice.classify_tax"), async (c) => {
-    const doc = await service.findById(c.req.param("id"));
-    const scope = warehouseScopeOf(c);
-    if (!doc || (scope && !doc.lines.some((line) => scope.includes(line.warehouseId)))) {
-      return c.json({ error: "NOT_FOUND", message: "المرتجع غير موجود." }, 404);
-    }
+    const doc = await visibleReturn(c);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
     return handleReturnJournalTax(c, doc, ["purchases.return.view"], journalTax);
   });
 
   app.post("/:id/void", gate("purchases.return.void"), async (c) => {
-    const id = c.req.param("id");
+    const visible = await visibleReturn(c, MirrorAccess.Reachable);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
+    const id = visible.id;
     try {
       const voided = await voidReturn(c, service, id);
       if (!voided) return c.json(VOID_REASON_REQUIRED, 400);

@@ -207,7 +207,7 @@ describe("POST /sales-returns/from-invoice — the lines come off the invoice", 
     expect(before.averageCost.toString()).toBe("15.000000");
 
     await app.fetch(req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-1", "4")) }));
-    const confirmed = await app.fetch(req("/SR-1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
+    const confirmed = await app.fetch(req("/SR-1/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }));
     expect(confirmed.status).toBe(200);
     const body = (await confirmed.json()) as { document: { status: string; docNo: string; journalEntryId: string; refundDue: string } };
     expect(body.document.status).toBe("confirmed");
@@ -276,7 +276,7 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
     expect(
       (await app.fetch(req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoice("SR-A", "6")) }))).status,
     ).toBe(201);
-    expect((await app.fetch(req("/SR-A/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }))).status).toBe(200);
+    expect((await app.fetch(req("/SR-A/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }))).status).toBe(200);
 
     const afterFirst = await stockService.getBalanceDetail("ITEM-A", "WH1");
     expect(afterFirst.onHand.toString()).toBe("206.000000");

@@ -8,14 +8,15 @@ function servesSignIn(tenant: TenantDTO): boolean {
   return tenant.status === TenantWireStatus.Active || tenant.status === TenantWireStatus.Suspended;
 }
 
-export function TenantLockedAccountsCard({ tenant, isOwner, onError }: { tenant: TenantDTO; isOwner: boolean; onError: (err: unknown) => void }) {
+export function TenantLockedAccountsCard({ tenant, isOwner, booksRefused, onError }: { tenant: TenantDTO; isOwner: boolean; booksRefused: boolean; onError: (err: unknown) => void }) {
   const { t } = useAppTranslation();
-  const locked = useLockedAccounts(tenant.id, isOwner && servesSignIn(tenant));
+  const locked = useLockedAccounts(tenant.id, isOwner && servesSignIn(tenant) && !booksRefused);
   const unlock = useUnlockTenantAccountMutation();
   const [asking, setAsking] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState<string | null>(null);
   const accounts = locked.data?.accounts ?? [];
 
+  if (booksRefused) return null;
   if (locked.isError) {
     return (
       <Card className="p-[14px_16px]">

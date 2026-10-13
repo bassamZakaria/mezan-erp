@@ -1457,7 +1457,7 @@ describe("TenantDetailPage", () => {
     ];
     const withBooks = (books: TenantBooksStanding, overrides: Partial<TenantSummaryDTO["tenant"]> = {}): TenantSummaryDTO => ({ ...makeSummary(overrides), books });
 
-    function booksTransport(start: TenantBooksStanding, posts: { route: string; body: unknown }[] = []) {
+    function booksTransport(start: TenantBooksStanding, posts: { route: string; body: unknown }[] = [], lockedAsked: string[] = []) {
       let standing = start;
       const act = (route: string, next: TenantBooksStanding) => (init: RequestInit | undefined) => {
         posts.push({ route, body: init?.body ? JSON.parse(String(init.body)) : null });
@@ -1468,6 +1468,10 @@ describe("TenantDetailPage", () => {
         "GET /tenants/tenant-1": () => ({ body: withBooks(standing) }),
         "GET /plans": () => ({ body: [plan, plan2] }),
         "GET /tenants/tenant-1/books": () => ({ body: { standing, companyName: "شركة أكمي للتجارة", admins } }),
+        "GET /tenants/tenant-1/locked-accounts": () => {
+          lockedAsked.push(standing);
+          return { body: { accounts: ["cashier@acme.test"] } };
+        },
         "POST /tenants/tenant-1/books/confirm": act("confirm", TenantBooksStanding.Bound),
         "POST /tenants/tenant-1/books/disown": act("disown", TenantBooksStanding.Disowned),
         "POST /tenants/tenant-1/books/unbind": act("unbind", TenantBooksStanding.Disowned),
@@ -1570,6 +1574,36 @@ describe("TenantDetailPage", () => {
         expect(screen.getByText(REASON)).toBeVisible();
       },
     );
+
+    it.each([TenantBooksStanding.Disowned, TenantBooksStanding.Foreign, TenantBooksStanding.Missing, TenantBooksStanding.Unreadable])(
+      "does not ask for the accounts locked out of sign-in while the books are %s: they cannot be opened to answer",
+      async (standing) => {
+        const lockedAsked: string[] = [];
+        renderDetail({ transport: booksTransport(standing, [], lockedAsked), session: testPlatformSession });
+
+        expect(await screen.findByText(REASON)).toBeVisible();
+        expect(lockedAsked).toEqual([]);
+      },
+    );
+
+    it("takes the locked accounts off the page once the books are disowned: an unlock would be refused", async () => {
+      renderDetail({ transport: booksTransport(TenantBooksStanding.Unbound), session: testPlatformSession });
+      expect(await screen.findByText("cashier@acme.test")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "ليست دفاتر هذه المنشأة" }));
+      const dialog = await screen.findByRole("dialog", { name: "إيقاف العمل على هذه الدفاتر؟" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "إيقاف العمل عليها" }));
+
+      expect(await screen.findByText(REASON)).toBeVisible();
+      expect(screen.queryByText("cashier@acme.test")).not.toBeInTheDocument();
+    });
+
+    it("asks for the accounts locked out of sign-in while the books are served", async () => {
+      const lockedAsked: string[] = [];
+      renderDetail({ transport: booksTransport(TenantBooksStanding.Unbound, [], lockedAsked), session: testPlatformSession });
+
+      await waitFor(() => expect(lockedAsked).toEqual([TenantBooksStanding.Unbound]));
+    });
 
     it.each([TenantBooksStanding.Unbound, TenantBooksStanding.Bound])("offers to assign an owner and to reset the owner's PIN while the books are %s", async (standing) => {
       renderDetail({ transport: booksTransport(standing), session: testPlatformSession });

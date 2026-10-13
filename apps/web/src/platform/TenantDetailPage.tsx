@@ -272,7 +272,7 @@ export function TenantDetailPage() {
         <TenantBooksCard tenant={tenant} standing={summary.books} isOwner={isOwner} onError={onMutationError} />
       </div>
 
-      <TenantLockedAccountsCard tenant={tenant} isOwner={isOwner} onError={onMutationError} />
+      <TenantLockedAccountsCard tenant={tenant} isOwner={isOwner} booksRefused={booksRefused} onError={onMutationError} />
 
       {mutationError ? (
         <Card className="p-[14px_16px]">

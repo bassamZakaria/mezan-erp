@@ -13,7 +13,7 @@ const REVIEWED: Record<Generator, readonly number[]> = {
   [Generator.Dated]: [13, 38, 119, 254, 256, 268, 288],
   [Generator.Routed]: [1105, 1178, 1234, 1287, 2019, 2031, 2199],
   [Generator.Wide]: [5068, 5075, 5080, 5087, 5095, 5104, 5123, 5151],
-  [Generator.WideReplacing]: [],
+  [Generator.WideReplacing]: [6145],
 };
 const SWEEP_CHUNK = 25;
 const WIDE_SWEEP = Number(process.env.FX_ORDER_SWEEP ?? 0);

@@ -56,7 +56,7 @@ export function fxItemOpenOn(timeline: FxItemTimeline, day: string): Money {
   return Money.fromScaled(open);
 }
 
-// INVARIANT: the one place a run's share of an item is measured after the run's day. The settlement posted in date order, the run posted late and the carrying amount read by a later run all call it, so they cannot disagree (fx-order-independence.test.ts). An event dated on the run's own day is one the run already restated.
+// INVARIANT: the one place a run's share of an item is measured after the run's day. A re-opening returns only the part of its relief that is open again: when reliefs entered since have already closed the item, what they took stays taken, or the share would be left standing on a closed document. The settlement posted in date order, the run posted late and the carrying amount read by a later run all call it, so they cannot disagree (fx-order-independence.test.ts). An event dated on the run's own day is one the run already restated.
 export function walkRunShare(timeline: FxItemTimeline, run: { readonly day: string; readonly share: Money }, upTo?: string): RunShareWalk {
   let open = timeline.opened.scaled;
   let remaining = run.share.scaled;
@@ -67,8 +67,11 @@ export function walkRunShare(timeline: FxItemTimeline, run: { readonly day: stri
     if (event.day > run.day) {
       let moved = 0n;
       if (event.kind === FxItemEventKind.Reopening) {
-        moved = taken.get(event.ref) ?? 0n;
-        taken.delete(event.ref);
+        const held = taken.get(event.ref) ?? 0n;
+        const after = open + event.amount.scaled;
+        const reopened = after <= 0n ? 0n : open >= 0n ? event.amount.scaled : after;
+        moved = shareOfBase(Money.fromScaled(held), Money.fromScaled(reopened), event.amount).scaled;
+        taken.set(event.ref, held - moved);
         remaining += moved;
       } else {
         moved = event.kind === FxItemEventKind.Close || event.amount.scaled >= open ? remaining : shareOfBase(Money.fromScaled(remaining), event.amount, Money.fromScaled(open)).scaled;

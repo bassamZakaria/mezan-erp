@@ -3242,18 +3242,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     for (const { ref, share } of ownShare.values()) {
       const book = await fxItemBook(ref);
       if (!book) continue;
-      const released = new Map<string, string>();
+      const released = new Map<string, { entryId: string; amount: bigint }>();
       for (const step of walkRunShare(book.timeline, { day: asOfDate, share: Money.fromScaled(share) }).steps) {
         if (step.kind === FxItemEventKind.Reopening) {
-          const entryId = released.get(step.ref);
-          const entry = entryId ? await ledger.findById(entryId) : null;
+          const release = released.get(step.ref);
+          const entry = release && release.amount === step.amount.scaled ? await ledger.findById(release.entryId) : null;
           if (entry) await reverseJournalEntry(entry.id, salesInvoiceGl, { reversalId: realisedFxReversalId(entry.id), date: laterDay(step.day, entry.date.slice(0, 10)), memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})` });
+          else await postShareRelease(ref, step.day, Money.fromScaled(-step.amount.scaled), step.by ? await fxDocumentNumber(step.by) : undefined);
           continue;
         }
         const releaseEntryId = book.allocationIds.has(step.ref) ? fxLateReleaseEntryId(ref.id, step.ref, (await fxLateReleaseEntryIds(ref.id, step.ref, ledger)).length) : undefined;
         const releasedBy = step.by && step.kind === FxItemEventKind.Relief && book.allocationIds.has(step.ref) ? await fxDocumentNumber(step.by) : step.by;
         const entryId = await postShareRelease(ref, step.day, step.amount, releasedBy, releaseEntryId);
-        if (entryId) released.set(step.ref, entryId);
+        if (entryId) released.set(step.ref, { entryId, amount: step.amount.scaled });
       }
     }
   }

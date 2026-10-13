@@ -89,6 +89,24 @@ describe("what one run's share of one item gives up, and gets back, after the ru
     expect(walk.remaining.toString()).toBe("0.000000");
   });
 
+  it("a relief undone after later reliefs already closed the item gives back only what is open again — nothing, when the item stays closed", () => {
+    const closed = fxItemTimeline(m("48000"), [
+      relief("chq", "2026-09-05", "9600", "2026-09-05T10:00:00.000Z"),
+      relief("ret", "2026-09-05", "4800", "2026-09-05T10:00:02.000Z"),
+      relief("pay", "2026-09-05", "43200", "2026-09-05T10:00:03.000Z"),
+      reopening("chq", "2026-09-10", "9600", "2026-09-05T10:00:01.000Z"),
+    ]);
+    const walk = walkRunShare(closed, { day: "2026-08-31", share: m("450") });
+    expect(steps(walk)).toEqual(["relief chq 2026-09-05 90.000000", "relief ret 2026-09-05 45.000000", "relief pay 2026-09-05 315.000000"]);
+    expect(walk.remaining.toString()).toBe("0.000000");
+
+    const halfOpen = fxItemTimeline(m("48000"), [relief("chq", "2026-09-05", "9600"), relief("pay", "2026-09-06", "43200"), reopening("chq", "2026-09-10", "9600")]);
+    const partly = walkRunShare(halfOpen, { day: "2026-08-31", share: m("450") });
+    expect(steps(partly)).toEqual(["relief chq 2026-09-05 90.000000", "relief pay 2026-09-06 360.000000", "reopening chq 2026-09-10 45.000000"]);
+    expect(partly.remaining.toString()).toBe("45.000000");
+    expect(partly.takenBy("chq").toString()).toBe("45.000000");
+  });
+
   it("a negative share — a payable restated upward, a loss on a receivable — is released and returned with its own sign", () => {
     const walk = walkRunShare(fxItemTimeline(m("48000"), [relief("a1", "2026-09-10", "19200"), reopening("a1", "2026-10-13", "19200")]), { day: "2026-08-31", share: m("-450") });
 

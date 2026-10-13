@@ -323,6 +323,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
       // turn and keep the till waiting on the authority's answer; stepping off
       // the request first makes the run queue for a turn of its own.
       await new Promise<void>((resolve) => setImmediate(resolve));
+      if (stopped) return;
       do {
         again = false;
         const config = await deps.eta.getConfig();

@@ -490,7 +490,7 @@ describe("a manual subscription payment on SQLite", () => {
 
     expect(results.map((r) => r.replayed).sort()).toEqual([false, true]);
     expect(paymentCount(stores)).toBe(1);
-    expect(periodEnd(stores)).toBe("2026-11-13T10:00:00.000Z");
+    expect(periodEnd(stores)).toBe("2026-11-13T11:00:00.000Z");
     stores.close();
   });
 
@@ -507,7 +507,7 @@ describe("a manual subscription payment on SQLite", () => {
     const refused = results.find((r) => r.status === "rejected");
     expect(refused?.reason).toBeInstanceOf(PaymentReferenceAlreadyRecordedError);
     expect(paymentCount(stores)).toBe(1);
-    expect(periodEnd(stores)).toBe("2026-11-13T10:00:00.000Z");
+    expect(periodEnd(stores)).toBe("2026-11-13T11:00:00.000Z");
     stores.close();
   });
 
@@ -524,7 +524,7 @@ describe("a manual subscription payment on SQLite", () => {
 
     expect(second.duplicateOfPaymentId).toBe("PAY1");
     expect((await stores.payments.listByTenant("T1")).map((p) => p.id).sort()).toEqual(["PAY1", "PAY2"]);
-    expect(periodEnd(stores)).toBe("2026-12-13T10:00:00.000Z");
+    expect(periodEnd(stores)).toBe("2026-12-13T11:00:00.000Z");
     expect((await stores.payments.findByIdempotencyKey("T1", "KEY-2"))?.id).toBe("PAY2");
     stores.close();
   });

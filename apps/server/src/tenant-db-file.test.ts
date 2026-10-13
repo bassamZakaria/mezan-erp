@@ -6,7 +6,7 @@ import { createPlatform, type PlatformHandle } from "@mezan/backend";
 import { activateTenant, createTenant, releaseTenant, tenantDbFile, TenantStatusCode, type Tenant } from "@mezan/domain";
 import { holdSqliteFile, openSqliteConnection, SqliteFileBusyError } from "@mezan/persistence";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
-import { harnessEnv, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, proxiedRequest, type SendInit } from "./cloud-harness.js";
+import { harnessEnv, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, proxiedRequest, reachable, type SendInit } from "./cloud-harness.js";
 import type { CloudEnv } from "./env.js";
 import { provisionTenant } from "./provision-tenant.js";
 import {
@@ -17,7 +17,13 @@ import {
   TenantDbFileMissingError,
   TenantDbFileSharedError,
 } from "./tenant-db-file.js";
-import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
+import { createTenantRouter, TENANT_HEADER, type TenantRouter, type TenantRouterOptions } from "./tenant-router.js";
+
+function reachableRouter(options: TenantRouterOptions): TenantRouter {
+  const router = createTenantRouter(options);
+  reachable(router.app);
+  return router;
+}
 
 const T = "2026-10-12T10:00:00.000Z";
 const now = (): Date => new Date(T);
@@ -502,7 +508,7 @@ describe("opening a tenant stored under its code", () => {
 
   it("moves the books to the id name on the first open, and the owner still signs in to the same books", async () => {
     const { dataDir, platform } = await world();
-    const first = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now });
+    const first = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now });
     routers.push(first);
     const provisioned = await provisionTenant(
       { code: "legacy", nameAr: "شركة قديمة", ownerEmail: "o@legacy.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: true },
@@ -514,7 +520,7 @@ describe("opening a tenant stored under its code", () => {
     renameSync(path.join(dataDir, tenant.dbFile), path.join(dataDir, "tenants/legacy.db"));
     expect(await platform.stores.tenants.setDbFile(tenant.id, tenant.dbFile, "tenants/legacy.db")).toBe(true);
 
-    const second = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now });
+    const second = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now });
     routers.push(second);
 
     expect(await login(second, "legacy", provisioned.adminPin)).toBe(200);
@@ -524,7 +530,7 @@ describe("opening a tenant stored under its code", () => {
   });
 
   async function legacyTenant(dataDir: string, platform: PlatformHandle, code: string) {
-    const first = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now });
+    const first = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now });
     routers.push(first);
     const provisioned = await provisionTenant(
       { code, nameAr: "شركة قديمة", ownerEmail: `o@${code}.example`, ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: true },
@@ -541,7 +547,7 @@ describe("opening a tenant stored under its code", () => {
     const { dataDir, platform } = await world();
     const { tenant, legacy, adminPin } = await legacyTenant(dataDir, platform, "vanish");
     rmSync(path.join(dataDir, legacy));
-    const router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now });
+    const router = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now });
     routers.push(router);
 
     const res = await router.app.fetch(
@@ -560,7 +566,7 @@ describe("opening a tenant stored under its code", () => {
     const { dataDir, platform } = await world();
     const { legacy, adminPin } = await legacyTenant(dataDir, platform, "inuse");
     const elsewhere = openSqliteConnection(path.join(dataDir, legacy)).sqlite;
-    const router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now, dbFileWaitMs: 50 });
+    const router = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now, dbFileWaitMs: 50 });
     routers.push(router);
     const attempt = () =>
       router.app.fetch(
@@ -581,7 +587,7 @@ describe("opening a tenant stored under its code", () => {
 
   it("gives a company that re-registers a released code a database of its own, never the released company's", async () => {
     const { dataDir, platform } = await world();
-    const router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now });
+    const router = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now });
     routers.push(router);
     const old = await provisionTenant(
       { code: "shared", nameAr: "الشركة الأولى", ownerEmail: "o@shared.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: true },

@@ -57,7 +57,7 @@ describe("a first-run claim sent by three callers at once", () => {
   it("makes one company admin and refuses the other two", async () => {
     const t = await open();
     const claim = (racer: number) =>
-      t.anonymous("POST", "/bootstrap/admin", { nameAr: `مالك ${racer}`, nameEn: `Owner ${racer}`, email: `owner${racer}@example.eg`, pin: "246810" });
+      t.anonymous("POST", "/bootstrap/admin", { nameAr: `مالك ${racer}`, nameEn: `Owner ${racer}`, email: `owner${racer}@example.eg`, pin: "246810", companyName: "شركة الاختبار" });
 
     await raced(claim, async (answers) => {
       expect(statuses(answers)).toEqual([201, 409, 409]);

@@ -928,3 +928,31 @@ describe("a write that lands inside another chain's open transaction", () => {
     sqlite.close();
   });
 });
+
+describe("outsideSqliteTurn — a section opened inside another on the same chain", () => {
+  const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 1));
+
+  it("does not wait for the turn its own outer section still has handed back, and the holder continues with the turn retaken", async () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    const order: string[] = [];
+
+    await withSqliteTurn(
+      sqlite,
+      async () => {
+        await outsideSqliteTurn(sqlite, async () => {
+          await outsideSqliteTurn(sqlite, tick);
+          order.push("inner back");
+          await withSqliteTransaction(sqlite, async () => void sqlite.prepare("INSERT INTO t VALUES ('from outside')").run());
+          order.push("wrote while handed back");
+        });
+        order.push(`outer back, turn held: ${holdsSqliteTurn(sqlite)}`);
+      },
+      { completedRetakeTimeoutMs: 200, retakeTimeoutMs: 200 },
+    );
+
+    expect(order).toEqual(["inner back", "wrote while handed back", "outer back, turn held: true"]);
+    expect(drainForeignWrites()).toEqual([]);
+    sqlite.close();
+  });
+});

@@ -143,7 +143,15 @@ async function bootstrapAdmin(router: TenantRouter, code: string): Promise<strin
     }),
   );
   expect(res.status).toBe(201);
-  const session = (await res.json()) as SessionDTO;
+  const signedIn = await router.app.fetch(
+    new Request("http://ignored/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json", [TENANT_HEADER]: code },
+      body: JSON.stringify({ username: `owner-${code}@example.com`, pin: "123456" }),
+    }),
+  );
+  expect(signedIn.status).toBe(200);
+  const session = (await signedIn.json()) as SessionDTO;
   return session.token;
 }
 

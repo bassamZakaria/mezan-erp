@@ -218,6 +218,11 @@ interface ConnectionState {
   /** Tail of the serialization queue — see `withSqliteTransaction` below. */
   queue: Promise<void>;
   readonly turn: AsyncLocalStorage<TurnScope>;
+  // REQUIRED: marks a chain that is already inside a handed-back section of
+  // this scope. A second section on the same chain must run straight through:
+  // it would otherwise wait for the turn its own outer section returns only
+  // after it finishes.
+  readonly handedBack: AsyncLocalStorage<TurnScope>;
   transaction: Promise<void> | null;
 }
 
@@ -275,7 +280,7 @@ async function enter(lane: Lane): Promise<() => void> {
 function stateFor(sqlite: Database.Database): ConnectionState {
   let state = connectionStates.get(sqlite);
   if (!state) {
-    state = { nesting: new AsyncLocalStorage<true>(), queue: Promise.resolve(), turn: new AsyncLocalStorage<TurnScope>(), transaction: null };
+    state = { nesting: new AsyncLocalStorage<true>(), queue: Promise.resolve(), turn: new AsyncLocalStorage<TurnScope>(), handedBack: new AsyncLocalStorage<TurnScope>(), transaction: null };
     connectionStates.set(sqlite, state);
   }
   return state;
@@ -525,7 +530,7 @@ function within<T>(holder: TurnScope, fn: () => Promise<T>): Promise<T> {
 export async function outsideSqliteTurn<T>(sqlite: Database.Database, fn: () => Promise<T>): Promise<T> {
   const state = stateFor(sqlite);
   const scope = state.turn.getStore();
-  if (!scope || scope.ended || state.nesting.getStore()) return fn();
+  if (!scope || scope.ended || state.nesting.getStore() || state.handedBack.getStore() === scope) return fn();
 
   scope.outside += 1;
   await inOrder(scope, async () => {
@@ -535,7 +540,7 @@ export async function outsideSqliteTurn<T>(sqlite: Database.Database, fn: () => 
   });
   let outcome: OutsideOutcome<T>;
   try {
-    outcome = { ok: true, value: await fn() };
+    outcome = { ok: true, value: await state.handedBack.run(scope, fn) };
   } catch (error) {
     outcome = { ok: false, error };
   }

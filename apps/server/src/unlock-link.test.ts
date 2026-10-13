@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
 import { activateTenant, createTenant, startSubscription } from "@mezan/domain";
 import type { SmtpConfig } from "@mezan/api";
+import { openSqliteConnection } from "@mezan/persistence";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
 import { tenantUnlockLink } from "./public-origin.js";
 import { parseEnv } from "./env.js";
@@ -72,6 +73,8 @@ describe("the address a mailed unlock link opens", () => {
     await startSubscription({ id: "sub-acme", tenantId: tenant.id, planId: "PLAN-CORE", billingCycle: "monthly", now: T }, platform.stores.subscriptions, platform.stores.plans);
     const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-unlock-link-"));
     dirs.push(dataDir);
+    mkdirSync(path.join(dataDir, "tenants"), { recursive: true });
+    openSqliteConnection(path.join(dataDir, (await platform.stores.tenants.findById(tenant.id))!.dbFile)).sqlite.close();
     const mailed: string[] = [];
     const router = createTenantRouter({
       platform,

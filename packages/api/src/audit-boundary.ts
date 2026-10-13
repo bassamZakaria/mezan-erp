@@ -48,15 +48,21 @@ export const AUDITED_MOUNTS: readonly AuditedMount[] = [
   { prefix: "/tax-rates" },
   { prefix: "/cost-centers" },
   { prefix: "/treasury-accounts" },
-  { prefix: "/fiscal-periods" },
+  // REQUIRED: close and lock commit the period, its sealed summary and their
+  // audit row in one synchronous transaction of their own, and refuse to run
+  // inside any other. Wrapping them in this boundary's transaction would make
+  // every close answer PERIOD_CLOSE_CONTENDED.
+  { prefix: "/fiscal-periods", only: /^(?!\/[^/]+\/(close|lock)$)/ },
   { prefix: "/cheques" },
   { prefix: "/bank-statements", only: /^\/(rules(\/|$)|[^/]+\/finalize$)/ },
   { prefix: "/crm", only: /^\/leads\/[^/]+\/convert$/ },
   {
     prefix: "/hr",
-    only: /^\/(advances\/[^/]+\/repay|payroll\/statutory-tables\/insurance-years\/[^/]+|payroll\/statutory-flag|self\/clock(\/credential)?|employees\/[^/]+\/clock-credential\/reset|attendance\/import\/commit|attendance\/(?!import)[^/]+)$/,
+    only: /^\/(advances\/[^/]+\/repay|payroll\/statutory-tables\/insurance-years\/[^/]+|payroll\/statutory-flag|self\/clock(\/credential)?|employees\/[^/]+\/clock-credential\/reset|attendance\/import\/commit|attendance\/(?!import)[^/]+|employees\/[^/]+\/correct-termination-date)$/,
   },
-  { prefix: "/assets", only: /^\/[^/]+\/internal-hourly-rate$/ },
+  { prefix: "/assets", only: /^\/([^/]+\/internal-hourly-rate|depreciation\/runs\/[^/]+\/discard)$/ },
+  { prefix: "/revaluation", only: /^\/runs\/[^/]+\/reverse$/ },
+  { prefix: "/inventory", only: /^\/(adjustments|stock-adjustments)\/[^/]+\/reverse$/ },
   { prefix: "/sales-invoices", only: /^\/[^/]+\/void$/ },
   { prefix: "/price-lists" },
   { prefix: "/promotions" },

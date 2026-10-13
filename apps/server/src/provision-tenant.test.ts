@@ -237,9 +237,10 @@ describe("provisionTenant", () => {
       reachable(router.app);
       return { router, dataDir };
     }
+    const SHARED_AUDIT_CHAIN_KEY = "audit-chain.key";
     const tenantFiles = (dataDir: string): string[] => {
       const dir = path.join(dataDir, "tenants");
-      return existsSync(dir) ? readdirSync(dir) : [];
+      return existsSync(dir) ? readdirSync(dir).filter((name) => name !== SHARED_AUDIT_CHAIN_KEY) : [];
     };
     const auditDown: RecordedActivation = async () => {
       throw new PlatformAuditUnavailableError(new Error("audit sink down"));
@@ -285,7 +286,12 @@ describe("provisionTenant", () => {
 
       const resumed = await provisionTenant(cmd, { platform, router, now: () => new Date(T), pinOf: () => "333333" });
       expect(resumed.tenant).toMatchObject({ id: waiting.id, status: "active" });
-      expect(resumed.adminPin).toBeNull();
+      expect(resumed.adminPin).toBe("333333");
+      const backend = await router.backendFor("fresh");
+      const signIn = (pin: string) =>
+        backend.app.fetch(new Request("http://tenant.internal/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: cmd.ownerEmail, pin }) }));
+      expect((await signIn("333333")).status).toBe(200);
+      expect((await signIn("111111")).status).toBe(401);
     });
 
     it("never removes a tenant that is not waiting to be provisioned", async () => {

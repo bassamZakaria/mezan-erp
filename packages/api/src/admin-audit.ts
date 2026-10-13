@@ -5,8 +5,10 @@ import {
   createAuditEvent,
   diffAuditFields,
   recordSecurityEvent,
+  recordSensitiveEvent,
   type AuditChangeAction,
   type AuditEvent,
+  type AuditEventInput,
   type AuditFieldChange,
   type AuditSeverity,
   type AuditSink,
@@ -41,9 +43,12 @@ export interface AdminAuditEntry {
 }
 
 export function buildAdminEvent(c: Context, entry: AdminAuditEntry): AuditEvent {
+  return createAuditEvent({ ...adminEventInput(c, entry), stream: "sensitive" });
+}
+
+function adminEventInput(c: Context, entry: AdminAuditEntry): Omit<AuditEventInput, "stream"> {
   const ctx = getAuthContext(c);
-  return createAuditEvent({
-    stream: "sensitive",
+  return {
     module: entry.module,
     entityType: entry.entityType,
     entityId: entry.entityId,
@@ -63,7 +68,7 @@ export function buildAdminEvent(c: Context, entry: AdminAuditEntry): AuditEvent 
     branchId: ctx ? auditBranchFromScope(ctx.branchScope) : null,
     severity: entry.severity ?? "WARNING",
     details: withOrigin(c, entry.details),
-  });
+  };
 }
 
 async function failingTheRequest(c: Context, append: Promise<void>): Promise<void> {
@@ -82,7 +87,7 @@ export async function recordAdminEvent(
 ): Promise<void> {
   if (!audit) return;
   assertAuditIsTransactional(audit, c);
-  await failingTheRequest(c, audit.append(buildAdminEvent(c, entry)));
+  await failingTheRequest(c, recordSensitiveEvent(audit, adminEventInput(c, entry)));
 }
 
 /**

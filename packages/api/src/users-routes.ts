@@ -39,6 +39,7 @@ import {
   type AuthContextResolver,
 } from "./permission-gate.js";
 import { recordAdminEvent, recordSecurityAdminEvent } from "./admin-audit.js";
+import { insideAuditBoundary } from "./audit-boundary.js";
 import type { SessionRegistry } from "./session-auth.js";
 import type { LoginThrottle } from "./login-throttle.js";
 
@@ -272,14 +273,19 @@ export function createUsersRoutes(
    * holes BEFORE they were exploited was discarded.
    */
   function auditRefusal(c: Context, entityId: string | null, details: Record<string, unknown>) {
-    return recordSecurityAdminEvent(audit, c, {
-      module: "admin",
-      entityType: "USER",
-      entityId,
-      action: "PRIVILEGE_ESCALATION_DENIED",
-      severity: "CRITICAL",
-      details,
-    });
+    const record = () =>
+      recordSecurityAdminEvent(audit, c, {
+        module: "admin",
+        entityType: "USER",
+        entityId,
+        action: "PRIVILEGE_ESCALATION_DENIED",
+        severity: "CRITICAL",
+        details,
+      });
+    // A refusal on a route outside the audit boundary (erase) has no write to
+    // share a transaction with, so its row takes one of its own.
+    const alone = audit?.atomic && audit.insideTransaction?.() !== true && !insideAuditBoundary(c);
+    return alone ? audit.atomic!(record) : record();
   }
 
   const saveOptions = async () => ({ allowedEmailDomains: (await readAllowedEmailDomains?.()) ?? [] });

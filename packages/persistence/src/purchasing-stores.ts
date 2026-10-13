@@ -4,6 +4,7 @@ import { countMatching, FilterClauses, selectPage } from "./list-query.js";
 import { columnsOf, writeRowColumnsWhere } from "./document-field-write.js";
 import { markInvoicesNamedByRegister } from "./document-kind-backfill.js";
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   Qty,
@@ -105,6 +106,7 @@ function poToDomain(row: PoRow): PurchaseOrder {
 
 class SqlitePurchaseOrderStore implements PurchaseOrderRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -118,6 +120,7 @@ class SqlitePurchaseOrderStore implements PurchaseOrderRepository {
         warehouse_id = excluded.warehouse_id, currency = excluded.currency, notes = excluded.notes,
         lines = excluded.lines, status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM purchase_order WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM purchase_order`);
   }
@@ -130,15 +133,15 @@ class SqlitePurchaseOrderStore implements PurchaseOrderRepository {
     return (this.selectAll.all() as PoRow[]).map(poToDomain);
   }
   async create(order: PurchaseOrder): Promise<void> {
-    this.write(order);
+    insertingNew(order.id, () => this.write(order, this.insertOnly));
   }
   async update(order: PurchaseOrder): Promise<void> {
     this.write(order);
     // N-9: any write moves the version, whichever path made the change.
     this.versions?.bump(order.id);
   }
-  private write(o: PurchaseOrder): void {
-    this.upsert.run({
+  private write(o: PurchaseOrder, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: o.id,
       number: o.number,
       supplier_id: o.supplierId,
@@ -240,6 +243,7 @@ function grToDomain(row: GrRow): GoodsReceipt {
 
 class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByOrder: Database.Statement;
@@ -252,6 +256,7 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
         supplier_id = excluded.supplier_id, warehouse_id = excluded.warehouse_id, date = excluded.date,
         notes = excluded.notes, project_id = excluded.project_id, lines = excluded.lines, status = excluded.status, invoiced = excluded.invoiced
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM goods_receipt WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM goods_receipt`);
     this.selectByOrder = sqlite.prepare(`SELECT * FROM goods_receipt WHERE purchase_order_id = ?`);
@@ -268,7 +273,7 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
     return (this.selectByOrder.all(purchaseOrderId) as GrRow[]).map(grToDomain);
   }
   async create(receipt: GoodsReceipt): Promise<void> {
-    this.write(receipt);
+    insertingNew(receipt.id, () => this.write(receipt, this.insertOnly));
   }
   async update(receipt: GoodsReceipt): Promise<void> {
     this.write(receipt);
@@ -282,8 +287,8 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
       expectedStatuses: [expected.status],
     });
   }
-  private write(r: GoodsReceipt): void {
-    this.upsert.run({
+  private write(r: GoodsReceipt, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: r.id,
       number: r.number,
       purchase_order_id: r.purchaseOrderId,
@@ -446,6 +451,7 @@ function piToDomain(row: PiRow): PurchaseInvoice {
 
 class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database, private readonly versions?: DocumentVersionStore) {
@@ -459,6 +465,7 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
         receipt_id = excluded.receipt_id, project_id = excluded.project_id, lines = excluded.lines, status = excluded.status,
         fx_rate = excluded.fx_rate
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM purchase_invoice WHERE id = ?`);
   }
 
@@ -504,7 +511,7 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
     return countMatching(this.sqlite, "purchase_invoice", this.clausesFor(filter));
   }
   async create(invoice: PurchaseInvoice): Promise<void> {
-    this.write(invoice);
+    insertingNew(invoice.id, () => this.write(invoice, this.insertOnly));
   }
   async update(invoice: PurchaseInvoice): Promise<void> {
     this.write(invoice);
@@ -541,8 +548,8 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
     this.versions?.bump(invoiceId);
     return named;
   }
-  private write(inv: PurchaseInvoice): void {
-    this.upsert.run({
+  private write(inv: PurchaseInvoice, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: inv.id,
       number: inv.number,
       supplier_id: inv.supplierId,

@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   DocumentList,
   EmptyState,
   Money as MoneyDisplay,
@@ -232,6 +233,7 @@ export function ProjectsScreen() {
       await updateProject.mutateAsync({ id: project.id, patch: { status } });
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : t("projects.theProjectSStatusCould"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -409,7 +411,7 @@ export function ProjectsScreen() {
                 label: option.label,
                 tone: option.value === "cancelled" ? ("danger" as const) : ("default" as const),
                 disabled: pendingId === p.id,
-                onSelect: () => void changeStatusFromRow(p, option.value),
+                onSelect: () => changeStatusFromRow(p, option.value),
               })),
           ];
           return <RowMenu items={items} label={t("common.rowActionsFor", { name: p.nameAr })} />;

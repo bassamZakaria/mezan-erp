@@ -43,19 +43,6 @@ export class DocumentNotFoundError extends Error {
   }
 }
 
-export class DuplicateDocumentError extends Error {
-  readonly code = "DUPLICATE_DOCUMENT";
-  readonly messageEn: string;
-  constructor(
-    readonly docType: string,
-    readonly docId: string,
-  ) {
-    super(`المستند "${docType}/${docId}" موجود بالفعل.`);
-    this.messageEn = `Document ${docType}/${docId} already exists.`;
-    this.name = "DuplicateDocumentError";
-  }
-}
-
 /**
  * A document type declared a hook (GL, stock, workflow, numbering) but the
  * running `DocumentService` was constructed without an adapter for it. This is a
@@ -150,6 +137,7 @@ const RESUBMIT_REFUSAL_AR: Readonly<Record<ApprovalStatus | "none", string>> = {
   approved: "طلب الموافقة على هذا المستند معتمد بالفعل؛ أكِّد المستند بدلاً من إعادة إرساله.",
   modification_requested: "طُلب تعديل هذا المستند؛ عدِّله ثم أكِّده ليُعرض على المعتمِد من جديد.",
   rejected: "تعذّرت إعادة إرسال المستند للاعتماد.",
+  reapproval_required: "الموافقة السابقة على هذا المستند لم تعد صالحة؛ أكِّده ليُطلب اعتماده من جديد.",
 };
 
 export class UnbookedStockVarianceError extends Error {

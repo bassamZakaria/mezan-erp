@@ -1,3 +1,4 @@
+import { insertOnly } from "../records/test-helpers/insert-only.js";
 /** In-memory fakes for the purchase-chain use-case tests. Test-only. */
 
 import { NextNumberService, type SequenceStore } from "../numbering/index.js";
@@ -36,7 +37,7 @@ export class InMemoryPurchaseOrders implements PurchaseOrderRepository {
     return [...this.rows.values()];
   }
   async create(order: PurchaseOrder): Promise<void> {
-    this.rows.set(order.id, order);
+    insertOnly(this.rows, order.id, order);
   }
   async update(order: PurchaseOrder): Promise<void> {
     this.rows.set(order.id, order);
@@ -55,7 +56,7 @@ export class InMemoryGoodsReceipts implements GoodsReceiptRepository {
     return [...this.rows.values()].filter((r) => r.purchaseOrderId === purchaseOrderId);
   }
   async create(receipt: GoodsReceipt): Promise<void> {
-    this.rows.set(receipt.id, receipt);
+    insertOnly(this.rows, receipt.id, receipt);
   }
   async update(receipt: GoodsReceipt): Promise<void> {
     this.rows.set(receipt.id, receipt);
@@ -82,7 +83,7 @@ export class InMemoryPurchaseInvoices implements PurchaseInvoiceRepository {
     return [...this.rows.values()];
   }
   async create(invoice: PurchaseInvoice): Promise<void> {
-    this.rows.set(invoice.id, invoice);
+    insertOnly(this.rows, invoice.id, invoice);
   }
   async update(invoice: PurchaseInvoice): Promise<void> {
     this.rows.set(invoice.id, invoice);

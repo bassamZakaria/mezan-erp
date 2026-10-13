@@ -2,8 +2,10 @@ import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib
 import { ReversalDocumentType } from "@mezan/contracts";
 import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -292,7 +294,7 @@ export function StockAdjustmentsScreen() {
     subPage.open(doc?.docNo ?? id);
   }
 
-  async function confirmRow(id: string): Promise<void> {
+  async function confirmRow(id: string): Promise<RowActionOutcome | void> {
     if (rowPendingId) return;
     setRowError(null);
     setRowPendingId(id);
@@ -300,6 +302,7 @@ export function StockAdjustmentsScreen() {
       await listConfirm.mutateAsync(id);
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -374,6 +377,7 @@ export function StockAdjustmentsScreen() {
     return (
       <div className="w-full">
         <AlreadySavedNotice notice={savedNotice} openId={selected.id} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
+        <HeldDocumentReapproval document={selected} pending={listConfirm.isPending} confirm={(id) => listConfirm.mutateAsync(id)} />
         <DocumentDetail
           title={selected.docNo ?? t("stockAdj.stockAdjustment")}
           statusLabel={documentStatusLabel(selected.status, t)}
@@ -509,7 +513,7 @@ export function StockAdjustmentsScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => openDetail(d.id) },
             ...(d.status === "draft"
-              ? [{ key: "confirm", label: t("stockAdj.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
+              ? [{ key: "confirm", label: t("stockAdj.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => confirmRow(d.id) }]
               : []),
             ...resubmitRowMenuItems(resubmit, d),
             ...(d.status === DocumentStatusCode.Confirmed && !d.reversesDocId ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),

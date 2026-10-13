@@ -22,7 +22,7 @@ import type { StockLedgerService } from "../inventory/stock-ledger-service.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import { Money } from "../money/index.js";
 import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
-import { landedCostAbsorptionDate, type LandedCostLine } from "./landed-cost-document.js";
+import { landedCostAbsorptionDate, landedCostBranchId, type LandedCostLine } from "./landed-cost-document.js";
 
 /**
  * One landed-cost line the stock could not absorb: the goods it attaches to
@@ -55,6 +55,7 @@ export interface LandedCostGlPosting {
   readonly sourceDocId: string;
   readonly sourceDocNumber: string | null;
   readonly amount: Money;
+  readonly branchId: string | null;
 }
 
 export interface LandedCostUnabsorbedGlPort {
@@ -160,6 +161,7 @@ export class LandedCostService {
           sourceDocId: result.reversal.id,
           sourceDocNumber: original.docNo,
           amount: leftWithGoods,
+          branchId: landedCostBranchId(original.lines),
         });
       }
     }
@@ -211,6 +213,7 @@ export class LandedCostService {
           sourceDocId: document.id,
           sourceDocNumber: document.docNo,
           amount: absorbedTotal,
+          branchId: landedCostBranchId(document.lines),
         });
       }
       if (unabsorbedTotal.scaled !== 0n) {
@@ -222,6 +225,7 @@ export class LandedCostService {
           sourceDocId: document.id,
           sourceDocNumber: document.docNo,
           amount: unabsorbedTotal,
+          branchId: landedCostBranchId(document.lines),
         });
       }
     } else if (this.gl && unabsorbedTotal.scaled !== 0n) {
@@ -233,6 +237,7 @@ export class LandedCostService {
         sourceDocId: document.id,
         sourceDocNumber: document.docNo,
         amount: unabsorbedTotal,
+        branchId: landedCostBranchId(document.lines),
       });
     }
     return { ...result, unabsorbed, unabsorbedTotal, absorbedTotal, unabsorbedJournalEntryId, absorptionJournalEntryId };

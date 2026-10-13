@@ -37,6 +37,8 @@ import {
   updateGuaranteeSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * خطابات الضمان — the register, its bank-facility report and the four status
@@ -135,6 +137,7 @@ function serializeSummary(summary: GuaranteeSummary) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof GuaranteeNotFoundError) {

@@ -4,12 +4,12 @@ import { NextNumberService } from "../numbering/index.js";
 import { InMemorySequenceStore } from "../gl/test-helpers/in-memory-ledger-repository.js";
 import {
   SalesQuoteService,
-  DuplicateSalesQuoteError,
   InvalidSalesQuoteTransitionError,
   SalesQuoteNotFoundError,
   type CreateSalesQuoteCommand,
 } from "./index.js";
 import { InMemorySalesQuoteRepository } from "./test-helpers/in-memory-sales-quote-repository.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const NOW = "2026-08-22T10:00:00.000Z";
 
@@ -108,7 +108,7 @@ describe("SalesQuoteService — draft validation and totals wiring", () => {
   it("rejects a duplicate id on createDraft", async () => {
     const { svc } = harness();
     await svc.createDraft(draftCmd());
-    await expect(svc.createDraft(draftCmd())).rejects.toBeInstanceOf(DuplicateSalesQuoteError);
+    await expect(svc.createDraft(draftCmd())).rejects.toBeInstanceOf(DuplicateRecordIdError);
   });
 
   it("effectsOf and totalsOf agree on the grand total driving the send gate", async () => {

@@ -18,7 +18,6 @@ export {
 } from "./tax-rate.js";
 export {
   DuplicateTaxCodeError,
-  DuplicateTaxRateIdError,
   TaxRateNotFoundError,
   InvalidTaxRateError,
   InactiveTaxRateError,

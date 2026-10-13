@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { Button, Card, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type {
@@ -84,6 +86,7 @@ function EditIcon() {
 }
 
 export function AttendanceScreen() {
+  const branchGate = useBranchGate();
   const { t, locale } = useAppTranslation();
   const [month, setMonth] = useState(currentMonth());
   const [employeeId, setEmployeeId] = useState("");
@@ -317,7 +320,7 @@ export function AttendanceScreen() {
   const headerActions = (
     <div className="flex flex-wrap items-center gap-[8px]">
       {viewToggle}
-      <Button onClick={openImport}>{t("attendance.import.button")}</Button>
+      {branchGate.allows(BranchGatedAction.AttendanceImport) ? <Button onClick={openImport}>{t("attendance.import.button")}</Button> : null}
       <Button variant="primary" onClick={openCreate}>
         {t("attendance.recordAttendance")}
       </Button>

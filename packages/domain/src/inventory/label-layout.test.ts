@@ -1,3 +1,4 @@
+import { insertOnly } from "../records/test-helpers/insert-only.js";
 import { describe, it, expect } from "vitest";
 import {
   DuplicateLabelLayoutCodeError,
@@ -27,6 +28,9 @@ class InMemoryLabelLayouts implements LabelLayoutRepository {
   }
   async save(layout: LabelLayout): Promise<void> {
     this.rows.set(layout.id, layout);
+  }
+  async insert(layout: LabelLayout): Promise<void> {
+    insertOnly(this.rows, layout.id, layout);
   }
   async delete(id: string): Promise<void> {
     this.rows.delete(id);

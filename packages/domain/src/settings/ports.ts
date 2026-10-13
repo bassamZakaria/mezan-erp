@@ -13,6 +13,7 @@ export interface BranchRepository {
   findAll(): Promise<readonly Branch[]>;
   findById(id: string): Promise<Branch | null>;
   save(branch: Branch): Promise<void>;
+  insert(branch: Branch): Promise<void>;
 }
 
 /** Port for warehouse CRUD (docs/archive/catalog/09 §"إدارة المستودعات"). */
@@ -21,4 +22,5 @@ export interface WarehouseRepository {
   findByBranch(branchId: string): Promise<readonly Warehouse[]>;
   findById(id: string): Promise<Warehouse | null>;
   save(warehouse: Warehouse): Promise<void>;
+  insert(warehouse: Warehouse): Promise<void>;
 }

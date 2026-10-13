@@ -35,7 +35,6 @@ import {
   type PurchaseGlReversalPort,
 } from "./types.js";
 import {
-  DuplicatePurchaseDocumentError,
   GoodsReceiptAccrualAccountMissingError,
   GoodsReceiptAlreadyInvoicedError,
   GoodsReceiptNotFoundError,
@@ -309,9 +308,6 @@ export async function createGoodsReceipt(
   deps: CreateGoodsReceiptDeps,
 ): Promise<GoodsReceipt> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
-  if (await deps.receipts.findById(command.id)) {
-    throw new DuplicatePurchaseDocumentError(command.id);
-  }
 
   if (!command.purchaseOrderId) {
     if (policy.requirePoForGrn) throw new PurchaseOrderRequiredError();
@@ -508,6 +504,7 @@ export function buildGoodsReceiptPosting(
     sourceDocNumber: receipt.number,
     date: receipt.date,
     memo: `إذن استلام ${receipt.number}`,
+    warehouseId: receipt.warehouseId,
     lines: [
       ...debitLines,
       { accountId: accounts.goodsReceivedNotInvoicedAccountId, debit: Money.zero(), credit: value, projectId },

@@ -27,6 +27,7 @@ interface WireLine {
   taxRateId?: string | null;
   /** بُعد المشروع — every line of a confirmed return carries the same document-wide value (D-01). */
   projectId?: string | null;
+  branchId?: string | null;
   costCategory?: PurchaseReturnLine["costCategory"];
   /** The source invoice's currency and confirm rate (D203). Dropped here, a reload would post the return's foreign digits as base. */
   currency?: string | null;
@@ -49,6 +50,7 @@ function serializeLine(line: PurchaseReturnLine): WireLine {
     taxRatePercent: line.taxRatePercent ?? null,
     taxRateId: line.taxRateId ?? null,
     projectId: line.projectId ?? null,
+    branchId: line.branchId ?? null,
     costCategory: line.costCategory ?? null,
     ...(line.fxRate ? { currency: line.currency ?? null, fxRate: line.fxRate } : {}),
   };
@@ -71,6 +73,7 @@ function deserializeLine(wire: unknown): PurchaseReturnLine {
     taxRatePercent: w.taxRatePercent ?? null,
     taxRateId: w.taxRateId ?? null,
     projectId: w.projectId ?? null,
+    branchId: w.branchId ?? null,
     costCategory: w.costCategory ?? null,
     ...(w.fxRate ? { currency: w.currency ?? null, fxRate: w.fxRate } : {}),
   };

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
-import { moneyString } from "./money-string.js";
+import { decimalRateString, moneyString, quantityString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
 import { InvoiceDocumentKind } from "./invoice-document-kind.js";
 
@@ -26,7 +26,7 @@ export const salesInvoiceLineDiscountTypeSchema = z.enum(["percent", "amount"]);
 
 export const salesInvoiceDiscountSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("percent"), percent: z.number().min(0).max(100) }),
-  z.object({ type: z.literal("amount"), amount: z.string() }),
+  z.object({ type: z.literal("amount"), amount: moneyString }),
 ]);
 
 export const createSalesInvoiceLineSchema = z.object({
@@ -35,7 +35,7 @@ export const createSalesInvoiceLineSchema = z.object({
   itemNameAr: z.string().min(1),
   isStock: z.boolean(),
   /** The quantity as entered, in `unitCode` — NOT the base quantity. */
-  qty: z.string(),
+  qty: quantityString,
   /**
    * The unit the quantity is stated in (the item's base unit code or one of its
    * alternate-unit codes). Omit for the base unit.
@@ -114,7 +114,6 @@ export const createSalesInvoiceSchema = z.object({
 
 /** Confirm a draft invoice (posts stock + the AR/revenue/COGS journal entry). */
 export const confirmSalesInvoiceSchema = z.object({
-  requestId: z.string().min(1).optional(),
   acknowledgeTaxRecalculation: z.boolean().optional(),
   /**
    * N-9 — the `version` the screen was served. Sent back on the act so a second
@@ -219,7 +218,7 @@ export const appliedSalesInvoicePromotionSchema = z.object({
   nameAr: z.string(),
   couponCode: z.string().nullable(),
   discountTotal: z.string(),
-  lineDiscounts: z.array(z.object({ lineId: z.string(), itemId: z.string(), amount: z.string() })),
+  lineDiscounts: z.array(z.object({ lineId: z.string(), itemId: z.string(), amount: moneyString })),
   appliedAt: z.string(),
 });
 
@@ -331,7 +330,7 @@ export const salesInvoiceSchema = z.object({
   projectId: z.string().nullable(),
   currency: z.string().min(1),
   /** The rate the invoice confirmed at; null for a base-currency or unconfirmed invoice. */
-  fxRate: z.string().nullable(),
+  fxRate: decimalRateString.nullable(),
   couponCode: z.string().nullable(),
   appliedPromotion: appliedSalesInvoicePromotionSchema.nullable(),
   notes: z.string().nullable(),

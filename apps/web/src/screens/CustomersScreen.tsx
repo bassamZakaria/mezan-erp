@@ -44,6 +44,9 @@ import {
   sumMoney,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
+import { useLockedFields } from "../shell/useLockedFields";
+
+const CUSTOMERS_API = "/customers";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlFlag, useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { customerFilterFromUrl } from "../data/list-queries";
@@ -502,6 +505,7 @@ export function CustomersScreen() {
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const createCustomer = useCreateCustomer();
+  const locked = useLockedFields(CUSTOMERS_API);
   const updateCustomer = useUpdateCustomer();
 
   /*
@@ -665,11 +669,11 @@ export function CustomersScreen() {
         const exemptionRateChanged = !stored || (stored.taxExemptionRateId ?? null) !== taxExemptionRateId;
         await updateCustomer.mutateAsync({
           id: editingId,
-          patch: { ...unchangedFields, ...(exemptionRateChanged ? { taxExemptionRateId } : {}), active: draft.active },
+          patch: locked.withoutLocked({ ...unchangedFields, ...(exemptionRateChanged ? { taxExemptionRateId } : {}), active: draft.active }),
         });
       } else {
         const code = draft.code.trim();
-        await createCustomer.mutateAsync({ id: crypto.randomUUID(), ...(code === "" ? {} : { code }), ...fields });
+        await createCustomer.mutateAsync({ id: crypto.randomUUID(), nameAr: fields.nameAr, ...(code === "" ? {} : { code }), ...locked.withoutLocked(fields) });
       }
       setPanelOpen(false);
     } catch (err) {
@@ -698,16 +702,17 @@ export function CustomersScreen() {
           value={draft.paymentTermsDays}
           onChange={(v) => setDraft((d) => ({ ...d, paymentTermsDays: v }))}
           min={0}
+          {...locked.props("paymentTermsDays")}
         />
-        <TextField label={t("customers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" />
+        <TextField label={t("customers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" {...locked.props("currency")} />
         <NumberField
           label={t("customers.field.creditLimit")}
           value={draft.creditLimit}
           onChange={(v) => setDraft((d) => ({ ...d, creditLimit: v }))}
           min={0}
-          hint={t("customers.field.creditLimitHint")}
+          {...locked.props("creditLimit", t("customers.field.creditLimitHint"))}
         />
-        <TextField label={t("customers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} />
+        <TextField label={t("customers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} {...locked.props("category")} />
         {/* An entity reference, so a picker over the real endpoint — typing a
             list name here would have stored a string no price list answers to. */}
         <div>
@@ -718,7 +723,9 @@ export function CustomersScreen() {
             options={priceListOptions}
             placeholder={t("customers.detail.noPriceList")}
             aria-label={t("customers.field.priceList")}
+            disabled={locked.isLocked("priceListId")}
           />
+          {locked.isLocked("priceListId") ? <p className="mt-[5px] text-[11.5px] text-ink-faint">{t("branchRestriction.fieldLocked")}</p> : null}
         </div>
         <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} placeholder="01xxxxxxxx" />
         <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
@@ -737,23 +744,26 @@ export function CustomersScreen() {
           </button>
           {advancedOpen ? (
             <div className="flex flex-col gap-[14px] border-t border-border p-[14px]">
-              <CustomerLogoField
-                customerId={editingId}
-                value={draft.logoAttachmentId}
-                onChange={(id) => setDraft((d) => ({ ...d, logoAttachmentId: id }))}
-              />
-              <TextField label={t("customers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" />
+              {locked.isLocked("logoAttachmentId") ? null : (
+                <CustomerLogoField
+                  customerId={editingId}
+                  value={draft.logoAttachmentId}
+                  onChange={(id) => setDraft((d) => ({ ...d, logoAttachmentId: id }))}
+                />
+              )}
+              <TextField label={t("customers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" {...locked.props("taxNumber")} />
               <TextField
                 label={t("customers.field.commercialRegistration")}
                 value={draft.commercialRegistrationNumber}
                 onChange={(v) => setDraft((d) => ({ ...d, commercialRegistrationNumber: v }))}
                 placeholder="CR-000000"
+                {...locked.props("commercialRegistrationNumber")}
               />
               <ToggleField
                 label={t("customers.field.taxExempt")}
                 checked={draft.taxExempt}
                 onChange={(v) => setDraft((d) => ({ ...d, taxExempt: v, taxExemptionRateId: v ? d.taxExemptionRateId : "" }))}
-                hint={t("customers.field.taxExemptHint")}
+                {...locked.props("taxExempt", t("customers.field.taxExemptHint"))}
               />
               {draft.taxExempt ? (
                 <SelectField
@@ -769,9 +779,9 @@ export function CustomersScreen() {
                 value={draft.etaBuyerType}
                 onChange={(v) => setDraft((d) => ({ ...d, etaBuyerType: v as EtaBuyerTypeDTO }))}
                 options={ETA_BUYER_TYPES.map((kind) => ({ value: kind, label: t(ETA_BUYER_TYPE_KEY[kind]) }))}
-                hint={t("customers.field.etaBuyerTypeHint")}
+                {...locked.props("etaBuyerType", t("customers.field.etaBuyerTypeHint"))}
               />
-              <TextField label={t("customers.field.nationalId")} value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} />
+              <TextField label={t("customers.field.nationalId")} value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} {...locked.props("nationalId")} />
               <TextField label={t("customers.field.contactPerson")} value={draft.contactPerson} onChange={(v) => setDraft((d) => ({ ...d, contactPerson: v }))} />
               <TextField label={t("customers.field.address")} value={draft.address} onChange={(v) => setDraft((d) => ({ ...d, address: v }))} />
               <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
@@ -779,7 +789,7 @@ export function CustomersScreen() {
           ) : null}
         </div>
 
-        {editingId ? <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} /> : null}
+        {editingId ? <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} {...locked.props("active")} /> : null}
         <div className="flex justify-end gap-[9px]">
           <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={submit}>

@@ -13,7 +13,12 @@ export type { ItemType };
  */
 
 export type CostingMethod = "WAC" | "FIFO";
-export type ItemStatus = "active" | "inactive";
+export enum ItemStatusCode {
+  Active = "active",
+  Inactive = "inactive",
+  PendingPricing = "pending_pricing",
+}
+export type ItemStatus = `${ItemStatusCode}`;
 /** Egyptian e-invoice (ETA) code classification (docs/archive/catalog/03 "تصنيف الفاتورة الإلكترونية"). */
 export type EtaCodeType = "EGS" | "GPC";
 

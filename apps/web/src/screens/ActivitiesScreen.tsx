@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -117,6 +118,7 @@ export function ActivitiesScreen() {
       else await cancelActivity.mutateAsync(activity.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("common.failed"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -185,8 +187,8 @@ export function ActivitiesScreen() {
           const menuItems: RowMenuItem[] =
             a.status === "pending"
               ? [
-                  { key: "complete", label: t("activities.complete"), disabled: pendingId === a.id, onSelect: () => void runAction(a, "complete") },
-                  { key: "cancel", label: t("common.cancel"), tone: "danger", disabled: pendingId === a.id, onSelect: () => void runAction(a, "cancel") },
+                  { key: "complete", label: t("activities.complete"), disabled: pendingId === a.id, onSelect: () => runAction(a, "complete") },
+                  { key: "cancel", label: t("common.cancel"), tone: "danger", disabled: pendingId === a.id, onSelect: () => runAction(a, "cancel") },
                 ]
               : [];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.subject })} />;

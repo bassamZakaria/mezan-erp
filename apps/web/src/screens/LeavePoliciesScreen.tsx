@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { READ_ONLY_CLOSE } from "../shell/ReadOnlyForm";
 import { Button, Card, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type { LeaveAccrualFrequencyDTO, LeavePolicyDTO, LeaveTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
@@ -218,7 +219,7 @@ export function LeavePoliciesScreen() {
           <IconButton aria-label={t("leavePolicies.editLabel", { name: t(LEAVE_TYPE_KEY[p.leaveType]) })} onClick={() => openEdit(p)}>
             <EditIcon />
           </IconButton>
-          <IconButton
+          <IconButton {...READ_ONLY_CLOSE}
             aria-label={t("leavePolicies.deleteLabel", { name: t(LEAVE_TYPE_KEY[p.leaveType]) })}
             disabled={deletingId === p.id}
             onClick={() =>

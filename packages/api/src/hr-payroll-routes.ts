@@ -118,6 +118,9 @@ import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 import { tenantToday } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Payroll + employee-advance routes (docs/archive/catalog/06-crm-hr.md "الرواتب" and
@@ -138,6 +141,8 @@ export interface HrPayrollRoutesDeps {
   readonly accounts: PayrollGlAccounts;
   /** Same shape as `NextNumberService.next(code)`. */
   readonly numbering: { next(code: string): Promise<{ readonly formatted: string }> };
+  /** The transaction a create shares with the number it mints, so a refused create — a taken id included — spends no number. */
+  readonly transactor?: ConfigTransactor;
   /** Bound to the treasury voucher engine; absent = disbursement endpoints answer 409. */
   readonly treasury?: TreasuryDisbursementPort;
   /** Bound by the attendance/leave side of HR; absent = no unpaid-leave day is deducted. */
@@ -339,6 +344,7 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const reversalRefusal = reversalRefusalResponse(c, err);
   if (reversalRefusal) return reversalRefusal;
   if (err instanceof HrProvisionPostingNotFoundError) return c.json(withMessageEn(err), 404);
@@ -523,20 +529,22 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     try {
       const employee = await deps.employees.findById(parsed.data.employeeId);
       if (!employee) throw new EmployeeNotFoundError(parsed.data.employeeId);
-      const number = (await deps.numbering.next("EMPLOYEE_ADVANCE")).formatted;
-      const advance = await requestEmployeeAdvance(
-        {
-          id: parsed.data.id ?? idGen(),
-          number,
-          employeeId: parsed.data.employeeId,
-          amount: Money.fromMajor(parsed.data.amount),
-          currency: parsed.data.currency,
-          installmentCount: parsed.data.installmentCount,
-          firstDeductionDate: parsed.data.firstDeductionDate,
-          reason: parsed.data.reason ?? null,
-        },
-        deps.advances,
-      );
+      const advance = await atomically(deps.transactor, async () => {
+        const number = (await deps.numbering.next("EMPLOYEE_ADVANCE")).formatted;
+        return requestEmployeeAdvance(
+          {
+            id: parsed.data.id ?? idGen(),
+            number,
+            employeeId: parsed.data.employeeId,
+            amount: Money.fromMajor(parsed.data.amount),
+            currency: parsed.data.currency,
+            installmentCount: parsed.data.installmentCount,
+            firstDeductionDate: parsed.data.firstDeductionDate,
+            reason: parsed.data.reason ?? null,
+          },
+          deps.advances,
+        );
+      });
       return c.json(serializeAdvance(advance), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -726,9 +734,6 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
           endDate: parsed.data.endDate ?? null,
           notes: parsed.data.notes ?? null,
         });
-        if (await garnishmentRegister.findById(record.id)) {
-          return c.json({ error: "DUPLICATE_GARNISHMENT", message: "يوجد سند حجز بنفس المعرّف." }, 409);
-        }
         await garnishmentRegister.create(record);
         return c.json(serializeGarnishment(record), 201);
       } catch (err) {
@@ -1067,15 +1072,17 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     const runBranchRefusal = await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Branch, ids: [parsed.data.branchId] }]);
     if (runBranchRefusal) return runBranchRefusal;
     try {
-      const run = await createPayrollRun(
-        {
-          id: parsed.data.id ?? idGen(),
-          year: parsed.data.year,
-          month: parsed.data.month,
-          branchId: parsed.data.branchId ?? null,
-          currency: parsed.data.currency,
-        },
-        { runs: deps.runs, numbering: deps.numbering },
+      const run = await atomically(deps.transactor, () =>
+        createPayrollRun(
+          {
+            id: parsed.data.id ?? idGen(),
+            year: parsed.data.year,
+            month: parsed.data.month,
+            branchId: parsed.data.branchId ?? null,
+            currency: parsed.data.currency,
+          },
+          { runs: deps.runs, numbering: deps.numbering },
+        ),
       );
       return c.json(serializeRun(run), 201);
     } catch (err) {

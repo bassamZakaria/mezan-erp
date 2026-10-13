@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Branch, BranchRepository } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly, refusingTakenId } from "./insert-new.js";
 
 /** SQLite-backed BranchRepository (docs/archive/catalog/09 §"إدارة الفروع"). */
 
@@ -46,6 +47,7 @@ function toBranch(row: BranchRow): Branch {
 
 class SqliteBranchStore implements BranchRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectById: Database.Statement;
 
@@ -58,6 +60,7 @@ class SqliteBranchStore implements BranchRepository {
          phone = @phone, email = @email, address = @address,
          is_main = @isMain, active = @active`,
     );
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectAll = sqlite.prepare(`SELECT * FROM branch ORDER BY code ASC`);
     this.selectById = sqlite.prepare(`SELECT * FROM branch WHERE id = ?`);
   }
@@ -72,7 +75,17 @@ class SqliteBranchStore implements BranchRepository {
   }
 
   async save(branch: Branch): Promise<void> {
-    this.upsert.run({
+    this.write(branch);
+  }
+
+  async insert(branch: Branch): Promise<void> {
+    // ORDERING: a resubmitted branch collides on its code too, and SQLite names that constraint first — the id is asked about before the write so the refusal is the id's.
+    refusingTakenId(this.sqlite, "branch", branch.id);
+    insertingNew(branch.id, () => this.write(branch, this.insertOnly));
+  }
+
+  private write(branch: Branch, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: branch.id,
       code: branch.code,
       name: branch.name,

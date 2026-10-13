@@ -62,7 +62,7 @@ const CORE_MODULES: readonly ModuleDef[] = [
   { id: "purchases", labelAr: "المشتريات", count: 33 },
   { id: "inventory", labelAr: "المخزون", count: 22 },
   { id: "field", labelAr: "المبيعات الميدانية", count: 4 },
-  { id: "accounting", labelAr: "المحاسبة", count: 18 },
+  { id: "accounting", labelAr: "المحاسبة", count: 19 },
   { id: "treasury", labelAr: "الخزينة", count: 19 },
   { id: "workflow", labelAr: "سير العمل", count: 5 },
   { id: "hr", labelAr: "الموارد البشرية", count: 40 },
@@ -82,6 +82,7 @@ const CORE_MODULES: readonly ModuleDef[] = [
   // one": the certificate's preparer, certifier, approver and collector are four
   // different people, and one `manage` right cannot express that.
   { id: "contracting", labelAr: "المقاولات", count: 15 },
+  { id: "dashboard", labelAr: "لوحة التحكم", count: 1 },
 ];
 
 /**
@@ -209,6 +210,7 @@ const ROWS: readonly Row[] = [
   ["accounting.year_end_close.reverse", "accounting.period.view", "s"],
   ["accounting.revaluation.reverse", "accounting.journal.view", "s"],
   ["accounting.reports.view"],
+  ["accounting.reports.view_unattributed", "accounting.reports.view", "s"],
   ["accounting.exchange_rate.manage"],
   ["accounting.exchange_rate.approve", "accounting.exchange_rate.manage"],
   ["accounting.tax.view"],
@@ -418,6 +420,8 @@ const ROWS: readonly Row[] = [
   ["contracting.guarantee.reverse", "contracting.guarantee.view", "s"],
   ["contracting.equipment_log.reverse", "projects.project.view", "s"],
   ["contracting.consumption.reverse", "projects.project.view", "s"],
+
+  ["dashboard.view"],
 ];
 
 function expand(row: Row): PermissionDef {

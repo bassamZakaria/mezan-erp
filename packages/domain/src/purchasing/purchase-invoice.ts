@@ -43,7 +43,6 @@ import {
   GoodsReceiptInvoicedRefusal,
   InvoiceDoesNotMatchReceiptError,
   InvoiceExceedsReceiptError,
-  DuplicatePurchaseDocumentError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
   PurchaseDocumentNotDraftError,
@@ -531,9 +530,6 @@ export async function createPurchaseInvoice(
     billInvoiceAgainstReceipt(command.lines, receipt);
     sourceReceipt = receipt;
   }
-  if (await deps.invoices.findById(command.id)) {
-    throw new DuplicatePurchaseDocumentError(command.id);
-  }
 
   const lines = normalizeLines(command.lines, deps.taxRates ? await deps.taxRates.list() : null);
   // A from-receipt invoice inherits the receipt's projectId when the caller
@@ -856,7 +852,7 @@ function lateVariancePostings(invoice: PurchaseInvoice, accounts: PurchaseGlAcco
  * تأكيد الفاتورة (Confirm invoice): مسودة → مؤكد. Posts the GL entry (inventory +
  * tax + payable) always; posts stock IN only for a MANUAL invoice (no receipt),
  * since a from-receipt invoice's goods already entered the ledger at receipt
- * confirmation. Gateable action PURCHASE_INVOICE_CONFIRM is enforced at the edge.
+ * confirmation.
  */
 export async function confirmPurchaseInvoice(
   id: string,
@@ -864,7 +860,7 @@ export async function confirmPurchaseInvoice(
 ): Promise<ConfirmPurchaseInvoiceResult> {
   // EVERY WRITE BELOW SHARES ONE TRANSACTION (B-7). The GL entry is keyed
   // `PI-JE:<invoiceId>`, so a failure after it posted left the invoice `draft`
-  // with a live entry and every retry threw DuplicateJournalEntryError — the
+  // with a live entry and every retry threw a duplicate-id refusal — the
   // invoice was permanently unconfirmable. SAVEPOINT nesting on the shared
   // connection makes the inner GL transaction safe inside this one.
   //

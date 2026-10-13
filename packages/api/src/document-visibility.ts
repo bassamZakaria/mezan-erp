@@ -25,11 +25,11 @@ export function anyLineInWarehouseScope(c: Context, warehouseIds: readonly strin
 // a route says so: it is a record of the reversal, not a document to act on.
 export function createVisibleDocumentResolver<Line>(
   service: Pick<DocumentService<Line>, "findById">,
-  visible: (c: Context, doc: FrameworkDocument<Line>) => boolean,
+  visible: (c: Context, doc: FrameworkDocument<Line>) => boolean | Promise<boolean>,
 ): VisibleDocumentResolver<Line> {
   return async (c, mirrors = MirrorAccess.Hidden) => {
     const doc = await service.findById(c.req.param("id") ?? "");
-    if (!doc || !visible(c, doc)) return null;
+    if (!doc || !(await visible(c, doc))) return null;
     if (mirrors === MirrorAccess.Hidden && doc.reversesDocId) return null;
     return doc;
   };

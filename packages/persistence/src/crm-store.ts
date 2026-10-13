@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   type Lead,
@@ -80,6 +81,7 @@ function toLead(row: LeadRow): Lead {
 
 class SqliteLeadRepository implements LeadRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -100,6 +102,7 @@ class SqliteLeadRepository implements LeadRepository {
         converted_customer_id = excluded.converted_customer_id,
         converted_opportunity_id = excluded.converted_opportunity_id
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM crm_lead WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM crm_lead`);
   }
@@ -114,15 +117,15 @@ class SqliteLeadRepository implements LeadRepository {
   }
 
   async create(lead: Lead): Promise<void> {
-    this.write(lead);
+    insertingNew(lead.id, () => this.write(lead, this.insertOnly));
   }
 
   async update(lead: Lead): Promise<void> {
     this.write(lead);
   }
 
-  private write(lead: Lead): void {
-    this.upsert.run({
+  private write(lead: Lead, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: lead.id,
       name: lead.name,
       company: lead.company,
@@ -193,6 +196,7 @@ function toOpportunity(row: OpportunityRow): Opportunity {
 
 class SqliteOpportunityRepository implements OpportunityRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -212,6 +216,7 @@ class SqliteOpportunityRepository implements OpportunityRepository {
         status = excluded.status,
         closed_at = excluded.closed_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM crm_opportunity WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM crm_opportunity`);
   }
@@ -226,15 +231,15 @@ class SqliteOpportunityRepository implements OpportunityRepository {
   }
 
   async create(opportunity: Opportunity): Promise<void> {
-    this.write(opportunity);
+    insertingNew(opportunity.id, () => this.write(opportunity, this.insertOnly));
   }
 
   async update(opportunity: Opportunity): Promise<void> {
     this.write(opportunity);
   }
 
-  private write(opportunity: Opportunity): void {
-    this.upsert.run({
+  private write(opportunity: Opportunity, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: opportunity.id,
       title: opportunity.title,
       customer_id: opportunity.customerId,
@@ -292,6 +297,7 @@ function toPipelineStage(row: PipelineStageRow): PipelineStage {
 
 class SqlitePipelineStageRepository implements PipelineStageRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -308,6 +314,7 @@ class SqlitePipelineStageRepository implements PipelineStageRepository {
         is_loss_stage = excluded.is_loss_stage,
         active = excluded.active
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM crm_pipeline_stage WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM crm_pipeline_stage`);
   }
@@ -322,15 +329,15 @@ class SqlitePipelineStageRepository implements PipelineStageRepository {
   }
 
   async create(stage: PipelineStage): Promise<void> {
-    this.write(stage);
+    insertingNew(stage.id, () => this.write(stage, this.insertOnly));
   }
 
   async update(stage: PipelineStage): Promise<void> {
     this.write(stage);
   }
 
-  private write(stage: PipelineStage): void {
-    this.upsert.run({
+  private write(stage: PipelineStage, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: stage.id,
       name: stage.name,
       order: stage.order,
@@ -387,6 +394,7 @@ function toActivity(row: ActivityRow): Activity {
 
 class SqliteActivityRepository implements ActivityRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -403,6 +411,7 @@ class SqliteActivityRepository implements ActivityRepository {
         status = excluded.status,
         notes = excluded.notes
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM crm_activity WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM crm_activity`);
   }
@@ -417,15 +426,15 @@ class SqliteActivityRepository implements ActivityRepository {
   }
 
   async create(activity: Activity): Promise<void> {
-    this.write(activity);
+    insertingNew(activity.id, () => this.write(activity, this.insertOnly));
   }
 
   async update(activity: Activity): Promise<void> {
     this.write(activity);
   }
 
-  private write(activity: Activity): void {
-    this.upsert.run({
+  private write(activity: Activity, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: activity.id,
       subject: activity.subject,
       type: activity.type,

@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import {
+  RowActionOutcome,
   Button,
   Card,
   Chip,
@@ -86,6 +88,7 @@ export function ExchangeRatesScreen() {
       await approveExchangeRate.mutateAsync(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("fxRates.theExchangeRateCouldNot"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -143,6 +146,7 @@ export function ExchangeRatesScreen() {
       {error ? <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">{error}</div> : null}
 
       {adding ? (
+        <ReadOnlyFields>
         <div className="mb-[16px] rounded-lg border border-border bg-surface p-[16px_18px]">
           <div className="flex flex-wrap items-end gap-[12px]">
             <div className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.foreignCurrency")}
@@ -162,9 +166,10 @@ export function ExchangeRatesScreen() {
               <TextInput size="sm" type="date" aria-label={t("fxRates.effectiveFrom")} value={draft.effectiveDate} onChange={(e) => setDraft((d) => ({ ...d, effectiveDate: e.target.value }))} />
             </label>
             <Button variant="primary" onClick={submitAdd}>{t("common.save")}</Button>
-            <Button onClick={() => setAdding(false)}>{t("common.cancel")}</Button>
+            <Button {...READ_ONLY_KEEP} onClick={() => setAdding(false)}>{t("common.cancel")}</Button>
           </div>
         </div>
+        </ReadOnlyFields>
       ) : null}
 
       <DocumentList<ExchangeRateDTO>
@@ -222,7 +227,7 @@ export function ExchangeRatesScreen() {
         rowAction={(r) => {
           const menuItems: RowMenuItem[] =
             r.status === "pending"
-              ? [{ key: "approve", label: t("fxRates.approve"), disabled: pendingId === r.id, onSelect: () => void approve(r.id) }]
+              ? [{ key: "approve", label: t("fxRates.approve"), disabled: pendingId === r.id, onSelect: () => approve(r.id) }]
               : [];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.currency })} />;
         }}

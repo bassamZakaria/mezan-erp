@@ -38,6 +38,8 @@ import {
   returnCustodySchema,
 } from "@mezan/contracts";
 import { callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * مستودعات المواقع والصرف والاستهلاك — slice 4A's routes, mounted under
@@ -168,6 +170,7 @@ function serializeEquipmentHours(row: EquipmentHoursRow) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof SiteDocumentStatusError && err.messageEn) {

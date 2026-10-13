@@ -100,6 +100,9 @@ import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-l
 import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
 import { createHrSelfRoutes } from "./hr-self-routes.js";
 import { tenantToday } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * The hr/time-leave stores are OPTIONAL here so the composition root can adopt
@@ -113,7 +116,7 @@ type HrTimeLeaveDeps = Pick<HrTimeLeaveRoutesDeps, "attendance" | "leavePolicies
  * `createHrRoutes` does not mount the الرواتب / سلف الموظفين surface. Employees,
  * contracts and numbering are reused from the master-data deps above.
  */
-export type HrPayrollDeps = Omit<HrPayrollRoutesDeps, "employees" | "contracts" | "numbering">;
+export type HrPayrollDeps = Omit<HrPayrollRoutesDeps, "employees" | "contracts" | "numbering" | "transactor">;
 
 /**
  * HR master-data routes (docs/archive/catalog/06-crm-hr.md "الموارد البشرية" —
@@ -138,6 +141,8 @@ export interface HrRoutesDeps extends Partial<HrTimeLeaveDeps> {
   readonly users: Pick<UserRepository, "findById">;
   /** Same shape as `NextNumberService.next(code)` (`packages/domain/src/numbering`) — the SQLite-backed engine slots straight in. */
   readonly numbering: { next(code: string): Promise<{ readonly formatted: string }> };
+  /** The transaction a create shares with the number it mints, so a refused create — a taken id included — spends no number. */
+  readonly transactor?: ConfigTransactor;
   /** Self-service (/hr/self): the web clock's device credentials, its selfie store, and the letterhead a printed payslip needs. */
   readonly clockCredentials?: ClockCredentialRepository;
   /** DB-backed WebAuthn challenge storage (create-backend.ts); omitted only where no persistence is available. */
@@ -293,6 +298,7 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof DuplicateDeviceBadgeError) {
@@ -540,8 +546,10 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
       const deviceBadgeId = normalizeDeviceBadgeId(parsed.data.deviceBadgeId);
       assertDeviceBadgeAvailable(deviceBadgeId, null, await deps.employees.list());
       const id = parsed.data.id ?? randomUUID();
-      const code = (await deps.numbering.next("EMPLOYEE")).formatted;
-      const employee = await createEmployee({ ...parsed.data, deviceBadgeId, id, code }, deps.employees);
+      const employee = await atomically(deps.transactor, async () => {
+        const code = (await deps.numbering.next("EMPLOYEE")).formatted;
+        return createEmployee({ ...parsed.data, deviceBadgeId, id, code }, deps.employees);
+      });
       return c.json(serializeEmployee(employee), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -768,19 +776,21 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const id = parsed.data.id ?? randomUUID();
-      const number = (await deps.numbering.next("EMPLOYMENT_CONTRACT")).formatted;
-      const contract = await createContract(
-        {
-          ...parsed.data,
-          payBasis: parsed.data.payBasis === undefined ? undefined : PAY_BASIS_FROM_WIRE[parsed.data.payBasis],
-          id,
-          number,
-          monthlySalary: Money.fromMajor(parsed.data.monthlySalary),
-          allowances: parsed.data.allowances?.map((a) => ({ id: a.id ?? randomUUID(), name: a.name, amount: Money.fromMajor(a.amount), componentId: a.componentId ?? null })),
-          deductions: parsed.data.deductions?.map((d) => ({ id: d.id ?? randomUUID(), name: d.name, amount: Money.fromMajor(d.amount), componentId: d.componentId ?? null })),
-        },
-        deps.contracts,
-      );
+      const contract = await atomically(deps.transactor, async () => {
+        const number = (await deps.numbering.next("EMPLOYMENT_CONTRACT")).formatted;
+        return createContract(
+          {
+            ...parsed.data,
+            payBasis: parsed.data.payBasis === undefined ? undefined : PAY_BASIS_FROM_WIRE[parsed.data.payBasis],
+            id,
+            number,
+            monthlySalary: Money.fromMajor(parsed.data.monthlySalary),
+            allowances: parsed.data.allowances?.map((a) => ({ id: a.id ?? randomUUID(), name: a.name, amount: Money.fromMajor(a.amount), componentId: a.componentId ?? null })),
+            deductions: parsed.data.deductions?.map((d) => ({ id: d.id ?? randomUUID(), name: d.name, amount: Money.fromMajor(d.amount), componentId: d.componentId ?? null })),
+          },
+          deps.contracts,
+        );
+      });
       return c.json(serializeContract(contract), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -871,8 +881,10 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
 
     try {
       const id = parsed.data.id ?? randomUUID();
-      const number = (await deps.numbering.next("LEAVE_REQUEST")).formatted;
-      const request = await createLeaveRequest({ ...parsed.data, id, number, employeeId }, deps.leaveRequests);
+      const request = await atomically(deps.transactor, async () => {
+        const number = (await deps.numbering.next("LEAVE_REQUEST")).formatted;
+        return createLeaveRequest({ ...parsed.data, id, number, employeeId }, deps.leaveRequests);
+      });
       return c.json(serializeLeaveRequest(request), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -928,6 +940,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
         holidays: deps.holidays,
         leaveRequests: deps.leaveRequests,
         numbering: deps.numbering,
+        transactor: deps.transactor,
         attendance: deps.attendance,
         leaveBalances: deps.leaveBalances,
         advances: deps.payroll?.advances,
@@ -974,6 +987,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
           employees: deps.employees,
           contracts: deps.contracts,
           numbering: deps.numbering,
+          transactor: deps.transactor,
           unpaidLeave: deps.payroll.unpaidLeave ?? createUnpaidLeaveDaysProvider(deps.leaveRequests),
           overtime:
             deps.payroll.overtime ??

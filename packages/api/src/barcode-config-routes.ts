@@ -10,6 +10,8 @@ import {
 } from "@mezan/domain";
 import { updateBarcodeConfigSchema, parseBarcodeRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Routes for the tenant-wide barcode configuration (default symbology,
@@ -25,6 +27,7 @@ export interface BarcodeConfigRoutesDeps {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof InvalidBarcodeConfigError) {

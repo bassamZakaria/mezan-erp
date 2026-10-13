@@ -9,7 +9,9 @@ import {
   PermissionLabelLocale,
   permissionHumanLabel,
   type AuthContext,
+  type ScopeSelection,
 } from "@mezan/domain";
+import { BRANCH_REFUSALS, BranchRecordKind, BranchRefusalCode, grantedWarehouseIdsOf, referencesNamedIn, type BranchRefusalBody } from "./branch-policy.js";
 import { moduleRefusal, readOnlyModuleOutcome } from "./module-gate.js";
 import { SESSION_ENDED_HEADER, SessionEnded, sessionWasDisplaced } from "./session-ended.js";
 
@@ -217,7 +219,98 @@ export function permissionDeniedBody(permission: string): PermissionDeniedBody {
   };
 }
 
-export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
+/** The 403 a write naming a branch outside the session's grant answers with, or null when every id is inside it. */
+export function branchesOutsideGrantRefusal(
+  c: Context,
+  grant: ScopeSelection | undefined,
+  branchIds: readonly (string | null | undefined)[],
+): Response | null {
+  if (!grant || grant === ALL_SCOPE) return null;
+  const foreign = [...new Set(branchIds.filter((id): id is string => typeof id === "string" && id !== "" && !grant.includes(id)))];
+  if (foreign.length === 0) return null;
+  return c.json({ ...BRANCH_REFUSALS[BranchRefusalCode.BranchOutOfScope], branchIds: foreign }, 403);
+}
+
+/**
+ * INVARIANT: every gated write passes through here, so a route that accepts a
+ * `branchId` — or a warehouse a posting is attributed through — anywhere in
+ * its JSON body cannot be used by a branch-granted session to write into a
+ * branch it does not hold, including a route added later that forgets to
+ * check. The document's branch ends up on the journal lines it posts
+ * (DEC-20), so this is a ledger boundary, not a courtesy.
+ */
+async function refuseBodyBranchesOutsideGrant(c: Context, ctx: AuthContext): Promise<Response | null> {
+  if (ctx.branchGrant === ALL_SCOPE) return null;
+  if (c.req.method === "GET" || c.req.method === "HEAD") return null;
+  // SECURITY: read whatever the declared content type. Every route parses its
+  // body with `c.req.json()`, which ignores the header — so trusting the
+  // header here let `content-type: text/plain` carry a foreign branch past.
+  let body: unknown;
+  try {
+    body = JSON.parse(await c.req.text());
+  } catch {
+    return null;
+  }
+  const named = referencesNamedIn(body);
+  const warehouseIds = named.filter((reference) => reference.kind === BranchRecordKind.Warehouse).map((reference) => reference.id);
+  const branchByWarehouse = warehouseIds.length > 0 ? await c.get("warehouseBranches")?.() : undefined;
+  return branchesOutsideGrantRefusal(c, ctx.branchGrant, [
+    ...named.filter((reference) => reference.kind === BranchRecordKind.Branch).map((reference) => reference.id),
+    ...warehouseIds.map((id) => branchByWarehouse?.get(id) ?? null),
+  ]);
+}
+
+/**
+ * The branches of the STORED document a request addresses by id, or null when
+ * it addresses none (a list, a create, an id nothing holds).
+ */
+export type StoredBranchesResolver = (c: Context) => Promise<readonly (string | null | undefined)[] | null>;
+
+export interface PermissionGateOptions {
+  readonly storedBranches?: StoredBranchesResolver;
+}
+
+export type StoredDocumentRefusalBody = BranchRefusalBody;
+
+const STORED_DOCUMENT_ABSENT = BRANCH_REFUSALS[BranchRefusalCode.NotFound];
+const STORED_DOCUMENT_PARTLY_FOREIGN = BRANCH_REFUSALS[BranchRefusalCode.BranchOutOfScope];
+
+/**
+ * The refusal for a stored document whose branches lie outside `grant`, or
+ * null. A document none of whose branches the caller holds answers 404 on
+ * every method — the lists already hide it, so a 403 would confirm it exists
+ * (D130) — and the body never names the branch that owns it. One the caller
+ * holds only in part stays readable (the handler cuts it to the caller's
+ * lines) and refuses a write, which would act on the foreign lines too.
+ */
+export function storedDocumentRefusal(
+  c: Context,
+  grant: ScopeSelection | undefined,
+  branchIds: readonly (string | null | undefined)[],
+): Response | null {
+  if (!grant || grant === ALL_SCOPE) return null;
+  const attributed = branchIds.filter((id): id is string => typeof id === "string" && id !== "");
+  const foreign = attributed.filter((id) => !grant.includes(id));
+  if (foreign.length === 0) return null;
+  if (foreign.length === attributed.length) return c.json(STORED_DOCUMENT_ABSENT, 404);
+  if (c.req.method === "GET" || c.req.method === "HEAD") return null;
+  return c.json(STORED_DOCUMENT_PARTLY_FOREIGN, 403);
+}
+
+/**
+ * INVARIANT: an id-addressed route is checked against the STORED document's
+ * branch here, not only its list. The body scan above cannot see this — a
+ * confirm, void or reversal names no branch at all — so a route file hands its
+ * gate one resolver and every `/:id` route it mounts, present or future, is
+ * covered by it.
+ */
+async function refuseStoredBranchesOutsideGrant(c: Context, ctx: AuthContext, options: PermissionGateOptions | undefined): Promise<Response | null> {
+  if (!options?.storedBranches || ctx.branchGrant === ALL_SCOPE) return null;
+  const branchIds = await options.storedBranches(c);
+  return branchIds ? storedDocumentRefusal(c, ctx.branchGrant, branchIds) : null;
+}
+
+export function createPermissionGate(resolveAuthContext: AuthContextResolver, options?: PermissionGateOptions) {
   return function gate(permission: string): MiddlewareHandler {
     return async function permissionGate(c, next) {
       const ctx = await resolveAuthContext(c);
@@ -231,6 +324,8 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
         refuse(c, ctx, permission);
         return c.json(permissionDeniedBody(permission), 403);
       }
+      const outOfGrant = (await refuseBodyBranchesOutsideGrant(c, ctx)) ?? (await refuseStoredBranchesOutsideGrant(c, ctx, options));
+      if (outOfGrant) return outOfGrant;
       c.set(AUTH_CONTEXT_KEY, ctx);
       await next();
     };
@@ -246,7 +341,7 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
  * who could confirm invoices could not open the list to find one (D31). The
  * route gates on the weakest tier that should see anything, then NARROWS.
  */
-export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver) {
+export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver, options?: PermissionGateOptions) {
   return function gateAny(...permissions: string[]): MiddlewareHandler {
     return async function anyPermissionGate(c, next) {
       const ctx = await resolveAuthContext(c);
@@ -261,6 +356,8 @@ export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver)
         refuse(c, ctx, permissions[0] ?? "");
         return c.json(permissionDeniedBody(permissions[0] ?? ""), 403);
       }
+      const outOfGrant = (await refuseBodyBranchesOutsideGrant(c, ctx)) ?? (await refuseStoredBranchesOutsideGrant(c, ctx, options));
+      if (outOfGrant) return outOfGrant;
       c.set(AUTH_CONTEXT_KEY, ctx);
       await next();
     };
@@ -324,6 +421,17 @@ export function roleCodesOf(ctx: AuthContext | undefined): string[] {
  */
 export function warehouseScopeOf(c: Context): readonly string[] | undefined {
   const scope = getAuthContext(c)?.warehouseScope;
+  const session = !scope || scope === ALL_SCOPE ? undefined : scope;
+  // SECURITY: a branch-restricted session sees only its branches' warehouses,
+  // whatever warehouse scope it was issued — every list that narrows by this
+  // is thereby cut to the branch grant too.
+  const granted = grantedWarehouseIdsOf(c);
+  if (!granted) return session;
+  return session ? session.filter((id) => granted.includes(id)) : granted;
+}
+
+export function sessionWarehouseScopeOf(c: Context): readonly string[] | undefined {
+  const scope = getAuthContext(c)?.warehouseScope;
   return !scope || scope === ALL_SCOPE ? undefined : scope;
 }
 
@@ -331,6 +439,16 @@ export function warehouseScopeOf(c: Context): readonly string[] | undefined {
 export function branchScopeOf(c: Context): readonly string[] | undefined {
   const scope = getAuthContext(c)?.branchScope;
   return !scope || scope === ALL_SCOPE ? undefined : scope;
+}
+
+/**
+ * The branches the SESSION was granted, or `undefined` for all of them — as
+ * opposed to {@link branchScopeOf}, which is that grant after the shell's
+ * branch selector narrowed it for this one request.
+ */
+export function branchGrantOf(c: Context): readonly string[] | undefined {
+  const grant = getAuthContext(c)?.branchGrant;
+  return !grant || grant === ALL_SCOPE ? undefined : grant;
 }
 
 /** Narrows `rows` to the scope, by whichever key carries the id. Returns `rows` untouched when unscoped. */

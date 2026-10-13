@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import type {
   EventCode,
   NotificationChannel,
@@ -115,7 +116,7 @@ class SqliteNotificationRuleRepository implements NotificationRuleRepository {
   }
 
   async save(rule: NotificationRule): Promise<void> {
-    this.insertStmt.run(toRow(rule));
+    insertingNew(rule.id, () => this.insertStmt.run(toRow(rule)));
   }
 
   async update(rule: NotificationRule): Promise<void> {

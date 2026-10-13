@@ -81,8 +81,8 @@ export const certificateComputationSchema = z.object({
   suspendedBalance: moneyString,
   invoiceBase: moneyString,
   vatBasis: vatBasisSchema,
-  vatStatutoryRatePercent: z.string(),
-  vatEffectiveRatePercent: z.string(),
+  vatStatutoryRatePercent: moneyString,
+  vatEffectiveRatePercent: moneyString,
   vat: moneyString,
   previousPayments: moneyString,
   netPayableThisCertificate: moneyString,
@@ -188,7 +188,7 @@ export const progressCertificateSchema = z.object({
   daysOverdue: z.number(),
   latePaymentCompensation: moneyString,
   /** «غير مُعد» when the tenant has not set the CBE credit-and-discount rate. */
-  cbeCreditDiscountRatePercent: z.string().nullable(),
+  cbeCreditDiscountRatePercent: moneyString.nullable(),
   hasLaterCertificate: z.boolean(),
 });
 export type ProgressCertificateDTO = z.infer<typeof progressCertificateSchema>;

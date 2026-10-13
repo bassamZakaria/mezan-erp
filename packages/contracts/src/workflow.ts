@@ -25,20 +25,32 @@ export const updateWorkflowConfigSchema = z.object({
 });
 
 /** الموافقات — an in-flight or resolved approval instance. */
-export const approvalStatusSchema = z.enum(["pending", "approved", "rejected", "modification_requested"]);
-export enum DocumentApprovalStatus {
+export enum ApprovalStatusCode {
   Pending = "pending",
   Approved = "approved",
   Rejected = "rejected",
   ModificationRequested = "modification_requested",
+  ReapprovalRequired = "reapproval_required",
 }
+const APPROVAL_STATUS_VALUES = Object.values(ApprovalStatusCode) as [`${ApprovalStatusCode}`, ...`${ApprovalStatusCode}`[]];
+export const approvalStatusSchema = z.enum(APPROVAL_STATUS_VALUES);
+export const DocumentApprovalStatus = ApprovalStatusCode;
+export type DocumentApprovalStatus = ApprovalStatusCode;
+
+export const approvalStandingSchema = z.object({
+  id: z.string(),
+  status: approvalStatusSchema,
+  /** Why the document cannot be confirmed on this request as it stands; null when nothing is in the way. */
+  reason: z.string().nullable(),
+  reasonEn: z.string().nullable(),
+});
+export type ApprovalStandingDTO = z.infer<typeof approvalStandingSchema>;
 
 export const documentApprovalSchema = z.object({
   status: approvalStatusSchema,
   rejectionReason: z.string().nullable(),
   rejectedBy: z.string().nullable(),
 });
-
 export const decisionKindSchema = z.enum(["approve", "reject", "request_modification", "bypass"]);
 
 export const decisionRecordSchema = z.object({
@@ -53,6 +65,11 @@ export const approvalRequestSchema = z.object({
   id: z.string(),
   actionType: z.string(),
   submittedBy: z.string(),
+  /** The submitter's name as the user directory holds it; null when that user is not there. */
+  submittedByName: z.string().nullable(),
+  /** The document this request holds, and its number once one is stamped; both null for a request that gates no document. */
+  documentId: z.string().nullable(),
+  documentNo: z.string().nullable(),
   steps: z.array(gateStepSchema),
   currentStep: z.number().int().nonnegative(),
   status: approvalStatusSchema,
@@ -63,10 +80,9 @@ export const approvalRequestSchema = z.object({
 });
 
 /** `POST /workflow/requests` — submits a new approval request for a gateable action. */
-export const submitApprovalRequestSchema = z.object({
+export const submitApprovalRequestSchema = z.strictObject({
   actionType: z.string().min(1),
   entityLabel: z.string().min(1).optional(),
-  requestId: z.string().min(1).optional(),
 });
 
 /** `POST /workflow/requests/:id/decide` — the inbox's approve / reject / request-modification actions. */

@@ -2,6 +2,7 @@ import type { JournalEntry, JournalLine } from "../journal.js";
 import { recordSensitiveEvent } from "../audit/index.js";
 import { assertBalanced, assertPeriodOpen, assertVatNotFiled, type JournalPostingDeps } from "./post.js";
 import { namingEarliestOpenDay } from "../fiscal-periods/errors.js";
+import { inBranchOf } from "./line-branch.js";
 import {
   JournalEntryAlreadyReversedError,
   JournalEntryNotFoundError,
@@ -100,7 +101,7 @@ export async function reverseJournalEntry(
 
   const result = await deps.ledger.transaction(async () => {
     const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);
-    const appended = (await opts.appendLines?.({ id: opts.reversalId, entryNo: number.formatted })) ?? [];
+    const appended = inBranchOf(reversalLines, (await opts.appendLines?.({ id: opts.reversalId, entryNo: number.formatted })) ?? []);
     if (appended.length > 0) assertBalanced(appended);
     const reversal: JournalEntry = {
       id: opts.reversalId,

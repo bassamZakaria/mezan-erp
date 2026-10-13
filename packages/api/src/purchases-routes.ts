@@ -28,7 +28,6 @@ import {
   PurchaseOrderNotFoundError,
   GoodsReceiptNotFoundError,
   PurchaseInvoiceNotFoundError,
-  DuplicatePurchaseDocumentError,
   InvalidPurchaseDocumentError,
   PurchaseDocumentNotDraftError,
   PurchaseOrderNotReceivableError,
@@ -125,7 +124,12 @@ import {
   type AuthContextResolver,
   branchScopeOf,
   warehouseScopeOf,
-  withinScope,} from "./permission-gate.js";
+  withinScope,
+  type StoredBranchesResolver,
+} from "./permission-gate.js";
+import { branchesOfWarehouses, documentBranches, withinBranchGrant, withinBranchView } from "./stored-branches.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Permission-gated routes for the purchase chain (docs/archive/catalog/02), mounted
@@ -367,6 +371,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(),
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const taxRefusal = taxRateRefusal(c, err);
   if (taxRefusal) return taxRefusal;
   const postingRefusal = postingRefusalResponse(c, err);
@@ -377,9 +382,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof PurchaseInvoiceNotFoundError
   ) {
     return c.json({ error: err.code, message: err.message }, 404);
-  }
-  if (err instanceof DuplicatePurchaseDocumentError) {
-    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (
     err instanceof PurchaseDocumentNotDraftError ||
@@ -459,8 +461,31 @@ export function createPurchasesRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  /**
+   * One gate serves three stored documents, so the ROUTE says which one `:id`
+   * addresses — the registered pattern, never the request path, whose id
+   * segment is the caller's to spell.
+   */
+  const storedBranches: StoredBranchesResolver = async (c) => {
+    const id = c.req.param("id");
+    if (!id) return null;
+    const path = c.req.routePath;
+    if (path.includes("/orders/:id")) {
+      const order = await deps.orders.findById(id);
+      return order ? documentBranches(c, [order.branchId], [order.warehouseId]) : null;
+    }
+    if (path.includes("/receipts/:id")) {
+      const receipt = await deps.receipts.findById(id);
+      return receipt ? branchesOfWarehouses(c, [receipt.warehouseId]) : null;
+    }
+    if (path.includes("/invoices/:id")) {
+      const invoice = await deps.invoices.findById(id);
+      return invoice ? documentBranches(c, [invoice.branchId], [invoice.warehouseId]) : null;
+    }
+    return null;
+  };
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
   /**
    * D70 — the `purchases.invoice.view_own` tier, enforced.
    *
@@ -722,7 +747,9 @@ export function createPurchasesRoutes(
    * selector must reach here as a `warehouseId`.
    */
   async function listFilteredReceipts(c: Context, filter: ReceiptListFilter): Promise<readonly GoodsReceipt[]> {
-    let rows = withinScope(await deps.receipts.list(), warehouseScopeOf(c), (r) => r.warehouseId);
+    let rows = await withinBranchGrant(c, withinScope(await deps.receipts.list(), warehouseScopeOf(c), (r) => r.warehouseId), (r) =>
+      branchesOfWarehouses(c, [r.warehouseId]),
+    );
     if (filter.status) rows = rows.filter((r) => r.status === filter.status);
     if (filter.supplierId) rows = rows.filter((r) => r.supplierId === filter.supplierId);
     if (filter.fromDate) rows = rows.filter((r) => r.date >= filter.fromDate!);
@@ -970,7 +997,8 @@ export function createPurchasesRoutes(
     // predicate below is re-applied so a repository that cannot express one
     // still answers the same rows.
     let rows = withinScope(
-      withinScope(
+      await withinBranchView(
+        c,
         await deps.invoices.list({
           supplierId,
           fromDate,
@@ -980,8 +1008,7 @@ export function createPurchasesRoutes(
           search,
           status: storedInvoiceStatus(status),
         }),
-        branchScopeOf(c),
-        (i) => i.branchId,
+        (i) => documentBranches(c, [i.branchId], [i.warehouseId]),
       ),
       warehouseScopeOf(c),
       (i) => i.warehouseId,

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { CostCenter, CostCenterRepository, CostCenterStatus, CostCenterType } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /** SQLite-backed CostCenterRepository (docs/archive/catalog/04 "مراكز التكلفة"). Standalone, mirroring `createSqliteAccountRepository`. */
 
@@ -50,6 +51,7 @@ function toCostCenter(row: CostCenterRow): CostCenter {
 
 class SqliteCostCenterRepository implements CostCenterRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -69,6 +71,7 @@ class SqliteCostCenterRepository implements CostCenterRepository {
         notes = excluded.notes,
         status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM cost_center WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM cost_center WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM cost_center`);
@@ -90,15 +93,15 @@ class SqliteCostCenterRepository implements CostCenterRepository {
   }
 
   async create(costCenter: CostCenter): Promise<void> {
-    this.write(costCenter);
+    insertingNew(costCenter.id, () => this.write(costCenter, this.insertOnly));
   }
 
   async update(costCenter: CostCenter): Promise<void> {
     this.write(costCenter);
   }
 
-  private write(costCenter: CostCenter): void {
-    this.upsert.run({
+  private write(costCenter: CostCenter, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: costCenter.id,
       code: costCenter.code,
       name_ar: costCenter.nameAr,

@@ -90,5 +90,6 @@ export interface RetentionReleaseStore {
   findByDocNo(docNo: string): Promise<RetentionRelease | null>;
   list(filter?: RetentionReleaseListFilter): Promise<RetentionRelease[]>;
   save(release: RetentionRelease): Promise<void>;
+  insert(release: RetentionRelease): Promise<void>;
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }

@@ -1,5 +1,8 @@
+import { BranchGatedAction } from "../../../branch-restriction";
+import { useBranchGate } from "../../../shell/useBranchGate";
 import { useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   ConfirmDialog,
@@ -353,6 +356,7 @@ function TemplatesTab() {
       });
     } catch (err) {
       setActionError(errorMessage(err, t("recurringJournals.templateCouldNotBeSaved")));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -399,7 +403,7 @@ function TemplatesTab() {
               key: "toggle",
               label: t(row.status === RecurringJournalTemplateStatusDTO.Active ? "recurringJournals.pause" : "recurringJournals.resume"),
               disabled: pendingId === row.id,
-              onSelect: () => void toggleStatus(row),
+              onSelect: () => toggleStatus(row),
             },
           ];
           return <RowMenu items={items} label={t("common.rowActionsFor", { name: row.nameAr })} />;
@@ -593,12 +597,14 @@ interface RecurringJournalHistoryRow {
   readonly skip: RecurringJournalSkipDTO | null;
 }
 
+const HISTORY_SKIPS_LIMIT = 200;
+
 export function RecurringJournalHistory() {
   const { t } = useAppTranslation();
   const reversal = useReverseDocumentAction(ReversalDocumentType.RecurringJournalTemplate);
 
   const runsQuery = useRecurringJournalRuns();
-  const skipsQuery = useAllRecurringJournalSkips();
+  const skipsQuery = useAllRecurringJournalSkips(HISTORY_SKIPS_LIMIT, useBranchGate().allows(BranchGatedAction.RecurringSkips));
   const templatesQuery = useRecurringJournalTemplates();
   const nav = useNavigation();
   const [page, setPage] = useState(1);
@@ -757,14 +763,17 @@ function DepreciationDueTab() {
 
 export function RecurringJournalsScreen() {
   const { t } = useAppTranslation();
+  const branchGate = useBranchGate();
   return (
     <ScreenTabs
       ariaLabel={t("recurringJournals.title")}
       tabs={[
         { key: "templates", label: t("recurringJournals.tab.templates"), render: () => <TemplatesTab /> },
-        { key: "due", label: t("recurringJournals.tab.due"), render: () => <DueTab /> },
+        ...(branchGate.allows(BranchGatedAction.RecurringDue) ? [{ key: "due", label: t("recurringJournals.tab.due"), render: () => <DueTab /> }] : []),
         { key: "history", label: t("recurringJournals.tab.history"), render: () => <RecurringJournalHistory /> },
-        { key: "depreciation", label: t("recurringJournals.tab.depreciation"), render: () => <DepreciationDueTab /> },
+        ...(branchGate.allows(BranchGatedAction.RecurringDepreciationDue)
+          ? [{ key: "depreciation", label: t("recurringJournals.tab.depreciation"), render: () => <DepreciationDueTab /> }]
+          : []),
       ]}
     />
   );

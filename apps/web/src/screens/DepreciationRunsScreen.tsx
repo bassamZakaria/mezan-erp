@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   DocumentList,
   EmptyState,
   Money as MoneyDisplay,
@@ -146,6 +147,7 @@ export function DepreciationRunsScreen() {
       await postRun.mutateAsync(run.id);
     } catch (err) {
       setPostError(err instanceof ApiError ? err.message : t("depreciation.theDepreciationRunCouldNot2"));
+      return RowActionOutcome.Refused;
     } finally {
       setPostingId(null);
     }
@@ -159,6 +161,7 @@ export function DepreciationRunsScreen() {
       await discardRun.mutateAsync(run.id);
     } catch (err) {
       setPostError(err instanceof ApiError ? err.message : t("api.theDepreciationDraftCouldNotBeDiscarded"));
+      return RowActionOutcome.Refused;
     } finally {
       setDiscardingId(null);
     }
@@ -256,8 +259,8 @@ export function DepreciationRunsScreen() {
             { key: "view", label: t("common.view"), onSelect: () => setSelectedId(r.id) },
             ...(r.status === "draft"
               ? [
-                  { key: "post", label: t("depreciation.post"), disabled: postingId === r.id || discardingId === r.id, onSelect: () => void handlePost(r) },
-                  { key: "discard", label: t("depreciation.discardDraft"), tone: "danger" as const, disabled: postingId === r.id || discardingId === r.id, onSelect: () => void handleDiscard(r) },
+                  { key: "post", label: t("depreciation.post"), disabled: postingId === r.id || discardingId === r.id, onSelect: () => handlePost(r) },
+                  { key: "discard", label: t("depreciation.discardDraft"), tone: "danger" as const, disabled: postingId === r.id || discardingId === r.id, onSelect: () => handleDiscard(r) },
                 ]
               : []),
             ...(r.status === "posted"

@@ -11,10 +11,14 @@ import {
   type FrameworkDocument,
   type LandedCostLine,
   type LandedCostService,
+  type WarehouseBranchLookup,
+  branchOfPostingWarehouse,
 } from "@mezan/domain";
 import { ReversalPermission, createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerRoleCodes, callerUserId, createPermissionGate } from "./permission-gate.js";
+import { documentBranches, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
 import type { DocumentApprovalDTO } from "@mezan/contracts";
 import { noteReversalOriginalDay } from "./posting-refusal.js";
@@ -75,15 +79,21 @@ export function createLandedCostsRoutes(
   documents: DocumentService<LandedCostLine>,
   landedCostService: LandedCostService,
   resolveAuthContext: AuthContextResolver,
+  warehouses?: WarehouseBranchLookup,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  const branchesOf = (c: Context, doc: { readonly lines: readonly LandedCostLine[] }) =>
+    documentBranches(c, doc.lines.map((line) => line.branchId), doc.lines.map((line) => line.warehouseId));
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById((id) => documents.findById(id), (doc, c) => branchesOf(c, doc)),
+  });
   const inScope = (c: Context, doc: FrameworkDocument<LandedCostLine>) => anyLineInWarehouseScope(c, doc.lines.map((line) => line.warehouseId));
   const visibleLandedCost = createVisibleDocumentResolver(documents, inScope);
 
   app.get("/", gate("purchases.landed_cost.view"), async (c) => {
     const status = c.req.query("status");
-    const list = (await documents.list({ status: status as never })).filter((doc) => inScope(c, doc));
+    const inWarehouseScope = (await documents.list({ status: status as never })).filter((doc) => inScope(c, doc));
+    const list = await withinBranchGrant(c, inWarehouseScope, (doc) => branchesOf(c, doc));
     const approval = await approvalReader(documents, list);
     return c.json(list.map((doc) => serialize(doc, approval(doc))));
   });
@@ -106,7 +116,14 @@ export function createLandedCostsRoutes(
         amount: Money.fromMajor(ci.amount),
         supplierId: ci.supplierId ?? null,
       }));
+      const branchByWarehouse = new Map<string, string | null>();
+      for (const warehouseId of new Set(parsed.data.targets.map((t) => t.warehouseId))) {
+        branchByWarehouse.set(warehouseId, await branchOfPostingWarehouse(warehouses, warehouseId));
+      }
+      const branchRefusal = refuseOutOfScopeBranches(c, [...branchByWarehouse.values()]);
+      if (branchRefusal) return branchRefusal;
       const targets = parsed.data.targets.map((t) => ({
+        branchId: branchByWarehouse.get(t.warehouseId) ?? null,
         itemId: t.itemId,
         warehouseId: t.warehouseId,
         sourceInvoiceId: t.sourceInvoiceId,

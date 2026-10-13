@@ -4,6 +4,7 @@ import { DocumentStatusCode } from "@mezan/domain";
 import { useReverseDocumentAction } from "../../../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -63,7 +64,7 @@ export function EquipmentLogsScreen() {
     return asset ? `${asset.nameAr} (${asset.code})` : id;
   }
 
-  async function confirmRow(id: string): Promise<void> {
+  async function confirmRow(id: string): Promise<RowActionOutcome | void> {
     if (rowPendingId) return;
     setRowError(null);
     setRowPendingId(id);
@@ -71,6 +72,7 @@ export function EquipmentLogsScreen() {
       await confirmLog.mutateAsync(id);
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -151,7 +153,7 @@ export function EquipmentLogsScreen() {
         rowAction={(d) => {
           const items: RowMenuItem[] = [
             ...(d.status === "draft"
-              ? [{ key: "confirm", label: t("site.equipment.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
+              ? [{ key: "confirm", label: t("site.equipment.confirm"), disabled: rowPendingId === d.id, onSelect: () => confirmRow(d.id) }]
               : []),
             ...(d.status === DocumentStatusCode.Confirmed ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
           ];

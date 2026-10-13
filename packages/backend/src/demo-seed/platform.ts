@@ -87,53 +87,27 @@ export async function seedPlatform(app: App): Promise<void> {
   });
 
   // --- الموافقات — the approvals inbox: one pending, one approved, one rejected. ---
-  await stepAs(
-    app,
-    "POST",
-    "/workflow/requests",
-    { userId: people.salesRep, permissions: "sales.invoice.create" },
-    {
-      requestId: "APR-DEMO-1",
-      actionType: "SALES_INVOICE_CONFIRM",
-      entityLabel: approvalLabel({ type: "فاتورة مبيعات", amount: Money.fromMajor("5200"), party: "مجموعة الفجر التجارية" }),
-    },
-  );
+  const raise = async (userId: string, permission: string, actionType: string, entityLabel: string): Promise<string> => {
+    const raised = (await stepAs(app, "POST", "/workflow/requests", { userId, permissions: `${permission},workflow.view` }, { actionType, entityLabel })) as { id: string };
+    return raised.id;
+  };
+  await raise(people.salesRep, "sales.invoice.create", "SALES_INVOICE_CONFIRM", approvalLabel({ type: "فاتورة مبيعات", amount: Money.fromMajor("5200"), party: "مجموعة الفجر التجارية" }));
 
+  const approved = await raise(people.purchasing, "purchases.invoice.create", "PURCHASE_INVOICE_CONFIRM", approvalLabel({ type: "فاتورة مشتريات", amount: Money.fromMajor("32000"), party: "مصنع الوادي الأخضر" }));
   await stepAs(
     app,
     "POST",
-    "/workflow/requests",
-    { userId: people.purchasing, permissions: "purchases.invoice.create" },
-    {
-      requestId: "APR-DEMO-2",
-      actionType: "PURCHASE_INVOICE_CONFIRM",
-      entityLabel: approvalLabel({ type: "فاتورة مشتريات", amount: Money.fromMajor("32000"), party: "مصنع الوادي الأخضر" }),
-    },
-  );
-  await stepAs(
-    app,
-    "POST",
-    "/workflow/requests/APR-DEMO-2/decide",
-    { userId: people.financeManager, permissions: "workflow.approve", roles: "FINANCE_MANAGER" },
+    `/workflow/requests/${approved}/decide`,
+    { userId: people.financeManager, permissions: "workflow.view,workflow.approve", roles: "FINANCE_MANAGER" },
     { decision: "approve", comment: "المستندات مكتملة والمبلغ ضمن حدود الميزانية." },
   );
 
+  const rejected = await raise(people.vanSales, "sales.invoice.create", "SALES_INVOICE_CONFIRM", approvalLabel({ type: "فاتورة مبيعات", amount: Money.fromMajor("18500"), party: "شركة الأمل للتجارة" }));
   await stepAs(
     app,
     "POST",
-    "/workflow/requests",
-    { userId: people.vanSales, permissions: "sales.invoice.create" },
-    {
-      requestId: "APR-DEMO-3",
-      actionType: "SALES_INVOICE_CONFIRM",
-      entityLabel: approvalLabel({ type: "فاتورة مبيعات", amount: Money.fromMajor("18500"), party: "شركة الأمل للتجارة" }),
-    },
-  );
-  await stepAs(
-    app,
-    "POST",
-    "/workflow/requests/APR-DEMO-3/decide",
-    { userId: people.supervisor, permissions: "workflow.reject", roles: "SUPERVISOR" },
+    `/workflow/requests/${rejected}/decide`,
+    { userId: people.supervisor, permissions: "workflow.view,workflow.reject", roles: "SUPERVISOR" },
     { decision: "reject", comment: "تم الرفض: تجاوز الفاتورة الحد الائتماني المسموح للعميل." },
   );
 

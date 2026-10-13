@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { Money, type VatFiling, type VatFilingRepository, type VatFilingStatus } from "@mezan/domain";
 import { calendarDay } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /**
  * Filed VAT returns (docs/archive/defect-register.md D29). One row per submission; an amended
@@ -53,6 +54,7 @@ function toFiling(row: FilingRow): VatFiling {
 
 class SqliteVatFilingStore implements VatFilingRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectCovering: Database.Statement;
@@ -69,6 +71,7 @@ class SqliteVatFilingStore implements VatFilingRepository {
         status = excluded.status, filed_at = excluded.filed_at, filed_by = excluded.filed_by,
         amended_at = excluded.amended_at, amendment_reason = excluded.amendment_reason
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM vat_filing WHERE id = ?`).safeIntegers(false);
     this.selectAll = sqlite.prepare(`SELECT * FROM vat_filing ORDER BY period_from DESC`).safeIntegers(false);
     this.selectCovering = sqlite
@@ -96,7 +99,15 @@ class SqliteVatFilingStore implements VatFilingRepository {
   }
 
   async save(filing: VatFiling): Promise<void> {
-    this.upsert.run({
+    this.write(filing);
+  }
+
+  async insert(filing: VatFiling): Promise<void> {
+    insertingNew(filing.id, () => this.write(filing, this.insertOnly));
+  }
+
+  private write(filing: VatFiling, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: filing.id,
       period_from: filing.periodFrom,
       period_to: filing.periodTo,

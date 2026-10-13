@@ -6,6 +6,7 @@ import { journalSourceModule, JournalSourceModuleCode, type JournalEntry } from 
 import { RECOGNITION_DOC_TYPE } from "../contracting/recognition/recognition.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
+import { ReportParamKind } from "./types.js";
 import type { TaxRate } from "../tax-rates/tax-rate.js";
 
 export type VatReturnTaxRate = Pick<TaxRate, "id" | "name">;
@@ -202,7 +203,7 @@ export function createVatReturnReport(
     descriptionAr: "ضريبة المخرجات مقابل المدخلات مصنّفة حسب النسبة، وصافي الضريبة المستحقة عن الفترة.",
     paramsSchema,
     defaultParams,
-    paramFields: [{ kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }],
     rowKey: (row) => row.rowId,
     columns: [
       { key: "taxRateName", header: "الضريبة", format: "text", value: (row) => row.taxRateName },

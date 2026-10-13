@@ -33,7 +33,6 @@ export {
   PurchaseOrderNotFoundError,
   GoodsReceiptNotFoundError,
   PurchaseInvoiceNotFoundError,
-  DuplicatePurchaseDocumentError,
   InvalidPurchaseDocumentError,
   PurchaseDocumentNotDraftError,
   PurchaseOrderNotReceivableError,

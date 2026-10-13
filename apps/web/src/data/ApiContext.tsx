@@ -35,6 +35,19 @@ function replayable(response: TransportResponse, text: string): TransportRespons
   return { status: response.status, ok: response.ok, json: async <T,>() => JSON.parse(text) as T, text: async () => text };
 }
 
+import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
+
+const BRANCH_REFUSAL_STATUS = 403;
+
+function locallyRefused(body: unknown): TransportResponse {
+  return {
+    status: BRANCH_REFUSAL_STATUS,
+    ok: false,
+    json: <T,>() => Promise.resolve(body as T),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  };
+}
+
 interface ApiContextValue {
   readonly session: Session | null;
   setSession(session: Session | null): void;
@@ -150,6 +163,8 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
         for (const [k, v] of Object.entries(authHeaders(session, narrowing))) headers.set(k, v);
         if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
         if (path === SIGN_IN_PATH) headers.set(DEVICE_BINDING_HEADER, COOKIE_KEPT_DEVICE_SECRET);
+        const refusedByBranchPolicy = isBranchRestricted(session) ? branchRefusalBefore(path, method) : null;
+        if (refusedByBranchPolicy) return locallyRefused(refusedByBranchPolicy);
         const send = (): Promise<TransportResponse> => resolvedTransport(path, { ...init, headers });
         const first = await send();
         const response = first.status === STEP_UP_STATUS && session !== null ? await afterStepUp(first, send, headers) : first;

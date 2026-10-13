@@ -21,8 +21,11 @@ import {
   can,
   matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema, pageQuerySchema, DEFAULT_PAGE_SIZE } from "@mezan/contracts";
+import { grantedWarehouseIdsOf, isBranchRestrictedRequest, sharedFieldRefusal } from "./branch-policy.js";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError, ItemPriceRequiredError, ItemStatusCode, ItemStatusNotSettableError } from "@mezan/domain";
 
 export const AUDITED_ITEM_FIELDS = [
   "code",
@@ -64,6 +67,9 @@ export const AUDITED_ITEM_FIELDS = [
  * the item-list permission every clerk holds (D94). It is omitted from the
  * payload, not nulled: a null reads as "this item has no cost".
  */
+const ITEMS_PREFIX = "/items";
+const ITEM_STATUS_CHIPS: ReadonlySet<string> = new Set(Object.values(ItemStatusCode));
+
 function serialize(item: Item, showCost = true) {
   const cost = showCost ? { costPrice: item.costPrice?.toString() ?? null } : {};
   return {
@@ -121,6 +127,7 @@ function toAlternateUnits(value: AlternateUnit[] | undefined): AlternateUnit[] |
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof ItemNotFoundError) {
@@ -131,6 +138,9 @@ function handleDomainError(c: Context, err: unknown) {
   }
   if (err instanceof InvalidItemError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
+  }
+  if (err instanceof ItemPriceRequiredError || err instanceof ItemStatusNotSettableError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }
@@ -251,7 +261,7 @@ export function createItemsRouter(
    * (R1.1). Nothing else computes item rows — the three routes below must not
    * be able to disagree about what the catalogue contains.
    */
-  async function listFilteredItems(filter: ItemListFilter): Promise<readonly ItemRow[]> {
+  async function listFilteredItems(c: Context, filter: ItemListFilter): Promise<readonly ItemRow[]> {
     const items = await repo.list();
     // Narrow first, then price the survivors: computing a stock state for rows
     // the search is about to drop is work nobody reads.
@@ -265,7 +275,11 @@ export function createItemsRouter(
 
     const onHandByItem = new Map<string, Qty>();
     if (snapshots) {
+      // SECURITY: a session restricted to branches counts only the stock its
+      // own warehouses hold; the item is shared, the quantity is not.
+      const granted = grantedWarehouseIdsOf(c);
       for (const position of await snapshots.list()) {
+        if (granted && !granted.includes(position.warehouseId)) continue;
         onHandByItem.set(position.itemId, (onHandByItem.get(position.itemId) ?? Qty.zero()).add(position.onHand));
       }
     }
@@ -279,7 +293,7 @@ export function createItemsRouter(
 
     const chip = filter.status;
     if (chip && chip !== "all") {
-      if (chip === "active" || chip === "inactive") rows = rows.filter((r) => r.item.status === chip);
+      if (ITEM_STATUS_CHIPS.has(chip)) rows = rows.filter((r) => r.item.status === chip);
       else if (chip === "low_stock") rows = rows.filter((r) => r.stockState === "low");
       else if (chip === "out_of_stock") rows = rows.filter((r) => r.stockState === "out");
       else {
@@ -305,7 +319,7 @@ export function createItemsRouter(
 
   app.get("/", gate("inventory.item.view"), async (c) => {
     const filter = parseItemListQuery(c);
-    const rows = await listFilteredItems(filter);
+    const rows = await listFilteredItems(c, filter);
     const showCost = maySeeCost(c);
     // The chip states (low_stock/out_of_stock) are computed from the stock
     // snapshot, not stored, so the page is cut after them. The counts route
@@ -330,11 +344,12 @@ export function createItemsRouter(
    */
   app.get("/counts", gate("inventory.item.view"), async (c) => {
     const { status: _ignored, ...withoutStatus } = parseItemListQuery(c);
-    const rows = await listFilteredItems(withoutStatus);
+    const rows = await listFilteredItems(c, withoutStatus);
     const counts: Record<string, number> = {
       all: rows.length,
-      active: 0,
-      inactive: 0,
+      [ItemStatusCode.Active]: 0,
+      [ItemStatusCode.Inactive]: 0,
+      [ItemStatusCode.PendingPricing]: 0,
       low_stock: 0,
       out_of_stock: 0,
     };
@@ -357,7 +372,7 @@ export function createItemsRouter(
    * consumables hold stock too (R5.1).
    */
   app.get("/stats", gate("inventory.item.view"), async (c) => {
-    const rows = await listFilteredItems(parseItemListQuery(c));
+    const rows = await listFilteredItems(c, parseItemListQuery(c));
     const active = rows.filter((r) => r.item.status === "active").length;
     const stockTracked = rows.filter((r) => itemTypeTracksStock(r.item.type)).length;
     return c.json({
@@ -394,11 +409,14 @@ export function createItemsRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const restrictedOnCreate = sharedFieldRefusal(c, ITEMS_PREFIX, null, parsed.data);
+    if (restrictedOnCreate) return restrictedOnCreate;
     try {
       const tenant = settings ? ((await settings.get()) ?? createDefaultSettings()) : null;
       const item = await createItem(
         {
           ...parsed.data,
+          awaitsPricing: isBranchRestrictedRequest(c),
           alternateUnits: toAlternateUnits(parsed.data.alternateUnits),
           salePrice: toMoney(parsed.data.salePrice),
           costPrice: toMoney(parsed.data.costPrice),
@@ -421,6 +439,8 @@ export function createItemsRouter(
     }
     try {
       const before = await repo.findById(c.req.param("id"));
+      const restricted = before ? sharedFieldRefusal(c, ITEMS_PREFIX, serialize(before), parsed.data) : null;
+      if (restricted) return restricted;
       const item = await updateItem(
         c.req.param("id"),
         {

@@ -13,7 +13,6 @@ import {
   BankStatementSource,
   CashBalanceWouldGoNegativeError,
   ColumnNotFoundError,
-  DuplicateDocumentError,
   DuplicateStatementImportError,
   EntryAccountRequiredError,
   EntryAlreadyMatchedError,
@@ -50,6 +49,8 @@ import {
   SuggestionNotPendingError,
   TreasuryAccountNotFoundError,
   TreasuryAccountNumberMissingError,
+  StatementBranchMismatchError,
+  StatementBranchRequiredError,
   TreasuryAccountOutOfBranchScopeError,
   TreasuryAccountUnpostableError,
   UnbalancedEntryError,
@@ -78,8 +79,11 @@ import {
   StatementFileFormatCode,
   StatementSourceCode,
 } from "@mezan/contracts";
-import { branchScopeOf, callerRoleCodes, callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { canSeeUnattributed } from "./branch-view.js";
+import { branchGrantOf, branchScopeOf, callerRoleCodes, callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent, recordFieldChanges } from "./admin-audit.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 export type BankReconciliationRoutesDeps = BankReconciliationServiceDeps & {
   /** Generates ids (statement id, statement-line id) when the request omits them. Defaults to a UUID. */
@@ -225,6 +229,7 @@ function serializeLine(l: MatchedStatementLine) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 403 | 404 | 409 | 422, extra: Record<string, unknown> = {}) =>
@@ -244,7 +249,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof StatementAlreadyFinalizedError ||
     err instanceof EntryAlreadyMatchedError ||
     err instanceof SuggestionNotPendingError ||
-    err instanceof DuplicateDocumentError ||
     err instanceof InvalidDocumentTransitionError ||
     err instanceof ApprovalRequestRejectedError
   ) {
@@ -253,6 +257,8 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateStatementImportError) {
     return refuse(err, 409, { existingStatementId: err.existingStatementId, existingStatementNumber: err.existingStatementNumber });
   }
+  if (err instanceof StatementBranchRequiredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
+  if (err instanceof StatementBranchMismatchError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   if (err instanceof StatementOutOfBranchScopeError || err instanceof TreasuryAccountOutOfBranchScopeError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 403);
   }
@@ -366,7 +372,12 @@ export function createBankReconciliationRoutes(
    * was reachable by anyone holding the permission.
    */
   const serviceFor = (c: Context): BankReconciliationService =>
-    new BankReconciliationService({ ...deps, branchScope: branchScopeOf(c) });
+    new BankReconciliationService({
+      ...deps,
+      branchScope: branchScopeOf(c),
+      soleBranchId: branchGrantOf(c)?.length === 1 ? branchGrantOf(c)![0] : undefined,
+      readsUnattributed: canSeeUnattributed(c),
+    });
 
   /**
    * Resolve one line's matched entry number. The routes that return a SINGLE
@@ -538,6 +549,7 @@ export function createBankReconciliationRoutes(
         openingBalance: Money.fromMajor(d.openingBalance),
         closingBalance: Money.fromMajor(d.closingBalance),
         statementNumber: d.statementNumber ?? null,
+        branchId: d.branchId ?? null,
         source: d.source === StatementSourceCode.Excel ? BankStatementSource.Excel : BankStatementSource.Csv,
       });
       const withNumbers = await service.withEntryNumbers(lines);
@@ -563,6 +575,7 @@ export function createBankReconciliationRoutes(
         openingBalance: d.openingBalance ? Money.fromMajor(d.openingBalance) : null,
         closingBalance: d.closingBalance ? Money.fromMajor(d.closingBalance) : null,
         statementNumber: d.statementNumber ?? null,
+        branchId: d.branchId ?? null,
       });
       const withNumbers = await service.withEntryNumbers(lines);
       return c.json({ ...serializeStatement(statement), lines: withNumbers.map(serializeLine) }, 201);
@@ -652,6 +665,7 @@ export function createBankReconciliationRoutes(
         ruleId: d.ruleId ?? null,
         memo: d.memo ?? null,
         date: d.date ?? null,
+        branchId: d.branchId ?? null,
         actor: callerUserId(c),
         actorRoles: callerRoleCodes(c),
       });

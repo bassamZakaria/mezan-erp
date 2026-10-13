@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type Supplier, type SupplierRepository } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /**
  * SQLite-backed SupplierRepository (docs/archive/catalog/02 "الموردون") — the mirror
@@ -95,6 +96,7 @@ function toSupplier(row: SupplierRow): Supplier {
 
 class SqliteSupplierRepository implements SupplierRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
@@ -115,6 +117,7 @@ class SqliteSupplierRepository implements SupplierRepository {
         active = @active, address_city = @addressCity, address_district = @addressDistrict,
         address_street = @addressStreet, branch_id = @branchId, bank_account = @bankAccount
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectAll = sqlite.prepare(`SELECT * FROM supplier ORDER BY code ASC`);
     this.selectById = sqlite.prepare(`SELECT * FROM supplier WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM supplier WHERE code = ?`);
@@ -135,7 +138,15 @@ class SqliteSupplierRepository implements SupplierRepository {
   }
 
   async save(supplier: Supplier): Promise<void> {
-    this.upsert.run({
+    this.write(supplier);
+  }
+
+  async insert(supplier: Supplier): Promise<void> {
+    insertingNew(supplier.id, () => this.write(supplier, this.insertOnly));
+  }
+
+  private write(supplier: Supplier, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: supplier.id,
       code: supplier.code,
       nameAr: supplier.nameAr,

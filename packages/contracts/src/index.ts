@@ -151,14 +151,20 @@ export {
   tenantSettingsSchema,
   updateTenantSettingsSchema,
   type TenantSettingsDTO,
+  tenantSettingsLookupSchema,
+  type TenantSettingsLookupDTO,
+  type TenantSettingsLookupKey,
+  TENANT_SETTINGS_LOOKUP_KEYS,
   type UpdateTenantSettingsDTO,
 } from "./settings.js";
 
 export {
   branchSchema,
+  branchLookupSchema,
   createBranchSchema,
   updateBranchSchema,
   type BranchDTO,
+  type BranchLookupDTO,
   type CreateBranchDTO,
   type UpdateBranchDTO,
 } from "./branch.js";
@@ -170,6 +176,8 @@ export {
   updateWarehouseSchema,
   type WarehouseTypeDTO,
   type WarehouseDTO,
+  warehouseLookupSchema,
+  type WarehouseLookupDTO,
   type CreateWarehouseDTO,
   type UpdateWarehouseDTO,
 } from "./warehouse.js";
@@ -198,6 +206,9 @@ export {
   partyStatementEntryKindSchema,
   partyStatementLineSchema,
   partyStatementSchema,
+  branchCaveatSchema,
+  BranchCaveatCodeDTO,
+  type BranchCaveatDTO,
   type PartyStatementEntryKindDTO,
   type PartyStatementLineDTO,
   type PartyStatementDTO,
@@ -216,6 +227,7 @@ export {
   costingMethodSchema,
   settableCostingMethodSchema,
   itemStatusSchema,
+  ItemStatusCode,
   etaCodeTypeSchema,
   alternateUnitSchema,
   itemSchema,
@@ -510,6 +522,8 @@ export {
   voucherListQuerySchema,
   createCollectionSchema,
   collectionResultSchema,
+  requestedAllocationSchema,
+  type RequestedAllocationDTO,
   type CreateCollectionDTO,
   type CollectionResultDTO,
   type VoucherTypeDTO,
@@ -1243,6 +1257,9 @@ export {
   type AssetDTO,
   type CreateAssetDTO,
   type DisposeAssetDTO,
+  DisposalProceedsAccountKind,
+  disposalProceedsAccountSchema,
+  type DisposalProceedsAccountDTO,
   type DepreciationRunStatusDTO,
   type DepreciationRunLineDTO,
   type DepreciationRunDTO,
@@ -1690,6 +1707,9 @@ export {
   createWorkflowConfigSchema,
   updateWorkflowConfigSchema,
   approvalStatusSchema,
+  approvalStandingSchema,
+  ApprovalStatusCode,
+  type ApprovalStandingDTO,
   documentApprovalSchema,
   DocumentApprovalStatus,
   decisionKindSchema,
@@ -1935,5 +1955,24 @@ export * from "./enh/index.js";
 
 export { IdempotencyRefusal, IDEMPOTENT_REPLAY_HEADER } from "./idempotency.js";
 export { IMPORT_ROW_LIMIT, ImportRefusal, importLimitNotice, importTooLargeMessage, linesOfCsvImport, type BilingualSentence } from "./import-limit.js";
+export {
+  BODY_REFERENCE_KEYS,
+  BRANCH_POLICY_TABLE,
+  BRANCH_REFUSALS,
+  BranchAccess,
+  BranchPolicy,
+  BranchRecordKind,
+  BranchRefusalCode,
+  BranchRestrictedAccess,
+  ScopedReads,
+  VIEW_UNATTRIBUTED_PERMISSION,
+  branchPolicyFor,
+  branchRestrictedAccess,
+  branchSubPathListed,
+  type BranchDirectory,
+  type BranchPolicyEntry,
+  type BranchRefusalBody,
+} from "./branch-policy.js";
+export { decimalRateString, MONEY_STRING_RULES, moneyString, nonNegativeMoneyString, nonNegativeQuantityString, quantityString } from "./money-string.js";
 export { InvoiceDocumentKind } from "./invoice-document-kind.js";
 export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, ReversalPermission, reversalPermissionSuccessors, reversalRoute, withReversalPermissions, type DocumentReversalPath } from "./document-reversal.js";

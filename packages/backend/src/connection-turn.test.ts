@@ -459,8 +459,8 @@ describe("a create sent again because its answer never arrived", () => {
     const anonymous = await t.call("POST", "/sales-invoices", invoice(id), { "content-type": "application/json" });
 
     expect(first.status).toBe(201);
-    expect(sameBody).toMatchObject({ status: 409, replayed: null, body: { error: "DUPLICATE_SALES_INVOICE" } });
-    expect(otherBody).toMatchObject({ status: 409, replayed: null, body: { error: "DUPLICATE_SALES_INVOICE" } });
+    expect(sameBody).toMatchObject({ status: 409, replayed: null, body: { error: "DUPLICATE_ID" } });
+    expect(otherBody).toMatchObject({ status: 409, replayed: null, body: { error: "DUPLICATE_ID" } });
     expect(anonymous.status).toBe(401);
     expect(await t.listed("/sales-invoices")).toHaveLength(1);
   });

@@ -38,6 +38,12 @@ export function buildSalesReturnLinesFromInvoice(
   warehouseId: string,
   reason: SalesReturnReason,
   requested: readonly SalesReturnRequestedQty[],
+  /**
+   * LEDGER INVARIANT: the branch of the warehouse the goods come back into. A
+   * return is booked there, not to the branch that raised the invoice — the
+   * stock lands in that branch's store and its counter gives the credit.
+   */
+  receivingBranchId?: string | null,
 ): SalesReturnLinesFromInvoice {
   const lines: SalesReturnLine[] = [];
   const { matched, unmatched } = matchSourceLines(invoice.lines, requested.filter((r) => !r.qty.isZero()));
@@ -64,6 +70,7 @@ export function buildSalesReturnLinesFromInvoice(
       taxRatePercent: invLine.taxRatePercent ?? null,
       taxRateId: invLine.taxRateId ?? null,
       projectId: invoice.projectId ?? null,
+      branchId: receivingBranchId ?? invoice.branchId ?? null,
       ...(invoice.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {}),
     });
   }

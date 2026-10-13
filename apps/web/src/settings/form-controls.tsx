@@ -9,6 +9,7 @@ import {
   TextArea,
   TextInput,
 } from "@mezan/ui";
+import { ReadOnlyFields, useReadOnlyControl } from "../shell/ReadOnlyForm";
 
 /**
  * Thin Settings-tab wrappers over the @mezan/ui form primitives: they only
@@ -26,10 +27,17 @@ export interface FieldProps {
   children: ReactNode;
 }
 
-export function Field({ label, hint, error, htmlFor, className, children }: FieldProps) {
+export function Field({ label, hint: givenHint, error, htmlFor, className, children }: FieldProps) {
+  const { disabled, hint } = useReadOnlyControl(undefined, givenHint);
   return (
     <UiField label={label} hint={hint} error={error} htmlFor={htmlFor} className={className}>
-      {children}
+      {disabled ? (
+        <fieldset disabled className="contents">
+          {children}
+        </fieldset>
+      ) : (
+        children
+      )}
     </UiField>
   );
 }
@@ -48,7 +56,8 @@ export interface TextFieldProps {
   inputRef?: Ref<HTMLInputElement>;
 }
 
-export function TextField({ label, value, onChange, placeholder, hint, disabled, type = "text", autoComplete, maxLength, error, inputRef }: TextFieldProps) {
+export function TextField({ label, value, onChange, placeholder, hint: givenHint, disabled: givenDisabled, type = "text", autoComplete, maxLength, error, inputRef }: TextFieldProps) {
+  const { disabled, hint } = useReadOnlyControl(givenDisabled, givenHint);
   const id = useId();
   const errorId = `${id}-error`;
   return (
@@ -82,7 +91,8 @@ export interface NumberFieldProps {
   disabled?: boolean;
 }
 
-export function NumberField({ label, value, onChange, hint, min, max, step, disabled }: NumberFieldProps) {
+export function NumberField({ label, value, onChange, hint: givenHint, min, max, step, disabled: givenDisabled }: NumberFieldProps) {
+  const { disabled, hint } = useReadOnlyControl(givenDisabled, givenHint);
   const id = useId();
   return (
     <Field label={label} hint={hint} htmlFor={id}>
@@ -130,7 +140,8 @@ export interface TextAreaFieldProps {
   rows?: number;
 }
 
-export function TextAreaField({ label, value, onChange, placeholder, hint, disabled, rows = 3 }: TextAreaFieldProps) {
+export function TextAreaField({ label, value, onChange, placeholder, hint: givenHint, disabled: givenDisabled, rows = 3 }: TextAreaFieldProps) {
+  const { disabled, hint } = useReadOnlyControl(givenDisabled, givenHint);
   const id = useId();
   return (
     <Field label={label} hint={hint} htmlFor={id}>
@@ -162,7 +173,8 @@ export interface SelectFieldProps {
   disabled?: boolean;
 }
 
-export function SelectField({ label, value, onChange, options, hint, disabled }: SelectFieldProps) {
+export function SelectField({ label, value, onChange, options, hint: givenHint, disabled: givenDisabled }: SelectFieldProps) {
+  const { disabled, hint } = useReadOnlyControl(givenDisabled, givenHint);
   return (
     <Field label={label} hint={hint}>
       <Select value={value} onChange={onChange} options={options} disabled={disabled} aria-label={label} />
@@ -179,7 +191,8 @@ export interface ToggleFieldProps {
 }
 
 /** A labeled on/off switch — the shape used repeatedly across the policy tabs. */
-export function ToggleField({ label, checked, onChange, hint, disabled }: ToggleFieldProps) {
+export function ToggleField({ label, checked, onChange, hint: givenHint, disabled: givenDisabled }: ToggleFieldProps) {
+  const { disabled, hint } = useReadOnlyControl(givenDisabled, givenHint);
   return (
     <div className="flex items-start justify-between gap-[14px] py-[10px]">
       <div>
@@ -210,14 +223,15 @@ export interface MultiChipFieldProps {
 /** Toggleable chip picker — used for weekend days, secondary currencies and email domains. */
 export function MultiChipField({
   label,
-  hint,
+  hint: givenHint,
   options,
   value,
   onChange,
   allowCustom = false,
   customPlaceholder,
-  disabled = false,
+  disabled: givenDisabled = false,
 }: MultiChipFieldProps) {
+  const { disabled = false, hint } = useReadOnlyControl(givenDisabled, givenHint);
   const [entry, setEntry] = useState("");
 
   function toggle(optValue: string) {
@@ -347,7 +361,7 @@ export function FormPage({
         </div>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      {children}
+      <ReadOnlyFields>{children}</ReadOnlyFields>
     </div>
   );
 }

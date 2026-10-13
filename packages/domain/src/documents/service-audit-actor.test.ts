@@ -47,6 +47,9 @@ function requestStore(): ApprovalRequestRepository {
     save: async (record) => {
       rows.set(record.id, record);
     },
+    insert: async (record) => {
+      rows.set(record.id, record);
+    },
     listPendingForRoles: async () => [...rows.values()],
     listBySubmitter: async () => [...rows.values()],
   };

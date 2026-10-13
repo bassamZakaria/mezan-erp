@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Money } from "@mezan/domain";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -554,6 +555,7 @@ export function EmployeesScreen() {
       await transitionEmployee.mutateAsync({ id: employee.id, body: { status } });
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("employees.couldnTUpdateTheEmployee"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -1131,7 +1133,7 @@ export function EmployeesScreen() {
                     key: `transition-${status}`,
                     label: t(STATUS_KEY[status]),
                     disabled: pendingId === e.id,
-                    onSelect: () => void runTransition(e, status),
+                    onSelect: () => runTransition(e, status),
                   })),
                   { key: "terminate", label: t("employees.terminate"), tone: "danger" as const, disabled: pendingId === e.id, onSelect: () => openTerminate(e) },
                 ]),

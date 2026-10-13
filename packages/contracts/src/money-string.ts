@@ -37,10 +37,11 @@ const MAX_INTEGER_DIGITS = 18;
 const SIGNED = new RegExp(`^-?\\d{1,${MAX_INTEGER_DIGITS}}(\\.\\d{1,${MONEY_SCALE_DECIMALS}})?$`);
 const UNSIGNED = new RegExp(`^\\d{1,${MAX_INTEGER_DIGITS}}(\\.\\d{1,${MONEY_SCALE_DECIMALS}})?$`);
 
-const SIGNED_MESSAGE =
-  `must be an exact decimal amount — up to ${MAX_INTEGER_DIGITS} digits and ${MONEY_SCALE_DECIMALS} decimal places, ` +
-  "no exponent, no spaces";
-const UNSIGNED_MESSAGE = `must be a non-negative exact decimal amount — ${SIGNED_MESSAGE.split("— ")[1]}`;
+const RULE_AR = `حتى ${MAX_INTEGER_DIGITS} خانة و${MONEY_SCALE_DECIMALS} خانات عشرية، بأرقام لاتينية، بلا أُس ولا مسافات ولا فواصل`;
+const RULE_EN = `up to ${MAX_INTEGER_DIGITS} digits and ${MONEY_SCALE_DECIMALS} decimal places, no exponent, no spaces`;
+
+const SIGNED_MESSAGE = `القيمة يجب أن تكون رقماً عشرياً صحيح الصيغة — ${RULE_AR}. (must be an exact decimal amount — ${RULE_EN})`;
+const UNSIGNED_MESSAGE = `القيمة يجب أن تكون رقماً عشرياً غير سالب صحيح الصيغة — ${RULE_AR}. (must be a non-negative exact decimal amount — ${RULE_EN})`;
 
 /** An amount that may be negative. */
 export const moneyString = z.string().regex(SIGNED, SIGNED_MESSAGE);
@@ -54,6 +55,10 @@ export const nonNegativeMoneyString = z.string().regex(UNSIGNED, UNSIGNED_MESSAG
  * field what kind of number it is.
  */
 export const decimalRateString = nonNegativeMoneyString;
+
+/** A quantity: the same literal, at the same six-decimal scale `Qty` keeps. */
+export const quantityString = moneyString;
+export const nonNegativeQuantityString = nonNegativeMoneyString;
 
 export const MONEY_STRING_RULES = {
   maxIntegerDigits: MAX_INTEGER_DIGITS,

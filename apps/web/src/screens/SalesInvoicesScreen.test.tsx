@@ -416,6 +416,67 @@ describe("SalesInvoicesScreen — create + confirm flow", () => {
   });
 });
 
+describe("SalesInvoicesScreen — an item waiting to be priced", () => {
+  const pending: ItemDTO = { ...items[1]!, id: "item-pending", code: "ITM-9", nameAr: "شاي أخضر بانتظار التسعير", salePrice: null, status: "pending_pricing" };
+
+  it("is not offered on an invoice line", async () => {
+    const transport = stubTransport({ ...baseHandlers(seededInvoices), "GET /items": () => ({ body: [...items, pending] }) });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    const input = screen.getByLabelText("الصنف — سطر 1");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "خدمة" } });
+    expect(await screen.findByRole("button", { name: /خدمة تركيب/ })).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "شاي" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /خدمة تركيب/ })).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /شاي أخضر بانتظار التسعير/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the server's Arabic refusal when a line names one anyway", async () => {
+    const refusal = "لا يمكن استخدام صنف بانتظار التسعير في مستند: «أرز أبيض مصري 5 كجم». يُتاح الصنف بعد أن تسعّره الإدارة.";
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "POST /sales-invoices": () => ({ status: 409, body: { error: "ITEM_PENDING_PRICING", message: refusal, itemIds: ["item-rice"] } }),
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+    const confirmButton = screen.getByRole("button", { name: "تأكيد الفاتورة" });
+    await waitFor(() => expect(confirmButton).toBeEnabled());
+    fireEvent.click(confirmButton);
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "فاتورة مبيعات جديدة" })).toBeInTheDocument();
+  });
+});
+
+describe("SalesInvoicesScreen — an invoice held on an approval given before the upgrade", () => {
+  it("says why on the invoice and requests approval again through its own confirm", async () => {
+    const reason = "اعتُمد هذا المستند أو أُرسل للموافقة قبل تحديث النظام ولم يُرحَّل؛ الموافقة السابقة لم تعد صالحة للترحيل.";
+    const held = invoice({ id: "inv-held", docNo: "INV-000009", status: "pending", journalEntryId: null, confirmedAt: null, workflowRequestId: "inv-held:confirm" });
+    let standingStatus = "reapproval_required";
+    let confirmed = 0;
+    const transport = stubTransport({
+      ...baseHandlers([held]),
+      "GET /workflow/requests/*/standing": () => ({ body: { id: "inv-held:confirm", status: standingStatus, reason: standingStatus === "reapproval_required" ? reason : null, reasonEn: null } }),
+      "POST /sales-invoices/inv-held/confirm": () => {
+        confirmed += 1;
+        standingStatus = "pending";
+        return { body: { ...held, held: true } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000009"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent(reason);
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirmed).toBe(1));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
+  });
+});
+
 describe("SalesInvoicesScreen — payments", () => {
   it("records a payment against a confirmed invoice and advances it to مدفوع جزئياً", async () => {
     let current = [...seededInvoices];

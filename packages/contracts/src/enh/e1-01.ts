@@ -70,7 +70,7 @@ export const cockpitTreasurySchema = z.object({
   name: z.string(),
   nameEn: z.string().nullable(),
   type: z.string(),
-  branchId: z.string(),
+  branchId: z.string().nullable(),
   glAccountId: z.string().nullable(),
   balance: moneyString.nullable(),
   /**

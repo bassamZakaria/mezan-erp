@@ -115,6 +115,9 @@ describe("the permission catalogue against the routes that check it", () => {
     //   - the desktop shell's restore IPC channel, which is not a Hono route at
     //     all: `admin.backup.view`, `admin.backup.restore`,
     //     `admin.tenant.settings.edit`;
+    //   - a right that widens what every GL read returns rather than opening a
+    //     route of its own, checked in `branch-view.ts`:
+    //     `accounting.reports.view_unattributed` (D111).
     //   - the period lock's override, an inline `can()` beside the route's own
     //     gate: `accounting.period.override_close`; and the till's discount
     //     ceiling, the same shape: `pos.discount.approve`.
@@ -124,6 +127,7 @@ describe("the permission catalogue against the routes that check it", () => {
     // number.
     expect([...UNGATED].sort()).toEqual([
       "accounting.period.override_close",
+      "accounting.reports.view_unattributed",
       "admin.backup.restore",
       "admin.backup.view",
       "admin.tenant.settings.edit",

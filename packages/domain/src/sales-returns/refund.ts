@@ -25,6 +25,21 @@ export class SalesReturnNotRefundableError extends Error {
   }
 }
 
+/**
+ * LEDGER INVARIANT: a refund settles a return, so it is paid from a drawer of
+ * the return's own branch or from an account the company holds. Paying it from
+ * another branch's drawer would book one branch's refund against another's cash.
+ */
+export class SalesReturnRefundTreasuryBranchError extends Error {
+  readonly code = "SALES_RETURN_REFUND_TREASURY_BRANCH";
+  readonly messageEn =
+    "This return belongs to another branch than the cash or bank account chosen. Pay the refund from a drawer of the return's branch or from a company-level account, or move the cash with an inter-branch transfer first.";
+  constructor() {
+    super("المرتجع يتبع فرعًا غير فرع الخزينة المختارة. اصرف الاسترداد من خزينة فرع المرتجع أو من حساب على مستوى الشركة، أو حوّل النقدية بين الفرعين أولًا.");
+    this.name = "SalesReturnRefundTreasuryBranchError";
+  }
+}
+
 /** One confirmed refund already posted against a return. */
 export interface SalesReturnRefund {
   readonly voucherId: string;

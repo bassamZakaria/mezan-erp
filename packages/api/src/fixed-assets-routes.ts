@@ -1,3 +1,4 @@
+import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -17,6 +18,7 @@ import {
   AssetNotFoundError,
   AssetAlreadyDisposedError,
   InvalidAssetDisposalError,
+  type DisposalProceedsAccount,
   disposeAsset,
   undoAssetDisposal,
   assetDisposalEntryId,
@@ -44,6 +46,7 @@ import {
   type DepreciationRunRepository,
   type AuditSink,
   type JournalPostingDeps,
+  type WarehouseBranchLookup,
   type SettingsRepository,
   createDefaultSettings,
   matchesSearch,
@@ -64,10 +67,14 @@ import {
   branchScopeOf,
   withinScope,
 } from "./permission-gate.js";
+import type { StoredBranchesResolver } from "./permission-gate.js";
+import { documentBranches } from "./stored-branches.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { readReversalRequest, requireReversalReason } from "./document-reversal.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Fixed Assets routes (docs/archive/catalog/07-mfg-projects-assets.md "الأصول
@@ -83,6 +90,9 @@ export interface FixedAssetsRoutesDeps {
   readonly runs: DepreciationRunRepository;
   readonly periods?: Pick<FiscalPeriodRepository, "findByDate">;
   readonly gl: JournalPostingDeps;
+  readonly warehouses?: WarehouseBranchLookup;
+  /** Where a disposal's sale proceeds may land — derived by the composition root from the chart, never from a code prefix. */
+  readonly disposalProceedsAccounts?: () => Promise<readonly DisposalProceedsAccount[]>;
   readonly defaultAccounts: {
     readonly depreciationExpenseAccountId: string;
     readonly accumulatedDepreciationAccountId: string;
@@ -179,6 +189,7 @@ function serializeRun(run: DepreciationRun) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
@@ -224,7 +235,26 @@ export function createFixedAssetsRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  /**
+   * A run for one branch is that branch's; a company-wide run posts on every
+   * asset it depreciates, so it is judged by the branches of those assets.
+   */
+  const storedBranches: StoredBranchesResolver = async (c) => {
+    const id = c.req.param("id");
+    const route = c.req.routePath;
+    if (!id || route.includes("/categories/:id")) return null;
+    const assetBranches = async (assetIds: readonly string[]) => {
+      const assets = await Promise.all(assetIds.map((assetId) => deps.assets.findById(assetId)));
+      return (await Promise.all(assets.map((asset) => (asset ? documentBranches(c, [asset.branchId], [asset.warehouseId]) : [])))).flat();
+    };
+    if (route.includes("/depreciation/runs/:id")) {
+      const run = await deps.runs.findById(id);
+      if (!run) return null;
+      return run.branchId ? [run.branchId] : assetBranches(run.lines.map((line) => line.assetId));
+    }
+    return assetBranches([id]);
+  };
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
   const idGen = deps.idGen ?? randomUUID;
 
   app.get("/categories", gate("assets.view"), async (c) => {
@@ -283,7 +313,7 @@ export function createFixedAssetsRoutes(
    * query parameter narrows the already-scoped set and can never widen it.
    */
   async function listFilteredAssets(c: Context, filter: AssetListFilter): Promise<readonly Asset[]> {
-    let rows = withinScope(await deps.assets.list(), branchScopeOf(c), (a) => a.branchId);
+    let rows = await recordsInBranchGrant(c, BranchRecordKind.Asset, withinScope(await deps.assets.list(), branchScopeOf(c), (a) => a.branchId), (a) => a.id);
     if (filter.status) rows = rows.filter((a) => a.status === filter.status);
     if (filter.categoryId) rows = rows.filter((a) => a.categoryId === filter.categoryId);
     if (filter.branchId) rows = rows.filter((a) => a.branchId === filter.branchId);
@@ -361,6 +391,11 @@ export function createFixedAssetsRoutes(
     }
   });
 
+  app.get("/disposal-proceeds-accounts", gate("assets.view"), async (c) => {
+    const offered = (await deps.disposalProceedsAccounts?.()) ?? [];
+    return c.json(offered.map(({ account, kind }) => ({ id: account.id, code: account.code, nameAr: account.nameAr, nameEn: account.nameEn ?? null, kind })));
+  });
+
   app.get("/:id", gate("assets.view"), async (c) => {
     const asset = await deps.assets.findById(c.req.param("id"));
     if (!asset) return c.json({ error: "ASSET_NOT_FOUND" }, 404);
@@ -429,6 +464,17 @@ export function createFixedAssetsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const body = parsed.data;
+    // SECURITY: the account the proceeds land in is checked against the server's own list — the screen's picker is not a limit.
+    if (body.proceedsAccountId && deps.disposalProceedsAccounts && !(await deps.disposalProceedsAccounts()).some(({ account }) => account.id === body.proceedsAccountId)) {
+      return c.json(
+        {
+          error: "INVALID_DISPOSAL_PROCEEDS_ACCOUNT",
+          message: "حساب تحصيل قيمة البيع يجب أن يكون حساب نقدية أو بنك أو ذمماً مدينة غير حساب مراقبة العملاء.",
+          messageEn: "The proceeds account must be a cash or bank account, or a receivable other than the customers' control account.",
+        },
+        422,
+      );
+    }
     try {
       const assetId = c.req.param("id");
       const result = await deps.gl.ledger.transaction(async () =>
@@ -443,6 +489,7 @@ export function createFixedAssetsRoutes(
           {
             assets: deps.assets,
             categories: deps.categories,
+            warehouses: deps.warehouses,
             accounts: {
               assetAccountId: deps.defaultAccounts.assetAccountId ?? "1500",
               accumulatedDepreciationAccountId: deps.defaultAccounts.accumulatedDepreciationAccountId,
@@ -466,6 +513,7 @@ export function createFixedAssetsRoutes(
                       credit: l.credit,
                       projectId: l.projectId ?? null,
                       costCategory: l.costCategory ?? null,
+                      branchId: l.branchId ?? null,
                     })),
                   },
                   deps.gl,
@@ -505,7 +553,7 @@ export function createFixedAssetsRoutes(
    * keeps it visible under a narrowed scope rather than dropping it.
    */
   async function listFilteredRuns(c: Context, status?: string): Promise<readonly DepreciationRun[]> {
-    const rows = withinScope(await deps.runs.list(), branchScopeOf(c), (r) => r.branchId);
+    const rows = await recordsInBranchGrant(c, BranchRecordKind.DepreciationRun, withinScope(await deps.runs.list(), branchScopeOf(c), (r) => r.branchId), (r) => r.id);
     return status ? rows.filter((r) => r.status === status) : rows;
   }
 
@@ -571,7 +619,9 @@ export function createFixedAssetsRoutes(
 
   app.get("/depreciation/runs/:id", gate("assets.depreciation.view"), async (c) => {
     const run = await deps.runs.findById(c.req.param("id"));
-    if (!run) return c.json({ error: "DEPRECIATION_RUN_NOT_FOUND" }, 404);
+    if (!run || withinScope([run], branchScopeOf(c), (r) => r.branchId).length === 0) {
+      return c.json({ error: "DEPRECIATION_RUN_NOT_FOUND" }, 404);
+    }
     return c.json(serializeRun(run));
   });
 
@@ -582,6 +632,7 @@ export function createFixedAssetsRoutes(
         assets: deps.assets,
         categories: deps.categories,
         gl: deps.gl,
+        warehouses: deps.warehouses,
         defaultAccounts: deps.defaultAccounts,
       });
       return c.json(serializeRun(run));

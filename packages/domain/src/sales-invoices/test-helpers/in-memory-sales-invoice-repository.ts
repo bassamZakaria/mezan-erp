@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoice.js";
 import type { SalesInvoiceField, SalesInvoiceListFilter, SalesInvoiceRepository, SalesInvoiceWritePrecondition } from "../ports.js";
 
@@ -8,7 +9,7 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
   private readonly rows = new Map<string, SalesInvoice>();
 
   async save(invoice: SalesInvoice): Promise<void> {
-    this.rows.set(invoice.id, invoice);
+    insertOnly(this.rows, invoice.id, invoice);
   }
 
   async update(invoice: SalesInvoice): Promise<void> {

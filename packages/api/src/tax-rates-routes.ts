@@ -4,7 +4,6 @@ import {
   createTaxRate,
   updateTaxRate,
   DuplicateTaxCodeError,
-  DuplicateTaxRateIdError,
   InvalidTaxRateError,
   TaxRateNotFoundError,
   TaxRateInUseError,
@@ -21,6 +20,8 @@ import {
 import { createTaxRateSchema, updateTaxRateSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 const AUDITED_TAX_RATE_FIELDS = [
   "code",
@@ -51,6 +52,7 @@ function serialize(taxRate: TaxRate) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
@@ -61,7 +63,7 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof TaxRateOnCustomerCardsError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, customerCount: err.customerCount }, 409);
   }
-  if (err instanceof DuplicateTaxCodeError || err instanceof DuplicateTaxRateIdError || err instanceof TaxRateInUseError || err instanceof SystemTaxRateLockedError || err instanceof ReservedTaxRateError) {
+  if (err instanceof DuplicateTaxCodeError || err instanceof TaxRateInUseError || err instanceof SystemTaxRateLockedError || err instanceof ReservedTaxRateError) {
     return refuse(err, 409);
   }
   if (err instanceof InvalidTaxRateError) {

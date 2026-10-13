@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import { childRowsByParent } from "./list-query.js";
 import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS, writeRowColumnsWhere } from "./document-field-write.js";
 import {
@@ -397,7 +398,7 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
   }
 
   async save(doc: FrameworkDocument<VoucherLine>): Promise<void> {
-    this.insert.run(docParams(doc));
+    insertingNew(doc.id, () => this.insert.run(docParams(doc)));
   }
 
   async update(doc: FrameworkDocument<VoucherLine>): Promise<void> {

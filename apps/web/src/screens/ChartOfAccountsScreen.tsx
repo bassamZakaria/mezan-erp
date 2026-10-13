@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
+import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { matchesSearch } from "@mezan/domain";
 import {
   useFormat,
@@ -633,6 +634,7 @@ export function ChartOfAccountsScreen() {
 
       {/* -------- Add / edit account form -------- */}
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={editingId ? t("coa.editAccount") : t("coa.addAccount")}>
+        <ReadOnlyFields>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -745,7 +747,7 @@ export function ChartOfAccountsScreen() {
           ) : null}
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setFormOpen(false)}>
+            <Button type="button" {...READ_ONLY_KEEP} onClick={() => setFormOpen(false)}>
               {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
@@ -753,6 +755,7 @@ export function ChartOfAccountsScreen() {
             </Button>
           </div>
         </form>
+        </ReadOnlyFields>
       </SidePanel>
       </>
       ) : null}

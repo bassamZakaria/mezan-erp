@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   DuplicateDeviceBadgeError,
   Money,
@@ -88,6 +89,7 @@ function toDepartment(row: DepartmentRow): Department {
 
 class SqliteDepartmentRepository implements DepartmentRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -105,6 +107,7 @@ class SqliteDepartmentRepository implements DepartmentRepository {
         standard_work_hours = excluded.standard_work_hours,
         active = excluded.active
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_department WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM hr_department WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM hr_department ORDER BY name`);
@@ -125,15 +128,15 @@ class SqliteDepartmentRepository implements DepartmentRepository {
   }
 
   async create(department: Department): Promise<void> {
-    this.write(department);
+    insertingNew(department.id, () => this.write(department, this.insertOnly));
   }
 
   async update(department: Department): Promise<void> {
     this.write(department);
   }
 
-  private write(department: Department): void {
-    this.upsert.run({
+  private write(department: Department, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: department.id,
       code: department.code,
       name: department.name,
@@ -183,6 +186,7 @@ function toJobTitle(row: JobTitleRow): JobTitle {
 
 class SqliteJobTitleRepository implements JobTitleRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByDepartment: Database.Statement;
@@ -196,6 +200,7 @@ class SqliteJobTitleRepository implements JobTitleRepository {
         name_ar = excluded.name_ar,
         active = excluded.active
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_job_title WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM hr_job_title ORDER BY name`);
     this.selectByDepartment = sqlite.prepare(`SELECT * FROM hr_job_title WHERE department_id = ? ORDER BY name`);
@@ -215,15 +220,15 @@ class SqliteJobTitleRepository implements JobTitleRepository {
   }
 
   async create(jobTitle: JobTitle): Promise<void> {
-    this.write(jobTitle);
+    insertingNew(jobTitle.id, () => this.write(jobTitle, this.insertOnly));
   }
 
   async update(jobTitle: JobTitle): Promise<void> {
     this.write(jobTitle);
   }
 
-  private write(jobTitle: JobTitle): void {
-    this.upsert.run({
+  private write(jobTitle: JobTitle, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: jobTitle.id,
       department_id: jobTitle.departmentId,
       name: jobTitle.name,
@@ -348,6 +353,7 @@ function toEmployee(row: EmployeeRow): Employee {
 
 class SqliteEmployeeRepository implements EmployeeRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -399,6 +405,7 @@ class SqliteEmployeeRepository implements EmployeeRepository {
         status = excluded.status,
         terminated_at = excluded.terminated_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_employee WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM hr_employee ORDER BY created_at`);
   }
@@ -413,24 +420,24 @@ class SqliteEmployeeRepository implements EmployeeRepository {
   }
 
   async create(employee: Employee): Promise<void> {
-    this.write(employee);
+    insertingNew(employee.id, () => this.write(employee, this.insertOnly));
   }
 
   async update(employee: Employee): Promise<void> {
     this.write(employee);
   }
 
-  private write(employee: Employee): void {
+  private write(employee: Employee, statement: Database.Statement = this.upsert): void {
     try {
-      this.writeRow(employee);
+      this.writeRow(employee, statement);
     } catch (err) {
       if (employee.deviceBadgeId && isDeviceBadgeClash(err)) throw new DuplicateDeviceBadgeError(employee.deviceBadgeId, null);
       throw err;
     }
   }
 
-  private writeRow(employee: Employee): void {
-    this.upsert.run({
+  private writeRow(employee: Employee, statement: Database.Statement): void {
+    statement.run({
       id: employee.id,
       code: employee.code,
       first_name: employee.firstName,
@@ -554,6 +561,7 @@ function toContract(row: ContractRow): Contract {
 
 class SqliteContractRepository implements ContractRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByEmployee: Database.Statement;
@@ -582,6 +590,7 @@ class SqliteContractRepository implements ContractRepository {
         status = excluded.status,
         terminated_at = excluded.terminated_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_contract WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM hr_contract ORDER BY created_at`);
     this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_contract WHERE employee_id = ? ORDER BY created_at`);
@@ -601,15 +610,15 @@ class SqliteContractRepository implements ContractRepository {
   }
 
   async create(contract: Contract): Promise<void> {
-    this.write(contract);
+    insertingNew(contract.id, () => this.write(contract, this.insertOnly));
   }
 
   async update(contract: Contract): Promise<void> {
     this.write(contract);
   }
 
-  private write(contract: Contract): void {
-    this.upsert.run({
+  private write(contract: Contract, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: contract.id,
       number: contract.number,
       employee_id: contract.employeeId,
@@ -665,6 +674,7 @@ function toHoliday(row: HolidayRow): Holiday {
 
 class SqliteHolidayRepository implements HolidayRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly deleteById: Database.Statement;
@@ -679,6 +689,7 @@ class SqliteHolidayRepository implements HolidayRepository {
         name_ar = excluded.name_ar,
         recurring_annual = excluded.recurring_annual
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_holiday WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM hr_holiday ORDER BY date`);
     this.deleteById = sqlite.prepare(`DELETE FROM hr_holiday WHERE id = ?`);
@@ -694,7 +705,7 @@ class SqliteHolidayRepository implements HolidayRepository {
   }
 
   async create(holiday: Holiday): Promise<void> {
-    this.write(holiday);
+    insertingNew(holiday.id, () => this.write(holiday, this.insertOnly));
   }
 
   async update(holiday: Holiday): Promise<void> {
@@ -705,8 +716,8 @@ class SqliteHolidayRepository implements HolidayRepository {
     this.deleteById.run(id);
   }
 
-  private write(holiday: Holiday): void {
-    this.upsert.run({
+  private write(holiday: Holiday, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: holiday.id,
       date: holiday.date,
       name_en: holiday.nameEn,
@@ -773,6 +784,7 @@ function toLeaveRequest(row: LeaveRequestRow): LeaveRequest {
 
 class SqliteLeaveRequestRepository implements LeaveRequestRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByEmployee: Database.Statement;
@@ -786,6 +798,7 @@ class SqliteLeaveRequestRepository implements LeaveRequestRepository {
         decided_at = excluded.decided_at,
         decided_by = excluded.decided_by
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_leave_request WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM hr_leave_request ORDER BY created_at DESC`);
     this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_leave_request WHERE employee_id = ? ORDER BY created_at DESC`);
@@ -805,15 +818,15 @@ class SqliteLeaveRequestRepository implements LeaveRequestRepository {
   }
 
   async create(request: LeaveRequest): Promise<void> {
-    this.write(request);
+    insertingNew(request.id, () => this.write(request, this.insertOnly));
   }
 
   async update(request: LeaveRequest): Promise<void> {
     this.write(request);
   }
 
-  private write(request: LeaveRequest): void {
-    this.upsert.run({
+  private write(request: LeaveRequest, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: request.id,
       number: request.number,
       employee_id: request.employeeId,

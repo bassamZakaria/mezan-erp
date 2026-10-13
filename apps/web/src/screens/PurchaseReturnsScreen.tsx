@@ -1,7 +1,9 @@
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -270,6 +272,7 @@ export function PurchaseReturnsScreen() {
       await confirmReturn.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -279,6 +282,7 @@ export function PurchaseReturnsScreen() {
       await cancelReturn.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -405,6 +409,7 @@ export function PurchaseReturnsScreen() {
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+            <HeldDocumentReapproval document={selected} pending={confirmReturn.isPending} confirm={(id) => confirmReturn.mutateAsync(id)} />
             <ReturnMirrorLinks document={selected} originalNo={reversedReturnNo} onOpen={(id) => subPage.open(id)} />
             <div className="text-[12.5px] text-ink-muted">{t("purchaseReturns.sourceInvoice", { number: selected.lines[0]?.sourceInvoiceNumber ?? "—" })}</div>
             <div className="flex flex-col gap-1.5">
@@ -496,8 +501,8 @@ export function PurchaseReturnsScreen() {
             { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(d.docNo ?? d.id, "print") },
             ...(d.status === "draft"
               ? [
-                  { key: "confirm", label: t("purchaseReturns.confirm"), onSelect: () => void confirmExisting(d.id) },
-                  { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
+                  { key: "confirm", label: t("purchaseReturns.confirm"), onSelect: () => confirmExisting(d.id) },
+                  { key: "cancel", label: t("common.cancel"), onSelect: () => cancelExisting(d.id) },
                 ]
               : []),
               ...resubmitRowMenuItems(resubmit, d),

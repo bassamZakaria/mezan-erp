@@ -1,3 +1,4 @@
+import { insertOnly } from "../../../records/test-helpers/insert-only.js";
 import type { LetterOfGuarantee, LetterOfGuaranteeRepository } from "../guarantee.js";
 
 /** A trivial in-memory {@link LetterOfGuaranteeRepository} fake for domain-layer unit tests. */
@@ -20,7 +21,7 @@ export class InMemoryGuaranteeRepository implements LetterOfGuaranteeRepository 
   }
 
   async create(guarantee: LetterOfGuarantee): Promise<void> {
-    this.rows.set(guarantee.id, guarantee);
+    insertOnly(this.rows, guarantee.id, guarantee);
   }
 
   async update(guarantee: LetterOfGuarantee): Promise<void> {

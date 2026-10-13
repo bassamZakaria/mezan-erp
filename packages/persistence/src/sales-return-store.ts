@@ -28,6 +28,7 @@ interface WireLine {
   taxRateId?: string | null;
   /** بُعد المشروع, inherited from the source invoice. Dropped here, a reload posts an unattributed reversal on the next confirm. */
   projectId?: string | null;
+  branchId?: string | null;
   /** The source invoice's currency and confirm rate (D203). Dropped here, a reload would post the return's foreign digits as base. */
   currency?: string | null;
   fxRate?: string | null;
@@ -50,6 +51,7 @@ function serializeLine(line: SalesReturnLine): WireLine {
     taxRatePercent: line.taxRatePercent ?? null,
     taxRateId: line.taxRateId ?? null,
     projectId: line.projectId ?? null,
+    branchId: line.branchId ?? null,
     ...(line.fxRate ? { currency: line.currency ?? null, fxRate: line.fxRate } : {}),
   };
 }
@@ -72,6 +74,7 @@ function deserializeLine(wire: unknown): SalesReturnLine {
     taxRatePercent: w.taxRatePercent ?? null,
     taxRateId: w.taxRateId ?? null,
     projectId: w.projectId ?? null,
+    branchId: w.branchId ?? null,
     ...(w.fxRate ? { currency: w.currency ?? null, fxRate: w.fxRate } : {}),
   };
 }

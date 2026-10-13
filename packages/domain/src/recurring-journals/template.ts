@@ -48,7 +48,7 @@ export async function createRecurringJournalTemplate(
     createdAt: timestamp,
     updatedAt: timestamp,
   };
-  await deps.templates.save(template);
+  await deps.templates.insert(template);
   return template;
 }
 

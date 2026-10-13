@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { ApprovalStatusCode } from "@mezan/contracts";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -38,6 +40,11 @@ type DecisionAction = "approve" | "reject" | "request_modification";
 const ANY_TYPE = "__all__";
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
+/** What the request is about: its own label, else the held document's number, else the reference the document was saved under. */
+function requestLabel(request: ApprovalRequestDTO): string | null {
+  return request.entityLabel ?? request.documentNo ?? request.documentId;
+}
+
 export function ApprovalsInboxScreen() {
   const { t } = useAppTranslation();
   const { label: domainLabel } = useDomainLabels();
@@ -73,7 +80,7 @@ export function ApprovalsInboxScreen() {
     return rows.filter((row) => {
       if (actionTypeFilter !== ANY_TYPE && row.actionType !== actionTypeFilter) return false;
       if (q === "") return true;
-      return actionTypeLabel(row.actionType).includes(q) || (row.entityLabel ?? "").includes(q);
+      return actionTypeLabel(row.actionType).includes(q) || (requestLabel(row) ?? "").includes(q) || (row.submittedByName ?? "").includes(q);
     });
   }, [rows, search, actionTypeFilter, actionTypeLabel]);
 
@@ -99,6 +106,7 @@ export function ApprovalsInboxScreen() {
       });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("approvals.couldNotRecordTheDecision"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -109,7 +117,7 @@ export function ApprovalsInboxScreen() {
     header: t("approvals.document"),
     render: (r) => (
       <span className="flex flex-col">
-        <span className="font-semibold text-ink">{r.entityLabel ?? "—"}</span>
+        <span className="font-semibold text-ink">{requestLabel(r) ?? "—"}</span>
         <span className="text-xs text-ink-muted">{actionTypeLabel(r.actionType)}</span>
       </span>
     ),
@@ -149,7 +157,7 @@ export function ApprovalsInboxScreen() {
           value={commentDraft[r.id] ?? ""}
           onChange={(e) => setCommentDraft((prev) => ({ ...prev, [r.id]: e.target.value }))}
           placeholder={t("approvals.noteOptional")}
-          aria-label={t("approvals.noteLabel", { request: r.entityLabel ?? r.id })}
+          aria-label={t("approvals.noteLabel", { request: requestLabel(r) ?? r.id })}
         />
       </div>
     ),
@@ -161,7 +169,7 @@ export function ApprovalsInboxScreen() {
           documentColumn,
           progressColumn,
           { key: "role", header: t("approvals.roleRequired"), render: (r) => roleNames.get(r.steps[r.currentStep]?.role ?? "") ?? r.steps[r.currentStep]?.role ?? "—" },
-          { key: "submittedBy", header: t("approvals.raisedBy"), render: (r) => userNames.get(r.submittedBy) ?? <span className="mz-lat">{r.submittedBy}</span> },
+          { key: "submittedBy", header: t("approvals.raisedBy"), render: (r) => r.submittedByName ?? userNames.get(r.submittedBy) ?? <span className="mz-lat">{r.submittedBy}</span> },
           noteColumn,
         ]
       : [documentColumn, statusColumn, progressColumn, submittedColumn];
@@ -233,17 +241,17 @@ export function ApprovalsInboxScreen() {
               const menuItems: RowMenuItem[] =
                 r.status === "pending"
                   ? [
-                      { key: "approve", label: t("approvals.approve"), disabled: pendingId === r.id, onSelect: () => void act(r, "approve") },
+                      { key: "approve", label: t("approvals.approve"), disabled: pendingId === r.id, onSelect: () => act(r, "approve") },
                       {
                         key: "request_modification",
                         label: t("approvals.askForAChange"),
                         disabled: pendingId === r.id,
-                        onSelect: () => void act(r, "request_modification"),
+                        onSelect: () => act(r, "request_modification"),
                       },
-                      { key: "reject", label: t("approvals.reject"), tone: "danger", disabled: pendingId === r.id, onSelect: () => void act(r, "reject") },
+                      { key: "reject", label: t("approvals.reject"), tone: "danger", disabled: pendingId === r.id, onSelect: () => act(r, "reject") },
                     ]
                   : [];
-              return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.entityLabel ?? r.id })} />;
+              return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: requestLabel(r) ?? r.id })} />;
             }
           : undefined
       }
@@ -269,7 +277,7 @@ export function ApprovalsInboxScreen() {
 function approvalTone(status: ApprovalRequestDTO["status"]): PillTone {
   if (status === "approved") return "success";
   if (status === "rejected") return "danger";
-  if (status === "modification_requested") return "warning";
+  if (status === "modification_requested" || status === ApprovalStatusCode.ReapprovalRequired) return "warning";
   return "neutral";
 }
 
@@ -277,6 +285,7 @@ function approvalStatusKey(status: ApprovalRequestDTO["status"]) {
   if (status === "approved") return "approvals.status.approved" as const;
   if (status === "rejected") return "approvals.status.rejected" as const;
   if (status === "modification_requested") return "approvals.status.changesRequested" as const;
+  if (status === ApprovalStatusCode.ReapprovalRequired) return "approvals.status.reapprovalRequired" as const;
   return "approvals.status.pending" as const;
 }
 

@@ -46,7 +46,6 @@ import {
 } from "./types.js";
 import {
   BomNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
   WorkOrderNotFoundError,
   WorkOrderStageError,
@@ -277,9 +276,6 @@ export async function createWorkOrder(
 
   const bom = await deps.boms.findById(command.bomId);
   if (!bom) throw new BomNotFoundError(command.bomId);
-  if (await deps.workOrders.findById(command.id)) {
-    throw new DuplicateManufacturingDocumentError(command.id);
-  }
 
   const planned = command.plannedQty.scaled;
   const standard = bom.standardQty.scaled;
@@ -802,6 +798,7 @@ export async function logWorkOrderWaste(
       // waste id (which is already unique per call) rather than the order's.
       entryRef: `WO-WASTE-JE:${wasteId}`,
       lines: glLines,
+      warehouseId: order.destinationWarehouseId,
     });
   }
 
@@ -961,6 +958,7 @@ export async function receiveWorkOrderProduct(
       memo: `تحميل الفاقد الطبيعي على المنتج — أمر التصنيع ${order.number}`,
       // Once per order: the stage guard admits exactly one receipt.
       entryRef: `WO-RECEIVE-JE:${order.id}`,
+      warehouseId: order.destinationWarehouseId,
       lines: [
         { accountId: deps.accounts.rawInventoryAccountId, debit: parkedWaste, credit: Money.zero() },
         { accountId: deps.accounts.wipAccountId, debit: Money.zero(), credit: parkedWaste },
@@ -1075,6 +1073,7 @@ export function buildWorkOrderGlPosting(
     date,
     memo: `إكمال أمر التصنيع ${order.number}`,
     lines,
+    warehouseId: order.destinationWarehouseId,
   };
 }
 

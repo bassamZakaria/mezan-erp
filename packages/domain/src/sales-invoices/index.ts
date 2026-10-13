@@ -105,7 +105,6 @@ export {
   SalesTaxRecalculationUnacknowledgedError,
   InvalidSalesInvoiceError,
   SalesInvoiceNotFoundError,
-  DuplicateSalesInvoiceError,
   InvalidSalesInvoiceTransitionError,
   InvalidSalesInvoicePaymentError,
   SalesInvoiceNotDraftError,

@@ -46,6 +46,9 @@ import {
   INPUT_VAT_ACCOUNT_ID,
   ACCOUNT_TYPE_LABELS,
   accountActivity,
+  includesUnattributedCaveat,
+  limitedToBranchesCaveat,
+  type BranchCaveat,
   isoDateParamSchema,
   roundMoney,
   toTenantDay,
@@ -133,6 +136,7 @@ import {
 } from "@mezan/domain";
 import { tenantToday } from "./tenant-day.js";
 import { branchScopeOf, createAnyPermissionGate, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { branchLineViewOf, isWholeLedgerView, lineInView, readableEntries } from "./branch-view.js";
 
 /**
  * التقارير — operational reports (docs/archive/catalog/08-reports.md), mounted under
@@ -911,6 +915,103 @@ async function settledByInvoiceId(
 }
 
 /**
+ * The sales invoices this caller may see (D111).
+ *
+ * `branchScopeOf` is AUTHORITY, not a presentation filter: a caller scoped
+ * to فرع القاهرة never receives another branch's figures, with or without a
+ * `branchId` parameter, and the parameter — applied inside the report's own
+ * `run` — can only narrow what is left. Asking for a branch outside the
+ * scope therefore returns that caller's own nothing rather than the other
+ * branch's numbers. Same line every list route in this package holds.
+ */
+async function scopedSalesInvoicesOf(deps: ReportsRoutesDeps, c: Context, bounds?: Parameters<SalesInvoiceRepository["list"]>[0]) {
+  return withinScope(await deps.salesInvoices.list(bounds), branchScopeOf(c), (invoice) => invoice.branchId);
+}
+
+/** The purchase invoices this caller may see. See {@link scopedSalesInvoices}. */
+async function scopedPurchaseInvoicesOf(deps: ReportsRoutesDeps, c: Context, bounds?: Parameters<PurchaseInvoiceRepository["list"]>[0]) {
+  return withinScope(await deps.purchaseInvoices.list(bounds), branchScopeOf(c), (invoice) => invoice.branchId);
+}
+
+/**
+ * INVARIANT: a party's ladder row and statement are folded from the SAME
+ * narrowed sources as its invoices. Reading receipts, cheques and control
+ * lines company-wide against branch-scoped invoices is what produced a
+ * closing balance made of another branch's collections.
+ */
+function depsInViewOf(deps: ReportsRoutesDeps, c: Context): ReportsRoutesDeps {
+  const view = branchLineViewOf(c);
+  if (isWholeLedgerView(view)) return deps;
+  const { voucherDocuments, cheques, ledger } = deps;
+  const listLines = ledger.listLines?.bind(ledger);
+  return {
+    ...deps,
+    ...(voucherDocuments
+      ? { voucherDocuments: { list: async (filter) => (await voucherDocuments.list(filter)).filter((doc) => lineInView(view, doc.lines[0]?.branchId)) } }
+      : {}),
+    ...(cheques ? { cheques: { list: async (filter) => (await cheques.list(filter)).filter((cheque) => lineInView(view, cheque.branchId)) } } : {}),
+    ledger: Object.assign(Object.create(ledger) as LedgerRepository, {
+      ...(listLines ? { listLines: async (filter?: Parameters<typeof listLines>[0]) => (await listLines(filter)).filter((line) => lineInView(view, line.branchId)) } : {}),
+    }),
+  };
+}
+
+/**
+ * Exactly the invoice set and netting terms the customer aging ladder ages
+ * on a given day, for this caller's own branch scope.
+ *
+ * The ONE place that set is built: the ladder route and the customer
+ * drill-down both read it, so the row and its panel cannot count different
+ * invoices (D286 — the non-GL twin of D281).
+ */
+async function customerAgingSetOf(deps: ReportsRoutesDeps, c: Context, asOfDate: string) {
+  const live = await scopedSalesInvoicesOf(deps, c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate });
+  const viewDeps = depsInViewOf(deps, c);
+  const asOf = await agingAsOf(viewDeps, "customer", asOfDate);
+  const voided = liveOnTheDay(
+    await scopedSalesInvoicesOf(deps, c, { statusIn: [...SALES_INVOICE_TERMINAL_STATUSES], toDate: asOfDate }),
+    asOf,
+  ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
+  const invoices = [...live, ...voided];
+  return { invoices, asOf, terms: await agingCustomersTerms(viewDeps, invoices, asOf, await tenantToday(c, deps.today)) };
+}
+
+/** The supplier ladder's twin of {@link customerAgingSet}. */
+async function supplierAgingSetOf(deps: ReportsRoutesDeps, c: Context, asOfDate: string) {
+  const live = await scopedPurchaseInvoicesOf(deps, c, { status: "confirmed" as const, toDate: asOfDate });
+  const viewDeps = depsInViewOf(deps, c);
+  const asOf = await agingAsOf(viewDeps, "supplier", asOfDate);
+  const cancelled = liveOnTheDay(
+    await scopedPurchaseInvoicesOf(deps, c, { status: "cancelled" as const, toDate: asOfDate }),
+    asOf,
+  ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
+  const invoices = [...live, ...cancelled];
+  return { invoices, asOf, terms: await agingSuppliersTerms(viewDeps, invoices, asOf, await tenantToday(c, deps.today)) };
+}
+
+/**
+ * What each customer owes as THIS caller's ladder shows it: the company's for
+ * an unrestricted session, the caller's branches' for a restricted one. The
+ * customers screen reads this, so its figures and the ladder's cannot differ.
+ */
+export async function customerAgingOwedInView(deps: ReportsRoutesDeps, c: Context, today?: string): Promise<ReadonlyMap<string, Money>> {
+  if (isWholeLedgerView(branchLineViewOf(c)) && branchScopeOf(c) === undefined) return customerAgingOwed(deps, today);
+  const asOfDate = deps.today ? deps.today() : (today ?? todayIso(deps));
+  const set = await customerAgingSetOf(deps, c, asOfDate);
+  const balances = customerAgingBalances({ asOfDate, branchId: "" }, { invoices: set.invoices, ...set.terms });
+  return new Map([...balances].map(([customerId, row]) => [customerId, agingBucketsTotal(row)]));
+}
+
+/** The supplier twin of {@link customerAgingOwedInView}. */
+export async function supplierAgingOwedInView(deps: ReportsRoutesDeps, c: Context, today?: string): Promise<ReadonlyMap<string, Money>> {
+  if (isWholeLedgerView(branchLineViewOf(c)) && branchScopeOf(c) === undefined) return supplierAgingOwed(deps, today);
+  const asOfDate = deps.today ? deps.today() : (today ?? todayIso(deps));
+  const set = await supplierAgingSetOf(deps, c, asOfDate);
+  const balances = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices: set.invoices, ...set.terms });
+  return new Map([...balances].map(([supplierId, row]) => [supplierId, supplierAgingTotal(row)]));
+}
+
+/**
  * The branches a report may cover (P-7).
  *
  * `branchScopeOf` is the SCOPE — what this session is allowed to see at all —
@@ -963,24 +1064,11 @@ export function createReportsRoutes(
     return out;
   }
 
-  /**
-   * The sales invoices this caller may see (D111).
-   *
-   * `branchScopeOf` is AUTHORITY, not a presentation filter: a caller scoped
-   * to فرع القاهرة never receives another branch's figures, with or without a
-   * `branchId` parameter, and the parameter — applied inside the report's own
-   * `run` — can only narrow what is left. Asking for a branch outside the
-   * scope therefore returns that caller's own nothing rather than the other
-   * branch's numbers. Same line every list route in this package holds.
-   */
-  async function scopedSalesInvoices(c: Context, bounds?: Parameters<SalesInvoiceRepository["list"]>[0]) {
-    return withinScope(await deps.salesInvoices.list(bounds), branchScopeOf(c), (invoice) => invoice.branchId);
-  }
-
-  /** The purchase invoices this caller may see. See {@link scopedSalesInvoices}. */
-  async function scopedPurchaseInvoices(c: Context, bounds?: Parameters<PurchaseInvoiceRepository["list"]>[0]) {
-    return withinScope(await deps.purchaseInvoices.list(bounds), branchScopeOf(c), (invoice) => invoice.branchId);
-  }
+  const scopedSalesInvoices = (c: Context, bounds?: Parameters<SalesInvoiceRepository["list"]>[0]) => scopedSalesInvoicesOf(deps, c, bounds);
+  const scopedPurchaseInvoices = (c: Context, bounds?: Parameters<PurchaseInvoiceRepository["list"]>[0]) => scopedPurchaseInvoicesOf(deps, c, bounds);
+  const depsInView = (c: Context) => depsInViewOf(deps, c);
+  const customerAgingSet = (c: Context, asOfDate: string) => customerAgingSetOf(deps, c, asOfDate);
+  const supplierAgingSet = (c: Context, asOfDate: string) => supplierAgingSetOf(deps, c, asOfDate);
 
   /**
    * The warehouse ids this request may see, or `undefined` for all of them.
@@ -1046,37 +1134,6 @@ export function createReportsRoutes(
         400,
       ),
     };
-  }
-
-  /**
-   * Exactly the invoice set and netting terms the customer aging ladder ages
-   * on a given day, for this caller's own branch scope.
-   *
-   * The ONE place that set is built: the ladder route and the customer
-   * drill-down both read it, so the row and its panel cannot count different
-   * invoices (D286 — the non-GL twin of D281).
-   */
-  async function customerAgingSet(c: Context, asOfDate: string) {
-    const live = await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate });
-    const asOf = await agingAsOf(deps, "customer", asOfDate);
-    const voided = liveOnTheDay(
-      await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_TERMINAL_STATUSES], toDate: asOfDate }),
-      asOf,
-    ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
-    const invoices = [...live, ...voided];
-    return { invoices, asOf, terms: await agingCustomersTerms(deps, invoices, asOf, await tenantToday(c, deps.today)) };
-  }
-
-  /** The supplier ladder's twin of {@link customerAgingSet}. */
-  async function supplierAgingSet(c: Context, asOfDate: string) {
-    const live = await scopedPurchaseInvoices(c, { status: "confirmed" as const, toDate: asOfDate });
-    const asOf = await agingAsOf(deps, "supplier", asOfDate);
-    const cancelled = liveOnTheDay(
-      await scopedPurchaseInvoices(c, { status: "cancelled" as const, toDate: asOfDate }),
-      asOf,
-    ).map((invoice) => ({ ...invoice, status: "confirmed" as const }));
-    const invoices = [...live, ...cancelled];
-    return { invoices, asOf, terms: await agingSuppliersTerms(deps, invoices, asOf, await tenantToday(c, deps.today)) };
   }
 
   // --- المبيعات ------------------------------------------------------
@@ -1428,8 +1485,8 @@ export function createReportsRoutes(
   app.get("/returns/fx-face-value", gate("accounting.reports.view"), async (c) => {
     const definition = createReturnsFxFaceValueReport();
     const [sales, purchases, salesReturns, purchaseReturns, customers, suppliers] = await Promise.all([
-      scopedSalesInvoices(c),
-      scopedPurchaseInvoices(c),
+      deps.salesInvoices.list().then((rows) => scopedRows(c, rows)),
+      deps.purchaseInvoices.list().then((rows) => scopedRows(c, rows)),
       deps.salesReturnDocs?.list({ status: "confirmed" }) ?? [],
       deps.purchaseReturnDocs?.list({ status: "confirmed" }) ?? [],
       deps.customers.findAll(),
@@ -1461,7 +1518,11 @@ export function createReportsRoutes(
     const boms = deps.boms;
     app.get("/manufacturing/make-vs-buy", gate("manufacturing.bom.view"), async (c) => {
       const definition = createMakeVsBuyReport();
-      const [items, bomList, invoices] = await Promise.all([deps.items.list(), boms.list(), scopedPurchaseInvoices(c)]);
+      const [items, bomList, invoices] = await Promise.all([
+        deps.items.list(),
+        boms.list(),
+        deps.purchaseInvoices.list().then((rows) => scopedRows(c, rows)),
+      ]);
       return respond(
         c,
         runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, boms: bomList, purchaseInvoices: invoices }),
@@ -1668,7 +1729,7 @@ export function createReportsRoutes(
    * restates what the party's voucher or cheque settled to the invoice's booked
    * rate, so without them the statement closes that far from the ladder.
    */
-  async function realisedFxEntries(controlId: string, partyId: string, asOfDate: string, sign: 1n | -1n): Promise<PartyStatementEntry[]> {
+  async function realisedFxEntries(deps: ReportsRoutesDeps, controlId: string, partyId: string, asOfDate: string, sign: 1n | -1n): Promise<PartyStatementEntry[]> {
     const lines = (await deps.ledger.listLines?.({ accountIds: [controlId] })) ?? [];
     const entryDates = new Map(lines.map((line) => [line.entryId, line.date]));
     const byEntry = new Map<string, { line: PostedLine; scaled: bigint }>();
@@ -1690,10 +1751,24 @@ export function createReportsRoutes(
       }));
   }
 
-  function serializeStatement(partyId: string, asOfDate: string, statement: PartyStatement, agingTotal: Money) {
+  /**
+   * The items of a party's statement that sit on the control account with no
+   * branch of their own: an opening balance (posted unattributed by decision,
+   * whatever branch the party belongs to) and any other item carrying none.
+   */
+  function partyBranchCaveat(c: Context, items: readonly AgingOpenItem[], partyId: string, asOfDate: string): BranchCaveat | null {
+    if (isWholeLedgerView(branchLineViewOf(c))) return null;
+    const unattributed = items.filter(
+      (item) => item.partyId === partyId && item.date <= asOfDate && (item.source === "opening" || item.branchId == null),
+    );
+    return unattributed.length === 0 ? limitedToBranchesCaveat() : includesUnattributedCaveat(Money.sum(unattributed.map((item) => item.amount)));
+  }
+
+  function serializeStatement(partyId: string, asOfDate: string, statement: PartyStatement, agingTotal: Money, branchCaveat: BranchCaveat | null) {
     return {
       partyId,
       asOfDate,
+      branchCaveat,
       lines: statement.lines.map((line) => ({
         key: line.key,
         date: line.date,
@@ -1718,11 +1793,12 @@ export function createReportsRoutes(
       return c.json({ error: "NOT_FOUND" }, 404);
     }
     const asOfDate = await tenantToday(c, deps.today);
+    const viewDeps = depsInView(c);
     const invoices = (await scopedSalesInvoices(c, { statusIn: [...SALES_INVOICE_ACTIVE_STATUSES], toDate: asOfDate })).filter(
       (invoice) => invoice.customerId === id,
     );
-    const asOf = await agingAsOf(deps, "customer", asOfDate);
-    const terms = await agingCustomersTerms(deps, invoices, asOf, asOfDate);
+    const asOf = await agingAsOf(viewDeps, "customer", asOfDate);
+    const terms = await agingCustomersTerms(viewDeps, invoices, asOf, asOfDate);
     const invoiceRefs = new Map(invoices.map((invoice) => [invoice.id, invoice.docNo ?? invoice.id]));
     const entries: PartyStatementEntry[] = invoices.map((invoice) => ({
       key: `inv-${invoice.id}`,
@@ -1736,7 +1812,7 @@ export function createReportsRoutes(
       if (doc.status !== "confirmed" || doc.date > asOfDate || !invoiceRefs.has(doc.lines[0]?.sourceInvoiceId ?? "")) continue;
       entries.push({ key: `ret-${doc.id}`, date: doc.date, kind: "return", reference: doc.docNo ?? doc.id, increase: Money.zero(), decrease: salesReturnGrandTotal(doc) });
     }
-    const receiptVouchers = (await deps.voucherDocuments?.list()) ?? [];
+    const receiptVouchers = (await viewDeps.voucherDocuments?.list()) ?? [];
     const receiptVouchersById = new Map(receiptVouchers.map((doc) => [doc.id, doc]));
     for (const doc of receiptVouchers) {
       if (!voucherStandsAsOf(doc, receiptVouchersById, asOfDate)) continue;
@@ -1752,7 +1828,7 @@ export function createReportsRoutes(
         allocations: await voucherAllocations(doc.id, invoiceRefs),
       });
     }
-    for (const cheque of (await deps.cheques?.list({ direction: "incoming" })) ?? []) {
+    for (const cheque of (await viewDeps.cheques?.list({ direction: "incoming" })) ?? []) {
       if (cheque.direction !== "incoming" || cheque.counterpartyGlAccountId !== RECEIVABLES_CONTROL_ACCOUNT_ID || cheque.partyId !== id) continue;
       const days = chequeDays(cheque, asOf);
       if (days.raised > asOfDate) continue;
@@ -1780,9 +1856,17 @@ export function createReportsRoutes(
       });
     }
     entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
-    entries.push(...(await realisedFxEntries(RECEIVABLES_CONTROL_ACCOUNT_ID, id, asOfDate, 1n)));
+    entries.push(...(await realisedFxEntries(viewDeps, RECEIVABLES_CONTROL_ACCOUNT_ID, id, asOfDate, 1n)));
     const row = customerAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
-    return c.json(serializeStatement(id, asOfDate, buildPartyStatement(entries), row ? agingBucketsTotal(row) : Money.zero()));
+    return c.json(
+      serializeStatement(
+        id,
+        asOfDate,
+        buildPartyStatement(entries),
+        row ? agingBucketsTotal(row) : Money.zero(),
+        partyBranchCaveat(c, terms.openItems ?? [], id, asOfDate),
+      ),
+    );
   });
 
   app.get("/statements/suppliers/:id", gate("purchases.supplier.view"), async (c) => {
@@ -1792,11 +1876,12 @@ export function createReportsRoutes(
       return c.json({ error: "NOT_FOUND" }, 404);
     }
     const asOfDate = await tenantToday(c, deps.today);
+    const viewDeps = depsInView(c);
     const invoices = (await scopedPurchaseInvoices(c, { status: "confirmed", toDate: asOfDate })).filter(
       (invoice) => invoice.supplierId === id,
     );
-    const asOf = await agingAsOf(deps, "supplier", asOfDate);
-    const terms = await agingSuppliersTerms(deps, invoices, asOf, asOfDate);
+    const asOf = await agingAsOf(viewDeps, "supplier", asOfDate);
+    const terms = await agingSuppliersTerms(viewDeps, invoices, asOf, asOfDate);
     const invoiceRefs = new Map(invoices.map((invoice) => [invoice.id, invoice.number ?? invoice.id]));
     const entries: PartyStatementEntry[] = invoices.map((invoice) => ({
       key: `inv-${invoice.id}`,
@@ -1819,7 +1904,7 @@ export function createReportsRoutes(
         decrease: Money.sum(mine.map(purchaseReturnLineCredit)),
       });
     }
-    const paymentVouchers = (await deps.voucherDocuments?.list()) ?? [];
+    const paymentVouchers = (await viewDeps.voucherDocuments?.list()) ?? [];
     const paymentVouchersById = new Map(paymentVouchers.map((doc) => [doc.id, doc]));
     for (const doc of paymentVouchers) {
       if (!voucherStandsAsOf(doc, paymentVouchersById, asOfDate)) continue;
@@ -1835,7 +1920,7 @@ export function createReportsRoutes(
         allocations: await voucherAllocations(doc.id, invoiceRefs),
       });
     }
-    for (const cheque of (await deps.cheques?.list({ direction: "outgoing" })) ?? []) {
+    for (const cheque of (await viewDeps.cheques?.list({ direction: "outgoing" })) ?? []) {
       if (cheque.direction !== "outgoing" || cheque.counterpartyGlAccountId !== PAYABLES_CONTROL_ACCOUNT_ID || cheque.partyId !== id) continue;
       const days = chequeDays(cheque, asOf);
       if (days.raised > asOfDate) continue;
@@ -1863,9 +1948,17 @@ export function createReportsRoutes(
       });
     }
     entries.push(...openItemEntries(terms.openItems ?? [], id, asOfDate));
-    entries.push(...(await realisedFxEntries(PAYABLES_CONTROL_ACCOUNT_ID, id, asOfDate, -1n)));
+    entries.push(...(await realisedFxEntries(viewDeps, PAYABLES_CONTROL_ACCOUNT_ID, id, asOfDate, -1n)));
     const row = supplierAgingBalances({ asOfDate, branchId: "" }, { invoices, ...terms }).get(id);
-    return c.json(serializeStatement(id, asOfDate, buildPartyStatement(entries), row ? supplierAgingTotal(row) : Money.zero()));
+    return c.json(
+      serializeStatement(
+        id,
+        asOfDate,
+        buildPartyStatement(entries),
+        row ? supplierAgingTotal(row) : Money.zero(),
+        partyBranchCaveat(c, terms.openItems ?? [], id, asOfDate),
+      ),
+    );
   });
 
   // --- الأقساط ---------------------------------------------------------
@@ -1911,7 +2004,8 @@ export function createReportsRoutes(
     ]);
     // A voucher's branch lives on its single line (vouchers-routes.ts scopes
     // the register the same way).
-    const vouchers = withinScope(allVouchers, branchScopeOf(c), (doc) => doc.lines[0]?.branchId);
+    const view = branchLineViewOf(c);
+    const vouchers = allVouchers.filter((doc) => lineInView(view, doc.lines[0]?.branchId));
     const supplierName = new Map(suppliers.map((s) => [s.id, s.nameAr]));
     const rows = vouchers.flatMap((doc) => {
       // A reversal's mirror is a confirmed document with the same line; the
@@ -1933,7 +2027,8 @@ export function createReportsRoutes(
     // The subcontract half: the tax was withheld when the certificate was
     // approved for payment, on the certified value, and is owed to the
     // authority from that date whether or not the sub has been paid yet.
-    const certificates = (await deps.subCertificates?.listCertificates()) ?? [];
+    // A subcontract certificate carries no branch, so it is read as «غير مخصص».
+    const certificates = lineInView(view, null) ? ((await deps.subCertificates?.listCertificates()) ?? []) : [];
     for (const certificate of certificates) {
       if (certificate.status !== "approved_for_payment" && certificate.status !== "invoiced") continue;
       const row = certificate.computed.deductions.find((d) => d.key === "withholdingTax");
@@ -2142,7 +2237,7 @@ export function createReportsRoutes(
     const account = ctx.accounts.find((entry) => entry.id === id);
     if (!account) return c.json({ error: "NOT_FOUND" }, 404);
     const activity = accountActivity(
-      ctx.journalEntries,
+      readableEntries(c, ctx.journalEntries),
       id,
       { to: asOfDate, ...(fromDate ? { from: fromDate } : {}) },
       { branchId, branchScope: branchScopeOf(c), excludeYearEndClose: fromDate !== undefined },

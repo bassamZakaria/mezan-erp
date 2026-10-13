@@ -1,3 +1,4 @@
+import { insertOnly } from "../records/test-helpers/insert-only.js";
 import { describe, it, expect } from "vitest";
 import { deleteAttachment } from "./delete-attachment.js";
 import { AttachmentNotFoundError } from "./errors.js";
@@ -19,7 +20,7 @@ class FakeAttachmentRepository implements AttachmentRepository {
     return null;
   }
   async create(attachment: Attachment): Promise<void> {
-    this.rows.set(attachment.id, attachment);
+    insertOnly(this.rows, attachment.id, attachment);
   }
   async delete(id: string): Promise<void> {
     this.rows.delete(id);

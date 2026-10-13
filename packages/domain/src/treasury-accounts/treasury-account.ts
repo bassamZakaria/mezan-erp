@@ -45,7 +45,8 @@ export interface TreasuryAccount {
    * into the wrong bank account and nothing refuses.
    */
   readonly bankAccountNumber: string | null;
-  readonly branchId: string;
+  /** Null for an account the company holds and no branch owns — the head-office bank. */
+  readonly branchId: string | null;
   /** Null = auto-selected by the system based on `type` (docs/archive/catalog/04's add-dialog helper text). */
   readonly glAccountId: string | null;
   readonly openingBalance: Money;

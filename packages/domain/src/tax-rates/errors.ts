@@ -20,19 +20,6 @@ export class TaxRateNotFoundError extends Error {
   }
 }
 
-export class DuplicateTaxRateIdError extends Error {
-  readonly code = "TAX_RATE_ID_EXISTS";
-  readonly messageEn: string;
-  constructor(
-    readonly taxRateId: string,
-    readonly taxRateName: string,
-  ) {
-    super(`توجد ضريبة بالمعرّف نفسه بالفعل («${taxRateName}»). عدّلها من شاشة الضرائب أو أنشئ ضريبة بمعرّف جديد.`);
-    this.messageEn = `A tax rate with this id already exists ("${taxRateName}"). Edit it from Tax Rates, or create one under a new id.`;
-    this.name = "DuplicateTaxRateIdError";
-  }
-}
-
 export class SystemTaxRateOnlyError extends Error {
   readonly code = "TAX_RATE_SYSTEM_ONLY";
   readonly messageEn: string;

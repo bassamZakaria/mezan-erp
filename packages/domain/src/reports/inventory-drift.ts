@@ -8,6 +8,7 @@ import type { Warehouse } from "../settings/warehouse.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, countRows, maxOf } from "./kpi.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * انحراف تقييم المخزون — Inventory Valuation Drift (docs/archive/catalog/08-reports.md):
@@ -67,7 +68,7 @@ export function createInventoryDriftReport(): ReportDefinition<
     defaultParams: { type: "", branchId: "" },
     paramFields: [
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "type",
         label: "النوع",
         options: [

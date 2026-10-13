@@ -5,6 +5,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { aggregateItemSales } from "./sales-item-aggregation.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * المبيعات حسب الصنف — Sales by Item (docs/archive/catalog/08-reports.md): top
@@ -68,7 +69,7 @@ export function createSalesByItemReport(
     descriptionAr: "ما هي الأصناف الأعلى إيراداً في الفترة المحددة.",
     paramsSchema,
     defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, branchId: "" },
-    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.itemId,
     columns: [
       { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },

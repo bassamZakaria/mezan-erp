@@ -55,6 +55,8 @@ export interface LandedCostAllocationTarget {
   readonly projectId?: string | null;
   /** فئة التكلفة — only meaningful with `projectId`; defaults to "materials" on the inventory debit. */
   readonly costCategory?: CostCategory | null;
+  /** بُعد الفرع (DEC-20) — the branch of this line's warehouse, stamped by the server and never taken from the caller. */
+  readonly branchId?: string | null;
 }
 
 /** A target line after allocation — what a `LandedCostLine` (the document type's line shape) carries. */

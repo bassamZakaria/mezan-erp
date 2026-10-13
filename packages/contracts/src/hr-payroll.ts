@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyString } from "./money-string.js";
+import { decimalRateString, moneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
 
 /**
@@ -22,7 +22,7 @@ export const advanceInstallmentSchema = z.object({
 export const advanceRepaymentSchema = z.object({
   id: z.string().min(1),
   date: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
   paymentMethod: z.string().min(1),
   treasuryAccountId: z.string().min(1),
   voucherId: z.string().min(1),
@@ -131,9 +131,9 @@ export const payslipLineSchema = z.object({
 export const payslipBasisSchema = z.object({
   payBasis: z.enum(["monthly", "hourly", "daily"]),
   quantity: z.number().nonnegative().nullable(),
-  rate: z.string(),
+  rate: moneyString,
   contractCurrency: z.string().min(1),
-  fxRate: z.string().nullable(),
+  fxRate: decimalRateString.nullable(),
   fxRateDate: z.string().nullable(),
   grossInContractCurrency: z.string().nullable(),
   netInContractCurrency: z.string().nullable(),

@@ -99,7 +99,7 @@ describe("tax-rates router — the system «غير خاضع» rate (D79 round 3)
       req("/", { method: "POST", permissions: "accounting.tax.manage", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, id: SYSTEM_NOT_SUBJECT_TAX_RATE_ID }) }),
     );
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe("TAX_RATE_ID_EXISTS");
+    expect(((await res.json()) as { error: string }).error).toBe("DUPLICATE_ID");
   });
 });
 
@@ -115,10 +115,10 @@ describe("tax-rates router — create never overwrites (review round 2, skill ru
     const res = await post(app, { id: "t1", code: "VAT14B", name: "x", rate: 10 });
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string; message: string; messageEn: string };
-    expect(body.error).toBe("TAX_RATE_ID_EXISTS");
+    expect(body.error).toBe("DUPLICATE_ID");
     expect(body.message).toMatch(/[\u0600-\u06FF]/);
-    expect(body.message).toContain(payload.name);
-    expect(body.messageEn).toMatch(/already exists/);
+    expect(body.message).toContain("t1");
+    expect(body.messageEn).toMatch(/already belongs to an existing record/);
     expect(await repo.findById("t1")).toEqual(before);
     expect(await repo.list()).toHaveLength(1);
   });

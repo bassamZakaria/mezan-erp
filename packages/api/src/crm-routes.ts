@@ -52,6 +52,8 @@ import { nextMasterCode } from "./master-code.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { recordCustomerChange } from "./customers-routes.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * CRM routes (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون / الفرص / خط
@@ -145,6 +147,7 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof LeadNotFoundError || err instanceof OpportunityNotFoundError || err instanceof PipelineStageNotFoundError || err instanceof ActivityNotFoundError) {

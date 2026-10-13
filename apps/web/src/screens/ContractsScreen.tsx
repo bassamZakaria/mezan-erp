@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -217,6 +218,7 @@ export function ContractsScreen() {
       await terminateContract.mutateAsync(contract.id);
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("contracts.theContractCouldNotBe2"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -326,7 +328,7 @@ export function ContractsScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(c.id); } },
             ...(c.status === "active"
-              ? [{ key: "terminate", label: t("contracts.endContract"), tone: "danger" as const, disabled: pendingId === c.id, onSelect: () => void runTerminate(c) }]
+              ? [{ key: "terminate", label: t("contracts.endContract"), tone: "danger" as const, disabled: pendingId === c.id, onSelect: () => runTerminate(c) }]
               : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: c.number })} />;

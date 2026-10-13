@@ -13,8 +13,11 @@ import {
   type PurchaseReturnLine,
 } from "@mezan/domain";
 import { createPurchaseReturnSchema, returnSourceLinesSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerRoleCodes, callerUserId, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, callerUserId, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { BranchRecordKind, recordInBranchGrant } from "./branch-policy.js";
+import { returnBranches, storedBranchesById, withinBranchScope } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
 import type { DocumentApprovalDTO } from "@mezan/contracts";
 import { purchaseSourceInvoiceHidden } from "./source-invoice-visibility.js";
@@ -40,6 +43,7 @@ function serializeLine(l: PurchaseReturnLine) {
     taxRateId: l.taxRateId ?? null,
     projectId: l.projectId ?? null,
     costCategory: l.costCategory ?? null,
+    branchId: l.branchId ?? null,
     currency: l.currency ?? null,
     fxRate: l.fxRate ?? null,
     baseCredit: purchaseReturnLineCredit(l).toString(),
@@ -80,8 +84,18 @@ export function createPurchaseReturnsRoutes(
   journalTax?: ReturnJournalTaxPort<PurchaseReturnLine>,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const visibleReturn = createVisibleDocumentResolver(service, (c, doc) => anyLineInWarehouseScope(c, doc.lines.map((line) => line.warehouseId)));
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById(
+      (id) => service.findById(id),
+      (doc, c) => returnBranches(c, BranchRecordKind.PurchaseReturn, doc),
+    ),
+  });
+  const visibleReturn = createVisibleDocumentResolver(
+    service,
+    async (c, doc) =>
+      anyLineInWarehouseScope(c, doc.lines.map((line) => line.warehouseId)) &&
+      (await withinBranchScope(c, [doc], (stored) => returnBranches(c, BranchRecordKind.PurchaseReturn, stored))).length > 0,
+  );
 
   type SourceInvoice = Awaited<ReturnType<PurchaseInvoiceLookupPort["findConfirmedInvoice"]>>;
   // Scoped to ONE request: `alreadyReturnedQty` moves every time a return
@@ -91,7 +105,9 @@ export function createPurchaseReturnsRoutes(
     if (!invoices) return undefined;
     if (!cache.has(sourceInvoiceId)) {
       const found = await invoices.findConfirmedInvoice(sourceInvoiceId);
-      cache.set(sourceInvoiceId, found && !purchaseSourceInvoiceHidden(getAuthContext(c), found, warehouseScopeOf(c)) ? found : null);
+      // SECURITY: an invoice of a branch outside the grant is hidden exactly as one this role may not read, so the refusal never tells the two apart from an id nobody holds.
+      const hidden = !found || purchaseSourceInvoiceHidden(getAuthContext(c), found, warehouseScopeOf(c)) || !(await recordInBranchGrant(c, BranchRecordKind.PurchaseInvoice, found.id));
+      cache.set(sourceInvoiceId, hidden ? null : found);
     }
     return cache.get(sourceInvoiceId) ?? null;
   }
@@ -162,6 +178,7 @@ export function createPurchaseReturnsRoutes(
     const scope = warehouseScopeOf(c);
     const returns = list.filter((doc) => !isReturnMirror(doc));
     let rows = !scope ? returns : returns.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    rows = await withinBranchScope(c, rows, (doc) => returnBranches(c, BranchRecordKind.PurchaseReturn, doc));
     if (filter.supplierId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.supplierId === filter.supplierId));
     }
@@ -323,6 +340,8 @@ export function createPurchaseReturnsRoutes(
       }
       lines.push(...built.lines.map((line) => ({ ...line, projectId: parsed.data.projectId ?? line.projectId ?? null })));
     }
+    const branchRefusal = refuseOutOfScopeBranches(c, lines.map((line) => line.branchId));
+    if (branchRefusal) return branchRefusal;
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,

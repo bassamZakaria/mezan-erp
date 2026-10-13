@@ -299,7 +299,7 @@ describe("disconnect actually evicts the device (PR #54 review finding #3)", () 
     const { sessionId } = (await connectRes.json()) as { sessionId: string };
 
     const controller = new AbortController();
-    const eventsRes = await app.fetch(new Request("http://local/events", { signal: controller.signal }));
+    const eventsRes = await app.fetch(new Request("http://local/events", { signal: controller.signal, headers: { "x-user-id": "u1" } }));
     const reader = eventsRes.body!.getReader();
     await reader.read(); // the initial "connected" event
 
@@ -315,6 +315,35 @@ describe("disconnect actually evicts the device (PR #54 review finding #3)", () 
 
     controller.abort();
     await reader.cancel().catch(() => {});
+  });
+
+  it("tells nobody else's till, and tells whoever keeps the device register (D111)", async () => {
+    const { app } = buildApp({ seats: 3, licensed: true, sseHeartbeatMs: 40 });
+    const { sessionId } = (await (await app.fetch(connectReq({ deviceId: "till-1", userId: "u1" }))).json()) as { sessionId: string };
+    const listen = async (headers: Record<string, string>) => {
+      const controller = new AbortController();
+      const res = await app.fetch(new Request("http://local/events", { signal: controller.signal, headers }));
+      const reader = res.body!.getReader();
+      await reader.read();
+      return { reader, controller };
+    };
+    const otherTill = await listen({ "x-user-id": "u2" });
+    const registerKeeper = await listen({ "x-user-id": "u3", "x-permissions": "admin.devices.view" });
+    const branchRegisterKeeper = await listen({ "x-user-id": "u4", "x-permissions": "admin.devices.view", "x-branch-scope": "BR-ALEX" });
+
+    await app.fetch(new Request(`http://local/sessions/${sessionId}`, { method: "DELETE", headers: ADMIN }));
+
+    const next = async (listener: { reader: ReadableStreamDefaultReader<Uint8Array> }) => new TextDecoder().decode((await listener.reader.read()).value);
+    expect(await next(registerKeeper)).toContain(sessionId);
+    const heardByOther = await next(otherTill);
+    expect(heardByOther).toContain("event: ping");
+    expect(heardByOther).not.toContain(sessionId);
+    expect(await next(branchRegisterKeeper)).not.toContain(sessionId);
+
+    for (const listener of [otherTill, registerKeeper, branchRegisterKeeper]) {
+      listener.controller.abort();
+      await listener.reader.cancel().catch(() => {});
+    }
   });
 });
 

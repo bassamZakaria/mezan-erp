@@ -12,6 +12,7 @@ import {
   salesReturnLineCredit,
   sumRefunds,
   SalesReturnNotRefundableError,
+  SalesReturnRefundTreasuryBranchError,
   type DocumentService,
   type FrameworkDocument,
   type SalesInvoiceLookupPort,
@@ -26,8 +27,11 @@ import {
   returnSourceLinesSchema,
 } from "@mezan/contracts";
 import type { z } from "zod";
-import { type AuthContextResolver, callerRoleCodes, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, branchScopeOf, callerRoleCodes, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { BranchRecordKind, recordInBranchGrant } from "./branch-policy.js";
+import { branchesOfWarehouses, returnBranches, storedBranchesById, withinBranchScope } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
 import type { DocumentApprovalDTO } from "@mezan/contracts";
 import { salesSourceInvoiceHidden } from "./source-invoice-visibility.js";
@@ -63,6 +67,7 @@ function serializeLine(l: SalesReturnLine) {
     taxRatePercent: l.taxRatePercent ?? null,
     taxRateId: l.taxRateId ?? null,
     projectId: l.projectId ?? null,
+    branchId: l.branchId ?? null,
     currency: l.currency ?? null,
     fxRate: l.fxRate ?? null,
     baseCredit: salesReturnLineCredit(l).toString(),
@@ -130,8 +135,12 @@ export function createSalesReturnsRoutes(
   journalTax?: ReturnJournalTaxPort<SalesReturnLine>,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  const storedBranches = storedBranchesById(
+    (id) => service.findById(id),
+    (doc, c) => returnBranches(c, BranchRecordKind.SalesReturn, doc),
+  );
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
 
   /*
    * D70 — the `sales.return.view_own` tier, enforced.
@@ -159,10 +168,10 @@ export function createSalesReturnsRoutes(
     return refunds ? refunds.list(id) : [];
   }
 
-  const visibleReturn = createVisibleDocumentResolver(service, (c, doc) => {
+  const visibleReturn = createVisibleDocumentResolver(service, async (c, doc) => {
     const scope = warehouseScopeOf(c);
-    if (!scope) return !ownVisibilityOnly(c);
-    return doc.lines.some((line) => scope.includes(line.warehouseId));
+    const inWarehouseScope = scope ? doc.lines.some((line) => scope.includes(line.warehouseId)) : !ownVisibilityOnly(c);
+    return inWarehouseScope && (await withinBranchScope(c, [doc], (stored) => returnBranches(c, BranchRecordKind.SalesReturn, stored))).length > 0;
   });
 
   const SOURCE_INVOICE_NOT_FOUND = {
@@ -196,7 +205,9 @@ export function createSalesReturnsRoutes(
       const found = await invoices.findConfirmedInvoice(sourceInvoiceId);
       const ctx = getAuthContext(c);
       const own = ctx && ownSalespersonId ? await ownSalespersonId(ctx.userId) : null;
-      cache.set(sourceInvoiceId, found && !salesSourceInvoiceHidden(ctx, found, own) ? found : null);
+      // SECURITY: an invoice of a branch outside the grant is hidden exactly as one this role may not read, so the refusal never tells the two apart from an id nobody holds.
+      const hidden = !found || salesSourceInvoiceHidden(ctx, found, own) || !(await recordInBranchGrant(c, BranchRecordKind.SalesInvoice, found.id));
+      cache.set(sourceInvoiceId, hidden ? null : found);
     }
     return cache.get(sourceInvoiceId) ?? null;
   }
@@ -261,7 +272,8 @@ export function createSalesReturnsRoutes(
         ofInvoice.map((l) => ({ itemId: l.itemId, sourceLineId: l.sourceLineId ?? null, qty: Qty.fromMajor(l.qty), reason: l.reason, warehouseId: l.warehouseId })),
       );
       if (built.unmatched.length > 0) return { refusal: lineNotOnInvoice(built.unmatched) };
-      lines.push(...built.lines);
+      const receivingBranches = await branchesOfWarehouses(c, built.lines.map((line) => line.warehouseId));
+      lines.push(...built.lines.map((line, index) => ({ ...line, branchId: receivingBranches[index] ?? line.branchId ?? null })));
     }
     return { lines };
   }
@@ -317,6 +329,7 @@ export function createSalesReturnsRoutes(
     if (!scope && ownVisibilityOnly(c)) return { rows: [], refunds: new Map() };
     const returns = list.filter((doc) => !isReturnMirror(doc));
     let rows = !scope ? returns : returns.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    rows = await withinBranchScope(c, rows, (doc) => returnBranches(c, BranchRecordKind.SalesReturn, doc));
     if (filter.customerId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.customerId === filter.customerId));
     }
@@ -444,6 +457,8 @@ export function createSalesReturnsRoutes(
     }
     const derived = await deriveLines(c, parsed.data.lines, requestInvoices);
     if ("refusal" in derived) return c.json(derived.refusal, 422);
+    const branchRefusal = refuseOutOfScopeBranches(c, derived.lines.map((line) => line.branchId));
+    if (branchRefusal) return branchRefusal;
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
@@ -474,16 +489,20 @@ export function createSalesReturnsRoutes(
     }
     const invoice = await lookupInvoice(c, new Map(), parsed.data.sourceInvoiceId);
     if (!invoice) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
+    const [receivingBranchId] = await branchesOfWarehouses(c, [parsed.data.warehouseId]);
     const { lines, unmatched } = buildSalesReturnLinesFromInvoice(
       invoice,
       parsed.data.warehouseId,
       parsed.data.reason,
       parsed.data.requested.map((r) => ({ itemId: r.itemId, sourceLineId: r.sourceLineId ?? null, qty: Qty.fromMajor(r.qty), reason: r.reason })),
+      receivingBranchId,
     );
     if (unmatched.length > 0) return c.json(lineNotOnInvoice(unmatched), 422);
     if (lines.length === 0) {
       return c.json({ error: "NO_RETURNABLE_LINES", message: "لا توجد بنود قابلة للإرجاع بالكميات المطلوبة." }, 422);
     }
+    const branchRefusal = refuseOutOfScopeBranches(c, lines.map((line) => line.branchId));
+    if (branchRefusal) return branchRefusal;
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
@@ -606,6 +625,9 @@ export function createSalesReturnsRoutes(
     } catch (err) {
       if (err instanceof SalesReturnNotRefundableError) {
         return c.json({ error: err.code, message: err.message }, 422);
+      }
+      if (err instanceof SalesReturnRefundTreasuryBranchError) {
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
       }
       return handleDocumentError(c, err);
     }

@@ -95,6 +95,7 @@ import {
   createTreasuryLedgerReader,
   createVoucherBankEntryPoster,
   VoucherService,
+  COMPANY_LEVEL_VOUCHER_BRANCH,
   voucherLine,
   ChequeService,
   type ChequeRaisingDocumentPort,
@@ -182,6 +183,7 @@ import {
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
   SalesReturnNotRefundableError,
+  SalesReturnRefundTreasuryBranchError,
   totalLandedCost,
   Money,
   getAdjustmentReasonDefinition,
@@ -217,6 +219,19 @@ import {
   type OpeningBalanceEntryRef,
   tenantTodayIso,
   BASE_CURRENCY,
+  EVENT_BRANCH_IDS_KEY,
+  correctedSeededRolePermissions,
+  costOfSalesLedgerAccountIds,
+  inventoryLedgerAccountIds,
+  SeededRoleSplit,
+  seededRoleDutyChange,
+  seededRoleDutyNotice,
+  SEEDED_ROLE_DUTIES_SEPARATED_EVENT,
+  type SeededRoleDutyChange,
+  CASH_AND_BANK_ROUTING_KEY,
+  RESTRICTED_CASH_ROUTING_KEY,
+  cashAndBankLedgerAccountIds,
+  disposalProceedsAccounts,
   UserStatusCode,
   isErasedUser,
   AuditSeverityCode,
@@ -225,6 +240,9 @@ import {
 import {
   openSqliteConnection,
   withSqliteTransaction,
+  createSqliteUpgradeLedger,
+  markApprovalsNeedingReapproval,
+  UpgradeStepId,
   type SqliteOpenOptions,
   createSqliteUnitOfWork,
   grantSuccessorPermissionsOnce,
@@ -373,6 +391,9 @@ import {
 } from "./eta-receipts.js";
 import { createAuth, type AccountLockedEvent } from "./auth-routes.js";
 import { OutsideWork, OutsideWorkDeadlineError, withinDeadline } from "./outside-work.js";
+import { BranchAccess, BranchRecordKind, type BranchDirectory } from "@mezan/api";
+import { createSqliteBranchDirectory } from "./branch-directory.js";
+import { createWarehouseUse } from "./warehouse-use.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
@@ -575,8 +596,31 @@ function emittedEventCodesOf(...mappings: readonly DocumentEventMapping[]): Even
   return [...codes];
 }
 
+const BRIDGED_DOCUMENT_KINDS: Readonly<Record<string, BranchRecordKind>> = {
+  SALES_INVOICE: BranchRecordKind.SalesInvoice,
+  SALES_RETURN: BranchRecordKind.SalesReturn,
+  PURCHASE_RETURN: BranchRecordKind.PurchaseReturn,
+  PURCHASE_ORDER: BranchRecordKind.PurchaseOrder,
+  GOODS_RECEIPT: BranchRecordKind.GoodsReceipt,
+  PURCHASE_INVOICE: BranchRecordKind.PurchaseInvoice,
+  [VOUCHER_DOC_TYPE]: BranchRecordKind.Voucher,
+};
+
+/**
+ * SECURITY: the branches a bridged document belongs to, read from its stored
+ * row. A document type with no declared kind states none, which the engine
+ * reads as company-level — it reaches fewer people, never more.
+ */
+async function bridgedDocumentBranchIds(directory: BranchDirectory, docType: string, docId: string): Promise<string[]> {
+  const kind = BRIDGED_DOCUMENT_KINDS[docType];
+  if (!kind) return [];
+  const branches = (await directory.branchesOf(kind, docId, BranchAccess.Read)) ?? [];
+  return [...new Set(branches.filter((id): id is string => typeof id === "string" && id !== ""))];
+}
+
 function createDocumentEventBridge(
   eventBus: EventBus,
+  directory: BranchDirectory,
   mapping: DocumentEventMapping,
   enrich?: (docId: string) => Promise<Record<string, unknown>>,
 ): DocumentEventPublisher {
@@ -585,19 +629,15 @@ function createDocumentEventBridge(
       const code = mapping[event.docType]?.[event.type];
       if (!code) return;
       const basePayload: Record<string, unknown> = { documentNumber: event.docNo ?? event.docId };
-      if (!enrich) {
-        eventBus.publish(code, basePayload, event.occurredAt);
-        return;
-      }
       // DocumentEventPublisher.publish is synchronous; the notification
       // engine's own dispatch is independently async, so a fire-and-forget
-      // enrichment lookup here just widens the payload before that dispatch
-      // runs — a failed lookup logs and drops the event rather than ever
-      // throwing back into the document's own confirm/cancel transaction.
-      void enrich(event.docId)
-        .then((extra) => eventBus.publish(code, { ...basePayload, ...extra }, event.occurredAt))
+      // lookup here just widens the payload before that dispatch runs — a
+      // failed lookup logs and drops the event rather than ever throwing back
+      // into the document's own confirm/cancel transaction.
+      void Promise.all([bridgedDocumentBranchIds(directory, event.docType, event.docId), enrich ? enrich(event.docId) : {}])
+        .then(([branchIds, extra]) => eventBus.publish(code, { ...basePayload, ...extra, [EVENT_BRANCH_IDS_KEY]: branchIds }, event.occurredAt))
         .catch((error: unknown) => {
-          console.error(`[notifications] event bridge enrichment failed for ${event.docType}/${event.type}`, error);
+          console.error(`[notifications] event bridge lookup failed for ${event.docType}/${event.type}`, error);
         });
     },
   };
@@ -1189,6 +1229,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       console.error(`[notifications] a subscriber failed handling "${event.code}"`, error);
     },
   });
+  // The directory reads tables that stores mounted further down create, so it
+  // is built once they all exist — and BEFORE the first request, so a
+  // statement that cannot be prepared stops the boot instead of a refusal.
+  let branchDirectory: BranchDirectory | undefined;
+  const startedDirectory = (): BranchDirectory => {
+    if (!branchDirectory) throw new Error("createBackend: the branch directory was read before the backend finished starting");
+    return branchDirectory;
+  };
+  const deferredBranchDirectory: BranchDirectory = {
+    branchesOf: (kind, id, access) => startedDirectory().branchesOf(kind, id, access),
+    warehousesOf: (kind, id) => startedDirectory().warehousesOf(kind, id),
+    actingWarehousesOf: (kind, id) => startedDirectory().actingWarehousesOf(kind, id),
+  };
   const notificationEngine = new NotificationRulesEngine({
     rules: notificationRules,
     notifications,
@@ -1297,7 +1350,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // reason (createInventoryOpsStockHook below); every other stock
     // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
     // through a separate path and never passes `command.gl`, so this is additive.
-    gl: createInventoryGlPostingHook(salesInvoiceGl),
+    gl: createInventoryGlPostingHook(salesInvoiceGl, warehouses),
     transferCoverAccounts: { inventoryAccountId: STOCK_VARIANCE_ACCOUNTS.inventoryAccountId, costAccountId: STOCK_VARIANCE_ACCOUNTS.costVarianceAccountId },
     // The last-resort cost for an issue out of a position that holds nothing
     // and was never received anywhere. Without it such an issue was written at
@@ -1399,6 +1452,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   } satisfies DocumentEventMapping;
   const salesInvoiceEventBridge = createDocumentEventBridge(
     eventBus,
+    deferredBranchDirectory,
     salesInvoiceEventMapping,
     async (docId) => {
       const invoice = await salesInvoices.findById(docId);
@@ -1854,6 +1908,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             taxRateId: l.taxRateId ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
+            branchId: l.branchId ?? null,
           })),
         },
         salesInvoiceGl,
@@ -2119,7 +2174,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     SALES_RETURN: { DOCUMENT_CONFIRMED: "SALES_RETURN_CONFIRMED" },
     PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
   } satisfies DocumentEventMapping;
-  const returnsEventBridge = createDocumentEventBridge(eventBus, returnsEventMapping);
+  const returnsEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, returnsEventMapping);
 
   /*
    * The purchase chain is not a `DocumentService`, so it never had a publisher
@@ -2135,7 +2190,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     GOODS_RECEIPT: { DOCUMENT_CONFIRMED: "PURCHASE_RECEIPT_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RECEIPT_VOIDED" },
     PURCHASE_INVOICE: { DOCUMENT_CONFIRMED: "PURCHASE_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_INVOICE_VOIDED" },
   } satisfies DocumentEventMapping;
-  const purchasesEventBridge = createDocumentEventBridge(eventBus, purchasesEventMapping);
+  const purchasesEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, purchasesEventMapping);
 
   /*
    * `VoucherService` has declared an `events` port since it was written and
@@ -2145,7 +2200,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const voucherEventMapping = {
     [VOUCHER_DOC_TYPE]: { DOCUMENT_CONFIRMED: "CASH_VOUCHER_CONFIRMED" },
   } satisfies DocumentEventMapping;
-  const voucherEventBridge = createDocumentEventBridge(eventBus, voucherEventMapping);
+  const voucherEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, voucherEventMapping);
 
   const salesReturnEvents = fanOutDocumentEvents(
     returnsEventBridge,
@@ -2276,6 +2331,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         salespersonId: invoice.salespersonId,
         customerId: invoice.customerId,
         warehouseId: invoice.warehouseId,
+        branchId: invoice.branchId,
         projectId: invoice.projectId,
         currency: invoice.currency,
         fxRate: invoice.fxRate ?? null,
@@ -2326,6 +2382,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         createdBy: invoice.createdBy,
         supplierId: invoice.supplierId,
         warehouseId: invoice.warehouseId,
+        branchId: invoice.branchId,
         // A return inherits the invoice's project and each line's cost
         // category (D-01); leaving them off here dropped both (D215).
         projectId: invoice.projectId ?? null,
@@ -2386,8 +2443,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         sourceDocId: posting.sourceDocId,
         sourceDocNumber: posting.sourceDocNumber,
         lines: [
-          { accountId: debitAccountId, debit: posting.amount, credit: Money.zero() },
-          { accountId: creditAccountId, debit: Money.zero(), credit: posting.amount },
+          { accountId: debitAccountId, debit: posting.amount, credit: Money.zero(), branchId: posting.branchId },
+          { accountId: creditAccountId, debit: Money.zero(), credit: posting.amount, branchId: posting.branchId },
         ],
       },
       salesInvoiceGl,
@@ -3235,6 +3292,54 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
   await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
 
+  const upgradeLedger = createSqliteUpgradeLedger(sqlite);
+  const sequenceCountersRead = sqlite.prepare("SELECT code, period, value FROM sequence_counter ORDER BY code, period");
+  // REQUIRED ORDERING: runs after `grantSuccessorPermissionsOnce` above, so a reversal right granted for an older one is moved with the duty it belongs to.
+  const separateSeededDuties = async (split: SeededRoleSplit): Promise<void> => {
+    const reversalSuccessors = reversalPermissionSuccessors();
+    const corrected: string[] = [];
+    const dutyChanges: SeededRoleDutyChange[] = [];
+    for (const role of await uow.roles.list()) {
+      const permissions = correctedSeededRolePermissions(role.code, role.permissions, reversalSuccessors, split);
+      if (!permissions) continue;
+      const change = seededRoleDutyChange(role, reversalSuccessors, split);
+      if (change) dutyChanges.push(change);
+      await uow.roles.save({ ...role, permissions });
+      corrected.push(role.code);
+    }
+    if (corrected.length > 0) console.info(`[roles] separated duties (${split}) on seeded role(s) ${corrected.join(", ")}`);
+    if (dutyChanges.length > 0) {
+      const { title, body } = seededRoleDutyNotice(dutyChanges);
+      const roles = await uow.roles.list();
+      const holdsEverything = new Set(roles.filter((role) => role.permissions.includes("*")).map((role) => role.id));
+      const createdAt = new Date().toISOString();
+      for (const user of await uow.users.list()) {
+        if (user.status !== "active" || !(user.isCompanyAdmin || (user.roleId !== null && holdsEverything.has(user.roleId)))) continue;
+        await notifications.save({
+          id: randomUUID(),
+          ruleId: null,
+          recipientUserId: user.id,
+          eventCode: SEEDED_ROLE_DUTIES_SEPARATED_EVENT,
+          title,
+          body,
+          priority: "high",
+          channels: ["in_app"],
+          channelStatus: { in_app: "delivered" },
+          status: "unread",
+          payload: { roles: dutyChanges.map((change) => ({ code: change.roleCode, revoked: change.revoked, granted: change.granted })), link: "/settings/roles" },
+          createdAt,
+          readAt: null,
+        });
+      }
+    }
+  };
+  await upgradeLedger.runOnce(UpgradeStepId.SeededRoleDutySplit, () => separateSeededDuties(SeededRoleSplit.Duties));
+  await upgradeLedger.runOnce(UpgradeStepId.SeededRoleReconciliationSplit, () => separateSeededDuties(SeededRoleSplit.BankReconciliation));
+  await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
+    const marked = markApprovalsNeedingReapproval(sqlite);
+    if (marked.length > 0) console.info(`[workflow] ${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);
+  });
+
   /**
    * Books seeded before a template account existed get it now (D229: the
    * exchange-difference accounts). Idempotent; it adds, and never renames or
@@ -4076,7 +4181,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     claimedElsewhere,
   });
 
+  const resolveCashAndBankParentAccountId = async () => routedAccountId(await accountRouting.get(), CASH_AND_BANK_ROUTING_KEY);
+  const resolveCashAndBankAccountIds = async (): Promise<readonly string[]> => {
+    const [routing, chart, treasury] = await Promise.all([accountRouting.get(), accounts.list(), treasuryAccounts.list()]);
+    return cashAndBankLedgerAccountIds(chart, {
+      parentAccountId: routedAccountId(routing, CASH_AND_BANK_ROUTING_KEY),
+      restrictedAccountIds: [routedAccountId(routing, RESTRICTED_CASH_ROUTING_KEY)],
+      treasuryLedgerAccountIds: treasury.map((account) => account.glAccountId),
+    });
+  };
+
   const app = createApp(uow, {
+    cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
     connectionTurn: options.connectionTurn,
     idempotentRequests: createSqliteIdempotentRequestStore(sqlite),
     secrets,
@@ -4122,11 +4238,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         : {}),
     settingsStore: settings,
     branchStore: branches,
+    branchDirectory: deferredBranchDirectory,
     warehouseStore: warehouses,
+    warehouseUse: createWarehouseUse(sqlite),
     customerStore: customers,
     supplierStore: suppliers,
     customerOpeningBalances,
     supplierOpeningBalances,
+    createTransactor: configTransactor,
+    numbersDrawn: () => JSON.stringify(sequenceCountersRead.all()),
     accounts: { repo: accounts },
     items: { repo: items, snapshots: stockLedger.snapshots },
     accountRouting: { repo: accountRouting },
@@ -4189,6 +4309,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: {
       ledger,
       accounts,
+      masterData: masterDataChecks,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
       projects,
@@ -4592,6 +4713,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     // --- hr/master-data ---
     hr: {
+      transactor: configTransactor,
       departments: hrDepartments,
       jobTitles: hrJobTitles,
       employees: hrEmployees,
@@ -4705,6 +4827,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       contracts: { exists: async (id) => (await worksContracts.findContractById(id)) !== null },
     },
     fixedAssets: {
+      disposalProceedsAccounts: async () => {
+        const [routing, chart, cashAccountIds, partyControls] = await Promise.all([accountRouting.get(), accounts.list(), resolveCashAndBankAccountIds(), resolvePartyControlAccounts()]);
+        return disposalProceedsAccounts(chart, { cashAccountIds, receivableControlAccountId: routedAccountId(routing, "control.receivable"), partyControlAccountIds: [...partyControls.keys()] });
+      },
       masterData: masterDataChecks,
       categories: assetCategories,
       assets,
@@ -4712,6 +4838,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       runs: depreciationRuns,
       periods: fiscalPeriods,
       gl: salesInvoiceGl,
+      warehouses,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
       settings,
       audit: auditSink,
@@ -4722,6 +4849,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       wacSnapshots: stockLedger.snapshots,
       stockLedger: stockLedger.ledger,
       gl: salesInvoiceGl,
+      warehouses,
       accounts: INVENTORY_WRITEDOWN_GL_ACCOUNTS,
       settings,
     },
@@ -4992,6 +5120,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           if (!treasury?.glAccountId) {
             throw new SalesReturnNotRefundableError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
           }
+          // A return's lines land in one branch's stores, so its branch is a
+          // single one: the header's.
+          const returnBranchId = (await bridgedDocumentBranchIds(deferredBranchDirectory, "SALES_RETURN", command.returnId))[0] ?? null;
+          if (returnBranchId !== null && treasury.branchId !== null && treasury.branchId !== returnBranchId) throw new SalesReturnRefundTreasuryBranchError();
           const customer = await customers.findById(command.customerId);
           const voucherId = `REFUND:${command.returnId}:${randomUUID()}`;
           const service = new VoucherService({
@@ -5015,7 +5147,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             memo: command.memo ?? undefined,
             voucherType: "customer_refund",
             amount: command.amount,
-            branchId: treasury.branchId,
+            // LEDGER INVARIANT: the refund settles the return, so it is booked
+            // to the return's branch — the account's own only when the return
+            // has none. Booking it to a company-level account's "no branch"
+            // left a branch's refund outside that branch's books.
+            branchId: returnBranchId ?? treasury.branchId ?? COMPANY_LEVEL_VOUCHER_BRANCH,
             paymentMethod: command.paymentMethod,
             treasuryAccountId: command.treasuryAccountId,
             treasuryGlAccountId: treasury.glAccountId,
@@ -5124,7 +5260,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         outputBaseAccountIds: async () => [routedAccountId(await accountRouting.get(), "contracting.billings") ?? "2165"],
       },
       taxRates,
-      cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
+      cashAccountIds: resolveCashAndBankAccountIds,
+      costOfSalesAccountIds: async () => {
+        const [routing, chart, catalogue] = await Promise.all([accountRouting.get(), accounts.list(), items.list()]);
+        return costOfSalesLedgerAccountIds(chart, routing, catalogue);
+      },
       otherIncomeExpenseAccountIds,
       branchOfEntry: resolveEntryBranches,
     },
@@ -5165,6 +5305,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       countItems: async () => (await items.list()).length,
       uow,
       otherIncomeExpenseAccountIds,
+      cashAccountIds: resolveCashAndBankAccountIds,
+      inventoryAccountIds: async () => {
+        const [routing, chart, catalogue] = await Promise.all([accountRouting.get(), accounts.list(), items.list()]);
+        return { held: inventoryLedgerAccountIds(chart, routing, catalogue), allowance: [INVENTORY_WRITEDOWN_GL_ACCOUNTS.provisionAccountId] };
+      },
     }, resolveAuthContext),
   );
   // Unconditional: a route mounted only when an optional dep happens to be
@@ -5193,6 +5338,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: auditSink,
     eventBus,
     etaReceipts,
+    cashAndBankAccountIds: resolveCashAndBankAccountIds,
     stores: {
       settings,
       branches,
@@ -5300,6 +5446,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     labelLayouts,
   ];
 
+  branchDirectory = createSqliteBranchDirectory(sqlite);
+
   if (options.seedDemoData) {
     await seedDemoTenant(app, {
       token: sessions.issue({
@@ -5309,8 +5457,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         branchScope: ALL_SCOPE,
         warehouseScope: ALL_SCOPE,
       }),
-      mint: ({ userId, permissions, roleCode }) =>
-        sessions.issue({ userId, permissions, roleCode, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }),
+      mint: ({ userId, permissions, roleCode, branchScope }) =>
+        sessions.issue({ userId, permissions, roleCode, branchScope: branchScope ? [...branchScope] : ALL_SCOPE, warehouseScope: ALL_SCOPE }),
       audit: auditSink,
     });
   }

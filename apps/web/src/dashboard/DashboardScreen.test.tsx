@@ -50,21 +50,21 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
     expect(screen.getByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "فاتورة جديدة" })).toBeInTheDocument();
     // The revenue label/figure now also appear in the balance-beam hero, so more than one match is expected.
-    expect(screen.getAllByText("إجمالي الإيرادات").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("إجمالي الإيرادات")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("86,240.00")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("24,310.00").length).toBeGreaterThan(0);
   });
 
   it("renders the company-wide KPI row from real GL figures", async () => {
     renderDashboard();
-    expect(screen.getByText("مبالغ لدى العملاء")).toBeInTheDocument();
+    expect(await screen.findByText("مبالغ لدى العملاء")).toBeInTheDocument();
     expect(await screen.findByText("604,950.90")).toBeInTheDocument();
     expect(screen.getByText("2,782.30")).toBeInTheDocument();
   });
 
   it("renders the system-data counts and recent activity from real data", async () => {
     renderDashboard();
-    expect(screen.getByText("بيانات النظام")).toBeInTheDocument();
+    expect(await screen.findByText("بيانات النظام")).toBeInTheDocument();
     expect(await screen.findByText("قيد افتتاحي")).toBeInTheDocument();
     expect(screen.getByText("النشاط الأخير")).toBeInTheDocument();
   });
@@ -86,10 +86,10 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
     expect((await screen.findAllByText("9,999.00")).length).toBeGreaterThan(0);
   });
 
-  it("shows the company-wide footer disclaimer", () => {
+  it("shows the company-wide footer disclaimer", async () => {
     renderDashboard();
     expect(
-      screen.getByText("جميع الأرقام المالية مصدرها القيود المحاسبية المرحلة · نطاق الفرع لا يؤثر على الأرقام على مستوى الشركة"),
+      await screen.findByText("جميع الأرقام المالية مصدرها القيود المحاسبية المرحلة · نطاق الفرع لا يؤثر على الأرقام على مستوى الشركة"),
     ).toBeInTheDocument();
   });
 
@@ -198,6 +198,39 @@ describe("DashboardScreen — the panels follow the user's own layout (§8.5, §
   it("still renders the default four when the user has chosen nothing", async () => {
     renderWith(preferences([]));
     expect(await screen.findByText("أعمار الأرصدة")).toBeInTheDocument();
+  });
+});
+
+describe("DashboardScreen — a branch-restricted session sees no company-wide tile (D111)", () => {
+  const TAX_TILE = "ضريبة القيمة المضافة المستحقة";
+  const CONTRACTING_TILE = "استثناءات المقاولات";
+
+  function renderAs(session: typeof testAdminSession) {
+    const calls: string[] = [];
+    const stub = stubTransport({ "GET /dashboard/summary": () => ({ body: summary() }) });
+    renderWithProviders(<DashboardScreen />, {
+      transport: (path, init) => {
+        calls.push(path.split("?")[0]!);
+        return stub(path, init);
+      },
+      initialSession: session,
+    });
+    return calls;
+  }
+
+  it("draws neither the VAT-due tile nor the contracting one, and asks the server for neither", async () => {
+    const calls = renderAs({ ...testAdminSession, isCompanyAdmin: false, branchScope: ["BR-ALEX"] });
+    expect(await screen.findByText("فواتير مبيعات متأخرة")).toBeInTheDocument();
+    expect(screen.queryByText(TAX_TILE)).not.toBeInTheDocument();
+    expect(screen.queryByText(CONTRACTING_TILE)).not.toBeInTheDocument();
+    expect(calls.filter((path) => path.includes("vat-return") || path.startsWith("/contracting"))).toEqual([]);
+  });
+
+  it("draws both for a session that holds every branch", async () => {
+    const calls = renderAs(testAdminSession);
+    expect(await screen.findByText(TAX_TILE)).toBeInTheDocument();
+    expect(screen.getByText(CONTRACTING_TILE)).toBeInTheDocument();
+    expect(calls.some((path) => path.includes("vat-return"))).toBe(true);
   });
 });
 

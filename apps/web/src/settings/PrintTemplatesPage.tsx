@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ReadOnlyFields } from "../shell/ReadOnlyForm";
 import {
   Button,
   DEFAULT_PRINT_TEMPLATE_CONFIG,
@@ -92,6 +93,14 @@ function signatureLabelList(count: number, labels: readonly string[]): string[] 
 }
 
 export function PrintTemplatesPage() {
+  return (
+    <ReadOnlyFields>
+      <PrintTemplatesPageContent />
+    </ReadOnlyFields>
+  );
+}
+
+function PrintTemplatesPageContent() {
   const { t } = useAppTranslation();
   const query = usePrintTemplateConfig();
   const save = useSavePrintTemplateConfig();

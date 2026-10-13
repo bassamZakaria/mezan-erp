@@ -1,3 +1,4 @@
+import { sharedFieldRefusal } from "./branch-policy.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import { nextMasterCode } from "./master-code.js";
@@ -30,6 +31,9 @@ import {
 } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { tenantToday } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 export interface CustomerTaxRateLookup {
   findById(id: string): Promise<Pick<TaxRate, "id" | "name" | "rate" | "status"> | null>;
@@ -54,7 +58,7 @@ export interface CustomerPriceListLookup {
  */
 export interface CustomerReceivablesSource {
   /** `today` is the TENANT's calendar day, resolved at the route (D288). */
-  outstandingByCustomer(today: string): Promise<ReadonlyMap<string, Money>>;
+  outstandingByCustomer(today: string, c: Context): Promise<ReadonlyMap<string, Money>>;
 }
 
 /**
@@ -87,6 +91,8 @@ export interface PartyOpeningBalancePoster {
 }
 
 /** Wire representation of a customer — a plain JSON-safe projection with Money as decimal strings. */
+const CUSTOMERS_PREFIX = "/customers";
+
 function serialize(customer: Customer) {
   return {
     id: customer.id,
@@ -142,6 +148,7 @@ export const AUDITED_CUSTOMER_FIELDS = [
 ] as const;
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof InvalidCustomerError) {
@@ -192,6 +199,8 @@ export function createCustomersRouter(
   receivables?: CustomerReceivablesSource,
   /** Posts the customer's رصيد افتتاحي into the ledger (Dr 1105 / Cr 3210) — see suppliers-routes.ts (B-2, D241). */
   openingBalances?: PartyOpeningBalancePoster,
+  /** SECURITY: makes a refused create — a taken id included — leave no opening-balance entry behind. */
+  transactor?: ConfigTransactor,
   taxRates?: CustomerTaxRateLookup,
 ) {
   const app = new Hono();
@@ -275,7 +284,7 @@ export function createCustomersRouter(
   }
 
   async function outstandingByCustomer(c: Context): Promise<ReadonlyMap<string, Money>> {
-    return (await receivables?.outstandingByCustomer(await tenantToday(c))) ?? new Map<string, Money>();
+    return (await receivables?.outstandingByCustomer(await tenantToday(c), c)) ?? new Map<string, Money>();
   }
 
   /** The customer's aging row, which carries the opening balance itself (D204) — one definition, used by both the filter and the KPI. */
@@ -423,9 +432,8 @@ export function createCustomersRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    if (await repo.findById(parsed.data.id)) {
-      return c.json({ error: "ALREADY_EXISTS" }, 409);
-    }
+    const restrictedOnCreate = sharedFieldRefusal(c, CUSTOMERS_PREFIX, null, parsed.data);
+    if (restrictedOnCreate) return restrictedOnCreate;
     const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "C");
     if (await repo.findByCode(code)) {
       return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `كود العميل «${code}» مستخدم بالفعل.` }, 409);
@@ -449,9 +457,11 @@ export function createCustomersRouter(
       });
       // The GL post goes FIRST: a refused period must leave behind no customer
       // carrying an opening balance the control account never heard about.
-      await postOpeningBalance(customer, openingBalanceDate);
-      await repo.save(customer);
-      await record(c, customer, AuditChangeAction.Create);
+      await atomically(transactor, async () => {
+        await postOpeningBalance(customer, openingBalanceDate);
+        await repo.insert(customer);
+        await record(c, customer, AuditChangeAction.Create);
+      });
       return c.json(serialize(customer), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -467,6 +477,8 @@ export function createCustomersRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const restricted = sharedFieldRefusal(c, CUSTOMERS_PREFIX, serialize(current), parsed.data);
+    if (restricted) return restricted;
     // Every POS sale with no named buyer is invoiced to this customer: it must
     // stay active and stay a consumer (no tax number), or the till stops selling.
     if (

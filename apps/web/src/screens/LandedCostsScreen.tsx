@@ -1,7 +1,9 @@
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -365,6 +367,7 @@ export function LandedCostsScreen() {
       await confirmLandedCost.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -374,6 +377,7 @@ export function LandedCostsScreen() {
       await cancelLandedCost.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -386,6 +390,7 @@ export function LandedCostsScreen() {
       await reverseLandedCost.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setReversingId(null);
     }
@@ -521,12 +526,12 @@ export function LandedCostsScreen() {
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(d.id) },
             ...(d.status === "draft"
               ? [
-                  { key: "confirm", label: t("landedCosts.confirm"), onSelect: () => void confirmExisting(d.id) },
-                  { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
+                  { key: "confirm", label: t("landedCosts.confirm"), onSelect: () => confirmExisting(d.id) },
+                  { key: "cancel", label: t("common.cancel"), onSelect: () => cancelExisting(d.id) },
                 ]
               : []),
             ...resubmitRowMenuItems(resubmit, d),
-            ...(d.status === DocumentStatusCode.Confirmed && !d.reversesDocId ? [{ key: "void", label: t("landedCosts.void"), tone: "danger" as const, disabled: reversingId === d.id, confirm: { title: t("landedCosts.void"), consequence: t("landedCosts.voidConsequence", { doc: d.docNo ?? d.id }), confirmLabel: t("landedCosts.void") }, onSelect: () => void reverseConfirmed(d.id) }] : []),
+            ...(d.status === DocumentStatusCode.Confirmed && !d.reversesDocId ? [{ key: "void", label: t("landedCosts.void"), tone: "danger" as const, disabled: reversingId === d.id, confirm: { title: t("landedCosts.void"), consequence: t("landedCosts.voidConsequence", { doc: d.docNo ?? d.id }), confirmLabel: t("landedCosts.void") }, onSelect: () => reverseConfirmed(d.id) }] : []),
           ];
           return (
             <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
@@ -714,6 +719,7 @@ export function LandedCostsScreen() {
           <div className="flex flex-col gap-4 p-5">
             <AlreadySavedNotice notice={savedNotice} openId={selected.id} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+            <HeldDocumentReapproval document={selected} pending={confirmLandedCost.isPending} confirm={(id) => confirmLandedCost.mutateAsync(id)} />
             {reversalLink(selected)}
             <div className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[12.5px]">
               <span className="text-ink-muted">{t("landedCosts.field.method")}</span>

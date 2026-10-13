@@ -11,6 +11,7 @@ import {
   type StockPositionFaultRow,
 } from "@mezan/domain";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 
 /** One sub-ledger↔GL control-account pairing to reconcile. */
 export interface ReconciliationControl {
@@ -66,6 +67,8 @@ export function createReconciliationRoutes(
   const gate = createPermissionGate(resolveAuthContext);
 
   app.get("/", gate("accounting.reports.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const controls = await deps.resolveControls();
     const summary = await reconcileControls(deps.ledger, controls);
 

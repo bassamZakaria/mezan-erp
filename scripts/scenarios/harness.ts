@@ -306,6 +306,7 @@ export async function boot() {
   return {
     app,
     sessions,
+    dbPath,
     drain,
     today,
     onCalendar,

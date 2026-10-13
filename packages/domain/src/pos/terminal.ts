@@ -179,7 +179,7 @@ export function buildPosTerminal(id: string, input: PosTerminalInput, current?: 
 export interface PosTerminalReferenceAccount {
   readonly id: string;
   readonly type: "cash" | "bank";
-  readonly branchId: string;
+  readonly branchId: string | null;
   readonly status: "active" | "inactive";
 }
 

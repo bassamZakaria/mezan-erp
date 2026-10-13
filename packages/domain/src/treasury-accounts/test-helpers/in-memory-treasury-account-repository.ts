@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import type { TreasuryAccount, TreasuryAccountRepository } from "../treasury-account.js";
 
 /** A trivial in-memory {@link TreasuryAccountRepository} fake for domain-layer unit tests. */
@@ -20,7 +21,7 @@ export class InMemoryTreasuryAccountRepository implements TreasuryAccountReposit
   }
 
   async create(account: TreasuryAccount): Promise<void> {
-    this.rows.set(account.id, account);
+    insertOnly(this.rows, account.id, account);
   }
 
   async update(account: TreasuryAccount): Promise<void> {

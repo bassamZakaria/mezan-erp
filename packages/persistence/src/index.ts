@@ -384,5 +384,7 @@ export {
 export { createSqliteAccountLockStore, type SqliteAccountLockStore, type StoredAccountLock } from "./account-lock-store.js";
 export { drainForeignWrites, drainUntransactedAudits, keepRecent } from "./untransacted-audits.js";
 export { createFileSecurityEventFallback, securityFallbackFor, type FileSecurityEventFallbackOptions } from "./security-fallback-file.js";
+export { createSqliteUpgradeLedger, UpgradeStepId, type UpgradeLedger } from "./upgrade-ledger.js";
+export { markApprovalsNeedingReapproval } from "./approval-request-store.js";
 export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";
 export { createSqliteCredentialResetMarks, type CredentialResetMarks } from "./credential-reset-marks.js";

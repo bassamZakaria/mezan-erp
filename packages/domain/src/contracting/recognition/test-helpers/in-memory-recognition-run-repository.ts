@@ -1,3 +1,4 @@
+import { insertOnly } from "../../../records/test-helpers/insert-only.js";
 import type {
   RecognitionRunFilter,
   RevenueRecognitionRun,
@@ -33,6 +34,10 @@ export class InMemoryRecognitionRunRepository implements RevenueRecognitionRunRe
 
   async save(run: RevenueRecognitionRun): Promise<void> {
     this.rows.set(run.id, run);
+  }
+
+  async insert(run: RevenueRecognitionRun): Promise<void> {
+    insertOnly(this.rows, run.id, run);
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {

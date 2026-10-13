@@ -17,11 +17,13 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PLATFORM_LOOKUP_FIRST_RETRY_MS } from "./data/hooks";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import type { EntitlementsDTO, RoleDTO, UserDTO } from "@mezan/contracts";
 import { AppLayout } from "./AppLayout";
+import { useEffect, useState } from "react";
+import { useApi } from "./data/ApiContext";
 import { AppProviders } from "./data/AppProviders";
 import { clearTenantCode, persistSession, persistTenantCode, type Session } from "./data/session";
 import { stubTransport, testAdminSession } from "./data/test-support";
@@ -418,6 +420,35 @@ describe("AppLayout — command palette", () => {
   });
 });
 
+describe("AppLayout — dashboard.view", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+  const handlers = () => ({ ...baseHandlers(), "GET /roles": () => ({ body: [] }), "GET /users": () => ({ body: [] }) });
+  const seat = (permissions: string[]): Session => ({ ...testAdminSession, permissions });
+
+  it("a seat holding dashboard.view has the dashboard icon and its screen", async () => {
+    renderLayout(stubTransport(handlers()), [pathForRoute("dashboard")], seat(["dashboard.view", "sales.invoice.view"]));
+    expect(await screen.findByRole("button", { name: "لوحة التحكم" })).toBeInTheDocument();
+    expect(screen.getByTestId("location-probe")).toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-not-permitted")).not.toBeInTheDocument();
+  });
+
+  it("a seat without it has no dashboard icon, and the dashboard path says why in Arabic instead of drawing the screen", async () => {
+    renderLayout(stubTransport(handlers()), [pathForRoute("dashboard")], seat(["sales.invoice.view"]));
+    const notice = await screen.findByTestId("dashboard-not-permitted");
+    expect(notice).toHaveTextContent("لوحة التحكم غير متاحة لدورك");
+    expect(screen.queryByRole("button", { name: "لوحة التحكم" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
+  });
+
+  it("the same seat still reaches every other screen its role opens", async () => {
+    renderLayout(stubTransport(handlers()), [pathForRoute("notifications")], seat(["sales.invoice.view"]));
+    expect(await screen.findByTestId("location-probe")).toHaveTextContent(pathForRoute("notifications"));
+    expect(screen.queryByTestId("dashboard-not-permitted")).not.toBeInTheDocument();
+  });
+});
+
 describe("AppLayout — nav entitlements", () => {
   afterEach(() => {
     persistSession(null);
@@ -803,5 +834,83 @@ describe("AppLayout — the rail against the seat's permissions (P-3)", () => {
 
     expect(within(panel).getAllByText("الرواتب").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("القيود المحاسبية").length).toBeGreaterThan(0);
+  });
+});
+
+describe("AppLayout — a branch-restricted session (D111)", () => {
+  afterEach(() => {
+    cleanup();
+    persistSession(null);
+  });
+
+  const branchSession: Session = { ...testAdminSession, userId: "USER-ALEX", isCompanyAdmin: false, branchScope: ["BR2"] };
+  const CONTRACTING_WORKSPACE = "المقاولات";
+
+  it("a direct address to a company-wide screen shows why it is not available, in Arabic, and does not mount the screen", async () => {
+    renderLayout(stubTransport(baseHandlers()), [pathForRoute("projects")], branchSession);
+    const state = await screen.findByTestId("branch-unavailable");
+    expect(within(state).getByRole("heading")).toHaveTextContent("غير متاحة لحساب مقيّد بفروع");
+    expect(screen.queryByTestId("intent-probe")).not.toBeInTheDocument();
+  });
+
+  it("the same address opens the screen for a session that holds every branch", async () => {
+    renderLayout(stubTransport(baseHandlers()), [pathForRoute("projects")]);
+    expect(await screen.findByTestId("intent-probe")).toBeInTheDocument();
+    expect(screen.queryByTestId("branch-unavailable")).not.toBeInTheDocument();
+  });
+
+  it("a shared configuration screen opens, under a notice that it is read-only for this account", async () => {
+    renderLayout(stubTransport(baseHandlers()), [pathForRoute("price-lists")], branchSession);
+    expect(await screen.findByTestId("intent-probe")).toBeInTheDocument();
+    expect(screen.getByTestId("branch-read-only")).toHaveTextContent("للعرض فقط");
+  });
+
+  it("a daily screen opens with neither", async () => {
+    renderLayout(stubTransport(baseHandlers()), [pathForRoute("sales-invoices")], branchSession);
+    expect(await screen.findByTestId("intent-probe")).toBeInTheDocument();
+    expect(screen.queryByTestId("branch-read-only")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("branch-unavailable")).not.toBeInTheDocument();
+  });
+
+  it("the workspace bar drops the workspace whose every screen is company-wide, and keeps the daily ones", async () => {
+    renderLayout(stubTransport(baseHandlers()), ["/dashboard"], branchSession);
+    await screen.findByTestId("intent-probe");
+    expect(await screen.findByRole("button", { name: "البيع والتحصيل" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: CONTRACTING_WORKSPACE })).not.toBeInTheDocument();
+  });
+
+  it("and shows that workspace to a session that holds every branch", async () => {
+    renderLayout(stubTransport(baseHandlers()), ["/dashboard"]);
+    expect(await screen.findByRole("button", { name: CONTRACTING_WORKSPACE })).toBeInTheDocument();
+  });
+
+  it("refuses a company-wide read before it leaves the device, with the server's own code", async () => {
+    const calls: string[] = [];
+    const transport: Transport = (path, init) => {
+      calls.push(`${init?.method ?? "GET"} ${path}`);
+      return stubTransport(baseHandlers())(path, init);
+    };
+    function Probe() {
+      const { request } = useApi();
+      const [answer, setAnswer] = useState("");
+      useEffect(() => {
+        void (async () => {
+          const read = await request("/projects");
+          const write = await request("/price-lists", { method: "POST", body: "{}" });
+          const body = await read.json<{ error: string; message: string }>();
+          setAnswer(`${read.status} ${body.error} ${body.message} | ${write.status}`);
+        })();
+      }, [request]);
+      return <div data-testid="answer">{answer}</div>;
+    }
+    render(
+      <AppProviders transport={transport} initialSession={branchSession}>
+        <Probe />
+      </AppProviders>,
+    );
+    await waitFor(() => expect(screen.getByTestId("answer")).toHaveTextContent("403 COMPANY_WIDE_REPORT"));
+    expect(screen.getByTestId("answer")).toHaveTextContent("على مستوى الشركة");
+    expect(screen.getByTestId("answer")).toHaveTextContent("| 403");
+    expect(calls.filter((call) => call.includes("/projects") || call.includes("/price-lists"))).toEqual([]);
   });
 });

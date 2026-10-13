@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from "react";
+import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
+import { useCallback, useSyncExternalStore } from "react";
 import { loadTenantCode, subscribeTenantCode } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -11,6 +12,7 @@ import type {
   SubmitApprovalRequestDTO,
   DecideApprovalRequestDTO,
   AccountDTO,
+  DisposalProceedsAccountDTO,
   ActivityDTO,
   AddAttributeValueDTO,
   AddTemplateAttributeDTO,
@@ -32,6 +34,7 @@ import type {
   UpdateItemUnitDTO,
   BounceChequeDTO,
   BranchDTO,
+  BranchLookupDTO,
   EntitlementsDTO,
   ChequeDirectionDTO,
   ChequeDTO,
@@ -236,6 +239,7 @@ import type {
   SupplierDTO,
   TaxRateDTO,
   TenantSettingsDTO,
+  TenantSettingsLookupDTO,
   UserPreferencesDTO,
   TransitionLeadDTO,
   TreasuryAccountDTO,
@@ -264,6 +268,7 @@ import type {
   VoucherDTO,
   VoucherListQueryDTO,
   WarehouseDTO,
+  WarehouseLookupDTO,
   PrintTemplateConfigDTO,
   DepartmentDTO,
   CreateDepartmentDTO,
@@ -312,13 +317,14 @@ import type {
   RecurringJournalTemplateStatusDTO,
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
-import { ScreenRequest, ShellRequest, type DisplaySettingKey } from "@mezan/domain";
+import { DashboardRequest, ScreenRequest, ShellRequest, mayAskDashboard, type DisplaySettingKey } from "@mezan/domain";
 import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
-import { sessionMayAsk, sessionMayAskScreen } from "./session";
+import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
 import type { TransportResponse } from "./transport";
-import { useAppTranslation } from "../i18n";
+import { BranchRefusalCode } from "@mezan/contracts";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * The `/sales-quotes` responses (create/list/get/send/accept/reject) — the
@@ -614,6 +620,21 @@ export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
   });
 }
 
+export interface QueryGate {
+  readonly enabled?: boolean;
+}
+
+export function useDashboardGate(): (request: DashboardRequest) => boolean {
+  const { session } = useApi();
+  const entitlements = useEntitlements();
+  const plan = entitlements.data;
+  const planKnown = plan !== undefined || entitlements.isError;
+  return useCallback(
+    (request: DashboardRequest) => session !== null && planKnown && mayAskDashboard(request, (permission) => sessionHolds(session, permission), plan),
+    [session, plan, planKnown],
+  );
+}
+
 // INVARIANT: waits for the licence's first answer — a list asked for while the
 // entitlements are still loading is refused on a tenant without its module. A
 // licence that cannot be read leaves the permission alone to decide.
@@ -654,10 +675,11 @@ export interface DashboardRange {
  */
 export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<DashboardSummaryDTO, ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useDashboardGate();
   return useQuery<DashboardSummaryDTO, ApiError>({
     queryKey: ["dashboard", "summary", range.fromDate ?? null, range.toDate ?? null],
-    enabled: session !== null,
+    enabled: mayAsk(DashboardRequest.Summary),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (range.fromDate) params.set("fromDate", range.fromDate);
@@ -720,6 +742,37 @@ export function withSupportCode(message: string, status: number, t?: AppTranslat
  * غير مفعّلة في باقتكم») — that must reach the screen, not the generic
  * "تعذّر تحميل…" `fallback` every other failure keeps.
  */
+const PROJECTS_API = "/projects";
+const LEADS_API = "/crm/leads";
+
+/** True when the server would refuse this read to the signed-in, branch-restricted session — the query is then never sent. */
+function refusedForBranch(session: SessionDTO, path: string): boolean {
+  return isBranchRestricted(session) && branchRefusalBefore(path, "GET") !== null;
+}
+
+const BRANCH_REFUSAL_MESSAGE_KEYS: Readonly<Record<BranchRefusalCode, AppTranslationKey>> = {
+  [BranchRefusalCode.NotFound]: "branchRefusal.NOT_FOUND",
+  [BranchRefusalCode.BranchOutOfScope]: "branchRefusal.BRANCH_OUT_OF_SCOPE",
+  [BranchRefusalCode.CompanyWideOnly]: "branchRefusal.COMPANY_WIDE_REPORT",
+  [BranchRefusalCode.PolicyUndeclared]: "branchRefusal.BRANCH_POLICY_UNDECLARED",
+  [BranchRefusalCode.BranchRequired]: "branchRefusal.BRANCH_REQUIRED",
+  [BranchRefusalCode.TreasuryBranchMismatch]: "branchRefusal.TREASURY_BRANCH_MISMATCH",
+  [BranchRefusalCode.WarehouseBranchMismatch]: "branchRefusal.WAREHOUSE_BRANCH_MISMATCH",
+  [BranchRefusalCode.WarehouseOutOfScope]: "branchRefusal.WAREHOUSE_OUT_OF_SCOPE",
+  [BranchRefusalCode.SharedFieldRestricted]: "branchRefusal.SHARED_FIELD_RESTRICTED",
+  [BranchRefusalCode.HeadOfficeCreatesOnly]: "branchRefusal.HEAD_OFFICE_CREATES_ONLY",
+};
+
+/**
+ * The catalogue key for a branch-boundary refusal, in the reader's language.
+ * `NOT_FOUND` is left to the server's own sentence: other routes answer that
+ * code for reasons that have nothing to do with a branch.
+ */
+export function branchRefusalMessageKey(code: string | undefined): AppTranslationKey | undefined {
+  if (code === undefined || code === BranchRefusalCode.NotFound) return undefined;
+  return (BRANCH_REFUSAL_MESSAGE_KEYS as Readonly<Record<string, AppTranslationKey>>)[code];
+}
+
 /**
  * The ApiError a loader throws, carrying everything the screen and support both
  * need. Both branches of this merge had grown their own half of this, and each
@@ -748,6 +801,8 @@ export async function loaderError(
   if (res.status === 403 && body.error === "MODULE_NOT_LICENSED" && body.message) {
     return new ApiError(res.status, body.message, undefined, undefined, body.error);
   }
+  const branchRefusal = branchRefusalMessageKey(body.error);
+  if (branchRefusal && t) return new ApiError(res.status, t(branchRefusal), undefined, undefined, body.error);
   if (body.message !== undefined && body.message !== "") return new ApiError(res.status, body.message);
   return new ApiError(res.status, withSupportCode(fallback, res.status, t));
 }
@@ -1116,6 +1171,20 @@ export function useUpdateSupplier() {
 }
 
 /** دليل الحسابات (docs/archive/catalog/04) — list, create, edit. */
+export function useDisposalProceedsAccounts(): UseQueryResult<DisposalProceedsAccountDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<DisposalProceedsAccountDTO[], ApiError>({
+    queryKey: ["assets", "disposal-proceeds-accounts"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/assets/disposal-proceeds-accounts");
+      if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"), t);
+      return res.json<DisposalProceedsAccountDTO[]>();
+    },
+  });
+}
+
 export function useAccounts(): UseQueryResult<AccountDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
@@ -1807,12 +1876,12 @@ export function useRecurringJournalSkips(templateId: string | null): UseQueryRes
   });
 }
 
-export function useAllRecurringJournalSkips(limit = 200): UseQueryResult<RecurringJournalSkipDTO[], ApiError> {
+export function useAllRecurringJournalSkips(limit = 200, enabled = true): UseQueryResult<RecurringJournalSkipDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<RecurringJournalSkipDTO[], ApiError>({
     queryKey: ["recurring-journal-skips", limit],
-    enabled: session !== null,
+    enabled: session !== null && enabled,
     queryFn: async () => {
       const res = await request(`/gl/recurring/skips?limit=${limit}`);
       if (!res.ok) throw await loaderError(res, t("recurringJournals.historyCouldNotLoad"), t);
@@ -2068,6 +2137,20 @@ export function useUserPreferences(): UseQueryResult<UserPreferencesDTO | null, 
   });
 }
 
+export function useTenantSettings(): UseQueryResult<TenantSettingsLookupDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<TenantSettingsLookupDTO, ApiError>({
+    queryKey: ["settings", "lookup"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings/lookup");
+      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
+      return res.json<TenantSettingsLookupDTO>();
+    },
+  });
+}
+
 export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -2120,13 +2203,34 @@ export function useUpdateSettings() {
 export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  const administers = sessionMayAsk(session, ShellRequest.Branches) && !isBranchRestricted(session);
   return useQuery<BranchDTO[], ApiError>({
-    queryKey: ["branches"],
-    enabled: sessionMayAsk(session, ShellRequest.Branches),
+    queryKey: ["branches", administers ? "records" : "granted"],
+    enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/branches");
+      if (administers) {
+        const res = await request("/branches");
+        if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
+        return res.json<BranchDTO[]>();
+      }
+      const res = await request("/branches/lookup");
       if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
-      return res.json<BranchDTO[]>();
+      const lookup = await res.json<BranchLookupDTO>();
+      return lookup.branches.map((branch) => ({ ...branch, parentBranchId: null, phone: null, email: null, address: null }));
+    },
+  });
+}
+
+export function useBranchLookup(): UseQueryResult<BranchLookupDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<BranchLookupDTO, ApiError>({
+    queryKey: ["branches", "lookup"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/branches/lookup");
+      if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
+      return res.json<BranchLookupDTO>();
     },
   });
 }
@@ -2491,13 +2595,19 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
 export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  const administers = sessionMayAsk(session, ShellRequest.Warehouses) && !isBranchRestricted(session);
   return useQuery<WarehouseDTO[], ApiError>({
-    queryKey: ["warehouses"],
-    enabled: sessionMayAsk(session, ShellRequest.Warehouses),
+    queryKey: ["warehouses", administers ? "records" : "granted"],
+    enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/warehouses");
+      if (administers) {
+        const res = await request("/warehouses");
+        if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
+        return res.json<WarehouseDTO[]>();
+      }
+      const res = await request("/warehouses/lookup");
       if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
-      return res.json<WarehouseDTO[]>();
+      return res.json<WarehouseLookupDTO[]>();
     },
   });
 }
@@ -2556,12 +2666,12 @@ function voucherParams(filter: Partial<VoucherListQueryDTO>): URLSearchParams {
  * to drop for which count. Withholding both here made the status chips report
  * the whole book while a type was selected.
  */
-export function useVoucherCounts(filter: Partial<VoucherListQueryDTO> = {}): UseQueryResult<ListCountsDTO, ApiError> {
+export function useVoucherCounts(filter: Partial<VoucherListQueryDTO> = {}, gate: QueryGate = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ListCountsDTO, ApiError>({
     queryKey: ["vouchers", "counts", filter],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers/counts${qs ? `?${qs}` : ""}`);
@@ -3074,12 +3184,12 @@ export function useConfirmPurchaseInvoice() {
 export type { SalesInvoiceLineRowDTO, SalesInvoiceTotalsDTO, SalesInvoiceDTO };
 
 /** فواتير المبيعات (docs/archive/catalog/01) — list, create, confirm, record a payment. */
-export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
+export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> = {}, gate: QueryGate = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SalesInvoiceDTO[], ApiError>({
     queryKey: ["sales-invoices", filter],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.salesInvoicesCouldNotBe"), t);
@@ -3399,9 +3509,9 @@ export function useLeads(): UseQueryResult<LeadDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<LeadDTO[], ApiError>({
     queryKey: ["crm-leads"],
-    enabled: session !== null,
+    enabled: session !== null && !refusedForBranch(session, LEADS_API),
     queryFn: async () => {
-      const res = await request("/crm/leads");
+      const res = await request(LEADS_API);
       if (!res.ok) throw await loaderError(res, t("api.leadsCouldNotBeLoaded"), t);
       return res.json<LeadDTO[]>();
     },
@@ -3609,9 +3719,9 @@ export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<ProjectDTO[], ApiError>({
     queryKey: ["projects"],
-    enabled: sessionMayRead(session, DocumentReadPermission.Projects),
+    enabled: session !== null && sessionMayRead(session, DocumentReadPermission.Projects) && !refusedForBranch(session, PROJECTS_API),
     queryFn: async () => {
-      const res = await request("/projects");
+      const res = await request(PROJECTS_API);
       if (!res.ok) throw await loaderError(res, t("api.projectsCouldNotBeLoaded"), t);
       return res.json<ProjectDTO[]>();
     },
@@ -7114,12 +7224,12 @@ export interface MyLeaveDTO {
   readonly requests: LeaveRequestDTO[];
 }
 
-export function useMyLeave(): UseQueryResult<MyLeaveDTO, ApiError> {
+export function useMyLeave(gate: QueryGate = {}): UseQueryResult<MyLeaveDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<MyLeaveDTO, ApiError>({
     queryKey: ["hr-my-leave"],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const res = await request("/hr/leave-requests/me");
       if (!res.ok) throw await loaderError(res, t("api.yourLeaveCouldNotBe"), t);
@@ -8413,12 +8523,12 @@ export interface LeaveRequestCountsDTO {
   readonly cancelled: number;
 }
 
-export function useLeaveRequestCounts(): UseQueryResult<LeaveRequestCountsDTO, ApiError> {
+export function useLeaveRequestCounts(gate: QueryGate = {}): UseQueryResult<LeaveRequestCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LeaveRequestCountsDTO, ApiError>({
     queryKey: ["hr-leave-request-counts"],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const res = await request("/hr/leave-requests/counts");
       if (!res.ok) throw await loaderError(res, t("api.theLeaveRequestSummaryCould"), t);
@@ -8884,12 +8994,12 @@ export interface TreasuryAccountStatsDTO {
  * The live figures come from the GL, because a treasury account's balance IS
  * its control account's balance.
  */
-export function useTreasuryAccountStats(): UseQueryResult<TreasuryAccountStatsDTO, ApiError> {
+export function useTreasuryAccountStats(gate: QueryGate = {}): UseQueryResult<TreasuryAccountStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<TreasuryAccountStatsDTO, ApiError>({
     queryKey: ["treasury-accounts", "stats"],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const res = await request("/treasury-accounts/stats");
       if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"), t);

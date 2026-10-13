@@ -747,6 +747,7 @@ export class StockLedgerService {
             sourceDocNumber: number,
             date,
             memo: `${memo} — فرق متوسط التكلفة`,
+            warehouseId: new Set(original.map((movement) => movement.warehouseId)).size === 1 ? (original[0]?.warehouseId ?? null) : null,
             lines: [
               { ...inventoryLine, debit: up ? magnitude : Money.zero(), credit: up ? Money.zero() : magnitude },
               { ...counterpartLine, debit: up ? Money.zero() : magnitude, credit: up ? magnitude : Money.zero() },
@@ -813,6 +814,7 @@ export class StockLedgerService {
           sourceDocNumber: command.sourceDocNumber ?? null,
           date: occurredAt.slice(0, 10),
           memo: `Stock issue ${command.sourceDocNumber ?? command.sourceDocId}`,
+          warehouseId: command.warehouseId,
           lines: [
             {
               accountId: command.gl.cogsAccountId,
@@ -935,6 +937,7 @@ export class StockLedgerService {
           sourceDocNumber: command.transferNumber ?? null,
           date: occurredAt.slice(0, 10),
           memo: `فرق تكلفة: تحويل غطّى كمية بيعت قبل وصوله ${command.transferNumber ?? command.transferId}`,
+          warehouseId: command.toWarehouseId,
           lines: [
             { accountId: debited, debit: magnitude, credit: Money.zero() },
             { accountId: credited, debit: Money.zero(), credit: magnitude },
@@ -1597,6 +1600,7 @@ function buildAdjustmentPosting(
     date,
     memo: `Stock adjustment ${command.adjustmentNumber ?? command.adjustmentId} (${command.reason})`,
     lines,
+    warehouseId: command.warehouseId,
   };
 }
 

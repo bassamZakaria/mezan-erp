@@ -31,7 +31,7 @@ import {
   useTreasuryAccounts,
 } from "../data/hooks";
 import { useImportStatementFile } from "../data/bank-rec-hooks";
-import { formatExactMoney, StatementWorkspace } from "./BankReconciliationWorkspace";
+import { formatExactMoney, StatementWorkspace, useGrantedBranchOptions } from "./BankReconciliationWorkspace";
 import { useAppTranslation } from "../i18n";
 import { useSubPage } from "../navigation";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -354,6 +354,7 @@ function ImportStatementDialog({
   const [openingBalance, setOpeningBalance] = useState("");
   const [closingBalance, setClosingBalance] = useState("");
   const [statementNumber, setStatementNumber] = useState("");
+  const [branchId, setBranchId] = useState("");
   const [mappingOpen, setMappingOpen] = useState(false);
   const [mapping, setMapping] = useState<MappingDraft>(BLANK_MAPPING);
   const [error, setError] = useState<string | null>(null);
@@ -365,6 +366,10 @@ function ImportStatementDialog({
     [treasuryQuery.data],
   );
   const bankOptions: EntityPickerOption[] = bankAccounts.map((a) => ({ id: a.id, label: `${a.name} (${a.code})` }));
+  const branchOptions = useGrantedBranchOptions();
+  const chosenAccount = bankAccounts.find((account) => account.id === treasuryAccountId);
+  const asksForBranch = chosenAccount !== undefined && chosenAccount.branchId === null && branchOptions.length > 1;
+  const statedBranchId = asksForBranch && branchId !== "" ? branchId : null;
 
   const savedMapping = useStatementColumnMapping(treasuryAccountId === "" ? null : treasuryAccountId);
   const importStatement = useImportBankStatement();
@@ -398,6 +403,7 @@ function ImportStatementDialog({
     setOpeningBalance("");
     setClosingBalance("");
     setStatementNumber("");
+    setBranchId("");
     setMappingOpen(false);
     setMapping(BLANK_MAPPING);
     setError(null);
@@ -461,6 +467,7 @@ function ImportStatementDialog({
           openingBalance: openingBalance === "" ? null : openingBalance,
           closingBalance: closingBalance === "" ? null : closingBalance,
           statementNumber: statementNumber.trim() === "" ? null : statementNumber.trim(),
+          branchId: statedBranchId,
         });
         onImported(result.id);
         reset();
@@ -485,6 +492,7 @@ function ImportStatementDialog({
         openingBalance,
         closingBalance,
         statementNumber: statementNumber.trim() === "" ? null : statementNumber.trim(),
+        branchId: statedBranchId,
       });
       onImported(result.id);
       reset();
@@ -509,6 +517,20 @@ function ImportStatementDialog({
             emptyMessage={t("bankRec.noBankAccounts")}
           />
         </div>
+
+        {asksForBranch ? (
+          <div>
+            <EntityPicker
+              label={t("bankRecX.statementBranch")}
+              value={branchOptions.find((o) => o.id === branchId) ?? null}
+              onChange={(o) => setBranchId(o?.id ?? "")}
+              options={branchOptions}
+              placeholder={t("bankRecX.chooseStatementBranch")}
+              emptyMessage={t("bankRecX.noBranches")}
+            />
+            <p className="mt-[4px] text-[11.5px] text-ink-faint">{t("bankRecX.statementBranchHint")}</p>
+          </div>
+        ) : null}
 
         <SelectField
           label={t("bankRec.source")}

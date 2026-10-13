@@ -4,6 +4,7 @@ import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -215,6 +216,7 @@ export function ChequesScreen() {
       setSelectedId(null);
     } catch (err) {
       setActionError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -347,7 +349,7 @@ export function ChequesScreen() {
               label: t(ACTION_KEY[action]),
               tone: action === "bounce" ? ("danger" as const) : ("default" as const),
               disabled: pendingId === c.id,
-              onSelect: () => void runAction(c, action),
+              onSelect: () => runAction(c, action),
             })),
             ...(c.status === "collected" ? reversal.menuItems({ id: c.id, params: { id: c.id }, subject: c.chequeNumber ?? c.id }) : []),
           ];

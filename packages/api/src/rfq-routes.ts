@@ -17,7 +17,6 @@ import {
   RfqNotSentError,
   RfqNotOpenError,
   RfqQuoteNotFoundError,
-  DuplicatePurchaseDocumentError,
   InvalidPurchaseDocumentError,
   type PurchaseRfq,
   type PurchaseRfqRepository,
@@ -37,6 +36,8 @@ import {
   branchScopeOf,
   withinScope,} from "./permission-gate.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Permission-gated routes for طلبات عروض الأسعار (RFQs, docs/archive/catalog/02),
@@ -99,13 +100,11 @@ function serializeQuote(q: RfqQuote) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof RfqNotFoundError || err instanceof RfqQuoteNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
-  }
-  if (err instanceof DuplicatePurchaseDocumentError) {
-    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (
     err instanceof RfqNotDraftError ||

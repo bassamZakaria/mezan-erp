@@ -32,6 +32,7 @@ export {
   createAuthContext,
   can,
   isTenantAdmin,
+  isScopeRestricted,
   visibilityTier,
   type AuthContext,
   type AuthContextInput,
@@ -83,3 +84,4 @@ export {
   mayAskScreenRequest,
   type ScreenRequestGate,
 } from "./shell-requests.js";
+export { DashboardRequest, DASHBOARD_REQUESTS, mayActWith, mayAskDashboard, mayReadWith, type DashboardRequestGate, type PermissionHeld } from "./dashboard-requests.js";

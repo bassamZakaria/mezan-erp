@@ -232,7 +232,7 @@ describe("GoodsReceiptsScreen", () => {
     const transport = stubTransport({
       ...baseHandlers,
       "GET /purchases/receipts": () => ({ body: [] }),
-      "GET /settings": () => ({ body: { requirePoForGrn: false } }),
+      "GET /settings/lookup": () => ({ body: { requirePoForGrn: false } }),
       "POST /purchases/receipts": (init) => {
         posted = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
         return { body: goodsReceipt({ id: "gr-new", number: "GR-000099", purchaseOrderId: null, invoiced: false }) };

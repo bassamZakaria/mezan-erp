@@ -126,6 +126,16 @@ describe("createBackend — seeded app", () => {
     expect(signedInElsewhere.status).toBe(403);
   });
 
+  it("the dashboard asks for dashboard.view as well as the ledger read it folds", async () => {
+    const app = await newBackend();
+    const as = (permissions: string[]) => app.fetch(new Request("http://local/dashboard/summary", { headers: sessionHeaders(app, "u-dash", permissions) }));
+    const ledgerOnly = await as(["accounting.journal.view"]);
+    expect(ledgerOnly.status).toBe(403);
+    expect(((await ledgerOnly.json()) as { permission?: string }).permission).toBe("dashboard.view");
+    expect((await as(["dashboard.view"])).status).toBe(403);
+    expect((await as(["dashboard.view", "accounting.journal.view"])).status).toBe(200);
+  });
+
   it("bootstrap/seed is idempotent and reports counts", async () => {
     const app = await newBackend();
     const res = await post(app, "/bootstrap/seed", {});
@@ -2850,6 +2860,45 @@ describe("createBackend — financial statements over real posted GL (file-backe
     expect(retained?.amount).toBeCloseTo(35000, 2);
   });
 
+  it("a cash drawer nobody hand-listed is still cash: the van drawer, a second branch's drawer and the dollar account sit in the cash section and in closing cash", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    for (const [id, nameAr] of [["1300-2", "صندوق المندوب"], ["1300-ALEX", "صندوق فرع الإسكندرية"], ["1310-USD", "حساب بنكي بالدولار"]] as const) {
+      expect((await post(app, "/accounts", { id, code: id, nameAr, type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false }, admin(app))).status, id).toBe(201);
+    }
+    await postEntry(app, "je-van", "2026-05-01", "عهدة نقدية للمندوب", [line("1300-2", "7000", "0"), line("1300-1", "0", "7000")]);
+    await postEntry(app, "je-alex", "2026-05-02", "تمويل صندوق الفرع", [line("1300-ALEX", "3000", "0"), line("3100", "0", "3000")]);
+    await postEntry(app, "je-usd", "2026-05-03", "إيداع بالحساب الدولاري", [line("1310-USD", "1500", "0"), line("3100", "0", "1500")]);
+
+    const sheet = (await getReport(app, "/balance-sheet?asOfDate=2026-12-31")) as unknown as { rows: { code: string; sectionKey: string; amount: number }[] };
+    for (const code of ["1300-1", "1300-2", "1300-ALEX", "1310-USD"]) expect(sheet.rows.find((row) => row.code === code)?.sectionKey, code).toBe("cash");
+    const cashSection = sheet.rows.filter((row) => row.sectionKey === "cash").reduce((sum, row) => sum + row.amount, 0);
+    expect(cashSection).toBeCloseTo(195000 + 3000 + 1500, 2);
+
+    const flow = (await getReport(app, "/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31")) as unknown as { rows: { closingCash: number }[]; reconciliation: { withinTolerance: boolean } };
+    expect(flow.rows[0]?.closingCash).toBeCloseTo(199500, 2);
+    expect(flow.reconciliation.withinTolerance).toBe(true);
+  });
+
+  it("the dashboard's cash tile is the same set: a guarantee margin is not cash, though its code starts with 13", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    const cashOf = async () => Number(((await (await app.fetch(new Request("http://local/dashboard/summary", { headers: admin(app) }))).json()) as DashboardSummaryDTO).gl.cash);
+    expect(await cashOf()).toBeCloseTo(195000, 2);
+    await postEntry(app, "je-margin-2", "2026-05-05", "غطاء خطاب ضمان", [line("1340", "20000", "0"), line("1300-1", "0", "20000")]);
+    expect(await cashOf()).toBeCloseTo(175000, 2);
+    const flow = (await getReport(app, "/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31")) as unknown as { rows: { closingCash: number }[] };
+    expect(flow.rows[0]?.closingCash).toBeCloseTo(175000, 2);
+  });
+
+  it("restricted cash held as a guarantee margin stays out of cash, as before", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    await postEntry(app, "je-margin", "2026-05-04", "غطاء خطاب ضمان", [line("1340", "10000", "0"), line("1300-1", "0", "10000")]);
+    const sheet = (await getReport(app, "/balance-sheet?asOfDate=2026-12-31")) as unknown as { rows: { code: string; sectionKey: string }[] };
+    expect(sheet.rows.find((row) => row.code === "1340")?.sectionKey).toBe("current-asset");
+  });
+
   it("cash flow ties out (opening + net change = closing) from real cash movements", async () => {
     const app = await newFileBackedBackend();
     await seedLedger(app);
@@ -5280,9 +5329,10 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
     await approvedRate(app, "fx-sar-135", "SAR", "13.50", "2026-08-25");
+    expect((await post(app, "/accounts", { id: "1300-SAR", code: "1300-SAR", nameAr: "خزينة الريال", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false }, admin(app))).status).toBe(201);
     expect((await post(app, "/gl/journal-entries", {
       id: "je-fund", date: "2026-08-24", memo: "تمويل", source: "manual", lines: [
-        { accountId: "1300-1", debit: "5000", credit: "0" },
+        { accountId: "1300-SAR", debit: "5000", credit: "0" },
         { accountId: "3100", debit: "0", credit: "5000" },
       ],
     }, admin(app))).status).toBeLessThan(300);
@@ -5290,7 +5340,6 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     const shared = await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app));
     expect(shared.status).toBe(422);
     expect(((await shared.json()) as { error: string }).error).toBe("TREASURY_GL_ACCOUNT_CURRENCY_CONFLICT");
-    expect((await post(app, "/accounts", { id: "1300-SAR", code: "1300-SAR", nameAr: "خزينة الريال", type: "asset", parentId: "1300", naturalBalance: "debit", isHeader: false }, admin(app))).status).toBe(201);
     expect((await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", type: "bank", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers", {
       id: "v-sar", date: "2026-08-26", voucherType: "supplier_payment", amount: "100", currency: "SAR", branchId: "BR-MAIN", paymentMethod: "cash",

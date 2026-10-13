@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   DocumentList,
   EmptyState,
@@ -133,6 +134,7 @@ export function ShiftTemplatesPage() {
       });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("pos.common.saveFailed"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }

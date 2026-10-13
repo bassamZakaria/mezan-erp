@@ -1,3 +1,4 @@
+import { BranchRecordKind, BranchRefusalCode, branchRefusal, recordInBranchGrant, recordsInBranchGrant } from "./branch-policy.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { importRowLimit, linesOfCsvImport } from "./import-limit.js";
@@ -73,6 +74,8 @@ import {
 } from "@mezan/contracts";
 import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * HR time & leave routes — الحضور والانصراف, سياسات الإجازات, أرصدة الإجازات,
@@ -192,6 +195,7 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleTimeLeaveError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (
@@ -243,7 +247,7 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
     // to render `?? 0` in that state, so four zeros sat above a table of forty
     // present days: a plausible figure where the honest one was available.
     if (!employeeId) {
-      const entries = await deps.attendance.list({ from, to });
+      const entries = await recordsInBranchGrant(c, BranchRecordKind.Attendance, await deps.attendance.list({ from, to }), (entry) => entry.id);
       const workforce = summarizeWorkforceAttendance(from, to, entries);
       return c.json({
         employeeId: null,
@@ -263,6 +267,7 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
         attendanceRatePercent: 100 - workforce.absenceRatePercent,
       });
     }
+    if (!(await recordInBranchGrant(c, BranchRecordKind.Employee, employeeId))) return branchRefusal(c, BranchRefusalCode.NotFound);
     const entries = await deps.attendance.list({ employeeId, from, to });
     return c.json(summarizeAttendance(employeeId, from, to, entries));
   });
@@ -583,7 +588,7 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
   // --- Leave requests (admin surface) --------------------------------------
 
   app.get("/leave-requests/counts", gate("hr.leave.view"), async (c) => {
-    const requests = await deps.leaveRequests.list();
+    const requests = await recordsInBranchGrant(c, BranchRecordKind.LeaveRequest, await deps.leaveRequests.list(), (request) => request.id);
     const count = (status: LeaveRequestStatus) => requests.filter((r) => r.status === status).length;
     return c.json({
       total: requests.length,

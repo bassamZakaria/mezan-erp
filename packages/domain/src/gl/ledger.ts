@@ -63,6 +63,12 @@ export interface LedgerRepository {
   count?(filter?: JournalListFilter): Promise<number>;
   /** Net debit/credit for one account, counting posted+reversed lines dated on/before `asOfDate` (inclusive). */
   accountBalance(accountId: string, asOfDate?: string): Promise<AccountBalance>;
+  /**
+   * LEDGER INVARIANT: what one treasury account holds on a ledger account —
+   * the lines stamped with it, plus (`withUnattributed`) the lines on that
+   * account no treasury account is stamped on. Optional on the port.
+   */
+  treasuryAccountBalance?(query: TreasuryBalanceQuery): Promise<Money>;
   /** The individual posted movements for one account, oldest-first, dated on/before `asOfDate`. */
   accountLedger(accountId: string, asOfDate?: string): Promise<readonly AccountLedgerLine[]>;
   /**
@@ -91,6 +97,13 @@ export interface LedgerRepository {
   sumLines?(filter?: LedgerAggregateFilter): Promise<{ readonly debit: Money; readonly credit: Money }>;
   /** Run `fn` inside one atomic transaction (BEGIN IMMEDIATE on SQLite). */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+export interface TreasuryBalanceQuery {
+  readonly accountId: string;
+  readonly treasuryAccountId: string;
+  readonly withUnattributed: boolean;
+  readonly asOfDate?: string;
 }
 
 /** Filter for the SQL-side aggregates {@link LedgerRepository.accountBalances} / {@link LedgerRepository.sumLines}. */

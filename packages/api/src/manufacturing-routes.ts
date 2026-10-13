@@ -35,7 +35,6 @@ import {
   WorkOrderNotFoundError,
   ConfigurableProductNotFoundError,
   ConfigInstanceNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
   WorkOrderStageError,
   FormulaError,
@@ -76,8 +75,11 @@ import {
   warehouseScopeOf,
   withinScope,
 } from "./permission-gate.js";
+import { branchesOfWarehouses, withinBranchGrant } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Permission-gated routes for the manufacturing module (docs/archive/catalog/07),
@@ -367,6 +369,7 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (
@@ -376,9 +379,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof ConfigInstanceNotFoundError
   ) {
     return c.json(withMessageEn(err), 404);
-  }
-  if (err instanceof DuplicateManufacturingDocumentError) {
-    return c.json(withMessageEn(err), 409);
   }
   if (err instanceof WorkOrderStageError) {
     return c.json(withMessageEn(err), 409);
@@ -420,7 +420,14 @@ export function createManufacturingRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: async (c) => {
+      const id = c.req.param("id");
+      if (!id || !c.req.routePath.includes("/work-orders/:id")) return null;
+      const order = await deps.workOrders.findById(id);
+      return order ? branchesOfWarehouses(c, [order.sourceWarehouseId]) : null;
+    },
+  });
   const actor = (c: Context) => getAuthContext(c)?.userId ?? "system";
   const resolveUnitCost = deps.resolveUnitCost ?? (async () => Money.zero());
   const bomDeps = { boms: deps.boms, numbering: deps.numbering, now: deps.now };
@@ -624,7 +631,9 @@ export function createManufacturingRoutes(
    * may not see another's orders, and no query parameter widens that.
    */
   async function listFilteredWorkOrders(c: Context, filter: WorkOrderListFilter): Promise<readonly WorkOrder[]> {
-    let rows = withinScope(await deps.workOrders.list(), warehouseScopeOf(c), (o) => o.sourceWarehouseId);
+    let rows = await withinBranchGrant(c, withinScope(await deps.workOrders.list(), warehouseScopeOf(c), (o) => o.sourceWarehouseId), (o) =>
+      branchesOfWarehouses(c, [o.sourceWarehouseId]),
+    );
     if (filter.status && filter.status !== "all") rows = rows.filter((o) => o.status === filter.status);
     if (filter.priority) rows = rows.filter((o) => o.priority === filter.priority);
     if (filter.stage) rows = rows.filter((o) => o.stage === filter.stage);

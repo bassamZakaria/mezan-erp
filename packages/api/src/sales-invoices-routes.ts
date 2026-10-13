@@ -19,7 +19,6 @@ import {
   computeInvoiceTotals,
   InvalidSalesInvoiceError,
   SalesInvoiceNotFoundError,
-  DuplicateSalesInvoiceError,
   InvalidSalesInvoiceTransitionError,
   InvalidSalesInvoicePaymentError,
   UnbalancedEntryError,
@@ -31,7 +30,6 @@ import {
   PeriodNotOpenForPostingError,
   ReversalDateBeforeOriginalError,
   salesInvoiceVoidEntryId,
-  DuplicateJournalEntryError,
   ExpiredStockError,
   NegativeStockError,
   UncostedDeficitIssueError,
@@ -97,6 +95,7 @@ import { taxClassificationRefusal, taxRateRefusal } from "./tax-rate-refusal.js"
 import { customerTaxProfileOf, type CustomerTaxProfileSource } from "./customer-tax-profile.js";
 import { buildSalesInvoiceService, type SalesItemTaxSource } from "./sales-invoice-service.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
+import { documentBranches, storedBranchesById, warehousesOfBranchScope } from "./stored-branches.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
 import {
@@ -110,6 +109,8 @@ import {
   stampDocumentModifier,
   type DocumentVersionGuard,
 } from "./document-version.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -493,6 +494,7 @@ class SalesInvoiceVoidRefusal extends Error {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const taxRefusal = taxRateRefusal(c, err);
@@ -504,10 +506,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json(withMessageEn(err), 404);
   }
   if (
-    err instanceof DuplicateSalesInvoiceError ||
     err instanceof InvalidSalesInvoiceTransitionError ||
     err instanceof ApprovalRequestRejectedError ||
-    err instanceof DuplicateJournalEntryError ||
     err instanceof JournalEntryAlreadyReversedError ||
     err instanceof JournalEntryNotPostedError
   ) {
@@ -567,8 +567,12 @@ export function createSalesInvoicesRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  const storedBranches = storedBranchesById(
+    async (id) => (await deps.repo.findById(id)) ?? (await deps.repo.findByDocNo(id)),
+    (invoice, c) => documentBranches(c, [invoice.branchId], [invoice.warehouseId]),
+  );
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
   const idGen = deps.idGen ?? (() => randomUUID());
 
   /**
@@ -983,6 +987,7 @@ export function createSalesInvoicesRoutes(
       // instead of hydrating every draft, paid and cancelled row to discard it.
       ...(status === "open" || status === "overdue" ? { statusIn: UNSETTLED_STATUSES } : {}),
       branchScope: branchScopeOf(c),
+      branchScopeWarehouses: await warehousesOfBranchScope(c),
       warehouseScope: warehouseScopeOf(c),
       branchId,
       warehouseId,
@@ -1279,7 +1284,6 @@ export function createSalesInvoicesRoutes(
     try {
       const result = await svc.confirm(target.id, {
         acknowledgeTaxRecalculation: parsed.data.acknowledgeTaxRecalculation === true,
-        requestId: parsed.data.requestId,
         actor: ctx?.userId,
         actorRoles: gateActorRoles(c),
       });

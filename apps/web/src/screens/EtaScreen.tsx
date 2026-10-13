@@ -1,5 +1,11 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { ReadOnlyFields } from "../shell/ReadOnlyForm";
+import { useBranchGate } from "../shell/useBranchGate";
+import { BranchUnavailableState } from "../shell/BranchRestrictionNotices";
+import { useNavigation } from "../navigation";
 import { useEffect, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   Checkbox,
@@ -154,6 +160,8 @@ function fixHrefFor(finding: EtaPrevalidationFindingDTO, internalId: string): st
 const ETA_TAB_VALUES = new Set<EtaTab>(["general", "credentials", "items", "units", "submissions", "readiness", "rejections"]);
 
 export function EtaScreen() {
+  const branchGate = useBranchGate();
+  const { navigate } = useNavigation();
   const { t } = useAppTranslation();
   const pt = useEtaPrevalidationStrings();
   const [rawTab, setRawTab] = useUrlParam("tab", "general");
@@ -233,7 +241,9 @@ export function EtaScreen() {
             { id: "readiness", label: pt("tabReadiness") },
             { id: "rejections", label: pt("tabRejections") },
           ] as const
-        ).map((entry) => (
+        )
+          .filter((entry) => entry.id !== "rejections" || branchGate.allows(BranchGatedAction.EtaReports))
+          .map((entry) => (
           <button
             key={entry.id}
             type="button"
@@ -247,13 +257,13 @@ export function EtaScreen() {
         ))}
       </div>
 
-      {tab === "general" ? <GeneralTab config={config} /> : null}
-      {tab === "credentials" ? <CredentialsTab config={config} /> : null}
-      {tab === "items" ? <ItemMappingTab /> : null}
-      {tab === "units" ? <UnitMappingTab /> : null}
+      {tab === "general" ? <ReadOnlyFields><GeneralTab config={config} /></ReadOnlyFields> : null}
+      {tab === "credentials" ? <ReadOnlyFields><CredentialsTab config={config} /></ReadOnlyFields> : null}
+      {tab === "items" ? <ReadOnlyFields><ItemMappingTab /></ReadOnlyFields> : null}
+      {tab === "units" ? <ReadOnlyFields><UnitMappingTab /></ReadOnlyFields> : null}
       {tab === "submissions" ? <SubmissionsTab statusKeys={STATUS_KEYS} /> : null}
       {tab === "readiness" ? <ReadinessTab /> : null}
-      {tab === "rejections" ? <RejectionsTab /> : null}
+      {tab === "rejections" ? branchGate.allows(BranchGatedAction.EtaReports) ? <RejectionsTab /> : <BranchUnavailableState onGoHome={() => navigate("dashboard")} /> : null}
     </div>
   );
 }
@@ -1004,6 +1014,7 @@ function ReceiptQueueCard() {
 }
 
 function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatusDTO, AppTranslationKey> }) {
+  const receiptSummaryOpen = useBranchGate().allows(BranchGatedAction.EtaReceiptsSummary);
   const { t } = useAppTranslation();
   const et = useEtaStrings();
   const pt = useEtaPrevalidationStrings();
@@ -1064,6 +1075,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
       if (result.queuedOffline) setNotice({ kind: "offline" });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -1115,6 +1127,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
       await requeueMutation.mutateAsync(id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -1257,7 +1270,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         </div>
       ) : null}
 
-      <ReceiptQueueCard />
+      {receiptSummaryOpen ? <ReceiptQueueCard /> : null}
 
       <div className="mb-[12px] flex flex-wrap items-center justify-end gap-[8px]">
         {selectedIds.size > 0 ? (
@@ -1384,7 +1397,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
               key: "submit",
               label: t("eta.submit"),
               disabled: pendingId === s.id,
-              onSelect: () => void submitOne(s.id),
+              onSelect: () => submitOne(s.id),
             });
           }
           if ((s.prevalidation ?? []).length > 0 || s.status === "error" || s.status === "excluded") {
@@ -1392,7 +1405,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
               key: "requeue",
               label: pt("requeue"),
               disabled: pendingId === s.id,
-              onSelect: () => void requeueOne(s.id),
+              onSelect: () => requeueOne(s.id),
             });
           }
           if ((s.rejectionCodes ?? []).includes(ETA_UNRECORDED_SUBMISSION_CODE)) {

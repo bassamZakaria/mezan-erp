@@ -49,7 +49,14 @@ export {
   reopenApprovalForModification,
   ApprovalRequestNotFoundError,
   ApprovalRequestRejectedError,
+  ApprovalRequestUntrustedError,
+  ApprovalRequestReapprovalRequiredError,
+  REAPPROVAL_REQUIRED_REASON_AR,
+  REAPPROVAL_REQUIRED_REASON_EN,
+  type ApprovalSubject,
   type ApprovalRequestRecord,
   type ApprovalRequestRepository,
   type SubmitApprovalCommand,
 } from "./requests.js";
+
+export { documentFingerprint, sha256Hex } from "./fingerprint.js";

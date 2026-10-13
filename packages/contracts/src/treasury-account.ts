@@ -18,7 +18,8 @@ export const treasuryAccountSchema = z.object({
   currency: z.string().min(1),
   /** رقم الحساب البنكي / IBAN — what an imported statement file's account id is checked against. */
   bankAccountNumber: z.string().nullable(),
-  branchId: z.string().min(1),
+  /** Null for an account the company holds and no branch owns. */
+  branchId: z.string().min(1).nullable(),
   glAccountId: z.string().nullable(),
   foreignBalance: z.string().nullable().optional(),
   foreignBalanceBase: z.string().nullable().optional(),
@@ -38,7 +39,7 @@ export const createTreasuryAccountSchema = z.object({
   type: treasuryAccountTypeSchema.optional(),
   currency: z.string().min(1).optional(),
   bankAccountNumber: z.string().trim().max(64).nullable().optional(),
-  branchId: z.string().min(1),
+  branchId: z.string().min(1).nullable(),
   glAccountId: z.string().nullable().optional(),
   openingBalance: moneyString.optional(),
   openingBalanceDate: z.string().nullable().optional(),
@@ -52,7 +53,7 @@ export const updateTreasuryAccountSchema = z.object({
   type: treasuryAccountTypeSchema.optional(),
   currency: z.string().min(1).optional(),
   bankAccountNumber: z.string().trim().max(64).nullable().optional(),
-  branchId: z.string().min(1).optional(),
+  branchId: z.string().min(1).nullable().optional(),
   glAccountId: z.string().nullable().optional(),
   openingBalance: moneyString.optional(),
   openingBalanceDate: z.string().nullable().optional(),

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { refusingTakenId } from "./insert-new.js";
 import {
   Money,
   Qty,
@@ -401,6 +402,11 @@ class SqliteWorksContractStore implements WorksContractStore {
     return rows.map(toContract);
   }
 
+  async insertContract(contract: WorksContract): Promise<void> {
+    refusingTakenId(this.sqlite, "works_contract", contract.id);
+    return this.saveContract(contract);
+  }
+
   async saveContract(contract: WorksContract): Promise<void> {
     const revisions: SerialisedBudgetRevision[] = contract.budgetRevisions.map((r) => ({
       date: r.date,
@@ -589,6 +595,11 @@ class SqliteWorksContractStore implements WorksContractStore {
   async findVariationOrderByDocNo(docNo: string): Promise<VariationOrder | null> {
     const row = this.sqlite.prepare(`SELECT * FROM contract_variation_order WHERE doc_no = ?`).get(docNo) as VariationRow | undefined;
     return row ? this.hydrateVariation(row) : null;
+  }
+
+  async insertVariationOrder(order: VariationOrder): Promise<void> {
+    refusingTakenId(this.sqlite, "contract_variation_order", order.id);
+    return this.saveVariationOrder(order);
   }
 
   async saveVariationOrder(order: VariationOrder): Promise<void> {

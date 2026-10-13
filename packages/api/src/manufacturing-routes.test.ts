@@ -394,7 +394,7 @@ describe("manufacturing-routes — BOM reads and refusals", () => {
     await app.fetch(req("/manufacturing/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify(bomBody) }));
     const dupe = await app.fetch(req("/manufacturing/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify(bomBody) }));
     expect(dupe.status).toBe(409);
-    expect((await body(dupe)).error).toBe("DUPLICATE_MANUFACTURING_DOCUMENT");
+    expect((await body(dupe)).error).toBe("DUPLICATE_ID");
   });
 
   it("computes the standard cost estimate and deactivates a BOM", async () => {

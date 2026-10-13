@@ -40,6 +40,12 @@ import {
  * are resolved by the caller (treasury account → its GL account; customer →
  * receivable; income/expense → the picked account) so the domain stays pure.
  */
+/**
+ * The branch of a voucher raised on an account the company holds and no branch
+ * owns. Its journal lines post with no branch — «غير مخصص».
+ */
+export const COMPANY_LEVEL_VOUCHER_BRANCH = "";
+
 export interface VoucherLine {
   readonly voucherType: VoucherType;
   readonly direction: VoucherDirection;
@@ -112,12 +118,17 @@ export interface TreasuryLegFx {
   readonly realisedAccountId?: string;
 }
 
-function realisedTreasuryLines(treasuryGlAccountId: string, leg: TreasuryLegFx | null | undefined, projectId: string | null): DocumentGlPosting["lines"] {
+function realisedTreasuryLines(
+  treasuryGlAccountId: string,
+  leg: TreasuryLegFx | null | undefined,
+  projectId: string | null,
+  treasuryAccountId: string | null | undefined,
+): DocumentGlPosting["lines"] {
   if (!leg?.realised || leg.realised.scaled === 0n || !leg.realisedAccountId) return [];
   const gain = leg.realised.scaled > 0n;
   const amount = gain ? leg.realised : leg.realised.negate();
   const zero = Money.zero();
-  const onAccount = { accountId: treasuryGlAccountId, memo: FX_REALISED_LINE_MEMO, projectId, currency: leg.currency, fxRate: leg.fxRate };
+  const onAccount = { accountId: treasuryGlAccountId, memo: FX_REALISED_LINE_MEMO, projectId, treasuryAccountId: treasuryAccountId ?? null, currency: leg.currency, fxRate: leg.fxRate };
   const onDifference = { accountId: leg.realisedAccountId, memo: FX_REALISED_LINE_MEMO, projectId };
   return gain
     ? [{ ...onAccount, debit: amount, credit: zero }, { ...onDifference, debit: zero, credit: amount }]
@@ -238,6 +249,7 @@ export function voucherBaseWithholding(line: VoucherLine): Money {
 
 function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   const { treasuryGlAccountId } = line;
+  const treasuryAccountId = line.treasuryAccountId;
   const amount = voucherBaseAmount(line);
   // The counterparty leg carries the currency and the rate it was booked at,
   // or FX revaluation can never see that this settlement closed the position
@@ -257,16 +269,16 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
     const destGl = line.counterTreasuryGlAccountId;
     if (!destGl) throw new Error("transfer voucher missing destination GL account");
     return [
-      { accountId: destGl, debit: amount, credit: zero, memo: null, projectId, ...counterTreasuryFx },
-      { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId, ...treasuryFx },
-      ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId),
+      { accountId: destGl, debit: amount, credit: zero, memo: null, projectId, treasuryAccountId: line.counterTreasuryAccountId ?? null, ...counterTreasuryFx },
+      { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId, treasuryAccountId, ...treasuryFx },
+      ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId, treasuryAccountId),
     ];
   }
   const counter = line.counterpartyGlAccountId;
   if (!counter) throw new Error("voucher missing counterparty GL account");
   if (line.direction === "receipt") {
     return [
-      { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null, projectId, ...treasuryFx },
+      { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null, projectId, treasuryAccountId, ...treasuryFx },
       { accountId: counter, debit: zero, credit: amount, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
     ];
   }
@@ -277,15 +289,15 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
     if (!whtAccount) throw new Error("a withholding voucher needs a withholding-tax GL account");
     return [
       { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
-      { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null, projectId, ...treasuryFx },
+      { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null, projectId, treasuryAccountId, ...treasuryFx },
       { accountId: whtAccount, debit: zero, credit: withheld, memo: null, projectId },
-      ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId),
+      ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId, treasuryAccountId),
     ];
   }
   return [
     { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
-    { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId, ...treasuryFx },
-    ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId),
+    { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId, treasuryAccountId, ...treasuryFx },
+    ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId, treasuryAccountId),
   ];
 }
 
@@ -383,7 +395,7 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
       memo: doc.memo,
       // بُعد الفرع (DEC-20) on both legs: a branch cash statement that saw the
       // counterparty leg but not the treasury one would not balance.
-      lines: buildVoucherLines(line).map((l) => ({ ...l, branchId: line.branchId ?? null })),
+      lines: buildVoucherLines(line).map((l) => ({ ...l, branchId: line.branchId || null })),
     };
   },
 

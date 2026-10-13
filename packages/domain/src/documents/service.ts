@@ -32,13 +32,13 @@ import type {
   DocumentGlPosting,
   DocumentGlPostingResult,
 } from "./hooks.js";
+import { confirmRequestIdOf, statedBranchOf } from "./hooks.js";
 import { DocumentStatusCode, assertTransition, isActive, type DocumentStatus } from "./status.js";
 import { ApprovalStatusCode } from "../workflow/gate.js";
 import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import {
   DocumentNotFoundError,
   DocumentResubmitRefusedError,
-  DuplicateDocumentError,
   InvalidDocumentError,
   MissingHookError,
   UnbookedStockVarianceError,
@@ -81,8 +81,6 @@ export interface CreateDraftCommand<Line> {
 export interface ConfirmOptions {
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
-  /** Workflow request id when the type is gated; defaults to a deterministic `${docId}:confirm`. */
-  readonly requestId?: string;
 }
 
 export interface CancelOptions {
@@ -121,9 +119,6 @@ export class DocumentService<Line> {
 
   /** Open a new مسودة (draft): validated and persisted, but not numbered or posted. */
   async createDraft(cmd: CreateDraftCommand<Line>): Promise<FrameworkDocument<Line>> {
-    if (await this.deps.repo.findById(cmd.id)) {
-      throw new DuplicateDocumentError(this.def.code, cmd.id);
-    }
     const doc: FrameworkDocument<Line> = {
       id: cmd.id,
       docType: this.def.code,
@@ -159,10 +154,11 @@ export class DocumentService<Line> {
       if (!this.deps.workflow) throw new MissingHookError(this.def.code, "workflow");
       const decision = await this.deps.workflow.evaluate({
         actionType: this.def.gateActionType,
-        requestId: opts.requestId ?? this.requestIdOf(existing),
+        requestId: confirmRequestIdOf(id),
         submittedBy: opts.actor ?? this.deps.actor ?? "system",
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
         entityLabel: await this.approvalLabelOf(existing),
+        document: { id, branchId: statedBranchOf(existing), content: existing, heldRequestId: existing.workflowRequestId },
       });
       if (!decision.granted) {
         // Confirming an already-held document is a no-op, not an illegal
@@ -281,6 +277,7 @@ export class DocumentService<Line> {
       assertTransition(this.def.code, id, existing.status, DocumentStatusCode.Draft);
       const next: FrameworkDocument<Line> = { ...existing, status: DocumentStatusCode.Draft, workflowRequestId: null };
       await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], existing.status);
+      await this.withdrawApprovalOf(existing);
       await this.recordAudit("RETURN_TO_DRAFT", next, "INFO", { actor: opts.actor });
       return next;
     });
@@ -298,7 +295,7 @@ export class DocumentService<Line> {
     const actor = opts.actor ?? this.deps.actor ?? "system";
     const held = await this.deps.repo.transaction(async () => {
       const fresh = await this.require(id);
-      const requestId = opts.requestId ?? this.requestIdOf(fresh);
+      const requestId = this.requestIdOf(fresh);
       // SECURITY: `reopen` also reopens an APPROVED request. Only a request read
       // as rejected inside this transaction may reach it, or a resubmit would
       // discard an approval that is waiting to post.
@@ -313,6 +310,7 @@ export class DocumentService<Line> {
         submittedBy: actor,
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
         entityLabel: await this.approvalLabelOf(fresh),
+        document: { id, branchId: statedBranchOf(fresh), content: fresh, heldRequestId: fresh.workflowRequestId },
       });
       const next: FrameworkDocument<Line> = { ...fresh, status: DocumentStatusCode.Pending, workflowRequestId: decision.requestId };
       await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], fresh.status);
@@ -333,6 +331,18 @@ export class DocumentService<Line> {
 
   private async approvalLabelOf(doc: FrameworkDocument<Line>): Promise<string> {
     return doc.docNo ?? (await this.deps.approvalLabel?.(doc)) ?? this.def.labelAr;
+  }
+
+  // INVARIANT: an approval covers the document as it was held. One returned to
+  // draft is free to change, so its approved request goes back to «طلب تعديل»
+  // and the next confirm is judged afresh — never posted on the old verdict,
+  // and never refused for good because the verdict no longer stands.
+  private async withdrawApprovalOf(held: FrameworkDocument<Line>): Promise<void> {
+    const requestId = held.workflowRequestId;
+    const workflow = this.deps.workflow;
+    if (!requestId || !workflow?.standing || !workflow.reopen) return;
+    const status = (await workflow.standing([requestId])).get(requestId)?.status ?? null;
+    if (status === ApprovalStatusCode.Approved) await workflow.reopen(requestId);
   }
 
   private requestIdOf(doc: FrameworkDocument<Line>): string {

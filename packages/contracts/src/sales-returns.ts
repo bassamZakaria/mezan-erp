@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { decimalRateString, moneyString, nonNegativeMoneyString, nonNegativeQuantityString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { isoDateOrInstant } from "./iso-date.js";
 import { documentApprovalSchema } from "./workflow.js";
@@ -79,7 +79,7 @@ export const salesReturnDocumentSchema = z.object({
       taxRateId: z.string().nullable().optional(),
       /** The source invoice's currency and confirm rate, stamped by the server (D203). */
       currency: z.string().nullable().optional(),
-      fxRate: z.string().nullable().optional(),
+      fxRate: decimalRateString.nullable().optional(),
       /** What this line credits, in base currency at `fxRate`. */
       baseCredit: z.string().optional(),
     }),
@@ -134,8 +134,8 @@ export type RefundSalesReturnDTO = z.infer<typeof refundSalesReturnSchema>;
 export const returnSourceLineSchema = z.object({
   sourceLineId: z.string().min(1),
   itemId: z.string().min(1),
-  soldQty: z.string(),
-  returnedQty: z.string(),
+  soldQty: nonNegativeQuantityString,
+  returnedQty: nonNegativeQuantityString,
 });
 
 export const returnSourceLinesSchema = z.object({

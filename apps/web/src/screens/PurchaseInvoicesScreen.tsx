@@ -1,6 +1,7 @@
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -769,6 +770,7 @@ export function PurchaseInvoicesScreen() {
       // N-9: a refusal because another till already moved this invoice names that
       // till's operator. Swallowing it left the button doing nothing at all.
       setFormError(err instanceof Error ? err.message : t("purchaseInvoices.error.saveFailed"));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -1162,7 +1164,7 @@ export function PurchaseInvoicesScreen() {
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(inv.number ?? inv.id) },
             { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(inv.number ?? inv.id, "print") },
             ...(inv.status === "draft"
-              ? [{ key: "confirm", label: t("purchaseInvoices.confirm"), onSelect: () => void confirmSelected(inv.id) }]
+              ? [{ key: "confirm", label: t("purchaseInvoices.confirm"), onSelect: () => confirmSelected(inv.id) }]
               : []),
             ...(inv.status === "confirmed"
               ? [

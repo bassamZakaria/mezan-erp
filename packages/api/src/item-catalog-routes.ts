@@ -7,7 +7,6 @@ import {
   updateItemCategory,
   DuplicateItemUnitCodeError,
   ItemUnitNotFoundError,
-  DuplicateItemCategoryError,
   ItemCategoryNotFoundError,
   InvalidItemCategoryError,
   type ItemCategory,
@@ -31,6 +30,8 @@ import {
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 const AUDITED_BRAND_FIELDS = ["code", "nameAr", "nameEn", "status"] as const;
 const AUDITED_SEASON_FIELDS = ["code", "nameAr", "nameEn", "startDate", "endDate", "status"] as const;
@@ -57,6 +58,7 @@ function serializeCategory(category: ItemCategory) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
@@ -64,7 +66,7 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof ItemUnitNotFoundError || err instanceof ItemCategoryNotFoundError) {
     return refuse(err, 404);
   }
-  if (err instanceof DuplicateItemUnitCodeError || err instanceof DuplicateItemCategoryError) {
+  if (err instanceof DuplicateItemUnitCodeError) {
     return refuse(err, 409);
   }
   if (err instanceof InvalidItemCategoryError) {
@@ -195,9 +197,12 @@ export function createItemBrandsRoutes(
   app.post("/", gate("inventory.item.create"), async (c) => {
     const parsed = upsertItemBrandSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    if (await repo.findById(parsed.data.id)) return c.json({ error: "ALREADY_EXISTS" }, 409);
     const brand: ItemBrand = { ...parsed.data, nameEn: parsed.data.nameEn ?? null, status: parsed.data.status ?? "active" };
-    await repo.create(brand);
+    try {
+      await repo.create(brand);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
     await auditBrand(c, AuditChangeAction.Create, null, brand);
     return c.json(serializeBrand(brand), 201);
   });
@@ -246,7 +251,6 @@ export function createItemSeasonsRoutes(
   app.post("/", gate("inventory.item.create"), async (c) => {
     const parsed = upsertItemSeasonSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    if (await repo.findById(parsed.data.id)) return c.json({ error: "ALREADY_EXISTS" }, 409);
     const season: ItemSeason = {
       ...parsed.data,
       nameEn: parsed.data.nameEn ?? null,
@@ -254,7 +258,11 @@ export function createItemSeasonsRoutes(
       endDate: parsed.data.endDate ?? null,
       status: parsed.data.status ?? "active",
     };
-    await repo.create(season);
+    try {
+      await repo.create(season);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
     await auditSeason(c, AuditChangeAction.Create, null, season);
     return c.json(serializeSeason(season), 201);
   });

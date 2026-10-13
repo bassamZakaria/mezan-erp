@@ -14,6 +14,7 @@ import {
   type WritedownRun,
   type WritedownRunRepository,
   type JournalPostingDeps,
+  type WarehouseBranchLookup,
   type SettingsRepository,
 } from "@mezan/domain";
 import type { WacSnapshotRepository, StockLedgerRepository } from "@mezan/domain";
@@ -21,6 +22,8 @@ import { ReversalPermission, createWritedownRunSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Inventory aging-based write-down batch routes (docs/archive/phase-backlog.md Phase 4
@@ -35,6 +38,7 @@ export interface InventoryWritedownRoutesDeps {
   readonly wacSnapshots: WacSnapshotRepository;
   readonly stockLedger: StockLedgerRepository;
   readonly gl: JournalPostingDeps;
+  readonly warehouses?: WarehouseBranchLookup;
   readonly accounts: {
     readonly writedownExpenseAccountId: string;
     readonly provisionAccountId: string;
@@ -72,6 +76,7 @@ function serializeRun(run: WritedownRun) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const reversalRefusal = reversalRefusalResponse(c, err);
   if (reversalRefusal) return reversalRefusal;
   if (err instanceof WritedownRunNotPostedError) {
@@ -148,6 +153,7 @@ export function createInventoryWritedownRoutes(
       const run = await postWritedownRun(c.req.param("id"), {
         runs: deps.runs,
         gl: deps.gl,
+        warehouses: deps.warehouses,
         accounts: deps.accounts,
       });
       return c.json(serializeRun(run));

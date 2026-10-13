@@ -3,6 +3,7 @@ import { isoDateParamSchema } from "./iso-date.js";
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * إقرار ضريبة الخصم والتحصيل — Withholding Tax (docs/archive/catalog/08-reports.md).
@@ -64,8 +65,8 @@ export function createWithholdingTaxReport(
     paramsSchema,
     defaultParams: { fromDate: defaultFrom, toDate: defaultTo },
     paramFields: [
-      { kind: "date", key: "fromDate", label: "من تاريخ" },
-      { kind: "date", key: "toDate", label: "إلى تاريخ" },
+      { kind: ReportParamKind.Date, key: "fromDate", label: "من تاريخ" },
+      { kind: ReportParamKind.Date, key: "toDate", label: "إلى تاريخ" },
     ],
     rowKey: (row) => row.voucherId,
     columns: [

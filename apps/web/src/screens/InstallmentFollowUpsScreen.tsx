@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -143,6 +144,7 @@ export function InstallmentFollowUpsScreen() {
       setPanel("none");
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -217,7 +219,7 @@ export function InstallmentFollowUpsScreen() {
                     label: t("followUps.cancelFollowUp"),
                     tone: "danger" as const,
                     disabled: rowPendingId === f.id,
-                    onSelect: () => void cancel(f),
+                    onSelect: () => cancel(f),
                   },
                 ]
               : []),

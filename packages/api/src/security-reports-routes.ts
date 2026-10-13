@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   DEFAULT_SETTINGS,
   detectSodConflicts,
@@ -42,6 +42,7 @@ import {
   type WorkingHoursDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 
 /**
  * تقارير الرقابة والأمان — the exception-reporting surface, mounted at
@@ -366,6 +367,8 @@ export function createSecurityReportsRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  /** These reports read the whole company's trail, users and roles; none of them narrows to a branch. */
+  const companyWide: MiddlewareHandler = async (c, next) => refuseBranchScopedCaller(c) ?? (await next());
 
   const now = () => deps.now?.() ?? new Date();
 
@@ -419,7 +422,7 @@ export function createSecurityReportsRoutes(
   // returned 403 fifty times last week" from a row nobody queried into a line
   // with a name on it.
 
-  app.get("/exceptions", gate("audit.logs.view"), async (c) => {
+  app.get("/exceptions", gate("audit.logs.view"), companyWide, async (c) => {
     const parsed = securityExceptionsQuerySchema.safeParse(queryParams(c));
     if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
 
@@ -618,7 +621,7 @@ export function createSecurityReportsRoutes(
 
   // --- 2) تقرير التعديلات بعد الترحيل ----------------------------------------
 
-  app.get("/post-posting-changes", gate("audit.logs.view"), async (c) => {
+  app.get("/post-posting-changes", gate("audit.logs.view"), companyWide, async (c) => {
     const parsed = postPostingChangesQuerySchema.safeParse(queryParams(c));
     if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
 
@@ -780,7 +783,7 @@ export function createSecurityReportsRoutes(
 
   // --- 3) نشاط خارج أوقات العمل ----------------------------------------------
 
-  app.get("/after-hours", gate("audit.logs.view"), async (c) => {
+  app.get("/after-hours", gate("audit.logs.view"), companyWide, async (c) => {
     const parsed = afterHoursQuerySchema.safeParse(queryParams(c));
     if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
 
@@ -960,7 +963,7 @@ export function createSecurityReportsRoutes(
   if (deps.users) {
     const users = deps.users;
 
-    app.get("/new-accounts", gate("audit.logs.view"), async (c) => {
+    app.get("/new-accounts", gate("audit.logs.view"), companyWide, async (c) => {
       const parsed = newAccountsQuerySchema.safeParse(queryParams(c));
       if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
 
@@ -1200,7 +1203,7 @@ export function createSecurityReportsRoutes(
   if (deps.roles) {
     const roles = deps.roles;
 
-    app.get("/sod", gate("audit.logs.view"), async (c) => {
+    app.get("/sod", gate("audit.logs.view"), companyWide, async (c) => {
       const parsed = sodQuerySchema.safeParse(queryParams(c));
       if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
 

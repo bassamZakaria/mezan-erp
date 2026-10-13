@@ -34,6 +34,13 @@ export interface AuthContextInput {
   readonly branchScope: ScopeSelection;
   readonly warehouseScope: ScopeSelection;
   /**
+   * The branches the SESSION was granted, before the request's own
+   * `x-branch-scope` narrowed them. Defaults to `branchScope`.
+   */
+  readonly branchGrant?: ScopeSelection;
+  /** The warehouses the SESSION was granted, before `x-warehouse-scope` narrowed them. Defaults to `warehouseScope`. */
+  readonly warehouseGrant?: ScopeSelection;
+  /**
    * False when the request carried no session the server recognises.
    *
    * Distinct from holding no permissions: a signed-in user with an empty role
@@ -53,6 +60,14 @@ export interface AuthContext {
   readonly roleCodes: ReadonlySet<string>;
   readonly branchScope: ScopeSelection;
   readonly warehouseScope: ScopeSelection;
+  /**
+   * What the session was GRANTED, as opposed to `branchScope`, which is that
+   * grant after the shell's branch selector narrowed it for this request. A
+   * rule about who the caller IS reads this; a rule about what this request
+   * shows reads `branchScope`.
+   */
+  readonly branchGrant: ScopeSelection;
+  readonly warehouseGrant: ScopeSelection;
   /** False only for a caller the server could not identify at all. */
   readonly authenticated: boolean;
 }
@@ -73,6 +88,8 @@ export function createAuthContext(input: AuthContextInput): AuthContext {
     roleCodes: new Set(input.roleCodes ?? []),
     branchScope: input.branchScope,
     warehouseScope: input.warehouseScope,
+    branchGrant: input.branchGrant ?? input.branchScope,
+    warehouseGrant: input.warehouseGrant ?? input.warehouseScope,
     // Defaults to true so every existing caller — the header resolver, the
     // seed's minted grants, every test fake — keeps meaning "this is someone".
     authenticated: input.authenticated ?? true,
@@ -84,6 +101,15 @@ export function isTenantAdmin(ctx: AuthContext): boolean {
   return ctx.permissions.has(WILDCARD_PERMISSION);
 }
 
+/**
+ * SECURITY: true when the session is held to some branches or warehouses.
+ * Holding `"*"` answers WHAT a caller may do; it never answers WHERE, so a
+ * rule about reach reads this and not `isTenantAdmin`.
+ */
+export function isScopeRestricted(ctx: AuthContext): boolean {
+  return ctx.branchGrant !== ALL_SCOPE || ctx.warehouseGrant !== ALL_SCOPE;
+}
+
 function inScope(scope: ScopeSelection, id: string): boolean {
   return scope === ALL_SCOPE || scope.includes(id);
 }
@@ -92,26 +118,22 @@ function inScope(scope: ScopeSelection, id: string): boolean {
  * The core authorization check: does this context hold `permission`, and — when
  * a branch/warehouse is supplied — may it act in that location?
  *
- * Tenant admins (`"*"`) pass unconditionally, including all scopes. Otherwise
- * the permission must be in the resolved set AND every supplied scope dimension
- * must be within the context's allow-list.
+ * A tenant admin (`"*"`) holds every permission and is still held to the
+ * branches and warehouses its SESSION was granted — the shell's selector
+ * narrows what a request shows, never what an administrator may do. Anyone
+ * else must hold the permission AND be inside the request's scope.
  */
 export function can(
   ctx: AuthContext,
   permission: string,
   scope?: ScopeQuery,
 ): boolean {
-  if (isTenantAdmin(ctx)) return true;
-  if (!ctx.permissions.has(permission)) return false;
-  if (scope?.branch !== undefined && !inScope(ctx.branchScope, scope.branch)) {
-    return false;
-  }
-  if (
-    scope?.warehouse !== undefined &&
-    !inScope(ctx.warehouseScope, scope.warehouse)
-  ) {
-    return false;
-  }
+  const admin = isTenantAdmin(ctx);
+  if (!admin && !ctx.permissions.has(permission)) return false;
+  const branches = admin ? ctx.branchGrant : ctx.branchScope;
+  const warehouses = admin ? ctx.warehouseGrant : ctx.warehouseScope;
+  if (scope?.branch !== undefined && !inScope(branches, scope.branch)) return false;
+  if (scope?.warehouse !== undefined && !inScope(warehouses, scope.warehouse)) return false;
   return true;
 }
 

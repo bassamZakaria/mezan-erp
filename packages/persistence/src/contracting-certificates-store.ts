@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { refusingTakenId } from "./insert-new.js";
 import {
   Money,
   Qty,
@@ -567,6 +568,11 @@ class SqliteProgressCertificateStore implements ProgressCertificateStore {
 
   async listByContract(contractId: string): Promise<ProgressCertificate[]> {
     return (this.selectByContract.all(contractId) as HeaderRow[]).map((r) => this.hydrate(r));
+  }
+
+  async insert(certificate: ProgressCertificate): Promise<void> {
+    refusingTakenId(this.sqlite, "contracting_certificate", certificate.id);
+    return this.save(certificate);
   }
 
   async save(certificate: ProgressCertificate): Promise<void> {

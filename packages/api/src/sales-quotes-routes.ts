@@ -10,7 +10,6 @@ import {
   isQuoteExpired,
   InvalidSalesQuoteError,
   SalesQuoteNotFoundError,
-  DuplicateSalesQuoteError,
   InvalidSalesQuoteTransitionError,
   type SalesQuote,
   type SalesQuoteDiscount,
@@ -20,7 +19,6 @@ import {
   type CreateSalesQuoteCommand,
   SalesPricingMode,
   InvalidSalesInvoiceError,
-  DuplicateSalesInvoiceError,
   type SalesInvoiceRepository,
   type CreateSalesInvoiceCommand,
   type TaxRateRepository,
@@ -56,7 +54,10 @@ import {
   type AuthContextResolver,
   branchScopeOf,
   withinScope,} from "./permission-gate.js";
+import { storedBranchesById } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * External dependencies the sales-quote routes bind the domain service to.
@@ -171,6 +172,7 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const taxRefusal = taxRateRefusal(c, err);
@@ -181,7 +183,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof SalesQuoteNotFoundError) {
     return c.json(withMessageEn(err), 404);
   }
-  if (err instanceof DuplicateSalesQuoteError || err instanceof InvalidSalesQuoteTransitionError) {
+  if (err instanceof InvalidSalesQuoteTransitionError) {
     return c.json(withMessageEn(err), 409);
   }
   throw err;
@@ -210,8 +212,9 @@ export function createSalesQuotesRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  const storedBranches = storedBranchesById((id) => deps.repo.findById(id), (quote) => [quote.branchId]);
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
 
   /*
    * A quote records no author, so `sales.quote.view_own` cannot be evaluated by
@@ -617,9 +620,6 @@ export function createSalesQuotesRoutes(
     } catch (err) {
       if (err instanceof InvalidSalesInvoiceError) {
         return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
-      }
-      if (err instanceof DuplicateSalesInvoiceError) {
-        return c.json(withMessageEn(err), 409);
       }
       return handleDomainError(c, err);
     }

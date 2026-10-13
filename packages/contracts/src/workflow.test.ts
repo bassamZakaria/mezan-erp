@@ -151,6 +151,9 @@ describe("approvalRequestSchema", () => {
     id: "req-1",
     actionType: "sales-invoice.post",
     submittedBy: "user-1",
+    submittedByName: "منى المحاسبة",
+    documentId: "INV-1",
+    documentNo: null,
     steps: [{ role: "finance-manager" }],
     currentStep: 0,
     status: "pending" as const,
@@ -184,6 +187,11 @@ describe("submitApprovalRequestSchema", () => {
     const result = submitApprovalRequestSchema.safeParse({ actionType: "sales-invoice.post" });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data).toEqual({ actionType: "sales-invoice.post" });
+  });
+
+  it("refuses a caller-chosen request id, or any other key it does not define", () => {
+    expect(submitApprovalRequestSchema.safeParse({ actionType: "sales-invoice.post", requestId: "INV-1:confirm" }).success).toBe(false);
+    expect(submitApprovalRequestSchema.safeParse({ actionType: "sales-invoice.post", id: "INV-1:confirm" }).success).toBe(false);
   });
 
   it("rejects a payload missing actionType", () => {

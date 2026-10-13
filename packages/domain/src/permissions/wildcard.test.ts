@@ -42,10 +42,11 @@ describe("the wildcard grants everything", () => {
     expect(can(admin, "some.permission.invented.tomorrow")).toBe(true);
   });
 
-  it("ignores branch and warehouse scope even when the admin own allow-lists are empty", () => {
+  it("is a wildcard over WHAT, not WHERE: an admin whose own allow-lists are empty acts in no branch or warehouse (D111)", () => {
     const admin = ctxWith([WILDCARD_PERMISSION], []);
     expect(isTenantAdmin(admin)).toBe(true);
-    expect(can(admin, "sales.invoice.confirm", { branch: "b-9", warehouse: "wh-9" })).toBe(true);
+    expect(can(admin, "sales.invoice.confirm")).toBe(true);
+    expect(can(admin, "sales.invoice.confirm", { branch: "b-9", warehouse: "wh-9" })).toBe(false);
   });
 });
 

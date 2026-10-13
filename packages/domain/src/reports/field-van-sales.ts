@@ -7,6 +7,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * مبيعات المندوبين — Van Sales (docs/archive/catalog/07-mfg-projects-assets.md
@@ -73,9 +74,9 @@ export function createVanSalesReport(
     paramsSchema,
     defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, status: "all", branchId: "" },
     paramFields: [
-      { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
+      { kind: ReportParamKind.DateRange, fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "status",
         label: "الحالة",
         options: [

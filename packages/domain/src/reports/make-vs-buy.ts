@@ -6,7 +6,9 @@ import type { Item } from "../items/item.js";
 import { purchaseInvoiceLineBase, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, countRows } from "./kpi.js";
+import { BRANCH_PARAM_FIELD } from "./branch-filter.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * التصنيع أم الشراء — Make vs Buy (docs/archive/catalog/07 §التصنيع مقابل الشراء):
@@ -117,7 +119,7 @@ export function createMakeVsBuyReport(): ReportDefinition<MakeVsBuyParams, MakeV
       "تكلفة التصنيع = تكلفة قائمة المواد القياسية (المواد بمتوسط تكلفة الشراء الفعلي من فواتير الشراء المؤكدة + العمالة والتكاليف الإضافية القياسية) ÷ الكمية القياسية للدفعة. تكلفة الشراء = متوسط تكلفة الشراء الفعلي للصنف نفسه من فواتير الشراء المؤكدة. عند غياب تاريخ شراء فعلي تظهر الخانة «—» ولا تُحتسب ضمن المقارنة — لا سعر قائمة، ولا قيمة افتراضية.",
     paramsSchema,
     defaultParams: { search: "" },
-    paramFields: [{ kind: "text", key: "search", label: "بحث", placeholder: "بحث بالاسم أو الكود" }],
+    paramFields: [{ kind: ReportParamKind.Text, key: "search", label: "بحث", placeholder: "بحث بالاسم أو الكود" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.itemId,
     columns: [
       { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },

@@ -17,6 +17,7 @@ export type {
   ReportValidationError,
   RunReportOutcome,
 } from "./types.js";
+export { ReportParamKind } from "./types.js";
 export { computeReconciliation, computeReportGroups, runReport, validateReportParams } from "./engine.js";
 export {
   createTrialBalanceReport,
@@ -305,6 +306,7 @@ export {
   type GeneralLedgerRow,
 } from "./general-ledger.js";
 export {
+  accountLedgerBranchCaveat,
   createAccountLedgerReport,
   type AccountLedgerParams,
   type AccountLedgerRow,
@@ -339,8 +341,12 @@ export {
   BRANCH_STATEMENT_PARAM_FIELD,
   UNATTRIBUTED_BRANCH_ID,
   UNATTRIBUTED_BRANCH_LABEL,
+  BranchCaveatCode,
+  includesUnattributedCaveat,
+  limitedToBranchesCaveat,
   matchesStatementBranch,
   withinBranchScope,
+  type BranchCaveat,
 } from "./branch-filter.js";
 export { isoDateParamSchema, isRealIsoDate } from "./iso-date.js";
 export {

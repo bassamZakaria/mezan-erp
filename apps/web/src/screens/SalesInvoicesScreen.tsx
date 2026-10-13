@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
+import { useQueryClient } from "@tanstack/react-query";
+import { APPROVAL_STANDING_KEY, ReapprovalNotice } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -54,7 +57,7 @@ import {
   useEmployees,
   useItems,
   useProjects,
-  useSettings,
+  useTenantSettings,
   useTaxRates,
   useItemAvailability,
   useConvertSalesQuoteToInvoice,
@@ -593,7 +596,7 @@ function CreateInvoicePage({
     [items, priceFor, format],
   );
 
-  const tenantSettings = useSettings();
+  const tenantSettings = useTenantSettings();
   const taxRates = useTaxRates().data ?? NO_TAX_RATES;
   const customerData = customer ? (customers.find((c) => c.id === customer.id) ?? null) : null;
   // A customer with no tax registration number is a consumer sale — an
@@ -1288,6 +1291,7 @@ function InvoiceDetailView({
 }) {
   const { t, locale } = useAppTranslation();
   const detailConfirm = useConfirmSalesInvoice();
+  const queryClient = useQueryClient();
   const [detailConfirmError, setDetailConfirmError] = useState<string | null>(null);
   const [taxRecalculatedNotice, setTaxRecalculatedNotice] = useState<string | null>(null);
   /** B3 — stated only for a consumer sale confirmed with no till; "" leaves the backend's own derivation. */
@@ -1490,6 +1494,19 @@ function InvoiceDetailView({
               {detailConfirmError}
             </span>
           ) : null}
+          <ReapprovalNotice
+            requestId={invoice.status === "pending" ? (invoice.workflowRequestId ?? null) : null}
+            pending={detailConfirm.isPending}
+            onRequestAgain={async () => {
+              setDetailConfirmError(null);
+              try {
+                await detailConfirm.mutateAsync({ id: invoice.id, expectedVersion: invoice.version });
+                await queryClient.invalidateQueries({ queryKey: [APPROVAL_STANDING_KEY] });
+              } catch (err) {
+                setDetailConfirmError(errorMessage(err, t("common.failed")));
+              }
+            }}
+          />
           <ConfirmRecalculationNotice invoice={invoice} />
           {taxRecalculatedNotice ? (
             <span role="status" className="block text-[12.5px] font-semibold text-warning-ink">
@@ -2023,7 +2040,7 @@ export function SalesInvoicesScreen() {
 
   const [rowRerate, setRowRerate] = useState<RowRerate | null>(null);
 
-  async function confirmRow(row: Pick<SalesInvoiceDTO, "id" | "docNo" | "version" | "totals">, acknowledgeTaxRecalculation = false): Promise<void> {
+  async function confirmRow(row: Pick<SalesInvoiceDTO, "id" | "docNo" | "version" | "totals">, acknowledgeTaxRecalculation = false): Promise<RowActionOutcome | void> {
     if (confirmingId) return;
     setRowError(null);
     setRowNotice(null);
@@ -2040,6 +2057,7 @@ export function SalesInvoicesScreen() {
         setRowRerate(null);
         setRowError(errorMessage(err, t("common.failed")));
       }
+      return RowActionOutcome.Refused;
     } finally {
       setConfirmingId(null);
     }
@@ -2335,7 +2353,7 @@ export function SalesInvoicesScreen() {
                         key: "confirm",
                         label: t("salesInvoices.confirm"),
                         disabled: confirmingId === inv.id,
-                        onSelect: () => void confirmRow(inv),
+                        onSelect: () => confirmRow(inv),
                       },
                     ]
                   : []),

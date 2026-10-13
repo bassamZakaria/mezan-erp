@@ -16,6 +16,7 @@ export { resolveInternalHourlyRate, sortInternalRateHistory } from "./internal-r
 
 export type { CreateAssetCommand, CreateAssetDeps } from "./create-asset.js";
 export { createAsset } from "./create-asset.js";
+export { DisposalProceedsAccountKind, disposalProceedsAccounts, type DisposalProceedsAccount, type DisposalProceedsSources } from "./disposal-proceeds-accounts.js";
 
 export type {
   DisposeAssetCommand,

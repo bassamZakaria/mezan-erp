@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 266 permissions across 19 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 268 permissions across 20 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -38,6 +38,14 @@ describe("permission catalog", () => {
     // `POST /users/:id/erase` (`packages/api/src/users-routes.ts`) — the
     // personal-data erasure the store listings promise a path for.
     //
+    // 248 → 249. D111 added `accounting.reports.view_unattributed`, checked by
+    // every GL read (`packages/api/src/branch-view.ts`): a branch-granted
+    // session sees the lines that carry no branch only when it holds it.
+    //
+    // 249 → 250, 19 → 20 modules. D111 brought `dashboard.view` back as the
+    // one code of a `dashboard` module, now that `GET /dashboard/summary`
+    // (`packages/backend/src/dashboard-routes.ts`) and the home entry of the
+    // rail both check it.
     // 248 → 250. D79 added `sales.invoice.classify_tax` and
     // `purchases.invoice.classify_tax`, gated on
     // `POST /sales-invoices/:id/lines/:lineId/classify-tax` and its purchase
@@ -46,10 +54,10 @@ describe("permission catalog", () => {
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(266);
-    expect(MODULES).toHaveLength(19);
+    expect(PERMISSIONS).toHaveLength(268);
+    expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(266);
+    expect(summed).toBe(268);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -96,12 +104,13 @@ describe("permission catalog", () => {
     expect(isSensitive("pos.discount.approve")).toBe(true);
     expect(isSensitive("accounting.cockpit.view")).toBe(true);
     expect(isSensitive("treasury.cash_forecast.view")).toBe(true);
+    expect(isSensitive("accounting.reports.view_unattributed")).toBe(true);
     expect(isSensitive("accounting.period.override_close")).toBe(true);
     expect(isSensitive("accounting.period.close")).toBe(false);
     expect(PERMISSIONS.filter((p) => p.code.endsWith(".reverse")).every((p) => p.sensitive)).toBe(true);
     expect(isSensitive("purchases.landed_cost.void")).toBe(false);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(24);
+    expect(sensitiveCount).toBe(25);
   });
 
   it("marks the one platform-admin-only permission", () => {
@@ -214,17 +223,18 @@ describe("AuthContext.can — scoping", () => {
     ).toBe(true);
   });
 
-  it("tenant admin (*) bypasses permission and scope checks", () => {
+  it("tenant admin (*) holds every permission, and is still held to the branches and warehouses it was granted (D111)", () => {
     const ctx = createAuthContext({
       userId: "admin",
       permissions: ["*"],
-      branchScope: [],
-      warehouseScope: [],
+      branchScope: ["BR-ALEX"],
+      warehouseScope: ALL_SCOPE,
     });
     expect(isTenantAdmin(ctx)).toBe(true);
-    expect(can(ctx, "admin.tenant.settings.edit", { branch: "x", warehouse: "y" })).toBe(
-      true,
-    );
+    expect(can(ctx, "admin.tenant.settings.edit", { branch: "BR-ALEX", warehouse: "y" })).toBe(true);
+    expect(can(ctx, "admin.tenant.settings.edit", { branch: "BR-MAIN" })).toBe(false);
+    const narrowed = createAuthContext({ userId: "admin", permissions: ["*"], branchScope: ["BR-ALEX"], branchGrant: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    expect(can(narrowed, "admin.tenant.settings.edit", { branch: "BR-MAIN" })).toBe(true);
     expect(can(ctx, "any.unknown.permission")).toBe(true);
   });
 });

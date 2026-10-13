@@ -19,7 +19,6 @@ import { describeQuoteEffects } from "./effects.js";
 import type { SalesQuoteListFilter, SalesQuoteRepository } from "./ports.js";
 import type { SalesTaxPolicySource } from "../sales-invoices/tax-policy.js";
 import {
-  DuplicateSalesQuoteError,
   InvalidSalesQuoteError,
   SalesQuoteNotFoundError,
 } from "./errors.js";
@@ -95,9 +94,6 @@ export class SalesQuoteService {
 
   /** Open a new مسودة (draft): validated and persisted, not numbered. */
   async createDraft(cmd: CreateSalesQuoteCommand): Promise<SalesQuote> {
-    if (await this.deps.repo.findById(cmd.id)) {
-      throw new DuplicateSalesQuoteError(cmd.id);
-    }
     const vatOff = this.deps.taxPolicy ? !(await this.deps.taxPolicy()).enabled : false;
     const quote = this.buildDraft(cmd, this.deps.taxRates ? await this.deps.taxRates.list() : null, vatOff);
     this.validate(quote);

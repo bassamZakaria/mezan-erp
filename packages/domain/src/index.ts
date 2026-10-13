@@ -1,4 +1,5 @@
 export { Money, MONEY_SCALE_DECIMALS } from "./money/index.js";
+export { DecimalErrorCode, InvalidDecimalLiteralError } from "./money/index.js";
 export { amountInWords, EGP_WORDS, SAR_WORDS } from "./money/index.js";
 export type { ArabicCurrencyNoun, ArabicCurrencyWords, ArabicNounGender } from "./money/index.js";
 export type {
@@ -277,3 +278,5 @@ export * from "./platform/index.js";
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+
+export * from "./records/duplicate-record-id.js";

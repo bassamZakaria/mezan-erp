@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository, TaxRateStatus } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /** SQLite-backed TaxRateRepository (docs/archive/catalog/04 "الضرائب"). Standalone, mirroring `createSqliteAccountRepository`. */
 
@@ -95,7 +96,7 @@ class SqliteTaxRateRepository implements TaxRateRepository {
   }
 
   async create(taxRate: TaxRate): Promise<void> {
-    this.insert.run(toParams(taxRate));
+    insertingNew(taxRate.id, () => this.insert.run(toParams(taxRate)));
   }
 
   async update(taxRate: TaxRate): Promise<void> {

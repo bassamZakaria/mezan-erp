@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   Qty,
@@ -111,6 +112,7 @@ function bomToDomain(row: BomRow): Bom {
 
 class SqliteBomStore implements BomRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByProduct: Database.Statement;
@@ -125,6 +127,7 @@ class SqliteBomStore implements BomRepository {
         overhead_cost = excluded.overhead_cost, version_notes = excluded.version_notes,
         lines = excluded.lines, status = excluded.status, custom = excluded.custom
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM bom WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM bom`);
     this.selectByProduct = sqlite.prepare(`SELECT * FROM bom WHERE product_item_id = ?`);
@@ -141,13 +144,13 @@ class SqliteBomStore implements BomRepository {
     return (this.selectByProduct.all(productItemId) as BomRow[]).map(bomToDomain);
   }
   async create(bom: Bom): Promise<void> {
-    this.write(bom);
+    insertingNew(bom.id, () => this.write(bom, this.insertOnly));
   }
   async update(bom: Bom): Promise<void> {
     this.write(bom);
   }
-  private write(b: Bom): void {
-    this.upsert.run({
+  private write(b: Bom, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: b.id,
       number: b.number,
       product_item_id: b.productItemId,
@@ -347,6 +350,7 @@ function woToDomain(row: WoRow): WorkOrder {
 
 class SqliteWorkOrderStore implements WorkOrderRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -369,6 +373,7 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
         received_at = excluded.received_at, completed_at = excluded.completed_at,
         project_id = excluded.project_id
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM work_order WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM work_order`);
   }
@@ -381,13 +386,13 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
     return (this.selectAll.all() as WoRow[]).map(woToDomain);
   }
   async create(order: WorkOrder): Promise<void> {
-    this.write(order);
+    insertingNew(order.id, () => this.write(order, this.insertOnly));
   }
   async update(order: WorkOrder): Promise<void> {
     this.write(order);
   }
-  private write(o: WorkOrder): void {
-    this.upsert.run({
+  private write(o: WorkOrder, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: o.id,
       number: o.number,
       bom_id: o.bomId,
@@ -517,6 +522,7 @@ function cpToDomain(row: CpRow): ConfigurableProduct {
 
 class SqliteConfigurableProductStore implements ConfigurableProductRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -532,6 +538,7 @@ class SqliteConfigurableProductStore implements ConfigurableProductRepository {
         price_formula = excluded.price_formula, labor_formula = excluded.labor_formula,
         overhead_formula = excluded.overhead_formula, item_policy = excluded.item_policy, status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM configurable_product WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM configurable_product WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM configurable_product`);
@@ -549,13 +556,13 @@ class SqliteConfigurableProductStore implements ConfigurableProductRepository {
     return (this.selectAll.all() as CpRow[]).map(cpToDomain);
   }
   async create(product: ConfigurableProduct): Promise<void> {
-    this.write(product);
+    insertingNew(product.id, () => this.write(product, this.insertOnly));
   }
   async update(product: ConfigurableProduct): Promise<void> {
     this.write(product);
   }
-  private write(p: ConfigurableProduct): void {
-    this.upsert.run({
+  private write(p: ConfigurableProduct, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: p.id,
       code: p.code,
       name_ar: p.nameAr,
@@ -669,6 +676,7 @@ function ciToDomain(row: CiRow): ConfigInstance {
 
 class SqliteConfigInstanceStore implements ConfigInstanceRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -683,6 +691,7 @@ class SqliteConfigInstanceStore implements ConfigInstanceRepository {
         overhead_cost_per_unit = excluded.overhead_cost_per_unit, estimated_unit_cost = excluded.estimated_unit_cost,
         actual_cost = excluded.actual_cost
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM config_instance WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM config_instance`);
   }
@@ -695,13 +704,13 @@ class SqliteConfigInstanceStore implements ConfigInstanceRepository {
     return (this.selectAll.all() as CiRow[]).map(ciToDomain);
   }
   async create(instance: ConfigInstance): Promise<void> {
-    this.write(instance);
+    insertingNew(instance.id, () => this.write(instance, this.insertOnly));
   }
   async update(instance: ConfigInstance): Promise<void> {
     this.write(instance);
   }
-  private write(i: ConfigInstance): void {
-    this.upsert.run({
+  private write(i: ConfigInstance, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: i.id,
       number: i.number,
       configurable_product_id: i.configurableProductId,
@@ -772,6 +781,7 @@ function wsToDomain(row: WsRow): WorkStation {
 
 class SqliteWorkStationStore implements WorkStationRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -784,6 +794,7 @@ class SqliteWorkStationStore implements WorkStationRepository {
         code = excluded.code, name_ar = excluded.name_ar, name_en = excluded.name_en,
         notes = excluded.notes, status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM work_station WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM work_station WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM work_station ORDER BY code`);
@@ -801,13 +812,13 @@ class SqliteWorkStationStore implements WorkStationRepository {
     return (this.selectAll.all() as WsRow[]).map(wsToDomain);
   }
   async create(station: WorkStation): Promise<void> {
-    this.write(station);
+    insertingNew(station.id, () => this.write(station, this.insertOnly));
   }
   async update(station: WorkStation): Promise<void> {
     this.write(station);
   }
-  private write(w: WorkStation): void {
-    this.upsert.run({
+  private write(w: WorkStation, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: w.id,
       code: w.code,
       name_ar: w.nameAr,

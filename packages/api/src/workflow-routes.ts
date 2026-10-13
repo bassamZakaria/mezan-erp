@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  ALL_SCOPE,
   can,
   isGateableActionType,
   saveWorkflowConfig,
@@ -14,6 +15,10 @@ import {
   DuplicateWorkflowConfigError,
   WorkflowConfigNotFoundError,
   ApprovalRequestNotFoundError,
+  ApprovalRequestReapprovalRequiredError,
+  ApprovalStatusCode,
+  REAPPROVAL_REQUIRED_REASON_AR,
+  REAPPROVAL_REQUIRED_REASON_EN,
   WorkflowError,
   type ApproverRoleResolver,
   type AuditSink,
@@ -23,8 +28,9 @@ import {
   type WorkflowConfigRepository,
 } from "@mezan/domain";
 import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerRoleCodes, createPermissionGate, getAuthContext, permissionDeniedBody, roleCodesOf } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, roleCodesOf } from "./permission-gate.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { BranchRecordKind, recordInBranchGrant } from "./branch-policy.js";
 
 /**
  * Acts on the DOCUMENT behind an approval request once a decision is recorded.
@@ -39,6 +45,8 @@ export interface HeldDocumentActions {
    * (the approvals inbox' own demo rows) gates no document at all.
    */
   heldRequestId(docId: string): Promise<string | null>;
+  /** The held document's number, null until one is stamped or when the document is not there. */
+  documentNo(docId: string): Promise<string | null>;
   /** Post the document the request was gating (its gate now grants). */
   confirm(docId: string, actor: string): Promise<void>;
   /** Hand the document back to its submitter as an editable draft. */
@@ -64,14 +72,8 @@ export interface WorkflowRoutesDeps {
   readonly audit?: AuditSink;
   /** Whether an approver role code resolves to a real role. See `saveWorkflowConfig`. */
   readonly roleExists?: ApproverRoleResolver;
-}
-
-/**
- * A gated confirm names its request `${docId}:confirm` (DocumentService's own
- * default), so the document id is recoverable from the request id.
- */
-function heldDocumentId(requestId: string): string {
-  return requestId.endsWith(":confirm") ? requestId.slice(0, -":confirm".length) : requestId;
+  /** The user directory's name for a submitter, joined into each request the caller is already served. */
+  readonly submitterName?: (userId: string) => Promise<string | null>;
 }
 
 function serializeConfig(config: WorkflowConfigRecord) {
@@ -84,11 +86,29 @@ function serializeConfig(config: WorkflowConfigRecord) {
   };
 }
 
-function serializeRequest(request: ApprovalRequestRecord) {
+const HELD_DOCUMENT_READ_PERMISSIONS: readonly string[] = [
+  "sales.invoice.view",
+  "sales.invoice.view_own",
+  "sales.return.view",
+  "purchases.invoice.view",
+  "purchases.return.view",
+  "purchases.landed_cost.view",
+  "treasury.cash_voucher.view",
+];
+
+async function serializeRequest(deps: WorkflowRoutesDeps, request: ApprovalRequestRecord) {
+  const documentId = request.subject?.documentId ?? null;
+  const [submittedByName, documentNo] = await Promise.all([
+    deps.submitterName?.(request.submittedBy) ?? null,
+    documentId === null ? null : (deps.heldDocuments?.(request)?.documentNo(documentId) ?? null),
+  ]);
   return {
     id: request.id,
     actionType: request.actionType,
     submittedBy: request.submittedBy,
+    submittedByName,
+    documentId,
+    documentNo,
     steps: request.steps,
     currentStep: request.currentStep,
     status: request.status,
@@ -137,6 +157,7 @@ export function createWorkflowRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
   const app = new Hono();
 
   /**
@@ -232,22 +253,44 @@ export function createWorkflowRoutes(
 
   // --- الموافقات inbox ----------------------------------------------------
 
+  /**
+   * SECURITY: answers only whether a request stands and why not — never its
+   * chain, decisions or label — so the people who may read a held document can
+   * be told what it waits for without holding the approvals inbox.
+   */
+  app.get("/requests/:id/standing", gateAny("workflow.view", ...HELD_DOCUMENT_READ_PERMISSIONS), async (c) => {
+    const record = await deps.requests.findById(c.req.param("id"));
+    const grant = getAuthContext(c)?.branchGrant ?? ALL_SCOPE;
+    const branchId = record?.subject?.branchId ?? null;
+    const outsideGrant = grant !== ALL_SCOPE && branchId !== null && !grant.includes(branchId);
+    if (!record || outsideGrant) return c.json({ error: "NOT_FOUND" }, 404);
+    const needsReapproval = record.status === ApprovalStatusCode.ReapprovalRequired;
+    return c.json({
+      id: record.id,
+      status: record.status,
+      reason: needsReapproval ? REAPPROVAL_REQUIRED_REASON_AR : null,
+      reasonEn: needsReapproval ? REAPPROVAL_REQUIRED_REASON_EN : null,
+    });
+  });
+
   app.get("/requests/pending", gate("workflow.view"), async (c) => {
     const roles = actorRoles(c);
     const rows = await deps.requests.listPendingForRoles(roles);
-    return c.json(rows.map(serializeRequest));
+    return c.json(await Promise.all(rows.map((row) => serializeRequest(deps, row))));
   });
 
   app.get("/requests/pending-count", gate("workflow.view"), async (c) => {
     const roles = actorRoles(c);
     const rows = await deps.requests.listPendingForRoles(roles);
-    return c.json({ count: rows.length });
+    let count = 0;
+    for (const row of rows) if (await recordInBranchGrant(c, BranchRecordKind.ApprovalRequest, row.id)) count += 1;
+    return c.json({ count });
   });
 
   app.get("/requests/mine", gate("workflow.view"), async (c) => {
     const ctx = getAuthContext(c);
     const rows = ctx ? await deps.requests.listBySubmitter(ctx.userId) : [];
-    return c.json(rows.map(serializeRequest));
+    return c.json(await Promise.all(rows.map((row) => serializeRequest(deps, row))));
   });
 
   /**
@@ -260,24 +303,33 @@ export function createWorkflowRoutes(
     if (!ctx) return c.json([]);
     const rows = await deps.requests.list();
     const mine = rows.filter((row) => row.decisions.some((decision) => decision.actorId === ctx.userId));
-    return c.json(mine.map(serializeRequest));
+    return c.json(await Promise.all(mine.map((row) => serializeRequest(deps, row))));
   });
 
   app.get("/requests", gate("workflow.view"), async (c) => {
     const rows = await deps.requests.list();
-    return c.json(rows.map(serializeRequest));
+    return c.json(await Promise.all(rows.map((row) => serializeRequest(deps, row))));
   });
 
   /**
-   * Submits a new approval request for a gateable action type. Ungated
-   * beyond a resolvable identity: the permission catalog has no
-   * `workflow.submit` code — submitting is a side effect of whatever the
-   * caller was already allowed to do (e.g. `sales.invoice.confirm`), the
-   * same way a document's own `confirm` route would call this.
+   * SECURITY: opens a request that gates NO document. A document's own
+   * request is raised by its confirm, under an id derived from the stored
+   * document; this route takes no id, so it can neither create nor replace
+   * the request a held document is judged by.
    */
-  app.post("/requests", async (c) => {
-    const parsed = submitApprovalRequestSchema.safeParse(await c.req.json());
-    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+  app.post("/requests", gate("workflow.view"), async (c) => {
+    const parsed = submitApprovalRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json(
+        {
+          error: "VALIDATION_ERROR",
+          message: "بيانات طلب الموافقة غير صحيحة: يُحدَّد نوع الإجراء فقط، ورقم الطلب يولّده النظام.",
+          messageEn: "The approval request is not valid: only the action type is stated, and the system assigns the request id.",
+          details: parsed.error.flatten(),
+        },
+        400,
+      );
+    }
     if (!isGateableActionType(parsed.data.actionType)) {
       return c.json({ error: "UNKNOWN_ACTION_TYPE", message: `"${parsed.data.actionType}" is not a gateable action type.` }, 400);
     }
@@ -286,20 +338,16 @@ export function createWorkflowRoutes(
     const config = await deps.configs.findByActionType(actionType);
     const record = await submitApproval(
       {
-        requestId: parsed.data.requestId ?? randomUUID(),
+        requestId: randomUUID(),
         actionType,
         submittedBy: ctx.userId,
-        // From the context THIS route resolved, not the one a gate stashes:
-        // the route is deliberately ungated, so `callerRoleCodes(c)` answered
-        // `[]` for everyone and a tenant admin's own submission was held
-        // بانتظار الموافقة by a bypass that could never fire (D69).
         submitterRoles: roleCodesOf(ctx),
         entityLabel: parsed.data.entityLabel ?? null,
       },
       config ? { actionType: config.actionType, steps: config.steps } : { actionType, steps: [] },
       deps.requests,
     );
-    return c.json(serializeRequest(record), 201);
+    return c.json(await serializeRequest(deps, record), 201);
   });
 
   app.post("/requests/:id/decide", gate("workflow.view"), async (c) => {
@@ -319,9 +367,10 @@ export function createWorkflowRoutes(
       );
       const actions = deps.heldDocuments?.(record) ?? null;
       if (actions) {
-        const docId = heldDocumentId(record.id);
+        const docId = record.subject?.documentId;
+        if (!docId) return c.json(await serializeRequest(deps, record));
         try {
-          if ((await actions.heldRequestId(docId)) !== record.id) return c.json(serializeRequest(record));
+          if ((await actions.heldRequestId(docId)) !== record.id) return c.json(await serializeRequest(deps, record));
           if (record.status === "approved") await actions.confirm(docId, ctx.userId);
           else if (record.status === "rejected" || record.status === "modification_requested") {
             await actions.returnToDraft(docId, ctx.userId);
@@ -336,15 +385,16 @@ export function createWorkflowRoutes(
               message: err instanceof Error ? err.message : String(err),
               ...(err instanceof Error && "messageEn" in err && typeof err.messageEn === "string" ? { messageEn: err.messageEn } : {}),
               ...(err instanceof Error && "code" in err && typeof err.code === "string" ? { reason: err.code } : {}),
-              request: serializeRequest(record),
+              request: await serializeRequest(deps, record),
             },
             409,
           );
         }
       }
-      return c.json(serializeRequest(record));
+      return c.json(await serializeRequest(deps, record));
     } catch (err) {
       if (err instanceof ApprovalRequestNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
+      if (err instanceof ApprovalRequestReapprovalRequiredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
       if (err instanceof WorkflowError) return c.json({ error: err.code, message: err.message }, 409);
       throw err;
     }

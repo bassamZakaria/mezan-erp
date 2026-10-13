@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { InMemoryTaxRateRepository } from "./test-helpers/in-memory-tax-rate-repository.js";
 import { createTaxRate } from "./create-tax-rate.js";
 import { updateTaxRate } from "./update-tax-rate.js";
-import { DuplicateTaxRateIdError, SystemTaxRateLockedError } from "./errors.js";
+import { SystemTaxRateLockedError } from "./errors.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 import { EtaVatSubTypeCode, TaxRateStatusCode } from "./tax-rate.js";
 import { SYSTEM_NOT_SUBJECT_TAX_RATE, SYSTEM_NOT_SUBJECT_TAX_RATE_ID, ensureSystemTaxRates, isSystemTaxRate } from "./system-tax-rates.js";
 import { ReservedTaxRateError } from "./errors.js";
@@ -90,7 +91,7 @@ describe("the system rate is locked — posted lines name it, so nobody edits it
 
   it("cannot be created over", async () => {
     const repo = await seeded();
-    await expect(createTaxRate({ id: SYSTEM_NOT_SUBJECT_TAX_RATE_ID, code: "X", name: "أخرى", rate: 14 }, repo)).rejects.toBeInstanceOf(DuplicateTaxRateIdError);
+    await expect(createTaxRate({ id: SYSTEM_NOT_SUBJECT_TAX_RATE_ID, code: "X", name: "أخرى", rate: 14 }, repo)).rejects.toBeInstanceOf(DuplicateRecordIdError);
   });
 });
 

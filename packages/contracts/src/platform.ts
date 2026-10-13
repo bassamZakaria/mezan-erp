@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { entitlementsSchema } from "./entitlements.js";
-import { nonNegativeMoneyString } from "./money-string.js";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { companyNameSchema } from "./company-name.js";
 
 /**
@@ -484,7 +484,7 @@ export const tenantBillingSchema = z.object({
       currentPeriodEnd: z.string(),
       planNameAr: z.string(),
       planNameEn: z.string(),
-      amountDue: z.string(),
+      amountDue: moneyString,
       planKind: planKindSchema,
     })
     .nullable(),

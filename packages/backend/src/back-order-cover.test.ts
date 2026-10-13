@@ -91,8 +91,9 @@ async function setBackorder(allowBackorder: boolean) {
 beforeAll(async () => {
   kit = await bootBackendKit();
   await setBackorder(true);
-  const warehouses = (await kit.call("GET", "/warehouses")).body as { id: string; type?: string; isTransit?: boolean }[];
-  otherWarehouse = warehouses.find((warehouse) => warehouse.id !== WAREHOUSE && !warehouse.id.includes("TRANSIT"))!.id;
+  const warehouses = (await kit.call("GET", "/warehouses")).body as { id: string; branchId: string | null }[];
+  const home = warehouses.find((warehouse) => warehouse.id === WAREHOUSE)!.branchId;
+  otherWarehouse = warehouses.find((warehouse) => warehouse.id !== WAREHOUSE && warehouse.branchId === home && !warehouse.id.includes("TRANSIT"))!.id;
 }, 120_000);
 
 afterAll(async () => {

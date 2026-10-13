@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { insertingNew } from "./insert-new.js";
 import {
   Money,
   Qty,
@@ -142,7 +143,7 @@ class SqlitePhysicalCountStore implements PhysicalCountRepository {
   }
 
   async save(count: PhysicalCount): Promise<void> {
-    this.insert.run(toRow(count));
+    insertingNew(count.id, () => this.insert.run(toRow(count)));
   }
 
   async update(count: PhysicalCount): Promise<void> {

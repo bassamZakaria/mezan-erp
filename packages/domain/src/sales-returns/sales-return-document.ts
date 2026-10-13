@@ -74,6 +74,8 @@ export interface SalesReturnLine {
    * none, same as `taxRatePercent`.
    */
   readonly projectId?: string | null;
+  /** بُعد الفرع (DEC-20) — the source invoice's branch, stamped by the server from that invoice and never from the caller. */
+  readonly branchId?: string | null;
   /**
    * The source invoice's currency and the rate it confirmed at, stamped by the
    * server from that invoice — never from the caller. `unitPrice` and
@@ -169,6 +171,9 @@ export function createSalesReturnDocumentType(
       for (const line of doc.lines) {
         if (line.sourceInvoiceId !== invoiceId) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تنتمي لنفس الفاتورة.");
+        }
+        if ((line.branchId ?? null) !== (doc.lines[0]?.branchId ?? null)) {
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تُستلم في مستودعات فرع واحد؛ سجّل مرتجعاً لكل فرع.");
         }
         if ((line.fxRate ?? null) !== (doc.lines[0]?.fxRate ?? null)) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تحمل سعر صرف الفاتورة نفسه.");
@@ -268,7 +273,7 @@ export function createSalesReturnDocumentType(
         sourceDocNumber: doc.docNo,
         date: doc.date,
         memo: doc.memo || `مرتجع مبيعات ${doc.docNo ?? doc.id} — فاتورة ${doc.lines[0]?.sourceInvoiceNumber ?? doc.lines[0]?.sourceInvoiceId}`,
-        lines: [...lines, ...stockLines],
+        lines: [...lines, ...stockLines].map((line) => ({ ...line, branchId: doc.lines[0]?.branchId ?? null })),
       };
     },
 

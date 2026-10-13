@@ -40,6 +40,7 @@ export interface VatFilingRepository {
   findById(id: string): Promise<VatFiling | null>;
   list(): Promise<readonly VatFiling[]>;
   save(filing: VatFiling): Promise<void>;
+  insert(filing: VatFiling): Promise<void>;
   /** Every filing whose window contains `date` — normally one, never many. */
   findCovering(date: string): Promise<readonly VatFiling[]>;
 }
@@ -209,7 +210,7 @@ export async function recordVatFiling(
     amendedAt: null,
     amendmentReason: null,
   };
-  await deps.filings.save(filing);
+  await deps.filings.insert(filing);
   return filing;
 }
 

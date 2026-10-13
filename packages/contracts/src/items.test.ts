@@ -315,3 +315,10 @@ describe("itemSeasonSchema", () => {
     if (result.success) expect(result.data).toEqual(season);
   });
 });
+
+describe("itemStatusSchema — pending_pricing", () => {
+  it("carries the state a branch-created item waits in", () => {
+    expect(itemStatusSchema.safeParse("pending_pricing").success).toBe(true);
+    expect(itemStatusSchema.options).toEqual(["active", "inactive", "pending_pricing"]);
+  });
+});

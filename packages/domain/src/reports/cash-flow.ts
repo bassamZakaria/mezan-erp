@@ -21,6 +21,7 @@ import { Money } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * التدفقات النقدية — Cash Flow Statement, indirect method
@@ -209,9 +210,9 @@ export function createCashFlowReport(
     paramsSchema,
     defaultParams: { compareTo: "previous", branchId: "", ...defaultParams },
     paramFields: [
-      { kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" },
+      { kind: ReportParamKind.DateRange, fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" },
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "compareTo",
         label: "المقارنة",
         options: [

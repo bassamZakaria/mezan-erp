@@ -23,16 +23,6 @@ export class SalesInvoiceNotFoundError extends Error {
   }
 }
 
-export class DuplicateSalesInvoiceError extends Error {
-  readonly code = "DUPLICATE_SALES_INVOICE";
-  readonly messageEn: string;
-  constructor(readonly invoiceId: string) {
-    super(`فاتورة المبيعات "${invoiceId}" موجودة بالفعل.`);
-    this.messageEn = `Sales invoice "${invoiceId}" already exists.`;
-    this.name = "DuplicateSalesInvoiceError";
-  }
-}
-
 export class InvalidSalesInvoiceTransitionError extends Error {
   readonly code = "INVALID_SALES_INVOICE_TRANSITION";
   constructor(

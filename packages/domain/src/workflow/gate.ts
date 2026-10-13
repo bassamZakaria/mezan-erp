@@ -33,6 +33,7 @@ export enum ApprovalStatusCode {
   Approved = "approved",
   Rejected = "rejected",
   ModificationRequested = "modification_requested",
+  ReapprovalRequired = "reapproval_required",
 }
 
 export type ApprovalStatus = `${ApprovalStatusCode}`;

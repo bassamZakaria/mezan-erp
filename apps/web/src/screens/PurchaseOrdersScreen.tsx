@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -300,6 +301,7 @@ export function PurchaseOrdersScreen() {
       // N-9: a refusal because another till already moved this order names that
       // till's operator. Swallowing it left the button doing nothing at all.
       setFormError(err instanceof Error ? err.message : t("purchaseOrders.error.saveFailed"));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -483,7 +485,7 @@ export function PurchaseOrdersScreen() {
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(o.number ?? o.id) },
             { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(o.number ?? o.id, "print") },
             ...(o.status === "draft"
-              ? [{ key: "confirm", label: t("purchaseOrders.confirmSend"), onSelect: () => void confirmSelected(o.id) }]
+              ? [{ key: "confirm", label: t("purchaseOrders.confirmSend"), onSelect: () => confirmSelected(o.id) }]
               : []),
             ...(receivable
               ? [

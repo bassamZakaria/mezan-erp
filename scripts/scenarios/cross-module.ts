@@ -1035,7 +1035,20 @@ export async function run(ctx: Ctx): Promise<void> {
     // Recomputed the way a reader of the balance sheet would: every POSTABLE account
     // of the right kind, on its natural side, as of the same date the tile claims.
     const accounts = ctx.rows((await req("GET", "/accounts")).body);
+    // Cash is what the balance sheet files under cash: the postable assets under
+    // the cash-and-bank header (1300) plus whatever a treasury account posts
+    // through — never the restricted guarantee margin (1340), and never an
+    // account that merely starts with 13 (supplier advances 1350, bounced
+    // cheques 1360), which the tile used to count as money in the drawer.
+    const treasuryLedgerIds = new Set(ctx.rows((await req("GET", "/treasury-accounts")).body).map((t: any) => t.glAccountId).filter(Boolean));
+    const byId = new Map((accounts as any[]).map((a) => [a.id, a]));
+    const underCashHeader = (a: any): boolean => {
+      for (let parent = a.parentId, depth = 0; parent && depth < 32; parent = byId.get(parent)?.parentId, depth++) if (parent === "1300") return true;
+      return false;
+    };
+    const isCash = (a: any): boolean => a.type === "asset" && a.id !== "1340" && (treasuryLedgerIds.has(a.id) || underCashHeader(a));
     let cashSum = 0;
+    let notCashThirteens = 0;
     let receivableSum = 0;
     let payableSum = 0;
     for (const a of accounts as any[]) {
@@ -1043,12 +1056,17 @@ export async function run(ctx: Ctx): Promise<void> {
       const code = String(a.code ?? "");
       const raw = n((await req("GET", `/gl/accounts/${a.id}/ledger?asOf=${TODAY}`)).body?.balance?.balance);
       const natural = a.naturalBalance === "credit" ? -raw : raw;
-      if (a.type === "asset" && code.startsWith("13")) cashSum += natural;
+      if (isCash(a)) cashSum += natural;
+      else if (a.type === "asset" && code.startsWith("13")) notCashThirteens += natural;
       if (a.type === "asset" && (code === "1105" || code === "1110")) receivableSum += natural;
       if (a.type === "liability" && code !== OUTPUT_TAX) payableSum += natural;
     }
 
-    checkEq("dashboard cash equals the sum of every 13xx cash/bank account, this file's movements included", n(glBlock?.cash), cashSum);
+    checkEq("dashboard cash equals the sum of every cash and bank ledger account, this file's movements included", n(glBlock?.cash), cashSum);
+    const sheet = await req("GET", `/financial-reports/balance-sheet?asOfDate=${TODAY}`);
+    const sheetCash = ctx.rows(sheet.body).filter((row: any) => row.sectionKey === "cash").reduce((sum: number, row: any) => sum + n(row.amount), 0);
+    checkEq("and it is the balance sheet's own cash section — one set, read by both", n(glBlock?.cash), sheetCash);
+    check("the seeded books hold 13xx balances that are not cash, so the two rules can be told apart", notCashThirteens !== 0, `advances, bounced cheques and restricted cash: ${notCashThirteens}`);
     checkEq("dashboard receivables equals trade plus instalment customer receivables — not the whole 11xx subtree (docs/archive/defect-register.md D37)", n(glBlock?.receivables), receivableSum);
     checkEq("dashboard payables equals the sum of every liability account except output VAT", n(glBlock?.payables), payableSum);
   });
@@ -1201,8 +1219,8 @@ export async function run(ctx: Ctx): Promise<void> {
     const tripId = opened.body?.id ?? "SCN-X-TRIP-1";
 
     check(
-      "FLD-11 (docs/TESTING.md §10) — the route discards the caller's id, so the trip must be found by listing, not by the id that was sent",
-      tripId !== "SCN-X-TRIP-1",
+      "FLD-11 (docs/TESTING.md §10) fixed with D111 — the trip is stored under the id the caller sent",
+      tripId === "SCN-X-TRIP-1",
       `returned id=${tripId}`,
     );
 

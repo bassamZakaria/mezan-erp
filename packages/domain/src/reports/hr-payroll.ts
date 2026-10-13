@@ -4,8 +4,10 @@ import type { Payslip, PayrollRun, PayslipLineSource } from "../hr/payroll-run.j
 import type { EmployeeRef } from "../hr-shared/employee-ref.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
+import { BRANCH_PARAM_FIELD } from "./branch-filter.js";
 import { isLedgerEffective } from "./gl-shared.js";
 import type { JournalEntry } from "../journal.js";
+import { ReportParamKind } from "./types.js";
 
 /** The `sourceDocType` a payroll run's journal entry carries (`post-payroll-run.ts`). */
 export const PAYROLL_RUN_SOURCE_DOC_TYPE = "PAYROLL_RUN";
@@ -57,6 +59,7 @@ function toNumber(amount: Money): number {
 function selectPayslips(params: PayrollPeriodParams, ctx: PayrollReportContext): { run: PayrollRun; payslip: Payslip }[] {
   const runsById = new Map(ctx.runs.map((r) => [r.id, r]));
   const selected: { run: PayrollRun; payslip: Payslip }[] = [];
+  const branchId = params.branchId || null;
   for (const payslip of ctx.payslips) {
     const run = runsById.get(payslip.runId);
     if (!run) continue;
@@ -65,7 +68,7 @@ function selectPayslips(params: PayrollPeriodParams, ctx: PayrollReportContext):
     if (run.status !== "approved" && run.status !== "disbursed") continue;
     if (run.year !== params.year) continue;
     if (params.month !== null && run.month !== params.month) continue;
-    if (params.branchId !== null && run.branchId !== params.branchId) continue;
+    if (branchId !== null && run.branchId !== null && run.branchId !== branchId) continue;
     selected.push({ run, payslip });
   }
   return selected;
@@ -126,8 +129,9 @@ const CURRENT_YEAR = () => new Date().getUTCFullYear();
 
 function periodParamFields(): ReportDefinition<PayrollPeriodParams, never>["paramFields"] {
   return [
-    { kind: "text", key: "year", label: "السنة" },
-    { kind: "text", key: "month", label: "الشهر (1-12، أو فارغ للسنة كلها)" },
+    { kind: ReportParamKind.Text, key: "year", label: "السنة" },
+    { kind: ReportParamKind.Text, key: "month", label: "الشهر (1-12، أو فارغ للسنة كلها)" },
+    BRANCH_PARAM_FIELD,
   ];
 }
 

@@ -58,6 +58,8 @@ import type {
   DocumentWorkflowGate,
   DocumentEventPublisher,
 } from "../documents/hooks.js";
+import { confirmRequestIdOf, statedBranchOf } from "../documents/hooks.js";
+import { ApprovalStatusCode } from "../workflow/gate.js";
 import type { GateableActionType } from "../workflow/index.js";
 import type { CreditControlMode } from "../settings/settings.js";
 import { checkCustomerCredit, CreditLimitExceededError, type CreditCheckResult } from "../credit-control/index.js";
@@ -86,7 +88,6 @@ import type {
 import {
   ApprovedSalesInvoiceReratedError,
   SalesTaxRecalculationUnacknowledgedError,
-  DuplicateSalesInvoiceError,
   SalesInvoiceNotDraftError,
   SalesInvoiceLineNotFoundError,
   InvalidSalesInvoiceError,
@@ -155,7 +156,6 @@ export enum SalesInvoiceLifecycleAuditAction {
 const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
 const SALES_MODULE = "sales";
 
-const confirmRequestIdOf = (invoiceId: string): string => `${invoiceId}:confirm`;
 
 export interface SalesInvoiceServiceDeps {
   readonly repo: SalesInvoiceRepository;
@@ -306,7 +306,6 @@ export interface ConfirmSalesInvoiceOptions {
   readonly acknowledgeTaxRecalculation?: boolean;
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
-  readonly requestId?: string;
 }
 
 export interface ConfirmSalesInvoiceResult {
@@ -386,9 +385,6 @@ export class SalesInvoiceService {
 
   /** Open a new مسودة (draft): validated and persisted, not numbered or posted. */
   async createDraft(cmd: CreateSalesInvoiceCommand): Promise<SalesInvoice> {
-    if (await this.deps.repo.findById(cmd.id)) {
-      throw new DuplicateSalesInvoiceError(cmd.id);
-    }
     const taxRates = await this.deps.taxRates.list();
     const { invoice } = await this.rerateForCurrentVat(this.buildDraft(cmd, await this.resolveTaxPolicy(), taxRates));
     this.validate(invoice);
@@ -410,7 +406,7 @@ export class SalesInvoiceService {
 
   async confirm(id: string, opts: ConfirmSalesInvoiceOptions = {}): Promise<ConfirmSalesInvoiceResult> {
     const stored = await this.require(id);
-    const requestId = opts.requestId ?? confirmRequestIdOf(id);
+    const requestId = confirmRequestIdOf(id);
     // INVARIANT: a draft the VAT setting has re-rated is never posted — or
     // sent for approval — at figures its screen did not show. Unacknowledged
     // it is refused with the new totals; acknowledged, the re-rated lines are
@@ -443,6 +439,7 @@ export class SalesInvoiceService {
         submittedBy: opts.actor ?? this.deps.actor ?? "system",
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
         entityLabel: existing.docNo ?? approvalLabel({ type: "فاتورة مبيعات", amount: this.totalsOf(existing).grandTotal, currency: existing.currency, party: existing.customerNameAr }),
+        document: { id, branchId: statedBranchOf(existing), content: existing, heldRequestId: existing.workflowRequestId },
       });
       if (!decision.granted) {
         // Re-confirming while the request is still in the inbox is a no-op, not
@@ -670,6 +667,14 @@ export class SalesInvoiceService {
       assertTransition(id, existing.status, "draft");
       const next: SalesInvoice = { ...existing, status: "draft", workflowRequestId: null };
       await this.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], existing.status);
+      // INVARIANT: an approval covers the invoice as it was held; returned to
+      // draft, an approved request goes back to «طلب تعديل» so the next confirm
+      // is judged afresh rather than posted on, or refused over, the old verdict.
+      const requestId = existing.workflowRequestId;
+      const workflow = this.deps.workflow;
+      if (requestId && workflow?.standing && workflow.reopen && (await workflow.standing([requestId])).get(requestId)?.status === ApprovalStatusCode.Approved) {
+        await workflow.reopen(requestId);
+      }
       return next;
     });
     if (!returned) return this.require(id);

@@ -253,13 +253,8 @@ describe("ExchangeRatesScreen — approve", () => {
     await user.click(within(row).getByRole("menuitem", { name: "اعتماد" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("لا يمكن اعتماد سعر صرف في فترة مقفلة.");
 
-    // DEFECT: RowMenu's row action always reports success here, because
-    // ExchangeRatesScreen wires the menu item as `onSelect: () => void
-    // approve(r.id)` (ExchangeRatesScreen.tsx ~line 225) — `approve` catches
-    // its own error internally (line ~88), so the `void`-discarded call
-    // RowMenu awaits never rejects, and RowMenu.run (RowMenu.tsx ~117-130)
-    // unconditionally shows its "done" toast even though the request failed.
-    expect(await screen.findByText("تم تنفيذ «اعتماد»")).toBeInTheDocument();
+    expect(screen.queryByText("تم تنفيذ «اعتماد»")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
 

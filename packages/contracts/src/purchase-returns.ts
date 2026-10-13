@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { nonNegativeMoneyString } from "./money-string.js";
+import { decimalRateString, nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
@@ -87,7 +87,7 @@ export const purchaseReturnDocumentSchema = z.object({
       taxRateId: z.string().nullable().optional(),
       /** The source invoice's currency and confirm rate, stamped by the server (D203). */
       currency: z.string().nullable().optional(),
-      fxRate: z.string().nullable().optional(),
+      fxRate: decimalRateString.nullable().optional(),
       /** What this line credits, in base currency at `fxRate`. */
       baseCredit: z.string().optional(),
     }),

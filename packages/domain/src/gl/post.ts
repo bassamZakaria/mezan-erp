@@ -23,7 +23,6 @@ import type { ProjectRepository } from "../projects/project.js";
 import { ProjectNotFoundError } from "../projects/errors.js";
 import type { GlEventPublisher } from "./events.js";
 import {
-  DuplicateJournalEntryError,
   InactiveAccountError,
   InvalidJournalPartyError,
   JournalEntryNotDraftError,
@@ -58,6 +57,7 @@ export interface JournalLineInput {
   readonly branchId?: string | null;
   /** The customer/supplier of a line on a party control account (D205). */
   readonly partyId?: string | null;
+  readonly treasuryAccountId?: string | null;
 }
 
 /** Command to create/post a journal entry. */
@@ -146,6 +146,7 @@ function toLine(input: JournalLineInput): JournalLine {
     costCategory: input.costCategory ?? null,
     branchId: input.branchId ?? null,
     partyId: input.partyId ?? null,
+    treasuryAccountId: input.treasuryAccountId ?? null,
   };
 }
 
@@ -378,9 +379,6 @@ export async function createJournalEntry(
   await assertPartyLines(cmd.lines, deps);
 
   return deps.ledger.transaction(async () => {
-    if (await deps.ledger.findById(cmd.id)) {
-      throw new DuplicateJournalEntryError(cmd.id);
-    }
     const entry: JournalEntry = {
       id: cmd.id,
       entryNo: null,
@@ -427,9 +425,6 @@ export async function postJournalEntry(
   await assertVatNotFiled(cmd.date, deps.vatFilings);
 
   const entry = await deps.ledger.transaction(async () => {
-    if (await deps.ledger.findById(cmd.id)) {
-      throw new DuplicateJournalEntryError(cmd.id);
-    }
     const stamp = nowIso(deps);
     const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);
     const posted: JournalEntry = {

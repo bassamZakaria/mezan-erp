@@ -361,3 +361,33 @@ describe("a return against a foreign invoice reverses at the invoice's rate (D20
     expect(lines[0]).toMatchObject({ currency: "SAR", fxRate: "13.20" });
   });
 });
+
+describe("a purchase return posts in its source invoice's branch (D111)", () => {
+  const type = createPurchaseReturnDocumentType(ACCOUNTS);
+  const docOf = (lines: PurchaseReturnLine[]) => ({
+    id: "PRT-BR",
+    docType: "PURCHASE_RETURN",
+    docNo: "PRT-000010",
+    date: "2026-08-21",
+    memo: "",
+    status: "draft" as const,
+    lines,
+    createdAt: "2026-08-21T00:00:00.000Z",
+    confirmedAt: null,
+    reversesDocId: null,
+    reversedByDocId: null,
+    workflowRequestId: null,
+    journalEntryId: null,
+  });
+
+  it("stamps the invoice's branch on the payable, VAT, inventory and variance legs", () => {
+    const posting = type.buildGlPosting?.(docOf([line({ branchId: "BR-ALEX" })]), { valueMoved: Money.fromMajor("-90") });
+    expect(posting!.lines.length).toBeGreaterThan(2);
+    expect(posting!.lines.every((l) => l.branchId === "BR-ALEX")).toBe(true);
+  });
+
+  it("leaves a return whose invoice carried no branch unattributed", () => {
+    const posting = type.buildGlPosting?.(docOf([line()]), { valueMoved: Money.fromMajor("-90") });
+    expect(posting!.lines.every((l) => l.branchId === null)).toBe(true);
+  });
+});

@@ -6,6 +6,7 @@ import {
   cockpitSchema,
   confirmSalesInvoiceSchema,
   collectionResultSchema,
+  voucherSchema,
   createSalesInvoiceSchema,
   createSalesQuoteSchema,
   customerSchema,
@@ -27,6 +28,8 @@ import {
   type ConfirmSalesInvoiceDTO,
   type CollectionResultDTO,
   type CreateCollectionDTO,
+  type CreateVoucherDTO,
+  type VoucherDTO,
   type CreateSalesInvoiceDTO,
   type CreateSalesQuoteDTO,
   type CustomerDTO,
@@ -221,6 +224,14 @@ export function useCreateCollection(): UseMutationResult<CollectionResultDTO, Ap
   const { request } = useSession();
   return useMutation<CollectionResultDTO, ApiError, CreateCollectionDTO>({
     mutationFn: (body) => request("/vouchers/collections", { method: HttpMethod.Post, body, schema: collectionResultSchema }),
+  });
+}
+
+/** Save a collection as a DRAFT voucher: nothing is posted or allocated until someone who may confirm does. */
+export function useCreateVoucherDraft(): UseMutationResult<VoucherDTO, ApiError, CreateVoucherDTO> {
+  const { request } = useSession();
+  return useMutation<VoucherDTO, ApiError, CreateVoucherDTO>({
+    mutationFn: (body) => request("/vouchers", { method: HttpMethod.Post, body, schema: voucherSchema }),
   });
 }
 

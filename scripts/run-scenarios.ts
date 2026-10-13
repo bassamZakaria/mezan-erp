@@ -34,6 +34,7 @@ import { run as security } from "./scenarios/security.js";
 import { run as securityUnits } from "./scenarios/security-units.js";
 import { POS_SCENARIOS } from "./scenarios/pos.js";
 import { ENH_SCENARIOS } from "./scenarios/enh.js";
+import { run as branchDimension } from "./scenarios/branch-dimension.js";
 import type { Ctx } from "./scenarios/harness.js";
 
 /**
@@ -93,6 +94,7 @@ const suites: readonly (readonly [string, (ctx: Ctx) => Promise<unknown>])[] = [
   ["hr", hr], ["inventory", inventory], ["purchases", purchases], ["sales", sales], ["reports", reports],
   ["sales-parity", salesParity],
   ...fragmentSuites,
+  ["branch-dimension", branchDimension],
   ["cross-module", crossModule], ["seams", seams],
   // LAST, and on its own cloud app: it moves the process clock forward six
   // weeks to walk the trial, and restores it when it is done.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ALL_SCOPE, createAuthContext, type AuthContext } from "./auth-context.js";
 import { WILDCARD_PERMISSION } from "./catalog.js";
 import { resolvePermissions } from "./resolve.js";
-import { targetOutranksCaller, ungrantablePermissions } from "./escalation.js";
+import { targetOutranksCaller, ungrantablePermissions, ungrantableScopes } from "./escalation.js";
 
 /**
  * The rule under test is one sentence: a caller may never grant authority they
@@ -163,5 +163,56 @@ describe("targetOutranksCaller — a caller may not write to an account above th
         ungrantablePermissions(clerk, target.permissions).length > 0,
       );
     }
+  });
+});
+
+describe("a `*` admin granted one branch holds every permission and only that branch", () => {
+  const restrictedAdmin = createAuthContext({
+    userId: "u-branch-admin",
+    permissions: [WILDCARD_PERMISSION],
+    branchScope: ["BR-ALEX"],
+    warehouseScope: ALL_SCOPE,
+  });
+  const narrowWarehouseAdmin = createAuthContext({
+    userId: "u-warehouse-admin",
+    permissions: [WILDCARD_PERMISSION],
+    branchScope: ALL_SCOPE,
+    warehouseScope: ["WH-ALEX"],
+  });
+
+  it("cannot hand out every branch, nor a branch it does not hold", () => {
+    expect(ungrantableScopes(restrictedAdmin, { branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })).toEqual(["branch:*"]);
+    expect(ungrantableScopes(restrictedAdmin, { branchScope: ["BR-ALEX", "BR-MAIN"] })).toEqual(["branch:BR-MAIN"]);
+    expect(ungrantableScopes(restrictedAdmin, { branchScope: ["BR-ALEX"] })).toEqual([]);
+  });
+
+  it("is held to its warehouse grant the same way", () => {
+    expect(ungrantableScopes(narrowWarehouseAdmin, { warehouseScope: ALL_SCOPE })).toEqual(["warehouse:*"]);
+  });
+
+  it("is outranked by an account that reaches further, whatever that account's role", () => {
+    expect(targetOutranksCaller(restrictedAdmin, { isCompanyAdmin: false, permissions: ["admin.users.view"], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })).toBe(true);
+    expect(targetOutranksCaller(restrictedAdmin, { isCompanyAdmin: true, permissions: [], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })).toBe(true);
+    expect(targetOutranksCaller(restrictedAdmin, { isCompanyAdmin: false, permissions: [], branchScope: ["BR-MAIN"], warehouseScope: ALL_SCOPE })).toBe(true);
+  });
+
+  it("is outranked by an account whose reach the server was not told", () => {
+    expect(targetOutranksCaller(restrictedAdmin, { isCompanyAdmin: false, permissions: [] })).toBe(true);
+  });
+
+  it("still administers accounts inside its own branch, and may grant any permission there", () => {
+    expect(targetOutranksCaller(restrictedAdmin, { isCompanyAdmin: true, permissions: [], branchScope: ["BR-ALEX"], warehouseScope: ALL_SCOPE })).toBe(false);
+    expect(ungrantablePermissions(restrictedAdmin, [WILDCARD_PERMISSION])).toEqual([]);
+  });
+
+  it("is judged by the branches the session was granted, not by what one request narrowed to", () => {
+    const narrowedRequest = createAuthContext({
+      userId: "u-all",
+      permissions: [WILDCARD_PERMISSION],
+      branchScope: ["BR-ALEX"],
+      branchGrant: ALL_SCOPE,
+      warehouseScope: ALL_SCOPE,
+    });
+    expect(ungrantableScopes(narrowedRequest, { branchScope: ALL_SCOPE })).toEqual([]);
   });
 });

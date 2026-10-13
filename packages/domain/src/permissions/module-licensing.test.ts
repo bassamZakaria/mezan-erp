@@ -15,14 +15,14 @@ function entitlementsWith(activeModules: string[]) {
 describe("isModuleLicensed", () => {
   it("always licenses the core platform modules regardless of entitlements", () => {
     const ent = entitlementsWith([]);
-    for (const core of ["workflow", "admin", "audit"]) {
+    for (const core of ["workflow", "admin", "audit", "dashboard"]) {
       expect(isModuleLicensed(core, ent)).toBe(true);
     }
   });
 
-  it("no longer always-licenses dashboard or transactions — DEC-14 left neither a permission", () => {
+  it("always-licenses the dashboard its one enforced permission gates, and still not transactions — DEC-14 left that no permission", () => {
     const ent = entitlementsWith([]);
-    expect(isModuleLicensed("dashboard", ent)).toBe(false);
+    expect(isModuleLicensed("dashboard", ent)).toBe(true);
     expect(isModuleLicensed("transactions", ent)).toBe(false);
   });
 
@@ -55,6 +55,6 @@ describe("licensedModules / licensedPermissions", () => {
   it("licenses nothing extra for an empty tenant beyond the core modules", () => {
     const ent = entitlementsWith([]);
     const moduleIds = licensedModules(ent).map((m) => m.id).sort();
-    expect(moduleIds).toEqual(["admin", "audit", "workflow"]);
+    expect(moduleIds).toEqual(["admin", "audit", "dashboard", "workflow"]);
   });
 });

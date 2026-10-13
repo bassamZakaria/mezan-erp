@@ -1,3 +1,4 @@
+import { insertOnly } from "../records/test-helpers/insert-only.js";
 /** In-memory fakes for the manufacturing use-case tests. Test-only. */
 
 import { NextNumberService, type SequenceStore } from "../numbering/index.js";
@@ -39,7 +40,7 @@ export class InMemoryBoms implements BomRepository {
     return [...this.rows.values()].filter((b) => b.productItemId === productItemId);
   }
   async create(bom: Bom): Promise<void> {
-    this.rows.set(bom.id, bom);
+    insertOnly(this.rows, bom.id, bom);
   }
   async update(bom: Bom): Promise<void> {
     this.rows.set(bom.id, bom);
@@ -55,7 +56,7 @@ export class InMemoryWorkOrders implements WorkOrderRepository {
     return [...this.rows.values()];
   }
   async create(order: WorkOrder): Promise<void> {
-    this.rows.set(order.id, order);
+    insertOnly(this.rows, order.id, order);
   }
   async update(order: WorkOrder): Promise<void> {
     this.rows.set(order.id, order);
@@ -74,7 +75,7 @@ export class InMemoryConfigurableProducts implements ConfigurableProductReposito
     return [...this.rows.values()];
   }
   async create(product: ConfigurableProduct): Promise<void> {
-    this.rows.set(product.id, product);
+    insertOnly(this.rows, product.id, product);
   }
   async update(product: ConfigurableProduct): Promise<void> {
     this.rows.set(product.id, product);
@@ -90,7 +91,7 @@ export class InMemoryConfigInstances implements ConfigInstanceRepository {
     return [...this.rows.values()];
   }
   async create(instance: ConfigInstance): Promise<void> {
-    this.rows.set(instance.id, instance);
+    insertOnly(this.rows, instance.id, instance);
   }
   async update(instance: ConfigInstance): Promise<void> {
     this.rows.set(instance.id, instance);

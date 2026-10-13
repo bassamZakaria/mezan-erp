@@ -22,7 +22,6 @@ import { createGoodsReceipt, confirmGoodsReceipt } from "./goods-receipt.js";
 import type { AllocatableInvoiceRepository, AllocatableInvoice } from "../vouchers/allocation.js";
 import type { PurchaseGlAccounts, PurchaseGlPosting } from "./types.js";
 import {
-  DuplicatePurchaseDocumentError,
   GoodsReceiptAlreadyInvoicedError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
@@ -36,6 +35,7 @@ import {
   makeNumbering,
   makeStockService,
 } from "./test-helpers.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 import { InvalidStockMovementError } from "../inventory/errors.js";
 import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
@@ -261,7 +261,7 @@ describe("createPurchaseInvoice — both input shapes", () => {
       lines: [{ itemId: "item-Z", kind: "inventory" as const, qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("1") }],
     };
     await createPurchaseInvoice(cmd, { invoices, numbering });
-    await expect(createPurchaseInvoice(cmd, { invoices, numbering })).rejects.toThrow(DuplicatePurchaseDocumentError);
+    await expect(createPurchaseInvoice(cmd, { invoices, numbering })).rejects.toThrow(DuplicateRecordIdError);
   });
 
   it("rejects an inventory line with no item id", async () => {
@@ -448,7 +448,7 @@ describe("confirmPurchaseInvoice — sub-ledger (AP) and GL control account both
 /**
  * guards B-7 — the GL posted first with a deterministic id (`PI-JE:<invoiceId>`)
  * and nothing wrapped the confirm, so a failure after it left the invoice
- * `draft` beside a live entry and every retry threw DuplicateJournalEntryError.
+ * `draft` beside a live entry and every retry threw a duplicate-id refusal.
  * The invoice could never be confirmed again.
  */
 describe("confirmPurchaseInvoice — one transaction", () => {

@@ -109,6 +109,7 @@ export interface ManufacturingGlPosting {
   readonly date: string;
   readonly memo: string;
   readonly lines: readonly ManufacturingGlPostingLine[];
+  readonly warehouseId?: string | null;
   /**
    * The journal entry's own id — what makes the posting idempotent.
    *

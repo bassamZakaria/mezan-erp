@@ -28,6 +28,8 @@ import {
   updateRetentionReleaseSchema,
 } from "@mezan/contracts";
 import { callerUserId, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * تقارير الاستثناءات الستة، الإفراج عن المحتجزات وتقويم المحتجزات — slice 5B
@@ -202,6 +204,7 @@ function serializeBoqLine(line: BoqLine) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof RetentionReleaseNotFoundError) {

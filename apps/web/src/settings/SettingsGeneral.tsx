@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
 import { COMPANY_NAME_MAX_LENGTH, type TenantSettingsDTO, type UpdateTenantSettingsDTO } from "@mezan/contracts";
 import { companyNameError } from "../company-name";
@@ -602,6 +603,14 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
 }
 
 export function SettingsGeneral() {
+  return (
+    <ReadOnlyFields>
+      <SettingsGeneralContent />
+    </ReadOnlyFields>
+  );
+}
+
+function SettingsGeneralContent() {
   const { t } = useAppTranslation();
   const query = useSettings();
 

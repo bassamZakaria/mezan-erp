@@ -5,7 +5,6 @@ import {
   ApprovalRequestRejectedError,
   DocumentNotFoundError,
   DocumentReversalRefusedError,
-  DuplicateDocumentError,
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   MissingHookError,
@@ -17,6 +16,8 @@ import {
   PeriodNotOpenForPostingError,
   ReversalDateBeforeOriginalError,
 } from "@mezan/domain";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 import { reversalRefusalResponse } from "./document-reversal.js";
 
 /**
@@ -26,15 +27,13 @@ import { reversalRefusalResponse } from "./document-reversal.js";
  * stock-ledger errors a `buildStockPlan` confirm can surface.
  */
 export function handleDocumentError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422 | 500) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof DocumentNotFoundError) {
     return refuse(err, 404);
-  }
-  if (err instanceof DuplicateDocumentError) {
-    return refuse(err, 409);
   }
   if (err instanceof ApprovalRequestRejectedError) {
     return refuse(err, 409);

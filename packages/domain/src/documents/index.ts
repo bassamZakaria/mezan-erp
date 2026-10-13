@@ -45,7 +45,9 @@ export type {
   DocumentEventType,
   DocumentDomainEvent,
   DocumentEventPublisher,
+  GatedDocument,
 } from "./hooks.js";
+export { confirmRequestIdOf, documentIdOfConfirmRequest } from "./hooks.js";
 
 export type {
   FrameworkDocument,
@@ -69,7 +71,6 @@ export {
 export {
   InvalidDocumentTransitionError,
   DocumentNotFoundError,
-  DuplicateDocumentError,
   MissingHookError,
   StockPlanDateRequiredError,
   ReversalNotReversibleError,
@@ -114,4 +115,4 @@ export {
 
 export { ledgerPresenceAsOf, reversalChainPresenceAsOf, type LedgerPresenceInput } from "./as-of.js";
 
-export { approvalLabel, displayAmount as displayApprovalAmount, type ApprovalSubject } from "./approval-label.js";
+export { approvalLabel, displayAmount as displayApprovalAmount, type ApprovalLabelSubject } from "./approval-label.js";

@@ -97,8 +97,8 @@ describe("buildGlPosting — inventory rises against the accrual, both sides bal
     const posting = type.buildGlPosting?.(doc({ lines }));
     expect(posting).not.toBeNull();
     expect(posting?.lines).toEqual([
-      { accountId: "1300-inventory", debit: expect.anything(), credit: Money.zero(), projectId: null },
-      { accountId: "2160-accrued-landed-cost", debit: Money.zero(), credit: expect.anything(), projectId: null },
+      { accountId: "1300-inventory", debit: expect.anything(), credit: Money.zero(), projectId: null, branchId: null },
+      { accountId: "2160-accrued-landed-cost", debit: Money.zero(), credit: expect.anything(), projectId: null, branchId: null },
     ]);
     const debit = posting?.lines[0]?.debit as Money;
     const credit = posting?.lines[1]?.credit as Money;
@@ -156,5 +156,22 @@ describe("describeEffects", () => {
     const effects = type.describeEffects?.(doc({ lines: [] }));
     expect(effects?.blocked).toBe(true);
     expect(effects?.blockedReason).toBe("لا يوجد بنود لتوزيع التكلفة عليها.");
+  });
+});
+
+describe("createLandedCostDocumentType — the branch the posting lands in (D111)", () => {
+  const type = createLandedCostDocumentType(ACCOUNTS);
+  const branchesOf = (lines: LandedCostLine[]) => type.buildGlPosting?.(doc({ lines }))?.lines.map((l) => l.branchId ?? null);
+
+  it("posts in the branch every target line's warehouse belongs to, even across several warehouses of it", () => {
+    expect(branchesOf([costLine({ branchId: "BR-ALEX" }), costLine({ warehouseId: "WH2", branchId: "BR-ALEX" })])).toEqual(["BR-ALEX", "BR-ALEX"]);
+  });
+
+  it("stays unattributed only when the targets genuinely span branches", () => {
+    expect(branchesOf([costLine({ branchId: "BR-ALEX" }), costLine({ warehouseId: "WH2", branchId: "BR-MAIN" })])).toEqual([null, null]);
+  });
+
+  it("stays unattributed for a line stamped before the dimension existed", () => {
+    expect(branchesOf([costLine()])).toEqual([null, null]);
   });
 });

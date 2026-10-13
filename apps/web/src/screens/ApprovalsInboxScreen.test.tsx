@@ -10,6 +10,9 @@ const pendingRequest: ApprovalRequestDTO = {
   id: "req-1",
   actionType: "SALES_INVOICE_CONFIRM",
   submittedBy: "alice",
+  submittedByName: null,
+  documentId: null,
+  documentNo: null,
   steps: [{ role: "SUPERVISOR" }, { role: "FINANCE_MANAGER" }],
   currentStep: 0,
   status: "pending",
@@ -67,6 +70,20 @@ describe("ApprovalsInboxScreen", () => {
     expect(await screen.findByText("تأكيد فاتورة المبيعات")).toBeInTheDocument();
     expect(screen.getByText("فاتورة INV-000123")).toBeInTheDocument();
     expect(screen.getByText("SUPERVISOR")).toBeInTheDocument();
+  });
+
+  it("names who asked and the held document: the submitter's name, and the document's number or reference under its type", async () => {
+    renderScreen([
+      { ...pendingRequest, id: "req-held", actionType: "TREASURY_VOUCHER_CONFIRM", submittedBy: "5b1c9c2e-user", submittedByName: "أمين الخزينة سامي", entityLabel: null, documentId: "VCH-77", documentNo: null },
+      { ...pendingRequest, id: "req-numbered", submittedBy: "9d0e-user", submittedByName: "منى المحاسبة", entityLabel: null, documentId: "inv-uuid", documentNo: "INV-000456" },
+    ]);
+    expect(await screen.findByText("أمين الخزينة سامي")).toBeInTheDocument();
+    expect(screen.getByText("منى المحاسبة")).toBeInTheDocument();
+    expect(screen.getByText("VCH-77")).toBeInTheDocument();
+    expect(screen.getByText("INV-000456")).toBeInTheDocument();
+    expect(screen.queryByText("inv-uuid")).not.toBeInTheDocument();
+    expect(screen.queryByText("5b1c9c2e-user")).not.toBeInTheDocument();
+    expect(screen.queryByText("—")).not.toBeInTheDocument();
   });
 
   it("shows the empty state with no pending approvals", async () => {

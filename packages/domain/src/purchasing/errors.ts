@@ -25,14 +25,6 @@ export class PurchaseInvoiceNotFoundError extends Error {
   }
 }
 
-export class DuplicatePurchaseDocumentError extends Error {
-  readonly code = "DUPLICATE_PURCHASE_DOCUMENT";
-  constructor(readonly id: string) {
-    super(`يوجد مستند مشتريات بالمعرّف "${id}" بالفعل.`);
-    this.name = "DuplicatePurchaseDocumentError";
-  }
-}
-
 export class InvalidPurchaseDocumentError extends Error {
   readonly code = "INVALID_PURCHASE_DOCUMENT";
   constructor(readonly reasons: readonly string[]) {

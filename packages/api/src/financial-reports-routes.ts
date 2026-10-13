@@ -1,6 +1,8 @@
 import { Hono, type Context } from "hono";
 import {
+  accountLedgerBranchCaveat,
   createAccountLedgerReport,
+  type BranchCaveat,
   createBalanceSheetReport,
   createCashFlowReport,
   createGeneralLedgerReport,
@@ -19,6 +21,8 @@ import {
   type VatReturnContext,
 } from "@mezan/domain";
 import { branchScopeOf, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
+import { readableEntries } from "./branch-view.js";
 import { tenantToday } from "./tenant-day.js";
 
 /**
@@ -41,9 +45,10 @@ import { tenantToday } from "./tenant-day.js";
  * returned for a specific requested BRANCH — which is why every one of those
  * statements also reports «غير مخصص» on its own.
  *
- * The remaining statements (VAT return, general ledger, account ledger) read
- * the same entries but answer questions that are not branch questions, so they
- * declare nothing rather than offering a control that would only confuse.
+ * The general ledger and the account ledger narrow the same way, line by
+ * line (D111). The VAT return is the entity's own filing: narrowing it would
+ * present a partial statutory figure and serving it whole would hand a scoped
+ * caller every other branch's totals, so a branch-scoped caller is refused it.
  */
 export interface FinancialReportsRoutesDeps {
   readonly ledger: Pick<LedgerRepository, "list"> & Pick<Partial<LedgerRepository>, "accountBalances">;
@@ -64,9 +69,11 @@ export interface FinancialReportsRoutesDeps {
    * flow. Omit only when the chart of accounts follows the 11xx-is-cash code
    * convention `classifyAccount()` falls back to.
    */
-  readonly cashAccountIds?: readonly string[];
+  readonly cashAccountIds?: () => Promise<readonly string[]>;
   /** The accounts the income statement shows below operating profit, resolved per request from the tenant's routing (D229). */
   readonly otherIncomeExpenseAccountIds?: () => Promise<readonly string[]>;
+  /** The accounts a sale's cost is posted to, resolved per request from the tenant's routing and its items. */
+  readonly costOfSalesAccountIds?: () => Promise<readonly string[]>;
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the tenant's calendar day. */
   readonly today?: () => string;
   /**
@@ -91,7 +98,11 @@ function firstOfMonth(today: string): string {
   return `${today.slice(0, 7)}-01`;
 }
 
-function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Response {
+function respond<TParams>(
+  c: Context,
+  outcome: RunReportOutcome<TParams, unknown>,
+  branchCaveatOf?: (params: TParams) => BranchCaveat | null,
+): Response {
   if (!outcome.ok) {
     return c.json({ error: "VALIDATION_ERROR", errors: outcome.errors }, 400);
   }
@@ -102,6 +113,7 @@ function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Respo
     grandTotals: outcome.grandTotals,
     reconciliation: outcome.reconciliation,
     kpis: outcome.kpis,
+    ...(branchCaveatOf ? { branchCaveat: branchCaveatOf(outcome.params) } : {}),
   });
 }
 
@@ -146,18 +158,21 @@ export function createFinancialReportsRoutes(
     bounds: { fromDate?: string; toDate?: string },
     preloadedAccounts?: readonly Account[],
   ): Promise<GlReportContext> {
-    const [accounts, journalEntries, otherIncomeExpenseAccountIds] = await Promise.all([
+    const [accounts, journalEntries, otherIncomeExpenseAccountIds, cashAccountIds, costOfSalesAccountIds] = await Promise.all([
       preloadedAccounts ? Promise.resolve(preloadedAccounts) : deps.accounts.list(),
       loadJournalEntries(bounds),
       deps.otherIncomeExpenseAccountIds?.(),
+      deps.cashAccountIds?.(),
+      deps.costOfSalesAccountIds?.(),
     ]);
     // The scope rides on the context, not on the query: it has to cut at the
     // posted LINE, and `ledger.list` can only bound whole entries by date.
     return {
       accounts,
-      journalEntries,
-      cashAccountIds: deps.cashAccountIds,
+      journalEntries: readableEntries(c, journalEntries),
+      cashAccountIds,
       ...(otherIncomeExpenseAccountIds ? { otherIncomeExpenseAccountIds } : {}),
+      ...(costOfSalesAccountIds ? { costOfSalesAccountIds } : {}),
       branchScope: branchScopeOf(c),
     };
   }
@@ -213,6 +228,8 @@ export function createFinancialReportsRoutes(
   // --- إقرار ضريبة القيمة المضافة ------------------------------------------
 
   app.get("/vat-return", gate("accounting.reports.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const today = await tenantToday(c, deps.today);
     const definition = createVatReturnReport({ periodFrom: firstOfMonth(today), periodTo: today });
     const params = mergeParams(c, definition.defaultParams);
@@ -281,7 +298,7 @@ export function createFinancialReportsRoutes(
     const params = mergeParams(c, definition.defaultParams);
     // The opening balance needs every entry before periodFrom.
     const ctx = await loadGlContext(c, { toDate: isoDateOrUndefined(params.periodTo) }, accounts);
-    return respond(c, runReport(definition, params, ctx));
+    return respond(c, runReport(definition, params, ctx), (ran) => accountLedgerBranchCaveat(ran, ctx));
   });
 
   return app;

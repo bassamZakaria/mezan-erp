@@ -17,7 +17,10 @@ import { describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { BranchRefusalCode } from "@mezan/contracts";
 import { AppI18nProvider } from "../i18n";
+import { webCatalogs } from "../i18n/catalog";
+import { loaderError } from "./hooks";
 import { ApiProvider } from "./ApiContext";
 import { createQueryClient } from "./queryClient";
 import type { Session } from "./session";
@@ -1027,5 +1030,30 @@ describe("price list tier resolution", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(seenBody).toEqual({ itemId: "I1", customerId: "C1", qty: "12" });
     expect(result.current.data).toEqual({ price: "95.000000", priceListId: "PL1", tierMinQty: "10", fromPriceList: true });
+  });
+});
+
+describe("loaderError — a branch-boundary refusal reads in the reader's language (D111)", () => {
+  const respond = (status: number, body: unknown) => ({ status, json: <T,>() => Promise.resolve(body as T) });
+  const english = ((key: string) => `EN:${key}`) as unknown as Parameters<typeof loaderError>[2];
+
+  it("maps every refusal code the policy can answer to a catalogue sentence", async () => {
+    for (const code of ["BRANCH_OUT_OF_SCOPE", "COMPANY_WIDE_REPORT", "BRANCH_POLICY_UNDECLARED", "BRANCH_REQUIRED", "TREASURY_BRANCH_MISMATCH", "WAREHOUSE_BRANCH_MISMATCH", "WAREHOUSE_OUT_OF_SCOPE", "SHARED_FIELD_RESTRICTED"]) {
+      const error = await loaderError(respond(403, { error: code, message: "نص الخادم" }), "fallback", english);
+      expect(error.message, code).toBe(`EN:branchRefusal.${code}`);
+      expect(error.code).toBe(code);
+    }
+  });
+
+  it("leaves NOT_FOUND and every other code to the server's own sentence", async () => {
+    expect((await loaderError(respond(404, { error: "NOT_FOUND", message: "نص الخادم" }), "fallback", english)).message).toBe("نص الخادم");
+    expect((await loaderError(respond(409, { error: "DUPLICATE_DOCUMENT", message: "مكرر" }), "fallback", english)).message).toBe("مكرر");
+  });
+
+  it("has an Arabic and an English sentence for each code", () => {
+    for (const code of Object.values(BranchRefusalCode)) {
+      expect((webCatalogs.ar as Record<string, string>)[`branchRefusal.${code}`], code).toMatch(/[؀-ۿ]/);
+      expect((webCatalogs.en as Record<string, string>)[`branchRefusal.${code}`], code).toMatch(/[a-z]/);
+    }
   });
 });

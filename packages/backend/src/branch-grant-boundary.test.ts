@@ -2045,7 +2045,7 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     { route: "/cheques", schema: contracts.createChequeSchema, table: "cheque", foreignIdSql: "SELECT id FROM cheque WHERE branch_id = 'BR-MAIN' LIMIT 1",
       valid: (sampled) => ({ ...sampled, issueDate: TODAY, dueDate: TODAY, chequeNumber: "D111-R4-0099", bankName: "بنك مصر", partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" } }),
     },
-    { route: "/vouchers", schema: contracts.createVoucherSchema, table: "voucher", foreignIdSql: "SELECT id FROM voucher WHERE branch_id = 'BR-MAIN' LIMIT 1", valid: (sampled) => ({ ...sampled, partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105" }) },
+    { route: "/vouchers", schema: contracts.createVoucherSchema, table: "voucher", foreignIdSql: "SELECT id FROM voucher WHERE branch_id = 'BR-MAIN' AND id NOT LIKE '%:%' LIMIT 1", valid: (sampled) => ({ ...sampled, partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105" }) },
     { route: "/sales-invoices", schema: contracts.createSalesInvoiceSchema, table: "sales_invoice", foreignIdSql: "SELECT id FROM sales_invoice WHERE branch_id = 'BR-MAIN' LIMIT 1", valid: (_sampled, id) => salesInvoice(id, ALEX, ALEX_WAREHOUSE) },
   ];
   const storedReferences = () => ({

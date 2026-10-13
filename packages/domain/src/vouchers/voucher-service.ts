@@ -14,6 +14,7 @@
 import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import type { LedgerRepository } from "../gl/ledger.js";
 import type { AccountRepository } from "../accounts/account.js";
+import { laterAllocationDay } from "./allocation-day.js";
 import type { FiscalPeriodRepository } from "../fiscal-periods/fiscal-period.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { AuditSink } from "../audit/index.js";
@@ -31,6 +32,8 @@ import { createDocumentWorkflowGate } from "../documents/journal-document.js";
 import { approvalLabel } from "../documents/approval-label.js";
 import {
   voucherBaseAmount,
+  isStandingVoucher,
+  voucherTakesAllocations,
   voucherNetPaid,
   type TreasuryLegFx,
   voucherDocumentType,
@@ -66,6 +69,7 @@ import {
   type InvoiceReturnCreditPort,
   type SettlementSplit,
   type VoucherAllocation,
+  FxOpenItemType,
 } from "./allocation.js";
 import {
   AllocationCurrencyMismatchError,
@@ -74,13 +78,14 @@ import {
   InvoiceNotFoundError,
   VoucherNotAllocatableError,
   VoucherNotConfirmedError,
+  VoucherReversedError,
   VoucherTreasuryCurrencyMismatchError,
 } from "./errors.js";
 import { allocationUndoDay, postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingMoney } from "./realised-fx.js";
 import { Money } from "../money/index.js";
 
 /** GL hook binding the REAL posting engine behind the framework, tagging vouchers as "system". */
-export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
+export function createVoucherGlHook(deps: JournalPostingDeps, internal: { readonly documentIdsMintedBySystem?: boolean } = {}): DocumentGlHook {
   return {
     async post(posting) {
       const entry = await postJournalEntry(
@@ -110,6 +115,7 @@ export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
           })),
         },
         deps,
+        { mintedBySystem: internal.documentIdsMintedBySystem },
       );
       return { journalEntryId: entry.id, journalEntryNo: entry.entryNo ?? null };
     },
@@ -118,7 +124,7 @@ export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
         reversalId: opts.reversalId,
         date: opts.date,
         memo: opts.memo,
-      });
+      }, { mintedBySystem: opts.mintedBySystem });
       return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
     },
   };
@@ -168,10 +174,12 @@ export interface VoucherChequeRegistrationPort {
 }
 
 export interface VoucherServiceDeps {
+  // INVARIANT: true only where the composition root builds the voucher's id itself (COLL:…, PAY:…); a service that saves a caller's id leaves it unset so the journal still refuses a reserved one.
+  readonly documentIdsMintedBySystem?: boolean;
   readonly documents: import("../documents/document.js").DocumentRepository<VoucherLine>;
   readonly ledger: LedgerRepository;
   readonly accounts: Pick<AccountRepository, "findById">;
-  readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
+  readonly periods: JournalPostingDeps["periods"];
   readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly numbering: NextNumberService;
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
@@ -313,7 +321,7 @@ export class VoucherService {
     this.service = new DocumentService(voucherDocumentType, {
       repo: deps.documents,
       numbering: { next: (opts) => deps.numbering.next("CASH_VOUCHER", { branchId: opts?.branchId }) },
-      gl: createVoucherGlHook(glDeps),
+      gl: createVoucherGlHook(glDeps, { documentIdsMintedBySystem: deps.documentIdsMintedBySystem }),
       workflow: createDocumentWorkflowGate(deps.resolveGateConfig ?? (() => null), deps.approvalRequests),
       approvalLabel: async (doc) => {
         const line = voucherLine(doc);
@@ -465,7 +473,7 @@ export class VoucherService {
     const held = (await this.service.list({ status: "confirmed", toDate: refund.date }))
       .filter((doc) => {
         const money = voucherLine(doc);
-        return money.voucherType === heldAs && (money.customerId ?? money.supplierId) === partyId && money.currency === line.currency && Boolean(money.fxRate);
+        return isStandingVoucher(doc) && money.voucherType === heldAs && (money.customerId ?? money.supplierId) === partyId && money.currency === line.currency && Boolean(money.fxRate);
       })
       .sort((a, b) => (a.date === b.date ? a.id.localeCompare(b.id) : a.date < b.date ? -1 : 1));
     let applied = 0;
@@ -609,7 +617,7 @@ export class VoucherService {
    */
   async reverseVoucher(
     id: string,
-    opts: { reversalId: string; date?: string; memo?: string },
+    opts: { reversalId: string; date?: string; memo?: string; mintedBySystem?: boolean },
   ): Promise<{ original: VoucherDocument; reversal: VoucherDocument }> {
     if (await this.deps.cheques?.blocksReversal?.(id)) {
       throw new InvalidDocumentError(
@@ -641,6 +649,17 @@ export class VoucherService {
       const undone = await reverseAllocationFn(alloc.id, this.now(), { allocations: this.deps.allocations, invoices: this.deps.invoices }, undoneOn);
       await this.projectSettlement(undone.invoice);
     }
+  }
+
+  async laterAllocationDay(voucherId: string, invoiceId: string, requested?: string | null): Promise<string> {
+    const doc = await this.requireConfirmedAllocatable(voucherId);
+    const invoice = await this.deps.invoices.findById(invoiceId);
+    if (!invoice) throw new InvoiceNotFoundError(invoiceId);
+    const line = voucherLine(doc);
+    const booked = await this.deps.realisedFx?.invoiceFx(invoice.id, invoice.kind);
+    const currencies = new Set([...(line.fxRate ? [line.currency] : []), ...(booked ? [booked.currency] : [])]);
+    const earlierAllocations = [...(await this.deps.allocations.listByVoucher(doc.id)), ...(await this.deps.allocations.listByInvoice(invoice.id))];
+    return laterAllocationDay({ requested, moneyDay: doc.date, invoiceDay: invoice.date, currencies, earlierAllocations }, { periods: this.deps.periods, ledger: this.deps.ledger, vatFilings: this.deps.vatFilings });
   }
 
   async allocate(
@@ -688,8 +707,8 @@ export class VoucherService {
           ...(realisedFx
             ? {
                 rates: (invoice) => settlementRatesFor(realisedFx, invoice, money),
-                unconsumedShare: async (invoice) => (await realisedFx.revaluationShare?.(invoice)) ?? Money.zero(),
-                unconsumedMoneyShare: async () => (line.fxRate ? ((await realisedFx.moneyRevaluationShare?.(voucherId)) ?? Money.zero()) : Money.zero()),
+                revaluationShare: async (invoice, relief) => (await realisedFx.revaluationShareTaken?.({ id: invoice.id, type: FxOpenItemType.Invoice }, relief)) ?? Money.zero(),
+                moneyRevaluationShare: async (relief) => (line.fxRate ? ((await realisedFx.revaluationShareTaken?.({ id: voucherId, type: FxOpenItemType.Money }, relief)) ?? Money.zero()) : Money.zero()),
                 beforeSave: async (invoice, split, date) => {
                   const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
                   const rates = await settlementRatesFor(realisedFx, invoice, money);
@@ -835,8 +854,7 @@ export class VoucherService {
     if (!invoice) throw new InvoiceNotFoundError(invoiceId);
     const rates = this.deps.realisedFx ? await settlementRatesFor(this.deps.realisedFx, invoice, money) : null;
     const returned = (await returnedByInvoice(this.deps.returns, [invoice])).get(invoice.id) ?? Money.zero();
-    const unconsumed = rates ? ((await this.deps.realisedFx?.revaluationShare?.(invoice)) ?? Money.zero()) : Money.zero();
-    return settlementSplit(money.amount, invoiceOpenBalance(invoice, returned), rates, unconsumed);
+    return settlementSplit(money.amount, invoiceOpenBalance(invoice, returned), rates);
   }
 
   async reverseAllocation(allocationId: string, opts: { now?: string; date?: string } = {}): Promise<{ allocation: VoucherAllocation }> {
@@ -872,9 +890,8 @@ export class VoucherService {
 
   async allocationSummary(doc: VoucherDocument): Promise<AllocationSummary> {
     const line = voucherLine(doc);
-    const def = getVoucherTypeDefinition(line.voucherType);
     const allocations = await this.deps.allocations.listByVoucher(doc.id);
-    return summarize(voucherBaseAmount(line), allocations, def.allocatable);
+    return summarize(voucherBaseAmount(line), allocations, voucherTakesAllocations(doc));
   }
 
   async findById(id: string): Promise<VoucherDocument | null> {
@@ -896,6 +913,7 @@ export class VoucherService {
   private async requireConfirmedAllocatable(voucherId: string): Promise<VoucherDocument> {
     const doc = await this.service.findById(voucherId);
     if (!doc) throw new VoucherNotConfirmedError(voucherId, "missing");
+    if (doc.reversesDocId || doc.status === "reversed") throw new VoucherReversedError(doc.id, doc.docNo ?? doc.id, Boolean(doc.reversesDocId));
     if (doc.status !== "confirmed") throw new VoucherNotConfirmedError(voucherId, doc.status);
     const line = voucherLine(doc);
     if (!getVoucherTypeDefinition(line.voucherType).allocatable) {

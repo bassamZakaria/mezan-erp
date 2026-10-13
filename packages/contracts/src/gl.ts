@@ -3,6 +3,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { moneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for the GL posting engine (docs/archive/catalog/04 §القيود المحاسبية).
@@ -47,7 +48,7 @@ export const glJournalLineSchema = z.object({
 /** Create (and post) a journal entry. */
 /** تسجيل إقرار ضريبي مقدَّم — record that a period's VAT return went to the authority. */
 export const recordVatFilingSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   periodFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   periodTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   netAmount: moneyString,
@@ -106,11 +107,10 @@ export const closeFiscalYearResultSchema = z.object({
 export type CloseFiscalYearResultDTO = z.infer<typeof closeFiscalYearResultSchema>;
 
 export const createGlJournalEntrySchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   /** A day, or an instant the route resolves to the tenant's day (`tenantDay`). */
   date: isoDateOrInstant,
   memo: z.string(),
-  source: journalEntrySourceSchema.optional(),
   lines: z.array(glJournalLineSchema).min(2),
 });
 
@@ -118,14 +118,13 @@ export const createGlJournalEntrySchema = z.object({
 export const updateGlJournalEntrySchema = z.object({
   date: isoDateOrInstant,
   memo: z.string(),
-  source: journalEntrySourceSchema.optional(),
   lines: z.array(glJournalLineSchema).min(2),
 });
 
 /** Reverse a posted journal entry via a reversing entry. */
 export const reverseGlJournalEntrySchema = z.object({
   /** Optional — the server generates a UUID when omitted. */
-  reversalId: z.string().min(1).optional(),
+  reversalId: clientSuppliedId.optional(),
   date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
 });

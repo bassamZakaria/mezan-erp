@@ -152,14 +152,33 @@ export function createFxRevaluationRoutes(
     return { balances, config: { date, closingRates, ...(await deps.differenceAccounts()), ...(openItems ? { openItems } : {}) }, derived: reported };
   }
 
+  enum HeldRunAction {
+    Post = "post",
+    Reverse = "reverse",
+  }
+
   class LaterRevaluationStandsError extends Error {
-    constructor(readonly entryNo: string, readonly runDate: string) {
-      super(`لا يمكن ترحيل إعادة تقييم بتاريخ سابق: التشغيل ${entryNo} بتاريخ ${runDate} ما زال قائماً وقد أعاد تقييم الأرصدة نفسها. اعكسه أولاً ثم رحّل التشغيلين بترتيب تواريخهما.`);
+    constructor(readonly entryNo: string, readonly runDate: string, readonly action: HeldRunAction) {
+      super(
+        action === HeldRunAction.Post
+          ? `لا يمكن ترحيل إعادة تقييم بتاريخ سابق: التشغيل ${entryNo} بتاريخ ${runDate} ما زال قائماً وقد أعاد تقييم الأرصدة نفسها. اعكسه أولاً ثم رحّل التشغيلين بترتيب تواريخهما.`
+          : `لا يمكن عكس إعادة التقييم: التشغيل الأحدث ${entryNo} بتاريخ ${runDate} ما زال قائماً وقد بُني على أرصدة هذا التشغيل. اعكس التشغيل الأحدث أولاً ثم أعد المحاولة.`,
+      );
     }
     get messageEn(): string {
-      return `An earlier-dated revaluation cannot be posted while run ${this.entryNo} dated ${this.runDate} still stands: it already restated the same balances. Reverse it first, then post the runs in date order.`;
+      return this.action === HeldRunAction.Post
+        ? `An earlier-dated revaluation cannot be posted while run ${this.entryNo} dated ${this.runDate} still stands: it already restated the same balances. Reverse it first, then post the runs in date order.`
+        : `This revaluation cannot be reversed while the later run ${this.entryNo} dated ${this.runDate} still stands: it was built on this run's balances. Reverse the later run first.`;
     }
   }
+
+  async function laterStandingRun(date: string, currencies: ReadonlySet<string>) {
+    return (await deps.ledger.list({ sourceDocTypes: [FX_REVALUATION_DOC_TYPE] })).find(
+      (entry) => entry.status === "posted" && !entry.reversesEntryId && !entry.reversedByEntryId && entry.date.slice(0, 10) > date && entry.lines.some((line) => line.currency && currencies.has(line.currency)),
+    );
+  }
+
+  const laterRunRefusal = (c: Context, err: LaterRevaluationStandsError) => c.json({ error: "FX_REVALUATION_LATER_RUN_STANDS", message: err.message, messageEn: err.messageEn, laterRun: err.entryNo }, 409);
 
   app.post("/preview", gate("accounting.journal.post"), async (c) => {
     const parsed = fxRevaluationRequestSchema.safeParse(await c.req.json());
@@ -194,13 +213,9 @@ export function createFxRevaluationRoutes(
       };
       const requested = parsed.data.currencies ?? [];
       const result = await deps.ledger.transaction(async () => {
-        if (!autoReverse) {
-          const restating = new Set(balances.map((balance) => balance.currency));
-          const later = (await deps.ledger.list({ sourceDocTypes: [FX_REVALUATION_DOC_TYPE] })).find(
-            (entry) => entry.status === "posted" && !entry.reversesEntryId && !entry.reversedByEntryId && entry.date.slice(0, 10) > date && entry.lines.some((line) => line.currency && restating.has(line.currency)),
-          );
-          if (later) throw new LaterRevaluationStandsError(later.entryNo ?? later.id, later.date.slice(0, 10));
-        }
+        const later = await laterStandingRun(date, new Set(balances.map((balance) => balance.currency)));
+        // INVARIANT: a self-reversing run is gone the next day, so it is harmless under a later standing run only when that day comes before the later run's own.
+        if (later && (!autoReverse || nextDay(date) >= later.date.slice(0, 10))) throw new LaterRevaluationStandsError(later.entryNo ?? later.id, later.date.slice(0, 10), HeldRunAction.Post);
         const posted = await postFxRevaluation(balances, config, postingDeps, {
           id: idGen(),
           reversalId: idGen(),
@@ -230,7 +245,7 @@ export function createFxRevaluationRoutes(
         201,
       );
     } catch (err) {
-      if (err instanceof LaterRevaluationStandsError) return c.json({ error: "FX_REVALUATION_LATER_RUN_STANDS", message: err.message, messageEn: err.messageEn, laterRun: err.entryNo }, 409);
+      if (err instanceof LaterRevaluationStandsError) return laterRunRefusal(c, err);
       return handleError(c, err);
     }
   });
@@ -332,12 +347,15 @@ export function createFxRevaluationRoutes(
       if (reversalDate < original.date.slice(0, 10)) throw new ReversalDateBeforeOriginalError(original.id, reversalDate, original.date);
       const actor = getAuthContext(c)?.userId ?? "system";
       const result = await deps.ledger.transaction(async () => {
+        const later = await laterStandingRun(original.date.slice(0, 10), new Set(original.lines.flatMap((line) => (line.currency ? [line.currency] : []))));
+        if (later) throw new LaterRevaluationStandsError(later.entryNo ?? later.id, later.date.slice(0, 10), HeldRunAction.Reverse);
         const consumedBy = await deps.shareConsumer?.(original.id);
         if (consumedBy) throw new RevaluationShareConsumedError(consumedBy);
         const reversed = await reverseJournalEntry(
           original.id,
           { ledger: deps.ledger, accounts: deps.accounts, periods: deps.periods, numbering: deps.numbering, projects: deps.projects, audit: deps.audit, vatFilings: deps.vatFilings, events: deps.events, now: deps.now, actor },
           { reversalId: idGen(), date: reversalDate, memo: memo ?? `عكس إعادة تقييم العملات الأجنبية (${original.entryNo ?? original.id})` },
+          { isRevaluationRun: true },
         );
         await recordDocumentReversal(deps.audit, {
           module: "accounting",
@@ -350,6 +368,7 @@ export function createFxRevaluationRoutes(
       });
       return c.json({ entryId: original.id, entryStatus: result.original.status, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null, reversalDate }, 201);
     } catch (err) {
+      if (err instanceof LaterRevaluationStandsError) return laterRunRefusal(c, err);
       if (err instanceof RevaluationShareConsumedError) return c.json({ error: "FX_REVALUATION_SHARE_CONSUMED", message: err.message, messageEn: err.messageEn, consumedBy: err.consumedBy }, 409);
       return handleError(c, err);
     }

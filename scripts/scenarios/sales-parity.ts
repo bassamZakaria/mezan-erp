@@ -263,7 +263,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("a second refund beyond what is owed is refused", again.status >= 400, JSON.stringify(again.body).slice(0, 200));
 
     // The reverse must restore BOTH sides, not just the flag.
-    const reversed = await req("POST", `/vouchers/${refund.body?.voucherId}/reverse`, { reversalId: "SCP-RET-1-REV" });
+    const reversed = await req("POST", `/vouchers/${refund.body?.voucherId}/reverse`, { memo: "سبب العكس", reversalId: "SCP-RET-1-REV" });
     check("the refund voucher reverses", reversed.ok, `${reversed.status} ${JSON.stringify(reversed.body).slice(0, 160)}`);
     checkEq("AR is restored", await glBalance(AR_ACCOUNT), arBefore);
     checkEq("cash is restored", await glBalance(CASH_ACCOUNT), cashBefore);

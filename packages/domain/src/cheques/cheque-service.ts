@@ -60,8 +60,11 @@ import {
   type AllocationRepository,
   type InvoiceReturnCreditPort,
   type VoucherAllocation,
+  FxOpenItemType,
 } from "../vouchers/allocation.js";
 import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
+import { laterAllocationDay } from "../vouchers/allocation-day.js";
+import { InvoiceNotFoundError } from "../vouchers/errors.js";
 import { FX_REALISED_LINE_MEMO, allocationUndoDay, postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingLine, type SettlingMoney } from "../vouchers/realised-fx.js";
 
 export interface CreateChequeCommand {
@@ -82,6 +85,7 @@ export interface CreateChequeCommand {
   readonly controlAccounts: ChequeControlAccounts;
   /** Id for the creation journal entry (domain stays pure — caller supplies ids). */
   readonly journalEntryId: string;
+  readonly journalEntryIdMintedBySystem?: boolean;
   readonly replacesChequeId?: string | null;
   /**
    * The RESOLVED acting user (D80). Every transition below takes one, and it
@@ -285,6 +289,7 @@ export class ChequeService {
         lines: lines.map((line) => ({ ...line, branchId: cmd.branchId })),
       },
       this.deps.gl,
+      { mintedBySystem: cmd.journalEntryIdMintedBySystem },
     );
   }
 
@@ -470,6 +475,18 @@ export class ChequeService {
    * against a purchase invoice. Moves no GL — the creation entry already
    * moved the control account; this only says which invoice the money is for.
    */
+  async laterAllocationDay(chequeId: string, invoiceId: string, requested?: string | null): Promise<string> {
+    const cheque = await this.require(chequeId);
+    const store = this.allocationStore();
+    const invoice = await store.invoices.findById(invoiceId);
+    if (!invoice) throw new InvoiceNotFoundError(invoiceId);
+    const earlierAllocations = [...(await store.allocations.listByVoucher(cheque.id)), ...(await store.allocations.listByInvoice(invoice.id))];
+    const raisedLine = (await this.deps.raisedBy?.partyLineOf?.(cheque)) ?? null;
+    const booked = await this.deps.realisedFx?.invoiceFx(invoice.id, invoice.kind);
+    const currencies = new Set([...(raisedLine?.fxRate && raisedLine.currency ? [raisedLine.currency] : []), ...(booked ? [booked.currency] : [])]);
+    return laterAllocationDay({ requested, moneyDay: cheque.issueDate, invoiceDay: invoice.date, currencies, earlierAllocations }, { periods: this.deps.gl.periods, ledger: this.deps.gl.ledger, vatFilings: this.deps.gl.vatFilings });
+  }
+
   async allocate(cmd: AllocateChequeCommand): Promise<VoucherAllocation> {
     const store = this.allocationStore();
     return this.deps.cheques.transaction(async () => {
@@ -501,8 +518,8 @@ export class ChequeService {
           ...(realisedFx
             ? {
                 rates: (invoice) => settlementRatesFor(realisedFx, invoice, money),
-                unconsumedShare: async (invoice) => (await realisedFx.revaluationShare?.(invoice)) ?? Money.zero(),
-                unconsumedMoneyShare: async () => (raisedLine?.fxRate ? ((await realisedFx.moneyRevaluationShare?.(cheque.id)) ?? Money.zero()) : Money.zero()),
+                revaluationShare: async (invoice, relief) => (await realisedFx.revaluationShareTaken?.({ id: invoice.id, type: FxOpenItemType.Invoice }, relief)) ?? Money.zero(),
+                moneyRevaluationShare: async (relief) => (raisedLine?.fxRate ? ((await realisedFx.revaluationShareTaken?.({ id: cheque.id, type: FxOpenItemType.Money }, relief)) ?? Money.zero()) : Money.zero()),
                 beforeSave: async (invoice, split, date) => {
                   const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
                   const rates = await settlementRatesFor(realisedFx, invoice, money);

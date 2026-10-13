@@ -107,6 +107,7 @@ async function harness() {
           ],
         },
         glDeps,
+        { mintedBySystem: true },
       );
     },
     postAbsorbed: async (posting) => {

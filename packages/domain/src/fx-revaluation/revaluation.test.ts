@@ -169,7 +169,7 @@ describe("fxRevaluationNet", () => {
     const entries = await ledger.list();
     return entries
       .filter((e) => e.date <= toDate)
-      .flatMap((e) => e.lines.map((l) => ({ accountId: l.accountId, memo: l.memo ?? null, source: e.source ?? "manual", debit: l.debit, credit: l.credit })));
+      .flatMap((e) => e.lines.map((l) => ({ accountId: l.accountId, memo: l.memo ?? null, source: e.source ?? "manual", sourceDocType: e.sourceDocType ?? null, debit: l.debit, credit: l.credit })));
   }
   const balances: OpenFxBalance[] = [
     { accountId: "1100", currency: "USD", foreignAmount: Money.fromMajor("100"), bookedBase: Money.fromMajor("5000"), naturalBalance: "debit" },
@@ -184,6 +184,14 @@ describe("fxRevaluationNet", () => {
 
   it("ignores a manual journal that happens to reuse the memo", () => {
     const lines = [{ accountId: "1100", memo: "إعادة تقييم عملات أجنبية", source: "manual" as const, debit: Money.fromMajor("9"), credit: Money.zero() }];
+    expect(fxRevaluationNet(lines, "1100").toString()).toBe(Money.zero().toString());
+  });
+
+  it("ignores an entry marked system that reuses the memo but is not a revaluation document", () => {
+    const lines = [
+      { accountId: "1100", memo: "إعادة تقييم عملات أجنبية", source: "system" as const, sourceDocType: null, debit: Money.fromMajor("9"), credit: Money.zero() },
+      { accountId: "1100", memo: "إعادة تقييم عملات أجنبية", source: "system" as const, sourceDocType: "JOURNAL", debit: Money.fromMajor("7"), credit: Money.zero() },
+    ];
     expect(fxRevaluationNet(lines, "1100").toString()).toBe(Money.zero().toString());
   });
 });

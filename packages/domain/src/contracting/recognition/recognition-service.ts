@@ -434,6 +434,7 @@ export class RecognitionService {
             lines,
           },
           this.deps.gl,
+          { mintedBySystem: true },
         );
         journalEntryId = entry.id;
       }
@@ -573,6 +574,7 @@ export class RecognitionService {
             })),
           },
           this.deps.gl,
+          { mintedBySystem: true },
         );
         reversalJournalEntryId = entry.id;
       }

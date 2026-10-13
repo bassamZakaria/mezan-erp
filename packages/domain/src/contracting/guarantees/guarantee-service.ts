@@ -745,6 +745,7 @@ export class GuaranteeService {
         lines,
       },
       this.deps.gl,
+      { mintedBySystem: true },
     );
   }
 

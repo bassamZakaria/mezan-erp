@@ -8,6 +8,7 @@ export {
   isMonetaryAccountType,
   nextDay,
   fxRevaluationNet,
+  isFxRestatementLine,
   attributeRevaluation,
   accountForeignResidues,
   isRoundingResidue,

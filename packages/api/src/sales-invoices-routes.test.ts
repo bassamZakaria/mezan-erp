@@ -191,6 +191,7 @@ async function harness(
           ],
         },
         { ledger: ledger as any, accounts, periods, numbering: collectionNumbering, now: () => NOW, actor: "u1" },
+        { mintedBySystem: true },
       );
       const invoice = await repo.findById(input.invoiceId);
       await applyAllocatedSettlement(repo, input.invoiceId, (invoice?.amountPaid ?? Money.zero()).add(input.amount));

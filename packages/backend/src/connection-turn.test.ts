@@ -495,7 +495,7 @@ describe("a create sent again because its answer never arrived", () => {
     const body = collection("99999999-aaaa-4bbb-8ccc-000000000009");
     const first = await t.call("POST", "/vouchers/collections", body);
     expect(first.status, JSON.stringify(first.body)).toBe(201);
-    expect((await t.call("POST", `/vouchers/${body.id}/reverse`, { date: "2026-08-23" })).status).toBe(201);
+    expect((await t.call("POST", `/vouchers/${body.id}/reverse`, { date: "2026-08-23", memo: "خطأ في السند" })).status).toBe(201);
 
     const resent = await t.call("POST", "/vouchers/collections", body);
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for the item master-data catalogs (docs/archive/catalog/03
@@ -38,7 +39,7 @@ export const itemCategorySchema = z.object({
 });
 
 export const createItemCategorySchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),
   parentId: z.string().min(1).nullable().optional(),

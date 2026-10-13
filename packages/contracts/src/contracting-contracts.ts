@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString, quantityString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for العقد وجدول الكميات وأوامر التغيير — slice 1 of
@@ -72,7 +73,7 @@ const termsShape = {
 };
 
 export const createWorksContractSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   projectId: z.string().min(1),
   customerId: z.string().min(1),
   titleAr: z.string().min(1, "اسم العقد مطلوب"),
@@ -190,7 +191,7 @@ export const worksContractSchema = z.object({
 export type WorksContractDTO = z.infer<typeof worksContractSchema>;
 
 export const boqLineInputSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   code: z.string().min(1, "كود البند مطلوب"),
   descriptionAr: z.string().min(1, "وصف البند مطلوب"),
   descriptionEn: z.string().nullish(),
@@ -286,7 +287,7 @@ export const variationOrderLineInputSchema = z.object({
 export type VariationOrderLineInputDTO = z.infer<typeof variationOrderLineInputSchema>;
 
 export const createVariationOrderSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   contractId: z.string().min(1),
   date: isoDate,
   titleAr: z.string().min(1, "عنوان أمر التغيير مطلوب"),

@@ -1057,6 +1057,7 @@ export class SubCertificateService {
         lines,
       },
       this.deps.gl,
+      { mintedBySystem: true },
     );
   }
 }

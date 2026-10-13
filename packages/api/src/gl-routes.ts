@@ -389,7 +389,7 @@ export function createGlRoutes(
           id: parsed.data.id,
           date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
-          source: parsed.data.source,
+          source: "manual",
           lines: parsed.data.lines.map((l) => ({
             accountId: l.accountId,
             debit: Money.fromMajor(l.debit),
@@ -588,7 +588,7 @@ export function createGlRoutes(
           id: parsed.data.id,
           date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
-          source: parsed.data.source,
+          source: "manual",
           lines: parsed.data.lines.map((l) => ({
             accountId: l.accountId,
             debit: Money.fromMajor(l.debit),
@@ -643,7 +643,7 @@ export function createGlRoutes(
         {
           date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
-          source: parsed.data.source,
+          source: "manual",
           lines: parsed.data.lines.map((l) => ({
             accountId: l.accountId,
             debit: Money.fromMajor(l.debit),

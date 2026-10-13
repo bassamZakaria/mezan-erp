@@ -113,6 +113,7 @@ export interface DocumentGlReversalOptions {
   readonly reversalId: string;
   readonly date?: string;
   readonly memo?: string;
+  readonly mintedBySystem?: boolean;
   /**
    * ORDER MATTERS: runs once the reversing entry has its number and before it
    * is saved, so the stock moves under that number and whatever it could not
@@ -208,7 +209,7 @@ export interface DocumentStockHook {
    * Optional only so an existing adapter that cannot reverse is a loud
    * `MissingHookError` at the call rather than a silent no-op.
    */
-  reverse?(plan: DocumentStockPlan, reversesDocId: string): Promise<DocumentStockResult>;
+  reverse?(plan: DocumentStockPlan, reversesDocId: string, internal?: { readonly mintedBySystem?: boolean }): Promise<DocumentStockResult>;
 }
 
 /** The part of a recorded stock movement `mirrorStockPlan` needs. */

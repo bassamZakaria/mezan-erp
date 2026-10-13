@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { decimalRateString, moneyString, quantityString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 import { InvoiceDocumentKind } from "./invoice-document-kind.js";
 
 /**
@@ -87,7 +88,7 @@ export const createSalesInvoiceLineSchema = z.object({
 
 /** Create a draft sales invoice. */
 export const createSalesInvoiceSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: isoDateOrInstant,
   dueDate: z.string().min(1),
   customerId: z.string().min(1),

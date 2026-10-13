@@ -144,6 +144,7 @@ export async function approvePayrollRun(runId: string, approvedBy: string, deps:
       lines,
     },
     deps.gl,
+    { mintedBySystem: true },
   );
 
   const now = deps.now?.() ?? new Date().toISOString();

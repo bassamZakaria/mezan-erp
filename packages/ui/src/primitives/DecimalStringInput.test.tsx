@@ -67,8 +67,20 @@ describe("DecimalStringInput — a quantity stays the decimal the user typed", (
     expect(type("۴۲")).toHaveBeenLastCalledWith("42");
   });
 
-  it("takes no minus sign unless the field allows a negative figure", () => {
-    expect(type("-5")).toHaveBeenLastCalledWith("5");
+  it("keeps a typed minus where no negative figure is allowed and says so in Arabic, instead of quietly making it positive", () => {
+    expect(type("-5")).toHaveBeenLastCalledWith("");
+    render(<Held />);
+    const input = typeInto("-5");
+    expect(input).toHaveValue("-5");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent("لا تُقبل القيم السالبة");
+
+    typeInto("5");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(input).toHaveValue("5");
+  });
+
+  it("takes a minus sign where the field allows a negative figure", () => {
     const onChange = vi.fn();
     render(<DecimalStringInput value="" onChange={onChange} aria-label="الفرق" allowNegative />);
     const input = screen.getByLabelText("الفرق");

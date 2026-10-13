@@ -1944,6 +1944,7 @@ export {
 } from "./signup.js";
 
 export { isoDateOrInstant, isoDay, ISO_DATE_PATTERNS } from "./iso-date.js";
+export { clientSuppliedId, isAcceptableClientSuppliedId, CLIENT_SUPPLIED_ID_DESCRIPTION, CLIENT_SUPPLIED_ID_MAX_LENGTH, CLIENT_SUPPLIED_ID_REFUSAL_CODE, CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE, CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE_EN } from "./client-supplied-id.js";
 
 export {
   simplifiedRegimeStateSchema,
@@ -1962,6 +1963,7 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { VoucherPermissionAction, mayReverseVoucher, voucherActionPermissions } from "./voucher-permissions.js";
 
 export { IdempotencyRefusal, IDEMPOTENT_REPLAY_HEADER } from "./idempotency.js";
 export { IMPORT_ROW_LIMIT, ImportRefusal, importLimitNotice, importTooLargeMessage, linesOfCsvImport, type BilingualSentence } from "./import-limit.js";

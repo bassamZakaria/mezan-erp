@@ -25,6 +25,8 @@ import {
   CashBalanceWouldGoNegativeError,
   VoucherNotAllocatableError,
   VoucherNotConfirmedError,
+  VoucherReversedError,
+  voucherTakesAllocations,
   InvoiceNotFoundError,
   AllocationNotFoundError,
   AllocationMismatchError,
@@ -60,7 +62,12 @@ import {
   voucherListQuerySchema,
   type RequestedAllocationDTO,
   type VoucherListQueryDTO,
+  ReversalPermission,
+  VoucherPermissionAction,
+  mayReverseVoucher,
+  voucherActionPermissions,
 } from "@mezan/contracts";
+import { requireReversalReason } from "./document-reversal.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, withinScope } from "./permission-gate.js";
 import { storedBranchesById, withinBranchView } from "./stored-branches.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
@@ -177,6 +184,7 @@ function serializeAllocation(a: VoucherAllocation, invoiceNo: string | null) {
     status: a.status,
     createdAt: a.createdAt,
     reversedAt: a.reversedAt,
+    date: a.date ?? null,
   };
 }
 
@@ -238,6 +246,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof AllocationMismatchError ||
+    err instanceof VoucherReversedError ||
     err instanceof SettlementRateMissingError
   ) {
     return refuse(err, 422);
@@ -269,7 +278,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  *   POST /vouchers                          create a draft                 create
  *   POST /vouchers/:id/confirm              confirm (cash guard + GL post) confirm
  *   POST /vouchers/:id/cancel               cancel a draft/pending         void
- *   POST /vouchers/:id/reverse              reverse a confirmed voucher    void
+ *   POST /vouchers/:id/reverse              reverse a confirmed voucher    reverse
  *   GET  /vouchers/:id/allocations          list allocations               alloc.view
  *   POST /vouchers/:id/allocations          allocate onto an invoice       alloc.manage
  *   POST /allocations/:id/reverse           reverse one allocation         alloc.manage
@@ -281,26 +290,6 @@ function handleDomainError(c: Context, err: unknown): Response {
  * only by a caller who actually holds that role.
  */
 const gateActorRoles = callerRoleCodes;
-
-/**
- * The voucher types that carry a permission of their own, and its prefix.
- *
- * There is ONE voucher document and one voucher list, so there is one `.view`
- * — `treasury.cash_voucher.view`. What a shop separates is not the reading but
- * the ACT: handing cash back to a customer, and moving money between the
- * company's own treasuries, are decisions kept away from the counter. Every
- * voucher route used to gate every type on `treasury.cash_voucher.*`, so the
- * two codes below gated nothing at all and a cashier who could raise a
- * collection could also raise a refund.
- *
- * The gate is "EITHER the generic code OR this type's own": a holder of only
- * `treasury.customer_refund.create` can raise a refund and nothing else, and a
- * cashier holding `treasury.cash_voucher.create` keeps every type they had.
- */
-const VOUCHER_TYPE_PERMISSION_PREFIX: Readonly<Record<string, string>> = {
-  customer_refund: "treasury.customer_refund",
-  inter_treasury_transfer: "treasury.transfer",
-};
 
 /**
  * المقاولات — collecting a progress certificate.
@@ -316,18 +305,15 @@ const CERTIFICATE_COLLECT = "contracting.certificate.collect";
 const CUSTOMER_COLLECTION = "customer_collection";
 const CERTIFICATE_COLLECTION_TYPES: ReadonlySet<string> = new Set([CUSTOMER_COLLECTION, "customer_advance"]);
 
-type VoucherAction = "create" | "confirm" | "void";
 
 /** Every code that authorises `action` on a voucher of this type. Any one suffices. */
 function voucherPermissions(
-  action: VoucherAction,
+  action: VoucherPermissionAction,
   voucherType: string | null | undefined,
   projectId: string | null | undefined,
 ): string[] {
-  const codes = [`treasury.cash_voucher.${action}`];
-  const prefix = voucherType ? VOUCHER_TYPE_PERMISSION_PREFIX[voucherType] : undefined;
-  if (prefix) codes.push(`${prefix}.${action}`);
-  if (action !== "void" && projectId && voucherType && CERTIFICATE_COLLECTION_TYPES.has(voucherType)) {
+  const codes = voucherActionPermissions(action, voucherType);
+  if (action !== VoucherPermissionAction.Void && projectId && voucherType && CERTIFICATE_COLLECTION_TYPES.has(voucherType)) {
     codes.push(CERTIFICATE_COLLECT);
   }
   return codes;
@@ -441,7 +427,7 @@ export function createVouchersRoutes(
         const def = getVoucherTypeDefinition(line.voucherType);
         return {
           ...serialize(doc, serializeApproval(approvals.get(doc.id))),
-          allocatable: def.allocatable,
+          allocatable: voucherTakesAllocations(doc),
           allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
           direction: def.direction,
         };
@@ -540,7 +526,7 @@ export function createVouchersRoutes(
       if (row.status === "draft") draft += 1;
       if (row.status !== "confirmed") continue;
       confirmed += 1;
-      const amount = Money.fromMajor(row.amount);
+      const amount = row.reversesDocId ? Money.zero() : Money.fromMajor(row.amount);
       if (row.direction === "receipt") receipts = receipts.add(amount);
       if (row.direction === "payment") payments = payments.add(amount);
       if (row.allocatable && row.allocationSummary.needsAllocation) {
@@ -578,7 +564,7 @@ export function createVouchersRoutes(
     const doc = await findInScope(c, svc, c.req.param("id"));
     if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
     const line = voucherLine(doc);
-    const allocatable = getVoucherTypeDefinition(line.voucherType).allocatable;
+    const allocatable = voucherTakesAllocations(doc);
     const summary = await svc.allocationSummary(doc);
     const allocations = await svc.listAllocations(doc.id);
     return c.json({
@@ -603,7 +589,7 @@ export function createVouchersRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
-    const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
+    const refusal = refuseVoucherType(c, voucherPermissions(VoucherPermissionAction.Create, d.voucherType, d.projectId));
     if (refusal) return refusal;
     const intended = d.allocations ?? [];
     const drafter = getAuthContext(c);
@@ -682,7 +668,7 @@ export function createVouchersRoutes(
     }
     const d = parsed.data;
     const voucherType = CUSTOMER_COLLECTION;
-    for (const action of ["create", "confirm"] as const) {
+    for (const action of [VoucherPermissionAction.Create, VoucherPermissionAction.Confirm]) {
       const refusal = refuseVoucherType(c, voucherPermissions(action, voucherType, d.projectId));
       if (refusal) return refusal;
     }
@@ -764,7 +750,7 @@ export function createVouchersRoutes(
    * A voucher that is not there at all is left to the handler, so a missing id
    * keeps answering the domain's own 404 rather than gaining a second shape.
    */
-  async function refuseStoredVoucher(c: Context, id: string, action: VoucherAction): Promise<Response | null> {
+  async function refuseStoredVoucher(c: Context, id: string, action: VoucherPermissionAction): Promise<Response | null> {
     const doc = await serviceFor(c).findById(id);
     if (!doc) return null;
     const line = voucherLine(doc);
@@ -790,7 +776,7 @@ export function createVouchersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const refusal = await refuseStoredVoucher(c, c.req.param("id"), "confirm");
+    const refusal = await refuseStoredVoucher(c, c.req.param("id"), VoucherPermissionAction.Confirm);
     if (refusal) return refusal;
     try {
       const ctx = getAuthContext(c);
@@ -814,7 +800,7 @@ export function createVouchersRoutes(
       "treasury.transfer.confirm",
       CERTIFICATE_COLLECT,
     ),
-    refuse: (c, id) => refuseStoredVoucher(c, id, "confirm"),
+    refuse: (c, id) => refuseStoredVoucher(c, id, VoucherPermissionAction.Confirm),
     resubmit: (c, id) => serviceFor(c).resubmitVoucher(id, { actor: getAuthContext(c)?.userId, actorRoles: gateActorRoles(c) }),
     serialize: async (c, doc) => serialize(doc, serializeApproval((await serviceFor(c).approvalsOf([doc])).get(doc.id))),
     onError: handleDomainError,
@@ -824,7 +810,7 @@ export function createVouchersRoutes(
     "/:id/cancel",
     gateAny("treasury.cash_voucher.void", "treasury.customer_refund.void", "treasury.transfer.void"),
     async (c) => {
-      const refusal = await refuseStoredVoucher(c, c.req.param("id"), "void");
+      const refusal = await refuseStoredVoucher(c, c.req.param("id"), VoucherPermissionAction.Void);
       if (refusal) return refusal;
       try {
         const doc = await serviceFor(c).cancelVoucher(c.req.param("id"));
@@ -837,7 +823,8 @@ export function createVouchersRoutes(
 
   app.post(
     "/:id/reverse",
-    gateAny("treasury.cash_voucher.void", "treasury.customer_refund.void", "treasury.transfer.void"),
+    gate(ReversalPermission.Voucher),
+    requireReversalReason,
     async (c) => {
     let body: unknown = {};
     try {
@@ -849,8 +836,12 @@ export function createVouchersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const refusal = await refuseStoredVoucher(c, c.req.param("id"), "void");
-    if (refusal) return refusal;
+    const ctx = getAuthContext(c);
+    const stored = await serviceFor(c).findById(c.req.param("id"));
+    const storedType = stored ? voucherLine(stored).voucherType : null;
+    if (stored && !(ctx && mayReverseVoucher((permission) => can(ctx, permission), storedType))) {
+      return c.json(permissionDeniedBody(voucherActionPermissions(VoucherPermissionAction.Void, storedType).at(-1) ?? ""), 403);
+    }
     try {
       const result = await serviceFor(c).reverseVoucher(c.req.param("id"), {
         reversalId: parsed.data.reversalId ?? idGen(),
@@ -860,7 +851,7 @@ export function createVouchersRoutes(
         // reported. `deps.now`, not a raw `new Date()`, so it stays the same
         // injectable clock every other default in this route uses.
         date: await tenantDay(c, parsed.data.date ?? (deps.now ? deps.now() : new Date().toISOString())),
-        memo: parsed.data.memo,
+        memo: parsed.data.memo?.trim(),
       });
       return c.json({ original: serialize(result.original), reversal: serialize(result.reversal) }, 201);
     } catch (err) {
@@ -894,11 +885,12 @@ export function createVouchersRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const result = await serviceFor(c).allocate(c.req.param("id"), {
+      const svc = serviceFor(c);
+      const result = await svc.allocate(c.req.param("id"), {
         allocationId: parsed.data.allocationId ?? idGen(),
         invoiceId: parsed.data.invoiceId,
         amount: Money.fromMajor(parsed.data.amount),
-        date: await tenantDay(c, new Date().toISOString()),
+        date: await svc.laterAllocationDay(c.req.param("id"), parsed.data.invoiceId, await tenantDay(c, parsed.data.date)),
       });
       return c.json((await presentAllocations([result.allocation]))[0], 201);
     } catch (err) {

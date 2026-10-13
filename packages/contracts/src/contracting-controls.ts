@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { finalSecurityStatusSchema } from "./contracting-contracts.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for تقارير الاستثناءات السبعة، الإفراج عن المحتجزات وتقويمها —
@@ -208,7 +209,7 @@ export const retentionReleaseStatusSchema = z.enum(["draft", "released", "cancel
 export type RetentionReleaseStatusDTO = z.infer<typeof retentionReleaseStatusSchema>;
 
 export const createRetentionReleaseSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   contractId: z.string().min(1),
   kind: retentionReleaseKindSchema,
   date: isoDate,

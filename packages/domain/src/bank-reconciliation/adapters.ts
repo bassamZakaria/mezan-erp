@@ -187,7 +187,7 @@ export function createVoucherBankEntryPoster(deps: VoucherBankEntryPosterDeps): 
     async post(input) {
       const treasury = await deps.treasuryAccounts.findById(input.treasuryAccountId);
       if (!treasury?.glAccountId) throw new Error(`Treasury account ${input.treasuryAccountId} has no GL account.`);
-      const service = new VoucherService({ ...deps, actor: input.actor, actorRoles: input.actorRoles });
+      const service = new VoucherService({ ...deps, actor: input.actor, actorRoles: input.actorRoles, documentIdsMintedBySystem: true });
 
       let voucherId = input.voucherId;
       let existing = await deps.documents.findById(voucherId);

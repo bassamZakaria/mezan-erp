@@ -307,6 +307,7 @@ async function harness(): Promise<Harness> {
           ],
         },
         gl,
+        { mintedBySystem: true },
       );
       return {
         invoiceId: `${cmd.releaseId}-PINV`,

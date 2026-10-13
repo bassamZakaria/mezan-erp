@@ -112,13 +112,13 @@ describe("the document that undid another is not itself undone", () => {
     await salesReturn("MIR-V-R", "MIR-V-INV", "MIR-V", "1");
     const refund = await kit.call("POST", "/sales-returns/MIR-V-R/refund", { amount: "10", treasuryAccountId: "TR-DEMO-CASH", paymentMethod: "cash" });
     expect(refund.status, JSON.stringify(refund.body)).toBe(200);
-    const reversed = await kit.call("POST", `/vouchers/${encodeURIComponent(refund.body.voucherId)}/reverse`, {});
+    const reversed = await kit.call("POST", `/vouchers/${encodeURIComponent(refund.body.voucherId)}/reverse`, { memo: "خطأ في السند" });
     expect(reversed.status, JSON.stringify(reversed.body)).toBe(201);
     const reversalId = reversed.body.reversal.id as string;
     const before = await books("MIR-V");
     expect(Object.values(before.invariants)).toEqual([0n, 0n, 0n, 0n]);
 
-    expectRefusedAsAReversal(await kit.call("POST", `/vouchers/${encodeURIComponent(reversalId)}/reverse`, {}));
+    expectRefusedAsAReversal(await kit.call("POST", `/vouchers/${encodeURIComponent(reversalId)}/reverse`, { memo: "خطأ في السند" }));
 
     expect(await books("MIR-V")).toEqual(before);
   });

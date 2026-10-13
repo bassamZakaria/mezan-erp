@@ -263,7 +263,7 @@ describe("voiding a confirmed sales return", () => {
     expect(refused.body.message).toContain("اعكس سند");
     expect((await kit.call("GET", "/sales-returns/RV-S-3-R")).body.status).toBe("confirmed");
 
-    const reversed = await kit.call("POST", `/vouchers/${encodeURIComponent(refund.body.voucherId)}/reverse`, {});
+    const reversed = await kit.call("POST", `/vouchers/${encodeURIComponent(refund.body.voucherId)}/reverse`, { memo: "خطأ في السند" });
     expect(reversed.status, JSON.stringify(reversed.body)).toBeLessThan(300);
     const voided = await kit.call("POST", "/sales-returns/RV-S-3-R/void", { reason: REASON });
     expect([voided.status, voided.body.status], JSON.stringify(voided.body)).toEqual([200, "reversed"]);

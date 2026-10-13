@@ -65,6 +65,34 @@ describe("books upgraded to dedicated reversal permissions", () => {
     expect(await reverseAs(backend, OLD_ROLES["ROLE-OLD-TREASURER"]!, ReversalDocumentType.Cheque)).toMatchObject({ status: 403, body: { permission: "cheques.reverse" } });
   });
 
+  it("books already upgraded before the voucher route joined the registry are given its permission once — to holders of any of the three voucher void permissions", async () => {
+    const file = await booksWrittenBeforeReversalPermissions();
+    const { sqlite } = openSqliteConnection(file);
+    const insert = sqlite.prepare(`INSERT INTO role (id, code, name, description, permissions, is_system, created_at) VALUES (?, ?, ?, '', ?, 0, '2026-01-01T00:00:00.000Z')`);
+    insert.run("ROLE-CASHIER", "ROLE-CASHIER", "ROLE-CASHIER", JSON.stringify(["treasury.cash_voucher.view", "treasury.cash_voucher.void"]));
+    insert.run("ROLE-TRANSFERS", "ROLE-TRANSFERS", "ROLE-TRANSFERS", JSON.stringify(["treasury.cash_voucher.view", "treasury.transfer.void"]));
+    insert.run("ROLE-TELLER", "ROLE-TELLER", "ROLE-TELLER", JSON.stringify(["treasury.cash_voucher.view", "treasury.cash_voucher.create"]));
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS permission_grant_marker (name TEXT PRIMARY KEY, granted_at TEXT NOT NULL)`);
+    sqlite.prepare(`INSERT INTO permission_grant_marker (name, granted_at) VALUES ('reversal_permissions', '2026-10-12T00:00:00.000Z')`).run();
+    sqlite.close();
+
+    backend = await createBackend({ dbPath: file });
+
+    expect(roleHolds(file, "ROLE-CASHIER")).toEqual(["treasury.cash_voucher.view", "treasury.cash_voucher.void", "treasury.cash_voucher.reverse"]);
+    expect(roleHolds(file, "ROLE-TRANSFERS")).toEqual(["treasury.cash_voucher.view", "treasury.transfer.void", "treasury.cash_voucher.reverse"]);
+    expect(roleHolds(file, "ROLE-TELLER")).toEqual(["treasury.cash_voucher.view", "treasury.cash_voucher.create"]);
+    expect(roleHolds(file, "ROLE-OLD-TREASURER")).toEqual(OLD_ROLES["ROLE-OLD-TREASURER"]);
+    expect((await reverseAs(backend, roleHolds(file, "ROLE-CASHIER"), ReversalDocumentType.Voucher)).status).not.toBe(403);
+    expect(await reverseAs(backend, ["treasury.cash_voucher.view", "treasury.cash_voucher.void"], ReversalDocumentType.Voucher)).toMatchObject({ status: 403, body: { permission: "treasury.cash_voucher.reverse" } });
+
+    backend.close();
+    const again = openSqliteConnection(file);
+    again.sqlite.prepare(`UPDATE role SET permissions = ? WHERE id = 'ROLE-CASHIER'`).run(JSON.stringify(["treasury.cash_voucher.view", "treasury.cash_voucher.void"]));
+    again.sqlite.close();
+    backend = await createBackend({ dbPath: file });
+    expect(roleHolds(file, "ROLE-CASHIER")).toEqual(["treasury.cash_voucher.view", "treasury.cash_voucher.void"]);
+  });
+
   it("the grant is made once: a reversal permission an administrator takes away stays away on the next start", async () => {
     const file = await booksWrittenBeforeReversalPermissions();
     (await createBackend({ dbPath: file })).close();

@@ -747,6 +747,7 @@ export class StockLedgerService {
             sourceDocNumber: number,
             date,
             memo: `${memo} — فرق متوسط التكلفة`,
+            mintedBySystem: command.mintedBySystem,
             warehouseId: new Set(original.map((movement) => movement.warehouseId)).size === 1 ? (original[0]?.warehouseId ?? null) : null,
             lines: [
               { ...inventoryLine, debit: up ? magnitude : Money.zero(), credit: up ? Money.zero() : magnitude },
@@ -934,6 +935,7 @@ export class StockLedgerService {
         await this.deps.gl.post({
           sourceDocType,
           sourceDocId: `${command.transferId}${TRANSFER_COVER_ENTRY_SUFFIX}`,
+          mintedBySystem: true,
           sourceDocNumber: command.transferNumber ?? null,
           date: occurredAt.slice(0, 10),
           memo: `فرق تكلفة: تحويل غطّى كمية بيعت قبل وصوله ${command.transferNumber ?? command.transferId}`,
@@ -1569,6 +1571,7 @@ export interface ReverseAdjustmentCommand {
   readonly reversalId: string;
   readonly occurredAt: string;
   readonly memo?: string;
+  readonly mintedBySystem?: boolean;
 }
 
 function buildAdjustmentPosting(

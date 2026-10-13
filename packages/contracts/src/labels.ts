@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for تخطيطات الملصقات (label layouts, docs/archive/catalog/03
@@ -36,7 +37,7 @@ export const labelLayoutSchema = z.object({
 });
 
 export const createLabelLayoutSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   pageSize: labelPageSizeSchema.optional(),

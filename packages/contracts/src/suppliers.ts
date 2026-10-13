@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for a Supplier (docs/archive/catalog/02-purchases.md "الموردون") —
@@ -35,7 +36,7 @@ export const supplierSchema = z.object({
 
 /** POST /suppliers body — matches the catalog's "Add/Edit Supplier" modal defaults. */
 export const createSupplierSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   /** Omitted, the server allocates the next free code. */
   code: z.string().trim().min(1).optional(),
   nameAr: z.string().min(1),

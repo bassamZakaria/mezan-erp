@@ -103,7 +103,7 @@ function post(path: string, body: unknown) {
 
 function invoiceBody(supplierId: string, overrides: Record<string, string> = {}) {
   return {
-    id: `pi-${supplierId}-${JSON.stringify(overrides)}`,
+    id: `pi-${supplierId}-${Object.values(overrides).join("-")}`,
     supplierId,
     date: "2026-08-21",
     branchId: "MAIN",

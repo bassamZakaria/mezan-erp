@@ -29,6 +29,7 @@ export {
   voucherDocumentType,
   voucherLine,
   isStandingVoucher,
+  voucherTakesAllocations,
   voucherStandsAsOf,
   voucherNetPaid,
   voucherBaseAmount,
@@ -62,9 +63,10 @@ export {
   type FxOpenItemRef,
   type FxRevaluationShareRecord,
   type FxRevaluationShareRepository,
+  type FxShareRelief,
   laterDay,
   settlementSplit,
-  relievedRevaluationShare,
+  settlementWithShares,
   sumActive,
   summarize,
   allocate,
@@ -113,6 +115,7 @@ export {
   CashBalanceWouldGoNegativeError,
   VoucherNotAllocatableError,
   VoucherNotConfirmedError,
+  VoucherReversedError,
   InvoiceNotFoundError,
   AllocationNotFoundError,
   AllocationMismatchError,
@@ -124,3 +127,5 @@ export {
   HeldAllocationRefusal,
   HeldAllocationRefusedError,
 } from "./errors.js";
+export { AllocationDateTooEarlyError, laterAllocationDay } from "./allocation-day.js";
+export { FxItemEventKind, fxItemOpenOn, fxItemTimeline, walkRunShare, type FxItemEvent, type FxItemTimeline, type RunShareStep, type RunShareWalk } from "./revaluation-share-timeline.js";

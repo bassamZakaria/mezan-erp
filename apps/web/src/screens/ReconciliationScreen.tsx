@@ -28,6 +28,8 @@ export function ReconciliationScreen() {
   const [unlinkedPage, setUnlinkedPage] = useState(1);
   const [unlinkedPageSize, setUnlinkedPageSize] = useState<number>(25);
 
+  const misdated = report?.stockLedgerDates?.rows ?? [];
+  const everythingTies = (report?.allMatched ?? false) && misdated.length === 0;
   const summaryRows = report?.rows ?? [];
   const summaryPageCount = Math.max(1, Math.ceil(summaryRows.length / summaryPageSize));
   const summaryPageRows = summaryRows.slice((summaryPage - 1) * summaryPageSize, summaryPage * summaryPageSize);
@@ -79,8 +81,23 @@ export function ReconciliationScreen() {
       ) : null}
 
       {report ? (
-        <div className={`mb-[16px] rounded-md border px-[12px] py-[10px] text-[12.5px] ${report.allMatched ? "border-success bg-success-soft text-success-ink" : "border-warning bg-warning-soft text-warning-ink"}`}>
-          {report.allMatched ? t("reconciliation.everyBalanceMatches") : t("reconciliation.thereAreDifferencesThatNeed")}
+        <div className={`mb-[16px] rounded-md border px-[12px] py-[10px] text-[12.5px] ${everythingTies ? "border-success bg-success-soft text-success-ink" : "border-warning bg-warning-soft text-warning-ink"}`}>
+          {everythingTies ? t("reconciliation.everyBalanceMatches") : t("reconciliation.thereAreDifferencesThatNeed")}
+        </div>
+      ) : null}
+
+      {misdated.length > 0 ? (
+        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          <p className="font-semibold">{t("reconciliation.stockLedgerDates.title", { count: String(misdated.length) })}</p>
+          <ul className="mt-[6px] flex flex-col gap-[3px]">
+            {misdated.map((row) => (
+              <li key={`${row.docId} ${row.movedOn}`}>
+                <span className="mz-num font-semibold">{row.docNo ?? row.docId}</span>
+                {" — "}
+                {t("reconciliation.stockLedgerDates.row", { moved: row.movedOn, posted: row.postedOn.join("، ") })}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 

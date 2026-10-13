@@ -114,3 +114,23 @@ describe("ReconciliationScreen", () => {
     await waitFor(() => expect(getCalls()).toBe(2));
   });
 });
+
+describe("ReconciliationScreen — stock moved in a different month from its entry", () => {
+  const allTied = report({ rows: report().rows.map((row) => ({ ...row, glBalance: row.subLedgerBalance, difference: "0.000000", matched: true })), allMatched: true, unlinked: [] });
+
+  it("counts and lists each document with the day its stock moved and the day its entry is dated, and no longer says every balance matches", async () => {
+    renderScreen({ ...allTied, stockLedgerDates: { count: 1, rows: [{ docType: "ADJUSTMENT", docId: "adj-9", docNo: "ADJ-000009", movedOn: "2026-08-31", postedOn: ["2026-09-01"] }] } });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("مستندات تحركت كميتها في شهر وقيدها في شهر آخر (1)");
+    expect(alert).toHaveTextContent("ADJ-000009");
+    expect(alert).toHaveTextContent("2026-08-31");
+    expect(alert).toHaveTextContent("2026-09-01");
+    expect(screen.queryByText("جميع الأرصدة متطابقة")).not.toBeInTheDocument();
+  });
+
+  it("says nothing when there is none", async () => {
+    renderScreen({ ...allTied, stockLedgerDates: { count: 0, rows: [] } });
+    await screen.findByText("العملاء");
+    expect(screen.queryByText(/تحركت كميتها في شهر/)).not.toBeInTheDocument();
+  });
+});

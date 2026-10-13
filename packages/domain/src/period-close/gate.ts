@@ -39,6 +39,10 @@ function singleOperatorWaiver(input: PeriodCloseDecisionInput): boolean {
   return input.singleOperatorMode && input.wildcardAdmin;
 }
 
+export function lockOverrideNeedsSecondPerson(input: Pick<PeriodCloseDecisionInput, "actor" | "closedBy" | "singleOperatorMode" | "wildcardAdmin">): boolean {
+  return input.closedBy !== null && input.closedBy === input.actor && !(input.singleOperatorMode && input.wildcardAdmin);
+}
+
 export function decidePeriodClose(input: PeriodCloseDecisionInput): PeriodCloseDecision {
   if (input.blocking.length === 0) return PeriodCloseDecision.Allowed;
   if (input.overrideReason === null) return PeriodCloseDecision.Blocked;

@@ -133,8 +133,8 @@ function post(path: string, permissions: string, body?: unknown, userId = CLOSER
   });
 }
 
-function get(path: string, permissions: string) {
-  return new Request(`http://local${path}`, { headers: { "x-permissions": permissions } });
+function get(path: string, permissions: string, userId?: string) {
+  return new Request(`http://local${path}`, { headers: { "x-permissions": permissions, ...(userId ? { "x-user-id": userId } : {}) } });
 }
 
 async function statusOf(repo: { findById(id: string): Promise<FiscalPeriod | null> }) {
@@ -378,6 +378,21 @@ describe("locking is held to the same checks, and overriding it takes a second p
     expect(locks).toHaveLength(1);
     expect(locks[0]).toMatchObject({ actor: SECOND_USER });
     expect(locks[0]?.details).toMatchObject({ overridden: true, failedChecks: ["drafts"], reason: REASON, singleOperatorMode: false });
+  });
+
+  it("the checklist tells the closer, and only the closer, that locking over a failing check needs a second person — so the screen never offers them the override", async () => {
+    const { periods, checklist, world } = await setup();
+    await periods.fetch(post(`/${PERIOD_ID}/close`, CLOSE));
+    world.blocking = [PeriodCloseCheckCode.Drafts];
+    const flagFor = async (userId: string, permissions = `accounting.period.view,${PERIOD_CLOSE_OVERRIDE_PERMISSION}`) =>
+      ((await (await checklist.fetch(get(`/${PERIOD_ID}/checks`, permissions, userId))).json()) as { lockOverrideNeedsSecondPerson?: boolean }).lockOverrideNeedsSecondPerson;
+
+    expect(await flagFor(CLOSER)).toBe(true);
+    expect(await flagFor(SECOND_USER)).toBe(false);
+
+    world.singleOperatorMode = true;
+    expect(await flagFor(CLOSER)).toBe(true);
+    expect(await flagFor(CLOSER, "*")).toBe(false);
   });
 
   it("the single-operator switch lets only the wildcard admin lock their own close over a failing check, and the LOCK event says so", async () => {

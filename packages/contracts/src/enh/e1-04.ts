@@ -175,6 +175,7 @@ export const periodCloseChecklistSchema = z.object({
   checks: z.array(periodCloseCheckSchema),
   blocking: z.array(periodCloseCheckCodeSchema),
   canOverride: z.boolean(),
+  lockOverrideNeedsSecondPerson: z.boolean().optional(),
 });
 
 // SECURITY: strict — the reason is the only thing a caller may send; which checks failed is the server's to compute, and a body carrying its own verdict is refused, never ignored.

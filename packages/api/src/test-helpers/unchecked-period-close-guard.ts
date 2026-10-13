@@ -28,6 +28,9 @@ export function uncheckedPeriodCloseGuardForTests(repo: FiscalPeriodRepository, 
         blocking: [],
       };
     },
+    async lockOverrideNeedsSecondPerson() {
+      return false;
+    },
     async attempt(attempt) {
       const period = await repo.findById(attempt.periodId);
       if (!period) throw new FiscalPeriodNotFoundError(attempt.periodId);

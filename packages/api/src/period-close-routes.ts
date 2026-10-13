@@ -80,6 +80,7 @@ export interface PeriodCloseGuard {
   evaluate(period: FiscalPeriod, scope: PeriodCloseScope): Promise<PeriodCloseEvaluation>;
   attempt(attempt: PeriodCloseAttempt): Promise<PeriodCloseAttemptResult>;
   listSummaries(periodId: string): Promise<readonly SealedPeriodCloseSummary[]>;
+  lockOverrideNeedsSecondPerson(periodId: string, actor: string, wildcardAdmin: boolean): Promise<boolean>;
 }
 
 export type PeriodCloseGuardSource = () => PeriodCloseGuard | null;
@@ -110,6 +111,7 @@ export function serializePeriodCloseChecklist(
   evaluation: PeriodCloseEvaluation,
   period: Pick<FiscalPeriod, "status">,
   canOverride: boolean,
+  lockOverrideNeedsSecondPerson = false,
 ): PeriodCloseChecklistDTO {
   return periodCloseChecklistSchema.parse({
     periodId: evaluation.periodId,
@@ -127,6 +129,7 @@ export function serializePeriodCloseChecklist(
     })),
     blocking: evaluation.blocking,
     canOverride,
+    lockOverrideNeedsSecondPerson,
   });
 }
 
@@ -178,7 +181,9 @@ export function createPeriodCloseRoutes(deps: PeriodCloseRoutesDeps, resolveAuth
     const guard = deps.guard();
     if (!guard) return c.json(serializePeriodCloseError(new PeriodCloseChecksUnavailableError(period)), 503);
     const evaluation = await guard.evaluate(period, periodCloseScopeOf(c));
-    return c.json(serializePeriodCloseChecklist(evaluation, period, canOverridePeriodClose(c)));
+    const auth = getAuthContext(c);
+    const needsSecondPerson = period.status === "closed" && evaluation.blocking.length > 0 && auth !== undefined && (await guard.lockOverrideNeedsSecondPerson(period.id, auth.userId, auth.permissions.has("*")));
+    return c.json(serializePeriodCloseChecklist(evaluation, period, canOverridePeriodClose(c), needsSecondPerson));
   });
 
   app.get("/:periodId/summaries", gate("accounting.period.view"), async (c) => {

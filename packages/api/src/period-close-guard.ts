@@ -13,6 +13,7 @@ import {
   closePeriod,
   decidePeriodClose,
   lockedUnderSingleOperatorWaiver,
+  lockOverrideNeedsSecondPerson,
   lockPeriod,
   type AuditEvent,
   type FiscalPeriod,
@@ -133,6 +134,8 @@ export function createPeriodCloseGuard(deps: PeriodCloseGuardDeps): PeriodCloseG
   return {
     evaluate: deps.evaluate,
     listSummaries: deps.listSummaries,
+    lockOverrideNeedsSecondPerson: async (periodId, actor, wildcardAdmin) =>
+      lockOverrideNeedsSecondPerson({ actor, closedBy: await deps.lastClosedBy(periodId), singleOperatorMode: await deps.singleOperatorMode(), wildcardAdmin }),
     async attempt(attempt) {
       const { commit } = deps;
       const requested = await deps.periods.findById(attempt.periodId);

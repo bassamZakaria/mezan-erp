@@ -73,6 +73,17 @@ export function CloseActions({ checklist, action, periodLabel, onStart, onDone, 
 
   const onConfirm = useCallback(() => void confirm(), [confirm]);
 
+  if (needsOverride && action === PeriodCloseAction.Lock && checklist.lockOverrideNeedsSecondPerson) {
+    return (
+      <div className="flex flex-wrap items-center gap-[10px]">
+        <Button variant="primary" disabled>
+          {t(copy.label)}
+        </Button>
+        <p className="max-w-[60ch] text-[12.5px] text-ink-muted">{t("periodClose.lockOverrideSecondPerson")}</p>
+      </div>
+    );
+  }
+
   if (needsOverride && !checklist.canOverride) {
     return (
       <div className="flex flex-wrap items-center gap-[10px]">

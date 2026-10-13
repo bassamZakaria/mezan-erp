@@ -185,6 +185,19 @@ describe("PeriodCloseScreen", () => {
     expect(screen.queryByRole("button", { name: "إقفال مع تجاوز الفحوص" })).not.toBeInTheDocument();
   });
 
+  it("the user who closed the month is not offered «قفل مع تجاوز الفحوص»: the lock button is disabled and says a second person is needed", async () => {
+    renderScreen({ periods: () => ({ body: [{ ...JUNE, status: PeriodStatusDTO.Closed }] }), checklist: checklist({ periodStatus: PeriodStatusDTO.Closed, lockOverrideNeedsSecondPerson: true }) });
+    const lock = await screen.findByRole("button", { name: "قفل الفترة نهائياً" });
+    expect(lock).toBeDisabled();
+    expect(screen.getByText("أنت من أقفل هذه الفترة؛ قفلها نهائياً فوق فحوص غير مكتملة يتطلب مستخدماً آخر يملك الصلاحية، أو عالج الفحوص أولاً.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "قفل مع تجاوز الفحوص" })).not.toBeInTheDocument();
+  });
+
+  it("another permitted user is still offered the override on the lock", async () => {
+    renderScreen({ periods: () => ({ body: [{ ...JUNE, status: PeriodStatusDTO.Closed }] }), checklist: checklist({ periodStatus: PeriodStatusDTO.Closed, lockOverrideNeedsSecondPerson: false }) });
+    expect(await screen.findByRole("button", { name: "قفل مع تجاوز الفحوص" })).toBeEnabled();
+  });
+
   it("a clear month closes after a plain confirmation and sends no reason", async () => {
     const clear = checklist({ checks: [check(PeriodCloseCheckCodeDTO.Drafts, PeriodCloseCheckStatusDTO.Pass), ...OTHER_CHECKS.slice(0, 2)] });
     const { closeBodies } = renderScreen({ checklist: clear });

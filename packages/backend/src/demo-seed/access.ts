@@ -1,6 +1,7 @@
 import { withReversalPermissions } from "@mezan/contracts";
 import type { App } from "@mezan/api";
-import { loadSeededUsers, step } from "./shared.js";
+import { GOODS_RECEIVING_PERMISSIONS } from "@mezan/domain";
+import { FORMER_SALES_REP_EMPLOYEE_ID, SALES_REP_EMPLOYEE_ID, loadSeededUsers, step } from "./shared.js";
 import type { SeedPerson } from "./fragments.js";
 import { fragmentGrantsFor, fragmentPeople, fragmentRoles, seedLicensing, type SeedLicensing } from "./fragment-registry.js";
 
@@ -93,6 +94,7 @@ const ROLES = [
       "inventory.count.create",
       "inventory.item.view",
       "purchases.receipt.view",
+      ...GOODS_RECEIVING_PERMISSIONS,
     ],
   },
   {
@@ -562,8 +564,9 @@ type Person = SeedPerson;
 const PEOPLE: readonly Person[] = [
   { nameAr: "منى عبد الرحمن", nameEn: "Mona Abdelrahman", local: "mona.abdelrahman", role: "ACCOUNTANT", status: "active" },
   { nameAr: "سيد جمال", nameEn: "Sayed Gamal", local: "sayed.gamal", role: "WAREHOUSE_KEEPER", status: "active" },
-  { nameAr: "كريم فؤاد", nameEn: "Karim Fouad", local: "karim.fouad", role: "SALES_REP", status: "active" },
-  { nameAr: "هالة مصطفى", nameEn: "Hala Mostafa", local: "hala.mostafa", role: "SALES_REP", status: "inactive" },
+  // A role that sees only its own records narrows on the user's employee, so each of these carries one: without it the rep's own invoice is an orphan nobody's list shows.
+  { nameAr: "كريم فؤاد", nameEn: "Karim Fouad", local: "karim.fouad", role: "SALES_REP", status: "active", employeeId: SALES_REP_EMPLOYEE_ID },
+  { nameAr: "هالة مصطفى", nameEn: "Hala Mostafa", local: "hala.mostafa", role: "SALES_REP", status: "inactive", employeeId: FORMER_SALES_REP_EMPLOYEE_ID },
 
   /**
    * A SECOND company admin — no role, the `"*"` wildcard, every gate bypassed.

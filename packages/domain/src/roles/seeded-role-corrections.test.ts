@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { detectSodConflicts } from "../permissions/sod.js";
-import { correctedSeededRolePermissions, SEEDED_ROLE_CODES } from "./seeded-role-corrections.js";
+import { correctedSeededRolePermissions, SEEDED_ROLE_CODES, SeededRoleCode, SeededRoleSplit, seededRoleDutyChange } from "./seeded-role-corrections.js";
 
 const OLD_CASHIER = ["treasury.account.view", "treasury.cash_voucher.view", "treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "cheques.view"];
 const OLD_MANAGER = ["sales.invoice.view", "treasury.cash_voucher.view", "treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "hr.leave.approve"];
@@ -75,5 +75,16 @@ describe("seeded role corrections", () => {
     expect(finance).toContain("accounting.year_end_close.reverse");
     expect(detectSodConflicts(finance)).toEqual([]);
     expect(correctedSeededRolePermissions("ACCOUNTANT", ["accounting.journal.view", "accounting.journal.create"], successors)).toContain("accounting.revaluation.reverse");
+  });
+
+  it("the storekeeper who held only the reading of goods receipts gains what receiving goods takes, and nothing is taken from him", () => {
+    const stored = ["inventory.stock.view", "inventory.transfer.view", "inventory.transfer.create", "inventory.count.view", "inventory.count.create", "inventory.item.view", "purchases.receipt.view", "dashboard.view"];
+
+    const corrected = correctedSeededRolePermissions(SeededRoleCode.WarehouseKeeper, stored, undefined, SeededRoleSplit.GoodsReceiving);
+
+    expect(corrected).toEqual([...stored, "purchases.receipt.create", "purchases.receipt.confirm", "purchases.supplier.view", "purchases.order.view"]);
+    expect(correctedSeededRolePermissions(SeededRoleCode.WarehouseKeeper, corrected!, undefined, SeededRoleSplit.GoodsReceiving)).toBeNull();
+    expect(seededRoleDutyChange({ code: SeededRoleCode.WarehouseKeeper, name: "أمين مخزن", permissions: stored }, undefined, SeededRoleSplit.GoodsReceiving)?.revoked).toEqual([]);
+    expect(correctedSeededRolePermissions(SeededRoleCode.SalesRep, stored, undefined, SeededRoleSplit.GoodsReceiving)).toBeNull();
   });
 });

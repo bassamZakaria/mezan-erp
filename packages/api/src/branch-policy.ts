@@ -91,7 +91,7 @@ export function undeclaredPolicyOf(routePath: string, table: readonly BranchPoli
   return missing.length > 0 ? `scoped route has no stored-branch resolver for :${missing.join(", :")}` : null;
 }
 
-function terminalRoutePathOf(c: Context): string | undefined {
+export function terminalRoutePathOf(c: Context): string | undefined {
   // The FIRST concrete match is the handler that answers: `/receipts/stats`
   // also matches a later `/receipts/:id`, and reading that one would resolve
   // "stats" as a document id.
@@ -224,7 +224,11 @@ async function storedRecordRefusal(c: Context, session: Session, entry: BranchPo
       if (isRead(c)) continue;
       return branchRefusal(c, BranchRefusalCode.CompanyWideOnly);
     }
-    if (standing === Standing.Unattributed && (sharedData || session.seesUnattributed)) continue;
+    if (standing === Standing.Unattributed && sharedData) continue;
+    // SECURITY: «غير مخصص» is a permission to READ what no branch owns. A
+    // branch-restricted session never writes such a document, and is answered
+    // as for an id nobody holds.
+    if (standing === Standing.Unattributed && session.seesUnattributed && isRead(c)) continue;
     if (standing === Standing.Absent && sharedData) continue;
     if (standing === Standing.PartlyForeign) {
       if (isRead(c)) continue;

@@ -3223,6 +3223,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleDutySplit, () => separateSeededDuties(SeededRoleSplit.Duties));
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleReconciliationSplit, () => separateSeededDuties(SeededRoleSplit.BankReconciliation));
+  await upgradeLedger.runOnce(UpgradeStepId.SeededRoleGoodsReceiving, () => separateSeededDuties(SeededRoleSplit.GoodsReceiving));
   await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
     const marked = markApprovalsNeedingReapproval(sqlite);
     if (marked.length > 0) console.info(`[workflow] ${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);
@@ -3982,7 +3983,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     supplierStore: suppliers,
     customerOpeningBalances,
     supplierOpeningBalances,
-    createTransactor: configTransactor,
+    createTransactor: { run: (fn) => auditSink.securityEventsOutlive(() => configTransactor.run(fn)) },
     numbersDrawn: () => JSON.stringify(sequenceCountersRead.all()),
     accounts: { repo: accounts },
     items: { repo: items, snapshots: stockLedger.snapshots },

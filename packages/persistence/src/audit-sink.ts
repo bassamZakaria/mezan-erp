@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -249,6 +250,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   private readonly writeHead: Database.Statement;
   private readonly insertField: Database.Statement;
   private readonly appendChained: (row: AuditChainFields, fields: readonly string[]) => void;
+  private readonly heldBack = new AsyncLocalStorage<{ open: boolean; readonly events: AuditEvent[] }>();
 
   constructor(
     private readonly sqlite: Database.Database,
@@ -297,7 +299,23 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   }
 
   async append(event: AuditEvent): Promise<void> {
-    this.appendSync(event);
+    const held = event.stream === "security" ? this.heldBack.getStore() : undefined;
+    if (held?.open) held.events.push(event);
+    else this.appendSync(event);
+  }
+
+  // SECURITY: a security event appended while `fn` runs is written only after
+  // `fn` settles, so a transaction `fn` opens and rolls back cannot take the
+  // record of a refused attempt with it. `appendSync` is not held back: its
+  // callers need the row atomic with their own write.
+  async securityEventsOutlive<T>(fn: () => Promise<T>): Promise<T> {
+    const held = { open: true, events: [] as AuditEvent[] };
+    try {
+      return await this.heldBack.run(held, fn);
+    } finally {
+      held.open = false;
+      for (const event of held.events) this.appendSync(event);
+    }
   }
 
   appendSync(event: AuditEvent): void {
@@ -458,6 +476,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
 
 export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort, AuditChainVerifyPort {
   appendSync(event: AuditEvent): void;
+  securityEventsOutlive<T>(fn: () => Promise<T>): Promise<T>;
   close(): void;
   /** The raw connection, for tests asserting the append-only triggers fire. */
   readonly db: Database.Database;

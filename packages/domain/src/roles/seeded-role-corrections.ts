@@ -35,7 +35,10 @@ interface SeededRoleCorrection {
 export enum SeededRoleSplit {
   Duties = "duties",
   BankReconciliation = "bank_reconciliation",
+  GoodsReceiving = "goods_receiving",
 }
+
+export const GOODS_RECEIVING_PERMISSIONS: readonly string[] = ["purchases.receipt.create", "purchases.receipt.confirm", "purchases.supplier.view", "purchases.order.view"];
 
 const SPLITS: Readonly<Record<SeededRoleSplit, Readonly<Partial<Record<SeededRoleCode, SeededRoleCorrection>>>>> = {
   [SeededRoleSplit.Duties]: {
@@ -61,11 +64,15 @@ const SPLITS: Readonly<Record<SeededRoleSplit, Readonly<Partial<Record<SeededRol
       reasonAr: "مطابقة كشف البنك وترحيل قيوده انتقلا إليه من أمين الخزنة",
     },
   },
+  [SeededRoleSplit.GoodsReceiving]: {
+    [SeededRoleCode.WarehouseKeeper]: { revoke: [], grant: GOODS_RECEIVING_PERMISSIONS, reasonAr: "أمين المخزن هو من يستلم البضاعة: يحرّر إذن الاستلام ويؤكده ويقرأ المورد وأمر الشراء الذي يستلم عليه" },
+  },
 };
 
 const GRANTED_WITH: Readonly<Record<SeededRoleSplit, readonly string[]>> = {
   [SeededRoleSplit.Duties]: [DASHBOARD_VIEW_PERMISSION],
   [SeededRoleSplit.BankReconciliation]: [],
+  [SeededRoleSplit.GoodsReceiving]: [],
 };
 
 const NO_SPLIT: SeededRoleCorrection = { revoke: [], grant: [], reasonAr: "" };

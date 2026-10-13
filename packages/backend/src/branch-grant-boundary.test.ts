@@ -257,12 +257,15 @@ describe("D111 round 1 · a stored entry of another branch cannot be written", (
     expect(statusOf("D111-JE-MIXED")).toBe("posted");
   });
 
-  it("refuses to reverse an unattributed entry it may not read, and allows it once «غير مخصص» is held", async () => {
+  it("refuses to reverse an unattributed entry it may not read, and still refuses once «غير مخصص» is held — that permission reads, it does not write", async () => {
     expect((await admin("POST", "/gl/journal-entries", journal("D111-JE-COMPANY-2", null))).status).toBe(201);
     expectRefusedInArabic(await alex("POST", "/gl/journal-entries/D111-JE-COMPANY-2/reverse", {}));
     expect(statusOf("D111-JE-COMPANY-2")).toBe("posted");
-    const allowed = await alexWithUnattributed("POST", "/gl/journal-entries/D111-JE-COMPANY-2/reverse", {});
-    expect(allowed.status, JSON.stringify(allowed.body).slice(0, 200)).toBeLessThan(300);
+    expect((await alexWithUnattributed("GET", "/gl/journal-entries/D111-JE-COMPANY-2")).status).toBe(200);
+    const refused = await alexWithUnattributed("POST", "/gl/journal-entries/D111-JE-COMPANY-2/reverse", {});
+    expect(refused.status).toBe(404);
+    expectRefusedInArabic(refused);
+    expect(statusOf("D111-JE-COMPANY-2")).toBe("posted");
   });
 
   it("lets the branch's own user reverse the branch's own entry", async () => {

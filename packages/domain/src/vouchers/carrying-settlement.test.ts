@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
 import { FX_REVALUATION_LINE_MEMO } from "../fx-revaluation/revaluation.js";
-import { settlementSplit, type AllocatableInvoice } from "./allocation.js";
-import { buildRealisedFxLines, FX_REALISED_LINE_MEMO, type RealisedFxPostingInput } from "./realised-fx.js";
+import { relievedRevaluationShare, settlementSplit, type AllocatableInvoice } from "./allocation.js";
+import { buildRealisedFxLines, buildRevaluationReleaseLines, FX_REALISED_LINE_MEMO, type RealisedFxPostingInput } from "./realised-fx.js";
 
 const m = (v: string) => Money.fromMajor(v);
 
@@ -89,5 +89,56 @@ describe("buildRealisedFxLines — the restatement a settlement consumes leaves 
     ]);
     const net = lines.reduce((sum, l) => sum + l.debit.scaled - l.credit.scaled, 0n);
     expect(net).toBe(0n);
+  });
+});
+
+describe("relievedRevaluationShare — the one rule for what a reduction takes of an item's restatement", () => {
+  it.each([
+    { relieved: "400", outstanding: "1000", share: "450", taken: "180.000000" },
+    { relieved: "600", outstanding: "600", share: "270", taken: "270.000000" },
+    { relieved: "700", outstanding: "600", share: "270", taken: "270.000000" },
+    { relieved: "1", outstanding: "3", share: "0.000001", taken: "0.000000" },
+    { relieved: "400", outstanding: "1000", share: "-450", taken: "-180.000000" },
+  ])("USD $relieved of USD $outstanding carrying $share takes $taken", ({ relieved, outstanding, share, taken }) => {
+    expect(relievedRevaluationShare(m(share), m(relieved), m(outstanding)).toString()).toBe(taken);
+  });
+
+  it("three parts of USD 1 each take every micro-unit of a 0.000002 share between them: the part that closes takes what is left", () => {
+    let left = m("0.000002");
+    let open = m("3");
+    const taken: string[] = [];
+    for (let part = 0; part < 3; part += 1) {
+      const share = relievedRevaluationShare(left, m("1"), open);
+      taken.push(share.toString());
+      left = Money.fromScaled(left.scaled - share.scaled);
+      open = Money.fromScaled(open.scaled - m("1").scaled);
+    }
+    expect(taken).toEqual(["0.000001", "0.000001", "0.000000"]);
+    expect(left.scaled).toBe(0n);
+  });
+});
+
+describe("buildRevaluationReleaseLines — a restatement leaving an item with no settlement is a realised difference the other way", () => {
+  const accounts = { gainAccountId: "4920", lossAccountId: "5920" };
+  const release = { controlAccountId: "1105", partyId: "cust-1", currency: "USD", fxRate: "48", share: m("180") };
+
+  it("a receivable restated up gives it back as a loss, tagged with the party and read as base only", () => {
+    const lines = buildRevaluationReleaseLines({ ...release, kind: "sales" }, accounts);
+    expect(lines.map((line) => [line.accountId, line.debit.toString(), line.credit.toString(), line.memo, line.partyId ?? null])).toEqual([
+      ["1105", "0.000000", "180.000000", FX_REVALUATION_LINE_MEMO, "cust-1"],
+      ["5920", "180.000000", "0.000000", FX_REALISED_LINE_MEMO, null],
+    ]);
+  });
+
+  it("a payable restated up gives it back as a gain", () => {
+    const lines = buildRevaluationReleaseLines({ ...release, kind: "purchase", controlAccountId: "2100" }, accounts);
+    expect(lines.map((line) => [line.accountId, line.debit.toString(), line.credit.toString()])).toEqual([
+      ["2100", "180.000000", "0.000000"],
+      ["4920", "0.000000", "180.000000"],
+    ]);
+  });
+
+  it("nothing taken posts nothing", () => {
+    expect(buildRevaluationReleaseLines({ ...release, kind: "sales", share: Money.zero() }, accounts)).toEqual([]);
   });
 });

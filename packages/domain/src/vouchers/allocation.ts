@@ -117,6 +117,11 @@ export async function unconsumedRevaluationShare(
   return Money.fromScaled(standing - consumed);
 }
 
+export function relievedRevaluationShare(unconsumedShare: Money, foreignRelieved: Money, foreignOutstanding: Money): Money {
+  if (foreignRelieved.scaled >= foreignOutstanding.scaled) return unconsumedShare;
+  return shareOfBase(unconsumedShare, foreignRelieved, foreignOutstanding);
+}
+
 /** Outstanding balance of an invoice (total − allocated). */
 export function invoiceOutstanding(invoice: AllocatableInvoice): Money {
   return Money.fromScaled(invoice.total.scaled - invoice.allocated.scaled);
@@ -186,17 +191,15 @@ export function settlementSplit(amount: Money, outstanding: Money, rates?: Settl
   }
   const foreignOutstanding = convertFromBase(outstanding, rates.invoiceRate);
   const capacity = sameRate ? outstanding : convertToBase(foreignOutstanding, rates.settlementRate);
-  let relief: Money;
-  let revaluationShare: Money;
-  if (amount.scaled >= capacity.scaled) {
-    relief = outstanding;
-    revaluationShare = unconsumedShare;
-  } else {
+  let relief = outstanding;
+  let foreignRelieved = foreignOutstanding;
+  if (amount.scaled < capacity.scaled) {
     const foreignSettled = convertFromBase(amount, rates.settlementRate);
     const converted = sameRate ? amount : convertToBase(foreignSettled, rates.invoiceRate);
     relief = converted.scaled > outstanding.scaled ? outstanding : converted;
-    revaluationShare = relief.scaled === outstanding.scaled ? unconsumedShare : shareOfBase(unconsumedShare, foreignSettled, foreignOutstanding);
+    if (relief.scaled !== outstanding.scaled) foreignRelieved = foreignSettled;
   }
+  const revaluationShare = relievedRevaluationShare(unconsumedShare, foreignRelieved, foreignOutstanding);
   const fxDifference = Money.fromScaled(amount.scaled - relief.scaled - revaluationShare.scaled);
   return revaluationShare.scaled === 0n ? { relief, fxDifference, capacity } : { relief, revaluationShare, fxDifference, capacity };
 }

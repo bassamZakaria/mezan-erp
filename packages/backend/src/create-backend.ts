@@ -123,6 +123,8 @@ import {
   ForeignResidueKind,
   accountForeignResidues,
   shareOfBase,
+  relievedRevaluationShare,
+  buildRevaluationReleaseLines,
   replay,
   type StockMovement,
   Qty,
@@ -155,7 +157,9 @@ import {
   type InvoiceReturnCreditPort,
   SettlementRateMissingError,
   salesReturnCreditByInvoice,
+  salesReturnLineCredit,
   purchaseReturnCreditByInvoice,
+  purchaseReturnLineCredit,
   type OpeningBalanceDuplicatesContext,
   type OpeningBalanceEntryRef,
   tenantTodayIso,
@@ -277,6 +281,8 @@ import {
   type EtaCommandRunner,
   type EtaHttpClient,
   type DocumentRepository,
+  type DocumentGlHook,
+  laterDay,
   type FrameworkDocument,
   extend as extendQtyByPrice,
   unitCostOf,
@@ -1893,7 +1899,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
     numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
-    gl: documentGl,
+    gl: returnReliefGl("sales", salesReturnStore, salesReturnLineCredit),
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: salesReturnEvents,
@@ -1913,7 +1919,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
     numbering: { next: (opts) => ledger.numbering.next("PURCHASE_RETURN", { branchId: opts?.branchId }) },
-    gl: documentGl,
+    gl: returnReliefGl("purchase", purchaseReturnStore, purchaseReturnLineCredit),
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: returnsEventBridge,
@@ -3057,32 +3063,48 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }
     return (await purchaseInvoices.findById(invoiceId))?.status === "confirmed";
   }
-  async function releaseRevaluationShare(invoiceId: string, date: string): Promise<void> {
+  async function releaseRevaluationShare(invoiceId: string, date: string, part?: { readonly relieved: Money; readonly outstanding: Money }): Promise<void> {
     const standing = await standingRevaluationShare(invoiceId);
-    const share = (await vouchers.revaluationShares.listByItem(invoiceId))[0];
+    const records = await vouchers.revaluationShares.listByItem(invoiceId);
+    const share = records[0];
     if (standing.scaled === 0n || !share) return;
-    const booked = await realisedFx.invoiceFx(invoiceId, share.kind);
-    const accountsFor = await fxDifferenceAccounts("realised");
-    const debitPositive = share.kind === "sales" ? standing.scaled : -standing.scaled;
-    const magnitude = Money.fromScaled(debitPositive < 0n ? -debitPositive : debitPositive);
-    const overstated = debitPositive > 0n;
-    const entryId = `FXR:release:${invoiceId}:${(await vouchers.revaluationShares.listByItem(invoiceId)).length}`;
+    const fxRate = (await realisedFx.invoiceFx(invoiceId, share.kind))?.fxRate ?? "1";
+    const taken = part ? relievedRevaluationShare(standing, convertFromBase(part.relieved, fxRate), convertFromBase(part.outstanding, fxRate)) : standing;
+    const lines = buildRevaluationReleaseLines({ kind: share.kind, controlAccountId: share.accountId, partyId: share.partyId, currency: share.currency, fxRate, share: taken }, await fxDifferenceAccounts("realised"));
+    if (lines.length === 0) return;
+    let restatedOn = date;
+    for (const record of records) {
+      if (await revaluationEntryStands(record.entryId)) restatedOn = laterDay(restatedOn, (await ledger.findById(record.entryId))?.date.slice(0, 10));
+    }
+    const entryId = `FXR:release:${invoiceId}:${records.length}`;
     await postJournalEntry(
-      {
-        id: entryId,
-        date,
-        memo: `إقفال إعادة تقييم قائمة على مستند أُقفل (${invoiceId})`,
-        source: "system",
-        sourceDocType: FX_REALISED_DOC_TYPE,
-        sourceDocId: invoiceId,
-        lines: [
-          { accountId: share.accountId, debit: overstated ? Money.zero() : magnitude, credit: overstated ? magnitude : Money.zero(), memo: FX_REVALUATION_LINE_MEMO, currency: share.currency, fxRate: booked?.fxRate ?? "1", partyId: share.partyId },
-          { accountId: overstated ? accountsFor.lossAccountId : accountsFor.gainAccountId, debit: overstated ? magnitude : Money.zero(), credit: overstated ? Money.zero() : magnitude, memo: FX_REALISED_LINE_MEMO },
-        ],
-      },
+      { id: entryId, date: restatedOn, memo: `إقفال إعادة تقييم قائمة على مستند أُقفل (${invoiceId})`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, sourceDocId: invoiceId, lines },
       salesInvoiceGl,
     );
-    await vouchers.revaluationShares.saveAll([{ ...share, entryId, amount: Money.fromScaled(-standing.scaled) }]);
+    await vouchers.revaluationShares.saveAll([{ ...share, entryId, amount: Money.fromScaled(-taken.scaled) }]);
+  }
+  function returnReliefGl<L extends { readonly sourceInvoiceId: string }>(kind: AllocationInvoiceKind, returns: Pick<DocumentRepository<L>, "findById">, lineCredit: (line: L) => Money): DocumentGlHook {
+    return {
+      async post(posting) {
+        const credits = new Map<string, Money>();
+        for (const line of (await returns.findById(posting.sourceDocId))?.lines ?? []) {
+          credits.set(line.sourceInvoiceId, (credits.get(line.sourceInvoiceId) ?? Money.zero()).add(lineCredit(line)));
+        }
+        // INVARIANT: this runs inside the confirm's own posting, while the return is still unconfirmed; once it is confirmed the sub-ledger nets it and the part it took can no longer be measured.
+        const openBefore = new Map<string, Money>();
+        for (const invoiceId of credits.keys()) {
+          const invoice = await vouchers.invoices.findById(invoiceId);
+          if (!invoice || invoice.kind !== kind) continue;
+          openBefore.set(invoiceId, invoiceOpenBalance(invoice, (await returnedByInvoice(invoiceReturnCredits, [invoice])).get(invoiceId) ?? Money.zero()));
+        }
+        const posted = await documentGl.post(posting);
+        for (const [invoiceId, outstanding] of openBefore) {
+          if (outstanding.scaled > 0n) await releaseRevaluationShare(invoiceId, posting.date.slice(0, 10), { relieved: credits.get(invoiceId) ?? Money.zero(), outstanding });
+        }
+        return posted;
+      },
+      reverse: (journalEntryId, opts) => documentGl.reverse(journalEntryId, opts),
+    };
   }
   async function revaluationSharesConsumed(entryId: string): Promise<boolean> {
     for (const share of await vouchers.revaluationShares.listByEntry(entryId)) {

@@ -226,6 +226,29 @@ export async function postRealisedFx(
   return id;
 }
 
+export interface RevaluationRelease {
+  readonly kind: AllocationInvoiceKind;
+  readonly controlAccountId: string;
+  readonly partyId: string;
+  readonly currency: string;
+  readonly fxRate: string;
+  readonly share: Money;
+  readonly branchId?: string | null;
+}
+
+export function buildRevaluationReleaseLines(release: RevaluationRelease, accounts: FxDifferenceAccounts): JournalLineInput[] {
+  const debitPositive = release.kind === "sales" ? release.share.scaled : -release.share.scaled;
+  if (debitPositive === 0n) return [];
+  const zero = Money.zero();
+  const magnitude = Money.fromScaled(debitPositive < 0n ? -debitPositive : debitPositive);
+  const overstated = debitPositive > 0n;
+  const branchId = release.branchId ?? null;
+  return [
+    { accountId: release.controlAccountId, debit: overstated ? zero : magnitude, credit: overstated ? magnitude : zero, memo: FX_REVALUATION_SHARE_MEMO, currency: release.currency, fxRate: release.fxRate, partyId: release.partyId, branchId },
+    { accountId: overstated ? accounts.lossAccountId : accounts.gainAccountId, debit: overstated ? magnitude : zero, credit: overstated ? zero : magnitude, memo: FX_REALISED_LINE_MEMO, branchId },
+  ];
+}
+
 export function realisedFxReversalId(fxEntryId: string): string {
   return `${fxEntryId}:REV`;
 }

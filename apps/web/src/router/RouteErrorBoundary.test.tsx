@@ -16,8 +16,16 @@ function renderRouter(initialEntries: string[]) {
       { path: "/", element: <div>الرئيسية</div> },
       { path: "/dashboard", element: <div>لوحة التحكم</div> },
       { path: "/boom", element: <Boom />, ErrorBoundary: RouteErrorBoundary },
+      { path: "/قيود/:id", element: <Boom />, ErrorBoundary: RouteErrorBoundary },
       {
         path: "/missing",
+        loader: () => {
+          throw new Response("Not found", { status: 404 });
+        },
+        ErrorBoundary: RouteErrorBoundary,
+      },
+      {
+        path: "*",
         loader: () => {
           throw new Response("Not found", { status: 404 });
         },
@@ -89,6 +97,35 @@ describe("RouteErrorBoundary", () => {
     expect(alert).toHaveTextContent("العنوان المطلوب: /missing");
     expect(screen.getByText("/missing")).toHaveAttribute("dir", "ltr");
     expect(alert).not.toHaveTextContent(/not found/i);
+  });
+
+  it("prints an Arabic address that was not found the way it reads, not percent-encoded, and lets it wrap anywhere so a long one stays inside a narrow screen", async () => {
+    renderRouter([`/${encodeURIComponent("تقارير")}/${encodeURIComponent("المبيعات-الشهرية")}`]);
+
+    const alert = await screen.findByRole("alert");
+    const address = screen.getByText("/تقارير/المبيعات-الشهرية");
+
+    expect(alert).toHaveTextContent("العنوان المطلوب: /تقارير/المبيعات-الشهرية");
+    expect(alert).not.toHaveTextContent("%D8");
+    expect(address).toHaveAttribute("dir", "ltr");
+    expect(address).toHaveClass("[overflow-wrap:anywhere]");
+  });
+
+  it("prints the support code of a screen at an Arabic address the way it reads, in a line that wraps anywhere", () => {
+    renderRouter([`/${encodeURIComponent("قيود")}/7`]);
+
+    const body = screen.getByText(/رمز الشاشة للدعم: /);
+
+    expect(body).toHaveTextContent("رمز الشاشة للدعم: /قيود/7");
+    expect(body).toHaveClass("[overflow-wrap:anywhere]");
+  });
+
+  it("prints the address as it was typed when it cannot be decoded", async () => {
+    renderRouter(["/%E0%A4%A"]);
+
+    const alert = await screen.findByRole("alert");
+
+    expect(alert).toHaveTextContent("العنوان المطلوب: /%E0%A4%A");
   });
 
   it.each([

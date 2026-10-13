@@ -17,6 +17,14 @@ function refusalDetailKey(status: number): AppTranslationKey {
   return "routeError.detail.other";
 }
 
+function readablePath(pathname: string): string {
+  try {
+    return decodeURI(pathname);
+  } catch {
+    return pathname;
+  }
+}
+
 /**
  * What a screen renders instead of disappearing when it throws.
  *
@@ -48,13 +56,13 @@ export function RouteErrorBoundary() {
       <h2 className="text-lg font-semibold text-ink">
         {status === HTTP_NOT_FOUND ? t("routeError.notFoundTitle") : t("routeError.title")}
       </h2>
-      <p className="text-sm text-ink-muted">
+      <p className="text-sm text-ink-muted [overflow-wrap:anywhere]">
         {status === HTTP_NOT_FOUND
           ? t("routeError.notFoundBody")
           : /* The path is the screen's support code: «تعذّر عرض هذه الشاشة» is
                the same sentence on all 118 of them, so a ticket that quotes it
                names no screen at all. */
-            t("routeError.body", { screen: location.pathname })}
+            t("routeError.body", { screen: readablePath(location.pathname) })}
       </p>
       {refusal ? (
         <p className="text-xs text-ink-muted">
@@ -62,7 +70,9 @@ export function RouteErrorBoundary() {
           {status === HTTP_NOT_FOUND ? (
             <>
               {" "}
-              <bdi dir="ltr">{location.pathname}</bdi>
+              <bdi dir="ltr" className="[overflow-wrap:anywhere]">
+                {readablePath(location.pathname)}
+              </bdi>
             </>
           ) : null}
         </p>

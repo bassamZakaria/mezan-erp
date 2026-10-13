@@ -32,16 +32,40 @@ interface SeededRoleCorrection {
   readonly reasonAr: string;
 }
 
-const DUTY_SPLITS: Readonly<Partial<Record<SeededRoleCode, SeededRoleCorrection>>> = {
-  [SeededRoleCode.TreasuryCashier]: { revoke: ["treasury.cash_voucher.confirm"], grant: [], reasonAr: "من يحرّر السند لا يؤكده؛ التأكيد لمدير الفرع" },
-  [SeededRoleCode.BranchManager]: { revoke: ["treasury.cash_voucher.create"], grant: [], reasonAr: "من يؤكد السند لا يحرّره؛ التحرير لأمين الخزنة" },
-  [SeededRoleCode.FinanceManager]: {
-    revoke: ["accounting.journal.post", "treasury.reconciliation.post_entry", "treasury.reconciliation.match"],
-    grant: [],
-    reasonAr: "من يعتمد ويراجع لا يرحّل القيود ولا يطابق كشف البنك بنفسه؛ الترحيل للمحاسب",
+export enum SeededRoleSplit {
+  Duties = "duties",
+  BankReconciliation = "bank_reconciliation",
+}
+
+const SPLITS: Readonly<Record<SeededRoleSplit, Readonly<Partial<Record<SeededRoleCode, SeededRoleCorrection>>>>> = {
+  [SeededRoleSplit.Duties]: {
+    [SeededRoleCode.TreasuryCashier]: { revoke: ["treasury.cash_voucher.confirm"], grant: [], reasonAr: "من يحرّر السند لا يؤكده؛ التأكيد لمدير الفرع" },
+    [SeededRoleCode.BranchManager]: { revoke: ["treasury.cash_voucher.create"], grant: [], reasonAr: "من يؤكد السند لا يحرّره؛ التحرير لأمين الخزنة" },
+    [SeededRoleCode.FinanceManager]: {
+      revoke: ["accounting.journal.post", "treasury.reconciliation.post_entry", "treasury.reconciliation.match"],
+      grant: [],
+      reasonAr: "من يعتمد ويراجع لا يرحّل القيود ولا يطابق كشف البنك بنفسه؛ الترحيل للمحاسب",
+    },
+    [SeededRoleCode.Accountant]: { revoke: [], grant: ["accounting.journal.post"], reasonAr: "ترحيل القيود انتقل إليه من المدير المالي" },
+    [SeededRoleCode.HrOfficer]: { revoke: ["hr.leave.approve"], grant: [], reasonAr: "من يسجّل طلب الإجازة لا يعتمده؛ الاعتماد للمدير المباشر أو من يملك صلاحية الاعتماد" },
   },
-  [SeededRoleCode.Accountant]: { revoke: [], grant: ["accounting.journal.post"], reasonAr: "ترحيل القيود انتقل إليه من المدير المالي" },
-  [SeededRoleCode.HrOfficer]: { revoke: ["hr.leave.approve"], grant: [], reasonAr: "من يسجّل طلب الإجازة لا يعتمده؛ الاعتماد للمدير المباشر أو من يملك صلاحية الاعتماد" },
+  [SeededRoleSplit.BankReconciliation]: {
+    [SeededRoleCode.TreasuryCashier]: {
+      revoke: ["treasury.reconciliation.match", "treasury.reconciliation.post_entry"],
+      grant: [],
+      reasonAr: "من يحرّر سندات النقدية لا يطابق كشف البنك ولا يرحّل قيوده؛ المطابقة للمحاسب",
+    },
+    [SeededRoleCode.Accountant]: {
+      revoke: [],
+      grant: ["treasury.reconciliation.view", "treasury.reconciliation.match", "treasury.reconciliation.post_entry"],
+      reasonAr: "مطابقة كشف البنك وترحيل قيوده انتقلا إليه من أمين الخزنة",
+    },
+  },
+};
+
+const GRANTED_WITH: Readonly<Record<SeededRoleSplit, readonly string[]>> = {
+  [SeededRoleSplit.Duties]: [DASHBOARD_VIEW_PERMISSION],
+  [SeededRoleSplit.BankReconciliation]: [],
 };
 
 const NO_SPLIT: SeededRoleCorrection = { revoke: [], grant: [], reasonAr: "" };
@@ -66,8 +90,13 @@ const NO_SUCCESSORS: PermissionSuccessors = new Map();
  * came from. Revoking the older right without it leaves the conflict standing
  * under the newer name.
  */
-function splitFor(code: SeededRoleCode, permissions: readonly string[], successors: PermissionSuccessors): { readonly revoked: string[]; readonly granted: string[] } {
-  const split = DUTY_SPLITS[code] ?? NO_SPLIT;
+function splitFor(
+  code: SeededRoleCode,
+  permissions: readonly string[],
+  successors: PermissionSuccessors,
+  which: SeededRoleSplit,
+): { readonly revoked: string[]; readonly granted: string[] } {
+  const split = SPLITS[which][code] ?? NO_SPLIT;
   const kept = permissions.filter((permission) => !split.revoke.includes(permission));
   const stillEarned = new Set(kept.flatMap((permission) => successors.get(permission) ?? []));
   const orphaned = split.revoke.flatMap((permission) => successors.get(permission) ?? []).filter((successor) => !stillEarned.has(successor));
@@ -80,11 +109,12 @@ function splitFor(code: SeededRoleCode, permissions: readonly string[], successo
 export function seededRoleDutyChange(
   role: { readonly code: string; readonly name: string; readonly permissions: readonly string[] },
   successors: PermissionSuccessors = NO_SUCCESSORS,
+  which: SeededRoleSplit = SeededRoleSplit.Duties,
 ): SeededRoleDutyChange | null {
   if (!isSeededRoleCode(role.code) || role.permissions.includes(WILDCARD_PERMISSION)) return null;
-  const split = DUTY_SPLITS[role.code];
+  const split = SPLITS[which][role.code];
   if (!split) return null;
-  const { revoked, granted } = splitFor(role.code, role.permissions, successors);
+  const { revoked, granted } = splitFor(role.code, role.permissions, successors, which);
   if (revoked.length === 0 && granted.length === 0) return null;
   return { roleCode: role.code, roleName: role.name, revoked, granted, reasonAr: split.reasonAr };
 }
@@ -108,11 +138,16 @@ export function seededRoleDutyNotice(changes: readonly SeededRoleDutyChange[]): 
 
 const isSeededRoleCode = (code: string): code is SeededRoleCode => SEEDED_ROLE_CODES.includes(code);
 
-export function correctedSeededRolePermissions(code: string, permissions: readonly string[], successors: PermissionSuccessors = NO_SUCCESSORS): string[] | null {
+export function correctedSeededRolePermissions(
+  code: string,
+  permissions: readonly string[],
+  successors: PermissionSuccessors = NO_SUCCESSORS,
+  which: SeededRoleSplit = SeededRoleSplit.Duties,
+): string[] | null {
   if (!isSeededRoleCode(code) || permissions.includes(WILDCARD_PERMISSION)) return null;
-  const { revoked, granted } = splitFor(code, permissions, successors);
+  const { revoked, granted } = splitFor(code, permissions, successors, which);
   const kept = permissions.filter((permission) => !revoked.includes(permission));
-  const added = [...granted, DASHBOARD_VIEW_PERMISSION].filter((permission) => !kept.includes(permission));
+  const added = [...granted, ...GRANTED_WITH[which]].filter((permission) => !kept.includes(permission));
   if (kept.length === permissions.length && added.length === 0) return null;
   return [...kept, ...added];
 }

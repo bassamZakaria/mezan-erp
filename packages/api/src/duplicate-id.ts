@@ -28,20 +28,31 @@ async function readJson(c: Context): Promise<unknown> {
   }
 }
 
+const REFUSED_FROM = 400;
+const REFUSED_FOR_THE_CALLER: ReadonlySet<number> = new Set([401, 403]);
+
 /**
- * LEDGER INVARIANT: a create that names its own id runs in one transaction, and
- * the store's refusal of a taken id rolls ALL of it back — the document number
- * it minted, the audit row, any posting — on every route, one added later
- * included. No route looks the id up first: the insert-only write is the only
- * thing that refuses it, so there is nothing a refused create can leave behind.
+ * LEDGER INVARIANT: a create that names its own id runs in one transaction,
+ * and any answer but a success rolls ALL of it back — the document number it
+ * drew, the stock it moved, any posting — so a refused or faulted create
+ * leaves no gap in a sequence and nothing half-done. No route looks the id up
+ * first: the insert-only write is the only thing that refuses a taken one.
+ *
+ * SECURITY: an attempt refused for who the caller is (401, 403) keeps what it
+ * recorded — that is the audit row of the attempt — unless it had already
+ * drawn a number, which `numbersDrawn` reads off the counters.
  */
-export function refusedCreateRollsBack(transactor: ConfigTransactor): MiddlewareHandler {
+export function refusedCreateRollsBack(transactor: ConfigTransactor, numbersDrawn?: () => string): MiddlewareHandler {
   return async function refusedCreate(c, next) {
     if (c.req.method !== "POST" || !namesAnId(await readJson(c))) return next();
     try {
       await transactor.run(async () => {
+        const before = numbersDrawn?.();
         await next();
         if (refusedRequests.has(c.req.raw)) throw new RefusedCreateRollback();
+        const answered = c.res.status;
+        if (answered < REFUSED_FROM) return;
+        if (!REFUSED_FOR_THE_CALLER.has(answered) || (numbersDrawn !== undefined && numbersDrawn() !== before)) throw new RefusedCreateRollback();
       });
     } catch (err) {
       if (!(err instanceof RefusedCreateRollback)) throw err;

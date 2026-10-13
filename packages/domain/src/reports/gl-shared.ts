@@ -28,6 +28,8 @@ export interface GlReportContext {
    * exchange-difference accounts the tenant's routing names (D229).
    */
   readonly otherIncomeExpenseAccountIds?: readonly string[];
+  /** The accounts a sale's cost is posted to (`costOfSalesLedgerAccountIds`); omitted, the routing defaults stand. */
+  readonly costOfSalesAccountIds?: readonly string[];
   /**
    * The branches this caller is allowed to see (DEC-20). Undefined = every
    * branch. AUTHORITY, applied before the reader's own `branchId` parameter

@@ -39,7 +39,7 @@ import { can } from "@mezan/domain";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
-import { DuplicateRecordIdError } from "@mezan/domain";
+import { CashBalanceWouldGoNegativeError, DuplicateRecordIdError, NegativeStockError } from "@mezan/domain";
 
 /**
  * Field/Van Sales routes (docs/archive/catalog/07-mfg-projects-assets.md "رحلات
@@ -160,6 +160,29 @@ function handleDomainError(c: Context, err: unknown) {
   }
   if (err instanceof VanTripNotOngoingError) {
     return c.json(withMessageEn(err), 409);
+  }
+  if (err instanceof NegativeStockError) {
+    return c.json(
+      {
+        error: err.code,
+        message: err.message,
+        messageEn: `Loading ${err.requested.toString()} of item "${err.itemId}" from warehouse "${err.warehouseId}" would take its stock (${err.onHand.toString()}) below zero.`,
+        itemId: err.itemId,
+        warehouseId: err.warehouseId,
+      },
+      422,
+    );
+  }
+  if (err instanceof CashBalanceWouldGoNegativeError) {
+    return c.json(
+      {
+        error: err.code,
+        message: err.message,
+        messageEn: `The opening float of ${err.amount} is more than treasury account "${err.treasuryAccountId}" holds (${err.currentBalance}).`,
+        treasuryAccountId: err.treasuryAccountId,
+      },
+      422,
+    );
   }
   throw err;
 }

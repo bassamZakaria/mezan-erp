@@ -86,7 +86,16 @@ describe("upgrade — a tenant older than the reversal permissions and the duty 
     expect(upgraded["MY_TREASURER"]).toEqual(["cheques.view", "cheques.bounce", "accounting.journal.post", "accounting.revaluation.reverse", "cheques.reverse"]);
     expect(upgraded["TREASURY_CASHIER"]).toEqual(["treasury.cash_voucher.view", "treasury.cash_voucher.create", "cheques.view", "cheques.bounce", "cheques.reverse", "dashboard.view"]);
     expect(upgraded["FINANCE_MANAGER"]).toEqual(["accounting.journal.view", "accounting.period.view", "accounting.period.close", "accounting.period.reopen", "accounting.year_end_close.reverse", "dashboard.view"]);
-    expect(upgraded["ACCOUNTANT"]).toEqual(["accounting.journal.view", "accounting.journal.create", "accounting.journal.post", "accounting.revaluation.reverse", "dashboard.view"]);
+    expect(upgraded["ACCOUNTANT"]).toEqual([
+      "accounting.journal.view",
+      "accounting.journal.create",
+      "accounting.journal.post",
+      "accounting.revaluation.reverse",
+      "dashboard.view",
+      "treasury.reconciliation.view",
+      "treasury.reconciliation.match",
+      "treasury.reconciliation.post_entry",
+    ]);
     for (const code of ["FINANCE_MANAGER", "ACCOUNTANT", "TREASURY_CASHIER"]) expect(detectSodConflicts(upgraded[code]!), code).toEqual([]);
 
     (await createBackend({ dbPath })).close();
@@ -99,3 +108,39 @@ describe("upgrade — a tenant older than the reversal permissions and the duty 
     expect(stored(dbPath)["MY_TREASURER"]).toEqual(["cheques.view", "cheques.bounce"]);
   }, 120_000);
 });
+
+describe("upgrade — a tenant that separated duties before reconciliation was taken from the cashier", () => {
+  it("moves bank reconciliation from the seeded cashier to the seeded accountant once, tells the administrators, and leaves a custom role alone", async () => {
+    const dbPath = join(mkdtempSync(join(tmpdir(), "mezan-roles-recon-")), "books.db");
+    (await createBackend({ dbPath })).close();
+    const { sqlite } = openSqliteConnection(dbPath);
+    sqlite.prepare("DELETE FROM upgrade_step WHERE id = 'seeded_role_reconciliation_split'").run();
+    const insert = sqlite.prepare("INSERT INTO role (id, code, name, description, permissions, is_system, created_at) VALUES (?, ?, ?, '', ?, 0, '2026-01-01T00:00:00.000Z')");
+    const cashier = ["treasury.cash_voucher.view", "treasury.cash_voucher.create", "treasury.reconciliation.view", "treasury.reconciliation.import", "treasury.reconciliation.match", "dashboard.view"];
+    const accountant = ["accounting.journal.view", "accounting.journal.create", "accounting.journal.post", "dashboard.view"];
+    insert.run("ROLE-TREASURY_CASHIER", "TREASURY_CASHIER", "أمين الخزنة", JSON.stringify(cashier));
+    insert.run("ROLE-ACCOUNTANT", "ACCOUNTANT", "محاسب", JSON.stringify(accountant));
+    insert.run("ROLE-MY_TELLER", "MY_TELLER", "صرّاف", JSON.stringify(cashier));
+    const noticesBefore = (sqlite.prepare("SELECT count(*) AS n FROM notification WHERE event_code = 'SEEDED_ROLE_DUTIES_SEPARATED'").get() as { n: number }).n;
+    sqlite.close();
+    expect(detectSodConflicts(cashier).length).toBeGreaterThan(0);
+
+    (await createBackend({ dbPath })).close();
+    const upgraded = stored(dbPath);
+
+    expect(upgraded["TREASURY_CASHIER"]).toEqual(["treasury.cash_voucher.view", "treasury.cash_voucher.create", "treasury.reconciliation.view", "treasury.reconciliation.import", "dashboard.view"]);
+    expect(upgraded["ACCOUNTANT"]).toEqual([...accountant, "treasury.reconciliation.view", "treasury.reconciliation.match", "treasury.reconciliation.post_entry"]);
+    expect(upgraded["MY_TELLER"]).toEqual(cashier);
+    for (const code of ["TREASURY_CASHIER", "ACCOUNTANT"]) expect(detectSodConflicts(upgraded[code]!), code).toEqual([]);
+    const after = openSqliteConnection(dbPath).sqlite;
+    const notices = after.prepare("SELECT body FROM notification WHERE event_code = 'SEEDED_ROLE_DUTIES_SEPARATED' ORDER BY created_at DESC").all() as { body: string }[];
+    expect(notices.length).toBeGreaterThan(noticesBefore);
+    expect(notices[0]?.body).toContain("treasury.reconciliation.match");
+    expect(notices[0]?.body).toContain("TREASURY_CASHIER");
+    after.close();
+
+    (await createBackend({ dbPath })).close();
+    expect(stored(dbPath)).toEqual(upgraded);
+  }, 120_000);
+});
+

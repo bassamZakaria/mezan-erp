@@ -3,7 +3,7 @@ import { step } from "./shared.js";
 
 export const seed: SeedFragment = {
   roleGrants: {
-    TREASURY_CASHIER: ["treasury.reconciliation.post_entry"],
+    ACCOUNTANT: ["treasury.reconciliation.post_entry"],
     FINANCE_MANAGER: ["treasury.reconciliation.manage"],
   },
   run: async (app, ctx) => {

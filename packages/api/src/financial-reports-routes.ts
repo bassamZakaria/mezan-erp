@@ -72,6 +72,8 @@ export interface FinancialReportsRoutesDeps {
   readonly cashAccountIds?: () => Promise<readonly string[]>;
   /** The accounts the income statement shows below operating profit, resolved per request from the tenant's routing (D229). */
   readonly otherIncomeExpenseAccountIds?: () => Promise<readonly string[]>;
+  /** The accounts a sale's cost is posted to, resolved per request from the tenant's routing and its items. */
+  readonly costOfSalesAccountIds?: () => Promise<readonly string[]>;
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the tenant's calendar day. */
   readonly today?: () => string;
   /**
@@ -156,11 +158,12 @@ export function createFinancialReportsRoutes(
     bounds: { fromDate?: string; toDate?: string },
     preloadedAccounts?: readonly Account[],
   ): Promise<GlReportContext> {
-    const [accounts, journalEntries, otherIncomeExpenseAccountIds, cashAccountIds] = await Promise.all([
+    const [accounts, journalEntries, otherIncomeExpenseAccountIds, cashAccountIds, costOfSalesAccountIds] = await Promise.all([
       preloadedAccounts ? Promise.resolve(preloadedAccounts) : deps.accounts.list(),
       loadJournalEntries(bounds),
       deps.otherIncomeExpenseAccountIds?.(),
       deps.cashAccountIds?.(),
+      deps.costOfSalesAccountIds?.(),
     ]);
     // The scope rides on the context, not on the query: it has to cut at the
     // posted LINE, and `ledger.list` can only bound whole entries by date.
@@ -169,6 +172,7 @@ export function createFinancialReportsRoutes(
       journalEntries: readableEntries(c, journalEntries),
       cashAccountIds,
       ...(otherIncomeExpenseAccountIds ? { otherIncomeExpenseAccountIds } : {}),
+      ...(costOfSalesAccountIds ? { costOfSalesAccountIds } : {}),
       branchScope: branchScopeOf(c),
     };
   }

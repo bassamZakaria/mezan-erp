@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import {
+  COST_OF_SALES_ROUTING_KEYS,
   COCKPIT_MARGIN_WEEKS,
   COCKPIT_SPARK_DAYS,
   Money,
@@ -67,7 +68,7 @@ export const COCKPIT_PERMISSION = "accounting.cockpit.view";
 
 const CUSTOMER_RECEIVABLE_CODES = new Set(["1105", "1110", "1360"]);
 const REVENUE_SLOTS = ["item_type.revenue", "item_type.service_revenue", "contracting.revenue", "sales_discount.contra"];
-const COGS_SLOTS = ["item_type.cogs", "contracting.cost_of_revenue"];
+const COGS_SLOTS = COST_OF_SALES_ROUTING_KEYS;
 const OPEN_STATUSES = ["confirmed", "partially_paid"] as const satisfies readonly SalesInvoice["status"][];
 const SOLD_STATUSES = ["confirmed", "partially_paid", "paid"] as const satisfies readonly SalesInvoice["status"][];
 

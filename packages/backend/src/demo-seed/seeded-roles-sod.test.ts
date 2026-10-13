@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { correctedSeededRolePermissions, detectSodConflicts, getPermission, resolvePermissions, SEEDED_ROLE_CODES, WILDCARD_PERMISSION } from "@mezan/domain";
+import { correctedSeededRolePermissions, detectSodConflicts, getPermission, resolvePermissions, SEEDED_ROLE_CODES, SeededRoleSplit, WILDCARD_PERMISSION } from "@mezan/domain";
 import { seededRoles } from "./access.js";
 import type { SeedLicensing } from "./fragment-registry.js";
 
@@ -27,6 +27,17 @@ describe("seeded roles — segregation of duties", () => {
     expect(manager.has("treasury.cash_voucher.create")).toBe(false);
   });
 
+  it("the cashier writes cash vouchers and the accountant reconciles the bank; neither does both", () => {
+    const cashier = grantsOf("TREASURY_CASHIER");
+    const accountant = grantsOf("ACCOUNTANT");
+    expect(cashier.has("treasury.cash_voucher.create")).toBe(true);
+    expect(cashier.has("treasury.reconciliation.match")).toBe(false);
+    expect(cashier.has("treasury.reconciliation.post_entry")).toBe(false);
+    expect(accountant.has("treasury.reconciliation.match")).toBe(true);
+    expect(accountant.has("treasury.reconciliation.post_entry")).toBe(true);
+    expect(accountant.has("treasury.cash_voucher.create")).toBe(false);
+  });
+
   it("every seeded grant is a catalog permission", () => {
     for (const role of roles) for (const code of role.permissions) expect(getPermission(code), `${role.code}: ${code}`).toBeDefined();
   });
@@ -46,6 +57,6 @@ describe("seeded roles — dashboard.view", () => {
 describe("seeded roles — the upgrade correction and the seed agree", () => {
   it.each(roles.map((role) => [role.code, role.permissions] as const))("%s is a known seeded code the correction leaves as the seed writes it", (code, permissions) => {
     expect(SEEDED_ROLE_CODES).toContain(code);
-    expect(correctedSeededRolePermissions(code, permissions)).toBeNull();
+    for (const split of Object.values(SeededRoleSplit)) expect(correctedSeededRolePermissions(code, permissions, undefined, split), split).toBeNull();
   });
 });

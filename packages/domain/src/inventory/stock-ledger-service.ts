@@ -813,7 +813,7 @@ export class StockLedgerService {
             sourceDocNumber: number,
             date,
             memo: `${memo} — فرق متوسط التكلفة`,
-            warehouseId: original[0]?.warehouseId ?? null,
+            warehouseId: new Set(original.map((movement) => movement.warehouseId)).size === 1 ? (original[0]?.warehouseId ?? null) : null,
             lines: [
               { ...inventoryLine, debit: up ? magnitude : Money.zero(), credit: up ? Money.zero() : magnitude },
               { ...counterpartLine, debit: up ? Money.zero() : magnitude, credit: up ? magnitude : Money.zero() },

@@ -21,7 +21,7 @@ function harness() {
     },
   };
   const app = new Hono();
-  app.use("*", refusedCreateRollsBack(transactor));
+  app.use("*", refusedCreateRollsBack(transactor, () => rows.get("number") ?? ""));
   app.post("/made", async (c) => {
     rows.set("number", "DOC-0001");
     return c.json({ ok: true }, 201);
@@ -36,7 +36,31 @@ function harness() {
   });
   app.post("/invalid", async (c) => {
     rows.set("number", "DOC-0001");
-    return c.json({ error: "INVALID" }, 422);
+    rows.set("document", "half-written");
+    const { status } = (await c.req.json()) as { status: 400 | 403 | 404 | 409 | 422 };
+    return c.json({ error: "REFUSED" }, status);
+  });
+  app.post("/forbidden", async (c) => {
+    rows.set("audit", "refused: outside the caller's branches");
+    return c.json({ error: "FORBIDDEN" }, 403);
+  });
+  app.post("/half-done", async (c) => {
+    rows.set("stock", "moved to the van");
+    const { status } = (await c.req.json()) as { status: 400 | 404 | 409 | 422 };
+    return c.json({ error: "REFUSED" }, status);
+  });
+  app.post("/half-done-then-failed", async () => {
+    rows.set("stock", "moved to the van");
+    throw new Error("the server faulted");
+  });
+  app.post("/forbidden-after-a-number", async (c) => {
+    rows.set("number", "DOC-0001");
+    rows.set("audit", "refused");
+    return c.json({ error: "FORBIDDEN" }, 403);
+  });
+  app.post("/numbered-then-failed", async () => {
+    rows.set("number", "DOC-0001");
+    throw new Error("the server faulted");
   });
   app.onError((err, c) => (err instanceof DuplicateRecordIdError ? duplicateIdRefusal(c, err) : c.json({ error: "INTERNAL" }, 500)));
   const post = (path: string, body: unknown) => app.fetch(new Request(`http://local${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
@@ -70,10 +94,44 @@ describe("a create refused for a taken id leaves nothing behind", () => {
     expect(rows.size).toBe(0);
   });
 
-  it("does not touch another refusal, and opens no transaction for a body that names no id", async () => {
-    const { rows, post, transactions } = harness();
-    expect((await post("/invalid", { id: "X-1" })).status).toBe(422);
-    expect(rows.get("number")).toBe("DOC-0001");
+  it.each([422, 400, 404, 403, 409])("a create refused %i after it drew a document number gives the number back with everything else it wrote", async (status) => {
+    const { rows, post } = harness();
+    expect((await post("/invalid", { id: "X-1", status })).status).toBe(status);
+    expect(rows.size).toBe(0);
+  });
+
+  it("a create that faulted after it drew a number gives it back too, and the fault still reaches the last net", async () => {
+    const { rows, post } = harness();
+    expect((await post("/numbered-then-failed", { id: "X-1" })).status).toBe(500);
+    expect(rows.size).toBe(0);
+  });
+
+  it.each([400, 404, 409, 422])("a create refused %i with no number drawn still leaves nothing of what it had begun", async (status) => {
+    const { rows, post } = harness();
+    expect((await post("/half-done", { id: "X-1", status })).status).toBe(status);
+    expect(rows.size).toBe(0);
+  });
+
+  it("a create that faulted half-way leaves nothing either", async () => {
+    const { rows, post } = harness();
+    expect((await post("/half-done-then-failed", { id: "X-1" })).status).toBe(500);
+    expect(rows.size).toBe(0);
+  });
+
+  it("keeps the audit row of an attempt refused for want of permission — a refusal that drew no number", async () => {
+    const { rows, post } = harness();
+    expect((await post("/forbidden", { id: "X-1" })).status).toBe(403);
+    expect(rows.get("audit")).toBe("refused: outside the caller's branches");
+  });
+
+  it("but a forbidden answer that had already drawn a number gives everything back", async () => {
+    const { rows, post } = harness();
+    expect((await post("/forbidden-after-a-number", { id: "X-1" })).status).toBe(403);
+    expect(rows.size).toBe(0);
+  });
+
+  it("opens no transaction for a body that names no id", async () => {
+    const { post, transactions } = harness();
     const opened = transactions();
     expect((await post("/made", { name: "بلا معرّف" })).status).toBe(201);
     expect(transactions()).toBe(opened);

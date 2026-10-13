@@ -410,6 +410,8 @@ export interface CreateAppOptions {
   readonly supplierOpeningBalances?: PartyOpeningBalancePoster;
   /** The transaction a create route shares with what it writes beside the record, so a refused create leaves nothing. */
   readonly createTransactor?: ConfigTransactor;
+  /** LEDGER INVARIANT: reads every document-number counter, so a refused create that drew one is rolled back whole (`refusedCreateRollsBack`). */
+  readonly numbersDrawn?: () => string;
   /** مجموعات الضرائب (R6.4) — mounts `/tax-groups` when present. */
   readonly taxGroupRepo?: TaxGroupRepository;
   /** Mounts `/tax-rates` (docs/archive/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
@@ -1087,7 +1089,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // resolving first would leave that theft unrecorded.
   app.use("*", branchPolicyEnforcement({ resolveAuthContext: resolveAuth, directory: options.branchDirectory }));
   if (options.items) app.use("*", pendingPricingGuard(options.items.repo, resolveAuth));
-  if (options.createTransactor) app.use("*", refusedCreateRollsBack(options.createTransactor));
+  if (options.createTransactor) app.use("*", refusedCreateRollsBack(options.createTransactor, options.numbersDrawn));
   app.get("/license/state", async (c) =>
     c.json(resolveLicenseState ? await resolveLicenseState(c) : WRITABLE_LICENSE_STATE),
   );

@@ -62,7 +62,7 @@ const ROLES = [
   {
     code: "ACCOUNTANT",
     name: "محاسب",
-    description: "يقيّد الحركات المالية ويرحّلها ويراجعها.",
+    description: "يقيّد الحركات المالية ويرحّلها ويراجعها ويطابق كشف البنك.",
     permissions: [
       "accounting.journal.view",
       "accounting.journal.create",
@@ -71,6 +71,9 @@ const ROLES = [
       "accounting.period.view",
       "accounting.reports.view",
       "treasury.cash_voucher.view",
+      "treasury.reconciliation.view",
+      "treasury.reconciliation.match",
+      "treasury.reconciliation.post_entry",
       "sales.invoice.view",
       "purchases.invoice.view",
       "sales.invoice.classify_tax",
@@ -224,7 +227,7 @@ const ROLES = [
   {
     code: "TREASURY_CASHIER",
     name: "أمين الخزنة",
-    description: "يحرّر سندات القبض والصرف ويودع الشيكات ويطابق كشف البنك — ولا يعتمد سنداته.",
+    description: "يحرّر سندات القبض والصرف ويودع الشيكات ويستورد كشف البنك — ولا يعتمد سنداته ولا يطابق الكشف.",
     permissions: [
       "treasury.account.view",
       "treasury.cash_voucher.view",
@@ -235,7 +238,6 @@ const ROLES = [
       "treasury.customer_refund.create",
       "treasury.reconciliation.view",
       "treasury.reconciliation.import",
-      "treasury.reconciliation.match",
       "cheques.view",
       "cheques.create",
       "cheques.deposit",

@@ -39,6 +39,8 @@ export interface DashboardDeps {
   /** Revenue accounts the income statement shows as other income (D229); they net against expenses here too, so the tile ties to its revenue section. */
   readonly otherIncomeExpenseAccountIds?: () => Promise<readonly string[]>;
   readonly cashAccountIds: () => Promise<readonly string[]>;
+  /** LEDGER INVARIANT: the accounts stock is held on and the allowance written against them (`inventoryLedgerAccountIds`) — never an account-code prefix. */
+  readonly inventoryAccountIds: () => Promise<{ readonly held: readonly string[]; readonly allowance: readonly string[] }>;
   readonly now?: () => Date;
 }
 
@@ -123,7 +125,8 @@ export function createDashboardRoutes(
     // Summing the whole 11xx subtree swept in employee advances and an
     // inventory provision, so the tile and the report never agreed (D37).
     const receivables = sumNaturalBalanceWhere(net, accounts, (a) => CUSTOMER_RECEIVABLE_ACCOUNTS.has(a.code));
-    const inventoryValue = sumNaturalBalanceWhere(net, accounts, (a) => a.type === "asset" && a.code.startsWith("12"));
+    const inventoryAccounts = await deps.inventoryAccountIds();
+    const inventoryValue = Money.sum([...new Set([...inventoryAccounts.held, ...inventoryAccounts.allowance])].map((id) => net.get(id) ?? Money.zero()));
     const payables = sumNaturalBalanceWhere(net, accounts, (a) => a.type === "liability" && a.code !== "2200");
 
     const [customers, suppliers, items, users] = await Promise.all([

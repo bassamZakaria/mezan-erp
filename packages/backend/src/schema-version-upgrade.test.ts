@@ -35,7 +35,7 @@ function rowsOf(dbPath: string, query: string): string[] {
 }
 
 describe("upgrade — books written at an earlier schema version", () => {
-  it.each([1, 2])("stamped version %i: the branch-dimension columns, both one-time steps and the reversal grant all arrive, and the file is stamped current", async (version) => {
+  it.each([1, 2])("stamped version %i: the branch-dimension columns, every one-time step and the reversal grant all arrive, and the file is stamped current", async (version) => {
     const dbPath = join(mkdtempSync(join(tmpdir(), `mezan-schema-v${version}-`)), "books.db");
     (await createBackend({ dbPath })).close();
     const { sqlite } = openSqliteConnection(dbPath);
@@ -49,7 +49,7 @@ describe("upgrade — books written at an earlier schema version", () => {
 
     expect(columnsOf(dbPath, "journal_line")).toContain("treasury_account_id");
     expect(columnsOf(dbPath, "approval_request")).toEqual(expect.arrayContaining(["document_id", "document_branch_id", "document_fingerprint"]));
-    expect(rowsOf(dbPath, "SELECT id AS v FROM upgrade_step")).toEqual([UpgradeStepId.ApprovalFingerprint, UpgradeStepId.SeededRoleDutySplit].sort());
+    expect(rowsOf(dbPath, "SELECT id AS v FROM upgrade_step")).toEqual([UpgradeStepId.ApprovalFingerprint, UpgradeStepId.SeededRoleDutySplit, UpgradeStepId.SeededRoleReconciliationSplit].sort());
     expect(rowsOf(dbPath, "SELECT name AS v FROM permission_grant_marker")).toEqual(["reversal_permissions"]);
     const reopened = openSqliteConnection(dbPath).sqlite;
     expect(readSchemaVersion(reopened)).toBe(CURRENT_SCHEMA_VERSION);

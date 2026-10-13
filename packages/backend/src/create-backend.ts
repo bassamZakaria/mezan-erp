@@ -211,6 +211,9 @@ import {
   BASE_CURRENCY,
   EVENT_BRANCH_IDS_KEY,
   correctedSeededRolePermissions,
+  costOfSalesLedgerAccountIds,
+  inventoryLedgerAccountIds,
+  SeededRoleSplit,
   seededRoleDutyChange,
   seededRoleDutyNotice,
   SEEDED_ROLE_DUTIES_SEPARATED_EVENT,
@@ -3173,20 +3176,21 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
 
   const upgradeLedger = createSqliteUpgradeLedger(sqlite);
+  const sequenceCountersRead = sqlite.prepare("SELECT code, period, value FROM sequence_counter ORDER BY code, period");
   // REQUIRED ORDERING: runs after `grantSuccessorPermissionsOnce` above, so a reversal right granted for an older one is moved with the duty it belongs to.
-  await upgradeLedger.runOnce(UpgradeStepId.SeededRoleDutySplit, async () => {
+  const separateSeededDuties = async (split: SeededRoleSplit): Promise<void> => {
     const reversalSuccessors = reversalPermissionSuccessors();
     const corrected: string[] = [];
     const dutyChanges: SeededRoleDutyChange[] = [];
     for (const role of await uow.roles.list()) {
-      const permissions = correctedSeededRolePermissions(role.code, role.permissions, reversalSuccessors);
+      const permissions = correctedSeededRolePermissions(role.code, role.permissions, reversalSuccessors, split);
       if (!permissions) continue;
-      const change = seededRoleDutyChange(role, reversalSuccessors);
+      const change = seededRoleDutyChange(role, reversalSuccessors, split);
       if (change) dutyChanges.push(change);
       await uow.roles.save({ ...role, permissions });
       corrected.push(role.code);
     }
-    if (corrected.length > 0) console.info(`[roles] separated duties and granted dashboard.view on seeded role(s) ${corrected.join(", ")}`);
+    if (corrected.length > 0) console.info(`[roles] separated duties (${split}) on seeded role(s) ${corrected.join(", ")}`);
     if (dutyChanges.length > 0) {
       const { title, body } = seededRoleDutyNotice(dutyChanges);
       const roles = await uow.roles.list();
@@ -3211,7 +3215,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         });
       }
     }
-  });
+  };
+  await upgradeLedger.runOnce(UpgradeStepId.SeededRoleDutySplit, () => separateSeededDuties(SeededRoleSplit.Duties));
+  await upgradeLedger.runOnce(UpgradeStepId.SeededRoleReconciliationSplit, () => separateSeededDuties(SeededRoleSplit.BankReconciliation));
   await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
     const marked = markApprovalsNeedingReapproval(sqlite);
     if (marked.length > 0) console.info(`[workflow] ${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);
@@ -3972,6 +3978,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     customerOpeningBalances,
     supplierOpeningBalances,
     createTransactor: configTransactor,
+    numbersDrawn: () => JSON.stringify(sequenceCountersRead.all()),
     accounts: { repo: accounts },
     items: { repo: items, snapshots: stockLedger.snapshots },
     accountRouting: { repo: accountRouting },
@@ -4986,6 +4993,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       },
       taxRates,
       cashAccountIds: resolveCashAndBankAccountIds,
+      costOfSalesAccountIds: async () => {
+        const [routing, chart, catalogue] = await Promise.all([accountRouting.get(), accounts.list(), items.list()]);
+        return costOfSalesLedgerAccountIds(chart, routing, catalogue);
+      },
       otherIncomeExpenseAccountIds,
       branchOfEntry: resolveEntryBranches,
     },
@@ -5076,6 +5087,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       uow,
       otherIncomeExpenseAccountIds,
       cashAccountIds: resolveCashAndBankAccountIds,
+      inventoryAccountIds: async () => {
+        const [routing, chart, catalogue] = await Promise.all([accountRouting.get(), accounts.list(), items.list()]);
+        return { held: inventoryLedgerAccountIds(chart, routing, catalogue), allowance: [INVENTORY_WRITEDOWN_GL_ACCOUNTS.provisionAccountId] };
+      },
     }, resolveAuthContext),
   );
   // Unconditional: a route mounted only when an optional dep happens to be

@@ -4,6 +4,7 @@ import { withSqliteTransaction } from "./sqlite-connection.js";
 export enum UpgradeStepId {
   SeededRoleDutySplit = "seeded_role_duty_split",
   ApprovalFingerprint = "approval_fingerprint",
+  SeededRoleReconciliationSplit = "seeded_role_reconciliation_split",
 }
 
 export interface UpgradeLedger {

@@ -572,3 +572,72 @@ describe("a create that names an existing record's id is refused and writes noth
     expect(after).toEqual(before);
   });
 });
+
+describe("a refused create spends no document number", () => {
+  const counters = () => JSON.stringify(sqlite.prepare("SELECT code, period, value FROM sequence_counter ORDER BY code, period").all());
+  const NOBODY_HOLDS = "DUP-ID-NO-SUCH-RECORD";
+  const unknownReferences = Object.fromEntries(Object.keys(SEEDED_REFERENCES).map((key) => [key, NOBODY_HOLDS]));
+  const refusals: string[] = [];
+
+  async function as(permissions: readonly string[], path: string, body: unknown): Promise<Res> {
+    const token = handle.sessions.issue({ userId: "USER-DUP-ID-NOBODY", permissions: [...permissions], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const res = await handle.app.fetch(new Request(`http://local${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify(body) }));
+    const text = await res.text();
+    return { status: res.status, body: text ? JSON.parse(text) : null };
+  }
+
+  it.each(Object.entries(CREATE_ROUTES))("%s — refused for a taken id, for a reference nobody holds and for a missing permission, the counters stand where they stood", async (schemaName, entry) => {
+    const idColumn = entry.idColumn ?? "id";
+    entry.arrange?.(sqlite);
+    const existing = sqlite.prepare(entry.existingIdSql ?? `SELECT * FROM "${entry.table}" ORDER BY "${idColumn}" LIMIT 1`).get() as Record<string, unknown>;
+    const path = entry.pathFor ? entry.pathFor(sqlite) : entry.route;
+    const schema = (contracts as Record<string, any>)[schemaName];
+    const bodyFor = (references: Record<string, unknown>, id: string) => {
+      const sampled = sampleOf(schema, { ...references, [idColumn]: id }) as Record<string, unknown>;
+      return entry.body ? entry.body(sampled, id, sqlite) : sampled;
+    };
+    const taken = bodyFor(SEEDED_REFERENCES, String(existing[idColumn]));
+    const fresh = `DUP-ID-FRESH-${schemaName}`;
+    const attempts: readonly (readonly [string, () => Promise<Res>])[] = [
+      ["a taken id", () => admin("POST", path, taken)],
+      ["a reference nobody holds", () => admin("POST", path, { ...bodyFor(SEEDED_REFERENCES, fresh), ...unknownReferences, [idColumn]: fresh })],
+      ["no permission", () => as([], path, bodyFor(SEEDED_REFERENCES, fresh))],
+    ];
+    for (const [label, attempt] of attempts) {
+      const before = counters();
+      const res = await attempt();
+      if (res.status < 400) continue;
+      refusals.push(`${schemaName}\t${label}\t${res.status}`);
+      expect(counters(), `${schemaName} · ${label} · ${res.status} ${JSON.stringify(res.body).slice(0, 200)}`).toBe(before);
+    }
+  });
+
+  it.each([
+    ["more cash than the source drawer holds", { openingCashFloat: "999999999.00" }],
+    ["more stock than the source warehouse holds", { loadedStock: [{ itemId: "ITEM-DEMO-1", qty: "99999999" }] }],
+    ["more cash than the drawer holds, after its stock was loaded", { loadedStock: [{ itemId: "ITEM-DEMO-1", qty: "1" }], openingCashFloat: "999999999.00" }],
+  ])("a van trip refused for %s — after its number was drawn — gives the number back", async (_label, excess) => {
+    const body = { ...CREATE_ROUTES["openVanTripSchema"]!.body!(sampleOf(contracts.openVanTripSchema, { ...SEEDED_REFERENCES, id: `DUP-ID-TRIP-${Object.keys(excess)[0]}` }), "", sqlite), ...excess };
+    expect(contracts.openVanTripSchema.safeParse(body).success, JSON.stringify(body).slice(0, 300)).toBe(true);
+    const before = counters();
+    const trips = sqlite.prepare("SELECT count(*) AS n FROM van_trip").get();
+    const movements = sqlite.prepare("SELECT count(*) AS n FROM stock_movement").get();
+    const res = await admin("POST", "/field/van-trips", body);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(res.body?.message).toMatch(ARABIC);
+    expect(counters()).toBe(before);
+    expect(sqlite.prepare("SELECT count(*) AS n FROM van_trip").get()).toEqual(trips);
+    expect(sqlite.prepare("SELECT count(*) AS n FROM stock_movement").get()).toEqual(movements);
+  });
+
+  it("was refused in each of the three ways on most routes, so the table above measured something", () => {
+    const count = (label: string) => refusals.filter((line) => line.includes(`\t${label}\t`)).length;
+    const routes = Object.keys(CREATE_ROUTES).length;
+    expect(count("a taken id")).toBe(routes);
+    expect(count("no permission")).toBe(routes);
+    expect(count("a reference nobody holds")).toBeGreaterThan(routes / 2);
+    expect(new Set(refusals.map((line) => line.split("\t")[2]))).toEqual(expect.objectContaining(new Set(["409", "403"])));
+  });
+});
+

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { costOfSalesLedgerAccountIds } from "../accounts/derived-account-sets.js";
 import { isoDateParamSchema } from "./iso-date.js";
 import {
   type GlReportContext,
@@ -148,6 +149,7 @@ export function createIncomeStatementReport(
       const unattributed = unattributedNetBalancesByAccount(ctx.journalEntries, window, scoped);
       const rows: IncomeStatementRow[] = [];
       const otherIds = new Set(ctx.otherIncomeExpenseAccountIds ?? []);
+      const costOfSales = new Set(ctx.costOfSalesAccountIds ?? costOfSalesLedgerAccountIds(ctx.accounts, null));
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;
         const section = classifyAccount(account, ctx.cashAccountIds);
@@ -173,7 +175,7 @@ export function createIncomeStatementReport(
             : "otherExpense"
           : isRevenue
             ? "revenue"
-            : account.code.startsWith("51")
+            : costOfSales.has(account.id)
               ? "cogs"
               : "opex";
         rows.push({

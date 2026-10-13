@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBackend, createPlatform, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { createSessionRegistry } from "@mezan/api";
 import { createTenant, activateTenant, archiveTenant, suspendTenant, startSubscription, changePlan, LicenseReasonCode, tenantIsServed } from "@mezan/domain";
-import { openSqliteConnection } from "@mezan/persistence";
+import { bindTenantDatabase, openSqliteConnection } from "@mezan/persistence";
 import type { SessionDTO } from "@mezan/contracts";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
 import { TENANT_HEADER } from "./tenant-resolver.js";
@@ -80,7 +80,10 @@ async function dataDirWithBooks(platform: PlatformHandle, prefix: string): Promi
   dirs.push(dataDir);
   mkdirSync(path.join(dataDir, "tenants"), { recursive: true });
   for (const tenant of await platform.stores.tenants.list()) {
-    if (tenantIsServed(tenant)) openSqliteConnection(path.join(dataDir, tenant.dbFile)).sqlite.close();
+    if (!tenantIsServed(tenant)) continue;
+    const { sqlite } = openSqliteConnection(path.join(dataDir, tenant.dbFile));
+    bindTenantDatabase(sqlite, tenant.id);
+    sqlite.close();
   }
   return dataDir;
 }

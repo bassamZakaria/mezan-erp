@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
 import { activateTenant, createTenant, TenantStatusCode } from "@mezan/domain";
-import { openSqliteConnection } from "@mezan/persistence";
+import { bindTenantDatabase, openSqliteConnection } from "@mezan/persistence";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
 import { createBackupScheduler, runBackups, startBackupTimer } from "./backup-scheduler.js";
 
@@ -51,7 +51,9 @@ async function openServed(router: TenantRouter, platform: PlatformHandle, code: 
   const tenant = await platform.stores.tenants.findByCode(code);
   const file = path.join(dataDirs.get(router)!, tenant!.dbFile);
   mkdirSync(path.dirname(file), { recursive: true });
-  openSqliteConnection(file).sqlite.close();
+  const { sqlite } = openSqliteConnection(file);
+  bindTenantDatabase(sqlite, tenant!.id);
+  sqlite.close();
   return router.backendFor(code);
 }
 

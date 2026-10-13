@@ -2,9 +2,9 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPlatform, type PlatformHandle } from "@mezan/backend";
+import { createBackend, createPlatform, SEED_ADMIN_PIN, type PlatformHandle } from "@mezan/backend";
 import { activateTenant, createTenant, releaseTenant, tenantDbFile, TenantStatusCode, type Tenant } from "@mezan/domain";
-import { holdSqliteFile, openSqliteConnection, SqliteFileBusyError } from "@mezan/persistence";
+import { bindTenantDatabase, holdSqliteFile, openSqliteConnection, readTenantBooksIdentity, SqliteFileBusyError } from "@mezan/persistence";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { harnessEnv, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, proxiedRequest, type SendInit } from "./cloud-harness.js";
 import type { CloudEnv } from "./env.js";
@@ -14,6 +14,7 @@ import {
   sha256OfFile,
   TenantDbFileBusyError,
   TenantDbFileConflictError,
+  TenantDbFileForeignError,
   TenantDbFileMissingError,
   TenantDbFileSharedError,
 } from "./tenant-db-file.js";
@@ -427,27 +428,31 @@ describe("a served tenant whose database is not at the id name any more", () => 
   });
 });
 
+const harnessDirs: string[] = [];
+const apps: CloudApp[] = [];
+afterEach(async () => {
+  for (const app of apps.splice(0)) await app.close();
+  for (const dir of harnessDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+async function boot(env: CloudEnv) {
+  const app = await createCloudApp(env);
+  apps.push(app);
+  const send = async (pathname: string, init: SendInit = {}) => {
+    const res = await app.root.fetch(proxiedRequest(pathname, init));
+    return { status: res.status, json: (await res.json().catch(() => null)) as Record<string, unknown> | null };
+  };
+  const login = await send("/api/platform/auth/login", { method: "POST", body: JSON.stringify({ email: HARNESS_OWNER_EMAIL, password: HARNESS_OWNER_PASSWORD }) });
+  return { app, send, platformToken: String(login.json?.["token"]) };
+}
+
+type Booted = Awaited<ReturnType<typeof boot>>;
+
+const NOT_IN_PLACE = "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم.";
+const ATTACKER = { nameAr: "مهاجم", nameEn: "Attacker", email: "attacker@evil.example", pin: "246813", companyName: "شركة النيل" };
+
 describe("a served company whose database file was removed from the server", () => {
-  const harnessDirs: string[] = [];
-  const apps: CloudApp[] = [];
-  afterEach(async () => {
-    for (const app of apps.splice(0)) await app.close();
-    for (const dir of harnessDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
-  });
-
-  async function boot(env: CloudEnv) {
-    const app = await createCloudApp(env);
-    apps.push(app);
-    const send = async (pathname: string, init: SendInit = {}) => {
-      const res = await app.root.fetch(proxiedRequest(pathname, init));
-      return { status: res.status, json: (await res.json().catch(() => null)) as Record<string, unknown> | null };
-    };
-    const login = await send("/api/platform/auth/login", { method: "POST", body: JSON.stringify({ email: HARNESS_OWNER_EMAIL, password: HARNESS_OWNER_PASSWORD }) });
-    return { app, send, platformToken: String(login.json?.["token"]) };
-  }
-
-  const MISSING = { error: "TENANT_DB_FILE_MISSING", message: "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم." };
-  const ATTACKER = { nameAr: "مهاجم", nameEn: "Attacker", email: "attacker@evil.example", pin: "246813", companyName: "شركة النيل" };
+  const MISSING = { error: "TENANT_DB_FILE_MISSING", message: NOT_IN_PLACE };
 
   it.each([
     ["removed", (file: string) => rmSync(file)],
@@ -464,7 +469,7 @@ describe("a served company whose database file was removed from the server", () 
     const adminPin = String(created.json?.["adminPin"]);
     const credentials = JSON.stringify({ username: "owner@nile.example", pin: adminPin });
     expect((await first.send("/api/auth/login", { method: "POST", tenant: "nile", body: credentials })).status).toBe(200);
-    const rowOf = async (from: Awaited<ReturnType<typeof boot>>) => (await from.send(`/api/platform/tenants/${tenantId}`, { token: from.platformToken })).json?.["tenant"];
+    const rowOf = async (from: Booted) => (await from.send(`/api/platform/tenants/${tenantId}`, { token: from.platformToken })).json?.["tenant"];
     const before = await rowOf(first);
     await first.app.close();
     const file = path.join(env.platformDir, tenantDbFile(tenantId));
@@ -485,6 +490,291 @@ describe("a served company whose database file was removed from the server", () 
     expect(attacker.status).not.toBe(200);
     expect(await rowOf(second)).toEqual(before);
     expect(existsSync(file) ? readFileSync(file).length : 0).toBe(0);
+  });
+});
+
+describe("a served company whose database file does not hold its own books", () => {
+  const FOREIGN = { error: "TENANT_DB_FILE_FOREIGN", message: NOT_IN_PLACE };
+  const UNREADABLE = { error: "TENANT_DB_FILE_UNREADABLE", message: NOT_IN_PLACE };
+  const SIBLINGS = ["-wal", "-shm"] as const;
+
+  interface Company {
+    readonly code: string;
+    readonly tenantId: string;
+    readonly file: string;
+    readonly credentials: string;
+  }
+
+  async function company(on: Booted, env: CloudEnv, code: string): Promise<Company> {
+    const created = await on.send("/api/platform/tenants", {
+      method: "POST", token: on.platformToken,
+      body: JSON.stringify({ code, nameAr: `شركة ${code}`, ownerEmail: `owner@${code}.example`, ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: true }),
+    });
+    expect(created.status).toBe(201);
+    const tenantId = String((created.json?.["tenant"] as Record<string, unknown>)["id"]);
+    const credentials = JSON.stringify({ username: `owner@${code}.example`, pin: String(created.json?.["adminPin"]) });
+    expect((await on.send("/api/auth/login", { method: "POST", tenant: code, body: credentials })).status).toBe(200);
+    return { code, tenantId, file: path.join(env.platformDir, tenantDbFile(tenantId)), credentials };
+  }
+
+  const rowOf = async (from: Booted, tenantId: string) => (await from.send(`/api/platform/tenants/${tenantId}`, { token: from.platformToken })).json?.["tenant"];
+  const signIn = (on: Booted, as: Company, under = as.code) => on.send("/api/auth/login", { method: "POST", tenant: under, body: as.credentials });
+  const siblingsOf = (file: string): string[] => SIBLINGS.filter((suffix) => existsSync(`${file}${suffix}`));
+
+  function replace(file: string, write: (file: string) => void): Buffer {
+    for (const suffix of ["", ...SIBLINGS]) rmSync(`${file}${suffix}`, { force: true });
+    write(file);
+    return readFileSync(file);
+  }
+
+  function emptyDatabase(journalMode: string): (file: string) => void {
+    return (file) => {
+      const { sqlite } = openSqliteConnection(file);
+      sqlite.exec("CREATE TABLE scratch(x); DROP TABLE scratch;");
+      sqlite.pragma(`journal_mode = ${journalMode}`);
+      sqlite.close();
+    };
+  }
+
+  function inBooks<T>(file: string, read: (sqlite: ReturnType<typeof openSqliteConnection>["sqlite"]) => T): T {
+    const { sqlite } = openSqliteConnection(file);
+    try {
+      return read(sqlite);
+    } finally {
+      sqlite.close();
+    }
+  }
+
+  const bindingOf = (file: string) => inBooks(file, (sqlite) => sqlite.prepare("SELECT tenant_id, bound_at FROM tenant_binding").all());
+
+  async function everyWayIn(on: Booted, victim: Company) {
+    return {
+      login: await signIn(on, victim),
+      status: await on.send("/api/bootstrap/status", { tenant: victim.code }),
+      seed: await on.send("/api/bootstrap/seed", { method: "POST", tenant: victim.code }),
+      claim: await on.send("/api/bootstrap/admin", { method: "POST", tenant: victim.code, body: JSON.stringify(ATTACKER) }),
+      attacker: await on.send("/api/auth/login", { method: "POST", tenant: victim.code, body: JSON.stringify({ username: ATTACKER.email, pin: ATTACKER.pin }) }),
+      seedAdmin: await on.send("/api/auth/login", { method: "POST", tenant: victim.code, body: JSON.stringify({ username: "admin@cyag.example", pin: SEED_ADMIN_PIN }) }),
+    };
+  }
+
+  it.each([
+    ["an empty SQLite database", emptyDatabase("DELETE"), FOREIGN],
+    ["an empty SQLite database left in WAL mode", emptyDatabase("WAL"), FOREIGN],
+    ["a database header followed by nothing but zeros", (file: string) => writeFileSync(file, Buffer.concat([Buffer.from("SQLite format 3\0"), Buffer.alloc(4080)])), UNREADABLE],
+  ])("is refused in Arabic by every route when %s is put in its place: nothing is seeded, nobody signs in, and the file is left byte for byte", async (_label, write, refusal) => {
+    const env = harnessEnv({}, {}, harnessDirs);
+    const first = await boot(env);
+    const victim = await company(first, env, "nile");
+    const before = await rowOf(first, victim.tenantId);
+    await first.app.close();
+    const planted = replace(victim.file, write);
+
+    const second = await boot(env);
+    const answers = await everyWayIn(second, victim);
+
+    for (const answer of Object.values(answers)) expect(answer).toEqual({ status: 503, json: refusal });
+    expect(readFileSync(victim.file).equals(planted)).toBe(true);
+    expect(siblingsOf(victim.file)).toEqual([]);
+    expect(await rowOf(second, victim.tenantId)).toEqual(before);
+  });
+
+  it("is refused when another company's database is copied over its own: that company's owner does not sign in under this company's code", async () => {
+    const env = harnessEnv({}, {}, harnessDirs);
+    const first = await boot(env);
+    const victim = await company(first, env, "nile");
+    const other = await company(first, env, "delta");
+    const before = await rowOf(first, victim.tenantId);
+    await first.app.close();
+    const planted = replace(victim.file, (file) => copyFileSync(other.file, file));
+
+    const second = await boot(env);
+    const answers = await everyWayIn(second, victim);
+    const otherUnderVictim = await signIn(second, other, victim.code);
+    const otherUnderItsOwn = await signIn(second, other);
+
+    for (const answer of [...Object.values(answers), otherUnderVictim]) expect(answer).toEqual({ status: 503, json: FOREIGN });
+    expect(otherUnderItsOwn.status).toBe(200);
+    expect(readFileSync(victim.file).equals(planted)).toBe(true);
+    expect(await rowOf(second, victim.tenantId)).toEqual(before);
+  });
+
+  it("binds a company's database to its tenant id while it is being provisioned", async () => {
+    const env = harnessEnv({}, {}, harnessDirs);
+    const cloud = await boot(env);
+    const fresh = await company(cloud, env, "nile");
+    await cloud.app.close();
+
+    expect(readTenantBooksIdentity(fresh.file).boundTenantId).toBe(fresh.tenantId);
+  });
+
+  describe("written by a build that did not bind databases yet", () => {
+    async function unbound(env: CloudEnv, platformRow?: string, booksChange = ""): Promise<Company> {
+      const first = await boot(env);
+      const legacy = await company(first, env, "nile");
+      await first.app.close();
+      inBooks(legacy.file, (sqlite) => sqlite.exec(`DROP TABLE tenant_binding; ${booksChange}`));
+      if (platformRow) inBooks(path.join(env.platformDir, "platform.db"), (sqlite) => sqlite.prepare(`UPDATE tenant SET ${platformRow} WHERE id = ?`).run(legacy.tenantId));
+      expect(readTenantBooksIdentity(legacy.file).boundTenantId).toBeNull();
+      return legacy;
+    }
+
+    it.each([
+      ["its owner is linked on the platform by id", undefined],
+      ["the platform still knows its owner by e-mail only", "owner_user_id = NULL"],
+    ])("is bound once on its first open when %s, and keeps working with that same binding afterwards", async (_label, platformRow) => {
+      const env = harnessEnv({}, {}, harnessDirs);
+      const legacy = await unbound(env, platformRow);
+
+      const second = await boot(env);
+      expect((await signIn(second, legacy)).status).toBe(200);
+      await second.app.close();
+      const bound = bindingOf(legacy.file);
+
+      const third = await boot(env);
+      expect((await signIn(third, legacy)).status).toBe(200);
+      await third.app.close();
+
+      expect(bound).toEqual([{ tenant_id: legacy.tenantId, bound_at: expect.any(String) }]);
+      expect(bindingOf(legacy.file)).toEqual(bound);
+    });
+
+    it.each([
+      ["the owner the platform recorded by id is not an account in it", "owner_user_id = 'somebody-else'", ""],
+      ["the owner the platform recorded by e-mail is nobody's address in it", "owner_user_id = NULL, owner_email = 'nobody@nile.example'", ""],
+      ["the owner the platform recorded by e-mail is not a company admin in it", "owner_user_id = NULL", "UPDATE user SET is_company_admin = 0"],
+      ["the owner the platform recorded by e-mail is a deactivated account in it", "owner_user_id = NULL", "UPDATE user SET status = 'inactive'"],
+    ])("is refused and left unbound when %s", async (_label, platformRow, booksChange) => {
+      const env = harnessEnv({}, {}, harnessDirs);
+      const legacy = await unbound(env, platformRow, booksChange);
+      const planted = readFileSync(legacy.file);
+
+      const second = await boot(env);
+      const answer = await signIn(second, legacy);
+      await second.app.close();
+
+      expect(answer).toEqual({ status: 503, json: FOREIGN });
+      expect(readFileSync(legacy.file).equals(planted)).toBe(true);
+    });
+  });
+
+  it("never seeds a served company's database, even one that is bound to it and holds nothing else: no account exists to sign in with", async () => {
+    const env = harnessEnv({}, {}, harnessDirs);
+    const first = await boot(env);
+    const emptied = await company(first, env, "nile");
+    await first.app.close();
+    replace(emptied.file, (file) => inBooks(file, (sqlite) => bindTenantDatabase(sqlite, emptied.tenantId)));
+
+    const second = await boot(env);
+    const answers = await everyWayIn(second, emptied);
+    await second.app.close();
+
+    const NOT_SEEDED = { users: 0, branches: 0, warehouses: 0, taxRates: 0, fiscalPeriods: 0 };
+    expect(answers.seed.json).toMatchObject(NOT_SEEDED);
+    expect(answers.status.json).toMatchObject({ ...NOT_SEEDED, claimed: true });
+    expect([answers.login.status, answers.attacker.status, answers.seedAdmin.status]).toEqual([401, 401, 401]);
+    expect(answers.claim.status).toBe(409);
+    expect(inBooks(emptied.file, (sqlite) => sqlite.prepare("SELECT COUNT(*) AS n FROM user").get())).toEqual({ n: 0 });
+  });
+
+  it("keeps the seed route closed on a served company's database whose chart of accounts was emptied under it", async () => {
+    const { dataDir } = await world();
+    const dbPath = path.join(dataDir, "tenants/t-bare.db");
+    const backend = await createBackend({ dbPath, tenantBinding: "t-bare", seedWhenEmpty: false });
+    inBooks(dbPath, (sqlite) => sqlite.exec("DELETE FROM account"));
+
+    const seeded = (await (await backend.app.fetch(new Request("http://tenant.internal/bootstrap/seed", { method: "POST" }))).json()) as Record<string, unknown>;
+    await backend.drain();
+    backend.close();
+
+    expect(seeded).toMatchObject({ accounts: 0, users: 0, branches: 0 });
+  });
+
+  it("is refused when its own database carries another tenant's binding", async () => {
+    const env = harnessEnv({}, {}, harnessDirs);
+    const first = await boot(env);
+    const rebound = await company(first, env, "nile");
+    await first.app.close();
+    inBooks(rebound.file, (sqlite) => sqlite.exec("UPDATE tenant_binding SET tenant_id = 'another-tenant'"));
+
+    const second = await boot(env);
+    const answer = await signIn(second, rebound);
+    await second.app.close();
+
+    expect(answer).toEqual({ status: 503, json: FOREIGN });
+    expect(bindingOf(rebound.file)).toEqual([{ tenant_id: "another-tenant", bound_at: expect.any(String) }]);
+  });
+
+  it("is refused while it is still being provisioned when the file waiting under its name is bound to another tenant", async () => {
+    const { dataDir, platform } = await world();
+    await createTenant({ id: "t-new", code: "newco", nameAr: "شركة جديدة", ownerEmail: "o@newco.example", now: T }, platform.stores.tenants);
+    inBooks(path.join(dataDir, "tenants/t-new.db"), (sqlite) => bindTenantDatabase(sqlite, "t-other"));
+    const router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now });
+    routers.push(router);
+
+    const refused = await router.backendOf("t-new").catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(TenantDbFileForeignError);
+    expect(readTenantBooksIdentity(path.join(dataDir, "tenants/t-new.db"))).toEqual({ boundTenantId: "t-other", claimed: false, users: [] });
+  });
+
+  it("is refused when a freshly seeded database nobody ever claimed is put in its place, even though the platform's recorded owner address is the seed account's", async () => {
+    const env = harnessEnv({}, {}, harnessDirs);
+    const first = await boot(env);
+    const victim = await company(first, env, "nile");
+    await first.app.close();
+    for (const suffix of ["", ...SIBLINGS]) rmSync(`${victim.file}${suffix}`, { force: true });
+    const seeded = await createBackend({ dbPath: victim.file });
+    await seeded.drain();
+    seeded.close();
+    inBooks(path.join(env.platformDir, "platform.db"), (sqlite) => sqlite.prepare("UPDATE tenant SET owner_user_id = NULL, owner_email = 'admin@cyag.example' WHERE id = ?").run(victim.tenantId));
+
+    const second = await boot(env);
+    const seedAdmin = await second.send("/api/auth/login", { method: "POST", tenant: victim.code, body: JSON.stringify({ username: "admin@cyag.example", pin: SEED_ADMIN_PIN }) });
+    await second.app.close();
+
+    expect(seedAdmin).toEqual({ status: 503, json: FOREIGN });
+    expect(readTenantBooksIdentity(victim.file).boundTenantId).toBeNull();
+  });
+
+  it("answers the same 503 when the database turns out to be corrupt only once it is opened for use", async () => {
+    const { dataDir, platform } = await world();
+    await createTenant({ id: "t-torn", code: "torn", nameAr: "شركة قائمة", ownerEmail: "o@torn.example", now: T }, platform.stores.tenants);
+    await activateTenant({ id: "t-torn", now: T }, platform.stores.tenants);
+    inBooks(path.join(dataDir, "tenants/t-torn.db"), (sqlite) => bindTenantDatabase(sqlite, "t-torn"));
+    const router = createTenantRouter({
+      platform, dataDir, sweepEveryMs: 0, now,
+      openBackend: async () => {
+        throw Object.assign(new Error("database disk image is malformed"), { code: "SQLITE_CORRUPT" });
+      },
+    });
+    routers.push(router);
+
+    const res = await router.app.fetch(new Request("http://ignored/bootstrap/status", { headers: { [TENANT_HEADER]: "torn" } }));
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual(UNREADABLE);
+  });
+});
+
+describe("a database opened with no tenant to bind it to, as the desktop and its LAN tills open theirs", () => {
+  it("is seeded, is claimed by its first owner once, and is never given a tenant binding", async () => {
+    const { dataDir } = await world();
+    const dbPath = path.join(dataDir, "mezan.db");
+    const backend = await createBackend({ dbPath });
+    const claim = (email: string) =>
+      backend.app.fetch(new Request("http://desktop/bootstrap/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...ATTACKER, email }) }));
+
+    const before = (await (await backend.app.fetch(new Request("http://desktop/bootstrap/status"))).json()) as Record<string, unknown>;
+    const first = await claim("owner@shop.example");
+    const second = await claim("other@shop.example");
+    await backend.drain();
+    backend.close();
+
+    expect(before).toMatchObject({ claimed: false });
+    expect(before["accounts"]).toBeGreaterThan(0);
+    expect([first.status, second.status]).toEqual([201, 409]);
+    expect(readTenantBooksIdentity(dbPath).boundTenantId).toBeNull();
   });
 });
 

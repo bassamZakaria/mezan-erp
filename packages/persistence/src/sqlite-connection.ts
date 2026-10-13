@@ -70,7 +70,7 @@ export interface SqliteOpenOptions {
  * is what makes the interpolation safe: the value can only ever be 64 hex
  * characters, and better-sqlite3 has no parameter binding for PRAGMA values.
  */
-function applyKey(sqlite: Database.Database, key: string): void {
+export function applyKey(sqlite: Database.Database, key: string): void {
   if (!RAW_KEY_RE.test(key)) {
     throw new Error("SQLite encryption key must be 32 bytes of lowercase hex.");
   }

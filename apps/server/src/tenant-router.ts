@@ -3,7 +3,7 @@ import path from "node:path";
 import { mkdirSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { createBackend, type BackendHandle, type CompanyAdminAccount, type PlatformHandle, type SignedInUser } from "@mezan/backend";
-import type { SqliteOpenOptions } from "@mezan/persistence";
+import { isUnreadableSqliteError, type SqliteOpenOptions } from "@mezan/persistence";
 import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
 import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { tenantIsServed, TenantStatusCode, type Tenant } from "@mezan/domain";
@@ -18,7 +18,7 @@ import {
   PREVIOUS_OWNER_ACTOR,
   type PendingHandOverMail,
 } from "./owner-contact.js";
-import { settleTenantDbFile, TenantDbFileError } from "./tenant-db-file.js";
+import { requireOwnBooks, settleTenantDbFile, TenantDbFileError, TenantDbFileUnreadableError } from "./tenant-db-file.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { requestHost, resolveTenantCode, tenantSlugOfHost, TENANT_HEADER } from "./tenant-resolver.js";
 
@@ -33,8 +33,7 @@ export interface TenantRouterOptions {
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
   readonly dbFileWaitMs?: number;
-  readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, hooks: TenantBackendHooks, connection: SqliteOpenOptions) => Promise<BackendHandle>;
-  /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
+  readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, hooks: TenantBackendHooks, connection: SqliteOpenOptions, books: TenantBooks) => Promise<BackendHandle>;
   readonly connection?: SqliteOpenOptions;
   readonly mailPendingHandOver?: (mail: PendingHandOverMail) => Promise<void>;
 }
@@ -44,6 +43,11 @@ export interface TenantBackendHooks {
   readonly onUserSignedIn: (user: SignedInUser) => Promise<void>;
   readonly companyOwner: CompanyOwnerPort;
   readonly claimedElsewhere: () => Promise<boolean>;
+}
+
+export interface TenantBooks {
+  readonly tenantId: string;
+  readonly provisioning: boolean;
 }
 
 function safeEqual(provided: string, secret: string): boolean {
@@ -132,11 +136,13 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return !tenant || tenant.ownerUserId !== null || tenant.status !== TenantStatusCode.Provisioning;
     },
   });
-  const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks, connection) => {
+  const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks, connection, books) => {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     return createBackend({
       dbPath,
       connection,
+      tenantBinding: books.tenantId,
+      seedWhenEmpty: books.provisioning,
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
       onUserEmailChanged: hooks.onUserEmailChanged,
@@ -163,8 +169,15 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       if (!stored) throw new Error("TENANT_NOT_FOUND");
       const tenant = await settleTenantDbFile(options.platform.stores.tenants, options.dataDir, stored, { waitMs: options.dbFileWaitMs });
       const { code } = tenant;
-      const connection: SqliteOpenOptions = { ...options.connection, fileMustExist: tenant.status !== TenantStatusCode.Provisioning };
-      const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(tenantId, code), connection);
+      const provisioning = tenant.status === TenantStatusCode.Provisioning;
+      const dbPath = tenantDbPath(options.dataDir, tenant.dbFile);
+      const connection: SqliteOpenOptions = { ...options.connection, fileMustExist: !provisioning };
+      // REQUIRED ORDERING: whose books these are is settled, and the connection
+      // that asked is closed, before the database is opened for use.
+      requireOwnBooks(tenant, dbPath, options.connection);
+      const backend = await openBackend(code, dbPath, resolversFor(code), hooksFor(tenantId, code), connection, { tenantId, provisioning }).catch((err: unknown) => {
+        throw isUnreadableSqliteError(err) ? new TenantDbFileUnreadableError(tenantId, tenant.dbFile, err) : err;
+      });
       openCodes.set(tenantId, code);
       await ownerContact.reconcile(tenantId, backend).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled on open`, err));
       return backend;

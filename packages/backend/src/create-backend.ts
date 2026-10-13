@@ -131,6 +131,7 @@ import {
   type OwnerRecordDue,
 } from "@mezan/domain";
 import {
+  bindTenantDatabase,
   openSqliteConnection,
   withSqliteTransaction,
   type SqliteOpenOptions,
@@ -633,6 +634,13 @@ export interface CreateBackendOptions {
   readonly companyOwner?: CreateAppOptions["companyOwner"];
   readonly onUserSignedIn?: (user: SignedInUser) => Promise<void>;
   readonly claimedElsewhere?: () => Promise<boolean>;
+  // SECURITY: the cloud tenant this database belongs to. Written into it once
+  // and compared on every open; a database bound to another tenant is refused
+  // before anything else is written. Omitted by the desktop, which has no tenants.
+  readonly tenantBinding?: string;
+  // SECURITY: false for a tenant that already has books. An empty database is
+  // then left empty: seeding it would create the fallback admin account.
+  readonly seedWhenEmpty?: boolean;
   /**
    * The VERIFIED capability set every module-gated route group is checked
    * against, and that `GET /entitlements` and `/roles` report.
@@ -694,6 +702,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // still needs setting per-store below since it's a per-connection pragma,
   // but harmless to set repeatedly on the same connection.
   const { sqlite } = openSqliteConnection(dbPath, options.connection);
+  if (options.tenantBinding !== undefined) {
+    try {
+      bindTenantDatabase(sqlite, options.tenantBinding);
+    } catch (err) {
+      sqlite.close();
+      throw err;
+    }
+  }
+  const seedWhenEmpty = options.seedWhenEmpty !== false;
 
   /*
    * DEC-17 removed the API-key and webhook back end. Their stores are gone, so
@@ -2621,7 +2638,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     itemCatalog,
     labelLayouts,
   };
-  await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
+  if (seedWhenEmpty) await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
 
   /**
    * Books seeded before a template account existed get it now (D229: the
@@ -4145,7 +4162,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         });
       }
     : undefined;
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: announceSignIn, demoSeeded: options.seedDemoData === true, claimedElsewhere: options.claimedElsewhere }));
+  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: announceSignIn, demoSeeded: options.seedDemoData === true, claimedElsewhere: options.claimedElsewhere, seedWhenEmpty }));
   app.route(
     "/",
     createDashboardRoutes({

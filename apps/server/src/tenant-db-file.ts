@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { closeSync, createReadStream, existsSync, openSync, readSync, renameSync, rmSync, statSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { tenantDbFile, TenantStatusCode, type Tenant, type TenantRepository } from "@mezan/domain";
-import { holdSqliteFile, SqliteFileBusyError } from "@mezan/persistence";
+import { SEED_ADMIN_USER_ID } from "@mezan/backend";
+import { tenantDbFile, TenantStatusCode, UserStatusCode, type Tenant, type TenantRepository } from "@mezan/domain";
+import { holdSqliteFile, NotASqliteDatabaseError, readTenantBooksIdentity, SqliteFileBusyError, type SqliteOpenOptions, type TenantBooksIdentity } from "@mezan/persistence";
 
 const SQLITE_FILE_SUFFIXES = ["", "-wal", "-shm"] as const;
 const SQLITE_SIBLING_SUFFIXES = ["-wal", "-shm"] as const;
@@ -16,6 +17,8 @@ export enum TenantDbFileRefusal {
   Missing = "TENANT_DB_FILE_MISSING",
   Shared = "TENANT_DB_FILE_SHARED",
   Busy = "TENANT_DB_FILE_BUSY",
+  Foreign = "TENANT_DB_FILE_FOREIGN",
+  Unreadable = "TENANT_DB_FILE_UNREADABLE",
 }
 
 export abstract class TenantDbFileError extends Error {
@@ -61,6 +64,28 @@ export class TenantDbFileBusyError extends TenantDbFileError {
   }
 }
 
+export class TenantDbFileForeignError extends TenantDbFileError {
+  readonly code = TenantDbFileRefusal.Foreign;
+
+  constructor(tenantId: string, file: string, readonly boundTenantId: string | null) {
+    super(
+      tenantId,
+      file,
+      boundTenantId === null
+        ? `the database file "${file}" is not bound to tenant "${tenantId}" and does not hold the owner the platform recorded for it; it was not opened and nothing was written`
+        : `the database file "${file}" of tenant "${tenantId}" is bound to tenant "${boundTenantId}"; it was not opened and nothing was written`,
+    );
+  }
+}
+
+export class TenantDbFileUnreadableError extends TenantDbFileError {
+  readonly code = TenantDbFileRefusal.Unreadable;
+
+  constructor(tenantId: string, file: string, readonly cause: unknown) {
+    super(tenantId, file, `the database file "${file}" of tenant "${tenantId}" is not a readable SQLite database; nothing was written`);
+  }
+}
+
 export function sha256OfFile(file: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = createHash("sha256");
@@ -97,6 +122,40 @@ function holdsSqliteDatabase(file: string): boolean {
 // for the first anonymous caller to claim.
 function refuseServedTenantWithoutBooks(tenant: Tenant, file: string): void {
   if (tenant.status !== TenantStatusCode.Provisioning && !holdsSqliteDatabase(file)) throw new TenantDbFileMissingError(tenant.id, tenant.dbFile);
+}
+
+function holdsRecordedOwner(tenant: Tenant, books: TenantBooksIdentity): boolean {
+  if (tenant.ownerUserId !== null) return books.users.some((user) => user.id === tenant.ownerUserId);
+  return books.users.some((user) => user.email === tenant.ownerEmail && user.isCompanyAdmin && user.status === UserStatusCode.Active && !user.erased);
+}
+
+// SECURITY: a database written before databases were bound is taken as this
+// tenant's only on what the platform recorded on its own: somebody claimed it,
+// and the owner the platform row names is an account in it. An empty database,
+// or another company's, has neither and is refused before it is opened for use.
+function provenBeforeBinding(tenant: Tenant, books: TenantBooksIdentity): boolean {
+  const claimed = books.claimed || books.users.some((user) => user.id !== SEED_ADMIN_USER_ID);
+  return claimed && holdsRecordedOwner(tenant, books);
+}
+
+export type TenantBooksConnection = Pick<SqliteOpenOptions, "driver" | "key" | "exclusive">;
+
+// SECURITY: asked on every open, before the database is opened for use. A
+// tenant still being provisioned may have no database yet, or one nobody has
+// bound; any other tenant's database must already be its own.
+export function requireOwnBooks(tenant: Tenant, file: string, connection: TenantBooksConnection = {}): void {
+  const provisioning = tenant.status === TenantStatusCode.Provisioning;
+  if (provisioning && !existsSync(file)) return;
+  let books: TenantBooksIdentity;
+  try {
+    books = readTenantBooksIdentity(file, connection);
+  } catch (err) {
+    if (err instanceof NotASqliteDatabaseError) throw new TenantDbFileUnreadableError(tenant.id, tenant.dbFile, err.cause);
+    throw err;
+  }
+  if (books.boundTenantId === tenant.id) return;
+  if (books.boundTenantId !== null) throw new TenantDbFileForeignError(tenant.id, tenant.dbFile, books.boundTenantId);
+  if (!provisioning && !provenBeforeBinding(tenant, books)) throw new TenantDbFileForeignError(tenant.id, tenant.dbFile, null);
 }
 
 function stampOf(files: readonly string[]): string {

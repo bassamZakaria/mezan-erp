@@ -19,6 +19,15 @@ export {
 } from "./sqlite-connection.js";
 export { holdSqliteFile, SqliteFileBusyError, type HeldSqliteFile } from "./sqlite-file-hold.js";
 export {
+  bindTenantDatabase,
+  isUnreadableSqliteError,
+  NotASqliteDatabaseError,
+  readTenantBooksIdentity,
+  TenantBindingMismatchError,
+  type TenantBooksIdentity,
+  type TenantBooksUser,
+} from "./tenant-binding.js";
+export {
   schema,
   journalEntry,
   journalLine,

@@ -56,6 +56,8 @@ export interface AuthRoutesDeps {
   // SECURITY: the cloud platform's own record that this tenant has an owner.
   // True closes the bootstrap routes whatever this database holds.
   readonly claimedElsewhere?: () => Promise<boolean>;
+  // SECURITY: false closes `/bootstrap/seed` for a tenant that already has books.
+  readonly seedWhenEmpty?: boolean;
 }
 
 export { UNDISCLOSED_TENANT_NAME };
@@ -385,7 +387,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * socket at all, because `/bootstrap/*` is off its path allow-list.
    */
   app.post("/bootstrap/seed", async (c) => {
-    const result = await seedIfEmpty(deps.seedStores);
+    const result = deps.seedWhenEmpty === false ? await currentCounts(deps.seedStores) : await seedIfEmpty(deps.seedStores);
     return c.json(result);
   });
 

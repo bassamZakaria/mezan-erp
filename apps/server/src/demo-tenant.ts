@@ -113,6 +113,7 @@ export async function provisionSeededTenant(deps: ProvisionDemoTenantDeps, spec:
   const backend = await createBackend({
     dbPath,
     connection: { exclusive: deps.env.sqliteExclusive },
+    tenantBinding: activated.id,
     seedDemoData: true,
     seedAdminPin: spec.adminPin,
     resolveEntitlements: () => resolvers.resolveEntitlements(),

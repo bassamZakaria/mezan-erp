@@ -15,7 +15,7 @@ import type { SettingsRepository, TenantSettings } from "@mezan/domain";
  * store serializes/deserializes it.
  */
 
-const ROW_ID = "default";
+export const SETTINGS_ROW_ID = "default";
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS tenant_settings (
@@ -38,7 +38,7 @@ class SqliteSettingsStore implements SettingsRepository {
   }
 
   async get(): Promise<TenantSettings | null> {
-    const row = this.select.get(ROW_ID) as { data: string } | undefined;
+    const row = this.select.get(SETTINGS_ROW_ID) as { data: string } | undefined;
     if (!row) return null;
     // A row written before a field existed would otherwise hand the domain an
     // `undefined` that validation reads as invalid, so the stored bag is always
@@ -48,7 +48,7 @@ class SqliteSettingsStore implements SettingsRepository {
 
   async save(settings: TenantSettings): Promise<void> {
     this.upsert.run({
-      id: ROW_ID,
+      id: SETTINGS_ROW_ID,
       data: JSON.stringify(settings),
       updatedAt: new Date().toISOString(),
     });

@@ -1219,8 +1219,8 @@ export async function run(ctx: Ctx): Promise<void> {
     const tripId = opened.body?.id ?? "SCN-X-TRIP-1";
 
     check(
-      "FLD-11 (docs/TESTING.md §10) — the route discards the caller's id, so the trip must be found by listing, not by the id that was sent",
-      tripId !== "SCN-X-TRIP-1",
+      "FLD-11 (docs/TESTING.md §10) fixed with D111 — the trip is stored under the id the caller sent",
+      tripId === "SCN-X-TRIP-1",
       `returned id=${tripId}`,
     );
 

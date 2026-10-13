@@ -448,7 +448,7 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("settling an already-settled trip is rejected", doubleSettle.status, 409);
   });
 
-  await scenario("field-sales · FLD-11: the open route discards the caller's id", async () => {
+  await scenario("field-sales · FLD-11: a trip keeps the id it was opened under, and that id cannot be taken twice", async () => {
     const opened = await req("POST", "/field/van-trips", {
       id: "SCN-VANTRIP-FLD11",
       date: "2026-08-24",
@@ -460,8 +460,19 @@ export async function run(ctx: Ctx): Promise<void> {
       crew: [{ employeeId: "EMP-DEMO-1", role: "rep" }],
     });
     checkEq("open succeeds", opened.status, 201);
-    check("the route ignores the caller-supplied id and mints its own uuid instead (see demo-seed/treasury.ts's own comment on this)",
-      opened.body.id !== "SCN-VANTRIP-FLD11");
+    checkEq("the trip is stored under the id the caller sent (FLD-11 fixed with D111: the route no longer mints its own)", opened.body.id, "SCN-VANTRIP-FLD11");
+    const again = await req("POST", "/field/van-trips", {
+      id: "SCN-VANTRIP-FLD11",
+      date: "2026-08-24",
+      branchId: "BR-MAIN",
+      vanWarehouseId: "WH-DEMO-VAN",
+      vanTreasuryAccountId: "TR-DEMO-VAN",
+      sourceWarehouseId: "WH-MAIN",
+      sourceTreasuryAccountId: "TR-DEMO-CASH",
+      crew: [{ employeeId: "EMP-DEMO-1", role: "rep" }],
+    });
+    checkEq("opening a second trip under the same id is refused", again.status, 409);
+    checkEq("as a duplicate id", again.body?.error, "DUPLICATE_ID");
     // Regression guard: tripNo used to stay null forever — the create form
     // never sends one, and openVanTrip had no fallback. Fixed by allocating
     // from the VAN_TRIP numbering sequence (`TRIP-####`) when omitted.

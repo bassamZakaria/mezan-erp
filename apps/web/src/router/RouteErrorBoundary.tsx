@@ -38,7 +38,7 @@ export function RouteErrorBoundary() {
 
   const status = isRouteErrorResponse(error) ? error.status : null;
   const thrownMessage = status === null ? (error instanceof Error ? error.message : String(error)) : null;
-  const refusal = status === null ? null : t(refusalDetailKey(status), { status, path: location.pathname });
+  const refusal = status === null ? null : t(refusalDetailKey(status), { status });
 
   return (
     <div
@@ -56,7 +56,17 @@ export function RouteErrorBoundary() {
                names no screen at all. */
             t("routeError.body", { screen: location.pathname })}
       </p>
-      {refusal ? <p className="text-xs text-ink-muted">{refusal}</p> : null}
+      {refusal ? (
+        <p className="text-xs text-ink-muted">
+          {refusal}
+          {status === HTTP_NOT_FOUND ? (
+            <>
+              {" "}
+              <bdi dir="ltr">{location.pathname}</bdi>
+            </>
+          ) : null}
+        </p>
+      ) : null}
       {/*
         A thrown error's own message is shown, not swallowed. A support call
         that can quote the failure is worth more than a tidy panel, and this is

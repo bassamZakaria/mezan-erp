@@ -87,6 +87,7 @@ describe("RouteErrorBoundary", () => {
     const alert = await screen.findByRole("alert");
 
     expect(alert).toHaveTextContent("العنوان المطلوب: /missing");
+    expect(screen.getByText("/missing")).toHaveAttribute("dir", "ltr");
     expect(alert).not.toHaveTextContent(/not found/i);
   });
 

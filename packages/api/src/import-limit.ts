@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import { IMPORT_ROW_LIMIT, ImportRefusal } from "@mezan/contracts";
+import { IMPORT_ROW_LIMIT, ImportRefusal, importTooLargeMessage, linesOfCsvImport as linesOfCsv } from "@mezan/contracts";
 import { MutatingMethod } from "./audit-boundary.js";
 
 const PAYLOAD_TOO_LARGE = 413;
@@ -11,7 +11,7 @@ export function rowsOfImport(body: unknown): number {
 
 export function linesOfCsvImport(body: unknown): number {
   const csv = (body as { csv?: unknown } | null)?.csv;
-  return typeof csv === "string" ? csv.split("\n").filter((line) => line.trim() !== "").length : 0;
+  return typeof csv === "string" ? linesOfCsv(csv) : 0;
 }
 
 // SECURITY / AVAILABILITY CONSTRAINT: an import is written in ONE transaction,
@@ -24,13 +24,14 @@ export function importRowLimit(countRows: (body: unknown) => number = rowsOfImpo
     const body: unknown = await c.req.json().catch(() => null);
     const rows = countRows(body);
     if (rows <= limit) return next();
+    const refusal = importTooLargeMessage(rows, limit);
     return c.json(
       {
         error: ImportRefusal.TooLarge,
         rows,
         limit,
-        message: `الملف يحتوي ${rows} صفًا، والحد الأقصى للاستيراد في المرة الواحدة ${limit} صف. قسّم الملف إلى أجزاء واستورد كل جزء على حدة.`,
-        messageEn: `The file holds ${rows} rows and one import takes at most ${limit}. Split the file and import each part separately.`,
+        message: refusal.ar,
+        messageEn: refusal.en,
       },
       PAYLOAD_TOO_LARGE,
     );

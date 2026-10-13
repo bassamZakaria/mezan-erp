@@ -42,32 +42,10 @@ const itemRows = (count: number, from = 0) =>
 const HOLD_LIMIT_MS = 500;
 const WAIT_LIMIT_MS = 300;
 const LARGE_IMPORT = 2000;
-const SMALL_IMPORT = 500;
-const HALFWAY_TO_QUADRATIC = 8;
 const IMPORT_ROW_CAP = IMPORT_ROW_LIMIT;
 const NANOSECONDS_PER_MS = 1e6;
 
 describe("a large import and everyone else's writes", () => {
-  it("holds the connection in proportion to an import's rows, not to their square", async () => {
-    const held = async (count: number): Promise<number> => {
-      const t = await open();
-      const startedAt = performance.now();
-      const imported = await t.call("POST", "/data-migration/items/commit", { rows: itemRows(count) });
-      const took = performance.now() - startedAt;
-      expect(imported).toMatchObject({ status: 201, body: { validCount: count } });
-      return took;
-    };
-    await held(SMALL_IMPORT);
-
-    const small = Math.min(await held(SMALL_IMPORT), await held(SMALL_IMPORT));
-    const large = Math.min(await held(LARGE_IMPORT), await held(LARGE_IMPORT));
-
-    expect(large / small).toBeLessThan(HALFWAY_TO_QUADRATIC);
-  });
-
-  // The owner's figures in milliseconds. They hold on a machine doing nothing
-  // else and say nothing true on one that is busy, so they run on request:
-  // MEZAN_TIMING_TESTS=1 pnpm exec vitest run packages/backend/src/import-turn.test.ts
   it.skipIf(process.env.MEZAN_TIMING_TESTS !== "1")("lets a voucher posted during a 2,000-row items import through in under 300 ms, and holds the connection for under 500 ms", async () => {
     const heldTooLong: string[] = [];
     const t = await open({

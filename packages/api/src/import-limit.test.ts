@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import { IMPORT_ROW_LIMIT } from "@mezan/contracts";
+import { IMPORT_ROW_LIMIT, importLimitNotice, importTooLargeMessage, linesOfCsvImport as sharedLinesOfCsv } from "@mezan/contracts";
 import { importRowLimit, linesOfCsvImport } from "./import-limit.js";
 
 function rig() {
@@ -49,5 +49,22 @@ describe("importRowLimit", () => {
 
     expect((await t.post("/rows", { rows: "not a list" })).status).toBe(200);
     expect((await t.app.fetch(new Request("http://x/rows"))).status).toBe(200);
+  });
+
+  it("refuses in the very sentence a client shows before it uploads, so the two can never drift apart", async () => {
+    const t = rig();
+    const over = (await (await t.post("/rows", { rows: Array.from({ length: IMPORT_ROW_LIMIT + 1 }, () => ({})) })).json()) as { message: string; messageEn: string };
+
+    expect(over.message).toBe(importTooLargeMessage(IMPORT_ROW_LIMIT + 1).ar);
+    expect(over.messageEn).toBe(importTooLargeMessage(IMPORT_ROW_LIMIT + 1).en);
+    expect(over.message).toContain(String(IMPORT_ROW_LIMIT));
+    expect(importLimitNotice().ar).toContain(String(IMPORT_ROW_LIMIT));
+    expect(importLimitNotice().ar).toContain("قسّم");
+    expect(importLimitNotice(7).ar).toContain("7");
+  });
+
+  it("counts a CSV's lines on the client exactly as the server does", () => {
+    expect(sharedLinesOfCsv(`${csvOf(12)}\n\n  \n`)).toBe(12);
+    expect(sharedLinesOfCsv("")).toBe(0);
   });
 });

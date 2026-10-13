@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import {
   createApp,
   createLoginThrottle,
@@ -491,13 +492,7 @@ export enum SecurityEventOrigin {
   Platform = "platform",
 }
 
-export enum OwnerPinResetOutcome {
-  Reset = "reset",
-  OwnerNotFound = "owner_not_found",
-  AlreadySignedIn = "already_signed_in",
-  Superseded = "superseded",
-  OwnerVanished = "owner_vanished",
-}
+export { OwnerPinResetOutcome };
 
 export const COMPANY_OWNER_ASSIGNED_AUDIT = "COMPANY_OWNER_ASSIGNED";
 

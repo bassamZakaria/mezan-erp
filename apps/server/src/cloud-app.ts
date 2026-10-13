@@ -8,6 +8,7 @@ import {
   createPlatform,
   createPlatformAuth,
   createPlatformRoutes,
+  type OwnerPinResetAccount,
   type PlatformHandle,
 } from "@mezan/backend";
 import { createSessionRegistry } from "@mezan/api";
@@ -155,7 +156,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     return provisionResultDTOOf(provisioned);
   };
 
-  const resetOwnerPinForRoutes = (input: { tenant: Tenant; actorId: string; recordAudit: () => Promise<void> }): Promise<OwnerPinResetResultDTO> =>
+  const resetOwnerPinForRoutes = (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPinResetAccount) => Promise<void> }): Promise<OwnerPinResetResultDTO> =>
     resetTenantOwnerPin({ platform, router, now }, input);
 
   const reconcileOwnerQuietly = (tenant: Tenant): Promise<void> =>

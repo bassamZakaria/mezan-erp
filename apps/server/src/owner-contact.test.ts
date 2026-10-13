@@ -3,8 +3,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openSqliteConnection } from "@mezan/persistence";
-import { createPlatform, PlatformAuditUnavailableError, type PlatformHandle } from "@mezan/backend";
-import { activateTenant, createTenant, pendingOwnerExpiresAt, type Tenant } from "@mezan/domain";
+import { createSessionRegistry } from "@mezan/api";
+import {
+  createPlatform,
+  createPlatformAuth,
+  createPlatformRoutes,
+  OwnerPinResetOutcome,
+  PlatformAuditAction,
+  PlatformAuditUnavailableError,
+  type PlatformHandle,
+} from "@mezan/backend";
+import { activateTenant, AuditSeverityCode, createPlatformUser, createTenant, pendingOwnerExpiresAt, type Tenant } from "@mezan/domain";
 import { createCardCheckoutService } from "./card-checkout.js";
 import {
   createOwnerContact,
@@ -735,7 +744,7 @@ describe("a console PIN reset the platform audit cannot record", () => {
 
     const refused = await resetTenantOwnerPin(
       { platform: c.platform, router: c.router },
-      { tenant: await co.recorded(), actorId: "op-1", recordAudit: async () => { throw new PlatformAuditUnavailableError(new Error("down")); } },
+      { tenant: await co.recorded(), actorId: "op-1", recordIntent: async () => { throw new PlatformAuditUnavailableError(new Error("down")); } },
     ).catch((err: unknown) => err);
 
     expect(refused).toBeInstanceOf(PlatformAuditUnavailableError);
@@ -753,12 +762,86 @@ describe("a console PIN reset the platform audit cannot record", () => {
 
     const reset = await resetTenantOwnerPin(
       { platform: c.platform, router: c.router },
-      { tenant: await co.recorded(), actorId: "op-1", recordAudit: async () => void order.push("audit") },
+      { tenant: await co.recorded(), actorId: "op-1", recordIntent: async () => void order.push("audit") },
     );
 
     expect(order).toEqual(["audit", "pin"]);
     expect((await co.signIn("owner@mike2.example", reset.adminPin)).status).toBe(200);
   });
+});
+
+describe("the audit of a console PIN reset", () => {
+  const OPERATOR = { id: "PU-OP", email: "op@mezan.example", password: "correct horse battery" };
+
+  async function console(c: Cloud) {
+    await createPlatformUser({ ...OPERATOR, role: "owner", now: T }, c.platform.stores.platformUsers, c.platform.hasher);
+    const auth = createPlatformAuth({ platform: c.platform, sessions: createSessionRegistry(), now });
+    const signedIn = await auth.app.fetch(
+      new Request("http://x/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: OPERATOR.email, password: OPERATOR.password }) }),
+    );
+    const { token } = (await signedIn.json()) as { token: string };
+    const app = createPlatformRoutes({
+      platform: c.platform,
+      auth,
+      now,
+      provisionTenant: async () => {
+        throw new Error("not used");
+      },
+      resetOwnerPin: (input) => resetTenantOwnerPin({ platform: c.platform, router: c.router, now }, input),
+      invalidateEntitlements: (code) => c.router.invalidate(code),
+    });
+    const reset = async (tenantId: string) => {
+      const res = await app.fetch(new Request(`http://x/tenants/${tenantId}/owner-pin/reset`, { method: "POST", headers: { authorization: `Bearer ${token}` } }));
+      return { status: res.status, json: (await res.json()) as Record<string, unknown> };
+    };
+    const rows = async () =>
+      (await c.platform.audit.query("security"))
+        .filter((row) => row.action.startsWith("TENANT_OWNER_PIN_RESET"))
+        .reverse()
+        .map((row) => ({ action: row.action, actor: row.actor, severity: row.severity, entityId: row.entityId, details: row.details as Record<string, unknown> }));
+    return { reset, rows };
+  }
+
+  it("records that the reset was asked for and then that it happened, each naming the account and the address that really got the PIN", async () => {
+    const c = await cloud();
+    const co = await company(c, "papa2");
+    await ownerMovedWhilePlatformWasDown(c, co, "inbox@elsewhere.example");
+    const owner = await co.user("inbox@elsewhere.example");
+    const desk = await console(c);
+
+    const answered = await desk.reset(co.tenantId);
+
+    expect(answered.status).toBe(200);
+    const account = { userId: owner["id"], signInEmail: "inbox@elsewhere.example", adminEmail: "owner@papa2.example" };
+    expect(await desk.rows()).toMatchObject([
+      { action: PlatformAuditAction.TenantOwnerPinResetRequested, actor: OPERATOR.id, severity: AuditSeverityCode.Critical, entityId: co.tenantId, details: account },
+      { action: PlatformAuditAction.TenantOwnerPinReset, actor: OPERATOR.id, severity: AuditSeverityCode.Critical, entityId: co.tenantId, details: { ...account, outcome: OwnerPinResetOutcome.Reset } },
+    ]);
+    expect(JSON.stringify(await desk.rows())).not.toContain(String(answered.json["adminPin"]));
+    expect((await co.signIn("inbox@elsewhere.example", String(answered.json["adminPin"]))).status).toBe(200);
+  });
+
+  it.each([OwnerPinResetOutcome.Superseded, OwnerPinResetOutcome.OwnerVanished])(
+    "records that the reset was asked for and then refused (%s), and never says a PIN was reset when none was",
+    async (outcome) => {
+      const c = await cloud();
+      const co = await company(c, "quebec2");
+      const owner = await co.user("owner@quebec2.example");
+      const backend = await c.router.backendOf(co.tenantId);
+      backend.resetOwnerPin = async () => outcome;
+      const desk = await console(c);
+
+      const answered = await desk.reset(co.tenantId);
+
+      expect(answered).toMatchObject({ status: 409, json: { error: "TENANT_OWNER_ACCOUNT_NOT_FOUND" } });
+      expect(answered.json["adminPin"]).toBeUndefined();
+      expect(await desk.rows()).toMatchObject([
+        { action: PlatformAuditAction.TenantOwnerPinResetRequested, details: { userId: owner["id"], signInEmail: "owner@quebec2.example" } },
+        { action: PlatformAuditAction.TenantOwnerPinResetRefused, severity: AuditSeverityCode.Critical, details: { reason: "TENANT_OWNER_ACCOUNT_NOT_FOUND", outcome } },
+      ]);
+      expect((await co.signIn("owner@quebec2.example", co.ownerPin)).status).toBe(200);
+    },
+  );
 });
 
 describe("the platform assigning a tenant's owner", () => {

@@ -101,8 +101,9 @@ async function buildRig(overrides: Partial<Parameters<typeof createPlatformRoute
     now: FIXED_NOW,
     provisionTenant,
     provisionRetry,
-    resetOwnerPin: async ({ tenant }) => {
+    resetOwnerPin: async ({ tenant, recordIntent }) => {
       if (tenant.ownerEmail === OWNER_WHO_LEFT) throw new TenantOwnerAccountNotFoundError();
+      await recordIntent({ userId: "U-OWNER", signInEmail: tenant.ownerEmail, adminEmail: tenant.ownerEmail });
       return { adminEmail: tenant.ownerEmail, signInEmail: tenant.ownerEmail, adminPin: RESET_PIN };
     },
     reconcileOwner: async (tenant) => {
@@ -282,7 +283,25 @@ describe("createPlatformRoutes", () => {
     expect(JSON.stringify(row)).not.toContain(RESET_PIN);
   });
 
-  it("answers 503 in Arabic, and never the new PIN, when the audit of an owner PIN reset cannot be written", async () => {
+  it("answers 503 in Arabic, and never the new PIN, when the audit of an owner PIN reset cannot record that it was asked for", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const append = rig.platform.audit.append.bind(rig.platform.audit);
+    rig.platform.audit.append = async (event) => {
+      if (event.action === "TENANT_OWNER_PIN_RESET_REQUESTED") throw new Error("the platform audit refused the row");
+      return append(event);
+    };
+
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
+
+    const answered = await json(res);
+    expect(res.status).toBe(503);
+    expect(answered).toMatchObject({ error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." });
+    expect(JSON.stringify(answered)).not.toContain(RESET_PIN);
+    expect((await rig.platform.audit.query("security")).filter((row) => row.action.startsWith("TENANT_OWNER_PIN_RESET"))).toEqual([]);
+  });
+
+  it("still answers the new PIN, once, when only the row saying the reset happened cannot be written: the row saying it was asked for stands", async () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);
     const append = rig.platform.audit.append.bind(rig.platform.audit);
@@ -293,11 +312,10 @@ describe("createPlatformRoutes", () => {
 
     const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
 
-    const answered = await json(res);
-    expect(res.status).toBe(503);
-    expect(answered).toMatchObject({ error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." });
-    expect(JSON.stringify(answered)).not.toContain(RESET_PIN);
-    expect((await rig.platform.audit.query("security")).filter((row) => row.action === "TENANT_OWNER_PIN_RESET")).toEqual([]);
+    expect(res.status).toBe(200);
+    expect(await json(res)).toMatchObject({ adminPin: RESET_PIN });
+    const rows = (await rig.platform.audit.query("security")).filter((row) => row.action.startsWith("TENANT_OWNER_PIN_RESET"));
+    expect(rows.map((row) => [row.action, row.actor, row.severity])).toEqual([["TENANT_OWNER_PIN_RESET_REQUESTED", "PU-OWNER", "CRITICAL"]]);
   });
 
   it("refuses the owner PIN reset to a support operator, for an archived tenant, and when the owner's account is gone", async () => {

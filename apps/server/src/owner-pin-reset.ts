@@ -1,4 +1,4 @@
-import { OwnerPinResetOutcome, TenantOwnerAccountNotFoundError, type PlatformHandle } from "@mezan/backend";
+import { OwnerPinResetOutcome, TenantOwnerAccountNotFoundError, type OwnerPinResetAccount, type PlatformHandle } from "@mezan/backend";
 import type { OwnerPinResetResultDTO } from "@mezan/contracts";
 import { TenantNotFoundError, type Tenant } from "@mezan/domain";
 import { withSqliteTransaction } from "@mezan/persistence";
@@ -14,7 +14,7 @@ export interface ResetTenantOwnerPinDeps {
 
 export async function resetTenantOwnerPin(
   deps: ResetTenantOwnerPinDeps,
-  input: { readonly tenant: Tenant; readonly actorId: string; readonly recordAudit?: () => Promise<void> },
+  input: { readonly tenant: Tenant; readonly actorId: string; readonly recordIntent?: (account: OwnerPinResetAccount) => Promise<void> },
 ): Promise<OwnerPinResetResultDTO> {
   const backend = await deps.router.backendOf(input.tenant.id);
   await deps.router.reconcileOwnerOf(input.tenant.id);
@@ -25,13 +25,14 @@ export async function resetTenantOwnerPin(
   const adminPin = (deps.pinOf ?? generateOwnerPin)();
   // SECURITY: the console's PIN takes a fence of its own, newer than any signup
   // claim still in flight, so a holder that wakes up later cannot write over it.
-  // REQUIRED ORDERING: the fence and the platform audit row are one write, made
-  // before the PIN moves. An audit that cannot record leaves the PIN as it was.
+  // REQUIRED ORDERING: the fence and the platform audit row of the intent are
+  // one write, made before the PIN moves. An audit that cannot record leaves
+  // the PIN as it was.
   const fence = await withSqliteTransaction(
     deps.platform.stores.sqlite,
     async () => {
       const taken = await deps.platform.stores.signupRequests.takeProvisionFence((deps.now ?? (() => new Date()))().toISOString());
-      await input.recordAudit?.();
+      await input.recordIntent?.({ userId: account.id, signInEmail: account.email, adminEmail: tenant.ownerEmail });
       return taken;
     },
     "BEGIN IMMEDIATE",
@@ -44,6 +45,6 @@ export async function resetTenantOwnerPin(
     actor: platformActor(input.actorId),
     fence,
   });
-  if (outcome !== OwnerPinResetOutcome.Reset) throw new TenantOwnerAccountNotFoundError();
+  if (outcome !== OwnerPinResetOutcome.Reset) throw new TenantOwnerAccountNotFoundError(outcome);
   return { adminEmail: tenant.ownerEmail, signInEmail: account.email, adminPin };
 }

@@ -82,6 +82,7 @@ import {
   type PlatformCardCheckoutsDTO,
 } from "@mezan/contracts";
 import { requestOrigin } from "@mezan/api";
+import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import type { PlatformHandle } from "./create-platform.js";
 import type { PlatformAuth } from "./platform-auth.js";
 
@@ -108,10 +109,17 @@ export enum PlatformAuditAction {
   TenantArchived = "TENANT_ARCHIVED",
   TenantOwnerPinReset = "TENANT_OWNER_PIN_RESET",
   TenantOwnerPinResetRefused = "TENANT_OWNER_PIN_RESET_REFUSED",
+  TenantOwnerPinResetRequested = "TENANT_OWNER_PIN_RESET_REQUESTED",
   TenantProvisioned = "TENANT_PROVISIONED",
   TenantProvisionRetried = "TENANT_PROVISION_RETRIED",
   TenantResumed = "TENANT_RESUMED",
   TenantSuspended = "TENANT_SUSPENDED",
+}
+
+export interface OwnerPinResetAccount {
+  readonly userId: string;
+  readonly signInEmail: string;
+  readonly adminEmail: string;
 }
 
 export interface CreatePlatformRoutesOptions {
@@ -121,9 +129,9 @@ export interface CreatePlatformRoutesOptions {
   readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }) => Promise<ProvisionResultDTO>;
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
-  // REQUIRED ORDERING: `recordAudit` is called inside the platform transaction
+  // REQUIRED ORDERING: `recordIntent` is called inside the platform transaction
   // that fences the reset, before the PIN moves. When it throws, nothing changes.
-  readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string; recordAudit: () => Promise<void> }) => Promise<OwnerPinResetResultDTO>;
+  readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPinResetAccount) => Promise<void> }) => Promise<OwnerPinResetResultDTO>;
   readonly releaseTenant?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   readonly ownerCandidates?: (tenant: Tenant) => Promise<OwnerCandidateDTO[]>;
   readonly assignOwner?: (input: { tenant: Tenant; userId: string; actorId: string }) => Promise<Tenant>;
@@ -230,7 +238,7 @@ function asServerDomainFailure(err: unknown): { readonly code: string; readonly 
 export class TenantOwnerAccountNotFoundError extends Error {
   readonly code = "TENANT_OWNER_ACCOUNT_NOT_FOUND";
 
-  constructor() {
+  constructor(readonly outcome?: OwnerPinResetOutcome) {
     super("لا يوجد في المنشأة حساب مدير نشط ببريد مالكها.");
     this.name = "TenantOwnerAccountNotFoundError";
   }
@@ -499,8 +507,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
-  const ownerPinResetRefused = (c: Context, tenantId: string | null, reason: string, actorId?: string) =>
-    audit(c, "TENANT_OWNER_PIN_RESET_REFUSED", tenantId, { reason }, "CRITICAL", actorId);
+  const ownerPinResetRefused = (c: Context, tenantId: string | null, reason: string, actorId?: string, outcome?: OwnerPinResetOutcome) =>
+    audit(c, PlatformAuditAction.TenantOwnerPinResetRefused, tenantId, { reason, ...(outcome ? { outcome } : {}) }, AuditSeverityCode.Critical, actorId);
 
   const requireOwnerForPinReset = auth.requirePlatform("owner", (c, user) =>
     ownerPinResetRefused(c, c.req.param("id") ?? null, "OWNER_ONLY", user.id),
@@ -516,17 +524,23 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         return c.json({ error: "TENANT_NOT_LIVE", message: "لا يُعاد تعيين رمز المالك إلا لمنشأة نشطة أو موقوفة" }, 409);
       }
       if (!resetOwnerPin) throw new Error("resetOwnerPin dependency is not configured");
-      let audited = false;
-      const recordAudit = async (): Promise<void> => {
-        await auditOrRefuse(c, "TENANT_OWNER_PIN_RESET", tenant.id, { code: tenant.code, adminEmail: tenant.ownerEmail }, "CRITICAL");
-        audited = true;
+      const intent: { account: OwnerPinResetAccount | null } = { account: null };
+      const recordIntent = async (account: OwnerPinResetAccount): Promise<void> => {
+        await auditOrRefuse(c, PlatformAuditAction.TenantOwnerPinResetRequested, tenant.id, { code: tenant.code, ...account }, AuditSeverityCode.Critical);
+        intent.account = account;
       };
-      const result = await resetOwnerPin({ tenant, actorId: platformUser.id, recordAudit });
-      if (!audited) await recordAudit();
+      const result = await resetOwnerPin({ tenant, actorId: platformUser.id, recordIntent });
+      const account = intent.account ?? { signInEmail: result.signInEmail, adminEmail: result.adminEmail };
+      // SECURITY: the PIN has moved by now and this answer is the only place it
+      // is shown. An outcome row that cannot be written is logged, never turned
+      // into a refusal: the intent row written before the PIN moved stands.
+      await audit(c, PlatformAuditAction.TenantOwnerPinReset, tenant.id, { code: tenant.code, ...account, outcome: OwnerPinResetOutcome.Reset }, AuditSeverityCode.Critical).catch(
+        (err: unknown) => console.error(`[platform] the owner PIN of tenant "${tenant.id}" was reset, and its outcome row could not be written`, err),
+      );
       return c.json(result, 200);
     } catch (err) {
       if (err instanceof TenantOwnerAccountNotFoundError) {
-        await ownerPinResetRefused(c, tenantId, err.code);
+        await ownerPinResetRefused(c, tenantId, err.code, undefined, err.outcome);
         return c.json({ error: err.code, message: err.message }, 409);
       }
       return domainErrorResponse(c, err);

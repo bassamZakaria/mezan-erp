@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
 import { activateTenant, createTenant, startSubscription } from "@mezan/domain";
 import type { SmtpConfig } from "@mezan/api";
-import { createTenantRouter, tenantUnlockLink, type TenantRouter } from "./tenant-router.js";
+import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
+import { tenantUnlockLink } from "./public-origin.js";
 import { parseEnv } from "./env.js";
 import type { CloudSource } from "./client-source.js";
 import { reachable } from "./cloud-harness.js";
@@ -29,24 +30,31 @@ afterEach(async () => {
 
 describe("the address a mailed unlock link opens", () => {
   it("is the tenant's own subdomain under the configured origin's scheme when the deployment serves subdomains", () => {
-    expect(tenantUnlockLink("acme", { publicOrigin: "https://app.mezan.test", tenantDomain: "mezan.test" })?.(TOKEN)).toBe(
+    expect(tenantUnlockLink(parseEnv({ MEZAN_PUBLIC_URL: "https://app.mezan.test", MEZAN_TENANT_DOMAIN: "mezan.test" }), "acme")?.(TOKEN)).toBe(
       `https://acme.mezan.test/unlock?token=${TOKEN}`,
     );
   });
 
   it("keeps the configured origin's port on the tenant's subdomain, as a development deployment on a port needs", () => {
-    expect(tenantUnlockLink("acme", { publicOrigin: "http://127.0.0.1:4103", tenantDomain: "localhost" })?.(TOKEN)).toBe(
+    expect(tenantUnlockLink(parseEnv({ MEZAN_PUBLIC_URL: "http://127.0.0.1:4103", MEZAN_TENANT_DOMAIN: "localhost" }), "acme")?.(TOKEN)).toBe(
       `http://acme.localhost:4103/unlock?token=${TOKEN}`,
     );
   });
 
   it("is the configured origin with the tenant's code beside the token when it does not", () => {
-    expect(tenantUnlockLink("acme", { publicOrigin: "http://127.0.0.1:5080" })?.(TOKEN)).toBe(`http://127.0.0.1:5080/unlock?tenant=acme&token=${TOKEN}`);
+    expect(tenantUnlockLink(parseEnv({ MEZAN_PUBLIC_URL: "http://127.0.0.1:5080" }), "acme")?.(TOKEN)).toBe(`http://127.0.0.1:5080/unlock?tenant=acme&token=${TOKEN}`);
   });
 
-  it("does not exist where no origin was configured", () => {
-    expect(tenantUnlockLink("acme", { tenantDomain: "mezan.test" })).toBeUndefined();
-    expect(tenantUnlockLink("acme", {})).toBeUndefined();
+  it("is the tenant's subdomain over https where only the tenant domain was configured, and does not exist with neither", () => {
+    expect(tenantUnlockLink(parseEnv({ MEZAN_TENANT_DOMAIN: "mezan.test" }), "acme")?.(TOKEN)).toBe(`https://acme.mezan.test/unlock?token=${TOKEN}`);
+    expect(tenantUnlockLink(parseEnv({}), "acme")).toBeUndefined();
+  });
+
+  it("is never built on a name the platform keeps for itself", () => {
+    expect(tenantUnlockLink(parseEnv({ MEZAN_TENANT_DOMAIN: "mezan.test" }), "www")).toBeUndefined();
+    expect(tenantUnlockLink(parseEnv({ MEZAN_PUBLIC_URL: "https://app.mezan.test", MEZAN_TENANT_DOMAIN: "mezan.test" }), "www")?.(TOKEN)).toBe(
+      `https://app.mezan.test/unlock?tenant=www&token=${TOKEN}`,
+    );
   });
 
   it("is read from MEZAN_PUBLIC_URL as an origin, and a value that is not a URL stops the server starting", () => {
@@ -68,12 +76,12 @@ describe("the address a mailed unlock link opens", () => {
     const router = createTenantRouter({
       platform,
       dataDir,
-      publicOrigin: "https://app.mezan.test",
+      unlockLinkFor: (tenantCode) => tenantUnlockLink(parseEnv({ MEZAN_PUBLIC_URL: "https://app.mezan.test" }), tenantCode),
       trustForwardedHost: true,
       allowTenantHeader: true,
       sweepEveryMs: 0,
       now: () => new Date(T),
-      openBackend: async (_code, _dbPath, resolvers, mail) =>
+      openBackend: async (_code, _dbPath, resolvers, _hooks, _connection, mail) =>
         createBackend({
           dbPath: ":memory:",
           securityMail: SMTP,
@@ -90,7 +98,7 @@ describe("the address a mailed unlock link opens", () => {
     reachable(router.app, 0);
     const backend = await router.backendFor("acme");
     const claimed = await backend.app.fetch(
-      new Request("http://tenant.internal/bootstrap/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nameAr: "المالك", email: "owner@acme.example", pin: "731946" }) }),
+      new Request("http://tenant.internal/bootstrap/admin", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ nameAr: "المالك", email: "owner@acme.example", pin: "731946", companyName: "منشأة" }) }),
     );
     expect(claimed.status).toBe(201);
 

@@ -63,6 +63,7 @@ export interface SqliteOpenOptions {
    * second till may want the file, leave it off.
    */
   readonly exclusive?: boolean;
+  readonly fileMustExist?: boolean;
 }
 
 /**
@@ -126,7 +127,7 @@ export function openSqliteConnection(
     watchForForeignWrites(input);
     return { sqlite: input, owned: false };
   }
-  const sqlite = new (options.driver ?? Database)(input);
+  const sqlite = new (options.driver ?? Database)(input, { fileMustExist: options.fileMustExist === true });
   // Before every other statement, WAL included: SQLite3MultipleCiphers only
   // honours `PRAGMA key` while the database header is still unread.
   if (options.key !== undefined) applyKey(sqlite, options.key);

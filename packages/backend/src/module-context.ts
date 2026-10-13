@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
-import type { App, AuthContextResolver, SessionRegistry } from "@mezan/api";
+import type { App, AuthContextResolver, PeriodCloseGuardSlot, ReconciliationControl, SessionRegistry } from "@mezan/api";
 import type { EtaReceiptIssuer } from "./eta-receipts.js";
-import type { AuditSink, EventBus, UnitOfWork } from "@mezan/domain";
+import type { AuditSink, EventBus, PayrollBindings, UnitOfWork } from "@mezan/domain";
 import type {
   createScryptHasher,
   createSqliteAccountRepository,
@@ -69,6 +69,13 @@ export interface BackendModuleContext {
   /** Issues a sale's e-receipt synchronously with the terminal's serial and tender (D283). */
   readonly etaReceipts: EtaReceiptIssuer;
   readonly stores: BackendStores;
+  readonly reconciliationControls: (asOfDate?: string) => Promise<readonly ReconciliationControl[]>;
+  readonly payrollBindings: PayrollBindings;
+  readonly treasuryFx: {
+    foreignCurrencyByGlAccount(): Promise<ReadonlyMap<string, string>>;
+    rateOn(currency: string, date: string): Promise<string | null>;
+  };
+  readonly periodCloseGuard: PeriodCloseGuardSlot;
   readonly addCloser: (closer: { close(): void }) => void;
 }
 

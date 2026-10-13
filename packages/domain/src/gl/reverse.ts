@@ -1,6 +1,7 @@
 import type { JournalEntry, JournalLine } from "../journal.js";
 import { recordSensitiveEvent } from "../audit/index.js";
 import { assertBalanced, assertPeriodOpen, assertVatNotFiled, type JournalPostingDeps } from "./post.js";
+import { namingEarliestOpenDay } from "../fiscal-periods/errors.js";
 import {
   JournalEntryAlreadyReversedError,
   JournalEntryNotFoundError,
@@ -82,7 +83,7 @@ export async function reverseJournalEntry(
   const reversalDate = opts.date ?? original.date;
   const reversalLines = original.lines.map(mirror).map(opts.linePatch ?? ((line) => line));
   const { totalDebit, totalCredit } = assertBalanced(reversalLines);
-  await assertPeriodOpen(reversalDate, deps.periods);
+  await namingEarliestOpenDay(deps.periods, original.date, () => assertPeriodOpen(reversalDate, deps.periods));
   // The filed-VAT lock is a second, independent gate: an accounting period can
   // legitimately be open after its return has gone to the authority, and a
   // reversal dated into a filed period would restate a filed return (B-11).

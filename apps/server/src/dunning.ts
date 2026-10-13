@@ -1,4 +1,4 @@
-import { defaultFreePlan, isFreePlan, markPastDue } from "@mezan/domain";
+import { defaultFreePlan, isFreePlan, markPastDue, SubscriptionStatusKind, TenantStatusCode } from "@mezan/domain";
 import { materialiseEndedTrial, type PlatformHandle } from "@mezan/backend";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -24,7 +24,7 @@ async function sweepSubscriptions(platform: PlatformHandle, now: () => Date): Pr
   let failed = 0;
   let landedOnFree = 0;
   for (const tenant of tenants) {
-    if (tenant.status === "archived") continue;
+    if (tenant.status === TenantStatusCode.Archived) continue;
     try {
       const subscription = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
       if (!subscription) continue;
@@ -36,7 +36,7 @@ async function sweepSubscriptions(platform: PlatformHandle, now: () => Date): Pr
         landedOnFree += 1;
         continue;
       }
-      if (subscription.status !== "active") continue;
+      if (subscription.status !== SubscriptionStatusKind.Active) continue;
       // A FREE PLAN NEVER GOES PAST DUE. It has a period end because the column
       // needs one; dunning a tenant who owes nothing would put their own books
       // into grace and then read-only a month after they landed on Free, which

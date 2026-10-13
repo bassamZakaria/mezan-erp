@@ -374,6 +374,22 @@ describe("TreasuryVouchersScreen — create + confirm", () => {
     expect(collectionRequests).toHaveLength(1);
   });
 
+  it("sends the amount as the decimal that was typed, digit for digit, where a binary number would have changed it", async () => {
+    const { collectionRequests } = renderScreen();
+    await screen.findByText("CV-000001");
+    fireEvent.click(screen.getByRole("button", { name: "سند جديد" }));
+    fireEvent.click(screen.getByText("تحصيل من عميل"));
+    setMoney(screen.getByLabelText("المبلغ"), "9007199254740993.10");
+    const partyInput = screen.getByPlaceholderText("ابحث عن عميل…");
+    fireEvent.focus(partyInput);
+    fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"));
+
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء وتأكيد" }));
+
+    await waitFor(() => expect(collectionRequests).toHaveLength(1));
+    expect(collectionRequests[0]).toMatchObject({ amount: "9007199254740993.100000" });
+  });
+
   /**
    * D83. When an approval gate held the confirm, the wizard closed on plain
    * success — the operator was told the money had moved when no entry had been
@@ -494,6 +510,42 @@ describe("TreasuryVouchersScreen — reversal (D270)", () => {
 
     await waitFor(() => expect(reverseRequests).toEqual([{ date: today }]));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+});
+
+describe("TreasuryVouchersScreen — an allocation on a revalued invoice", () => {
+  it("shows the invoice relieved at what it was carried at, so applied less relieved is the realised difference", async () => {
+    renderScreen({
+      allocations: {
+        "cv-1": [
+          { id: "alloc-r", voucherId: "cv-1", invoiceId: "inv-1", amount: "48700.000000", invoiceAmount: "48000.000000", revaluationShare: "450.000000", carryingAmount: "48450.000000", fxDifference: "250.000000", status: "active", createdAt: "2026-09-10T10:00:00.000Z", reversedAt: null },
+        ],
+      },
+    });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+    const row = (await screen.findByText("INV-000001")).closest("tr")!;
+    expect(within(row).getByText("48,700.00")).toBeInTheDocument();
+    expect(within(row).getByText("48,450.00")).toBeInTheDocument();
+    expect(within(row).getByText("250.00")).toBeInTheDocument();
+    expect(within(row).getByText("ربح")).toBeInTheDocument();
+    expect(within(row).queryByText("48,000.00")).not.toBeInTheDocument();
+  });
+});
+
+describe("TreasuryVouchersScreen — an allocation whose invoice is no longer open", () => {
+  it("names the document by the number the allocation carries, never by its internal id", async () => {
+    renderScreen({
+      allocations: {
+        "cv-1": [
+          { id: "alloc-paid", voucherId: "cv-1", invoiceId: "0b8f6c1e-7c1d-4f0a-9d55-2f3f1c9a7e10", invoiceNo: "CV-000042", amount: "500.000000", status: "active", createdAt: "2026-09-10T10:00:00.000Z", reversedAt: null },
+        ],
+      },
+    });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+    expect(await screen.findByText("CV-000042")).toBeInTheDocument();
+    expect(screen.queryByText(/0b8f6c1e/)).not.toBeInTheDocument();
   });
 });
 

@@ -274,7 +274,7 @@ export async function run(ctx: Ctx): Promise<void> {
       ctx.check("the fiscal year has January/February/March periods to test against", Boolean(jan && feb && mar), `periods=${periods.length}`);
       if (!jan || !feb || !mar) return;
 
-      const closeJan = await ctx.req("POST", `/fiscal-periods/${jan.id}/close`, {});
+      const closeJan = await ctx.req("POST", `/fiscal-periods/${jan.id}/close`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
       ctx.check("closing an open period succeeds", closeJan.status === 200 && closeJan.body?.status === "closed", `status ${closeJan.status}`);
 
       const postIntoClosed = await ctx.req("POST", "/gl/journal-entries", {
@@ -290,7 +290,10 @@ export async function run(ctx: Ctx): Promise<void> {
         "posting into a closed period is refused with a period-specific error, not a generic failure",
         postIntoClosed.status === 422 &&
           postIntoClosed.body?.error === "PERIOD_NOT_OPEN_FOR_POSTING" &&
-          String(postIntoClosed.body?.message).includes("closed"),
+          String(postIntoClosed.body?.message).includes("مغلقة") &&
+          String(postIntoClosed.body?.message).includes(`«يناير ${jan.year}»`) &&
+          !/closed|locked/.test(String(postIntoClosed.body?.message)) &&
+          !String(postIntoClosed.body?.message).includes(jan.id),
         `status ${postIntoClosed.status} body ${JSON.stringify(postIntoClosed.body)}`,
       );
 
@@ -308,9 +311,42 @@ export async function run(ctx: Ctx): Promise<void> {
         `status ${lockFromOpen.status} body ${JSON.stringify(lockFromOpen.body)}`,
       );
 
-      const closeFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/close`, {});
+      const febDraft = await ctx.req("POST", "/gl/journal-entries/draft", {
+        id: "SCN-JE-FEB-DRAFT",
+        date: feb.startDate,
+        memo: "SCN: مسودة تُبقي فحص الإقفال مفتوحاً",
+        lines: [
+          { accountId: "2170", debit: "10.00", credit: "0.00" },
+          { accountId: "2190", debit: "0.00", credit: "10.00" },
+        ],
+      });
+      ctx.check("a draft entry is left in February", febDraft.status === 201, `status ${febDraft.status} ${JSON.stringify(febDraft.body).slice(0, 140)}`);
+
+      const closeFeb = await ctx.req(
+        "POST",
+        `/fiscal-periods/${feb.id}/close`,
+        { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" },
+        { "x-user-id": "SCN-FEB-CLOSER" },
+      );
       ctx.check("closing February succeeds", closeFeb.status === 200 && closeFeb.body?.status === "closed", `status ${closeFeb.status}`);
-      const lockFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/lock`, {});
+      const bareLockFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/lock`, {});
+      ctx.check(
+        "a bare lock is held to the same pre-close checks as the close — the terminal step is not a way around them",
+        bareLockFeb.status === 409 && bareLockFeb.body?.error === "PERIOD_CLOSE_BLOCKED",
+        `status ${bareLockFeb.status} body ${JSON.stringify(bareLockFeb.body).slice(0, 160)}`,
+      );
+      const closerLocksFeb = await ctx.req(
+        "POST",
+        `/fiscal-periods/${feb.id}/lock`,
+        { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" },
+        { "x-user-id": "SCN-FEB-CLOSER" },
+      );
+      ctx.check(
+        "the user who closed February may not lock it over a failing check alone",
+        closerLocksFeb.status === 403 && closerLocksFeb.body?.error === "PERIOD_LOCK_OVERRIDE_SAME_USER",
+        `status ${closerLocksFeb.status} body ${JSON.stringify(closerLocksFeb.body).slice(0, 160)}`,
+      );
+      const lockFeb = await ctx.req("POST", `/fiscal-periods/${feb.id}/lock`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
       ctx.check("locking a closed period succeeds", lockFeb.status === 200 && lockFeb.body?.status === "locked", `status ${lockFeb.status}`);
 
       const reopenLocked = await ctx.req("POST", `/fiscal-periods/${feb.id}/reopen`, {});
@@ -333,7 +369,9 @@ export async function run(ctx: Ctx): Promise<void> {
         "posting into a locked period is refused too, and the message distinguishes it from closed",
         postIntoLocked.status === 422 &&
           postIntoLocked.body?.error === "PERIOD_NOT_OPEN_FOR_POSTING" &&
-          String(postIntoLocked.body?.message).includes("locked"),
+          String(postIntoLocked.body?.message).includes("مقفلة") &&
+          !String(postIntoLocked.body?.message).includes("مغلقة") &&
+          !/closed|locked/.test(String(postIntoLocked.body?.message)),
         `status ${postIntoLocked.status} body ${JSON.stringify(postIntoLocked.body)}`,
       );
     },
@@ -1500,9 +1538,21 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
     ctx.check("a draft dated into March saves without touching the ledger", draft.status === 201 && draft.body?.status === "draft", `status ${draft.status} body ${JSON.stringify(draft.body).slice(0, 160)}`);
     ctx.check("and carries no entry number, because it has not been posted", draft.body?.entryNo === null, String(draft.body?.entryNo));
 
-    const close = await ctx.req("POST", `/fiscal-periods/${march.id}/close`, {});
+    const bareClose = await ctx.req("POST", `/fiscal-periods/${march.id}/close`, {});
+    const draftsCheck = (bareClose.body?.checklist?.checks ?? []).find((c: any) => c.code === "drafts");
+    const strandedJournals = (draftsCheck?.findings ?? []).find((f: any) => f.ref === "journal_entry");
     ctx.check(
-      "FINDING: the close is accepted with unposted work dated into the month, and says nothing about it — no count of stranded drafts, no refusal, no warning",
+      "D176 C-3: the close is REFUSED while unposted work is dated into the month",
+      bareClose.status === 409 && bareClose.body?.error === "PERIOD_CLOSE_BLOCKED" && (bareClose.body?.failedChecks ?? []).includes("drafts"),
+      `status ${bareClose.status} body ${JSON.stringify(bareClose.body).slice(0, 200)}`,
+    );
+    ctx.check("and it counts the stranded journal drafts instead of saying nothing", ctx.n(strandedJournals?.count) >= 1, JSON.stringify(draftsCheck).slice(0, 200));
+    ctx.check("in Arabic and in English", /[\u0600-\u06FF]/.test(String(bareClose.body?.message)) && typeof bareClose.body?.messageEn === "string");
+    ctx.check("and March is still open", (await ctx.req("GET", `/fiscal-periods/${march.id}`)).body?.status === "open");
+
+    const close = await ctx.req("POST", `/fiscal-periods/${march.id}/close`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
+    ctx.check(
+      "an override with a reason still closes it — which is how a draft can be stranded on purpose",
       close.status === 200 && close.body?.status === "closed",
       `status ${close.status} body ${JSON.stringify(close.body)}`,
     );
@@ -1599,5 +1649,46 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
       );
       if (posted.status === 201) await ctx.req("POST", `/gl/journal-entries/${id}/reverse`, {});
     }
+  });
+
+  await ctx.scenario("treasury FX: a USD bank holds dollars — receipts and payments at two rates, a base-currency payment, the month-end restatement, and the reversals that take it all back", async () => {
+    const usd = async () => (await ctx.req("GET", "/treasury-accounts/TR-DEMO-BANK-USD")).body;
+    const bank = async (date: string) => {
+      const preview = await ctx.req("POST", "/revaluation/preview", { date, currencies: ["USD"] });
+      const row = (preview.body?.details ?? []).find((d: any) => d.accountId === "1310-USD");
+      return { foreign: ctx.n(row?.foreignAmount), booked: ctx.n(row?.bookedBase), delta: ctx.n(row?.delta), rate: String(row?.closingRate ?? "") };
+    };
+    const before = { account: await usd(), bank: await bank("2026-08-31") };
+    ctx.check("the USD bank reports a foreign balance of its own", before.account?.currency === "USD" && typeof before.account?.foreignBalance === "string", JSON.stringify(before.account).slice(0, 160));
+
+    const voucher = async (id: string, body: Record<string, unknown>) => {
+      const created = await ctx.req("POST", "/vouchers", { id, branchId: "BR-MAIN", memo: "SCN treasury FX", paymentMethod: "bank", treasuryAccountId: "TR-DEMO-BANK-USD", treasuryGlAccountId: "1310-USD", ...body });
+      const confirmed = created.status === 201 ? await ctx.req("POST", `/vouchers/${id}/confirm`, {}) : created;
+      return { status: confirmed.status, fx: (confirmed.body?.document ?? confirmed.body)?.treasuryFx ?? (await ctx.req("GET", `/vouchers/${id}`)).body?.treasuryFx };
+    };
+    const receipt = await voucher("SCN-A-TFX-IN", { date: "2026-08-10", voucherType: "other_income", amount: "300.00", currency: "USD", counterpartyGlAccountId: "4900" });
+    ctx.check("a 300 USD receipt on 10 August confirms at 48.90", receipt.status === 200 && receipt.fx?.fxRate === "48.90" && receipt.fx?.foreignAmount === "300.000000", JSON.stringify(receipt));
+    const payment = await voucher("SCN-A-TFX-OUT", { date: "2026-08-20", voucherType: "other_expense", amount: "100.00", currency: "USD", counterpartyGlAccountId: "5910" });
+    ctx.check("a 100 USD payment on 20 August confirms at 49.35", payment.status === 200 && payment.fx?.fxRate === "49.35" && payment.fx?.foreignAmount === "100.000000", JSON.stringify(payment));
+    const basePayment = await voucher("SCN-A-TFX-EGP", { date: "2026-08-20", voucherType: "other_expense", amount: "987.00", currency: "EGP", counterpartyGlAccountId: "5910" });
+    ctx.check("a 987.00 EGP payment from the USD bank records 20 dollars at the day's rate", basePayment.status === 200 && basePayment.fx?.currency === "USD" && basePayment.fx?.foreignAmount === "20.000000", JSON.stringify(basePayment));
+    const second = await ctx.req("POST", "/vouchers", { id: "SCN-A-TFX-EUR", branchId: "BR-MAIN", memo: "SCN", paymentMethod: "bank", treasuryAccountId: "TR-DEMO-BANK-USD", treasuryGlAccountId: "1310-USD", date: "2026-08-20", voucherType: "other_expense", amount: "5.00", currency: "EUR", counterpartyGlAccountId: "5910" });
+    ctx.check("a EUR voucher on the USD bank is refused in Arabic", second.status === 422 && /عملة أجنبية أخرى/.test(String(second.body?.message)), `status ${second.status} ${JSON.stringify(second.body).slice(0, 140)}`);
+
+    const after = { account: await usd(), bank: await bank("2026-08-31") };
+    ctx.checkEq("the bank holds 300 − 100 − 20 = 180 more dollars", after.bank.foreign - before.bank.foreign, 180);
+    ctx.checkEq("carried at 300×48.90 in, less the 120 dollars that left at the 48.90 they were carried at = 8,802.00 more", after.bank.booked - before.bank.booked, 8802);
+    ctx.checkEq("the treasury account reports the same dollars", ctx.n(after.account?.foreignBalance) - ctx.n(before.account?.foreignBalance), 180);
+    ctx.checkEq("restating to the closing rate of 49.35 adds 180×49.35 − 8,802.00 = 81.00 to the unrealised gain; the other 54.00 of the 135.00 was realised when the 120 dollars left", after.bank.delta - before.bank.delta, 81);
+    ctx.checkEq("the two payments realised 120×(49.35 − 48.90) = 54.00 between them", ctx.n(payment.fx?.realised) + ctx.n(basePayment.fx?.realised), 54);
+
+    for (const id of ["SCN-A-TFX-EGP", "SCN-A-TFX-OUT", "SCN-A-TFX-IN"]) {
+      const date = id === "SCN-A-TFX-IN" ? "2026-08-10" : "2026-08-20";
+      const reversed = await ctx.req("POST", `/vouchers/${id}/reverse`, { date });
+      ctx.check(`${id} reverses`, reversed.status === 201, `status ${reversed.status} ${JSON.stringify(reversed.body).slice(0, 140)}`);
+    }
+    const restored = await bank("2026-08-31");
+    ctx.checkEq("the dollars are back where they started", restored.foreign, before.bank.foreign);
+    ctx.checkEq("and so is the amount they are booked at", restored.booked, before.bank.booked);
   });
 }

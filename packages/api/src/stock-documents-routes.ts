@@ -1,3 +1,4 @@
+import { noteReversalOriginalDay } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -29,13 +30,16 @@ import {
   matchesSearch,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createStockAdjustmentSchema,
   createStockTransferSchema,
   startPhysicalCountSchema,
   recordPhysicalCountEntriesSchema,
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { readReversalRequest, recordDocumentReversal, requireReversalReason, reversalRefusalResponse } from "./document-reversal.js";
+import type { AuditSink } from "@mezan/domain";
 import { tenantDay } from "./tenant-day.js";
 
 /**
@@ -67,6 +71,8 @@ function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>) {
     createdAt: doc.createdAt,
     confirmedAt: doc.confirmedAt,
     journalEntryId: doc.journalEntryId,
+    reversesDocId: doc.reversesDocId,
+    reversedByDocId: doc.reversedByDocId,
     // One project/category per adjustment — carried per-line and validated
     // uniform (stock-adjustment-document.ts), surfaced here as a single header.
     projectId: doc.lines[0]?.projectId ?? null,
@@ -202,13 +208,18 @@ function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Res
 }
 
 function handleDocumentError(c: Context, err: unknown): Response {
+  const postingRefusal = reversalRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (err instanceof DuplicateDocumentError || err instanceof DuplicatePhysicalCountError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
-  if (err instanceof InvalidDocumentTransitionError || err instanceof InvalidPhysicalCountStatusError) {
+  if (err instanceof InvalidDocumentTransitionError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  }
+  if (err instanceof InvalidPhysicalCountStatusError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
   if (
@@ -237,6 +248,7 @@ function handleDocumentError(c: Context, err: unknown): Response {
 export function createStockAdjustmentsRoutes(
   service: DocumentService<StockAdjustmentDocLine>,
   resolveAuthContext: AuthContextResolver,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -279,6 +291,30 @@ export function createStockAdjustmentsRoutes(
       }
       const { document, held } = await service.confirm(c.req.param("id"));
       return c.json({ document: serializeAdjustment(document), held });
+    } catch (err) {
+      return handleDocumentError(c, err);
+    }
+  });
+
+  app.post("/:id/reverse", gate(ReversalPermission.StockAdjustment), requireReversalReason, async (c) => {
+    try {
+      const id = c.req.param("id");
+      const existing = await service.findById(id);
+      if (existing) {
+        const refusal = warehouseScopeRefusal(c, existing.lines.map((l) => l.warehouseId));
+        if (refusal) return refusal;
+      }
+      const { date, memo } = await readReversalRequest(c);
+      await noteReversalOriginalDay(c, existing?.date);
+      const { original, reversal } = await service.reverse(id, { reversalId: `${id}:REVERSAL`, date, memo });
+      await recordDocumentReversal(audit, {
+        module: "inventory",
+        entityType: "STOCK_ADJUSTMENT",
+        entityId: id,
+        actor: getAuthContext(c)?.userId ?? "system",
+        details: { docNo: original.docNo, reversalDocId: reversal.id, date: reversal.date },
+      });
+      return c.json({ original: serializeAdjustment(original), reversal: serializeAdjustment(reversal) }, 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }

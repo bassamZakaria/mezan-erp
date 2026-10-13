@@ -70,6 +70,7 @@ export {
   recordSecurityEventOrFallback,
   withoutSecrets,
   UNRECORDED_RECENT_LIMIT,
+  AuditSeverityCode,
 } from "./audit/index.js";
 export type { SecurityEventFallback, UnrecordedSecurityEvent, UnrecordedSecurityEvents } from "./audit/index.js";
 export type {

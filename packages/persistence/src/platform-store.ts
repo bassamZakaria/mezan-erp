@@ -1,8 +1,11 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput, type SqliteOpenOptions } from "./sqlite-connection.js";
 import {
+  InvalidTenantError,
   Money,
   CardCheckoutAttentionCause, CardCheckoutFailureReason, CardCheckoutResolution, CardCheckoutStatus, PaidSettlementOutcome, ProviderEventOutcome,
+  pendingOwnerExpiresAt,
+  settledPeriodEnd,
   type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement,
   type PaymentProviderId,
   type Payment, type PaymentRepository,
@@ -11,9 +14,16 @@ import {
   type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
-  type Subscription,
-  type Tenant, type TenantRepository,
+  type Subscription, SubscriptionStatusKind, anchorIsUtcDayOfCreation, inferBillingAnchorDay,
+  type OwnerRecordDue, type PendingOwner, type Tenant, type TenantRepository, TenantStatusCode,
 } from "@mezan/domain";
+
+const TENANT_STATUSES: readonly string[] = Object.values(TenantStatusCode);
+const SUBSCRIPTION_STATUSES: readonly string[] = Object.values(SubscriptionStatusKind);
+
+function assertKnownStatus(kind: string, status: string, known: readonly string[]): void {
+  if (!known.includes(status)) throw new Error(`refusing to store ${kind} status "${status}"`);
+}
 
 const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS tenant (
@@ -22,6 +32,11 @@ CREATE TABLE IF NOT EXISTS tenant (
   name_ar      TEXT NOT NULL,
   name_en      TEXT,
   owner_email  TEXT NOT NULL,
+  owner_user_id TEXT,
+  owner_contact_verified INTEGER NOT NULL DEFAULT 1,
+  owner_needed INTEGER NOT NULL DEFAULT 0,
+  pending_owner TEXT,
+  owner_record_due TEXT,
   status       TEXT NOT NULL,
   db_file      TEXT NOT NULL,
   created_at   TEXT NOT NULL,
@@ -65,6 +80,8 @@ CREATE TABLE IF NOT EXISTS subscription (
   current_period_end    TEXT NOT NULL,
   trial_ends_at         TEXT,
   previous_plan_id      TEXT,
+  billing_anchor_day    INTEGER,
+  billing_anchor_review INTEGER NOT NULL DEFAULT 0,
   grace_days            INTEGER NOT NULL,
   cancelled_at          TEXT,
   created_at            TEXT NOT NULL,
@@ -74,6 +91,11 @@ CREATE INDEX IF NOT EXISTS idx_subscription_tenant ON subscription(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_subscription_plan ON subscription(plan_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscription_one_live
   ON subscription(tenant_id) WHERE status <> 'cancelled';
+
+CREATE TABLE IF NOT EXISTS platform_migration (
+  name        TEXT PRIMARY KEY,
+  applied_at  TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS platform_user (
   id             TEXT PRIMARY KEY,
@@ -145,6 +167,18 @@ CREATE TABLE IF NOT EXISTS signup_request (
   verified_at   TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signup_request_token ON signup_request(token_hash);
+
+CREATE TABLE IF NOT EXISTS signup_provision_claim (
+  token_hash TEXT PRIMARY KEY,
+  claim_id   TEXT NOT NULL,
+  claimed_at TEXT NOT NULL,
+  fence      INTEGER
+);
+-- AUTOINCREMENT on purpose: a fence must never be reused, even after every claim row is gone.
+CREATE TABLE IF NOT EXISTS provision_fence (
+  generation INTEGER PRIMARY KEY AUTOINCREMENT,
+  taken_at   TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_signup_request_code ON signup_request(code, status, expires_at);
 
 CREATE TABLE IF NOT EXISTS module_trial (
@@ -189,18 +223,76 @@ function addMissingColumns(sqlite: Database.Database): void {
     (sqlite.prepare(`PRAGMA table_info(payment)`).all() as { name: string }[]).map((c) => c.name),
   );
   if (!onPayment.has("idempotency_key")) sqlite.exec(`ALTER TABLE payment ADD COLUMN idempotency_key TEXT`);
+  if (!onSubscription.has("billing_anchor_day")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN billing_anchor_day INTEGER`);
+  if (!onSubscription.has("billing_anchor_review")) sqlite.exec(`ALTER TABLE subscription ADD COLUMN billing_anchor_review INTEGER NOT NULL DEFAULT 0`);
+  const onTenant = new Set((sqlite.prepare(`PRAGMA table_info(tenant)`).all() as { name: string }[]).map((c) => c.name));
+  const onClaim = new Set((sqlite.prepare(`PRAGMA table_info(signup_provision_claim)`).all() as { name: string }[]).map((c) => c.name));
+  if (!onClaim.has("fence")) sqlite.exec(`ALTER TABLE signup_provision_claim ADD COLUMN fence INTEGER`);
+  if (!onTenant.has("owner_user_id")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_user_id TEXT`);
+  if (!onTenant.has("owner_contact_verified")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_contact_verified INTEGER NOT NULL DEFAULT 1`);
+  if (!onTenant.has("owner_needed")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_needed INTEGER NOT NULL DEFAULT 0`);
+  if (!onTenant.has("pending_owner")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN pending_owner TEXT`);
+  if (!onTenant.has("owner_record_due")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_record_due TEXT`);
+}
+
+const TENANT_DB_FILE_INDEX = "idx_tenant_db_file";
+
+// REQUIRED ORDERING: look for duplicates before building the index. Two rows
+// naming one file is two companies in one set of books; the platform refuses
+// to start and names the rows, and nothing is changed for an operator to undo.
+function guardOneDbFilePerTenant(sqlite: Database.Database): void {
+  const shared = sqlite
+    .prepare(`SELECT db_file AS dbFile, group_concat(id, ', ') AS ids FROM (SELECT db_file, id FROM tenant ORDER BY id) GROUP BY db_file HAVING count(*) > 1`)
+    .all() as { dbFile: string; ids: string }[];
+  if (shared.length > 0) {
+    throw new Error(
+      `the platform database names one tenant database file from more than one tenant row; fix the rows before starting: ${shared
+        .map((row) => `"${row.dbFile}" <- tenants ${row.ids}`)
+        .join("; ")}`,
+    );
+  }
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${TENANT_DB_FILE_INDEX} ON tenant(db_file)`);
+}
+
+function isDbFileTaken(err: unknown): boolean {
+  return err instanceof Error && "code" in err && err.code === "SQLITE_CONSTRAINT_UNIQUE" && err.message.includes("tenant.db_file");
 }
 
 interface TenantRow {
   id: string; code: string; name_ar: string; name_en: string | null; owner_email: string;
+  owner_user_id: string | null; owner_contact_verified: number;
+  owner_needed: number; pending_owner: string | null; owner_record_due: string | null;
   status: Tenant["status"]; db_file: string; created_at: string; updated_at: string;
 }
 
 function toTenant(r: TenantRow): Tenant {
   return {
     id: r.id, code: r.code, nameAr: r.name_ar, nameEn: r.name_en, ownerEmail: r.owner_email,
+    ownerUserId: r.owner_user_id, ownerContactVerified: r.owner_contact_verified === 1,
     status: r.status, dbFile: r.db_file, createdAt: r.created_at, updatedAt: r.updated_at,
+    ...(r.owner_needed === 1 ? { ownerNeeded: true } : {}),
+    ...(r.pending_owner === null ? {} : { pendingOwner: pendingOwnerOf(r.pending_owner) }),
+    ...(r.owner_record_due === null ? {} : { ownerRecordDue: JSON.parse(r.owner_record_due) as OwnerRecordDue }),
   };
+}
+
+function pendingOwnerOf(stored: string): PendingOwner {
+  const read = JSON.parse(stored) as Omit<PendingOwner, "expiresAt"> & { expiresAt?: string };
+  return { ...read, expiresAt: read.expiresAt ?? pendingOwnerExpiresAt(read.requestedAt) };
+}
+
+function storedPendingOwner(tenant: Tenant): string | null {
+  const pending = tenant.pendingOwner;
+  if (!pending) return null;
+  return JSON.stringify({
+    userId: pending.userId, email: pending.email, requestedBy: pending.requestedBy, requestedAt: pending.requestedAt, expiresAt: pending.expiresAt, tokenHash: pending.tokenHash,
+  });
+}
+
+function storedOwnerRecordDue(tenant: Tenant): string | null {
+  const due = tenant.ownerRecordDue;
+  if (!due) return null;
+  return JSON.stringify({ eventId: due.eventId, userId: due.userId, previousUserId: due.previousUserId, actor: due.actor, confirmedBy: due.confirmedBy });
 }
 
 class SqliteTenantStore implements TenantRepository {
@@ -209,15 +301,33 @@ class SqliteTenantStore implements TenantRepository {
   private readonly byCode: Database.Statement;
   private readonly all: Database.Statement;
   private readonly discard: Database.Statement;
+  private readonly discardSubscriptions: Database.Statement;
+  private readonly ownerUpdate: Database.Statement;
+  private readonly statusUpdate: Database.Statement;
+  private readonly dbFileUpdate: Database.Statement;
 
-  constructor(sqlite: Database.Database) {
-    this.discard = sqlite.prepare(`DELETE FROM tenant WHERE id = ? AND status = 'provisioning'`);
+  constructor(private readonly sqlite: Database.Database) {
+    this.statusUpdate = sqlite.prepare(
+      `UPDATE tenant SET status = @status, code = @code, updated_at = @updatedAt
+       WHERE id = @id AND status = @beforeStatus AND code = @beforeCode`,
+    );
+    this.dbFileUpdate = sqlite.prepare(`UPDATE tenant SET db_file = @to WHERE id = @id AND db_file = @from`);
+    this.discard = sqlite.prepare(`DELETE FROM tenant WHERE id = ? AND status = ?`);
+    this.discardSubscriptions = sqlite.prepare(`DELETE FROM subscription WHERE tenant_id = ?`);
     this.upsert = sqlite.prepare(
-      `INSERT INTO tenant (id, code, name_ar, name_en, owner_email, status, db_file, created_at, updated_at)
-       VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @status, @dbFile, @createdAt, @updatedAt)
+      `INSERT INTO tenant (id, code, name_ar, name_en, owner_email, owner_user_id, owner_contact_verified, owner_needed, pending_owner, owner_record_due, status, db_file, created_at, updated_at)
+       VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @ownerUserId, @ownerContactVerified, @ownerNeeded, @pendingOwner, @ownerRecordDue, @status, @dbFile, @createdAt, @updatedAt)
        ON CONFLICT(id) DO UPDATE SET
          code = @code, name_ar = @nameAr, name_en = @nameEn, owner_email = @ownerEmail,
+         owner_user_id = @ownerUserId, owner_contact_verified = @ownerContactVerified,
+         owner_needed = @ownerNeeded, pending_owner = @pendingOwner, owner_record_due = @ownerRecordDue,
          status = @status, db_file = @dbFile, created_at = @createdAt, updated_at = @updatedAt`,
+    );
+    this.ownerUpdate = sqlite.prepare(
+      `UPDATE tenant SET owner_email = @ownerEmail, owner_user_id = @ownerUserId, owner_contact_verified = @ownerContactVerified,
+         owner_needed = @ownerNeeded, pending_owner = @pendingOwner, owner_record_due = @ownerRecordDue, updated_at = @updatedAt
+       WHERE id = @id AND owner_email = @beforeEmail AND owner_user_id IS @beforeUserId AND owner_contact_verified = @beforeVerified
+         AND owner_needed = @beforeNeeded AND pending_owner IS @beforePending AND owner_record_due IS @beforeRecordDue`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM tenant WHERE id = ?`);
     this.byCode = sqlite.prepare(`SELECT * FROM tenant WHERE code = ?`);
@@ -239,14 +349,64 @@ class SqliteTenantStore implements TenantRepository {
   }
 
   async save(t: Tenant): Promise<void> {
-    this.upsert.run({
-      id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
-      status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
-    });
+    assertKnownStatus("tenant", t.status, TENANT_STATUSES);
+    try {
+      this.upsert.run({
+        id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
+        ownerUserId: t.ownerUserId, ownerContactVerified: t.ownerContactVerified ? 1 : 0,
+        ownerNeeded: t.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(t), ownerRecordDue: storedOwnerRecordDue(t),
+        status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
+      });
+    } catch (err) {
+      if (isDbFileTaken(err)) throw new InvalidTenantError(["ملف قاعدة بيانات هذه المنشأة مسجّل لمنشأة أخرى"]);
+      throw err;
+    }
+  }
+
+  async compareAndSetStatus(before: Tenant, after: Tenant): Promise<boolean> {
+    assertKnownStatus("tenant", after.status, TENANT_STATUSES);
+    return (
+      this.statusUpdate.run({
+        id: after.id, status: after.status, code: after.code, updatedAt: after.updatedAt,
+        beforeStatus: before.status, beforeCode: before.code,
+      }).changes === 1
+    );
+  }
+
+  async setDbFile(id: string, from: string, to: string): Promise<boolean> {
+    try {
+      return this.dbFileUpdate.run({ id, from, to }).changes === 1;
+    } catch (err) {
+      if (isDbFileTaken(err)) return false;
+      throw err;
+    }
+  }
+
+  async compareAndSetOwner(before: Tenant, after: Tenant, sideEffect: () => Promise<void>): Promise<boolean> {
+    return withSqliteTransaction(
+      this.sqlite,
+      async () => {
+        const result = this.ownerUpdate.run({
+          id: after.id, ownerEmail: after.ownerEmail, ownerUserId: after.ownerUserId,
+          ownerContactVerified: after.ownerContactVerified ? 1 : 0, updatedAt: after.updatedAt,
+          ownerNeeded: after.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(after), ownerRecordDue: storedOwnerRecordDue(after),
+          beforeEmail: before.ownerEmail, beforeUserId: before.ownerUserId, beforeVerified: before.ownerContactVerified ? 1 : 0,
+          beforeNeeded: before.ownerNeeded === true ? 1 : 0, beforePending: storedPendingOwner(before), beforeRecordDue: storedOwnerRecordDue(before),
+        });
+        if (result.changes !== 1) return false;
+        await sideEffect();
+        return true;
+      },
+      "BEGIN IMMEDIATE",
+    );
   }
 
   async discardProvisioning(id: string): Promise<boolean> {
-    return this.discard.run(id).changes > 0;
+    return this.sqlite.transaction(() => {
+      if (this.discard.run(id, TenantStatusCode.Provisioning).changes === 0) return false;
+      this.discardSubscriptions.run(id);
+      return true;
+    })();
   }
 }
 
@@ -329,6 +489,8 @@ interface SubscriptionRow {
   extra_seats: number; extra_branches: number; extra_warehouses: number;
   current_period_start: string; current_period_end: string; trial_ends_at: string | null;
   previous_plan_id: string | null;
+  billing_anchor_day: number | null;
+  billing_anchor_review: number;
   grace_days: number; cancelled_at: string | null; created_at: string; updated_at: string;
 }
 
@@ -340,7 +502,82 @@ function toSubscription(r: SubscriptionRow): Subscription {
     currentPeriodStart: r.current_period_start, currentPeriodEnd: r.current_period_end,
     trialEndsAt: r.trial_ends_at, previousPlanId: r.previous_plan_id, graceDays: r.grace_days, cancelledAt: r.cancelled_at,
     createdAt: r.created_at, updatedAt: r.updated_at,
+    ...(r.billing_anchor_day === null ? {} : { billingAnchorDay: r.billing_anchor_day }),
+    ...(r.billing_anchor_review === 1 ? { billingAnchorNeedsReview: true } : {}),
   };
+}
+
+const ANCHOR_BACKFILL = "2026-10-billing-anchor-backfill";
+
+function backfillBillingAnchors(sqlite: Database.Database): void {
+  if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(ANCHOR_BACKFILL)) return;
+  const unanchored = sqlite.prepare(`SELECT * FROM subscription WHERE billing_anchor_day IS NULL AND status <> ?`);
+  const renewals = sqlite.prepare(`SELECT created_at FROM payment WHERE subscription_id = ? ORDER BY created_at, id`);
+  const setAnchor = sqlite.prepare(`UPDATE subscription SET billing_anchor_day = ? WHERE id = ? AND billing_anchor_day IS NULL`);
+  const markForReview = sqlite.prepare(`UPDATE subscription SET billing_anchor_review = 1 WHERE id = ? AND billing_anchor_day IS NULL`);
+  const done = sqlite.prepare(`INSERT INTO platform_migration (name, applied_at) VALUES (?, ?)`);
+  sqlite
+    .transaction(() => {
+      for (const row of unanchored.all(SubscriptionStatusKind.Cancelled) as SubscriptionRow[]) {
+        const recordedAt = (renewals.all(row.id) as { created_at: string }[]).map((payment) => payment.created_at);
+        const day = inferBillingAnchorDay(toSubscription(row), recordedAt);
+        if (day === null) markForReview.run(row.id);
+        else setAnchor.run(day, row.id);
+      }
+      done.run(ANCHOR_BACKFILL, new Date().toISOString());
+    })
+    .immediate();
+}
+
+const UTC_ANCHOR_REPAIR = "2026-10-billing-anchor-utc-repair";
+
+// INVARIANT: corrects only an anchor that is provably the UTC day of the subscription's
+// creation, and only to the day its own payment history reproduces. Anything
+// the history does not settle is marked for the platform owner, never guessed.
+function repairUtcBillingAnchors(sqlite: Database.Database): void {
+  if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(UTC_ANCHOR_REPAIR)) return;
+  const anchored = sqlite.prepare(`SELECT * FROM subscription WHERE billing_anchor_day IS NOT NULL AND status <> ?`);
+  const renewals = sqlite.prepare(`SELECT created_at FROM payment WHERE subscription_id = ? ORDER BY created_at, id`);
+  const setAnchor = sqlite.prepare(`UPDATE subscription SET billing_anchor_day = ? WHERE id = ? AND billing_anchor_day = ?`);
+  const markForReview = sqlite.prepare(`UPDATE subscription SET billing_anchor_review = 1 WHERE id = ? AND billing_anchor_day = ?`);
+  const done = sqlite.prepare(`INSERT INTO platform_migration (name, applied_at) VALUES (?, ?)`);
+  sqlite
+    .transaction(() => {
+      for (const row of anchored.all(SubscriptionStatusKind.Cancelled) as SubscriptionRow[]) {
+        const subscription = toSubscription(row);
+        if (!anchorIsUtcDayOfCreation(subscription)) continue;
+        const recordedAt = (renewals.all(row.id) as { created_at: string }[]).map((payment) => payment.created_at);
+        const day = inferBillingAnchorDay(subscription, recordedAt);
+        if (day === null) markForReview.run(row.id, row.billing_anchor_day);
+        else setAnchor.run(day, row.id, row.billing_anchor_day);
+      }
+      done.run(UTC_ANCHOR_REPAIR, new Date().toISOString());
+    })
+    .immediate();
+}
+
+const PERIOD_END_REPAIR = "2026-10-period-end-cairo-repair";
+const PERIOD_END_SHORT_REPAIR = "2026-10-period-end-utc-short-repair";
+
+// REQUIRED ORDERING: after the anchor repairs, because the day a period was
+// meant to end on is read from the anchor they settle.
+// INVARIANT: one pass per marker, and neither marker may be dropped or merged.
+// Stores that ran the first pass ran it before `settledPeriodEnd` also read a
+// period that ends short of its day; only the second marker reaches them.
+function repairPeriodEnds(sqlite: Database.Database, marker: string): void {
+  if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(marker)) return;
+  const live = sqlite.prepare(`SELECT * FROM subscription WHERE status <> ?`);
+  const setEnd = sqlite.prepare(`UPDATE subscription SET current_period_end = ? WHERE id = ? AND current_period_end = ?`);
+  const done = sqlite.prepare(`INSERT INTO platform_migration (name, applied_at) VALUES (?, ?)`);
+  sqlite
+    .transaction(() => {
+      for (const row of live.all(SubscriptionStatusKind.Cancelled) as SubscriptionRow[]) {
+        const settled = settledPeriodEnd(toSubscription(row));
+        if (settled !== row.current_period_end) setEnd.run(settled, row.id, row.current_period_end);
+      }
+      done.run(marker, new Date().toISOString());
+    })
+    .immediate();
 }
 
 class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
@@ -359,16 +596,16 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
     this.upsert = sqlite.prepare(
       `INSERT INTO subscription (id, tenant_id, plan_id, status, billing_cycle, add_on_modules, extra_seats,
          extra_branches, extra_warehouses, current_period_start, current_period_end, trial_ends_at, previous_plan_id,
-         grace_days, cancelled_at, created_at, updated_at)
+         billing_anchor_day, billing_anchor_review, grace_days, cancelled_at, created_at, updated_at)
        VALUES (@id, @tenantId, @planId, @status, @billingCycle, @addOnModules, @extraSeats, @extraBranches,
-         @extraWarehouses, @currentPeriodStart, @currentPeriodEnd, @trialEndsAt, @previousPlanId, @graceDays, @cancelledAt,
+         @extraWarehouses, @currentPeriodStart, @currentPeriodEnd, @trialEndsAt, @previousPlanId, @billingAnchorDay, @billingAnchorReview, @graceDays, @cancelledAt,
          @createdAt, @updatedAt)
        ON CONFLICT(id) DO UPDATE SET
          tenant_id = @tenantId, plan_id = @planId, status = @status, billing_cycle = @billingCycle,
          add_on_modules = @addOnModules, extra_seats = @extraSeats, extra_branches = @extraBranches,
          extra_warehouses = @extraWarehouses, current_period_start = @currentPeriodStart,
          current_period_end = @currentPeriodEnd, trial_ends_at = @trialEndsAt, previous_plan_id = @previousPlanId,
-         grace_days = @graceDays,
+         billing_anchor_day = @billingAnchorDay, billing_anchor_review = @billingAnchorReview, grace_days = @graceDays,
          cancelled_at = @cancelledAt, created_at = @createdAt, updated_at = @updatedAt`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM subscription WHERE id = ?`);
@@ -386,7 +623,8 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
       `UPDATE subscription
           SET plan_id = @planId, previous_plan_id = @previousPlanId, status = @status, billing_cycle = @billingCycle,
               current_period_start = @currentPeriodStart, current_period_end = @currentPeriodEnd,
-              trial_ends_at = @trialEndsAt, updated_at = @updatedAt
+              trial_ends_at = @trialEndsAt, billing_anchor_day = @billingAnchorDay, billing_anchor_review = @billingAnchorReview,
+              updated_at = @updatedAt
         WHERE id = @id AND plan_id = @beforePlanId AND status = @beforeStatus AND updated_at = @beforeUpdatedAt`,
     );
   }
@@ -425,7 +663,8 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
           id: after.id, planId: after.planId, previousPlanId: after.previousPlanId,
           status: after.status, billingCycle: after.billingCycle,
           currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd,
-          trialEndsAt: after.trialEndsAt, updatedAt: after.updatedAt,
+          trialEndsAt: after.trialEndsAt, billingAnchorDay: after.billingAnchorDay ?? null,
+          billingAnchorReview: after.billingAnchorNeedsReview === true ? 1 : 0, updatedAt: after.updatedAt,
           beforePlanId: before.planId, beforeStatus: before.status, beforeUpdatedAt: before.updatedAt,
         });
         if (result.changes !== 1) return false;
@@ -437,11 +676,14 @@ class SqliteSubscriptionStore implements SubscriptionTransitionRepository {
   }
 
   async save(s: Subscription): Promise<void> {
+    assertKnownStatus("subscription", s.status, SUBSCRIPTION_STATUSES);
     this.upsert.run({
       id: s.id, tenantId: s.tenantId, planId: s.planId, status: s.status, billingCycle: s.billingCycle,
       addOnModules: JSON.stringify(s.addOnModules), extraSeats: s.extraSeats, extraBranches: s.extraBranches,
       extraWarehouses: s.extraWarehouses, currentPeriodStart: s.currentPeriodStart, currentPeriodEnd: s.currentPeriodEnd,
-      trialEndsAt: s.trialEndsAt, previousPlanId: s.previousPlanId, graceDays: s.graceDays, cancelledAt: s.cancelledAt,
+      trialEndsAt: s.trialEndsAt, previousPlanId: s.previousPlanId, billingAnchorDay: s.billingAnchorDay ?? null,
+      billingAnchorReview: s.billingAnchorNeedsReview === true ? 1 : 0,
+      graceDays: s.graceDays, cancelledAt: s.cancelledAt,
       createdAt: s.createdAt, updatedAt: s.updatedAt,
     });
   }
@@ -674,7 +916,8 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
     );
     this.renewSubscription = sqlite.prepare(
       `UPDATE subscription SET status = @status, trial_ends_at = @trialEndsAt, current_period_start = @currentPeriodStart,
-         current_period_end = @currentPeriodEnd, updated_at = @updatedAt
+         current_period_end = @currentPeriodEnd, billing_anchor_day = @billingAnchorDay, billing_anchor_review = @billingAnchorReview,
+         updated_at = @updatedAt
        WHERE id = @id AND status = @expectedStatus AND updated_at = @expectedUpdatedAt AND current_period_end = @expectedPeriodEnd`,
     );
     this.insertPayment = sqlite.prepare(
@@ -770,7 +1013,8 @@ class SqliteCardCheckoutStore implements CardCheckoutRepository {
       if (!moved) return PaidSettlementOutcome.AlreadySettled;
       const renewed = this.renewSubscription.run({
         id: after.id, status: after.status, trialEndsAt: after.trialEndsAt,
-        currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd, updatedAt: after.updatedAt,
+        currentPeriodStart: after.currentPeriodStart, currentPeriodEnd: after.currentPeriodEnd, billingAnchorDay: after.billingAnchorDay ?? null,
+        billingAnchorReview: after.billingAnchorNeedsReview === true ? 1 : 0, updatedAt: after.updatedAt,
         expectedStatus: before.status, expectedUpdatedAt: before.updatedAt, expectedPeriodEnd: before.currentPeriodEnd,
       });
       if (renewed.changes !== 1) throw new SubscriptionChanged();
@@ -811,8 +1055,41 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
   private readonly byTokenHash: Database.Statement;
   private readonly activeByCode: Database.Statement;
   private readonly markVerified: Database.Statement;
+  private readonly claim: (tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string) => boolean;
+  private readonly release: Database.Statement;
+  private readonly renew: Database.Statement;
+  private readonly followOwner: Database.Statement;
+  private readonly claimedAt: Database.Statement;
+  private readonly fenceOf: Database.Statement;
+  private readonly releaseCode: Database.Statement;
+  private readonly dropClaimsOfCode: Database.Statement;
+  private readonly takeFence: Database.Statement;
 
   constructor(sqlite: Database.Database) {
+    this.dropClaimsOfCode = sqlite.prepare(
+      `DELETE FROM signup_provision_claim WHERE token_hash IN (SELECT token_hash FROM signup_request WHERE code = ?)`,
+    );
+    const dropStaleClaim = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claimed_at < ?`);
+    const insertClaim = sqlite.prepare(`INSERT OR IGNORE INTO signup_provision_claim (token_hash, claim_id, claimed_at) VALUES (?, ?, ?)`);
+    const takeFence = sqlite.prepare(`INSERT INTO provision_fence (taken_at) VALUES (?)`);
+    this.takeFence = takeFence;
+    const stampFence = sqlite.prepare(`UPDATE signup_provision_claim SET fence = ? WHERE token_hash = ? AND claim_id = ?`);
+    this.fenceOf = sqlite.prepare(`SELECT fence FROM signup_provision_claim WHERE token_hash = ? AND claim_id = ?`);
+    // REQUIRED ORDERING: IMMEDIATE, because the stale-claim delete and the insert must be one write transaction,
+    // or two processes can both delete the same dead claim and both believe they hold it.
+    this.claim = sqlite
+      .transaction((tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string) => {
+        dropStaleClaim.run(tokenHash, staleBeforeIso);
+        if (insertClaim.run(tokenHash, claimId, nowIso).changes !== 1) return false;
+        stampFence.run(Number(takeFence.run(nowIso).lastInsertRowid), tokenHash, claimId);
+        return true;
+      })
+      .immediate;
+    this.release = sqlite.prepare(`DELETE FROM signup_provision_claim WHERE token_hash = ? AND claim_id = ?`);
+    this.followOwner = sqlite.prepare(`UPDATE signup_request SET owner_email = ? WHERE code = ? AND owner_email = ? AND status = ?`);
+    this.releaseCode = sqlite.prepare(`UPDATE signup_request SET status = ? WHERE code = ?`);
+    this.renew = sqlite.prepare(`UPDATE signup_provision_claim SET claimed_at = ? WHERE token_hash = ? AND claim_id = ?`);
+    this.claimedAt = sqlite.prepare(`SELECT claimed_at FROM signup_provision_claim WHERE token_hash = ?`);
     this.upsert = sqlite.prepare(
       `INSERT INTO signup_request (id, code, name_ar, name_en, owner_email, owner_name_ar, plan_id, billing_cycle,
          token_hash, status, expires_at, created_at, verified_at)
@@ -849,6 +1126,40 @@ class SqliteSignupRequestStore implements SignupRequestRepository {
     const result = this.markVerified.run(SignupRequestStatus.Verified, nowIso, tokenHash, SignupRequestStatus.Pending);
     if (result.changes !== 1) return null;
     return this.findByTokenHash(tokenHash);
+  }
+
+  async tryClaimProvisioning(tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string): Promise<boolean> {
+    return this.claim(tokenHash, claimId, nowIso, staleBeforeIso);
+  }
+
+  async renewProvisioning(tokenHash: string, claimId: string, nowIso: string): Promise<boolean> {
+    return this.renew.run(nowIso, tokenHash, claimId).changes === 1;
+  }
+
+  async provisioningClaimedAt(tokenHash: string): Promise<string | null> {
+    const row = this.claimedAt.get(tokenHash) as { claimed_at: string } | undefined;
+    return row?.claimed_at ?? null;
+  }
+
+  async provisioningFence(tokenHash: string, claimId: string): Promise<number | null> {
+    return (this.fenceOf.get(tokenHash, claimId) as { fence: number | null } | undefined)?.fence ?? null;
+  }
+
+  async takeProvisionFence(nowIso: string): Promise<number> {
+    return Number(this.takeFence.run(nowIso).lastInsertRowid);
+  }
+
+  async releaseByCode(code: string): Promise<void> {
+    this.dropClaimsOfCode.run(code);
+    this.releaseCode.run(SignupRequestStatus.Released, code);
+  }
+
+  async followOwnerEmail(code: string, before: string, after: string): Promise<void> {
+    this.followOwner.run(after, code, before, SignupRequestStatus.Verified);
+  }
+
+  async releaseProvisioning(tokenHash: string, claimId: string): Promise<void> {
+    this.release.run(tokenHash, claimId);
   }
 
   async save(r: SignupRequest): Promise<void> {
@@ -898,7 +1209,12 @@ export function createSqlitePlatformStores(
   const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
+  guardOneDbFilePerTenant(sqlite);
   ensurePaymentIndexes(sqlite);
+  backfillBillingAnchors(sqlite);
+  repairUtcBillingAnchors(sqlite);
+  repairPeriodEnds(sqlite, PERIOD_END_REPAIR);
+  repairPeriodEnds(sqlite, PERIOD_END_SHORT_REPAIR);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),

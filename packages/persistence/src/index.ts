@@ -21,6 +21,7 @@ export {
   type SqliteDriver,
   type SqliteOpenOptions,
 } from "./sqlite-connection.js";
+export { holdSqliteFile, SqliteFileBusyError, type HeldSqliteFile } from "./sqlite-file-hold.js";
 export {
   schema,
   journalEntry,
@@ -297,6 +298,7 @@ export {
   type SqlitePayrollComponentRepositoryHandle,
 } from "./hr-payroll-store.js";
 export { createSqliteClockCredentialRepository, type SqliteClockCredentialRepositoryHandle } from "./hr-self-store.js";
+export { grantSuccessorPermissionsOnce } from "./permission-successors.js";
 export { createSqliteWebauthnChallengeRepository, type SqliteWebauthnChallengeRepositoryHandle } from "./webauthn-challenge-store.js";
 export {
   createSqliteWritedownRunRepository,
@@ -381,3 +383,5 @@ export {
 export { createSqliteAccountLockStore, type SqliteAccountLockStore, type StoredAccountLock } from "./account-lock-store.js";
 export { drainForeignWrites, drainUntransactedAudits, keepRecent } from "./untransacted-audits.js";
 export { createFileSecurityEventFallback, securityFallbackFor, type FileSecurityEventFallbackOptions } from "./security-fallback-file.js";
+export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";
+export { createSqliteCredentialResetMarks, type CredentialResetMarks } from "./credential-reset-marks.js";

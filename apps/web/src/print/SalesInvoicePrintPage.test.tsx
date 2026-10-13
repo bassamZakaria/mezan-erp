@@ -67,7 +67,7 @@ function baseInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO 
 function baseTransport(settingsOverrides: Record<string, unknown> = {}) {
   return stubTransport({
     "GET /print-template-config": () => ({ body: DEFAULT_PRINT_TEMPLATE_CONFIG }),
-    "GET /settings": () => ({
+    "GET /settings/display": () => ({
       body: {
         companyName: "شركة سايج",
         address: "القاهرة الجديدة",
@@ -86,7 +86,7 @@ describe("SalesInvoicePrintPage", () => {
   it("shows the empty-state notice when no print template config is available", async () => {
     const transport = stubTransport({
       "GET /print-template-config": () => ({ status: 404, body: {} }),
-      "GET /settings": () => ({ body: {} }),
+      "GET /settings/display": () => ({ body: {} }),
       "GET /customers": () => ({ body: [] }),
       "GET /branches": () => ({ body: [] }),
       "GET /warehouses": () => ({ body: [] }),
@@ -121,5 +121,18 @@ describe("SalesInvoicePrintPage", () => {
     });
     await new Promise((r) => setTimeout(r, 20));
     expect(container.firstChild).not.toBeNull();
+  });
+
+  it("a role that may not read the settings still prints the company's name, address and tax number on the invoice", async () => {
+    const base = baseTransport();
+    const transport: typeof base = (path, init) =>
+      path.split("?")[0] === "/settings"
+        ? Promise.resolve({ status: 403, ok: false, json: <T,>() => Promise.resolve({ error: "PERMISSION_DENIED" } as T), text: () => Promise.resolve("{}") })
+        : base(path, init);
+    const restricted = { ...testAdminSession, userId: "USER-CASHIER", isCompanyAdmin: false, roleCode: "CASHIER", permissions: ["sales.invoice.view_own", "sales.invoice.print"] };
+    renderWithProviders(<SalesInvoicePrintPage invoice={baseInvoice()} />, { transport, initialSession: restricted });
+    expect((await screen.findAllByText(/شركة سايج/)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/123-456-789/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/اسم الشركة غير|الرقم الضريبي غير/)).not.toBeInTheDocument();
   });
 });

@@ -235,8 +235,15 @@ describe("createCloudApp", () => {
     const retried = (await retryRes.json()) as { tenant: { status: string }; adminEmail: string; adminPin: string | null };
     expect(retried.tenant.status).toBe("active");
     expect(retried.adminEmail).toBe("owner@retryco.example");
-    // The admin account was already created on the first, failed attempt (before the retired plan blew up subscription start) — the retry finds it claimed and does not re-issue a PIN.
-    expect(retried.adminPin).toBeNull();
+    expect(retried.adminPin).toMatch(/^[0-9]{6}$/);
+    const login = await app.root.fetch(
+      new Request("http://cloud.internal/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-mezan-tenant": "retryco" },
+        body: JSON.stringify({ username: "owner@retryco.example", pin: retried.adminPin }),
+      }),
+    );
+    expect(login.status).toBe(200);
   });
 
   describe("with MEZAN_ORIGIN_SECRET set", () => {

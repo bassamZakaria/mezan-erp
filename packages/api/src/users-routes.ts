@@ -21,6 +21,9 @@ import {
   assertUserErasable,
   erasedUser,
   isErasedUser,
+  normalizeEmail,
+  AuditSeverityCode,
+  UserStatusCode,
   type AuditSink,
   type SodConflictMatch,
   type User,
@@ -28,7 +31,7 @@ import {
   type ScopeSelection,
   type SecretHasher,
 } from "@mezan/domain";
-import { ErasureRetention, createUserSchema, eraseUserSchema, updateUserSchema } from "@mezan/contracts";
+import { ErasureRetention, OwnerHandOverOutcome, createUserSchema, deactivateUserSchema, eraseUserSchema, updateUserSchema } from "@mezan/contracts";
 import { EMPTY_ERASURE_COUNTS, type UserErasurePort } from "./user-erasure.js";
 import {
   createPermissionGate,
@@ -87,7 +90,45 @@ function userErrorResponse(c: Context, err: unknown) {
   throw err;
 }
 
+export interface UserEmailChange {
+  readonly userId: string;
+  readonly before: string;
+  readonly after: string;
+  readonly actorId: string;
+  readonly actorCredentialIsOwn?: boolean;
+}
+
+export { OwnerHandOverOutcome };
+
+export const COMPANY_OWNER_HAND_OVER_AUDIT = "COMPANY_OWNER_HAND_OVER";
+
+const SUCCESSOR_REQUIRED = {
+  message: "هذا الحساب هو مالك المنشأة. اختر مديرًا آخر للمنشأة ليصبح المالك قبل إيقاف الحساب أو سحب صلاحية المدير منه.",
+  messageEn: "This account owns the company. Choose another company admin as the new owner before deactivating it or removing its admin access.",
+} as const;
+
+export interface CompanyOwnerPort {
+  // SECURITY: answers the account to protect even while the platform has not
+  // linked it by id yet, so the owner rules never switch off during a backfill.
+  currentOwnerUserId(): Promise<string | null>;
+  // REQUIRED ORDERING: called only after the tenant's own write has committed,
+  // and safe to call twice for the same hand-over.
+  handOver(input: {
+    readonly fromUserId: string;
+    readonly toUserId: string;
+    readonly toEmail: string;
+    readonly actorId: string;
+    readonly actorCredentialIsOwn?: boolean;
+  }): Promise<OwnerHandOverOutcome>;
+}
+
 export interface UsersRoutesOptions {
+  // REQUIRED ORDERING: called only after the save has committed, never inside
+  // its transaction. Its work lives in another database, so running it before
+  // the commit lets the two disagree for good when the commit then fails.
+  readonly onEmailChanged?: (change: UserEmailChange) => Promise<void>;
+  readonly owner?: CompanyOwnerPort;
+  readonly onCredentialSetByOther?: (userId: string, actorId: string) => void | Promise<void>;
   /**
    * The tenant's allowed email domains, read per request rather than captured
    * at mount: an admin who adds a domain in الإعدادات must not have to restart
@@ -143,7 +184,7 @@ export function createUsersRoutes(
   resolveAuthContext: AuthContextResolver,
   options: UsersRoutesOptions = {},
 ) {
-  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure } = options;
+  const { readAllowedEmailDomains, audit, sessions, loginThrottle, erasure, onEmailChanged, owner, onCredentialSetByOther } = options;
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
 
@@ -446,9 +487,65 @@ export function createUsersRoutes(
     );
   }
 
+  async function isCompanyOwner(userId: string): Promise<boolean> {
+    return owner !== undefined && (await owner.currentOwnerUserId()) === userId;
+  }
+
+  async function refuseOwnerIdentityChange(c: Context, targetId: string) {
+    await auditRefusal(c, targetId, { reason: "OWNER_ACCOUNT_PROTECTED" });
+    return c.json(
+      {
+        error: "OWNER_ACCOUNT_PROTECTED",
+        message:
+          "هذا حساب مالك المنشأة. لا يغيّر بريده أو رمزه السري أو كلمة مروره أو حالته أو صلاحية المدير إلا المالك نفسه. لاستعادة الحساب تواصل مع دعم المنصة.",
+        messageEn:
+          "This is the company owner's account. Only the owner can change its email, PIN, password, status or admin access. To recover the account, contact platform support.",
+      },
+      403,
+    );
+  }
+
+  async function refuseOwnerErasure(c: Context, targetId: string) {
+    await auditRefusal(c, targetId, { reason: "OWNER_ACCOUNT_PROTECTED", attempted: "ERASE" });
+    return c.json(
+      {
+        error: "OWNER_ACCOUNT_PROTECTED",
+        message: "هذا حساب مالك المنشأة ولا تُمحى بياناته. ينقل المالك ملكية المنشأة إلى مدير آخر أولًا، وبعدها يُمحى حسابه كأي حساب آخر.",
+        messageEn: "This is the company owner's account and it cannot be erased. The owner hands the company over to another admin first; the account can then be erased like any other.",
+      },
+      403,
+    );
+  }
+
+  async function successorOrRefusal(c: Context, ownerId: string, successorId: string | undefined): Promise<User | Response> {
+    const successor = successorId && successorId !== ownerId ? await uow.users.findById(successorId) : null;
+    if (successor && successor.isCompanyAdmin && successor.status === UserStatusCode.Active && !isErasedUser(successor)) return successor;
+    return c.json({ error: "OWNER_SUCCESSOR_REQUIRED", ...SUCCESSOR_REQUIRED }, 422);
+  }
+
+  async function handOverAfterCommit(c: Context, fromUserId: string, successor: User): Promise<OwnerHandOverOutcome> {
+    const actorId = getAuthContext(c)?.userId ?? "unknown";
+    const outcome = owner
+      ? await owner.handOver({ fromUserId, toUserId: successor.id, toEmail: successor.email, actorId }).catch((err: unknown) => {
+          console.error("[users] the account change was saved, but handing the company over failed", err);
+          return OwnerHandOverOutcome.Failed;
+        })
+      : OwnerHandOverOutcome.Failed;
+    await recordSecurityAdminEvent(audit, c, {
+      module: "admin",
+      entityType: "USER",
+      entityId: successor.id,
+      action: COMPANY_OWNER_HAND_OVER_AUDIT,
+      severity: AuditSeverityCode.Critical,
+      details: { fromUserId, toUserId: successor.id, outcome },
+    });
+    return outcome;
+  }
+
   app.get("/", gate("admin.users.view"), async (c) => {
     const users = await uow.users.list();
-    return c.json(users.map(serializeUser));
+    const ownerId = owner ? await owner.currentOwnerUserId() : null;
+    return c.json(users.map((user) => (owner ? { ...serializeUser(user), isCompanyOwner: user.id === ownerId } : serializeUser(user))));
   });
 
   app.get("/:id", gate("admin.users.view"), async (c) => {
@@ -504,6 +601,26 @@ export function createUsersRoutes(
     if (outranked) return outranked;
     const escalation = await refuseIfEscalating(c, parsed.data, id);
     if (escalation) return escalation;
+    const { newOwnerUserId, ...fields } = parsed.data;
+    const change = credentialChange(fields);
+    const actorId = getAuthContext(c)?.userId;
+    let successor: User | null = null;
+    if (await isCompanyOwner(id)) {
+      const identityChanged =
+        normalizeEmail(fields.email) !== before.email ||
+        change.pinChanged ||
+        change.passwordChanged ||
+        fields.status !== before.status ||
+        fields.isCompanyAdmin !== before.isCompanyAdmin;
+      const steppingDown = fields.status !== UserStatusCode.Active || !fields.isCompanyAdmin;
+      if (actorId !== id) {
+        if (identityChanged) return refuseOwnerIdentityChange(c, id);
+      } else if (steppingDown) {
+        const found = await successorOrRefusal(c, id, newOwnerUserId);
+        if (found instanceof Response) return found;
+        successor = found;
+      }
+    }
     // The check runs only when the GRANT itself is changing — role OR the
     // admin flag, since either one decides which side(s) of a rule this
     // account reaches. An unrelated edit (phone number, branch scope) to an
@@ -523,27 +640,35 @@ export function createUsersRoutes(
       const overCap = await refuseIfOverSeatCap(c);
       if (overCap) return overCap;
     }
-    const change = credentialChange(parsed.data);
     try {
       // ONE transaction around read-check-write. Without it two concurrent
       // edits interleave between the guard and the save, and the later write
       // lands over the earlier one — which cannot escalate (the guard still
       // bounds what either caller may write) but does silently undo a
       // promotion and reset a PIN nobody asked to reset.
-      const user = await uow.transaction(async (tx) => {
+      const committed = await uow.transaction(async (tx) => {
         const current = await tx.users.findById(id);
         if (!current) throw new UserNotFoundError(id);
-        return saveUser(
+        const saved = await saveUser(
           // The account keeps the date it was created on; stamping `now` here
           // reset it on every edit.
-          { id, ...parsed.data, createdAt: current.createdAt },
+          { id, ...fields, createdAt: current.createdAt },
           tx,
           hasher,
           await saveOptions(),
         );
+        return { saved, emailBefore: current.email };
       });
+      const user = committed.saved;
+      if (onEmailChanged && user.email !== committed.emailBefore) {
+        await onEmailChanged({ userId: id, before: committed.emailBefore, after: user.email, actorId: getAuthContext(c)?.userId ?? "unknown" }).catch(
+          (err: unknown) => console.error("[users] the email change was saved, but announcing it failed", err),
+        );
+      }
       await auditUser(c, user, "UPDATE", before, change);
       await auditCredentialReset(c, user, change);
+      if (onCredentialSetByOther && actorId && actorId !== id && (change.pinChanged || change.passwordChanged)) await onCredentialSetByOther(id, actorId);
+      const ownerHandOver = successor ? await handOverAfterCommit(c, id, successor) : null;
       if (conflicts.length > 0) await auditSodOverride(c, user, conflicts, parsed.data.reason ?? "");
       // A grant is snapshotted into the session at login. Anything that changes
       // what this account is worth — its role, its admin flag, its scope, its
@@ -561,26 +686,34 @@ export function createUsersRoutes(
       ) {
         sessions.revokeUser(user.id);
       }
-      // A new PIN from an administrator is an unlock: the account must open on
-      // it. An account whose address changed leaves no lock behind on the old one.
       if (change.pinChanged) loginThrottle?.unlock(user.email);
       if (before.email !== user.email) loginThrottle?.unlock(before.email);
-      return c.json(serializeUser(user));
+      return c.json(ownerHandOver ? { ...serializeUser(user), ownerHandOver } : serializeUser(user));
     } catch (err) {
       return userErrorResponse(c, err);
     }
   });
 
   app.post("/:id/deactivate", gate("admin.users.deactivate"), async (c) => {
-    const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
+    const id = c.req.param("id");
+    const outranked = await refuseIfTargetOutranks(c, id);
     if (outranked) return outranked;
+    let successor: User | null = null;
+    if (await isCompanyOwner(id)) {
+      if (getAuthContext(c)?.userId !== id) return refuseOwnerIdentityChange(c, id);
+      const parsed = deactivateUserSchema.safeParse(await c.req.json().catch(() => ({})));
+      const found = await successorOrRefusal(c, id, parsed.success ? parsed.data.newOwnerUserId : undefined);
+      if (found instanceof Response) return found;
+      successor = found;
+    }
     try {
-      const user = await setUserStatus(c.req.param("id"), "inactive", uow);
+      const user = await setUserStatus(id, UserStatusCode.Inactive, uow);
       await auditUser(c, user, "DEACTIVATE");
+      const ownerHandOver = successor ? await handOverAfterCommit(c, id, successor) : null;
       // Firing someone at 10:00 must not leave them posting at 10:05.
       sessions?.revokeUser(user.id);
       if (loginThrottle) loginThrottle.unlock(user.email);
-      return c.json(serializeUser(user));
+      return c.json(ownerHandOver ? { ...serializeUser(user), ownerHandOver } : serializeUser(user));
     } catch (err) {
       return userErrorResponse(c, err);
     }
@@ -593,12 +726,12 @@ export function createUsersRoutes(
     const target = await uow.users.findById(id);
     const erasedRefusal = refuseErased(c, target);
     if (erasedRefusal) return erasedRefusal;
-    if (target?.status === "inactive") {
+    if (target?.status === UserStatusCode.Inactive) {
       const overCap = await refuseIfOverSeatCap(c);
       if (overCap) return overCap;
     }
     try {
-      const user = await setUserStatus(id, "active", uow);
+      const user = await setUserStatus(id, UserStatusCode.Active, uow);
       await auditUser(c, user, "ACTIVATE");
       return c.json(serializeUser(user));
     } catch (err) {
@@ -671,6 +804,7 @@ export function createUsersRoutes(
           retained: ERASURE_RETAINS,
         });
       }
+      if (await isCompanyOwner(id)) return refuseOwnerErasure(c, id);
       if (parsed.data.confirmEmail.trim().toLowerCase() !== target.email) {
         return c.json(
           {

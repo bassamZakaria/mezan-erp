@@ -7,6 +7,7 @@ import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, crea
 import { createSqliteCustomerRepository, createSqliteLedgerStore, createSqliteSupplierRepository, openSqliteConnection } from "@mezan/persistence";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
+import { SEED_TENANT_NAME } from "./seed.js";
 
 const handles: BackendHandle[] = [];
 afterEach(() => {
@@ -404,6 +405,8 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
     expect(created.status).toBe(201);
     expect((await created.json()) as { status: string }).toMatchObject({ status: "pending" });
 
+    const bank = await post(app, "/treasury-accounts", { id: "ta-bank1", code: "BANK-1", name: "البنك", type: "bank", currency: "EGP", branchId: "BR-MAIN", glAccountId: "1310" }, admin(app));
+    expect(bank.status).toBe(201);
     const deposited = await post(app, "/cheques/chq-1/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app));
     expect(deposited.status).toBe(200);
 
@@ -2409,6 +2412,7 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
       "contracting_retention_payable",
       "contracting_retention_receivable",
       "contracting_wip",
+      "grni",
       "inventory",
     ]);
     for (const row of body.rows) {
@@ -3908,7 +3912,7 @@ describe("createBackend — a landed cost does not touch the AP control account 
       "/landed-costs",
       {
         id: "lc-1",
-        date: "2026-08-24",
+        date: new Date().toISOString().slice(0, 10),
         memo: "شحن وتخليص",
         distributionMethod: "BY_VALUE",
         costItems: [{ costType: "SHIPPING", description: "شحن بحري", amount: "500", supplierId: "SUP-FREIGHT" }],
@@ -4360,6 +4364,24 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
     expect(customersList.length).toBeGreaterThan(0);
   }, 60000);
 
+  it("keeps the demo company's own name, and leaves its first-run claim closed", async () => {
+    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
+    handles.push(handle);
+    registries.set(handle.app, handle.sessions);
+
+    const claim = await handle.app.fetch(
+      new Request("http://local/bootstrap/admin", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nameAr: "دخيل", email: "second@demo.example", pin: "135791", companyName: "شركة أخرى" }),
+      }),
+    );
+    expect(claim.status).toBe(409);
+
+    const settings = await handle.app.fetch(new Request("http://local/settings", { headers: admin(handle.app) }));
+    expect(((await settings.json()) as { companyName: string }).companyName).toBe(SEED_TENANT_NAME);
+  }, 60000);
+
   /**
    * D5 — the certificate BILLS through the ordinary sales-invoice engine, so
    * its invoice is an ordinary ETA document. The contracting ports build their
@@ -4539,7 +4561,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(list.filter((e) => e.sourceModule === "unknown")).toEqual([]);
   });
 
-  it("D194: both ladders age a foreign invoice at its booked EGP value, and still tie once revaluation restates the control accounts", async () => {
+  it("D194: both ladders age a foreign invoice at its booked EGP value, and at what it is carried at once a revaluation that does not reverse itself restates it", async () => {
     const app = await newBackend();
     await createCustomer(app, "cust-usd", "0");
     await createServiceItem(app);
@@ -4585,9 +4607,6 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(suppliers.rows.find((row: { supplierId: string }) => row.supplierId === "sup-sar")?.total).toBe("1320.000000");
     expect(suppliers.reconciliation).toMatchObject({ reportTotal: "1320.000000", referenceTotal: "1320.000000", withinTolerance: true });
 
-    // A month-end revaluation that is NOT auto-reversed restates both control
-    // accounts and touches no invoice: the ladders stay at the booked rate and
-    // the restatement is the one named reconciling item.
     await approvedRate(app, "fx-usd-2", "USD", "50.00", "2026-08-31");
     await approvedRate(app, "fx-sar-2", "SAR", "13.50", "2026-08-31");
     const revalued = await post(app, "/revaluation/post", { date: "2026-08-31", currencies: ["USD", "SAR"], autoReverse: false }, admin(app));
@@ -4596,19 +4615,19 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(-(await glBalance(app, "2100"))).toBe(1350);
 
     const customersAfter = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
-    expect(customersAfter.grandTotals.total).toBe("4800.000000");
+    expect(customersAfter.grandTotals.total).toBe("5000.000000");
     expect(customersAfter.reconciliation).toMatchObject({
-      referenceTotal: "4800.000000",
+      referenceTotal: "5000.000000",
       withinTolerance: true,
-      reconcilingItems: [{ key: "fxRevaluation", amount: "200.000000" }],
     });
+    expect(customersAfter.reconciliation.reconcilingItems ?? []).toEqual([]);
     const suppliersAfter = await get(app, "/reports/aging/suppliers?asOfDate=2026-08-31");
-    expect(suppliersAfter.grandTotals.total).toBe("1320.000000");
+    expect(suppliersAfter.grandTotals.total).toBe("1350.000000");
     expect(suppliersAfter.reconciliation).toMatchObject({
-      referenceTotal: "1320.000000",
+      referenceTotal: "1350.000000",
       withinTolerance: true,
-      reconcilingItems: [{ key: "fxRevaluation", amount: "30.000000" }],
     });
+    expect(suppliersAfter.reconciliation.reconcilingItems ?? []).toEqual([]);
     expect(await reconDiff(app, "ar")).toBe(0);
     expect(await reconDiff(app, "ap")).toBe(0);
   });
@@ -5243,10 +5262,14 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       ],
     }, admin(app))).status).toBeLessThan(300);
 
-    expect((await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status).toBe(201);
+    const shared = await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app));
+    expect(shared.status).toBe(422);
+    expect(((await shared.json()) as { error: string }).error).toBe("TREASURY_GL_ACCOUNT_CURRENCY_CONFLICT");
+    expect((await post(app, "/accounts", { id: "1300-SAR", code: "1300-SAR", nameAr: "خزينة الريال", type: "asset", parentId: "1300", naturalBalance: "debit", isHeader: false }, admin(app))).status).toBe(201);
+    expect((await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", type: "bank", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers", {
       id: "v-sar", date: "2026-08-26", voucherType: "supplier_payment", amount: "100", currency: "SAR", branchId: "BR-MAIN", paymentMethod: "cash",
-      treasuryAccountId: "ta-cash-sar", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-sar",
+      treasuryAccountId: "ta-cash-sar", treasuryGlAccountId: "1300-SAR", counterpartyGlAccountId: "2100", supplierId: "sup-sar",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-sar/confirm", {}, admin(app))).status).toBe(200);
     const allocated = await post(app, "/vouchers/v-sar/allocations", { allocationId: "al-sar", invoiceId: "pi-sar", amount: "1350" }, admin(app));
@@ -5669,6 +5692,33 @@ describe("createBackend — foreign documents settle and return in base (D202, D
   const onAccount = (date: string) => ({ date, position: OPEN, gain: 0, control: 2300, ladderRow: 2300, ladderTies: true });
   const settled = (date: string) => ({ date, position: HALF, gain: -100, control: 2400, ladderRow: 2400, ladderTies: true });
 
+  it("ENH-E1-04: the FX check wants a revaluation run AS OF the period end, per currency — a mid-month run does not pass, a run for another currency does not pass, and a month-end run does", async () => {
+    const app = await newBackend();
+    await halfReceiptOnAccount(app);
+    const periods = (await (await app.fetch(new Request("http://local/fiscal-periods", { headers: admin(app) }))).json()) as { id: string; startDate: string; endDate: string }[];
+    const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
+    const fx = async () => {
+      const checklist = (await (await app.fetch(new Request(`http://local/period-close/${august.id}/checks`, { headers: admin(app) }))).json()) as { checks: { code: string; status: string; findings: { ref: string; passed: boolean; asOfDate: string | null }[] }[] };
+      return checklist.checks.find((c) => c.code === "fx_revaluation")!;
+    };
+    const revalue = (body: Record<string, unknown>) => post(app, "/revaluation/post", { autoReverse: false, ...body }, admin(app));
+
+    expect(await fx()).toMatchObject({ status: "fail", findings: [{ ref: "USD", passed: false, asOfDate: "2026-08-31" }] });
+
+    expect((await revalue({ date: "2026-08-27" })).status).toBe(201);
+    expect((await fx()).status).toBe("fail");
+
+    expect((await revalue({ date: "2026-08-31", currencies: ["EUR"] })).status).toBe(201);
+    expect((await fx()).status).toBe("fail");
+
+    expect((await revalue({ date: "2026-08-31" })).status).toBe(201);
+    expect(await fx()).toMatchObject({ status: "pass", findings: [{ ref: "USD", passed: true }] });
+
+    const again = await revalue({ date: "2026-08-31" });
+    expect(again.status).toBe(201);
+    expect((await fx()).status).toBe("pass");
+  });
+
   it("D265: EGP 2,500 applied to half a USD 100 invoice, undone and applied again today, is one settlement dated today — revaluation, 4920, 1105 and the ladder agree on every day", async () => {
     const app = await newBackend();
     await halfReceiptOnAccount(app);
@@ -5698,7 +5748,10 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       const periods = (await get(app, "/fiscal-periods")) as { id: string; startDate: string; endDate: string }[];
       const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
       at("2026-09-02");
-      expect((await post(app, `/fiscal-periods/${august.id}/close`, {}, admin(app))).status).toBe(200);
+      const bareClose = await post(app, `/fiscal-periods/${august.id}/close`, {}, admin(app));
+      expect(bareClose.status).toBe(409);
+      expect(((await bareClose.json()) as { failedChecks: string[] }).failedChecks).toEqual(["fx_revaluation"]);
+      expect((await post(app, `/fiscal-periods/${august.id}/close`, { overrideReason: "إقفال أغسطس قبل إعادة تقييم العملات" }, admin(app))).status).toBe(200);
       expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
       at("2026-09-05");
       expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);

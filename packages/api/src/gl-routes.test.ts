@@ -1242,7 +1242,7 @@ describe("gl-routes — year-end close", () => {
     const { app } = await withPnlActivity();
     const before = await app.fetch(req("/year-end-close/2026", { permissions: "accounting.journal.view" }));
     expect(before.status).toBe(200);
-    expect(await before.json()).toEqual({ year: 2026, closed: false, entry: null });
+    expect(await before.json()).toEqual({ year: 2026, closed: false, reopenable: false, entry: null });
 
     await app.fetch(
       req("/year-end-close", {

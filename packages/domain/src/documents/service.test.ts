@@ -19,6 +19,7 @@ import {
   DuplicateDocumentError,
   InvalidDocumentError,
   MissingHookError,
+  ReversalNotReversibleError,
 } from "./errors.js";
 import {
   InMemoryDocumentRepository,
@@ -173,6 +174,30 @@ describe("DocumentService — generic lifecycle with hooks", () => {
     // names the original as the movements to undo.
     expect(reversed[0]!.reversesDocId).toBe("d1");
     expect((reversed[0]!.plan as { sourceDocId: string }).sourceDocId).toBe("d1-rev");
+  });
+
+  it("refuses to reverse a reversal, posting nothing and leaving both documents as they were", async () => {
+    const repo = new InMemoryDocumentRepository<FakeLine>();
+    const reversedEntries: string[] = [];
+    const gl = {
+      post: async () => ({ journalEntryId: "je-x", journalEntryNo: "JE-000001" }),
+      reverse: async (entryId: string) => (reversedEntries.push(entryId), { journalEntryId: "je-r", journalEntryNo: "JE-000002" }),
+    };
+    const svc = new DocumentService(
+      fakeType({ buildGlPosting: () => ({ sourceDocType: "FAKE_DOC", sourceDocId: "d1", sourceDocNumber: null, date: "2026-08-22", memo: "m", lines: [] }) }),
+      { repo, gl, numbering: { next: async () => ({ value: 1, formatted: "SO-000001" }) }, now: () => "2026-08-22T00:00:00.000Z" },
+    );
+    await svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [{ note: "a" }] });
+    await svc.confirm("d1");
+    await svc.reverse("d1", { reversalId: "d1-rev" });
+
+    const refusal = await svc.reverse("d1-rev", { reversalId: "d1-rev-rev" }).catch((err: unknown) => err);
+
+    expect(refusal).toBeInstanceOf(ReversalNotReversibleError);
+    expect((refusal as ReversalNotReversibleError).message).toBe("المستند d1-rev قيد عكسي ولا يُعكس. أعد إدخال المستند الأصلي من جديد بدلاً من عكس عكسه.");
+    expect(reversedEntries).toEqual(["je-x"]);
+    expect((await repo.findById("d1-rev"))?.status).toBe("confirmed");
+    expect(await repo.findById("d1-rev-rev")).toBeNull();
   });
 
   it("refuses to reverse a stock-moving document when the hook cannot reverse", async () => {

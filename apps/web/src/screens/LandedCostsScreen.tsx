@@ -16,6 +16,7 @@ import {
   type EntityPickerOption,
   type PillTone,
   type RowMenuItem,
+  ConfirmDialog,
 } from "@mezan/ui";
 import { Money, Qty, distributeLandedCost, landedCostTotalsByType, type AllocatedLandedCostLine } from "@mezan/domain";
 import type {
@@ -29,6 +30,7 @@ import type {
 import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
   useCancelLandedCost,
+  useReverseLandedCost,
   useConfirmLandedCost,
   useCreateLandedCost,
   useItems,
@@ -119,6 +121,7 @@ export function LandedCostsScreen() {
   });
   const confirmLandedCost = useConfirmLandedCost();
   const cancelLandedCost = useCancelLandedCost();
+  const reverseLandedCost = useReverseLandedCost();
 
   const documents = query.data ?? EMPTY;
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
@@ -347,6 +350,9 @@ export function LandedCostsScreen() {
     }
   }
 
+  const [reversingId, setReversingId] = useState<string | null>(null);
+  const [reverseAsked, setReverseAsked] = useState<string | null>(null);
+
   async function confirmExisting(id: string) {
     setError(null);
     try {
@@ -365,15 +371,57 @@ export function LandedCostsScreen() {
     }
   }
 
+  async function reverseConfirmed(id: string) {
+    if (reversingId !== null) return;
+    setReverseAsked(null);
+    setReversingId(id);
+    setError(null);
+    try {
+      await reverseLandedCost.mutateAsync(id);
+    } catch (err) {
+      setError(errorMessage(err, t("common.failed")));
+    } finally {
+      setReversingId(null);
+    }
+  }
+
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: counts.all },
     { key: "draft", label: t("docStatus.draft"), count: counts.draft },
     { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
   ];
 
+  function reversalLink(d: (typeof documents)[number]) {
+    const otherId = d.reversedByDocId ?? d.reversesDocId ?? null;
+    if (otherId === null) return null;
+    const other = documents.find((candidate) => candidate.id === otherId);
+    return (
+      <button
+        type="button"
+        className="text-[11.5px] font-semibold text-brand underline-offset-2 hover:underline"
+        onClick={(event) => {
+          event.stopPropagation();
+          setPanel({ id: otherId });
+        }}
+      >
+        {t(d.reversedByDocId ? "landedCosts.reversedByDocument" : "landedCosts.reversesDocument", { number: other?.docNo ?? otherId })}
+      </button>
+    );
+  }
+
   const columns: DocumentListColumn<(typeof documents)[number]>[] = [
-    { key: "docNo", header: t("landedCosts.col.docNo"), render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</span> },
-    { key: "date", header: t("common.date"), render: (d) => <span className="mz-num">{d.date}</span> },
+    {
+      key: "docNo",
+      header: t("landedCosts.col.docNo"),
+      render: (d) => (
+        <span className="flex flex-col items-start gap-[2px]">
+          <span className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</span>
+          {reversalLink(d)}
+        </span>
+      ),
+    },
+    { key: "date", header: t("landedCosts.col.documentDate"), render: (d) => <span className="mz-num">{d.date}</span> },
+    { key: "absorptionDate", header: t("landedCosts.col.absorptionDate"), render: (d) => <span className="mz-num">{d.absorptionDate ?? "—"}</span> },
     {
       key: "warehouse",
       header: t("common.warehouse"),
@@ -470,7 +518,7 @@ export function LandedCostsScreen() {
                   { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
                 ]
               : []),
-            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), onSelect: () => void cancelExisting(d.id) }] : []),
+            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), tone: "danger" as const, disabled: reversingId === d.id, confirm: { title: t("landedCosts.void"), consequence: t("landedCosts.voidConsequence", { doc: d.docNo ?? d.id }), confirmLabel: t("landedCosts.void") }, onSelect: () => void reverseConfirmed(d.id) }] : []),
           ];
           return (
             <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
@@ -658,6 +706,7 @@ export function LandedCostsScreen() {
           <div className="flex flex-col gap-4 p-5">
             <AlreadySavedNotice notice={savedNotice} openId={selected.id} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+            {reversalLink(selected)}
             <div className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[12.5px]">
               <span className="text-ink-muted">{t("landedCosts.field.method")}</span>
               <span className="font-semibold text-ink">{t(METHOD_KEY[selected.lines[0]?.distributionMethod ?? "BY_VALUE"])}</span>
@@ -711,9 +760,19 @@ export function LandedCostsScreen() {
               </div>
             ) : null}
             {selected.status === "confirmed" ? (
-              <Button variant="default" onClick={() => cancelExisting(selected.id)}>
-                {t("landedCosts.void")}
-              </Button>
+              <>
+                <Button variant="danger-outline" disabled={reversingId === selected.id} onClick={() => setReverseAsked(selected.id)}>
+                  {t("landedCosts.void")}
+                </Button>
+                <ConfirmDialog
+                  open={reverseAsked === selected.id}
+                  title={t("landedCosts.void")}
+                  consequence={t("landedCosts.voidConsequence", { doc: selected.docNo ?? selected.id })}
+                  confirmLabel={t("landedCosts.void")}
+                  onConfirm={() => void reverseConfirmed(selected.id)}
+                  onCancel={() => setReverseAsked(null)}
+                />
+              </>
             ) : null}
           </div>
         ) : null}

@@ -103,9 +103,9 @@ export class AllocationCurrencyMismatchError extends AllocationMismatchError {
 export class VoucherTreasuryCurrencyMismatchError extends InvalidDocumentError {
   readonly messageEn: string;
   constructor(voucherId: string, readonly treasuryAccountId: string, readonly treasuryCurrency: string, readonly voucherCurrency: string) {
-    super("TREASURY_VOUCHER", voucherId, `حساب الخزينة بعملة ${treasuryCurrency} والسند بعملة ${voucherCurrency}؛ السند يأخذ عملة حساب الخزينة.`);
+    super("TREASURY_VOUCHER", voucherId, `حساب الخزينة بعملة ${treasuryCurrency} والسند بعملة ${voucherCurrency}؛ لا يُسجَّل سند بعملة أجنبية على حساب خزينة بعملة أجنبية أخرى. سجّل السند بعملة الحساب أو بالعملة الأساسية.`);
     this.name = "VoucherTreasuryCurrencyMismatchError";
-    this.messageEn = `The treasury account is in ${treasuryCurrency} and the voucher in ${voucherCurrency}; a voucher carries its treasury account's currency.`;
+    this.messageEn = `The treasury account is in ${treasuryCurrency} and the voucher in ${voucherCurrency}; a voucher in one foreign currency is not recorded on a treasury account in another. Record it in the account's currency or in the base currency.`;
   }
 }
 

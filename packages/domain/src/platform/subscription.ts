@@ -1,6 +1,7 @@
 import { isKnownModule } from "./module-catalog.js";
 import { dedupeModules, type PlanRepository } from "./plan.js";
 import { isCount, isoTimestamp } from "./validation.js";
+import { DEFAULT_TIME_ZONE } from "../dates.js";
 import {
   InvalidSubscriptionError,
   InvalidSubscriptionTransitionError,
@@ -49,6 +50,8 @@ export interface Subscription {
   readonly extraWarehouses: number;
   readonly currentPeriodStart: string;
   readonly currentPeriodEnd: string;
+  readonly billingAnchorDay?: number;
+  readonly billingAnchorNeedsReview?: boolean;
   readonly trialEndsAt: string | null;
   /**
    * The plan this subscription was on before its last plan change.
@@ -90,13 +93,140 @@ export interface SubscriptionTransitionRepository extends SubscriptionRepository
 export const DEFAULT_GRACE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function addPeriod(startIso: string, cycle: BillingCycle): string {
-  const d = new Date(startIso);
-  const year = d.getUTCFullYear() + (cycle === "yearly" ? 1 : 0);
-  const month = d.getUTCMonth() + (cycle === "monthly" ? 1 : 0);
+interface BusinessClock {
+  readonly year: number;
+  readonly month: number;
+  readonly day: number;
+  readonly hour: number;
+  readonly minute: number;
+  readonly second: number;
+  readonly millisecond: number;
+}
+
+const BUSINESS_CLOCK = new Intl.DateTimeFormat("en-US", {
+  timeZone: DEFAULT_TIME_ZONE,
+  hourCycle: "h23",
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+});
+
+// INVARIANT: through `Intl`, never a fixed offset. Cairo keeps summer time.
+function businessClock(at: Date): BusinessClock {
+  const read: Record<string, number> = {};
+  for (const part of BUSINESS_CLOCK.formatToParts(at)) {
+    if (part.type !== "literal") read[part.type] = Number(part.value);
+  }
+  return {
+    year: read["year"] ?? 0,
+    month: (read["month"] ?? 1) - 1,
+    day: read["day"] ?? 1,
+    hour: read["hour"] ?? 0,
+    minute: read["minute"] ?? 0,
+    second: read["second"] ?? 0,
+    millisecond: at.getUTCMilliseconds(),
+  };
+}
+
+function asUtc(clock: BusinessClock): number {
+  return Date.UTC(clock.year, clock.month, clock.day, clock.hour, clock.minute, clock.second, clock.millisecond);
+}
+
+// INVARIANT: two passes on purpose; a clock on the far side of a summer-time change must land on its own offset.
+function instantOfBusinessClock(clock: BusinessClock): Date {
+  const wanted = asUtc(clock);
+  let instant = wanted;
+  for (let pass = 0; pass < 2; pass += 1) {
+    instant = wanted - (asUtc(businessClock(new Date(instant))) - instant);
+  }
+  return new Date(instant);
+}
+
+function businessDayOfMonth(iso: string): number {
+  return businessClock(new Date(iso)).day;
+}
+
+function businessMonthOf(iso: string): string {
+  const clock = businessClock(new Date(iso));
+  return `${clock.year}-${clock.month}`;
+}
+
+export function billingAnchorDayOf(s: Pick<Subscription, "billingAnchorDay" | "currentPeriodStart">): number {
+  return s.billingAnchorDay ?? businessDayOfMonth(s.currentPeriodStart);
+}
+
+export function addPeriod(startIso: string, cycle: BillingCycle, anchorDay: number = businessDayOfMonth(startIso)): string {
+  const start = businessClock(new Date(startIso));
+  const year = start.year + (cycle === "yearly" ? 1 : 0);
+  const month = start.month + (cycle === "monthly" ? 1 : 0);
   const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const day = Math.min(d.getUTCDate(), lastDay);
-  return new Date(Date.UTC(year, month, day, d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds(), d.getUTCMilliseconds())).toISOString();
+  return instantOfBusinessClock({ ...start, year: year + Math.floor(month / 12), month: month % 12, day: Math.min(anchorDay, lastDay) }).toISOString();
+}
+
+function businessDateOrdinal(iso: string): number {
+  const clock = businessClock(new Date(iso));
+  return Date.UTC(clock.year, clock.month, clock.day) / DAY_MS;
+}
+
+function periodEndInUtc(startIso: string, cycle: BillingCycle): string {
+  const start = new Date(startIso);
+  const year = start.getUTCFullYear() + (cycle === "yearly" ? 1 : 0);
+  const month = start.getUTCMonth() + (cycle === "monthly" ? 1 : 0);
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const day = Math.min(start.getUTCDate(), lastDay);
+  return new Date(Date.UTC(year, month, day, start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds(), start.getUTCMilliseconds())).toISOString();
+}
+
+// INVARIANT: an earlier build added the period in UTC (`periodEndInUtc`). For a
+// period that starts between midnight in Cairo and midnight UTC, two of its
+// ends are in the wrong month, and a renewal counted from either charges a
+// full cycle for less:
+//   - started on the 29th to the 31st: the UTC clamp to the month's last day is
+//     already the 1st of the next month in Cairo, and the renewal skips a month;
+//   - started on the 1st: UTC is still in the month before, so the end falls
+//     days short of the next 1st, and the renewal buys only those days.
+// Those exact signatures, and nothing else, are read as the day the period was
+// meant to end on. The second is read only while the anchor is the period's
+// own start day: under any other anchor the stored end already renews to it.
+export function settledPeriodEnd(s: Pick<Subscription, "currentPeriodStart" | "currentPeriodEnd" | "billingCycle" | "billingAnchorDay">): string {
+  const anchorDay = billingAnchorDayOf(s);
+  const intended = addPeriod(s.currentPeriodStart, s.billingCycle, anchorDay);
+  const spilled = businessDayOfMonth(s.currentPeriodEnd) === 1 && businessDateOrdinal(s.currentPeriodEnd) === businessDateOrdinal(intended) + 1;
+  const short =
+    anchorDay === businessDayOfMonth(s.currentPeriodStart) &&
+    businessDateOrdinal(s.currentPeriodEnd) < businessDateOrdinal(intended) &&
+    businessMonthOf(s.currentPeriodEnd) !== businessMonthOf(intended) &&
+    s.currentPeriodEnd === periodEndInUtc(s.currentPeriodStart, s.billingCycle);
+  return spilled || short ? intended : s.currentPeriodEnd;
+}
+
+/** CONTRACT: `renewedAt` is when each renewal was RECORDED (not when it was paid), oldest first. Null means the history does not settle the day. */
+export function inferBillingAnchorDay(
+  s: Pick<Subscription, "createdAt" | "billingCycle" | "currentPeriodStart" | "currentPeriodEnd">,
+  renewedAt: readonly string[],
+): number | null {
+  const anchor = businessDayOfMonth(s.createdAt);
+  let periodStart = s.createdAt;
+  let periodEnd = addPeriod(periodStart, s.billingCycle, anchor);
+  for (const at of renewedAt) {
+    if (new Date(at).getTime() > new Date(periodEnd).getTime()) return null;
+    periodStart = periodEnd;
+    periodEnd = addPeriod(periodStart, s.billingCycle, anchor);
+  }
+  const sameMonths = businessMonthOf(periodStart) === businessMonthOf(s.currentPeriodStart) && businessMonthOf(periodEnd) === businessMonthOf(s.currentPeriodEnd);
+  const neverLater = businessDayOfMonth(s.currentPeriodStart) <= anchor && businessDayOfMonth(s.currentPeriodEnd) <= anchor;
+  return sameMonths && neverLater ? anchor : null;
+}
+
+// INVARIANT: an earlier build stored the UTC day of month as the anchor. For a
+// subscription created between midnight in Cairo and midnight UTC that is the
+// day BEFORE its real billing day. True only for that exact signature.
+export function anchorIsUtcDayOfCreation(s: Pick<Subscription, "createdAt" | "billingAnchorDay">): boolean {
+  const utcDay = new Date(s.createdAt).getUTCDate();
+  return s.billingAnchorDay === utcDay && utcDay !== businessDayOfMonth(s.createdAt);
 }
 
 export function addDays(iso: string, days: number): string {
@@ -104,22 +234,23 @@ export function addDays(iso: string, days: number): string {
 }
 
 export function trialHasEnded(s: Subscription, nowIso: string): boolean {
-  return s.status === "trialing" && s.trialEndsAt !== null && s.trialEndsAt <= nowIso;
+  return s.status === SubscriptionStatusKind.Trialing && s.trialEndsAt !== null && s.trialEndsAt <= nowIso;
 }
 
 /** The subscription after a reverse trial lands on the Free plan. Pure; the caller persists it with `compareAndSet`. */
 export function applyTrialEndToFree(s: Subscription, freePlanId: string, nowIso: string): Subscription {
-  if (!trialHasEnded(s, nowIso)) throw new InvalidSubscriptionTransitionError(s.status, "active");
+  if (!trialHasEnded(s, nowIso)) throw new InvalidSubscriptionTransitionError(s.status, SubscriptionStatusKind.Active);
   const endedAt = s.trialEndsAt!;
   return {
     ...s,
     planId: freePlanId,
     previousPlanId: s.planId,
-    status: "active",
+    status: SubscriptionStatusKind.Active,
     trialEndsAt: null,
     billingCycle: "monthly",
     currentPeriodStart: endedAt,
     currentPeriodEnd: addPeriod(endedAt, "monthly"),
+    billingAnchorDay: businessDayOfMonth(endedAt),
     updatedAt: nowIso,
   };
 }
@@ -200,7 +331,7 @@ export async function startSubscription(
     id: cmd.id,
     tenantId: cmd.tenantId,
     planId: plan.id,
-    status: trial ? "trialing" : "active",
+    status: trial ? SubscriptionStatusKind.Trialing : SubscriptionStatusKind.Active,
     billingCycle: cmd.billingCycle,
     addOnModules,
     extraSeats,
@@ -208,6 +339,7 @@ export async function startSubscription(
     extraWarehouses,
     currentPeriodStart: now,
     currentPeriodEnd: addPeriod(now, cmd.billingCycle),
+    billingAnchorDay: businessDayOfMonth(now),
     trialEndsAt: trial ? addDays(now, plan.trialDays) : null,
     previousPlanId: null,
     graceDays,
@@ -243,17 +375,37 @@ function requireNow(cmd: SubscriptionCommand): string {
 /** The subscription one paid period later — pure, so a caller can persist it inside its own transaction. */
 export function applyRenewal(s: Subscription, nowIso: string): Subscription {
   const now = requireNow({ id: s.id, now: nowIso });
-  assertFrom(s, RENEWABLE_SUBSCRIPTION_STATES, "active");
-  const lapsed = s.currentPeriodEnd < now;
-  const periodStart = lapsed ? now : s.currentPeriodEnd;
+  assertFrom(s, RENEWABLE_SUBSCRIPTION_STATES, SubscriptionStatusKind.Active);
+  const periodEnd = settledPeriodEnd(s);
+  const lapsed = periodEnd < now;
+  const periodStart = lapsed ? now : periodEnd;
+  const billingAnchorDay = lapsed ? businessDayOfMonth(now) : billingAnchorDayOf(s);
   return {
     ...s,
-    status: "active",
+    status: SubscriptionStatusKind.Active,
     trialEndsAt: null,
     currentPeriodStart: periodStart,
-    currentPeriodEnd: addPeriod(periodStart, s.billingCycle),
+    currentPeriodEnd: addPeriod(periodStart, s.billingCycle, billingAnchorDay),
+    billingAnchorDay,
+    ...(lapsed && s.billingAnchorNeedsReview ? { billingAnchorNeedsReview: false } : {}),
     updatedAt: now,
   };
+}
+
+export interface SetBillingAnchorDayCommand extends SubscriptionCommand {
+  readonly day: number;
+}
+
+export async function setBillingAnchorDay(cmd: SetBillingAnchorDayCommand, repo: SubscriptionRepository): Promise<Subscription> {
+  const s = await load(cmd.id, repo);
+  const now = requireNow(cmd);
+  if (!Number.isInteger(cmd.day) || cmd.day < 1 || cmd.day > 31) {
+    throw new InvalidSubscriptionError(["يوم الفوترة يجب أن يكون رقمًا صحيحًا من 1 إلى 31"]);
+  }
+  assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue, SubscriptionStatusKind.Suspended], s.status);
+  const next: Subscription = { ...s, billingAnchorDay: cmd.day, billingAnchorNeedsReview: false, updatedAt: now };
+  await repo.save(next);
+  return next;
 }
 
 export async function renewSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
@@ -266,11 +418,11 @@ export async function renewSubscription(cmd: SubscriptionCommand, repo: Subscrip
 export async function markPastDue(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, ["active"], "past_due");
+  assertFrom(s, [SubscriptionStatusKind.Active], SubscriptionStatusKind.PastDue);
   if (now < s.currentPeriodEnd) {
     throw new InvalidSubscriptionError([`الفترة الحالية لم تنتهِ بعد (تنتهي في ${s.currentPeriodEnd})`]);
   }
-  const next: Subscription = { ...s, status: "past_due", updatedAt: now };
+  const next: Subscription = { ...s, status: SubscriptionStatusKind.PastDue, updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -278,8 +430,8 @@ export async function markPastDue(cmd: SubscriptionCommand, repo: SubscriptionRe
 export async function suspendSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, ["active", "past_due"], "suspended");
-  const next: Subscription = { ...s, status: "suspended", updatedAt: now };
+  assertFrom(s, [SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue], SubscriptionStatusKind.Suspended);
+  const next: Subscription = { ...s, status: SubscriptionStatusKind.Suspended, updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -287,8 +439,8 @@ export async function suspendSubscription(cmd: SubscriptionCommand, repo: Subscr
 export async function resumeSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, ["suspended"], "active");
-  const next: Subscription = { ...s, status: "active", updatedAt: now };
+  assertFrom(s, [SubscriptionStatusKind.Suspended], SubscriptionStatusKind.Active);
+  const next: Subscription = { ...s, status: SubscriptionStatusKind.Active, updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -296,8 +448,8 @@ export async function resumeSubscription(cmd: SubscriptionCommand, repo: Subscri
 export async function cancelSubscription(cmd: SubscriptionCommand, repo: SubscriptionRepository): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, ["trialing", "active", "past_due", "suspended"], "cancelled");
-  const next: Subscription = { ...s, status: "cancelled", cancelledAt: now, updatedAt: now };
+  assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue, SubscriptionStatusKind.Suspended], SubscriptionStatusKind.Cancelled);
+  const next: Subscription = { ...s, status: SubscriptionStatusKind.Cancelled, cancelledAt: now, updatedAt: now };
   await repo.save(next);
   return next;
 }
@@ -313,13 +465,13 @@ export async function changePlan(
 ): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, ["trialing", "active", "past_due"], "active");
+  assertFrom(s, RENEWABLE_SUBSCRIPTION_STATES, SubscriptionStatusKind.Active);
   const plan = await activePlan(cmd.planId, plans);
   const next: Subscription = {
     ...s,
     planId: plan.id,
     previousPlanId: plan.id === s.planId ? s.previousPlanId : s.planId,
-    status: s.status === "trialing" ? "active" : s.status,
+    status: s.status === SubscriptionStatusKind.Trialing ? SubscriptionStatusKind.Active : s.status,
     trialEndsAt: null,
     updatedAt: now,
   };

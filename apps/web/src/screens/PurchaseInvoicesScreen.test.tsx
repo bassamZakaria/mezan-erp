@@ -1,3 +1,4 @@
+import { GoodsReceiptInvoicingStatusDTO } from "@mezan/contracts";
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
@@ -50,6 +51,12 @@ function fieldInput(container: HTMLElement, labelText: string): HTMLElement {
   return input;
 }
 
+function typeDecimal(input: HTMLElement, value: string) {
+  fireEvent.focus(input);
+  fireEvent.change(input, { target: { value } });
+  fireEvent.blur(input);
+}
+
 function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
@@ -84,9 +91,11 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
     warehouseId: "MAIN-WH",
     date: "2026-08-19",
     notes: null,
-    lines: [{ itemId: "item-cement", description: null, qty: "20.000000", unitCost: "85.000000", batchNo: null, expiryDate: null }],
+    lines: [{ itemId: "item-cement", description: null, qty: "20.000000", unitCost: "85.000000", batchNo: null, expiryDate: null, invoicedQty: "0.000000", remainingQty: "20.000000" }],
     status: "confirmed",
     invoiced: false,
+    invoicingStatus: GoodsReceiptInvoicingStatusDTO.NotInvoiced,
+    uninvoicedCost: "1700.000000",
     totalCost: "1700.000000",
     createdBy: "USER-ADMIN",
     createdAt: "2026-08-19T10:00:00.000Z",
@@ -264,6 +273,78 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("a quantity, a cost and a line total reach the wire and the screen as the decimals that were typed, where a binary number would not hold them", async () => {
+    const { getCreateBody } = renderScreen([]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    typeDecimal(fieldInput(document.body, "الكمية"), "0.333333");
+    typeDecimal(fieldInput(document.body, "التكلفة"), "9007199254740993.10");
+    expect(screen.getByText("3,002,396,749,180,579.45")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const lines = (getCreateBody() as { lines: Array<Record<string, unknown>> }).lines;
+    expect(lines[0]).toMatchObject({ qty: "0.333333", unitCost: "9007199254740993.10" });
+  });
+
+  it("the subtotal is added up as money: three at 1.255 and one at 0.1 and one at 0.2 make 4.07, and each figure goes out as typed", async () => {
+    const { getCreateBody } = renderScreen([]);
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    const figures = [["3", "1.255"], ["1", "0.1"], ["1", "0.2"]] as const;
+    for (const [index, [qty, cost]] of figures.entries()) {
+      if (index > 0) fireEvent.click(screen.getByRole("button", { name: "إضافة صنف" }));
+      fireEvent.click(screen.getAllByText("مصروف")[index]!);
+      typeDecimal(screen.getAllByLabelText("الكمية")[index]!, qty);
+      typeDecimal(screen.getAllByLabelText("التكلفة")[index]!, cost);
+    }
+    expect(screen.getByText("4.07")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const lines = (getCreateBody() as { lines: Array<Record<string, unknown>> }).lines;
+    expect(lines.map((line) => [line.qty, line.unitCost])).toEqual([["3", "1.255"], ["1", "0.1"], ["1", "0.2"]]);
+  });
+
+  it("an item's own cost prefills the line and goes out as the catalogue states it", async () => {
+    const { getCreateBody } = renderScreen([], {
+      "GET /items": () => ({ body: [{ ...items[0]!, costPrice: "85.100000" }] }),
+    });
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    expect((getCreateBody() as { lines: Array<Record<string, unknown>> }).lines[0]).toMatchObject({ qty: "1", unitCost: "85.100000" });
+  });
+
+  it("billing part of a receipt sends the quantity typed, and a quantity above what is left to bill is refused in Arabic", async () => {
+    const receipt = goodsReceipt({ lines: [{ itemId: "item-cement", description: null, qty: "1.000000", unitCost: "85.000000", batchNo: null, expiryDate: null, invoicedQty: "0.666667", remainingQty: "0.333333" }] });
+    const { getCreateBody } = renderScreen([], { "GET /purchases/receipts": () => ({ body: [receipt] }) });
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(await screen.findByText("من إيصال استلام"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "إيصال الاستلام *", "GR-000001");
+    const billQty = await screen.findByLabelText("الكمية المفوترة");
+
+    typeDecimal(billQty, "0.333334");
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/[\u0600-\u06FF]/);
+    expect(getCreateBody()).toBeNull();
+
+    typeDecimal(billQty, "0.111111");
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    expect((getCreateBody() as Record<string, unknown>).receiptQuantities).toEqual([{ lineIndex: 0, qty: "0.111111" }]);
+  });
+
   it("switching a line's kind off 'inventory' clears the item id and switches to a free-text description field", async () => {
     renderScreen([]);
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
@@ -322,7 +403,7 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     expect(await screen.findByText("قيمة السداد يجب أن تكون أكبر من صفر.")).toBeInTheDocument();
 
     const amountInput = fieldInput(document.body, "قيمة السداد");
-    fireEvent.change(amountInput, { target: { value: "100" } });
+    typeDecimal(amountInput, "100.10");
     fireEvent.click(screen.getByRole("button", { name: "تسجيل السداد" }));
     expect(await screen.findByText("اختر الخزينة التي سيُصرف منها.")).toBeInTheDocument();
     expect(getPayBody()).toBeNull();
@@ -334,6 +415,7 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     await waitFor(() => expect(getPayBody()).not.toBeNull());
     const body = getPayBody() as Record<string, unknown>;
     expect(body.treasuryAccountId).toBe("treas-1");
+    expect(body.amount).toBe("100.10");
     // The successful-payment note (voucher PV-000001) and the post-refetch
     // "fully settled" message are mutually exclusive renders of the same slot
     // (`canPay` flips false the instant the invalidated invoice refetches with

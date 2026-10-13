@@ -125,6 +125,13 @@ function validateDraft(draft: TreasuryAccountDraft, existing: TreasuryAccountDTO
   return null;
 }
 
+function formatForeignBalance(amount: string): string {
+  const [whole = "0", fraction = ""] = amount.split(".");
+  const negative = whole.startsWith("-");
+  const digits = negative ? whole.slice(1) : whole;
+  return `${negative ? "-" : ""}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction.padEnd(2, "0").slice(0, 2)}`;
+}
+
 export function TreasuryAccountsScreen() {
   const { t } = useAppTranslation();
   const nameOf = useEntityName();
@@ -257,7 +264,17 @@ export function TreasuryAccountsScreen() {
     },
     { key: "type", header: t("treasuryAcc.accountType"), render: (a) => <StatusPill label={getTreasuryAccountTypeLabel(a.type as DomainTreasuryAccountType)} tone="info" /> },
     { key: "currency", header: t("treasuryAcc.currency"), render: (a) => a.currency },
-    { key: "balance", header: t("treasuryAcc.balance"), align: "end", render: (a) => <MoneyDisplay value={balanceOf(a.id)} /> },
+    { key: "balance", header: t("treasuryAcc.balance"), align: "end", render: (a) => (
+        <div>
+          <MoneyDisplay value={balanceOf(a.id)} />
+          {a.foreignBalance ? (
+            <div className="mz-num text-[11.5px] text-ink-muted">
+              {formatForeignBalance(a.foreignBalance)} {a.currency}
+            </div>
+          ) : null}
+        </div>
+      ),
+    },
     { key: "status", header: t("common.status"), render: (a) => <StatusPill label={t(STATUS_KEY[a.status])} tone={STATUS_TONE[a.status]} /> },
     {
       key: "actions",

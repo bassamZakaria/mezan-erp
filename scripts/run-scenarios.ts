@@ -2,6 +2,7 @@
 import "./scenarios/fake-clock.js";
 import { boot } from "./scenarios/harness.js";
 import { connectionTurnFindings } from "./connection-turn-guard.js";
+import { run as demoClose } from "./scenarios/demo-close.js";
 import { run as sales } from "./scenarios/sales.js";
 import { run as purchases } from "./scenarios/purchases.js";
 import { run as inventory } from "./scenarios/inventory.js";
@@ -46,15 +47,23 @@ import type { Ctx } from "./scenarios/harness.js";
  */
 const ctx = await boot();
 const start = await ctx.invariants();
-console.log(`baseline  tb ${start.tb.toFixed(6)} · inventory ${start.inventory.toFixed(6)} · ap ${start.ap.toFixed(6)} · ar ${start.ar.toFixed(6)}`);
+console.log(`baseline  tb ${start.tb.toFixed(6)} · inventory ${start.inventory.toFixed(6)} · ap ${start.ap.toFixed(6)} · ar ${start.ar.toFixed(6)} · 2120 ${start.grni.toFixed(6)} · fx residue ${start.fxResidue.toFixed(6)} · stock/ledger dates ${start.stockLedgerDates}`);
 const exactlyZero = (label: string, inv: Awaited<ReturnType<typeof ctx.invariants>>) => {
-  for (const key of ["tb", "inventory", "ap", "ar"] as const) {
+  for (const key of ["tb", "inventory", "ap", "ar", "grni", "fxResidue"] as const) {
     if (inv.exact[key] !== 0n) ctx.failures.push(`${label} invariants · ${key} is ${inv[key].toFixed(6)}, not exactly 0`);
   }
+  if (inv.exact.stockLedgerDates !== 0n) ctx.failures.push(`${label} invariants · stockLedgerDates is ${inv.stockLedgerDates}, not exactly 0`);
 };
 exactlyZero("baseline", start);
 
 const only = new Set(process.argv.slice(2));
+
+{
+  process.stdout.write("  demo-close…");
+  const before = ctx.passes.length + ctx.failures.length;
+  await demoClose(ctx);
+  console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
+}
 
 if (!only.size || only.has("reports")) {
   process.stdout.write("  seeded-tenant…");
@@ -106,7 +115,7 @@ if (!only.size || only.has("reports")) {
 }
 
 const end = await ctx.invariants();
-console.log(`final     tb ${end.tb.toFixed(6)} · inventory ${end.inventory.toFixed(6)} · ap ${end.ap.toFixed(6)} · ar ${end.ar.toFixed(6)}`);
+console.log(`final     tb ${end.tb.toFixed(6)} · inventory ${end.inventory.toFixed(6)} · ap ${end.ap.toFixed(6)} · ar ${end.ar.toFixed(6)} · 2120 ${end.grni.toFixed(6)} · fx residue ${end.fxResidue.toFixed(6)} · stock/ledger dates ${end.stockLedgerDates}`);
 exactlyZero("final", end);
 for (const finding of connectionTurnFindings()) ctx.failures.push(`connection turn · ${finding}`);
 process.exit(ctx.report());

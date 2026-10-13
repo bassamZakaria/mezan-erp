@@ -21,10 +21,10 @@ export interface RecurringJournalTemplateRepository {
  * an orphan entry with no run record pointing at it.
  */
 export interface RecurringJournalRunRepository {
+  findById(id: string): Promise<RecurringJournalRun | null>;
   findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalRun | null>;
   listByTemplate(templateId: string): Promise<readonly RecurringJournalRun[]>;
   list(limit?: number): Promise<readonly RecurringJournalRun[]>;
-  /** Returns `true` if this call recorded the run, `false` if (template, period) was already claimed. */
   save(run: RecurringJournalRun): Promise<boolean>;
 }
 

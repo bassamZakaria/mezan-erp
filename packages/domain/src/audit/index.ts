@@ -28,3 +28,4 @@ export {
   UNRECORDED_RECENT_LIMIT,
 } from "./security-fallback.js";
 export type { SecurityEventFallback, UnrecordedSecurityEvent, UnrecordedSecurityEvents } from "./security-fallback.js";
+export { AuditSeverityCode } from "./severity.js";

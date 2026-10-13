@@ -62,6 +62,8 @@ function daysBetween(a: string, b: string): number {
   return Math.round((bUtc - aUtc) / 86_400_000);
 }
 
+export const DEPRECIABLE_ASSET_STATUSES: ReadonlySet<Asset["status"]> = new Set<Asset["status"]>(["active", "under_maintenance"]);
+
 /**
  * The daily/IFRS-proration algorithm: computes how much of an asset's
  * straight-line monthly depreciation is due for one period, prorating a
@@ -78,7 +80,7 @@ export function computeMonthlyDepreciation(
    */
   prorate: "DAILY" | "FULL_MONTH" = "DAILY",
 ): MonthlyDepreciationResult {
-  if (asset.status !== "active") {
+  if (!DEPRECIABLE_ASSET_STATUSES.has(asset.status)) {
     return {
       assetId: asset.id,
       amount: Money.zero(),

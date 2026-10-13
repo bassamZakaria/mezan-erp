@@ -26,6 +26,12 @@ export const reconciliationReportSchema = z.object({
   rows: z.array(reconciliationRowSchema),
   allMatched: z.boolean(),
   unlinked: z.array(unlinkedEntryLineSchema),
+  stockLedgerDates: z
+    .object({
+      count: z.number().int().nonnegative(),
+      rows: z.array(z.object({ docType: z.string(), docId: z.string(), docNo: z.string().nullable(), movedOn: z.string(), postedOn: z.array(z.string()) })),
+    })
+    .optional(),
 });
 
 export type ReconciliationRowDTO = z.infer<typeof reconciliationRowSchema>;

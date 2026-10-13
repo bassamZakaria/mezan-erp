@@ -5,6 +5,7 @@ import {
   ALL_SCOPE,
   InvalidUserError,
   DuplicateUserEmailError,
+  AuditSeverityCode,
   recordSecurityEvent,
   recordSecurityEventOrFallback,
   seatsOverLimitRefusal,
@@ -16,7 +17,7 @@ import {
   UserStatusCode,
   type User,
 } from "@mezan/domain";
-import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, unlockAccountByLinkRequestSchema, stepUpRequestSchema, type SessionDTO } from "@mezan/contracts";
+import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, unlockAccountByLinkRequestSchema, stepUpRequestSchema, UNDISCLOSED_TENANT_NAME, type SessionDTO } from "@mezan/contracts";
 import {
   accountLocked,
   signInBusy,
@@ -47,6 +48,8 @@ import {
 import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
 
 export interface AuthRoutesDeps {
+  readonly demoSeeded?: boolean;
+  readonly onSignedIn?: (user: { readonly userId: string; readonly email: string }) => Promise<void>;
   readonly uow: UnitOfWork;
   readonly hasher: SecretHasher;
   readonly settings: SettingsRepository;
@@ -77,6 +80,9 @@ export interface AuthRoutesDeps {
    * scenario rigs — and no seat check happens at all.
    */
   readonly resolveEntitlements?: (c: Context) => Promise<Entitlements | null | undefined> | Entitlements | null | undefined;
+  // SECURITY: the cloud platform's own record that this tenant has an owner.
+  // True closes the bootstrap routes whatever this database holds.
+  readonly claimedElsewhere?: () => Promise<boolean>;
 }
 
 export interface AccountLockedEvent {
@@ -89,6 +95,8 @@ export interface AccountLockedEvent {
 const SIGN_IN_BUSY_RETRY_SECONDS = 2;
 const SIGN_IN_BUSY_STATUS = 503;
 const ACCOUNT_LOCKED_STATUS = 423;
+
+export { UNDISCLOSED_TENANT_NAME };
 
 async function tenantName(settings: SettingsRepository): Promise<string> {
   const s = await settings.get();
@@ -232,7 +240,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
   let decoy: Promise<string> | null = null;
   const decoyHash = () => (decoy ??= deps.hasher.hash("mezan-login-timing-decoy"));
 
-  function security(c: Context, action: string, severity: "CRITICAL" | "WARNING" | "INFO", details: Record<string, unknown>) {
+  function security(c: Context, action: string, severity: AuditSeverityCode, details: Record<string, unknown>) {
     if (!deps.audit) return Promise.resolve();
     return recordSecurityEventOrFallback(deps.audit, {
       module: "auth",
@@ -262,17 +270,25 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    * with one anonymous POST.
    */
   async function tenantIsClaimed(): Promise<boolean> {
+    if (await deps.claimedElsewhere?.()) return true;
+    return claimedInThisDatabase();
+  }
+
+  async function claimedInThisDatabase(): Promise<boolean> {
     const settings = await deps.settings.get();
     if (settings?.tenantClaimedAt) return true;
     const users = await deps.uow.users.list();
     return users.some((u) => u.id !== SEED_ADMIN_USER_ID);
   }
 
-  /** Writes the claim once. Never cleared, and unreachable from `PUT /settings`. */
-  async function recordTenantClaim(at: string): Promise<void> {
+  // SECURITY: writes the claim once; it is never cleared and is unreachable
+  // from `PUT /settings`. The company name rides in the SAME write and nowhere
+  // earlier: this route is anonymous, so a name written before the claim is
+  // recorded would let a refused or failed request rename somebody else's tenant.
+  async function recordTenantClaim(at: string, companyName: string): Promise<void> {
     const settings = await deps.settings.get();
     if (!settings || settings.tenantClaimedAt) return;
-    await deps.settings.save({ ...settings, tenantClaimedAt: at });
+    await deps.settings.save({ ...settings, tenantClaimedAt: at, companyName });
   }
 
   /**
@@ -301,8 +317,8 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     await uow.users.save({ ...seed, status: UserStatusCode.Inactive });
   }
 
-  async function alreadyClaimed(c: Context, email: string) {
-    await security(c, "BOOTSTRAP_REFUSED", "CRITICAL", { email });
+  async function alreadyClaimed(c: Context, email: string | null) {
+    await security(c, "BOOTSTRAP_REFUSED", AuditSeverityCode.Critical, { email });
     return c.json(
       {
         error: "TENANT_ALREADY_PROVISIONED",
@@ -330,7 +346,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const user = await deps.uow.users.findByEmail(needle);
     const held = guard.check(needle, origin, user !== null);
     if (held.verdict !== SignInVerdict.Proceed) {
-      await security(c, "LOGIN_BLOCKED", "WARNING", {
+      await security(c, "LOGIN_BLOCKED", AuditSeverityCode.Warning, {
         username: needle,
         retryAfterSeconds: held.retryAfterSeconds,
         accountLocked: held.verdict === SignInVerdict.Locked,
@@ -351,14 +367,14 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const current = verified && user ? await deps.uow.users.findById(user.id) : null;
     const signedIn = current !== null && current.status === UserStatusCode.Active && current.pinHash === user?.pinHash ? current : null;
     if (verified && signedIn === null) {
-      await security(c, "LOGIN_FAILED", "WARNING", { username: needle, accountChangedDuringCheck: true });
+      await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle, accountChangedDuringCheck: true });
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
     if (signedIn === null) {
       const failure = guard.failed(needle, origin, user !== null);
       if (failure.verdict === SignInVerdict.Locked) {
         if (failure.justLocked) {
-          await security(c, "ACCOUNT_HARD_LOCKED", "CRITICAL", { username: needle, userId: user?.id });
+          await security(c, "ACCOUNT_HARD_LOCKED", AuditSeverityCode.Critical, { username: needle, userId: user?.id });
           if (user) {
             await deps.onAccountLocked?.({
               user,
@@ -371,10 +387,10 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
         return refused(c, failure);
       }
       if (failure.verdict === SignInVerdict.Wait) {
-        await security(c, "ACCOUNT_LOCKED", "CRITICAL", { username: needle, lockedForSeconds: failure.retryAfterSeconds });
+        await security(c, "ACCOUNT_LOCKED", AuditSeverityCode.Critical, { username: needle, lockedForSeconds: failure.retryAfterSeconds });
         return lockedOut(c, failure.retryAfterSeconds);
       }
-      await security(c, "LOGIN_FAILED", "WARNING", { username: needle });
+      await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle });
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
     /**
@@ -393,7 +409,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
             nameAr: entitlements.planNameAr ?? entitlements.plan,
             nameEn: entitlements.planNameEn ?? entitlements.plan,
           });
-          await security(c, "LOGIN_REFUSED_SEATS", "WARNING", { userId: signedIn.id, seats: entitlements.seats, active });
+          await security(c, "LOGIN_REFUSED_SEATS", AuditSeverityCode.Warning, { userId: signedIn.id, seats: entitlements.seats, active });
           return c.json(refusal, 403);
         }
       }
@@ -401,7 +417,12 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     guard.succeeded(needle, origin);
     const at = new Date().toISOString();
     await recordSuccessfulLogin(signedIn.id, at, deps.uow);
-    await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: signedIn.id, username: needle });
+    await security(c, "LOGIN_SUCCEEDED", AuditSeverityCode.Info, { userId: signedIn.id, username: needle });
+    // SECURITY: announced only here, after this request's own PIN check. A
+    // session answered without one proves nothing about who holds the credential.
+    await deps.onSignedIn?.({ userId: signedIn.id, email: signedIn.email }).catch((err: unknown) =>
+      console.error("[auth] the sign-in succeeded, but announcing it failed", err),
+    );
     // The session is bound to the origin the CREDENTIAL was verified from, so
     // the till that logged in is the only place the token it got back works.
     return c.json(await toSession(signedIn, deps, requestOrigin(c), deviceBindingOf(c)));
@@ -421,12 +442,12 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
     if (!(await deps.hasher.verify(parsed.data.pin, user.pinHash))) {
       const failure = guard.failed(user.email, origin, true);
-      await security(c, "STEP_UP_FAILED", "WARNING", { userId: user.id });
+      await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id });
       if (failure.verdict === SignInVerdict.Locked || failure.verdict === SignInVerdict.Wait) return refused(c, failure);
       return c.json({ error: "INVALID_CREDENTIALS", message: "رمز PIN غير صحيح." }, 401);
     }
     deps.sessions.confirmStepUp(token);
-    await security(c, "STEP_UP_CONFIRMED", "INFO", { userId: user.id });
+    await security(c, "STEP_UP_CONFIRMED", AuditSeverityCode.Info, { userId: user.id });
     return c.json({ ok: true });
   });
 
@@ -440,11 +461,11 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (wait > 0) return lockedOut(c, wait);
     if (!guard.redeemUnlockCode(needle, parsed.data.code)) {
       if (bucket !== null) sources.fail(bucket);
-      await security(c, "ACCOUNT_UNLOCK_REFUSED", "WARNING", { username: needle });
+      await security(c, "ACCOUNT_UNLOCK_REFUSED", AuditSeverityCode.Warning, { username: needle });
       return c.json({ error: SignInRefusal.InvalidUnlockCode, message: "رمز فكّ القفل غير صحيح أو انتهت صلاحيته." }, 400);
     }
     const user = await deps.uow.users.findByEmail(needle);
-    await security(c, "ACCOUNT_UNLOCKED_BY_CODE", "WARNING", { username: needle, userId: user?.id });
+    await security(c, "ACCOUNT_UNLOCKED_BY_CODE", AuditSeverityCode.Warning, { username: needle, userId: user?.id });
     return c.json({ ok: true });
   });
 
@@ -457,11 +478,11 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const account = guard.redeemUnlockLink(parsed.data.token);
     if (account === null) {
       if (bucket !== null) sources.fail(bucket);
-      await security(c, "ACCOUNT_UNLOCK_REFUSED", "WARNING", { byLink: true });
+      await security(c, "ACCOUNT_UNLOCK_REFUSED", AuditSeverityCode.Warning, { byLink: true });
       return c.json({ error: SignInRefusal.InvalidUnlockLink, message: "رابط فكّ القفل غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل." }, 400);
     }
     const user = await deps.uow.users.findByEmail(account);
-    await security(c, "ACCOUNT_UNLOCKED_BY_LINK", "WARNING", { username: account, userId: user?.id });
+    await security(c, "ACCOUNT_UNLOCKED_BY_LINK", AuditSeverityCode.Warning, { username: account, userId: user?.id });
     return c.json({ ok: true });
   });
 
@@ -509,7 +530,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    * host, gets the same generic placeholder a brand-new install would.
    */
   app.get("/tenant", async (c) => {
-    if (await tenantIsClaimed()) return c.json({ name: SEED_TENANT_NAME });
+    if (await tenantIsClaimed()) return c.json({ name: UNDISCLOSED_TENANT_NAME });
     return c.json({ name: await tenantName(deps.settings) });
   });
 
@@ -524,7 +545,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    * install inside ninety seconds. The client can now open the wizard instead.
    */
   app.get("/bootstrap/status", async (c) => {
-    return c.json({ ...(await currentCounts(deps.seedStores)), claimed: await tenantIsClaimed() });
+    return c.json({ ...(await currentCounts(deps.seedStores)), claimed: await tenantIsClaimed(), demoSeeded: deps.demoSeeded === true });
   });
 
   /**
@@ -561,11 +582,17 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    * with no credential.
    */
   app.post("/bootstrap/admin", async (c) => {
-    const parsed = bootstrapAdminRequestSchema.safeParse(await c.req.json().catch(() => null));
+    const raw: unknown = await c.req.json().catch(() => null);
+    // SECURITY: a claimed tenant is refused before the body is validated, so an
+    // anonymous caller learns nothing about the claim's schema.
+    if (await tenantIsClaimed()) {
+      const attempted = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>)["email"] : null;
+      return alreadyClaimed(c, typeof attempted === "string" ? attempted.slice(0, 320) : null);
+    }
+    const parsed = bootstrapAdminRequestSchema.safeParse(raw);
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    if (await tenantIsClaimed()) return alreadyClaimed(c, parsed.data.email);
     await seedIfEmpty(deps.seedStores);
     try {
       // ORDER MATTERS: the claim is read again here, inside the transaction that
@@ -573,7 +600,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       // the connection back, and the read at the top of this handler is then
       // one every concurrent claimant shared.
       const user = await deps.uow.transaction(async (tx) => {
-        if (await tenantIsClaimed()) return null;
+        if (await claimedInThisDatabase()) return null;
         const claimed = await saveUser(
           {
             id: crypto.randomUUID(),
@@ -594,7 +621,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
           tx,
           deps.hasher,
         );
-        await recordTenantClaim(new Date().toISOString());
+        await recordTenantClaim(new Date().toISOString(), parsed.data.companyName);
         await retireSeedAdmin(tx);
         // REQUIRED ORDERING: recorded INSIDE the transaction that makes the
         // claim, and not through `security()`, which never fails its caller.

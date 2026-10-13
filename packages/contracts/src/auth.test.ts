@@ -86,7 +86,15 @@ describe("loginResponseSchema", () => {
 });
 
 describe("bootstrapAdminRequestSchema", () => {
-  const admin = { nameAr: "محمد الشهابي", email: "Mohamed@CYAG.test", pin: "123456" };
+  const admin = { nameAr: "محمد الشهابي", email: "Mohamed@CYAG.test", pin: "123456", companyName: "  متجر الياسمين  " };
+
+  it("requires the company being claimed and trims it", () => {
+    const { companyName, ...unnamed } = admin;
+    expect(bootstrapAdminRequestSchema.safeParse(unnamed).success).toBe(false);
+    expect(bootstrapAdminRequestSchema.safeParse({ ...unnamed, companyName: null }).success).toBe(false);
+    const named = bootstrapAdminRequestSchema.safeParse(admin);
+    expect(named.success && named.data.companyName).toBe(companyName.trim());
+  });
 
   it("accepts a minimal valid payload and lower-cases/trims the email", () => {
     const result = bootstrapAdminRequestSchema.safeParse(admin);

@@ -1,40 +1,34 @@
 import { describe, it, expect } from "vitest";
 import { InMemoryFiscalPeriodRepository } from "./test-helpers/in-memory-fiscal-period-repository.js";
-import { closeFiscalPeriod, lockFiscalPeriod, reopenFiscalPeriod } from "./actions.js";
+import * as actions from "./actions.js";
+import { reopenFiscalPeriod } from "./actions.js";
 import { FiscalPeriodNotFoundError, InvalidPeriodTransitionError } from "./errors.js";
 
-async function seedOpenPeriod(repo: InMemoryFiscalPeriodRepository) {
-  await repo.create({ id: "fp1", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
+async function seedPeriod(repo: InMemoryFiscalPeriodRepository, status: "open" | "closed" | "locked") {
+  await repo.create({ id: "fp1", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status });
 }
 
 describe("fiscal period repo-backed actions", () => {
-  it("closeFiscalPeriod persists the closed status", async () => {
+  it("reopenFiscalPeriod flips a closed period back to open and persists it", async () => {
     const repo = new InMemoryFiscalPeriodRepository();
-    await seedOpenPeriod(repo);
-    const closed = await closeFiscalPeriod("fp1", repo);
-    expect(closed.status).toBe("closed");
-    expect((await repo.findById("fp1"))?.status).toBe("closed");
+    await seedPeriod(repo, "closed");
+    const reopened = await reopenFiscalPeriod("fp1", repo);
+    expect(reopened.status).toBe("open");
+    expect((await repo.findById("fp1"))?.status).toBe("open");
+  });
+
+  it("refuses to reopen a locked period, and leaves it locked", async () => {
+    const repo = new InMemoryFiscalPeriodRepository();
+    await seedPeriod(repo, "locked");
+    await expect(reopenFiscalPeriod("fp1", repo)).rejects.toThrow(InvalidPeriodTransitionError);
+    expect((await repo.findById("fp1"))?.status).toBe("locked");
   });
 
   it("404s (throws FiscalPeriodNotFoundError) for an unknown id", async () => {
-    const repo = new InMemoryFiscalPeriodRepository();
-    await expect(closeFiscalPeriod("nope", repo)).rejects.toThrow(FiscalPeriodNotFoundError);
+    await expect(reopenFiscalPeriod("nope", new InMemoryFiscalPeriodRepository())).rejects.toThrow(FiscalPeriodNotFoundError);
   });
 
-  it("lockFiscalPeriod requires the period to already be closed", async () => {
-    const repo = new InMemoryFiscalPeriodRepository();
-    await seedOpenPeriod(repo);
-    await expect(lockFiscalPeriod("fp1", repo)).rejects.toThrow(InvalidPeriodTransitionError);
-    await closeFiscalPeriod("fp1", repo);
-    const locked = await lockFiscalPeriod("fp1", repo);
-    expect(locked.status).toBe("locked");
-  });
-
-  it("reopenFiscalPeriod flips a closed period back to open", async () => {
-    const repo = new InMemoryFiscalPeriodRepository();
-    await seedOpenPeriod(repo);
-    await closeFiscalPeriod("fp1", repo);
-    const reopened = await reopenFiscalPeriod("fp1", repo);
-    expect(reopened.status).toBe("open");
+  it("offers no close or lock that skips the checklist, the override rule and the audit row", () => {
+    expect(Object.keys(actions).sort()).toEqual(["reopenFiscalPeriod"]);
   });
 });

@@ -86,6 +86,12 @@ export interface AuditEventInput {
  */
 export interface AuditSink {
   append(event: AuditEvent): Promise<void>;
+  /**
+   * Writes on the caller's own connection before returning, so the row joins
+   * whatever transaction the caller holds. A sink that cannot do that omits it,
+   * and a caller that needs the write to be atomic with its own must refuse.
+   */
+  appendSync?(event: AuditEvent): void;
   query(stream: AuditStream, limit?: number): Promise<readonly AuditEvent[]>;
   atomic?<T>(fn: () => Promise<T>): Promise<T>;
   insideTransaction?(): boolean;

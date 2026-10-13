@@ -1,4 +1,7 @@
-export { createBackend, type BackendHandle, type CreateBackendOptions } from "./create-backend.js";
+export {
+  createBackend, OwnerPinResetOutcome, COMPANY_OWNER_ASSIGNED_AUDIT,
+  type BackendHandle, type CreateBackendOptions, type CompanyAdminAccount, type OwnerAccount, type OwnerAccountQuery, type ResetOwnerPinCommand, type SignedInUser,
+} from "./create-backend.js";
 export {
   seedIfEmpty,
   isEmptyTenant,
@@ -21,5 +24,15 @@ export { createDashboardRoutes, type DashboardDeps } from "./dashboard-routes.js
 export { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
 export { createPlatform, PLATFORM_SEED_PLANS, type CreatePlatformOptions, type PlatformHandle } from "./create-platform.js";
 export { createPlatformAuth, type PlatformAuth, type PlatformAuthDeps } from "./platform-auth.js";
-export { createPlatformRoutes, PlatformAuditUnavailableError, serializeCardCheckout, serializeCardCheckoutForTenant, type CreatePlatformRoutesOptions, type PlatformCardCheckoutPort, type RecordedActivation } from "./platform-routes.js";
+export {
+  createPlatformRoutes, PlatformAuditAction,
+  serializeCardCheckout,
+  serializeCardCheckoutForTenant,
+  TenantOwnerAccountNotFoundError,
+  PlatformAuditUnavailableError,
+  type CreatePlatformRoutesOptions,
+  type OwnerPinResetAccount,
+  type PlatformCardCheckoutPort,
+  type RecordedActivation,
+} from "./platform-routes.js";
 export { materialiseEndedTrial, resolveTenantPlan, type TenantPlanView } from "./reverse-trial.js";

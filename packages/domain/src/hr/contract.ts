@@ -13,9 +13,16 @@ import type { Money } from "../money/index.js";
  */
 
 export type ContractType = "indefinite" | "fixed_term" | "seasonal" | "probationary";
-export type PayBasis = "monthly" | "hourly" | "daily";
+export enum PayBasis {
+  Monthly = "monthly",
+  Hourly = "hourly",
+  Daily = "daily",
+}
 export type PayFrequency = "monthly" | "biweekly" | "weekly";
-export type ContractStatus = "active" | "terminated";
+export enum ContractStatus {
+  Active = "active",
+  Terminated = "terminated",
+}
 
 export interface ContractTypeDefinition {
   readonly code: ContractType;
@@ -108,7 +115,7 @@ export const CONTRACT_EXPIRING_SOON_WINDOW_DAYS = 30;
 
 /** Derived "expiring soon" status — active, has a fixed end date, and that end date is within the window from `today`. */
 export function isContractExpiringSoon(contract: Contract, today: Date = new Date()): boolean {
-  if (contract.status !== "active" || contract.endDate === null) return false;
+  if (contract.status !== ContractStatus.Active || contract.endDate === null) return false;
   const end = new Date(`${contract.endDate}T00:00:00Z`);
   const diffDays = Math.ceil((end.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
   return diffDays >= 0 && diffDays <= CONTRACT_EXPIRING_SOON_WINDOW_DAYS;

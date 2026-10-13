@@ -20,6 +20,7 @@ import {
   useBranches,
   useCreateDepreciationRun,
   useDepreciationRuns,
+  useDiscardDepreciationRun,
   usePostDepreciationRun,
   useReverseDepreciationRun,
 } from "../data/hooks";
@@ -68,6 +69,7 @@ export function DepreciationRunsScreen() {
   const createRun = useCreateDepreciationRun();
   const postRun = usePostDepreciationRun();
   const reverseRun = useReverseDepreciationRun();
+  const discardRun = useDiscardDepreciationRun();
 
   const runs = query.data ?? EMPTY;
   const branches = branchesQuery.data ?? [];
@@ -83,6 +85,7 @@ export function DepreciationRunsScreen() {
   const [postingId, setPostingId] = useState<string | null>(null);
   const [postError, setPostError] = useState<string | null>(null);
 
+  const [discardingId, setDiscardingId] = useState<string | null>(null);
   const [reversingId, setReversingId] = useState<string | null>(null);
   const [reverseError, setReverseError] = useState<string | null>(null);
   const [reverseConfirmOpen, setReverseConfirmOpen] = useState(false);
@@ -145,6 +148,19 @@ export function DepreciationRunsScreen() {
       setPostError(err instanceof ApiError ? err.message : t("depreciation.theDepreciationRunCouldNot2"));
     } finally {
       setPostingId(null);
+    }
+  }
+
+  async function handleDiscard(run: DepreciationRunDTO) {
+    if (discardingId !== null) return;
+    setDiscardingId(run.id);
+    setPostError(null);
+    try {
+      await discardRun.mutateAsync(run.id);
+    } catch (err) {
+      setPostError(err instanceof ApiError ? err.message : t("api.theDepreciationDraftCouldNotBeDiscarded"));
+    } finally {
+      setDiscardingId(null);
     }
   }
 
@@ -239,7 +255,10 @@ export function DepreciationRunsScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => setSelectedId(r.id) },
             ...(r.status === "draft"
-              ? [{ key: "post", label: t("depreciation.post"), disabled: postingId === r.id, onSelect: () => void handlePost(r) }]
+              ? [
+                  { key: "post", label: t("depreciation.post"), disabled: postingId === r.id || discardingId === r.id, onSelect: () => void handlePost(r) },
+                  { key: "discard", label: t("depreciation.discardDraft"), tone: "danger" as const, disabled: postingId === r.id || discardingId === r.id, onSelect: () => void handleDiscard(r) },
+                ]
               : []),
             ...(r.status === "posted"
               ? [{ key: "reverse", label: t("depreciation.reverse"), disabled: reversingId === r.id, onSelect: () => openReverseConfirm(r) }]
@@ -278,6 +297,11 @@ export function DepreciationRunsScreen() {
               {selected.status === "posted" ? (
                 <Button variant="danger-outline" size="sm" disabled={reversingId === selected.id} onClick={() => openReverseConfirm(selected)}>
                   {t("depreciation.reverse")}
+                </Button>
+              ) : null}
+              {selected.status === "draft" ? (
+                <Button variant="danger-outline" size="sm" disabled={discardingId === selected.id || postingId === selected.id} onClick={() => void handleDiscard(selected)}>
+                  {t("depreciation.discardDraft")}
                 </Button>
               ) : null}
             </div>
@@ -329,6 +353,25 @@ export function DepreciationRunsScreen() {
                 </table>
               </div>
             </div>
+            {selected.skippedLines && selected.skippedLines.length > 0 ? (
+              <div>
+                <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("depreciation.skippedTitle")}</h3>
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <table className="w-full text-[12.5px]">
+                    <tbody>
+                      {selected.skippedLines.map((line) => (
+                        <tr key={line.assetId} className="border-t border-border first:border-t-0">
+                          <td className="mz-num p-[9px_12px] text-ink">{line.assetCode}</td>
+                          <td className="p-[9px_12px] text-end">
+                            <MoneyDisplay value={toMajor(line.amount)} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </SidePanel>

@@ -15,10 +15,12 @@ import { Money, Qty } from "../money/index.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { extend, occurredAtFromDocumentDate, unitCostOf, type CostLayerRepository } from "../inventory/index.js";
+import { JournalEntryNotFoundError, ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
-import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
-import { markGoodsReceiptInvoiced } from "./goods-receipt.js";
+import type { GoodsReceipt, GoodsReceiptRepository, ReceiptLineBilling } from "./goods-receipt.js";
+import { billGoodsReceipt, distinctPositions, GoodsReceiptInvoicingStatus, goodsReceiptInvoicingStatus, receiptLayersConsumed, receiptLineRemainingQty, unbillGoodsReceipt } from "./goods-receipt.js";
+import { LandedCostStandsOnDocumentError } from "../landed-costs/errors.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import {
   DEFAULT_PURCHASE_POLICY,
@@ -33,6 +35,9 @@ import {
 } from "./types.js";
 import {
   GoodsReceiptAlreadyInvoicedError,
+  GoodsReceiptInvoicedRefusal,
+  InvoiceDoesNotMatchReceiptError,
+  InvoiceExceedsReceiptError,
   DuplicatePurchaseDocumentError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
@@ -71,6 +76,8 @@ export interface PurchaseInvoiceLine {
   readonly expiryDate?: string | null;
   /** فئة التكلفة — only meaningful with the invoice's `projectId` (D-01). */
   readonly costCategory?: CostCategory | null;
+  /** INVARIANT: written once, at confirm — the receipt lines this line billed. A cancel gives back exactly these quantities; absent on a confirmed from-receipt invoice means it predates per-line billing and cleared the whole receipt. */
+  readonly receiptBillings?: readonly ReceiptLineBilling[];
 }
 
 export interface PurchaseInvoice {
@@ -126,6 +133,7 @@ export interface PurchaseInvoiceListFilter {
   readonly toDate?: string;
   readonly branchId?: string;
   readonly warehouseId?: string;
+  readonly receiptId?: string;
   /** Substring of the document number or the supplier's own invoice number. */
   readonly search?: string;
   readonly limit?: number;
@@ -200,16 +208,22 @@ export interface ConfirmPurchaseInvoiceResult {
 }
 
 export interface CancelPurchaseInvoiceDeps extends PurchaseAuditDeps {
+  readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
   readonly invoices: PurchaseInvoiceRepository;
   readonly stock: PurchaseStockPostingPort;
   readonly glReverse: PurchaseGlReversalPort;
   readonly layers: CostLayerRepository;
+  readonly receipts?: GoodsReceiptRepository;
   readonly policy?: PurchasePolicy;
   readonly now?: () => string;
 }
 
 function nowIso(deps: { now?: () => string }): string {
   return deps.now ? deps.now() : new Date().toISOString();
+}
+
+export function purchaseInvoiceCancelEntryId(invoiceId: string): string {
+  return `${invoiceId}:cancel`;
 }
 
 /** HALF_UP division on magnitudes (0.5 away from zero) — the TAX_COMPUTATION boundary. */
@@ -349,12 +363,21 @@ export function purchaseInvoiceTotal(invoice: {
 export function buildInvoiceLinesFromReceipt(
   receipt: GoodsReceipt,
   resolveTaxRate: (itemId: string) => number = () => 0,
+  quantities?: readonly ReceiptLineBilling[],
 ): PurchaseInvoiceLine[] {
-  return receipt.lines.map((l) => ({
+  const unknown = (quantities ?? []).filter((q) => receipt.lines[q.lineIndex] === undefined);
+  if (unknown.length > 0) {
+    throw new InvoiceDoesNotMatchReceiptError(receipt.id, unknown.map((q) => ({ ar: `البند رقم ${q.lineIndex + 1} غير موجود في إذن الاستلام`, en: `line ${q.lineIndex + 1} is not on the receipt` })));
+  }
+  const wanted = (index: number, remaining: Qty): Qty => {
+    if (!quantities) return remaining;
+    return Qty.sum(quantities.filter((q) => q.lineIndex === index).map((q) => q.qty));
+  };
+  return receipt.lines.map((l, index) => ({ l, qty: wanted(index, receiptLineRemainingQty(receipt, l)) })).filter(({ qty }) => qty.compare(Qty.zero()) > 0).map(({ l, qty }) => ({
     itemId: l.itemId,
     description: l.description,
     kind: "inventory" as const,
-    qty: l.qty,
+    qty,
     unitCost: l.unitCost,
     taxRatePercent: resolveTaxRate(l.itemId),
     batchNo: l.batchNo,
@@ -400,6 +423,53 @@ function validate(lines: readonly PurchaseInvoiceLine[], supplierId: string, pro
   if (reasons.length > 0) throw new InvalidPurchaseDocumentError(reasons);
 }
 
+function assertInvoiceMatchesReceipt(command: Pick<CreatePurchaseInvoiceCommand, "warehouseId" | "lines">, receipt: GoodsReceipt): void {
+  const reasons: { ar: string; en: string }[] = [];
+  if (command.warehouseId !== receipt.warehouseId) {
+    reasons.push({
+      ar: `مستودع الفاتورة "${command.warehouseId}" يختلف عن مستودع الاستلام "${receipt.warehouseId}"`,
+      en: `the invoice warehouse "${command.warehouseId}" is not the receipt's warehouse "${receipt.warehouseId}"`,
+    });
+  }
+  const received = new Set(receipt.lines.map((line) => line.itemId));
+  const foreign = new Set<string>();
+  for (const line of command.lines) {
+    if ((line.kind ?? "inventory") !== "inventory" || !line.itemId || received.has(line.itemId)) continue;
+    foreign.add(line.itemId);
+  }
+  for (const itemId of foreign) {
+    reasons.push({ ar: `الصنف "${itemId}" غير موجود في إذن الاستلام`, en: `item "${itemId}" is not on the receipt` });
+  }
+  if (reasons.length > 0) throw new InvoiceDoesNotMatchReceiptError(receipt.id, reasons);
+}
+
+export function billInvoiceAgainstReceipt(lines: readonly { readonly itemId?: string | null; readonly kind?: PurchaseInvoiceLineKind; readonly qty: Qty }[], receipt: GoodsReceipt): ReceiptLineBilling[][] {
+  const remaining = receipt.lines.map((line) => receiptLineRemainingQty(receipt, line));
+  const requested = new Map<string, Qty>();
+  const available = new Map<string, Qty>();
+  receipt.lines.forEach((line, index) => available.set(line.itemId, (available.get(line.itemId) ?? Qty.zero()).add(remaining[index] as Qty)));
+  const billings = lines.map((line) => {
+    if ((line.kind ?? "inventory") !== "inventory" || !line.itemId) return [];
+    requested.set(line.itemId, (requested.get(line.itemId) ?? Qty.zero()).add(line.qty));
+    let need = line.qty;
+    const taken: ReceiptLineBilling[] = [];
+    receipt.lines.forEach((receiptLine, index) => {
+      const open = remaining[index] as Qty;
+      if (receiptLine.itemId !== line.itemId || need.isZero() || open.compare(Qty.zero()) <= 0) return;
+      const qty = open.compare(need) < 0 ? open : need;
+      taken.push({ lineIndex: index, qty });
+      remaining[index] = open.subtract(qty);
+      need = need.subtract(qty);
+    });
+    return taken;
+  });
+  const excess = [...requested]
+    .filter(([itemId, qty]) => available.has(itemId) && qty.compare(available.get(itemId) as Qty) > 0)
+    .map(([itemId, qty]) => ({ itemId, requested: qty.toString(), remaining: (available.get(itemId) as Qty).toString() }));
+  if (excess.length > 0) throw new InvoiceExceedsReceiptError(receipt.id, excess);
+  return billings;
+}
+
 /**
  * Create a مسودة (draft) purchase invoice — manual, or from a confirmed receipt.
  * With `requireReceiptForInvoice` on, a `receiptId` is mandatory.
@@ -421,10 +491,9 @@ export async function createPurchaseInvoice(
         `goods receipt "${command.receiptId}" is "${receipt.status}"; only a confirmed receipt can be invoiced`,
       ]);
     }
-    // Only the status was checked, never this flag — so a second invoice
-    // against the same receipt was accepted and posted a duplicate Dr
-    // Inventory with no matching stock movement.
-    if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(command.receiptId);
+    if (goodsReceiptInvoicingStatus(receipt) === GoodsReceiptInvoicingStatus.Invoiced) throw new GoodsReceiptAlreadyInvoicedError(command.receiptId, GoodsReceiptInvoicedRefusal.SecondInvoice);
+    assertInvoiceMatchesReceipt(command, receipt);
+    billInvoiceAgainstReceipt(command.lines, receipt);
     sourceReceipt = receipt;
   }
   if (await deps.invoices.findById(command.id)) {
@@ -483,10 +552,17 @@ export function baseReceiptLines(qty: Qty, unitCost: Money, rate?: string | null
 }
 
 /** Build the balanced Dr/Cr posting for a confirmed invoice (pure). */
+export interface ReceiptCostVariance {
+  readonly relievedByLine: readonly Money[];
+  readonly absorbed: Money;
+  readonly unabsorbed: Money;
+}
+
 export function buildInvoicePosting(
   invoice: PurchaseInvoice,
   accounts: PurchaseGlAccounts,
   fx?: { readonly rate: string; readonly baseCurrency: string },
+  variance?: ReceiptCostVariance,
 ): PurchaseGlPosting {
   // Line amounts are entered in the DOCUMENT's currency. When that is not the
   // base currency they are converted here, once, at the rate that applied on
@@ -512,11 +588,13 @@ export function buildInvoicePosting(
   // category invoice still posts one tagged line per category instead of
   // losing the split (D-01). A single, uncategorised group reproduces the
   // one-line-per-kind shape this posting always had.
+  const clearsGrni = invoice.receiptId !== null && accounts.goodsReceivedNotInvoicedAccountId !== undefined;
   const byCategory = (kind: PurchaseInvoiceLineKind): Map<CostCategory | null, Money> => {
     const map = new Map<CostCategory | null, Money>();
-    for (const line of invoice.lines) {
+    for (const [index, line] of invoice.lines.entries()) {
       if (line.kind !== kind) continue;
-      const amount = convert(purchaseInvoiceLineBase(line));
+      // The accrual is cleared by what the RECEIPT recorded for the billed quantity, never by what the invoice states: the difference is a cost of the goods (or a price variance), not a balance left sitting in 2120.
+      const amount = kind === "inventory" && clearsGrni && variance ? (variance.relievedByLine[index] as Money) : convert(purchaseInvoiceLineBase(line));
       const key = line.costCategory ?? null;
       map.set(key, (map.get(key) ?? Money.zero()).add(amount));
     }
@@ -534,15 +612,20 @@ export function buildInvoicePosting(
      * receipt behind it, the invoice IS the stock-in document and debits
      * inventory itself.
      */
-    const clearsGrni = invoice.receiptId !== null && accounts.goodsReceivedNotInvoicedAccountId !== undefined;
-    for (const [costCategory, amount] of byCategory("inventory")) {
-      if (amount.scaled === 0n) continue;
+    const groups = [...byCategory("inventory")].filter(([, amount]) => amount.scaled !== 0n);
+    groups.forEach(([costCategory, amount]) => {
       lines.push({
         accountId: clearsGrni ? (accounts.goodsReceivedNotInvoicedAccountId as string) : accounts.inventoryAccountId,
         debit: amount,
         credit: Money.zero(),
         ...(costCategory ? { costCategory } : {}),
       });
+    });
+    if (clearsGrni && variance) {
+      const signedLine = (accountId: string, amount: Money): PurchaseGlPostingLine =>
+        amount.scaled > 0n ? { accountId, debit: amount, credit: Money.zero() } : { accountId, debit: Money.zero(), credit: amount.negate() };
+      if (variance.absorbed.scaled !== 0n) lines.push(signedLine(accounts.inventoryAccountId, variance.absorbed));
+      if (variance.unabsorbed.scaled !== 0n) lines.push(signedLine(accounts.priceVarianceAccountId ?? accounts.inventoryAccountId, variance.unabsorbed));
     }
   }
   if (freightBase.scaled !== 0n) {
@@ -593,6 +676,90 @@ export function buildInvoicePosting(
   };
 }
 
+async function untrackedConfirmedInvoicesOnReceipt(invoices: PurchaseInvoiceRepository, receiptId: string, exceptId: string): Promise<PurchaseInvoice[]> {
+  return (await invoices.list({ receiptId, status: "confirmed" })).filter(
+    (other) => other.receiptId === receiptId && other.status === "confirmed" && other.id !== exceptId && !other.lines.some((line) => line.receiptBillings !== undefined),
+  );
+}
+
+export const PURCHASE_INVOICE_LATE_VARIANCE_SUFFIX = ":variance";
+
+interface CarriedReceiptVariance {
+  readonly variance: ReceiptCostVariance;
+  readonly late: { readonly day: string; readonly amount: Money }[];
+}
+
+async function carryReceiptCostVariance(
+  invoice: PurchaseInvoice,
+  receipt: GoodsReceipt,
+  billings: readonly (readonly ReceiptLineBilling[])[],
+  rate: string | null,
+  stock: PurchaseStockPostingPort,
+  confirmDay: string,
+): Promise<CarriedReceiptVariance> {
+  const relievedByLine = invoice.lines.map((_, index) =>
+    Money.sum((billings[index] ?? []).map((billing) => extend(billing.qty, (receipt.lines[billing.lineIndex] as GoodsReceipt["lines"][number]).unitCost))),
+  );
+  const byItem = new Map<string, bigint>();
+  invoice.lines.forEach((line, index) => {
+    if (line.kind !== "inventory" || !line.itemId) return;
+    const stated = rate ? convertToBase(purchaseInvoiceLineBase(line), rate) : purchaseInvoiceLineBase(line);
+    byItem.set(line.itemId, (byItem.get(line.itemId) ?? 0n) + stated.scaled - (relievedByLine[index] as Money).scaled);
+  });
+  let absorbed = 0n;
+  let unabsorbed = 0n;
+  const late: { day: string; amount: Money }[] = [];
+  for (const [itemId, difference] of byItem) {
+    if (difference === 0n) continue;
+    if (!stock.applyReceiptCostVariance) {
+      unabsorbed += difference;
+      continue;
+    }
+    const carried = await stock.applyReceiptCostVariance({
+      varianceDocId: invoice.id,
+      varianceDocNumber: invoice.number,
+      receiptId: receipt.id,
+      itemId,
+      warehouseId: receipt.warehouseId,
+      valueDelta: Money.fromScaled(difference),
+      occurredAt: occurredAtFromDocumentDate(invoice.date),
+      lateOccurredAt: occurredAtFromDocumentDate(confirmDay),
+    });
+    const day = carried.occurredAt?.slice(0, 10) ?? invoice.date;
+    if (day > invoice.date) {
+      unabsorbed += difference;
+      if (carried.absorbed.scaled !== 0n) late.push({ day, amount: carried.absorbed });
+    } else {
+      absorbed += carried.absorbed.scaled;
+      unabsorbed += difference - carried.absorbed.scaled;
+    }
+  }
+  return { variance: { relievedByLine, absorbed: Money.fromScaled(absorbed), unabsorbed: Money.fromScaled(unabsorbed) }, late };
+}
+
+function lateVariancePostings(invoice: PurchaseInvoice, accounts: PurchaseGlAccounts, late: readonly { day: string; amount: Money }[]): PurchaseGlPosting[] {
+  const byDay = new Map<string, bigint>();
+  for (const part of late) byDay.set(part.day, (byDay.get(part.day) ?? 0n) + part.amount.scaled);
+  const varianceAccountId = accounts.priceVarianceAccountId ?? accounts.inventoryAccountId;
+  return [...byDay].filter(([, amount]) => amount !== 0n).map(([day, amount], index) => {
+    const magnitude = Money.fromScaled(amount < 0n ? -amount : amount);
+    const [debit, credit] = amount > 0n ? [accounts.inventoryAccountId, varianceAccountId] : [varianceAccountId, accounts.inventoryAccountId];
+    const dimensions = { projectId: invoice.projectId ?? null, branchId: invoice.branchId ?? null };
+    return {
+      sourceDocType: "PURCHASE_INVOICE" as const,
+      sourceDocId: invoice.id,
+      entrySuffix: `${PURCHASE_INVOICE_LATE_VARIANCE_SUFFIX}${index === 0 ? "" : index}`,
+      sourceDocNumber: invoice.number,
+      date: day,
+      memo: `فرق سعر فاتورة مشتريات ${invoice.number} على البضاعة الباقية بالمخزن`,
+      lines: [
+        { accountId: debit, debit: magnitude, credit: Money.zero(), ...dimensions },
+        { accountId: credit, debit: Money.zero(), credit: magnitude, ...dimensions },
+      ],
+    };
+  });
+}
+
 /**
  * تأكيد الفاتورة (Confirm invoice): مسودة → مؤكد. Posts the GL entry (inventory +
  * tax + payable) always; posts stock IN only for a MANUAL invoice (no receipt),
@@ -621,7 +788,7 @@ export async function confirmPurchaseInvoice(
     fx = { rate: found.rate, baseCurrency };
   }
 
-  const posting = buildInvoicePosting(invoice, deps.accounts, fx);
+  let posting = buildInvoicePosting(invoice, deps.accounts, fx);
 
   // EVERY WRITE BELOW SHARES ONE TRANSACTION (B-7). The GL entry is keyed
   // `PI-JE:<invoiceId>`, so a failure after it posted left the invoice `draft`
@@ -634,7 +801,24 @@ export async function confirmPurchaseInvoice(
   const runAtomically = deps.gl.transaction?.bind(deps.gl) ?? (<T,>(fn: () => Promise<T>) => fn());
 
   const confirmed = await runAtomically(async () => {
+    let billings: ReceiptLineBilling[][] | null = null;
+    let latePostings: PurchaseGlPosting[] = [];
+    if (invoice.receiptId) {
+      const receipt = await deps.receipts?.findById(invoice.receiptId);
+      if (receipt) {
+        if (goodsReceiptInvoicingStatus(receipt) === GoodsReceiptInvoicingStatus.Invoiced) {
+          throw new GoodsReceiptAlreadyInvoicedError(invoice.receiptId, GoodsReceiptInvoicedRefusal.SecondInvoice);
+        }
+        billings = billInvoiceAgainstReceipt(invoice.lines, receipt);
+        if (deps.accounts.goodsReceivedNotInvoicedAccountId !== undefined) {
+          const carried = await carryReceiptCostVariance(invoice, receipt, billings, fx?.rate ?? null, deps.stock, nowIso(deps).slice(0, 10));
+          posting = buildInvoicePosting(invoice, deps.accounts, fx, carried.variance);
+          latePostings = lateVariancePostings(invoice, deps.accounts, carried.late);
+        }
+      }
+    }
     await deps.gl.post(posting);
+    for (const late of latePostings) await deps.gl.post(late);
 
     // Manual invoice (no prior receipt): the invoice IS the stock-in document.
     if (!invoice.receiptId) {
@@ -665,11 +849,12 @@ export async function confirmPurchaseInvoice(
       }
     }
 
-    if (invoice.receiptId && deps.receipts) {
-      await markGoodsReceiptInvoiced(invoice.receiptId, { receipts: deps.receipts });
+    if (invoice.receiptId && deps.receipts && billings) {
+      await billGoodsReceipt(invoice.receiptId, billings.flat(), { receipts: deps.receipts });
     }
 
-    const next: PurchaseInvoice = { ...invoice, status: "confirmed", fxRate: fx?.rate ?? null };
+    const billedLines = billings ? invoice.lines.map((line, index) => ({ ...line, receiptBillings: (billings as ReceiptLineBilling[][])[index] ?? [] })) : invoice.lines;
+    const next: PurchaseInvoice = { ...invoice, lines: billedLines, status: "confirmed", fxRate: fx?.rate ?? null };
     await deps.invoices.update(next);
 
     if (deps.allocatable) {
@@ -715,6 +900,7 @@ export async function confirmPurchaseInvoice(
 export async function cancelPurchaseInvoice(
   id: string,
   deps: CancelPurchaseInvoiceDeps,
+  options: { readonly date?: string } = {},
 ): Promise<PurchaseInvoice> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
   const invoice = await deps.invoices.findById(id);
@@ -723,37 +909,74 @@ export async function cancelPurchaseInvoice(
     throw new PurchaseDocumentNotDraftError(id, invoice.status);
   }
 
+  if (options.date !== undefined && options.date < invoice.date) {
+    throw new ReversalDateBeforeOriginalError(id, options.date, invoice.date);
+  }
+  const today = nowIso(deps).slice(0, 10);
+  const cancelDate = options.date ?? (today < invoice.date ? invoice.date : today);
+
+  if (invoice.status === "confirmed") {
+    const standing = (await deps.landedCostsStandingOn?.(invoice.id)) ?? [];
+    if (standing.length > 0) throw new LandedCostStandsOnDocumentError(invoice.id, standing);
+  }
+
   return atomically(deps, async () => {
   if (invoice.status === "confirmed") {
     const inventoryLines = invoice.lines.filter((l) => l.kind === "inventory" && l.itemId !== null);
+    const sourceReceipt = invoice.receiptId ? ((await deps.receipts?.findById(invoice.receiptId)) ?? null) : null;
+    const tracked = inventoryLines.some((l) => l.receiptBillings !== undefined);
+    const positions = sourceReceipt && !tracked
+      ? distinctPositions(sourceReceipt.lines.map((l) => ({ itemId: l.itemId, warehouseId: sourceReceipt.warehouseId })))
+      : distinctPositions(inventoryLines.map((l) => ({ itemId: l.itemId as string, warehouseId: sourceReceipt?.warehouseId ?? invoice.warehouseId })));
+    const layerOwnerId = invoice.receiptId ?? invoice.id;
     if (policy.trackSoldPurchaseItems) {
-      for (const line of inventoryLines) {
-        const layers = await deps.layers.listByPosition(line.itemId as string, invoice.warehouseId);
-        const consumed = layers
-          .filter((l) => l.sourceDocId === invoice.id)
-          .some((l) => l.remainingQty.compare(l.originalQty) !== 0);
-        if (consumed) throw new PurchaseItemsAlreadyConsumedError(id);
+      for (const position of positions) {
+        const layers = await deps.layers.listByPosition(position.itemId, position.warehouseId);
+        if (receiptLayersConsumed(layers, layerOwnerId)) throw new PurchaseItemsAlreadyConsumedError(id);
       }
     }
-
-    await deps.glReverse.reverse(invoice.id, {
-      reversalId: `${invoice.id}:cancel`,
-      date: nowIso(deps),
-      memo: `عكس فاتورة مشتريات ${invoice.number}`,
-    });
 
     // A from-receipt invoice never posted its own stock (the receipt did) — see confirmPurchaseInvoice.
     if (!invoice.receiptId && inventoryLines.length > 0) {
       await deps.stock.reverseReceipt({
-        reversalId: `${invoice.id}:cancel`,
+        reversalId: purchaseInvoiceCancelEntryId(invoice.id),
         sourceDocType: "PURCHASE_INVOICE",
         sourceDocId: invoice.id,
-        positions: inventoryLines.map((l) => ({
-          itemId: l.itemId as string,
-          warehouseId: invoice.warehouseId,
-        })),
-        occurredAt: occurredAtFromDocumentDate(invoice.date),
+        positions,
+        occurredAt: occurredAtFromDocumentDate(cancelDate),
       });
+    }
+
+    if (sourceReceipt && deps.stock.reverseReceiptCostVariance) {
+      const takenBack = await deps.stock.reverseReceiptCostVariance({
+        varianceDocId: invoice.id,
+        reversalId: purchaseInvoiceCancelEntryId(invoice.id),
+        positions,
+        occurredAt: occurredAtFromDocumentDate(cancelDate),
+      });
+      if (!takenBack.takenBack) throw new PurchaseItemsAlreadyConsumedError(id);
+      for (const index of [0, 1, 2, 3]) {
+        const suffix = `${PURCHASE_INVOICE_LATE_VARIANCE_SUFFIX}${index === 0 ? "" : index}`;
+        try {
+          await deps.glReverse.reverse(`${invoice.id}${suffix}`, {
+            reversalId: `${purchaseInvoiceCancelEntryId(invoice.id)}${suffix}`,
+            date: takenBack.occurredOn && takenBack.occurredOn > cancelDate ? takenBack.occurredOn : cancelDate,
+            memo: `عكس فرق سعر فاتورة مشتريات ${invoice.number}`,
+          });
+        } catch (err) {
+          if (!(err instanceof JournalEntryNotFoundError)) throw err;
+          break;
+        }
+      }
+    }
+
+    await deps.glReverse.reverse(invoice.id, {
+      reversalId: purchaseInvoiceCancelEntryId(invoice.id),
+      date: cancelDate,
+      memo: `عكس فاتورة مشتريات ${invoice.number}`,
+    });
+    if (invoice.receiptId && deps.receipts && (await untrackedConfirmedInvoicesOnReceipt(deps.invoices, invoice.receiptId, invoice.id)).length === 0) {
+      await unbillGoodsReceipt(invoice.receiptId, tracked ? inventoryLines.flatMap((l) => l.receiptBillings ?? []) : null, { receipts: deps.receipts });
     }
   }
 

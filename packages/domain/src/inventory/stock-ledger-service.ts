@@ -23,12 +23,17 @@ import {
   InvalidStockMovementError,
   SameWarehouseTransferError,
   UncostedDeficitIssueError,
+  StockAdjustmentNotFoundError,
+  StockAdjustmentAlreadyReversedError,
 } from "./errors.js";
 import {
   StockMovement,
   StockMovementDirection,
   StockSourceDocType,
+  isRevaluation,
 } from "./movement.js";
+import { STOCK_ADJUSTMENT_MIRROR_ENTRY_SUFFIX } from "./stock-ledger-dates.js";
+import { LandedCostDateBeforeStockMovementError, StockMovementBeforeRevaluationError, StockRevaluationSource, type StandingStockRevaluation } from "../landed-costs/errors.js";
 import {
   foldPostedAdjustments,
   foldPostedTransfers,
@@ -107,6 +112,7 @@ export interface StockLedgerServiceDeps {
   readonly transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Clock for `occurredAt` defaults. Defaults to `Date.now`-based ISO. */
   readonly clock?: () => string;
+  readonly periodGate?: (date: string) => Promise<void>;
   /**
    * Last-resort unit cost for an issue out of a position that holds nothing and
    * was never received anywhere — the item master's تكلفة الشراء. Without it
@@ -335,6 +341,19 @@ export interface DocumentStockPlanResult {
 export class StockLedgerService {
   constructor(private readonly deps: StockLedgerServiceDeps) {}
 
+  private async assertPeriodOpen(occurredAt: string): Promise<void> {
+    await this.deps.periodGate?.(occurredAt.slice(0, 10));
+  }
+
+  /** INVARIANT: no quantity movement is dated before a standing revaluation its position has absorbed — a landed cost or a purchase price variance; the replay would cost it without the revaluation while the ledger posted it with (landed-cost-backdated-movement.test.ts, purchase-variance-backdated-movement.test.ts). */
+  private async assertNotBeforeRevaluation(itemId: string, warehouseId: string, occurredAt: string): Promise<void> {
+    const standing = this.deps.ledger.latestStandingRevaluation
+      ? await this.deps.ledger.latestStandingRevaluation(itemId, warehouseId)
+      : latestStandingRevaluation(await this.deps.ledger.listByPosition(itemId, warehouseId));
+    const day = occurredAt.slice(0, 10);
+    if (standing !== null && day < standing.day) throw new StockMovementBeforeRevaluationError(day, itemId, standing);
+  }
+
   private now(): string {
     return (this.deps.clock ?? (() => new Date().toISOString()))();
   }
@@ -421,6 +440,7 @@ export class StockLedgerService {
     if (input.qty.isNegative() || input.qty.isZero()) {
       throw new InvalidStockMovementError(["الكمية يجب أن تكون رقماً موجباً"]);
     }
+    await this.assertNotBeforeRevaluation(input.itemId, input.warehouseId, input.occurredAt);
     const snap = await this.loadSnapshot(input.itemId, input.warehouseId);
 
     let unitCost: Money;
@@ -619,6 +639,7 @@ export class StockLedgerService {
   async postAdjustment(command: PostAdjustmentCommand): Promise<void> {
     this.validateAdjustment(command);
     const occurredAt = command.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
 
     await this.runInTransaction(async () => {
       const movementIds: string[] = [];
@@ -662,6 +683,64 @@ export class StockLedgerService {
     });
   }
 
+  /** INVARIANT: the ledger follows the value the stock moved, not the mirror of the original entry — the mirror posts first and the difference, when the average has moved since, posts beside it on the same day, so stock and GL 1200 tie at every month end. */
+  async reverseAdjustment(command: ReverseAdjustmentCommand): Promise<{ valueMoved: Money }> {
+    const original = (await this.movementsOfSourceDoc(command.adjustmentId)).filter((m) => m.sourceDocType === "ADJUSTMENT" && !m.qty.isZero());
+    if (original.length === 0) throw new StockAdjustmentNotFoundError(command.adjustmentId);
+    if ((await this.movementsOfSourceDoc(command.reversalId)).length > 0) throw new StockAdjustmentAlreadyReversedError(command.adjustmentId);
+    await this.assertPeriodOpen(command.occurredAt);
+    const number = original[0]?.sourceDocNumber ?? null;
+    const date = command.occurredAt.slice(0, 10);
+
+    return this.runInTransaction(async () => {
+      let originalValue = Money.zero();
+      let valueMoved = Money.zero();
+      for (let i = 0; i < original.length; i++) {
+        const movement = original[i] as StockMovement;
+        const value = extend(movement.qty, movement.unitCost);
+        originalValue = originalValue.add(movement.direction === "IN" ? value : value.negate());
+        const { signedValue } = await this.applyMovement({
+          movementId: `${command.reversalId}:${i}`,
+          itemId: movement.itemId,
+          warehouseId: movement.warehouseId,
+          direction: movement.direction === "IN" ? "OUT" : "IN",
+          qty: movement.qty,
+          unitCost: movement.unitCost,
+          sourceDocType: "ADJUSTMENT",
+          sourceDocId: command.reversalId,
+          sourceDocNumber: number,
+          reason: movement.reason,
+          occurredAt: command.occurredAt,
+        });
+        valueMoved = valueMoved.add(signedValue);
+      }
+
+      const memo = command.memo ?? `عكس تسوية مخزون ${number ?? command.adjustmentId}`;
+      const mirrored = (await this.deps.gl?.reverse?.(command.adjustmentId, { reversalId: `${command.reversalId}${STOCK_ADJUSTMENT_MIRROR_ENTRY_SUFFIX}`, date, memo })) ?? null;
+      const residual = originalValue.add(valueMoved);
+      if (mirrored && this.deps.gl && residual.scaled !== 0n) {
+        const inventoryLine = mirrored.find((line) => (originalValue.scaled > 0n ? line.debit.scaled > 0n : line.credit.scaled > 0n));
+        const counterpartLine = mirrored.find((line) => line !== inventoryLine);
+        if (inventoryLine && counterpartLine) {
+          const magnitude = residual.scaled < 0n ? residual.negate() : residual;
+          const up = residual.scaled > 0n;
+          await this.deps.gl.post({
+            sourceDocType: "ADJUSTMENT",
+            sourceDocId: command.reversalId,
+            sourceDocNumber: number,
+            date,
+            memo: `${memo} — فرق متوسط التكلفة`,
+            lines: [
+              { ...inventoryLine, debit: up ? magnitude : Money.zero(), credit: up ? Money.zero() : magnitude },
+              { ...counterpartLine, debit: up ? Money.zero() : magnitude, credit: up ? magnitude : Money.zero() },
+            ],
+          });
+        }
+      }
+      return { valueMoved };
+    });
+  }
+
   /**
    * Issue stock OUT against a source document (a confirmed sales invoice / POS
    * sale). Each line leaves at the moving-average cost; the returned per-line +
@@ -682,6 +761,7 @@ export class StockLedgerService {
       throw new InvalidStockMovementError(["فئة التكلفة تتطلب اختيار مشروع"]);
     }
     const occurredAt = command.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
 
     return this.runInTransaction(async () => {
       const lineCosts: IssueLineCost[] = [];
@@ -768,6 +848,7 @@ export class StockLedgerService {
       throw new InvalidStockMovementError(["التحويل يحتاج سطراً واحداً على الأقل"]);
     }
     const occurredAt = command.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
     const sourceDocType = command.sourceDocType ?? "TRANSFER";
     const sourceDocId = command.sourceDocId ?? command.transferId;
 
@@ -850,6 +931,7 @@ export class StockLedgerService {
       }
     }
     const occurredAt = command.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
 
     await this.runInTransaction(async () => {
       for (let i = 0; i < command.lines.length; i++) {
@@ -883,11 +965,18 @@ export class StockLedgerService {
    */
   async reverseReceipt(command: ReverseReceiptCommand): Promise<void> {
     const occurredAt = command.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
 
     await this.runInTransaction(async () => {
       for (const pos of command.positions) {
+        await this.assertNotBeforeRevaluation(pos.itemId, pos.warehouseId, occurredAt);
         const layers = await this.deps.layers.listByPosition(pos.itemId, pos.warehouseId);
         const mine = layers.filter((l) => l.sourceDocId === command.sourceDocId);
+        if (mine.length === 0) {
+          throw new InvalidStockMovementError([
+            `بضاعة المستند "${command.sourceDocId}" من الصنف "${pos.itemId}" صُرفت بالكامل، فلا يمكن عكس استلامها`,
+          ]);
+        }
         for (const layer of mine) {
           if (layer.remainingQty.compare(layer.originalQty) !== 0) {
             throw new InvalidStockMovementError([
@@ -963,6 +1052,7 @@ export class StockLedgerService {
   }): Promise<DocumentStockPlanResult> {
     if (plan.lines.length === 0) return { valueMoved: Money.zero() };
     const occurredAt = plan.occurredAt ?? this.now();
+    await this.assertPeriodOpen(occurredAt);
 
     let valueMoved = Money.zero();
     await this.runInTransaction(async () => {
@@ -1029,7 +1119,7 @@ export class StockLedgerService {
     readonly landedCostDocId?: string;
     readonly landedCostDocNumber?: string | null;
     /** Document date of the landed cost; never dated before the position's last movement. */
-    readonly occurredAt?: string;
+    readonly occurredAt: string;
   }): Promise<LandedCostAbsorption> {
     if (line.valueDelta.scaled <= 0n) {
       throw new InvalidStockMovementError([
@@ -1043,8 +1133,11 @@ export class StockLedgerService {
           ? emptyPosition(line.itemId, line.warehouseId)
           : replay(line.itemId, line.warehouseId, movements);
       const last = movements[movements.length - 1]?.occurredAt;
-      const wanted = line.occurredAt ?? new Date().toISOString();
-      const occurredAt = last && last > wanted ? last : wanted;
+      if (last && last.slice(0, 10) > line.occurredAt.slice(0, 10)) {
+        throw new LandedCostDateBeforeStockMovementError(line.occurredAt.slice(0, 10), line.itemId, last.slice(0, 10));
+      }
+      const occurredAt = last && last > line.occurredAt ? last : line.occurredAt;
+      await this.assertPeriodOpen(occurredAt);
 
       await this.deps.ledger.append({
         id: `${line.landedCostDocId ?? line.sourceDocId}:LC:${line.itemId}:${line.warehouseId}`,
@@ -1070,6 +1163,136 @@ export class StockLedgerService {
         absorbed: Money.fromScaled(line.valueDelta.scaled - unabsorbed.scaled),
         unabsorbed,
       };
+    });
+  }
+
+  async assertMovementDateOpen(occurredAt: string): Promise<void> {
+    await this.assertPeriodOpen(occurredAt);
+  }
+
+  async latestMovementDay(itemId: string, warehouseId: string): Promise<string | null> {
+    const movements = await this.deps.ledger.listByPosition(itemId, warehouseId);
+    return movements.reduce<string | null>((latest, m) => (latest === null || m.occurredAt.slice(0, 10) > latest ? m.occurredAt.slice(0, 10) : latest), null);
+  }
+
+  async landedCostRevaluationState(line: { readonly itemId: string; readonly warehouseId: string; readonly landedCostDocId: string }): Promise<{ readonly applied: boolean; readonly issuedSince: boolean }> {
+    const movements = await this.deps.ledger.listByPosition(line.itemId, line.warehouseId);
+    const index = movements.findIndex((m) => m.sourceDocType === "LANDED_COST" && m.sourceDocId === line.landedCostDocId && isRevaluation(m));
+    if (index === -1) return { applied: false, issuedSince: false };
+    return { applied: true, issuedSince: movements.slice(index + 1).some((m) => m.direction === "OUT" && !isRevaluation(m)) };
+  }
+
+  async reverseLandedCostRevaluation(line: {
+    readonly itemId: string;
+    readonly warehouseId: string;
+    readonly landedCostDocId: string;
+    readonly reversalDocId: string;
+    readonly occurredAt: string;
+  }): Promise<Money> {
+    return this.runInTransaction(async () => {
+      const movements = await this.deps.ledger.listByPosition(line.itemId, line.warehouseId);
+      const applied = movements.find((m) => m.sourceDocType === "LANDED_COST" && m.sourceDocId === line.landedCostDocId && isRevaluation(m));
+      if (!applied) return Money.zero();
+      const before = replay(line.itemId, line.warehouseId, movements);
+      const last = movements[movements.length - 1]?.occurredAt;
+      if (last && last.slice(0, 10) > line.occurredAt.slice(0, 10)) {
+        throw new LandedCostDateBeforeStockMovementError(line.occurredAt.slice(0, 10), line.itemId, last.slice(0, 10));
+      }
+      const occurredAt = last && last > line.occurredAt ? last : line.occurredAt;
+      await this.assertPeriodOpen(occurredAt);
+      await this.deps.ledger.append({
+        id: `${line.reversalDocId}:LC:${line.itemId}:${line.warehouseId}`,
+        itemId: line.itemId,
+        warehouseId: line.warehouseId,
+        direction: "OUT",
+        qty: Qty.zero(),
+        unitCost: Money.zero(),
+        sourceDocType: "LANDED_COST",
+        sourceDocId: line.reversalDocId,
+        sourceDocNumber: null,
+        reason: null,
+        occurredAt,
+        valueDelta: applied.valueDelta,
+        revaluesSourceDocId: applied.revaluesSourceDocId,
+      });
+      const after = await this.rebuildWithin(line.itemId, line.warehouseId);
+      return Money.fromScaled(before.totalValue.scaled - after.totalValue.scaled);
+    });
+  }
+
+  /** INVARIANT: the movement is never dated before the position's latest one — the returned `occurredAt` is the day GL 1200 must take the absorbed share. */
+  async applyReceiptCostVariance(command: {
+    readonly varianceDocId: string;
+    readonly varianceDocNumber: string | null;
+    readonly receiptId: string;
+    readonly itemId: string;
+    readonly warehouseId: string;
+    readonly valueDelta: Money;
+    readonly occurredAt: string;
+    readonly lateOccurredAt?: string;
+  }): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money; readonly occurredAt: string }> {
+    if (command.valueDelta.scaled === 0n) return { absorbed: Money.zero(), unabsorbed: Money.zero(), occurredAt: command.occurredAt };
+    return this.runInTransaction(async () => {
+      const movements = await this.deps.ledger.listByPosition(command.itemId, command.warehouseId);
+      const last = movements[movements.length - 1]?.occurredAt;
+      const before = movements.length === 0 ? emptyPosition(command.itemId, command.warehouseId) : replay(command.itemId, command.warehouseId, movements);
+      const movedLater = last !== undefined && last.slice(0, 10) > command.occurredAt.slice(0, 10);
+      const wanted = movedLater && command.lateOccurredAt && command.lateOccurredAt > command.occurredAt ? command.lateOccurredAt : command.occurredAt;
+      const occurredAt = last && last > wanted ? last : wanted;
+      await this.assertPeriodOpen(occurredAt);
+      const negative = command.valueDelta.scaled < 0n;
+      await this.deps.ledger.append({
+        id: `${command.varianceDocId}:PPV:${command.itemId}:${command.warehouseId}`,
+        itemId: command.itemId,
+        warehouseId: command.warehouseId,
+        direction: negative ? "OUT" : "IN",
+        qty: Qty.zero(),
+        unitCost: Money.zero(),
+        sourceDocType: "PURCHASE_INVOICE",
+        sourceDocId: command.varianceDocId,
+        sourceDocNumber: command.varianceDocNumber,
+        reason: null,
+        occurredAt,
+        valueDelta: negative ? command.valueDelta.negate() : command.valueDelta,
+        revaluesSourceDocId: command.receiptId,
+      });
+      const after = await this.rebuildWithin(command.itemId, command.warehouseId);
+      const unabsorbed = Money.fromScaled(after.unabsorbedRevaluation.scaled - before.unabsorbedRevaluation.scaled);
+      return { absorbed: Money.fromScaled(command.valueDelta.scaled - unabsorbed.scaled), unabsorbed, occurredAt };
+    });
+  }
+
+  async reverseReceiptCostVariance(command: {
+    readonly varianceDocId: string;
+    readonly reversalId: string;
+    readonly positions: readonly { itemId: string; warehouseId: string }[];
+    readonly occurredAt: string;
+  }): Promise<{ readonly takenBack: boolean; readonly occurredOn: string | null }> {
+    return this.runInTransaction(async () => {
+      const found: { movement: StockMovement; last: string }[] = [];
+      for (const position of command.positions) {
+        const movements = await this.deps.ledger.listByPosition(position.itemId, position.warehouseId);
+        const index = movements.findIndex((m) => m.sourceDocType === "PURCHASE_INVOICE" && m.sourceDocId === command.varianceDocId && isRevaluation(m));
+        if (index === -1) continue;
+        if (movements.slice(index + 1).some((m) => m.direction === "OUT" && !isRevaluation(m))) return { takenBack: false, occurredOn: null };
+        found.push({ movement: movements[index]!, last: movements[movements.length - 1]!.occurredAt });
+      }
+      let occurredOn: string | null = null;
+      for (const { movement, last } of found) {
+        const occurredAt = last > command.occurredAt ? last : command.occurredAt;
+        await this.assertPeriodOpen(occurredAt);
+        await this.deps.ledger.append({
+          ...movement,
+          id: `${command.reversalId}:PPV:${movement.itemId}:${movement.warehouseId}`,
+          direction: movement.direction === "IN" ? "OUT" : "IN",
+          sourceDocId: command.reversalId,
+          sourceDocNumber: null,
+          occurredAt,
+        });
+        await this.rebuildWithin(movement.itemId, movement.warehouseId);
+        if (occurredOn === null || occurredAt.slice(0, 10) > occurredOn) occurredOn = occurredAt.slice(0, 10);
+      }
+      return { takenBack: true, occurredOn };
     });
   }
 
@@ -1262,6 +1485,13 @@ export class StockLedgerService {
 }
 
 /** Build the balanced Dr/Cr posting for a value-impacting adjustment. */
+export interface ReverseAdjustmentCommand {
+  readonly adjustmentId: string;
+  readonly reversalId: string;
+  readonly occurredAt: string;
+  readonly memo?: string;
+}
+
 function buildAdjustmentPosting(
   command: PostAdjustmentCommand,
   valueDelta: Money,
@@ -1292,4 +1522,29 @@ function buildAdjustmentPosting(
     memo: `Stock adjustment ${command.adjustmentNumber ?? command.adjustmentId} (${command.reason})`,
     lines,
   };
+}
+
+export function latestStandingRevaluation(movements: readonly StockMovement[]): StandingStockRevaluation | null {
+  const standing: { receipt: string; amount: bigint; direction: StockMovement["direction"]; revaluation: StandingStockRevaluation }[] = [];
+  for (const movement of movements) {
+    if (!isRevaluation(movement)) continue;
+    const receipt = movement.revaluesSourceDocId ?? movement.sourceDocId;
+    const amount = movement.valueDelta?.scaled ?? 0n;
+    const undone = standing.findIndex((entry) => entry.receipt === receipt && entry.amount === amount && entry.direction !== movement.direction);
+    if (undone !== -1) {
+      standing.splice(undone, 1);
+      continue;
+    }
+    standing.push({
+      receipt,
+      amount,
+      direction: movement.direction,
+      revaluation: {
+        day: movement.occurredAt.slice(0, 10),
+        source: movement.sourceDocType === StockRevaluationSource.LandedCost ? StockRevaluationSource.LandedCost : StockRevaluationSource.PurchasePriceVariance,
+        documentNo: movement.sourceDocNumber ?? movement.sourceDocId,
+      },
+    });
+  }
+  return standing.reduce<StandingStockRevaluation | null>((latest, entry) => (latest === null || entry.revaluation.day > latest.day ? entry.revaluation : latest), null);
 }

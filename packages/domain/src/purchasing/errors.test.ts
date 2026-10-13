@@ -94,6 +94,8 @@ describe("purchasing errors", () => {
     const err = new PurchaseItemsAlreadyConsumedError("doc-9");
     expect(err.code).toBe("PURCHASE_ITEMS_ALREADY_CONSUMED");
     expect(err.id).toBe("doc-9");
+    expect(err.message).toContain("مرتجع مشتريات");
+    expect(err.messageEn).toBe('Purchase document "doc-9" cannot be cancelled: some of its goods have already been sold, transferred or consumed. Record a purchase return for what is still on hand instead.');
   });
 
   it("GoodsReceiptAlreadyInvoicedError names the id", () => {

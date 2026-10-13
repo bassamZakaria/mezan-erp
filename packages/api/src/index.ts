@@ -33,7 +33,7 @@ export { createSuppliersRouter } from "./suppliers-routes.js";
 export { createItemsRouter } from "./items-routes.js";
 export { createLabelLayoutsRouter } from "./label-routes.js";
 export { createRolesRoutes } from "./roles-routes.js";
-export { createUsersRoutes } from "./users-routes.js";
+export { createUsersRoutes, OwnerHandOverOutcome, COMPANY_OWNER_HAND_OVER_AUDIT, type CompanyOwnerPort, type UserEmailChange } from "./users-routes.js";
 export {
   createUserErasurePort,
   EMPTY_ERASURE_COUNTS,
@@ -137,3 +137,5 @@ export * from "./enh/index.js";
 export { AUDITED_MOUNTS, MutatingMethod, connectionTurn, type AuditedMount, type BoundaryPreparation, type ConnectionTurnOptions } from "./audit-boundary.js";
 export { BodyLimitBytes, BodyLimitRefusal, bodyLimitFor, requestBodyLimit } from "./body-limit.js";
 export { IDEMPOTENT_CREATES, IDEMPOTENT_REPLAY_HEADER, IdempotencyRefusal, idempotentCreate, type IdempotentRequests } from "./idempotent-create.js";
+
+export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, reversalRoute, type DocumentReversalPath } from "./document-reversal-paths.js";

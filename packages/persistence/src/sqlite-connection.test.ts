@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
 import {
@@ -79,6 +82,22 @@ describe("openSqliteConnection", () => {
     expect(() => openSqliteConnection(":memory:", { key: "'; DROP TABLE t; --" })).toThrow(
       /32 bytes of lowercase hex/,
     );
+  });
+
+  it("refuses a missing file when told the database must exist, and creates nothing in its place", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-must-exist-"));
+    const file = path.join(dir, "books.db");
+    try {
+      expect(() => openSqliteConnection(file, { fileMustExist: true })).toThrow(/unable to open database file/);
+      expect(existsSync(file)).toBe(false);
+
+      openSqliteConnection(file).sqlite.close();
+      const reopened = openSqliteConnection(file, { fileMustExist: true });
+      expect(reopened.owned).toBe(true);
+      reopened.sqlite.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("reuses an existing connection without owning it", () => {

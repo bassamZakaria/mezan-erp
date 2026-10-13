@@ -39,7 +39,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const claim = await req(
       "POST",
       "/bootstrap/admin",
-      { nameAr: "مهاجم", nameEn: "Attacker", email: "attacker@cyag.example", pin: "999999" },
+      { nameAr: "مهاجم", nameEn: "Attacker", email: "attacker@cyag.example", pin: "999999", companyName: "متجر الاختبار" },
       ANONYMOUS,
     );
     check("POST /bootstrap/admin ⇒ 409", claim.status === 409, `got ${claim.status}`);
@@ -50,7 +50,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const known = await req(
       "POST",
       "/bootstrap/admin",
-      { nameAr: "م", nameEn: "A", email: SEED_ADMIN_EMAIL, pin: "999999" },
+      { nameAr: "م", nameEn: "A", email: SEED_ADMIN_EMAIL, pin: "999999", companyName: "متجر الاختبار" },
       ANONYMOUS,
     );
     check("a known admin address ⇒ no session either", known.status >= 400 && !known.body?.token, `got ${known.status}`);
@@ -354,7 +354,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("every non-seed account is now inactive", deactivated.length === nonSeed.length, `${deactivated.length}/${nonSeed.length}`);
 
     const retake = await req("POST", "/bootstrap/admin", {
-      nameAr: "مهاجم", nameEn: "Attacker", email: "scn-sec-retake@cyag.example", pin: "987654",
+      nameAr: "مهاجم", nameEn: "Attacker", email: "scn-sec-retake@cyag.example", pin: "987654", companyName: "متجر الاختبار",
     }, ANONYMOUS);
     check("an emptied tenant is STILL claimed", retake.status === 409, `got ${retake.status}`);
     check("and hands back no session", !retake.body?.token, JSON.stringify(retake.body).slice(0, 120));
@@ -656,7 +656,7 @@ export async function run(ctx: Ctx): Promise<void> {
       check("the seeded fallback admin can sign in on an unclaimed tenant", before.status === 200, `got ${before.status}`);
 
       const claim = await post("/bootstrap/admin", {
-        nameAr: "المالك", nameEn: "Owner", email: "owner@fresh.example", pin: "246813",
+        nameAr: "المالك", nameEn: "Owner", email: "owner@fresh.example", pin: "246813", companyName: "متجر الاختبار",
       });
       check("the owner claims the install", claim.status === 201, `got ${claim.status}`);
 
@@ -671,7 +671,7 @@ export async function run(ctx: Ctx): Promise<void> {
       check("while the real owner can", owner.status === 200, `got ${owner.status}`);
 
       const retaken = await post("/bootstrap/admin", {
-        nameAr: "دخيل", nameEn: "Second", email: "second@fresh.example", pin: "135791",
+        nameAr: "دخيل", nameEn: "Second", email: "second@fresh.example", pin: "135791", companyName: "متجر الاختبار",
       });
       check("and the install cannot be claimed twice", retaken.status === 409, `got ${retaken.status}`);
     } finally {
@@ -761,7 +761,7 @@ export async function run(ctx: Ctx): Promise<void> {
       check("an untouched install reports itself unclaimed", before.claimed === false, JSON.stringify(before));
 
       const admin = await post("/bootstrap/admin", {
-        nameAr: "المالك", nameEn: "Owner", email: "wizard-owner@fresh.example", pin: "357913",
+        nameAr: "المالك", nameEn: "Owner", email: "wizard-owner@fresh.example", pin: "357913", companyName: "متجر الاختبار",
       });
       check("step 2 creates the owner's admin", admin.status === 201, `got ${admin.status}`);
 
@@ -771,7 +771,7 @@ export async function run(ctx: Ctx): Promise<void> {
       check("and reports what the tenant holds", counts.accounts > 0 && counts.users > 0, JSON.stringify(counts));
 
       const again = await post("/bootstrap/admin", {
-        nameAr: "دخيل", nameEn: "Intruder", email: "intruder@fresh.example", pin: "111111",
+        nameAr: "دخيل", nameEn: "Intruder", email: "intruder@fresh.example", pin: "111111", companyName: "متجر الاختبار",
       });
       check("while claiming it a second time is still refused", again.status === 409, `got ${again.status}`);
     } finally {

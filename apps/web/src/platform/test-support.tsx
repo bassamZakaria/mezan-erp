@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { render, type RenderResult } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { RouterProvider, createMemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppI18nProvider } from "../i18n";
 import type { Transport, TransportResponse } from "../data/transport";
@@ -46,6 +46,7 @@ export function renderWithPlatformProviders(
   } = {},
 ): RenderResult {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const router = createMemoryRouter([{ path: "/platform/*", element: ui }], { initialEntries: [options.route ?? "/platform"] });
   return render(
     <AppI18nProvider>
       <QueryClientProvider client={queryClient}>
@@ -54,11 +55,7 @@ export function renderWithPlatformProviders(
               component that renders its own nested `<Routes>` (e.g.
               `PlatformShell`) resolves relative paths against `/platform`
               instead of the router's actual root. */}
-          <MemoryRouter initialEntries={[options.route ?? "/platform"]}>
-            <Routes>
-              <Route path="/platform/*" element={ui} />
-            </Routes>
-          </MemoryRouter>
+          <RouterProvider router={router} />
         </PlatformApiProvider>
       </QueryClientProvider>
     </AppI18nProvider>,

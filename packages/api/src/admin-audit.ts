@@ -2,10 +2,11 @@ import type { Context } from "hono";
 import {
   auditBranchFromScope,
   auditFieldValue,
+  createAuditEvent,
   diffAuditFields,
   recordSecurityEvent,
-  recordSensitiveEvent,
   type AuditChangeAction,
+  type AuditEvent,
   type AuditFieldChange,
   type AuditSeverity,
   type AuditSink,
@@ -39,15 +40,10 @@ export interface AdminAuditEntry {
   readonly details?: Readonly<Record<string, unknown>> | null;
 }
 
-export async function recordAdminEvent(
-  audit: AuditSink | undefined,
-  c: Context,
-  entry: AdminAuditEntry,
-): Promise<void> {
-  if (!audit) return;
-  assertAuditIsTransactional(audit, c);
+export function buildAdminEvent(c: Context, entry: AdminAuditEntry): AuditEvent {
   const ctx = getAuthContext(c);
-  await failingTheRequest(c, recordSensitiveEvent(audit, {
+  return createAuditEvent({
+    stream: "sensitive",
     module: entry.module,
     entityType: entry.entityType,
     entityId: entry.entityId,
@@ -67,7 +63,7 @@ export async function recordAdminEvent(
     branchId: ctx ? auditBranchFromScope(ctx.branchScope) : null,
     severity: entry.severity ?? "WARNING",
     details: withOrigin(c, entry.details),
-  }));
+  });
 }
 
 async function failingTheRequest(c: Context, append: Promise<void>): Promise<void> {
@@ -77,6 +73,16 @@ async function failingTheRequest(c: Context, append: Promise<void>): Promise<voi
     markAuditFailure(c, err);
     throw err;
   }
+}
+
+export async function recordAdminEvent(
+  audit: AuditSink | undefined,
+  c: Context,
+  entry: AdminAuditEntry,
+): Promise<void> {
+  if (!audit) return;
+  assertAuditIsTransactional(audit, c);
+  await failingTheRequest(c, audit.append(buildAdminEvent(c, entry)));
 }
 
 /**

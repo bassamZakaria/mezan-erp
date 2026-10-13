@@ -254,6 +254,21 @@ const FILTER_COLUMNS: Record<string, string> = {
   severity: "severity",
 };
 
+function chainFieldsOf(event: AuditEvent): AuditChainFields {
+  return {
+    stream: event.stream,
+    module: event.module,
+    entity_type: event.entityType,
+    entity_id: event.entityId,
+    action: event.action,
+    actor: event.actor,
+    branch_id: event.branchId,
+    timestamp: event.timestamp,
+    severity: event.severity,
+    details: event.details === null ? null : JSON.stringify(event.details),
+  };
+}
+
 class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
   private readonly insert: Database.Statement;
   private readonly select: Database.Statement;
@@ -318,31 +333,22 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   // savepoint is released before this function returns, so a caller that does
   // not await the append cannot commit ahead of it.
   async append(event: AuditEvent): Promise<void> {
-    const row: AuditChainFields = {
-      stream: event.stream,
-      module: event.module,
-      entity_type: event.entityType,
-      entity_id: event.entityId,
-      action: event.action,
-      actor: event.actor,
-      branch_id: event.branchId,
-      timestamp: event.timestamp,
-      severity: event.severity,
-      details: event.details === null ? null : JSON.stringify(event.details),
-    };
+    const row = chainFieldsOf(event);
     const fields = auditChangedFieldNames(event.details);
     if (insideSqliteTransaction(this.sqlite)) {
       this.appendNested(row, fields);
       return;
     }
-    // The security stream records attempts — a refused sign-in, a refused
-    // permission — which have no write to stay in step with. The change log
-    // does: appended here by a request that is writing, it shares no
-    // transaction with that write.
     if (event.stream === AuditStreamName.Sensitive && holdsSqliteTurn(this.sqlite)) {
       reportUntransactedAudit(`${event.module}/${event.entityType}/${event.action}`);
     }
     await withSqliteTransaction(this.sqlite, async () => this.appendChained(row, fields));
+  }
+
+  // CONTRACT: for a caller already inside its own synchronous transaction on
+  // this connection; the row is a savepoint of that transaction.
+  appendSync(event: AuditEvent): void {
+    this.appendNested(chainFieldsOf(event), auditChangedFieldNames(event.details));
   }
 
   atomic<T>(fn: () => Promise<T>): Promise<T> {
@@ -505,6 +511,7 @@ export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort, AuditC
   settled(): Promise<void>;
   turn<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T>;
   outsideTurn<T>(fn: () => Promise<T>): Promise<T>;
+  appendSync(event: AuditEvent): void;
   close(): void;
   /** The raw connection, for tests asserting the append-only triggers fire. */
   readonly db: Database.Database;

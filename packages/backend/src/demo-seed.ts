@@ -5,9 +5,10 @@ import { seedHr } from "./demo-seed/hr.js";
 import { seedAccess } from "./demo-seed/access.js";
 import { seedAfterHoursActivity } from "./demo-seed/security-activity.js";
 import { seedCrm } from "./demo-seed/crm.js";
-import { seedInventoryOps } from "./demo-seed/inventory-ops.js";
+import { seedInventoryOps, seedShopFloor } from "./demo-seed/inventory-ops.js";
 import { seedPurchasing } from "./demo-seed/purchasing.js";
-import { seedTreasury } from "./demo-seed/treasury.js";
+import { seedGuidedClose } from "./demo-seed/period-close.js";
+import { seedBankStatement, seedTreasury } from "./demo-seed/treasury.js";
 import { seedPlatform } from "./demo-seed/platform.js";
 import { seedAttachments } from "./demo-seed/attachments.js";
 import { seedFragments } from "./demo-seed/fragment-registry.js";
@@ -739,6 +740,7 @@ export async function seedDemoTenant(
   await seedCrm(app);
   await seedInventoryOps(app);
   await seedPurchasing(app);
+  await seedShopFloor(app);
   await seedTreasury(app);
   await seedContracting(app);
   await seedContractingContracts(app);
@@ -759,6 +761,9 @@ export async function seedDemoTenant(
   // to post; the close is what the accountant would have done at each
   // year-end, and it has to happen after the books are written.
   await closeHistoricPeriods(app);
+  await seedGuidedClose(app);
+  // INVARIANT: after every seed that posts to the bank before August, the guided close's July bank charge included — the statement opens on the book balance of 31 July, and a posting dated earlier that lands after it leaves a difference no matching can explain.
+  await seedBankStatement(app);
 }
 
 /**
@@ -772,6 +777,8 @@ export async function seedDemoTenant(
  */
 const OPEN_FROM_PERIOD = "2026-01";
 
+const HISTORIC_CLOSE_OVERRIDE_REASON = "إقفال الفترة قبل اعتماد قيد تسوية نهاية السنة — بموافقة المدير المالي.";
+
 async function closeHistoricPeriods(app: App): Promise<void> {
   const periods = (await step(app, "GET", "/fiscal-periods")) as readonly {
     id: string;
@@ -784,7 +791,7 @@ async function closeHistoricPeriods(app: App): Promise<void> {
     .filter((p) => p.status === "open")
     .sort((a, b) => (a.year === b.year ? a.periodNumber - b.periodNumber : a.year - b.year));
   for (const period of historic) {
-    await step(app, "POST", `/fiscal-periods/${period.id}/close`, {});
+    await step(app, "POST", `/fiscal-periods/${period.id}/close`, { overrideReason: HISTORIC_CLOSE_OVERRIDE_REASON });
   }
 }
 

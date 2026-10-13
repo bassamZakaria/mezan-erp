@@ -1,10 +1,13 @@
 export { MODULE_CATALOG, isKnownModule, type ModuleId } from "./module-catalog.js";
 export * from "./errors.js";
-export { isValidSlug } from "./slug.js";
+export { isValidSlug, isReservedTenantCode, RESERVED_TENANT_CODE_MESSAGE } from "./slug.js";
+export { COMPANY_NAME_MAX_LENGTH, CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
 export {
-  createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant,
+  createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant, releaseTenant, releasedTenantCode, tenantWithOwnerContact, tenantHandedTo, tenantNeedingOwner, tenantWithPendingOwner, tenantWithPendingOwnerConfirmed, tenantWithPendingOwnerDeclined, tenantWithPendingOwnerLink, tenantWithOwnerRecordDue,
+  PendingOwnerLink, OwnerConfirmation, PENDING_OWNER_MAX_AGE_MS, pendingOwnerExpiresAt, pendingOwnerExpired,
   tenantDbFile,
-  TenantStatusCode, type Tenant, type TenantStatus, type TenantRepository,
+  TenantStatusCode, OwnerContactProof,
+  type Tenant, type TenantStatus, type TenantRepository, type TenantOwnerAccount, type PendingOwner, type OwnerRecordDue,
   type CreateTenantCommand, type TenantTransitionCommand,
 } from "./tenant.js";
 export {
@@ -13,14 +16,15 @@ export {
   type CreatePlanCommand, type UpdatePlanCommand, type HasLiveSubscribers,
 } from "./plan.js";
 export {
-  DEFAULT_GRACE_DAYS,
-  startSubscription, renewSubscription, applyRenewal, changePlan, markPastDue,
-  suspendSubscription, resumeSubscription, cancelSubscription, RENEWABLE_SUBSCRIPTION_STATES, SubscriptionStatusKind,
+  DEFAULT_GRACE_DAYS, SubscriptionStatusKind, billingAnchorDayOf, inferBillingAnchorDay, settledPeriodEnd, setBillingAnchorDay,
+  startSubscription, renewSubscription, applyRenewal, anchorIsUtcDayOfCreation, changePlan, markPastDue,
+  suspendSubscription, resumeSubscription, cancelSubscription, RENEWABLE_SUBSCRIPTION_STATES,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
   type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,
 } from "./subscription.js";
 export {
-  deriveEntitlements, subscriptionLicenseState, subscriptionExpiresAt,
+  deriveEntitlements, subscriptionLicenseState, subscriptionExpiresAt, tenantIsServed,
+  LicenseReasonCode, LicenseStateName, STATUS_UNKNOWN_MESSAGE_AR,
   type SubscriptionLicenseState, type SubscriptionLicenseStateName, type SubscriptionLicenseReason,
 } from "./derive.js";
 export {

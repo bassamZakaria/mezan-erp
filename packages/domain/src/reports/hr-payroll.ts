@@ -150,6 +150,7 @@ export interface PayrollRegisterRow {
   readonly advanceRecovery: number;
   readonly otherDeductions: number;
   readonly totalDeductions: number;
+  readonly terminationAdjustment: string;
   readonly netPay: number;
   readonly employerContributions: number;
   readonly insuranceEmployer: number;
@@ -200,6 +201,7 @@ export function createPayrollRegisterReport(): ReportDefinition<PayrollPeriodPar
           advanceRecovery: toNumber(advanceRecovery),
           otherDeductions: toNumber(other),
           totalDeductions: toNumber(payslip.totalDeductions),
+          terminationAdjustment: Money.sum(payslip.lines.filter((l) => l.kind === "termination_adjustment").map((l) => l.amount)).toString(),
           netPay: toNumber(payslip.netPay),
           employerContributions: toNumber(payslip.employerContributions),
           insuranceEmployer: toNumber(totalOf(payslip, ["social_insurance_employer"])),
@@ -222,6 +224,7 @@ export function createPayrollRegisterReport(): ReportDefinition<PayrollPeriodPar
       { key: "garnishments", header: "الحجوزات", format: "money", align: "end", value: (r) => r.garnishments, total: true },
       { key: "advanceRecovery", header: "أقساط السلف", format: "money", align: "end", value: (r) => r.advanceRecovery, total: true },
       { key: "otherDeductions", header: "استقطاعات أخرى", format: "money", align: "end", value: (r) => r.otherDeductions, total: true },
+      { key: "terminationAdjustment", header: "تسوية إنهاء الخدمة", format: "money", align: "end", value: (r) => r.terminationAdjustment, total: true },
       { key: "netPay", header: "الصافي", format: "money", align: "end", value: (r) => r.netPay, total: true },
       { key: "employerContributions", header: "مساهمات صاحب العمل", format: "money", align: "end", value: (r) => r.employerContributions, total: true },
       { key: "insuranceEmployer", header: "منها تأمينات صاحب العمل", format: "money", align: "end", value: (r) => r.insuranceEmployer, total: true },

@@ -251,14 +251,16 @@ describe("trustedReturnOrigin", () => {
   };
   const from = (host: string) => new Request("http://internal/api/billing/checkout", { headers: { host } });
 
-  it("sends the browser back to the tenant's own subdomain", () => {
-    expect(trustedReturnOrigin(from("acme.mezan.test"), live)).toBe("https://acme.mezan.test");
+  const served = async (code: string) => code === "acme";
+
+  it("sends the browser back to the tenant's own subdomain", async () => {
+    expect(await trustedReturnOrigin(from("acme.mezan.test"), live, served)).toBe("https://acme.mezan.test");
   });
 
-  it("falls back to the configured public URL for any host it does not own", () => {
-    expect(trustedReturnOrigin(from("evil.example"), live)).toBe("https://app.mezan.test");
-    expect(trustedReturnOrigin(from("acme.mezan.test.evil.example"), live)).toBe("https://app.mezan.test");
-    expect(trustedReturnOrigin(from("a.b.mezan.test"), live)).toBe("https://app.mezan.test");
+  it("falls back to the configured public URL for any host it does not own", async () => {
+    expect(await trustedReturnOrigin(from("evil.example"), live, served)).toBe("https://app.mezan.test");
+    expect(await trustedReturnOrigin(from("acme.mezan.test.evil.example"), live, served)).toBe("https://app.mezan.test");
+    expect(await trustedReturnOrigin(from("a.b.mezan.test"), live, served)).toBe("https://app.mezan.test");
   });
 });
 

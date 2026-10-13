@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, Card, Money, TextInput } from "@mezan/ui";
 import type { BillingCycleDTO, PublicPlanDTO, StartSignupRequestDTO, StartSignupResultDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
+import { COMPANY_NAME_MAX_LENGTH } from "@mezan/contracts";
 import { Field, FormError, TextField } from "../settings/form-controls";
 import { SignupLayout } from "./SignupLayout";
 import { checkCodeAvailability, fetchPublicPlans, SignupApiError, startSignup } from "./signup-api";
@@ -55,7 +56,9 @@ function PlanCard({
         <Money value={Number(price)} />
         <span className="text-[11px] text-ink-muted">/{cycle === "monthly" ? t("platform.billingCycle.monthly") : t("platform.billingCycle.yearly")}</span>
       </span>
-      <span className="text-[11px] font-semibold text-accent-strong">{t("signup.plan.trialDays", { days: String(plan.trialDays) })}</span>
+      {plan.trialDays > 0 ? (
+        <span className="text-[11px] font-semibold text-accent-strong">{t("signup.plan.trialDays", { days: String(plan.trialDays) })}</span>
+      ) : null}
     </button>
   );
 }
@@ -85,6 +88,7 @@ export function SignupScreen() {
   const { t } = useAppTranslation();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [codeStatus, setCodeStatus] = useState<CodeStatus>("idle");
+  const codeId = useId();
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<StartSignupResultDTO | null>(null);
@@ -173,7 +177,7 @@ export function SignupScreen() {
         <FormError message={formError} />
 
         <div className="grid gap-[12px] sm:grid-cols-2">
-          <TextField label={t("signup.companyNameAr")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+          <TextField label={t("signup.companyNameAr")} value={draft.nameAr} maxLength={COMPANY_NAME_MAX_LENGTH} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
           <TextField
             label={t("signup.companyNameEn")}
             value={draft.nameEn}
@@ -182,8 +186,9 @@ export function SignupScreen() {
           />
         </div>
 
-        <Field label={t("signup.tenantCode")} hint={codeHint}>
+        <Field label={t("signup.tenantCode")} hint={codeHint} htmlFor={codeId}>
           <TextInput
+            id={codeId}
             value={draft.code}
             dir="ltr"
             className="mz-lat"

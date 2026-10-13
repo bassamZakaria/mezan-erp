@@ -1,3 +1,5 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { ReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useMemo, useState } from "react";
 import { Button, Card, EntityPicker, Money as MoneyDisplay, StatusPill, type EntityPickerOption } from "@mezan/ui";
 import type { AccountDTO, FiscalPeriodDTO } from "@mezan/contracts";
@@ -98,6 +100,9 @@ export function YearEndCloseCard({ year, periodsInYear }: { year: number; period
             <span className="mz-num text-ink-faint">{postedEntry.data.date}</span>
           </div>
           <p className="mt-[8px] text-ink-muted">{t("yearEndClose.correctByReversal")}</p>
+          <div className="mt-[10px]">
+            <ReverseDocumentAction type={ReversalDocumentType.YearEndClose} target={{ id: String(year), params: { year: String(year) }, subject: String(year) }} />
+          </div>
         </div>
       ) : plan === null ? (
         <p className="mt-[12px] text-[12.5px] text-ink-muted">{t("yearEndClose.nothingToClose", { year: String(year) })}</p>

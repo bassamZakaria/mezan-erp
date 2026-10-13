@@ -1,8 +1,9 @@
 import { fork, type ChildProcess } from "node:child_process";
-import { mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PlatformHandle } from "@mezan/backend";
+import { TenantStatusCode, type Tenant } from "@mezan/domain";
 import type { TenantRouter } from "./tenant-router.js";
 import {
   appendVerifyRecord,
@@ -127,6 +128,35 @@ async function writeOneBackup(
   return finalPath;
 }
 
+const PLATFORM_BACKUP_FOLDER = "platform";
+const TENANT_BACKUPS_FOLDER = "tenants";
+
+// SECURITY: a tenant's backups are filed by tenant id, under their own parent
+// folder. A code is reused once its tenant is released, and a code could spell
+// the platform's own folder; an id does neither.
+export function tenantBackupFolder(dir: string, tenantId: string): string {
+  return path.join(dir, "backups", TENANT_BACKUPS_FOLDER, tenantId);
+}
+
+function stampOf(date: string): string {
+  return isoSafeTimestamp(new Date(date));
+}
+
+// REQUIRED ORDERING: only a backup stamped at or after the tenant was created
+// is moved, and never over a file already there. Anything older was written
+// for an earlier holder of the same code and stays exactly where it is.
+function adoptLegacyBackups(dir: string, tenant: Tenant): void {
+  const legacy = path.join(dir, "backups", tenant.code);
+  if (tenant.code === PLATFORM_BACKUP_FOLDER || tenant.code === TENANT_BACKUPS_FOLDER || !existsSync(legacy)) return;
+  const folder = tenantBackupFolder(dir, tenant.id);
+  const earliest = `${stampOf(tenant.createdAt)}.sqlite`;
+  for (const file of readdirSync(legacy)) {
+    if (!file.endsWith(".sqlite") || file < earliest || existsSync(path.join(folder, file))) continue;
+    mkdirSync(folder, { recursive: true });
+    renameSync(path.join(legacy, file), path.join(folder, file));
+  }
+}
+
 /** Deletes every backup in `folder` older than the newest `keep` (by filename, which sorts with the timestamp). */
 function pruneOldBackups(folder: string, keep: number): void {
   const files = readdirSync(folder)
@@ -157,13 +187,16 @@ export async function runBackups(options: RunBackupsOptions): Promise<void> {
     if (record.outcome !== BackupVerifyOutcome.Ok) failures.push(`${file}: ${record.report}`);
   };
 
-  const platformFolder = path.join(options.dir, "backups", "platform");
+  const platformFolder = path.join(options.dir, "backups", PLATFORM_BACKUP_FOLDER);
   await verify(await writeOneBackup((destination) => options.platform.backupTo(destination), platformFolder, stamp));
   pruneOldBackups(platformFolder, keep);
 
-  for (const code of options.router.openTenants()) {
-    const backend = await options.router.backendFor(code);
-    const folder = path.join(options.dir, "backups", code);
+  for (const open of options.router.openTenants()) {
+    const tenant = await options.platform.stores.tenants.findById(open.id);
+    if (!tenant || tenant.status === TenantStatusCode.Archived) continue;
+    const backend = await options.router.backendOf(tenant.id);
+    const folder = tenantBackupFolder(options.dir, tenant.id);
+    adoptLegacyBackups(options.dir, tenant);
     await verify(await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp));
     pruneOldBackups(folder, keep);
   }

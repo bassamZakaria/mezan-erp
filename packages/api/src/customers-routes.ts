@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import { nextMasterCode } from "./master-code.js";
 import {
@@ -133,6 +134,8 @@ export const AUDITED_CUSTOMER_FIELDS = [
 ] as const;
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof InvalidCustomerError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
   }

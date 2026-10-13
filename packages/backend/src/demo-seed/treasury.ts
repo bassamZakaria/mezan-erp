@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { call, step, BRANCH_ID, WAREHOUSE_ID, ACCOUNTS, seedToday } from "./shared.js";
+import { call, step, BRANCH_ID, WAREHOUSE_ID, ACCOUNTS, seedToday, seedScaled, seedDecimal } from "./shared.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -490,11 +490,9 @@ async function seedFieldSales(app: App): Promise<void> {
 }
 
 /**
- * One VAT return already submitted, for a window nothing else in the seed or
- * the scenarios posts into (D29). It makes the filings surface real without
- * locking a period the rest of the demo data still writes to.
+ * INVARIANT: filed only after May's own entries — its payroll, its recurring entry, its supplementary depreciation — are in the books; a filed return refuses every later posting into its month (D29).
  */
-async function seedVatFiling(app: App): Promise<void> {
+export async function seedVatFiling(app: App): Promise<void> {
   await step(app, "POST", "/gl/vat-filings", {
     id: "VATF-DEMO-2026-05",
     periodFrom: "2026-05-01",
@@ -508,13 +506,13 @@ const STATEMENT_PERIOD_START = "2026-08-01";
 const STATEMENT_PERIOD_END = "2026-08-31";
 
 /** The bank's own wording for a movement — a real statement never repeats the voucher's memo. */
-enum BankNarrative {
+export enum BankNarrative {
   CashDeposit = "إيداع نقدي بالفرع",
   TransferOut = "تحويل صادر",
 }
 
 /** Money reaches this account over the counter and leaves it by transfer, which is how the tenant trades. */
-function bankNarrative(moneyIn: boolean): BankNarrative {
+export function bankNarrative(moneyIn: boolean): BankNarrative {
   return moneyIn ? BankNarrative.CashDeposit : BankNarrative.TransferOut;
 }
 
@@ -535,7 +533,7 @@ interface LedgerLineRow {
  * statement nobody could reconcile; quoting none, which is what this seed did
  * before D323, made every one of the 16 lines stop at 75.
  */
-async function bookReferenceOf(app: App, entryId: string): Promise<string | null> {
+export async function bookReferenceOf(app: App, entryId: string): Promise<string | null> {
   const entry = (await step(app, "GET", `/gl/journal-entries/${encodeURIComponent(entryId)}`)) as {
     readonly sourceDocId?: string | null;
   };
@@ -570,7 +568,7 @@ async function bookReferenceOf(app: App, entryId: string): Promise<string | null
  *   - the last book movement is left OFF the statement, the uncleared-payment
  *     side of the same difference.
  */
-async function seedBankStatement(app: App): Promise<void> {
+export async function seedBankStatement(app: App): Promise<void> {
   const ledger = (await step(app, "GET", `/gl/accounts/${ACCOUNTS.bank}/ledger?asOf=${STATEMENT_PERIOD_END}`)) as {
     lines: LedgerLineRow[];
   };
@@ -622,10 +620,11 @@ async function seedBankStatement(app: App): Promise<void> {
   }
   rows.sort((a, b) => a.date.localeCompare(b.date));
 
-  const openingCents = ledger.lines
+  // INVARIANT: exact, never rounded to the piastre — the books hold movements to the micro-unit, and a balance rounded here leaves a difference no matching can clear (period-close-bank-blocker.test.ts).
+  const opening = ledger.lines
     .filter((line) => line.date < STATEMENT_PERIOD_START)
-    .reduce((sum, line) => sum + toCents(line.debit) - toCents(line.credit), 0);
-  const closingCents = rows.reduce((sum, row) => sum + toCents(row.credit || "0") - toCents(row.debit || "0"), openingCents);
+    .reduce((sum, line) => sum + seedScaled(line.debit) - seedScaled(line.credit), 0n);
+  const closing = rows.reduce((sum, row) => sum + seedScaled(row.credit || "0") - seedScaled(row.debit || "0"), opening);
 
   const header = "التاريخ,البيان,مدين,دائن,المرجع";
   const rawCsv = [header, ...rows.map((r) => `${r.date},${r.description},${r.debit},${r.credit},${r.reference}`)].join("\n");
@@ -645,8 +644,8 @@ async function seedBankStatement(app: App): Promise<void> {
     },
     periodStart: STATEMENT_PERIOD_START,
     periodEnd: STATEMENT_PERIOD_END,
-    openingBalance: money(openingCents),
-    closingBalance: money(closingCents),
+    openingBalance: seedDecimal(opening),
+    closingBalance: seedDecimal(closing),
   });
 
   // Left at "قيد التسوية": auto-match clears the referenced transfers and
@@ -722,7 +721,5 @@ export async function seedTreasury(app: App): Promise<void> {
   await seedExchangeRates(app);
   await seedInstallmentPlan(app);
   await seedFieldSales(app);
-  await seedVatFiling(app);
-  await seedBankStatement(app);
   await seedForeignCurrencyBankStatement(app);
 }

@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { Route, Routes } from "react-router";
-import type { CardCheckoutDTO, PlanDTO, TenantSummaryDTO } from "@mezan/contracts";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { Link, Route, Routes } from "react-router";
+import type { Transport, TransportResponse } from "../data/transport";
+import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type CardCheckoutDTO, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import { TenantDetailPage } from "./TenantDetailPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 import type { PlatformSession } from "./session";
@@ -48,7 +49,10 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
       nameAr: "شركة أكمي",
       nameEn: "Acme Co",
       ownerEmail: "owner@acme.test",
-      status: "active",
+      status: TenantWireStatus.Active,
+      ownerContactVerified: true,
+      ownerNeeded: false,
+      pendingOwner: null,
       dbFile: "tenants/acme.db",
       createdAt: "2026-09-01T00:00:00.000Z",
       updatedAt: "2026-09-01T00:00:00.000Z",
@@ -58,7 +62,7 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
       id: "sub-1",
       tenantId: "tenant-1",
       planId: "plan-1",
-      status: "active",
+      status: SubscriptionStatusCode.Active,
       billingCycle: "monthly",
       addOnModules: [],
       extraSeats: 0,
@@ -66,6 +70,8 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
       extraWarehouses: 0,
       currentPeriodStart: "2026-09-01T00:00:00.000Z",
       currentPeriodEnd: "2026-10-01T00:00:00.000Z",
+      billingAnchorDay: 1,
+      billingAnchorNeedsReview: false,
       trialEndsAt: null,
       graceDays: 5,
       cancelledAt: null,
@@ -74,7 +80,7 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
       ...subOverrides,
     },
     plan,
-    licenseState: { state: "ACTIVE", canWrite: true, usable: true },
+    licenseState: { state: LicenseStateCode.Active, canWrite: true, usable: true },
     entitlements: null,
     payments: [],
   };
@@ -158,7 +164,7 @@ describe("TenantDetailPage", () => {
   });
 
   it("shows resume, not suspend, for a suspended tenant", async () => {
-    const summary = makeSummary({ status: "suspended" });
+    const summary = makeSummary({ status: TenantWireStatus.Suspended });
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: summary }),
       "GET /plans": () => ({ body: [plan, plan2] }),
@@ -201,6 +207,7 @@ describe("TenantDetailPage", () => {
     renderDetail({ transport, session: testPlatformSession });
 
     fireEvent.click(await screen.findByRole("button", { name: "إيقاف المنشأة" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إيقاف المنشأة؟" })).getByRole("button", { name: "إيقاف المنشأة" }));
     expect(await screen.findByRole("alert")).toHaveTextContent('لا يمكن نقل المنشأة من الحالة "active" إلى "suspended"');
   });
 
@@ -214,7 +221,307 @@ describe("TenantDetailPage", () => {
     renderDetail({ transport, session: testPlatformSession });
 
     fireEvent.click(await screen.findByRole("button", { name: "إيقاف المنشأة" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إيقاف المنشأة؟" })).getByRole("button", { name: "إيقاف المنشأة" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("تحقق من الحقول المدخلة.");
+  });
+
+  it("suspending asks for confirmation first, and posts nothing until it is given (D-SAAS-10)", async () => {
+    let suspendPosts = 0;
+    const summary = makeSummary();
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/suspend": () => {
+        suspendPosts += 1;
+        return { body: { ...summary, tenant: { ...summary.tenant, status: "suspended" } } };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إيقاف المنشأة" }));
+    const dialog = await screen.findByRole("dialog", { name: "إيقاف المنشأة؟" });
+    expect(suspendPosts).toBe(0);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "رجوع" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "إيقاف المنشأة؟" })).not.toBeInTheDocument());
+    expect(suspendPosts).toBe(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "إيقاف المنشأة" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إيقاف المنشأة؟" })).getByRole("button", { name: "إيقاف المنشأة" }));
+    await waitFor(() => expect(suspendPosts).toBe(1));
+  });
+
+  it("shows the billing day, says when it needs review, and lets the platform owner set it", async () => {
+    const sent: unknown[] = [];
+    let day = 28;
+    let needsReview = true;
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary({}, { billingAnchorDay: day, billingAnchorNeedsReview: needsReview }) }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/subscription/anchor-day": (init) => {
+        const body = JSON.parse(String(init?.body)) as { day: number };
+        sent.push(body);
+        day = body.day;
+        needsReview = false;
+        return { body: makeSummary({}, { billingAnchorDay: day, billingAnchorNeedsReview: false }) };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    expect(await screen.findByText("يوم الفوترة يحتاج مراجعة")).toBeInTheDocument();
+    const field = screen.getByRole("spinbutton", { name: "يوم الفوترة من الشهر" });
+    expect(field).toHaveValue(28);
+    fireEvent.change(field, { target: { value: "31" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ يوم الفوترة" }));
+    const dialog = await screen.findByRole("dialog", { name: "تغيير يوم الفوترة؟" });
+    expect(dialog).toHaveTextContent("تغيير يوم الفوترة من 28 إلى 31 يطيل أو يقصّر الفترة المدفوعة التالية");
+    expect(sent).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ يوم الفوترة" }));
+
+    await waitFor(() => expect(sent).toEqual([{ day: 31 }]));
+    await waitFor(() => expect(screen.queryByText("يوم الفوترة يحتاج مراجعة")).not.toBeInTheDocument());
+    expect(screen.getByRole("spinbutton", { name: "يوم الفوترة من الشهر" })).toHaveValue(31);
+  });
+
+  it("refuses a billing day that is not on a calendar before asking the server, and shows a support operator the day without the control", async () => {
+    let posts = 0;
+    const handlers = {
+      "GET /tenants/tenant-1": () => ({ body: makeSummary({}, { billingAnchorDay: 15 }) }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/subscription/anchor-day": () => {
+        posts += 1;
+        return { body: makeSummary() };
+      },
+    };
+    const asOwner = renderDetail({ transport: stubPlatformTransport(handlers), session: testPlatformSession });
+    const field = await screen.findByRole("spinbutton", { name: "يوم الفوترة من الشهر" });
+    fireEvent.change(field, { target: { value: "32" } });
+    expect(screen.getByRole("button", { name: "حفظ يوم الفوترة" })).toBeDisabled();
+    expect(posts).toBe(0);
+    asOwner.unmount();
+
+    renderDetail({ transport: stubPlatformTransport(handlers), session: { token: "S", user: { id: "PU-2", email: "support@mezan.example", role: "support" } } });
+    expect(await screen.findByText("يوم الفوترة من الشهر")).toBeInTheDocument();
+    expect(screen.queryByRole("spinbutton", { name: "يوم الفوترة من الشهر" })).not.toBeInTheDocument();
+  });
+
+  it("offers the owner of the platform to archive a tenant stuck in provisioning and free its code, after asking", async () => {
+    let releases = 0;
+    const stuck = makeSummary({ status: TenantWireStatus.Provisioning });
+    const archived = makeSummary({ status: TenantWireStatus.Archived, code: "released-tenant-1" });
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: releases === 0 ? stuck : archived }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/release": () => {
+        releases += 1;
+        return { body: archived };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "أرشفة وتحرير الرمز" }));
+    const dialog = await screen.findByRole("dialog", { name: "أرشفة المنشأة وتحرير رمزها؟" });
+    expect(dialog).toHaveTextContent("acme");
+    expect(releases).toBe(0);
+    fireEvent.click(within(dialog).getByRole("button", { name: "أرشفة وتحرير" }));
+
+    await waitFor(() => expect(releases).toBe(1));
+    expect(await screen.findByText("released-tenant-1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "أرشفة وتحرير الرمز" })).not.toBeInTheDocument();
+  });
+
+  it("offers no release for a live tenant, nor to a support operator", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+    await screen.findByRole("button", { name: "أرشفة المنشأة" });
+    expect(screen.queryByRole("button", { name: "أرشفة وتحرير الرمز" })).not.toBeInTheDocument();
+  });
+
+  it("says the owner contact is unverified, and after a reset names the address the owner now signs in with", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary({ ownerContactVerified: false }) }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => ({
+        body: { adminEmail: "owner@acme.test", signInEmail: "inbox@elsewhere.test", adminPin: "305917" },
+      }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    expect(await screen.findByText("بريد المالك غير مؤكَّد")).toBeInTheDocument();
+    expect(screen.getByText(/بريد دخول حساب المالك يختلف عن البريد المسجَّل هنا/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+
+    expect(await screen.findByText("305917")).toBeInTheDocument();
+    expect(screen.getByText("بريد الدخول الحالي للمالك")).toBeInTheDocument();
+    expect(screen.getByText("inbox@elsewhere.test")).toBeInTheDocument();
+  });
+
+  it("shows no unverified mark and no second address for a verified owner", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => ({ body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" } }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+
+    expect(await screen.findByText("305917")).toBeInTheDocument();
+    expect(screen.queryByText("بريد المالك غير مؤكَّد")).not.toBeInTheDocument();
+    expect(screen.queryByText("بريد الدخول الحالي للمالك")).not.toBeInTheDocument();
+  });
+
+  it("resetting the owner's PIN asks first, then shows the new PIN once with the owner's email", async () => {
+    let resets = 0;
+    const summary = makeSummary();
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => {
+        resets += 1;
+        return { body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" } };
+      },
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    const dialog = await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" });
+    expect(resets).toBe(0);
+    fireEvent.click(within(dialog).getByRole("button", { name: "رجوع" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).not.toBeInTheDocument());
+    expect(resets).toBe(0);
+    expect(screen.queryByText("305917")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+
+    expect(await screen.findByText("305917")).toBeInTheDocument();
+    expect(screen.getByText("owner@acme.test")).toBeInTheDocument();
+    expect(screen.getByText(/لن يظهر .* مرة أخرى/)).toBeInTheDocument();
+    expect(resets).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "إخفاء الرمز" }));
+    await waitFor(() => expect(screen.queryByText("305917")).not.toBeInTheDocument());
+  });
+
+  function renderConsole(transport: Transport) {
+    return renderWithPlatformProviders(
+      <Routes>
+        <Route path="tenants/:id" element={<TenantDetailPage />} />
+        <Route
+          path="tenants"
+          element={
+            <nav aria-label="قائمة الاختبار">
+              <Link to="/platform/tenants/tenant-1">افتح أكمي</Link>
+              <Link to="/platform/tenants/tenant-2">افتح الثانية</Link>
+            </nav>
+          }
+        />
+      </Routes>,
+      { transport, initialSession: testPlatformSession, route: "/platform/tenants/tenant-1" },
+    );
+  }
+
+  async function askForReset() {
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+  }
+
+  const LEAVE_DIALOG = "مغادرة الصفحة قبل تسليم الرمز؟";
+
+  it("still shows the new PIN when the reset answers after the operator has left the page and come back, and never on another tenant's page", async () => {
+    let answer: (response: TransportResponse) => void = () => undefined;
+    const base = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /tenants/tenant-2": () => ({ body: makeSummary({ id: "tenant-2", code: "other", nameAr: "منشأة ثانية", ownerEmail: "owner@other.test" }) }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    const transport: Transport = (path, init) =>
+      path === "/tenants/tenant-1/owner-pin/reset" ? new Promise<TransportResponse>((resolve) => (answer = resolve)) : base(path, init);
+    renderConsole(transport);
+    await askForReset();
+
+    fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
+    const leaving = await screen.findByRole("dialog", { name: LEAVE_DIALOG });
+    expect(screen.queryByRole("navigation", { name: "قائمة الاختبار" })).not.toBeInTheDocument();
+    fireEvent.click(within(leaving).getByRole("button", { name: "غادر على أي حال" }));
+    await screen.findByRole("navigation", { name: "قائمة الاختبار" });
+
+    const body = { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" };
+    await act(async () => {
+      answer({ status: 200, ok: true, json: <T,>() => Promise.resolve(body as T), text: () => Promise.resolve(JSON.stringify(body)) });
+    });
+    fireEvent.click(screen.getByRole("link", { name: "افتح أكمي" }));
+
+    expect(await screen.findByText("305917")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: LEAVE_DIALOG })).getByRole("button", { name: "غادر على أي حال" }));
+    fireEvent.click(await screen.findByRole("link", { name: "افتح الثانية" }));
+    await screen.findByRole("heading", { name: "منشأة ثانية", level: 1 });
+    expect(screen.queryByText("305917")).not.toBeInTheDocument();
+    expect(screen.queryByText(/لن يظهر .* مرة أخرى/)).not.toBeInTheDocument();
+  });
+
+  it("asks before leaving while the new PIN has not been acknowledged, keeps it on staying, and lets go once it is hidden", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => ({ body: { adminEmail: "owner@acme.test", signInEmail: "owner@acme.test", adminPin: "305917" } }),
+    });
+    renderConsole(transport);
+    await askForReset();
+    await screen.findByText("305917");
+
+    fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: LEAVE_DIALOG })).getByRole("button", { name: "ابقَ في الصفحة" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: LEAVE_DIALOG })).not.toBeInTheDocument());
+    expect(screen.getByText("305917")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "إخفاء الرمز" }));
+    await waitFor(() => expect(screen.queryByText("305917")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("link", { name: /المنشآت/ }));
+
+    await screen.findByRole("navigation", { name: "قائمة الاختبار" });
+    expect(screen.queryByRole("dialog", { name: LEAVE_DIALOG })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("link", { name: "افتح أكمي" }));
+    await screen.findByRole("heading", { name: "شركة أكمي", level: 1 });
+    expect(screen.queryByText("305917")).not.toBeInTheDocument();
+  });
+
+  it("shows the server's refusal when the owner's PIN cannot be reset, and no PIN", async () => {
+    const summary = makeSummary();
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: summary }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+      "POST /tenants/tenant-1/owner-pin/reset": () => ({
+        status: 409,
+        body: { error: "TENANT_OWNER_ACCOUNT_NOT_FOUND", message: "لا يوجد في المنشأة حساب مدير نشط ببريد مالكها." },
+      }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "إعادة تعيين رمز المالك" }));
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "إعادة تعيين رمز المالك؟" })).getByRole("button", { name: "إعادة التعيين" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("لا يوجد في المنشأة حساب مدير نشط ببريد مالكها.");
+  });
+
+  it("does not offer the PIN reset to a support operator", async () => {
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    renderDetail({ transport, session: supportSession });
+
+    await screen.findByText("باقة النمو — growth");
+    expect(screen.queryByRole("button", { name: "إعادة تعيين رمز المالك" })).not.toBeInTheDocument();
   });
 
   it("archiving asks for confirmation, and confirming posts the archive", async () => {
@@ -295,8 +602,8 @@ describe("TenantDetailPage", () => {
 
   it("resuming a suspended subscription requires a reason, and confirming sends it to the server", async () => {
     let resumedBody: unknown = null;
-    const summary = makeSummary({}, { status: "suspended" });
-    const resumed = { ...summary.subscription!, status: "active" as const };
+    const summary = makeSummary({}, { status: SubscriptionStatusCode.Suspended });
+    const resumed = { ...summary.subscription!, status: SubscriptionStatusCode.Active };
     const transport = stubPlatformTransport({
       "GET /tenants/tenant-1": () => ({ body: resumedBody ? { ...summary, subscription: resumed } : summary }),
       "GET /plans": () => ({ body: [plan, plan2] }),
@@ -629,7 +936,7 @@ describe("TenantDetailPage", () => {
 
     it("offers no apply action while the subscription cannot be renewed, says why, and offers it once it can", async () => {
       const stranded: CardCheckoutDTO = { ...unapplied, id: "chk-5", failureReason: "SUBSCRIPTION_NOT_RENEWABLE" };
-      const cancelledSummary = makeSummary({}, { status: "cancelled" });
+      const cancelledSummary = makeSummary({}, { status: SubscriptionStatusCode.Cancelled });
       const first = renderDetail({
         transport: checkoutsTransport({ "GET /tenants/tenant-1": () => ({ body: cancelledSummary }) }, [stranded]),
         session: testPlatformSession,
@@ -772,7 +1079,7 @@ describe("TenantDetailPage", () => {
       });
 
       it("does not offer applying by hand while the subscription cannot be renewed", async () => {
-        const cancelledSummary = makeSummary({}, { status: "cancelled" });
+        const cancelledSummary = makeSummary({}, { status: SubscriptionStatusCode.Cancelled });
         renderDetail({ transport: checkoutsTransport({ "GET /tenants/tenant-1": () => ({ body: cancelledSummary }) }, [flagged]), session: testPlatformSession });
 
         fireEvent.click(await screen.findByRole("button", { name: RESOLVE }));
@@ -883,6 +1190,172 @@ describe("TenantDetailPage", () => {
       fireEvent.click(await screen.findByRole("button", { name: "مطابقة العمليات المعلّقة مع Paymob" }));
 
       expect(await screen.findByText("مطابقة العمليات المعلّقة جارية بالفعل، انتظر انتهاءها ثم أعد المحاولة")).toBeInTheDocument();
+    });
+  });
+
+  describe("the tenant's owner", () => {
+    const admins = [
+      { id: "U-1", nameAr: "سارة المالكة", email: "owner@acme.test" },
+      { id: "U-2", nameAr: "خالد المدير", email: "second@acme.test" },
+    ];
+
+    const WAITING = { userId: "U-2", email: "second@acme.test", requestedAt: "2026-10-01T09:00:00.000Z", expiresAt: "2099-01-01T00:00:00.000Z", linkMailed: true };
+
+    it("flags a tenant with no owner, and assigns the admin the platform owner picks only after asking", async () => {
+      const assigned: unknown[] = [];
+      let release: (() => void) | undefined;
+      const answered = new Promise<void>((resolve) => (release = resolve));
+      const stub = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: assigned.length === 0 ? makeSummary({ ownerNeeded: true }) : makeSummary({ ownerEmail: "second@acme.test" }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "GET /tenants/tenant-1/owner/candidates": () => ({ body: admins }),
+        "POST /tenants/tenant-1/owner": (init) => {
+          assigned.push(JSON.parse(String(init?.body)));
+          return { body: makeSummary({ ownerEmail: "second@acme.test" }) };
+        },
+      });
+      const transport: Transport = async (path, init) => {
+        const response: TransportResponse = await stub(path, init);
+        if (init?.method === "POST") await answered;
+        return response;
+      };
+      renderDetail({ transport, session: testPlatformSession });
+
+      expect(await screen.findByText("المنشأة بلا مالك محدَّد")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "تعيين مالك" }));
+      const second = (await screen.findByText("second@acme.test")).closest("li") as HTMLElement;
+      const first = screen.getByText("سارة المالكة").closest("li") as HTMLElement;
+      fireEvent.click(within(second).getByRole("button", { name: "تعيين مالكًا" }));
+      const dialog = await screen.findByRole("dialog", { name: "تعيين مالك المنشأة؟" });
+      expect(dialog).toHaveTextContent("second@acme.test");
+      expect(assigned).toEqual([]);
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "تعيين" }));
+
+      await waitFor(() => expect(assigned).toEqual([{ userId: "U-2" }]));
+      expect(within(second).getByRole("button", { name: "تعيين مالكًا" })).toBeDisabled();
+      expect(within(first).getByRole("button", { name: "تعيين مالكًا" })).toBeEnabled();
+      await act(async () => release?.());
+      await waitFor(() => expect(screen.queryByText("المنشأة بلا مالك محدَّد")).not.toBeInTheDocument());
+      expect(screen.getByText(/بريد المالك: second@acme\.test/)).toBeInTheDocument();
+    });
+
+    it("shows a pending hand-over with who asked for it, and confirms it only after asking", async () => {
+      let confirms = 0;
+      const pending = makeSummary({ pendingOwner: WAITING });
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: confirms === 0 ? pending : makeSummary({ ownerEmail: "second@acme.test" }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "POST /tenants/tenant-1/owner/confirm": () => {
+          confirms += 1;
+          return { body: makeSummary({ ownerEmail: "second@acme.test" }) };
+        },
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      expect(await screen.findByText("نقل ملكية بانتظار التأكيد")).toBeInTheDocument();
+      expect(screen.getByText(/second@acme\.test/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "تأكيد نقل الملكية" }));
+      const dialog = await screen.findByRole("dialog", { name: "تأكيد نقل ملكية المنشأة؟" });
+      expect(dialog).toHaveTextContent("owner@acme.test");
+      expect(dialog).toHaveTextContent("second@acme.test");
+      expect(confirms).toBe(0);
+      fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد النقل" }));
+
+      await waitFor(() => expect(confirms).toBe(1));
+      await waitFor(() => expect(screen.queryByText("نقل ملكية بانتظار التأكيد")).not.toBeInTheDocument());
+    });
+
+    function pendingTransport(pendingOwner: typeof WAITING, posts: string[] = []) {
+      let dropped = false;
+      let current = pendingOwner;
+      return stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: dropped ? makeSummary({}) : makeSummary({ pendingOwner: current }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "POST /tenants/tenant-1/owner/decline": () => {
+          posts.push("decline");
+          dropped = true;
+          return { body: makeSummary({}) };
+        },
+        "POST /tenants/tenant-1/owner/resend": () => {
+          posts.push("resend");
+          current = { ...pendingOwner, expiresAt: "2099-01-01T00:00:00.000Z", linkMailed: true };
+          return { body: makeSummary({ pendingOwner: current }) };
+        },
+      });
+    }
+
+    it("says the previous owner was mailed a link only when one was", async () => {
+      renderDetail({ transport: pendingTransport({ ...WAITING, linkMailed: false }), session: testPlatformSession });
+
+      expect(await screen.findByText(/لم يُرسل رابط تأكيد إلى بريد المالك السابق/)).toBeInTheDocument();
+      expect(screen.queryByText(/من الرابط المرسل إلى بريده/)).not.toBeInTheDocument();
+    });
+
+    it("declines a pending hand-over only after asking, and the request is gone", async () => {
+      const posts: string[] = [];
+      renderDetail({ transport: pendingTransport(WAITING, posts), session: testPlatformSession });
+
+      fireEvent.click(await screen.findByRole("button", { name: "إلغاء طلب النقل" }));
+      const dialog = await screen.findByRole("dialog", { name: "إلغاء طلب نقل الملكية؟" });
+      expect(dialog).toHaveTextContent("second@acme.test");
+      expect(posts).toEqual([]);
+      fireEvent.click(within(dialog).getByRole("button", { name: "إلغاء الطلب" }));
+
+      await waitFor(() => expect(posts).toEqual(["decline"]));
+      await waitFor(() => expect(screen.queryByText("نقل ملكية بانتظار التأكيد")).not.toBeInTheDocument());
+    });
+
+    it("shows a lapsed hand-over as expired, offers to send the link again or decline it, and no longer offers to confirm it", async () => {
+      const posts: string[] = [];
+      renderDetail({ transport: pendingTransport({ ...WAITING, expiresAt: "2020-01-01T00:00:00.000Z" }, posts), session: testPlatformSession });
+
+      expect(await screen.findByText(/انتهت مهلة تأكيد هذا الطلب/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "تأكيد نقل الملكية" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "إلغاء طلب النقل" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "إرسال الرابط من جديد" }));
+
+      await waitFor(() => expect(posts).toEqual(["resend"]));
+      expect(await screen.findByRole("button", { name: "تأكيد نقل الملكية" })).toBeInTheDocument();
+      expect(screen.queryByText(/انتهت مهلة تأكيد هذا الطلب/)).not.toBeInTheDocument();
+    });
+
+    it("says in Arabic that the connection failed when an owner action cannot reach the server", async () => {
+      const stub = pendingTransport(WAITING);
+      const transport: Transport = async (path, init) => {
+        if (init?.method === "POST") throw new TypeError("Failed to fetch");
+        return stub(path, init);
+      };
+      renderDetail({ transport, session: testPlatformSession });
+
+      fireEvent.click(await screen.findByRole("button", { name: "إرسال الرابط من جديد" }));
+
+      expect(await screen.findByText("تعذّر الاتصال بالخادم. تحقّق من الاتصال ثم أعد المحاولة.")).toBeInTheDocument();
+      expect(screen.queryByText(/Failed to fetch/)).not.toBeInTheDocument();
+    });
+
+    it("shows the state but no owner action to a support operator, nor for a tenant that is not live", async () => {
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary({ ownerNeeded: true, pendingOwner: WAITING }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: supportSession });
+
+      expect(await screen.findByText("نقل ملكية بانتظار التأكيد")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "تعيين مالك" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "تأكيد نقل الملكية" })).not.toBeInTheDocument();
+    });
+
+    it("explains an unverified owner address without blaming one cause", async () => {
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary({ ownerContactVerified: false }) }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+      });
+      renderDetail({ transport, session: testPlatformSession });
+
+      expect(
+        await screen.findByText("بريد دخول حساب المالك يختلف عن البريد المسجَّل هنا، ولم يثبت بعد أن المالك نفسه هو من غيّره. يبقى البريد المسجَّل كما هو حتى يسجّل المالك دخوله برمزه الخاص، أو تؤكّد أنت مالك المنشأة من هنا."),
+      ).toBeInTheDocument();
     });
   });
 });

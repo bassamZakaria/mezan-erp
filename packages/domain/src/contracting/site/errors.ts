@@ -19,8 +19,10 @@ export class SiteDocumentNotFoundError extends Error {
 /** Raised when a document is acted on from a status that does not allow it. */
 export class SiteDocumentStatusError extends Error {
   readonly code = "SITE_DOCUMENT_STATUS";
-  constructor(message: string) {
+  readonly messageEn?: string;
+  constructor(message: string, messageEn?: string) {
     super(message);
+    this.messageEn = messageEn;
     this.name = "SiteDocumentStatusError";
   }
 }

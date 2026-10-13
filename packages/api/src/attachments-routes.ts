@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   ATTACHMENT_ENTITY_PERMISSIONS,
@@ -73,6 +74,8 @@ function serialize(attachment: Attachment) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof AttachmentNotFoundError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }

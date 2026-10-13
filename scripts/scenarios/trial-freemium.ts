@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installClockOverride, FAKE_TODAY_ENV } from "../../packages/backend/src/clock-override.js";
 import { createCloudApp } from "../../apps/server/src/cloud-app.ts";
-import type { CloudEnv } from "../../apps/server/src/env.ts";
+import { PaymobMode, type CloudEnv } from "../../apps/server/src/env.ts";
 import type { Ctx } from "./harness.js";
 
 /**
@@ -46,7 +46,7 @@ export async function run(ctx: Ctx): Promise<void> {
     backupIntervalMinutes: 0,
     webDist: join(dir, "web"),
     port: 0,
-    paymob: { mode: "off" },
+    paymob: { mode: PaymobMode.Off },
   };
 
   const label = (text: string) => `trial-freemium · ${text}`;

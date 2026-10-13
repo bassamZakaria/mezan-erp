@@ -8,16 +8,17 @@ import {
   createPlatformUser,
   createTenant,
   Money,
+  releaseTenant,
   startSubscription,
   CardCheckoutResolution,
   CardCheckoutStatus,
   PlanKind,
   type CardCheckout,
 } from "@mezan/domain";
-import type { CreateTenantRequestDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
+import { tenantDTOOf, type CreateTenantRequestDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
-import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, type PlatformCardCheckoutPort, type RecordedActivation } from "./platform-routes.js";
+import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, TenantOwnerAccountNotFoundError, type PlatformCardCheckoutPort, type RecordedActivation } from "./platform-routes.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
@@ -37,10 +38,12 @@ interface Rig {
   readonly ownerToken: string;
   readonly supportToken: string;
   readonly invalidated: string[];
+  readonly reconciled: string[];
+  readonly released: string[];
   readonly provisioned: Array<CreateTenantRequestDTO & { actorId: string }>;
 }
 
-async function buildRig(): Promise<Rig> {
+async function buildRig(overrides: Partial<Parameters<typeof createPlatformRoutes>[0]> = {}): Promise<Rig> {
   const platform = await createPlatform({ dbPath: ":memory:", now: FIXED_NOW });
   platforms.push(platform);
 
@@ -70,6 +73,8 @@ async function buildRig(): Promise<Rig> {
   }
 
   const invalidated: string[] = [];
+  const reconciled: string[] = [];
+  const released: string[] = [];
   const provisioned: Array<CreateTenantRequestDTO & { actorId: string }> = [];
   let idCounter = 0;
   const idOf = () => `ID-${++idCounter}`;
@@ -89,7 +94,7 @@ async function buildRig(): Promise<Rig> {
       );
       return activateTenant({ id: tenant.id, now: nowIso }, platform.stores.tenants);
     });
-    return { tenant: active, adminEmail: cmd.ownerEmail, adminPin: "482913" };
+    return { tenant: tenantDTOOf(active), adminEmail: cmd.ownerEmail, adminPin: "482913" };
   };
 
   const provisionRetry = async (
@@ -108,7 +113,7 @@ async function buildRig(): Promise<Rig> {
       }
       return activateTenant({ id: tenantId, now: nowIso }, platform.stores.tenants);
     });
-    return { tenant, adminEmail: tenant.ownerEmail, adminPin: null };
+    return { tenant: tenantDTOOf(tenant), adminEmail: tenant.ownerEmail, adminPin: null };
   };
 
   const app = createPlatformRoutes({
@@ -117,12 +122,31 @@ async function buildRig(): Promise<Rig> {
     now: FIXED_NOW,
     provisionTenant,
     provisionRetry,
+    resetOwnerPin: async ({ tenant, recordIntent }) => {
+      if (tenant.ownerEmail === OWNER_WHO_LEFT) throw new TenantOwnerAccountNotFoundError();
+      await recordIntent({ userId: "U-OWNER", signInEmail: tenant.ownerEmail, adminEmail: tenant.ownerEmail });
+      return { adminEmail: tenant.ownerEmail, signInEmail: tenant.ownerEmail, adminPin: RESET_PIN };
+    },
+    reconcileOwner: async (tenant) => {
+      reconciled.push(tenant.code);
+      const stored = await platform.stores.tenants.findById(tenant.id);
+      if (stored) await platform.stores.tenants.save({ ...stored, ownerContactVerified: false });
+    },
+    reconcileOpenOwners: async () => { reconciled.push("*open*"); },
+    releaseTenant: async ({ tenant, actorId }) => {
+      released.push(`${tenant.code} by ${actorId}`);
+      return releaseTenant({ id: tenant.id, now: FIXED_NOW().toISOString() }, platform.stores.tenants);
+    },
     invalidateEntitlements: (code: string) => { invalidated.push(code); },
     idOf,
+    ...overrides,
   });
 
-  return { platform, auth, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
+  return { reconciled, released, platform, auth, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
 }
+
+const RESET_PIN = "305917";
+const OWNER_WHO_LEFT = "gone@acme.eg";
 
 function req(path: string, token: string, init: RequestInit = {}) {
   return new Request(`http://x${path}`, {
@@ -182,6 +206,56 @@ describe("createPlatformRoutes", () => {
     expect(detail.payments).toEqual([]);
   });
 
+  it("reconciles the owner contact before a tenant is read: the open ones for the list, the one asked for on its own page", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+
+    const listed = (await json(await rig.app.fetch(req("/tenants", rig.supportToken)))) as Array<{ tenant: { ownerContactVerified: boolean } }>;
+    expect(rig.reconciled).toEqual(["*open*"]);
+    expect(listed[0]?.tenant.ownerContactVerified).toBe(true);
+
+    const one = (await json(await rig.app.fetch(req(`/tenants/${body.tenant.id}`, rig.supportToken)))) as { tenant: { ownerContactVerified: boolean } };
+    expect(rig.reconciled).toEqual(["*open*", "acme"]);
+    expect(one.tenant.ownerContactVerified).toBe(false);
+  });
+
+  it("does not open an archived tenant's database to reconcile it", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    await rig.app.fetch(req(`/tenants/${body.tenant.id}/archive`, rig.ownerToken, { method: "POST" }));
+
+    expect((await rig.app.fetch(req(`/tenants/${body.tenant.id}`, rig.supportToken))).status).toBe(200);
+    expect(rig.reconciled).toEqual([]);
+  });
+
+  it("releases a tenant stuck in provisioning for the platform owner only, and answers it archived under its new code", async () => {
+    const rig = await buildRig();
+    const stuck = await createTenant({ id: "T-STUCK", code: "stuck", nameAr: "عالقة", ownerEmail: "owner@stuck.example", now: FIXED_NOW().toISOString() }, rig.platform.stores.tenants);
+
+    const bySupport = await rig.app.fetch(req(`/tenants/${stuck.id}/release`, rig.supportToken, { method: "POST" }));
+    expect(bySupport.status).toBe(403);
+    expect(rig.released).toEqual([]);
+
+    const res = await rig.app.fetch(req(`/tenants/${stuck.id}/release`, rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toMatchObject({ tenant: { id: "T-STUCK", code: "released-T-STUCK", status: "archived" } });
+    expect(rig.released).toEqual(["stuck by PU-OWNER"]);
+    expect(rig.invalidated).toContain("stuck");
+  });
+
+  it("refuses to release a tenant that is live, in Arabic, without touching it", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/release`, rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(409);
+    expect(await json(res)).toEqual({ error: "TENANT_NOT_PROVISIONING", message: "المنشأة ليست قيد التجهيز" });
+    expect(rig.released).toEqual([]);
+    expect((await rig.platform.stores.tenants.findById(body.tenant.id))?.code).toBe("acme");
+  });
+
   it("404s an unknown tenant", async () => {
     const rig = await buildRig();
     const res = await rig.app.fetch(req("/tenants/ghost", rig.ownerToken));
@@ -217,6 +291,97 @@ describe("createPlatformRoutes", () => {
     expect(rows.find((r) => r.action === "TENANT_SUSPENDED")?.actor).toBe("PU-OWNER");
   });
 
+  it("resets a live tenant's owner PIN for the platform owner, answers it once and audits it without the PIN", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toEqual({ adminEmail: body.tenant.ownerEmail, signInEmail: body.tenant.ownerEmail, adminPin: RESET_PIN });
+    const row = (await rig.platform.audit.query("security")).find((r) => r.action === "TENANT_OWNER_PIN_RESET");
+    expect(row).toMatchObject({ module: "platform", actor: "PU-OWNER", entityId: body.tenant.id, severity: "CRITICAL" });
+    expect(JSON.stringify(row)).not.toContain(RESET_PIN);
+  });
+
+  it("answers 503 in Arabic, and never the new PIN, when the audit of an owner PIN reset cannot record that it was asked for", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const append = rig.platform.audit.append.bind(rig.platform.audit);
+    rig.platform.audit.append = async (event) => {
+      if (event.action === "TENANT_OWNER_PIN_RESET_REQUESTED") throw new Error("the platform audit refused the row");
+      return append(event);
+    };
+
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
+
+    const answered = await json(res);
+    expect(res.status).toBe(503);
+    expect(answered).toMatchObject({ error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." });
+    expect(JSON.stringify(answered)).not.toContain(RESET_PIN);
+    expect((await rig.platform.audit.query("security")).filter((row) => row.action.startsWith("TENANT_OWNER_PIN_RESET"))).toEqual([]);
+  });
+
+  it("still answers the new PIN, once, when only the row saying the reset happened cannot be written: the row saying it was asked for stands", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const append = rig.platform.audit.append.bind(rig.platform.audit);
+    rig.platform.audit.append = async (event) => {
+      if (event.action === "TENANT_OWNER_PIN_RESET") throw new Error("the platform audit refused the row");
+      return append(event);
+    };
+
+    const res = await rig.app.fetch(req(`/tenants/${body.tenant.id}/owner-pin/reset`, rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toMatchObject({ adminPin: RESET_PIN });
+    const rows = (await rig.platform.audit.query("security")).filter((row) => row.action.startsWith("TENANT_OWNER_PIN_RESET"));
+    expect(rows.map((row) => [row.action, row.actor, row.severity])).toEqual([["TENANT_OWNER_PIN_RESET_REQUESTED", "PU-OWNER", "CRITICAL"]]);
+  });
+
+  it("refuses the owner PIN reset to a support operator, for an archived tenant, and when the owner's account is gone", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const reset = (id: string, token: string) => rig.app.fetch(req(`/tenants/${id}/owner-pin/reset`, token, { method: "POST" }));
+
+    expect((await reset(body.tenant.id, rig.supportToken)).status).toBe(403);
+
+    const gone = await provisionOne(rig, { code: "gone", ownerEmail: OWNER_WHO_LEFT });
+    const missing = await reset(gone.body.tenant.id, rig.ownerToken);
+    expect(missing.status).toBe(409);
+    expect(await json(missing)).toMatchObject({ error: "TENANT_OWNER_ACCOUNT_NOT_FOUND" });
+
+    await rig.app.fetch(req(`/tenants/${body.tenant.id}/archive`, rig.ownerToken, { method: "POST" }));
+    const archived = await reset(body.tenant.id, rig.ownerToken);
+    expect(archived.status).toBe(409);
+    expect(await json(archived)).toMatchObject({ error: "TENANT_NOT_LIVE" });
+
+    const actions = (await rig.platform.audit.query("security")).filter((r) => r.action === "TENANT_OWNER_PIN_RESET");
+    expect(actions).toEqual([]);
+    const refused = (await rig.platform.audit.query("security")).filter((r) => r.action === "TENANT_OWNER_PIN_RESET_REFUSED");
+    const byReason = refused.map((r) => [(r.details as { reason: string }).reason, r.actor, r.entityId, r.severity]).sort();
+    expect(byReason).toEqual([
+      ["OWNER_ONLY", "PU-SUPPORT", body.tenant.id, "CRITICAL"],
+      ["TENANT_NOT_LIVE", "PU-OWNER", body.tenant.id, "CRITICAL"],
+      ["TENANT_OWNER_ACCOUNT_NOT_FOUND", "PU-OWNER", gone.body.tenant.id, "CRITICAL"],
+    ]);
+  });
+
+  it.each([
+    ["assigning an owner", "/owner", JSON.stringify({ userId: "U-1" })],
+    ["confirming a pending owner", "/owner/confirm", undefined],
+  ])("answers a retryable 503 in Arabic when %s must wait for the tenant's own record of the previous owner", async (_label, route, body) => {
+    const due = Object.assign(new Error("سجل المالك السابق لم يُكتب بعد في بيانات المنشأة. أعد المحاولة بعد لحظات."), { code: "TENANT_OWNER_RECORD_DUE", retryable: true });
+    const rig = await buildRig({ assignOwner: async () => { throw due; }, confirmPendingOwner: async () => { throw due; } });
+    const { body: provisioned } = await provisionOne(rig);
+
+    const res = await rig.app.fetch(req(`/tenants/${provisioned.tenant.id}${route}`, rig.ownerToken, { method: "POST", ...(body ? { body } : {}) }));
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("5");
+    expect(await json(res)).toEqual({ error: "TENANT_OWNER_RECORD_DUE", message: "سجل المالك السابق لم يُكتب بعد في بيانات المنشأة. أعد المحاولة بعد لحظات." });
+  });
+
   it("refuses a transition that is not legal with 409", async () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);
@@ -224,6 +389,29 @@ describe("createPlatformRoutes", () => {
     const res = await rig.app.fetch(req(`/tenants/${id}/resume`, rig.ownerToken, { method: "POST" }));
     expect(res.status).toBe(409);
     expect(await json(res)).toMatchObject({ error: "INVALID_TENANT_TRANSITION" });
+  });
+
+  it("lets the platform owner set the billing day of a subscription marked for review, audits it with both days, and renews on it", async () => {
+    const rig = await buildRig();
+    const { body } = await provisionOne(rig);
+    const id = body.tenant.id;
+    const live = await rig.platform.stores.subscriptions.findLiveByTenant(id);
+    if (!live) throw new Error("the tenant has no subscription");
+    await rig.platform.stores.subscriptions.save({ ...live, billingAnchorDay: undefined, billingAnchorNeedsReview: true });
+    const before = (await json(await rig.app.fetch(req(`/tenants/${id}`, rig.ownerToken)))) as { subscription: { billingAnchorDay: number; billingAnchorNeedsReview: boolean } };
+    expect(before.subscription.billingAnchorNeedsReview).toBe(true);
+
+    const bySupport = await rig.app.fetch(req(`/tenants/${id}/subscription/anchor-day`, rig.supportToken, { method: "POST", body: JSON.stringify({ day: 31 }) }));
+    const offCalendar = await rig.app.fetch(req(`/tenants/${id}/subscription/anchor-day`, rig.ownerToken, { method: "POST", body: JSON.stringify({ day: 32 }) }));
+    const set = await rig.app.fetch(req(`/tenants/${id}/subscription/anchor-day`, rig.ownerToken, { method: "POST", body: JSON.stringify({ day: 31 }) }));
+
+    expect(bySupport.status).toBe(403);
+    expect(offCalendar.status).toBe(400);
+    expect(set.status).toBe(200);
+    expect(((await json(set)) as { subscription: Record<string, unknown> }).subscription).toMatchObject({ billingAnchorDay: 31, billingAnchorNeedsReview: false });
+    const rows = (await rig.platform.audit.query("security")).filter((row) => row.action === "SUBSCRIPTION_ANCHOR_DAY_SET");
+    expect(rows).toMatchObject([{ actor: "PU-OWNER", entityId: id, details: { before: before.subscription.billingAnchorDay, after: 31, neededReview: true } }]);
+    expect((await rig.platform.stores.subscriptions.findLiveByTenant(id))?.billingAnchorDay).toBe(31);
   });
 
   it("changes plan, cancels, suspends and resumes a subscription", async () => {

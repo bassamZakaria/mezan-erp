@@ -1,8 +1,11 @@
+import { reversalPermissionSuccessors } from "@mezan/contracts";
 import { createHash, randomUUID } from "node:crypto";
+import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import {
   createApp,
   ACCOUNT_LOCK_FAILURES,
   createAccountLocks,
+  createPeriodCloseGuardSlot,
   createLoginThrottle,
   type LoginThrottle,
   type SmtpConfig,
@@ -22,12 +25,19 @@ import {
   reportTurnYield,
 } from "@mezan/api";
 import {
+  withDerivedTreasuryFx,
+  deriveOpenFxBalances,
+  type ForeignTreasuryBalance,
+  chequeLedgerDays,
   ALL_SCOPE,
   SiteService,
   StockLedgerService,
   applyAllocatedSettlement,
   InvalidSalesInvoicePaymentError,
   InvalidPurchaseDocumentError,
+  assertPeriodOpen,
+  assertVatNotFiled,
+  NoFiscalPeriodForDateError,
   postJournalEntry,
   reverseJournalEntry,
   resolvePrice,
@@ -76,6 +86,7 @@ import {
   createLandedCostDocumentType,
   LANDED_COST_DOC_TYPE,
   LandedCostService,
+  type LandedCostGlPosting,
   installmentPlanDocumentType,
   stockAdjustmentDocumentType,
   stockTransferDocumentType,
@@ -91,11 +102,53 @@ import {
   purchaseInvoiceTotal,
   purchaseInvoiceBaseTotal,
   voucherBaseAmount,
-  isStandingVoucher,
+  assertOpenForPosting,
+  ledgerPresenceAsOf,
+  reversalChainPresenceAsOf,
+  isActive,
+  type DocumentStatus,
+  purchaseInvoiceCancelEntryId,
+  FX_REVALUATION_LINE_MEMO,
+  goodsReceiptCancelEntryId,
+  goodsReceiptTotalCost,
+  goodsReceiptUninvoicedCost,
+  salesInvoiceVoidEntryId,
   PartyRequiredOnControlAccountError,
   CUSTOMER_OPENING_BALANCE_DOC_TYPE,
   SUPPLIER_OPENING_BALANCE_DOC_TYPE,
   fxRevaluationNet,
+  openFxItemsKey,
+  unconsumedRevaluationShare,
+  FxOpenItemType,
+  type FxOpenItemRef,
+  sumActive,
+  getVoucherTypeDefinition,
+  REFUNDED_MONEY,
+  type VoucherLine,
+  invoiceOpenBalance,
+  returnedByInvoice,
+  convertFromBase,
+  type OpenFxItem,
+  type AllocationInvoiceKind,
+  FX_REALISED_DOC_TYPE,
+  EquipmentLogStatus,
+  MaterialConsumptionStatus,
+  FX_SHARE_RELEASE_ENTRY_PREFIX,
+  fxLateReleaseEntryId,
+  fxLateReleaseEntryIds,
+  isBaseCurrency,
+  allocationInvoiceAmount,
+  type VoucherAllocation,
+  type VoucherDocument,
+  FX_REALISED_LINE_MEMO,
+  type ForeignResidue,
+  ForeignResidueKind,
+  accountForeignResidues,
+  shareOfBase,
+  relievedRevaluationShare,
+  buildRevaluationReleaseLines,
+  replay,
+  type StockMovement,
   Qty,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
@@ -120,6 +173,7 @@ import {
   recordSecurityEventOrFallback,
   type AuditSink,
   unwindAdvanceVoucher,
+  unwindPayrollDisbursementVoucher,
   type VoucherAdvanceUnwindPort,
   type Entitlements,
   type RealisedFxPort,
@@ -127,17 +181,24 @@ import {
   type InvoiceReturnCreditPort,
   SettlementRateMissingError,
   salesReturnCreditByInvoice,
+  salesReturnLineCredit,
   purchaseReturnCreditByInvoice,
+  purchaseReturnLineCredit,
   type OpeningBalanceDuplicatesContext,
   type OpeningBalanceEntryRef,
   tenantTodayIso,
   BASE_CURRENCY,
+  UserStatusCode,
+  isErasedUser,
+  AuditSeverityCode,
+  type OwnerRecordDue,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
   withSqliteTransaction,
   type SqliteOpenOptions,
   createSqliteUnitOfWork,
+  grantSuccessorPermissionsOnce,
   createSqliteAccountRepository,
   createSqliteSettingsStore,
   createSqliteVatFilingStore,
@@ -227,9 +288,12 @@ import {
   createDataMigrationTransactor,
   createSqliteBarcodeConfigStore,
   createSqliteUserPreferencesStore,
+  createSqliteOwnerPinFence,
+  createSqliteCredentialResetMarks,
   createSqliteAuditSink,
   createSqliteIdempotentRequestStore,
   createSqliteAccountLockStore,
+  createSqlitePeriodCloseStore,
   deriveAuditChainKey,
   createSqliteLabelLayoutStore,
   createSqliteSequenceConfigStore,
@@ -254,6 +318,8 @@ import {
   type EtaCommandRunner,
   type EtaHttpClient,
   type DocumentRepository,
+  type DocumentGlHook,
+  laterDay,
   type FrameworkDocument,
   extend as extendQtyByPrice,
   unitCostOf,
@@ -274,6 +340,7 @@ import { SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
 import type { BackendModuleContext } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
+import { readStockLedgerDateMismatches } from "./enh/e1-04.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
 
@@ -302,6 +369,7 @@ const PURCHASE_GL_ACCOUNTS = {
   // D53: receiving goods now posts Dr 1200 / Cr 2120, and the invoice clears
   // 2120 rather than debiting inventory a second time.
   goodsReceivedNotInvoicedAccountId: "2120",
+  priceVarianceAccountId: "5080",
 };
 
 /**
@@ -427,6 +495,7 @@ const LANDED_COST_GL_ACCOUNTS = {
   // and GL 2100 disagree by every landed cost posted (D75).
   accruedLandedCostPayableId: "2130",
   unabsorbedCostAccountId: "5100",
+  clearingAccountId: "1240",
 };
 
 /**
@@ -497,9 +566,59 @@ function fanOutDocumentEvents(...publishers: readonly DocumentEventPublisher[]):
   };
 }
 
+export enum SecurityEventOrigin {
+  Platform = "platform",
+}
+
+export { OwnerPinResetOutcome };
+
+export const COMPANY_OWNER_ASSIGNED_AUDIT = "COMPANY_OWNER_ASSIGNED";
+
+export type OwnerAssignedRecord = OwnerRecordDue;
+const OWNER_ASSIGNED_LOOKBACK = 500;
+
+export interface ResetOwnerPinCommand {
+  readonly userId?: string | null;
+  readonly email: string;
+  readonly pin: string;
+  readonly onlyIfNeverSignedIn: boolean;
+  readonly actor: string;
+  readonly fence?: number;
+}
+
+export interface OwnerAccount {
+  readonly id: string;
+  readonly email: string;
+  readonly canAdminister: boolean;
+}
+
+export type OwnerAccountQuery = { readonly userId: string } | { readonly email: string };
+
+export interface SignedInUser {
+  readonly userId: string;
+  readonly email: string;
+  readonly canAdminister: boolean;
+  readonly credentialIsOwn: boolean;
+}
+
+export interface CompanyAdminAccount {
+  readonly id: string;
+  readonly nameAr: string;
+  readonly email: string;
+}
+
 export interface BackendHandle {
   readonly app: App;
   readonly audit: AuditSink;
+  ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null>;
+  companyAdmins(): Promise<CompanyAdminAccount[]>;
+  recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void>;
+  /**
+   * SECURITY: deliberately NOT an HTTP route. A route would be reachable through
+   * the tenant router and the desktop LAN mount; this is callable only by code
+   * that already holds the handle (platform provisioning and the platform console).
+   */
+  resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome>;
   /**
    * الإيصال الإلكتروني — issues a consumer sale's (or return's) e-receipt
    * synchronously, on the chain of the device serial given. The POS till calls
@@ -618,6 +737,10 @@ export interface CreateBackendOptions {
    * writable.
    */
   readonly resolveLicenseState?: CreateAppOptions["resolveLicenseState"];
+  readonly onUserEmailChanged?: CreateAppOptions["onUserEmailChanged"];
+  readonly companyOwner?: CreateAppOptions["companyOwner"];
+  readonly onUserSignedIn?: (user: SignedInUser) => Promise<void>;
+  readonly claimedElsewhere?: () => Promise<boolean>;
   /**
    * The VERIFIED capability set every module-gated route group is checked
    * against, and that `GET /entitlements` and `/roles` report.
@@ -657,6 +780,8 @@ export interface CreateBackendOptions {
  * entry both have to land on THIS one or the sub-ledger and GL 1105 drift.
  */
 const CERTIFICATE_AR_ACCOUNT_ID = "1105";
+
+const REVERSAL_PERMISSIONS_GRANT = "reversal_permissions";
 
 export async function createBackend(options: CreateBackendOptions = {}): Promise<BackendHandle> {
   if (options.seedAdminPin !== undefined && options.seedDemoData !== true) {
@@ -706,6 +831,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   auditSink.unrecorded = securityFallbackFor(dbPath);
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
   const userPreferences = createSqliteUserPreferencesStore(sqlite);
+  const ownerPinFence = createSqliteOwnerPinFence(sqlite);
+  const credentialResets = createSqliteCredentialResetMarks(sqlite);
   const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
   // The boundary a route-level config write shares with its audit row (D298).
   // Same shared connection the audit sink writes on, so the append nests as a
@@ -714,6 +841,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const labelLayouts = createSqliteLabelLayoutStore(sqlite);
 
   const uow = createSqliteUnitOfWork(sqlite);
+  grantSuccessorPermissionsOnce(sqlite, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
   const settings = createSqliteSettingsStore(sqlite);
   const vatFilings = createSqliteVatFilingStore(sqlite);
   const simplifiedRegime = createSqliteSimplifiedRegimeStore(sqlite);
@@ -739,6 +867,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
   const treasuryAccounts = createSqliteTreasuryAccountRepository(sqlite);
   const fiscalPeriods = createSqliteFiscalPeriodRepository(sqlite);
+  const periodCloseGuard = createPeriodCloseGuardSlot();
+  const fxRevaluationRuns = createSqlitePeriodCloseStore(sqlite).fxRuns;
   const ledger = createSqliteLedgerStore(sqlite, sequenceConfig);
   const priceLists = createSqlitePriceListStore(sqlite);
   const promotions = createSqlitePromotionStore(sqlite);
@@ -951,7 +1081,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrLeaveAccrualBatches = createSqliteLeaveAccrualBatchRepository(sqlite);
   const hrAdvances = createSqliteEmployeeAdvanceRepository(sqlite);
   const advanceVoucherUnwind: VoucherAdvanceUnwindPort = {
-    onVoucherReversed: (voucherId) => unwindAdvanceVoucher(voucherId, { advances: hrAdvances }),
+    onVoucherReversed: async (voucherId) =>
+      (await unwindAdvanceVoucher(voucherId, { advances: hrAdvances })) || (await unwindPayrollDisbursementVoucher(voucherId, { runs: hrPayrollRuns })),
   };
   const hrClockCredentials = createSqliteClockCredentialRepository(sqlite);
   const hrChallenges = createSqliteWebauthnChallengeRepository(sqlite);
@@ -1054,6 +1185,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     projectRequiredAccountIds,
     audit: auditSink,
   };
+  const historicalImportGate = {
+    assertPostable: async (date: string): Promise<void> => {
+      await assertPeriodOpen(date, fiscalPeriods);
+      await assertVatNotFiled(date, vatFilings);
+    },
+    transaction: <T>(fn: () => Promise<T>): Promise<T> => ledger.transaction(fn),
+  };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
@@ -1065,6 +1203,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return { allowNegativeStock: current.allowNegativeStock, allowBackorder: current.allowBackorder };
     },
     transaction: stockLedger.transaction,
+    periodGate: async (date) => {
+      const period = await fiscalPeriods.findByDate(date);
+      if (period) return assertOpenForPosting(period);
+      if ((await fiscalPeriods.list()).length > 0) throw new NoFiscalPeriodForDateError(date);
+    },
     // Only activates when a caller ALSO passes a per-call `gl` (StockLedgerService
     // posts only when BOTH are present) — today that's every stock-adjustment
     // reason (createInventoryOpsStockHook below); every other stock
@@ -1586,7 +1729,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     post: async (posting: PurchaseGlPosting) => {
       await postJournalEntry(
         {
-          id: `PI-JE:${posting.sourceDocId}`,
+          id: `PI-JE:${posting.sourceDocId}${posting.entrySuffix ?? ""}`,
           date: posting.date,
           memo: posting.memo,
           source: "system",
@@ -1820,7 +1963,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   const subcontractConsumptions: SubcontractConsumptionPort = {
     async materialsIssuedTo(subcontractId) {
-      const rows = await contractingSiteStore.consumptions.list({ subcontractId, status: "confirmed" });
+      const rows = await contractingSiteStore.consumptions.list({ subcontractId, status: MaterialConsumptionStatus.Confirmed });
       return Money.sum(rows.map((r) => r.totalCost));
     },
   };
@@ -1909,7 +2052,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
     numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
-    gl: documentGl,
+    gl: returnReliefGl("sales", salesReturnStore, salesReturnLineCredit),
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: salesReturnEvents,
@@ -1929,7 +2072,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
     numbering: { next: (opts) => ledger.numbering.next("PURCHASE_RETURN", { branchId: opts?.branchId }) },
-    gl: documentGl,
+    gl: returnReliefGl("purchase", purchaseReturnStore, purchaseReturnLineCredit),
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: returnsEventBridge,
@@ -1946,7 +2089,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: auditSink,
     auditModule: "purchases",
   });
-  const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
+  const landedCostGlAccounts = { ...LANDED_COST_GL_ACCOUNTS };
+  const landedCostDocuments = new DocumentService(createLandedCostDocumentType(landedCostGlAccounts), {
     repo: landedCostStore,
     numbering: { next: (opts) => ledger.numbering.next("LANDED_COST", { branchId: opts?.branchId }) },
     gl: documentGl,
@@ -1964,33 +2108,41 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: auditSink,
     auditModule: "purchases",
   });
+  const postLandedCostSideEntry = async (posting: LandedCostGlPosting, debitAccountId: string, creditAccountId: string): Promise<void> => {
+    await postJournalEntry(
+      {
+        id: posting.entryId,
+        date: posting.date,
+        memo: posting.memo,
+        source: "system",
+        sourceDocType: LANDED_COST_DOC_TYPE,
+        sourceDocId: posting.sourceDocId,
+        sourceDocNumber: posting.sourceDocNumber,
+        lines: [
+          { accountId: debitAccountId, debit: posting.amount, credit: Money.zero() },
+          { accountId: creditAccountId, debit: Money.zero(), credit: posting.amount },
+        ],
+      },
+      salesInvoiceGl,
+    );
+  };
   const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
-    postUnabsorbed: async (posting) => {
-      await postJournalEntry(
-        {
-          id: posting.entryId,
-          date: posting.date,
-          memo: posting.memo,
-          source: "system",
-          sourceDocType: LANDED_COST_DOC_TYPE,
-          sourceDocId: posting.sourceDocId,
-          sourceDocNumber: posting.sourceDocNumber,
-          lines: [
-            {
-              accountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
-              debit: posting.amount,
-              credit: Money.zero(),
-            },
-            {
-              accountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
-              debit: Money.zero(),
-              credit: posting.amount,
-            },
-          ],
-        },
-        salesInvoiceGl,
-      );
+    postUnabsorbed: (posting) => postLandedCostSideEntry(posting, LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId, LANDED_COST_GL_ACCOUNTS.inventoryAccountId),
+    postAbsorbed: (posting) => postLandedCostSideEntry(posting, LANDED_COST_GL_ACCOUNTS.inventoryAccountId, LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId),
+    postAbsorbedFromClearing: (posting) => postLandedCostSideEntry(posting, landedCostGlAccounts.inventoryAccountId, landedCostGlAccounts.clearingAccountId),
+    postIssuedFromClearing: async (posting) => {
+      if (landedCostGlAccounts.clearingAccountId === landedCostGlAccounts.unabsorbedCostAccountId) return;
+      await postLandedCostSideEntry(posting, landedCostGlAccounts.unabsorbedCostAccountId, landedCostGlAccounts.clearingAccountId);
     },
+    reverseSideEntry: async (entryId, opts) => {
+      const entry = await ledger.findById(entryId);
+      if (!entry || entry.status !== "posted") return null;
+      await reverseJournalEntry(entryId, salesInvoiceGl, { reversalId: opts.reversalId, date: opts.date });
+      return Money.sum(entry.lines.map((line) => line.debit));
+    },
+  }, {
+    transaction: (fn) => ledger.transaction(fn),
+    layerOwnerOf: async (sourceDocId) => (await purchaseInvoices.findById(sourceDocId))?.receiptId ?? sourceDocId,
   });
   const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {
     repo: installmentPlans,
@@ -2083,9 +2235,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       ...confirmedPurchases.map((inv) => inv.id),
     ]);
 
+    const salesReturned = await invoiceReturnCredits.returnedByIds(activeInvoices.map((inv) => inv.id), "sales");
+    const purchaseReturned = await invoiceReturnCredits.returnedByIds(confirmedPurchases.map((inv) => inv.id), "purchase");
+    const restatement = async (invoiceId: string, fxRate: string | null | undefined) => (fxRate ? { revaluationShare: await standingRevaluationShare(invoiceItem(invoiceId)) } : {});
+
     for (const inv of activeInvoices) {
       const allocated = allocatedById.get(inv.id) ?? Money.zero();
       out.push({
+        returnedBase: salesReturned.get(inv.id) ?? Money.zero(),
+        ...(await restatement(inv.id, inv.fxRate)),
         kind: "receivable",
         documentId: inv.id,
         documentNo: inv.docNo ?? inv.id,
@@ -2102,6 +2260,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     for (const inv of confirmedPurchases) {
       const allocated = allocatedById.get(inv.id) ?? Money.zero();
       out.push({
+        returnedBase: purchaseReturned.get(inv.id) ?? Money.zero(),
+        ...(await restatement(inv.id, inv.fxRate)),
         kind: "payable",
         documentId: inv.id,
         documentNo: inv.number,
@@ -2331,7 +2491,116 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     ]);
   }
 
-  async function resolveReconciliationControls() {
+  async function inventoryValueAsOf(asOfDate: string): Promise<bigint> {
+    const { listAll } = stockLedger.ledger;
+    const movements = listAll
+      ? await listAll.call(stockLedger.ledger)
+      : (await Promise.all((await stockLedger.ledger.listPositions()).map((p) => stockLedger.ledger.listByPosition(p.itemId, p.warehouseId)))).flat();
+    const byPosition = new Map<string, StockMovement[]>();
+    for (const movement of movements) {
+      if (movement.occurredAt.slice(0, 10) > asOfDate) continue;
+      const key = JSON.stringify([movement.itemId, movement.warehouseId]);
+      const list = byPosition.get(key);
+      if (list) list.push(movement);
+      else byPosition.set(key, [movement]);
+    }
+    let value = 0n;
+    for (const list of byPosition.values()) {
+      const first = list[0];
+      if (first) value += replay(first.itemId, first.warehouseId, list).totalValue.scaled;
+    }
+    return value;
+  }
+
+  async function foreignTreasuryCurrencies(): Promise<ReadonlyMap<string, string>> {
+    const base = ((await settings.get()) ?? createDefaultSettings()).currency;
+    const byGlAccount = new Map<string, string>();
+    for (const account of await treasuryAccounts.list()) {
+      if (account.glAccountId && account.currency && account.currency !== base) byGlAccount.set(account.glAccountId, account.currency);
+    }
+    return byGlAccount;
+  }
+
+  async function foreignTreasuryBalances(asOfDate?: string): Promise<ForeignTreasuryBalance[]> {
+    const byGlAccount = await foreignTreasuryCurrencies();
+    if (byGlAccount.size === 0) return [];
+    const posted = (await ledger.listLines?.({ accountIds: [...byGlAccount.keys()], ...(asOfDate ? { toDate: asOfDate } : {}) })) ?? [];
+    const { lines, derived } = await withDerivedTreasuryFx(posted, byGlAccount, async (currency, on) => (await exchangeRates.findRate(currency, on))?.rate ?? null);
+    const open = deriveOpenFxBalances(lines, await accounts.list());
+    const rows: ForeignTreasuryBalance[] = [];
+    for (const account of await treasuryAccounts.list()) {
+      const currency = account.glAccountId ? byGlAccount.get(account.glAccountId) : undefined;
+      if (!account.glAccountId || !currency) continue;
+      const balance = open.find((b) => b.accountId === account.glAccountId && b.currency === currency);
+      rows.push({
+        treasuryAccountId: account.id,
+        name: account.name,
+        glAccountId: account.glAccountId,
+        currency,
+        foreignBalance: balance?.foreignAmount ?? Money.zero(),
+        baseBalance: balance?.bookedBase ?? Money.zero(),
+        derivedLines: derived.filter((line) => line.accountId === account.glAccountId).length,
+      });
+    }
+    return rows;
+  }
+
+  async function foreignResidues(asOfDate?: string): Promise<ForeignResidue[]> {
+    const posted = (await ledger.listLines?.(asOfDate ? { toDate: asOfDate } : {})) ?? [];
+    const { lines } = await withDerivedTreasuryFx(posted, await foreignTreasuryCurrencies(), async (currency, on) => (await exchangeRates.findRate(currency, on))?.rate ?? null);
+    const chart = await accounts.list();
+    const held = accountForeignResidues(deriveOpenFxBalances(lines, chart));
+    const openItems = held.length > 0 ? await openFxItems(asOfDate ?? FX_OPEN_TODAY) : new Map<string, OpenFxItem[]>();
+    const residues: ForeignResidue[] = [];
+    const leftOnClosedItems = new Map<string, bigint>();
+    for (const item of await vouchers.revaluationShares.listItems()) {
+      if (await fxItemStandsOpen(item)) continue;
+      const standing = await standingRevaluationShare(item);
+      const share = (await vouchers.revaluationShares.listByItem(item))[0];
+      if (standing.scaled === 0n || !share) continue;
+      const key = openFxItemsKey(share.accountId, share.currency);
+      leftOnClosedItems.set(key, (leftOnClosedItems.get(key) ?? 0n) + standing.scaled);
+      residues.push({ kind: ForeignResidueKind.Item, ref: item.id, itemType: item.type, currency: share.currency, base: standing });
+    }
+    for (const residue of held) {
+      const key = openFxItemsKey(residue.ref, residue.currency);
+      const carried = (openItems.get(key) ?? []).reduce((sum, item) => sum + item.carryingBase.scaled, leftOnClosedItems.get(key) ?? 0n);
+      const debitNatured = chart.find((account) => account.id === residue.ref)?.naturalBalance === "debit";
+      const unexplained = residue.base.scaled - (debitNatured ? carried : -carried);
+      if (unexplained !== 0n) residues.push({ ...residue, base: Money.fromScaled(unexplained) });
+    }
+    return residues;
+  }
+
+  async function resolveReconciliationControls(asOfDate?: string) {
+    const upTo = (date: string | null | undefined): boolean => asOfDate === undefined || (date ?? "").slice(0, 10) <= asOfDate;
+    const standingCertificate = (certificate: { status: string; approvedAt: string | null; executionDate: string; voidedAt: string | null }): boolean =>
+      upTo(certificate.approvedAt ?? certificate.executionDate) && (certificate.status !== "voided" || !upTo(certificate.voidedAt));
+    type ChainLink = { id: string; status: DocumentStatus; date: string; reversesDocId: string | null; reversedByDocId: string | null };
+    const linksById = <T extends ChainLink>(docs: readonly T[]): ReadonlyMap<string, T> => new Map(docs.map((d) => [d.id, d]));
+    const frameworkPresence = (doc: ChainLink, docs: ReadonlyMap<string, ChainLink>): bigint => {
+      if (doc.reversesDocId) return 0n;
+      const dates = [doc.date];
+      const seen = new Set([doc.id]);
+      let link = doc;
+      while (link.status === "reversed" && link.reversedByDocId) {
+        const next = docs.get(link.reversedByDocId);
+        if (!next || seen.has(next.id)) break;
+        seen.add(next.id);
+        dates.push(next.date);
+        link = next;
+      }
+      if (!isActive(link.status)) return 0n;
+      return BigInt(reversalChainPresenceAsOf(dates, asOfDate));
+    };
+    const entryDatesOf = async (ids: readonly (string | null)[]): Promise<ReadonlyMap<string, string>> => {
+      const wanted = ids.filter((id): id is string => id !== null);
+      if (asOfDate === undefined || wanted.length === 0) return new Map();
+      if (ledger.entryDates) return ledger.entryDates(wanted);
+      const found = await Promise.all(wanted.map(async (id) => [id, (await ledger.findById(id))?.date ?? null] as const));
+      return new Map(found.filter((pair): pair is readonly [string, string] => pair[1] !== null));
+    };
+    const invoicePresence = (date: string, live: boolean, endedOn: string | null): bigint => BigInt(ledgerPresenceAsOf({ date, live, endedOn }, asOfDate));
     // The tenant's own control accounts (B-8). Comparing a recoded chart
     // against a compiled-in "1105"/"2100"/"1200" reported a mismatch equal to
     // every collection ever made.
@@ -2364,14 +2633,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * un-settles a payable when a supplier refunds); a payment debits it.
      */
     const voucherEffect = { receivable: 0n, payable: 0n };
-    for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
-      if (!isStandingVoucher(doc)) continue;
+    const allVouchers = await vouchers.documents.list();
+    const voucherDates = linksById(allVouchers);
+    for (const doc of allVouchers) {
+      const presence = frameworkPresence(doc, voucherDates);
+      if (presence === 0n) continue;
       const line = doc.lines[0];
       if (!line || line.direction === "transfer") continue;
       const credited = line.direction === "receipt";
       // BASE, as the voucher posted it: a foreign voucher's own `amount` is in
       // its currency (D194's twin).
-      const amount = voucherBaseAmount(line).scaled;
+      const amount = presence * voucherBaseAmount(line).scaled;
       if (line.counterpartyGlAccountId === AR_CONTROL) {
         voucherEffect.receivable += credited ? -amount : amount;
       }
@@ -2390,23 +2662,33 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * own and carries the new credit.
      */
     const chequeEffect = { receivable: 0n, payable: 0n };
-    for (const cheque of await cheques.list()) {
-      const restored = cheque.status === "bounced" || cheque.status === "replaced";
+    const allCheques = await cheques.list();
+    const chequeEntryDates = await entryDatesOf(allCheques.flatMap((cheque) => [cheque.creationJournalEntryId, cheque.bounceJournalEntryId]));
+    for (const cheque of allCheques) {
+      const { raised, undone } = chequeLedgerDays(cheque, (entryId) => chequeEntryDates.get(entryId));
+      if (!upTo(raised)) continue;
+      const restored = undone !== null && upTo(undone);
       const net = restored ? 0n : -cheque.amount.scaled;
       if (cheque.counterpartyGlAccountId === AR_CONTROL) chequeEffect.receivable += net;
       if (cheque.counterpartyGlAccountId === AP_CONTROL) chequeEffect.payable += net;
     }
 
+    const undoneEntryDates = await entryDatesOf([
+      ...invoices.filter((inv) => inv.status === "reversed").map((inv) => salesInvoiceVoidEntryId(inv.id)),
+      ...purchInvoices.filter((inv) => inv.status === "cancelled").map((inv) => purchaseInvoiceCancelEntryId(inv.id)),
+    ]);
     let arScaled = 0n;
     for (const inv of invoices) {
-      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      const live = SALES_INVOICE_ACTIVE_STATUSES.has(inv.status);
+      const presence = invoicePresence(inv.date, live, undoneEntryDates.get(salesInvoiceVoidEntryId(inv.id)) ?? null);
+      if (presence === 0n) continue;
       const totals = salesInvoiceTotals(inv);
       // The BASE-currency figure, which is what the control account holds — a
       // USD invoice's own total is not an EGP amount (D24).
-      arScaled += salesInvoiceBaseGrandTotal(totals, inv.fxRate).scaled;
+      arScaled += presence * salesInvoiceBaseGrandTotal(totals, inv.fxRate).scaled;
     }
     for (const archive of salesArchives) {
-      if (archive.settled) continue;
+      if (archive.settled || !upTo(archive.date)) continue;
       arScaled += archive.docType === "SALES_RETURN"
         ? -archive.remainingBalance.scaled
         : archive.remainingBalance.scaled;
@@ -2414,15 +2696,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // Opening balances are posted to the control account now (B-2), so the
     // sub-ledger side has to carry them or the two part company by exactly
     // Σ opening balances — the same gap, mirrored.
-    for (const customer of customerRows) arScaled += customer.openingBalance.scaled;
+    if (asOfDate === undefined) for (const customer of customerRows) arScaled += customer.openingBalance.scaled;
     arScaled += voucherEffect.receivable;
     arScaled += chequeEffect.receivable;
     // A confirmed sales return credits AR in the GL. Omitting it here left the
     // control account moving while the sub-ledger stood still, so every tenant
     // that ever posted a return saw a false mismatch.
+    const salesReturnDates = linksById(salesReturnDocs);
     for (const doc of salesReturnDocs) {
-      if (doc.status !== "confirmed") continue;
-      arScaled -= salesReturnGrandTotal(doc).scaled;
+      arScaled -= frameworkPresence(doc, salesReturnDates) * salesReturnGrandTotal(doc).scaled;
     }
     /**
      * An approved مستخلص credits AR by its deductions block — retention, the
@@ -2435,30 +2717,30 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // A VOIDED certificate has had its deductions entry mirrored, so the
       // control account is back where it was and the sub-ledger must not
       // subtract them a second time.
-      if (certificate.status === "voided") continue;
+      if (!standingCertificate(certificate)) continue;
       arScaled -= certificate.postedDeductionsTotal.scaled;
     }
 
     let apScaled = 0n;
     for (const inv of purchInvoices) {
-      if (inv.status !== "confirmed") continue;
+      const presence = invoicePresence(inv.date, inv.status === "confirmed", undoneEntryDates.get(purchaseInvoiceCancelEntryId(inv.id)) ?? null);
       // The BASE-currency figure, which is what the control account holds.
-      apScaled += purchaseInvoiceBaseTotal(inv).scaled;
+      if (presence !== 0n) apScaled += presence * purchaseInvoiceBaseTotal(inv).scaled;
     }
     for (const archive of purchaseArchives) {
-      if (archive.settled) continue;
+      if (archive.settled || !upTo(archive.date)) continue;
       apScaled += archive.docType === "PURCHASE_RETURN"
         ? -archive.remainingBalance.scaled
         : archive.remainingBalance.scaled;
     }
-    for (const supplier of supplierRows) apScaled += supplier.openingBalance.scaled;
+    if (asOfDate === undefined) for (const supplier of supplierRows) apScaled += supplier.openingBalance.scaled;
     apScaled += voucherEffect.payable;
     apScaled += chequeEffect.payable;
     // A purchase return debits AP; a landed cost credits it (the freight and
     // customs owed to a third party accrue to the same control account).
+    const purchaseReturnDates = linksById(purchaseReturnDocs);
     for (const doc of purchaseReturnDocs) {
-      if (doc.status !== "confirmed") continue;
-      apScaled -= purchaseReturnGrandTotal(doc).scaled;
+      apScaled -= frameworkPresence(doc, purchaseReturnDates) * purchaseReturnGrandTotal(doc).scaled;
     }
     /**
      * An approved مستخلص باطن DEBITS AP by its deductions block — the retention
@@ -2472,6 +2754,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * (Dr 2195 / Cr AP), already counted with every other confirmed one above.
      */
     for (const certificate of await subcontracts.listCertificates()) {
+      if (!upTo(certificate.approvedAt ?? certificate.executionDate)) continue;
       apScaled -= certificate.postedDeductionsTotal.scaled;
     }
     // Landed costs are deliberately NOT added here any more. They used to be,
@@ -2486,7 +2769,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * sub-ledger — every document at the rate it was booked at — carries the
      * unreversed restatement as its one non-document term (D194).
      */
-    const partyControlLines = (await ledger.listLines?.({ accountIds: [AR_CONTROL, AP_CONTROL] })) ?? [];
+    const partyControlLines = (await ledger.listLines?.({ accountIds: [AR_CONTROL, AP_CONTROL], toDate: asOfDate })) ?? [];
     arScaled += fxRevaluationNet(partyControlLines, AR_CONTROL).scaled;
     apScaled -= fxRevaluationNet(partyControlLines, AP_CONTROL).scaled;
     // A manual journal line names its party (D205) and no document records it.
@@ -2495,16 +2778,46 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // one) but that movement is already in `customerRows`/`supplierRows`
     // above — counting it again here is exactly the double-post D241 was.
     for (const line of partyControlLines) {
-      if (!line.partyId) continue;
-      if (line.sourceDocType === CUSTOMER_OPENING_BALANCE_DOC_TYPE || line.sourceDocType === SUPPLIER_OPENING_BALANCE_DOC_TYPE) continue;
+      const openingBalance = line.sourceDocType === CUSTOMER_OPENING_BALANCE_DOC_TYPE || line.sourceDocType === SUPPLIER_OPENING_BALANCE_DOC_TYPE;
+      if (openingBalance ? asOfDate === undefined : !line.partyId) continue;
       const net = line.debit.scaled - line.credit.scaled;
       if (line.accountId === AR_CONTROL) arScaled += net;
       if (line.accountId === AP_CONTROL) apScaled -= net;
     }
 
+    const receiptRows = await goodsReceipts.list();
+    let grniScaled = 0n;
+    if (asOfDate === undefined) {
+      for (const receipt of receiptRows) if (receipt.status === "confirmed") grniScaled += goodsReceiptUninvoicedCost(receipt).scaled;
+    } else {
+      const receiptCancelDates = await entryDatesOf(receiptRows.filter((r) => r.status === "cancelled").map((r) => goodsReceiptCancelEntryId(r.id)));
+      const receiptsById = new Map(receiptRows.map((r) => [r.id, r]));
+      for (const receipt of receiptRows) {
+        if (receipt.status === "draft") continue;
+        const ended = receiptCancelDates.get(goodsReceiptCancelEntryId(receipt.id)) ?? null;
+        if (receipt.status === "cancelled" && ended === null) continue;
+        grniScaled += invoicePresence(receipt.date, receipt.status === "confirmed", ended) * goodsReceiptTotalCost(receipt).scaled;
+      }
+      for (const inv of purchInvoices) {
+        const receipt = inv.receiptId ? receiptsById.get(inv.receiptId) : undefined;
+        if (!receipt || inv.status === "draft") continue;
+        const ended = undoneEntryDates.get(purchaseInvoiceCancelEntryId(inv.id)) ?? null;
+        if (inv.status === "cancelled" && ended === null) continue;
+        const presence = invoicePresence(inv.date, inv.status === "confirmed", ended);
+        if (presence === 0n) continue;
+        const tracked = inv.lines.some((line) => line.receiptBillings !== undefined);
+        const relieved = tracked
+          ? inv.lines.flatMap((line) => line.receiptBillings ?? []).reduce((sum, billing) => sum + extendQtyByPrice(billing.qty, receipt.lines[billing.lineIndex]?.unitCost ?? Money.zero()).scaled, 0n)
+          : goodsReceiptTotalCost(receipt).scaled;
+        grniScaled -= presence * relieved;
+      }
+    }
+
     let inventoryScaled = 0n;
-    for (const snap of snapshots) {
-      inventoryScaled += snap.totalValue.scaled;
+    if (asOfDate === undefined) {
+      for (const snap of snapshots) inventoryScaled += snap.totalValue.scaled;
+    } else {
+      inventoryScaled = await inventoryValueAsOf(asOfDate);
     }
 
     /**
@@ -2520,16 +2833,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         subcontracts.list(),
         subcontracts.listCertificates(),
         retentionReleases.list(),
-        contractingSiteStore.consumptions.list({ status: "confirmed" }),
-        contractingSiteStore.equipmentLogs.list({ status: "confirmed" }),
+        contractingSiteStore.consumptions.list({ status: MaterialConsumptionStatus.Confirmed }),
+        contractingSiteStore.equipmentLogs.list({ status: EquipmentLogStatus.Confirmed }),
         recognitionRuns.list(),
       ]);
     const account = (key: string, fallback: string): string => routedAccountId(routing, key) ?? fallback;
 
     /** Only a certificate whose deductions entry is actually on the ledger, and was not reversed. */
-    const postedCertificates = certificates.filter((c) => c.journalEntryId !== null && c.status !== "voided");
-    const postedSubCertificates = subCerts.filter((c) => c.journalEntryId !== null);
-    const postedRuns = runs.filter((r) => r.status === "posted");
+    const postedCertificates = certificates.filter((c) => c.journalEntryId !== null && standingCertificate(c));
+    const subCertificateEntryDates = await entryDatesOf(subCerts.map((c) => c.journalEntryId));
+    const postedSubCertificates = subCerts.filter(
+      (c) => c.journalEntryId !== null && upTo(subCertificateEntryDates.get(c.journalEntryId) ?? c.approvedAt ?? c.executionDate),
+    );
+    const postedRuns = runs.filter((r) => r.status === "posted" && upTo(r.periodEnd));
     const deduction = (
       rows: readonly { key: string; thisCertificate: Money }[],
       key: string,
@@ -2538,13 +2854,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     let retentionReceivableScaled = 0n;
     for (const c of postedCertificates) retentionReceivableScaled += deduction(c.computed.deductions, "retention");
     for (const r of releases) {
-      if (r.status === "released") retentionReceivableScaled -= r.amount.scaled;
+      if (r.status === "released" && upTo(r.date)) retentionReceivableScaled -= r.amount.scaled;
     }
 
     let retentionPayableScaled = 0n;
     for (const c of postedSubCertificates) retentionPayableScaled += deduction(c.computed.deductions, "retention");
     for (const sub of subContracts) {
-      for (const release of sub.retentionReleases) retentionPayableScaled -= release.amount.scaled;
+      for (const release of sub.retentionReleases) if (upTo(release.date)) retentionPayableScaled -= release.amount.scaled;
     }
 
     /**
@@ -2554,11 +2870,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      */
     const advanceAccountId = account("contracting.customer_advances", "2160");
     let customerAdvancesScaled = 0n;
-    for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
-      if (!isStandingVoucher(doc)) continue;
+    for (const doc of allVouchers) {
+      const presence = frameworkPresence(doc, voucherDates);
       const line = doc.lines[0];
-      if (!line || line.counterpartyGlAccountId !== advanceAccountId) continue;
-      customerAdvancesScaled += line.direction === "receipt" ? voucherBaseAmount(line).scaled : -voucherBaseAmount(line).scaled;
+      if (presence === 0n || !line || line.counterpartyGlAccountId !== advanceAccountId) continue;
+      const amount = presence * voucherBaseAmount(line).scaled;
+      customerAdvancesScaled += line.direction === "receipt" ? amount : -amount;
     }
     for (const c of postedCertificates) {
       customerAdvancesScaled -= deduction(c.computed.deductions, "advanceRecovery");
@@ -2570,8 +2887,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      * it — less what the monthly recognition run has already relieved.
      */
     let wipScaled = 0n;
-    for (const row of consumptions) wipScaled += row.totalCost.scaled;
-    for (const log of equipmentLogs) wipScaled += log.amount.scaled;
+    for (const row of consumptions) if (upTo(row.date)) wipScaled += row.totalCost.scaled;
+    for (const log of equipmentLogs) if (upTo(log.date)) wipScaled += log.amount.scaled;
     for (const c of postedSubCertificates) wipScaled += c.computed.invoiceBase.scaled;
     for (const run of postedRuns) wipScaled -= run.wipRelieved.scaled;
 
@@ -2582,12 +2899,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const billingsAccountId = account("contracting.billings", "2165");
     let billingsScaled = 0n;
     for (const inv of invoices) {
-      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      if (!inv.lines.some((line) => line.revenueAccountId === billingsAccountId)) continue;
+      const presence = await invoicePresence(inv.date, SALES_INVOICE_ACTIVE_STATUSES.has(inv.status), inv.status === "reversed" ? salesInvoiceVoidEntryId(inv.id) : null);
+      if (presence === 0n) continue;
       const lineTotals = salesInvoiceTotals(inv).lines;
       inv.lines.forEach((line, index) => {
         if (line.revenueAccountId !== billingsAccountId) return;
         const stated = lineTotals[index]?.taxableBase;
-        if (stated) billingsScaled += (inv.fxRate ? convertToBase(stated, inv.fxRate) : stated).scaled;
+        if (stated) billingsScaled += presence * (inv.fxRate ? convertToBase(stated, inv.fxRate) : stated).scaled;
       });
     }
     for (const run of postedRuns) billingsScaled -= run.billedInPeriod.scaled;
@@ -2609,6 +2928,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       { key: "inventory", label: "تقييم المخزون مقابل دفتر الأستاذ", controlAccountId: INVENTORY_CONTROL, naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(inventoryScaled) },
       { key: "ar", label: "ذمم العملاء مقابل دفتر الأستاذ", controlAccountId: AR_CONTROL, naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(arScaled) },
       { key: "ap", label: "ذمم الموردين مقابل دفتر الأستاذ", controlAccountId: AP_CONTROL, naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(apScaled) },
+      { key: "grni", label: "بضاعة واردة لم تُفوتر مقابل دفتر الأستاذ", controlAccountId: PURCHASE_GL_ACCOUNTS.goodsReceivedNotInvoicedAccountId as string, naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(grniScaled) },
       { key: "contracting_retention_receivable", label: "محتجزات لدى العملاء مقابل دفتر الأستاذ", controlAccountId: account("contracting.retention_receivable", "1150"), naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(retentionReceivableScaled) },
       { key: "contracting_retention_payable", label: "محتجزات مقاولي الباطن مقابل دفتر الأستاذ", controlAccountId: account("contracting.retention_payable", "2195"), naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(retentionPayableScaled) },
       { key: "contracting_customer_advances", label: "دفعات مقدمة من العملاء مقابل دفتر الأستاذ", controlAccountId: advanceAccountId, naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(customerAdvancesScaled) },
@@ -2642,8 +2962,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   {
     const { added, skipped } = await addMissingStandardAccounts(accounts);
     if (added.length > 0) console.info(`[chart-of-accounts] added standard account(s) ${added.join(", ")}`);
-    if (skipped.length > 0) {
-      console.warn(`[chart-of-accounts] ${skipped.join(", ")} already used by another account; map the fx.* slots in account routing`);
+    const fxSkipped = skipped.filter((id) => id !== LANDED_COST_GL_ACCOUNTS.clearingAccountId);
+    if (fxSkipped.length > 0) {
+      console.warn(`[chart-of-accounts] ${fxSkipped.join(", ")} already used by another account; map the fx.* slots in account routing`);
+    }
+    if (skipped.includes(LANDED_COST_GL_ACCOUNTS.clearingAccountId)) {
+      // INVARIANT: a landed cost never posts into an account the tenant keeps for something else — it waits in cost of sales as it did before the clearing account existed (landed-cost-clearing-backfill.test.ts).
+      landedCostGlAccounts.clearingAccountId = landedCostGlAccounts.unabsorbedCostAccountId;
+      console.warn(`[chart-of-accounts] ${LANDED_COST_GL_ACCOUNTS.clearingAccountId} is used by another account; a landed cost dated before its confirm day waits in ${landedCostGlAccounts.unabsorbedCostAccountId}`);
     }
   }
 
@@ -2679,6 +3005,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // accounts, posted through the same GL engine every other voucher uses. ---
   const vanTripVoucherService = new VoucherService({
     documents: vouchers.documents,
+    vatFilings,
     ledger,
     accounts,
     periods: fiscalPeriods,
@@ -2694,6 +3021,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const hrTreasuryDisbursement = createHrTreasuryDisbursementPort({
     documents: vouchers.documents,
+    vatFilings,
     ledger,
     accounts,
     periods: fiscalPeriods,
@@ -2952,23 +3280,297 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const [realised, unrealised] = await Promise.all([fxDifferenceAccounts("realised"), fxDifferenceAccounts("unrealised")]);
     return [realised.gainAccountId, realised.lossAccountId, unrealised.gainAccountId, unrealised.lossAccountId];
   }
+  const revaluationEntryStands = async (entryId: string) => {
+    const entry = await ledger.findById(entryId);
+    return entry?.status === "posted" && !entry.reversedByEntryId;
+  };
+  const standingRevaluationShare = (item: FxOpenItemRef) =>
+    unconsumedRevaluationShare(item, { shares: vouchers.revaluationShares, allocations: vouchers.allocations, entryStands: revaluationEntryStands });
+  type FxItemRelief = { readonly relieved: Money; readonly outstanding: Money };
+  const invoiceItem = (id: string): FxOpenItemRef => ({ id, type: FxOpenItemType.Invoice });
+  const moneyItem = (id: string): FxOpenItemRef => ({ id, type: FxOpenItemType.Money });
+  async function foreignMoneyOnAccount(voucherId: string): Promise<{ date: string; line: VoucherLine; fxRate: string; kind: AllocationInvoiceKind; unallocated: Money } | null> {
+    const doc = await vouchers.documents.findById(voucherId);
+    if (!doc || doc.status !== "confirmed" || doc.reversesDocId) return null;
+    const line = voucherLine(doc);
+    const kind = getVoucherTypeDefinition(line.voucherType).allocationKind;
+    if (!kind || !line.fxRate) return null;
+    const unallocated = voucherBaseAmount(line).scaled - sumActive(await vouchers.allocations.listByVoucher(doc.id)).scaled;
+    return { date: doc.date.slice(0, 10), line, fxRate: line.fxRate, kind, unallocated: Money.fromScaled(unallocated > 0n ? unallocated : 0n) };
+  }
+  async function fxItemStandsOpen(item: FxOpenItemRef): Promise<boolean> {
+    if (item.type === FxOpenItemType.Money) return ((await foreignMoneyOnAccount(item.id))?.unallocated.scaled ?? 0n) !== 0n;
+    const invoice = await vouchers.invoices.findById(item.id);
+    if (!invoice || !(await invoiceStands(invoice.id, invoice.kind))) return false;
+    const returned = (await returnedByInvoice(invoiceReturnCredits, [invoice])).get(invoice.id) ?? Money.zero();
+    return invoiceOpenBalance(invoice, returned).scaled !== 0n;
+  }
+  interface FxLaterRelief {
+    readonly date: string;
+    readonly relieved: Money | null;
+    readonly releasedBy: string;
+    readonly allocationId?: string;
+  }
+  interface FxItemAsOf {
+    readonly key: string;
+    readonly open: OpenFxItem;
+    readonly later: readonly FxLaterRelief[];
+  }
+  const FX_OPEN_TODAY = "9999-12-31";
+  const allocationDay = (allocation: VoucherAllocation): string => allocation.date ?? allocation.createdAt.slice(0, 10);
+  const allocationStoodOn = (allocation: VoucherAllocation, day: string): boolean =>
+    allocationDay(allocation) <= day && (allocation.status === "active" || (allocation.reversedOn ?? allocation.reversedAt?.slice(0, 10) ?? "") > day);
+  async function revaluationShareAsOf(item: FxOpenItemRef, day: string): Promise<bigint> {
+    if (day >= FX_OPEN_TODAY) return (await standingRevaluationShare(item)).scaled;
+    let share = 0n;
+    for (const record of await vouchers.revaluationShares.listByItem(item)) {
+      const entry = await ledger.findById(record.entryId);
+      if (entry?.status === "posted" && !entry.reversedByEntryId && entry.date.slice(0, 10) <= day) share += record.amount.scaled;
+    }
+    const money = item.type === FxOpenItemType.Money;
+    for (const allocation of money ? await vouchers.allocations.listByVoucher(item.id) : await vouchers.allocations.listByInvoice(item.id)) {
+      if (allocation.status === "active" && allocationDay(allocation) <= day) share -= (money ? allocation.moneyRevaluationShare : allocation.revaluationShare)?.scaled ?? 0n;
+    }
+    return share;
+  }
+  async function laterAllocationReliefs(allocations: readonly VoucherAllocation[], day: string, money: boolean): Promise<FxLaterRelief[]> {
+    const out: FxLaterRelief[] = [];
+    for (const allocation of allocations) {
+      if (allocation.status !== "active" || allocationDay(allocation) <= day) continue;
+      out.push({ date: allocationDay(allocation), relieved: money ? allocation.amount : allocationInvoiceAmount(allocation), releasedBy: await fxDocumentNumber(money ? allocation.invoiceId : allocation.voucherId), allocationId: allocation.id });
+    }
+    return out;
+  }
+  const inDateOrder = (reliefs: FxLaterRelief[]): FxLaterRelief[] => reliefs.sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? -1 : 1));
+  async function foreignInvoiceAsOf(invoiceId: string, kind: AllocationInvoiceKind, control: string, day: string): Promise<FxItemAsOf | null> {
+    const booked = await realisedFx.invoiceFx(invoiceId, kind);
+    const sub = await vouchers.invoices.findById(invoiceId);
+    if (!booked || !sub || sub.date.slice(0, 10) > day) return null;
+    const live = await invoiceStands(invoiceId, kind);
+    const endedOn = live ? null : ((await ledger.findById(kind === "sales" ? salesInvoiceVoidEntryId(invoiceId) : purchaseInvoiceCancelEntryId(invoiceId)))?.date.slice(0, 10) ?? null);
+    if (!live && (endedOn === null || endedOn <= day)) return null;
+    const allocations = await vouchers.allocations.listByInvoice(invoiceId);
+    const returns = kind === "sales"
+      ? (await listReturnsCiting(salesReturnStore, [invoiceId])).map((doc) => ({ date: doc.date.slice(0, 10), number: doc.docNo ?? doc.id, credit: salesReturnCreditByInvoice([doc]).get(invoiceId) ?? Money.zero() }))
+      : (await listReturnsCiting(purchaseReturnStore, [invoiceId])).map((doc) => ({ date: doc.date.slice(0, 10), number: doc.docNo ?? doc.id, credit: purchaseReturnCreditByInvoice([doc]).get(invoiceId) ?? Money.zero() }));
+    const later = await laterAllocationReliefs(allocations, day, false);
+    for (const credit of returns) if (credit.date > day && credit.credit.scaled !== 0n) later.push({ date: credit.date, relieved: credit.credit, releasedBy: credit.number });
+    const relievedLater = later.reduce((sum, relief) => sum + (relief.relieved?.scaled ?? 0n), 0n);
+    let openBase: bigint;
+    if (live) {
+      const returnedToday = returns.reduce((sum, credit) => sum + credit.credit.scaled, 0n);
+      const reopenedLater = allocations.filter((allocation) => allocation.status !== "active" && allocationStoodOn(allocation, day)).reduce((sum, allocation) => sum + allocationInvoiceAmount(allocation).scaled, 0n);
+      openBase = invoiceOpenBalance(sub, Money.fromScaled(returnedToday)).scaled + relievedLater - reopenedLater;
+    } else {
+      const total = kind === "sales" ? await salesInvoices.findById(invoiceId).then((doc) => (doc ? salesInvoiceBaseGrandTotal(salesInvoiceTotals(doc), doc.fxRate).scaled : 0n)) : await purchaseInvoices.findById(invoiceId).then((doc) => (doc ? purchaseInvoiceBaseTotal(doc).scaled : 0n));
+      const settled = allocations.filter((allocation) => allocationStoodOn(allocation, day)).reduce((sum, allocation) => sum + allocationInvoiceAmount(allocation).scaled, 0n);
+      openBase = total - settled - returns.filter((credit) => credit.date <= day).reduce((sum, credit) => sum + credit.credit.scaled, 0n);
+      later.push({ date: endedOn as string, relieved: null, releasedBy: sub.invoiceNo });
+    }
+    if (openBase <= 0n) return null;
+    const open = Money.fromScaled(openBase);
+    return {
+      key: openFxItemsKey(control, booked.currency),
+      open: { itemId: invoiceId, itemType: FxOpenItemType.Invoice, kind, partyId: sub.partyId, foreignOutstanding: convertFromBase(open, booked.fxRate), carryingBase: Money.fromScaled(openBase + (await revaluationShareAsOf(invoiceItem(invoiceId), day))) },
+      later: inDateOrder(later),
+    };
+  }
+  async function foreignMoneyAsOf(doc: VoucherDocument, day: string): Promise<FxItemAsOf | null> {
+    if (doc.reversesDocId || doc.date.slice(0, 10) > day || (doc.status !== "confirmed" && doc.status !== "reversed")) return null;
+    const line = voucherLine(doc);
+    const kind = getVoucherTypeDefinition(line.voucherType).allocationKind;
+    const partyId = line.customerId ?? line.supplierId;
+    if (!kind || !line.fxRate || !partyId || !line.counterpartyGlAccountId) return null;
+    const live = doc.status === "confirmed";
+    const endedOn = live ? null : doc.reversedByDocId ? ((await vouchers.documents.findById(doc.reversedByDocId))?.date.slice(0, 10) ?? null) : null;
+    if (!live && (endedOn === null || endedOn <= day)) return null;
+    const allocations = await vouchers.allocations.listByVoucher(doc.id);
+    const later = await laterAllocationReliefs(allocations, day, true);
+    const given = live
+      ? sumActive(allocations).scaled - later.reduce((sum, relief) => sum + (relief.relieved?.scaled ?? 0n), 0n) + allocations.filter((allocation) => allocation.status !== "active" && allocationStoodOn(allocation, day)).reduce((sum, allocation) => sum + allocation.amount.scaled, 0n)
+      : allocations.filter((allocation) => allocationStoodOn(allocation, day)).reduce((sum, allocation) => sum + allocation.amount.scaled, 0n);
+    const held = voucherBaseAmount(line).scaled - given;
+    if (held <= 0n) return null;
+    if (!live) later.push({ date: endedOn as string, relieved: null, releasedBy: doc.docNo ?? doc.id });
+    return {
+      key: openFxItemsKey(line.counterpartyGlAccountId, line.currency),
+      open: { itemId: doc.id, itemType: FxOpenItemType.Money, kind, partyId, foreignOutstanding: Money.fromScaled(-convertFromBase(Money.fromScaled(held), line.fxRate).scaled), carryingBase: Money.fromScaled(-held + (await revaluationShareAsOf(moneyItem(doc.id), day))) },
+      later: inDateOrder(later),
+    };
+  }
+  async function fxItemsAsOf(asOfDate: string): Promise<FxItemAsOf[]> {
+    const routing = await accountRouting.get();
+    const controlOf = { sales: routedAccountId(routing, "control.receivable") ?? "1105", purchase: routedAccountId(routing, "control.payable") ?? "2100" } as const;
+    const out: FxItemAsOf[] = [];
+    const foreign = (doc: { currency?: string | null; fxRate?: string | null }) => Boolean(doc.fxRate && doc.currency && !isBaseCurrency(doc.currency));
+    for (const invoice of (await salesInvoices.list()).filter(foreign)) {
+      const item = await foreignInvoiceAsOf(invoice.id, "sales", controlOf.sales, asOfDate);
+      if (item) out.push(item);
+    }
+    for (const invoice of (await purchaseInvoices.list()).filter(foreign)) {
+      const item = await foreignInvoiceAsOf(invoice.id, "purchase", controlOf.purchase, asOfDate);
+      if (item) out.push(item);
+    }
+    for (const doc of await vouchers.documents.list({ toDate: asOfDate })) {
+      const item = await foreignMoneyAsOf(doc, asOfDate);
+      if (item) out.push(item);
+    }
+    return out;
+  }
+  async function openFxItems(asOfDate: string): Promise<ReadonlyMap<string, OpenFxItem[]>> {
+    const out = new Map<string, OpenFxItem[]>();
+    for (const item of await fxItemsAsOf(asOfDate)) out.set(item.key, [...(out.get(item.key) ?? []), item.open]);
+    return out;
+  }
+  // INVARIANT: runs in the run's own transaction, after its shares are saved — a relief dated in a closed period throws here and takes the run with it.
+  async function releaseSharesRelievedSince(asOfDate: string, shared: readonly { readonly itemId: string; readonly itemType: FxOpenItemType }[]): Promise<void> {
+    const wanted = new Set(shared.map((share) => `${share.itemType} ${share.itemId}`));
+    for (const item of await fxItemsAsOf(asOfDate)) {
+      if (!wanted.has(`${item.open.itemType} ${item.open.itemId}`)) continue;
+      const ref: FxOpenItemRef = { id: item.open.itemId, type: item.open.itemType };
+      const side = item.open.itemType === FxOpenItemType.Money ? -1n : 1n;
+      let outstanding = side * item.open.carryingBase.scaled - side * (await revaluationShareAsOf(ref, asOfDate));
+      for (const relief of item.later) {
+        if (relief.relieved === null) {
+          await releaseItemShare(ref, relief.date, undefined, relief.releasedBy);
+          continue;
+        }
+        await releaseItemShare(ref, relief.date, { relieved: relief.relieved, outstanding: Money.fromScaled(outstanding) }, relief.releasedBy, relief.allocationId ? fxLateReleaseEntryId(ref.id, relief.allocationId, (await fxLateReleaseEntryIds(ref.id, relief.allocationId, ledger)).length) : undefined);
+        outstanding -= relief.relieved.scaled;
+      }
+    }
+  }
+  async function invoiceStands(invoiceId: string, kind: AllocationInvoiceKind): Promise<boolean> {
+    if (kind === "sales") {
+      const invoice = await salesInvoices.findById(invoiceId);
+      return invoice !== null && SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status);
+    }
+    return (await purchaseInvoices.findById(invoiceId))?.status === "confirmed";
+  }
+  async function fxDocumentNumber(id: string): Promise<string> {
+    const voucher = await vouchers.documents.findById(id);
+    if (voucher?.docNo) return voucher.docNo;
+    const cheque = await cheques.findById(id);
+    if (cheque) return cheque.chequeNumber;
+    return (await salesInvoices.findById(id))?.docNo ?? (await purchaseInvoices.findById(id))?.number ?? id;
+  }
+  const releaseRevaluationShare = (invoiceId: string, date: string, part?: FxItemRelief, releasedBy?: string) => releaseItemShare(invoiceItem(invoiceId), date, part, releasedBy);
+  async function releaseItemShare(item: FxOpenItemRef, date: string, part?: FxItemRelief, releasedBy?: string, releaseEntryId?: string): Promise<void> {
+    const standing = await standingRevaluationShare(item);
+    const records = await vouchers.revaluationShares.listByItem(item);
+    const share = records[0];
+    if (standing.scaled === 0n || !share) return;
+    const booked = item.type === FxOpenItemType.Money ? (await vouchers.documents.findById(item.id).then((doc) => (doc ? voucherLine(doc).fxRate : null))) : (await realisedFx.invoiceFx(item.id, share.kind))?.fxRate;
+    const fxRate = booked ?? "1";
+    const taken = part ? relievedRevaluationShare(standing, convertFromBase(part.relieved, fxRate), convertFromBase(part.outstanding, fxRate)) : standing;
+    const lines = buildRevaluationReleaseLines({ kind: share.kind, controlAccountId: share.accountId, partyId: share.partyId, currency: share.currency, fxRate, share: taken }, await fxDifferenceAccounts("realised"));
+    if (lines.length === 0) return;
+    let restatedOn = date;
+    for (const record of records) {
+      if (await revaluationEntryStands(record.entryId)) restatedOn = laterDay(restatedOn, (await ledger.findById(record.entryId))?.date.slice(0, 10));
+    }
+    const entryId = releaseEntryId ?? `${FX_SHARE_RELEASE_ENTRY_PREFIX}${item.id}:${records.length}`;
+    const itemNo = await fxDocumentNumber(item.id);
+    await postJournalEntry(
+      { id: entryId, date: restatedOn, memo: `إقفال إعادة تقييم قائمة على مستند أُقفل (${itemNo})`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, sourceDocId: item.id, sourceDocNumber: releasedBy ?? itemNo, lines },
+      salesInvoiceGl,
+    );
+    await vouchers.revaluationShares.saveAll([{ ...share, entryId, amount: Money.fromScaled(-taken.scaled) }]);
+  }
+  function returnReliefGl<L extends { readonly sourceInvoiceId: string }>(kind: AllocationInvoiceKind, returns: Pick<DocumentRepository<L>, "findById">, lineCredit: (line: L) => Money): DocumentGlHook {
+    return {
+      async post(posting) {
+        const credits = new Map<string, Money>();
+        for (const line of (await returns.findById(posting.sourceDocId))?.lines ?? []) {
+          credits.set(line.sourceInvoiceId, (credits.get(line.sourceInvoiceId) ?? Money.zero()).add(lineCredit(line)));
+        }
+        // INVARIANT: this runs inside the confirm's own posting, while the return is still unconfirmed; once it is confirmed the sub-ledger nets it and the part it took can no longer be measured.
+        const openBefore = new Map<string, Money>();
+        for (const invoiceId of credits.keys()) {
+          const invoice = await vouchers.invoices.findById(invoiceId);
+          if (!invoice || invoice.kind !== kind) continue;
+          openBefore.set(invoiceId, invoiceOpenBalance(invoice, (await returnedByInvoice(invoiceReturnCredits, [invoice])).get(invoiceId) ?? Money.zero()));
+        }
+        const posted = await documentGl.post(posting);
+        for (const [invoiceId, outstanding] of openBefore) {
+          if (outstanding.scaled > 0n) await releaseRevaluationShare(invoiceId, posting.date.slice(0, 10), { relieved: credits.get(invoiceId) ?? Money.zero(), outstanding }, posting.sourceDocNumber ?? undefined);
+        }
+        return posted;
+      },
+      reverse: (journalEntryId, opts) => documentGl.reverse(journalEntryId, opts),
+    };
+  }
+  async function revaluationShareConsumer(entryId: string): Promise<string | null> {
+    for (const share of await vouchers.revaluationShares.listByEntry(entryId)) {
+      const item: FxOpenItemRef = { id: share.itemId, type: share.itemType };
+      const money = share.itemType === FxOpenItemType.Money;
+      const taking = money ? await vouchers.allocations.listByVoucher(share.itemId) : await vouchers.allocations.listByInvoice(share.itemId);
+      const settled = taking.find((allocation) => allocation.status === "active" && ((money ? allocation.moneyRevaluationShare : allocation.revaluationShare)?.scaled ?? 0n) !== 0n);
+      if (settled) return fxDocumentNumber(money ? settled.invoiceId : settled.voucherId);
+      for (const record of await vouchers.revaluationShares.listByItem(item)) {
+        if (!record.entryId.startsWith(FX_SHARE_RELEASE_ENTRY_PREFIX)) continue;
+        const release = await ledger.findById(record.entryId);
+        if (release?.status === "posted" && !release.reversedByEntryId) return release.sourceDocNumber ?? (await fxDocumentNumber(share.itemId));
+      }
+    }
+    return null;
+  }
+  async function refundFx(voucherId: string): Promise<{ currency: string; fxRate: string } | null> {
+    const refund = await vouchers.documents.findById(voucherId);
+    const line = refund ? voucherLine(refund) : null;
+    return line?.fxRate && line.voucherType in REFUNDED_MONEY ? { currency: line.currency, fxRate: line.fxRate } : null;
+  }
   /** The rates a settlement of a foreign invoice is measured with, and where the realised difference goes (D221, D229). */
   const realisedFx: RealisedFxPort = {
     async invoiceFx(invoiceId, kind) {
       if (kind === "sales") {
         const invoice = await salesInvoices.findById(invoiceId);
-        return invoice?.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+        if (invoice) return invoice.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+        return refundFx(invoiceId);
       }
       const invoice = await purchaseInvoices.findById(invoiceId);
-      return invoice?.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+      if (invoice) return invoice.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+      return refundFx(invoiceId);
     },
     async rateOn(currency, date) {
       return (await exchangeRates.findRate(currency, date))?.rate ?? null;
     },
     differenceAccounts: () => fxDifferenceAccounts("realised"),
+    revaluationShare: (invoice) => standingRevaluationShare(invoiceItem(invoice.id)),
+    moneyRevaluationShare: (voucherId) => standingRevaluationShare(moneyItem(voucherId)),
+    releaseMoneyShare: (voucherId, date) => releaseItemShare(moneyItem(voucherId), date),
+    async treasuryRevaluationShare(treasuryAccountId, foreign, fromDate, toDate) {
+      const account = (await treasuryAccounts.list()).find((row) => row.id === treasuryAccountId);
+      if (!account?.glAccountId) return Money.zero();
+      const restated = ((await ledger.listLines?.({ accountIds: [account.glAccountId], fromDate, toDate })) ?? []).filter((line) => line.source === "system" && line.memo === FX_REVALUATION_LINE_MEMO);
+      let share = 0n;
+      for (const entryId of new Set(restated.map((line) => line.entryId))) {
+        const entry = await ledger.findById(entryId);
+        if (!entry || entry.reversedByEntryId || entry.reversesEntryId) continue;
+        const held = (await foreignTreasuryBalances(entry.date.slice(0, 10))).find((row) => row.treasuryAccountId === treasuryAccountId);
+        if (!held || held.foreignBalance.scaled <= 0n) continue;
+        const net = restated.filter((line) => line.entryId === entryId).reduce((sum, line) => sum + line.debit.scaled - line.credit.scaled, 0n);
+        share += foreign.scaled >= held.foreignBalance.scaled ? net : shareOfBase(Money.fromScaled(net), foreign, held.foreignBalance).scaled;
+      }
+      return Money.fromScaled(share);
+    },
+    async treasuryPosition(treasuryAccountId, asOfDate) {
+      const held = (await foreignTreasuryBalances(asOfDate)).find((row) => row.treasuryAccountId === treasuryAccountId);
+      if (!held) return null;
+      // INVARIANT: a revaluation that reverses itself is not cost. Both halves are left out, on whichever day each is dated, so the carrying amount is the same before and after the reversal lands.
+      const restated = ((await ledger.listLines?.({ accountIds: [held.glAccountId], toDate: asOfDate })) ?? []).filter((line) => line.source === "system" && line.memo === FX_REVALUATION_LINE_MEMO);
+      let selfReversing = 0n;
+      for (const entryId of new Set(restated.map((line) => line.entryId))) {
+        const entry = await ledger.findById(entryId);
+        if (!entry?.reversedByEntryId && !entry?.reversesEntryId) continue;
+        for (const line of restated) if (line.entryId === entryId) selfReversing += line.debit.scaled - line.credit.scaled;
+      }
+      return { foreign: held.foreignBalance, base: Money.fromScaled(held.baseBalance.scaled - selfReversing) };
+    },
   };
   const settlementPreviewer = new VoucherService({
     documents: vouchers.documents,
+    vatFilings,
     ledger,
     accounts,
     periods: fiscalPeriods,
@@ -3007,6 +3609,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       if (!doc || doc.status !== "confirmed") return;
       await new VoucherService({
         documents: vouchers.documents,
+        vatFilings,
         ledger,
         accounts,
         periods: fiscalPeriods,
@@ -3020,6 +3623,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         audit: auditSink,
         events: voucherEventBridge,
         actor,
+        realisedFx,
       }).reverseVoucher(doc.id, {
         reversalId: `${doc.id}:BOUNCED`,
         date,
@@ -3037,11 +3641,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       return { currency: line.currency, fxRate: line.fxRate ?? null };
     },
   };
+  const chequeBankLegFx = async (bankGlAccountId: string, date: string): Promise<{ currency: string; fxRate: string | null } | null> => {
+    const currency = (await foreignTreasuryCurrencies()).get(bankGlAccountId);
+    if (!currency) return null;
+    return { currency, fxRate: (await exchangeRates.findRate(currency, date))?.rate ?? null };
+  };
   const voucherChequeRegister = new ChequeService({
     cheques,
     gl: salesInvoiceGl,
     allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement, returns: invoiceReturnCredits },
     raisedBy: chequeRaisedByVoucher,
+    bankLegFx: chequeBankLegFx,
     realisedFx,
   });
   const voucherCheques: VoucherChequeRegistrationPort = {
@@ -3096,6 +3706,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
     const service = new VoucherService({
       documents: vouchers.documents,
+      vatFilings,
       ledger,
       accounts,
       periods: fiscalPeriods,
@@ -3133,6 +3744,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return { voucherId };
   };
 
+  // REQUIRED: every hook below reaches the platform's database, which is not
+  // this tenant's connection, so each is called with the turn handed back.
+  const announceSignIn = options.onUserSignedIn
+    ? async ({ userId, email }: { readonly userId: string; readonly email: string }): Promise<void> => {
+        const user = await uow.users.findById(userId);
+        const signedIn = {
+          userId,
+          email,
+          canAdminister: user !== null && user.isCompanyAdmin && user.status === UserStatusCode.Active,
+          credentialIsOwn: !credentialResets.has(userId),
+        };
+        await outsideTheTurn(() => options.onUserSignedIn!(signedIn));
+      }
+    : undefined;
+  const claimedElsewhere = options.claimedElsewhere ? () => outsideTheTurn(() => options.claimedElsewhere!()) : undefined;
+
   const auth = createAuth({
     uow,
     hasher,
@@ -3146,6 +3773,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     canMailUnlockCode: async () => (await securitySmtp()) !== null,
     audit: auditSink,
     resolveEntitlements: options.resolveEntitlements,
+    onSignedIn: announceSignIn,
+    demoSeeded: options.seedDemoData === true,
+    claimedElsewhere,
   });
 
   const app = createApp(uow, {
@@ -3170,6 +3800,26 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }),
     resolveAuthContext,
     security: { sessions, loginThrottle },
+    ...(options.onUserEmailChanged
+      ? {
+          onUserEmailChanged: (change) => {
+            const announced = { ...change, actorCredentialIsOwn: !credentialResets.has(change.actorId) };
+            return outsideTheTurn(() => options.onUserEmailChanged!(announced));
+          },
+        }
+      : {}),
+    ...(options.companyOwner
+      ? {
+          companyOwner: {
+            currentOwnerUserId: () => outsideTheTurn(() => options.companyOwner!.currentOwnerUserId()),
+            handOver: (input) => {
+              const handed = { ...input, actorCredentialIsOwn: !credentialResets.has(input.actorId) };
+              return outsideTheTurn(() => options.companyOwner!.handOver(handed));
+            },
+          },
+        }
+      : {}),
+    onUserCredentialSetByOther: (userId, actorId) => credentialResets.mark(userId, new Date().toISOString(), actorId),
     onPermissionRefused,
     // The LAN routes need the SAME session registry the auth routes issue
     // into, or a disconnect revokes a token nobody is holding.
@@ -3211,6 +3861,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
     fiscalPeriodRepo: fiscalPeriods,
+    periodCloseGuard: periodCloseGuard.source,
     hasher,
     inventory: {
       service: stockService,
@@ -3259,6 +3910,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         kind === "customer" ? (await customers.findById(id)) !== null : (await suppliers.findById(id)) !== null,
       vatFilings,
       openPartyDocuments: () => collectOpenPartyDocuments(),
+      treasuryCurrencyBalances: () => foreignTreasuryBalances(),
       baseCurrency: async () => ((await settings.get()) ?? createDefaultSettings()).currency,
     },
     vouchers: {
@@ -3271,6 +3923,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
       approvalRequests,
       documents: vouchers.documents,
+      vatFilings,
       allocations: vouchers.allocations,
       invoices: vouchers.invoices,
       ledger,
@@ -3345,6 +3998,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         const voucherId = `PAY:${input.invoiceId}:${randomUUID()}`;
         const service = new VoucherService({
           documents: vouchers.documents,
+          vatFilings,
           ledger,
           accounts,
           periods: fiscalPeriods,
@@ -3388,8 +4042,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // which 404 without it. app.ts derives the GL reversal port from this
       // being present, so omitting it silently disables both.
       layers: stockLedger.layers,
+      landedCostsStandingOn: (documentId) => landedCosts.standingOn(documentId),
+      releaseRevaluationShare,
     },
     salesInvoices: {
+      releaseRevaluationShare,
       repo: salesInvoices,
       versionGuard: { versions: salesInvoices.versions, displayNameOf },
       itemCheck: items,
@@ -3431,6 +4088,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return issued;
       },
       hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
+      stockRestore: createInventoryStockHook(stockService),
       settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
@@ -3452,13 +4110,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     cheques: {
       masterData: masterDataChecks,
+      treasuryAccounts,
       cheques,
       gl: salesInvoiceGl,
       // A cheque applied against an invoice lives in the same allocation
       // sub-ledger as a voucher, so a bounce can reopen what it settled (D192).
       allocation: { allocations: vouchers.allocations, invoices: vouchers.invoices, settlement: invoiceSettlement, returns: invoiceReturnCredits },
       raisedBy: chequeRaisedByVoucher,
+      bankLegFx: chequeBankLegFx,
       realisedFx,
+      audit: auditSink,
     },
     bankReconciliation: {
       statements: bankStatements.statements,
@@ -3482,6 +4143,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       }),
       entryPoster: createVoucherBankEntryPoster({
         documents: vouchers.documents,
+        vatFilings,
         allocations: vouchers.allocations,
         invoices: vouchers.invoices,
         ledger,
@@ -3512,6 +4174,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     exchangeRateRepo: exchangeRates,
     costCenterPl: { ledger, accounts, costCenters },
     fxRevaluation: {
+      recordRun: (run) => fxRevaluationRuns.record(run),
+      audit: auditSink,
+      vatFilings,
       ledger,
       accounts,
       periods: fiscalPeriods,
@@ -3519,6 +4184,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       projects,
       exchangeRates,
       differenceAccounts: () => fxDifferenceAccounts("unrealised"),
+      foreignTreasuryCurrencies,
+      openFxItems,
+      saveShares: (entryId, shares) => vouchers.revaluationShares.saveAll(shares.map((share) => ({ ...share, entryId }))),
+      shareConsumer: revaluationShareConsumer,
+      releaseSharesRelievedSince,
+      foreignResidues,
+      realisedDifferenceAccounts: () => fxDifferenceAccounts("realised"),
+      releaseItemShare,
     },
     eta: {
       service: etaService,
@@ -3559,7 +4232,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return issued;
       },
     },
-    reconciliation: { ledger, resolveControls: resolveReconciliationControls },
+    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite) },
     openingBalanceDuplicates: {
       resolveContext: resolveOpeningBalanceDuplicatesContext,
       repair: repairOpeningBalanceDuplicate,
@@ -3567,7 +4240,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       transactor: configTransactor,
     },
     // --- phase4/inventory-ops ---
-    stockAdjustments: { service: stockAdjustments },
+    stockAdjustments: { service: stockAdjustments, audit: auditSink },
     stockTransfers: { service: stockTransfers },
     physicalCounts: { service: physicalCounts },
     // --- phase11/crm-projects-assets-field ---
@@ -3699,6 +4372,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       assets,
       rateHistory: assetRateHistory,
       runs: depreciationRuns,
+      periods: fiscalPeriods,
       gl: salesInvoiceGl,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
       settings,
@@ -3826,6 +4500,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             salesInvoiceGl,
           );
         },
+        ...historicalImportGate,
       },
       accounts: { openingBalanceAccountId: "3210", payableAccountId: "2100" },
     },
@@ -3939,6 +4614,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             salesInvoiceGl,
           );
         },
+        ...historicalImportGate,
       },
       accounts: { openingBalanceAccountId: "3210", receivableAccountId: "1105" },
     },
@@ -4043,6 +4719,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           const voucherId = `REFUND:${command.returnId}:${randomUUID()}`;
           const service = new VoucherService({
             documents: vouchers.documents,
+            vatFilings,
             ledger,
             accounts,
             periods: fiscalPeriods,
@@ -4273,6 +4950,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       sequenceConfig,
       sequenceCounters,
     },
+    reconciliationControls: resolveReconciliationControls,
+    payrollBindings: { attendanceBound: Boolean(hrAttendance), exchangeRatesBound: Boolean(exchangeRates) },
+    treasuryFx: { foreignCurrencyByGlAccount: foreignTreasuryCurrencies, rateOn: async (currency, date) => (await exchangeRates.findRate(currency, date))?.rate ?? null },
+    periodCloseGuard,
     addCloser: (closer) => areaClosers.push(closer),
   };
   await mountPos(areaContext);
@@ -4368,11 +5049,80 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     });
   }
 
+  async function companyAdmins(): Promise<CompanyAdminAccount[]> {
+    return (await uow.users.list())
+      .filter((user) => user.isCompanyAdmin && user.status === UserStatusCode.Active && !isErasedUser(user))
+      .map((user) => ({ id: user.id, nameAr: user.nameAr, email: user.email }));
+  }
+
+  // CONTRACT: idempotent on `eventId`. The platform asks again after a crash
+  // until it has seen this succeed, so the same event must leave one row.
+  async function recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void> {
+    credentialResets.clear(input.userId);
+    const { events } = await auditSink.queryEvents({ stream: "security", action: COMPANY_OWNER_ASSIGNED_AUDIT, entityId: input.userId, limit: OWNER_ASSIGNED_LOOKBACK });
+    if (events.some((row) => (row.details as Record<string, unknown> | undefined)?.["eventId"] === input.eventId)) return;
+    await recordSecurityEvent(auditSink, {
+      module: "admin",
+      entityType: "USER",
+      entityId: input.userId,
+      action: COMPANY_OWNER_ASSIGNED_AUDIT,
+      actor: input.actor,
+      severity: AuditSeverityCode.Critical,
+      details: { previousUserId: input.previousUserId, confirmedBy: input.confirmedBy, eventId: input.eventId, origin: SecurityEventOrigin.Platform },
+    });
+  }
+
+  async function ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null> {
+    const user = "userId" in query ? await uow.users.findById(query.userId) : await uow.users.findByEmail(query.email.trim().toLowerCase());
+    if (!user || isErasedUser(user)) return null;
+    return { id: user.id, email: user.email, canAdminister: user.isCompanyAdmin && user.status === UserStatusCode.Active };
+  }
+
+  async function resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome> {
+    const owner = cmd.userId ? await uow.users.findById(cmd.userId) : await uow.users.findByEmail(cmd.email.trim().toLowerCase());
+    if (!owner || !owner.isCompanyAdmin || owner.status !== UserStatusCode.Active) return OwnerPinResetOutcome.OwnerNotFound;
+    if (cmd.onlyIfNeverSignedIn && owner.lastLoginAt !== null) return OwnerPinResetOutcome.AlreadySignedIn;
+    const pinHash = await hasher.hash(cmd.pin);
+    // SECURITY: the fence is compared and raised in the same transaction as the
+    // PIN write. A holder that lost its claim while it was paused arrives here
+    // with an older generation and writes nothing, so the PIN the newer holder
+    // handed out is the one that still signs in.
+    const written = await uow.transaction(async (tx) => {
+      if (cmd.fence !== undefined) {
+        if (cmd.fence < ownerPinFence.current()) return false;
+        ownerPinFence.raiseTo(cmd.fence);
+      }
+      const current = await tx.users.findById(owner.id);
+      if (!current) return OwnerPinResetOutcome.OwnerVanished;
+      await tx.users.save({ ...current, pinHash });
+      return true;
+    });
+    if (written === OwnerPinResetOutcome.OwnerVanished) return written;
+    if (!written) return OwnerPinResetOutcome.Superseded;
+    if (!cmd.onlyIfNeverSignedIn) credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
+    sessions.revokeUser(owner.id);
+    loginThrottle.succeed(owner.email.trim().toLowerCase());
+    await recordSecurityEvent(auditSink, {
+      module: "auth",
+      entityType: "USER",
+      entityId: owner.id,
+      action: "OWNER_PIN_RESET",
+      actor: cmd.actor,
+      severity: "CRITICAL",
+      details: { email: owner.email, onlyIfNeverSignedIn: cmd.onlyIfNeverSignedIn, origin: SecurityEventOrigin.Platform },
+    });
+    return OwnerPinResetOutcome.Reset;
+  }
+
   return {
     app,
     audit: auditSink,
     sessions,
     credentialsResetByAdministrator,
+    ownerAccount,
+    companyAdmins,
+    recordOwnerAssigned,
+    resetOwnerPin,
     etaReceipts,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     async drain() {

@@ -16,13 +16,14 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { PLATFORM_LOOKUP_FIRST_RETRY_MS } from "./data/hooks";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import type { EntitlementsDTO, RoleDTO, UserDTO } from "@mezan/contracts";
 import { AppLayout } from "./AppLayout";
 import { AppProviders } from "./data/AppProviders";
-import { persistSession, type Session } from "./data/session";
+import { clearTenantCode, persistSession, persistTenantCode, type Session } from "./data/session";
 import { stubTransport, testAdminSession } from "./data/test-support";
 import type { Transport } from "./data/transport";
 import { useNavigation } from "./navigation";
@@ -442,6 +443,173 @@ describe("AppLayout — nav entitlements", () => {
   });
 });
 
+describe("AppLayout — HR lookups follow the plan (D-SAAS-03)", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  function recordingTransport(activeModules: EntitlementsDTO["activeModules"]): { transport: Transport; requests: string[] } {
+    const requests: string[] = [];
+    const answer = stubTransport({
+      ...baseHandlers(),
+      "GET /entitlements": () => ({ body: { ...entitlements, activeModules } }),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+      "GET /hr/employees": () => ({ body: [] }),
+      "GET /hr/job-titles": () => ({ body: [] }),
+    });
+    return {
+      requests,
+      transport: (path, init) => {
+        requests.push(path);
+        return answer(path, init);
+      },
+    };
+  }
+
+  it("asks for no employee or job title on a plan without HR", async () => {
+    const { transport, requests } = recordingTransport(["sales", "accounting"]);
+    renderLayout(transport, ["/dashboard"]);
+
+    const rail = await screen.findByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    await waitFor(() => expect(within(rail).getByRole("button", { name: "المالية والإقفال" })).toBeInTheDocument());
+    await waitFor(() => expect(requests).toContain("/users"));
+    expect(requests.filter((path) => path.startsWith("/hr/"))).toEqual([]);
+  });
+
+  it("still loads them for the user form when the plan includes HR", async () => {
+    const { transport, requests } = recordingTransport(["sales", "accounting", "hr"]);
+    renderLayout(transport, ["/dashboard"]);
+
+    await waitFor(() => expect(requests).toContain("/hr/employees"));
+    expect(requests).toContain("/hr/job-titles");
+  });
+});
+
+describe("AppLayout — a module the plan left read-only is still read (D-SAAS-03)", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  it("still loads employees and job titles when HR is read-only on the plan", async () => {
+    const requests: string[] = [];
+    const answer = stubTransport({
+      ...baseHandlers(),
+      "GET /entitlements": () => ({ body: { ...entitlements, activeModules: ["sales", "accounting"], readOnlyModules: ["hr"] } }),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+      "GET /hr/employees": () => ({ body: [] }),
+      "GET /hr/job-titles": () => ({ body: [] }),
+    });
+    renderLayout((path, init) => {
+      requests.push(path);
+      return answer(path, init);
+    }, ["/dashboard"]);
+
+    await waitFor(() => expect(requests).toContain("/hr/employees"));
+    expect(requests).toContain("/hr/job-titles");
+  });
+});
+
+describe("AppLayout — nothing tenant-scoped is asked before a company is known (D-SAAS-06)", () => {
+  afterEach(() => {
+    persistSession(null);
+    clearTenantCode();
+    localStorage.clear();
+  });
+
+  function signedOut(resolve: () => { status?: number; body: unknown }, claimed = true): string[] {
+    const requests: string[] = [];
+    const answer = stubTransport({
+      "GET /platform/resolve": resolve,
+      "GET /bootstrap/status": () => ({ body: { accounts: 1, taxRates: 1, branches: 1, warehouses: 1, fiscalPeriods: 1, users: 1, claimed } }),
+      "GET /entitlements": () => ({ body: entitlements }),
+      "GET /tenant": () => ({ body: { name: "Mezan" } }),
+    });
+    renderLayout(
+      (path, init) => {
+        requests.push(path);
+        return answer(path, init);
+      },
+      ["/dashboard"],
+      null,
+    );
+    return requests;
+  }
+
+  it("sends nothing but the company lookup from a cloud sign-in screen with no company code, then asks once a code is confirmed", async () => {
+    clearTenantCode();
+    const requests = signedOut(() => ({ body: { mode: "code", exists: false } }));
+
+    expect(await screen.findByRole("textbox", { name: "رمز المنشأة" })).toBeInTheDocument();
+    await waitFor(() => expect(requests).toContain("/platform/resolve"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(requests.filter((path) => !path.startsWith("/platform/resolve"))).toEqual([]);
+
+    act(() => persistTenantCode("acme"));
+
+    await waitFor(() => expect(requests).toContain("/bootstrap/status"));
+    expect(requests).toContain("/entitlements");
+  });
+
+  it("asks straight away on a subdomain, where the address is the company", async () => {
+    clearTenantCode();
+    const requests = signedOut(() => ({ body: { mode: "subdomain", exists: true } }));
+
+    await waitFor(() => expect(requests).toContain("/bootstrap/status"));
+    expect(requests).toContain("/entitlements");
+  });
+
+  it("asks straight away on a single-company backend with no platform in front, and still opens the first-run wizard there", async () => {
+    clearTenantCode();
+    const requests = signedOut(() => ({ status: 404, body: { error: "NOT_FOUND" } }), false);
+
+    await waitFor(() => expect(requests).toContain("/bootstrap/status"));
+    expect(requests).toContain("/entitlements");
+    expect(await screen.findByRole("heading", { name: "معالج الإعداد الأولي" })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["is failing", 503],
+    ["is throttling this address", 429],
+  ])("opens sign-in at once while the company lookup %s, asks nothing tenant-scoped until a company is known, and goes on by itself once the lookup answers", async (_what, status) => {
+    vi.useFakeTimers();
+    try {
+      clearTenantCode();
+      let failing = true;
+      const requests = signedOut(() => (failing ? { status, body: { error: "UPSTREAM" } } : { body: { mode: "subdomain", exists: true } }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+
+      expect(screen.getByLabelText("رمز PIN رقم 1")).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "إعادة المحاولة" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(requests.filter((path) => path === "/bootstrap/status" || path === "/entitlements" || path === "/tenant")).toEqual([]);
+
+      failing = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(PLATFORM_LOOKUP_FIRST_RETRY_MS); });
+
+      await vi.waitFor(() => expect(requests).toContain("/bootstrap/status"));
+      expect(requests).toContain("/entitlements");
+      expect(requests.filter((path) => path === "/platform/resolve")).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("asks the tenant-scoped questions under a company the person confirmed, even though the lookup is still failing", async () => {
+    clearTenantCode();
+    const requests = signedOut(() => ({ status: 503, body: { error: "UPSTREAM" } }));
+    await screen.findByRole("textbox", { name: "رمز المنشأة" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(requests.filter((path) => !path.startsWith("/platform/resolve"))).toEqual([]);
+
+    act(() => persistTenantCode("acme"));
+
+    await waitFor(() => expect(requests).toContain("/bootstrap/status"));
+    expect(requests).toContain("/entitlements");
+  });
+});
+
 describe("AppLayout — sign out", () => {
   afterEach(() => {
     persistSession(null);
@@ -519,7 +687,8 @@ describe("AppLayout — first-run wizard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "التالي" }));
 
     // Step 2 — admin account.
-    fireEvent.change(await screen.findByLabelText("الاسم الكامل"), { target: { value: "مدير النظام" } });
+    fireEvent.change(await screen.findByLabelText("اسم المنشأة", { exact: false }), { target: { value: "متجر الاختبار" } });
+    fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "مدير النظام" } });
     fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), { target: { value: "admin@cyag.example" } });
     fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "123456" } });
     fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "123456" } });

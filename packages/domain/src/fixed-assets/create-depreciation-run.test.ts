@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
 import type { Asset } from "./asset.js";
-import { createDepreciationRun, type CreateDepreciationRunCommand } from "./create-depreciation-run.js";
+import { createDepreciationRun, depreciationRunsCoverPeriod, type CreateDepreciationRunCommand } from "./create-depreciation-run.js";
+import type { DepreciationRun } from "./depreciation-run.js";
 import { DuplicateDepreciationPeriodError, NoDepreciableAssetsError } from "./errors.js";
 import {
   createInMemoryAssetRepository,
@@ -137,5 +138,37 @@ describe("createDepreciationRun", () => {
     await expect(createDepreciationRun(command(), { runs, assets })).rejects.toBeInstanceOf(
       NoDepreciableAssetsError,
     );
+  });
+});
+
+describe("depreciationRunsCoverPeriod — the reminder behind «تشغيلات إهلاك مستحقة»", () => {
+  const assets = [asset("general-1"), asset("main-1", { scope: "branch", branchId: "BR-MAIN" })];
+  const run = (id: string, branchId: string | null, assetIds: string[], status: DepreciationRun["status"] = "draft"): DepreciationRun => ({
+    id,
+    period: "2025-06",
+    branchId,
+    status,
+    lines: assetIds.map((assetId) => ({ assetId, amount: Money.fromMajor("1000.00") })),
+    totalAmount: Money.sum(assetIds.map(() => Money.fromMajor("1000.00"))),
+    journalEntryId: null,
+    createdAt: "2025-07-01T08:00:00.000Z",
+    postedAt: null,
+  });
+
+  it("one branch's run does not silence the reminder for the assets of another", () => {
+    expect(depreciationRunsCoverPeriod(assets, [run("r-main", "BR-MAIN", ["main-1"])], "2025-06")).toBe(false);
+    expect(depreciationRunsCoverPeriod(assets, [run("r-main", "BR-MAIN", ["main-1"]), run("r-general", null, ["general-1"])], "2025-06")).toBe(true);
+  });
+
+  it("a cancelled run covers nothing, a run of another month covers nothing, and no run at all is not coverage", () => {
+    expect(depreciationRunsCoverPeriod(assets, [run("r-all", null, ["general-1", "main-1"], "cancelled")], "2025-06")).toBe(false);
+    expect(depreciationRunsCoverPeriod(assets, [{ ...run("r-all", null, ["general-1", "main-1"]), period: "2025-05" }], "2025-06")).toBe(false);
+    expect(depreciationRunsCoverPeriod(assets, [], "2025-06")).toBe(false);
+  });
+
+  it("an asset with nothing to depreciate in the month — fully depreciated, or not in service — does not keep the reminder up", () => {
+    const spent = asset("spent-1", { accumulatedDepreciation: Money.fromMajor("12000.00") });
+    const sold = asset("sold-1", { status: "disposed" });
+    expect(depreciationRunsCoverPeriod([...assets, spent, sold], [run("r-all", null, ["general-1", "main-1"])], "2025-06")).toBe(true);
   });
 });

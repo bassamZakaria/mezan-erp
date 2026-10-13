@@ -1,3 +1,4 @@
+import { GoodsReceiptInvoicingStatusDTO } from "@mezan/contracts";
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
@@ -130,9 +131,11 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
     warehouseId: "MAIN-WH",
     date: "2026-08-19",
     notes: null,
-    lines: [{ itemId: "item-cement", description: null, qty: "20.000000", unitCost: "85.000000", batchNo: null, expiryDate: null }],
+    lines: [{ itemId: "item-cement", description: null, qty: "20.000000", unitCost: "85.000000", batchNo: null, expiryDate: null, invoicedQty: "0.000000", remainingQty: "20.000000" }],
     status: "confirmed",
     invoiced: false,
+    invoicingStatus: GoodsReceiptInvoicingStatusDTO.NotInvoiced,
+    uninvoicedCost: "1700.000000",
     totalCost: "1700.000000",
     createdBy: "محمد الشهابي",
     createdAt: "2026-08-19T10:00:00.000Z",
@@ -191,7 +194,7 @@ describe("GoodsReceiptsScreen — a draft receipt with no purchase order", () =>
             status: "draft",
             purchaseOrderId: null,
             supplierId: "sup-ghost",
-            lines: [{ itemId: "item-ghost", description: null, qty: "5.000000", unitCost: "10.000000", batchNo: null, expiryDate: null }],
+            lines: [{ itemId: "item-ghost", description: null, qty: "5.000000", unitCost: "10.000000", batchNo: null, expiryDate: null, invoicedQty: "0.000000", remainingQty: "5.000000" }],
           }),
         ],
       }),
@@ -216,7 +219,7 @@ describe("GoodsReceiptsScreen — a confirmed receipt matched to a real purchase
       ...baseHandlers,
       "GET /purchases/orders": () => ({ body: [order] }),
       "GET /purchases/receipts": () => ({
-        body: [goodsReceipt({ purchaseOrderId: "po-1", status: "confirmed", invoiced: true })],
+        body: [goodsReceipt({ purchaseOrderId: "po-1", status: "confirmed", invoiced: true, invoicingStatus: GoodsReceiptInvoicingStatusDTO.Invoiced })],
       }),
     });
     renderScreen(transport);
@@ -285,7 +288,7 @@ describe("GoodsReceiptsScreen — the row menu's per-receipt actions", () => {
     let confirmedId: string | null = null;
     const draftRow = goodsReceipt({ id: "gr-d", number: "GR-000001", status: "draft", invoiced: false, createdBy: "u1" });
     const confirmedUninvoicedRow = goodsReceipt({ id: "gr-c", number: "GR-000002", status: "confirmed", invoiced: false, createdBy: "u2" });
-    const confirmedInvoicedRow = goodsReceipt({ id: "gr-ci", number: "GR-000003", status: "confirmed", invoiced: true, createdBy: "u1" });
+    const confirmedInvoicedRow = goodsReceipt({ id: "gr-ci", number: "GR-000003", status: "confirmed", invoiced: true, invoicingStatus: GoodsReceiptInvoicingStatusDTO.Invoiced, createdBy: "u1" });
     const transport = stubTransport({
       ...baseHandlers,
       "GET /users": () => ({ body: [user({ id: "u1", nameAr: "أحمد فتحي" })] }),

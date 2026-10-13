@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { importRowLimit, linesOfCsvImport } from "./import-limit.js";
 import { Hono, type Context } from "hono";
@@ -191,6 +192,8 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleTimeLeaveError(c: Context, err: unknown): Response {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (
     err instanceof AttendanceEntryNotFoundError ||
     err instanceof LeavePolicyNotFoundError ||

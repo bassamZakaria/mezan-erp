@@ -13,6 +13,7 @@ export interface TransportResponse {
   readonly sessionEnded?: string | null;
   json<T = unknown>(): Promise<T>;
   text(): Promise<string>;
+  header?(name: string): string | null;
 }
 
 export type Transport = (path: string, init?: RequestInit) => Promise<TransportResponse>;
@@ -60,6 +61,7 @@ export function createHttpTransport(baseUrl = "/api"): Transport {
       sessionEnded: res.headers.get(SESSION_ENDED),
       json: <T,>() => res.json() as Promise<T>,
       text: () => res.text(),
+      header: (name) => res.headers.get(name),
     };
   };
 }
@@ -108,6 +110,7 @@ export function createElectronTransport(bridge: MezanBridge): Transport {
       sessionEnded: headerOf(res.headers, SESSION_ENDED),
       json: <T,>() => Promise.resolve(JSON.parse(res.body) as T),
       text: () => Promise.resolve(res.body),
+      header: (name) => res.headers[name] ?? null,
     };
   };
 }

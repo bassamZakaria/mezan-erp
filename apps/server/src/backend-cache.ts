@@ -11,6 +11,7 @@ export interface BackendCacheOptions<H extends CachedHandle> {
 
 export interface BackendCache<H> {
   get(code: string): Promise<H>;
+  peek(code: string): Promise<H> | undefined;
   sweep(): Promise<void>;
   evict(code: string): Promise<void>;
   close(): Promise<void>;
@@ -60,6 +61,7 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
         throw err;
       }
     },
+    peek: (code) => entries.get(code)?.handle,
     sweep,
     async evict(code) {
       const entry = entries.get(code);

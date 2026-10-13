@@ -1,3 +1,5 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
@@ -42,6 +44,7 @@ const STATUS_KEY: Record<EmployeeAdvanceStatusDTO, AppTranslationKey> = {
   disbursed: "advances.status.disbursed",
   repaid: "advances.status.repaid",
   rejected: "advances.status.rejected",
+  cancelled: "advances.status.cancelled",
 };
 
 const STATUS_TONE: Record<EmployeeAdvanceStatusDTO, PillTone> = {
@@ -50,6 +53,7 @@ const STATUS_TONE: Record<EmployeeAdvanceStatusDTO, PillTone> = {
   disbursed: "success",
   repaid: "neutral",
   rejected: "danger",
+  cancelled: "neutral",
 };
 
 interface AdvanceDraft {
@@ -67,6 +71,7 @@ function blankDraft(): AdvanceDraft {
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function EmployeeAdvancesScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.EmployeeAdvance);
   const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const query = useEmployeeAdvances();
@@ -300,6 +305,7 @@ export function EmployeeAdvancesScreen() {
                   },
                 ]
               : []),
+            ...(a.status === "pending" || a.status === "approved" || a.status === "disbursed" ? reversal.menuItems({ id: a.id, params: { id: a.id }, subject: a.number }) : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.number })} />;
         }}
@@ -325,6 +331,7 @@ export function EmployeeAdvancesScreen() {
           />
         }
       />
+      {reversal.dialog}
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.number : ""}>
         {selected ? (

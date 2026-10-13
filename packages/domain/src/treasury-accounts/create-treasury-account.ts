@@ -11,6 +11,7 @@ import {
   InvalidGuaranteeFacilityLimitError,
   InvalidOpeningBalanceError,
   NegativeCashBalanceError,
+  assertGlAccountHoldsOneCurrency,
 } from "./errors.js";
 
 export interface CreateTreasuryAccountCommand {
@@ -79,6 +80,7 @@ export function validateNewTreasuryAccount(
   const openingBalance = command.openingBalance ? Money.fromMajor(command.openingBalance) : Money.zero();
   assertOpeningBalanceBound(command.id, openingBalance);
   assertNoNegativeCashBalance(command.id, command.type ?? "cash", openingBalance);
+  assertGlAccountHoldsOneCurrency({ id: command.id, glAccountId: command.glAccountId ?? null, currency: command.currency ?? "EGP" }, existing);
 }
 
 /**

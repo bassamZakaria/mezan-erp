@@ -457,7 +457,10 @@ export async function seedInventoryOps(app: App): Promise<void> {
     period: "2026-08",
   })) as WritedownRunResponse;
   await step(app, "POST", `/inventory/writedown-runs/${writedownRun.id}/post`, {});
+}
 
+// INVARIANT: seeded after every dated document — these movements carry the day the seed runs, and a landed cost confirmed behind one would be stamped today in stock and in August in the ledger (landed-cost-seed-and-reverse-date.test.ts).
+export async function seedShopFloor(app: App): Promise<void> {
   for (const station of WORK_STATIONS) {
     await step(app, "POST", "/manufacturing/work-stations", station);
   }

@@ -45,6 +45,8 @@ export {
 export {
   ExpiredStockError,
   NegativeStockError,
+  StockAdjustmentNotFoundError,
+  StockAdjustmentAlreadyReversedError,
   UncostedDeficitIssueError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
@@ -75,8 +77,11 @@ export type {
   InventoryGlPostingPort,
 } from "./ports.js";
 
+export { STOCK_ADJUSTMENT_MIRROR_ENTRY_SUFFIX, stockLedgerDateMismatches, type DatedJournalEntry, type DatedStockMovement, type StockLedgerDateMismatch } from "./stock-ledger-dates.js";
+
 export {
   StockLedgerService,
+  latestStandingRevaluation,
   type StockLedgerServiceDeps,
   type StockLedgerPolicy,
   type StockLedgerPolicySource,
@@ -118,6 +123,7 @@ export {
   type AdjustmentGlAccounts,
   createInventoryOpsStockHook,
   createInventoryGlPostingHook,
+  stockPlanOccurredAt,
 } from "./document-hooks.js";
 
 export {
@@ -194,6 +200,7 @@ export {
 export {
   WritedownRunNotFoundError,
   WritedownRunNotDraftError,
+  WritedownRunNotPostedError,
   DuplicateWritedownPeriodError,
   NoSlowMovingStockError,
 } from "./errors.js";
@@ -201,6 +208,7 @@ export {
 export { createWritedownRun, type CreateWritedownRunCommand, type CreateWritedownRunDeps } from "./create-writedown-run.js";
 
 export { postWritedownRun, type PostWritedownRunDeps } from "./post-writedown-run.js";
+export { reverseWritedownRun, type ReverseWritedownRunDeps, type ReverseWritedownRunOptions } from "./reverse-writedown-run.js";
 
 // --- inv/labels-templates-writedown — product templates (attribute CRUD + variant/SKU generator) ---
 

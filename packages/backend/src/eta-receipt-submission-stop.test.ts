@@ -18,6 +18,24 @@ describe("a receipt submission run scheduled just before the backend closes", ()
     expect(submitReadyReceipts).not.toHaveBeenCalled();
   });
 
+  it("does not read the store again when stop() lands while a run that was asked to go round again is still submitting", async () => {
+    const getConfig = vi.fn(async () => ({ autoSubmitOnConfirm: true }));
+    let finishSubmitting: (answer: { queued: never[] }) => void = () => undefined;
+    const submitReadyReceipts = vi.fn(() => new Promise<{ queued: never[] }>((resolve) => (finishSubmitting = resolve)));
+    const issuer = createEtaReceiptIssuer({ eta: { getConfig, submitReadyReceipts } } as unknown as Deps);
+
+    issuer.scheduleSubmission();
+    await vi.waitFor(() => expect(submitReadyReceipts).toHaveBeenCalledTimes(1));
+    issuer.scheduleSubmission();
+    issuer.stop();
+    finishSubmitting({ queued: [] });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(getConfig).toHaveBeenCalledTimes(1);
+    expect(submitReadyReceipts).toHaveBeenCalledTimes(1);
+  });
+
   it("still submits when nothing stopped it", async () => {
     const getConfig = vi.fn(async () => ({ autoSubmitOnConfirm: true }));
     const submitReadyReceipts = vi.fn(async () => ({ queued: [] }));

@@ -291,6 +291,31 @@ describe("createPlatformRoutes", () => {
     expect(rows.find((r) => r.action === "TENANT_SUSPENDED")?.actor).toBe("PU-OWNER");
   });
 
+  it("answers 409 in Arabic and English to a second create for a code that is being provisioned right now", async () => {
+    let entered = 0;
+    let letTheFirstFinish!: () => void;
+    const firstHeld = new Promise<void>((resolve) => (letTheFirstFinish = resolve));
+    const inFlight = (code: string) =>
+      Object.assign(new Error(`المنشأة «${code}» قيد التجهيز الآن بطلب آخر. انتظر انتهاءه ثم أعد المحاولة.`), { code: "TENANT_CODE_PROVISIONING", messageEn: "in flight" });
+    let outside!: PlatformHandle["outsideTheTurn"];
+    const rig = await buildRig({
+      provisionTenant: async (cmd) => {
+        entered += 1;
+        if (entered === 1) await outside(() => firstHeld);
+        throw inFlight(cmd.code);
+      },
+    });
+    outside = rig.platform.outsideTheTurn;
+
+    const first = provisionOne(rig);
+    const second = await provisionOne(rig);
+    letTheFirstFinish();
+    await first;
+
+    expect(second.res.status).toBe(409);
+    expect(second.body).toMatchObject({ error: "TENANT_CODE_PROVISIONING", message: expect.stringMatching(/[\u0600-\u06FF]/), messageEn: "in flight" });
+  });
+
   describe("a tenant account locked out of sign-in", () => {
     function lockedTenant() {
       const locked = new Set(["acme-owner@example.com", "cashier@example.com"]);

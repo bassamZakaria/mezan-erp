@@ -303,11 +303,24 @@ export class PlatformAuditUnavailableError extends Error {
   readonly messageEn = "The audit log could not record this action, so nothing was saved. Try again.";
 }
 
+// EXTERNAL CONTRACT: a provisioner refuses a second call for a code it is
+// already provisioning with an error carrying this code, `message` (Arabic)
+// and `messageEn`. The console answers it 409.
+export const TENANT_CODE_PROVISIONING = "TENANT_CODE_PROVISIONING";
+
+function asCodeProvisioning(err: unknown): { readonly message: string; readonly messageEn: string } | null {
+  if (!(err instanceof Error) || (err as { code?: unknown }).code !== TENANT_CODE_PROVISIONING) return null;
+  const messageEn = (err as { messageEn?: unknown }).messageEn;
+  return { message: err.message, messageEn: typeof messageEn === "string" ? messageEn : "This tenant code is being provisioned by another request right now." };
+}
+
 function domainErrorResponse(c: Context, err: unknown): Response {
   if (err instanceof PlatformAuditUnavailableError) {
     console.error(err.cause);
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 503);
   }
+  const inFlight = asCodeProvisioning(err);
+  if (inFlight) return c.json({ error: TENANT_CODE_PROVISIONING, ...inFlight }, 409);
   const serverFailure = asServerDomainFailure(err);
   if (serverFailure) {
     return c.json({ error: serverFailure.code, message: serverFailure.message, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
@@ -1069,9 +1082,11 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   });
 
   app.get("/security/unrecorded", requireOwner, (c) => {
-    const { count, recent } = platform.audit.unrecorded?.summary() ?? { count: 0, recent: [] };
+    const { count, recent, dropped, corrupted } = platform.audit.unrecorded?.summary() ?? { count: 0, recent: [], dropped: 0, corrupted: 0 };
     return c.json({
       count,
+      dropped,
+      corrupted,
       recent: recent.map(({ at, module, action, severity, actor, entityId, reason, details }) => ({ at, module, action, severity, actor, entityId, reason, details: details ?? null })),
     });
   });

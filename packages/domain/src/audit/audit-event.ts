@@ -115,6 +115,10 @@ export interface UnrecordedSecurityEvent {
 export interface UnrecordedSecurityEvents {
   readonly count: number;
   readonly recent: readonly UnrecordedSecurityEvent[];
+  // Events counted above that can no longer be shown: `dropped` left the store
+  // when it made room, `corrupted` are still held and cannot be read.
+  readonly dropped: number;
+  readonly corrupted: number;
 }
 
 export interface SecurityEventFallback {

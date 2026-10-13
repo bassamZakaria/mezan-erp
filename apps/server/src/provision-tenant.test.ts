@@ -15,7 +15,7 @@ import {
 import { createTenant, releaseTenant, retirePlan, startSubscription, TenantCodeTakenError, TenantStatusCode } from "@mezan/domain";
 import { reachable } from "./cloud-harness.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
-import { provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
+import { provisionTenant, ProvisioningSupersededError, TenantCodeProvisioningError, TenantProvisioningError } from "./provision-tenant.js";
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
 
 const T = "2026-01-15T00:00:00.000Z";
@@ -292,6 +292,44 @@ describe("provisionTenant", () => {
         backend.app.fetch(new Request("http://tenant.internal/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: cmd.ownerEmail, pin }) }));
       expect((await signIn("333333")).status).toBe(200);
       expect((await signIn("111111")).status).toBe(401);
+    });
+
+    it("answers a second console call for the same code that one is already in flight, and leaves nothing behind when the first cannot be recorded", async () => {
+      const platform = await newPlatform();
+      const { router, dataDir } = onDisk(platform);
+      const deps = { platform, router, now: () => new Date(T) };
+
+      const [first, second] = await Promise.all([
+        provisionTenant(cmd, { ...deps, pinOf: () => "111111", activation: auditDown }).catch((err: unknown) => err),
+        provisionTenant(cmd, { ...deps, pinOf: () => "222222", activation: auditDown }).catch((err: unknown) => err),
+      ]);
+
+      expect(first).toBeInstanceOf(PlatformAuditUnavailableError);
+      expect(second).toBeInstanceOf(TenantCodeProvisioningError);
+      expect(second).toMatchObject({ code: "TENANT_CODE_PROVISIONING", message: expect.stringMatching(/[\u0600-\u06FF]/), messageEn: expect.stringContaining("fresh") });
+      expect(await platform.stores.tenants.findByCode("fresh")).toBeNull();
+      expect(router.openTenants()).toEqual([]);
+      expect(tenantFiles(dataDir)).toEqual([]);
+
+      const again = await provisionTenant(cmd, { ...deps, pinOf: () => "333333" });
+      expect(again.tenant.status).toBe("active");
+      expect(again.adminPin).toBe("333333");
+    });
+
+    it("provisions the code once when two console calls arrive together and the audit records", async () => {
+      const platform = await newPlatform();
+      const { router } = onDisk(platform);
+      const deps = { platform, router, now: () => new Date(T) };
+
+      const outcomes = await Promise.all([
+        provisionTenant(cmd, { ...deps, pinOf: () => "111111" }).catch((err: unknown) => err),
+        provisionTenant(cmd, { ...deps, pinOf: () => "222222" }).catch((err: unknown) => err),
+      ]);
+
+      expect(outcomes[0]).toMatchObject({ adminPin: "111111", tenant: { status: "active" } });
+      expect(outcomes[1]).toBeInstanceOf(TenantCodeProvisioningError);
+      expect((await platform.stores.tenants.list()).filter((tenant) => tenant.code === "fresh")).toHaveLength(1);
+      expect(await platform.stores.subscriptions.listByTenant((outcomes[0] as { tenant: { id: string } }).tenant.id)).toHaveLength(1);
     });
 
     it("never removes a tenant that is not waiting to be provisioned", async () => {

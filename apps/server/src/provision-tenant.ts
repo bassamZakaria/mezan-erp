@@ -1,6 +1,6 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { activateTenant, createTenant, normalizeEmail, startSubscription, TenantCodeTakenError, TenantStatusCode, type BillingCycle, type Tenant } from "@mezan/domain";
-import { OwnerPinResetOutcome, PlatformAuditUnavailableError, TenantOwnerAccountNotFoundError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
+import { OwnerPinResetOutcome, PlatformAuditUnavailableError, TENANT_CODE_PROVISIONING, TenantOwnerAccountNotFoundError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
 import { tenantDTOOf, type ProvisionResultDTO } from "@mezan/contracts";
 import { withSqliteTransaction } from "@mezan/persistence";
 import type { TenantRouter } from "./tenant-router.js";
@@ -65,6 +65,17 @@ export class ProvisioningSupersededError extends Error {
   constructor() {
     super("تولّى طلب آخر تجهيز هذه المنشأة");
     this.name = "ProvisioningSupersededError";
+  }
+}
+
+export class TenantCodeProvisioningError extends Error {
+  readonly code = TENANT_CODE_PROVISIONING;
+  readonly messageEn: string;
+
+  constructor(tenantCode: string) {
+    super(`المنشأة «${tenantCode}» قيد التجهيز الآن بطلب آخر. انتظر انتهاءه ثم أعد المحاولة.`);
+    this.messageEn = `Tenant "${tenantCode}" is being provisioned by another request right now. Wait for it to finish, then try again.`;
+    this.name = "TenantCodeProvisioningError";
   }
 }
 
@@ -141,7 +152,28 @@ async function prepareTenantDatabase(cmd: ProvisionTenantCommand, tenant: Tenant
   return { adminPin };
 }
 
+const codesInFlight = new WeakMap<object, Set<string>>();
+
+// REQUIRED: one provisioning per code at a time among callers that hold no
+// signup claim (the console). A second one would otherwise adopt a
+// registration the first is about to discard, and be answered about a tenant
+// that no longer exists. A caller that holds a claim (`stillOurs`) is ordered
+// by that claim and its fence instead, across processes, and never waits here.
 export async function provisionTenant(cmd: ProvisionTenantCommand, deps: ProvisionTenantDeps): Promise<ProvisionTenantResult> {
+  if (deps.stillOurs) return provisionUnderItsClaim(cmd, deps);
+  const key = deps.platform.stores.sqlite;
+  const inFlight = codesInFlight.get(key) ?? new Set<string>();
+  codesInFlight.set(key, inFlight);
+  if (inFlight.has(cmd.code)) throw new TenantCodeProvisioningError(cmd.code);
+  inFlight.add(cmd.code);
+  try {
+    return await provisionUnderItsClaim(cmd, deps);
+  } finally {
+    inFlight.delete(cmd.code);
+  }
+}
+
+async function provisionUnderItsClaim(cmd: ProvisionTenantCommand, deps: ProvisionTenantDeps): Promise<ProvisionTenantResult> {
   const nowIso = deps.now().toISOString();
   const { platform } = deps;
   const { tenants, subscriptions, plans, sqlite } = platform.stores;

@@ -1,4 +1,5 @@
-import { useNavigate, useSearchParams } from "react-router";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
 import { Button, Card } from "@mezan/ui";
 import { useUnlockAccountByLink } from "../data/hooks";
 import { SignInNotice, markSignInNotice, persistTenantCode } from "../data/session";
@@ -8,9 +9,20 @@ import { SignupLayout } from "../signup/SignupLayout";
 export function UnlockLinkScreen() {
   const { t } = useAppTranslation();
   const navigate = useNavigate();
-  const [params] = useSearchParams();
-  const token = params.get("token");
-  const tenant = params.get("tenant");
+  const location = useLocation();
+  // SECURITY: the token arrives in the URL FRAGMENT, which a browser never
+  // sends to a server, a proxy or a Referer header. It is read once into
+  // memory and taken out of the address bar at once, so it is not left in the
+  // history, a bookmark or a screenshot. A token in the query string is not
+  // accepted: it has already been through every log on the way here.
+  const [link] = useState(() => {
+    const carried = new URLSearchParams(location.hash.replace(/^#/, ""));
+    return { token: carried.get("token"), tenant: carried.get("tenant") };
+  });
+  const { token, tenant } = link;
+  useEffect(() => {
+    window.history.replaceState(window.history.state, "", location.pathname);
+  }, [location.pathname]);
   const unlock = useUnlockAccountByLink();
 
   // SECURITY: the link is spent by this press and never by the page loading —

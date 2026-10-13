@@ -40,7 +40,7 @@ afterEach(() => {
 
 describe("the page a mailed unlock link opens", () => {
   it("spends the link only when the person presses the button, never by being opened", async () => {
-    const sent = mount(`/unlock?tenant=acme&token=${TOKEN}`, () => ({ body: { ok: true } }));
+    const sent = mount(`/unlock#tenant=acme&token=${TOKEN}`, () => ({ body: { ok: true } }));
 
     expect(screen.getByRole("heading", { name: "فكّ قفل الحساب" })).toBeInTheDocument();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -54,7 +54,7 @@ describe("the page a mailed unlock link opens", () => {
   });
 
   it("shows the server's Arabic refusal for a link that was used or has expired, and offers the way back to sign-in", async () => {
-    mount(`/unlock?token=${TOKEN}`, () => ({
+    mount(`/unlock#token=${TOKEN}`, () => ({
       status: 400,
       body: { error: "INVALID_UNLOCK_LINK", message: "رابط فكّ القفل غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل." },
     }));
@@ -66,8 +66,29 @@ describe("the page a mailed unlock link opens", () => {
     expect(pendingSignInNotice()).toBeNull();
   });
 
+  it("takes the token out of the address bar as soon as it has read it, and still spends it on the press", async () => {
+    const replaced = vi.spyOn(window.history, "replaceState");
+    const sent = mount(`/unlock#tenant=acme&token=${TOKEN}`, () => ({ body: { ok: true } }));
+
+    await vi.waitFor(() => expect(replaced).toHaveBeenCalled());
+    const shown = String(replaced.mock.calls.at(-1)?.[2]);
+    expect(shown).toBe("/unlock");
+    expect(shown).not.toContain(TOKEN);
+
+    fireEvent.click(screen.getByRole("button", { name: "فكّ القفل" }));
+    await vi.waitFor(() => expect(sent).toEqual([{ body: { token: TOKEN }, tenant: "acme" }]));
+  });
+
+  it("does not take a token from the query string, where the server and every proxy on the way would have seen it", () => {
+    const sent = mount(`/unlock?tenant=acme&token=${TOKEN}`, () => ({ body: { ok: true } }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("رابط فكّ القفل غير مكتمل");
+    expect(screen.queryByRole("button", { name: "فكّ القفل" })).not.toBeInTheDocument();
+    expect(sent).toEqual([]);
+  });
+
   it("says the link is incomplete when it carries no token, and asks the server nothing", () => {
-    const sent = mount("/unlock?tenant=acme", () => ({ body: { ok: true } }));
+    const sent = mount("/unlock#tenant=acme", () => ({ body: { ok: true } }));
 
     expect(screen.getByRole("alert")).toHaveTextContent("رابط فكّ القفل غير مكتمل. افتحه كما وصلك في البريد.");
     expect(screen.queryByRole("button", { name: "فكّ القفل" })).not.toBeInTheDocument();

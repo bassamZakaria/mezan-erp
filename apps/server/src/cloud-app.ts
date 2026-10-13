@@ -40,7 +40,7 @@ import {
 } from "./billing-routes.js";
 import { PaymobMode, type CloudEnv } from "./env.js";
 import { MailOutcome, pendingHandOverEmail, smtpMailer, type PlatformMailer } from "./platform-mail.js";
-import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink } from "./public-origin.js";
+import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH } from "./public-origin.js";
 
 const OPERATOR_SWEEP_BUDGET_MS = 20_000;
 
@@ -313,6 +313,14 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     const indexHtml = options.transformIndexHtml ? options.transformIndexHtml(rawIndexHtml) : rawIndexHtml;
     root.get("/", (c) => c.html(indexHtml));
     root.get("/index.html", (c) => c.html(indexHtml));
+    // SECURITY: the page a mailed unlock link opens. The link's token is in the
+    // fragment and never reaches here; these headers keep the page out of every
+    // cache and stop the browser naming it to any site it goes on to.
+    root.get(UNLOCK_PATH, (c) => {
+      c.header("Referrer-Policy", "no-referrer");
+      c.header("Cache-Control", "no-store");
+      return c.html(indexHtml);
+    });
     root.use("/*", serveStatic({ root: env.webDist }));
     root.notFound((c) => c.html(indexHtml));
   } else {

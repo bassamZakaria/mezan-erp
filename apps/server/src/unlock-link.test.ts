@@ -32,29 +32,29 @@ afterEach(async () => {
 describe("the address a mailed unlock link opens", () => {
   it("is the tenant's own subdomain under the configured origin's scheme when the deployment serves subdomains", () => {
     expect(tenantUnlockLink(parseEnv({ MEZAN_PUBLIC_URL: "https://app.mezan.test", MEZAN_TENANT_DOMAIN: "mezan.test" }), "acme")?.(TOKEN)).toBe(
-      `https://acme.mezan.test/unlock?token=${TOKEN}`,
+      `https://acme.mezan.test/unlock#token=${TOKEN}`,
     );
   });
 
   it("keeps the configured origin's port on the tenant's subdomain, as a development deployment on a port needs", () => {
     expect(tenantUnlockLink(parseEnv({ MEZAN_PUBLIC_URL: "http://127.0.0.1:4103", MEZAN_TENANT_DOMAIN: "localhost" }), "acme")?.(TOKEN)).toBe(
-      `http://acme.localhost:4103/unlock?token=${TOKEN}`,
+      `http://acme.localhost:4103/unlock#token=${TOKEN}`,
     );
   });
 
   it("is the configured origin with the tenant's code beside the token when it does not", () => {
-    expect(tenantUnlockLink(parseEnv({ MEZAN_PUBLIC_URL: "http://127.0.0.1:5080" }), "acme")?.(TOKEN)).toBe(`http://127.0.0.1:5080/unlock?tenant=acme&token=${TOKEN}`);
+    expect(tenantUnlockLink(parseEnv({ MEZAN_PUBLIC_URL: "http://127.0.0.1:5080" }), "acme")?.(TOKEN)).toBe(`http://127.0.0.1:5080/unlock#tenant=acme&token=${TOKEN}`);
   });
 
   it("is the tenant's subdomain over https where only the tenant domain was configured, and does not exist with neither", () => {
-    expect(tenantUnlockLink(parseEnv({ MEZAN_TENANT_DOMAIN: "mezan.test" }), "acme")?.(TOKEN)).toBe(`https://acme.mezan.test/unlock?token=${TOKEN}`);
+    expect(tenantUnlockLink(parseEnv({ MEZAN_TENANT_DOMAIN: "mezan.test" }), "acme")?.(TOKEN)).toBe(`https://acme.mezan.test/unlock#token=${TOKEN}`);
     expect(tenantUnlockLink(parseEnv({}), "acme")).toBeUndefined();
   });
 
   it("is never built on a name the platform keeps for itself", () => {
     expect(tenantUnlockLink(parseEnv({ MEZAN_TENANT_DOMAIN: "mezan.test" }), "www")).toBeUndefined();
     expect(tenantUnlockLink(parseEnv({ MEZAN_PUBLIC_URL: "https://app.mezan.test", MEZAN_TENANT_DOMAIN: "mezan.test" }), "www")?.(TOKEN)).toBe(
-      `https://app.mezan.test/unlock?tenant=www&token=${TOKEN}`,
+      `https://app.mezan.test/unlock#tenant=www&token=${TOKEN}`,
     );
   });
 
@@ -122,7 +122,8 @@ describe("the address a mailed unlock link opens", () => {
     await backend.drain();
 
     expect(mailed).toHaveLength(1);
-    expect(mailed[0]).toMatch(/https:\/\/app\.mezan\.test\/unlock\?tenant=acme&token=[A-Za-z0-9_-]{43}/);
+    expect(mailed[0]).toMatch(/https:\/\/app\.mezan\.test\/unlock#tenant=acme&token=[A-Za-z0-9_-]{43}/);
+    expect(mailed[0]).not.toMatch(/\?[^#\s]*token=/);
     expect(mailed[0]).not.toContain("evil.example");
   }, 120_000);
 });

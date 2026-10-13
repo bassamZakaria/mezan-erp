@@ -37,6 +37,24 @@ const DETAIL_KEY: Readonly<Record<string, AppTranslationKey>> = {
   amount: "platform.security.detail.amount",
   requestedBy: "platform.security.detail.requestedBy",
   email: "platform.security.detail.email",
+  userId: "platform.security.detail.userId",
+  username: "platform.security.detail.username",
+  account: "platform.security.detail.account",
+  code: "platform.security.detail.tenantCode",
+  reason: "platform.security.detail.reason",
+  outcome: "platform.security.detail.outcome",
+  signInEmail: "platform.security.detail.signInEmail",
+  adminEmail: "platform.security.detail.adminEmail",
+  planId: "platform.security.detail.planId",
+  paymentId: "platform.security.detail.paymentId",
+  role: "platform.security.detail.role",
+};
+
+const ACTOR_KEY: Readonly<Record<string, AppTranslationKey>> = {
+  anonymous: "platform.security.actor.anonymous",
+  system: "platform.security.actor.system",
+  public: "platform.security.actor.public",
+  unknown: "platform.security.actor.unknown",
 };
 
 function utcStamp(iso: string): string {
@@ -72,7 +90,9 @@ function EventRow({ event }: { event: PlatformUnrecordedSecurityEventDTO }) {
       <td className="p-[8px_10px]">
         <StatusPill label={severityKey ? t(severityKey) : event.severity} tone={SEVERITY_TONE[event.severity] ?? "neutral"} />
       </td>
-      <td className="mz-lat p-[8px_10px]" dir="ltr">{event.actor}</td>
+      <td className="p-[8px_10px]">
+        {ACTOR_KEY[event.actor] ? t(ACTOR_KEY[event.actor]!) : <span className="mz-lat" dir="ltr">{event.actor}</span>}
+      </td>
       <td className="mz-lat p-[8px_10px]" dir="ltr">{event.entityId ?? "—"}</td>
       <td className="mz-lat p-[8px_10px]" dir="ltr">{event.reason}</td>
       <td className="p-[8px_10px]"><EventDetails details={event.details} /></td>
@@ -118,6 +138,8 @@ export function SecurityEventsPage() {
       ) : (
         <>
           <p className="text-[13px] font-semibold text-ink">{t("platform.security.total", { count: events.count, shown: events.recent.length })}</p>
+          {events.dropped > 0 ? <p className="text-[12.5px] font-semibold text-warning-ink">{t("platform.security.dropped", { count: events.dropped })}</p> : null}
+          {events.corrupted > 0 ? <p className="text-[12.5px] font-semibold text-danger-ink">{t("platform.security.corrupted", { count: events.corrupted })}</p> : null}
           <Card className="overflow-auto p-0">
             <table className="w-full text-[12px]">
               <thead>

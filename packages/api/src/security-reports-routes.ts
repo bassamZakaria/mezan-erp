@@ -350,10 +350,12 @@ function flatten(issues: readonly { path: (string | number)[]; message: string }
 }
 
 function unrecordedOf(fallback: SecurityEventFallback | undefined): UnrecordedSecurityEventsDTO {
-  if (!fallback) return { count: 0, recent: [] };
-  const { count, recent } = fallback.summary();
+  if (!fallback) return { count: 0, recent: [], dropped: 0, corrupted: 0 };
+  const { count, recent, dropped, corrupted } = fallback.summary();
   return {
     count,
+    dropped,
+    corrupted,
     recent: recent.map(({ at, module, action, severity, actor, entityId, reason }) => ({ at, module, action, severity, actor, entityId, reason })),
   };
 }

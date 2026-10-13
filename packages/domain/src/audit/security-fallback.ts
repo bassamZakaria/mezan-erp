@@ -42,7 +42,7 @@ export function createMemorySecurityEventFallback(capacity = 200): SecurityEvent
       if (entries.length > capacity) entries.splice(0, entries.length - capacity);
     },
     summary(limit = UNRECORDED_RECENT_LIMIT) {
-      return { count, recent: entries.slice(-limit).reverse() };
+      return { count, recent: entries.slice(-limit).reverse(), dropped: count - entries.length, corrupted: 0 };
     },
   };
 }

@@ -25,7 +25,7 @@ export { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js"
 export { createPlatform, PLATFORM_SEED_PLANS, type CreatePlatformOptions, type PlatformHandle } from "./create-platform.js";
 export { createPlatformAuth, type PlatformAuth, type PlatformAuthDeps } from "./platform-auth.js";
 export {
-  createPlatformRoutes, PlatformAuditAction,
+  createPlatformRoutes, PlatformAuditAction, TENANT_CODE_PROVISIONING,
   serializeCardCheckout,
   serializeCardCheckoutForTenant,
   TenantOwnerAccountNotFoundError,

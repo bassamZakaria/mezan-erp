@@ -148,9 +148,15 @@ export const unrecordedSecurityEventSchema = z.object({
   reason: z.string(),
 });
 
+const unrecordedLossShape = {
+  dropped: z.number().int().nonnegative(),
+  corrupted: z.number().int().nonnegative(),
+};
+
 export const unrecordedSecurityEventsSchema = z.object({
   count: z.number().int().nonnegative(),
   recent: z.array(unrecordedSecurityEventSchema),
+  ...unrecordedLossShape,
 });
 
 export const platformUnrecordedSecurityEventSchema = unrecordedSecurityEventSchema.extend({
@@ -160,6 +166,7 @@ export const platformUnrecordedSecurityEventSchema = unrecordedSecurityEventSche
 export const platformUnrecordedSecurityEventsSchema = z.object({
   count: z.number().int().nonnegative(),
   recent: z.array(platformUnrecordedSecurityEventSchema),
+  ...unrecordedLossShape,
 });
 
 export const securityExceptionsReportSchema = z.object({

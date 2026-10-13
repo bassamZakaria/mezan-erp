@@ -344,6 +344,18 @@ describe("createCloudApp", () => {
       expect(await res.text()).toContain("مزان-تجريبي");
     });
 
+    it("serves the unlock-link page uncached and with no referrer, and every other page as before", async () => {
+      const app = await boot(testEnv());
+      const unlock = await app.root.fetch(new Request("http://cloud.internal/unlock"));
+      const home = await app.root.fetch(new Request("http://cloud.internal/"));
+
+      expect(unlock.status).toBe(200);
+      expect(await unlock.text()).toContain("مزان");
+      expect(unlock.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(unlock.headers.get("cache-control")).toBe("no-store");
+      expect(home.headers.get("cache-control")).not.toBe("no-store");
+    });
+
     it("answers a plain 404 JSON at / when no web bundle is present", async () => {
       const app = await boot(testEnv({ webDist: tempDir("mezan-cloud-no-web-") }));
       const res = await app.root.fetch(new Request("http://cloud.internal/"));

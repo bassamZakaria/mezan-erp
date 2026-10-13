@@ -10,6 +10,8 @@ const supportSession = { ...testPlatformSession, user: { ...testPlatformSession.
 
 const TWO: PlatformUnrecordedSecurityEventsDTO = {
   count: 37,
+  dropped: 0,
+  corrupted: 0,
   recent: [
     {
       at: "2026-10-12T19:40:11.000Z", module: "platform", action: "CARD_CHECKOUT_SWEEP_RUN", severity: "INFO", actor: "PU-1", entityId: null,
@@ -60,6 +62,31 @@ describe("the console's page of security events the audit log could not record",
     expect(within(opened).getByText("t-acme")).toBeInTheDocument();
     expect(within(opened).getByText("database is locked")).toBeInTheDocument();
     expect(opened).toHaveTextContent("cc-1");
+  });
+
+  it("names an anonymous actor and a user id in Arabic instead of showing the raw field names", async () => {
+    mount("/platform/security", () => ({
+      body: {
+        count: 1,
+        dropped: 0,
+        corrupted: 0,
+        recent: [{ at: "2026-10-12T19:40:11.000Z", module: "platform", action: "PLATFORM_LOGIN_FAILED", severity: "WARNING", actor: "anonymous", entityId: null, reason: "audit sink down", details: { userId: "PU-9", email: "op@mezan.app" } }],
+      },
+    }));
+
+    const row = (await screen.findByText("محاولة دخول فاشلة إلى لوحة المنصة")).closest("tr")!;
+
+    expect(within(row).getByText("مجهول (قبل تسجيل الدخول)")).toBeInTheDocument();
+    expect(row).toHaveTextContent("المستخدم: PU-9");
+    expect(row).not.toHaveTextContent("userId");
+    expect(row).not.toHaveTextContent("anonymous");
+  });
+
+  it("itemises what is counted and can no longer be shown: events pushed out of the fallback file, and lines it cannot read", async () => {
+    mount("/platform/security", () => ({ body: { ...TWO, dropped: 12, corrupted: 2 } }));
+
+    expect(await screen.findByText(/12 حدثاً منها لم يعد محفوظاً/)).toBeInTheDocument();
+    expect(screen.getByText(/2 سطراً في ملف الاحتياط تعذّرت قراءته/)).toBeInTheDocument();
   });
 
   it("says how many were never recorded in all when it shows only the latest of them", async () => {

@@ -172,6 +172,24 @@ describe("voucherDocumentType.describeEffects", () => {
   });
 });
 
+describe("what a voucher says its entry is worth", () => {
+  const glEffect = (document: VoucherDocument) => voucherDocumentType.describeEffects(document).effects.find((effect) => effect.kind === "gl" && effect.key === "docEffects.voucher.gl");
+
+  it("states the amount to the piastre with its currency, never as six raw decimals", () => {
+    const effect = glEffect(doc({ voucherType: "other_income", amount: Money.fromMajor("300") }));
+    expect(effect?.description).toBe("يُنشئ قيداً محاسبياً متوازناً بقيمة 300.00 EGP (إيراد آخر)");
+    expect(effect?.description).not.toContain("300.000000");
+    expect(effect?.params).toEqual({ amount: "300.000000", reasonAr: "إيراد آخر", reasonEn: expect.any(String) });
+  });
+
+  it("names the voucher's own currency when it is foreign", () => {
+    const base = doc({ voucherType: "other_income", amount: Money.fromMajor("300") });
+    const effect = glEffect({ ...base, lines: [{ ...base.lines[0]!, currency: "USD", fxRate: "48.50" }] });
+    expect(effect?.description).toContain("بقيمة 300.00 USD");
+    expect(effect?.params).toMatchObject({ amount: "300.000000", currency: "USD" });
+  });
+});
+
 describe("money leaving a foreign-currency treasury account at its carrying amount", () => {
   const drained = () => {
     const base = doc({ voucherType: "other_expense", amount: Money.fromMajor("1200"), treasuryGlAccountId: "1310-USD", counterpartyGlAccountId: "5910" });

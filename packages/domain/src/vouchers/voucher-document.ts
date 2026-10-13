@@ -402,7 +402,9 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
         ...realisedFxEffect(line),
         {
           kind: "gl",
-          description: `يُنشئ قيداً محاسبياً متوازناً بقيمة ${line.amount.toString()} (${def.labelAr})`,
+          description: `يُنشئ قيداً محاسبياً متوازناً بقيمة ${twoDecimals(line.amount)} ${line.currency} (${def.labelAr})`,
+          key: "docEffects.voucher.gl",
+          params: { amount: line.amount.toString(), ...(line.fxRate ? { currency: line.currency } : {}), reasonAr: def.labelAr, reasonEn: def.labelEn },
         },
       ],
     });

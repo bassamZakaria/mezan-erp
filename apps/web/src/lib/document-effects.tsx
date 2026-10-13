@@ -33,8 +33,11 @@ export function useDocumentEffectText(): (effect: DocumentEffect) => { text: str
         if (key === "warehouseId" || key === "fromWarehouseId" || key === "toWarehouseId") {
           const wh = warehouses.find((w) => w.id === value);
           out[key.replace(/Id$/, "")] = wh ? nameOf(wh, String(value)) : String(value);
+        } else if (key === "currency") {
+          continue;
         } else if (key === "value" || key === "amount") {
-          out[key] = `${format.money(majorOf(String(value)))} ${format.currencyLabel}`;
+          const currency = typeof params.currency === "string" && params.currency !== "" ? params.currency : format.currencyLabel;
+          out[key] = `${format.money(String(value))} ${currency}`;
         } else if (key === "reasonAr" || key === "reasonEn") {
           if (key === (locale === "en" ? "reasonEn" : "reasonAr")) out.reason = String(value);
         } else {

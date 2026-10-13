@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useDocumentEffectText } from "../lib/document-effects";
 import {
   DocumentList,
   DocumentDetail,
@@ -618,6 +619,7 @@ function VoucherDetailView({
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
+  const effectText = useDocumentEffectText();
   const query = useVoucherDetail(id);
   const projectsQuery = useProjects();
   const reverseVoucher = useReverseVoucher();
@@ -901,7 +903,7 @@ function VoucherDetailView({
         }
         summary={summaryItems}
         effectsTitle={t("vouchers.whatThisVoucherDoes")}
-        effects={(effects?.effects ?? []).map((e) => e.description)}
+        effects={(effects?.effects ?? []).map((e) => effectText(e).text)}
         tabs={tabs}
       />
       <ConfirmDialog
@@ -984,6 +986,7 @@ function CreateVoucherView({
   initialVoucherType?: VoucherType | null;
   onDone: () => void;
 }) {
+  const effectText = useDocumentEffectText();
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
@@ -1372,7 +1375,7 @@ function CreateVoucherView({
             {(previewEffects?.effects ?? []).map((e, i) => (
               <li key={i} className="flex items-start gap-[8px]">
                 <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-brand" />
-                {e.description}
+                {effectText(e).text}
               </li>
             ))}
             {!previewEffects ? <li className="text-ink-muted">{t("vouchers.enterAnAmountToSee")}</li> : null}

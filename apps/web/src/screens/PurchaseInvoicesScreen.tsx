@@ -296,7 +296,7 @@ function InvoiceDetail({
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.receivedQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.consumedQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.remainingQty} /> : "—"}</td>
-                        <td className="px-[12px] py-[10px] text-end"><MoneyValue value={l.unitCost} showUnit={false} /></td>
+                        <td className="px-[12px] py-[10px] text-end"><MoneyValue value={l.unitCost} showUnit={false} storedPrecision /></td>
                         <td className="mz-num px-[12px] py-[10px] text-end">{l.taxRatePercent}</td>
                         <td className="px-[12px] py-[10px] text-end"><MoneyValue value={lineGross(l).toString()} showUnit={false} /></td>
                       </tr>
@@ -359,7 +359,7 @@ function InvoiceDetail({
                           </td>
                           <td className="p-[10px] text-ink-muted">{t(LANDED_COST_BASIS_KEY[l.distributionMethod])}</td>
                           <td className="p-[10px] text-end font-semibold text-ink"><MoneyValue value={l.allocatedAmount} showUnit={false} /></td>
-                          <td className="p-[10px] text-end text-ink-muted"><MoneyValue value={l.unitCost} showUnit={false} /></td>
+                          <td className="p-[10px] text-end text-ink-muted"><MoneyValue value={l.unitCost} showUnit={false} storedPrecision /></td>
                           <td className="p-[10px] text-end text-ink"><MoneyValue value={l.newUnitCost} showUnit={false} /></td>
                           <td className="p-[10px]">
                             <StatusPill
@@ -861,7 +861,7 @@ export function PurchaseInvoicesScreen() {
                           <td className="w-[120px] py-[7px] ps-[10px]">
                             <DecimalField label={t("purchaseInvoices.billQty.label")} value={billedQty(i, l.qty)} onChange={(v) => setBillQty((prev) => ({ ...prev, [i]: v }))} />
                           </td>
-                          <td className="py-[7px] text-end"><MoneyValue value={l.unitCost} showUnit={false} /></td>
+                          <td className="py-[7px] text-end"><MoneyValue value={l.unitCost} showUnit={false} storedPrecision /></td>
                         </tr>
                       ),
                     )}

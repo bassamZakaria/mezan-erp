@@ -29,21 +29,66 @@ export const DASHBOARD_VIEW_PERMISSION = "dashboard.view";
 interface SeededRoleCorrection {
   readonly revoke: readonly string[];
   readonly grant: readonly string[];
+  readonly reasonAr: string;
 }
 
 const DUTY_SPLITS: Readonly<Partial<Record<SeededRoleCode, SeededRoleCorrection>>> = {
-  [SeededRoleCode.TreasuryCashier]: { revoke: ["treasury.cash_voucher.confirm"], grant: [] },
-  [SeededRoleCode.BranchManager]: { revoke: ["treasury.cash_voucher.create"], grant: [] },
-  [SeededRoleCode.FinanceManager]: { revoke: ["accounting.journal.post", "treasury.reconciliation.post_entry", "treasury.reconciliation.match"], grant: [] },
-  [SeededRoleCode.Accountant]: { revoke: [], grant: ["accounting.journal.post"] },
-  [SeededRoleCode.HrOfficer]: { revoke: ["hr.leave.approve"], grant: [] },
+  [SeededRoleCode.TreasuryCashier]: { revoke: ["treasury.cash_voucher.confirm"], grant: [], reasonAr: "من يحرّر السند لا يؤكده؛ التأكيد لمدير الفرع" },
+  [SeededRoleCode.BranchManager]: { revoke: ["treasury.cash_voucher.create"], grant: [], reasonAr: "من يؤكد السند لا يحرّره؛ التحرير لأمين الخزنة" },
+  [SeededRoleCode.FinanceManager]: {
+    revoke: ["accounting.journal.post", "treasury.reconciliation.post_entry", "treasury.reconciliation.match"],
+    grant: [],
+    reasonAr: "من يعتمد ويراجع لا يرحّل القيود ولا يطابق كشف البنك بنفسه؛ الترحيل للمحاسب",
+  },
+  [SeededRoleCode.Accountant]: { revoke: [], grant: ["accounting.journal.post"], reasonAr: "ترحيل القيود انتقل إليه من المدير المالي" },
+  [SeededRoleCode.HrOfficer]: { revoke: ["hr.leave.approve"], grant: [], reasonAr: "من يسجّل طلب الإجازة لا يعتمده؛ الاعتماد للمدير المباشر أو من يملك صلاحية الاعتماد" },
 };
+
+const NO_SPLIT: SeededRoleCorrection = { revoke: [], grant: [], reasonAr: "" };
+
+export const SEEDED_ROLE_DUTIES_SEPARATED_EVENT = "SEEDED_ROLE_DUTIES_SEPARATED";
+
+export interface SeededRoleDutyChange {
+  readonly roleCode: string;
+  readonly roleName: string;
+  readonly revoked: readonly string[];
+  readonly granted: readonly string[];
+  readonly reasonAr: string;
+}
+
+/** What the duty split took from, or handed to, a stored seeded role — null when it changes nothing an administrator must hear about. */
+export function seededRoleDutyChange(role: { readonly code: string; readonly name: string; readonly permissions: readonly string[] }): SeededRoleDutyChange | null {
+  if (!isSeededRoleCode(role.code) || role.permissions.includes(WILDCARD_PERMISSION)) return null;
+  const split = DUTY_SPLITS[role.code];
+  if (!split) return null;
+  const revoked = split.revoke.filter((permission) => role.permissions.includes(permission));
+  const granted = split.grant.filter((permission) => !role.permissions.includes(permission));
+  if (revoked.length === 0 && granted.length === 0) return null;
+  return { roleCode: role.code, roleName: role.name, revoked, granted, reasonAr: split.reasonAr };
+}
+
+export function seededRoleDutyNotice(changes: readonly SeededRoleDutyChange[]): { readonly title: string; readonly body: string } {
+  const lines = changes.map((change) => {
+    const parts = [
+      change.revoked.length > 0 ? `سُحبت منه: ${change.revoked.join("، ")}` : null,
+      change.granted.length > 0 ? `أُضيفت له: ${change.granted.join("، ")}` : null,
+    ].filter((part): part is string => part !== null);
+    return `• ${change.roleName} (${change.roleCode}) — ${parts.join("؛ ")}. السبب: ${change.reasonAr}.`;
+  });
+  return {
+    title: "تحديث النظام عدّل صلاحيات أدوار جاهزة تطبيقاً للفصل بين المهام",
+    body: [
+      "طبّق هذا التحديث قاعدة الفصل بين المهام على الأدوار الجاهزة: من يُنشئ عملية مالية لا يعتمدها بنفسه. راجع المستخدمين المعنيين، وأسند الصلاحية المسحوبة لمن يجب أن يقوم بها إن لزم.",
+      ...lines,
+    ].join("\n"),
+  };
+}
 
 const isSeededRoleCode = (code: string): code is SeededRoleCode => SEEDED_ROLE_CODES.includes(code);
 
 export function correctedSeededRolePermissions(code: string, permissions: readonly string[]): string[] | null {
   if (!isSeededRoleCode(code) || permissions.includes(WILDCARD_PERMISSION)) return null;
-  const split = DUTY_SPLITS[code] ?? { revoke: [], grant: [] };
+  const split = DUTY_SPLITS[code] ?? NO_SPLIT;
   const kept = permissions.filter((permission) => !split.revoke.includes(permission));
   const added = [...split.grant, DASHBOARD_VIEW_PERMISSION].filter((permission) => !kept.includes(permission));
   if (kept.length === permissions.length && added.length === 0) return null;

@@ -128,6 +128,10 @@ import {
   BASE_CURRENCY,
   EVENT_BRANCH_IDS_KEY,
   correctedSeededRolePermissions,
+  seededRoleDutyChange,
+  seededRoleDutyNotice,
+  SEEDED_ROLE_DUTIES_SEPARATED_EVENT,
+  type SeededRoleDutyChange,
   CASH_AND_BANK_ROUTING_KEY,
   RESTRICTED_CASH_ROUTING_KEY,
   cashAndBankLedgerAccountIds,
@@ -2614,13 +2618,40 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const upgradeLedger = createSqliteUpgradeLedger(sqlite);
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleDutySplit, async () => {
     const corrected: string[] = [];
+    const dutyChanges: SeededRoleDutyChange[] = [];
     for (const role of await uow.roles.list()) {
       const permissions = correctedSeededRolePermissions(role.code, role.permissions);
       if (!permissions) continue;
+      const change = seededRoleDutyChange(role);
+      if (change) dutyChanges.push(change);
       await uow.roles.save({ ...role, permissions });
       corrected.push(role.code);
     }
     if (corrected.length > 0) console.info(`[roles] separated duties and granted dashboard.view on seeded role(s) ${corrected.join(", ")}`);
+    if (dutyChanges.length > 0) {
+      const { title, body } = seededRoleDutyNotice(dutyChanges);
+      const roles = await uow.roles.list();
+      const holdsEverything = new Set(roles.filter((role) => role.permissions.includes("*")).map((role) => role.id));
+      const createdAt = new Date().toISOString();
+      for (const user of await uow.users.list()) {
+        if (user.status !== "active" || !(user.isCompanyAdmin || (user.roleId !== null && holdsEverything.has(user.roleId)))) continue;
+        await notifications.save({
+          id: randomUUID(),
+          ruleId: null,
+          recipientUserId: user.id,
+          eventCode: SEEDED_ROLE_DUTIES_SEPARATED_EVENT,
+          title,
+          body,
+          priority: "high",
+          channels: ["in_app"],
+          channelStatus: { in_app: "delivered" },
+          status: "unread",
+          payload: { roles: dutyChanges.map((change) => ({ code: change.roleCode, revoked: change.revoked, granted: change.granted })), link: "/settings/roles" },
+          createdAt,
+          readAt: null,
+        });
+      }
+    }
   });
   await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
     const marked = markApprovalsNeedingReapproval(sqlite);

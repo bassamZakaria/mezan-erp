@@ -24,7 +24,7 @@ describe("the account lock in the tenant's own database", () => {
 
     const second = new Database(file);
     const store = createSqliteAccountLockStore(second);
-    expect(store.get("owner@shop.test")).toEqual({ failures: [1, 2, 3], lockedAt: 3, unlockHash: "abc", unlockExpiresAt: 99, unlockAttempts: 2 });
+    expect(store.get("owner@shop.test")).toEqual({ failures: [1, 2, 3], lockedAt: 3, unlockHash: "abc", unlockExpiresAt: 99, unlockAttempts: 2, unlockLinkHash: null });
     expect(store.lockedAccounts()).toEqual(["owner@shop.test"]);
     store.delete("owner@shop.test");
     expect(store.get("owner@shop.test")).toBeNull();
@@ -41,6 +41,35 @@ describe("the account lock in the tenant's own database", () => {
 
     db.prepare("UPDATE sign_in_account_lock SET failures = 'not json'").run();
     expect(store.get("a@shop.test")?.failures).toEqual([]);
+    db.close();
+  });
+
+  it("finds the one account a link's hash was stored for, and none once the row is gone", () => {
+    const db = new Database(":memory:");
+    const store = createSqliteAccountLockStore(db);
+    store.put("a@shop.test", { failures: [1], lockedAt: 1, unlockHash: null, unlockExpiresAt: 99, unlockAttempts: 0, unlockLinkHash: "hash-a" });
+    store.put("b@shop.test", { failures: [1], lockedAt: 1, unlockHash: null, unlockExpiresAt: 99, unlockAttempts: 0, unlockLinkHash: "hash-b" });
+
+    expect(store.accountOfLink("hash-b")).toBe("b@shop.test");
+    expect(store.accountOfLink("hash-c")).toBeNull();
+    expect(store.get("b@shop.test")?.unlockLinkHash).toBe("hash-b");
+    store.delete("b@shop.test");
+    expect(store.accountOfLink("hash-b")).toBeNull();
+    db.close();
+  });
+
+  it("opens a tenant file whose lock table was created before the link column existed, keeping its lock", () => {
+    const db = new Database(":memory:");
+    db.exec(`CREATE TABLE sign_in_account_lock (
+      account TEXT PRIMARY KEY, failures TEXT NOT NULL, locked_at INTEGER, unlock_hash TEXT, unlock_expires_at INTEGER, unlock_attempts INTEGER NOT NULL DEFAULT 0
+    )`);
+    db.prepare("INSERT INTO sign_in_account_lock (account, failures, locked_at) VALUES ('old@shop.test', '[5]', 5)").run();
+
+    const store = createSqliteAccountLockStore(db);
+
+    expect(store.get("old@shop.test")).toMatchObject({ failures: [5], lockedAt: 5, unlockLinkHash: null });
+    store.put("old@shop.test", { failures: [5], lockedAt: 5, unlockHash: null, unlockExpiresAt: 9, unlockAttempts: 0, unlockLinkHash: "h" });
+    expect(store.accountOfLink("h")).toBe("old@shop.test");
     db.close();
   });
 });

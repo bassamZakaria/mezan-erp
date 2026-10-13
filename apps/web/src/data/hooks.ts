@@ -412,7 +412,7 @@ export function useLogin() {
               ? t("login.tenantNotFound")
               : (err.message ?? t("api.signInFailed"));
         if (err.error === SignInRefusalCode.AccountLocked) throw new AccountLockedError(res.status, message, err.unlockByCode === true);
-        throw new ApiError(res.status, message, undefined, err.retryAfterSeconds, err.error);
+        throw new ApiError(res.status, message, undefined, err.retryAfterSeconds ?? res.retryAfterSeconds ?? undefined, err.error);
       }
       return res.json<SessionDTO>();
     },
@@ -438,6 +438,17 @@ export function useUnlockAccount() {
   return useMutation<void, ApiError, { username: string; code: string }>({
     mutationFn: async (body) => {
       const res = await request("/auth/unlock", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
+    },
+  });
+}
+
+export function useUnlockAccountByLink() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<void, ApiError, { token: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/auth/unlock-link", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
     },
   });

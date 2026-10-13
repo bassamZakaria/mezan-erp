@@ -8,6 +8,7 @@ import type { Transport, TransportResponse } from "./transport";
 export interface StubResult {
   status?: number;
   body: unknown;
+  retryAfterSeconds?: number;
 }
 
 /** A handler key segment of `*` matches any single path segment, e.g. a generated document id. */
@@ -45,6 +46,7 @@ export function stubTransport(
     const response: TransportResponse = {
       status,
       ok: status >= 200 && status < 400,
+      retryAfterSeconds: result.retryAfterSeconds ?? null,
       json: <T,>() => Promise.resolve(result.body as T),
       text: () => Promise.resolve(JSON.stringify(result.body)),
     };

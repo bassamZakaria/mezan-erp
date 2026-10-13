@@ -84,6 +84,7 @@ export enum SignInRefusal {
   AccountLocked = "ACCOUNT_LOCKED",
   Busy = "SIGN_IN_BUSY",
   InvalidUnlockCode = "INVALID_UNLOCK_CODE",
+  InvalidUnlockLink = "INVALID_UNLOCK_LINK",
 }
 
 /** The tenant is checking as many PINs as it will at once. Nothing was counted against the caller. */

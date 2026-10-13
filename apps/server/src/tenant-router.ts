@@ -16,6 +16,8 @@ export interface TenantRouterOptions {
   readonly platform: PlatformHandle;
   readonly dataDir: string;
   readonly tenantDomain?: string;
+  /** The origin the deployment configured for itself. Without it no unlock link is mailed. */
+  readonly publicOrigin?: string;
   readonly trustForwardedHost?: boolean;
   /** How the caller's address is read. Defaults to the socket's peer with no proxy trusted. */
   readonly clientSource?: ClientSourceOptions;
@@ -27,11 +29,33 @@ export interface TenantRouterOptions {
   readonly ttlMs?: number;
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
-  readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers) => Promise<BackendHandle>;
+  readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, mail: TenantMail) => Promise<BackendHandle>;
   /** Failed tenant sign-ins per client address ACROSS tenants. Defaults to a fresh one. */
   readonly signInSources?: SourceThrottle;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
+}
+
+export interface TenantMail {
+  readonly unlockLink?: (token: string) => string;
+}
+
+export interface UnlockLinkOrigin {
+  readonly publicOrigin?: string;
+  readonly tenantDomain?: string;
+}
+
+const UNLOCK_PATH = "/unlock";
+
+// SECURITY: the only inputs are the tenant's registered code and what the
+// deployment configured. Nothing a request carries reaches this function.
+export function tenantUnlockLink(code: string, origin: UnlockLinkOrigin): ((token: string) => string) | undefined {
+  if (!origin.publicOrigin) return undefined;
+  const configured = new URL(origin.publicOrigin);
+  if (origin.tenantDomain) {
+    return (token) => `${configured.protocol}//${code}.${origin.tenantDomain!.toLowerCase()}${UNLOCK_PATH}?token=${encodeURIComponent(token)}`;
+  }
+  return (token) => `${configured.origin}${UNLOCK_PATH}?tenant=${encodeURIComponent(code)}&token=${encodeURIComponent(token)}`;
 }
 
 function safeEqual(provided: string, secret: string): boolean {
@@ -129,12 +153,13 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     }
     return r;
   };
-  const openBackend = options.openBackend ?? (async (_code, dbPath, r) => {
+  const openBackend = options.openBackend ?? (async (_code, dbPath, r, mail) => {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     return createBackend({
       dbPath,
       connection: options.connection,
       securityMail: options.securityMail,
+      unlockLink: mail.unlockLink,
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
     });
@@ -147,7 +172,8 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     open: async (code) => {
       const tenant = await options.platform.stores.tenants.findByCode(code);
       if (!tenant) throw new Error("TENANT_NOT_FOUND");
-      return openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code));
+      const mail: TenantMail = { unlockLink: tenantUnlockLink(tenant.code, { publicOrigin: options.publicOrigin, tenantDomain: options.tenantDomain }) };
+      return openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), mail);
     },
   });
 

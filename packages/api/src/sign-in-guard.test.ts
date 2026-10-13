@@ -236,6 +236,49 @@ describe("what ends a lock", () => {
     expect(guessed.guard.check(OWNER, "196.221.5.5", true).verdict).toBe(SignInVerdict.Locked);
   });
 
+  it("is the single-use link mailed when it locked: it names no account, opens the one it was issued for, and dies with the code", () => {
+    const r = locked();
+    const code = r.guard.issueUnlockCode(OWNER)!;
+    const link = r.guard.issueUnlockLink(OWNER)!;
+    expect(link).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(JSON.stringify(r.known.get(OWNER))).not.toContain(link);
+
+    expect(r.guard.redeemUnlockLink(`${link.slice(0, -1)}${link.endsWith("A") ? "B" : "A"}`)).toBeNull();
+    expect(r.guard.check(OWNER, "196.221.5.5", true).verdict).toBe(SignInVerdict.Locked);
+    expect(r.guard.redeemUnlockLink(link)).toBe(OWNER);
+    expect(r.guard.check(OWNER, "196.221.5.5", true).verdict).toBe(SignInVerdict.Proceed);
+    expect(r.guard.redeemUnlockLink(link)).toBeNull();
+    expect(r.guard.redeemUnlockCode(OWNER, code)).toBe(false);
+  });
+
+  it("refuses the link after an hour, after the code was used, and after an administrator unlocked the account", () => {
+    const late = locked();
+    const stale = late.guard.issueUnlockLink(OWNER)!;
+    late.advance(HOUR + 1);
+    expect(late.guard.redeemUnlockLink(stale)).toBeNull();
+    expect(late.guard.check(OWNER, "196.221.5.5", true).verdict).toBe(SignInVerdict.Locked);
+
+    const byCode = locked();
+    const code = byCode.guard.issueUnlockCode(OWNER)!;
+    const afterCode = byCode.guard.issueUnlockLink(OWNER)!;
+    expect(byCode.guard.redeemUnlockCode(OWNER, code)).toBe(true);
+    expect(byCode.guard.redeemUnlockLink(afterCode)).toBeNull();
+
+    const byAdmin = locked();
+    const afterAdmin = byAdmin.guard.issueUnlockLink(OWNER)!;
+    byAdmin.guard.unlock(OWNER);
+    for (let i = 0; i < ACCOUNT_LOCK_FAILURES; i += 1) byAdmin.guess(OWNER, `10.3.${i}.1`);
+    expect(byAdmin.guard.redeemUnlockLink(afterAdmin)).toBeNull();
+    expect(byAdmin.guard.check(OWNER, "196.221.5.5", true).verdict).toBe(SignInVerdict.Locked);
+  });
+
+  it("issues no link for an account that is not locked or does not exist", () => {
+    const r = rig();
+    expect(r.guard.issueUnlockLink(OWNER)).toBeNull();
+    for (let i = 0; i < ACCOUNT_LOCK_FAILURES; i += 1) r.guess("nobody@shop.test", `10.4.${i}.1`, false);
+    expect(r.guard.issueUnlockLink("nobody@shop.test")).toBeNull();
+  });
+
   it("issues no code for an account that is not locked or does not exist", () => {
     const r = rig();
     expect(r.guard.issueUnlockCode(OWNER)).toBeNull();

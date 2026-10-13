@@ -6,6 +6,7 @@ export const ACCOUNT_LOCK_WINDOW_MS = 24 * 60 * 60_000;
 export const UNLOCK_CODE_TTL_MS = 60 * 60_000;
 export const UNLOCK_CODE_ATTEMPTS = 5;
 const UNLOCK_CODE_LENGTH = 16;
+const UNLOCK_LINK_BYTES = 32;
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const UNKNOWN_ACCOUNT_RECORDS = 10_000;
 
@@ -15,6 +16,7 @@ export interface AccountLockRecord {
   readonly unlockHash: string | null;
   readonly unlockExpiresAt: number | null;
   readonly unlockAttempts: number;
+  readonly unlockLinkHash?: string | null;
 }
 
 /** Where an account's failed sign-ins and its lock are kept. The tenant's database for a real account, so a restart forgets nothing. */
@@ -22,6 +24,7 @@ export interface AccountLockStore {
   get(account: string): AccountLockRecord | null;
   put(account: string, record: AccountLockRecord): void;
   delete(account: string): void;
+  accountOfLink(linkHash: string): string | null;
 }
 
 export function createMemoryAccountLockStore(maxRecords = Number.POSITIVE_INFINITY): AccountLockStore {
@@ -38,6 +41,10 @@ export function createMemoryAccountLockStore(maxRecords = Number.POSITIVE_INFINI
       }
     },
     delete: (account) => void records.delete(account),
+    accountOfLink(linkHash) {
+      for (const [account, record] of records) if (record.unlockLinkHash === linkHash) return account;
+      return null;
+    },
   };
 }
 
@@ -52,6 +59,8 @@ export interface AccountLocks {
   clear(account: string): void;
   issueUnlockCode(account: string): string | null;
   redeemUnlockCode(account: string, code: string): boolean;
+  issueUnlockLink(account: string): string | null;
+  redeemUnlockLink(token: string): string | null;
 }
 
 export interface AccountLocksOptions {
@@ -70,6 +79,10 @@ function accountKey(account: string): string {
 
 function hashCode(code: string): string {
   return createHash("sha256").update(code.trim().toUpperCase()).digest("hex");
+}
+
+function hashLink(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
 }
 
 function newUnlockCode(): string {
@@ -126,6 +139,26 @@ export function createAccountLocks(options: AccountLocksOptions): AccountLocks {
       options.known.delete(key);
       return true;
     },
+    issueUnlockLink(account) {
+      const key = accountKey(account);
+      const record = options.known.get(key);
+      if (!record || record.lockedAt === null) return null;
+      const token = randomBytes(UNLOCK_LINK_BYTES).toString("base64url");
+      options.known.put(key, { ...record, unlockLinkHash: hashLink(token), unlockExpiresAt: now() + UNLOCK_CODE_TTL_MS });
+      return token;
+    },
+    redeemUnlockLink(token) {
+      const offered = hashLink(token);
+      const key = options.known.accountOfLink(offered);
+      const record = key === null ? null : options.known.get(key);
+      if (key === null || !record || record.lockedAt === null || record.unlockExpiresAt === null) return null;
+      if (!record.unlockLinkHash || now() > record.unlockExpiresAt) return null;
+      const expected = Buffer.from(record.unlockLinkHash, "hex");
+      const presented = Buffer.from(offered, "hex");
+      if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) return null;
+      options.known.delete(key);
+      return key;
+    },
   };
 }
 
@@ -159,6 +192,8 @@ export interface SignInGuard {
   unlock(account: string): void;
   issueUnlockCode(account: string): string | null;
   redeemUnlockCode(account: string, code: string): boolean;
+  issueUnlockLink(account: string): string | null;
+  redeemUnlockLink(token: string): string | null;
 }
 
 export interface SignInGuardOptions {
@@ -200,6 +235,12 @@ export function createSignInGuard(options: SignInGuardOptions): SignInGuard {
       if (!locks.redeemUnlockCode(account, code)) return false;
       unlock(account);
       return true;
+    },
+    issueUnlockLink: (account) => locks.issueUnlockLink(account),
+    redeemUnlockLink(token) {
+      const account = locks.redeemUnlockLink(token);
+      if (account !== null) unlock(account);
+      return account;
     },
   };
 }

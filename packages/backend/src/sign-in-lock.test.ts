@@ -205,6 +205,132 @@ describe("getting back into a locked account", () => {
     expect((await post(h, "/auth/unlock", { username: OWNER.email, code }, "196.221.5.5")).status).toBe(400);
   }, 120_000);
 
+  const LINK_BASE = "https://acme.mezan.test/unlock?token=";
+  const linkIn = (body: string) => new RegExp(`${LINK_BASE.replace(/[.?]/g, "\\$&")}([A-Za-z0-9_-]{43})`).exec(body)?.[1];
+
+  it("mails a single-use link built from the origin the deployment configured, and the link opens the account once", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const sent: { to: string; body: string }[] = [];
+    const h = await open({
+      securityMail: PLATFORM_SMTP,
+      unlockLink: (token) => `${LINK_BASE}${token}`,
+      sendMail: async (_smtp, to, message) => {
+        sent.push({ to, body: message.body });
+        return { outcome: "sent", detail: "250" };
+      },
+    });
+    await claim(h);
+    await twentyWrongPins(h);
+    await h.drain();
+    const token = linkIn(sent[0]!.body);
+    expect(token).toBeDefined();
+
+    const forged = await post(h, "/auth/unlock-link", { token: `${token!.slice(0, -4)}AAAA` }, "196.221.5.5");
+    expect(forged.status).toBe(400);
+    expect(await forged.json()).toMatchObject({ error: "INVALID_UNLOCK_LINK", message: expect.stringMatching(/[\u0600-\u06FF]/) });
+    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(423);
+
+    const opened = await post(h, "/auth/unlock-link", { token }, "196.221.5.5");
+    expect(opened.status).toBe(200);
+    expect(await opened.json()).toEqual({ ok: true });
+    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+    expect((await post(h, "/auth/unlock-link", { token }, "196.221.5.5")).status).toBe(400);
+
+    const hostSession = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    const audit = (await (await h.app.fetch(new Request("http://local/audit?action=ACCOUNT_UNLOCKED_BY_LINK", { headers: { authorization: `Bearer ${hostSession.token}` } }))).text());
+    expect(audit.match(/ACCOUNT_UNLOCKED_BY_LINK/g)).toHaveLength(1);
+    expect(audit).not.toContain(token!);
+  }, 120_000);
+
+  it("mails the code alone where no origin is configured, whatever host the locking request named", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const sent: string[] = [];
+    const h = await open({
+      securityMail: PLATFORM_SMTP,
+      sendMail: async (_smtp, _to, message) => {
+        sent.push(message.body);
+        return { outcome: "sent", detail: "250" };
+      },
+    });
+    await claim(h);
+    for (let i = 0; i < 20; i += 1) {
+      await h.app.fetch(
+        new Request("http://local/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json", host: "evil.example", "x-forwarded-host": "evil.example" },
+          body: JSON.stringify({ username: OWNER.email, pin: String(100000 + i) }),
+        }),
+        from(`41.33.${i}.10`),
+      );
+    }
+    await h.drain();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatch(/[A-Z2-7]{16}/);
+    expect(sent[0]).not.toMatch(/https?:|evil\.example/);
+  }, 120_000);
+
+  it("holds a forged link to the same per-address wait as a forged code", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const h = await open();
+    await claim(h);
+    const statuses: number[] = [];
+    for (let i = 0; i < 40; i += 1) statuses.push((await post(h, "/auth/unlock-link", { token: `${"x".repeat(42)}${i % 10}` }, "196.221.9.9")).status);
+    expect(statuses[0]).toBe(400);
+    expect(statuses).toContain(429);
+  }, 120_000);
+
+  it("records the mailed notice once when the connection's turn is lost after the mail server answered, and never mails it again", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const sent: string[] = [];
+    let letTheHolderGo: () => void = () => undefined;
+    let holding: Promise<unknown> = Promise.resolve();
+    const h = await open({
+      securityMail: PLATFORM_SMTP,
+      unlockLink: (token) => `${LINK_BASE}${token}`,
+      connectionTurn: { completedRetakeTimeoutMs: 20 },
+      sendMail: async (_smtp, _to, message) => {
+        sent.push(message.body);
+        const taken = new Promise<void>((resolve) => {
+          holding = h.audit.turn!(async () => {
+            resolve();
+            await new Promise<void>((release) => (letTheHolderGo = release));
+          });
+        });
+        await taken;
+        return { outcome: "sent", detail: "250" };
+      },
+    });
+    await claim(h);
+    const statuses = await twentyWrongPins(h);
+    expect(statuses[19]).toBe(423);
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    letTheHolderGo();
+    await holding;
+    await h.drain();
+
+    const hostSession = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    const authed = { authorization: `Bearer ${hostSession.token}`, "content-type": "application/json" };
+    const emailStateOfTheNotice = async () => {
+      const listed = (await (await h.app.fetch(new Request("http://local/notifications", { headers: authed }))).json()) as
+        | { title: string; channelStatus: Record<string, string> }[]
+        | { items: { title: string; channelStatus: Record<string, string> }[] };
+      const rows = Array.isArray(listed) ? listed : listed.items;
+      return rows.filter((row) => row.title.includes("تم قفل حساب")).map((row) => row.channelStatus["email"]);
+    };
+    await vi.waitFor(async () => expect(await emailStateOfTheNotice()).toEqual(["sent"]));
+
+    await h.app.fetch(new Request("http://local/notifications/drain", { method: "POST", headers: authed, body: "{}" }));
+    expect(sent).toHaveLength(1);
+    expect(await emailStateOfTheNotice()).toEqual(["sent"]);
+
+    const token = linkIn(sent[0]!)!;
+    expect((await post(h, "/auth/unlock-link", { token }, "196.221.5.5")).status).toBe(200);
+    expect((await post(h, "/auth/unlock-link", { token }, "196.221.5.5")).status).toBe(400);
+    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+  }, 120_000);
+
   it("answers a name nobody holds exactly as it answers a locked account", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open();

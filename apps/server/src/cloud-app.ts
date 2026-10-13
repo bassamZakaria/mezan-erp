@@ -101,6 +101,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     platform,
     dataDir: env.platformDir,
     tenantDomain: env.tenantDomain,
+    publicOrigin: env.publicOrigin,
     trustForwardedHost: env.trustProxy,
     clientSource: env.clientSource,
     sourceReporter,

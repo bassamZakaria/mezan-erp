@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { LoginScreen } from "./LoginScreen";
 import { useApi, ApiProvider } from "../data/ApiContext";
-import { markSessionExpired, rememberTenantCodeForEmail } from "../data/session";
+import { SignInNotice, markSessionExpired, markSignInNotice, rememberTenantCodeForEmail } from "../data/session";
 import { createQueryClient } from "../data/queryClient";
 import { AppI18nProvider } from "../i18n";
 import { rememberDeviceUser } from "./device-users";
@@ -126,6 +126,12 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     markSessionExpired();
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
     expect(screen.getByRole("status")).toHaveTextContent("انتهت الجلسة. سجّل الدخول من جديد للمتابعة.");
+  });
+
+  it("confirms in Arabic that the account was unlocked when the person arrives from a mailed link", () => {
+    markSignInNotice(SignInNotice.AccountUnlocked);
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.getByRole("status")).toHaveTextContent("تم فكّ قفل الحساب. أدخل رمز PIN للدخول.");
   });
 
   it("calls onStartWizard from the first-run link", () => {
@@ -315,6 +321,43 @@ describe("LoginScreen — SaaS company code", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("الخادم مشغول الآن");
     fillPin("123456");
     expect(screen.getByRole("button", { name: /الحساب مقفل|انتظر|بعد/ })).toBeDisabled();
+  });
+
+  it.each([
+    [429, { error: "TOO_MANY_REQUESTS", message: "طلبات كثيرة من هذا الجهاز. انتظر قليلاً ثم أعد المحاولة." }, "طلبات كثيرة من هذا الجهاز", /الحساب مقفل — بعد 60s/],
+    [503, { error: "DATABASE_BUSY", message: "قاعدة البيانات مشغولة بعملية لم تنتهِ، فلم يُنفَّذ طلبك. حاول مرة أخرى بعد قليل." }, "قاعدة البيانات مشغولة", /الخادم مشغول — أعد المحاولة بعد 60s/],
+  ] as const)("holds the button for the wait a %i names only in its Retry-After header, as the host's own socket answers a till", async (status, body, said, held) => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({ status, body, retryAfterSeconds: 60 }),
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("123456");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(said);
+    expect(screen.getByRole("button", { name: held })).toBeDisabled();
+  });
+
+  it("says the audit log could not record the sign-in, in the server's own words, without calling it a lock or a wrong PIN", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({
+          status: 503,
+          body: { error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." },
+        }),
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("123456");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى.");
+    expect(screen.getByRole("button", { name: "دخول" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("رمز فكّ القفل")).not.toBeInTheDocument();
   });
 
   it("offers a place to type the mailed code when the account is locked, and opens the account with it", async () => {

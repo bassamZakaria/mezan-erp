@@ -66,8 +66,28 @@ function getTabStorage(): Storage | null {
   }
 }
 
+export enum SignInNotice {
+  SessionExpired = "1",
+  AccountUnlocked = "unlocked",
+}
+
+const SIGN_IN_NOTICES: ReadonlySet<string> = new Set(Object.values(SignInNotice));
+
+export function markSignInNotice(notice: SignInNotice): void {
+  getTabStorage()?.setItem(SESSION_EXPIRED_KEY, notice);
+}
+
+export function pendingSignInNotice(): SignInNotice | null {
+  const stored = getTabStorage()?.getItem(SESSION_EXPIRED_KEY) ?? null;
+  return stored !== null && SIGN_IN_NOTICES.has(stored) ? (stored as SignInNotice) : null;
+}
+
+export function clearSignInNotice(): void {
+  getTabStorage()?.removeItem(SESSION_EXPIRED_KEY);
+}
+
 export function markSessionExpired(): void {
-  getTabStorage()?.setItem(SESSION_EXPIRED_KEY, "1");
+  markSignInNotice(SignInNotice.SessionExpired);
 }
 
 /**
@@ -80,12 +100,12 @@ export function markSessionExpired(): void {
  * clear belongs in an effect, where running twice is also harmless.
  */
 export function sessionExpiredPending(): boolean {
-  return getTabStorage()?.getItem(SESSION_EXPIRED_KEY) === "1";
+  return pendingSignInNotice() === SignInNotice.SessionExpired;
 }
 
 /** Clears the flag so the notice shows once, not on every later visit. */
 export function clearSessionExpired(): void {
-  getTabStorage()?.removeItem(SESSION_EXPIRED_KEY);
+  clearSignInNotice();
 }
 
 export const NO_SCOPE_SELECTION: ScopeSelection = { branchId: null, warehouseId: null };

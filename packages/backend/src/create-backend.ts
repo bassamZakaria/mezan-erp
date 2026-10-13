@@ -545,12 +545,13 @@ export interface BackendHandle {
 
 const ACCOUNT_LOCKED_NOTICE = "SECURITY_ACCOUNT_LOCKED";
 
-function accountLockedNotice(event: AccountLockedEvent, mailed: boolean): string {
+function accountLockedNotice(event: AccountLockedEvent, mailed: boolean, unlockUrl: string | null): string {
   const lines = [
     `قُفل حساب «${event.user.nameAr}» (${event.user.email}) بعد ${ACCOUNT_LOCK_FAILURES} محاولة دخول فاشلة خلال ٢٤ ساعة. آخر مصدر: ${event.source}.`,
     "لفكّ القفل: افتح شاشة المستخدمين واضغط «فكّ القفل» أمام الحساب.",
   ];
   if (mailed && event.unlockCode) lines.push(`أو أدخل هذا الرمز في شاشة الدخول خلال ساعة واحدة: ${event.unlockCode}`);
+  if (mailed && unlockUrl) lines.push(`أو افتح هذا الرابط خلال ساعة واحدة، وهو يعمل مرة واحدة فقط: ${unlockUrl}`);
   lines.push("إن لم تكن هذه المحاولات من صاحب الحساب فغيّر رمز PIN الخاص به.");
   return lines.join("\n");
 }
@@ -582,6 +583,12 @@ export interface CreateBackendOptions {
   readonly etaHttpClient?: EtaHttpClient;
   /** The mail server an account-lock notice goes through when the tenant has configured none of its own: the platform's, on the cloud. */
   readonly securityMail?: SmtpConfig;
+  // SECURITY: the address a mailed unlock link opens. It is built here from an
+  // origin the DEPLOYMENT configured and never from anything a request carried
+  // (Host, X-Forwarded-Host): the request that locks an account is the
+  // attacker's own, and a link built from it would mail the administrators a
+  // working token pointed at the attacker's server.
+  readonly unlockLink?: (token: string) => string;
   /** Sends one mail. Tests inject a recorder; nothing else should. */
   readonly sendMail?: typeof sendNotificationEmail;
   /** Runs the operator's external CAdES-BES signing program. Tests inject a fake. */
@@ -2854,6 +2861,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const admins = (await uow.users.list()).filter((u) => u.isCompanyAdmin && u.status === "active");
     const createdAt = new Date().toISOString();
     const mailed = smtp !== null && event.unlockCode !== null;
+    const unlockUrl = options.unlockLink && event.unlockLinkToken ? options.unlockLink(event.unlockLinkToken) : null;
     const ids = new Set<string>();
     for (const admin of admins) {
       const id = randomUUID();
@@ -2864,7 +2872,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         recipientUserId: admin.id,
         eventCode: ACCOUNT_LOCKED_NOTICE,
         title: "تم قفل حساب بعد محاولات دخول فاشلة",
-        body: accountLockedNotice(event, mailed),
+        body: accountLockedNotice(event, mailed, unlockUrl),
         priority: "urgent",
         channels: mailed ? ["in_app", "email"] : ["in_app"],
         channelStatus: mailed

@@ -22,6 +22,9 @@ export const unlockAccountRequestSchema = z.object({
 });
 export type UnlockAccountRequestDTO = z.infer<typeof unlockAccountRequestSchema>;
 
+export const unlockAccountByLinkRequestSchema = z.object({ token: z.string().min(20).max(128) });
+export type UnlockAccountByLinkRequestDTO = z.infer<typeof unlockAccountByLinkRequestSchema>;
+
 export const loginRequestSchema = z.object({
   /**
    * The user's EMAIL — never their display name. A display name is neither

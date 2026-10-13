@@ -4,13 +4,14 @@ import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { AccountLockedError, useLogin, usePlatformResolve, useTenantInfo, useUnlockAccount } from "../data/hooks";
 import { useAppVersion } from "../data/hub-hooks";
 import {
-  clearSessionExpired,
+  SignInNotice,
+  clearSignInNotice,
   clearTenantCode,
   forgetTenantCodeForEmail,
   loadTenantCode,
   persistTenantCode,
+  pendingSignInNotice,
   rememberTenantCodeForEmail,
-  sessionExpiredPending,
   tenantCodeForEmail,
 } from "../data/session";
 import { useAppTranslation } from "../i18n";
@@ -200,8 +201,9 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
   // Pure read at mount, cleared in the effect below — see `session.ts` for why
   // the two are not one call.
-  const [expired] = useState(sessionExpiredPending);
-  useEffect(() => clearSessionExpired(), []);
+  const [arrivedWith] = useState(pendingSignInNotice);
+  useEffect(() => clearSignInNotice(), []);
+  const expired = arrivedWith === SignInNotice.SessionExpired;
   const [error, setError] = useState<string | null>(null);
   /**
    * Seconds left on a lockout, counted down locally.
@@ -216,7 +218,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const [waitingOnBusyServer, setWaitingOnBusyServer] = useState(false);
   const [unlockOffered, setUnlockOffered] = useState(false);
   const [unlockCode, setUnlockCode] = useState("");
-  const [unlockedNotice, setUnlockedNotice] = useState(false);
+  const [unlockedNotice, setUnlockedNotice] = useState(arrivedWith === SignInNotice.AccountUnlocked);
   const unlock = useUnlockAccount();
 
   function submitUnlockCode() {

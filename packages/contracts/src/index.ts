@@ -903,11 +903,13 @@ export {
 export {
   loginRequestSchema,
   unlockAccountRequestSchema,
+  unlockAccountByLinkRequestSchema,
   stepUpRequestSchema,
   DEVICE_BINDING_HEADER,
   DEVICE_SECRET_HEADER,
   type StepUpRequestDTO,
   type UnlockAccountRequestDTO,
+  type UnlockAccountByLinkRequestDTO,
   sessionSchema,
   loginResponseSchema,
   bootstrapAdminRequestSchema,
@@ -1871,4 +1873,4 @@ export * from "./pos/index.js";
 export * from "./enh/index.js";
 
 export { IdempotencyRefusal, IDEMPOTENT_REPLAY_HEADER } from "./idempotency.js";
-export { IMPORT_ROW_LIMIT, ImportRefusal } from "./import-limit.js";
+export { IMPORT_ROW_LIMIT, ImportRefusal, importLimitNotice, importTooLargeMessage, linesOfCsvImport, type BilingualSentence } from "./import-limit.js";

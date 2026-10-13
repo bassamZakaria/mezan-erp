@@ -16,7 +16,7 @@ import {
   UserState,
   type User,
 } from "@mezan/domain";
-import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, stepUpRequestSchema, type SessionDTO } from "@mezan/contracts";
+import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, unlockAccountByLinkRequestSchema, stepUpRequestSchema, type SessionDTO } from "@mezan/contracts";
 import {
   accountLocked,
   signInBusy,
@@ -97,6 +97,8 @@ export interface AccountLockedEvent {
   readonly user: User;
   /** Null when no code could be issued. */
   readonly unlockCode: string | null;
+  /** Null when no link could be issued. The token alone: the caller builds the address from an origin it was configured with. */
+  readonly unlockLinkToken: string | null;
   readonly source: string;
 }
 
@@ -381,7 +383,14 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
       if (failure.verdict === SignInVerdict.Locked) {
         if (failure.justLocked) {
           await security(c, "ACCOUNT_HARD_LOCKED", "CRITICAL", { username: needle, userId: user?.id });
-          if (user) await deps.onAccountLocked?.({ user, unlockCode: guard.issueUnlockCode(needle), source: origin ?? "host" });
+          if (user) {
+            await deps.onAccountLocked?.({
+              user,
+              unlockCode: guard.issueUnlockCode(needle),
+              unlockLinkToken: guard.issueUnlockLink(needle),
+              source: origin ?? "host",
+            });
+          }
         }
         return refused(c, failure);
       }
@@ -460,6 +469,23 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     }
     const user = await deps.uow.users.findByEmail(needle);
     await security(c, "ACCOUNT_UNLOCKED_BY_CODE", "WARNING", { username: needle, userId: user?.id });
+    return c.json({ ok: true });
+  });
+
+  app.post("/auth/unlock-link", async (c) => {
+    const parsed = unlockAccountByLinkRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const bucket = throttleSource(requestOrigin(c));
+    const wait = bucket === null ? 0 : sources.retryAfter(bucket);
+    if (wait > 0) return lockedOut(c, wait);
+    const account = guard.redeemUnlockLink(parsed.data.token);
+    if (account === null) {
+      if (bucket !== null) sources.fail(bucket);
+      await security(c, "ACCOUNT_UNLOCK_REFUSED", "WARNING", { byLink: true });
+      return c.json({ error: SignInRefusal.InvalidUnlockLink, message: "رابط فكّ القفل غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل." }, 400);
+    }
+    const user = await deps.uow.users.findByEmail(account);
+    await security(c, "ACCOUNT_UNLOCKED_BY_LINK", "WARNING", { username: account, userId: user?.id });
     return c.json({ ok: true });
   });
 

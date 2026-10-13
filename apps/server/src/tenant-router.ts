@@ -10,6 +10,7 @@ import { tenantIsServed, TenantStatusCode, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import {
   createOwnerContact,
+  hashHandOverToken,
   NoPendingOwnerError,
   OwnerCandidateNotFoundError,
   OwnerConfirmation,
@@ -278,7 +279,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       const tenant = await ownerContact.pendingByToken(token);
       if (!tenant || tenant.status === TenantStatusCode.Archived) return null;
       try {
-        return await ownerContact.confirmPending(tenant.id, PREVIOUS_OWNER_ACTOR, OwnerConfirmation.PreviousOwnerLink, await cache.get(tenant.id));
+        return await ownerContact.confirmPending(tenant.id, PREVIOUS_OWNER_ACTOR, OwnerConfirmation.PreviousOwnerLink, await cache.get(tenant.id), { tokenHash: hashHandOverToken(token) });
       } catch (err) {
         if (err instanceof OwnerCandidateNotFoundError || err instanceof PendingOwnerExpiredError || err instanceof NoPendingOwnerError) return null;
         throw err;

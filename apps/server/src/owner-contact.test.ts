@@ -4,9 +4,20 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openSqliteConnection } from "@mezan/persistence";
 import { createPlatform, PlatformAuditUnavailableError, type PlatformHandle } from "@mezan/backend";
-import type { Tenant } from "@mezan/domain";
+import { activateTenant, createTenant, type Tenant } from "@mezan/domain";
 import { createCardCheckoutService } from "./card-checkout.js";
-import { createOwnerContact, OwnerCandidateNotFoundError, OwnerConfirmation, OwnerContactAudit } from "./owner-contact.js";
+import {
+  createOwnerContact,
+  hashHandOverToken,
+  NoPendingOwnerError,
+  OwnerCandidateNotFoundError,
+  OwnerConfirmation,
+  OwnerContactAudit,
+  PendingOwnerExpiredError,
+  PREVIOUS_OWNER_ACTOR,
+  type OwnerContact,
+  type PendingHandOverMail,
+} from "./owner-contact.js";
 import { createPaymobTestProvider } from "./paymob-provider.js";
 import { provisionTenant } from "./provision-tenant.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
@@ -958,5 +969,118 @@ describe("the signup request of a tenant whose owner moved", () => {
     expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "new@amber.example" })).status).toBe(200);
 
     expect((await c.platform.stores.signupRequests.findByTokenHash("hash-amber"))?.ownerEmail).toBe("new@amber.example");
+  });
+});
+
+describe("an owner change racing another one", () => {
+  const START = new Date("2026-10-12T10:00:00.000Z");
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const ADMINS = [
+    { id: "U-OWNER", nameAr: "المالك", email: "owner@x.example" },
+    { id: "U-X", nameAr: "س", email: "x@x.example" },
+    { id: "U-Y", nameAr: "ص", email: "y@x.example" },
+  ];
+  const PLATFORM_ACTOR = "platform:P";
+
+  interface Desk {
+    readonly platform: PlatformHandle;
+    readonly contact: OwnerContact;
+    readonly mails: PendingHandOverMail[];
+    readonly clock: { at: Date };
+    readonly id: string;
+    stored(): Promise<Tenant>;
+    nominate(toUserId: string, toEmail: string): ReturnType<OwnerContact["handOver"]>;
+  }
+
+  async function desk(): Promise<Desk> {
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-owner-race-"));
+    dirs.push(dir);
+    const clock = { at: START };
+    const platform = await createPlatform({ dbPath: path.join(dir, "platform.db"), now: () => clock.at });
+    platforms.push(platform);
+    const tenant = await createTenant({ id: "T-RACE", code: "race", nameAr: "شركة", ownerEmail: "owner@x.example", now: START.toISOString() }, platform.stores.tenants);
+    const active = await activateTenant({ id: tenant.id, now: START.toISOString() }, platform.stores.tenants);
+    await platform.stores.tenants.save({ ...active, ownerUserId: "U-OWNER" });
+    const mails: PendingHandOverMail[] = [];
+    let issued = 0;
+    const contact = createOwnerContact({
+      platform,
+      now: () => clock.at,
+      mailPendingHandOver: async (mail) => void mails.push(mail),
+      tokenOf: () => `tok-${(issued += 1)}`,
+    });
+    const stored = async () => (await platform.stores.tenants.findById(tenant.id))!;
+    const nominate: Desk["nominate"] = (toUserId, toEmail) => contact.handOver(tenant.id, { fromUserId: "U-OWNER", toUserId, toEmail, actorId: "U-Y" });
+    return { platform, contact, mails, clock, id: tenant.id, stored, nominate };
+  }
+
+  it("does not confirm a successor other than the one the mailed link was for, when the request is replaced while the link is being confirmed", async () => {
+    const d = await desk();
+    await d.nominate("U-X", "x@x.example");
+    const recorded: string[] = [];
+    const backend = {
+      recordOwnerAssigned: async (due: { userId: string }) => void recorded.push(due.userId),
+      companyAdmins: async () => {
+        await d.nominate("U-Y", "y@x.example");
+        return ADMINS;
+      },
+    };
+
+    const refused = await d.contact
+      .confirmPending(d.id, PREVIOUS_OWNER_ACTOR, OwnerConfirmation.PreviousOwnerLink, backend, { tokenHash: hashHandOverToken("tok-1") })
+      .catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(NoPendingOwnerError);
+    expect(await d.stored()).toMatchObject({ ownerUserId: "U-OWNER", ownerEmail: "owner@x.example", pendingOwner: { userId: "U-Y" } });
+    expect((await d.stored()).ownerRecordDue ?? null).toBeNull();
+    expect(recorded).toEqual([]);
+  });
+
+  it("does not confirm from the console a successor other than the one it read, when the request is replaced meanwhile", async () => {
+    const d = await desk();
+    await d.nominate("U-X", "x@x.example");
+    const backend = {
+      recordOwnerAssigned: async () => undefined,
+      companyAdmins: async () => {
+        await d.nominate("U-Y", "y@x.example");
+        return ADMINS;
+      },
+    };
+
+    const refused = await d.contact.confirmPending(d.id, PLATFORM_ACTOR, OwnerConfirmation.PlatformConsole, backend).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(NoPendingOwnerError);
+    expect(await d.stored()).toMatchObject({ ownerUserId: "U-OWNER", pendingOwner: { userId: "U-Y" } });
+  });
+
+  it("does not answer a link whose token was replaced by a resend for the same successor", async () => {
+    const d = await desk();
+    await d.nominate("U-X", "x@x.example");
+    await d.contact.resendPending(d.id, PLATFORM_ACTOR);
+    const backend = { recordOwnerAssigned: async () => undefined, companyAdmins: async () => ADMINS };
+
+    const refused = await d.contact
+      .confirmPending(d.id, PREVIOUS_OWNER_ACTOR, OwnerConfirmation.PreviousOwnerLink, backend, { tokenHash: hashHandOverToken("tok-1") })
+      .catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(NoPendingOwnerError);
+    expect((await d.stored()).ownerUserId).toBe("U-OWNER");
+  });
+
+  it("refuses a confirmation that crossed the seven days while the tenant's admins were being read", async () => {
+    const d = await desk();
+    await d.nominate("U-X", "x@x.example");
+    const backend = {
+      recordOwnerAssigned: async () => undefined,
+      companyAdmins: async () => {
+        d.clock.at = new Date(START.getTime() + 8 * DAY_MS);
+        return ADMINS;
+      },
+    };
+
+    const refused = await d.contact.confirmPending(d.id, PLATFORM_ACTOR, OwnerConfirmation.PlatformConsole, backend).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(PendingOwnerExpiredError);
+    expect(await d.stored()).toMatchObject({ ownerUserId: "U-OWNER", pendingOwner: { userId: "U-X" } });
   });
 });

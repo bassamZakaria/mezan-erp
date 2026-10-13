@@ -106,7 +106,7 @@ export interface OwnerContact {
   signedIn(tenantId: string, user: SignedInUser): Promise<void>;
   handOver(tenantId: string, input: OwnerHandOver): Promise<OwnerHandOverOutcome>;
   assign(tenantId: string, userId: string, actor: string, backend: AssigningBackend): Promise<Tenant>;
-  confirmPending(tenantId: string, actor: string, by: OwnerConfirmation, backend: AssigningBackend): Promise<Tenant>;
+  confirmPending(tenantId: string, actor: string, by: OwnerConfirmation, backend: AssigningBackend, link?: { readonly tokenHash: string }): Promise<Tenant>;
   declinePending(tenantId: string, actor: string): Promise<Tenant>;
   resendPending(tenantId: string, actor: string): Promise<Tenant>;
   // SECURITY: null for a link older than the age limit, exactly as for a link that names nothing.
@@ -315,16 +315,24 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
       return assigned;
     },
 
-    async confirmPending(tenantId, actor, by, backend) {
+    async confirmPending(tenantId, actor, by, backend, link) {
       const before = await tenants.findById(tenantId);
       const pending = before?.pendingOwner;
-      if (!before || !pending) throw new NoPendingOwnerError();
+      if (!before || !pending || (link && pending.tokenHash !== link.tokenHash)) throw new NoPendingOwnerError();
       if (pendingOwnerExpired(pending, deps.now().toISOString())) throw new PendingOwnerExpiredError();
       if (!(await backend.companyAdmins()).some((admin) => admin.id === pending.userId)) throw new OwnerCandidateNotFoundError();
       const due = recordDue(pending.userId, before.ownerUserId, actor, by);
       const confirmed = await settleOwner(
         tenantId,
-        (tenant, at) => tenantWithOwnerRecordDue(tenantWithPendingOwnerConfirmed(tenant, at), due),
+        (tenant, at) => {
+          // SECURITY: the request is read again inside the write that confirms
+          // it. Only the successor, the link and the seven days that were
+          // checked above are confirmed, never whatever replaced them since.
+          const current = tenant.pendingOwner;
+          if (!current || current.userId !== pending.userId || (link && current.tokenHash !== link.tokenHash)) throw new NoPendingOwnerError();
+          if (pendingOwnerExpired(current, at)) throw new PendingOwnerExpiredError();
+          return tenantWithOwnerRecordDue(tenantWithPendingOwnerConfirmed(tenant, at), due);
+        },
         { action: OwnerContactAudit.HandedOver, severity: AuditSeverityCode.Critical },
         actor,
         { fromUserId: before.ownerUserId, toUserId: pending.userId, confirmedBy: by, eventId: due.eventId },

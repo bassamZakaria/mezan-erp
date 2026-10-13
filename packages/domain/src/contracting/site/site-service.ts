@@ -577,11 +577,7 @@ export class SiteService {
     return saved;
   }
 
-  /**
-   * عكس استهلاك مواد. The goods come back to the site store at the cost they
-   * left at and the entry is mirrored. INVARIANT: the stock movement and the
-   * mirror entry carry the same day, so stock and GL 1200 tie at every month end.
-   */
+  /** INVARIANT: the stock movement and the mirror entry carry the same day, so stock and GL 1200 tie at every month end. */
   async reverseConsumption(id: string, opts: SiteReversalOptions): Promise<MaterialConsumption> {
     const consumption = await this.deps.consumptions.findById(id);
     if (!consumption) throw new SiteDocumentNotFoundError(id);

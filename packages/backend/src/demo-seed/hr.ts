@@ -746,7 +746,6 @@ export async function seedHr(app: App): Promise<void> {
     await step(app, "POST", "/hr/contracts", { ...contract, currency: "EGP" });
   }
   await step(app, "POST", "/hr/contracts/ECT-DEMO-10/terminate", {});
-  // Before the first payroll run of the year, so no run owes this employee a payslip.
   await step(app, "POST", "/hr/employees/EMP-DEMO-9/terminate", { effectiveDate: "2026-05-31" });
   await step(app, "POST", "/hr/employees/EMP-DEMO-8/transition", { status: "suspended" });
 

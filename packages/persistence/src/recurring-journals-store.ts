@@ -60,12 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_recurring_journal_run_template ON recurring_journ
 
 const RUN_COLUMNS_BEFORE_GENERATIONS = "id, template_id, period, journal_entry_id, journal_entry_no, reversal_journal_entry_id, reversal_journal_entry_no, generated_at, generated_by";
 
-/**
- * INVARIANT: runs before CREATE_RUN. A file written before generations keys a
- * period by (template_id, period) alone, which SQLite cannot widen in place:
- * the table is rebuilt under the new key with every row as generation 1, in
- * one transaction, and a file already keyed by generation is left alone.
- */
+/** INVARIANT: a file written before generations keys a period by (template_id, period) alone, which SQLite cannot widen in place — the table is rebuilt under the new key with every row as generation 1, in one transaction, and a file already keyed by generation is left alone. */
 function keyRunsByGeneration(sqlite: Database.Database): void {
   const table = sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'recurring_journal_run'`).get();
   if (!table) return;

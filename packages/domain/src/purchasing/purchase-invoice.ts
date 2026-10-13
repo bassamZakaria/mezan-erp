@@ -443,10 +443,6 @@ function assertInvoiceMatchesReceipt(command: Pick<CreatePurchaseInvoiceCommand,
   if (reasons.length > 0) throw new InvoiceDoesNotMatchReceiptError(receipt.id, reasons);
 }
 
-/**
- * Which receipt lines each invoice line bills, taken in receipt-line order from
- * what each still has uninvoiced. Refuses a quantity the receipt cannot cover.
- */
 export function billInvoiceAgainstReceipt(lines: readonly { readonly itemId?: string | null; readonly kind?: PurchaseInvoiceLineKind; readonly qty: Qty }[], receipt: GoodsReceipt): ReceiptLineBilling[][] {
   const remaining = receipt.lines.map((line) => receiptLineRemainingQty(receipt, line));
   const requested = new Map<string, Qty>();

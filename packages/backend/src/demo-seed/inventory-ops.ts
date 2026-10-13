@@ -459,13 +459,7 @@ export async function seedInventoryOps(app: App): Promise<void> {
   await step(app, "POST", `/inventory/writedown-runs/${writedownRun.id}/post`, {});
 }
 
-/**
- * A work order's stock moves when the shop floor acts, so these are stamped
- * with the day the seed runs. They are seeded AFTER every dated document: a
- * landed cost is never stamped before the latest movement of its position, and
- * one confirmed behind a work-order issue would carry today's date in stock and
- * its own August date in the ledger.
- */
+// INVARIANT: seeded after every dated document — these movements carry the day the seed runs, and a landed cost confirmed behind one would be stamped today in stock and in August in the ledger (landed-cost-seed-and-reverse-date.test.ts).
 export async function seedShopFloor(app: App): Promise<void> {
   for (const station of WORK_STATIONS) {
     await step(app, "POST", "/manufacturing/work-stations", station);

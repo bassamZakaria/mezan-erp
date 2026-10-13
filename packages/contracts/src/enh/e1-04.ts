@@ -177,11 +177,7 @@ export const periodCloseChecklistSchema = z.object({
   canOverride: z.boolean(),
 });
 
-/**
- * The ONLY caller-supplied input to a close or a lock. Which checks failed is
- * recomputed by the server on every call; `.strict()` so a client that tries to
- * send its own verdict is refused instead of silently ignored.
- */
+// SECURITY: strict — the reason is the only thing a caller may send; which checks failed is the server's to compute, and a body carrying its own verdict is refused, never ignored.
 export const periodCloseRequestSchema = z
   .object({
     overrideReason: z.string().trim().min(PERIOD_CLOSE_OVERRIDE_REASON_MIN).max(PERIOD_CLOSE_OVERRIDE_REASON_MAX).optional(),

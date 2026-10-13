@@ -32,11 +32,7 @@ export const FX_REALISED_LINE_MEMO = "فروق عملة محققة";
 /** Memo on the two control-account lines of a settlement entry (D260); FX revaluation reads their foreign amounts. */
 export const FX_SETTLEMENT_LINE_MEMO = "تسوية فاتورة بعملة أجنبية";
 
-/**
- * Memo on the line that takes a consumed revaluation off the control account.
- * It is the revaluation's own memo: FX revaluation reads such a line as base
- * only, and the aging ladders net it against the restatement it relieves.
- */
+/** INVARIANT: the revaluation's own memo — FX revaluation reads such a line as base only, and the aging ladders net it against the restatement it relieves. */
 export const FX_REVALUATION_SHARE_MEMO = "إعادة تقييم عملات أجنبية";
 
 /** What a settlement needs to know about rates and where the difference goes. */

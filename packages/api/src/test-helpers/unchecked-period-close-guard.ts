@@ -14,11 +14,6 @@ const TRANSITION: Readonly<Record<PeriodCloseAction, (period: FiscalPeriod) => F
   [PeriodCloseAction.Lock]: lockPeriod,
 };
 
-/**
- * TEST-ONLY. Closes and locks with NO pre-close checks, for router tests whose
- * subject is something else (the posting gate, the audit row). `createBackend`
- * never uses it; production routers get the real guard or refuse.
- */
 export function uncheckedPeriodCloseGuardForTests(repo: FiscalPeriodRepository, audit?: AuditSink): PeriodCloseGuard {
   return {
     async evaluate(period) {

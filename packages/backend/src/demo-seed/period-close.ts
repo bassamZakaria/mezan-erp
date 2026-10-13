@@ -9,7 +9,6 @@ const RECURRING_TEMPLATE_ID = "RJT-DEMO-1";
 const BANK_CHARGE = { month: "2026-07", description: "مصاريف خدمات بنكية", amount: 75n * 1_000_000n } as const;
 const CLOSED_MONTHS = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"] as const;
 const DEPRECIATED_BY_HISTORY = new Set(["2026-01", "2026-02", "2026-03", "2026-04", "2026-05"]);
-// The plant asset was registered after May's run had posted: May takes a supplementary run for it, before May's VAT return is filed.
 const SUPPLEMENTARY_DEPRECIATION = "2026-05";
 const DRAFT_RUN = { period: "2026-09", branchId: "BR-MAIN" } as const;
 

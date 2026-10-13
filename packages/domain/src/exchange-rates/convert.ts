@@ -55,14 +55,7 @@ export function convertFromBase(base: Money, rate: string): Money {
   return Money.fromScaled(divRound(base.scaled * SCALE, rateScaled));
 }
 
-/**
- * FX_CARRYING_RELIEF — the one place a carrying amount is rounded: what
- * `foreignOut` of a position holding `foreign` at `base` is carried at, the
- * weighted-average share, half-away-from-zero at the 1e-6 money scale.
- * INVARIANT: an outflow that takes all the foreign money takes all the base,
- * so a position with no foreign money left has no base left either. What the
- * position does not hold is not carried at anything and comes back as zero.
- */
+/** INVARIANT: an outflow that takes all the foreign money takes all the base, so a position with no foreign money left has no base left either; this is the one place a carrying amount is rounded. */
 export function carryingBaseOf(position: { readonly foreign: Money; readonly base: Money }, foreignOut: Money): { readonly covered: Money; readonly base: Money } {
   if (position.foreign.scaled <= 0n || foreignOut.scaled <= 0n) return { covered: Money.zero(), base: Money.zero() };
   if (foreignOut.scaled >= position.foreign.scaled) return { covered: position.foreign, base: position.base };

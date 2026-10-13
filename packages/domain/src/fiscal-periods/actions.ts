@@ -2,11 +2,7 @@ import type { FiscalPeriod, FiscalPeriodRepository } from "./fiscal-period.js";
 import { FiscalPeriodNotFoundError } from "./errors.js";
 import { reopenPeriod } from "./transitions.js";
 
-/**
- * Closing and locking are NOT here: both must pass the period-close checklist,
- * its override rule and its audit row, which only the close guard applies. A
- * bare `closeFiscalPeriod(id, repo)` moved the status with none of the three.
- */
+// SECURITY: closing and locking are not here — only the close guard applies the checklist, the override rule and the audit row; a bare close moves the status with none of the three (no-bare-close.test.ts).
 
 /** Fetches a period by id (or throws {@link FiscalPeriodNotFoundError}), then persists a pure transition's result. */
 async function applyTransition(

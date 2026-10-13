@@ -78,7 +78,7 @@ export interface RecurringJournalRun {
   readonly templateId: string;
   /** "YYYY-MM" (monthly), "YYYY-Qn" (quarterly) or "YYYY" (yearly) — see schedule.ts. */
   readonly period: string;
-  /** 1 for a period's first run; a run that regenerates a period whose entry was reversed takes the next. INVARIANT: a period gets a new generation only once the entry of its newest one is reversed. */
+  /** INVARIANT: a period gets a new generation only once the entry of its newest one is reversed. */
   readonly generation: number;
   readonly journalEntryId: string;
   readonly journalEntryNo: string | null;

@@ -72,14 +72,7 @@ export interface PayslipOverpayment {
   readonly incomeTaxAccountId: string | null;
 }
 
-/**
- * What a payslip paid for days after `lastDay`, priced the way the run priced
- * them: on the tenant's day divisor, where a full month and thirty days of a
- * 31-day month are the same thirty units. Only a monthly contract's basic pay
- * and allowances are time-based; attendance-based pay stopped with attendance.
- * INVARIANT: every figure is a whole number of piastres, split by largest
- * remainder, so the entry it posts balances without a rounding line.
- */
+/** INVARIANT: every figure is a whole number of piastres, split by largest remainder, so the entry it posts balances without a rounding line. */
 export function payslipOverpaymentAfter(
   payslip: Pick<Payslip, "id" | "periodDays" | "paidDays" | "lines" | "basis">,
   span: PayslipPaidSpan,

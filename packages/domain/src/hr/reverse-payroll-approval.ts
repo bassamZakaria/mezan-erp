@@ -32,11 +32,6 @@ function withheldBy(payslips: readonly Payslip[], source: string): Map<string, b
   return totals;
 }
 
-/**
- * إلغاء اعتماد مسير الرواتب. Undoes exactly what the approval did, in the
- * approval's own order reversed: the entry, then each advance and garnishment
- * the payslips withheld from. The payslips stay, so the run is «محتسب» again.
- */
 export async function reversePayrollRunApproval(runId: string, deps: ReversePayrollApprovalDeps, opts: ReversePayrollApprovalOptions): Promise<PayrollRun> {
   const run = await deps.runs.findById(runId);
   if (!run) throw new PayrollRunNotFoundError(runId);

@@ -111,13 +111,7 @@ export class LandedCostService {
       .map((doc) => doc.docNo ?? doc.id);
   }
 
-  /**
-   * عكس التكلفة الإضافية، حتى بعد صرف جزء من البضاعة. What the goods still on
-   * hand carry comes off the stock; what left with issued goods has already
-   * reached cost of sales through their average, so it is credited back there.
-   * INVARIANT: every entry and every stock movement of the reversal share one
-   * day, so stock and GL 1200 tie at every month end.
-   */
+  /** INVARIANT: every entry and every stock movement of the reversal share one day, so stock and GL 1200 tie at every month end. */
   reverse(id: string, opts: ReverseOptions & { readonly date: string }): Promise<{ original: FrameworkDocument<LandedCostLine>; reversal: FrameworkDocument<LandedCostLine> }> {
     return this.atomically(() => this.reverseWithin(id, opts));
   }

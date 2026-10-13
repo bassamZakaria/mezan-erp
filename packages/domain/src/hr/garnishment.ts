@@ -138,7 +138,6 @@ export function applyGarnishmentRecovery(
   };
 }
 
-/** Takes back what a payroll run withheld when that run's approval is reversed; an order the withholding had completed is in force again. */
 export function reverseGarnishmentRecovery(
   current: GarnishmentRecord,
   amount: Money,

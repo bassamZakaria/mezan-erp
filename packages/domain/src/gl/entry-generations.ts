@@ -7,12 +7,7 @@ function generationId(base: string, generation: number): string {
   return generation === 1 ? base : `${base}#${generation}`;
 }
 
-/**
- * A document that posts under a deterministic entry id posts again, after its
- * entry was reversed, under the next generation of that id. INVARIANT: a
- * generation is skipped only when its entry is reversed, so a standing entry
- * still collides and the second posting is refused as a duplicate.
- */
+/** INVARIANT: a generation is skipped only when its entry is reversed, so a standing entry still collides and the second posting is refused as a duplicate. */
 export async function nextEntryGenerationId(ledger: EntryLookup, base: string): Promise<string> {
   for (let generation = 1; ; generation += 1) {
     const id = generationId(base, generation);

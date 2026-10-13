@@ -70,3 +70,28 @@ describe("a stock movement dated before a landed cost the position has absorbed"
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });
+
+describe("a landed cost asked to absorb before the position last moved", () => {
+  it("is absorbed on the day of that last movement instead, and a rebuild finds no drift", async () => {
+    const item = "LCA-ITEM";
+    const move = (id: string, direction: "IN" | "OUT", qty: string, occurredAt: string, unitCost?: string) =>
+      world.request("POST", "/inventory/adjustments", { adjustmentId: id, warehouseId: "WH-MAIN", reason: direction === "IN" ? "INITIAL_STOCK" : "DAMAGE", occurredAt, lines: [{ itemId: item, direction, qty, ...(unitCost ? { unitCost } : {}) }] });
+    expect((await world.request("POST", "/items", { id: item, code: item, nameAr: "صنف", type: "stock", baseUnitCode: "PCS" })).status).toBe(201);
+    expect((await move("LCA-IN", "IN", "10", "2026-08-05", "100")).status).toBe(201);
+    expect((await move("LCA-OUT", "OUT", "4", "2026-08-20")).status).toBe(201);
+    expect(
+      (await world.request("POST", "/landed-costs", {
+        id: "LCA-1", date: "2026-08-10", memo: "شحن", distributionMethod: "BY_QUANTITY", costItems: [{ costType: "SHIPPING", description: "شحن", amount: "100" }],
+        targets: [{ itemId: item, warehouseId: "WH-MAIN", sourceInvoiceId: "LCA-IN", sourceInvoiceNumber: "LCA-IN", qty: "10", unitCost: "100" }],
+      })).status,
+    ).toBe(201);
+
+    const confirmed = await world.request("POST", "/landed-costs/LCA-1/confirm", { absorptionDate: "2026-08-12" });
+
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    expect((confirmed.body.document as { absorptionDate: string }).absorptionDate).toBe("2026-08-20");
+    const report = (await world.request("GET", `/inventory/drift?itemId=${item}&warehouseId=WH-MAIN`)).body as { cacheDrift: string };
+    expect(report.cacheDrift).toBe("0.000000");
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});

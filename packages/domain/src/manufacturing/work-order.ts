@@ -195,7 +195,6 @@ function nowIso(deps: { now?: () => string }): string {
   return deps.now ? deps.now() : new Date().toISOString();
 }
 
-/** The day a work-order posting belongs to: the tenant's calendar day when the caller resolved one, else the instant's own day. Stock and GL both read it here, so they never part by a time zone. */
 function postingDayOf(deps: { postingDay?: string }, instant: string): string {
   return deps.postingDay ?? instant.slice(0, 10);
 }

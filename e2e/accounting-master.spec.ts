@@ -434,7 +434,7 @@ test.describe("Fiscal periods", () => {
 
   test("locking a month over failing checks is refused to the user who closed it, and the month stays closed", async ({ page }) => {
     await showSandboxYear(page);
-    await closeWithOverride(page, "أبريل"); // untouched by every other test in this block
+    await closeWithOverride(page, "أبريل");
 
     await expectLockNeedsASecondUser(page, "أبريل");
 
@@ -445,7 +445,7 @@ test.describe("Fiscal periods", () => {
 
   test("a month whose lock was refused still offers إعادة فتح and قفل after a reload", async ({ page }) => {
     await showSandboxYear(page);
-    await closeWithOverride(page, "نوفمبر"); // untouched by every other test in this block
+    await closeWithOverride(page, "نوفمبر");
     await expectLockNeedsASecondUser(page, "نوفمبر");
 
     await page.reload();
@@ -460,7 +460,7 @@ test.describe("Fiscal periods", () => {
 
   test("reopening a closed period restores it to open with only إغلاق available", async ({ page }) => {
     await showSandboxYear(page);
-    await closeWithOverride(page, "مايو"); // untouched by every other test in this block
+    await closeWithOverride(page, "مايو");
     const period = row(page, "مايو", false);
 
     await period.getByRole("button", { name: /^إجراءات/ }).click();

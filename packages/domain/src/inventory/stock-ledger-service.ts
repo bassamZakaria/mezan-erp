@@ -682,14 +682,7 @@ export class StockLedgerService {
     });
   }
 
-  /**
-   * عكس تسوية مخزون. Each line comes back the other way: a decrease returns at
-   * the cost it left at, an increase leaves at the moving average the position
-   * carries now. INVARIANT: the ledger follows the VALUE THE STOCK MOVED, not
-   * the mirror of the original entry — the mirror posts first and the
-   * difference, when the average has moved since, posts beside it on the same
-   * day, so stock and GL 1200 tie at every month end.
-   */
+  /** INVARIANT: the ledger follows the value the stock moved, not the mirror of the original entry — the mirror posts first and the difference, when the average has moved since, posts beside it on the same day, so stock and GL 1200 tie at every month end. */
   async reverseAdjustment(command: ReverseAdjustmentCommand): Promise<{ valueMoved: Money }> {
     const original = (await this.movementsOfSourceDoc(command.adjustmentId)).filter((m) => m.sourceDocType === "ADJUSTMENT" && !m.qty.isZero());
     if (original.length === 0) throw new StockAdjustmentNotFoundError(command.adjustmentId);
@@ -1226,14 +1219,7 @@ export class StockLedgerService {
     });
   }
 
-  /**
-   * Carries the difference between what a receipt recorded and what its
-   * invoice states into the receipt's goods, as a value-only movement on the
-   * receipt's layers. Only the share still on hand is carried; the rest comes
-   * back as `unabsorbed` for the caller to post to purchase price variance.
-   * INVARIANT: the movement is never dated before the position's latest one —
-   * the returned `occurredAt` is the day GL 1200 must take the absorbed share.
-   */
+  /** INVARIANT: the movement is never dated before the position's latest one — the returned `occurredAt` is the day GL 1200 must take the absorbed share. */
   async applyReceiptCostVariance(command: {
     readonly varianceDocId: string;
     readonly varianceDocNumber: string | null;

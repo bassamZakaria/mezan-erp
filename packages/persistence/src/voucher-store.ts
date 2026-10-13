@@ -348,7 +348,7 @@ const VOUCHER_COLUMNS: Readonly<Record<DocumentField, readonly string[]>> = {
   [DocumentField.Lines]: [
     "amount", "fx_rate", "counterparty_gl_account_id", "counter_treasury_account_id", "counter_treasury_gl_account_id",
     "customer_id", "supplier_id", "reference_no", "cost_center_id", "project_id", "cost_category",
-    "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "held_allocations",
+    "withholding_amount", "withholding_rate_percent", "withholding_gl_account_id", "held_allocations", "treasury_fx",
   ],
 };
 

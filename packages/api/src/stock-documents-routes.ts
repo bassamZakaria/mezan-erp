@@ -38,10 +38,9 @@ import {
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
 import type { DocumentApprovalDTO } from "@mezan/contracts";
-import { callerRoleCodes, callerUserId, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { callerRoleCodes, callerUserId, createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
-import { readReversalRequest, recordDocumentReversal, requireReversalReason, reversalRefusalResponse } from "./document-reversal.js";
-import type { AuditSink } from "@mezan/domain";
+import { readReversalRequest, requireReversalReason, reversalRefusalResponse } from "./document-reversal.js";
 import { tenantDay } from "./tenant-day.js";
 import { handleDocumentError as handleFrameworkDocumentError } from "./document-error-handling.js";
 
@@ -255,7 +254,6 @@ function handleDocumentError(c: Context, err: unknown): Response {
 export function createStockAdjustmentsRoutes(
   service: DocumentService<StockAdjustmentDocLine>,
   resolveAuthContext: AuthContextResolver,
-  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -324,14 +322,7 @@ export function createStockAdjustmentsRoutes(
       }
       const { date, memo } = await readReversalRequest(c);
       await noteReversalOriginalDay(c, existing?.date);
-      const { original, reversal } = await service.reverse(id, { reversalId: `${id}:REVERSAL`, date, memo });
-      await recordDocumentReversal(audit, {
-        module: "inventory",
-        entityType: "STOCK_ADJUSTMENT",
-        entityId: id,
-        actor: getAuthContext(c)?.userId ?? "system",
-        details: { docNo: original.docNo, reversalDocId: reversal.id, date: reversal.date },
-      });
+      const { original, reversal } = await service.reverse(id, { reversalId: `${id}:REVERSAL`, date, memo, reason: memo, actor: callerUserId(c) });
       return c.json({ original: serializeAdjustment(original), reversal: serializeAdjustment(reversal) }, 201);
     } catch (err) {
       return handleDocumentError(c, err);

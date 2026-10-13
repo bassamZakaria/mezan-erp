@@ -1518,6 +1518,8 @@ export function createPurchasesRoutes(
       if (!requested.ok) return c.json(INVALID_REVERSAL_DATE, 400);
       const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
       const target = await deps.invoices.findById(c.req.param("id"));
+      const cancelDate = requested.date ?? (target && today < target.date ? target.date : today);
+      let cancelledWhileConfirmed = false;
       try {
         const invoice = await cancelPurchaseInvoice(c.req.param("id"), {
           invoices: deps.invoices,
@@ -1535,6 +1537,7 @@ export function createPurchasesRoutes(
           // before it, a payment allocated in between left a cancelled invoice
           // holding a confirmed voucher.
           cancelGuard: async (confirmed) => {
+            cancelledWhileConfirmed = true;
             if (((await allocatedByInvoice([confirmed.id])).get(confirmed.id) ?? Money.zero()).scaled !== 0n) {
               throw new PurchaseInvoiceRouteRefusal(409, {
                 error: PurchaseInvoiceRefusalCode.HasPayments,
@@ -1550,8 +1553,8 @@ export function createPurchasesRoutes(
               });
             }
           },
-        }, { date: requested.date ?? (target && today < target.date ? target.date : today) });
-        if (target?.status === "confirmed") await deps.releaseRevaluationShare?.(invoice.id, requested.date ?? (today < target.date ? target.date : today));
+        }, { date: cancelDate });
+        if (cancelledWhileConfirmed) await deps.releaseRevaluationShare?.(invoice.id, cancelDate);
         await stampDocumentModifier(deps.invoiceVersions, invoice.id, actor(c));
         emit("DOCUMENT_CANCELLED", "PURCHASE_INVOICE", invoice.id, invoice.number);
         return c.json(serializeInvoice(invoice));

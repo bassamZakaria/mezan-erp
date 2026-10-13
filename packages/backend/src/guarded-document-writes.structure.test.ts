@@ -81,6 +81,7 @@ const RUNS_IN_CALLERS_TRANSACTION: Readonly<Record<string, string>> = {
   applyAllocatedSettlement: "the allocation's transaction (VoucherService.allocate / reverseAllocation)",
   post: "DocumentService.confirm's transaction, which re-read the document",
   stampFxRate: "VoucherService.confirmVoucher's stamping transaction, which re-read the voucher",
+  applyRefundToMoneyOnAccount: "VoucherService.confirmVoucher's transaction, after the confirm it wraps re-read the voucher",
   carry: "the invoice classification's transaction (classifyLineTax / classifyPurchaseInvoiceLineTax)",
 };
 

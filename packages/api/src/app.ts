@@ -1547,7 +1547,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.stockAdjustments) {
     app.route(
       "/inventory/stock-adjustments",
-      createStockAdjustmentsRoutes(options.stockAdjustments.service, (options.stockAdjustments.resolveAuthContext ?? resolveAuth), options.stockAdjustments.audit),
+      createStockAdjustmentsRoutes(options.stockAdjustments.service, (options.stockAdjustments.resolveAuthContext ?? resolveAuth)),
     );
   }
   if (options.stockTransfers) {

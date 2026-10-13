@@ -28,10 +28,16 @@ async function confirmedSale(kit: BackendKit, id: string) {
   expect((await kit.call("POST", `/sales-invoices/${id}/confirm`, {})).status).toBe(200);
 }
 
-async function confirmedPurchase(kit: BackendKit, id: string) {
+async function ownStockItem(kit: BackendKit, id: string): Promise<string> {
+  const created = await kit.call("POST", "/items", { id, code: id, nameAr: `صنف ${id}`, type: "stock", baseUnitCode: "PCS", trackInventory: true, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200" });
+  expect(created.status, JSON.stringify(created.body)).toBe(201);
+  return id;
+}
+
+async function confirmedPurchase(kit: BackendKit, id: string, itemId: string = STOCK_ITEM) {
   const created = await kit.call("POST", "/purchases/invoices", {
     id, supplierId: "SUPP-DEMO-1", date: TODAY, dueDate: "2026-09-23", branchId: "BR-MAIN", warehouseId: WAREHOUSE,
-    lines: [{ itemId: STOCK_ITEM, kind: "inventory", qty: "4", unitCost: "73.37", taxRateId: "VAT14" }],
+    lines: [{ itemId, kind: "inventory", qty: "4", unitCost: "73.37", taxRateId: "VAT14" }],
   });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   expect((await kit.call("POST", `/purchases/invoices/${id}/confirm`, {})).status).toBe(200);
@@ -85,11 +91,13 @@ export function gatedFamilies(kitOf: () => BackendKit): readonly GatedFamily[] {
       postedStatus: "confirmed",
       documentOf: nested,
       draft: async (id) => {
-        await confirmedPurchase(kitOf(), `${id}-INV`);
+        // ORDER MATTERS: a landed cost is absorbed on its confirm day, after which no earlier movement of that item is accepted — so each one revalues an item nothing else in the suite moves.
+        const itemId = await ownStockItem(kitOf(), `${id}-ITEM`);
+        await confirmedPurchase(kitOf(), `${id}-INV`, itemId);
         return kitOf().call("POST", "/landed-costs", {
           id, date: TODAY, memo: "شحن", distributionMethod: "BY_VALUE",
           costItems: [{ costType: "SHIPPING", description: "شحن", amount: "40", supplierId: "SUPP-DEMO-1" }],
-          targets: [{ itemId: STOCK_ITEM, warehouseId: WAREHOUSE, sourceInvoiceId: `${id}-INV`, sourceInvoiceNumber: null, qty: "4", unitCost: "73.37", weight: "1" }],
+          targets: [{ itemId, warehouseId: WAREHOUSE, sourceInvoiceId: `${id}-INV`, sourceInvoiceNumber: null, qty: "4", unitCost: "73.37", weight: "1" }],
         });
       },
     },

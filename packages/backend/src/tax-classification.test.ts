@@ -29,6 +29,11 @@ interface Reply {
 let backend: BackendHandle;
 let token = "";
 
+async function reopenMonth(periodId: string): Promise<void> {
+  const reopened = await call("POST", `/fiscal-periods/${periodId}/reopen`, {});
+  expect(reopened.status, JSON.stringify(reopened.body)).toBe(200);
+}
+
 async function call(method: string, path: string, body?: unknown, permissions?: readonly string[]): Promise<Reply> {
   const bearer = permissions
     ? backend.sessions.issue({ userId: "LIMITED", permissions, roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })
@@ -440,6 +445,7 @@ describe("classifying the tax of a posted line that stored none", () => {
   });
 
   it("is refused once the VAT return covering the entry's date is filed", async () => {
+    await reopenMonth("fp-2026-07");
     await sale("T-JULY", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: null, taxRatePercent: 0 })], { date: "2026-07-10", dueDate: "2026-08-10" });
     expect((await call("POST", "/sales-invoices/T-JULY/confirm", {})).status).toBe(200);
     const filed = await call("POST", "/gl/vat-filings", { id: "T-VATF-2026-07", periodFrom: "2026-07-01", periodTo: "2026-07-31", netAmount: "0.00" });
@@ -679,6 +685,7 @@ describe("two requests racing over one posted line (D79 round 5)", () => {
 
 describe("a filed VAT return closes classification on the purchase side too", () => {
   it("refuses to classify a purchase line once the return covering its entry's date is filed, and writes nothing", async () => {
+    await reopenMonth("fp-2026-06");
     const created = await call("POST", "/purchases/invoices", {
       id: "T-PI-JUNE", supplierId: "SUPP-DEMO-1", date: "2026-06-10", dueDate: "2026-07-10", branchId: BRANCH, warehouseId: WAREHOUSE,
       lines: [{ itemId: null, kind: "expense", description: "خدمة", qty: "1", unitCost: "200", taxRateId: null, taxRatePercent: 0 }],
@@ -827,6 +834,7 @@ describe("posting into a month whose VAT return is filed (D79 round 5)", () => {
     if (!filings.some((f) => f.periodFrom <= "2026-05-10" && f.periodTo >= "2026-05-10")) {
       expect((await call("POST", "/gl/vat-filings", { id: "T-VATF-2026-05", periodFrom: "2026-05-01", periodTo: "2026-05-31", netAmount: "0.00" })).status).toBe(201);
     }
+    await reopenMonth("fp-2026-05");
     const refusals: [string, Reply][] = [];
 
     await sale("T-FILED-MAY", NOT_EXEMPT_CUSTOMER, [serviceLine("L1", { taxRateId: VAT_RATE })], { date: "2026-05-10", dueDate: "2026-06-10" });

@@ -272,7 +272,8 @@ describe("a void in a month that is shut", () => {
     await confirmedPurchaseReturn("RV-P-3-R", "RV-P-3", "1");
     const september = rowsOf((await kit.call("GET", "/fiscal-periods")).body).find((p) => p.startDate <= "2026-09-10" && p.endDate >= "2026-09-10");
     expect(september, "no period covers 2026-09-10").toBeTruthy();
-    expect((await kit.call("POST", `/fiscal-periods/${september.id}/close`, {})).status).toBe(200);
+    const closed = await kit.call("POST", `/fiscal-periods/${september.id}/close`, { overrideReason: "إقفال لاختبار إلغاء المرتجع" });
+    expect(closed.status, JSON.stringify(closed.body)).toBe(200);
     const stock = await position();
     const refused = await kit.call("POST", "/purchase-returns/RV-P-3-R/void", { reason: REASON, date: "2026-09-10" });
     expect(refused.status, JSON.stringify(refused.body)).toBeGreaterThanOrEqual(400);
@@ -280,7 +281,8 @@ describe("a void in a month that is shut", () => {
     expect(refused.body.message).toMatch(/[\u0600-\u06FF]/);
     expect((await kit.call("GET", "/purchase-returns/RV-P-3-R")).body.status).toBe("confirmed");
     expect(await position()).toEqual(stock);
-    expect((await kit.call("POST", `/fiscal-periods/${september.id}/reopen`, {})).status).toBe(200);
+    const reopened = await kit.call("POST", `/fiscal-periods/${september.id}/reopen`, {});
+    expect(reopened.status, JSON.stringify(reopened.body)).toBe(200);
     const voided = await kit.call("POST", "/purchase-returns/RV-P-3-R/void", { reason: REASON, date: "2026-09-10" });
     expect([voided.status, voided.body.status], JSON.stringify(voided.body)).toEqual([200, "reversed"]);
   });

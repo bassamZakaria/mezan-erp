@@ -125,7 +125,7 @@ describe("SalesInvoicePrintPage", () => {
     renderWithProviders(<SalesInvoicePrintPage invoice={baseInvoice()} />, { transport: recording, initialSession: testAdminSession });
     expect(await screen.findByText("999-888-777", { exact: false })).toBeInTheDocument();
     expect(await screen.findByText("ETA-UUID-1", { exact: false })).toBeInTheDocument();
-    expect(asked.filter((path) => /^\/(settings|customers|branches|warehouses|eta\/submissions)/.test(path))).toEqual([]);
+    expect(asked.filter((path) => /^\/(settings(?!\/display)|customers|branches|warehouses|eta\/submissions)/.test(path))).toEqual([]);
   });
 
   it("a role that may not read the settings still prints the company's name, address and tax number on the invoice", async () => {

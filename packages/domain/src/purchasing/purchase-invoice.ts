@@ -875,9 +875,9 @@ export async function confirmPurchaseInvoice(
   //
   // The GL still goes first inside it: a closed period, an inactive account or
   // an unbalanced entry then refuses before the sub-ledger has moved (D21).
-  const runAtomically = deps.gl.transaction?.bind(deps.gl) ?? (<T,>(fn: () => Promise<T>) => fn());
+  const transaction = deps.gl.transaction?.bind(deps.gl) ?? (<T,>(fn: () => Promise<T>) => fn());
 
-  const { confirmed, posting } = await runAtomically(async () => {
+  const { confirmed, posting } = await transaction(async () => {
     // INVARIANT: the invoice is read and guarded inside the transaction that
     // posts it; a copy read before it began is never posted or written back.
     const invoice = await deps.invoices.findById(id);

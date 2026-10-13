@@ -66,6 +66,7 @@ import {
   type InvoiceReturnCreditPort,
   type SettlementSplit,
   type VoucherAllocation,
+  FxOpenItemType,
 } from "./allocation.js";
 import {
   AllocationCurrencyMismatchError,
@@ -661,8 +662,8 @@ export class VoucherService {
           ...(realisedFx
             ? {
                 rates: (invoice) => settlementRatesFor(realisedFx, invoice, money),
-                unconsumedShare: async (invoice) => (await realisedFx.revaluationShare?.(invoice)) ?? Money.zero(),
-                unconsumedMoneyShare: async () => (line.fxRate ? ((await realisedFx.moneyRevaluationShare?.(voucherId)) ?? Money.zero()) : Money.zero()),
+                revaluationShare: async (invoice, relief) => (await realisedFx.revaluationShareTaken?.({ id: invoice.id, type: FxOpenItemType.Invoice }, relief)) ?? Money.zero(),
+                moneyRevaluationShare: async (relief) => (line.fxRate ? ((await realisedFx.revaluationShareTaken?.({ id: voucherId, type: FxOpenItemType.Money }, relief)) ?? Money.zero()) : Money.zero()),
                 beforeSave: async (invoice, split, date) => {
                   const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
                   const rates = await settlementRatesFor(realisedFx, invoice, money);
@@ -813,8 +814,7 @@ export class VoucherService {
     if (!invoice) throw new InvoiceNotFoundError(invoiceId);
     const rates = this.deps.realisedFx ? await settlementRatesFor(this.deps.realisedFx, invoice, money) : null;
     const returned = (await returnedByInvoice(this.deps.returns, [invoice])).get(invoice.id) ?? Money.zero();
-    const unconsumed = rates ? ((await this.deps.realisedFx?.revaluationShare?.(invoice)) ?? Money.zero()) : Money.zero();
-    return settlementSplit(money.amount, invoiceOpenBalance(invoice, returned), rates, unconsumed);
+    return settlementSplit(money.amount, invoiceOpenBalance(invoice, returned), rates);
   }
 
   async reverseAllocation(allocationId: string, opts: { now?: string; date?: string } = {}): Promise<{ allocation: VoucherAllocation }> {

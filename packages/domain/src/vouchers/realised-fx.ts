@@ -17,7 +17,7 @@
 import { Money } from "../money/index.js";
 import { postJournalEntry, reverseJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
 import { FX_SHARE_RELEASE_ENTRY_PREFIX } from "../gl/revaluation-lock.js";
-import { laterDay, type AllocatableInvoice, type SettlementRates, type SettlementSplit, type VoucherAllocation } from "./allocation.js";
+import { laterDay, type AllocatableInvoice, type FxOpenItemRef, type FxShareRelief, type SettlementRates, type SettlementSplit, type VoucherAllocation } from "./allocation.js";
 import type { AllocationInvoiceKind } from "./voucher-types.js";
 
 /** `sourceDocType` of a realised-FX entry and, through the mirror, of its reversal. The ladders skip these lines by it. */
@@ -44,8 +44,7 @@ export interface RealisedFxPort {
   rateOn(currency: string, date: string): Promise<string | null>;
   /** Where a realised difference posts, read at each posting so a tenant's account routing applies at once (D229). */
   differenceAccounts(): Promise<FxDifferenceAccounts>;
-  revaluationShare?(invoice: AllocatableInvoice): Promise<Money>;
-  moneyRevaluationShare?(voucherId: string): Promise<Money>;
+  revaluationShareTaken?(item: FxOpenItemRef, relief: FxShareRelief): Promise<Money>;
   releaseMoneyShare?(voucherId: string, date: string): Promise<void>;
   treasuryRevaluationShare?(treasuryAccountId: string, foreign: Money, fromDate: string, toDate: string): Promise<Money>;
   treasuryPosition?(treasuryAccountId: string, asOfDate: string): Promise<{ readonly foreign: Money; readonly base: Money } | null>;

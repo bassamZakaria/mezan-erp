@@ -17,6 +17,7 @@ export enum OpKind {
   OnAccount = "onacc",
   Cheque = "cheque",
   Undo = "undo",
+  Redo = "redo",
   Run = "run",
   RunReversal = "runrev",
 }
@@ -36,6 +37,8 @@ const RATES: Record<Cur, Record<string, string>> = {
   [Cur.Eur]: { "2026-08-01": "52.3371", "2026-08-31": "53.0119", "2026-09-05": "52.9", "2026-09-10": "53.4477", "2026-09-15": "51.9983", "2026-09-20": "52.6", "2026-09-30": "53.7313", "2026-10-02": "54.01", "2026-10-05": "53.2229", "2026-10-08": "52.8", "2026-10-13": "53.5" },
 };
 const RELIEF_DATES = ["2026-09-05", "2026-09-10", "2026-09-20", "2026-10-02", "2026-10-08"];
+const WIDE_RELIEF_DATES = ["2026-09-05", "2026-09-10", "2026-09-15", "2026-09-20", "2026-10-02", "2026-10-05", "2026-10-08"];
+const RERUN_INDEX = 9;
 const RUN_DATES = ["2026-08-31", "2026-09-15", "2026-09-30", "2026-10-05"];
 const TODAY = "2026-10-13";
 
@@ -58,12 +61,15 @@ type Op =
   | { k: OpKind.Return; item: number; qty: number; date: string; id: string }
   | { k: OpKind.Void; item: number; date: string }
   | { k: OpKind.OnAccount; item: number; amount: string; date: string; id: string; then: OnAccountNext; thenDate: string }
-  | { k: OpKind.Cheque; item: number; pct: number; date: string; id: string; bounce: string | null }
+  | { k: OpKind.Cheque; item: number; pct: number; date: string; id: string; bounce: string | null; replace?: string | null }
   | { k: OpKind.Undo; alloc: string }
+  | { k: OpKind.Redo; alloc: string; voucher: string; item: number; explicit: boolean }
   | { k: OpKind.Run; date: string; auto: boolean; idx: number }
   | { k: OpKind.RunReversal; idx: number; date: string };
 
-export interface Trial { seed: number; items: Item[]; ops: Op[]; runs: Extract<Op, { k: OpKind.Run }>[]; runrevs: Extract<Op, { k: OpKind.RunReversal }>[] }
+type RunOp = Extract<Op, { k: OpKind.Run }>;
+type RunReversalOp = Extract<Op, { k: OpKind.RunReversal }>;
+export interface Trial { seed: number; items: Item[]; ops: Op[]; runs: RunOp[]; runrevs: (RunOp | RunReversalOp)[] }
 
 export function generate(seed: number, opts: { routeAllocs: boolean }): Trial {
   const r = prng(seed);
@@ -93,13 +99,76 @@ export function generate(seed: number, opts: { routeAllocs: boolean }): Trial {
       else { ops.push({ k: OpKind.SettleAll, item: i, date, id }); }
     }
   }
-  const runs: Extract<Op, { k: OpKind.Run }>[] = [];
+  const runs: RunOp[] = [];
   const runCount = 1 + (r() < 0.45 ? 1 : 0);
   const dates = [...RUN_DATES].sort(() => r() - 0.5).slice(0, runCount).sort();
   if (r() < 0.12 && dates.length === 1) dates.push(dates[0]!);
   dates.forEach((date, idx) => runs.push({ k: OpKind.Run, date, auto: r() < 0.3, idx }));
-  const runrevs: Extract<Op, { k: OpKind.RunReversal }>[] = [];
+  const runrevs: RunReversalOp[] = [];
   if (r() < 0.3) { const idx = Math.floor(r() * runs.length); if (!runs[idx]!.auto) runrevs.push({ k: OpKind.RunReversal, idx, date: TODAY }); }
+  return { seed, items, ops, runs, runrevs };
+}
+
+function widePrng(seed: number) {
+  let x = (Math.imul(seed, 2654435761) ^ 0x9e3779b9) >>> 0 || 1;
+  return () => {
+    x ^= x << 13; x >>>= 0;
+    x ^= x >>> 17;
+    x ^= x << 5; x >>>= 0;
+    return x / 4294967296;
+  };
+}
+
+// INVARIANT: draws from the generator in exactly the order the round-9 review's own probe did, so its seeds (5068, 5075, …) replay the sequences it reported. `replaceBounced` adds a replacement cheque without drawing, and is left off for those seeds.
+export function generateWide(seed: number, opts: { replaceBounced: boolean }): Trial {
+  const r = widePrng(seed);
+  const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
+  const items: Item[] = [];
+  const n = 1 + Math.floor(r() * 3);
+  for (let i = 0; i < n; i++) items.push({ id: `it${i}`, side: pick([Side.Receivable, Side.Payable] as const), cur: pick([Cur.Usd, Cur.Eur] as const), units: 3 + Math.floor(r() * 12), price: pick(["100", "19.99", "250.5", "7.77"]), date: pick(["2026-08-03", "2026-08-22", "2026-08-30"]) });
+  const ops: Op[] = [];
+  let c = 0;
+  for (let i = 0; i < items.length; i++) {
+    const count = 1 + Math.floor(r() * 3);
+    let from = 0;
+    const allocs: string[] = [];
+    let voided = false;
+    for (let j = 0; j < count && !voided; j++) {
+      from = Math.min(WIDE_RELIEF_DATES.length - 1, from + Math.floor(r() * 2));
+      const date = WIDE_RELIEF_DATES[from]!;
+      const next = WIDE_RELIEF_DATES[Math.min(WIDE_RELIEF_DATES.length - 1, from + 1)]!;
+      const id = `s${seed}-${c++}`;
+      const roll = r();
+      if (roll < 0.25) { ops.push({ k: OpKind.Pay, item: i, pct: pick([20, 35, 50]), date, id }); allocs.push(`pay:${id}`); }
+      else if (roll < 0.4) { ops.push({ k: OpKind.SettleRoute, item: i, pct: pick([25, 40, 60]), date, id, foreign: r() < 0.5 }); allocs.push(`al-${id}`); }
+      else if (roll < 0.55) ops.push({ k: OpKind.Return, item: i, qty: 1 + Math.floor(r() * 2), date, id });
+      else if (roll < 0.63 && allocs.length === 0 && j === 0) { ops.push({ k: OpKind.Void, item: i, date }); voided = true; }
+      else if (roll < 0.78) ops.push({ k: OpKind.OnAccount, item: i, amount: pick(["150", "210.55", "80"]), date, id, then: pick([OnAccountNext.None, OnAccountNext.Allocate, OnAccountNext.Refund, OnAccountNext.Reverse] as const), thenDate: next });
+      else if (roll < 0.9) {
+        const bounce = r() < 0.5 ? next : null;
+        ops.push({ k: OpKind.Cheque, item: i, pct: pick([20, 30]), date, id, bounce, replace: opts.replaceBounced && bounce && (seed + c) % 2 === 0 ? WIDE_RELIEF_DATES[Math.min(WIDE_RELIEF_DATES.length - 1, from + 2)]! : null });
+      }
+      else if (allocs.some((a) => a.startsWith("al-"))) {
+        const alloc = allocs.filter((a) => a.startsWith("al-"))[0]!;
+        ops.push({ k: OpKind.Undo, alloc });
+        if (r() < 0.6) ops.push({ k: OpKind.Redo, alloc: `re-${alloc}`, voucher: alloc.slice(3), item: i, explicit: r() < 0.3 });
+      }
+      else { ops.push({ k: OpKind.SettleAll, item: i, date, id }); }
+    }
+  }
+  const runs: RunOp[] = [];
+  const runCount = 1 + (r() < 0.55 ? 1 : 0) + (r() < 0.2 ? 1 : 0);
+  const dates = [...RUN_DATES].sort(() => r() - 0.5).slice(0, runCount).sort();
+  if (r() < 0.12 && dates.length === 1) dates.push(dates[0]!);
+  dates.forEach((date, idx) => runs.push({ k: OpKind.Run, date, auto: r() < 0.3, idx }));
+  const runrevs: (RunOp | RunReversalOp)[] = [];
+  if (r() < 0.35) {
+    const idx = runs.length - 1;
+    if (!runs[idx]!.auto) {
+      runrevs.push({ k: OpKind.RunReversal, idx, date: TODAY });
+      if (r() < 0.5) runrevs.push({ k: OpKind.Run, date: runs[idx]!.date, auto: false, idx: RERUN_INDEX });
+    }
+  }
   return { seed, items, ops, runs, runrevs };
 }
 
@@ -119,7 +188,9 @@ const fmt = (v: bigint): string => `${v < 0n ? "-" : ""}${(v < 0n ? -v : v) / SC
 const round2 = (v: bigint): bigint => ((v + 5_000n) / 10_000n) * 10_000n;
 const rateOn = (cur: Cur, date: string): bigint => { const keys = Object.keys(RATES[cur]).sort().filter((k) => k <= date); return toScaled(RATES[cur][keys[keys.length - 1]!]!); };
 
-export interface Outcome { oracle: string[]; tb: Map<string, bigint>; inv: Record<string, string>; residue: unknown[]; log: string[]; refused: string[] }
+export interface Outcome { oracle: string[]; tb: Map<string, bigint>; asOf: Record<string, Map<string, bigint>>; inv: Record<string, string>; residue: unknown[]; log: string[]; refused: string[] }
+
+export const AS_OF_DAYS = ["2026-08-31", "2026-09-30"] as const;
 
 export async function play(trial: Trial, ops: Op[]): Promise<Outcome> {
   const world: SeededWorld = await seededWorld({ seedDemoData: false });
@@ -191,6 +262,11 @@ export async function play(trial: Trial, ops: Op[]): Promise<Outcome> {
         continue;
       }
       if (op.k === OpKind.Undo) { await call(`undo ${op.alloc}`, "POST", `/allocations/${op.alloc}/reverse`, {}); continue; }
+      if (op.k === OpKind.Redo) {
+        const rest = await remaining(op.voucher);
+        await call(`redo ${op.alloc} ${rest}`, "POST", `/vouchers/${op.voucher}/allocations`, { allocationId: op.alloc, invoiceId: trial.items[op.item]!.id, amount: rest, ...(op.explicit ? { date: TODAY } : {}) });
+        continue;
+      }
       const item = trial.items[op.item]!;
       const open = foreignOpen.get(op.item) ?? 0n;
       if (op.k === OpKind.Pay) {
@@ -259,6 +335,10 @@ export async function play(trial: Trial, ops: Op[]): Promise<Outcome> {
           await call(`cheque-deposit ${op.id}`, "POST", `/cheques/${op.id}/deposit`, { bankTreasuryAccountId: "ta-bank" });
           const bounced = await call(`cheque-bounce ${op.id} ${op.bounce}`, "POST", `/cheques/${op.id}/bounce`, { date: op.bounce });
           if (bounced.status < 300 && res.status < 300) foreignOpen.set(op.item, open);
+          if (op.replace && bounced.status < 300 && item.side === Side.Receivable) {
+            const replaced = await call(`cheque-replace ${op.id} ${op.replace}`, "POST", `/cheques/${op.id}/replace`, { newCheque: { id: `${op.id}-rp`, chequeNumber: `N-${op.id}-rp`, bankName: "بنك مصر", issueDate: op.replace, dueDate: op.replace, branchId: "BR-MAIN" }, date: op.replace });
+            if (replaced.status < 300) await call(`cheque-allocate ${op.id}-rp`, "POST", `/cheques/${op.id}-rp/allocations`, { allocationId: `al-${op.id}-rp`, invoiceId: item.id, amount: base });
+          }
         }
       }
     }
@@ -272,7 +352,7 @@ export async function play(trial: Trial, ops: Op[]): Promise<Outcome> {
     for (const side of [Side.Receivable, Side.Payable]) {
       const mine = [...trial.items.entries()].filter(([, item]) => item.side === side);
       if (mine.length === 0) continue;
-      if (trial.ops.some((op) => op.k === OpKind.Undo || ("item" in op && trial.items[op.item]!.side === side && (op.k === OpKind.OnAccount || op.k === OpKind.Cheque)))) continue;
+      if (trial.ops.some((op) => op.k === OpKind.Undo || op.k === OpKind.Redo || ("item" in op && trial.items[op.item]!.side === side && (op.k === OpKind.OnAccount || op.k === OpKind.Cheque)))) continue;
       if (mine.some(([index]) => (foreignOpen.get(index) ?? 0n) < 0n)) continue;
       const row = world.sqlite.prepare(`SELECT COALESCE(SUM(jl.debit - jl.credit),0) AS net FROM journal_line jl JOIN journal_entry je ON je.id = jl.entry_id WHERE je.status IN ('posted','reversed') AND jl.account_id = ?`).safeIntegers().get(CONTROL[side]) as { net: bigint };
       let expected = 0n;
@@ -288,7 +368,7 @@ export async function play(trial: Trial, ops: Op[]): Promise<Outcome> {
       if ((gap < 0n ? -gap : gap) > 50_000n) oracle.push(`${CONTROL[side]} expected ${fmt(expected)} (${parts.join(" + ")}) but holds ${fmt(row.net)} (gap ${fmt(gap)})`);
     }
     log.push(`foreignOpen ${[...foreignOpen.entries()].map(([i, v]) => `${trial.items[i]!.id}=${fmt(v)}`).join(" ")}`);
-    return { oracle, tb: snapshot("9999-12-31"), inv, residue, log, refused };
+    return { oracle, tb: snapshot("9999-12-31"), asOf: Object.fromEntries(AS_OF_DAYS.map((day) => [day, snapshot(day)])), inv, residue, log, refused };
   } finally {
     world.close();
   }

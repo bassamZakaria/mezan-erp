@@ -247,3 +247,90 @@ describe("nothing in a currency is dated on or before a run that still stands fo
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });
+
+describe("a relief that is later undone, made again or bounced leaves the same books whichever order the runs were posted in", () => {
+  enum Act {
+    Invoice = "the invoice",
+    EgpReceipt = "EGP 19,480 allocated 10 September",
+    UsdReceipt = "USD 400 allocated 10 September",
+    Undo = "the allocation undone",
+    Redo = "the same money allocated again",
+    ChequeBounced = "a cheque allocated 10 September and bounced 20 September",
+    AugustRun = "the August run",
+    MidSeptemberRun = "the 15 September run",
+    SeptemberRun = "the September run",
+  }
+
+  async function act(step: Act): Promise<void> {
+    if (step === Act.Invoice) {
+      books = await openFxBooks();
+      await books.invoice(FxSide.Receivable, "inv-usd", { date: "2026-08-01" });
+      for (const [id, value, day] of [["fx-aug", "48.45", "2026-08-31"], ["fx-s10", "48.70", "2026-09-10"], ["fx-s20", "48.80", "2026-09-20"], ["fx-sep", "48.95", "2026-09-30"], ["fx-oct", "49.30", "2026-10-02"]] as const) await books.rate(id, value, day);
+    }
+    if (step === Act.EgpReceipt) await books.settle(FxSide.Receivable, "v1", "19480");
+    if (step === Act.UsdReceipt) {
+      await books.voucher(FxSide.Receivable, "v1", "400", { currency: "USD" });
+      await books.ok("POST", "/vouchers/v1/allocations", { allocationId: "al-v1", invoiceId: "inv-usd", amount: "19480" });
+    }
+    if (step === Act.Undo) await books.ok("POST", "/allocations/al-v1/reverse", {}, 200);
+    if (step === Act.Redo) await books.ok("POST", "/vouchers/v1/allocations", { allocationId: "al-v1-again", invoiceId: "inv-usd", amount: "19480" });
+    if (step === Act.ChequeBounced) {
+      await books.cheque(FxSide.Receivable, "c1", "19480");
+      await books.allocateCheque(FxSide.Receivable, "c1", "19480");
+      await books.ok("POST", "/cheques/c1/deposit", { bankTreasuryAccountId: "ta-bank" }, 200);
+      await books.ok("POST", "/cheques/c1/bounce", { date: "2026-09-20" }, 200);
+    }
+    if (step === Act.AugustRun) await books.ok("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: false });
+    if (step === Act.MidSeptemberRun) await books.ok("POST", "/revaluation/post", { date: "2026-09-15", currencies: ["USD"], autoReverse: false });
+    if (step === Act.SeptemberRun) await books.ok("POST", "/revaluation/post", { date: "2026-09-30", currencies: ["USD"], autoReverse: false });
+  }
+
+  const asOfSeptemberEnd = () => ({
+    control: major(books.world.balance("1105", "2026-09-30")),
+    unrealised: major(-(books.world.balance("4940", "2026-09-30") + books.world.balance("5940", "2026-09-30"))),
+    realised: major(-(books.world.balance("4920", "2026-09-30") + books.world.balance("5920", "2026-09-30"))),
+  });
+  const figures = (control: bigint, unrealised: bigint, realised: bigint) => ({ control: major(control * SCALE), unrealised: major(unrealised * SCALE), realised: major(realised * SCALE) });
+  const named = (steps: readonly Act[]) => ({ steps, order: steps.slice(1).join(", then ") });
+
+  it.each([
+    [Act.Invoice, Act.AugustRun, Act.EgpReceipt, Act.SeptemberRun, Act.Undo],
+    [Act.Invoice, Act.EgpReceipt, Act.Undo, Act.AugustRun, Act.SeptemberRun],
+    [Act.Invoice, Act.EgpReceipt, Act.AugustRun, Act.SeptemberRun, Act.Undo],
+    [Act.Invoice, Act.AugustRun, Act.UsdReceipt, Act.SeptemberRun, Act.Undo],
+    [Act.Invoice, Act.UsdReceipt, Act.Undo, Act.AugustRun, Act.SeptemberRun],
+  ].map(named))("R1 — $order: USD 1,000 stands at 48,750 against the 19,480 on account, unrealised 750, nothing realised; 30 September reads 29,370.00", async ({ steps }) => {
+    for (const step of steps) await act(step);
+
+    expect(books.fx(FxSide.Receivable)).toEqual(figures(29_270n, 750n, 0n));
+    expect(asOfSeptemberEnd()).toEqual(figures(29_370n, 750n, 100n));
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each([
+    [Act.Invoice, Act.UsdReceipt, Act.SeptemberRun, Act.Undo, Act.Redo],
+    [Act.Invoice, Act.UsdReceipt, Act.Undo, Act.Redo, Act.SeptemberRun],
+    [Act.Invoice, Act.EgpReceipt, Act.SeptemberRun, Act.Undo, Act.Redo],
+    [Act.Invoice, Act.EgpReceipt, Act.Undo, Act.Redo, Act.SeptemberRun],
+  ].map(named))("R2 — $order: the money allocated again takes 228 of the run's 570, the USD 600 left is carried at 29,142.00 and 52 is realised", async ({ steps }) => {
+    for (const step of steps) await act(step);
+
+    expect(books.fx(FxSide.Receivable)).toEqual(figures(29_142n, 570n, 52n));
+    expect(asOfSeptemberEnd()).toEqual(figures(29_370n, 570n, 280n));
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each([
+    [Act.Invoice, Act.AugustRun, Act.ChequeBounced, Act.MidSeptemberRun],
+    [Act.Invoice, Act.ChequeBounced, Act.AugustRun, Act.MidSeptemberRun],
+  ].map(named))("R3 — $order: the bounce hands August's 180 back and the invoice stands at 48,600.00 with 600 unrealised", async ({ steps }) => {
+    for (const step of steps) await act(step);
+
+    expect(books.fx(FxSide.Receivable)).toEqual(figures(48_600n, 600n, 0n));
+    expect(major(books.world.balance("1105", "2026-09-15"))).toBe(major(29_220n * SCALE));
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});

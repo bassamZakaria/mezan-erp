@@ -62,9 +62,10 @@ export {
   type FxOpenItemRef,
   type FxRevaluationShareRecord,
   type FxRevaluationShareRepository,
+  type FxShareRelief,
   laterDay,
   settlementSplit,
-  relievedRevaluationShare,
+  settlementWithShares,
   sumActive,
   summarize,
   allocate,
@@ -125,3 +126,4 @@ export {
   HeldAllocationRefusedError,
 } from "./errors.js";
 export { AllocationDateTooEarlyError, laterAllocationDay } from "./allocation-day.js";
+export { FxItemEventKind, fxItemOpenOn, fxItemTimeline, walkRunShare, type FxItemEvent, type FxItemTimeline, type RunShareStep, type RunShareWalk } from "./revaluation-share-timeline.js";

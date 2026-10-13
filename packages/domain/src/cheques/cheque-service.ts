@@ -60,6 +60,7 @@ import {
   type AllocationRepository,
   type InvoiceReturnCreditPort,
   type VoucherAllocation,
+  FxOpenItemType,
 } from "../vouchers/allocation.js";
 import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
 import { laterAllocationDay } from "../vouchers/allocation-day.js";
@@ -499,8 +500,8 @@ export class ChequeService {
           ...(realisedFx
             ? {
                 rates: (invoice) => settlementRatesFor(realisedFx, invoice, money),
-                unconsumedShare: async (invoice) => (await realisedFx.revaluationShare?.(invoice)) ?? Money.zero(),
-                unconsumedMoneyShare: async () => (raisedLine?.fxRate ? ((await realisedFx.moneyRevaluationShare?.(cheque.id)) ?? Money.zero()) : Money.zero()),
+                revaluationShare: async (invoice, relief) => (await realisedFx.revaluationShareTaken?.({ id: invoice.id, type: FxOpenItemType.Invoice }, relief)) ?? Money.zero(),
+                moneyRevaluationShare: async (relief) => (raisedLine?.fxRate ? ((await realisedFx.revaluationShareTaken?.({ id: cheque.id, type: FxOpenItemType.Money }, relief)) ?? Money.zero()) : Money.zero()),
                 beforeSave: async (invoice, split, date) => {
                   const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
                   const rates = await settlementRatesFor(realisedFx, invoice, money);

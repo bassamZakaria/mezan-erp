@@ -673,12 +673,29 @@ describe("a served company whose database file does not hold its own books", () 
     const answers = await everyWayIn(second, emptied);
     await second.app.close();
 
-    const NOT_SEEDED = { users: 0, branches: 0, warehouses: 0, taxRates: 0, fiscalPeriods: 0 };
+    const NOT_SEEDED = { accounts: 0, users: 0, branches: 0, warehouses: 0, taxRates: 0, fiscalPeriods: 0 };
     expect(answers.seed.json).toMatchObject(NOT_SEEDED);
     expect(answers.status.json).toMatchObject({ ...NOT_SEEDED, claimed: true });
     expect([answers.login.status, answers.attacker.status, answers.seedAdmin.status]).toEqual([401, 401, 401]);
     expect(answers.claim.status).toBe(409);
     expect(inBooks(emptied.file, (sqlite) => sqlite.prepare("SELECT COUNT(*) AS n FROM user").get())).toEqual({ n: 0 });
+    expect(inBooks(emptied.file, (sqlite) => sqlite.prepare("SELECT code FROM account ORDER BY code").all())).toEqual([]);
+  });
+
+  it("still gives a served company's own books the standard accounts they were seeded without", async () => {
+    const env = harnessEnv({}, {}, harnessDirs);
+    const first = await boot(env);
+    const nile = await company(first, env, "nile");
+    await first.app.close();
+    inBooks(nile.file, (sqlite) => sqlite.exec("DELETE FROM account WHERE code IN ('4920', '5940')"));
+
+    const second = await boot(env);
+    expect((await signIn(second, nile)).status).toBe(200);
+    await second.app.close();
+
+    expect(inBooks(nile.file, (sqlite) => sqlite.prepare("SELECT code FROM account WHERE code IN ('4920', '4940', '5920', '5940') ORDER BY code").all())).toEqual([
+      { code: "4920" }, { code: "4940" }, { code: "5920" }, { code: "5940" },
+    ]);
   });
 
   it("keeps the seed route closed on a served company's database whose chart of accounts was emptied under it", async () => {

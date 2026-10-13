@@ -262,7 +262,7 @@ import {
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
-import { SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
+import { isEmptyTenant, SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
 import type { BackendModuleContext } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
@@ -638,8 +638,10 @@ export interface CreateBackendOptions {
   // and compared on every open; a database bound to another tenant is refused
   // before anything else is written. Omitted by the desktop, which has no tenants.
   readonly tenantBinding?: string;
-  // SECURITY: false for a tenant that already has books. An empty database is
-  // then left empty: seeding it would create the fallback admin account.
+  // SECURITY: false for a tenant that already has books. A database with no
+  // chart of accounts is then left with no row added to it: seeding it would
+  // create the fallback admin account, and topping it up would leave four
+  // accounts that make it look seeded.
   readonly seedWhenEmpty?: boolean;
   /**
    * The VERIFIED capability set every module-gated route group is checked
@@ -2639,13 +2641,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     labelLayouts,
   };
   if (seedWhenEmpty) await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
+  const leftEmpty = !seedWhenEmpty && (await isEmptyTenant(seedStores));
 
   /**
    * Books seeded before a template account existed get it now (D229: the
    * exchange-difference accounts). Idempotent; it adds, and never renames or
    * repurposes an account — posted history stays where it was posted.
    */
-  {
+  if (!leftEmpty) {
     const { added, skipped } = await addMissingStandardAccounts(accounts);
     if (added.length > 0) console.info(`[chart-of-accounts] added standard account(s) ${added.join(", ")}`);
     if (skipped.length > 0) {

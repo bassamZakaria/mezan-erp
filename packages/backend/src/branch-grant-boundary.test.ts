@@ -2028,15 +2028,18 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     readonly schema: SampledSchema;
     readonly table: string;
     readonly foreignIdSql: string;
+    readonly valid?: (sampled: Record<string, unknown>, id: string) => Record<string, unknown>;
   }
   const TAKEOVERS: readonly Takeover[] = [
     { route: "/field/vans", schema: contracts.createVanSchema, table: "van", foreignIdSql: "SELECT id FROM van WHERE branch_id = 'BR-MAIN' LIMIT 1" },
     { route: "/field/van-trips", schema: contracts.openVanTripSchema, table: "van_trip", foreignIdSql: "SELECT id FROM van_trip WHERE branch_id = 'BR-MAIN' LIMIT 1" },
     { route: "/crm/opportunities", schema: contracts.createOpportunitySchema, table: "crm_opportunity", foreignIdSql: "SELECT id FROM crm_opportunity WHERE id = 'OPP-DEMO-7'" },
-    { route: "/hr/payroll/runs", schema: contracts.createPayrollRunSchema, table: "hr_payroll_run", foreignIdSql: "SELECT id FROM hr_payroll_run WHERE id = 'PR-DEMO-3'" },
-    { route: "/cheques", schema: contracts.createChequeSchema, table: "cheque", foreignIdSql: "SELECT id FROM cheque WHERE branch_id = 'BR-MAIN' LIMIT 1" },
-    { route: "/vouchers", schema: contracts.createVoucherSchema, table: "voucher", foreignIdSql: "SELECT id FROM voucher WHERE branch_id = 'BR-MAIN' LIMIT 1" },
-    { route: "/sales-invoices", schema: contracts.createSalesInvoiceSchema, table: "sales_invoice", foreignIdSql: "SELECT id FROM sales_invoice WHERE branch_id = 'BR-MAIN' LIMIT 1" },
+    { route: "/hr/payroll/runs", schema: contracts.createPayrollRunSchema, table: "hr_payroll_run", foreignIdSql: "SELECT id FROM hr_payroll_run WHERE id = 'PR-DEMO-3'", valid: (sampled) => ({ ...sampled, year: 2099, month: 1 }) },
+    { route: "/cheques", schema: contracts.createChequeSchema, table: "cheque", foreignIdSql: "SELECT id FROM cheque WHERE branch_id = 'BR-MAIN' LIMIT 1",
+      valid: (sampled) => ({ ...sampled, chequeNumber: "D111-R4-0099", bankName: "بنك مصر", partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" } }),
+    },
+    { route: "/vouchers", schema: contracts.createVoucherSchema, table: "voucher", foreignIdSql: "SELECT id FROM voucher WHERE branch_id = 'BR-MAIN' LIMIT 1", valid: (sampled) => ({ ...sampled, partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105" }) },
+    { route: "/sales-invoices", schema: contracts.createSalesInvoiceSchema, table: "sales_invoice", foreignIdSql: "SELECT id FROM sales_invoice WHERE branch_id = 'BR-MAIN' LIMIT 1", valid: (_sampled, id) => salesInvoice(id, ALEX, ALEX_WAREHOUSE) },
   ];
   const storedReferences = () => ({
     branchId: ALEX,
@@ -2079,11 +2082,12 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     expect(taken.body).toEqual(unknownReference.body);
   });
 
-  it.each(TAKEOVERS)("$route — a user granted both branches is told the id is taken, and the row is untouched", async ({ route, schema, table, foreignIdSql }) => {
+  it.each(TAKEOVERS)("$route — a user granted both branches is told the id is taken, and the row is untouched", async ({ route, schema, table, foreignIdSql, valid }) => {
     const id = one<{ id: string }>(foreignIdSql)!.id;
     const before = rowOf(table, id);
     const entries = journalCount();
-    const res = await bothBranches("POST", route, sampleOf(schema, { ...storedReferences(), id }));
+    const sampled = sampleOf(schema, { ...storedReferences(), id }) as Record<string, unknown>;
+    const res = await bothBranches("POST", route, valid ? valid(sampled, id) : sampled);
     expect(res.status, `${route} ${JSON.stringify(res.body).slice(0, 200)}`).toBe(409);
     expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
     expect(res.body?.message).toMatch(ARABIC);

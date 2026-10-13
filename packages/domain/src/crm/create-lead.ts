@@ -1,7 +1,6 @@
 import type { Money } from "../money/index.js";
 import { InvalidLeadError } from "./errors.js";
 import type { Lead, LeadRepository, LeadSource } from "./lead.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateLeadCommand {
   readonly id: string;
@@ -25,7 +24,6 @@ function validate(command: CreateLeadCommand): string[] {
 
 /** Creates and persists a new lead. New leads always start `new` (docs/archive/catalog/06 "العملاء المحتملون"). */
 export async function createLead(command: CreateLeadCommand, repo: LeadRepository): Promise<Lead> {
-  assertRecordIdIsNew(await repo.findById(command.id), command.id);
   const reasons = validate(command);
   if (reasons.length > 0) throw new InvalidLeadError(reasons);
 

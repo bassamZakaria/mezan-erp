@@ -1,3 +1,4 @@
+import { insertOnly } from "../records/test-helpers/insert-only.js";
 /**
  * تسجيل الإقرارات الضريبية المقدَّمة — the record that a VAT period was filed.
  *
@@ -51,8 +52,8 @@ function repository(seed: readonly VatFiling[] = []): FakeRepo {
       rows.set(filing.id, filing);
     },
     async insert(filing: VatFiling) {
+      insertOnly(rows, filing.id, filing);
       store.saves += 1;
-      rows.set(filing.id, filing);
     },
     async findCovering(date: string) {
       return [...rows.values()].filter((f) => f.periodFrom <= date && f.periodTo >= date);

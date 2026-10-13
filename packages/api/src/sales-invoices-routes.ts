@@ -81,7 +81,7 @@ import {
   stampDocumentModifier,
   type DocumentVersionGuard,
 } from "./document-version.js";
-import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
@@ -583,8 +583,6 @@ export function createSalesInvoicesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => service(c).findById(id));
-    if (takenId) return takenId;
     const d = parsed.data;
     const currencyRefusal = await deps.currencyCheck?.(d.currency);
     if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);

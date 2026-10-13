@@ -24,7 +24,7 @@ import {
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
-import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 const AUDITED_PRICE_LIST_FIELDS = ["code", "nameAr", "nameEn", "description", "isBase", "active"] as const;
@@ -205,8 +205,6 @@ export function createPriceListsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => repo.findById(id));
-    if (takenId) return takenId;
     try {
       const existing = await repo.list();
       if (existing.some((pl) => pl.code === parsed.data.code)) {

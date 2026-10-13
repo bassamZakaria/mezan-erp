@@ -51,7 +51,6 @@ import {
   InvalidSalesInvoicePaymentError,
   SalesInvoiceNotFoundError,
 } from "./errors.js";
-import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 /**
  * Credit-control deps (docs/archive/catalog/01/09 §"الرقابة الائتمانية"), optional so
@@ -285,9 +284,6 @@ export class SalesInvoiceService {
 
   /** Open a new مسودة (draft): validated and persisted, not numbered or posted. */
   async createDraft(cmd: CreateSalesInvoiceCommand): Promise<SalesInvoice> {
-    if (await this.deps.repo.findById(cmd.id)) {
-      throw new DuplicateRecordIdError(cmd.id);
-    }
     const invoice = this.buildDraft(cmd, await this.resolveTaxPolicy());
     this.validate(invoice);
     await this.deps.repo.save(invoice);

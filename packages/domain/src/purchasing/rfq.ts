@@ -26,7 +26,6 @@ import {
   RfqNotSentError,
   RfqQuoteNotFoundError,
 } from "./errors.js";
-import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const PURCHASE_RFQ_SEQUENCE = "PURCHASE_RFQ";
 
@@ -157,9 +156,6 @@ function validateCreate(command: CreateRfqCommand): void {
 
 /** Create a مسودة (draft) RFQ: validate, allocate the next RFQ number, persist. */
 export async function createRfq(command: CreateRfqCommand, deps: RfqDeps): Promise<PurchaseRfq> {
-  if (await deps.rfqs.findById(command.id)) {
-    throw new DuplicateRecordIdError(command.id);
-  }
   validateCreate(command);
   const number = await deps.numbering.next(PURCHASE_RFQ_SEQUENCE);
   const rfq: PurchaseRfq = {

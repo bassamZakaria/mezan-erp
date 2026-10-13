@@ -77,7 +77,7 @@ import {
 import { branchesOfWarehouses, withinBranchGrant } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
-import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
@@ -577,8 +577,6 @@ export function createManufacturingRoutes(
   app.post("/work-stations", gate("manufacturing.bom.manage"), async (c) => {
     const parsed = createWorkStationSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.workStations.findById(id));
-    if (takenId) return takenId;
     try {
       return c.json(serializeWorkStation(await createWorkStation(parsed.data, stationDeps)), 201);
     } catch (err) {
@@ -760,8 +758,6 @@ export function createManufacturingRoutes(
   app.post("/work-orders", gate("manufacturing.wo.create"), async (c) => {
     const parsed = createWorkOrderSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.workOrders.findById(id));
-    if (takenId) return takenId;
     try {
       const refusals = await warehouseRefusals(deps, [
         { label: "مستودع المواد الخام", id: parsed.data.sourceWarehouseId },
@@ -1000,8 +996,6 @@ export function createManufacturingRoutes(
   app.post("/config-instances", gate("manufacturing.wo.create"), async (c) => {
     const parsed = createConfigInstanceSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.configInstances.findById(id));
-    if (takenId) return takenId;
     const customerRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Customer, ids: [parsed.data.customerId] },
     ]);

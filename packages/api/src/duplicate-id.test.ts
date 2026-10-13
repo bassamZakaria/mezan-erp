@@ -1,0 +1,81 @@
+import { Hono } from "hono";
+import { describe, expect, it } from "vitest";
+import { DuplicateRecordIdError, RecordErrorCode } from "@mezan/domain";
+import type { ConfigTransactor } from "./config-transactor.js";
+import { duplicateIdRefusal, refusedCreateRollsBack } from "./duplicate-id.js";
+
+function harness() {
+  const rows = new Map<string, string>();
+  let transactions = 0;
+  const transactor: ConfigTransactor = {
+    async run(fn) {
+      transactions += 1;
+      const before = new Map(rows);
+      try {
+        return await fn();
+      } catch (err) {
+        rows.clear();
+        for (const [key, value] of before) rows.set(key, value);
+        throw err;
+      }
+    },
+  };
+  const app = new Hono();
+  app.use("*", refusedCreateRollsBack(transactor));
+  app.post("/made", async (c) => {
+    rows.set("number", "DOC-0001");
+    return c.json({ ok: true }, 201);
+  });
+  app.post("/refused", async (c) => {
+    rows.set("number", "DOC-0001");
+    return duplicateIdRefusal(c, new DuplicateRecordIdError("X-1"));
+  });
+  app.post("/thrown", async () => {
+    rows.set("number", "DOC-0001");
+    throw new DuplicateRecordIdError("X-1");
+  });
+  app.post("/invalid", async (c) => {
+    rows.set("number", "DOC-0001");
+    return c.json({ error: "INVALID" }, 422);
+  });
+  app.onError((err, c) => (err instanceof DuplicateRecordIdError ? duplicateIdRefusal(c, err) : c.json({ error: "INTERNAL" }, 500)));
+  const post = (path: string, body: unknown) => app.fetch(new Request(`http://local${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+  return { rows, post, transactions: () => transactions };
+}
+
+describe("a create refused for a taken id leaves nothing behind", () => {
+  it("keeps what a successful create wrote", async () => {
+    const { rows, post } = harness();
+    expect((await post("/made", { id: "X-1" })).status).toBe(201);
+    expect(rows.get("number")).toBe("DOC-0001");
+  });
+
+  it("undoes everything the handler wrote before it answered the refusal", async () => {
+    const { rows, post } = harness();
+    const res = await post("/refused", { id: "X-1" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(RecordErrorCode.DuplicateId);
+    expect(rows.size).toBe(0);
+  });
+
+  it("undoes it when the store's refusal is thrown and mapped by the last net", async () => {
+    const { rows, post } = harness();
+    expect((await post("/thrown", { id: "X-1" })).status).toBe(409);
+    expect(rows.size).toBe(0);
+  });
+
+  it("covers an id named one object down", async () => {
+    const { rows, post } = harness();
+    expect((await post("/refused", { newCheque: { id: "X-1" } })).status).toBe(409);
+    expect(rows.size).toBe(0);
+  });
+
+  it("does not touch another refusal, and opens no transaction for a body that names no id", async () => {
+    const { rows, post, transactions } = harness();
+    expect((await post("/invalid", { id: "X-1" })).status).toBe(422);
+    expect(rows.get("number")).toBe("DOC-0001");
+    const opened = transactions();
+    expect((await post("/made", { name: "بلا معرّف" })).status).toBe(201);
+    expect(transactions()).toBe(opened);
+  });
+});

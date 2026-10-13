@@ -9,7 +9,6 @@
 
 import { InvalidManufacturingDocumentError } from "./errors.js";
 import type { ActivationStatus } from "./types.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface WorkStation {
   readonly id: string;
@@ -50,7 +49,6 @@ export async function createWorkStation(
   command: CreateWorkStationCommand,
   deps: WorkStationDeps,
 ): Promise<WorkStation> {
-  assertRecordIdIsNew(await deps.stations.findById(command.id), command.id);
   const reasons: string[] = [];
   if (command.code.trim() === "") reasons.push("محطة العمل تحتاج كوداً.");
   if (command.nameAr.trim() === "") reasons.push("محطة العمل تحتاج اسماً بالعربية.");

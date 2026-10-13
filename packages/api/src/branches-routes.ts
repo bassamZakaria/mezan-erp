@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { createBranch, updateBranch, InvalidBranchError, type BranchRepository } from "@mezan/domain";
+import { DuplicateRecordIdError } from "@mezan/domain";
+import { duplicateIdRefusal } from "./duplicate-id.js";
 import { createBranchSchema, updateBranchSchema } from "@mezan/contracts";
 import { branchGrantOf, createAuthenticatedGate, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { canSeeUnattributed } from "./branch-view.js";
@@ -45,8 +47,12 @@ export function createBranchesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const existing = await store.findAll();
+    if (existing.some((branch) => branch.id !== parsed.data.id && branch.code === parsed.data.code)) {
+      return c.json({ error: "DUPLICATE_BRANCH_CODE", message: `كود الفرع «${parsed.data.code}» مستخدم بالفعل.`, messageEn: `Branch code "${parsed.data.code}" is already in use.` }, 409);
+    }
     const limit = c.get("entitlements")?.limits?.branches;
-    if (limit !== undefined && (await store.findAll()).length >= limit) {
+    if (limit !== undefined && existing.length >= limit) {
       return c.json(
         { error: "BRANCH_LIMIT_REACHED", message: "وصلتم إلى الحد الأقصى للفروع في باقتكم" },
         409,
@@ -57,6 +63,7 @@ export function createBranchesRoutes(
       await store.insert(branch);
       return c.json(branch, 201);
     } catch (err) {
+      if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
       if (err instanceof InvalidBranchError) {
         return c.json({ error: err.code, message: err.message }, 422);
       }

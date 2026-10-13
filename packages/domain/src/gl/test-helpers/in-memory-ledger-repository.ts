@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import { Money } from "../../money/index.js";
 import type { JournalEntry } from "../../journal.js";
 import type { SequenceStore } from "../../numbering/index.js";
@@ -19,7 +20,7 @@ export class InMemoryLedgerRepository implements LedgerRepository {
   private readonly rows = new Map<string, JournalEntry>();
 
   async save(entry: JournalEntry): Promise<void> {
-    this.rows.set(entry.id, entry);
+    insertOnly(this.rows, entry.id, entry);
   }
 
   async update(entry: JournalEntry): Promise<void> {

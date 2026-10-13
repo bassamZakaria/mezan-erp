@@ -35,7 +35,6 @@ import { type AuthContextResolver, callerUserId, createPermissionGate } from "./
 import { handleDocumentError } from "./document-error-handling.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { tenantDay } from "./tenant-day.js";
-import { refuseExistingId } from "./duplicate-id.js";
 
 function serializePlanLine(l: InstallmentLine) {
   return {
@@ -456,8 +455,6 @@ export function createInstallmentsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const taken = refuseExistingId(c, await deps.followUps.findById(parsed.data.id), parsed.data.id);
-    if (taken) return taken;
     const followUp = createFollowUp({ ...parsed.data, createdAt: new Date().toISOString() });
     await deps.followUps.insert(followUp);
     return c.json(serializeFollowUp(followUp), 201);

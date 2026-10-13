@@ -18,7 +18,6 @@ import {
   FormulaError,
   InvalidManufacturingDocumentError,
 } from "./errors.js";
-import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 export interface ConfigInput {
   /** Formula variable id, e.g. `width` (المعرف للمعادلات). */
@@ -171,9 +170,6 @@ export async function createConfigurableProduct(
   command: UpsertConfigurableProductCommand,
   deps: ConfigurableProductDeps,
 ): Promise<ConfigurableProduct> {
-  if (await deps.products.findById(command.id)) {
-    throw new DuplicateRecordIdError(command.id);
-  }
   const { inputs, materials, pricingMethod } = validate(command);
   const product: ConfigurableProduct = {
     id: command.id,

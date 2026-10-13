@@ -35,7 +35,7 @@ import {
   branchScopeOf,
   withinScope,} from "./permission-gate.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
-import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
@@ -269,8 +269,6 @@ export function createRfqRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.quotes.findById(id));
-    if (takenId) return takenId;
     const supplierRefusal = await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Supplier, ids: [parsed.data.supplierId] }]);
     if (supplierRefusal) return supplierRefusal;
     try {

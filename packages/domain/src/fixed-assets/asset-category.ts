@@ -1,5 +1,4 @@
 import { DuplicateAssetCategoryCodeError, InvalidAssetCategoryError } from "./errors.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 /**
  * Fixed Assets — Asset Categories (docs/archive/catalog/07-mfg-projects-assets.md
@@ -87,7 +86,6 @@ export async function createAssetCategory(
   repo: AssetCategoryRepository,
 ): Promise<AssetCategory> {
   const existing = await repo.list();
-  assertRecordIdIsNew(existing.find((row) => row.id === command.id), command.id);
   if (existing.some((c) => c.code === command.code)) {
     throw new DuplicateAssetCategoryCodeError(command.code);
   }

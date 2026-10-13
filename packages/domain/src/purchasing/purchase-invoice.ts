@@ -40,7 +40,6 @@ import {
   PurchaseItemsAlreadyConsumedError,
   ReceiptRequiredError,
 } from "./errors.js";
-import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const PURCHASE_INVOICE_SEQUENCE = "PURCHASE_INVOICE";
 const TAX_SCALE = 1_000_000n; // percent carried to 1e-6 for exact tax math
@@ -408,9 +407,6 @@ export async function createPurchaseInvoice(
   command: CreatePurchaseInvoiceCommand,
   deps: CreatePurchaseInvoiceDeps,
 ): Promise<PurchaseInvoice> {
-  if (await deps.invoices.findById(command.id)) {
-    throw new DuplicateRecordIdError(command.id);
-  }
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
   if (policy.requireReceiptForInvoice && !command.receiptId) {
     throw new ReceiptRequiredError();

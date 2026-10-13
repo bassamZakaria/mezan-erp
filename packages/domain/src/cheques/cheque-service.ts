@@ -60,7 +60,6 @@ import {
 } from "../vouchers/allocation.js";
 import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
 import { allocationUndoDay, postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingLine, type SettlingMoney } from "../vouchers/realised-fx.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateChequeCommand {
   readonly id: string;
@@ -206,7 +205,6 @@ export class ChequeService {
 
   /** Record a newly received/issued cheque: status "pending", posts its creation GL entry. */
   async createCheque(cmd: CreateChequeCommand): Promise<Cheque> {
-    assertRecordIdIsNew(await this.deps.cheques.findById(cmd.id), cmd.id);
     const existing = await this.deps.cheques.findByChequeNumber(cmd.direction, cmd.chequeNumber);
     if (existing) throw new DuplicateChequeNumberError(cmd.direction, cmd.chequeNumber);
     // LEDGER INVARIANT: the receipt entry and the cheque row commit together.
@@ -521,7 +519,6 @@ export class ChequeService {
     const clash = await this.deps.cheques.findByChequeNumber("incoming", cmd.newCheque.chequeNumber);
     if (clash) throw new DuplicateChequeNumberError("incoming", cmd.newCheque.chequeNumber);
 
-    assertRecordIdIsNew(await this.deps.cheques.findById(cmd.newCheque.id), cmd.newCheque.id);
 
     return this.deps.cheques.transaction(async () => {
       // A replacement is a fresh receipt from the customer, so it credits their

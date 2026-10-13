@@ -11,7 +11,3 @@ export class DuplicateRecordIdError extends Error {
     this.name = "DuplicateRecordIdError";
   }
 }
-
-export function assertRecordIdIsNew(existing: unknown, recordId: string): void {
-  if (existing !== null && existing !== undefined) throw new DuplicateRecordIdError(recordId);
-}

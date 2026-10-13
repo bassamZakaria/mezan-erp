@@ -299,13 +299,14 @@ describe("field-sales router — full open -> cash movements -> settle flow", ()
  * the scope their session already carries.
  */
 describe("D70: a view_own van-sales rep reads their own trips, narrowed by scope", () => {
+  let openedTrips = 0;
   async function openTripIn(app: ReturnType<typeof newApp>["app"], vanWarehouseId: string): Promise<string> {
     const res = await app.fetch(
       req("/", {
         method: "POST",
         permissions: "field.van_trip.open",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...openPayload, vanWarehouseId }),
+        body: JSON.stringify({ ...openPayload, id: `trip-${++openedTrips}`, vanWarehouseId }),
       }),
     );
     expect(res.status).toBe(201);

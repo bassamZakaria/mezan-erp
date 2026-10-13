@@ -83,6 +83,11 @@ const journal = (id: string) => ({
   ],
 });
 
+const SITE_WAREHOUSE = "WH-SITE-TOWER";
+const CONFIRMED_SALES_INVOICE = "INV-H-202411-12";
+const ofxStatementFor = (accountNumber: string) =>
+  `<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>EGP</CURDEF><BANKACCTFROM><ACCTID>${accountNumber}</ACCTID></BANKACCTFROM><BANKTRANLIST><DTSTART>20990101</DTSTART><DTEND>20990131</DTEND><STMTTRN><TRNTYPE>CREDIT</TRNTYPE><DTPOSTED>20990105</DTPOSTED><TRNAMT>100.00</TRNAMT><FITID>DUP-F1</FITID><NAME>WIRE IN</NAME></STMTTRN></BANKTRANLIST><LEDGERBAL><BALAMT>100.00</BALAMT></LEDGERBAL></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`;
+
 const SEEDED_REFERENCES: Record<string, unknown> = {
   customerId: "CUST-DEMO-2",
   supplierId: "SUPP-DEMO-1",
@@ -91,6 +96,11 @@ const SEEDED_REFERENCES: Record<string, unknown> = {
   branchId: "BR-MAIN",
   itemId: "ITEM-DEMO-1",
   employeeId: "EMP-DEMO-1",
+  projectId: "PRJ-DEMO-1",
+  contractId: "CTR-DEMO-1",
+  subcontractId: "SUB-DEMO-1",
+  assetId: "ASSET-DEMO-PLANT-1",
+  issueId: "ISS-DEMO-1",
   currency: "EGP",
   date: TODAY,
 };
@@ -107,26 +117,42 @@ const UPDATE_BY_PATH = "an update of the record its path names; the code is an a
 const CREATE_ROUTES: Record<string, CreateRoute> = {
   createAccountSchema: { route: "/accounts", table: "account" },
   createAssetCategorySchema: { route: "/assets/categories", table: "asset_category" },
-  createAssetSchema: { route: "/assets", table: "asset" },
+  createAssetSchema: { route: "/assets", table: "asset", body: (sampled, _id, sqlite) => ({ ...sampled, code: "AST-DUP-ID", nameAr: "أصل اختبار", categoryId: firstId(sqlite, "asset_category"), acquisitionCost: "1000.00" }) },
   createAttachmentSchema: { route: "/attachments", table: "attachment" },
   createBomSchema: { route: "/manufacturing/boms", table: "bom" },
   createBranchSchema: { route: "/branches", table: "branch" },
-  createChequeSchema: { route: "/cheques", table: "cheque" },
-  createCollectionSchema: { route: "/vouchers/collections", table: "voucher" },
-  createConfigInstanceSchema: { route: "/manufacturing/config-instances", table: "config_instance" },
+  createChequeSchema: {
+    route: "/cheques",
+    table: "cheque",
+    body: (sampled) => ({ ...sampled, chequeNumber: "DUP-0099", bankName: "بنك مصر", branchId: "BR-MAIN", partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" } }),
+  },
+  createCollectionSchema: { route: "/vouchers/collections", table: "voucher", body: (sampled) => ({ ...sampled, customerId: "CUST-DEMO-2", branchId: "BR-MAIN", treasuryAccountId: "TR-DEMO-CASH" }) },
+  createConfigInstanceSchema: {
+    route: "/manufacturing/config-instances",
+    table: "config_instance",
+    body: (sampled) => ({ ...sampled, configurableProductId: "CFGP-DEMO-1", spec: { teaKg: "3", sugarKg: "5" }, qty: "1", sourceWarehouseId: "WH-MAIN", wipWarehouseId: "WH-WIP", destinationWarehouseId: "WH-MAIN", scheduledStartDate: TODAY }),
+  },
   createContractSchema: { route: "/hr/contracts", table: "hr_contract", body: (sampled) => ({ ...sampled, monthlySalary: "5000.00", allowances: [], deductions: [] }) },
   createCostCenterSchema: { route: "/cost-centers", table: "cost_center" },
   createCustomerSchema: { route: "/customers", table: "customer", body: (sampled) => ({ ...sampled, openingBalance: "500.00", openingBalanceDate: TODAY }) },
   createDepartmentSchema: { route: "/hr/departments", table: "hr_department" },
   createEmployeeAdvanceSchema: { route: "/hr/advances", table: "hr_employee_advance" },
   createEmployeeSchema: { route: "/hr/employees", table: "hr_employee" },
-  createEquipmentLogSchema: { route: "/contracting/site/equipment-logs", table: "equipment_log" },
+  createEquipmentLogSchema: { route: "/contracting/site/equipment-logs", table: "equipment_log", body: (sampled) => ({ ...sampled, date: TODAY, hours: "1" }) },
   createExchangeRateSchema: { route: "/exchange-rates", table: "exchange_rate" },
   createFollowUpSchema: { route: "/installments/follow-ups", table: "collection_follow_up" },
   createGarnishmentSchema: { route: "/hr/payroll/garnishments", table: "hr_garnishment" },
   createGlJournalEntrySchema: { route: "/gl/journal-entries", table: "journal_entry", body: (_e, id) => journal(id) },
-  createGoodsReceiptSchema: { route: "/purchases/receipts", table: "goods_receipt" },
-  createGuaranteeSchema: { route: "/contracting/guarantees", table: "contracting_guarantee" },
+  createGoodsReceiptSchema: {
+    route: "/purchases/receipts",
+    table: "goods_receipt",
+    body: (sampled) => ({ ...sampled, date: TODAY, supplierId: "SUPP-DEMO-1", branchId: "BR-MAIN", warehouseId: "WH-MAIN", lines: [{ itemId: "ITEM-DEMO-1", qty: "1", unitCost: "140" }] }),
+  },
+  createGuaranteeSchema: {
+    route: "/contracting/guarantees",
+    table: "contracting_guarantee",
+    body: (sampled) => ({ ...sampled, beneficiaryNameAr: "جهة مستفيدة", bankTreasuryAccountId: "TR-DEMO-BANK", projectId: "PRJ-DEMO-1", issueDate: "2026-01-15", expiryDate: "2027-01-15" }),
+  },
   createHolidaySchema: { route: "/hr/holidays", table: "hr_holiday" },
   createInstallmentPlanSchema: { route: "/installments/plans", table: "framework_document", existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'INSTALLMENT_PLAN' ORDER BY id LIMIT 1" },
   createItemCategorySchema: { route: "/item-categories", table: "item_category" },
@@ -145,47 +171,158 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
     },
   },
   createLeaveRequestSchema: { route: "/hr/leave-requests", table: "hr_leave_request" },
-  createMaterialConsumptionSchema: { route: "/contracting/site/consumptions", table: "material_consumption" },
-  createNotificationRuleSchema: { route: "/notification-rules", table: "notification_rule" },
+  createMaterialConsumptionSchema: {
+    route: "/contracting/site/consumptions",
+    table: "material_consumption",
+    body: (sampled) => ({ ...sampled, date: TODAY, warehouseId: SITE_WAREHOUSE, boqLineId: "CTR-DEMO-1-B2", lines: [{ itemId: "ITEM-DEMO-3", qty: "1" }] }),
+  },
+  createNotificationRuleSchema: { route: "/notification-rules", table: "notification_rule", body: (sampled) => ({ ...sampled, name: "قاعدة اختبار", eventCode: "SALES_INVOICE_CONFIRMED", recipientValue: "sales.invoice.view" }) },
   createOpportunitySchema: { route: "/crm/opportunities", table: "crm_opportunity" },
   createActivitySchema: { route: "/crm/activities", table: "crm_activity" },
   createPayrollComponentSchema: { route: "/hr/payroll/components", table: "hr_payroll_component" },
   createPayrollRunSchema: { route: "/hr/payroll/runs", table: "hr_payroll_run", body: (sampled) => ({ ...sampled, year: 2099, month: 1 }) },
   createPipelineStageSchema: { route: "/crm/pipeline-stages", table: "crm_pipeline_stage" },
   createPriceListSchema: { route: "/price-lists", table: "price_list" },
-  createProgressCertificateSchema: { route: "/contracting/certificates", table: "contracting_certificate" },
+  createProgressCertificateSchema: { route: "/contracting/certificates", table: "contracting_certificate", body: (sampled) => ({ ...sampled, periodFrom: "2026-11-01", periodTo: "2026-11-30" }) },
   createProjectSchema: { route: "/projects", table: "project", body: (sampled) => ({ ...sampled, costCenterId: "CC-NO-SUCH-CENTER" }) },
-  createPromotionSchema: { route: "/promotions", table: "promotion" },
+  createPromotionSchema: { route: "/promotions", table: "promotion", body: (sampled) => ({ ...sampled, code: "DUP-ID-PROMO", nameAr: "عرض اختبار", percentValue: 10 }) },
   createPurchaseInvoiceSchema: { route: "/purchases/invoices", table: "purchase_invoice", body: (_e, id) => purchaseDocument(id) },
   createPurchaseOrderSchema: { route: "/purchases/orders", table: "purchase_order" },
-  createPurchaseReturnSchema: { route: "/purchase-returns", table: "framework_document", existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'PURCHASE_RETURN' ORDER BY id LIMIT 1" },
+  createPurchaseReturnSchema: {
+    route: "/purchase-returns",
+    table: "framework_document",
+    existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'PURCHASE_RETURN' ORDER BY id LIMIT 1",
+    body: (sampled) => ({
+      ...sampled,
+      date: TODAY,
+      branchId: "BR-MAIN",
+      lines: [
+        { itemId: "ITEM-H-01", warehouseId: "WH-MAIN", supplierId: "SUPP-H-01", sourceInvoiceId: "PI-H-202401-01", sourceInvoiceNumber: "PI-000001", reason: "DEFECTIVE", availableQty: "600", qty: "1", unitCost: "23.76", taxAmount: "0" },
+      ],
+    }),
+  },
   createPurchaseRfqSchema: { route: "/rfqs", table: "purchase_rfq" },
-  createRecurringJournalTemplateSchema: { route: "/gl/recurring/templates", table: "recurring_journal_template" },
-  createRetentionReleaseSchema: { route: "/contracting/retention/releases", table: "contracting_retention_release" },
+  createRecurringJournalTemplateSchema: {
+    route: "/gl/recurring/templates",
+    table: "recurring_journal_template",
+    body: (sampled) => ({
+      ...sampled,
+      yearlyMonth: null,
+      endDate: null,
+      nameAr: "قالب اختبار",
+      memo: "قيد دوري للاختبار",
+      lines: [
+        { accountId: "5200", debit: "10.00", credit: "0" },
+        { accountId: "2190", debit: "0", credit: "10.00" },
+      ],
+    }),
+  },
+  createRetentionReleaseSchema: { route: "/contracting/retention/releases", table: "contracting_retention_release", body: (sampled) => ({ ...sampled, contractId: "CTR-DEMO-1", date: TODAY, amount: "1.00" }) },
   createSalesInvoiceSchema: { route: "/sales-invoices", table: "sales_invoice", body: (_e, id) => salesDocument(id) },
   createSalesQuoteSchema: { route: "/sales-quotes", table: "sales_quote", body: (_e, id) => salesDocument(id) },
-  createSalesReturnSchema: { route: "/sales-returns", table: "framework_document", existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'SALES_RETURN' ORDER BY id LIMIT 1" },
-  createSiteIssueSchema: { route: "/contracting/site/issues", table: "site_issue" },
-  createSiteReceiptSchema: { route: "/contracting/site/receipts", table: "site_receipt" },
-  createStockAdjustmentSchema: { route: "/inventory/stock-adjustments/draft", table: "stock_adjustment_document" },
-  createStockTransferSchema: { route: "/inventory/stock-transfers/draft", table: "stock_transfer_document" },
-  createSubCertificateSchema: { route: "/contracting/subcontract-certificates", table: "subcontract_certificate" },
-  createSubcontractSchema: { route: "/contracting/subcontracts", table: "subcontract" },
+  createSalesReturnSchema: {
+    route: "/sales-returns",
+    table: "framework_document",
+    existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'SALES_RETURN' ORDER BY id LIMIT 1",
+    body: (sampled, _id, sqlite) => ({
+      ...sampled,
+      date: TODAY,
+      branchId: "BR-MAIN",
+      lines: [
+        {
+          itemId: "ITEM-H-13",
+          warehouseId: "WH-MAIN",
+          customerId: "CUST-H-22",
+          sourceInvoiceId: CONFIRMED_SALES_INVOICE,
+          sourceInvoiceNumber: (sqlite.prepare("SELECT doc_no AS no FROM sales_invoice WHERE id = ?").get(CONFIRMED_SALES_INVOICE) as { no: string }).no,
+          reason: "DEFECTIVE",
+          availableQty: "51",
+          qty: "1",
+          unitPrice: "151.78",
+          unitCost: "115.657359",
+          taxAmount: "0",
+        },
+      ],
+    }),
+  },
+  createSiteIssueSchema: {
+    route: "/contracting/site/issues",
+    table: "site_issue",
+    body: (sampled) => ({ ...sampled, date: TODAY, fromWarehouseId: "WH-MAIN", toWarehouseId: SITE_WAREHOUSE, lines: [{ itemId: "ITEM-DEMO-3", qty: "1" }] }),
+  },
+  createSiteReceiptSchema: { route: "/contracting/site/receipts", table: "site_receipt", body: (sampled) => ({ ...sampled, date: TODAY, lines: [{ itemId: "ITEM-DEMO-3", qtyReceived: "1" }] }) },
+  createStockAdjustmentSchema: {
+    route: "/inventory/stock-adjustments/draft",
+    table: "stock_adjustment_document",
+    body: (sampled) => ({ ...sampled, date: TODAY, branchId: "BR-MAIN", lines: [{ itemId: "ITEM-DEMO-1", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "1", unitCost: "140" }] }),
+  },
+  createStockTransferSchema: {
+    route: "/inventory/stock-transfers/draft",
+    table: "stock_transfer_document",
+    body: (sampled) => ({ ...sampled, date: TODAY, branchId: "BR-MAIN", lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId: "WH-MAIN", toWarehouseId: "WH-DEMO-2", qty: "1" }] }),
+  },
+  createSubCertificateSchema: { route: "/contracting/subcontract-certificates", table: "subcontract_certificate", body: (sampled) => ({ ...sampled, periodFrom: "2026-11-01", periodTo: "2026-11-30" }) },
+  createSubcontractSchema: {
+    route: "/contracting/subcontracts",
+    table: "subcontract",
+    body: (sampled) => ({ ...sampled, titleAr: "عقد باطن للاختبار", signedDate: "2026-01-15", startDate: "2026-02-01", plannedEndDate: "2026-12-31" }),
+  },
   createSupplierSchema: { route: "/suppliers", table: "supplier", body: (sampled) => ({ ...sampled, openingBalance: "500.00" }) },
   createTaxRateSchema: { route: "/tax-rates", table: "tax_rate", body: (sampled) => ({ ...sampled, isDefault: true }) },
   createTreasuryAccountSchema: { route: "/treasury-accounts", table: "treasury_account" },
   createVanSchema: { route: "/field/vans", table: "van" },
-  createVariationOrderSchema: { route: "/contracting/variation-orders", table: "contract_variation_order" },
-  createVoucherSchema: { route: "/vouchers", table: "voucher" },
-  createWarehouseSchema: { route: "/warehouses", table: "warehouse" },
-  createWorkOrderSchema: { route: "/manufacturing/work-orders", table: "work_order" },
+  createVariationOrderSchema: {
+    route: "/contracting/variation-orders",
+    table: "contract_variation_order",
+    body: (sampled) => ({
+      ...sampled,
+      date: TODAY,
+      titleAr: "أمر تغيير للاختبار",
+      reason: "بند إضافي",
+      requestedBy: "المالك",
+      lines: [{ kind: "add", newLine: { code: "VO-DUP-1", descriptionAr: "بند إضافي للاختبار", unit: contracts.boqUnitSchema.options[0], qty: "1", unitRate: "100" } }],
+    }),
+  },
+  createVoucherSchema: { route: "/vouchers", table: "voucher", body: (sampled) => ({ ...sampled, date: TODAY, branchId: "BR-MAIN", treasuryAccountId: "TR-DEMO-CASH", partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105" }) },
+  createWarehouseSchema: { route: "/warehouses", table: "warehouse", body: ({ projectId: _siteOnly, ...sampled }) => sampled },
+  createWorkOrderSchema: {
+    route: "/manufacturing/work-orders",
+    table: "work_order",
+    body: (sampled) => ({ ...sampled, bomId: "BOM-DEMO-1", plannedQty: "1", sourceWarehouseId: "WH-MAIN", wipWarehouseId: "WH-WIP", destinationWarehouseId: "WH-MAIN", scheduledStartDate: TODAY }),
+  },
   createWorkStationSchema: { route: "/manufacturing/work-stations", table: "work_station" },
-  createWorksContractSchema: { route: "/contracting/contracts", table: "works_contract" },
-  importBankStatementSchema: { route: "/bank-statements/import", table: "bank_statement" },
-  importStatementFileSchema: { route: "/bank-statements/import-file", table: "bank_statement" },
-  issueCustodySchema: { route: "/contracting/site/custody", table: "site_custody" },
-  openVanTripSchema: { route: "/field/van-trips", table: "van_trip" },
-  postRecognitionRunSchema: { route: "/contracting/recognition/runs", table: "contracting_recognition_run" },
+  createWorksContractSchema: {
+    route: "/contracting/contracts",
+    table: "works_contract",
+    body: (sampled) => ({ ...sampled, titleAr: "عقد مقاولة للاختبار", signedDate: "2026-01-15", startDate: "2026-02-01", plannedEndDate: "2026-12-31" }),
+  },
+  importBankStatementSchema: {
+    route: "/bank-statements/import",
+    table: "bank_statement",
+    body: (sampled) => ({
+      ...sampled,
+      treasuryAccountId: "TR-DEMO-BANK",
+      rawCsv: "date,description,amount\n2099-01-05,رسوم اختبار,100.00",
+      mapping: { dateColumn: "date", descriptionColumn: "description", amountColumn: "amount" },
+      periodStart: "2099-01-01",
+      periodEnd: "2099-01-31",
+      openingBalance: "0.00",
+      closingBalance: "100.00",
+    }),
+  },
+  importStatementFileSchema: { route: "/bank-statements/import-file", table: "bank_statement", body: (sampled, _id, sqlite) => ({
+      ...sampled,
+      treasuryAccountId: "TR-DEMO-BANK",
+      content: ofxStatementFor((sqlite.prepare("SELECT bank_account_number AS no FROM treasury_account WHERE id = 'TR-DEMO-BANK'").get() as { no: string }).no),
+    }),
+  },
+  issueCustodySchema: { route: "/contracting/site/custody", table: "site_custody", body: (sampled) => ({ ...sampled, warehouseId: SITE_WAREHOUSE, descriptionAr: "عهدة للاختبار", qtyOut: "1", issuedDate: TODAY }) },
+  openVanTripSchema: {
+    route: "/field/van-trips",
+    table: "van_trip",
+    body: (sampled) => ({ ...sampled, date: TODAY, vanId: "VAN-DEMO-1", sourceWarehouseId: "WH-MAIN", sourceTreasuryAccountId: "TR-DEMO-CASH", crew: [{ employeeId: "EMP-DEMO-1", role: "driver" }] }),
+  },
+  postRecognitionRunSchema: { route: "/contracting/recognition/runs", table: "contracting_recognition_run", body: (sampled) => ({ ...sampled, contractId: "CTR-DEMO-1", periodEnd: "2026-09-30" }) },
   recordAttendanceSchema: { route: "/hr/attendance", table: "hr_attendance", body: (sampled) => ({ ...sampled, date: "2099-01-05" }) },
   recordVatFilingSchema: { route: "/gl/vat-filings", table: "vat_filing" },
   selfCreateLeaveRequestSchema: { route: "/hr/self/leave-requests", table: "hr_leave_request" },
@@ -197,7 +334,19 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
     table: "tax_group",
     body: (sampled, _id, sqlite) => ({ ...sampled, members: (sampled.members as Record<string, unknown>[]).map((member) => ({ ...member, taxRateId: firstId(sqlite, "tax_rate") })) }),
   },
-  upsertConfigurableProductSchema: { route: "/manufacturing/configurable-products", table: "configurable_product" },
+  upsertConfigurableProductSchema: {
+    route: "/manufacturing/configurable-products",
+    table: "configurable_product",
+    body: (sampled) => ({
+      ...sampled,
+      code: "CFG-DUP-ID",
+      nameAr: "منتج اختبار",
+      outputItemId: "ITEM-DEMO-9",
+      unit: "PCS",
+      inputs: [{ id: "teaKg", labelAr: "وزن الشاي", type: "number", min: 1, max: 20 }],
+      materials: [{ itemId: "ITEM-DEMO-4", qtyFormula: "teaKg*2" }],
+    }),
+  },
   addManualLineSchema: {
     route: "/bank-statements/:id/lines",
     table: "statement_line",
@@ -211,19 +360,29 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createRfqQuoteSchema: {
     route: "/rfqs/:id/quotes",
     table: "rfq_quote",
-    pathFor: (sqlite) => `/rfqs/${(sqlite.prepare("SELECT rfq_id AS id FROM rfq_quote ORDER BY id LIMIT 1").get() as { id: string }).id}/quotes`,
+    pathFor: () => "/rfqs/RFQ-DEMO-2/quotes",
+    body: (sampled) => ({ ...sampled, supplierId: "SUPP-DEMO-2", lines: [{ itemId: "ITEM-DEMO-1", unitPrice: "10.00" }] }),
   },
   saveJournalEntryAsTemplateSchema: {
     route: "/gl/recurring/templates/from-entry/:entryId",
     table: "recurring_journal_template",
-    pathFor: (sqlite) => `/gl/recurring/templates/from-entry/${firstId(sqlite, "journal_entry")}`,
+    pathFor: (sqlite) =>
+      `/gl/recurring/templates/from-entry/${(sqlite.prepare("SELECT id FROM journal_entry WHERE id NOT IN (SELECT entry_id FROM journal_line WHERE account_id IN ('1105', '2100')) ORDER BY id LIMIT 1").get() as { id: string }).id}`,
+    body: (sampled) => ({ ...sampled, yearlyMonth: null, endDate: null, nameAr: "قالب من قيد" }),
   },
   convertSalesQuoteToInvoiceSchema: {
     route: "/sales-quotes/:id/convert-to-invoice",
     table: "sales_invoice",
-    pathFor: (sqlite) => `/sales-quotes/${firstId(sqlite, "sales_quote")}/convert-to-invoice`,
+    arrange: (sqlite) => sqlite.prepare("UPDATE sales_quote SET status = 'accepted' WHERE id = 'SQ-DEMO-3'").run(),
+    pathFor: () => "/sales-quotes/SQ-DEMO-3/convert-to-invoice",
+    body: (sampled) => ({ ...sampled, dueDate: TODAY, warehouseId: "WH-MAIN", arAccountId: "1105", taxAccountId: "2200", lines: [{ lineId: "SQ-DEMO-3-L1", isStock: false, revenueAccountId: "4100" }] }),
   },
-  buildSalesReturnFromInvoiceSchema: { route: "/sales-returns/from-invoice", table: "framework_document", existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'SALES_RETURN' ORDER BY id LIMIT 1" },
+  buildSalesReturnFromInvoiceSchema: {
+    route: "/sales-returns/from-invoice",
+    table: "framework_document",
+    existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'SALES_RETURN' ORDER BY id LIMIT 1",
+    body: (sampled) => ({ ...sampled, date: TODAY, sourceInvoiceId: CONFIRMED_SALES_INVOICE, warehouseId: "WH-MAIN", requested: [{ itemId: "ITEM-H-13", qty: "1" }] }),
+  },
   createItemUnitSchema: { route: "/item-units", table: "item_unit", idColumn: "code", refusedAs: "DUPLICATE_ITEM_UNIT_CODE" },
   createItemSpecificationSchema: {
     route: "/item-specifications",
@@ -325,17 +484,22 @@ function tableFingerprints(): Record<string, string> {
 }
 
 const DOMAIN_SOURCES = join(dirname(fileURLToPath(import.meta.url)), "../../domain/src");
-const ID_PRE_CHECK = /\b(refuseExistingId|refuseTakenId|assertRecordIdIsNew)\s*\(/g;
+const ID_PRE_CHECK = /\b(refuseExistingId|refuseTakenId|assertRecordIdIsNew|new DuplicateRecordIdError)\s*\(/g;
 
 function sourceFilesUnder(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const path = join(dir, name);
     if (statSync(path).isDirectory()) return sourceFilesUnder(path);
-    return name.endsWith(".ts") && !name.includes(".test.") ? [path] : [];
+    return name.endsWith(".ts") && !name.includes(".test.") && !path.includes("/test-helpers/") ? [path] : [];
   });
 }
 
 describe("a duplicate id is refused by the store's insert-only write alone", () => {
+  it("only the persistence layer raises the refusal", () => {
+    const raisedIn = sourceFilesUnder(join(DOMAIN_SOURCES, "../../persistence/src")).filter((path) => readFileSync(path, "utf8").includes("new DuplicateRecordIdError("));
+    expect(raisedIn.map((path) => path.split("/packages/")[1])).toEqual(["persistence/src/insert-new.ts"]);
+  });
+
   it("no route or domain service looks the id up first", () => {
     const preChecks = [...sourceFilesUnder(ROUTE_SOURCES), ...sourceFilesUnder(DOMAIN_SOURCES)].flatMap((path) =>
       [...readFileSync(path, "utf8").matchAll(ID_PRE_CHECK)].map((match) => `${path.split("/packages/")[1]}: ${match[1]}`),

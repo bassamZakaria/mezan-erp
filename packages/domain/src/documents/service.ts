@@ -36,7 +36,6 @@ import {
   InvalidDocumentError,
   MissingHookError,
 } from "./errors.js";
-import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 export interface DocumentServiceDeps<Line> {
   readonly repo: DocumentRepository<Line>;
@@ -99,9 +98,6 @@ export class DocumentService<Line> {
 
   /** Open a new مسودة (draft): validated and persisted, but not numbered or posted. */
   async createDraft(cmd: CreateDraftCommand<Line>): Promise<FrameworkDocument<Line>> {
-    if (await this.deps.repo.findById(cmd.id)) {
-      throw new DuplicateRecordIdError(cmd.id);
-    }
     const doc: FrameworkDocument<Line> = {
       id: cmd.id,
       docType: this.def.code,

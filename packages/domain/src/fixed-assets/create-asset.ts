@@ -2,7 +2,6 @@ import { Money } from "../money/index.js";
 import type { Asset, AssetRepository, AssetScope } from "./asset.js";
 import type { AssetCategoryRepository, DepreciationMethod } from "./asset-category.js";
 import { AssetCategoryNotFoundError, DuplicateAssetCodeError, InvalidAssetError } from "./errors.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 export interface CreateAssetCommand {
   readonly id: string;
@@ -42,7 +41,6 @@ export interface CreateAssetDeps {
  */
 export async function createAsset(command: CreateAssetCommand, deps: CreateAssetDeps): Promise<Asset> {
   const existing = await deps.assets.list();
-  assertRecordIdIsNew(existing.find((row) => row.id === command.id), command.id);
   if (existing.some((a) => a.code === command.code)) {
     throw new DuplicateAssetCodeError(command.code);
   }

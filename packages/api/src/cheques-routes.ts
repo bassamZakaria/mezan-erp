@@ -41,7 +41,7 @@ import { storedBranchesById } from "./stored-branches.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
-import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 import { treasuryLedgerAccount } from "./treasury-ledger-account.js";
 
@@ -342,8 +342,6 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => service.findById(id));
-    if (takenId) return takenId;
     const d = parsed.data;
     const branchRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Branch, ids: [d.branchId] },

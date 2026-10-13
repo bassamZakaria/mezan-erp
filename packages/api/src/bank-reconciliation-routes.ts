@@ -81,7 +81,7 @@ import {
 import { canSeeUnattributed } from "./branch-view.js";
 import { branchGrantOf, branchScopeOf, callerRoleCodes, callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordAdminEvent, recordFieldChanges } from "./admin-audit.js";
-import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 export type BankReconciliationRoutesDeps = BankReconciliationServiceDeps & {
@@ -526,8 +526,6 @@ export function createBankReconciliationRoutes(
     const service = serviceFor(c);
     const parsed = importBankStatementSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => service.findById(id));
-    if (takenId) return takenId;
     const d = parsed.data;
     try {
       const { statement, lines } = await service.importStatement({
@@ -562,8 +560,6 @@ export function createBankReconciliationRoutes(
     const service = serviceFor(c);
     const parsed = importStatementFileSchema.safeParse(await readJson(c));
     if (!parsed.success) return validation(c, parsed.error);
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => service.findById(id));
-    if (takenId) return takenId;
     const d = parsed.data;
     try {
       const { statement, lines } = await service.importStatementFile({

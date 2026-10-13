@@ -1,5 +1,4 @@
 import { DuplicatePipelineStageWinError, PipelineStageNotFoundError } from "./errors.js";
-import { assertRecordIdIsNew } from "../records/duplicate-record-id.js";
 
 /**
  * Pipeline stages — core entity (docs/archive/catalog/06-crm-hr.md "مراحل خط
@@ -46,7 +45,6 @@ export async function createPipelineStage(
   existing: readonly PipelineStage[],
   repo: PipelineStageRepository,
 ): Promise<PipelineStage> {
-  assertRecordIdIsNew(existing.find((stage) => stage.id === command.id), command.id);
   const isWinStage = command.isWinStage ?? false;
   if (isWinStage && existing.some((s) => s.active && s.isWinStage)) {
     throw new DuplicatePipelineStageWinError();

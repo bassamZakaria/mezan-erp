@@ -15,7 +15,6 @@ import {
   InvalidPurchaseDocumentError,
   PurchaseOrderNotFoundError,
 } from "./errors.js";
-import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const PURCHASE_ORDER_SEQUENCE = "PURCHASE_ORDER";
 
@@ -153,9 +152,6 @@ export async function createPurchaseOrder(
   command: CreatePurchaseOrderCommand,
   deps: PurchaseOrderDeps,
 ): Promise<PurchaseOrder> {
-  if (await deps.orders.findById(command.id)) {
-    throw new DuplicateRecordIdError(command.id);
-  }
   validate(command);
   const number = await deps.numbering.next(PURCHASE_ORDER_SEQUENCE);
   const order: PurchaseOrder = {

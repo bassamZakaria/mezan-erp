@@ -231,7 +231,7 @@ import { BranchAccess, BranchRecordKind, branchDirectoryOf, branchPolicyEnforcem
 import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
 import { createProfileRoutes } from "./profile-routes.js";
 import { ApprovalRequestUntrustedError, DuplicateRecordIdError } from "@mezan/domain";
-import { duplicateIdRefusal } from "./duplicate-id.js";
+import { duplicateIdRefusal, refusedCreateRollsBack } from "./duplicate-id.js";
 import type { ConfigTransactor } from "./config-transactor.js";
 
 function defaultEntitlementsResolver(): EntitlementsResolver {
@@ -1064,6 +1064,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // resolving first would leave that theft unrecorded.
   app.use("*", branchPolicyEnforcement({ resolveAuthContext: resolveAuth, directory: options.branchDirectory }));
   if (options.items) app.use("*", pendingPricingGuard(options.items.repo, resolveAuth));
+  if (options.createTransactor) app.use("*", refusedCreateRollsBack(options.createTransactor));
   app.get("/license/state", async (c) =>
     c.json(resolveLicenseState ? await resolveLicenseState(c) : WRITABLE_LICENSE_STATE),
   );

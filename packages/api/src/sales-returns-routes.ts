@@ -31,7 +31,6 @@ import { branchesOfWarehouses, returnBranches, storedBranchesById, withinBranchS
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
-import { refuseTakenId } from "./duplicate-id.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
 
@@ -377,8 +376,6 @@ export function createSalesReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => service.findById(id));
-    if (takenId) return takenId;
     for (const line of parsed.data.lines) {
       const refusal = await refuseInconsistentLine(line);
       if (refusal) return c.json(refusal, 422);
@@ -411,8 +408,6 @@ export function createSalesReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => service.findById(id));
-    if (takenId) return takenId;
     if (!invoices) {
       return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "إنشاء مرتجع من فاتورة يتطلب وحدة فواتير المبيعات." }, 503);
     }

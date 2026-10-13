@@ -18,7 +18,6 @@
 import { Money, Qty } from "../money/index.js";
 import type { DocumentService } from "../documents/service.js";
 import type { StockAdjustmentDocLine, StockAdjustmentDocument } from "./stock-adjustment-document.js";
-import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 export const PHYSICAL_COUNT_STATUSES = [
   "IN_PROGRESS",
@@ -182,9 +181,6 @@ export class PhysicalCountService {
 
   /** Open a new count session, snapshotting each item's current system qty. */
   async start(cmd: StartPhysicalCountCommand): Promise<PhysicalCount> {
-    if (await this.deps.repo.findById(cmd.id)) {
-      throw new DuplicateRecordIdError(cmd.id);
-    }
     if (cmd.itemIds.length === 0) {
       throw new InvalidPhysicalCountError(cmd.id, "الجرد يتطلب صنفاً واحداً على الأقل.");
     }

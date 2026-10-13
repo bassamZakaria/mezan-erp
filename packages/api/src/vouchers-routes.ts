@@ -57,7 +57,7 @@ import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPerm
 import { storedBranchesById, withinBranchView } from "./stored-branches.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { tenantDay } from "./tenant-day.js";
-import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 import { treasuryLedgerAccount } from "./treasury-ledger-account.js";
 
@@ -554,8 +554,6 @@ export function createVouchersRoutes(
     const d = parsed.data;
     const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
     if (refusal) return refusal;
-    const takenVoucherId = await refuseTakenId(c, d.id, (id) => serviceFor(c).findById(id));
-    if (takenVoucherId) return takenVoucherId;
     const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Customer, ids: [d.customerId] },
       { kind: MasterDataKind.Supplier, ids: [d.supplierId] },
@@ -637,8 +635,6 @@ export function createVouchersRoutes(
     if (d.allocations.length > 0 && !(ctx && can(ctx, "treasury.allocation.manage"))) {
       return c.json(permissionDeniedBody("treasury.allocation.manage"), 403);
     }
-    const takenId = await refuseTakenId(c, d.id, (id) => serviceFor(c).findById(id));
-    if (takenId) return takenId;
     const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Customer, ids: [d.customerId] },
       { kind: MasterDataKind.Branch, ids: [d.branchId] },

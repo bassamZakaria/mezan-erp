@@ -55,7 +55,7 @@ import { tenantDay, tenantToday } from "./tenant-day.js";
 import { branchGrantOf, branchScopeOf, createPermissionGate, getAuthContext, storedDocumentRefusal, type AuthContextResolver } from "./permission-gate.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
-import { duplicateIdRefusal, refuseTakenId } from "./duplicate-id.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 
 export interface RecurringJournalRoutesDeps {
@@ -269,8 +269,6 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.post("/templates", gate("accounting.recurring.manage"), async (c) => {
     const parsed = createRecurringJournalTemplateSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.templates.findById(id));
-    if (takenId) return takenId;
     const branchRefusal = await refuseTemplateBranches(c, parsed.data.lines.map((line) => line.branchId));
     if (branchRefusal) return branchRefusal;
     try {
@@ -349,8 +347,6 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.post("/templates/from-entry/:entryId", gate("accounting.recurring.manage"), async (c) => {
     const parsed = saveJournalEntryAsTemplateSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const takenId = await refuseTakenId(c, parsed.data.id, (id) => deps.templates.findById(id));
-    if (takenId) return takenId;
     const entry = await deps.ledger.findById(c.req.param("entryId"));
     if (!entry) return c.json({ error: "JOURNAL_ENTRY_NOT_FOUND" }, 404);
     const entryBranches = entry.lines.map((line) => line.branchId);

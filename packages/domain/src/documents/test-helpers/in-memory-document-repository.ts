@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import type {
   DocumentListFilter,
   DocumentRepository,
@@ -10,7 +11,7 @@ export class InMemoryDocumentRepository<Line> implements DocumentRepository<Line
   private readonly rows = new Map<string, FrameworkDocument<Line>>();
 
   async save(doc: FrameworkDocument<Line>): Promise<void> {
-    this.rows.set(doc.id, doc);
+    insertOnly(this.rows, doc.id, doc);
   }
 
   async update(doc: FrameworkDocument<Line>): Promise<void> {

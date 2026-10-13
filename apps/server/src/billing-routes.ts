@@ -38,10 +38,10 @@ import { readSessionToken, type SessionGrant } from "@mezan/api";
 import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
 import type { CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
-import type { CloudEnv } from "./env.js";
+import { PaymobMode, type CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
 import { resolveTenantCode } from "./tenant-resolver.js";
-import { trustedPublicOrigin } from "./public-origin.js";
+import { servedTenantLookup, trustedPublicOrigin, type ServedTenantLookup } from "./public-origin.js";
 
 export const PAYMOB_WEBHOOK_PATH = "/api/billing/paymob/webhook";
 const MAX_WEBHOOK_BYTES = 256 * 1024;
@@ -55,12 +55,12 @@ export function forwardedOrigin(request: Request, trustProxy: boolean): string {
   return `${proto === "https" || proto === "http" ? proto : url.protocol.replace(":", "")}://${host}`;
 }
 
-export function trustedReturnOrigin(request: Request, env: CloudEnv): string {
-  return trustedPublicOrigin(request, env) ?? forwardedOrigin(request, env.trustProxy);
+export async function trustedReturnOrigin(request: Request, env: CloudEnv, servesTenant: ServedTenantLookup): Promise<string> {
+  return (await trustedPublicOrigin(request, env, servesTenant)) ?? forwardedOrigin(request, env.trustProxy);
 }
 
 export function notificationUrl(request: Request, env: CloudEnv): string {
-  const publicUrl = env.paymob.mode === "off" ? undefined : env.paymob.publicUrl;
+  const publicUrl = env.paymob.mode === PaymobMode.Off ? undefined : env.paymob.publicUrl;
   return `${publicUrl ?? forwardedOrigin(request, env.trustProxy)}${PAYMOB_WEBHOOK_PATH}`;
 }
 
@@ -337,7 +337,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     }
     const parsed = createCardCheckoutRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const origin = trustedReturnOrigin(c.req.raw, env);
+    const origin = await trustedReturnOrigin(c.req.raw, env, servedTenantLookup(platform));
     try {
       const checkout = await service.open({
         tenantId: caller.tenant.id,

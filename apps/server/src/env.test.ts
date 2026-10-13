@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseEnv } from "./env.js";
+import { parseEnv, PaymobMode } from "./env.js";
 
 describe("parseEnv", () => {
   it("defaults every field when nothing is set", () => {
@@ -22,7 +22,7 @@ describe("parseEnv", () => {
       port: 8080,
       // No Paymob keys and no MEZAN_SMTP_HOST: card checkout is off and the
       // platform sends no mail, which is what the dev entrypoint expects.
-      paymob: { mode: "off" },
+      paymob: { mode: PaymobMode.Off },
       platformSmtp: undefined,
       supportEmail: undefined,
       reviewTenant: undefined,
@@ -118,7 +118,7 @@ describe("parseEnv", () => {
       analyticsToken: "token-123",
       port: 9090,
       paymob: {
-        mode: "live",
+        mode: PaymobMode.Live,
         baseUrl: "https://accept.paymob.com",
         secretKey: "sk-live",
         publicKey: "pk-live",
@@ -163,5 +163,32 @@ describe("parseEnv", () => {
   it("throws on a non-positive PORT", () => {
     expect(() => parseEnv({ PORT: "0" })).toThrow(/PORT/);
     expect(() => parseEnv({ PORT: "abc" })).toThrow(/PORT/);
+  });
+});
+
+describe("MEZAN_TENANT_DOMAIN", () => {
+  it.each([
+    ["a trailing dot", "mezan.app."],
+    ["a leading dot", ".mezan.app"],
+    ["a wildcard", "*.mezan.app"],
+    ["a port", "mezan.app:8443"],
+    ["a scheme", "https://mezan.app"],
+    ["a path", "mezan.app/x"],
+    ["a space", "mezan .app"],
+    ["an empty label", "mezan..app"],
+    ["a label that starts with a hyphen", "-mezan.app"],
+    ["userinfo", "user@mezan.app"],
+    ["a character outside a hostname", "mezan_app.example"],
+  ])("refuses to start with %s, and says what a tenant domain is", (_label, value) => {
+    expect(() => parseEnv({ MEZAN_TENANT_DOMAIN: value })).toThrow(`MEZAN_TENANT_DOMAIN must be a bare hostname such as "mezan.app" (no scheme, port, path, wildcard or trailing dot), got "${value}"`);
+  });
+
+  it.each([
+    ["mezan.app", "mezan.app"],
+    ["Mezan.App", "mezan.app"],
+    ["  tenants.mezan-erp.example  ", "tenants.mezan-erp.example"],
+    ["localhost", "localhost"],
+  ])("accepts %s and keeps it in lower case", (value, kept) => {
+    expect(parseEnv({ MEZAN_TENANT_DOMAIN: value }).tenantDomain).toBe(kept);
   });
 });

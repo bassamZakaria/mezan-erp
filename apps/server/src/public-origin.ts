@@ -1,16 +1,24 @@
-import type { CloudEnv } from "./env.js";
+import type { PlatformHandle } from "@mezan/backend";
+import { isReservedTenantCode, tenantIsServed } from "@mezan/domain";
+import { PaymobMode, type CloudEnv } from "./env.js";
 import { requestHost, tenantSlugOfHost } from "./tenant-resolver.js";
 
-function configuredOrigin(env: CloudEnv): string | undefined {
-  return env.publicOrigin ?? (env.paymob.mode === "off" ? undefined : env.paymob.publicUrl);
+export type ServedTenantLookup = (code: string) => Promise<boolean>;
+
+export function servedTenantLookup(platform: PlatformHandle): ServedTenantLookup {
+  return async (code) => tenantIsServed(await platform.stores.tenants.findByCode(code));
 }
 
-// SECURITY: the origin is written from a validated tenant code and the
-// configured domain, never from the text of a header. It is answered only when
-// a URL parser reads back exactly that host.
+function configuredOrigin(env: CloudEnv): string | undefined {
+  return env.publicOrigin ?? (env.paymob.mode === PaymobMode.Off ? undefined : env.paymob.publicUrl);
+}
+
+// SECURITY: a name the platform keeps for itself (`www`, `api`, a released
+// code) may be served by something other than this application. It is never
+// written into a link, whoever asks.
 function tenantOrigin(env: CloudEnv, slug: string | null): string | null {
   const domain = env.tenantDomain?.toLowerCase();
-  if (!domain || !slug) return null;
+  if (!domain || !slug || isReservedTenantCode(slug)) return null;
   const host = `${slug}.${domain}`;
   const configured = configuredOrigin(env);
   const candidate = `${configured ? new URL(configured).protocol : "https:"}//${host}`;
@@ -20,11 +28,13 @@ function tenantOrigin(env: CloudEnv, slug: string | null): string | null {
 }
 
 // SECURITY: a link that is mailed or redirected to must never carry a host the
-// caller merely claimed. Only the configured public origin, or one of this
-// deployment's own tenant subdomains, is ever answered. Null means no origin
+// caller merely claimed. A subdomain is answered only when a tenant is served
+// under it; otherwise the configured public origin is. Null means no origin
 // can be trusted, and the caller must not send the link anywhere.
-export function trustedPublicOrigin(request: Request, env: CloudEnv): string | null {
-  return tenantOrigin(env, tenantSlugOfHost(requestHost(request, env.trustProxy), env.tenantDomain)) ?? configuredOrigin(env) ?? null;
+export async function trustedPublicOrigin(request: Request, env: CloudEnv, servesTenant: ServedTenantLookup): Promise<string | null> {
+  const slug = tenantSlugOfHost(requestHost(request, env.trustProxy), env.tenantDomain);
+  const onTenantSubdomain = slug !== null && (await servesTenant(slug)) ? tenantOrigin(env, slug) : null;
+  return onTenantSubdomain ?? configuredOrigin(env) ?? null;
 }
 
 export function tenantPublicOrigin(env: CloudEnv, tenantCode: string): string | null {

@@ -35,9 +35,9 @@ import {
   notificationUrl,
   trustedReturnOrigin,
 } from "./billing-routes.js";
-import type { CloudEnv } from "./env.js";
+import { PaymobMode, type CloudEnv } from "./env.js";
 import { MailOutcome, pendingHandOverEmail, smtpMailer, type PlatformMailer } from "./platform-mail.js";
-import { tenantPublicOrigin } from "./public-origin.js";
+import { servedTenantLookup, tenantPublicOrigin } from "./public-origin.js";
 
 export interface CreateCloudAppOptions {
   readonly now?: () => Date;
@@ -164,8 +164,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   let testProvider: PaymobTestProvider | null = null;
   let cardCheckout: CardCheckoutService | null = null;
-  if (env.paymob.mode !== "off") {
-    const provider = env.paymob.mode === "live" ? createPaymobProvider(env.paymob) : (testProvider = createPaymobTestProvider());
+  if (env.paymob.mode !== PaymobMode.Off) {
+    const provider = env.paymob.mode === PaymobMode.Live ? createPaymobProvider(env.paymob) : (testProvider = createPaymobTestProvider());
     cardCheckout = createCardCheckoutService({ platform, provider, now, invalidateEntitlements: router.invalidate });
     if (testProvider) {
       console.log("[cloud] card checkout runs in TEST MODE: no Paymob keys are set, checkouts go to a local fake page.");
@@ -192,8 +192,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     cardCheckout: checkoutService
       ? {
           testMode: checkoutService.provider.testMode,
-          open: ({ tenantId, actorId, request }) => {
-            const origin = trustedReturnOrigin(request, env);
+          open: async ({ tenantId, actorId, request }) => {
+            const origin = await trustedReturnOrigin(request, env, servedTenantLookup(platform));
             return checkoutService.open({
               tenantId,
               requestedBy: actorId,

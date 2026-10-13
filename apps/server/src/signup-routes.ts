@@ -29,7 +29,7 @@ import {
 } from "@mezan/contracts";
 import { provisionResultDTOOf, provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
 import { forwardedOrigin } from "./billing-routes.js";
-import { trustedPublicOrigin } from "./public-origin.js";
+import { servedTenantLookup, trustedPublicOrigin } from "./public-origin.js";
 import { MailOutcome, type PlatformMailer } from "./platform-mail.js";
 import { callerSource, requireCloudSource, type SourceReporter } from "./client-source.js";
 import { createRateLimiter } from "./rate-limit.js";
@@ -233,7 +233,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     // trusted origin the signup is refused: a mailed link on a caller-chosen
     // host hands the activation token to that host.
     const mailer = options.mailer;
-    const origin = mailer ? trustedPublicOrigin(c.req.raw, env) : forwardedOrigin(c.req.raw, env.trustProxy);
+    const origin = mailer ? await trustedPublicOrigin(c.req.raw, env, servedTenantLookup(platform)) : forwardedOrigin(c.req.raw, env.trustProxy);
     if (origin === null) {
       console.error("[signup] refused: mail is configured but no public origin is (set MEZAN_PUBLIC_URL or MEZAN_TENANT_DOMAIN)");
       return c.json({ error: "SIGNUP_LINK_ORIGIN_UNKNOWN", message: "التسجيل غير متاح الآن. حاول لاحقًا أو تواصل مع الدعم." }, 503);

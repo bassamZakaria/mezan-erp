@@ -3,9 +3,15 @@ import type { ClientSourceOptions } from "./client-source.js";
 import type { SmtpSecurity } from "@mezan/domain";
 import type { ReviewTenantConfig } from "./review-tenant.js";
 
+export enum PaymobMode {
+  Live = "live",
+  Test = "test",
+  Off = "off",
+}
+
 export type PaymobEnv =
   | {
-      readonly mode: "live";
+      readonly mode: PaymobMode.Live;
       readonly baseUrl: string;
       readonly secretKey: string;
       readonly publicKey: string;
@@ -13,8 +19,8 @@ export type PaymobEnv =
       readonly integrationIds: readonly number[];
       readonly publicUrl: string;
     }
-  | { readonly mode: "test"; readonly publicUrl?: string }
-  | { readonly mode: "off" };
+  | { readonly mode: PaymobMode.Test; readonly publicUrl?: string }
+  | { readonly mode: PaymobMode.Off };
 
 export interface CloudEnv {
   readonly platformDir: string;
@@ -89,7 +95,7 @@ function parsePaymob(env: Record<string, string | undefined>, testByDefault: boo
       throw new Error(`MEZAN_PAYMOB_INTEGRATION_ID must be comma-separated positive integers, got "${integrationRaw}"`);
     }
     return {
-      mode: "live",
+      mode: PaymobMode.Live,
       baseUrl: parseOrigin(trimmedOrUndefined(env["MEZAN_PAYMOB_BASE_URL"]) ?? "https://accept.paymob.com", "MEZAN_PAYMOB_BASE_URL"),
       secretKey: secretKey!,
       publicKey: publicKey!,
@@ -99,7 +105,7 @@ function parsePaymob(env: Record<string, string | undefined>, testByDefault: boo
     };
   }
   const test = testFlag === "1" || (testByDefault && testFlag !== "0");
-  return test ? { mode: "test", ...(publicUrl ? { publicUrl } : {}) } : { mode: "off" };
+  return test ? { mode: PaymobMode.Test, ...(publicUrl ? { publicUrl } : {}) } : { mode: PaymobMode.Off };
 }
 
 function flag(value: string | undefined): boolean {
@@ -209,6 +215,19 @@ function parseClientSource(env: Record<string, string | undefined>): ClientSourc
   return { trustedProxyHops: hops, trustViewerAddress: viewer, compareViewerAddress: trustProxy && originSecret };
 }
 
+const HOSTNAME_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const HOSTNAME_MAX_LENGTH = 253;
+
+function parseTenantDomain(value: string | undefined): string | undefined {
+  const raw = trimmedOrUndefined(value);
+  if (raw === undefined) return undefined;
+  const domain = raw.toLowerCase();
+  if (domain.length > HOSTNAME_MAX_LENGTH || !domain.split(".").every((label) => HOSTNAME_LABEL.test(label))) {
+    throw new Error(`MEZAN_TENANT_DOMAIN must be a bare hostname such as "mezan.app" (no scheme, port, path, wildcard or trailing dot), got "${raw}"`);
+  }
+  return domain;
+}
+
 function publicOriginOf(env: Record<string, string | undefined>): { readonly publicOrigin?: string } {
   const value = trimmedOrUndefined(env["MEZAN_PUBLIC_URL"]);
   return value ? { publicOrigin: parseOrigin(value, "MEZAN_PUBLIC_URL") } : {};
@@ -218,7 +237,7 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
   return {
     platformDir: env["MEZAN_PLATFORM_DIR"] ?? ".data/platform",
     ...publicOriginOf(env),
-    tenantDomain: trimmedOrUndefined(env["MEZAN_TENANT_DOMAIN"]),
+    tenantDomain: parseTenantDomain(env["MEZAN_TENANT_DOMAIN"]),
     trustProxy: flag(env["MEZAN_TRUST_PROXY"]),
     clientSource: parseClientSource(env),
     originSecret: trimmedOrUndefined(env["MEZAN_ORIGIN_SECRET"]),

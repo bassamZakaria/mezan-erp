@@ -570,12 +570,39 @@ describe("BankReconciliationScreen — matching", () => {
 
     expect(await within(panel).findByText("منتهية")).toBeInTheDocument();
     expect(within(panel).getByText(`أُنهي بتجاوز: ${REASON}`)).toBeInTheDocument();
-    await waitFor(() => expect(within(panel).getByRole("button", { name: "اقتراح المطابقات" })).toBeDisabled());
-    expect(within(panel).getByRole("button", { name: "إنهاء التسوية" })).toBeDisabled();
+    await waitFor(() => expect(within(panel).queryByRole("button", { name: "اقتراح المطابقات" })).not.toBeInTheDocument());
+    expect(within(panel).queryByRole("button", { name: "إنهاء التسوية" })).not.toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: "مطابقة يدوية" })).toBeDisabled();
     expect(within(panel).getByRole("button", { name: "إنشاء قيد" })).toBeDisabled();
     await user.click(within(panel).getByRole("tab", { name: "مطابَقة (1)" }));
     expect(await within(panel).findByRole("button", { name: "إلغاء المطابقة" })).toBeDisabled();
+  });
+
+  it("a fully matched statement is finalized only after a confirmation that says it cannot be reopened, and cancelling sends nothing", async () => {
+    let finalized = 0;
+    const lines = [line({ ...matchedTo("je-deposit", "JE-000010", MatchSourceCode.Manual) })];
+    const { user, panel } = await openStatement({
+      "GET /bank-statements/stmt-1": () => ({ body: detail({ statement: finalized > 0 ? { status: "completed", finalizedAt: STAMP } : {}, lines }) }),
+      "GET /bank-statements/stmt-1/review": () => ({ body: reviewOf({ lines }) }),
+      "GET /bank-statements/stmt-1/candidates": () => ({ body: [] }),
+      "POST /bank-statements/stmt-1/finalize": () => {
+        finalized += 1;
+        return { body: statement({ status: "completed", finalizedAt: STAMP }) };
+      },
+    });
+
+    await user.click(await within(panel).findByRole("button", { name: "إنهاء التسوية" }));
+    const confirm = await screen.findByRole("dialog", { name: "إنهاء التسوية نهائياً" });
+    expect(within(confirm).getByText("بعد الإنهاء لا يمكن إعادة فتح هذا الكشف ولا تعديل مطابقاته أو إلغاؤها.")).toBeInTheDocument();
+    await user.click(within(confirm).getByRole("button", { name: "رجوع" }));
+    expect(finalized).toBe(0);
+    expect(within(panel).getByRole("button", { name: "إنهاء التسوية" })).toBeEnabled();
+
+    await user.click(within(panel).getByRole("button", { name: "إنهاء التسوية" }));
+    await user.click(within(await screen.findByRole("dialog", { name: "إنهاء التسوية نهائياً" })).getByRole("button", { name: "إنهاء نهائي" }));
+    await waitFor(() => expect(finalized).toBe(1));
+    await waitFor(() => expect(within(panel).queryByRole("button", { name: "إنهاء التسوية" })).not.toBeInTheDocument());
+    expect(within(panel).queryByRole("button", { name: "اقتراح المطابقات" })).not.toBeInTheDocument();
   });
 
   it("surfaces a rejected match's server error", async () => {

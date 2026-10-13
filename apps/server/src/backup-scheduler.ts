@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs"
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PlatformHandle } from "@mezan/backend";
-import { TenantStatusCode, type Tenant } from "@mezan/domain";
+import { tenantDbFileRefusalOf, TenantStatusCode, type Tenant } from "@mezan/domain";
 import type { TenantRouter } from "./tenant-router.js";
 import {
   appendVerifyRecord,
@@ -105,6 +105,16 @@ export interface RunBackupsOptions {
   readonly keep?: number;
 }
 
+export interface SkippedTenantBackup {
+  readonly tenantId: string;
+  readonly code: string;
+  readonly reason: string;
+}
+
+export interface BackupRun {
+  readonly skipped: readonly SkippedTenantBackup[];
+}
+
 function isoSafeTimestamp(date: Date): string {
   return date.toISOString().replace(/:/g, "-");
 }
@@ -175,7 +185,7 @@ function pruneOldBackups(folder: string, keep: number): void {
  * level backup covers it — running the in-app backup would only cost an
  * `open` this sweep has no other reason to make.
  */
-export async function runBackups(options: RunBackupsOptions): Promise<void> {
+export async function runBackups(options: RunBackupsOptions): Promise<BackupRun> {
   const now = options.now ?? (() => new Date());
   const keep = options.keep ?? DEFAULT_KEEP;
   const stamp = isoSafeTimestamp(now());
@@ -190,19 +200,36 @@ export async function runBackups(options: RunBackupsOptions): Promise<void> {
   await verify(await writeOneBackup((destination) => options.platform.backupTo(destination), platformFolder, stamp));
   pruneOldBackups(platformFolder, keep);
 
+  // REQUIRED ORDERING: every open tenant is attempted before the run is
+  // reported as failed. One tenant that cannot be backed up must not leave the
+  // tenants after it without a backup. A tenant whose books are refused is
+  // skipped with the reason and left for the next run.
+  const skipped: SkippedTenantBackup[] = [];
   for (const open of options.router.openTenants()) {
     const tenant = await options.platform.stores.tenants.findById(open.id);
     if (!tenant || tenant.status === TenantStatusCode.Archived) continue;
-    const backend = await options.router.backendOf(tenant.id);
-    const folder = tenantBackupFolder(options.dir, tenant.id);
-    adoptLegacyBackups(options.dir, tenant);
-    await verify(await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp));
-    pruneOldBackups(folder, keep);
+    try {
+      const backend = await options.router.backendOf(tenant.id);
+      const folder = tenantBackupFolder(options.dir, tenant.id);
+      adoptLegacyBackups(options.dir, tenant);
+      await verify(await writeOneBackup((destination) => backend.backupTo(destination), folder, stamp));
+      pruneOldBackups(folder, keep);
+    } catch (err) {
+      const refusal = tenantDbFileRefusalOf(err);
+      if (refusal) {
+        skipped.push({ tenantId: tenant.id, code: tenant.code, reason: refusal.error });
+        console.warn(`[backup] tenant "${tenant.code}" (${tenant.id}) was skipped: its books are refused (${refusal.error})`);
+      } else {
+        console.error(`[backup] tenant "${tenant.code}" (${tenant.id}) could not be backed up`, err);
+        failures.push(`${tenant.code}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   if (failures.length > 0) {
-    throw new Error(`backup verification failed: ${failures.join(" | ")}`);
+    throw new Error(`backup failed: ${failures.join(" | ")}`);
   }
+  return { skipped };
 }
 
 export interface StartBackupTimerOptions extends RunBackupsOptions {
@@ -220,7 +247,10 @@ export interface StartBackupTimerOptions extends RunBackupsOptions {
 export function startBackupTimer(options: StartBackupTimerOptions): () => Promise<void> {
   let current: Promise<void> = Promise.resolve();
   const run = () => {
-    current = runBackups(options).catch((error: unknown) => options.onError?.(error));
+    current = runBackups(options).then(
+      () => undefined,
+      (error: unknown) => options.onError?.(error),
+    );
   };
   run();
 

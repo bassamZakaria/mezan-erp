@@ -7,6 +7,7 @@ import { activateTenant, createTenant, TenantStatusCode } from "@mezan/domain";
 import { bindTenantDatabase, openSqliteConnection } from "@mezan/persistence";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
 import { createBackupScheduler, runBackups, startBackupTimer } from "./backup-scheduler.js";
+import { TenantDbFileDisownedError } from "./tenant-db-file.js";
 
 const T = "2026-01-15T00:00:00.000Z";
 
@@ -118,6 +119,54 @@ describe("runBackups", () => {
     const tables = tenantCopy.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'account'").all();
     expect(tables).toHaveLength(1);
     tenantCopy.close();
+  });
+
+  describe("when one open tenant cannot be backed up", () => {
+    async function threeOpen(): Promise<{ platform: PlatformHandle; router: TenantRouter }> {
+      const platform = await newPlatform();
+      const router = newRouter(platform);
+      for (const code of ["alpha", "beta", "gamma"]) {
+        await seedTenant(platform, code);
+        await openServed(router, platform, code);
+      }
+      return { platform, router };
+    }
+
+    const failingFor = (router: TenantRouter, tenantId: string, failure: Error): TenantRouter => ({
+      ...router,
+      backendOf: async (id) => {
+        if (id === tenantId) throw failure;
+        return router.backendOf(id);
+      },
+    });
+
+    const backedUp = (dir: string): string[] => readdirSync(path.join(dir, "backups", "tenants")).sort();
+
+    it("skips a tenant whose books are refused, says which and why, and still backs up the tenants after it", async () => {
+      const { platform, router } = await threeOpen();
+      const dir = tempDir("mezan-backup-dir-");
+      const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+      const run = await runBackups({ platform, router: failingFor(router, "t-beta", new TenantDbFileDisownedError("t-beta", "tenants/t-beta.db")), dir, now: () => new Date(T) });
+
+      expect(run.skipped).toEqual([{ tenantId: "t-beta", code: "beta", reason: "TENANT_DB_FILE_DISOWNED" }]);
+      expect(backedUp(dir)).toEqual(["t-alpha", "t-gamma"]);
+      expect(warned).toHaveBeenCalledTimes(1);
+      warned.mockRestore();
+    });
+
+    it("backs up the tenants after one that failed for any other reason, and only then reports the run as failed, naming the tenant", async () => {
+      const { platform, router } = await threeOpen();
+      const dir = tempDir("mezan-backup-dir-");
+      const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+      const failed = await runBackups({ platform, router: failingFor(router, "t-beta", new Error("disk went away")), dir, now: () => new Date(T) }).catch((err: unknown) => err);
+
+      expect(backedUp(dir)).toEqual(["t-alpha", "t-gamma"]);
+      expect(failed).toBeInstanceOf(Error);
+      expect((failed as Error).message).toContain("beta: disk went away");
+      logged.mockRestore();
+    });
   });
 
   it("never lets a tenant's backup land in the platform's folder, whatever the tenant is called", async () => {

@@ -2094,9 +2094,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       ...confirmedPurchases.map((inv) => inv.id),
     ]);
 
+    const salesReturned = await invoiceReturnCredits.returnedByIds(activeInvoices.map((inv) => inv.id), "sales");
+    const purchaseReturned = await invoiceReturnCredits.returnedByIds(confirmedPurchases.map((inv) => inv.id), "purchase");
+    const restatement = async (invoiceId: string, fxRate: string | null | undefined) => (fxRate ? { revaluationShare: await standingRevaluationShare(invoiceItem(invoiceId)) } : {});
+
     for (const inv of activeInvoices) {
       const allocated = allocatedById.get(inv.id) ?? Money.zero();
       out.push({
+        returnedBase: salesReturned.get(inv.id) ?? Money.zero(),
+        ...(await restatement(inv.id, inv.fxRate)),
         kind: "receivable",
         documentId: inv.id,
         documentNo: inv.docNo ?? inv.id,
@@ -2113,6 +2119,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     for (const inv of confirmedPurchases) {
       const allocated = allocatedById.get(inv.id) ?? Money.zero();
       out.push({
+        returnedBase: purchaseReturned.get(inv.id) ?? Money.zero(),
+        ...(await restatement(inv.id, inv.fxRate)),
         kind: "payable",
         documentId: inv.id,
         documentNo: inv.number,

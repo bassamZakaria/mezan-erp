@@ -390,3 +390,22 @@ describe("a month-end run posted after the item it restates was already relieved
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });
+
+describe("balances by currency state a restated item at what the control account carries it at", () => {
+  async function usdGroup(side: FxSide): Promise<{ outstandingTransaction: string; outstandingBase: string } | undefined> {
+    const report = (await books.world.request("GET", "/gl/balances-by-currency")).body as unknown as Record<string, { currency: string; outstandingTransaction: string; outstandingBase: string }[]>;
+    const group = (side === FxSide.Receivable ? report.receivables : report.payables)?.find((row) => row.currency === "USD");
+    return group ? { outstandingTransaction: group.outstandingTransaction, outstandingBase: group.outstandingBase } : undefined;
+  }
+
+  it.each(SIDES)("%s: USD 1,000 restated by 450 reads 48,450, and after USD 400 is returned the USD 600 left reads 29,070 — the control account's own balance", async (side) => {
+    await restated(side);
+    expect(await usdGroup(side)).toEqual({ outstandingTransaction: "1000.000000", outstandingBase: "48450.000000" });
+    expect(major(books.world.balance(side === FxSide.Receivable ? "1105" : "2100"))).toBe(carried(side, 48_450n * SCALE));
+
+    await relieve(ReliefPath.Return, side, 400n);
+
+    expect(await usdGroup(side)).toEqual({ outstandingTransaction: "600.000000", outstandingBase: "29070.000000" });
+    expect(major(books.world.balance(side === FxSide.Receivable ? "1105" : "2100"))).toBe(carried(side, 29_070n * SCALE));
+  });
+});

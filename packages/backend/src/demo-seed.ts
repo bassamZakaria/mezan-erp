@@ -87,7 +87,7 @@ const CUSTOMERS = [
     email: "billing@alamal.example",
     paymentTermsDays: 30,
     creditLimit: "50000",
-    taxNumber: "300112233445",
+    taxNumber: "311223344",
     commercialRegistrationNumber: "CR-114522",
     etaBuyerType: "business" as const,
     contactPerson: "أحمد سيد",
@@ -101,7 +101,7 @@ const CUSTOMERS = [
     phone: "01112223344",
     paymentTermsDays: 45,
     creditLimit: "120000",
-    taxNumber: "300998877665",
+    taxNumber: "399887766",
     commercialRegistrationNumber: "CR-208814",
     etaBuyerType: "business" as const,
     contactPerson: "هالة منصور",
@@ -460,12 +460,19 @@ const ZERO_RATED_INVOICE = {
   ],
 } as const;
 
-/** EGS codes registered with the authority for part of the catalogue. */
 const ETA_ITEM_CODES = [
   { itemId: "ITEM-DEMO-1", etaItemCode: "EG-100200300-1001", gpcCode: "10000159" },
   { itemId: "ITEM-DEMO-2", etaItemCode: "EG-100200300-1002", gpcCode: "10000165" },
   { itemId: "ITEM-DEMO-3", etaItemCode: "EG-100200300-1003", gpcCode: "10000172" },
   { itemId: "ITEM-DEMO-4", etaItemCode: "EG-100200300-1004", gpcCode: "10000184" },
+  { itemId: "ITEM-DEMO-5", etaItemCode: "EG-100200300-1005", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-6", etaItemCode: "EG-100200300-1006", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-7", etaItemCode: "EG-100200300-1007", gpcCode: "10000025" },
+  { itemId: "ITEM-DEMO-8", etaItemCode: "EG-100200300-1008", gpcCode: "10000028" },
+  { itemId: "ITEM-DEMO-9", etaItemCode: "EG-100200300-1009", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-10", etaItemCode: "EG-100200300-1010", gpcCode: "10005803" },
+  { itemId: "ITEM-DEMO-11", etaItemCode: "EG-100200300-1011", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-12", etaItemCode: "EG-100200300-1012", gpcCode: "10000117" },
 ];
 
 function salespersonNameOf(employeeId: string | null): string | null {

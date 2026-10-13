@@ -214,6 +214,38 @@ describe("PurchaseReturnsScreen", () => {
     expect(await screen.findByText("شركة النيل للتوريدات")).toBeInTheDocument();
   });
 
+  it("cancels a draft return from its page through the cancel route, asking for no reason and never calling the void route", async () => {
+    let current: PurchaseReturnDocumentDTO[] = [purchaseReturn()];
+    const called: string[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /purchase-returns": () => ({ body: current }),
+      "POST /purchase-returns/pr-1/cancel": () => {
+        called.push("cancel");
+        current = current.map((d) => (d.id === "pr-1" ? { ...d, status: "cancelled" as const } : d));
+        return { body: current[0] };
+      },
+      "POST /purchase-returns/pr-1/void": () => {
+        called.push("void");
+        return { status: 409, body: { error: "INVALID_DOCUMENT_TRANSITION", message: "لا يُلغى مرتجع غير مؤكد." } };
+      },
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    fireEvent.click(await screen.findByText("PR-000001"));
+    const detail = screen.getByRole("heading", { name: "PR-000001" }).closest("div.w-full") as HTMLElement;
+    expect(within(detail).queryByRole("button", { name: "إلغاء المرتجع" })).not.toBeInTheDocument();
+    fireEvent.click(within(detail).getByRole("button", { name: "إلغاء" }));
+    await within(detail).findByText("ملغي");
+    expect(called).toEqual(["cancel"]);
+    expect(screen.queryByLabelText("سبب الإلغاء")).not.toBeInTheDocument();
+    expect(within(detail).queryByRole("button", { name: "إلغاء" })).not.toBeInTheDocument();
+  });
+
   it("confirms a draft return, then voids it with a reason through its own route", async () => {
     let current: PurchaseReturnDocumentDTO[] = [purchaseReturn()];
     const voidBodies: unknown[] = [];

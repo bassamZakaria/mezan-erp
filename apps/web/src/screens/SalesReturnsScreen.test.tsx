@@ -246,6 +246,33 @@ describe("SalesReturnsScreen", () => {
     expect(await screen.findByText("شركة الأمل للتجارة")).toBeInTheDocument();
   });
 
+  it("cancels a draft return from its page through the cancel route, asking for no reason and never calling the void route", async () => {
+    let current: SalesReturnDocumentDTO[] = [salesReturn()];
+    const called: string[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /sales-returns": () => ({ body: current }),
+      "POST /sales-returns/sr-1/cancel": () => {
+        called.push("cancel");
+        current = current.map((d) => (d.id === "sr-1" ? { ...d, status: "cancelled" as const } : d));
+        return { body: current[0] };
+      },
+      "POST /sales-returns/sr-1/void": () => {
+        called.push("void");
+        return { status: 409, body: { error: "INVALID_DOCUMENT_TRANSITION", message: "لا يُلغى مرتجع غير مؤكد." } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("SR-000001"));
+    await screen.findByRole("heading", { name: "SR-000001" });
+    expect(screen.queryByRole("button", { name: "إلغاء المرتجع" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء" }));
+    await waitFor(() => expect(screen.getByText("ملغي")).toBeInTheDocument());
+    expect(called).toEqual(["cancel"]);
+    expect(screen.queryByLabelText("سبب الإلغاء")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إلغاء" })).not.toBeInTheDocument();
+  });
+
   it("confirms a draft return, then voids it with a reason through its own route", async () => {
     let current: SalesReturnDocumentDTO[] = [salesReturn()];
     const voidBodies: unknown[] = [];

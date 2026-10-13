@@ -112,6 +112,12 @@ import {
   fxRevaluationNet,
   openFxItemsKey,
   unconsumedRevaluationShare,
+  FxOpenItemType,
+  type FxOpenItemRef,
+  sumActive,
+  getVoucherTypeDefinition,
+  REFUNDED_MONEY,
+  type VoucherLine,
   invoiceOpenBalance,
   returnedByInvoice,
   convertFromBase,
@@ -2387,15 +2393,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   async function foreignResidues(asOfDate?: string): Promise<ForeignResidue[]> {
     const posted = (await ledger.listLines?.(asOfDate ? { toDate: asOfDate } : {})) ?? [];
     const { lines } = await withDerivedTreasuryFx(posted, await foreignTreasuryCurrencies(), async (currency, on) => (await exchangeRates.findRate(currency, on))?.rate ?? null);
-    const residues = accountForeignResidues(deriveOpenFxBalances(lines, await accounts.list()));
-    for (const itemId of await vouchers.revaluationShares.listItemIds()) {
-      const invoice = await vouchers.invoices.findById(itemId);
-      const returned = invoice ? ((await returnedByInvoice(invoiceReturnCredits, [invoice])).get(invoice.id) ?? Money.zero()) : Money.zero();
-      if (invoice && (await invoiceStands(invoice.id, invoice.kind)) && invoiceOpenBalance(invoice, returned).scaled !== 0n) continue;
-      const standing = await standingRevaluationShare(itemId);
+    const chart = await accounts.list();
+    const held = accountForeignResidues(deriveOpenFxBalances(lines, chart));
+    const openItems = held.length > 0 ? await openFxItems(asOfDate ?? "9999-12-31") : new Map<string, OpenFxItem[]>();
+    const residues: ForeignResidue[] = [];
+    for (const residue of held) {
+      const carried = (openItems.get(openFxItemsKey(residue.ref, residue.currency)) ?? []).reduce((sum, item) => sum + item.carryingBase.scaled, 0n);
+      const debitNatured = chart.find((account) => account.id === residue.ref)?.naturalBalance === "debit";
+      const unexplained = residue.base.scaled - (debitNatured ? carried : -carried);
+      if (unexplained !== 0n) residues.push({ ...residue, base: Money.fromScaled(unexplained) });
+    }
+    for (const item of await vouchers.revaluationShares.listItems()) {
+      if (await fxItemStandsOpen(item)) continue;
+      const standing = await standingRevaluationShare(item);
       if (standing.scaled === 0n) continue;
-      const share = (await vouchers.revaluationShares.listByItem(itemId))[0];
-      residues.push({ kind: ForeignResidueKind.Item, ref: itemId, currency: share?.currency ?? "", base: standing });
+      const share = (await vouchers.revaluationShares.listByItem(item))[0];
+      residues.push({ kind: ForeignResidueKind.Item, ref: item.id, itemType: item.type, currency: share?.currency ?? "", base: standing });
     }
     return residues;
   }
@@ -3030,29 +3043,60 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const entry = await ledger.findById(entryId);
     return entry?.status === "posted" && !entry.reversedByEntryId;
   };
-  const standingRevaluationShare = (invoiceId: string) =>
-    unconsumedRevaluationShare(invoiceId, { shares: vouchers.revaluationShares, allocations: vouchers.allocations, entryStands: revaluationEntryStands });
-  async function openFxItems(): Promise<ReadonlyMap<string, OpenFxItem[]>> {
+  const standingRevaluationShare = (item: FxOpenItemRef) =>
+    unconsumedRevaluationShare(item, { shares: vouchers.revaluationShares, allocations: vouchers.allocations, entryStands: revaluationEntryStands });
+  const invoiceItem = (id: string): FxOpenItemRef => ({ id, type: FxOpenItemType.Invoice });
+  const moneyItem = (id: string): FxOpenItemRef => ({ id, type: FxOpenItemType.Money });
+  async function foreignMoneyOnAccount(voucherId: string): Promise<{ date: string; line: VoucherLine; fxRate: string; kind: AllocationInvoiceKind; unallocated: Money } | null> {
+    const doc = await vouchers.documents.findById(voucherId);
+    if (!doc || doc.status !== "confirmed") return null;
+    const line = voucherLine(doc);
+    const kind = getVoucherTypeDefinition(line.voucherType).allocationKind;
+    if (!kind || !line.fxRate) return null;
+    const unallocated = voucherBaseAmount(line).scaled - sumActive(await vouchers.allocations.listByVoucher(doc.id)).scaled;
+    return { date: doc.date.slice(0, 10), line, fxRate: line.fxRate, kind, unallocated: Money.fromScaled(unallocated > 0n ? unallocated : 0n) };
+  }
+  async function fxItemStandsOpen(item: FxOpenItemRef): Promise<boolean> {
+    if (item.type === FxOpenItemType.Money) return ((await foreignMoneyOnAccount(item.id))?.unallocated.scaled ?? 0n) !== 0n;
+    const invoice = await vouchers.invoices.findById(item.id);
+    if (!invoice || !(await invoiceStands(invoice.id, invoice.kind))) return false;
+    const returned = (await returnedByInvoice(invoiceReturnCredits, [invoice])).get(invoice.id) ?? Money.zero();
+    return invoiceOpenBalance(invoice, returned).scaled !== 0n;
+  }
+  async function openFxItems(asOfDate: string): Promise<ReadonlyMap<string, OpenFxItem[]>> {
     const routing = await accountRouting.get();
     const controlOf = { sales: routedAccountId(routing, "control.receivable") ?? "1105", purchase: routedAccountId(routing, "control.payable") ?? "2100" } as const;
     const open = await vouchers.invoices.listOpen({});
     const returned = await returnedByInvoice(invoiceReturnCredits, open);
     const out = new Map<string, OpenFxItem[]>();
+    const add = (key: string, item: OpenFxItem) => out.set(key, [...(out.get(key) ?? []), item]);
     for (const invoice of open) {
+      if (invoice.date.slice(0, 10) > asOfDate) continue;
       const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
       if (!booked || !(await invoiceStands(invoice.id, invoice.kind))) continue;
       const openBase = invoiceOpenBalance(invoice, returned.get(invoice.id) ?? Money.zero());
       if (openBase.scaled === 0n) continue;
-      const key = openFxItemsKey(controlOf[invoice.kind], booked.currency);
-      const items = out.get(key) ?? [];
-      items.push({
+      add(openFxItemsKey(controlOf[invoice.kind], booked.currency), {
         itemId: invoice.id,
+        itemType: FxOpenItemType.Invoice,
         kind: invoice.kind,
         partyId: invoice.partyId,
         foreignOutstanding: convertFromBase(openBase, booked.fxRate),
-        carryingBase: Money.fromScaled(openBase.scaled + (await standingRevaluationShare(invoice.id)).scaled),
+        carryingBase: Money.fromScaled(openBase.scaled + (await standingRevaluationShare(invoiceItem(invoice.id))).scaled),
       });
-      out.set(key, items);
+    }
+    for (const doc of await vouchers.documents.list({ status: "confirmed", toDate: asOfDate })) {
+      const held = await foreignMoneyOnAccount(doc.id);
+      const partyId = held?.line.customerId ?? held?.line.supplierId;
+      if (!held || !partyId || !held.line.counterpartyGlAccountId || held.unallocated.scaled === 0n) continue;
+      add(openFxItemsKey(held.line.counterpartyGlAccountId, held.line.currency), {
+        itemId: doc.id,
+        itemType: FxOpenItemType.Money,
+        kind: held.kind,
+        partyId,
+        foreignOutstanding: Money.fromScaled(-convertFromBase(held.unallocated, held.fxRate).scaled),
+        carryingBase: Money.fromScaled(-held.unallocated.scaled + (await standingRevaluationShare(moneyItem(doc.id))).scaled),
+      });
     }
     return out;
   }
@@ -3063,12 +3107,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }
     return (await purchaseInvoices.findById(invoiceId))?.status === "confirmed";
   }
-  async function releaseRevaluationShare(invoiceId: string, date: string, part?: { readonly relieved: Money; readonly outstanding: Money }): Promise<void> {
-    const standing = await standingRevaluationShare(invoiceId);
-    const records = await vouchers.revaluationShares.listByItem(invoiceId);
+  const releaseRevaluationShare = (invoiceId: string, date: string, part?: { readonly relieved: Money; readonly outstanding: Money }) => releaseItemShare(invoiceItem(invoiceId), date, part);
+  async function releaseItemShare(item: FxOpenItemRef, date: string, part?: { readonly relieved: Money; readonly outstanding: Money }): Promise<void> {
+    const standing = await standingRevaluationShare(item);
+    const records = await vouchers.revaluationShares.listByItem(item);
     const share = records[0];
     if (standing.scaled === 0n || !share) return;
-    const fxRate = (await realisedFx.invoiceFx(invoiceId, share.kind))?.fxRate ?? "1";
+    const booked = item.type === FxOpenItemType.Money ? (await vouchers.documents.findById(item.id).then((doc) => (doc ? voucherLine(doc).fxRate : null))) : (await realisedFx.invoiceFx(item.id, share.kind))?.fxRate;
+    const fxRate = booked ?? "1";
     const taken = part ? relievedRevaluationShare(standing, convertFromBase(part.relieved, fxRate), convertFromBase(part.outstanding, fxRate)) : standing;
     const lines = buildRevaluationReleaseLines({ kind: share.kind, controlAccountId: share.accountId, partyId: share.partyId, currency: share.currency, fxRate, share: taken }, await fxDifferenceAccounts("realised"));
     if (lines.length === 0) return;
@@ -3076,9 +3122,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     for (const record of records) {
       if (await revaluationEntryStands(record.entryId)) restatedOn = laterDay(restatedOn, (await ledger.findById(record.entryId))?.date.slice(0, 10));
     }
-    const entryId = `FXR:release:${invoiceId}:${records.length}`;
+    const entryId = `FXR:release:${item.id}:${records.length}`;
     await postJournalEntry(
-      { id: entryId, date: restatedOn, memo: `إقفال إعادة تقييم قائمة على مستند أُقفل (${invoiceId})`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, sourceDocId: invoiceId, lines },
+      { id: entryId, date: restatedOn, memo: `إقفال إعادة تقييم قائمة على مستند أُقفل (${item.id})`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, sourceDocId: item.id, lines },
       salesInvoiceGl,
     );
     await vouchers.revaluationShares.saveAll([{ ...share, entryId, amount: Money.fromScaled(-taken.scaled) }]);
@@ -3108,26 +3154,36 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   }
   async function revaluationSharesConsumed(entryId: string): Promise<boolean> {
     for (const share of await vouchers.revaluationShares.listByEntry(entryId)) {
-      const taken = (await vouchers.allocations.listByInvoice(share.itemId)).some((allocation) => allocation.status === "active" && (allocation.revaluationShare?.scaled ?? 0n) !== 0n);
-      if (taken) return true;
+      const money = share.itemType === FxOpenItemType.Money;
+      const taking = money ? await vouchers.allocations.listByVoucher(share.itemId) : await vouchers.allocations.listByInvoice(share.itemId);
+      if (taking.some((allocation) => allocation.status === "active" && ((money ? allocation.moneyRevaluationShare : allocation.revaluationShare)?.scaled ?? 0n) !== 0n)) return true;
     }
     return false;
+  }
+  async function refundFx(voucherId: string): Promise<{ currency: string; fxRate: string } | null> {
+    const refund = await vouchers.documents.findById(voucherId);
+    const line = refund ? voucherLine(refund) : null;
+    return line?.fxRate && line.voucherType in REFUNDED_MONEY ? { currency: line.currency, fxRate: line.fxRate } : null;
   }
   /** The rates a settlement of a foreign invoice is measured with, and where the realised difference goes (D221, D229). */
   const realisedFx: RealisedFxPort = {
     async invoiceFx(invoiceId, kind) {
       if (kind === "sales") {
         const invoice = await salesInvoices.findById(invoiceId);
-        return invoice?.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+        if (invoice) return invoice.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+        return refundFx(invoiceId);
       }
       const invoice = await purchaseInvoices.findById(invoiceId);
-      return invoice?.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+      if (invoice) return invoice.fxRate && invoice.currency ? { currency: invoice.currency, fxRate: invoice.fxRate } : null;
+      return refundFx(invoiceId);
     },
     async rateOn(currency, date) {
       return (await exchangeRates.findRate(currency, date))?.rate ?? null;
     },
     differenceAccounts: () => fxDifferenceAccounts("realised"),
-    revaluationShare: (invoice) => standingRevaluationShare(invoice.id),
+    revaluationShare: (invoice) => standingRevaluationShare(invoiceItem(invoice.id)),
+    moneyRevaluationShare: (voucherId) => standingRevaluationShare(moneyItem(voucherId)),
+    releaseMoneyShare: (voucherId, date) => releaseItemShare(moneyItem(voucherId), date),
     async treasuryRevaluationShare(treasuryAccountId, foreign, fromDate, toDate) {
       const account = (await treasuryAccounts.list()).find((row) => row.id === treasuryAccountId);
       if (!account?.glAccountId) return Money.zero();
@@ -3705,7 +3761,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       sharesConsumed: revaluationSharesConsumed,
       foreignResidues,
       realisedDifferenceAccounts: () => fxDifferenceAccounts("realised"),
-      releaseItemShare: releaseRevaluationShare,
+      releaseItemShare,
     },
     eta: {
       service: etaService,

@@ -27,6 +27,8 @@ import {
   type ForeignResidue,
   type JournalLineInput,
   ForeignResidueKind,
+  FxOpenItemType,
+  type FxOpenItemRef,
   FX_REVALUATION_LINE_MEMO,
   FX_REALISED_LINE_MEMO,
   FX_REALISED_DOC_TYPE,
@@ -54,12 +56,12 @@ export interface FxRevaluationRoutesDeps {
   readonly now?: () => string;
   readonly idGen?: () => string;
   readonly recordRun?: (run: FxRevaluationRun) => void;
-  readonly openFxItems?: () => Promise<ReadonlyMap<string, readonly OpenFxItem[]>>;
+  readonly openFxItems?: (asOfDate: string) => Promise<ReadonlyMap<string, readonly OpenFxItem[]>>;
   readonly saveShares?: (entryId: string, shares: readonly FxRevaluationShare[]) => Promise<void>;
   readonly sharesConsumed?: (entryId: string) => Promise<boolean>;
   readonly foreignResidues?: (asOfDate?: string) => Promise<readonly ForeignResidue[]>;
   readonly realisedDifferenceAccounts?: () => Promise<FxDifferenceAccounts>;
-  readonly releaseItemShare?: (itemId: string, date: string) => Promise<void>;
+  readonly releaseItemShare?: (item: FxOpenItemRef, date: string) => Promise<void>;
   readonly foreignTreasuryCurrencies?: () => Promise<ReadonlyMap<string, string>>;
 }
 
@@ -142,7 +144,7 @@ export function createFxRevaluationRoutes(
       if (rate) closingRates.set(currency, rate.rate);
     }
     const reported = filterSet ? derived.filter((line) => filterSet.has(line.currency)) : derived;
-    const openItems = attribute ? await deps.openFxItems?.() : undefined;
+    const openItems = attribute ? await deps.openFxItems?.(date) : undefined;
     return { balances, config: { date, closingRates, ...(await deps.differenceAccounts()), ...(openItems ? { openItems } : {}) }, derived: reported };
   }
 
@@ -215,7 +217,7 @@ export function createFxRevaluationRoutes(
     messageEn: "The FX revaluation run does not exist.",
   } as const;
 
-  const serializeResidue = (row: ForeignResidue) => ({ kind: row.kind, ref: row.ref, currency: row.currency, base: row.base.toString() });
+  const serializeResidue = (row: ForeignResidue) => ({ kind: row.kind, ref: row.ref, ...(row.itemType ? { itemType: row.itemType } : {}), currency: row.currency, base: row.base.toString() });
 
   app.get("/residue", gate("accounting.journal.view"), async (c) => {
     const rows = (await deps.foreignResidues?.()) ?? [];
@@ -248,7 +250,9 @@ export function createFxRevaluationRoutes(
       }
       const actor = getAuthContext(c)?.userId ?? "system";
       const entryId = await deps.ledger.transaction(async () => {
-        for (const row of sweepable) if (row.kind === ForeignResidueKind.Item) await deps.releaseItemShare?.(row.ref, date);
+        for (const row of sweepable) {
+          if (row.kind === ForeignResidueKind.Item) await deps.releaseItemShare?.({ id: row.ref, type: row.itemType ?? FxOpenItemType.Invoice }, date);
+        }
         if (lines.length === 0) return null;
         const posted = await postJournalEntry(
           { id: idGen(), date, memo: `ترحيل فروق تقريب العملات الأجنبية حتى ${date}`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, lines },

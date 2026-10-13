@@ -7,6 +7,7 @@ import { postJournalEntry } from "../gl/post.js";
 import { reverseJournalEntry } from "../gl/reverse.js";
 import { convertToBase, convertFromBase, isBaseCurrency, FxRateMissingError } from "../exchange-rates/convert.js";
 import { FX_REALISED_LINE_MEMO } from "../vouchers/realised-fx.js";
+import { FxOpenItemType } from "../vouchers/allocation.js";
 
 /**
  * إعادة تقييم العملات الأجنبية — FX Revaluation (docs/archive/catalog/04). At period
@@ -25,6 +26,7 @@ export enum ForeignResidueKind {
 export interface ForeignResidue {
   readonly kind: ForeignResidueKind;
   readonly ref: string;
+  readonly itemType?: FxOpenItemType;
   readonly currency: string;
   readonly base: Money;
 }
@@ -58,6 +60,7 @@ export interface OpenFxBalance {
 
 export interface OpenFxItem {
   readonly itemId: string;
+  readonly itemType: FxOpenItemType;
   readonly kind: "sales" | "purchase";
   readonly partyId: string;
   readonly foreignOutstanding: Money;
@@ -67,6 +70,7 @@ export interface OpenFxItem {
 export interface FxRevaluationShare {
   readonly accountId: string;
   readonly itemId: string;
+  readonly itemType: FxOpenItemType;
   readonly kind: "sales" | "purchase";
   readonly partyId: string;
   readonly currency: string;
@@ -80,7 +84,7 @@ export function openFxItemsKey(accountId: string, currency: string): string {
 export function attributeRevaluation(delta: bigint, items: readonly OpenFxItem[], closingRate: string): bigint[] {
   const own = items.map((item) => convertToBase(item.foreignOutstanding, closingRate).scaled - item.carryingBase.scaled);
   const residual = delta - own.reduce((sum, value) => sum + value, 0n);
-  const spread = allocateScaled(residual, items.map((item) => item.foreignOutstanding.scaled));
+  const spread = allocateScaled(residual, items.map((item) => (item.foreignOutstanding.scaled < 0n ? -item.foreignOutstanding.scaled : item.foreignOutstanding.scaled)));
   return own.map((value, index) => value + (spread[index] ?? 0n));
 }
 
@@ -163,7 +167,7 @@ export function computeFxRevaluation(
 
     if (delta === 0n) continue;
     const side = balance.naturalBalance === "debit" ? 1n : -1n;
-    const items = (config.openItems?.get(openFxItemsKey(balance.accountId, balance.currency)) ?? []).filter((item) => item.foreignOutstanding.scaled > 0n);
+    const items = (config.openItems?.get(openFxItemsKey(balance.accountId, balance.currency)) ?? []).filter((item) => item.foreignOutstanding.scaled !== 0n);
     if (items.length === 0) {
       controlLines.push(lineFor(balance.accountId, side * delta, balance.currency, rate));
     } else {
@@ -171,7 +175,7 @@ export function computeFxRevaluation(
         const item = items[index]!;
         if (amount === 0n) return;
         controlLines.push({ ...lineFor(balance.accountId, side * amount, balance.currency, rate), partyId: item.partyId });
-        shares.push({ accountId: balance.accountId, itemId: item.itemId, kind: item.kind, partyId: item.partyId, currency: balance.currency, amount: Money.fromScaled(amount) });
+        shares.push({ accountId: balance.accountId, itemId: item.itemId, itemType: item.itemType, kind: item.kind, partyId: item.partyId, currency: balance.currency, amount: Money.fromScaled(amount) });
       });
     }
     if (gainLoss > 0n) totalGain += gainLoss;

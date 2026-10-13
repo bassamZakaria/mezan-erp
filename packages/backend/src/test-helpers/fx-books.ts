@@ -20,7 +20,7 @@ export interface FxBooks {
   readonly world: SeededWorld;
   ok(method: string, url: string, body?: unknown, status?: number): Promise<Record<string, unknown>>;
   rate(id: string, value: string, effectiveDate: string, currency?: string): Promise<void>;
-  invoice(side: FxSide, id?: string): Promise<void>;
+  invoice(side: FxSide, id?: string, terms?: { readonly date?: string; readonly units?: string }): Promise<void>;
   revalue(closing: string, date?: string): Promise<string>;
   voucher(side: FxSide, id: string, amount: string, extra?: Record<string, unknown>): Promise<void>;
   settle(side: FxSide, id: string, amount: string, invoiceId?: string): Promise<void>;
@@ -57,19 +57,21 @@ export async function openFxBooks(): Promise<FxBooks> {
   await ok("POST", "/items", { id: "SVC-1", code: "SVC-1", nameAr: "خدمة", type: "service", baseUnitCode: "PCS" });
   await ok("POST", "/items", { id: "STK-1", code: "STK-1", nameAr: "صنف", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" });
 
-  async function invoice(side: FxSide, id = FX_INVOICE_ID[side]) {
+  async function invoice(side: FxSide, id = FX_INVOICE_ID[side], terms: { readonly date?: string; readonly units?: string } = {}) {
+    const date = terms.date ?? "2026-08-22";
+    const qty = terms.units ?? "10";
     if (side === FxSide.Receivable) {
       await ok("POST", "/sales-invoices", {
-        id, date: "2026-08-22", dueDate: "2026-09-21", customerId: "cust-usd", customerNameAr: "عميل بالدولار", warehouseId: "WH-MAIN", branchId: "BR-MAIN",
+        id, date, dueDate: "2026-09-21", customerId: "cust-usd", customerNameAr: "عميل بالدولار", warehouseId: "WH-MAIN", branchId: "BR-MAIN",
         arAccountId: "1105", taxAccountId: "2200", currency: "USD",
-        lines: [{ lineId: "L1", itemId: "SVC-1", itemNameAr: "خدمة", isStock: false, qty: "10", unitPrice: "100", taxRatePercent: 0, revenueAccountId: "4100" }],
+        lines: [{ lineId: "L1", itemId: "SVC-1", itemNameAr: "خدمة", isStock: false, qty, unitPrice: "100", taxRatePercent: 0, revenueAccountId: "4100" }],
       });
       await ok("POST", `/sales-invoices/${id}/confirm`, {}, 200);
       return;
     }
     await ok("POST", "/purchases/invoices", {
-      id, supplierId: "sup-usd", date: "2026-08-22", dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "USD",
-      lines: [{ itemId: "STK-1", description: "صنف بالدولار", kind: "inventory", qty: "10", unitCost: "100", taxRatePercent: 0 }],
+      id, supplierId: "sup-usd", date, dueDate: "2026-09-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "USD",
+      lines: [{ itemId: "STK-1", description: "صنف بالدولار", kind: "inventory", qty, unitCost: "100", taxRatePercent: 0 }],
     });
     await ok("POST", `/purchases/invoices/${id}/confirm`, {}, 200);
   }

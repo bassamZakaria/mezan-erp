@@ -48,6 +48,8 @@ export interface RealisedFxPort {
   /** Where a realised difference posts, read at each posting so a tenant's account routing applies at once (D229). */
   differenceAccounts(): Promise<FxDifferenceAccounts>;
   revaluationShare?(invoice: AllocatableInvoice): Promise<Money>;
+  moneyRevaluationShare?(voucherId: string): Promise<Money>;
+  releaseMoneyShare?(voucherId: string, date: string): Promise<void>;
   treasuryRevaluationShare?(treasuryAccountId: string, foreign: Money, fromDate: string, toDate: string): Promise<Money>;
   treasuryPosition?(treasuryAccountId: string, asOfDate: string): Promise<{ readonly foreign: Money; readonly base: Money } | null>;
 }
@@ -140,7 +142,7 @@ export function buildRealisedFxLines(input: RealisedFxPostingInput, accounts: Fx
   const diff = input.split.fxDifference.scaled;
   const moneyRate = input.money.fxRate ?? null;
   const moneyCurrency = moneyRate ? (input.money.currency ?? null) : null;
-  const share = input.split.revaluationShare?.scaled ?? 0n;
+  const share = (input.split.revaluationShare?.scaled ?? 0n) + (input.split.moneyRevaluationShare?.scaled ?? 0n);
   if (diff === 0n && share === 0n && moneyRate && moneyCurrency === input.currency && sameRate(moneyRate, input.invoiceRate)) return null;
   const zero = Money.zero();
   const receivable = input.invoice.kind === "sales";

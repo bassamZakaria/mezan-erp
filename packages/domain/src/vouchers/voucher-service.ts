@@ -42,6 +42,7 @@ import { InvalidDocumentError } from "../documents/errors.js";
 import { BASE_CURRENCY } from "../exchange-rates/exchange-rate.js";
 import { carryingBaseOf, convertFromBase, shareOfBase } from "../exchange-rates/convert.js";
 import {
+  REFUNDED_MONEY,
   getVoucherTypeDefinition,
   type AllocationInvoiceKind,
   type VoucherType,
@@ -54,6 +55,7 @@ import {
   returnedByInvoice,
   reverseAllocation as reverseAllocationFn,
   settlementSplit,
+  sumActive,
   summarize,
   type AllocatableInvoiceRepository,
   type AllocationRepository,
@@ -401,7 +403,8 @@ export class VoucherService {
       if (carried.length > 0) await this.assertAllocationsFit(stamped, carried, true);
     }
     const cheques = this.deps.cheques;
-    if (!cheques && carried.length === 0) return this.service.confirm(id, opts);
+    const refunding = existing !== null && voucherLine(existing).voucherType in REFUNDED_MONEY;
+    if (!cheques && carried.length === 0 && !refunding) return this.service.confirm(id, opts);
     // The posting, the register row and the carried allocations are one act: a
     // «شيك» voucher that posted while its cheque failed to register is the gap
     // D81 filed, and an approved collection left unallocated is D344.
@@ -409,6 +412,7 @@ export class VoucherService {
       const result = await this.service.confirm(id, opts);
       if (result.held) return result;
       if (cheques) await this.registerCheque(cheques, result.document, opts.actor);
+      await this.applyRefundToMoneyOnAccount(result.document);
       if (carried.length === 0) return result;
       await this.applyAllocations(id, carried, result.document);
       const current = (await this.service.findById(id)) ?? result.document;
@@ -416,6 +420,40 @@ export class VoucherService {
       await this.deps.documents.update(cleared);
       return { ...result, document: cleared };
     });
+  }
+
+  private async applyRefundToMoneyOnAccount(refund: VoucherDocument): Promise<void> {
+    const line = voucherLine(refund);
+    const heldAs = REFUNDED_MONEY[line.voucherType];
+    const kind = heldAs ? getVoucherTypeDefinition(heldAs).allocationKind : null;
+    const partyId = line.customerId ?? line.supplierId;
+    if (!heldAs || !kind || !partyId || !line.fxRate || !this.deps.realisedFx) return;
+    const held = (await this.service.list({ status: "confirmed", toDate: refund.date }))
+      .filter((doc) => {
+        const money = voucherLine(doc);
+        return money.voucherType === heldAs && (money.customerId ?? money.supplierId) === partyId && money.currency === line.currency && Boolean(money.fxRate);
+      })
+      .sort((a, b) => (a.date === b.date ? a.id.localeCompare(b.id) : a.date < b.date ? -1 : 1));
+    let applied = 0;
+    for (const money of held) {
+      const moneyLine = voucherLine(money);
+      const unallocated = Money.fromScaled(voucherBaseAmount(moneyLine).scaled - sumActive(await this.deps.allocations.listByVoucher(money.id)).scaled);
+      if (unallocated.scaled <= 0n) continue;
+      if (applied === 0) {
+        await this.deps.invoices.save({ id: refund.id, invoiceNo: refund.docNo ?? refund.id, kind, partyId, date: refund.date, total: voucherBaseAmount(line), allocated: Money.zero() });
+      }
+      const { capacity } = await this.settlementPreview(refund.id, { amount: unallocated, currency: moneyLine.currency, fxRate: moneyLine.fxRate, date: money.date });
+      if (capacity.scaled <= 0n) break;
+      applied += 1;
+      await this.allocate(money.id, {
+        allocationId: `${refund.id}:R${applied}`,
+        invoiceId: refund.id,
+        amount: unallocated.scaled > capacity.scaled ? capacity : unallocated,
+        date: refund.date,
+      });
+    }
+    const row = await this.deps.invoices.findById(refund.id);
+    if (row) await this.deps.invoices.save({ ...row, total: row.allocated });
   }
 
   private async registerCheque(
@@ -541,21 +579,26 @@ export class VoucherService {
     }
     return this.deps.documents.transaction(async () => {
       const result = await this.service.reverse(id, opts);
-      const active = (await this.deps.allocations.listByVoucher(id)).filter((a) => a.status === "active");
-      for (const alloc of active) {
-        const undoneOn = await allocationUndoDay(alloc, result.reversal.date, this.deps.ledger);
-        await reverseRealisedFx(alloc, this.glDeps, undoneOn);
-        const undone = await reverseAllocationFn(
-          alloc.id,
-          this.now(),
-          { allocations: this.deps.allocations, invoices: this.deps.invoices },
-          undoneOn,
-        );
-        await this.projectSettlement(undone.invoice);
+      await this.undoAllocations(await this.deps.allocations.listByVoucher(id), result.reversal.date);
+      const refunded = await this.deps.invoices.findById(id);
+      if (refunded && voucherLine(result.original).voucherType in REFUNDED_MONEY) {
+        await this.undoAllocations(await this.deps.allocations.listByInvoice(id), result.reversal.date);
+        await this.deps.invoices.save({ ...refunded, total: Money.zero(), allocated: Money.zero() });
       }
+      await this.deps.realisedFx?.releaseMoneyShare?.(id, result.reversal.date);
       await this.deps.advanceSubLedger?.onVoucherReversed(id);
       return result;
     });
+  }
+
+  private async undoAllocations(allocations: readonly VoucherAllocation[], eventDay: string): Promise<void> {
+    for (const alloc of allocations) {
+      if (alloc.status !== "active") continue;
+      const undoneOn = await allocationUndoDay(alloc, eventDay, this.deps.ledger);
+      await reverseRealisedFx(alloc, this.glDeps, undoneOn);
+      const undone = await reverseAllocationFn(alloc.id, this.now(), { allocations: this.deps.allocations, invoices: this.deps.invoices }, undoneOn);
+      await this.projectSettlement(undone.invoice);
+    }
   }
 
   async allocate(
@@ -604,6 +647,7 @@ export class VoucherService {
             ? {
                 rates: (invoice) => settlementRatesFor(realisedFx, invoice, money),
                 unconsumedShare: async (invoice) => (await realisedFx.revaluationShare?.(invoice)) ?? Money.zero(),
+                unconsumedMoneyShare: async () => (line.fxRate ? ((await realisedFx.moneyRevaluationShare?.(voucherId)) ?? Money.zero()) : Money.zero()),
                 beforeSave: async (invoice, split, date) => {
                   const booked = await realisedFx.invoiceFx(invoice.id, invoice.kind);
                   const rates = await settlementRatesFor(realisedFx, invoice, money);

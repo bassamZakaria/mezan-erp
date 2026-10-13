@@ -9,6 +9,8 @@ import {
   type AllocationRepository,
   type FxRevaluationShareRecord,
   type FxRevaluationShareRepository,
+  type FxOpenItemRef,
+  FxOpenItemType,
   type AllocationStatus,
   type CostCategory,
   type DocumentListFilter,
@@ -113,6 +115,7 @@ CREATE TABLE IF NOT EXISTS fx_revaluation_share (
   party_id   TEXT NOT NULL,
   currency   TEXT NOT NULL,
   amount     INTEGER NOT NULL,
+  item_type  TEXT NOT NULL DEFAULT 'invoice',
   PRIMARY KEY (entry_id, item_id)
 );
 CREATE INDEX IF NOT EXISTS idx_fx_share_item ON fx_revaluation_share(item_id);
@@ -137,10 +140,13 @@ const ADDED_ALLOCATION_COLUMNS: readonly [string, string][] = [
   ["date", "TEXT"],
   ["reversed_on", "TEXT"],
   ["revaluation_share", "INTEGER"],
+  ["money_revaluation_share", "INTEGER"],
 ];
 
+const ADDED_SHARE_COLUMNS: readonly [string, string][] = [["item_type", "TEXT NOT NULL DEFAULT 'invoice'"]];
+
 function addMissingColumns(sqlite: Database.Database): void {
-  for (const [table, columns] of [["voucher", ADDED_VOUCHER_COLUMNS], ["voucher_allocation", ADDED_ALLOCATION_COLUMNS]] as const) {
+  for (const [table, columns] of [["voucher", ADDED_VOUCHER_COLUMNS], ["voucher_allocation", ADDED_ALLOCATION_COLUMNS], ["fx_revaluation_share", ADDED_SHARE_COLUMNS]] as const) {
     const existing = new Set(
       (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name),
     );
@@ -432,6 +438,7 @@ interface AllocationRow {
   date: string | null;
   reversed_on: string | null;
   revaluation_share: bigint | null;
+  money_revaluation_share: bigint | null;
 }
 
 function toAllocation(row: AllocationRow): VoucherAllocation {
@@ -443,6 +450,7 @@ function toAllocation(row: AllocationRow): VoucherAllocation {
     invoiceAmount: row.invoice_amount === null ? null : Money.fromScaled(row.invoice_amount),
     fxEntryId: row.fx_entry_id,
     revaluationShare: row.revaluation_share === null ? null : Money.fromScaled(row.revaluation_share),
+    moneyRevaluationShare: row.money_revaluation_share === null ? null : Money.fromScaled(row.money_revaluation_share),
     status: row.status as AllocationStatus,
     createdAt: row.created_at,
     reversedAt: row.reversed_at,
@@ -459,8 +467,8 @@ class SqliteAllocationRepository implements AllocationRepository {
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO voucher_allocation (id, voucher_id, invoice_id, amount, status, created_at, reversed_at, invoice_amount, fx_entry_id, date, reversed_on, revaluation_share)
-      VALUES (@id, @voucher_id, @invoice_id, @amount, @status, @created_at, @reversed_at, @invoice_amount, @fx_entry_id, @date, @reversed_on, @revaluation_share)
+      INSERT INTO voucher_allocation (id, voucher_id, invoice_id, amount, status, created_at, reversed_at, invoice_amount, fx_entry_id, date, reversed_on, revaluation_share, money_revaluation_share)
+      VALUES (@id, @voucher_id, @invoice_id, @amount, @status, @created_at, @reversed_at, @invoice_amount, @fx_entry_id, @date, @reversed_on, @revaluation_share, @money_revaluation_share)
       ON CONFLICT(id) DO UPDATE SET status = excluded.status, reversed_at = excluded.reversed_at, reversed_on = excluded.reversed_on
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM voucher_allocation WHERE id = ?`).safeIntegers();
@@ -482,6 +490,7 @@ class SqliteAllocationRepository implements AllocationRepository {
       date: alloc.date ?? null,
       reversed_on: alloc.reversedOn ?? null,
       revaluation_share: alloc.revaluationShare ? alloc.revaluationShare.toScaledNumber() : null,
+      money_revaluation_share: alloc.moneyRevaluationShare ? alloc.moneyRevaluationShare.toScaledNumber() : null,
     });
   }
 
@@ -601,12 +610,14 @@ interface ShareRow {
   party_id: string;
   currency: string;
   amount: bigint;
+  item_type: string;
 }
 
 function toShare(row: ShareRow): FxRevaluationShareRecord {
   return {
     entryId: row.entry_id,
     itemId: row.item_id,
+    itemType: row.item_type === FxOpenItemType.Money ? FxOpenItemType.Money : FxOpenItemType.Invoice,
     accountId: row.account_id,
     kind: row.kind as AllocationInvoiceKind,
     partyId: row.party_id,
@@ -619,15 +630,15 @@ class SqliteRevaluationShareRepository implements FxRevaluationShareRepository {
   private readonly insert: Database.Statement;
   private readonly selectByItem: Database.Statement;
   private readonly selectByEntry: Database.Statement;
-  private readonly selectItemIds: Database.Statement;
+  private readonly selectItems: Database.Statement;
 
   constructor(sqlite: Database.Database) {
-    this.selectItemIds = sqlite.prepare(`SELECT DISTINCT item_id FROM fx_revaluation_share ORDER BY item_id`);
+    this.selectItems = sqlite.prepare(`SELECT DISTINCT item_id, item_type FROM fx_revaluation_share ORDER BY item_id, item_type`);
     this.insert = sqlite.prepare(`
-      INSERT INTO fx_revaluation_share (entry_id, item_id, account_id, kind, party_id, currency, amount)
-      VALUES (@entry_id, @item_id, @account_id, @kind, @party_id, @currency, @amount)
+      INSERT INTO fx_revaluation_share (entry_id, item_id, account_id, kind, party_id, currency, amount, item_type)
+      VALUES (@entry_id, @item_id, @account_id, @kind, @party_id, @currency, @amount, @item_type)
     `);
-    this.selectByItem = sqlite.prepare(`SELECT * FROM fx_revaluation_share WHERE item_id = ? ORDER BY entry_id`).safeIntegers();
+    this.selectByItem = sqlite.prepare(`SELECT * FROM fx_revaluation_share WHERE item_id = ? AND item_type = ? ORDER BY entry_id`).safeIntegers();
     this.selectByEntry = sqlite.prepare(`SELECT * FROM fx_revaluation_share WHERE entry_id = ? ORDER BY item_id`).safeIntegers();
   }
 
@@ -641,17 +652,21 @@ class SqliteRevaluationShareRepository implements FxRevaluationShareRepository {
         party_id: share.partyId,
         currency: share.currency,
         amount: share.amount.toScaledNumber(),
+        item_type: share.itemType,
       });
     }
   }
-  async listByItem(itemId: string): Promise<readonly FxRevaluationShareRecord[]> {
-    return (this.selectByItem.all(itemId) as ShareRow[]).map(toShare);
+  async listByItem(item: FxOpenItemRef): Promise<readonly FxRevaluationShareRecord[]> {
+    return (this.selectByItem.all(item.id, item.type) as ShareRow[]).map(toShare);
   }
   async listByEntry(entryId: string): Promise<readonly FxRevaluationShareRecord[]> {
     return (this.selectByEntry.all(entryId) as ShareRow[]).map(toShare);
   }
-  async listItemIds(): Promise<readonly string[]> {
-    return (this.selectItemIds.all() as { item_id: string }[]).map((row) => row.item_id);
+  async listItems(): Promise<readonly FxOpenItemRef[]> {
+    return (this.selectItems.all() as { item_id: string; item_type: string }[]).map((row) => ({
+      id: row.item_id,
+      type: row.item_type === FxOpenItemType.Money ? FxOpenItemType.Money : FxOpenItemType.Invoice,
+    }));
   }
 }
 

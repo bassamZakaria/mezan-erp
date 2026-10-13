@@ -117,6 +117,10 @@ export interface Strings {
     readonly submit: string;
     readonly success: string;
     readonly held: string;
+    readonly submitDraft: string;
+    readonly draftSaved: string;
+    readonly draftMemo: string;
+    readonly confirmOnly: string;
     readonly noPermission: string;
     readonly missingGlAccount: string;
     readonly invoiceRequired: string;
@@ -316,6 +320,10 @@ const AR: Strings = {
     submit: "تسجيل التحصيل",
     success: "تم تسجيل التحصيل وتخصيصه على الفاتورة",
     held: "سُجّل سند التحصيل وهو بانتظار الاعتماد؛ لم يُرحَّل ولم يُخصَّص على الفاتورة بعد",
+    submitDraft: "حفظ كمسودة للاعتماد",
+    draftSaved: "حُفظ سند التحصيل كمسودة بانتظار من يؤكده؛ لم يتحرك رصيد الخزينة ولم تُسدَّد الفاتورة بعد",
+    draftMemo: "تحصيل الفاتورة",
+    confirmOnly: "صلاحيتك تأكيد السندات لا تسجيلها. تأكيد المسودات يتم من نسخة الويب أو سطح المكتب؛ تطبيق الجوال لا يعرض قائمة السندات.",
     noPermission: "لا تملك صلاحية تسجيل سندات التحصيل.",
     missingGlAccount: "حساب الخزينة المختار غير مربوط بحساب دفتر أستاذ؛ راجع الإعدادات على سطح المكتب.",
     invoiceRequired: "اختر عميلًا ثم فاتورة مفتوحة له.",
@@ -516,6 +524,10 @@ const EN: Strings = {
     submit: "Record collection",
     success: "Collection recorded and allocated to the invoice",
     held: "The collection voucher is recorded and waiting for approval; it is not posted or allocated to the invoice yet",
+    submitDraft: "Save as a draft for approval",
+    draftSaved: "The collection voucher is saved as a draft for someone to confirm; the drawer has not moved and the invoice is not settled yet",
+    draftMemo: "Collection for invoice",
+    confirmOnly: "You may confirm vouchers, not record them. Drafts are confirmed from the web or desktop app; the mobile app has no vouchers list.",
     noPermission: "You do not hold the right to record collection vouchers.",
     missingGlAccount: "The chosen treasury account has no ledger account linked; check the desktop settings.",
     invoiceRequired: "Choose a customer, then one of their open invoices.",

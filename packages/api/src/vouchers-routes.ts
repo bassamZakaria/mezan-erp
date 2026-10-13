@@ -265,7 +265,8 @@ const VOUCHER_TYPE_PERMISSION_PREFIX: Readonly<Record<string, string>> = {
  * every till cashier does.
  */
 const CERTIFICATE_COLLECT = "contracting.certificate.collect";
-const CERTIFICATE_COLLECTION_TYPES: ReadonlySet<string> = new Set(["customer_collection", "customer_advance"]);
+const CUSTOMER_COLLECTION = "customer_collection";
+const CERTIFICATE_COLLECTION_TYPES: ReadonlySet<string> = new Set([CUSTOMER_COLLECTION, "customer_advance"]);
 
 type VoucherAction = "create" | "confirm" | "void";
 
@@ -600,7 +601,7 @@ export function createVouchersRoutes(
         paymentMethod: d.paymentMethod,
         treasuryAccountId: treasury.id,
         treasuryGlAccountId: treasury.glAccountId,
-        counterpartyGlAccountId: d.counterpartyGlAccountId ?? null,
+        counterpartyGlAccountId: d.counterpartyGlAccountId ?? (d.voucherType === CUSTOMER_COLLECTION ? (deps.receivableAccountId ?? null) : null),
         counterTreasuryAccountId: counterTreasury?.id ?? null,
         counterTreasuryGlAccountId: counterTreasury?.glAccountId ?? null,
         customerId: d.customerId ?? null,
@@ -626,7 +627,7 @@ export function createVouchersRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
-    const voucherType = "customer_collection";
+    const voucherType = CUSTOMER_COLLECTION;
     for (const action of ["create", "confirm"] as const) {
       const refusal = refuseVoucherType(c, voucherPermissions(action, voucherType, d.projectId));
       if (refusal) return refusal;

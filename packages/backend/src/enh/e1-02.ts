@@ -160,6 +160,8 @@ export const area: BackendArea = {
         {
           reports: reportsDeps(ctx),
           treasuryAccounts: ctx.stores.treasuryAccounts,
+          cashAndBankAccountIds: ctx.cashAndBankAccountIds,
+          accounts: ctx.stores.accounts,
           store,
           commitmentSources: () => commitmentRegistry.get(ctx.sqlite) ?? [],
           notify,

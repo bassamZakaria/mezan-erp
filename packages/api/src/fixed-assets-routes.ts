@@ -16,6 +16,7 @@ import {
   AssetNotFoundError,
   AssetAlreadyDisposedError,
   InvalidAssetDisposalError,
+  type DisposalProceedsAccount,
   disposeAsset,
   postJournalEntry,
   DepreciationRunNotFoundError,
@@ -80,6 +81,8 @@ export interface FixedAssetsRoutesDeps {
   readonly runs: DepreciationRunRepository;
   readonly gl: JournalPostingDeps;
   readonly warehouses?: WarehouseBranchLookup;
+  /** Where a disposal's sale proceeds may land — derived by the composition root from the chart, never from a code prefix. */
+  readonly disposalProceedsAccounts?: () => Promise<readonly DisposalProceedsAccount[]>;
   readonly defaultAccounts: {
     readonly depreciationExpenseAccountId: string;
     readonly accumulatedDepreciationAccountId: string;
@@ -374,6 +377,11 @@ export function createFixedAssetsRoutes(
     }
   });
 
+  app.get("/disposal-proceeds-accounts", gate("assets.view"), async (c) => {
+    const offered = (await deps.disposalProceedsAccounts?.()) ?? [];
+    return c.json(offered.map(({ account, kind }) => ({ id: account.id, code: account.code, nameAr: account.nameAr, nameEn: account.nameEn ?? null, kind })));
+  });
+
   app.get("/:id", gate("assets.view"), async (c) => {
     const asset = await deps.assets.findById(c.req.param("id"));
     if (!asset) return c.json({ error: "ASSET_NOT_FOUND" }, 404);
@@ -442,6 +450,17 @@ export function createFixedAssetsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const body = parsed.data;
+    // SECURITY: the account the proceeds land in is checked against the server's own list — the screen's picker is not a limit.
+    if (body.proceedsAccountId && deps.disposalProceedsAccounts && !(await deps.disposalProceedsAccounts()).some(({ account }) => account.id === body.proceedsAccountId)) {
+      return c.json(
+        {
+          error: "INVALID_DISPOSAL_PROCEEDS_ACCOUNT",
+          message: "حساب تحصيل قيمة البيع يجب أن يكون حساب نقدية أو بنك أو ذمماً مدينة غير حساب مراقبة العملاء.",
+          messageEn: "The proceeds account must be a cash or bank account, or a receivable other than the customers' control account.",
+        },
+        422,
+      );
+    }
     try {
       const result = await disposeAsset(
         {

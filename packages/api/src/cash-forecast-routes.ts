@@ -47,6 +47,9 @@ import { tenantToday } from "./tenant-day.js";
 export interface CashForecastRoutesDeps {
   readonly reports: ReportsRoutesDeps;
   readonly treasuryAccounts: { list(): Promise<readonly TreasuryAccount[]> };
+  /** LEDGER INVARIANT: the one derived cash-and-bank set every statement reads; the opening balance is summed over it, not over the treasury directory. */
+  readonly cashAndBankAccountIds: () => Promise<readonly string[]>;
+  readonly accounts: { list(): Promise<readonly { readonly id: string; readonly nameAr: string; readonly nameEn?: string | null }[]> };
   readonly store: CashForecastStore;
   readonly commitmentSources: () => readonly CommitmentSource[];
   readonly notify: (alert: CashForecastAlertRecord) => Promise<number>;
@@ -57,6 +60,7 @@ export interface CashForecastRoutesDeps {
 }
 
 const ALERT_HISTORY = 10;
+const UNTIED_LEDGER_ACCOUNT_TYPE = "ledger";
 
 /**
  * الفرع the reader asked for, inside the branch authority the server resolved.
@@ -148,12 +152,14 @@ async function openingCash(
     .filter((account) => inView(account.branchId, view))
     .sort((a, b) => a.code.localeCompare(b.code));
   const seen = new Set<string>(chequeAccountIds);
+  const cashSet = view.empty ? [] : await deps.cashAndBankAccountIds();
+  const isCash = new Set(cashSet);
   const rows: CashForecastOpeningAccountDTO[] = [];
   let total = 0n;
   for (const account of accounts) {
     const glAccountId = account.glAccountId;
     let balance: string | null = null;
-    if (glAccountId && !seen.has(glAccountId)) {
+    if (glAccountId && isCash.has(glAccountId) && !seen.has(glAccountId)) {
       seen.add(glAccountId);
       const held = await glBalanceInView(deps, glAccountId, today, view);
       total += held.scaled;
@@ -169,6 +175,26 @@ async function openingCash(
       glAccountId,
       balance,
     });
+  }
+  const untied = cashSet.filter((id) => !seen.has(id));
+  if (untied.length > 0) {
+    const ledgerAccounts = new Map((await deps.accounts.list()).map((account) => [account.id, account]));
+    for (const glAccountId of untied) {
+      seen.add(glAccountId);
+      const held = await glBalanceInView(deps, glAccountId, today, view);
+      if (held.scaled === 0n) continue;
+      total += held.scaled;
+      const ledgerAccount = ledgerAccounts.get(glAccountId);
+      rows.push({
+        treasuryAccountId: null,
+        name: ledgerAccount?.nameAr ?? glAccountId,
+        nameEn: ledgerAccount?.nameEn ?? null,
+        type: UNTIED_LEDGER_ACCOUNT_TYPE,
+        branchId: null,
+        glAccountId,
+        balance: held.toString(),
+      });
+    }
   }
   return { total: Money.fromScaled(total), accounts: rows };
 }

@@ -69,6 +69,8 @@ export interface BackendModuleContext {
   /** Issues a sale's e-receipt synchronously with the terminal's serial and tender (D283). */
   readonly etaReceipts: EtaReceiptIssuer;
   readonly stores: BackendStores;
+  /** LEDGER INVARIANT: the one derived cash-and-bank set (cash-and-bank-accounts.ts) — a module that says "cash" reads this, never the treasury directory or an account-code prefix. */
+  readonly cashAndBankAccountIds: () => Promise<readonly string[]>;
   readonly addCloser: (closer: { close(): void }) => void;
 }
 

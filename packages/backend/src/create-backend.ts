@@ -131,6 +131,7 @@ import {
   CASH_AND_BANK_ROUTING_KEY,
   RESTRICTED_CASH_ROUTING_KEY,
   cashAndBankLedgerAccountIds,
+  disposalProceedsAccounts,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -3587,6 +3588,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       contracts: { exists: async (id) => (await worksContracts.findContractById(id)) !== null },
     },
     fixedAssets: {
+      disposalProceedsAccounts: async () => {
+        const [routing, chart, cashAccountIds, partyControls] = await Promise.all([accountRouting.get(), accounts.list(), resolveCashAndBankAccountIds(), resolvePartyControlAccounts()]);
+        return disposalProceedsAccounts(chart, { cashAccountIds, receivableControlAccountId: routedAccountId(routing, "control.receivable"), partyControlAccountIds: [...partyControls.keys()] });
+      },
       masterData: masterDataChecks,
       categories: assetCategories,
       assets,
@@ -4194,6 +4199,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: auditSink,
     eventBus,
     etaReceipts,
+    cashAndBankAccountIds: resolveCashAndBankAccountIds,
     stores: {
       settings,
       branches,

@@ -80,7 +80,8 @@ export const cashForecastDipSchema = z.object({
 export type CashForecastDipDTO = z.infer<typeof cashForecastDipSchema>;
 
 export const cashForecastOpeningAccountSchema = z.object({
-  treasuryAccountId: z.string(),
+  /** Null for a cash or bank ledger account no treasury account is tied to yet. */
+  treasuryAccountId: z.string().nullable(),
   name: z.string(),
   nameEn: z.string().nullable(),
   type: z.string(),

@@ -9,6 +9,7 @@ import type {
   SubmitApprovalRequestDTO,
   DecideApprovalRequestDTO,
   AccountDTO,
+  DisposalProceedsAccountDTO,
   ActivityDTO,
   AddAttributeValueDTO,
   AddTemplateAttributeDTO,
@@ -1029,6 +1030,20 @@ export function useUpdateSupplier() {
 }
 
 /** دليل الحسابات (docs/archive/catalog/04) — list, create, edit. */
+export function useDisposalProceedsAccounts(): UseQueryResult<DisposalProceedsAccountDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<DisposalProceedsAccountDTO[], ApiError>({
+    queryKey: ["assets", "disposal-proceeds-accounts"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/assets/disposal-proceeds-accounts");
+      if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"), t);
+      return res.json<DisposalProceedsAccountDTO[]>();
+    },
+  });
+}
+
 export function useAccounts(): UseQueryResult<AccountDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();

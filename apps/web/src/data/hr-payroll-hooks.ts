@@ -18,7 +18,7 @@ import type {
   SocialInsuranceYearOverrideDTO,
 } from "@mezan/contracts";
 import { ScreenRequest } from "@mezan/domain";
-import { ApiError, readError, useMayAskScreen } from "./hooks";
+import { ApiError, readError, useHoldsScreenRequest } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -35,7 +35,7 @@ async function readMessage(res: { json<T>(): Promise<T> }, fallback: string, loc
 export function useEmployeeAdvances(): UseQueryResult<EmployeeAdvanceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.EmployeeAdvances);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.EmployeeAdvances);
   return useQuery<EmployeeAdvanceDTO[], ApiError>({
     queryKey: ["hr", "advances"],
     enabled: mayAsk,
@@ -236,7 +236,7 @@ export function useEmployeePayslips(employeeId: string | null): UseQueryResult<P
 export function usePayrollComponents(): UseQueryResult<PayrollComponentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.PayrollComponents);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.PayrollComponents);
   return useQuery<PayrollComponentDTO[], ApiError>({
     queryKey: ["hr", "payroll", "components"],
     enabled: mayAsk,
@@ -447,7 +447,7 @@ export function useRemoveInsuranceYear() {
 export function usePayrollStatutoryFlag(): UseQueryResult<PayrollStatutoryFlagDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.PayrollStatutoryFlag);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.PayrollStatutoryFlag);
   return useQuery<PayrollStatutoryFlagDTO, ApiError>({
     queryKey: ["hr", "payroll", "statutory-flag"],
     enabled: mayAsk,

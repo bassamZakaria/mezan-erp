@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
-import { useGoodsReceipts, useMayAskScreen, usePurchaseInvoices, usePurchaseOrders, useSuppliers } from "../../data/hooks";
+import { useGoodsReceipts, useHoldsScreenRequest, usePurchaseInvoices, usePurchaseOrders, useSuppliers } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
@@ -35,9 +35,9 @@ export function PurchasesHubScreen() {
   const receiptsQuery = useGoodsReceipts();
   const invoicesQuery = usePurchaseInvoices();
   const suppliersQuery = useSuppliers();
-  const readsOrders = useMayAskScreen(ScreenRequest.PurchaseOrders);
-  const readsReceipts = useMayAskScreen(ScreenRequest.GoodsReceipts);
-  const readsSuppliers = useMayAskScreen(ScreenRequest.Suppliers);
+  const readsOrders = useHoldsScreenRequest(ScreenRequest.PurchaseOrders);
+  const readsReceipts = useHoldsScreenRequest(ScreenRequest.GoodsReceipts);
+  const readsSuppliers = useHoldsScreenRequest(ScreenRequest.Suppliers);
 
   const orders = ordersQuery.data ?? EMPTY;
   const receipts = receiptsQuery.data ?? EMPTY;

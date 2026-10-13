@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
-import { useCustomers, useMayAskScreen, useSalesInvoices, useSalesQuotes } from "../../data/hooks";
+import { useCustomers, useHoldsScreenRequest, useSalesInvoices, useSalesQuotes } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
@@ -33,7 +33,7 @@ export function SalesHubScreen() {
   const { t } = useAppTranslation();
   const invoicesQuery = useSalesInvoices();
   const quotesQuery = useSalesQuotes();
-  const readsQuotes = useMayAskScreen(ScreenRequest.SalesQuotes);
+  const readsQuotes = useHoldsScreenRequest(ScreenRequest.SalesQuotes);
   const customersQuery = useCustomers();
 
   const invoices = invoicesQuery.data ?? EMPTY;

@@ -645,6 +645,16 @@ export function useMayAskScreen(request: ScreenRequest): boolean {
   return sessionMayAskScreen(session, entitlements.data ?? null, request);
 }
 
+// INVARIANT: decided at once, by the permission, and narrowed by the licence
+// when it has answered — a list a screen draws its rows or its picker from is
+// not held back behind the licence's first answer, and is never asked for by a
+// session that may not read it.
+export function useHoldsScreenRequest(request: ScreenRequest): boolean {
+  const { session } = useApi();
+  const entitlements = useEntitlements();
+  return sessionMayAskScreen(session, entitlements.data ?? null, request);
+}
+
 /** First-run wizard "create admin" step — persists the admin, then establishes their session. */
 export function useCreateFirstAdmin() {
   const { t } = useAppTranslation();
@@ -1097,7 +1107,7 @@ function supplierParams(filter: SupplierListFilter): URLSearchParams {
 export function useSuppliers(filter: SupplierListFilter = {}): UseQueryResult<SupplierDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.Suppliers);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Suppliers);
   return useQuery<SupplierDTO[], ApiError>({
     queryKey: ["suppliers", filter],
     enabled: mayAsk,
@@ -1277,7 +1287,7 @@ export function useUpdateTreasuryAccount() {
 export function usePriceLists(): UseQueryResult<PriceListDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.PriceLists);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.PriceLists);
   return useQuery<PriceListDTO[], ApiError>({
     queryKey: ["price-lists"],
     enabled: mayAsk,
@@ -1383,7 +1393,7 @@ function salesQuoteParams(filter: SalesQuoteListFilter): URLSearchParams {
 export function useSalesQuotes(filter: SalesQuoteListFilter = {}): UseQueryResult<SalesQuoteRecord[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.SalesQuotes);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.SalesQuotes);
   return useQuery<SalesQuoteRecord[], ApiError>({
     queryKey: ["sales-quotes", filter],
     enabled: mayAsk,
@@ -2301,7 +2311,7 @@ function chequeParams(filters: ChequeListFilters): URLSearchParams {
 export function useCheques(filters: ChequeListFilters = {}): UseQueryResult<ChequeDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.Cheques);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Cheques);
   return useQuery<ChequeDTO[], ApiError>({
     queryKey: ["cheques", filters],
     enabled: mayAsk,
@@ -2900,7 +2910,7 @@ function purchaseOrderParams(filter: PurchaseOrderListFilter): URLSearchParams {
 export function usePurchaseOrders(filter: PurchaseOrderListFilter = {}): UseQueryResult<PurchaseOrderDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.PurchaseOrders);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.PurchaseOrders);
   return useQuery<PurchaseOrderDTO[], ApiError>({
     queryKey: ["purchase-orders", filter],
     enabled: mayAsk,
@@ -3007,7 +3017,7 @@ function goodsReceiptParams(filter: GoodsReceiptListFilter): URLSearchParams {
 export function useGoodsReceipts(filter: GoodsReceiptListFilter = {}): UseQueryResult<GoodsReceiptDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.GoodsReceipts);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.GoodsReceipts);
   return useQuery<GoodsReceiptDTO[], ApiError>({
     queryKey: ["goods-receipts", filter],
     enabled: mayAsk,
@@ -3832,7 +3842,7 @@ function assetParams(filter: AssetListFilter): URLSearchParams {
 export function useAssets(filter: AssetListFilter = {}): UseQueryResult<AssetDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.Assets);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Assets);
   return useQuery<AssetDTO[], ApiError>({
     queryKey: ["assets", filter],
     enabled: mayAsk,
@@ -4061,7 +4071,7 @@ export function usePostWritedownRun() {
 export function useProductTemplates(): UseQueryResult<ProductTemplateDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.ProductTemplates);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.ProductTemplates);
   return useQuery<ProductTemplateDTO[], ApiError>({
     queryKey: ["product-templates"],
     enabled: mayAsk,
@@ -4281,7 +4291,7 @@ export interface BomRecord {
 export function useBoms(): UseQueryResult<BomRecord[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.Boms);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Boms);
   return useQuery<BomRecord[], ApiError>({
     queryKey: ["boms"],
     enabled: mayAsk,
@@ -4741,7 +4751,7 @@ export interface ConfigurableProductRecord {
 export function useConfigurableProducts(): UseQueryResult<ConfigurableProductRecord[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.ConfigurableProducts);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.ConfigurableProducts);
   return useQuery<ConfigurableProductRecord[], ApiError>({
     queryKey: ["configurable-products"],
     enabled: mayAsk,
@@ -4909,7 +4919,7 @@ export function usePreviewConfigInstance() {
 export function useCostCenters(): UseQueryResult<CostCenterDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.CostCenters);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.CostCenters);
   return useQuery<CostCenterDTO[], ApiError>({
     queryKey: ["cost-centers"],
     enabled: mayAsk,
@@ -4953,7 +4963,7 @@ export function useUpdateCostCenter() {
 export function useFiscalPeriods(): UseQueryResult<FiscalPeriodDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.FiscalPeriods);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.FiscalPeriods);
   return useQuery<FiscalPeriodDTO[], ApiError>({
     queryKey: ["fiscal-periods"],
     enabled: mayAsk,
@@ -5031,7 +5041,7 @@ export function useYearEndClosePreview(
 ): UseQueryResult<YearEndClosePreviewDTO | null, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.YearEndClosePreview);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.YearEndClosePreview);
   return useQuery<YearEndClosePreviewDTO | null, ApiError>({
     queryKey: ["gl", "year-end-close", year],
     enabled: mayAsk && year !== null && enabled,
@@ -5155,7 +5165,7 @@ export function useUpdateTaxRate() {
 export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.ExchangeRates);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.ExchangeRates);
   return useQuery<ExchangeRateDTO[], ApiError>({
     queryKey: ["exchange-rates"],
     enabled: mayAsk,
@@ -6913,7 +6923,7 @@ export function useCancelFollowUp() {
 export function useDepartments(): UseQueryResult<DepartmentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.Departments);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Departments);
   return useQuery<DepartmentDTO[], ApiError>({
     queryKey: ["hr-departments"],
     enabled: mayAsk,
@@ -7134,7 +7144,7 @@ export function useRehireEmployee() {
 export function useContracts(): UseQueryResult<ContractDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.EmploymentContracts);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.EmploymentContracts);
   return useQuery<ContractDTO[], ApiError>({
     queryKey: ["hr-contracts"],
     enabled: mayAsk,
@@ -8262,7 +8272,7 @@ function attendanceQueryString(filters: AttendanceFilters): string {
 export function useAttendance(filters: AttendanceFilters): UseQueryResult<AttendanceEntryDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.Attendance);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Attendance);
   return useQuery<AttendanceEntryDTO[], ApiError>({
     queryKey: ["hr-attendance", filters],
     enabled: mayAsk,
@@ -8440,7 +8450,7 @@ export function useApplyLeavePolicyPreset() {
 export function useLeaveBalances(employeeId: string | null, year: number): UseQueryResult<LeaveBalanceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.LeaveBalances);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.LeaveBalances);
   return useQuery<LeaveBalanceDTO[], ApiError>({
     queryKey: ["hr-leave-balances", employeeId, year],
     enabled: mayAsk,
@@ -8515,7 +8525,7 @@ export interface LeaveRequestFilters {
 export function useLeaveRequests(filters: LeaveRequestFilters): UseQueryResult<LeaveRequestDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.LeaveRequests);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.LeaveRequests);
   return useQuery<LeaveRequestDTO[], ApiError>({
     queryKey: ["hr-leave-requests", filters],
     enabled: mayAsk,

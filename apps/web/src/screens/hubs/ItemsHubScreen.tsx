@@ -1,6 +1,6 @@
 import { Card, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
-import { useBoms, useConfigurableProducts, useItemCounts, useItems, useMayAskScreen, useProductTemplates } from "../../data/hooks";
+import { useBoms, useConfigurableProducts, useItemCounts, useItems, useHoldsScreenRequest, useProductTemplates } from "../../data/hooks";
 import { useItemSpecifications } from "../../data/item-catalog-hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../router/screens";
@@ -45,9 +45,9 @@ export function ItemsHubScreen() {
   /** `undefined` while a count is still loading, so a tile shows «—» not a 0. */
   const lengthOf = (rows: readonly unknown[] | undefined): number | null => (rows ? rows.length : null);
 
-  const readsTemplates = useMayAskScreen(ScreenRequest.ProductTemplates);
-  const readsConfigurable = useMayAskScreen(ScreenRequest.ConfigurableProducts);
-  const readsBoms = useMayAskScreen(ScreenRequest.Boms);
+  const readsTemplates = useHoldsScreenRequest(ScreenRequest.ProductTemplates);
+  const readsConfigurable = useHoldsScreenRequest(ScreenRequest.ConfigurableProducts);
+  const readsBoms = useHoldsScreenRequest(ScreenRequest.Boms);
   const reads: Partial<Record<ScreenKey, boolean>> = { "product-templates": readsTemplates, "configurable-products": readsConfigurable, boms: readsBoms };
 
   const everyCard: CatalogueCard[] = [

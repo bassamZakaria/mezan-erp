@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
-import { useAccounts, useDashboardSummary, useFiscalPeriods, useMayAskScreen } from "../../data/hooks";
+import { useAccounts, useDashboardSummary, useFiscalPeriods, useHoldsScreenRequest, useMayAskScreen } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
@@ -32,7 +32,7 @@ export function AccountingHubScreen() {
   const accountsQuery = useAccounts();
   const periodsQuery = useFiscalPeriods();
   const readsAccounts = useMayAskScreen(ScreenRequest.Accounts);
-  const readsPeriods = useMayAskScreen(ScreenRequest.FiscalPeriods);
+  const readsPeriods = useHoldsScreenRequest(ScreenRequest.FiscalPeriods);
 
   const summary = summaryQuery.data;
   const accounts = accountsQuery.data ?? [];

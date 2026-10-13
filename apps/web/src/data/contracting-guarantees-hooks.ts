@@ -10,7 +10,7 @@ import type {
 } from "@mezan/contracts";
 import { ScreenRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
-import { ApiError, loaderError, useMayAskScreen } from "./hooks";
+import { ApiError, loaderError, useHoldsScreenRequest } from "./hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -167,7 +167,7 @@ export interface ContractOption {
  */
 export function useGuaranteeContractOptions(): { options: ContractOption[]; available: boolean; isLoading: boolean } {
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.WorksContracts);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.WorksContracts);
   const query = useQuery<{ available: boolean; rows: ContractOption[] }, ApiError>({
     queryKey: [...KEY, "contract-options"],
     enabled: mayAsk,

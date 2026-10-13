@@ -2,7 +2,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { ReportGroupResult, ReportReconciliationResult } from "@mezan/domain";
 import { ScreenRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
-import { ApiError, withSupportCode, useMayAskScreen } from "./hooks";
+import { ApiError, withSupportCode, useHoldsScreenRequest } from "./hooks";
 import { readReportFieldErrors } from "./report-errors";
 import { useAppTranslation } from "../i18n";
 
@@ -41,7 +41,7 @@ export function useFinancialReport<Row>(
 ): UseQueryResult<FinancialReportResult<Row>, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.FinancialReports);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.FinancialReports);
   return useQuery<FinancialReportResult<Row>, ApiError>({
     queryKey: ["financial-reports", reportId, params],
     enabled: mayAsk && (options.enabled ?? true),

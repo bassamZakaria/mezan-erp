@@ -13,7 +13,7 @@ import type {
   ReconciliationReportDTO,
 } from "@mezan/contracts";
 import { ScreenRequest } from "@mezan/domain";
-import { ApiError, readError, useMayAskScreen } from "./hooks";
+import { ApiError, readError, useHoldsScreenRequest } from "./hooks";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
@@ -30,7 +30,7 @@ async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Pr
 export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.ExchangeRates);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.ExchangeRates);
   return useQuery<ExchangeRateDTO[], ApiError>({
     queryKey: ["exchange-rates"],
     enabled: mayAsk,

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
 import { ScreenRequest } from "@mezan/domain";
-import { useCheques, useDashboardSummary, useMayAskScreen, useTreasuryAccounts, useVouchers } from "../../data/hooks";
+import { useCheques, useDashboardSummary, useHoldsScreenRequest, useTreasuryAccounts, useVouchers } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
@@ -33,7 +33,7 @@ export function TreasuryHubScreen() {
   const accountsQuery = useTreasuryAccounts();
   const vouchersQuery = useVouchers();
   const chequesQuery = useCheques();
-  const readsCheques = useMayAskScreen(ScreenRequest.Cheques);
+  const readsCheques = useHoldsScreenRequest(ScreenRequest.Cheques);
   const summaryQuery = useDashboardSummary({});
 
   const accounts = accountsQuery.data ?? EMPTY;

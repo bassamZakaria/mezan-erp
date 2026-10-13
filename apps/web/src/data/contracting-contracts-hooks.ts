@@ -14,7 +14,7 @@ import type {
   VariationOrderDTO,
   WorksContractDTO,
 } from "@mezan/contracts";
-import { ApiError, loaderError, useMayAskScreen } from "./hooks";
+import { ApiError, loaderError, useHoldsScreenRequest } from "./hooks";
 import { ScreenRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
@@ -47,7 +47,7 @@ export interface WorksContractFilter {
 export function useWorksContracts(filter: WorksContractFilter = {}): UseQueryResult<WorksContractDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
-  const mayAsk = useMayAskScreen(ScreenRequest.WorksContracts);
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.WorksContracts);
   const params = new URLSearchParams();
   if (filter.projectId) params.set("projectId", filter.projectId);
   if (filter.status) params.set("status", filter.status);

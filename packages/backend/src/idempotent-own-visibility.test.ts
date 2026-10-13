@@ -33,28 +33,13 @@ const invoice = (id: string) => ({
 });
 
 describe("a sales rep who may create an invoice but only read their own", () => {
-  it("is answered with the invoice they created when the create is sent again, not told it does not exist", async () => {
-    const { send, as, admin } = await rig();
-    const rep = as("rep-without-employee", REP_PERMISSIONS);
-
-    const first = await send("POST", "/sales-invoices", rep, invoice("m-rep-1"));
-    expect(first.status).toBe(201);
-    const resent = await send("POST", "/sales-invoices", rep, invoice("m-rep-1"));
-
-    expect(resent.status).toBe(201);
-    expect(resent.headers.get("idempotent-replay")).toBe("true");
-    expect(((await resent.json()) as { id: string }).id).toBe("m-rep-1");
-    expect((await send("GET", "/sales-invoices/m-rep-1", admin)).status).toBe(200);
-    expect((await send("GET", "/sales-invoices/m-rep-1", rep)).status).toBe(404);
-  });
-
-  it("is recorded as the salesperson of an invoice they create without naming one, so they can open it afterwards", async () => {
-    const { h, send, as, admin } = await rig();
+  async function linkedRep(tools: Awaited<ReturnType<typeof rig>>, email: string) {
+    const { h, send, admin } = tools;
     const created = await send("POST", "/hr/employees", admin, { firstName: "Sales", lastName: "Rep", branchId: "BR-MAIN", hireDate: "2026-01-01" });
     const employeeId = created.ok ? ((await created.json()) as { id: string }).id : null;
     expect(employeeId, `employee create answered ${created.status}`).not.toBeNull();
     const user = await send("POST", "/users", admin, {
-      nameAr: "مندوب المبيعات", email: "rep@shop.test", roleId: null, isCompanyAdmin: true, employeeId,
+      nameAr: "مندوب المبيعات", email, roleId: null, isCompanyAdmin: true, employeeId,
       branchScope: "*", warehouseScope: "*", password: "rep-password-1", pin: "246813", acknowledge: true, reason: "test fixture",
     });
     expect(user.status).toBe(201);
@@ -63,6 +48,46 @@ describe("a sales rep who may create an invoice but only read their own", () => 
       authorization: `Bearer ${h.sessions.issue({ userId, permissions: REP_PERMISSIONS, roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE })}`,
       "content-type": "application/json",
     };
+    return { rep, employeeId: employeeId as string };
+  }
+
+  it("is answered with the invoice they created when the create is sent again, not told it does not exist — an invoice raised under a colleague's name, which they cannot read back", async () => {
+    const tools = await rig();
+    const { send, admin } = tools;
+    const { rep } = await linkedRep(tools, "rep@shop.test");
+    const colleague = await linkedRep(tools, "colleague@shop.test");
+    const underAColleague = { ...invoice("m-rep-1"), salespersonId: colleague.employeeId };
+
+    const first = await send("POST", "/sales-invoices", rep, underAColleague);
+    expect(first.status).toBe(201);
+    const resent = await send("POST", "/sales-invoices", rep, underAColleague);
+
+    expect(resent.status).toBe(201);
+    expect(resent.headers.get("idempotent-replay")).toBe("true");
+    expect(((await resent.json()) as { id: string }).id).toBe("m-rep-1");
+    expect((await send("GET", "/sales-invoices/m-rep-1", admin)).status).toBe(200);
+    expect((await send("GET", "/sales-invoices/m-rep-1", rep)).status).toBe(404);
+  });
+
+  it("a rep whose account has no employee file is refused in Arabic and nothing is stored, however often the create is sent", async () => {
+    const { send, as, admin } = await rig();
+    const rep = as("rep-without-employee", REP_PERMISSIONS);
+
+    for (const attempt of [1, 2]) {
+      const refused = await send("POST", "/sales-invoices", rep, invoice("m-rep-0"));
+      expect(refused.status, `attempt ${attempt}`).toBe(422);
+      const body = (await refused.json()) as { error: string; message: string; messageEn: string };
+      expect(body.error).toBe("USER_NOT_LINKED_TO_EMPLOYEE");
+      expect(body.message).toMatch(/[\u0600-\u06FF]/);
+      expect(body.messageEn).toMatch(/not linked to an employee/);
+    }
+    expect((await send("GET", "/sales-invoices/m-rep-0", admin)).status).toBe(404);
+  });
+
+  it("is recorded as the salesperson of an invoice they create without naming one, so they can open it afterwards", async () => {
+    const tools = await rig();
+    const { send } = tools;
+    const { rep, employeeId } = await linkedRep(tools, "rep@shop.test");
 
     expect((await send("POST", "/sales-invoices", rep, invoice("m-rep-2"))).status).toBe(201);
 

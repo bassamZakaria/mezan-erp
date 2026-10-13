@@ -1,19 +1,23 @@
+import { formatMoney } from "../currency/format-money.js";
 import type { Money } from "../money/index.js";
 
+const BASE_CURRENCY = "EGP";
+
 export function displayAmount(amount: Money): string {
-  const text = amount.toString();
-  const point = text.indexOf(".");
-  return point === -1 ? `${text}.00` : text.slice(0, point + 3).padEnd(point + 3, "0");
+  return formatMoney(amount);
 }
 
 export interface ApprovalSubject {
   readonly type: string;
   readonly amount?: Money | null;
+  readonly currency?: string | null;
   readonly party?: string | null;
+  readonly reference?: string | null;
 }
 
 export function approvalLabel(subject: ApprovalSubject): string {
-  const amount = subject.amount ? ` بقيمة ${displayAmount(subject.amount)}` : "";
+  const reference = subject.reference && subject.reference.trim() !== "" ? ` على ${subject.reference.trim()}` : "";
+  const amount = subject.amount ? ` بقيمة ${formatMoney(subject.amount, subject.currency ?? BASE_CURRENCY)}` : "";
   const party = subject.party && subject.party.trim() !== "" ? ` — ${subject.party.trim()}` : "";
-  return `${subject.type}${amount}${party}`;
+  return `${subject.type}${reference}${amount}${party}`;
 }

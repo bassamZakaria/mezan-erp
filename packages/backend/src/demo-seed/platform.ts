@@ -1,4 +1,5 @@
 import type { App } from "@mezan/api";
+import { Money, approvalLabel } from "@mezan/domain";
 import { CORE, SeedPerson, VAT_PERCENT, WAREHOUSE_ID, seedActorHeaders, seededUserId, step } from "./shared.js";
 
 /**
@@ -94,7 +95,7 @@ export async function seedPlatform(app: App): Promise<void> {
     {
       requestId: "APR-DEMO-1",
       actionType: "SALES_INVOICE_CONFIRM",
-      entityLabel: "فاتورة مبيعات بقيمة 5,200 ج.م — مجموعة الفجر التجارية",
+      entityLabel: approvalLabel({ type: "فاتورة مبيعات", amount: Money.fromMajor("5200"), party: "مجموعة الفجر التجارية" }),
     },
   );
 
@@ -106,7 +107,7 @@ export async function seedPlatform(app: App): Promise<void> {
     {
       requestId: "APR-DEMO-2",
       actionType: "PURCHASE_INVOICE_CONFIRM",
-      entityLabel: "فاتورة مشتريات من مصنع الوادي الأخضر بقيمة 32,000 ج.م",
+      entityLabel: approvalLabel({ type: "فاتورة مشتريات", amount: Money.fromMajor("32000"), party: "مصنع الوادي الأخضر" }),
     },
   );
   await stepAs(
@@ -125,7 +126,7 @@ export async function seedPlatform(app: App): Promise<void> {
     {
       requestId: "APR-DEMO-3",
       actionType: "SALES_INVOICE_CONFIRM",
-      entityLabel: "فاتورة مبيعات بقيمة 18,500 ج.م — شركة الأمل للتجارة",
+      entityLabel: approvalLabel({ type: "فاتورة مبيعات", amount: Money.fromMajor("18500"), party: "شركة الأمل للتجارة" }),
     },
   );
   await stepAs(

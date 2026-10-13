@@ -41,6 +41,7 @@ export {
   OverReceiptError,
   PurchaseOrderRequiredError,
   PurchaseItemsAlreadyConsumedError,
+  GoodsReceiptAccrualAccountMissingError,
   GoodsReceiptAlreadyInvoicedError,
   GoodsReceiptInvoicedRefusal,
   InvoiceDoesNotMatchReceiptError,

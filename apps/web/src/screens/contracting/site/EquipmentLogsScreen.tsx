@@ -1,5 +1,6 @@
 import { DOC_STATUS_TONE, documentStatusLabel } from "../../../doc-status";
 import { ReversalDocumentType } from "@mezan/contracts";
+import { DocumentStatusCode } from "@mezan/domain";
 import { useReverseDocumentAction } from "../../../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -152,7 +153,7 @@ export function EquipmentLogsScreen() {
             ...(d.status === "draft"
               ? [{ key: "confirm", label: t("site.equipment.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
               : []),
-            ...(d.status === "confirmed" ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
+            ...(d.status === DocumentStatusCode.Confirmed ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
           ];
           return items.length > 0 ? <RowMenu items={items} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} /> : null;
         }}

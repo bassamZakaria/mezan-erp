@@ -50,7 +50,7 @@ export function gatedFamilies(kitOf: () => BackendKit): readonly GatedFamily[] {
   return [
     {
       actionType: "SALES_RETURN_CONFIRM",
-      inboxLabel: /^مرتجع مبيعات بقيمة 114\.00 — \S/,
+      inboxLabel: /^مرتجع مبيعات على INV-\d{6} بقيمة 114\.00 ج\.م — \S/,
       mount: "/sales-returns",
       auditEntity: "SALES_RETURN",
       submitter: ["sales.return.create", "sales.return.confirm", "sales.return.view"],
@@ -68,7 +68,7 @@ export function gatedFamilies(kitOf: () => BackendKit): readonly GatedFamily[] {
     },
     {
       actionType: "PURCHASE_RETURN_CONFIRM",
-      inboxLabel: /^مرتجع مشتريات بقيمة 83\.64 — \S/,
+      inboxLabel: /^مرتجع مشتريات على PI-\d{6} بقيمة 83\.64 ج\.م — \S/,
       mount: "/purchase-returns",
       auditEntity: "PURCHASE_RETURN",
       submitter: ["purchases.return.create", "purchases.return.confirm", "purchases.return.view"],
@@ -86,7 +86,7 @@ export function gatedFamilies(kitOf: () => BackendKit): readonly GatedFamily[] {
     },
     {
       actionType: "PURCHASE_LANDED_COST_CONFIRM",
-      inboxLabel: /^تكلفة إضافية بقيمة 40\.00 — \S/,
+      inboxLabel: /^تكلفة إضافية بقيمة 40\.00 ج\.م — \S/,
       mount: "/landed-costs",
       auditEntity: "LANDED_COST",
       submitter: ["purchases.landed_cost.create", "purchases.landed_cost.confirm", "purchases.landed_cost.view"],
@@ -107,7 +107,7 @@ export function gatedFamilies(kitOf: () => BackendKit): readonly GatedFamily[] {
     },
     {
       actionType: "INVENTORY_ADJUSTMENT_CONFIRM",
-      inboxLabel: /^تسوية مخزون بقيمة 210\.00 — \S/,
+      inboxLabel: /^تسوية مخزون بقيمة 210\.00 ج\.م — \S/,
       mount: "/inventory/stock-adjustments",
       auditEntity: "STOCK_ADJUSTMENT",
       submitter: ["inventory.adjustment.create", "inventory.adjustment.confirm", "inventory.adjustment.view"],
@@ -137,7 +137,7 @@ export function gatedFamilies(kitOf: () => BackendKit): readonly GatedFamily[] {
     },
     {
       actionType: "TREASURY_VOUCHER_CONFIRM",
-      inboxLabel: /^\S.* بقيمة 120\.00 — \S/,
+      inboxLabel: /^\S.* بقيمة 120\.00 ج\.م — \S/,
       mount: "/vouchers",
       auditEntity: "TREASURY_VOUCHER",
       submitter: ["treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "treasury.cash_voucher.view"],

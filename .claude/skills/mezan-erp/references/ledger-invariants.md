@@ -65,20 +65,31 @@ period directly is rejected so the reversible close step is never skipped.
   created at the receipt-time cost.
 - Issue (OUT): stock leaves at the **current moving average**; the average does not
   change on an issue. Layers draw down FIFO for display only.
-- A **mirrored** issue (the void of a return, a reversal) leaves at the moving
-  average like any other issue — never at the value its original moved, which
-  the position may no longer hold. What it was asked to take and did not is
-  `unmirroredValue`, and the reversing entry books it 1200↔5100. A movement
-  that leaves quantity 0 leaves value 0; one that leaves quantity above 0 never
-  leaves value below 0 (`/reconciliation` → `stockPositions`, and the scenario
-  invariant, name any position that breaks either).
-- A receipt into a position that is **short** (a back-order) does not average
-  into the shortfall: the quantity that levels it takes exactly the share of
-  value the shortfall carried, only the excess enters at the receipt's cost and
-  is the only layer, and the difference between what the receipt stated and
-  what stock took is booked 1200↔5100 in the receiving document's own entry
-  (`coverDeficit`; a transfer books its own `:cover` entry). A receipt whose
-  goods covered a back-order is not taken back by cancelling it.
+- **One rule, one place.** Every quantity or value change to a position is
+  decided by `changeStockPosition` (`inventory/position-change.ts`), for the
+  live engine (`applyMovement`, `revalue`) and the replay (`wac.ts`) alike. A
+  position that holds units never holds a negative value, one that holds none
+  holds no value, and value never lands on units that are not on hand
+  (`/reconciliation` → `stockPositions`, the scenario invariant and the
+  random walk `stock-walk.property.test.ts` name any position that breaks it).
+- A removal — a sale, a **mirrored** issue (the void of a return, a reversal),
+  the cancellation of a purchase or a receipt — leaves at the moving average,
+  never at the value its original moved, which the position may no longer
+  hold; a drain takes the whole value held. An addition into a position that
+  is **short** (a back-order) covers the shortfall at the value it carried and
+  layers only the excess at its own cost. A value-only change (landed cost,
+  purchase price variance) is absorbed only in the share of the named receipt
+  still on hand and never below zero.
+- The function **returns the difference** between what the caller's document
+  stated and what the position took, and every caller books it in the same
+  entry — 1200↔5100 (`unmirroredValue`, `coverVariance`, a transfer's own
+  `<transferId>:cover` entry), 5080 for an invoice price variance, 5100 for a
+  landed cost. A call site that discards the result fails
+  `stock-difference-booked.structure.test.ts`. A receipt whose goods covered a
+  back-order is not taken back by cancelling it.
+- Each movement **records** the value it moved (`value`; on a revaluation, the
+  share absorbed). The replay takes the recorded figure as it stands, so a
+  rebuild reproduces the cache whatever order the documents were entered in.
 - A layer's `unitCost` is **never rewritten**. Layer value and WAC value therefore
   diverge legitimately over time — that gap is the *drift report*, not a bug.
 - Replay ordering depends on `occurredAt`. Stamp it with the **document date**, not
@@ -86,10 +97,8 @@ period directly is rejected so the reversible close step is never skipped.
   (defect D4).
 - Landed costs raise the **cost basis** of stock already received: zero quantity
   moves, allocation by value or by quantity, allocated amounts summing exactly to
-  the entered total. They mutate the WAC snapshot and rewrite cost layers while
-  appending nothing to the movement ledger, so `replay()` cannot reproduce a position
-  a landed cost has touched and the drift report's `cacheDrift` reads nonzero on a
-  healthy tenant (D36). Fixing it needs a value-carrying movement kind.
+  the entered total. Each is a value-only movement in the ledger (D36), so the
+  replay reproduces it; the share whose goods have gone is a period cost (5100).
 - Reconcile per **document**, not per line: `costItems` is denormalized onto every
   line, and summing per line overcounted a multi-line landed cost N times.
 - Stock transfers are valuation-neutral (and stay visible from both ends by design).

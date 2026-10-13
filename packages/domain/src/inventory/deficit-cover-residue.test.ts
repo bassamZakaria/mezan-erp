@@ -100,3 +100,41 @@ describe("a back-order covered by a receipt", () => {
     expect(await position()).toEqual(before);
   });
 });
+
+describe("the transfers of one work order that each level a shortfall", () => {
+  it("book their difference under each transfer's own entry, never twice under the order's", async () => {
+    const entries: { id: string; inventory: string }[] = [];
+    const service = new StockLedgerService({
+      ledger: new InMemoryStockLedger(),
+      layers: new InMemoryCostLayers(),
+      snapshots: new InMemorySnapshots(),
+      policy: { allowNegativeStock: true },
+      clock: () => "2026-08-21T00:00:00.000Z",
+      transferCoverAccounts: { inventoryAccountId: "1200", costAccountId: "5100" },
+      gl: {
+        async post(posting) {
+          if (entries.some((entry) => entry.id === posting.sourceDocId)) throw new Error(`duplicate journal entry ${posting.sourceDocId}`);
+          const inventory = posting.lines.find((line) => line.accountId === "1200")!;
+          entries.push({ id: posting.sourceDocId, inventory: inventory.debit.add(inventory.credit.negate()).toString() });
+        },
+      },
+    });
+    const plan = (sourceDocId: string, warehouseId: string, direction: "IN" | "OUT", qty: string, unitCost?: string) =>
+      service.applyDocumentStockPlan({ sourceDocType: direction === "IN" ? "PURCHASE_RECEIPT" : "SALES_INVOICE", sourceDocId, sourceDocNumber: sourceDocId, warehouseId, lines: [{ itemId: ITEM, direction, qty: Qty.fromMajor(qty), unitCost: unitCost ? Money.fromMajor(unitCost) : undefined }] });
+    await plan("GRN-WIP", "WIP", "IN", "1", "100");
+    await plan("INV-WIP", "WIP", "OUT", "3");
+    await plan("GRN-MAIN", WAREHOUSE, "IN", "10", "90");
+    const transfer = (transferId: string) =>
+      service.postTransfer({ transferId, sourceDocType: "WORK_ORDER", sourceDocId: "WO-1", transferNumber: "WO-1", fromWarehouseId: WAREHOUSE, toWarehouseId: "WIP", lines: [{ itemId: ITEM, qty: Qty.fromMajor("1") }] });
+
+    await transfer("WO-ISSUE:WO-1");
+    await transfer("WO-EXTRA:WO-1");
+
+    expect(entries).toEqual([
+      { id: "WO-ISSUE:WO-1:cover", inventory: "10.000000" },
+      { id: "WO-EXTRA:WO-1:cover", inventory: "10.000000" },
+    ]);
+    const wip = await service.getBalanceDetail(ITEM, "WIP");
+    expect([wip.onHand.toString(), wip.totalValue.toString()]).toEqual(["0.000000", "0.000000"]);
+  });
+});

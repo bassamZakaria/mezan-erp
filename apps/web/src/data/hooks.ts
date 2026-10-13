@@ -312,11 +312,11 @@ import type {
   RecurringJournalTemplateStatusDTO,
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
-import { ShellRequest, type DisplaySettingKey } from "@mezan/domain";
+import { ScreenRequest, ShellRequest, type DisplaySettingKey } from "@mezan/domain";
 import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
-import { sessionMayAsk } from "./session";
+import { sessionMayAsk, sessionMayAskScreen } from "./session";
 import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
 
@@ -612,6 +612,16 @@ export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
       return res.json<EntitlementsDTO>();
     },
   });
+}
+
+// INVARIANT: waits for the licence's first answer — a list asked for while the
+// entitlements are still loading is refused on a tenant without its module. A
+// licence that cannot be read leaves the permission alone to decide.
+export function useMayAskScreen(request: ScreenRequest): boolean {
+  const { session } = useApi();
+  const entitlements = useEntitlements();
+  if (entitlements.isLoading && entitlements.failureCount === 0) return false;
+  return sessionMayAskScreen(session, entitlements.data ?? null, request);
 }
 
 /** First-run wizard "create admin" step — persists the admin, then establishes their session. */
@@ -1108,10 +1118,11 @@ export function useUpdateSupplier() {
 /** دليل الحسابات (docs/archive/catalog/04) — list, create, edit. */
 export function useAccounts(): UseQueryResult<AccountDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Accounts);
   return useQuery<AccountDTO[], ApiError>({
     queryKey: ["accounts"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/accounts");
       if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"), t);
@@ -1151,10 +1162,11 @@ export function useUpdateAccount() {
 /** حسابات الخزينة (docs/archive/catalog/04) — list, create, edit. */
 export function useTreasuryAccounts(): UseQueryResult<TreasuryAccountDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.TreasuryAccounts);
   return useQuery<TreasuryAccountDTO[], ApiError>({
     queryKey: ["treasury-accounts"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/treasury-accounts");
       if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"), t);
@@ -2577,10 +2589,11 @@ export function useVoucherStats(filter: Partial<VoucherListQueryDTO> = {}): UseQ
 
 export function useVouchers(filter: Partial<VoucherListQueryDTO> = {}): UseQueryResult<VoucherRowDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Vouchers);
   return useQuery<VoucherRowDTO[], ApiError>({
     queryKey: ["vouchers", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"), t);
@@ -6311,6 +6324,24 @@ export function useCancelSalesReturn() {
 export enum ReturnFamily {
   Sales = "sales-returns",
   Purchases = "purchase-returns",
+}
+
+// INVARIANT: the lists of both return families leave out the document that
+// reversed another; its own address is the only way to it, so a screen opened
+// at an address its list does not hold asks for the one document here.
+export function useReturnDocument<Document>(family: ReturnFamily, id: string): UseQueryResult<Document | null, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<Document | null, ApiError>({
+    queryKey: [family, "document", id],
+    enabled: session !== null && id !== "",
+    queryFn: async () => {
+      const res = await request(`/${family}/${encodeURIComponent(id)}`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw await loaderError(res, t(family === ReturnFamily.Sales ? "api.salesReturnsCouldNotBe" : "api.purchaseReturnsCouldNotBe"), t);
+      return res.json<Document>();
+    },
+  });
 }
 
 const RETURN_VOID_INVALIDATIONS = ["sales-returns", "purchase-returns", "sales-invoices", "purchase-invoices", "purchases", "journal-entries", "gl", "stock-balance", "eta-submissions", "eta", "dashboard", "financial-reports", "audit"];

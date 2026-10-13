@@ -19,11 +19,11 @@ function fieldInput(container: HTMLElement, labelText: string): HTMLElement {
   return input;
 }
 
-function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
+async function pickFromCombobox(container: HTMLElement, label: string, optionLabel: string) {
   const input = within(container).getByLabelText(label);
   fireEvent.focus(input);
   fireEvent.change(input, { target: { value: optionLabel } });
-  const option = within(container).getByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
+  const option = await within(container).findByRole("button", { name: (accessibleName) => accessibleName.startsWith(optionLabel) });
   fireEvent.mouseDown(option);
 }
 
@@ -135,7 +135,7 @@ describe("PayrollComponentsScreen", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.change(fieldInput(dialog, "الكود"), { target: { value: "OT" } });
     fireEvent.change(fieldInput(dialog, "الاسم بالعربية"), { target: { value: "بدل إضافي" } });
-    pickFromCombobox(dialog, "الحساب المحاسبي", "5100");
+    await pickFromCombobox(dialog, "الحساب المحاسبي", "5100");
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
     await waitFor(() => expect(getMethod()).toBe("POST"));
     const body = getBody() as Record<string, unknown>;

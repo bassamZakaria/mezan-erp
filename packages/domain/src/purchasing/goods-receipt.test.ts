@@ -17,6 +17,7 @@ import {
 import { createPurchaseOrder, confirmPurchaseOrder, cancelPurchaseOrder } from "./purchase-order.js";
 import {
   DuplicatePurchaseDocumentError,
+  GoodsReceiptAccrualAccountMissingError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
   OverReceiptError,
@@ -298,15 +299,21 @@ describe("goods receipt — GL posting (both stock and control account)", () => 
     expect(debit.toString()).toBe(stockValue.toString());
   });
 
-  it("confirm posts stock but nothing to GL when the GRNI account is not configured (documented fallback)", async () => {
+  it("refuses to confirm, in Arabic, when a ledger is wired but no received-not-invoiced account is configured — no stock moves without its entry", async () => {
     const { orders, numbering } = await sentOrder();
     const receipts = new InMemoryGoodsReceipts();
     const stock = makeStockService();
     const gl = new RecordingGlPort();
     await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
-    await confirmGoodsReceipt("gr-1", { receipts, orders, stock, gl, accounts: { inventoryAccountId: "1300-inventory", payableAccountId: "2100-payables", taxAccountId: "1360-input-vat" } });
+
+    const refused = await confirmGoodsReceipt("gr-1", { receipts, orders, stock, gl, accounts: { inventoryAccountId: "1300-inventory", payableAccountId: "2100-payables", taxAccountId: "1360-input-vat" } }).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(GoodsReceiptAccrualAccountMissingError);
+    expect((refused as GoodsReceiptAccrualAccountMissingError).message).toMatch(/[\u0600-\u06FF]/);
+    expect((refused as GoodsReceiptAccrualAccountMissingError).messageEn).toContain("received-not-invoiced");
     expect(gl.postings).toHaveLength(0);
-    expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("10.000000");
+    expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("0.000000");
+    expect((await receipts.findById("gr-1"))?.status).toBe("draft");
   });
 });
 

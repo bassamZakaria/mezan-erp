@@ -1463,10 +1463,15 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     };
     const glReversePort: PurchaseGlReversalPort = {
       reverse: async (sourceDocId, opts) => {
+        const appended = opts.appendLines ?? [];
         await reverseJournalEntry(`PI-JE:${sourceDocId}`, purchases.gl, {
           reversalId: opts.reversalId,
           date: opts.date,
           memo: opts.memo,
+          appendLines:
+            appended.length > 0
+              ? async () => appended.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit, memo: CANCELLED_RECEIPT_STOCK_MEMO, projectId: l.projectId ?? null, branchId: l.branchId ?? null }))
+              : undefined,
         });
       },
     };
@@ -1885,6 +1890,7 @@ function wireSalesInvoices(options: CreateAppOptions, uow: UnitOfWork): SalesInv
 }
 
 const HELD_DOCUMENT_SYSTEM_ACTOR = "system";
+const CANCELLED_RECEIPT_STOCK_MEMO = "فرق تكلفة: بضاعة مشتريات ملغاة خرجت بمتوسط تكلفة الرصيد";
 
 function buildHeldDocumentResolver(options: CreateAppOptions, salesInvoices: SalesInvoiceRoutesDeps | undefined) {
   const fromDocumentService = <L>(svc: DocumentService<L>): HeldDocumentActions => ({

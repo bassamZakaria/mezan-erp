@@ -1,8 +1,8 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import type { AgingCustomersRow, AgingSuppliersRow } from "@mezan/domain";
+import { ScreenRequest, type AgingCustomersRow, type AgingSuppliersRow } from "@mezan/domain";
 import type { PartyStatementDTO, StockBalanceRowDTO, VoucherAllocationDTO, StockBalanceWarehouseRowDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
-import { ApiError, readError } from "./hooks";
+import { ApiError, readError, useMayAskScreen } from "./hooks";
 import { useReport, type ReportResult } from "./reports-hooks";
 import { useAppTranslation } from "../i18n";
 
@@ -90,7 +90,8 @@ export function useCustomerAging(): UseQueryResult<ReportResult<AgingCustomersRo
  * bucketed. These figures are gross invoice age, not a net payable.
  */
 export function useSupplierAging(): UseQueryResult<ReportResult<AgingSuppliersRow>, ApiError> {
-  return useReport<AgingSuppliersRow>("aging.suppliers", "/aging/suppliers", {});
+  const enabled = useMayAskScreen(ScreenRequest.SupplierAging);
+  return useReport<AgingSuppliersRow>("aging.suppliers", "/aging/suppliers", {}, { enabled });
 }
 
 const ZERO_MONEY = "0.000000";

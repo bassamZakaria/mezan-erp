@@ -26,16 +26,11 @@ export function BranchReadOnlyNotice() {
   );
 }
 
-export function ModuleNotLicensedState({ onGoHome }: { readonly onGoHome: () => void }) {
-  const { t } = useAppTranslation();
+export function ModuleNotLicensedState({ message }: { readonly message: string }) {
   return (
     <section data-testid="module-not-licensed" role="status" className="mx-auto flex max-w-[52ch] flex-col items-center gap-[12px] px-[16px] py-[56px] text-center">
       <Lock aria-hidden className="size-[28px] text-ink-faint" />
-      <h1 className="font-display text-[20px] font-bold text-ink">{t("licence.screenNotLicensed.title")}</h1>
-      <p className="text-[13px] text-ink-muted">{t("licence.screenNotLicensed.body")}</p>
-      <Button variant="default" onClick={onGoHome}>
-        {t("licence.screenNotLicensed.goHome")}
-      </Button>
+      <p className="text-[14px] font-semibold text-ink">{message}</p>
     </section>
   );
 }

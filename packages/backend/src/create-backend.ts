@@ -3072,7 +3072,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const moneyItem = (id: string): FxOpenItemRef => ({ id, type: FxOpenItemType.Money });
   async function foreignMoneyOnAccount(voucherId: string): Promise<{ date: string; line: VoucherLine; fxRate: string; kind: AllocationInvoiceKind; unallocated: Money } | null> {
     const doc = await vouchers.documents.findById(voucherId);
-    if (!doc || doc.status !== "confirmed" || doc.reversesDocId) return null;
+    if (!doc || doc.status !== "confirmed") return null;
     const line = voucherLine(doc);
     const kind = getVoucherTypeDefinition(line.voucherType).allocationKind;
     if (!kind || !line.fxRate) return null;
@@ -3141,7 +3141,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     if (live) {
       const returnedToday = returns.reduce((sum, credit) => sum + credit.credit.scaled, 0n);
       const reopenedLater = allocations.filter((allocation) => allocation.status !== "active" && allocationStoodOn(allocation, day)).reduce((sum, allocation) => sum + allocationInvoiceAmount(allocation).scaled, 0n);
-      openBase = invoiceOpenBalance(sub, Money.fromScaled(returnedToday)).scaled + relievedLater - reopenedLater;
+      openBase = sub.total.scaled - sub.allocated.scaled - returnedToday + relievedLater - reopenedLater;
     } else {
       const total = kind === "sales" ? await salesInvoices.findById(invoiceId).then((doc) => (doc ? salesInvoiceBaseGrandTotal(salesInvoiceTotals(doc), doc.fxRate).scaled : 0n)) : await purchaseInvoices.findById(invoiceId).then((doc) => (doc ? purchaseInvoiceBaseTotal(doc).scaled : 0n));
       const settled = allocations.filter((allocation) => allocationStoodOn(allocation, day)).reduce((sum, allocation) => sum + allocationInvoiceAmount(allocation).scaled, 0n);
@@ -3204,19 +3204,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return out;
   }
   // INVARIANT: runs in the run's own transaction, after its shares are saved — a relief dated in a closed period throws here and takes the run with it.
-  async function releaseSharesRelievedSince(asOfDate: string, shared: readonly { readonly itemId: string; readonly itemType: FxOpenItemType }[]): Promise<void> {
-    const wanted = new Set(shared.map((share) => `${share.itemType} ${share.itemId}`));
+  async function releaseSharesRelievedSince(asOfDate: string, shared: readonly { readonly itemId: string; readonly itemType: FxOpenItemType; readonly amount: Money }[]): Promise<void> {
+    const ownShare = new Map<string, bigint>();
+    for (const share of shared) ownShare.set(`${share.itemType} ${share.itemId}`, (ownShare.get(`${share.itemType} ${share.itemId}`) ?? 0n) + share.amount.scaled);
     for (const item of await fxItemsAsOf(asOfDate)) {
-      if (!wanted.has(`${item.open.itemType} ${item.open.itemId}`)) continue;
+      let left = ownShare.get(`${item.open.itemType} ${item.open.itemId}`);
+      if (left === undefined) continue;
       const ref: FxOpenItemRef = { id: item.open.itemId, type: item.open.itemType };
       const side = item.open.itemType === FxOpenItemType.Money ? -1n : 1n;
       let outstanding = side * item.open.carryingBase.scaled - side * (await revaluationShareAsOf(ref, asOfDate));
       for (const relief of item.later) {
         if (relief.relieved === null) {
-          await releaseItemShare(ref, relief.date, undefined, relief.releasedBy);
+          left -= (await releaseShareOf(ref, relief.date, undefined, relief.releasedBy, undefined, Money.fromScaled(left))).scaled;
           continue;
         }
-        await releaseItemShare(ref, relief.date, { relieved: relief.relieved, outstanding: Money.fromScaled(outstanding) }, relief.releasedBy, relief.allocationId ? fxLateReleaseEntryId(ref.id, relief.allocationId, (await fxLateReleaseEntryIds(ref.id, relief.allocationId, ledger)).length) : undefined);
+        const releaseEntryId = relief.allocationId ? fxLateReleaseEntryId(ref.id, relief.allocationId, (await fxLateReleaseEntryIds(ref.id, relief.allocationId, ledger)).length) : undefined;
+        left -= (await releaseShareOf(ref, relief.date, { relieved: relief.relieved, outstanding: Money.fromScaled(outstanding) }, relief.releasedBy, releaseEntryId, Money.fromScaled(left))).scaled;
         outstanding -= relief.relieved.scaled;
       }
     }
@@ -3236,16 +3239,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return (await salesInvoices.findById(id))?.docNo ?? (await purchaseInvoices.findById(id))?.number ?? id;
   }
   const releaseRevaluationShare = (invoiceId: string, date: string, part?: FxItemRelief, releasedBy?: string) => releaseItemShare(invoiceItem(invoiceId), date, part, releasedBy);
-  async function releaseItemShare(item: FxOpenItemRef, date: string, part?: FxItemRelief, releasedBy?: string, releaseEntryId?: string): Promise<void> {
-    const standing = await standingRevaluationShare(item);
+  async function releaseItemShare(item: FxOpenItemRef, date: string, part?: FxItemRelief, releasedBy?: string): Promise<void> {
+    await releaseShareOf(item, date, part, releasedBy);
+  }
+  async function releaseShareOf(item: FxOpenItemRef, date: string, part?: FxItemRelief, releasedBy?: string, releaseEntryId?: string, ownShare?: Money): Promise<Money> {
+    const standing = ownShare ?? (await standingRevaluationShare(item));
     const records = await vouchers.revaluationShares.listByItem(item);
     const share = records[0];
-    if (standing.scaled === 0n || !share) return;
+    if (standing.scaled === 0n || !share) return Money.zero();
     const booked = item.type === FxOpenItemType.Money ? (await vouchers.documents.findById(item.id).then((doc) => (doc ? voucherLine(doc).fxRate : null))) : (await realisedFx.invoiceFx(item.id, share.kind))?.fxRate;
     const fxRate = booked ?? "1";
     const taken = part ? relievedRevaluationShare(standing, convertFromBase(part.relieved, fxRate), convertFromBase(part.outstanding, fxRate)) : standing;
     const lines = buildRevaluationReleaseLines({ kind: share.kind, controlAccountId: share.accountId, partyId: share.partyId, currency: share.currency, fxRate, share: taken }, await fxDifferenceAccounts("realised"));
-    if (lines.length === 0) return;
+    if (lines.length === 0) return Money.zero();
     let restatedOn = date;
     for (const record of records) {
       if (await revaluationEntryStands(record.entryId)) restatedOn = laterDay(restatedOn, (await ledger.findById(record.entryId))?.date.slice(0, 10));
@@ -3257,6 +3263,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       salesInvoiceGl,
     );
     await vouchers.revaluationShares.saveAll([{ ...share, entryId, amount: Money.fromScaled(-taken.scaled) }]);
+    return taken;
   }
   function returnReliefGl<L extends { readonly sourceInvoiceId: string }>(kind: AllocationInvoiceKind, returns: Pick<DocumentRepository<L>, "findById">, lineCredit: (line: L) => Money): DocumentGlHook {
     return {

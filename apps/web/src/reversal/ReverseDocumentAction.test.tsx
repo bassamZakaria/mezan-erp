@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
+import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType } from "@mezan/contracts";
@@ -16,11 +17,20 @@ const RUNS = [
 
 function TwoRows() {
   const { request } = useApi();
-  const list = useQuery({ queryKey: ["runs"], queryFn: async () => (await request("/inventory/writedown-runs")).json<{ loads: number }>() });
+  const list = useQuery({ queryKey: ["writedown-runs"], queryFn: async () => (await request("/inventory/writedown-runs")).json<{ loads: number }>() });
+  const unrelated = useQuery({ queryKey: ["customers"], queryFn: async () => (await request("/customers")).json<{ loads: number }>() });
+  const ledger = useQuery({ queryKey: ["journal-entries", "list"], queryFn: async () => (await request("/gl/journal-entries")).json<{ loads: number }>() });
   const reversal = useReverseDocumentAction(ReversalDocumentType.WritedownRun);
+  const [asks, setAsks] = useState(0);
   return (
     <div>
       <output aria-label="loads">{list.data?.loads ?? 0}</output>
+      <output aria-label="unrelated loads">{unrelated.data?.loads ?? 0}</output>
+      <output aria-label="ledger loads">{ledger.data?.loads ?? 0}</output>
+      <output aria-label="settled asks">{asks}</output>
+      <button type="button" onClick={() => void reversal.ask({ id: "run-a", params: { id: "run-a" }, subject: "تشغيل مايو" }).then(() => setAsks((n) => n + 1))}>
+        اسأل وانتظر
+      </button>
       {RUNS.map((run) => (
         <button key={run.id} type="button" disabled={reversal.pendingId === run.id} onClick={() => void reversal.ask({ id: run.id, params: { id: run.id }, subject: run.subject })}>
           {`عكس ${run.subject}`}
@@ -33,14 +43,26 @@ function TwoRows() {
 
 function transportWith(reverse: (init: RequestInit | undefined, path: string) => StubResult | Promise<StubResult>): { transport: Transport; calls: { path: string; body: unknown }[] } {
   let loads = 0;
+  let unrelated = 0;
+  let ledger = 0;
   const calls: { path: string; body: unknown }[] = [];
-  const base = stubTransport({ "GET /inventory/writedown-runs": () => ({ body: { loads: ++loads } }) });
+  const base = stubTransport({
+    "GET /inventory/writedown-runs": () => ({ body: { loads: ++loads } }),
+    "GET /customers": () => ({ body: { loads: ++unrelated } }),
+    "GET /gl/journal-entries": () => ({ body: { loads: ++ledger } }),
+  });
   const transport: Transport = async (path, init) => {
     if ((init?.method ?? "GET") !== "POST") return base(path, init);
     calls.push({ path, body: JSON.parse((init?.body as string) ?? "{}") });
     const result = await reverse(init, path);
     const status = result.status ?? 200;
-    const response: TransportResponse = { status, ok: status < 400, json: <T,>() => Promise.resolve(result.body as T), text: () => Promise.resolve(JSON.stringify(result.body)) };
+    let read = false;
+    const once = <T,>(value: T): Promise<T> => {
+      if (read) return Promise.reject(new TypeError("body stream already read"));
+      read = true;
+      return Promise.resolve(value);
+    };
+    const response: TransportResponse = { status, ok: status < 400, json: <T,>() => once(result.body as T), text: () => once(JSON.stringify(result.body)) };
     return response;
   };
   return { transport, calls };
@@ -112,6 +134,39 @@ describe("ReverseDocumentAction", () => {
     release({ body: {} });
     await waitFor(() => expect(screen.getByRole("button", { name: "عكس تشغيل مايو" })).toBeEnabled());
     await waitFor(() => expect(screen.getByLabelText("loads")).toHaveTextContent("2"));
+    await waitFor(() => expect(screen.getByLabelText("ledger loads")).toHaveTextContent("2"));
+    expect(screen.getByLabelText("unrelated loads")).toHaveTextContent("1");
+  });
+
+  it("settles the promise it returned when the dialog is cancelled, so a caller awaiting it is never left hanging", async () => {
+    const { transport, calls } = transportWith(() => ({ body: {} }));
+    renderWithProviders(<TwoRows />, { transport, initialSession: testAdminSession });
+    fireEvent.click(screen.getByRole("button", { name: "اسأل وانتظر" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "رجوع" }));
+    await waitFor(() => expect(screen.getByLabelText("settled asks")).toHaveTextContent("1"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(calls).toEqual([]);
+  });
+
+  it("says a blank date means today, and when today cannot be posted it prefills the earliest open day the server named", async () => {
+    const { transport, calls } = transportWith((init) => {
+      const body = JSON.parse((init?.body as string) ?? "{}") as { date?: string };
+      return body.date === "2026-11-01"
+        ? { body: {} }
+        : { status: 422, body: { error: "PERIOD_NOT_OPEN_FOR_POSTING", message: "الفترة «أكتوبر 2026» مغلقة ولا تسمح بالترحيل.", earliestOpenDate: "2026-11-01" } };
+    });
+    renderWithProviders(<TwoRows />, { transport, initialSession: testAdminSession });
+    fireEvent.click(screen.getByRole("button", { name: "عكس تشغيل مايو" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("اتركه فارغاً ليُؤرَّخ العكس بتاريخ اليوم. لا يسبق تاريخ المستند الأصلي.")).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("سبب العكس"), { target: { value: "خطأ" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "عكس تشغيل الهبوط" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("الفترة «أكتوبر 2026» مغلقة ولا تسمح بالترحيل.");
+    await waitFor(() => expect(within(dialog).getByLabelText("تاريخ العكس")).toHaveValue("2026-11-01"));
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("أقرب يوم مفتوح هو 2026-11-01");
+    fireEvent.click(within(dialog).getByRole("button", { name: "عكس تشغيل الهبوط" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(calls.map((call) => call.body)).toEqual([{ memo: "خطأ" }, { memo: "خطأ", date: "2026-11-01" }]);
   });
 
   it("sends no reason field on a route that takes none", async () => {

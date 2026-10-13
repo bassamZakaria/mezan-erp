@@ -279,3 +279,38 @@ describe("StockAdjustmentsScreen — themes", () => {
     await screen.findByText("ADJ-000001");
   });
 });
+
+describe("StockAdjustmentsScreen — a reversed adjustment and its reversal point at each other", () => {
+  const reversed: StockAdjustmentDocumentDTO = { ...adj5, id: "adj-6", docNo: "ADJ-000006", status: "reversed", reversesDocId: null, reversedByDocId: "adj-6:REVERSAL" };
+  const mirror: StockAdjustmentDocumentDTO = { ...adj5, id: "adj-6:REVERSAL", docNo: "ADJ-000007", date: "2026-10-13", memo: "عكس", status: "confirmed", reversesDocId: "adj-6", reversedByDocId: null };
+
+  function renderPair() {
+    const transport = stubTransport({
+      ...baseHandlers(() => [reversed, mirror]),
+      "GET /gl/journal-entries/adj-6": () => ({ status: 404, body: { error: "NOT_FOUND" } }),
+      "GET /gl/journal-entries/adj-6:REVERSAL": () => ({ status: 404, body: { error: "NOT_FOUND" } }),
+    });
+    return renderWithProviders(
+      <TestNavigation>
+        <StockAdjustmentsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+  }
+
+  it("the list names the other document by its number on both rows, and neither row shows a dash for a number", async () => {
+    renderPair();
+    expect(await screen.findByText("ADJ-000007")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "عُكست بالمستند ADJ-000007" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تعكس المستند ADJ-000006" })).toBeInTheDocument();
+  });
+
+  it("the link opens the other document, whose detail links back", async () => {
+    renderPair();
+    fireEvent.click(await screen.findByRole("button", { name: "عُكست بالمستند ADJ-000007" }));
+    expect(await screen.findByRole("heading", { name: "ADJ-000007" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "تعكس المستند ADJ-000006" }));
+    expect(await screen.findByRole("heading", { name: "ADJ-000006" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "عُكست بالمستند ADJ-000007" })).toBeInTheDocument();
+  });
+});

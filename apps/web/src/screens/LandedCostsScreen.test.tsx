@@ -148,3 +148,17 @@ describe("LandedCostsScreen", () => {
     await within(dialog).findByText("معكوس");
   });
 });
+
+describe("LandedCostsScreen — a reversed landed cost and its reversal point at each other", () => {
+  it("names the other document by its number on both rows and opens it from the link", async () => {
+    const original = landedCost({ id: "lc-1", docNo: "LC-000001", status: "reversed", reversedByDocId: "lc-1-rev" });
+    const mirror = landedCost({ id: "lc-1-rev", docNo: "LC-000002", status: "confirmed", reversesDocId: "lc-1" });
+    renderWithProviders(<LandedCostsScreen />, { transport: stubTransport(baseHandlers([original, mirror])), initialSession: testAdminSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "عُكس بالمستند LC-000002" }));
+    const panel = await screen.findByRole("dialog", { name: "LC-000002" });
+    fireEvent.click(within(panel).getByRole("button", { name: "يعكس المستند LC-000001" }));
+    const back = await screen.findByRole("dialog", { name: "LC-000001" });
+    expect(within(back).getByRole("button", { name: "عُكس بالمستند LC-000002" })).toBeInTheDocument();
+  });
+});

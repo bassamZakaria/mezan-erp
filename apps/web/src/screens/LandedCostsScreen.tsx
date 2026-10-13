@@ -384,8 +384,35 @@ export function LandedCostsScreen() {
     { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
   ];
 
+  function reversalLink(d: (typeof documents)[number]) {
+    const otherId = d.reversedByDocId ?? d.reversesDocId ?? null;
+    if (otherId === null) return null;
+    const other = documents.find((candidate) => candidate.id === otherId);
+    return (
+      <button
+        type="button"
+        className="text-[11.5px] font-semibold text-brand underline-offset-2 hover:underline"
+        onClick={(event) => {
+          event.stopPropagation();
+          setPanel({ id: otherId });
+        }}
+      >
+        {t(d.reversedByDocId ? "landedCosts.reversedByDocument" : "landedCosts.reversesDocument", { number: other?.docNo ?? otherId })}
+      </button>
+    );
+  }
+
   const columns: DocumentListColumn<(typeof documents)[number]>[] = [
-    { key: "docNo", header: t("landedCosts.col.docNo"), render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</span> },
+    {
+      key: "docNo",
+      header: t("landedCosts.col.docNo"),
+      render: (d) => (
+        <span className="flex flex-col items-start gap-[2px]">
+          <span className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</span>
+          {reversalLink(d)}
+        </span>
+      ),
+    },
     { key: "date", header: t("landedCosts.col.documentDate"), render: (d) => <span className="mz-num">{d.date}</span> },
     { key: "absorptionDate", header: t("landedCosts.col.absorptionDate"), render: (d) => <span className="mz-num">{d.absorptionDate ?? "—"}</span> },
     {
@@ -671,6 +698,7 @@ export function LandedCostsScreen() {
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+            {reversalLink(selected)}
             <div className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[12.5px]">
               <span className="text-ink-muted">{t("landedCosts.field.method")}</span>
               <span className="font-semibold text-ink">{t(METHOD_KEY[selected.lines[0]?.distributionMethod ?? "BY_VALUE"])}</span>

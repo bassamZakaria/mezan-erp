@@ -2307,6 +2307,8 @@ const webAr = {
   "landedCosts.error.needInvoice": "اختر الفاتورة المرتبطة والمستودع.",
   "landedCosts.error.needLines": "أضف بند تكلفة واحداً على الأقل وصنفاً مستهدفاً واحداً على الأقل.",
   "landedCosts.col.docNo": "رقم المستند",
+  "landedCosts.reversedByDocument": "عُكس بالمستند {number}",
+  "landedCosts.reversesDocument": "يعكس المستند {number}",
   "landedCosts.col.method": "طريقة التوزيع",
   "landedCosts.col.total": "إجمالي التكلفة",
   "landedCosts.col.documentDate": "تاريخ المستند",
@@ -2730,6 +2732,9 @@ const webAr = {
 
   // stockAdj
   "stockAdj.adjustmentNumber": "رقم التسوية",
+  "stockAdj.reversedByDocument": "عُكست بالمستند {number}",
+  "stockAdj.reversesDocument": "تعكس المستند {number}",
+  "stockAdj.linkedReversal": "مستند العكس",
   "stockAdj.warehouseReason": "المستودع / السبب",
   "stockAdj.lines": "عدد البنود",
   "stockAdj.chooseTheAdjustmentReason": "اختر سبب التسوية",
@@ -11767,6 +11772,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "landedCosts.error.needInvoice": "Choose the linked invoice and the warehouse.",
   "landedCosts.error.needLines": "Add at least one cost line and at least one target item.",
   "landedCosts.col.docNo": "Document number",
+  "landedCosts.reversedByDocument": "Reversed by {number}",
+  "landedCosts.reversesDocument": "Reverses {number}",
   "landedCosts.col.method": "Distribution method",
   "landedCosts.col.total": "Total cost",
   "landedCosts.col.documentDate": "Document date",
@@ -12190,6 +12197,9 @@ const webEn: Record<WebTranslationKey, string> = {
 
   // stockAdj
   "stockAdj.adjustmentNumber": "Adjustment number",
+  "stockAdj.reversedByDocument": "Reversed by {number}",
+  "stockAdj.reversesDocument": "Reverses {number}",
+  "stockAdj.linkedReversal": "Reversal document",
   "stockAdj.warehouseReason": "Warehouse / reason",
   "stockAdj.lines": "Lines",
   "stockAdj.chooseTheAdjustmentReason": "Choose the adjustment reason",

@@ -2,9 +2,10 @@ import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, ConfirmDialog, type RowMenuItem } from "@mezan/ui";
 import { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, reversalRoute } from "@mezan/contracts";
-import { can, createAuthContext } from "@mezan/domain";
+import { ALL_SCOPE, can, createAuthContext } from "@mezan/domain";
 import { useApi } from "../data/ApiContext";
 import { ApiError, readError } from "../data/hooks";
+import { reversalQueryKeys } from "./reversal-query-keys";
 import { TextAreaField, TextField } from "../settings/form-controls";
 import { useAppTranslation } from "../i18n";
 
@@ -24,6 +25,16 @@ export interface ReverseDocumentController {
   readonly dialog: ReactNode;
 }
 
+class ReversalRefusal extends ApiError {
+  constructor(
+    status: number,
+    message: string,
+    readonly earliestOpenDate: string | null,
+  ) {
+    super(status, message);
+  }
+}
+
 interface ReversalVariables {
   readonly target: ReversalTarget;
   readonly reason: string;
@@ -37,7 +48,7 @@ export function useReverseDocumentAction(type: ActionReversalType): ReverseDocum
   const path = DOCUMENT_REVERSAL_PATHS[type];
   const permissions = session?.permissions;
   const allowed = useMemo(
-    () => can(createAuthContext({ userId: session?.userId ?? "anonymous", permissions: permissions ?? [], branchScope: "*", warehouseScope: "*" }), path.permission),
+    () => can(createAuthContext({ userId: session?.userId ?? "anonymous", permissions: permissions ?? [], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }), path.permission),
     [permissions, session?.userId, path.permission],
   );
 
@@ -48,35 +59,53 @@ export function useReverseDocumentAction(type: ActionReversalType): ReverseDocum
   const [error, setError] = useState<string | null>(null);
   const settleRef = useRef<(() => void) | null>(null);
 
-  const mutation = useMutation<void, ApiError, ReversalVariables>({
+  const settle = useCallback(() => {
+    settleRef.current?.();
+    settleRef.current = null;
+  }, []);
+
+  const mutation = useMutation<void, ReversalRefusal, ReversalVariables>({
     mutationFn: async (variables) => {
       const body: { memo?: string; date?: string } = {};
       if (path.takesReason) body.memo = variables.reason;
       if (path.takesDate && variables.date !== "") body.date = variables.date;
       const res = await request(reversalRoute(type, variables.target.params), { method: path.method, body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("reversal.failed"), t));
+      if (res.ok) return;
+      const refusal = (await res.json<{ earliestOpenDate?: unknown }>().catch(() => ({}))) as { earliestOpenDate?: unknown };
+      const message = await readError({ status: res.status, json: <T,>() => Promise.resolve(refusal as T) }, t("reversal.failed"), t);
+      throw new ReversalRefusal(res.status, message, typeof refusal.earliestOpenDate === "string" ? refusal.earliestOpenDate : null);
     },
     onSuccess: async () => {
       setAsked(null);
-      settleRef.current?.();
-      settleRef.current = null;
-      await queryClient.invalidateQueries();
+      settle();
+      await Promise.all(reversalQueryKeys(type).map((queryKey) => queryClient.invalidateQueries({ queryKey })));
     },
-    onError: (err) => setError(err.message),
+    onError: (err) => {
+      if (path.takesDate && err.earliestOpenDate) {
+        setDate(err.earliestOpenDate);
+        setError(`${err.message} ${t("reversal.earliestOpenDay", { date: err.earliestOpenDate })}`);
+        return;
+      }
+      setError(err.message);
+    },
     onSettled: () => setPendingId(null),
   });
 
   const ask = useCallback(
     (target: ReversalTarget) =>
       new Promise<void>((resolve) => {
-        if (pendingId !== null) return;
+        if (pendingId !== null) {
+          resolve();
+          return;
+        }
+        settle();
         settleRef.current = resolve;
         setReason("");
         setDate("");
         setError(null);
         setAsked(target);
       }),
-    [pendingId],
+    [pendingId, settle],
   );
 
   const action = t(`reversal.${type}.action`);
@@ -93,7 +122,7 @@ export function useReverseDocumentAction(type: ActionReversalType): ReverseDocum
   function cancel() {
     if (pendingId !== null) return;
     setAsked(null);
-    settleRef.current = null;
+    settle();
   }
 
   const dialog = (

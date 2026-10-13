@@ -239,7 +239,12 @@ export function StockAdjustmentsScreen() {
       key: "docNo",
       header: t("stockAdj.adjustmentNumber"),
       sortable: true,
-      render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? "—"}</span>,
+      render: (d) => (
+        <span className="flex flex-col items-start gap-[2px]">
+          <span className="mz-num font-semibold text-ink">{d.docNo ?? "—"}</span>
+          {reversalLink(d)}
+        </span>
+      ),
     },
     { key: "date", header: t("common.date"), sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
     {
@@ -257,6 +262,25 @@ export function StockAdjustmentsScreen() {
     { key: "lines", header: t("stockAdj.lines"), align: "end", render: (d) => <span className="mz-num">{d.lines.length}</span> },
     { key: "status", header: t("common.status"), render: (d) => <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} /> },
   ];
+
+  function reversalLink(d: StockAdjustmentDocumentDTO) {
+    const otherId = d.reversedByDocId ?? d.reversesDocId ?? null;
+    if (otherId === null) return null;
+    const other = documents.find((candidate) => candidate.id === otherId);
+    const label = t(d.reversedByDocId ? "stockAdj.reversedByDocument" : "stockAdj.reversesDocument", { number: other?.docNo ?? otherId });
+    return (
+      <button
+        type="button"
+        className="text-[11.5px] font-semibold text-brand underline-offset-2 hover:underline"
+        onClick={(event) => {
+          event.stopPropagation();
+          subPage.open(other?.docNo ?? otherId);
+        }}
+      >
+        {label}
+      </button>
+    );
+  }
 
   function openDetail(id: string) {
     const doc = documents.find((d) => d.id === id);
@@ -349,6 +373,7 @@ export function StockAdjustmentsScreen() {
             { label: t("stockAdj.reason"), value: domainLabel(def) },
             { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
             { label: t("stockAdj.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
+            ...(selected.reversedByDocId || selected.reversesDocId ? [{ label: t("stockAdj.linkedReversal"), value: reversalLink(selected) }] : []),
             ...(selected.projectId ? [{ label: t("common.project"), value: projectLabel(selected.projectId) ?? selected.projectId }] : []),
             ...(selected.costCategory
               ? [{ label: t("common.costCategory"), value: t(`costCategory.${selected.costCategory}` as AppTranslationKey) }]

@@ -11,7 +11,7 @@ import { useUrlNumber } from "../lib/url-state";
 
 /** الإجازات الرسمية (Official Holidays) — docs/archive/catalog/06 §"الإجازات الرسمية". Year-scoped company calendar; recurring holidays repeat every year. */
 
-const CURRENT_YEAR = new Date().getUTCFullYear();
+const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1];
 
 interface HolidayDraft {

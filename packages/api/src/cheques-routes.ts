@@ -168,7 +168,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     storedBranches: storedBranchesById((id) => service.findById(id), (cheque) => [cheque.branchId]),
   });
   const idGen = deps.idGen ?? (() => randomUUID());
-  const asOf = () => (deps.now ? deps.now() : new Date().toISOString()).slice(0, 10);
+  const asOf = (c: Context): Promise<string> => tenantDay(c, deps.now ? deps.now() : new Date().toISOString());
   const postingDay = (c: Context, date: string | undefined): Promise<string> => tenantDay(c, date ?? (deps.now ? deps.now() : new Date().toISOString()));
   /**
    * WHO. Read off the resolved session, never `x-user-id` — an actor the
@@ -233,7 +233,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     if (!parsed.ok) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
-    const asOfDate = asOf();
+    const asOfDate = await asOf(c);
     const cheques = await listFilteredCheques(c, parsed.filter, asOfDate);
     return c.json(await Promise.all(cheques.map((cheque) => present(cheque, asOfDate))));
   });
@@ -253,7 +253,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     if (!parsed.ok) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
-    const asOfDate = asOf();
+    const asOfDate = await asOf(c);
     const { status: _ignored, ...withoutStatus } = parsed.filter;
     const cheques = await listFilteredCheques(c, withoutStatus, asOfDate);
     const counts: Record<string, number> = { all: cheques.length };
@@ -279,7 +279,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     if (!parsed.ok) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
-    const cheques = await listFilteredCheques(c, parsed.filter, asOf());
+    const cheques = await listFilteredCheques(c, parsed.filter, await asOf(c));
     let value = Money.zero();
     let pending = Money.zero();
     let deposited = Money.zero();
@@ -305,7 +305,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
   app.get("/:id", gate("cheques.view"), async (c) => {
     const cheque = await visibleCheque(c);
     if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(await present(cheque, asOf()));
+    return c.json(await present(cheque, await asOf(c)));
   });
 
   app.get("/:id/allocations", gate("cheques.view"), async (c) => {
@@ -338,7 +338,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
       const cheque = await service.findById(c.req.param("id"));
       if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);
       await auditTransition(c, "ALLOCATE", cheque);
-      return c.json(await present(cheque, asOf()), 201);
+      return c.json(await present(cheque, await asOf(c)), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -375,7 +375,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "CREATE", cheque);
-      return c.json(await present(cheque, asOf()), 201);
+      return c.json(await present(cheque, await asOf(c)), 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -393,7 +393,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "DEPOSIT", cheque);
-      return c.json(await present(cheque, asOf()));
+      return c.json(await present(cheque, await asOf(c)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -454,7 +454,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "COLLECT", cheque);
-      return c.json(await present(cheque, asOf()));
+      return c.json(await present(cheque, await asOf(c)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -479,7 +479,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "BOUNCE", cheque);
-      return c.json(await present(cheque, asOf()));
+      return c.json(await present(cheque, await asOf(c)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -499,7 +499,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "RETURN", cheque);
-      return c.json(await present(cheque, asOf()));
+      return c.json(await present(cheque, await asOf(c)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -534,7 +534,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         actor: actorOf(c),
       });
       await auditTransition(c, "REPLACE", result.original);
-      return c.json({ original: await present(result.original, asOf()), replacement: await present(result.replacement, asOf()) }, 201);
+      return c.json({ original: await present(result.original, await asOf(c)), replacement: await present(result.replacement, await asOf(c)) }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

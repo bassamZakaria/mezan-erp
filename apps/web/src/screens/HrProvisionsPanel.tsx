@@ -8,6 +8,7 @@ import { useConfirmAction } from "../lib/use-confirm-action";
 import { ReversalDocumentType } from "@mezan/contracts";
 import { ReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useHrProvisionPostings } from "../reversal/posted-runs-hooks";
+import { todayIso } from "../lib/dates";
 
 /**
  * ترحيل مخصص الإجازات — puts the payable-leave obligation into the books. It
@@ -124,7 +125,7 @@ function ProvisionRow({ kind, asOfDate }: { kind: HrProvisionKindDTO; asOfDate: 
 
 export function HrProvisionsPanel() {
   const { t } = useAppTranslation();
-  const [asOfDate, setAsOfDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [asOfDate, setAsOfDate] = useState(() => todayIso());
 
   return (
     <Card className="p-[18px_20px]">

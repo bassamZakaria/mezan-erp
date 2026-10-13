@@ -5,6 +5,7 @@ import { useAppTranslation } from "../i18n";
 import { FormError, TextAreaField, TextField } from "../settings/form-controls";
 import { PlatformApiError } from "./api";
 import { useRecordPaymentMutation } from "./hooks";
+import { todayIso } from "../lib/dates";
 
 export interface RecordPaymentDialogProps {
   readonly open: boolean;
@@ -13,7 +14,7 @@ export interface RecordPaymentDialogProps {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIso();
 }
 
 /** «تسجيل دفعة» — a manual payment against the tenant's live subscription; the backend renews the subscription's period from it, so on success the panel just closes and the caller's `TenantSummaryDTO` query refreshes from the mutation's own cache write. */

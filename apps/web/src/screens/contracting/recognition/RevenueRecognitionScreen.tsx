@@ -31,6 +31,7 @@ import { SelectField } from "../../../settings/form-controls";
 import { useAppTranslation } from "../../../i18n";
 import { useSubPage } from "../../../navigation";
 import { majorOf } from "../../../lib/money";
+import { monthEndIsoOf } from "../../../lib/dates";
 
 /**
  * الاعتراف بالإيراد — the monthly EAS 48 cost-to-cost run (design D-03, D-12).
@@ -45,17 +46,11 @@ const APPROVE_PERMISSION = "contracting.certificate.approve";
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 const MONTH_CHOICES = 18;
 
-/** The last day of the month `date` falls in, as YYYY-MM-DD. */
-function monthEndOf(date: Date): string {
-  const end = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
-  return end.toISOString().slice(0, 10);
-}
-
 /** The month ends a user may close, newest first, starting with last month. */
 function monthEndChoices(today: Date): string[] {
   const choices: string[] = [];
   for (let back = 1; back <= MONTH_CHOICES; back += 1) {
-    choices.push(monthEndOf(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - back + 1, 0))));
+    choices.push(monthEndIsoOf(today.getFullYear(), today.getMonth() - back));
   }
   return choices;
 }

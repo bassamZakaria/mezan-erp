@@ -17,6 +17,7 @@ import { ledgerPrintModel, type LedgerPrintLabels, type LedgerPrintRowInput } fr
 import { EMPTY } from "../lib/empty";
 import { scaledOf } from "../lib/money";
 import { taxRateNameOf } from "../screens/tax-rate-field";
+import { todayIso } from "../lib/dates";
 
 /**
  * The nine printable documents that had no compliant template (P-6): the
@@ -457,7 +458,7 @@ export function StatementPrintPage({
         documentType: kind === "customer" ? "CUSTOMER_STATEMENT" : "SUPPLIER_STATEMENT",
         documentTypeLabel: kind === "customer" ? t("print.doc.customerStatement") : t("print.doc.supplierStatement"),
         number: party.code ?? party.name,
-        date: periodTo ?? new Date().toISOString().slice(0, 10),
+        date: periodTo ?? todayIso(),
         settings,
         party,
         currencyLabel: format.currencyLabel,

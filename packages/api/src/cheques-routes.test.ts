@@ -22,7 +22,7 @@ class MemAudit implements AuditSink {
   async query(stream: AuditStream) { return this.events.filter((e) => e.stream === stream); }
 }
 
-async function newApp(masterData?: MasterDataChecks) {
+async function newApp(masterData?: MasterDataChecks, clock: () => string = () => "2026-08-22T10:00:00.000Z") {
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
   const periods = createSqliteFiscalPeriodRepository();
@@ -49,7 +49,7 @@ async function newApp(masterData?: MasterDataChecks) {
     },
     cheques,
     gl: { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-22T10:00:00.000Z" },
-    now: () => "2026-08-22T10:00:00.000Z",
+    now: clock,
     idGen: () => `gen-${++idSeq}`,
     audit,
     ...(masterData ? { masterData } : {}),
@@ -78,6 +78,23 @@ const INCOMING = {
   counterpartyGlAccountId: "1100",
   controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
 };
+
+describe("cheques routes — today is the tenant's day, not the UTC one", () => {
+  it("at 01:30 Cairo a cheque due today reads as due, though UTC is still on yesterday", async () => {
+    let instant = "2026-08-22T10:00:00.000Z";
+    const { app } = await newApp(undefined, () => instant);
+    const created = await app.fetch(req("/", { method: "POST", body: JSON.stringify({ ...INCOMING, dueDate: "2026-10-14" }) }));
+    expect(created.status).toBe(201);
+
+    instant = "2026-10-13T22:30:00.000Z";
+    const listed = (await (await app.fetch(req("/"))).json()) as { id: string; effectiveStatus: string }[];
+    expect(listed.map((row) => [row.id, row.effectiveStatus])).toEqual([["chq-1", "due_today"]]);
+    const one = (await (await app.fetch(req("/chq-1"))).json()) as { effectiveStatus: string };
+    expect(one.effectiveStatus).toBe("due_today");
+    const counts = (await (await app.fetch(req("/counts"))).json()) as Record<string, number>;
+    expect(counts.due_today).toBe(1);
+  });
+});
 
 describe("cheques routes", () => {
   it("rejects without the cheques.view permission", async () => {

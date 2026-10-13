@@ -422,7 +422,7 @@ export function EmployeesScreen() {
   const [rehireDate, setRehireDate] = useState("");
   const rehireEmployee = useRehireEmployee();
 
-  const currentYear = new Date().getUTCFullYear();
+  const currentYear = new Date().getFullYear();
   const leaveBalancesQuery = useLeaveBalances(selectedId, currentYear);
   const leaveRequestsQuery = useLeaveRequests({ employeeId: selectedId, status: null, leaveType: null, from: null, to: null });
   const payslipsQuery = useEmployeePayslips(selectedId);

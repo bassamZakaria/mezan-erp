@@ -71,7 +71,7 @@ import { purchaseInvoiceLineTotal } from "./exact-line-totals";
 import { PurchaseInvoiceStatusCode } from "@mezan/domain";
 import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
-import { todayIso } from "../lib/dates";
+import { addDaysIso, todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -682,7 +682,7 @@ export function PurchaseInvoicesScreen() {
       overdue: (inv: PurchaseInvoiceDTO) => live(inv) && !settled(inv) && inv.dueDate !== null && inv.dueDate < today,
       dueSoon: (inv: PurchaseInvoiceDTO) => {
         if (!live(inv) || settled(inv) || inv.dueDate === null) return false;
-        const horizon = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+        const horizon = addDaysIso(today, 7);
         return inv.dueDate >= today && inv.dueDate <= horizon;
       },
       partiallyPaid: (inv: PurchaseInvoiceDTO) => live(inv) && isPositive(inv.amountPaid) && !settled(inv),

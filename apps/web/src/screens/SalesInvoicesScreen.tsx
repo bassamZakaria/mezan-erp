@@ -99,7 +99,7 @@ import { ConfirmRecalculationNotice, confirmAcknowledgementOf, twoDecimals } fro
 import { VoidReasonNotice, VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
-import { todayIso } from "../lib/dates";
+import { addDaysIso, todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -506,9 +506,7 @@ function CreateInvoicePage({
   // it the moment a customer is chosen and lets the user override it.
   useEffect(() => {
     if (dueDateTouched || !customerRecord) return;
-    const due = new Date(date);
-    due.setDate(due.getDate() + (customerRecord.paymentTermsDays ?? 0));
-    setDueDate(due.toISOString().slice(0, 10));
+    setDueDate(addDaysIso(date, customerRecord.paymentTermsDays ?? 0));
   }, [customerRecord, date, dueDateTouched]);
 
   const acceptedQuotes = (quotesQuery.data ?? []).filter((q) => q.status === "accepted");

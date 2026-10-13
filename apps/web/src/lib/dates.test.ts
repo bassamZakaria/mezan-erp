@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { monthEndIso, monthStartIso, quarterStartIso, todayIso, yearStartIso } from "./dates";
+import { addDaysIso, localIsoDay, monthEndIso, monthStartIso, quarterStartIso, todayIso, yearStartIso } from "./dates";
 
 function at(local: string) {
   vi.useFakeTimers();
@@ -8,6 +8,22 @@ function at(local: string) {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe("a day counted from another day", () => {
+  it("is the same calendar day whatever the clock says, half an hour after midnight included", () => {
+    at("2026-10-14T00:30:00");
+    expect(addDaysIso(todayIso(), 7)).toBe("2026-10-21");
+    expect(addDaysIso(todayIso(), 0)).toBe("2026-10-14");
+    expect(localIsoDay(new Date())).toBe("2026-10-14");
+  });
+
+  it("carries across a month, a leap day and a year", () => {
+    expect(addDaysIso("2026-09-20", 14)).toBe("2026-10-04");
+    expect(addDaysIso("2028-02-28", 1)).toBe("2028-02-29");
+    expect(addDaysIso("2026-12-28", 5)).toBe("2027-01-02");
+    expect(addDaysIso("2026-03-01", -1)).toBe("2026-02-28");
+  });
 });
 
 describe("the dates a form opens on", () => {

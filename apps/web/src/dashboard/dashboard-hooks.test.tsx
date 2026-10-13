@@ -60,6 +60,21 @@ describe("reportWindow", () => {
   });
 });
 
+describe("the dashboard's month is the one on the wall calendar", () => {
+  const firstHalfHourOfSeptember = new Date("2026-09-01T00:30:00");
+
+  it("opens on the new month half an hour after it began, not on the month UTC is still in", () => {
+    expect(reportWindow("month", firstHalfHourOfSeptember)).toEqual({ from: "2026-09-01", to: "2026-09-30" });
+    expect(previousReportWindow("month", firstHalfHourOfSeptember)).toEqual({ from: "2026-08-01", to: "2026-08-31" });
+  });
+
+  it("opens on the new year half an hour after it began", () => {
+    const firstHalfHourOfTheYear = new Date("2027-01-01T00:30:00");
+    expect(reportWindow("year", firstHalfHourOfTheYear)).toEqual({ from: "2027-01-01", to: "2027-12-31" });
+    expect(previousReportWindow("year", firstHalfHourOfTheYear)).toEqual({ from: "2026-01-01", to: "2026-12-31" });
+  });
+});
+
 describe("previousReportWindow", () => {
   it("returns the previous month for 'month'", () => {
     expect(previousReportWindow("month", FIXED_NOW)).toEqual({ from: "2026-02-01", to: "2026-02-28" });

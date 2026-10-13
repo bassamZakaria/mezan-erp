@@ -39,6 +39,7 @@ import { useSubPage } from "../../../navigation";
 import { majorOf } from "../../../lib/money";
 import { useUrlParam, useUrlSearch } from "../../../lib/url-state";
 import { EMPTY } from "../../../lib/empty";
+import { todayIso as localTodayIso } from "../../../lib/dates";
 
 /**
  * خطابات الضمان (design §05) — the register, its bank-facility tiles, the
@@ -244,7 +245,7 @@ export function GuaranteesScreen() {
   }
 
   function todayIso(): string {
-    return summary?.asOfDate ?? new Date().toISOString().slice(0, 10);
+    return summary?.asOfDate ?? localTodayIso();
   }
 
   async function submitDraft(): Promise<void> {

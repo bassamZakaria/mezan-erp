@@ -185,8 +185,8 @@ export function PayrollRunsScreen() {
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [formOpen, setFormOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [year, setYear] = useState(now.getUTCFullYear());
-  const [month, setMonth] = useState(now.getUTCMonth() + 1);
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -295,10 +295,10 @@ export function PayrollRunsScreen() {
     { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
   ];
 
-  const yearTotalGross = sumMajor(runs.filter((r) => r.year === now.getUTCFullYear()).map((r) => r.totalGross));
-  const yearTotalNet = sumMajor(runs.filter((r) => r.year === now.getUTCFullYear()).map((r) => r.totalNet));
+  const yearTotalGross = sumMajor(runs.filter((r) => r.year === now.getFullYear()).map((r) => r.totalGross));
+  const yearTotalNet = sumMajor(runs.filter((r) => r.year === now.getFullYear()).map((r) => r.totalNet));
   const yearDisbursed = sumMajor(
-    runs.filter((r) => r.year === now.getUTCFullYear() && r.status === "disbursed").map((r) => r.totalNet),
+    runs.filter((r) => r.year === now.getFullYear() && r.status === "disbursed").map((r) => r.totalNet),
   );
 
   if (printing !== null && detail !== null) {
@@ -658,7 +658,7 @@ export function PayrollRunsScreen() {
               {formError}
             </div>
           ) : null}
-          <NumberField label={t("payroll.year")} value={year} onChange={(v) => setYear(Number.isNaN(v) ? now.getUTCFullYear() : v)} min={1900} />
+          <NumberField label={t("payroll.year")} value={year} onChange={(v) => setYear(Number.isNaN(v) ? now.getFullYear() : v)} min={1900} />
           <SelectField
             label={t("payroll.month")}
             value={String(month)}

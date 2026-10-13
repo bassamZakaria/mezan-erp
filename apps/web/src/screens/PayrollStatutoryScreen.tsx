@@ -130,7 +130,7 @@ export function PayrollStatutoryScreen() {
   const confirm = useConfirmAction();
 
   const [formOpen, setFormOpen] = useState(false);
-  const [year, setYear] = useState(String(new Date().getUTCFullYear() + 1));
+  const [year, setYear] = useState(String(new Date().getFullYear() + 1));
   const [floor, setFloor] = useState("");
   const [ceiling, setCeiling] = useState("");
   const [note, setNote] = useState("");

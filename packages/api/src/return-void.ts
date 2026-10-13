@@ -23,6 +23,13 @@ export async function voidReasonOf<Line>(service: DocumentService<Line>, doc: Fr
   return (await service.findById(doc.reversedByDocId))?.memo ?? null;
 }
 
+/** The void reason of each voided return in `docs`, keyed by return id. Only the voided ones are read. */
+export async function voidReasonsOf<Line>(service: DocumentService<Line>, docs: readonly FrameworkDocument<Line>[]): Promise<ReadonlyMap<string, string | null>> {
+  const voided = docs.filter((doc) => doc.reversedByDocId);
+  const reasons = await Promise.all(voided.map((doc) => voidReasonOf(service, doc)));
+  return new Map(voided.map((doc, index) => [doc.id, reasons[index] ?? null]));
+}
+
 // INVARIANT: every guard on a return's void lives in the service's
 // `reverseGuard`, which reads the return inside the reversal's transaction.
 // This reads nothing about the return's state.

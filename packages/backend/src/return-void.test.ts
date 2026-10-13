@@ -95,7 +95,7 @@ describe("voiding a confirmed sales return", () => {
     const statsAfter = (await kit.call("GET", "/sales-returns/stats")).body;
     expect([statsAfter.confirmed, statsAfter.returnedTotal, statsAfter.refundDue]).toEqual([statsBefore.confirmed, statsBefore.returnedTotal, statsBefore.refundDue]);
     const listed = rowsOf((await kit.call("GET", "/sales-returns")).body).filter((row) => row.id.startsWith("RV-S-1-R"));
-    expect(listed.map((row) => [row.id, row.status])).toEqual([["RV-S-1-R", "reversed"]]);
+    expect(listed.map((row) => [row.id, row.status, row.voidReason])).toEqual([["RV-S-1-R", "reversed", REASON]]);
     expect((await kit.call("GET", "/sales-returns/RV-S-1-R")).body.voidReason).toBe(REASON);
     expect((await kit.auditRows("SALES_RETURN", "RV-S-1-R", "REVERSE")).map((row) => row.details.reason)).toEqual([REASON]);
 
@@ -248,7 +248,7 @@ describe("voiding a confirmed purchase return", () => {
     expect(Object.values(await kit.invariants())).toEqual([0n, 0n, 0n, 0n]);
     expect((await kit.journalLines(voided.body.reversalJournalEntryId)).length).toBe((await kit.journalLines(returned.journalEntryId)).length);
     const listed = rowsOf((await kit.call("GET", "/purchase-returns")).body).filter((row) => row.id.startsWith("RV-P-1-R"));
-    expect(listed.map((row) => [row.id, row.status])).toEqual([["RV-P-1-R", "reversed"]]);
+    expect(listed.map((row) => [row.id, row.status, row.voidReason])).toEqual([["RV-P-1-R", "reversed", REASON]]);
     expect((await kit.auditRows("PURCHASE_RETURN", "RV-P-1-R", "REVERSE")).map((row) => row.details.reason)).toEqual([REASON]);
 
     const again = await confirmedPurchaseReturn("RV-P-1-R2", "RV-P-1", "4");

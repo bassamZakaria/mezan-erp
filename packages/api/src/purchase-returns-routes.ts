@@ -20,7 +20,7 @@ import type { DocumentApprovalDTO } from "@mezan/contracts";
 import { purchaseSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay } from "./tenant-day.js";
 import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
-import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReturn } from "./return-void.js";
+import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReasonsOf, voidReturn } from "./return-void.js";
 
 function serializeLine(l: PurchaseReturnLine) {
   return {
@@ -181,7 +181,8 @@ export function createPurchaseReturnsRoutes(
   app.get("/", gate("purchases.return.view"), async (c) => {
     const rows = await listFilteredReturns(c, parseListQuery(c));
     const approval = await approvalReader(service, rows);
-    return c.json(rows.map((doc) => serialize(doc, null, approval(doc))));
+    const voidReasons = await voidReasonsOf(service, rows);
+    return c.json(rows.map((doc) => serialize(doc, voidReasons.get(doc.id) ?? null, approval(doc))));
   });
 
   /**

@@ -33,7 +33,7 @@ import type { DocumentApprovalDTO } from "@mezan/contracts";
 import { salesSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
-import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReturn } from "./return-void.js";
+import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReasonsOf, voidReturn } from "./return-void.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
 
@@ -338,7 +338,8 @@ export function createSalesReturnsRoutes(
   app.get("/", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
     const { rows, refunds } = await listFilteredReturns(c, parseListQuery(c));
     const approval = await approvalReader(service, rows);
-    return c.json(rows.map((doc) => serialize(doc, refunds.get(doc.id) ?? [], null, approval(doc))));
+    const voidReasons = await voidReasonsOf(service, rows);
+    return c.json(rows.map((doc) => serialize(doc, refunds.get(doc.id) ?? [], voidReasons.get(doc.id) ?? null, approval(doc))));
   });
 
   /**

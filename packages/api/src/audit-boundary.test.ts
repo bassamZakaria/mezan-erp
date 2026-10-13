@@ -13,7 +13,7 @@ import {
 } from "@mezan/persistence";
 import { createApp } from "./app.js";
 import { recordAdminEvent } from "./admin-audit.js";
-import { AUDITED_MOUNTS, auditBoundary, beforeTheTurn, connectionTurn } from "./audit-boundary.js";
+import { AUDITED_MOUNTS, afterAuditCommit, auditBoundary, beforeTheTurn, connectionTurn } from "./audit-boundary.js";
 import { drainTurnYields } from "./turn-yields.js";
 
 type Sqlite = SqliteAuditSinkHandle["db"];
@@ -310,6 +310,56 @@ describe("auditBoundary", () => {
     const ids = () => (sqlite.prepare("SELECT id FROM thing ORDER BY id").all() as { id: string }[]).map((row) => row.id);
     return { app, ids };
   };
+
+  it("runs work a handler queued for after the commit once the write is saved, outside the transaction, and lets it answer", async () => {
+    const seen: { saved: number; inTransaction: boolean }[] = [];
+    const t = tiny((_sink, sqlite) => {
+      const routes = new Hono();
+      routes.post("/things", (c) => {
+        sqlite.prepare("INSERT INTO thing VALUES ('T1')").run();
+        const queued = afterAuditCommit(c, async () => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          seen.push({ saved: (sqlite.prepare("SELECT COUNT(*) AS c FROM thing").get() as { c: number }).c, inTransaction: sqlite.inTransaction });
+          c.res = undefined;
+          c.res = c.json({ mailed: true }, 201);
+        });
+        return c.json({ mailed: false, queued }, 201);
+      });
+      return routes;
+    });
+
+    const res = await t.app.fetch(new Request("http://x/things", { method: "POST" }));
+
+    expect(await res.json()).toEqual({ mailed: true });
+    expect(seen).toEqual([{ saved: 1, inTransaction: false }]);
+    expect(t.count()).toBe(1);
+  });
+
+  it("runs none of the queued work for a request that rolled back", async () => {
+    let ran = 0;
+    const t = tiny((_sink, sqlite) => {
+      const routes = new Hono();
+      routes.post("/things", (c) => {
+        sqlite.prepare("INSERT INTO thing VALUES ('T1')").run();
+        afterAuditCommit(c, async () => void (ran += 1));
+        return c.json({ error: "INTERNAL" }, 500);
+      });
+      return routes;
+    });
+
+    const res = await t.app.fetch(new Request("http://x/things", { method: "POST" }));
+
+    expect(res.status).toBe(500);
+    expect(t.count()).toBe(0);
+    expect(ran).toBe(0);
+  });
+
+  it("tells a handler outside any boundary to do the work itself", async () => {
+    const app = new Hono();
+    app.post("/things", (c) => c.json({ queued: afterAuditCommit(c, async () => undefined) }));
+
+    expect(await (await app.fetch(new Request("http://x/things", { method: "POST" }))).json()).toEqual({ queued: false });
+  });
 
   it("refuses and rolls back a handler that gives the event loop away inside the transaction", async () => {
     const yields: string[] = [];

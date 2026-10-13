@@ -110,6 +110,24 @@ export function insideAuditBoundary(c: Context): boolean {
   return openBoundaries.has(c.req.raw);
 }
 
+type CommittedWork = () => Promise<void>;
+
+const committedWork = new WeakMap<Request, CommittedWork[]>();
+
+// REQUIRED ORDERING: work that waits on the outside world for a change this
+// request makes — a mail server, another company's database — is queued here
+// and runs once the audit transaction has committed. Awaited inside the
+// transaction it rolls the change back while whatever it reached outside stays
+// done; a request that rolls back runs none of it. False means there is no
+// boundary around the caller, which then does the work itself.
+export function afterAuditCommit(c: Context, work: CommittedWork): boolean {
+  if (!insideAuditBoundary(c)) return false;
+  const queued = committedWork.get(c.req.raw) ?? [];
+  queued.push(work);
+  committedWork.set(c.req.raw, queued);
+  return true;
+}
+
 // An audit event on a mutating request that shares no transaction with the
 // write it records is the defect the boundary exists to close, so it is refused
 // rather than appended — a handler added outside `only` fails its first test.
@@ -193,6 +211,7 @@ export function auditBoundary(audit: AuditSink | undefined, options: AuditBounda
 
     const state: BoundaryState = { failed: false, failure: undefined };
     let yielded = false;
+    let committed = false;
     try {
       await atomic(async () => {
         openBoundaries.set(c.req.raw, state);
@@ -209,8 +228,15 @@ export function auditBoundary(audit: AuditSink | undefined, options: AuditBounda
         }
         if (state.failed || yielded || handlerFailed(c)) throw new BoundaryRollback();
       });
+      committed = true;
     } catch (err) {
       if (!(err instanceof BoundaryRollback)) throw err;
+    }
+    const queued = committedWork.get(c.req.raw) ?? [];
+    committedWork.delete(c.req.raw);
+    if (committed) {
+      for (const work of queued) await work();
+      return;
     }
 
     if (yielded) onYield(c);

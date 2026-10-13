@@ -38,8 +38,8 @@ import {
   getAuthContext,
   type AuthContextResolver,
 } from "./permission-gate.js";
-import { recordAdminEvent, recordSecurityAdminEvent } from "./admin-audit.js";
-import { insideAuditBoundary } from "./audit-boundary.js";
+import { recordAdminEvent, recordSecurityAdminEvent, recordSecurityAdminEventOrFallback } from "./admin-audit.js";
+import { afterAuditCommit, insideAuditBoundary } from "./audit-boundary.js";
 import type { SessionRegistry } from "./session-auth.js";
 import type { LoginThrottle } from "./login-throttle.js";
 
@@ -282,8 +282,13 @@ export function createUsersRoutes(
         severity: "CRITICAL",
         details,
       });
-    // A refusal on a route outside the audit boundary (erase) has no write to
-    // share a transaction with, so its row takes one of its own.
+    return recordedInATransaction(c, record);
+  }
+
+  // A row written where no audit boundary is open — a refusal on a route outside
+  // it (erase), or work that runs after the boundary committed — has no write to
+  // share a transaction with, so it takes one of its own.
+  function recordedInATransaction(c: Context, record: () => Promise<void>): Promise<void> {
     const atomic = audit?.atomic?.bind(audit);
     const alone = atomic !== undefined && audit?.insideTransaction?.() !== true && !insideAuditBoundary(c);
     return alone ? atomic(record) : record();
@@ -538,15 +543,34 @@ export function createUsersRoutes(
           return OwnerHandOverOutcome.Failed;
         })
       : OwnerHandOverOutcome.Failed;
-    await recordSecurityAdminEvent(audit, c, {
+    const row = {
       module: "admin",
       entityType: "USER",
       entityId: successor.id,
       action: COMPANY_OWNER_HAND_OVER_AUDIT,
       severity: AuditSeverityCode.Critical,
       details: { fromUserId, toUserId: successor.id, outcome },
-    });
+    };
+    const sharesTheWrite = insideAuditBoundary(c) || audit?.insideTransaction?.() === true;
+    await recordedInATransaction(c, () => (sharesTheWrite ? recordSecurityAdminEvent(audit, c, row) : recordSecurityAdminEventOrFallback(audit, c, row)));
     return outcome;
+  }
+
+  // REQUIRED ORDERING: the hand-over reaches the platform and a mail server, so
+  // it runs once the account change has committed. Inside the audit transaction
+  // it rolls the account change back and leaves the platform's record and the
+  // mailed link standing.
+  async function answeredAfterHandOver(c: Context, user: User, successor: User | null): Promise<Response> {
+    const answer = (ownerHandOver: OwnerHandOverOutcome | null): Response =>
+      c.json(ownerHandOver ? { ...serializeUser(user), ownerHandOver } : serializeUser(user));
+    if (!successor) return answer(null);
+    const handOver = async (): Promise<Response> => answer(await handOverAfterCommit(c, user.id, successor));
+    const queued = afterAuditCommit(c, async () => {
+      const answered = await handOver();
+      c.res = undefined;
+      c.res = answered;
+    });
+    return queued ? answer(OwnerHandOverOutcome.Failed) : handOver();
   }
 
   app.get("/", gate("admin.users.view"), async (c) => {
@@ -668,14 +692,16 @@ export function createUsersRoutes(
       });
       const user = committed.saved;
       if (onEmailChanged && user.email !== committed.emailBefore) {
-        await onEmailChanged({ userId: id, before: committed.emailBefore, after: user.email, actorId: getAuthContext(c)?.userId ?? "unknown" }).catch(
-          (err: unknown) => console.error("[users] the email change was saved, but announcing it failed", err),
-        );
+        const moved = { userId: id, before: committed.emailBefore, after: user.email, actorId: getAuthContext(c)?.userId ?? "unknown" };
+        const announce = (): Promise<void> =>
+          onEmailChanged(moved).catch((err: unknown) => console.error("[users] the email change was saved, but announcing it failed", err));
+        // REQUIRED ORDERING: the announcement reaches the platform, so it waits
+        // for the commit like the hand-over below it.
+        if (!afterAuditCommit(c, announce)) await announce();
       }
       await auditUser(c, user, "UPDATE", before, change);
       await auditCredentialReset(c, user, change);
       if (onCredentialSetByOther && actorId && actorId !== id && (change.pinChanged || change.passwordChanged)) await onCredentialSetByOther(id, actorId);
-      const ownerHandOver = successor ? await handOverAfterCommit(c, id, successor) : null;
       if (conflicts.length > 0) await auditSodOverride(c, user, conflicts, parsed.data.reason ?? "");
       // A grant is snapshotted into the session at login. Anything that changes
       // what this account is worth — its role, its admin flag, its scope, its
@@ -695,7 +721,7 @@ export function createUsersRoutes(
       }
       if (change.pinChanged) loginThrottle?.unlock(user.email);
       if (before.email !== user.email) loginThrottle?.unlock(before.email);
-      return c.json(ownerHandOver ? { ...serializeUser(user), ownerHandOver } : serializeUser(user));
+      return await answeredAfterHandOver(c, user, successor);
     } catch (err) {
       return userErrorResponse(c, err);
     }
@@ -716,11 +742,10 @@ export function createUsersRoutes(
     try {
       const user = await setUserStatus(id, UserStatusCode.Inactive, uow);
       await auditUser(c, user, "DEACTIVATE");
-      const ownerHandOver = successor ? await handOverAfterCommit(c, id, successor) : null;
       // Firing someone at 10:00 must not leave them posting at 10:05.
       sessions?.revokeUser(user.id);
       if (loginThrottle) loginThrottle.unlock(user.email);
-      return c.json(ownerHandOver ? { ...serializeUser(user), ownerHandOver } : serializeUser(user));
+      return await answeredAfterHandOver(c, user, successor);
     } catch (err) {
       return userErrorResponse(c, err);
     }

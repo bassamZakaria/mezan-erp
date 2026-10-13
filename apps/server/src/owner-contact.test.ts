@@ -77,7 +77,7 @@ interface Cloud {
   readonly mails: HandOverMail[];
 }
 
-async function cloud(observe: { onSignedIn?: (user: SignedInUser) => void } = {}): Promise<Cloud> {
+async function cloud(observe: { onSignedIn?: (user: SignedInUser) => void; mailTakesMs?: number; platformTakesMs?: number } = {}): Promise<Cloud> {
   const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-owner-contact-"));
   dirs.push(dataDir);
   const platform = await createPlatform({ dbPath: path.join(dataDir, "platform.db"), now });
@@ -91,6 +91,7 @@ async function cloud(observe: { onSignedIn?: (user: SignedInUser) => void } = {}
   };
   const tenants = Object.create(platform.stores.tenants) as PlatformHandle["stores"]["tenants"];
   tenants.compareAndSetOwner = async (before, after, sideEffect) => {
+    if (observe.platformTakesMs !== undefined) await new Promise((resolve) => setTimeout(resolve, observe.platformTakesMs));
     if (faults.ownerWriteRefuses) throw new Error("the platform database refused the owner contact");
     if (faults.ownerWritesLost > 0) {
       faults.ownerWritesLost -= 1;
@@ -104,7 +105,10 @@ async function cloud(observe: { onSignedIn?: (user: SignedInUser) => void } = {}
     dataDir,
     sweepEveryMs: 0,
     now,
-    mailPendingHandOver: async (mail) => void mails.push({ to: mail.to, code: mail.tenant.code, successorEmail: mail.successorEmail, token: mail.token }),
+    mailPendingHandOver: async (mail) => {
+      if (observe.mailTakesMs !== undefined) await new Promise((resolve) => setTimeout(resolve, observe.mailTakesMs));
+      mails.push({ to: mail.to, code: mail.tenant.code, successorEmail: mail.successorEmail, token: mail.token });
+    },
     ...(observe.onSignedIn
       ? {
           openBackend: async (_code, dbPath, resolvers, hooks, connection) => {
@@ -438,6 +442,18 @@ describe("the platform's record of a tenant's owner", () => {
     expect(await co.recorded()).toMatchObject({ ownerEmail: "owner@sierra.example", ownerContactVerified: false });
   });
 
+  it("saves an owner's new address, and the platform follows it, when the platform's database takes its time", async () => {
+    const c = await cloud({ platformTakesMs: 20 });
+    const co = await company(c, "uniform");
+    const owner = await co.user("owner@uniform.example");
+
+    const moved = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "moved@uniform.example" });
+
+    expect(moved.status).toBe(200);
+    expect(await co.recorded()).toMatchObject({ ownerEmail: "moved@uniform.example" });
+    expect((await co.signIn("moved@uniform.example", co.ownerPin)).status).toBe(200);
+  });
+
   it("does not follow an email changed in a session opened with a PIN the console issued", async () => {
     const c = await cloud();
     const co = await company(c, "raven");
@@ -626,6 +642,21 @@ describe("a hand-over the platform cannot take as the owner's own act", () => {
     expect(await tenantAudit(co, "COMPANY_OWNER_HAND_OVER", peer.token)).toMatchObject([
       { entityId: peer.id, severity: "CRITICAL", details: { fromUserId: owner["id"], toUserId: peer.id, outcome: "pending" } },
     ]);
+  });
+
+  it("saves the owner's step-down and records it pending when the mail server takes its time over the confirmation link", async () => {
+    const c = await cloud({ mailTakesMs: 20 });
+    const co = await company(c, "tango");
+    const peer = await secondAdmin(co);
+
+    const { owner, status } = await ownerStepsDownOnConsolePin(c, co, peer.id);
+
+    expect(status).toBe(200);
+    const accounts = (await co.call("GET", "/users", undefined, peer.token)).json as { email: string; status: string }[];
+    expect(accounts.find((account) => account.email === "owner@tango.example")?.status).toBe("inactive");
+    expect(await co.recorded()).toMatchObject({ ownerUserId: owner["id"], pendingOwner: { userId: peer.id, email: "second@tango.example" } });
+    expect(c.mails).toEqual([expect.objectContaining({ to: "owner@tango.example", successorEmail: "second@tango.example" })]);
+    expect(await tenantAudit(co, "COMPANY_OWNER_HAND_OVER", peer.token)).toMatchObject([{ entityId: peer.id, details: { outcome: "pending" } }]);
   });
 
   it("makes the pending successor the verified owner when the previous owner opens the link they were mailed, once", async () => {

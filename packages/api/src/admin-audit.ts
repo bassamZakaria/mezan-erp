@@ -5,6 +5,7 @@ import {
   createAuditEvent,
   diffAuditFields,
   recordSecurityEvent,
+  recordSecurityEventOrFallback,
   recordSensitiveEvent,
   type AuditChangeAction,
   type AuditEvent,
@@ -138,6 +139,26 @@ export async function recordSecurityAdminEvent(
     severity: entry.severity ?? "CRITICAL",
     details: withOrigin(c, entry.details),
   }));
+}
+
+// For a change that has ALREADY committed (work queued with afterAuditCommit):
+// there is nothing left to roll back, so a refused row goes to the
+// unrecorded-events file rather than failing a request whose work is done.
+export async function recordSecurityAdminEventOrFallback(
+  audit: AuditSink | undefined,
+  c: Context,
+  entry: AdminAuditEntry,
+): Promise<void> {
+  if (!audit) return;
+  await recordSecurityEventOrFallback(audit, {
+    module: entry.module,
+    entityType: entry.entityType,
+    entityId: entry.entityId,
+    action: entry.action,
+    actor: getAuthContext(c)?.userId ?? "anonymous",
+    severity: entry.severity ?? "CRITICAL",
+    details: withOrigin(c, entry.details),
+  });
 }
 
 /**

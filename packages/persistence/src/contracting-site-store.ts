@@ -19,6 +19,7 @@ import {
   type SiteReceiptFilter,
   type SiteReceiptRepository,
 } from "@mezan/domain";
+import { refusingTakenId } from "./insert-new.js";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 
 /**
@@ -396,6 +397,10 @@ export function createSqliteContractingSiteStore(
       }
       return selectAll<IssueRow>("site_issue", where, params).map(toIssue);
     },
+    async insert(issue) {
+      refusingTakenId(sqlite, "site_issue", issue.id);
+      return this.save(issue);
+    },
     async save(issue) {
       upsertIssue.run({
         id: issue.id,
@@ -430,6 +435,10 @@ export function createSqliteContractingSiteStore(
       if (filter.projectId) { where.push("project_id = ?"); params.push(filter.projectId); }
       if (filter.issueId) { where.push("issue_id = ?"); params.push(filter.issueId); }
       return selectAll<ReceiptRow>("site_receipt", where, params).map(toReceipt);
+    },
+    async insert(receipt) {
+      refusingTakenId(sqlite, "site_receipt", receipt.id);
+      return this.save(receipt);
     },
     async save(receipt) {
       upsertReceipt.run({
@@ -468,6 +477,10 @@ export function createSqliteContractingSiteStore(
       if (filter.status) { where.push("status = ?"); params.push(filter.status); }
       return selectAll<ConsumptionRow>("material_consumption", where, params).map(toConsumption);
     },
+    async insert(consumption) {
+      refusingTakenId(sqlite, "material_consumption", consumption.id);
+      return this.save(consumption);
+    },
     async save(consumption) {
       upsertConsumption.run({
         id: consumption.id,
@@ -505,6 +518,10 @@ export function createSqliteContractingSiteStore(
         .all(...(params as [])) as CustodyRow[];
       return rows.map(toCustody);
     },
+    async insert(item) {
+      refusingTakenId(sqlite, "site_custody", item.id);
+      return this.save(item);
+    },
     async save(item) {
       upsertCustody.run({
         id: item.id,
@@ -537,6 +554,10 @@ export function createSqliteContractingSiteStore(
       if (filter.assetId) { where.push("asset_id = ?"); params.push(filter.assetId); }
       if (filter.status) { where.push("status = ?"); params.push(filter.status); }
       return selectAll<EquipmentRow>("equipment_log", where, params).map(toEquipmentLog);
+    },
+    async insert(log) {
+      refusingTakenId(sqlite, "equipment_log", log.id);
+      return this.save(log);
     },
     async save(log) {
       upsertEquipment.run({

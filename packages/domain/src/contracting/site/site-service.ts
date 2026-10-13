@@ -47,7 +47,6 @@ import type {
   SiteReceipt,
   UnreceivedRow,
 } from "./site-documents.js";
-import { DuplicateRecordIdError } from "../../records/duplicate-record-id.js";
 
 export interface SiteServiceDeps {
   readonly issues: SiteIssueRepository;
@@ -204,9 +203,6 @@ export class SiteService {
   // --- إذن صرف للموقع ---
 
   async createIssueDraft(command: CreateSiteIssueCommand): Promise<SiteIssue> {
-    if (await this.deps.issues.findById(command.id)) {
-      throw new DuplicateRecordIdError(command.id);
-    }
     const reasons: string[] = [];
     if (!ISO_DATE.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
     if (command.issuedByUserId.trim() === "") reasons.push("لا بد من معرفة من أصدر إذن الصرف");
@@ -240,7 +236,7 @@ export class SiteService {
       createdAt: this.now(),
       issuedAt: null,
     };
-    await this.deps.issues.save(issue);
+    await this.deps.issues.insert(issue);
     return issue;
   }
 
@@ -305,9 +301,6 @@ export class SiteService {
   // --- استلام بالموقع ---
 
   async createReceiptDraft(command: CreateSiteReceiptCommand): Promise<SiteReceipt> {
-    if (await this.deps.receipts.findById(command.id)) {
-      throw new DuplicateRecordIdError(command.id);
-    }
     const issue = await this.deps.issues.findById(command.issueId);
     if (!issue) throw new SiteDocumentNotFoundError(command.issueId);
     if (issue.status === "draft") {
@@ -372,7 +365,7 @@ export class SiteService {
       createdAt: this.now(),
       confirmedAt: null,
     };
-    await this.deps.receipts.save(receipt);
+    await this.deps.receipts.insert(receipt);
     return receipt;
   }
 
@@ -428,9 +421,6 @@ export class SiteService {
   // --- استهلاك مواد ---
 
   async createConsumptionDraft(command: CreateMaterialConsumptionCommand): Promise<MaterialConsumption> {
-    if (await this.deps.consumptions.findById(command.id)) {
-      throw new DuplicateRecordIdError(command.id);
-    }
     const reasons: string[] = [];
     if (!ISO_DATE.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
     if (command.lines.length === 0) reasons.push("مستند الاستهلاك يحتاج سطراً واحداً على الأقل");
@@ -474,7 +464,7 @@ export class SiteService {
       createdAt: this.now(),
       confirmedAt: null,
     };
-    await this.deps.consumptions.save(consumption);
+    await this.deps.consumptions.insert(consumption);
     return consumption;
   }
 
@@ -576,9 +566,6 @@ export class SiteService {
   // --- عهدة المواد المرتجعة ---
 
   async issueCustody(command: IssueCustodyCommand): Promise<CustodyItem> {
-    if (await this.deps.custody.findById(command.id)) {
-      throw new DuplicateRecordIdError(command.id);
-    }
     const reasons: string[] = [];
     if (!ISO_DATE.test(command.issuedDate)) reasons.push("تاريخ الصرف مطلوب بصيغة YYYY-MM-DD");
     if (command.descriptionAr.trim() === "") reasons.push("وصف العهدة مطلوب");
@@ -599,7 +586,7 @@ export class SiteService {
       expectedReturnDate: command.expectedReturnDate ?? null,
       notes: command.notes ?? null,
     };
-    await this.deps.custody.save(item);
+    await this.deps.custody.insert(item);
     return item;
   }
 
@@ -624,9 +611,6 @@ export class SiteService {
   // --- تشغيل المعدات ---
 
   async createEquipmentLogDraft(command: CreateEquipmentLogCommand): Promise<EquipmentLog> {
-    if (await this.deps.equipmentLogs.findById(command.id)) {
-      throw new DuplicateRecordIdError(command.id);
-    }
     const reasons: string[] = [];
     if (!ISO_DATE.test(command.date)) reasons.push("التاريخ مطلوب بصيغة YYYY-MM-DD");
     if (command.hours.isZero() || command.hours.isNegative()) reasons.push("عدد الساعات يجب أن يكون رقماً موجباً");
@@ -678,7 +662,7 @@ export class SiteService {
       createdAt: this.now(),
       confirmedAt: null,
     };
-    await this.deps.equipmentLogs.save(log);
+    await this.deps.equipmentLogs.insert(log);
     return log;
   }
 

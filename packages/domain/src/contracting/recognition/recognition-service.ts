@@ -38,7 +38,6 @@ import {
   RecognitionRunNotLatestError,
 } from "./errors.js";
 import { tenantTodayIso } from "../../dates.js";
-import { DuplicateRecordIdError } from "../../records/duplicate-record-id.js";
 
 /** The numbering sequence a run draws its `RR-…` number from. */
 const RECOGNITION_SEQUENCE = "REVENUE_RECOGNITION_RUN";
@@ -389,7 +388,6 @@ export class RecognitionService {
 
   /** تشغيل الاعتراف بالإيراد — compute, post ONE balanced entry, record the run. */
   async post(command: PostRecognitionRunCommand): Promise<RevenueRecognitionRun> {
-    if (command.id !== undefined && (await this.deps.runs.findById(command.id))) throw new DuplicateRecordIdError(command.id);
     const contract = await this.requireContract(command.contractId);
     const preview = await this.preview(contract.id, command.periodEnd);
 
@@ -419,9 +417,6 @@ export class RecognitionService {
     const accounts = await this.accountIds();
     const lines = this.entryLines(preview, accounts, contract.projectId);
     const runId = command.id ?? `${RECOGNITION_DOC_TYPE}-${contract.id}-${command.periodEnd}`;
-    if (await this.deps.runs.findById(runId)) {
-      throw new DuplicateRecordIdError(runId);
-    }
 
     const posted = await this.deps.runs.transaction(async () => {
       const number = await this.deps.gl.numbering.next(RECOGNITION_SEQUENCE);

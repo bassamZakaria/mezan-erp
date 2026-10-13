@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import { describe, it, expect, beforeEach } from "vitest";
 import { Money } from "../../money/index.js";
 import { NextNumberService, type SequenceStore } from "../../numbering/index.js";
@@ -39,6 +40,9 @@ class MemoryStore implements WorksContractStore {
       (c) => (!filter?.projectId || c.projectId === filter.projectId) && (!filter?.status || c.status === filter.status),
     );
   }
+  async insertContract(contract: WorksContract) {
+    insertOnly(this.contracts, contract.id, contract);
+  }
   async saveContract(contract: WorksContract) {
     this.contracts.set(contract.id, contract);
   }
@@ -67,6 +71,9 @@ class MemoryStore implements WorksContractStore {
   }
   async findVariationOrderByDocNo(docNo: string) {
     return [...this.orders.values()].find((o) => o.docNo === docNo) ?? null;
+  }
+  async insertVariationOrder(order: VariationOrder) {
+    insertOnly(this.orders, order.id, order);
   }
   async saveVariationOrder(order: VariationOrder) {
     this.orders.set(order.id, order);

@@ -45,7 +45,6 @@ import {
 import { payabilityRefusals } from "./subcontract-service.js";
 import type { Subcontract, SubcontractLine } from "./subcontract.js";
 import { tenantTodayIso } from "../../dates.js";
-import { DuplicateRecordIdError } from "../../records/duplicate-record-id.js";
 
 /**
  * مستخلص مقاول باطن — the use cases and the ledger behind them (design §03
@@ -543,9 +542,6 @@ export class SubCertificateService {
   }
 
   async create(cmd: CreateSubCertificateCommand, actor: SubCertificateActor): Promise<SubCertificateView> {
-    if (await this.deps.store.findCertificateById(cmd.id)) {
-      throw new DuplicateRecordIdError(cmd.id);
-    }
     const subcontract = await this.requireSubcontract(cmd.subcontractId);
     if (subcontract.status !== "active") {
       throw new InvalidSubCertificateError([
@@ -567,9 +563,6 @@ export class SubCertificateService {
     const composed = await this.compose(cmd.id, subcontract, previous, cmd, []);
 
     return this.deps.store.transaction(async () => {
-      if (await this.deps.store.findCertificateById(cmd.id)) {
-        throw new DuplicateRecordIdError(cmd.id);
-      }
       const number = await this.deps.numbering.next(SUB_CERTIFICATE_SEQUENCE);
       const certificate: SubCertificate = {
         id: cmd.id,
@@ -609,7 +602,7 @@ export class SubCertificateService {
         workLines: composed.workLines,
         computed: composed.computed,
       };
-      await this.deps.store.saveCertificate(certificate);
+      await this.deps.store.insertCertificate(certificate);
       return this.view(certificate);
     });
   }

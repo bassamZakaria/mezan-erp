@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../../money/index.js";
 import { NextNumberService, type SequenceStore } from "../../numbering/index.js";
@@ -82,6 +83,9 @@ class MemoryContractStore implements WorksContractStore {
   async listContracts(filter?: WorksContractListFilter) {
     return [...this.contracts.values()].filter((c) => !filter?.projectId || c.projectId === filter.projectId);
   }
+  async insertContract(contract: WorksContract) {
+    insertOnly(this.contracts, contract.id, contract);
+  }
   async saveContract(contract: WorksContract) {
     this.contracts.set(contract.id, contract);
   }
@@ -113,6 +117,9 @@ class MemoryContractStore implements WorksContractStore {
   async findVariationOrderByDocNo(docNo: string) {
     return this.orders.find((o) => o.docNo === docNo) ?? null;
   }
+  async insertVariationOrder(order: VariationOrder) {
+    this.orders.push(order);
+  }
   async saveVariationOrder(order: VariationOrder) {
     this.orders.push(order);
   }
@@ -137,10 +144,10 @@ class MemoryReleaseStore implements RetentionReleaseStore {
         (!filter?.status || r.status === filter.status),
     );
   }
-  async save(release: RetentionRelease) {
-    this.rows.set(release.id, release);
-  }
   async insert(release: RetentionRelease) {
+    insertOnly(this.rows, release.id, release);
+  }
+  async save(release: RetentionRelease) {
     this.rows.set(release.id, release);
   }
   async transaction<T>(fn: () => Promise<T>) {

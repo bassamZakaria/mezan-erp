@@ -237,10 +237,10 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
     await expect(page.getByText(CUSTOMER_OF_A)).toHaveCount(0);
   });
 
-  test("the reason a session ended is still on sign-in after the page loads again, and goes once the user starts to sign in", async ({ page, request }) => {
+  test("the reason a session ended is still on sign-in after the page loads again, and goes once the user starts to sign in", async ({ page }) => {
     await tenantSignIn(page, tenantA);
     const token = (await storedSession(page))?.token ?? "";
-    const logout = await request.post(`${SAAS_API_URL}/api/auth/logout`, { headers: { authorization: `Bearer ${token}`, [TENANT_HEADER]: tenantA.code } });
+    const logout = await page.request.post("/api/auth/logout", { headers: { authorization: `Bearer ${token}`, [TENANT_HEADER]: tenantA.code } });
     expect(logout.status()).toBe(200);
 
     await page.reload();

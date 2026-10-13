@@ -98,6 +98,23 @@ describe("the sign-in screen when the server refuses", () => {
     expect(screen.getByTestId("sign-in-unlock-code")).toBeTruthy();
   });
 
+  it("holds the unlock button too when the code was refused for too many attempts, for the seconds named", async () => {
+    mockSignIn.mockRejectedValue(refusal(ApiFailure.Locked, 423, LOCKED_WITH_CODE, "ACCOUNT_LOCKED", { unlockByCode: true }));
+    mockUnlockAccount.mockRejectedValue(refusal(ApiFailure.Throttled, 429, "محاولات دخول كثيرة. حاول بعد 2 ثانية.", "TOO_MANY_ATTEMPTS", { retryAfterSeconds: 2 }));
+    await render(<SignIn />);
+    await submitPin();
+    await act(async () => fireEvent.changeText(screen.getByTestId("sign-in-unlock-code"), "AAAAAAAAAAAAAAAA"));
+    await act(async () => fireEvent.press(screen.getByTestId("sign-in-unlock-submit")));
+
+    expect(screen.getByTestId("sign-in-failure").props.children).toBe("محاولات دخول كثيرة. حاول بعد 2 ثانية.");
+    expect(screen.getByTestId("sign-in-unlock-submit").props.accessibilityState?.disabled).toBe(true);
+    await act(async () => fireEvent.press(screen.getByTestId("sign-in-unlock-submit")));
+    expect(mockUnlockAccount).toHaveBeenCalledTimes(1);
+
+    await act(async () => jest.advanceTimersByTime(2000));
+    expect(screen.getByTestId("sign-in-unlock-submit").props.accessibilityState?.disabled).toBe(false);
+  });
+
   it("holds the button for the seconds a 429 names, counts them down, and lets the person try again when they are over", async () => {
     mockSignIn.mockRejectedValue(refusal(ApiFailure.Throttled, 429, "محاولات دخول كثيرة. حاول بعد 3 ثانية.", "TOO_MANY_ATTEMPTS", { retryAfterSeconds: 3 }));
     await render(<SignIn />);

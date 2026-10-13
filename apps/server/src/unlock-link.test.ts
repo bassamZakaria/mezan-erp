@@ -34,6 +34,12 @@ describe("the address a mailed unlock link opens", () => {
     );
   });
 
+  it("keeps the configured origin's port on the tenant's subdomain, as a development deployment on a port needs", () => {
+    expect(tenantUnlockLink("acme", { publicOrigin: "http://127.0.0.1:4103", tenantDomain: "localhost" })?.(TOKEN)).toBe(
+      `http://acme.localhost:4103/unlock?token=${TOKEN}`,
+    );
+  });
+
   it("is the configured origin with the tenant's code beside the token when it does not", () => {
     expect(tenantUnlockLink("acme", { publicOrigin: "http://127.0.0.1:5080" })?.(TOKEN)).toBe(`http://127.0.0.1:5080/unlock?tenant=acme&token=${TOKEN}`);
   });

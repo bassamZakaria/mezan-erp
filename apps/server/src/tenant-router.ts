@@ -50,7 +50,8 @@ export function tenantUnlockLink(code: string, origin: UnlockLinkOrigin): ((toke
   if (!origin.publicOrigin) return undefined;
   const configured = new URL(origin.publicOrigin);
   if (origin.tenantDomain) {
-    return (token) => `${configured.protocol}//${code}.${origin.tenantDomain!.toLowerCase()}${UNLOCK_PATH}?token=${encodeURIComponent(token)}`;
+    const tenantHost = `${code}.${origin.tenantDomain.toLowerCase()}${configured.port === "" ? "" : `:${configured.port}`}`;
+    return (token) => `${configured.protocol}//${tenantHost}${UNLOCK_PATH}?token=${encodeURIComponent(token)}`;
   }
   return (token) => `${configured.origin}${UNLOCK_PATH}?tenant=${encodeURIComponent(code)}&token=${encodeURIComponent(token)}`;
 }

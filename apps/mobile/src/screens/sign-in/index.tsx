@@ -71,7 +71,7 @@ export function SignIn() {
 
   const submitUnlockCode = (): void => {
     const code = unlockCode.trim();
-    if (unlocking || code === "") return;
+    if (unlocking || held || code === "") return;
     setUnlocking(true);
     void unlockAccount({ baseUrl: baseUrl.trim(), tenantCode: tenant, email: email.trim(), code })
       .then(() => {
@@ -81,7 +81,10 @@ export function SignIn() {
         setNotice(strings.signIn.unlockDone);
       })
       .catch((error: unknown) => {
+        const wait = holdFor(error);
         setFailure(describeApiError(error, strings));
+        setHold(wait.hold);
+        setHeldForSeconds(wait.seconds);
       })
       .finally(() => {
         setUnlocking(false);
@@ -202,7 +205,7 @@ export function SignIn() {
             />
             <Button
               busy={unlocking}
-              disabled={unlockCode.trim() === ""}
+              disabled={unlockCode.trim() === "" || held}
               label={strings.signIn.unlockSubmit}
               onPress={submitUnlockCode}
               testID="sign-in-unlock-submit"

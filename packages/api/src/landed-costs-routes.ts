@@ -15,7 +15,7 @@ import {
 import { ReversalPermission, createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
-import { noteReversalOriginalDay } from "./posting-refusal.js";
+import { noteReversalOriginalDay, refuseReservedEntryId } from "./posting-refusal.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 
 function serializeLine(l: LandedCostLine) {
@@ -92,6 +92,8 @@ export function createLandedCostsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const reserved = refuseReservedEntryId(c, parsed.data.id);
+    if (reserved) return reserved;
     try {
       const costItems = parsed.data.costItems.map((ci) => ({
         costType: ci.costType,

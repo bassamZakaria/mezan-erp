@@ -76,6 +76,25 @@ describe("the id a caller gives a journal entry opens no door", () => {
   });
 });
 
+describe("a document whose own id becomes its entry's id is not created under a reserved one", () => {
+  it.each([
+    { what: "a sales invoice", url: "/sales-invoices", body: { date: "2026-09-05", dueDate: "2026-10-21", customerId: "cust-usd", customerNameAr: "عميل", warehouseId: "WH-MAIN", branchId: "BR-MAIN", arAccountId: "1105", taxAccountId: "2200", lines: [{ lineId: "L1", itemId: "SVC-1", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "100", taxRatePercent: 0, revenueAccountId: "4100" }] } },
+    { what: "a sales return", url: "/sales-returns/from-invoice", body: { date: "2026-09-10", memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: "inv-usd", reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "1" }] } },
+    { what: "a purchase return", url: "/purchase-returns", body: { date: "2026-09-10", memo: "", lines: [{ itemId: "STK-1", warehouseId: "WH-MAIN", supplierId: "sup-usd", sourceInvoiceId: "pi-usd", sourceInvoiceNumber: "PI-1", reason: "DEFECTIVE", availableQty: "10", qty: "1", unitCost: "100", taxAmount: "0" }] } },
+  ])("$what under «inv-usd:void» is refused in Arabic and nothing is saved", async ({ url, body }) => {
+    books = await openFxBooks();
+    await books.invoice(FxSide.Receivable);
+    const table = url.startsWith("/sales-invoices") ? "sales_invoice" : null;
+    const before = table ? books.world.count(table) : 0;
+
+    const res = await books.world.request("POST", url, { id: "inv-usd:void", ...body });
+
+    expect(`${res.status} ${String(res.body.error)}`).toBe("422 JOURNAL_ENTRY_ID_RESERVED");
+    expect(String(res.body.message)).toMatch(ARABIC);
+    if (table) expect(books.world.count(table)).toBe(before);
+  });
+});
+
 describe("the lock is checked wherever an entry becomes posted", () => {
   it("a draft saved before the run is refused when it is posted after it", async () => {
     books = await openFxBooks();

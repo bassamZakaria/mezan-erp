@@ -1,4 +1,4 @@
-import { postingRefusalResponse } from "./posting-refusal.js";
+import { postingRefusalResponse, refuseReservedEntryId } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -589,6 +589,8 @@ export function createSalesInvoicesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const reserved = refuseReservedEntryId(c, parsed.data.id);
+    if (reserved) return reserved;
     const d = parsed.data;
     const currencyRefusal = await deps.currencyCheck?.(d.currency);
     if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);

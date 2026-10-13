@@ -14,12 +14,28 @@ import {
   type AccountRepository,
   type AuditSink,
   type PostedAccountLookup,
+  can,
 } from "@mezan/domain";
 import { createAccountSchema, updateAccountSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { accountStandingInView, serializeAccountBalance, type AccountStandingLedger } from "./account-standing.js";
+import { branchLineViewOf } from "./branch-view.js";
 import { recordFieldChanges } from "./admin-audit.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
+
+// INVARIANT: the permission `GET /gl/accounts/:accountId/ledger` is gated on — a session that may not read an account's ledger there is not told its balance here.
+const ACCOUNT_BALANCE_PERMISSION = "accounting.journal.view";
+
+function standingLedgerOf(ledger: Partial<AccountStandingLedger> | undefined): AccountStandingLedger | null {
+  const accountBalance = ledger?.accountBalance;
+  if (!ledger || !accountBalance) return null;
+  const listLines = ledger.listLines;
+  return {
+    accountBalance: (accountId, asOfDate) => accountBalance.call(ledger, accountId, asOfDate),
+    listLines: listLines ? (filter) => listLines.call(ledger, filter) : undefined,
+  };
+}
 
 export const AUDITED_ACCOUNT_FIELDS = ["code", "nameAr", "nameEn", "type", "naturalBalance", "parentId", "isHeader", "status"] as const;
 
@@ -61,8 +77,7 @@ function handleDomainError(c: Context, err: unknown) {
 
 /**
  * Chart of Accounts routes (docs/archive/catalog/04 "دليل الحسابات"): list/tree, get
- * one (with a movements stub — real movements wire in once journal posting is
- * a full ledger in Phase 2), create, edit. Every route is permission-gated via
+ * one (with its posted balance), create, edit. Every route is permission-gated via
  * the permissions engine (`accounting.coa.view` / `accounting.coa.manage`).
  */
 export function createAccountsRouter(
@@ -72,7 +87,7 @@ export function createAccountsRouter(
    * The GL ledger, so an edit that would strand a posted balance is refused.
    * Omit it and the chart is editable with no regard for what has been posted.
    */
-  ledger?: PostedAccountLookup,
+  ledger?: PostedAccountLookup & Partial<AccountStandingLedger>,
   audit?: AuditSink,
 ) {
   const app = new Hono();
@@ -91,15 +106,10 @@ export function createAccountsRouter(
   app.get("/:id", gate("accounting.coa.view"), async (c) => {
     const account = await repo.findById(c.req.param("id"));
     if (!account) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json({
-      ...serialize(account),
-      // Movements/balance are stubbed until journal posting feeds the ledger
-      // (Phase 2) — the shape is final so the web detail panel can render an
-      // empty state today and light up once a real UnitOfWork backs this.
-      balance: { opening: "0.000000", movement: "0.000000", closing: "0.000000" },
-      movements: [] as unknown[],
-      movementsStubbed: true,
-    });
+    const ctx = getAuthContext(c);
+    const balances = ctx !== undefined && can(ctx, ACCOUNT_BALANCE_PERMISSION) ? standingLedgerOf(ledger) : null;
+    const standing = balances ? await accountStandingInView(balances, account.id, branchLineViewOf(c)) : null;
+    return c.json({ ...serialize(account), balance: standing ? serializeAccountBalance(standing.balance) : null });
   });
 
   app.post("/", gate("accounting.coa.manage"), async (c) => {

@@ -73,7 +73,12 @@ export interface Item {
   readonly specifications: readonly ItemSpecificationValue[];
   readonly costingMethod: CostingMethod;
   readonly salePrice: Money | null;
-  /** Becomes system-derived once stock movements exist (Phase 2) — editable here in Phase 1. */
+  /**
+   * The cost a person enters on the item card. It is NOT the item's moving
+   * average: that is derived from the stock ledger. This is the unit cost used
+   * where the ledger holds none — an issue out of a position that was never
+   * received, and a manufactured component with no stock history.
+   */
   readonly costPrice: Money | null;
   readonly taxRatePercent: number;
   readonly trackInventory: boolean;

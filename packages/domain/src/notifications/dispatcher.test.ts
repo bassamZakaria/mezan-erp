@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { NotificationDispatcher, type DispatchOutcome, type NotificationDispatcherDeps, type NotificationTransport } from "./dispatcher.js";
+import { DrainOutcomeKind, NotificationDispatcher, STALE_MESSAGE_REASON, type DispatchOutcome, type NotificationDispatcherDeps, type NotificationTransport } from "./dispatcher.js";
 import { NotificationChannelState, type Notification, type NotificationChannelStatus } from "./types.js";
 
 const NOW = "2026-09-14T12:00:00.000Z";
@@ -319,5 +319,39 @@ describe("NotificationDispatcher — draining the outbound queue (ROADMAP §3.3)
     }).drain();
 
     expect(rows[0]?.channelStatus.email).toBe("sending");
+  });
+});
+
+describe("NotificationDispatcher — what happened to each message (the operator's «إرسال الآن»)", () => {
+  it("names each message it sent, with the address it went to", async () => {
+    const d = dispatcher([notification()], transport({ kind: "sent" }));
+    const result = await d.run();
+    expect(result.outcomes).toEqual([
+      { notificationId: "n1", title: "فاتورة جديدة", channel: "email", recipient: "owner@shop.test", outcome: DrainOutcomeKind.Sent, reason: null },
+    ]);
+  });
+
+  it("carries the mail server's own reason for a message it refused", async () => {
+    const d = dispatcher([notification()], transport({ kind: "rejected", reason: "العنوان غير موجود" }));
+    const result = await d.run();
+    expect(result.outcomes).toEqual([
+      { notificationId: "n1", title: "فاتورة جديدة", channel: "email", recipient: "owner@shop.test", outcome: DrainOutcomeKind.Failed, reason: "العنوان غير موجود" },
+    ]);
+  });
+
+  it("says why a message is still waiting when there was no connection", async () => {
+    const d = dispatcher([notification()], transport({ kind: "offline", reason: "لا يوجد اتصال" }));
+    const result = await d.run();
+    expect(result.outcomes[0]).toMatchObject({ outcome: DrainOutcomeKind.StillQueued, reason: "لا يوجد اتصال" });
+  });
+
+  it("says a message it abandoned as stale was abandoned for its age, and to no address", async () => {
+    const old = notification({ createdAt: "2026-09-01T12:00:00.000Z" });
+    const d = dispatcher([old], transport({ kind: "sent" }));
+    const result = await d.run();
+    expect(result.failed).toBe(1);
+    expect(result.outcomes).toEqual([
+      { notificationId: "n1", title: "فاتورة جديدة", channel: "email", recipient: null, outcome: DrainOutcomeKind.Failed, reason: STALE_MESSAGE_REASON },
+    ]);
   });
 });

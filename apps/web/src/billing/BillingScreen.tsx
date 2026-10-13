@@ -4,7 +4,8 @@ import { Button, Card, Money, StatusPill } from "@mezan/ui";
 import type { BillingLimitDTO, BillingModuleDTO, BillingQuotaDTO, BillingPlanOfferDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { SubscriptionCard } from "./SubscriptionCard";
-import { useStartModuleTrial, useStartRenewal, useTenantBilling } from "./hooks";
+import { useEntitlements } from "../data/hooks";
+import { useEditionHasSubscriptionBilling, useStartModuleTrial, useStartRenewal, useTenantBilling } from "./hooks";
 
 const QUOTA_LABEL: Record<BillingQuotaDTO["kind"], AppTranslationKey> = {
   sales_invoices_per_month: "plan.quota.salesInvoicesPerMonth",
@@ -43,6 +44,8 @@ const MODULE_STATE_TONE: Record<BillingModuleDTO["state"], "success" | "info" | 
 export function BillingScreen() {
   const { t, locale } = useAppTranslation();
   const location = useLocation();
+  const editionHasBilling = useEditionHasSubscriptionBilling();
+  const entitlementsKnown = useEntitlements().data !== undefined;
   const billing = useTenantBilling();
   const renewal = useStartRenewal();
   const moduleTrial = useStartModuleTrial();
@@ -54,6 +57,8 @@ export function BillingScreen() {
   return (
     <div className="flex flex-col gap-[16px] p-[16px]">
       <h1 className="font-display text-[17px] font-bold text-ink">{t("plan.title")}</h1>
+
+      {entitlementsKnown && !editionHasBilling ? <p className="max-w-[68ch] text-[12.5px] text-ink-muted">{t("plan.noSubscriptionInThisEdition")}</p> : null}
 
       {billing.isError ? (
         <p role="alert" className="text-[12.5px] font-semibold text-danger-ink">

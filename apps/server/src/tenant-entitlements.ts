@@ -1,5 +1,5 @@
 import {
-  createEntitlements, deriveEntitlements, subscriptionLicenseState, SubscriptionStatusKind, UNLICENSED_ENTITLEMENTS,
+  deriveEntitlements, subscriptionLicenseState, SubscriptionStatusKind, UNLICENSED_ENTITLEMENTS, withSubscriptionBilling,
   type Entitlements,
 } from "@mezan/domain";
 import { resolveTenantPlan, type PlatformHandle } from "@mezan/backend";
@@ -34,15 +34,15 @@ export function createTenantResolvers(
     // never disagree about which plan the tenant is on.
     const view = await resolveTenantPlan(platform, tenant.id, nowIso, options.onError);
     const { subscription, plan } = view;
-    const entitlements = subscription && plan
-      ? createEntitlements(
-          deriveEntitlements(plan, subscription, {
+    const entitlements = withSubscriptionBilling(
+      subscription && plan
+        ? deriveEntitlements(plan, subscription, {
             moduleTrials: view.moduleTrials,
             everEntitled: view.everEntitled,
             now: nowIso,
-          }),
-        )
-      : UNLICENSED_ENTITLEMENTS;
+          })
+        : UNLICENSED_ENTITLEMENTS,
+    );
     const license = subscriptionLicenseState(tenant, subscription, nowIso, plan);
     // The cache must not outlive the trial it is caching: a snapshot taken a
     // minute before the boundary would otherwise keep serving the top plan

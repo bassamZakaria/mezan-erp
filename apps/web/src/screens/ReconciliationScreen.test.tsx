@@ -49,6 +49,18 @@ function renderScreen(data: ReconciliationReportDTO = report()) {
 }
 
 describe("ReconciliationScreen", () => {
+  it("names the parties whose opening balance was posted twice, beside the difference they cause", async () => {
+    const transport = stubTransport({
+      "GET /reconciliation": () => ({ body: report() }),
+      "GET /gl/opening-balance-duplicates": () => ({
+        body: { rows: [{ key: "supplier:sup-dup", kind: "supplier", partyId: "sup-dup", code: "S-003", nameAr: "مورد مكرر", wanted: -100, totalPosted: -200, excess: -100, entryIds: ["e1", "e2"], entryCount: 2 }] },
+      }),
+    });
+    renderWithProviders(<ReconciliationScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByRole("heading", { name: "أرصدة افتتاحية مُرحّلة أكثر من مرة" })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /مورد مكرر/ })).toBeInTheDocument();
+  });
+
   it("lists reconciliation rows with money formatted, never a raw scaled-decimal string", async () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "مطابقة الأرصدة" })).toBeInTheDocument();

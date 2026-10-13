@@ -747,6 +747,14 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     check("the tenant records that July's return went to the authority (docs/archive/defect-register.md D29)", filing.status === 201 && filing.body?.status === "filed", `status ${filing.status} ${JSON.stringify(filing.body).slice(0, 250)}`);
 
+    const listed = rows((await req("GET", "/gl/vat-filings")).body).find((f: any) => f.id === "SCN-S-VATF-JULY");
+    check(
+      "the filed-returns list the VAT screen reads shows July as filed, with who filed it and when",
+      listed?.status === "filed" && listed?.periodFrom === "2026-07-01" && listed?.periodTo === "2026-07-31" && Boolean(listed?.filedBy) && Boolean(listed?.filedAt),
+      JSON.stringify(listed).slice(0, 250),
+    );
+    checkEq("and the net it records is the net that was submitted", n(listed?.netAmount), submitted);
+
     const twice = await req("POST", "/gl/vat-filings", {
       id: "SCN-S-VATF-JULY-2", periodFrom: "2026-07-01", periodTo: "2026-07-31", netAmount: "1.00",
     });
@@ -772,6 +780,13 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const amended = await req("POST", "/gl/vat-filings/SCN-S-VATF-JULY/amend", { reason: "فاتورة وردت متأخرة من العميل" });
     check("amending WITH a reason reopens the window and records why", amended.status === 200 && amended.body?.status === "amended" && amended.body?.amendmentReason, JSON.stringify(amended.body).slice(0, 250));
+
+    const listedAmended = rows((await req("GET", "/gl/vat-filings")).body).find((f: any) => f.id === "SCN-S-VATF-JULY");
+    check(
+      "the list then shows July as amended, with the reason and the time — the state the screen stops offering «تعديل الإقرار» on",
+      listedAmended?.status === "amended" && listedAmended?.amendmentReason === "فاتورة وردت متأخرة من العميل" && Boolean(listedAmended?.amendedAt),
+      JSON.stringify(listedAmended).slice(0, 250),
+    );
 
     const afterAmend = await postJournal("SCN-S-JE-JULY-AMENDED", "2026-07-23", "مبيعات يوليو بعد تعديل الإقرار", [
       { accountId: AR, debit: "1140.00", credit: "0.00", partyId: CUSTOMER },

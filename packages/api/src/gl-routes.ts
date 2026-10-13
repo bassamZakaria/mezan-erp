@@ -31,7 +31,6 @@ import {
   type JournalEntry,
   type JournalPostingDeps,
   type LedgerRepository,
-  type AccountBalance,
   type AccountLedgerLine,
   type AccountRepository,
   type FiscalPeriodRepository,
@@ -79,7 +78,8 @@ import {
   type AuthContextResolver,
 } from "./permission-gate.js";
 import { refuseBranchScopedCaller, refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
-import { branchLineViewOf, canSeeUnattributed, entriesInView, entryInView, isWholeLedgerView, lineInView, type BranchLineView } from "./branch-view.js";
+import { accountStandingInView, serializeAccountBalance } from "./account-standing.js";
+import { branchLineViewOf, canSeeUnattributed, entriesInView, entryInView, isWholeLedgerView, type BranchLineView } from "./branch-view.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
@@ -163,15 +163,6 @@ function serialize(entry: JournalEntry) {
       branchId: l.branchId ?? null,
       partyId: l.partyId ?? null,
     })),
-  };
-}
-
-function serializeBalance(balance: AccountBalance) {
-  return {
-    accountId: balance.accountId,
-    debit: balance.debit.toString(),
-    credit: balance.credit.toString(),
-    balance: balance.balance.toString(),
   };
 }
 
@@ -895,22 +886,10 @@ export function createGlRoutes(
   app.get("/accounts/:accountId/ledger", gate("accounting.journal.view"), async (c) => {
     const accountId = c.req.param("accountId");
     const asOf = c.req.query("asOf");
-    const view = branchLineViewOf(c);
-    if (!isWholeLedgerView(view)) {
-      const visible = ((await deps.ledger.listLines?.({ accountIds: [accountId], toDate: asOf })) ?? []).filter((line) =>
-        lineInView(view, line.branchId),
-      );
-      const debit = Money.sum(visible.map((line) => line.debit));
-      const credit = Money.sum(visible.map((line) => line.credit));
-      return c.json({
-        balance: serializeBalance({ accountId, debit, credit, balance: debit.add(credit.negate()) }),
-        lines: visible.map(serializeLedgerLine),
-      });
-    }
-    const balance = await deps.ledger.accountBalance(accountId, asOf);
-    const lines = await deps.ledger.accountLedger(accountId, asOf);
+    const standing = await accountStandingInView(deps.ledger, accountId, branchLineViewOf(c), asOf);
+    const lines = standing.visibleLines ?? (await deps.ledger.accountLedger(accountId, asOf));
     return c.json({
-      balance: serializeBalance(balance),
+      balance: serializeAccountBalance(standing.balance),
       lines: lines.map(serializeLedgerLine),
     });
   });

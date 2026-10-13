@@ -5,7 +5,9 @@ import {
   isModuleLicensed,
   markAllNotificationsRead,
   markNotificationRead,
+  NotificationChannelState,
   NotificationNotFoundError,
+  type DrainResult,
   type Notification,
   type NotificationRepository,
 } from "@mezan/domain";
@@ -86,17 +88,21 @@ export interface NotificationsRoutesOptions {
    * rather than 404: the button exists on the settings screen either way, and a
    * 404 would read as "wrong URL" when the truth is "no transport is wired".
    */
-  readonly drain?: () => Promise<{
-    attempted: number;
-    sent: number;
-    stillQueued: number;
-    failed: number;
-    skipped: number;
-  }>;
+  readonly drain?: () => Promise<DrainResult>;
+  // INVARIANT: a drain run while mail is switched off does not skip the queue, it REJECTS every waiting email for good (the transport answers "rejected"), so the route refuses to start one.
+  readonly mailConfigured?: () => Promise<boolean>;
 }
 
+export const OUTBOX_SCAN_LIMIT = 1000;
+
+const SETTINGS_EDIT_PERMISSION = "admin.settings.edit";
+
+export type OutboxReadableRepository = NotificationRepository & {
+  listQueued?(limit: number): Promise<readonly Notification[]>;
+};
+
 export function createNotificationsRoutes(
-  repo: NotificationRepository,
+  repo: OutboxReadableRepository,
   resolveAuthContext: AuthContextResolver,
   options: NotificationsRoutesOptions = {},
 ) {
@@ -127,7 +133,39 @@ export function createNotificationsRoutes(
         503,
       );
     }
+    if (options.mailConfigured && !(await options.mailConfigured())) {
+      return c.json(
+        {
+          error: "NOTIFICATION_MAIL_NOT_CONFIGURED",
+          message: "البريد الإلكتروني غير مُفعَّل في الإعدادات؛ لم يُرسَل شيء وبقيت الرسائل في الانتظار.",
+          messageEn: "Email is not switched on in the settings; nothing was sent and the messages are still waiting.",
+        },
+        409,
+      );
+    }
     return c.json(await options.drain());
+  });
+
+  app.get("/outbox", async (c) => {
+    const ctx = authContextOf(c);
+    if (!can(ctx, SETTINGS_EDIT_PERMISSION)) {
+      return c.json(
+        { error: "PERMISSION_DENIED", permission: SETTINGS_EDIT_PERMISSION, message: "عرض الإشعارات المعلّقة يتطلب صلاحية تعديل الإعدادات." },
+        403,
+      );
+    }
+    const waiting = repo.listQueued ? await repo.listQueued(OUTBOX_SCAN_LIMIT) : [];
+    const queued = waiting.reduce(
+      (count, notification) => count + Object.values(notification.channelStatus).filter((status) => status === NotificationChannelState.Queued).length,
+      0,
+    );
+    return c.json({
+      queued,
+      queuedIsCapped: waiting.length >= OUTBOX_SCAN_LIMIT,
+      oldestQueuedAt: waiting[0]?.createdAt ?? null,
+      mailConfigured: options.mailConfigured ? await options.mailConfigured() : false,
+      transportAvailable: options.drain !== undefined && repo.listQueued !== undefined,
+    });
   });
 
   app.get("/", async (c) => {

@@ -21,6 +21,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { QueryClient } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import type { EntitlementsDTO, RoleDTO, UserDTO } from "@mezan/contracts";
+import { SUBSCRIPTION_BILLING_FEATURE } from "@mezan/domain";
 import { AppLayout } from "./AppLayout";
 import { useEffect, useState } from "react";
 import { useApi } from "./data/ApiContext";
@@ -471,6 +472,35 @@ describe("AppLayout — nav entitlements", () => {
     // Unlicensed ones (hr, manufacturing) never reach the rail.
     expect(within(rail).queryByRole("button", { name: "الأشخاص" })).not.toBeInTheDocument();
     expect(within(rail).queryByRole("button", { name: "التصنيع" })).not.toBeInTheDocument();
+  });
+});
+
+describe("AppLayout — «الباقة والاستخدام» follows the edition", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  async function billingEntryOffered(features: Record<string, boolean>) {
+    const transport = stubTransport({
+      ...baseHandlers(),
+      "GET /entitlements": () => ({ body: { ...entitlements, features } }),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+    });
+    renderLayout(transport, ["/dashboard"]);
+    const rail = await screen.findByRole("navigation", { name: "التنقل بين مساحات العمل" });
+    await waitFor(() => expect(within(rail).getByRole("button", { name: "المالية والإقفال" })).toBeInTheDocument());
+    fireEvent.click(await screen.findByRole("button", { name: /بحث وأوامر/ }));
+    await screen.findByText("صندوق الوارد");
+    return screen.queryAllByText("الباقة والاستخدام").length > 0;
+  }
+
+  it("offers it to a cloud tenant", async () => {
+    expect(await billingEntryOffered({ [SUBSCRIPTION_BILLING_FEATURE]: true })).toBe(true);
+  });
+
+  it("does not offer it under an on-premises licence, where there is no subscription to show", async () => {
+    expect(await billingEntryOffered({})).toBe(false);
   });
 });
 

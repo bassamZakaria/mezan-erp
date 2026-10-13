@@ -1,4 +1,4 @@
-import type { Entitlements } from "../entitlements/index.js";
+import { SUBSCRIPTION_BILLING_FEATURE, type Entitlements } from "../entitlements/index.js";
 import { can, type AuthContext } from "./auth-context.js";
 import { getPermission } from "./catalog.js";
 import { isModuleLicensed, isModuleReadOnly } from "./module-licensing.js";
@@ -27,19 +27,21 @@ export interface ShellRequestGate {
   // every plan serves. The shell asks only when the tenant's plan includes it:
   // a request for a module the plan lacks is a 403 on every screen.
   readonly module: ShellRequestModule | null;
+  // INVARIANT: the entitlement feature the route exists under, or null for a route every edition mounts. The shell asks only when the entitlements carry it: a request for a route this edition does not mount is a 404 on every screen.
+  readonly feature: string | null;
 }
 
 // INVARIANT: each permission is the one the route itself is gated on; a session is asked to send a request only when it holds it, so a mismatch is either a refused request on every screen or a list the shell never loads.
 export const SHELL_REQUESTS: Record<ShellRequest, ShellRequestGate> = {
-  [ShellRequest.Roles]: { path: "/roles", permission: "admin.roles.view", servedByTenant: true, module: null },
-  [ShellRequest.Users]: { path: "/users", permission: "admin.users.view", servedByTenant: true, module: null },
-  [ShellRequest.Branches]: { path: "/branches", permission: "admin.branches.view", servedByTenant: true, module: null },
-  [ShellRequest.Warehouses]: { path: "/warehouses", permission: "admin.warehouses.view", servedByTenant: true, module: null },
-  [ShellRequest.Employees]: { path: "/hr/employees", permission: "hr.employee.view", servedByTenant: true, module: ShellRequestModule.Hr },
-  [ShellRequest.JobTitles]: { path: "/hr/job-titles", permission: "hr.job_title.view", servedByTenant: true, module: ShellRequestModule.Hr },
-  [ShellRequest.PendingApprovals]: { path: "/workflow/requests/pending-count", permission: "workflow.view", servedByTenant: true, module: null },
-  [ShellRequest.Settings]: { path: "/settings", permission: "admin.settings.view", servedByTenant: true, module: null },
-  [ShellRequest.Subscription]: { path: "/billing/subscription", permission: "admin.settings.view", servedByTenant: false, module: null },
+  [ShellRequest.Roles]: { path: "/roles", permission: "admin.roles.view", servedByTenant: true, module: null, feature: null },
+  [ShellRequest.Users]: { path: "/users", permission: "admin.users.view", servedByTenant: true, module: null, feature: null },
+  [ShellRequest.Branches]: { path: "/branches", permission: "admin.branches.view", servedByTenant: true, module: null, feature: null },
+  [ShellRequest.Warehouses]: { path: "/warehouses", permission: "admin.warehouses.view", servedByTenant: true, module: null, feature: null },
+  [ShellRequest.Employees]: { path: "/hr/employees", permission: "hr.employee.view", servedByTenant: true, module: ShellRequestModule.Hr, feature: null },
+  [ShellRequest.JobTitles]: { path: "/hr/job-titles", permission: "hr.job_title.view", servedByTenant: true, module: ShellRequestModule.Hr, feature: null },
+  [ShellRequest.PendingApprovals]: { path: "/workflow/requests/pending-count", permission: "workflow.view", servedByTenant: true, module: null, feature: null },
+  [ShellRequest.Settings]: { path: "/settings", permission: "admin.settings.view", servedByTenant: true, module: null, feature: null },
+  [ShellRequest.Subscription]: { path: "/billing/subscription", permission: "admin.settings.view", servedByTenant: false, module: null, feature: SUBSCRIPTION_BILLING_FEATURE },
 };
 
 export function holdsShellRequest(auth: AuthContext, request: ShellRequest): boolean {
@@ -49,10 +51,12 @@ export function holdsShellRequest(auth: AuthContext, request: ShellRequest): boo
 export interface PlanModules {
   readonly activeModules: readonly string[];
   readonly readOnlyModules?: readonly string[];
+  readonly features?: Readonly<Record<string, boolean>>;
 }
 
 export function planServesShellRequest(plan: PlanModules, request: ShellRequest): boolean {
-  const { module } = SHELL_REQUESTS[request];
+  const { module, feature } = SHELL_REQUESTS[request];
+  if (feature !== null && plan.features?.[feature] !== true) return false;
   return module === null || plan.activeModules.includes(module) || (plan.readOnlyModules ?? []).includes(module);
 }
 

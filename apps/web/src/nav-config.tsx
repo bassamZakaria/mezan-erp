@@ -1,5 +1,5 @@
 import { modKeyLabel, type CommandItem, type NavGroup, type NavItem } from "@mezan/ui";
-import { isModuleLicensed, isModuleReadOnly, type Entitlements, type ModuleId } from "@mezan/domain";
+import { ShellRequest, isModuleLicensed, isModuleReadOnly, planServesShellRequest, type Entitlements, type ModuleId } from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
 import { navGroupIcon, navItemIcon } from "./nav-icons";
 import { applyNavFragments, type NavFragment, type NavGroupSpec, type NavItemAccess } from "./fragments";
@@ -354,6 +354,27 @@ export function filterNavGroupsByEntitlements(groups: readonly NavGroup[], entit
       sections: group.sections
         ?.map((section) => ({ ...section, items: section.items.filter((item) => isVisible(group.key, item)) }))
         .filter((section) => section.items.length > 0),
+    }))
+    .filter((group) => group.items.length > 0 || (group.sections?.length ?? 0) > 0);
+}
+
+// INVARIANT: a screen whose own data comes from a route only some editions mount. It is offered when the entitlements say that route exists — never by opening it and reading a 404.
+export const NAV_ITEM_SHELL_REQUEST: Readonly<Record<string, ShellRequest>> = {
+  "settings-billing": ShellRequest.Subscription,
+};
+
+export function isScreenInThisEdition(screenKey: string, entitlements: Entitlements | null): boolean {
+  const request = NAV_ITEM_SHELL_REQUEST[screenKey];
+  return request === undefined || (entitlements !== null && planServesShellRequest(entitlements, request));
+}
+
+export function withoutScreensThisEditionLacks(groups: readonly NavGroup[], entitlements: Entitlements | null): NavGroup[] {
+  const offered = (item: NavItem) => isScreenInThisEdition(item.key, entitlements);
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(offered),
+      sections: group.sections?.map((section) => ({ ...section, items: section.items.filter(offered) })).filter((section) => section.items.length > 0),
     }))
     .filter((group) => group.items.length > 0 || (group.sections?.length ?? 0) > 0);
 }

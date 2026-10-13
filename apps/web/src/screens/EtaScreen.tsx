@@ -50,6 +50,8 @@ import {
   useEtaUnitMappings,
   useExcludeEtaSubmission,
   useRecordEtaSubmissionUuid,
+  useRefreshEtaSubmissionStatus,
+  ETA_SUBMIT_PERMISSION,
   useRequeueEtaSubmission,
   useSaveEtaBranchCode,
   useSaveEtaItemMapping,
@@ -60,6 +62,9 @@ import {
   useTestEtaConnection,
   useUpdateEtaConfig,
 } from "../data/hooks";
+import { useApi } from "../data/ApiContext";
+import { sessionHolds } from "../data/session";
+import { errorMessage } from "../lib/error-message";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { pathForRoute } from "../routing";
 import { useEtaReceiptQueue } from "./eta/receipt-queue";
@@ -1032,6 +1037,9 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   const requeueMutation = useRequeueEtaSubmission();
   const recordUuidMutation = useRecordEtaSubmissionUuid();
   const bulkMutation = useBulkRequeueSubmitEta();
+  const refreshMutation = useRefreshEtaSubmissionStatus();
+  const mayRefresh = sessionHolds(useApi().session, ETA_SUBMIT_PERMISSION);
+  const [authorityUnreachable, setAuthorityUnreachable] = useState(false);
   const [notice, setNotice] = useState<
     | { kind: "offline" }
     | { kind: "queued"; count: number; blocked: readonly string[] }
@@ -1131,6 +1139,19 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
     } finally {
       setPendingId(null);
     }
+  }
+
+  function refreshOne(id: string) {
+    if (pendingId !== null) return;
+    setNotice(null);
+    setActionError(null);
+    setAuthorityUnreachable(false);
+    setPendingId(id);
+    refreshMutation.mutate(id, {
+      onSuccess: (result) => setAuthorityUnreachable(result.authorityUnreachable),
+      onError: (err) => setActionError(errorMessage(err, t("eta.refreshFailed"))),
+      onSettled: () => setPendingId(null),
+    });
   }
 
   async function confirmRecordUuid() {
@@ -1294,6 +1315,12 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         </div>
       ) : null}
 
+      {authorityUnreachable ? (
+        <div role="status" className="mb-[14px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+          {t("eta.refreshAuthorityUnreachable")}
+        </div>
+      ) : null}
+
       {notice ? (
         <div role="status" className="mb-[14px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
           {notice.kind === "offline"
@@ -1390,8 +1417,17 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         loading={submissionsQuery.isLoading}
         rowKey={(s) => s.id}
         rowAction={(s) => {
-          if (!actionable(s.status) && s.status !== "excluded") return null;
+          const refreshable = mayRefresh && s.status === "submitted";
+          if (!actionable(s.status) && s.status !== "excluded" && !refreshable) return null;
           const items: RowMenuItem[] = [];
+          if (refreshable) {
+            items.push({
+              key: "refresh-status",
+              label: t("eta.refreshStatus"),
+              disabled: pendingId === s.id,
+              onSelect: () => refreshOne(s.id),
+            });
+          }
           if (actionable(s.status)) {
             items.push({
               key: "submit",

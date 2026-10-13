@@ -5433,6 +5433,29 @@ export function useRequeueEtaSubmission() {
   });
 }
 
+// INVARIANT: the permission every `/eta/submissions` write is gated on in packages/api/src/eta-routes.ts.
+export const ETA_SUBMIT_PERMISSION = "accounting.eta.submit";
+
+export interface RefreshEtaStatusResult {
+  readonly submission: EtaSubmissionDTO | null;
+  readonly authorityUnreachable: boolean;
+}
+
+export function useRefreshEtaSubmissionStatus() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<RefreshEtaStatusResult, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/eta/submissions/${encodeURIComponent(id)}/refresh-status`, { method: "POST" });
+      if (res.status === 202) return { submission: null, authorityUnreachable: true };
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("eta.refreshFailed"), t));
+      return { submission: await res.json<EtaSubmissionDTO>(), authorityUnreachable: false };
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
 export function useRecordEtaSubmissionUuid() {
   const { t } = useAppTranslation();
   const { request } = useApi();

@@ -5,6 +5,8 @@ export {
   hasModule,
   hasFeature,
   UNLICENSED_ENTITLEMENTS,
+  SUBSCRIPTION_BILLING_FEATURE,
+  withSubscriptionBilling,
   type Entitlements,
   type EntitlementsView,
   type EntitlementLimits,

@@ -5435,6 +5435,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       });
       return dispatcher.drain();
     },
+    notificationMailConfigured: async () => ((await settings.get()) ?? createDefaultSettings()).smtpEnabled,
     workflow: { configs: workflowConfigs, requests: approvalRequests },
   });
 

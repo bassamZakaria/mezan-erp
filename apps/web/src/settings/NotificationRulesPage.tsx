@@ -29,6 +29,7 @@ import {
 } from "../data/hooks";
 import { EMPTY } from "../lib/empty";
 import { useUrlParam } from "../lib/url-state";
+import { NotificationOutboxCard } from "./NotificationOutboxCard";
 
 const PRIORITY_KEY: Record<NotificationPriority, AppTranslationKey> = {
   low: "notifRules.priority.low",
@@ -341,6 +342,8 @@ export function NotificationRulesPage() {
           <div className="p-8 text-center text-sm text-ink-muted">{query.isLoading ? t("notifRules.loading") : t("notifRules.empty")}</div>
         }
       />
+
+      <NotificationOutboxCard />
 
       <SidePanel open={panelOpen} onClose={closePanel} title={t("notifRules.panel.title")}>
         <div className="flex flex-col gap-4 p-5">

@@ -49,9 +49,12 @@ export function isMigrationPending(
 /**
  * Runs the pre-migration backup, then the migration step, with a
  * rollback-to-backup path if the migration throws (docs/archive/plan.md §2.3).
- * Desktop has no migration runner yet (Phase 0 only creates tables
- * idempotently), so `migrate` defaults to a no-op — this is the seam a
- * later issue wires a real `drizzle-kit` migration runner into.
+ * The shipped caller (main/index.ts) passes no `migrate`: the schema is brought
+ * up to date afterwards by the backend it starts, which upgrades each store and
+ * stamps `user_version` (packages/persistence schema-sync.ts). So what this
+ * guarantees in production is the ORDER — the archive is on disk before
+ * anything changes the file's shape. `migrate` defaults to a no-op and exists
+ * for a caller that must run its own step inside the rollback path.
  *
  * IT DOES NOT RUN ON EVERY LAUNCH ANY MORE. It used to, unconditionally, before
  * the window existed: every cold start copied, hashed, tarred, extracted and

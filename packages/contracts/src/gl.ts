@@ -62,6 +62,25 @@ export const amendVatFilingSchema = z.object({
 });
 export type AmendVatFilingDTO = z.infer<typeof amendVatFilingSchema>;
 
+export enum VatFilingState {
+  Filed = "filed",
+  Amended = "amended",
+}
+
+export const vatFilingSchema = z.object({
+  id: z.string().min(1),
+  periodFrom: z.string(),
+  periodTo: z.string(),
+  netAmount: moneyString,
+  referenceNo: z.string().nullable(),
+  status: z.nativeEnum(VatFilingState),
+  filedAt: z.string(),
+  filedBy: z.string(),
+  amendedAt: z.string().nullable(),
+  amendmentReason: z.string().nullable(),
+});
+export type VatFilingDTO = z.infer<typeof vatFilingSchema>;
+
 /** إقفال السنة المالية — roll the year's result into retained earnings. */
 export const closeFiscalYearSchema = z.object({
   year: z.number().int().min(1900).max(9999),

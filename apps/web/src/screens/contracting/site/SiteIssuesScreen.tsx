@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -29,7 +30,7 @@ import {
 } from "../../../data/contracting-site-hooks";
 import { useItems, useProjects, useStockBalance, useWarehouses } from "../../../data/hooks";
 import { FormColumns, FormError, FormPage, SectionCard, SelectField, TextField } from "../../../settings/form-controls";
-import { useSubPage } from "../../../navigation";
+import { useNameSubPage, useSubPage } from "../../../navigation";
 import { useAppTranslation } from "../../../i18n";
 import { useEntityName } from "../../../lib/entity-names";
 import { errorMessage } from "../../../lib/error-message";
@@ -108,8 +109,9 @@ export function SiteIssuesScreen() {
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const detail = useSiteIssue(selectedId);
+  useNameSubPage(selectedId, detail.data ? (detail.data.docNo ?? t("docStatus.draft")) : null);
 
-  async function confirmRow(id: string): Promise<void> {
+  async function confirmRow(id: string): Promise<RowActionOutcome | void> {
     if (rowPendingId) return;
     setRowError(null);
     setRowPendingId(id);
@@ -117,6 +119,7 @@ export function SiteIssuesScreen() {
       await confirmIssue.mutateAsync(id);
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -240,7 +243,7 @@ export function SiteIssuesScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(d.id) },
             ...(d.status === "draft"
-              ? [{ key: "confirm", label: t("site.issue.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
+              ? [{ key: "confirm", label: t("site.issue.confirm"), disabled: rowPendingId === d.id, onSelect: () => confirmRow(d.id) }]
               : []),
             ...(d.status === "issued" || d.status === "partially_received"
               ? [{ key: "receive", label: t("site.issue.receiveAction"), onSelect: () => subPage.open(d.id, "receive") }]

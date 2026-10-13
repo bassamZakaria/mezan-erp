@@ -23,7 +23,6 @@ import type { ProjectRepository } from "../projects/project.js";
 import { ProjectNotFoundError } from "../projects/errors.js";
 import type { GlEventPublisher } from "./events.js";
 import {
-  DuplicateJournalEntryError,
   InactiveAccountError,
   InvalidJournalPartyError,
   JournalEntryNotDraftError,
@@ -49,6 +48,7 @@ export interface JournalLineInput {
   readonly fxRate?: string | null;
   /** VAT rate this line was charged at, so the VAT return can report the rates actually charged (D28). */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
   /** بُعد المشروع (D-01). Validated against `deps.projects` when that port is supplied. */
   readonly projectId?: string | null;
   /** فئة التكلفة — rejected without a `projectId`, because a category with no project is a figure nothing can roll up. */
@@ -57,6 +57,7 @@ export interface JournalLineInput {
   readonly branchId?: string | null;
   /** The customer/supplier of a line on a party control account (D205). */
   readonly partyId?: string | null;
+  readonly treasuryAccountId?: string | null;
 }
 
 /** Command to create/post a journal entry. */
@@ -86,7 +87,7 @@ export interface CreateJournalEntryCommand {
 export interface JournalPostingDeps {
   readonly ledger: LedgerRepository;
   readonly accounts: Pick<AccountRepository, "findById">;
-  readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
+  readonly periods: Pick<FiscalPeriodRepository, "findByDate"> & Partial<Pick<FiscalPeriodRepository, "list">>;
   /**
    * Filed VAT returns. A separate lock from the fiscal period, answering a
    * separate question: a tenant can legitimately have an open accounting period
@@ -140,10 +141,12 @@ function toLine(input: JournalLineInput): JournalLine {
     currency: input.currency ?? null,
     fxRate: input.fxRate ?? null,
     taxRatePercent: input.taxRatePercent ?? null,
+    taxRateId: input.taxRateId ?? null,
     projectId: input.projectId ?? null,
     costCategory: input.costCategory ?? null,
     branchId: input.branchId ?? null,
     partyId: input.partyId ?? null,
+    treasuryAccountId: input.treasuryAccountId ?? null,
   };
 }
 
@@ -154,16 +157,17 @@ function toLine(input: JournalLineInput): JournalLine {
  */
 export function assertEntryStructure(lines: readonly JournalLineInput[]): void {
   if (lines.length < 2) {
-    throw new InvalidJournalEntryError("A journal entry requires at least two lines.");
+    throw new InvalidJournalEntryError("قيد اليومية يحتاج سطرين على الأقل.", "A journal entry requires at least two lines.");
   }
   for (const line of lines) {
     if (line.accountId.trim() === "") {
-      throw new InvalidJournalEntryError("Every journal line must target an account.");
+      throw new InvalidJournalEntryError("كل سطر في القيد يجب أن يحدد حساباً.", "Every journal line must target an account.");
     }
     const debitNeg = line.debit.scaled < 0n;
     const creditNeg = line.credit.scaled < 0n;
     if (debitNeg || creditNeg) {
       throw new InvalidJournalEntryError(
+        `سطر القيد على الحساب "${line.accountId}" يحمل مبلغاً سالباً؛ سجّله في الطرف المقابل.`,
         `Journal line for account "${line.accountId}" has a negative amount; use the opposite side instead.`,
       );
     }
@@ -171,21 +175,25 @@ export function assertEntryStructure(lines: readonly JournalLineInput[]): void {
     const hasCredit = line.credit.scaled !== 0n;
     if (hasDebit && hasCredit) {
       throw new InvalidJournalEntryError(
+        `سطر القيد على الحساب "${line.accountId}" لا يكون مديناً ودائناً معاً.`,
         `Journal line for account "${line.accountId}" cannot be both a debit and a credit.`,
       );
     }
     if (!hasDebit && !hasCredit) {
       throw new InvalidJournalEntryError(
+        `سطر القيد على الحساب "${line.accountId}" يجب أن يحمل مبلغاً مديناً أو دائناً غير صفري.`,
         `Journal line for account "${line.accountId}" must have a non-zero debit or credit.`,
       );
     }
     if (line.costCategory != null && !isCostCategory(line.costCategory)) {
       throw new InvalidJournalEntryError(
+        `سطر القيد على الحساب "${line.accountId}" يذكر بند تكلفة غير معروف "${String(line.costCategory)}".`,
         `Journal line for account "${line.accountId}" names an unknown cost category "${String(line.costCategory)}".`,
       );
     }
     if (line.costCategory != null && (line.projectId == null || line.projectId.trim() === "")) {
       throw new InvalidJournalEntryError(
+        `سطر القيد على الحساب "${line.accountId}" يحمل بند تكلفة بلا مشروع.`,
         `Journal line for account "${line.accountId}" carries a cost category without a project.`,
       );
     }
@@ -371,9 +379,6 @@ export async function createJournalEntry(
   await assertPartyLines(cmd.lines, deps);
 
   return deps.ledger.transaction(async () => {
-    if (await deps.ledger.findById(cmd.id)) {
-      throw new DuplicateJournalEntryError(cmd.id);
-    }
     const entry: JournalEntry = {
       id: cmd.id,
       entryNo: null,
@@ -420,9 +425,6 @@ export async function postJournalEntry(
   await assertVatNotFiled(cmd.date, deps.vatFilings);
 
   const entry = await deps.ledger.transaction(async () => {
-    if (await deps.ledger.findById(cmd.id)) {
-      throw new DuplicateJournalEntryError(cmd.id);
-    }
     const stamp = nowIso(deps);
     const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);
     const posted: JournalEntry = {

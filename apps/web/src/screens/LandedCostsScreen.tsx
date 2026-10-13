@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -15,8 +17,9 @@ import {
   type EntityPickerOption,
   type PillTone,
   type RowMenuItem,
+  ConfirmDialog,
 } from "@mezan/ui";
-import { Money, Qty, distributeLandedCost, landedCostTotalsByType, type AllocatedLandedCostLine } from "@mezan/domain";
+import { DocumentStatusCode, Money, Qty, distributeLandedCost, landedCostTotalsByType, type AllocatedLandedCostLine } from "@mezan/domain";
 import type {
   CostCategoryDTO,
   DocumentStatusDTO,
@@ -28,6 +31,7 @@ import type {
 import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
   useCancelLandedCost,
+  useReverseLandedCost,
   useConfirmLandedCost,
   useCreateLandedCost,
   useItems,
@@ -37,12 +41,13 @@ import {
   useWarehouses,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
-import { useScreenIntent } from "../navigation";
+import { useNameSubPage, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** التكاليف الإضافية (Landed Costs) — docs/archive/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
 
@@ -112,7 +117,9 @@ export function LandedCostsScreen() {
   const projectsQuery = useProjects();
   const createLandedCost = useCreateLandedCost();
   const confirmLandedCost = useConfirmLandedCost();
+  const resubmit = useResubmitForApproval(ResubmitFamily.LandedCosts);
   const cancelLandedCost = useCancelLandedCost();
+  const reverseLandedCost = useReverseLandedCost();
 
   const documents = query.data ?? EMPTY;
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
@@ -137,7 +144,9 @@ export function LandedCostsScreen() {
     [projects],
   );
 
-  const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
+  const [panel, setPanel] = useState<"none" | "create">("none");
+  const subPage = useSubPage();
+  const [addressed] = subPage.segments;
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
     "all" | DocumentStatusDTO,
     (next: string) => void,
@@ -215,7 +224,8 @@ export function LandedCostsScreen() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const selected = typeof panel === "object" ? (documents.find((d) => d.id === panel.id) ?? null) : null;
+  const selected = addressed ? (documents.find((d) => d.id === addressed || d.docNo === addressed) ?? null) : null;
+  useNameSubPage(selected ? addressed : null, selected ? (selected.docNo ?? t("docStatus.draft")) : null);
   /**
    * `costItems` is denormalized onto EVERY line, so the document's cost breakdown
    * is read off one line — summing across lines would multiply it by the line count.
@@ -340,12 +350,16 @@ export function LandedCostsScreen() {
     }
   }
 
+  const [reversingId, setReversingId] = useState<string | null>(null);
+  const [reverseAsked, setReverseAsked] = useState<string | null>(null);
+
   async function confirmExisting(id: string) {
     setError(null);
     try {
       await confirmLandedCost.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -355,6 +369,22 @@ export function LandedCostsScreen() {
       await cancelLandedCost.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
+    }
+  }
+
+  async function reverseConfirmed(id: string) {
+    if (reversingId !== null) return;
+    setReverseAsked(null);
+    setReversingId(id);
+    setError(null);
+    try {
+      await reverseLandedCost.mutateAsync(id);
+    } catch (err) {
+      setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
+    } finally {
+      setReversingId(null);
     }
   }
 
@@ -364,9 +394,37 @@ export function LandedCostsScreen() {
     { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
   ];
 
+  function reversalLink(d: (typeof documents)[number]) {
+    const otherId = d.reversedByDocId ?? d.reversesDocId ?? null;
+    if (otherId === null) return null;
+    const other = documents.find((candidate) => candidate.id === otherId);
+    return (
+      <button
+        type="button"
+        className="text-[11.5px] font-semibold text-brand underline-offset-2 hover:underline"
+        onClick={(event) => {
+          event.stopPropagation();
+          subPage.open(otherId);
+        }}
+      >
+        {t(d.reversedByDocId ? "landedCosts.reversedByDocument" : "landedCosts.reversesDocument", { number: other?.docNo ?? otherId })}
+      </button>
+    );
+  }
+
   const columns: DocumentListColumn<(typeof documents)[number]>[] = [
-    { key: "docNo", header: t("landedCosts.col.docNo"), render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</span> },
-    { key: "date", header: t("common.date"), render: (d) => <span className="mz-num">{d.date}</span> },
+    {
+      key: "docNo",
+      header: t("landedCosts.col.docNo"),
+      render: (d) => (
+        <span className="flex flex-col items-start gap-[2px]">
+          <span className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</span>
+          {reversalLink(d)}
+        </span>
+      ),
+    },
+    { key: "date", header: t("landedCosts.col.documentDate"), render: (d) => <span className="mz-num">{d.date}</span> },
+    { key: "absorptionDate", header: t("landedCosts.col.absorptionDate"), render: (d) => <span className="mz-num">{d.absorptionDate ?? "—"}</span> },
     {
       key: "warehouse",
       header: t("common.warehouse"),
@@ -395,6 +453,7 @@ export function LandedCostsScreen() {
           </Button>
         </Card>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<(typeof documents)[number]>
         title={t("landedCosts.title")}
         description={t("landedCosts.description")}
@@ -451,19 +510,20 @@ export function LandedCostsScreen() {
         rows={pageRows}
         loading={itemsQuery.isLoading}
         rowKey={(d) => d.id}
-        onRowClick={(d) => setPanel({ id: d.id })}
+        onRowClick={(d) => subPage.open(d.id)}
         rowAction={(d) => {
           // Derived from THIS document's state: a draft can still be confirmed or
           // dropped, a confirmed one can only be reversed (R1.3).
           const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => setPanel({ id: d.id }) },
+            { key: "view", label: t("common.view"), onSelect: () => subPage.open(d.id) },
             ...(d.status === "draft"
               ? [
-                  { key: "confirm", label: t("landedCosts.confirm"), onSelect: () => void confirmExisting(d.id) },
-                  { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
+                  { key: "confirm", label: t("landedCosts.confirm"), onSelect: () => confirmExisting(d.id) },
+                  { key: "cancel", label: t("common.cancel"), onSelect: () => cancelExisting(d.id) },
                 ]
               : []),
-            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), onSelect: () => void cancelExisting(d.id) }] : []),
+            ...resubmitRowMenuItems(resubmit, d),
+            ...(d.status === DocumentStatusCode.Confirmed && !d.reversesDocId ? [{ key: "void", label: t("landedCosts.void"), tone: "danger" as const, disabled: reversingId === d.id, confirm: { title: t("landedCosts.void"), consequence: t("landedCosts.voidConsequence", { doc: d.docNo ?? d.id }), confirmLabel: t("landedCosts.void") }, onSelect: () => reverseConfirmed(d.id) }] : []),
           ];
           return (
             <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
@@ -646,10 +706,12 @@ export function LandedCostsScreen() {
         </div>
       </SidePanel>
 
-      <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? t("landedCosts.detailTitle")}>
+      <SidePanel open={selected !== null} onClose={() => subPage.close()} title={selected?.docNo ?? t("landedCosts.detailTitle")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+            <HeldDocumentReapproval document={selected} pending={confirmLandedCost.isPending} confirm={(id) => confirmLandedCost.mutateAsync(id)} />
+            {reversalLink(selected)}
             <div className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[12.5px]">
               <span className="text-ink-muted">{t("landedCosts.field.method")}</span>
               <span className="font-semibold text-ink">{t(METHOD_KEY[selected.lines[0]?.distributionMethod ?? "BY_VALUE"])}</span>
@@ -692,6 +754,7 @@ export function LandedCostsScreen() {
               <MoneyDisplay value={sumMajor(selected.lines.map((l) => l.allocatedAmount))} />
             </div>
             {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
+            <ResubmitForApprovalAction family={ResubmitFamily.LandedCosts} document={selected} />
             {selected.status === "draft" ? (
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => confirmExisting(selected.id)}>
@@ -702,10 +765,20 @@ export function LandedCostsScreen() {
                 </Button>
               </div>
             ) : null}
-            {selected.status === "confirmed" ? (
-              <Button variant="default" onClick={() => cancelExisting(selected.id)}>
-                {t("landedCosts.void")}
-              </Button>
+            {selected.status === DocumentStatusCode.Confirmed && !selected.reversesDocId ? (
+              <>
+                <Button variant="danger-outline" disabled={reversingId === selected.id} onClick={() => setReverseAsked(selected.id)}>
+                  {t("landedCosts.void")}
+                </Button>
+                <ConfirmDialog
+                  open={reverseAsked === selected.id}
+                  title={t("landedCosts.void")}
+                  consequence={t("landedCosts.voidConsequence", { doc: selected.docNo ?? selected.id })}
+                  confirmLabel={t("landedCosts.void")}
+                  onConfirm={() => void reverseConfirmed(selected.id)}
+                  onCancel={() => setReverseAsked(null)}
+                />
+              </>
             ) : null}
           </div>
         ) : null}

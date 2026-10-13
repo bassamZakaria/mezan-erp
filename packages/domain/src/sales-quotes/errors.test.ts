@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   InvalidSalesQuoteError,
   SalesQuoteNotFoundError,
-  DuplicateSalesQuoteError,
   InvalidSalesQuoteTransitionError,
 } from "./errors.js";
 
@@ -26,17 +25,6 @@ describe("SalesQuoteNotFoundError", () => {
     expect(err.quoteId).toBe("qt-99");
     expect(err.message).toBe('عرض السعر "qt-99" غير موجود.');
     expect(err.messageEn).toBe('Sales quote "qt-99" was not found.');
-  });
-});
-
-describe("DuplicateSalesQuoteError", () => {
-  it("carries the duplicated id", () => {
-    const err = new DuplicateSalesQuoteError("qt-1");
-    expect(err.code).toBe("DUPLICATE_SALES_QUOTE");
-    expect(err.name).toBe("DuplicateSalesQuoteError");
-    expect(err.quoteId).toBe("qt-1");
-    expect(err.message).toBe('عرض السعر "qt-1" موجود بالفعل.');
-    expect(err.messageEn).toBe('Sales quote "qt-1" already exists.');
   });
 });
 

@@ -1,3 +1,4 @@
+import type { InvoiceDocumentKind } from "../documents/invoice-document-kind.js";
 /**
  * Sales Invoice — the document that deducts stock and books a customer
  * receivable (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
@@ -25,14 +26,17 @@ import { Money, Qty } from "../money/index.js";
  * a stored status — it's derived from the due date on an unpaid confirmed
  * invoice (see {@link isOverdue}).
  */
-export type SalesInvoiceStatus =
-  | "draft"
-  | "pending"
-  | "confirmed"
-  | "partially_paid"
-  | "paid"
-  | "cancelled"
-  | "reversed";
+export enum SalesInvoiceStatusCode {
+  Draft = "draft",
+  Pending = "pending",
+  Confirmed = "confirmed",
+  PartiallyPaid = "partially_paid",
+  Paid = "paid",
+  Cancelled = "cancelled",
+  Reversed = "reversed",
+}
+
+export type SalesInvoiceStatus = `${SalesInvoiceStatusCode}`;
 
 /** Statuses in which the invoice is live in the ledger / AR sub-ledger. */
 export const SALES_INVOICE_ACTIVE_STATUSES: ReadonlySet<SalesInvoiceStatus> = new Set([
@@ -89,6 +93,7 @@ export interface SalesInvoiceLine {
   readonly discountAmount: Money;
   /** Output VAT percentage applied to this line (0 for exempt). */
   readonly taxRatePercent: number;
+  readonly taxRateId: string | null;
   /** Revenue GL account this line credits on confirm. */
   readonly revenueAccountId: string;
   /** COGS GL account (stock lines only). */
@@ -137,6 +142,9 @@ export interface AppliedSalesInvoicePromotion {
 export interface SalesInvoice {
   readonly id: string;
   readonly docType: "SALES_INVOICE";
+  readonly documentKind?: InvoiceDocumentKind;
+  readonly voidReason?: string | null;
+  readonly sourceQuoteId?: string | null;
   /** Sequential number (INV-…) stamped on confirm; null while draft/pending. */
   readonly docNo: string | null;
   readonly status: SalesInvoiceStatus;
@@ -203,6 +211,10 @@ export interface SalesInvoice {
   readonly workflowRequestId: string | null;
   readonly reversesInvoiceId: string | null;
   readonly reversedByInvoiceId: string | null;
+}
+
+export function salesInvoiceVoidEntryId(invoiceId: string): string {
+  return `${invoiceId}:void`;
 }
 
 /** Whether the invoice is live (its effects have been applied to the ledger). */

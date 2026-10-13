@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -17,8 +18,8 @@ import {
   type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
-import type { CostCategoryDTO, GoodsReceiptDTO, GoodsReceiptStatusDTO, PurchaseOrderDTO } from "@mezan/contracts";
-import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, useProjects, usePurchaseOrders, useSettings, useSuppliers,
+import { GoodsReceiptInvoicingStatusDTO, type CostCategoryDTO, type GoodsReceiptDTO, type GoodsReceiptStatusDTO, type PurchaseOrderDTO } from "@mezan/contracts";
+import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers,
   useUsers,
   useBranches,
   useWarehouses,
@@ -35,6 +36,17 @@ import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+
+const INVOICING_KEY: Record<GoodsReceiptInvoicingStatusDTO, AppTranslationKey> = {
+  [GoodsReceiptInvoicingStatusDTO.NotInvoiced]: "goodsReceipts.notInvoiced",
+  [GoodsReceiptInvoicingStatusDTO.PartiallyInvoiced]: "goodsReceipts.partiallyInvoiced",
+  [GoodsReceiptInvoicingStatusDTO.Invoiced]: "goodsReceipts.invoiced",
+};
+const INVOICING_TONE: Record<GoodsReceiptInvoicingStatusDTO, "neutral" | "warning" | "success"> = {
+  [GoodsReceiptInvoicingStatusDTO.NotInvoiced]: "neutral",
+  [GoodsReceiptInvoicingStatusDTO.PartiallyInvoiced]: "warning",
+  [GoodsReceiptInvoicingStatusDTO.Invoiced]: "success",
+};
 
 const STATUS_KEY: Record<GoodsReceiptStatusDTO, AppTranslationKey> = {
   draft: "goodsReceipts.status.draft",
@@ -109,6 +121,7 @@ function ReceiptDetail({
   receipt,
   order,
   supplierName,
+  warehouseName,
   itemName,
   projectName,
   onBack,
@@ -118,6 +131,7 @@ function ReceiptDetail({
   receipt: GoodsReceiptDTO;
   order: { number: string } | undefined;
   supplierName: (id: string) => string;
+  warehouseName: (id: string) => string;
   itemName: (id: string) => string;
   projectName: (id: string | null) => string;
   onBack: () => void;
@@ -145,10 +159,10 @@ function ReceiptDetail({
         { label: t("common.supplier"), value: supplierName(receipt.supplierId) },
         { label: t("goodsReceipts.detail.order"), value: order?.number ?? receipt.purchaseOrderId },
         { label: t("common.date"), value: receipt.date.split("-").reverse().join("/") },
-        { label: t("common.warehouse"), value: receipt.warehouseId },
+        { label: t("common.warehouse"), value: warehouseName(receipt.warehouseId) },
         { label: t("common.project"), value: projectName(receipt.projectId) },
         { label: t("goodsReceipts.detail.totalCost"), value: <MoneyValue value={num(receipt.totalCost)} /> },
-        { label: t("goodsReceipts.detail.invoiceStatus"), value: receipt.invoiced ? t("goodsReceipts.invoiced") : t("goodsReceipts.notInvoiced"), valueTone: receipt.invoiced ? "success" : undefined },
+        { label: t("goodsReceipts.detail.invoiceStatus"), value: t(INVOICING_KEY[receipt.invoicingStatus]), valueTone: receipt.invoiced ? "success" : undefined },
       ]}
       effects={
         receipt.status === "confirmed"
@@ -168,12 +182,14 @@ function ReceiptDetail({
           label: t("goodsReceipts.tab.lines", { count: receipt.lines.length }),
           content: (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[480px] border-collapse text-[13px]">
+              <table className="w-full min-w-[620px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
                     <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
                     <th className="px-[12px] py-[9px] text-start">{t("common.costCategory")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("goodsReceipts.col.receivedQty")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("goodsReceipts.col.invoicedQty")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("goodsReceipts.col.remainingQty")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("goodsReceipts.col.unitCost")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("goodsReceipts.col.lineTotal")}</th>
                   </tr>
@@ -184,6 +200,8 @@ function ReceiptDetail({
                       <td className="px-[12px] py-[10px]">{itemName(l.itemId)}</td>
                       <td className="px-[12px] py-[10px]">{l.costCategory ? t(COST_CATEGORY_KEY[l.costCategory]) : "—"}</td>
                       <td className="px-[12px] py-[10px] text-end"><QtyDisplay value={l.qty} /></td>
+                      <td className="px-[12px] py-[10px] text-end"><QtyDisplay value={l.invoicedQty} /></td>
+                      <td className="px-[12px] py-[10px] text-end"><QtyDisplay value={l.remainingQty} /></td>
                       <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
                       <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitCost) * Number(l.qty)} showUnit={false} /></td>
                     </tr>
@@ -305,7 +323,7 @@ export function GoodsReceiptsScreen() {
    * form offers only what the tenant allows instead of letting the user fill a
    * whole receipt the server will then reject.
    */
-  const settingsQuery = useSettings();
+  const settingsQuery = useTenantSettings();
   const requirePoForGrn = settingsQuery.data?.requirePoForGrn ?? true;
   const policyKnown = settingsQuery.data !== undefined;
 
@@ -367,7 +385,7 @@ export function GoodsReceiptsScreen() {
     { key: "supplier", header: t("common.supplier"), render: (r) => supplierName(r.supplierId) },
     { key: "order", header: t("goodsReceipts.detail.order"), render: (r) => <span className="mz-num">{(r.purchaseOrderId ? orderById.get(r.purchaseOrderId)?.number : null) ?? "—"}</span> },
     { key: "total", header: t("goodsReceipts.detail.totalCost"), align: "end", render: (r) => <MoneyValue value={num(r.totalCost)} /> },
-    { key: "invoiced", header: t("goodsReceipts.col.invoiceStatus"), render: (r) => <StatusPill label={r.invoiced ? t("goodsReceipts.invoiced") : t("goodsReceipts.notInvoiced")} tone={r.invoiced ? "success" : "neutral"} /> },
+    { key: "invoiced", header: t("goodsReceipts.col.invoiceStatus"), render: (r) => <StatusPill label={t(INVOICING_KEY[r.invoicingStatus])} tone={INVOICING_TONE[r.invoicingStatus]} /> },
     { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
     { key: "createdBy", header: t("common.createdBy"), render: (r) => <span className="text-ink-muted">{userName(r.createdBy)}</span> },
   ];
@@ -401,6 +419,7 @@ export function GoodsReceiptsScreen() {
       await confirmReceipt.mutateAsync(id);
     } catch {
       // failure surfaces via the mutation's own error state on retry; nothing further to do here.
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -693,6 +712,7 @@ export function GoodsReceiptsScreen() {
           receipt={selected}
           order={selected.purchaseOrderId ? orderById.get(selected.purchaseOrderId) : undefined}
           supplierName={supplierName}
+          warehouseName={(id) => filterWarehouses.find((warehouse) => warehouse.id === id)?.name ?? id}
           itemName={itemName}
           projectName={projectName}
           onBack={() => subPage.close()}
@@ -773,7 +793,7 @@ export function GoodsReceiptsScreen() {
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(r.number ?? r.id) },
             { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(r.number ?? r.id, "print") },
             ...(r.status === "draft"
-              ? [{ key: "confirm", label: t("goodsReceipts.confirm"), onSelect: () => void confirmSelected(r.id) }]
+              ? [{ key: "confirm", label: t("goodsReceipts.confirm"), onSelect: () => confirmSelected(r.id) }]
               : []),
             ...(r.status === "confirmed" && !r.invoiced
               ? [

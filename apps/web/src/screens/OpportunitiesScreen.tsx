@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -195,6 +196,7 @@ export function OpportunitiesScreen() {
       await moveStage.mutateAsync({ id: opportunity.id, body: { stageId } });
     } catch (err) {
       setRowError(err instanceof Error ? err.message : t("common.failed"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -289,7 +291,7 @@ export function OpportunitiesScreen() {
             o.status === "open"
               ? [
                   ...(winStage
-                    ? [{ key: "won", label: t("opportunities.won"), disabled: pendingId === o.id, onSelect: () => void runMoveStage(o, winStage.id) }]
+                    ? [{ key: "won", label: t("opportunities.won"), disabled: pendingId === o.id, onSelect: () => runMoveStage(o, winStage.id) }]
                     : []),
                   ...(lossStage
                     ? [
@@ -298,7 +300,7 @@ export function OpportunitiesScreen() {
                           label: t("opportunities.lost"),
                           tone: "danger" as const,
                           disabled: pendingId === o.id,
-                          onSelect: () => void runMoveStage(o, lossStage.id),
+                          onSelect: () => runMoveStage(o, lossStage.id),
                         },
                       ]
                     : []),

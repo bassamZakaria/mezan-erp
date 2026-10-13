@@ -76,7 +76,7 @@ export const assetSchema = z.object({
   /** بُعد المشروع — the contracting project this asset is assigned to. */
   projectId: z.string().nullable(),
   /** سعر الساعة الداخلي — the rate in force TODAY. What a log is priced at comes from `rateHistory`. */
-  internalHourlyRate: z.string().nullable(),
+  internalHourlyRate: moneyString.nullable(),
   /** تاريخ سعر الساعة الداخلي, oldest first. A log resolves the row effective on its own date. */
   rateHistory: z.array(assetInternalRateRowSchema),
 });
@@ -117,6 +117,7 @@ export const depreciationRunSchema = z.object({
   branchId: z.string().nullable(),
   status: depreciationRunStatusSchema,
   lines: z.array(depreciationRunLineSchema),
+  skippedLines: z.array(z.object({ assetId: z.string().min(1), assetCode: z.string(), amount: moneyString })).optional(),
   totalAmount: moneyString,
   journalEntryId: z.string().nullable(),
   createdAt: z.string(),
@@ -146,6 +147,22 @@ export const disposeAssetSchema = z.object({
   notes: z.string().nullish(),
 });
 export type DisposeAssetDTO = z.infer<typeof disposeAssetSchema>;
+
+/** WIRE CONTRACT: mirrors @mezan/domain's `DisposalProceedsAccountKind`; the values must stay equal. */
+export enum DisposalProceedsAccountKind {
+  Cash = "cash",
+  Receivable = "receivable",
+}
+
+/** An account a disposal's sale proceeds may land in — the cash set, or a receivable the buyer still owes. */
+export const disposalProceedsAccountSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  nameAr: z.string(),
+  nameEn: z.string().nullable(),
+  kind: z.nativeEnum(DisposalProceedsAccountKind),
+});
+export type DisposalProceedsAccountDTO = z.infer<typeof disposalProceedsAccountSchema>;
 export type DepreciationRunStatusDTO = z.infer<typeof depreciationRunStatusSchema>;
 export type DepreciationRunLineDTO = z.infer<typeof depreciationRunLineSchema>;
 export type DepreciationRunDTO = z.infer<typeof depreciationRunSchema>;

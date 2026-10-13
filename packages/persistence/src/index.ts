@@ -106,6 +106,7 @@ export {
   createSqliteTaxRateRepository,
   type SqliteTaxRateRepositoryHandle,
 } from "./tax-rate-repository.js";
+export { createSqliteTaxRateUsage } from "./tax-rate-usage.js";
 export {
   createSqliteCostCenterRepository,
   type SqliteCostCenterRepositoryHandle,
@@ -308,6 +309,7 @@ export {
   type SqlitePayrollComponentRepositoryHandle,
 } from "./hr-payroll-store.js";
 export { createSqliteClockCredentialRepository, type SqliteClockCredentialRepositoryHandle } from "./hr-self-store.js";
+export { grantSuccessorPermissionsOnce } from "./permission-successors.js";
 export { createSqliteWebauthnChallengeRepository, type SqliteWebauthnChallengeRepositoryHandle } from "./webauthn-challenge-store.js";
 export {
   createSqliteWritedownRunRepository,
@@ -384,5 +386,7 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { createSqliteUpgradeLedger, UpgradeStepId, type UpgradeLedger } from "./upgrade-ledger.js";
+export { markApprovalsNeedingReapproval } from "./approval-request-store.js";
 export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";
 export { createSqliteCredentialResetMarks, type CredentialResetMarks } from "./credential-reset-marks.js";

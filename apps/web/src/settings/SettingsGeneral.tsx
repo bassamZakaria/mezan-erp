@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
 import { COMPANY_NAME_MAX_LENGTH, type TenantSettingsDTO, type UpdateTenantSettingsDTO } from "@mezan/contracts";
 import { companyNameError } from "../company-name";
@@ -427,6 +428,15 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                 />
               </SectionCard>
 
+              <SectionCard title={t("settingsGeneral.periodClosePolicy")}>
+                <ToggleField
+                  label={t("settingsGeneral.periodCloseSingleOperatorMode")}
+                  checked={draft.periodCloseSingleOperatorMode}
+                  onChange={(v) => patch({ periodCloseSingleOperatorMode: v })}
+                  hint={t("settingsGeneral.periodCloseSingleOperatorModeHint")}
+                />
+              </SectionCard>
+
               <SectionCard title={t("settingsGeneral.treasuryPolicy")}>
                 <ToggleField
                   label={t("settingsGeneral.blockANegativeBalanceOn")}
@@ -593,6 +603,14 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
 }
 
 export function SettingsGeneral() {
+  return (
+    <ReadOnlyFields>
+      <SettingsGeneralContent />
+    </ReadOnlyFields>
+  );
+}
+
+function SettingsGeneralContent() {
   const { t } = useAppTranslation();
   const query = useSettings();
 

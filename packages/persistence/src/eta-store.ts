@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   DEFAULT_ETA_CONFIG,
   ETA_DEFAULT_ENDPOINTS,
@@ -298,6 +299,7 @@ function toSubmission(row: SubmissionRow): EtaSubmission {
 
 class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByInternal: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -326,6 +328,7 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
         prevalidation = excluded.prevalidation,
         rejection_codes = excluded.rejection_codes
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM eta_submission WHERE id = ?`);
     this.selectByInternal = sqlite.prepare(`SELECT * FROM eta_submission WHERE internal_id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM eta_submission ORDER BY created_at DESC`);
@@ -354,7 +357,7 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   }
 
   async create(submission: EtaSubmission): Promise<void> {
-    this.write(submission);
+    insertingNew(submission.id, () => this.write(submission, this.insertOnly));
   }
 
   async update(submission: EtaSubmission): Promise<void> {
@@ -362,8 +365,8 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   }
 
   /** Exposed for the chain's transaction; everything else goes through `create`/`update`. */
-  write(s: EtaSubmission): void {
-    this.upsert.run({
+  write(s: EtaSubmission, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: s.id,
       internal_id: s.internalId,
       document_type: s.documentType,

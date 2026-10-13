@@ -23,16 +23,6 @@ export class SalesInvoiceNotFoundError extends Error {
   }
 }
 
-export class DuplicateSalesInvoiceError extends Error {
-  readonly code = "DUPLICATE_SALES_INVOICE";
-  readonly messageEn: string;
-  constructor(readonly invoiceId: string) {
-    super(`فاتورة المبيعات "${invoiceId}" موجودة بالفعل.`);
-    this.messageEn = `Sales invoice "${invoiceId}" already exists.`;
-    this.name = "DuplicateSalesInvoiceError";
-  }
-}
-
 export class InvalidSalesInvoiceTransitionError extends Error {
   readonly code = "INVALID_SALES_INVOICE_TRANSITION";
   constructor(
@@ -51,5 +41,59 @@ export class InvalidSalesInvoicePaymentError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "InvalidSalesInvoicePaymentError";
+  }
+}
+
+export class SalesInvoiceNotDraftError extends Error {
+  readonly code = "SALES_INVOICE_NOT_DRAFT";
+  constructor(
+    readonly invoiceId: string,
+    readonly status: SalesInvoiceStatus,
+  ) {
+    super(`لا يُعدَّل بند فاتورة في حالة "${SALES_INVOICE_STATUS_LABELS_AR[status]}" — التعديل للمسودة وحدها؛ الفاتورة المرحّلة تُصحَّح بمرتجع.`);
+    this.name = "SalesInvoiceNotDraftError";
+  }
+}
+
+export class SalesInvoiceLineNotFoundError extends Error {
+  readonly code = "SALES_INVOICE_LINE_NOT_FOUND";
+  constructor(
+    readonly invoiceId: string,
+    readonly lineId: string,
+  ) {
+    super(`البند ${lineId} غير موجود على الفاتورة ${invoiceId}.`);
+    this.name = "SalesInvoiceLineNotFoundError";
+  }
+}
+
+export class SalesTaxRecalculationUnacknowledgedError extends Error {
+  readonly code = "TAX_RECALCULATION_NOT_ACKNOWLEDGED";
+  readonly messageEn: string;
+  constructor(
+    readonly invoiceId: string,
+    readonly shownTotal: string,
+    readonly recalculatedTotal: string,
+  ) {
+    super(
+      `تغيّر إعداد ضريبة القيمة المضافة منذ إنشاء هذه المسودة: الإجمالي المعروض ${shownTotal} وسيُرحَّل ${recalculatedTotal}. راجع الإجمالي الجديد ثم أكّد من جديد.`,
+    );
+    this.messageEn = `The VAT setting changed since this draft was raised: it shows ${shownTotal} and would post ${recalculatedTotal}. Review the new total, then confirm again.`;
+    this.name = "SalesTaxRecalculationUnacknowledgedError";
+  }
+}
+
+export class ApprovedSalesInvoiceReratedError extends Error {
+  readonly code = "APPROVED_DOCUMENT_RERATED";
+  readonly messageEn: string;
+  constructor(
+    readonly invoiceId: string,
+    readonly approvedTotal: string,
+    readonly recalculatedTotal: string,
+  ) {
+    super(
+      `تغيّر إعداد ضريبة القيمة المضافة بعد إرسال الفاتورة للموافقة: الإجمالي الموافَق عليه ${approvedTotal} وأصبح بعد إعادة الاحتساب ${recalculatedTotal}. لم تُرحَّل الفاتورة، وأُعيدت مسودةً بالأرقام الجديدة — أرسلها للموافقة من جديد.`,
+    );
+    this.messageEn = `The VAT setting changed after this invoice was sent for approval: the approved total was ${approvedTotal} and it is now ${recalculatedTotal}. Nothing was posted; the invoice is a draft again with the new figures — send it for approval again.`;
+    this.name = "ApprovedSalesInvoiceReratedError";
   }
 }

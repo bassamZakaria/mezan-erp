@@ -212,3 +212,41 @@ describe("salesInvoicePrintModel", () => {
     expect(model.etaUuid).toBeUndefined();
   });
 });
+
+describe("salesInvoicePrintModel — a line prints the name of the tax rate it stored (D79)", () => {
+  const rates = [
+    { id: "VAT-EXEMPT", name: "معفى" },
+    { id: "VAT-EXPORT", name: "تصدير" },
+  ];
+  const zeroRated = invoice([
+    line({ lineId: "L1", taxRatePercent: 0, taxRateId: "VAT-EXEMPT" }),
+    line({ lineId: "L2", taxRatePercent: 0, taxRateId: "VAT-EXPORT" }),
+    line({ lineId: "L3", taxRatePercent: 0, taxRateId: null }),
+  ]);
+
+  it("tells an exempt line from an export line on paper, though both print 0%", () => {
+    const model = salesInvoicePrintModel(ctx({ invoice: zeroRated, taxRates: rates }));
+    expect(model.lines.map((l) => [l.taxPercent, l.taxName])).toEqual([[0, "معفى"], [0, "تصدير"], [0, undefined]]);
+  });
+
+  it("lists each NAMED rate in the totals — a 0% one included — so the classification is on paper whatever columns the template shows", () => {
+    const mixed = invoice([
+      line({ lineId: "L1", taxRatePercent: 0, taxRateId: "VAT-EXEMPT" }),
+      line({ lineId: "L2", taxRatePercent: 0, taxRateId: null }),
+      line({ lineId: "L3", taxRatePercent: 14, taxRateId: "VAT14" }),
+      line({ lineId: "L4", taxRatePercent: 14, taxRateId: null }),
+    ]);
+    const model = salesInvoicePrintModel(ctx({ invoice: mixed, taxRates: [...rates, { id: "VAT14", name: "ضريبة القيمة المضافة" }] }));
+    const rows = (model.totals.taxBreakdown ?? []).map((row) => [row.label, row.rate, row.amount > 0]);
+    expect(rows).toEqual([
+      ["معفى", 0, false],
+      ["ضريبة القيمة المضافة", 14, true],
+      [ctx({ invoice: mixed }).vatLabel, 14, true],
+    ]);
+  });
+
+  it("prints the percent alone when the tax rates could not be read", () => {
+    const model = salesInvoicePrintModel(ctx({ invoice: zeroRated }));
+    expect(model.lines.map((l) => l.taxName)).toEqual([undefined, undefined, undefined]);
+  });
+});

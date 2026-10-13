@@ -533,7 +533,7 @@ describe("gl-routes — every posting moves the named accounts by the derived am
     expect((await postBalanced(app)).status).toBe(201);
     const second = await postBalanced(app);
     expect(second.status).toBe(409);
-    expect(((await second.json()) as { error: string }).error).toBe("DUPLICATE_JOURNAL_ENTRY");
+    expect(((await second.json()) as { error: string }).error).toBe("DUPLICATE_ID");
     // Still exactly the one posting's worth of movement, not two.
     expect(await accountBalance(app, "1300-1")).toBe("500.000000");
     const list = (await (await app.fetch(req("/journal-entries", { permissions: "accounting.journal.view" }))).json()) as unknown[];
@@ -931,7 +931,7 @@ describe("gl-routes — validation errors that must not reach the domain layer",
       req("/journal-entries/draft", { method: "POST", permissions: "accounting.journal.create", body: JSON.stringify(balanced) }),
     );
     expect(second.status).toBe(409);
-    expect(((await second.json()) as { error: string }).error).toBe("DUPLICATE_JOURNAL_ENTRY");
+    expect(((await second.json()) as { error: string }).error).toBe("DUPLICATE_ID");
   });
 
   it("400s a malformed reversal body (wrong type for reversalId)", async () => {
@@ -1008,6 +1008,9 @@ function inMemoryVatFilings(): VatFilingRepository {
       return [...store.values()];
     },
     async save(filing) {
+      store.set(filing.id, filing);
+    },
+    async insert(filing) {
       store.set(filing.id, filing);
     },
     async findCovering(date) {
@@ -1242,7 +1245,7 @@ describe("gl-routes — year-end close", () => {
     const { app } = await withPnlActivity();
     const before = await app.fetch(req("/year-end-close/2026", { permissions: "accounting.journal.view" }));
     expect(before.status).toBe(200);
-    expect(await before.json()).toEqual({ year: 2026, closed: false, entry: null });
+    expect(await before.json()).toEqual({ year: 2026, closed: false, reopenable: false, entry: null });
 
     await app.fetch(
       req("/year-end-close", {

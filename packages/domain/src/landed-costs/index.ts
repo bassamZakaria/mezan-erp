@@ -23,13 +23,24 @@ export {
   type LandedCostLine,
   type LandedCostDocument,
   type LandedCostGlAccounts,
+  landedCostAbsorptionDate,
 } from "./landed-cost-document.js";
 
 export {
   LandedCostService,
   type LandedCostConfirmResult,
   type LandedCostUnabsorbedGlPort,
+  type LandedCostGlPosting,
+  type LandedCostConfirmOptions,
   type UnabsorbedLandedCost,
 } from "./service.js";
 
-export { EmptyLandedCostTargetsError, ZeroLandedCostWeightError } from "./errors.js";
+export {
+  EmptyLandedCostTargetsError,
+  ZeroLandedCostWeightError,
+  LandedCostDateBeforeStockMovementError,
+  StockMovementBeforeRevaluationError,
+  StockRevaluationSource,
+  type StandingStockRevaluation,
+  LandedCostStandsOnDocumentError,
+} from "./errors.js";

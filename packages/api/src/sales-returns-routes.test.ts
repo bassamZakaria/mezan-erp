@@ -121,7 +121,7 @@ describe("sales-returns router — create + confirm", () => {
   it("creates a draft, then confirms it, restocking and posting a balanced GL entry", async () => {
     const app = await newApp();
     const createRes = await app.fetch(
-      req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }),
+      req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }),
     );
     expect(createRes.status).toBe(201);
     const created = (await createRes.json()) as { status: string; awaitingRefund: boolean };
@@ -129,7 +129,7 @@ describe("sales-returns router — create + confirm", () => {
     expect(created.awaitingRefund).toBe(false);
 
     const confirmRes = await app.fetch(
-      req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }),
+      req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }),
     );
     expect(confirmRes.status).toBe(200);
     const body = (await confirmRes.json()) as {
@@ -145,7 +145,7 @@ describe("sales-returns router — create + confirm", () => {
   it("rejects an over-quantity return with 422", async () => {
     const app = await newApp();
     const bad = { ...payload, id: "SR2", lines: [{ ...payload.lines[0], qty: "10", availableQty: "5" }] };
-    const res = await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(bad) }));
+    const res = await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(bad) }));
     expect(res.status).toBe(422);
   });
 });
@@ -192,7 +192,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-OVER",
@@ -204,13 +204,33 @@ describe("what the caller may claim on a return (D102)", () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
+  it("reads the source invoice ONCE per request — each read lists every return, and two lines against one invoice are not two reads (D79)", async () => {
+    const { service } = await buildService();
+    let reads = 0;
+    const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, {
+      async findConfirmedInvoice(id: string) {
+        reads += 1;
+        return id === "INV1" ? sourceInvoice : null;
+      },
+    });
+    const res = await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.return.create,sales.invoice.view",
+        body: JSON.stringify({ ...payload, id: "SR-ONCE", lines: [{ ...payload.lines[0], qty: "1" }, { ...payload.lines[0], qty: "1" }] }),
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(reads).toBe(1);
+  });
+
   it("accepts exactly what the invoice has left, and refuses one micro-unit more", async () => {
     const app = await appWithInvoices();
 
     const exact = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-EXACT",
@@ -223,7 +243,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const overByOne = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-OVER-1",
@@ -239,7 +259,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-GHOST",
@@ -259,7 +279,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-COST",
@@ -278,7 +298,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-PRICE",
@@ -302,7 +322,7 @@ describe("what the caller may claim on a return (D102)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-TRUSTED",
@@ -353,7 +373,7 @@ describe("who a return credits (D89)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-DIVERTED",
@@ -371,7 +391,7 @@ describe("who a return credits (D89)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-WRONG-ITEM",
@@ -388,7 +408,7 @@ describe("who a return credits (D89)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-LEGIT",
@@ -404,7 +424,7 @@ describe("who a return credits (D89)", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-DIVERTED-OVER",
@@ -464,13 +484,13 @@ describe("two partial returns that together exceed the invoice (boundary crossin
     const first = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ ...payload, id: "SR-PART-1", lines: [{ ...payload.lines[0], availableQty: "999", qty: "2" }] }),
       }),
     );
     expect(first.status).toBe(201);
     const firstConfirm = await app.fetch(
-      req("/SR-PART-1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }),
+      req("/SR-PART-1/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }),
     );
     expect(firstConfirm.status).toBe(200);
 
@@ -480,7 +500,7 @@ describe("two partial returns that together exceed the invoice (boundary crossin
     const second = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ ...payload, id: "SR-PART-2", lines: [{ ...payload.lines[0], availableQty: "999", qty: "2" }] }),
       }),
     );
@@ -491,7 +511,7 @@ describe("two partial returns that together exceed the invoice (boundary crossin
     const legit = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ ...payload, id: "SR-PART-3", lines: [{ ...payload.lines[0], availableQty: "999", qty: "1" }] }),
       }),
     );
@@ -541,7 +561,7 @@ describe("a return restocks at the cost it left at, not a freshly recomputed ave
     const built = await app.fetch(
       req("/from-invoice", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           id: "SR-COST-LAYER",
           date: "2026-08-21",
@@ -555,7 +575,7 @@ describe("a return restocks at the cost it left at, not a freshly recomputed ave
     );
     expect(built.status).toBe(201);
     const confirmRes = await app.fetch(
-      req("/SR-COST-LAYER/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }),
+      req("/SR-COST-LAYER/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }),
     );
     expect(confirmRes.status).toBe(200);
 
@@ -585,12 +605,12 @@ describe("GET /sales-returns/:id", () => {
     const { service, stockService: _s } = await buildService();
     const refunds = makeRefundsPort();
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, undefined, refunds);
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }), insecureHeaderAuthContextResolver);
-    await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }), insecureHeaderAuthContextResolver);
+    await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }));
     await app.fetch(
       req("/SR1/refund", {
         method: "POST",
-        permissions: "sales.return.confirm",
+        permissions: "sales.return.confirm,sales.return.view",
         body: JSON.stringify({ amount: "50", treasuryAccountId: "TILL1" }),
       }),
     );
@@ -612,7 +632,7 @@ describe("POST /sales-returns validation", () => {
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({ id: "BAD", date: "2026-08-21", memo: "", lines: [] }),
       }),
     );
@@ -661,7 +681,7 @@ describe("POST /sales-returns/from-invoice", () => {
   it("answers 400 for a malformed from-invoice body", async () => {
     const app = await newApp();
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ id: "X" }) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ id: "X" }) }),
     );
     expect(res.status).toBe(400);
   });
@@ -669,7 +689,7 @@ describe("POST /sales-returns/from-invoice", () => {
   it("answers 503 when no invoices port is wired", async () => {
     const app = await newApp();
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(res.status).toBe(503);
   });
@@ -682,7 +702,7 @@ describe("POST /sales-returns/from-invoice", () => {
       },
     });
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(res.status).toBe(404);
   });
@@ -697,7 +717,7 @@ describe("POST /sales-returns/from-invoice", () => {
     const res = await app.fetch(
       req("/from-invoice", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify(fromInvoiceBody({ requested: [{ itemId: "ITEM1", qty: "0" }] })),
       }),
     );
@@ -712,7 +732,7 @@ describe("POST /sales-returns/from-invoice", () => {
       },
     });
     const res = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
@@ -736,11 +756,11 @@ describe("POST /sales-returns/from-invoice", () => {
       },
     });
     const first = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(first.status).toBe(201);
     const second = await app.fetch(
-      req("/from-invoice", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(fromInvoiceBody()) }),
+      req("/from-invoice", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(fromInvoiceBody()) }),
     );
     expect(second.status).toBe(409);
   });
@@ -749,8 +769,8 @@ describe("POST /sales-returns/from-invoice", () => {
 describe("POST /sales-returns/:id/cancel", () => {
   it("cancels a draft", async () => {
     const app = await newApp();
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }));
-    const res = await app.fetch(req("/SR1/cancel", { method: "POST", permissions: "sales.return.void", body: "{}" }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }));
+    const res = await app.fetch(req("/SR1/cancel", { method: "POST", permissions: "sales.return.void,sales.return.view", body: "{}" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { status: string };
     expect(body.status).toBe("cancelled");
@@ -758,10 +778,10 @@ describe("POST /sales-returns/:id/cancel", () => {
 
   it("refuses to cancel an already-confirmed return, and leaves it confirmed", async () => {
     const app = await newApp();
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }));
-    await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }));
+    await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }));
 
-    const res = await app.fetch(req("/SR1/cancel", { method: "POST", permissions: "sales.return.void", body: "{}" }));
+    const res = await app.fetch(req("/SR1/cancel", { method: "POST", permissions: "sales.return.void,sales.return.view", body: "{}" }));
     expect(res.status).toBe(409);
 
     const check = await app.fetch(req("/SR1", { permissions: "sales.return.view" }));
@@ -773,7 +793,7 @@ describe("POST /sales-returns/:id/cancel", () => {
 describe("POST /sales-returns/:id/confirm error path", () => {
   it("404s confirming an id that does not exist", async () => {
     const app = await newApp();
-    const res = await app.fetch(req("/ghost/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
+    const res = await app.fetch(req("/ghost/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }));
     expect(res.status).toBe(404);
   });
 });
@@ -786,27 +806,27 @@ describe("GET /sales-returns/counts and /stats", () => {
 
     // One draft, never confirmed — contributes to `all`/`draft` but not to returnedTotal.
     await app.fetch(
-      req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id: "SR-DRAFT" }) }), insecureHeaderAuthContextResolver);
+      req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id: "SR-DRAFT" }) }), insecureHeaderAuthContextResolver);
 
     // One confirmed, fully refunded.
     await app.fetch(
-      req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id: "SR-PAID" }) }),
+      req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id: "SR-PAID" }) }),
     );
-    await app.fetch(req("/SR-PAID/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
+    await app.fetch(req("/SR-PAID/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }));
     const paidDoc = (await (await app.fetch(req("/SR-PAID", { permissions: "sales.return.view" }))).json()) as { refundDue: string };
     await app.fetch(
       req("/SR-PAID/refund", {
         method: "POST",
-        permissions: "sales.return.confirm",
+        permissions: "sales.return.confirm,sales.return.view",
         body: JSON.stringify({ amount: paidDoc.refundDue, treasuryAccountId: "TILL1" }),
       }),
     );
 
     // One confirmed, still awaiting refund.
     await app.fetch(
-      req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id: "SR-DUE" }) }),
+      req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id: "SR-DUE" }) }),
     );
-    await app.fetch(req("/SR-DUE/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
+    await app.fetch(req("/SR-DUE/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }));
 
     const countsRes = await app.fetch(req("/counts", { permissions: "sales.return.view" }));
     expect(countsRes.status).toBe(200);
@@ -844,7 +864,7 @@ describe("listFilteredReturns — the filters actually narrow the rows AND the h
     await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-CUST-A",
@@ -855,7 +875,7 @@ describe("listFilteredReturns — the filters actually narrow the rows AND the h
     await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "sales.return.create",
+        permissions: "sales.return.create,sales.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "SR-CUST-B",
@@ -891,9 +911,9 @@ describe("listFilteredReturns — the filters actually narrow the rows AND the h
   it("awaitingRefund=true keeps only confirmed returns still owed money", async () => {
     const { service } = await buildService();
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver);
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id: "SR-DRAFT-ONLY" }) }));
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id: "SR-CONFIRMED" }) }));
-    await app.fetch(req("/SR-CONFIRMED/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id: "SR-DRAFT-ONLY" }) }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id: "SR-CONFIRMED" }) }));
+    await app.fetch(req("/SR-CONFIRMED/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }));
 
     const res = await app.fetch(req("/?awaitingRefund=true", { permissions: "sales.return.view" }));
     const rows = (await res.json()) as { id: string }[];
@@ -925,25 +945,25 @@ describe("POST /sales-returns/:id/refund", () => {
     const { service } = await buildService();
     const refunds = makeRefundsPort();
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, undefined, refunds);
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify({ ...payload, id }) }), insecureHeaderAuthContextResolver);
-    await app.fetch(req(`/${id}/confirm`, { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify({ ...payload, id }) }), insecureHeaderAuthContextResolver);
+    await app.fetch(req(`/${id}/confirm`, { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }));
     return { app, refunds };
   }
 
   it("400s a malformed body", async () => {
     const { app } = await confirmedReturn();
     const res = await app.fetch(
-      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "not-a-number" }) }),
+      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: JSON.stringify({ amount: "not-a-number" }) }),
     );
     expect(res.status).toBe(400);
   });
 
   it("503s when no refunds port is wired", async () => {
     const app = await newApp();
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }));
-    await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }));
+    await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }));
     const res = await app.fetch(
-      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "1", treasuryAccountId: "TILL1" }) }),
+      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: JSON.stringify({ amount: "1", treasuryAccountId: "TILL1" }) }),
     );
     expect(res.status).toBe(503);
   });
@@ -952,7 +972,7 @@ describe("POST /sales-returns/:id/refund", () => {
     const { service } = await buildService();
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, undefined, makeRefundsPort());
     const res = await app.fetch(
-      req("/ghost/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "1", treasuryAccountId: "TILL1" }) }),
+      req("/ghost/refund", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: JSON.stringify({ amount: "1", treasuryAccountId: "TILL1" }) }),
     );
     expect(res.status).toBe(404);
   });
@@ -960,9 +980,9 @@ describe("POST /sales-returns/:id/refund", () => {
   it("422s a refund against a return that is still a draft (not yet confirmed)", async () => {
     const { service } = await buildService();
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, undefined, makeRefundsPort());
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }));
     const res = await app.fetch(
-      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "1", treasuryAccountId: "TILL1" }) }),
+      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: JSON.stringify({ amount: "1", treasuryAccountId: "TILL1" }) }),
     );
     expect(res.status).toBe(422);
   });
@@ -971,7 +991,7 @@ describe("POST /sales-returns/:id/refund", () => {
     const { app } = await confirmedReturn();
     // Grand total: 2 * 100 + 28 tax = 228.
     const res = await app.fetch(
-      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "228", treasuryAccountId: "TILL1" }) }),
+      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: JSON.stringify({ amount: "228", treasuryAccountId: "TILL1" }) }),
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { awaitingRefund: boolean; refundDue: string; voucherId: string };
@@ -983,7 +1003,7 @@ describe("POST /sales-returns/:id/refund", () => {
   it("two partial refunds sum toward the total, and a third that would overshoot is refused", async () => {
     const { app } = await confirmedReturn();
     const first = await app.fetch(
-      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "100", treasuryAccountId: "TILL1" }) }),
+      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: JSON.stringify({ amount: "100", treasuryAccountId: "TILL1" }) }),
     );
     expect(first.status).toBe(200);
     const afterFirst = (await first.json()) as { refundDue: string; refundedTotal: string };
@@ -991,7 +1011,7 @@ describe("POST /sales-returns/:id/refund", () => {
     expect(afterFirst.refundedTotal).toBe("100.000000");
 
     const second = await app.fetch(
-      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "128", treasuryAccountId: "TILL1" }) }),
+      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: JSON.stringify({ amount: "128", treasuryAccountId: "TILL1" }) }),
     );
     expect(second.status).toBe(200);
     const afterSecond = (await second.json()) as { refundDue: string; awaitingRefund: boolean };
@@ -1000,7 +1020,7 @@ describe("POST /sales-returns/:id/refund", () => {
 
     // Nothing left to refund — refused, not silently accepted as a second payout.
     const third = await app.fetch(
-      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "1", treasuryAccountId: "TILL1" }) }),
+      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: JSON.stringify({ amount: "1", treasuryAccountId: "TILL1" }) }),
     );
     expect(third.status).toBe(422);
   });
@@ -1016,10 +1036,10 @@ describe("POST /sales-returns/:id/refund", () => {
       },
     };
     const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, undefined, brokenRefunds);
-    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create", body: JSON.stringify(payload) }), insecureHeaderAuthContextResolver);
-    await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm", body: "{}" }));
+    await app.fetch(req("/", { method: "POST", permissions: "sales.return.create,sales.invoice.view", body: JSON.stringify(payload) }), insecureHeaderAuthContextResolver);
+    await app.fetch(req("/SR1/confirm", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: "{}" }));
     const res = await app.fetch(
-      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "228", treasuryAccountId: "TILL1" }) }),
+      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: JSON.stringify({ amount: "228", treasuryAccountId: "TILL1" }) }),
     );
     expect(res.status).toBe(500);
   });
@@ -1027,7 +1047,7 @@ describe("POST /sales-returns/:id/refund", () => {
   it("refuses a refund whose amount exceeds what remains due", async () => {
     const { app } = await confirmedReturn();
     const res = await app.fetch(
-      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm", body: JSON.stringify({ amount: "9999", treasuryAccountId: "TILL1" }) }),
+      req("/SR1/refund", { method: "POST", permissions: "sales.return.confirm,sales.return.view", body: JSON.stringify({ amount: "9999", treasuryAccountId: "TILL1" }) }),
     );
     expect(res.status).toBe(422);
     const body = (await res.json()) as { error: string };

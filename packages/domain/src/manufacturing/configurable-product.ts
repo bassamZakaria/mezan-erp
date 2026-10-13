@@ -15,7 +15,6 @@ import { grossUpForWaste } from "./bom.js";
 import type { ActivationStatus, ItemPolicy, PricingMethod } from "./types.js";
 import {
   ConfigurableProductNotFoundError,
-  DuplicateManufacturingDocumentError,
   FormulaError,
   InvalidManufacturingDocumentError,
 } from "./errors.js";
@@ -172,9 +171,6 @@ export async function createConfigurableProduct(
   deps: ConfigurableProductDeps,
 ): Promise<ConfigurableProduct> {
   const { inputs, materials, pricingMethod } = validate(command);
-  if (await deps.products.findById(command.id)) {
-    throw new DuplicateManufacturingDocumentError(command.id);
-  }
   const product: ConfigurableProduct = {
     id: command.id,
     code: command.code,

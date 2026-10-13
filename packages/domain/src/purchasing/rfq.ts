@@ -19,7 +19,6 @@ import {
   type PurchaseOrderDeps,
 } from "./purchase-order.js";
 import {
-  DuplicatePurchaseDocumentError,
   InvalidRfqError,
   RfqNotDraftError,
   RfqNotFoundError,
@@ -158,9 +157,6 @@ function validateCreate(command: CreateRfqCommand): void {
 /** Create a مسودة (draft) RFQ: validate, allocate the next RFQ number, persist. */
 export async function createRfq(command: CreateRfqCommand, deps: RfqDeps): Promise<PurchaseRfq> {
   validateCreate(command);
-  if (await deps.rfqs.findById(command.id)) {
-    throw new DuplicatePurchaseDocumentError(command.id);
-  }
   const number = await deps.numbering.next(PURCHASE_RFQ_SEQUENCE);
   const rfq: PurchaseRfq = {
     id: command.id,

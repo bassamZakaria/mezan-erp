@@ -1,6 +1,9 @@
 import type Database from "better-sqlite3";
 import { createCashForecastRoutes, type CashForecastRoutesDeps } from "@mezan/api";
 import {
+  branchGrantCoversEvent,
+  COMPANY_LEVEL_EVENT_PERMISSION,
+  EVENT_BRANCH_IDS_KEY,
   resolvePermissions,
   type CashForecastAlertRecord,
   type EventCode,
@@ -78,14 +81,18 @@ async function recipients(ctx: BackendModuleContext): Promise<string[]> {
   const out: string[] = [];
   for (const user of await ctx.uow.users.list()) {
     if (user.status !== "active") continue;
-    if (user.isCompanyAdmin) {
-      out.push(user.id);
-      continue;
+    let held: ReadonlySet<string> | null = null;
+    if (!user.isCompanyAdmin) {
+      if (!user.roleId) continue;
+      if (!roles.has(user.roleId)) roles.set(user.roleId, await ctx.uow.roles.findById(user.roleId));
+      const role = roles.get(user.roleId);
+      if (!role) continue;
+      held = resolvePermissions(role.permissions);
+      if (!held.has(CASH_FORECAST_PERMISSION)) continue;
     }
-    if (!user.roleId) continue;
-    if (!roles.has(user.roleId)) roles.set(user.roleId, await ctx.uow.roles.findById(user.roleId));
-    const role = roles.get(user.roleId);
-    if (role && resolvePermissions(role.permissions).has(CASH_FORECAST_PERMISSION)) out.push(user.id);
+    // The forecast is the whole company's cash, so the alert is a company-level event.
+    const holdsCompanyLevel = held === null || held.has(COMPANY_LEVEL_EVENT_PERMISSION);
+    if (branchGrantCoversEvent(user.branchScope, holdsCompanyLevel, [])) out.push(user.id);
   }
   return out;
 }
@@ -107,6 +114,7 @@ export const area: BackendArea = {
       ctx.eventBus.publish(
         CASH_FORECAST_ALERT_EVENT,
         {
+          [EVENT_BRANCH_IDS_KEY]: [],
           alertId: alert.id,
           crossingDate: alert.crossingDate,
           threshold: majorLabel(alert.threshold),
@@ -152,6 +160,8 @@ export const area: BackendArea = {
         {
           reports: reportsDeps(ctx),
           treasuryAccounts: ctx.stores.treasuryAccounts,
+          cashAndBankAccountIds: ctx.cashAndBankAccountIds,
+          accounts: ctx.stores.accounts,
           store,
           commitmentSources: () => commitmentRegistry.get(ctx.sqlite) ?? [],
           notify,

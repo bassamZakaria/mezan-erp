@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Money, Qty } from "../../money/index.js";
 import type { Account } from "../../accounts/account.js";
@@ -51,6 +52,9 @@ class MemoryContractStore implements WorksContractStore {
   async listContracts(filter?: WorksContractListFilter) {
     return [...this.contracts.values()].filter((c) => !filter?.status || c.status === filter.status);
   }
+  async insertContract(contract: WorksContract) {
+    insertOnly(this.contracts, contract.id, contract);
+  }
   async saveContract(contract: WorksContract) {
     this.contracts.set(contract.id, contract);
   }
@@ -78,6 +82,9 @@ class MemoryContractStore implements WorksContractStore {
   async findVariationOrderByDocNo(docNo: string) {
     return [...this.orders.values()].find((o) => o.docNo === docNo) ?? null;
   }
+  async insertVariationOrder(order: VariationOrder) {
+    insertOnly(this.orders, order.id, order);
+  }
   async saveVariationOrder(order: VariationOrder) {
     this.orders.set(order.id, order);
   }
@@ -104,6 +111,9 @@ class MemoryCertificateStore implements ProgressCertificateStore {
   }
   async listByContract(contractId: string) {
     return [...this.rows.values()].filter((r) => r.contractId === contractId).sort((a, b) => a.serial - b.serial);
+  }
+  async insert(certificate: ProgressCertificate) {
+    insertOnly(this.rows, certificate.id, certificate);
   }
   async save(certificate: ProgressCertificate) {
     this.rows.set(certificate.id, certificate);

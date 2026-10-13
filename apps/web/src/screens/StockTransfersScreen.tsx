@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -40,6 +42,7 @@ import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** تحويلات المخزون (Stock Transfers) — docs/archive/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
@@ -51,6 +54,8 @@ const STEPPER_KEYS = [
   { key: "draft", labelKey: "docStatus.draft" },
   { key: "confirmed", labelKey: "docStatus.confirmed" },
 ] as const;
+
+const MIN_WAREHOUSES_FOR_A_TRANSFER = 2;
 
 function headerOf(doc: StockTransferDocumentDTO): { fromWarehouseId: string; toWarehouseId: string } {
   const first = doc.lines[0];
@@ -125,6 +130,7 @@ export function StockTransfersScreen() {
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const listConfirm = useConfirmStockTransfer();
+  const resubmit = useResubmitForApproval(ResubmitFamily.StockTransfers);
 
   /**
    * One filter for the rows, the chips and the KPI strip (R1.1) — the chips
@@ -157,9 +163,9 @@ export function StockTransfersScreen() {
    * say so plainly when the server does not have it either.
    */
   const inList = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
-  const fetched = useStockTransfer(selectedId !== null && inList === null ? selectedId : null);
+  const fetched = useStockTransfer(selectedId !== null && inList === null && !query.isPending ? selectedId : null);
   const selected: StockTransferDocumentDTO | null = inList ?? fetched.data ?? null;
-  const selectedMissing = selectedId !== null && selected === null && !fetched.isPending;
+  const selectedMissing = selectedId !== null && selected === null && !query.isPending && !fetched.isPending;
 
   const columns: DocumentListColumn<StockTransferDocumentDTO>[] = [
     {
@@ -190,7 +196,7 @@ export function StockTransfersScreen() {
     subPage.open(doc?.docNo ?? id);
   }
 
-  async function confirmRow(id: string): Promise<void> {
+  async function confirmRow(id: string): Promise<RowActionOutcome | void> {
     if (rowPendingId) return;
     setRowError(null);
     setRowPendingId(id);
@@ -198,6 +204,7 @@ export function StockTransfersScreen() {
       await listConfirm.mutateAsync(id);
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -224,6 +231,7 @@ export function StockTransfersScreen() {
     const effects = stockTransferDocumentType.describeEffects(toDomainDoc(selected));
     return (
       <div className="w-full">
+        <HeldDocumentReapproval document={selected} pending={listConfirm.isPending} confirm={(id) => listConfirm.mutateAsync(id)} />
         <DocumentDetail
           title={selected.docNo ?? t("stockXfer.stockTransfer")}
           statusLabel={documentStatusLabel(selected.status, t)}
@@ -273,6 +281,9 @@ export function StockTransfersScreen() {
             },
           ]}
         />
+        <div className="mt-[16px]">
+          <ResubmitForApprovalAction family={ResubmitFamily.StockTransfers} document={selected} />
+        </div>
         {selected.status === "confirmed" ? (
           <div className="mt-[16px] rounded-md border border-border bg-surface-2 px-[14px] py-[11px] text-[12px] text-ink-muted">
             {t("stockXfer.aConfirmedTransferCannotBe")}
@@ -300,6 +311,7 @@ export function StockTransfersScreen() {
           {rowError}
         </div>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<StockTransferDocumentDTO>
         title={t("stockXfer.stockTransfers")}
         description={t("stockXfer.draftConfirmedMovingQuantityBetween")}
@@ -341,8 +353,9 @@ export function StockTransfersScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => openDetail(d.id) },
             ...(d.status === "draft"
-              ? [{ key: "confirm", label: t("stockXfer.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
+              ? [{ key: "confirm", label: t("stockXfer.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => confirmRow(d.id) }]
               : []),
+            ...resubmitRowMenuItems(resubmit, d),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
         }}
@@ -445,6 +458,19 @@ function CreateTransferView({
     }
   }
 
+  if (warehouses !== undefined && warehouseList.length < MIN_WAREHOUSES_FOR_A_TRANSFER) {
+    return (
+      <div className="w-full">
+        <h1 className="mb-[16px] mt-[5px] font-display text-2xl font-bold text-ink">{t("stockXfer.newStockTransfer")}</h1>
+        <EmptyState
+          title={t("stockXfer.noSecondWarehouse.title")}
+          description={t("stockXfer.noSecondWarehouse.body")}
+          action={{ label: t("common.cancel"), onClick: onDone }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
@@ -466,7 +492,7 @@ function CreateTransferView({
       ) : null}
 
       <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
-        <div className="flex flex-col gap-[16px]">
+        <div className="flex min-w-0 flex-col gap-[16px]">
           <Card className="grid grid-cols-1 gap-[14px] p-[18px] sm:grid-cols-2">
             <TextField label={t("stockXfer.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
             <TextField label={t("common.notes")} value={memo} onChange={setMemo} placeholder={t("stockXfer.describeTheTransfer")} />
@@ -481,7 +507,7 @@ function CreateTransferView({
 
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[440px] border-collapse text-[13px]">
+              <table className="w-full min-w-[320px] border-collapse text-[13px]">
                 <thead>
                   <tr>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
@@ -495,7 +521,7 @@ function CreateTransferView({
                       <td className="px-[12px] py-[8px]">
                         <Select
                           size="sm"
-                          className="min-w-[160px]"
+                          className="min-w-[130px]"
                           aria-label={t("stockXfer.lineItem", { number: i + 1 })}
                           value={line.itemId}
                           onChange={(value) => updateLine(i, { itemId: value })}
@@ -507,7 +533,7 @@ function CreateTransferView({
                           type="number"
                           size="sm"
                           numeric
-                          className="w-[110px] text-end"
+                          className="w-[88px] text-end"
                           aria-label={t("stockXfer.lineQty", { number: i + 1 })}
                           value={line.qty || ""}
                           min={0}

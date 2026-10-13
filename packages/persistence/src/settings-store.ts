@@ -43,7 +43,10 @@ class SqliteSettingsStore implements SettingsRepository {
     // A row written before a field existed would otherwise hand the domain an
     // `undefined` that validation reads as invalid, so the stored bag is always
     // layered on top of the current defaults.
-    return { ...DEFAULT_SETTINGS, ...(JSON.parse(row.data) as Partial<TenantSettings>) } as TenantSettings;
+    const stored = JSON.parse(row.data) as Partial<TenantSettings>;
+    // The period-close control used to read the contracting switch: a row saved before it had a setting of its own keeps the behaviour it had.
+    const periodCloseSingleOperatorMode = stored.periodCloseSingleOperatorMode ?? stored.contractingSingleOperatorMode ?? DEFAULT_SETTINGS.periodCloseSingleOperatorMode;
+    return { ...DEFAULT_SETTINGS, ...stored, periodCloseSingleOperatorMode } as TenantSettings;
   }
 
   async save(settings: TenantSettings): Promise<void> {

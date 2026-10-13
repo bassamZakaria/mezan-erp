@@ -5,13 +5,15 @@ import { seedHr } from "./demo-seed/hr.js";
 import { seedAccess } from "./demo-seed/access.js";
 import { seedAfterHoursActivity } from "./demo-seed/security-activity.js";
 import { seedCrm } from "./demo-seed/crm.js";
-import { seedInventoryOps } from "./demo-seed/inventory-ops.js";
+import { seedInventoryOps, seedShopFloor } from "./demo-seed/inventory-ops.js";
 import { seedPurchasing } from "./demo-seed/purchasing.js";
-import { seedTreasury } from "./demo-seed/treasury.js";
+import { seedGuidedClose } from "./demo-seed/period-close.js";
+import { seedBankStatement, seedTreasury } from "./demo-seed/treasury.js";
 import { seedPlatform } from "./demo-seed/platform.js";
 import { seedAttachments } from "./demo-seed/attachments.js";
 import { seedFragments } from "./demo-seed/fragment-registry.js";
 import { seedHistory } from "./demo-seed/history.js";
+import { registerEveryUnmappedItem } from "./demo-seed/eta-codes.js";
 import { seedContracting, seedContractingProjectInvoice } from "./demo-seed/contracting.js";
 import { seedContractingContracts } from "./demo-seed/contracting-contracts.js";
 import { seedContractingSite } from "./demo-seed/contracting-site.js";
@@ -86,7 +88,7 @@ const CUSTOMERS = [
     email: "billing@alamal.example",
     paymentTermsDays: 30,
     creditLimit: "50000",
-    taxNumber: "300112233445",
+    taxNumber: "311223344",
     commercialRegistrationNumber: "CR-114522",
     etaBuyerType: "business" as const,
     contactPerson: "أحمد سيد",
@@ -100,7 +102,7 @@ const CUSTOMERS = [
     phone: "01112223344",
     paymentTermsDays: 45,
     creditLimit: "120000",
-    taxNumber: "300998877665",
+    taxNumber: "399887766",
     commercialRegistrationNumber: "CR-208814",
     etaBuyerType: "business" as const,
     contactPerson: "هالة منصور",
@@ -114,13 +116,27 @@ const CUSTOMERS = [
     phone: "01223334455",
     paymentTermsDays: 15,
     creditLimit: "25000",
-    // A tax-exempt individual buyer, so the invoice screens have a customer
-    // that genuinely zero-rates rather than only the exempt FLAG to look at.
-    taxExempt: true,
     etaBuyerType: "individual" as const,
     nationalId: "29001011234567",
     contactPerson: "محمود الفجر",
     address: "34 شارع الجيش، طنطا، الغربية",
+  },
+  {
+    // INVARIANT: the ONE tax-exempt customer, and no seeded history sells to
+    // it. Exemption is read off this record by the server, so every sale to
+    // it zero-rates under the exemption rate set on its card below.
+    id: "CUST-DEMO-4",
+    code: "C-0090",
+    nameAr: "جمعية النور الخيرية",
+    nameEn: "Al Nour Charity",
+    phone: "01554445566",
+    paymentTermsDays: 30,
+    creditLimit: "40000",
+    taxExempt: true,
+    etaBuyerType: "individual" as const,
+    nationalId: "28505051234567",
+    contactPerson: "سلوى عبد الرحمن",
+    address: "9 شارع النصر، المنصورة، الدقهلية",
   },
 ];
 
@@ -423,13 +439,43 @@ const SALES_INVOICES = [
 ];
 
 const VAT_PERCENT = 14;
+const VAT_RATE_ID = "VAT14";
 
-/** EGS codes registered with the authority for part of the catalogue. */
+const ZERO_RATED_TAX_RATES = [
+  { id: "VAT-EXEMPT", code: "VAT-EXEMPT", name: "معفى من الضريبة", etaSubType: "V003" },
+  { id: "VAT-EXPORT", code: "VAT-EXPORT", name: "تصدير — نسبة صفر", etaSubType: "V001" },
+] as const;
+
+const EXEMPT_CUSTOMER_ID = "CUST-DEMO-4";
+const EXEMPT_CUSTOMER_TAX_RATE_ID = "VAT-EXEMPT";
+
+const ZERO_RATED_INVOICE = {
+  id: "INV-DEMO-TAX-1",
+  customerId: "CUST-DEMO-1",
+  salespersonId: "EMP-DEMO-1",
+  date: "2026-08-06",
+  dueDate: "2026-09-05",
+  lines: [
+    { itemId: "ITEM-DEMO-10", itemNameAr: "خدمة توصيل الطلبات", taxRateId: "VAT-EXEMPT", qty: "4", unitPrice: "75" },
+    { itemId: "ITEM-DEMO-1", itemNameAr: "أرز أبيض 5 كجم — توريد تصدير", taxRateId: "VAT-EXPORT", qty: "6", unitPrice: "75" },
+  ],
+} as const;
+
 const ETA_ITEM_CODES = [
   { itemId: "ITEM-DEMO-1", etaItemCode: "EG-100200300-1001", gpcCode: "10000159" },
   { itemId: "ITEM-DEMO-2", etaItemCode: "EG-100200300-1002", gpcCode: "10000165" },
   { itemId: "ITEM-DEMO-3", etaItemCode: "EG-100200300-1003", gpcCode: "10000172" },
   { itemId: "ITEM-DEMO-4", etaItemCode: "EG-100200300-1004", gpcCode: "10000184" },
+  { itemId: "ITEM-DEMO-5", etaItemCode: "EG-100200300-1005", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-6", etaItemCode: "EG-100200300-1006", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-7", etaItemCode: "EG-100200300-1007", gpcCode: "10000025" },
+  { itemId: "ITEM-DEMO-8", etaItemCode: "EG-100200300-1008", gpcCode: "10000028" },
+  { itemId: "ITEM-DEMO-9", etaItemCode: "EG-100200300-1009", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-10", etaItemCode: "EG-100200300-1010", gpcCode: "10005803" },
+  { itemId: "ITEM-DEMO-11", etaItemCode: "EG-100200300-1011", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-12", etaItemCode: "EG-100200300-1012", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-13", etaItemCode: "EG-100200300-1013", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-14", etaItemCode: "EG-100200300-1014", gpcCode: "10000117" },
 ];
 
 function salespersonNameOf(employeeId: string | null): string | null {
@@ -540,6 +586,16 @@ export async function seedDemoTenant(
     etaSubType: "auto",
     status: "active",
   });
+  for (const zeroRated of ZERO_RATED_TAX_RATES) {
+    await step(app, "POST", "/tax-rates", {
+      ...zeroRated,
+      rate: 0,
+      calculationType: "exclusive",
+      isDefault: false,
+      status: "active",
+    });
+  }
+  await step(app, "PATCH", `/customers/${EXEMPT_CUSTOMER_ID}`, { taxExemptionRateId: EXEMPT_CUSTOMER_TAX_RATE_ID });
   await step(app, "POST", "/tax-groups", {
     id: "TXG-DEMO-1",
     code: "VAT-TABLE",
@@ -692,7 +748,7 @@ export async function seedDemoTenant(
       branchId: BRANCH_ID,
       warehouseId: WAREHOUSE_ID,
       currency: "EGP",
-      lines: invoice.lines.map((line) => ({ ...line, kind: "inventory", taxRatePercent: VAT_PERCENT })),
+      lines: invoice.lines.map((line) => ({ ...line, kind: "inventory", taxRateId: VAT_RATE_ID })),
     });
     await step(app, "POST", `/purchases/invoices/${invoice.id}/confirm`, {});
   }
@@ -724,7 +780,7 @@ export async function seedDemoTenant(
         isStock: true,
         qty: line.qty,
         unitPrice: line.unitPrice,
-        taxRatePercent: VAT_PERCENT,
+        taxRateId: VAT_RATE_ID,
         revenueAccountId: ACCOUNTS.revenue,
         cogsAccountId: ACCOUNTS.cogs,
         inventoryAccountId: ACCOUNTS.inventory,
@@ -733,12 +789,39 @@ export async function seedDemoTenant(
     await step(app, "POST", `/sales-invoices/${invoice.id}/confirm`, {});
   }
 
+  await step(app, "POST", "/sales-invoices", {
+    id: ZERO_RATED_INVOICE.id,
+    date: ZERO_RATED_INVOICE.date,
+    dueDate: ZERO_RATED_INVOICE.dueDate,
+    customerId: ZERO_RATED_INVOICE.customerId,
+    customerNameAr: CUSTOMERS.find((c) => c.id === ZERO_RATED_INVOICE.customerId)?.nameAr ?? ZERO_RATED_INVOICE.customerId,
+    warehouseId: WAREHOUSE_ID,
+    branchId: BRANCH_ID,
+    salespersonId: ZERO_RATED_INVOICE.salespersonId,
+    salespersonNameAr: salespersonNameOf(ZERO_RATED_INVOICE.salespersonId),
+    currency: "EGP",
+    arAccountId: ACCOUNTS.receivable,
+    taxAccountId: ACCOUNTS.outputVat,
+    lines: ZERO_RATED_INVOICE.lines.map((line, index) => ({
+      lineId: `${ZERO_RATED_INVOICE.id}-L${index + 1}`,
+      itemId: line.itemId,
+      itemNameAr: line.itemNameAr,
+      isStock: false,
+      qty: line.qty,
+      unitPrice: line.unitPrice,
+      taxRateId: line.taxRateId,
+      revenueAccountId: ACCOUNTS.revenue,
+    })),
+  });
+  await step(app, "POST", `/sales-invoices/${ZERO_RATED_INVOICE.id}/confirm`, {});
+
   // Order matters: every module below references the core entities above.
   await seedAccess(app);
   await seedHr(app);
   await seedCrm(app);
   await seedInventoryOps(app);
   await seedPurchasing(app);
+  await seedShopFloor(app);
   await seedTreasury(app);
   await seedContracting(app);
   await seedContractingContracts(app);
@@ -759,6 +842,10 @@ export async function seedDemoTenant(
   // to post; the close is what the accountant would have done at each
   // year-end, and it has to happen after the books are written.
   await closeHistoricPeriods(app);
+  await seedGuidedClose(app);
+  // INVARIANT: after every seed that posts to the bank before August, the guided close's July bank charge included — the statement opens on the book balance of 31 July, and a posting dated earlier that lands after it leaves a difference no matching can explain.
+  await seedBankStatement(app);
+  await registerEveryUnmappedItem(app);
 }
 
 /**
@@ -772,6 +859,8 @@ export async function seedDemoTenant(
  */
 const OPEN_FROM_PERIOD = "2026-01";
 
+const HISTORIC_CLOSE_OVERRIDE_REASON = "إقفال الفترة قبل اعتماد قيد تسوية نهاية السنة — بموافقة المدير المالي.";
+
 async function closeHistoricPeriods(app: App): Promise<void> {
   const periods = (await step(app, "GET", "/fiscal-periods")) as readonly {
     id: string;
@@ -784,7 +873,7 @@ async function closeHistoricPeriods(app: App): Promise<void> {
     .filter((p) => p.status === "open")
     .sort((a, b) => (a.year === b.year ? a.periodNumber - b.periodNumber : a.year - b.year));
   for (const period of historic) {
-    await step(app, "POST", `/fiscal-periods/${period.id}/close`, {});
+    await step(app, "POST", `/fiscal-periods/${period.id}/close`, { overrideReason: HISTORIC_CLOSE_OVERRIDE_REASON });
   }
 }
 

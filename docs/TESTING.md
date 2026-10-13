@@ -5999,6 +5999,7 @@ reachable from this file's five domains.
 **FLD-11 — Newly-opened trips via the UI now get a real `TRIP-####` number** `[fixed]`
 - Steps: افتح رحلة جديدة كاملة الحقول عبر النموذج (لا حقل لرقم الرحلة يدوياً في هذا النموذج أصلاً)، اضغط "فتح رحلة".
 - Assert: الرحلة الجديدة تظهر في القائمة بعمود "رقم الرحلة" يعرض رقماً مقروءاً مثل "TRIP-0003" — الخادم يخصّص الرقم من تسلسل الترقيم `VAN_TRIP` (`packages/domain/src/numbering/sequences.ts`) عندما لا يرسل النموذج `tripNo`؛ الرحلتان المزروعتان (TRIP-DEMO-1/2) ما زالتا تحملان رقمَيهما اليدويَّين لأن سكربت الزرع يرسلهما مباشرة عبر الـAPI.
+- Assert (D111): الرحلة تُخزَّن بالمعرّف الذي أرسله الطالب — `POST /field/van-trips` بمعرّف `id` يعيد الرحلة بالمعرّف نفسه، والخادم لا يستبدله بمعرّف من عنده. فتح رحلة ثانية بالمعرّف نفسه يُرفض بـ409 `DUPLICATE_ID` برسالة عربية، ولا يُكتب شيء: لا رحلة ثانية، ولا رقم `TRIP-####` مصروف، ولا حركة مخزون أو خزينة (`scripts/scenarios/crm.ts` «FLD-11»، و`packages/backend/src/create-duplicate-id.structure.test.ts`).
 
 **FLD-12 — Ongoing trip detail: no tabs — everything is stacked cards** `[gap]`
 - Pre: TRIP-DEMO-2 (جارية).
@@ -6199,7 +6200,6 @@ reachable from this file's five domains.
 - FLD-07: منتقي طاقم الرحلة حقل نصي خام لمعرّف الموظف، وليس بحثاً بالاسم.
 - FLD-12: لا ألسنة "مستندات"/"مسار"/"سجل مراجعة" على تفاصيل رحلة؛ لا ملخص مبيعات (فواتير/مرتجعات/صافي/آجل) في بطاقة التسوية.
 - FLD-19: لا مسار لإلغاء رحلة.
-- (FLD-11 فجوة سلوك حقيقية: رحلات تُفتح عبر الواجهة لا تحصل أبداً على رقم رحلة ودّي).
 
 **Installments**
 - INST-02: لا رقاقات حالة متأخر/مكتمل/ملغي، لا بحث، لا فلتر عميل/تاريخ في قائمة خطط الأقساط.
@@ -7903,53 +7903,54 @@ are the entire reason this section's Pre-conditions look the way they do.
 
 - **PLT-APR-02** — Seeded pending request IS visible to the admin account
   (because admin sees everything, not because admin submitted it).
-  **Pre**: Demo seed's `APR-DEMO-1` (سير عمل: `SALES_INVOICE_CONFIRM`, step 0
-  requiring role `SUPERVISOR`, submitted by the synthetic actor
-  `USER-SALES-REP-1` during seeding — NOT a real login in this build, see the
-  callout below).
+  **Pre**: The demo seed's **pending request** — the one labelled "فاتورة
+  مبيعات بقيمة 5,200 ج.م — مجموعة الفجر التجارية" (سير عمل:
+  `SALES_INVOICE_CONFIRM`, step 0 requiring role `SUPERVISOR`, raised during
+  seeding by `karim.fouad`, the `SALES_REP`). **Its id is assigned by the
+  server**, so it differs on every seeded database: find the row by that
+  label, never by an id written down from another run (the seed used to pin
+  `APR-DEMO-1/2/3`; `POST /workflow/requests` no longer takes an id from the
+  caller).
   **Steps**: Signed in as `USER-ADMIN`, open الموافقات.
-  **Assert**: `APR-DEMO-1` DOES appear — one row, "فاتورة مبيعات بقيمة 5,200
-  ج.م — مجموعة الفجر التجارية", الخطوة الحالية "1 / 1", الدور المطلوب
-  "SUPERVISOR", مُقدَّم من `USER-SALES-REP-1`. This works because
+  **Assert**: The pending request DOES appear — one row, "فاتورة مبيعات بقيمة
+  5,200 ج.م — مجموعة الفجر التجارية", الخطوة الحالية "1 / 1", الدور المطلوب
+  "SUPERVISOR", مُقدَّم من كريم فؤاد. This works because
   `listPendingForRoles` special-cases `roles.includes("*")` to return every
   pending request unfiltered (`packages/persistence/src/approval-request-
   store.ts`) — admin sees the whole queue, distinct from the submit-side
   bypass in PLT-APR-01.
 
 - **PLT-APR-03 — the decide-side trap, confirmed against real seed data.**
-  **Pre**: Same as PLT-APR-02 — `APR-DEMO-1` visible, signed in as
-  `USER-ADMIN`.
-  **Steps**: Click "رفض" (reject) on `APR-DEMO-1`'s row.
+  **Pre**: Same as PLT-APR-02 — the seeded pending request visible, signed in
+  as `USER-ADMIN`.
+  **Steps**: Click "رفض" (reject) on that request's row.
   **Assert**: The request does NOT end up rejected. `decide()`'s admin branch
   ignores `input.decision` entirely and always grants — the request's status
   becomes `"approved"` with a `"bypass"` decision kind, and it disappears from
   the pending list as if approved. **Clicking "reject" as an admin approves.**
-  Do not run this against `APR-DEMO-1` if a later scenario (PLT-APR-06/07)
-  still needs it pending — use a disposable request instead, or restore the
+  Do not run this against the seeded pending request if a later scenario
+  (PLT-APR-06/07) still needs it pending — use a disposable request instead, or restore the
   seed.
 
-- **PLT-CALLOUT — there is no real non-admin login in this seed; you must
-  create one.**
-  The synthetic actors named in `demo-seed/platform.ts`
-  (`USER-SALES-REP-1`, `USER-PURCHASING-1`, `USER-FINANCE-MGR`,
-  `USER-SUPERVISOR-1`, `USER-SALES-REP-2`) are `x-user-id`/`x-role-codes`
-  HTTP headers the seed script sends directly to the backend — they are
-  **not** rows in the Users table, have no password, and cannot be signed
-  into through the login screen (`packages/backend/src/seed.ts` creates
-  exactly one real account, `USER-ADMIN`). To genuinely exercise a non-admin
-  approve/reject/request-modification decision through the live UI (not via
-  raw API calls), you must first: (1) create a custom role via **PLT-ROL-03**
-  with `code: "SUPERVISOR"` — matching `APR-DEMO-1`'s required step role
-  exactly, string-for-string — holding at least `workflow.view` +
-  `workflow.approve` + `workflow.reject`; (2) create a user via
-  **PLT-USR-CREATE** assigned to that role; (3) sign out of `USER-ADMIN` and
-  sign in as the new user. Only then does clicking "رفض"/"موافقة"/"طلب تعديل"
+- **PLT-CALLOUT — decide as the seeded supervisor, not as an admin.**
+  The seeded requests are raised and decided by real seeded accounts
+  (`demo-seed/platform.ts` → `inboxPeople()`): `karim.fouad` (`SALES_REP`)
+  raises the pending one, `rania.adel` (`PURCHASING_OFFICER`) the approved
+  one, `salma.fouad` (`VAN_SALES`) the rejected one; `tarek.mansour`
+  (`FINANCE_MANAGER`) approved and `omar.hilal` (`SUPERVISOR`) rejected. All
+  sign in at the login screen (§ demo accounts, PIN `123456`). To exercise a
+  non-admin approve/reject/request-modification decision through the live UI,
+  sign out of `USER-ADMIN` and sign in as `omar.hilal@cyag.example`: the
+  `SUPERVISOR` role holds `workflow.view` + `workflow.approve` +
+  `workflow.reject` and matches the pending request's step role
+  string-for-string. Only then does clicking "رفض"/"موافقة"/"طلب تعديل"
   exercise the REAL non-admin decision path (`decide()`'s non-admin branch,
   which actually reads `input.decision`).
 
 - **PLT-APR-04** — Non-admin approve — happy path, correct step-role match.
   **Pre**: Signed in as the `SUPERVISOR`-role user from **PLT-CALLOUT**.
-  **Steps**: Open الموافقات; confirm `APR-DEMO-1` is visible (role match);
+  **Steps**: Open الموافقات; confirm the seeded pending request is visible
+  (role match);
   type an optional note in the row's ملاحظة field, e.g. "المستندات سليمة";
   click "موافقة".
   **Assert**: Row disappears from the pending list; the mutation's response
@@ -7962,8 +7963,8 @@ are the entire reason this section's Pre-conditions look the way they do.
 - **PLT-APR-05** — Non-admin reject — happy path, real rejection this time.
   **Pre**: A fresh pending request against a 1-step chain requiring this
   user's role (create one: submit a new `SALES_INVOICE_CONFIRM` request via
-  the seed's own pattern, or reuse `APR-DEMO-1` if PLT-APR-04 wasn't run
-  against it).
+  the seed's own pattern, or reuse the seeded pending request if PLT-APR-04
+  wasn't run against it).
   **Steps**: Type a rejection reason in the row's ملاحظة field, e.g. "تجاوز
   الحد الائتماني"; click "رفض".
   **Assert**: Row disappears from pending; response shows `status:
@@ -7974,19 +7975,20 @@ are the entire reason this section's Pre-conditions look the way they do.
 
 - **PLT-APR-06** — Reject's consequence: **the underlying document does not
   post — but only provably so for a request that's actually tied to one.**
-  **Pre / important scope note**: `APR-DEMO-1`/`2`/`3` are synthetic
+  **Pre / important scope note**: the three seeded requests are synthetic
   (`entityLabel`-only) requests created by direct `POST /workflow/requests`
   calls during seeding — they were never produced by a real sales/purchase
   invoice's confirm action, and deciding them has no effect on any real
   document (there is no linked invoice to check). To test "a rejected
   document must not post" against a REAL document, see **PLT-APR-10** below —
   read it before assuming this scenario alone proves the consequence.
-  **Steps**: With `APR-DEMO-3` (seeded, already `status: "rejected"`, decided
-  by the synthetic `USER-SUPERVISOR-1` with comment "تم الرفض: تجاوز الفاتورة
-  الحد الائتماني المسموح للعميل") — confirm it does NOT appear in the pending
+  **Steps**: With the seeded **rejected request** — "فاتورة مبيعات بقيمة 18,500
+  ج.م — شركة الأمل للتجارة" (already `status: "rejected"`, decided by
+  `omar.hilal` with comment "تم الرفض: تجاوز الفاتورة الحد الائتماني المسموح
+  للعميل"; read its server-assigned id from `approval_request` by that label) — confirm it does NOT appear in the pending
   inbox for any actor, admin or otherwise (a rejected request is terminal,
   never re-enters the queue).
-  **Assert**: `APR-DEMO-3` is absent from `/workflow/requests/pending`
+  **Assert**: That request is absent from `/workflow/requests/pending`
   regardless of who's signed in; there is no UI screen that lists it as
   "rejected" anywhere either (see PLT-APR-12's gap note) — its only visible
   trace is that it no longer appears pending.

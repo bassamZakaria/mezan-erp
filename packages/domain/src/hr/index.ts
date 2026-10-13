@@ -27,15 +27,27 @@ export {
   canTransitionEmployee,
 } from "./employee.js";
 export { createEmployee, updateEmployee, type CreateEmployeeCommand, type EmployeeEditableFields } from "./create-employee.js";
-export { transitionEmployee, terminateEmployee, rehireEmployee } from "./transition-employee.js";
+export { transitionEmployee, terminateEmployee, rehireEmployee, withTerminationDate } from "./transition-employee.js";
+export {
+  payslipPaidSpan,
+  payslipOverpaymentAfter,
+  terminateEmployeeService,
+  correctTerminationDate,
+  type TerminationPayrollDeps,
+  type PayslipPaidSpan,
+  type PayslipOverpayment,
+  type TerminationPayRecovery,
+  type TerminateEmployeeResult,
+  type TerminateEmployeeDeps,
+  type TerminateEmployeeCommand,
+} from "./termination-recovery.js";
 
+export { PayBasis, ContractStatus } from "./contract.js";
 export type {
   Contract,
   ContractRepository,
   ContractType,
-  PayBasis,
   PayFrequency,
-  ContractStatus,
   ContractLineItem,
   LeaveEntitlementOverrides,
   ContractTypeDefinition,
@@ -231,11 +243,15 @@ export {
   getPayrollRunStatusLabel,
   ALLOWED_PAYROLL_RUN_TRANSITIONS,
   canTransitionPayrollRun,
+  PAYROLL_RUN_FINAL_STATUSES,
   PAYROLL_GL_ACCOUNTS,
   PAYROLL_UNIMPLEMENTED_RULES,
   PAYROLL_UNIMPLEMENTED_RULES_STATUTORY,
+  PART_MONTH_TAX_NOTICE,
+  isPartMonthTaxedPayslip,
   payrollUnimplementedRulesFor,
   PAYSLIP_LINE_SOURCE_DEFINITIONS,
+  PayslipLineKindCode,
   STATUTORY_PAYSLIP_LINE_SOURCES,
   getPayslipLineSourceLabel,
   PAYROLL_DAY_DIVISOR_BASIS_DEFINITIONS,
@@ -282,6 +298,13 @@ export {
   EmployeeNotFoundError,
   InvalidEmployeeError,
   InvalidEmployeeTransitionError,
+  EmployeeNotTerminatedError,
+  TerminationRecoveryAlreadyCollectedError,
+  PayrollRunDisbursedError,
+  DisbursementTreasuryAccountNotFoundError,
+  PayrollRunNotApprovedError,
+  PayrollRunHasTerminationAdjustmentError,
+  AdvancePartlyRepaidError,
   UserNotLinkedToEmployeeError,
   ContractNotFoundError,
   InvalidContractError,
@@ -306,6 +329,8 @@ export {
   InvalidEmployeeAdvanceTransitionError,
   PayrollRunNotFoundError,
   InvalidPayrollRunError,
+  HrProvisionPostingNotFoundError,
+  HrProvisionLaterPostingError,
   InvalidPayrollRunTransitionError,
   DuplicatePayrollPeriodError,
   NoPayableEmployeesError,
@@ -340,6 +365,7 @@ export {
   getGarnishmentKindLabel,
   createGarnishment,
   applyGarnishmentRecovery,
+  reverseGarnishmentRecovery,
   releaseGarnishment,
   createGarnishmentProvider,
 } from "./garnishment.js";
@@ -418,7 +444,8 @@ export type { EndOfServiceSettlement, EndOfServiceSettlementInput } from "./end-
 export { calculateEndOfServiceSettlement } from "./end-of-service.js";
 
 export type { HrProvisionKind, HrProvisionDefinition, PostHrProvisionCommand, PostHrProvisionDeps, HrProvisionResult } from "./post-hr-provision.js";
-export { HR_PROVISION_DEFINITIONS, getHrProvisionDefinition, hrProvisionMovement, postHrProvision } from "./post-hr-provision.js";
+export { HR_PROVISION_DEFINITIONS, getHrProvisionDefinition, hrProvisionMovement, postHrProvision, listHrProvisionPostings, reverseHrProvision } from "./post-hr-provision.js";
+export type { HrProvisionPosting, ReverseHrProvisionOptions, HrProvisionReversalResult } from "./post-hr-provision.js";
 
 export type { PayrollStatutoryFlag, PayrollStatutoryFlagRepository } from "./statutory-flag.js";
 export { PAYROLL_STATUTORY_FLAG_CODE, DEFAULT_PAYROLL_STATUTORY_FLAG } from "./statutory-flag.js";
@@ -442,3 +469,19 @@ export {
   selfieBytesMatchMime,
 } from "./self-service.js";
 export { assertDeviceBadgeAvailable, normalizeDeviceBadgeId } from "./device-badge.js";
+
+export {
+  PayrollExclusionReason,
+  contractForPeriod,
+  inServiceDuring,
+  payrollEligibility,
+  payrollCapabilities,
+  type PayrollBindings,
+  type PayrollCapabilities,
+  type PayrollEligibility,
+  type PayrollServiceSpan,
+  type PayrollWindow,
+} from "./payroll-population.js";
+
+export { reversePayrollRunApproval, unwindPayrollDisbursementVoucher, type ReversePayrollApprovalDeps, type ReversePayrollApprovalOptions } from "./reverse-payroll-approval.js";
+export { cancelEmployeeAdvance, type CancelEmployeeAdvanceDeps, type CancelEmployeeAdvanceOptions } from "./cancel-advance.js";

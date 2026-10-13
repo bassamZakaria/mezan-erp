@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import type { CostCenter, CostCenterRepository } from "../cost-center.js";
 
 /** A trivial in-memory {@link CostCenterRepository} fake for domain-layer unit tests. */
@@ -20,7 +21,7 @@ export class InMemoryCostCenterRepository implements CostCenterRepository {
   }
 
   async create(costCenter: CostCenter): Promise<void> {
-    this.rows.set(costCenter.id, costCenter);
+    insertOnly(this.rows, costCenter.id, costCenter);
   }
 
   async update(costCenter: CostCenter): Promise<void> {

@@ -23,6 +23,7 @@ export const PERMISSION_ACTION_LABELS = {
   view_own: { ar: "عرض الخاص بي", en: "View own" },
   view_all: { ar: "عرض الكل", en: "View all" },
   view_cost: { ar: "عرض التكلفة", en: "View cost" },
+  view_unattributed: { ar: "عرض القيود غير المخصصة لفرع", en: "View entries assigned to no branch" },
   view_salary: { ar: "عرض الراتب", en: "View salary" },
   view_personal: { ar: "عرض البيانات الشخصية", en: "View personal data" },
   create: { ar: "إنشاء", en: "Create" },
@@ -31,6 +32,7 @@ export const PERMISSION_ACTION_LABELS = {
   delete_draft: { ar: "حذف المسودة", en: "Delete draft" },
   confirm: { ar: "تأكيد", en: "Confirm" },
   void: { ar: "إبطال", en: "Void" },
+  classify_tax: { ar: "تصنيف ضريبة بند مرحّل", en: "Classify a posted line's tax" },
   cancel: { ar: "إلغاء", en: "Cancel" },
   approve: { ar: "اعتماد", en: "Approve" },
   reject: { ar: "رفض", en: "Reject" },
@@ -81,6 +83,8 @@ export const PERMISSION_ACTION_LABELS = {
   certify: { ar: "اعتماد الاستشاري", en: "Certify" },
   release: { ar: "إفراج", en: "Release" },
   post_entry: { ar: "ترحيل قيد من الكشف", en: "Post entry from statement" },
+  override_close: { ar: "تجاوز فحوص الإقفال", en: "Override close checks" },
+  reverse: { ar: "عكس", en: "Reverse" },
 } as const satisfies Record<string, PermissionLabel>;
 
 export const PERMISSION_ENTITY_LABELS = {
@@ -162,11 +166,18 @@ export const PERMISSION_ENTITY_LABELS = {
   warehouses: { ar: "المستودعات", en: "Warehouses" },
   wo: { ar: "أمر تصنيع", en: "Work order" },
   workflow: { ar: "سير العمل", en: "Workflow" },
+  dashboard: { ar: "لوحة التحكم", en: "Dashboard" },
   writedown: { ar: "تخفيض القيمة", en: "Write-down" },
   cockpit: { ar: "لوحة المالك", en: "owner cockpit" },
   cash_forecast: { ar: "توقع السيولة", en: "cash forecast" },
   recurring: { ar: "القيود المتكررة", en: "Recurring journals" },
   terminal: { ar: "جهاز نقطة البيع", en: "POS terminal" },
+  revaluation: { ar: "إعادة تقييم العملات", en: "FX revaluation" },
+  year_end_close: { ar: "إقفال نهاية السنة", en: "Year-end close" },
+  disposal: { ar: "استبعاد أصل", en: "Asset disposal" },
+  provision: { ar: "مخصص الإجازات ونهاية الخدمة", en: "Leave and end-of-service provision" },
+  equipment_log: { ar: "سجل تشغيل المعدات", en: "Equipment log" },
+  consumption: { ar: "صرف مواد للموقع", en: "Site material consumption" },
 } as const satisfies Record<string, PermissionLabel>;
 
 type ActionSegment = keyof typeof PERMISSION_ACTION_LABELS;

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   DocumentList,
   DocumentDetail,
@@ -34,6 +35,7 @@ import {
   type RfqComparisonRecord,
   type RfqListFilter,
   useUsers,
+  useWarehouses,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useSubPage } from "../navigation";
@@ -169,6 +171,7 @@ function RfqDetail({
   }
 
   const comparison = comparisonQuery.data;
+  const warehouses = useWarehouses().data ?? [];
 
   return (
     <DocumentDetail
@@ -198,7 +201,7 @@ function RfqDetail({
       summary={[
         { label: t("common.date"), value: fmtDate(rfq.date) },
         { label: t("rfqs.detail.requiredBy"), value: fmtDate(rfq.requiredByDate) },
-        { label: t("common.warehouse"), value: rfq.warehouseId },
+        { label: t("common.warehouse"), value: warehouses.find((warehouse) => warehouse.id === rfq.warehouseId)?.name ?? rfq.warehouseId },
         { label: t("rfqs.detail.quotesReceived"), value: <span className="mz-num">{quotes.length}</span> },
         {
           label: t("rfqs.detail.linkedOrder"),
@@ -410,7 +413,7 @@ export function RfqsScreen() {
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
-  async function runRowAction(id: string, transition: { mutateAsync: (id: string) => Promise<unknown> }): Promise<void> {
+  async function runRowAction(id: string, transition: { mutateAsync: (id: string) => Promise<unknown> }): Promise<RowActionOutcome | void> {
     if (rowPendingId) return;
     setRowError(null);
     setRowPendingId(id);
@@ -418,6 +421,7 @@ export function RfqsScreen() {
       await transition.mutateAsync(id);
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -675,12 +679,12 @@ export function RfqsScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(r.number ?? r.id) },
             ...(r.status === "draft"
-              ? [{ key: "send", label: t("rfqs.send"), disabled: rowPendingId === r.id, onSelect: () => void runRowAction(r.id, sendRfq) }]
+              ? [{ key: "send", label: t("rfqs.send"), disabled: rowPendingId === r.id, onSelect: () => runRowAction(r.id, sendRfq) }]
               : []),
             ...(r.status === "sent"
               ? [
                   { key: "convert", label: t("rfqs.convertToOrder"), onSelect: () => subPage.open(r.number ?? r.id) },
-                  { key: "close", label: t("rfqs.closeWithout"), disabled: rowPendingId === r.id, onSelect: () => void runRowAction(r.id, closeRfq) },
+                  { key: "close", label: t("rfqs.closeWithout"), disabled: rowPendingId === r.id, onSelect: () => runRowAction(r.id, closeRfq) },
                 ]
               : []),
             ...(r.status === "draft" || r.status === "sent"
@@ -690,7 +694,7 @@ export function RfqsScreen() {
                     label: t("rfqs.cancel"),
                     tone: "danger" as const,
                     disabled: rowPendingId === r.id,
-                    onSelect: () => void runRowAction(r.id, cancelRfq),
+                    onSelect: () => runRowAction(r.id, cancelRfq),
                   },
                 ]
               : []),

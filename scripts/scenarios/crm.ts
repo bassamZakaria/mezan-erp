@@ -229,6 +229,8 @@ export async function run(ctx: Ctx): Promise<void> {
   // plant asset — and the totals below are exact.
 
   await scenario("fixed-assets · depreciation run matches each asset's category method/life; posting balances the GL", async () => {
+    const accumulatedBefore = n((await req("GET", "/assets/ASSET-DEMO-1")).body.accumulatedDepreciation);
+    checkEq("AST-0001 enters with the seeded months already depreciated: 77,080.645161", accumulatedBefore, 77080.645161);
     const run = await req("POST", "/assets/depreciation/runs", { period: "2026-08" });
     checkEq("run created", run.status, 201);
     check("starts 'draft'", run.body.status === "draft");
@@ -256,10 +258,16 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const je = await req("GET", `/gl/journal-entries/${posted.body.journalEntryId}`);
     checkEq("the posted journal entry is fetchable", je.status, 200);
-    checkEq("exactly TWO Dr/Cr pairs — all 3 categories share the same 5400/1590 accounts so lines are grouped, but the plant asset is project-assigned and posts under its own project group",
-      je.body.lines.length, 4);
-    const debitLine = je.body.lines.find((l: any) => l.accountId === "5400" && !l.projectId);
-    const creditLine = je.body.lines.find((l: any) => l.accountId === "1590" && !l.projectId);
+    checkEq("exactly THREE Dr/Cr pairs — all 3 categories share the same 5400/1590 accounts so lines are grouped; the plant asset posts under its own project, and the unassigned assets split by the branch each asset belongs to (D111)",
+      je.body.lines.length, 6);
+    const unassigned = (accountId: string) => je.body.lines.filter((l: any) => l.accountId === accountId && !l.projectId);
+    const debitLine = unassigned("5400")[0];
+    const creditLine = unassigned("1590")[0];
+    const sumOf = (lines: any[], side: "debit" | "credit") => lines.reduce((total: number, l: any) => total + n(l[side]), 0);
+    const branchDebit = unassigned("5400").find((l: any) => l.branchId === "BR-MAIN");
+    const companyDebit = unassigned("5400").find((l: any) => !l.branchId);
+    const branchCredit = unassigned("1590").find((l: any) => l.branchId === "BR-MAIN");
+    const companyCredit = unassigned("1590").find((l: any) => !l.branchId);
     const plantDebit = je.body.lines.find((l: any) => l.accountId === "5400" && l.projectId === "PRJ-DEMO-1");
     const plantCredit = je.body.lines.find((l: any) => l.accountId === "1590" && l.projectId === "PRJ-DEMO-1");
     check("a 5400 (depreciation expense) debit line exists for the unassigned assets", debitLine !== undefined);
@@ -268,17 +276,23 @@ export async function run(ctx: Ctx): Promise<void> {
     check("and credits 1590 under the same project", plantCredit !== undefined);
     check("the plant asset's expense line carries costCategory 'equipment' — plant depreciation is project equipment cost",
       plantDebit?.costCategory === "equipment", JSON.stringify(plantDebit?.costCategory));
-    checkEq("Dr 5400 (no project) == the 6 unassigned assets' total", n(debitLine.debit), 19459.027777);
-    checkEq("Cr 1590 (no project) == the same", n(creditLine.credit), 19459.027777);
+    checkEq("Dr 5400 (no project) == the 6 unassigned assets' total", sumOf(unassigned("5400"), "debit"), 19459.027777);
+    checkEq("Cr 1590 (no project) == the same", sumOf(unassigned("1590"), "credit"), 19459.027777);
+    checkEq("Dr 5400 in BR-MAIN == the two branch-owned assets and the one in a BR-MAIN warehouse (5,833.333333 + 2,506.944444 + 2,700)", n(branchDebit?.debit), 11040.277777);
+    checkEq("Cr 1590 in BR-MAIN == the same", n(branchCredit?.credit), 11040.277777);
+    checkEq("Dr 5400 unattributed == the three company-wide assets (3,718.75 + 950 + 3,750)", n(companyDebit?.debit), 8418.75);
+    checkEq("Cr 1590 unattributed == the same", n(companyCredit?.credit), 8418.75);
     checkEq("Dr 5400 (PRJ-DEMO-1) == the plant asset's 13,500.00", n(plantDebit.debit), 13500);
     checkEq("Cr 1590 (PRJ-DEMO-1) == the same", n(plantCredit.credit), 13500);
     checkEq("the entry balances: debit == credit",
       n(debitLine.debit) + n(plantDebit.debit), n(creditLine.credit) + n(plantCredit.credit));
 
     const asset1 = await req("GET", "/assets/ASSET-DEMO-1");
-    checkEq("AST-0001's accumulated depreciation now 2,700.00", n(asset1.body.accumulatedDepreciation), 2700);
-    checkEq("AST-0001's book value == cost − accumulated == 177,300.00",
-      n(asset1.body.acquisitionCost) - n(asset1.body.accumulatedDepreciation), 177300);
+    checkEq("this run added exactly its own 2,700.00 to AST-0001's accumulated depreciation",
+      n(asset1.body.accumulatedDepreciation) - accumulatedBefore, 2700);
+    checkEq("AST-0001's accumulated depreciation is now 79,780.645161", n(asset1.body.accumulatedDepreciation), 79780.645161);
+    checkEq("AST-0001's book value == cost − accumulated == 100,219.354839",
+      n(asset1.body.acquisitionCost) - n(asset1.body.accumulatedDepreciation), 100219.354839);
   });
 
   // --- Fixed Assets: category + register creation validation (after the priority-3 run, so it can't add extra eligible lines) ---
@@ -438,7 +452,7 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("settling an already-settled trip is rejected", doubleSettle.status, 409);
   });
 
-  await scenario("field-sales · FLD-11: the open route discards the caller's id", async () => {
+  await scenario("field-sales · FLD-11: a trip keeps the id it was opened under, and that id cannot be taken twice", async () => {
     const opened = await req("POST", "/field/van-trips", {
       id: "SCN-VANTRIP-FLD11",
       date: "2026-08-24",
@@ -450,8 +464,19 @@ export async function run(ctx: Ctx): Promise<void> {
       crew: [{ employeeId: "EMP-DEMO-1", role: "rep" }],
     });
     checkEq("open succeeds", opened.status, 201);
-    check("the route ignores the caller-supplied id and mints its own uuid instead (see demo-seed/treasury.ts's own comment on this)",
-      opened.body.id !== "SCN-VANTRIP-FLD11");
+    check("the trip is stored under the id the caller sent (FLD-11 fixed with D111: the route no longer mints its own)", opened.body.id === "SCN-VANTRIP-FLD11", `returned id=${opened.body.id}`);
+    const again = await req("POST", "/field/van-trips", {
+      id: "SCN-VANTRIP-FLD11",
+      date: "2026-08-24",
+      branchId: "BR-MAIN",
+      vanWarehouseId: "WH-DEMO-VAN",
+      vanTreasuryAccountId: "TR-DEMO-VAN",
+      sourceWarehouseId: "WH-MAIN",
+      sourceTreasuryAccountId: "TR-DEMO-CASH",
+      crew: [{ employeeId: "EMP-DEMO-1", role: "rep" }],
+    });
+    checkEq("opening a second trip under the same id is refused", again.status, 409);
+    check("as a duplicate id", again.body?.error === "DUPLICATE_ID", `error=${again.body?.error}`);
     // Regression guard: tripNo used to stay null forever — the create form
     // never sends one, and openVanTrip had no fallback. Fixed by allocating
     // from the VAN_TRIP numbering sequence (`TRIP-####`) when omitted.

@@ -32,6 +32,7 @@ import {
   useCostCenters,
   useStatementMatchCandidates,
   useTreasuryAccounts,
+  useBranches,
   useUnmatchStatementLine,
 } from "../data/hooks";
 import {
@@ -104,6 +105,7 @@ export function StatementWorkspace({
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingLineId, setPendingLineId] = useState<string | null>(null);
   const [overrideOpen, setOverrideOpen] = useState(false);
+  const [finalizeAsked, setFinalizeAsked] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
 
   const statement = detail.data ?? null;
@@ -175,34 +177,36 @@ export function StatementWorkspace({
           {notice ? <div role="status" className="rounded-[8px] bg-info-soft px-3 py-2 text-[12.5px] text-info-ink">{notice}</div> : null}
 
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              disabled={locked || suggest.isPending}
-              onClick={() =>
-                runStatement(async () => {
-                  const result = await suggest.mutateAsync(statement.id);
-                  return t("bankRecX.suggestDone", { matched: String(result.matchedCount), suggested: String(result.suggestedCount) });
-                })
-              }
-            >
-              {t("bankRecX.suggest")}
-            </Button>
-            <Button onClick={() => setRulesOpen(true)}>{t("bankRecX.rules")}</Button>
-            <Button
-              disabled={locked || finalize.isPending || position === null}
-              onClick={() => {
-                if (needsOverride) {
-                  setOverrideReason("");
-                  setOverrideOpen(true);
-                  return;
+            {locked ? null : (
+              <Button
+                variant="primary"
+                disabled={suggest.isPending}
+                onClick={() =>
+                  runStatement(async () => {
+                    const result = await suggest.mutateAsync(statement.id);
+                    return t("bankRecX.suggestDone", { matched: String(result.matchedCount), suggested: String(result.suggestedCount) });
+                  })
                 }
-                void runStatement(async () => {
-                  await finalize.mutateAsync({ statementId: statement.id });
-                });
-              }}
-            >
-              {t("bankRec.finishReconciliation")}
-            </Button>
+              >
+                {t("bankRecX.suggest")}
+              </Button>
+            )}
+            <Button onClick={() => setRulesOpen(true)}>{t("bankRecX.rules")}</Button>
+            {locked ? null : (
+              <Button
+                disabled={finalize.isPending || position === null}
+                onClick={() => {
+                  if (needsOverride) {
+                    setOverrideReason("");
+                    setOverrideOpen(true);
+                    return;
+                  }
+                  setFinalizeAsked(true);
+                }}
+              >
+                {t("bankRec.finishReconciliation")}
+              </Button>
+            )}
           </div>
 
           <div role="tablist" className="flex gap-2 border-b border-border">
@@ -234,6 +238,7 @@ export function StatementWorkspace({
                     key={line.id}
                     statementId={statement.id}
                     treasuryAccountId={statement.treasuryAccountId}
+                    companyLevel={statement.branchId === null}
                     line={line}
                     item={itemsByLine.get(line.id)}
                     candidates={candidates.data ?? []}
@@ -287,6 +292,23 @@ export function StatementWorkspace({
           setOverrideOpen(false);
           void runStatement(async () => {
             await finalize.mutateAsync({ statementId: statement.id, force: true, reason: overrideReason.trim() });
+          });
+        }}
+      />
+
+      <ConfirmDialog
+        open={finalizeAsked}
+        title={t("bankRecX.finalizeConfirmTitle")}
+        tone="danger"
+        consequence={<p>{t("bankRecX.finalizeConfirmBody")}</p>}
+        confirmLabel={t("bankRecX.finalizeConfirm")}
+        confirmDisabled={finalize.isPending}
+        onCancel={() => setFinalizeAsked(false)}
+        onConfirm={() => {
+          if (!statement) return;
+          setFinalizeAsked(false);
+          void runStatement(async () => {
+            await finalize.mutateAsync({ statementId: statement.id });
           });
         }}
       />
@@ -434,6 +456,11 @@ function SuggestionRow({
   );
 }
 
+export function useGrantedBranchOptions(): EntityPickerOption[] {
+  const branches = useBranches();
+  return useMemo(() => (branches.data ?? []).filter((branch) => branch.active).map((branch) => ({ id: branch.id, label: branch.name })), [branches.data]);
+}
+
 function useCounterAccountOptions(): EntityPickerOption[] {
   const nameOf = useEntityName();
   const accounts = useAccounts();
@@ -462,6 +489,7 @@ function useCostCenterOptions(): { value: string; label: string }[] {
 
 function ReviewLineCard({
   statementId,
+  companyLevel,
   line,
   item,
   candidates,
@@ -471,6 +499,7 @@ function ReviewLineCard({
 }: {
   statementId: string;
   treasuryAccountId: string;
+  companyLevel: boolean;
   line: StatementLineDTO;
   item: ReviewItemDTO | undefined;
   candidates: readonly MatchCandidateDTO[];
@@ -485,12 +514,14 @@ function ReviewLineCard({
   const createEntry = useCreateEntryFromLine();
   const accountOptions = useCounterAccountOptions();
   const costCenterOptions = useCostCenterOptions();
+  const branchOptions = useGrantedBranchOptions();
 
   const [mode, setMode] = useState<"manual" | "entry" | null>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const rule = item?.rule ?? null;
   const [accountId, setAccountId] = useState(rule?.accountId ?? "");
   const [costCenterId, setCostCenterId] = useState(rule?.costCenterId ?? "");
+  const [branchId, setBranchId] = useState("");
   const [date, setDate] = useState(line.date);
   const [memo, setMemo] = useState("");
 
@@ -633,6 +664,19 @@ function ReviewLineCard({
             emptyMessage={t("bankRecX.noAccounts")}
           />
           <SelectField label={t("bankRecX.costCenter")} value={costCenterId} onChange={setCostCenterId} options={costCenterOptions} />
+          {companyLevel ? (
+            <div>
+              <EntityPicker
+                label={t("bankRecX.chargeBranch")}
+                value={branchOptions.find((o) => o.id === branchId) ?? null}
+                onChange={(o) => setBranchId(o?.id ?? "")}
+                options={branchOptions}
+                placeholder={t("bankRecX.chargeBranchPlaceholder")}
+                emptyMessage={t("bankRecX.noBranches")}
+              />
+              <p className="mt-[4px] text-[11.5px] text-ink-faint">{t("bankRecX.chargeBranchHint")}</p>
+            </div>
+          ) : null}
           <TextField label={t("bankRecX.entryDate")} type="date" value={date} onChange={setDate} hint={t("bankRecX.entryDateHint")} />
           <TextField label={t("bankRecX.memo")} value={memo} onChange={setMemo} placeholder={line.description} />
           <div>
@@ -649,6 +693,7 @@ function ReviewLineCard({
                       costCenterId: costCenterId === "" ? null : costCenterId,
                       date,
                       memo: memo.trim() === "" ? null : memo.trim(),
+                      ...(companyLevel ? { branchId: branchId === "" ? null : branchId } : {}),
                     },
                   });
                   setMode(null);

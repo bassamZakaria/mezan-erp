@@ -196,6 +196,7 @@ function statementOf(partyId: string, lines: StatementLine[], agingTotal?: strin
   return {
     partyId,
     asOfDate: "2026-08-31",
+    branchCaveat: null,
     lines: built,
     totalIncrease: increase.toFixed(6),
     totalDecrease: decrease.toFixed(6),
@@ -550,7 +551,7 @@ describe("SuppliersScreen", () => {
     expect(screen.getByText("قيد يومية")).toBeInTheDocument();
     expect(screen.getByText("مطابق لتقرير أعمار الديون")).toBeInTheDocument();
     const agingTable = screen.getByText("أعمار فواتير هذا المورد").closest("div")!.querySelector("table")!;
-    expect(within(agingTable).getAllByRole("cell").at(-1)?.textContent).toBe("3,900.00");
+    await waitFor(() => expect(within(agingTable).getAllByRole("cell").at(-1)?.textContent).toBe("3,900.00"));
   });
 
   it("says the statement differs from the aging report when the server's two figures disagree", async () => {

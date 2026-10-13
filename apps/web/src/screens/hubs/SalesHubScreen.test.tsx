@@ -29,7 +29,7 @@ function TestNavigation({ navigate, children }: { navigate: (screen: string, int
 
 function invoiceLine(): SalesInvoiceDTO["lines"][number] {
   return {
-    unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "1.000000", lineId: "l1", itemId: "item-1", itemNameAr: "أرز أبيض", isStock: true, qty: "1.000000", unitPrice: "185.000000",
+    unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "1.000000", lineId: "l1", itemId: "item-1", itemNameAr: "أرز أبيض", isStock: true, qty: "1.000000", unitPrice: "185.000000",
     discountPercent: 0, taxRatePercent: 14, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", unitCost: "150.000000",
   };
 }

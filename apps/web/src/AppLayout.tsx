@@ -1,9 +1,9 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
-import { AppShell, SkeletonTable, filterNavGroups, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
+import { AppShell, SkeletonTable, filterNavGroups, isNavItemVisible, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE, type UserStatusCode } from "@mezan/domain";
-import type { BranchDTO, EraseUserDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
+import { BranchRestrictedAccess, type BranchDTO, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
 
 import { useScopeSelector } from "./data/hub-hooks";
@@ -22,6 +22,9 @@ import {
   PINNED_NAV_ITEM_KEYS,
 } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
+import { isBranchRestricted, navItemAccess, withoutBranchUnavailable } from "./branch-restriction";
+import { BranchReadOnlyNotice, BranchUnavailableState, DashboardNotPermittedState } from "./shell/BranchRestrictionNotices";
+import { ReadOnlyForm } from "./shell/ReadOnlyForm";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
 import {
@@ -47,7 +50,7 @@ import {
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage, type RoleEditorSaveCommand } from "./pages/RoleEditorPage";
-import { NavigationProvider, toScreenIntent, type ScreenIntent, type ScreenIntentInput } from "./navigation";
+import { NavigationProvider, SubPageNamesProvider, toScreenIntent, type ScreenIntent, type ScreenIntentInput } from "./navigation";
 import { groupKeyForScreen, hubScreenForGroup, parsePath, pathForRoute } from "./routing";
 import { isRoutable, type RoutableKey, type ScreenKey } from "./router/screens";
 import { Breadcrumbs, parentSegments } from "./Breadcrumbs";
@@ -155,6 +158,8 @@ export function AppLayout() {
     (screen: ScreenKey) => routerNavigate(pathForRoute(screen)),
     [routerNavigate],
   );
+  const branchRestricted = isBranchRestricted(session);
+  const screenAccess = branchRestricted ? navItemAccess(activeScreen === "role-editor" ? "roles" : activeScreen) : BranchRestrictedAccess.Full;
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
   const [roleTemplate, setRoleTemplate] = useState<RoleDTO | null>(null); // the role a new one is duplicated from
   const [pendingIntent, setPendingIntent] = useState<ScreenIntent | null>(null);
@@ -269,16 +274,17 @@ export function AppLayout() {
      * copy of the grant on every request. A row removed here is a row that
      * would have opened a screen whose every call answers 403.
      */
-    const visible = filterNavGroups(buildNavGroups(t), {
+    const permitted = filterNavGroups(buildNavGroups(t), {
       permissions: session?.permissions ?? EMPTY,
       activeModules: entitlements?.activeModules ?? null,
     });
+    const visible = branchRestricted ? withoutBranchUnavailable(permitted) : permitted;
     return visible.map((group) => ({
       ...group,
       items: wire(group.items),
       sections: group.sections?.map((section) => ({ ...section, items: wire(section.items) })),
     }));
-  }, [entitlements, navigate, pendingApprovalCount, session?.permissions, unreadNotificationCount, t]);
+  }, [branchRestricted, entitlements, navigate, pendingApprovalCount, session?.permissions, unreadNotificationCount, t]);
 
   /**
    * The rail's own view of `groups`, with any screen whose module the plan
@@ -310,11 +316,15 @@ export function AppLayout() {
    * the wordmark is a button. A named, hoverable icon costs 32px and removes
    * the guess; the lockup stays a link for everyone who already reaches for it.
    */
+  const dashboardPermitted = useMemo(
+    () => isNavItemVisible(buildTopNavItem(t), { permissions: session?.permissions ?? EMPTY, activeModules: null }),
+    [session?.permissions, t],
+  );
   const directNavItems = useMemo(() => {
     const pinned = groups.flatMap((group) => group.items).filter((item) => PINNED_NAV_ITEM_KEYS.includes(item.key));
     const home: NavItem = { ...buildTopNavItem(t), onClick: () => navigate("dashboard") };
-    return [home, ...pinned];
-  }, [groups, navigate, t]);
+    return dashboardPermitted ? [home, ...pinned] : pinned;
+  }, [dashboardPermitted, groups, navigate, t]);
 
   /**
    * The six workspaces of the column, الإعداد والصلاحيات among them.
@@ -418,10 +428,11 @@ export function AppLayout() {
   }, [request, setSession, setActiveScreen, queryClient]);
 
   const routedTopNavItem = useMemo(() => {
+    if (!dashboardPermitted) return undefined;
     const topNavItem = buildTopNavItem(t);
     const key = topNavItem.key;
     return isRoutable(key) ? { ...topNavItem, onClick: () => navigate(key) } : topNavItem;
-  }, [navigate, t]);
+  }, [dashboardPermitted, navigate, t]);
 
   const createOnCurrentScreen = useCallback(() => {
     // A screen that wired `useScreenIntent` opens its own create flow;
@@ -593,6 +604,7 @@ export function AppLayout() {
   return (
     <TenantPreferences>
     <NavigationProvider value={navigation}>
+    <SubPageNamesProvider>
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
       onNavigateHome={() => navigate("dashboard")}
@@ -649,9 +661,20 @@ export function AppLayout() {
 
         Suspense still wraps it for anything a screen suspends on internally.
       */}
-      <Suspense fallback={<ScreenLoading />}>
-        <Outlet />
-      </Suspense>
+      {activeScreen === "dashboard" && !dashboardPermitted ? (
+        <DashboardNotPermittedState />
+      ) : screenAccess === BranchRestrictedAccess.Unavailable ? (
+        <BranchUnavailableState onGoHome={() => setActiveScreen("dashboard")} />
+      ) : (
+        <>
+          {screenAccess === BranchRestrictedAccess.ReadOnly ? <BranchReadOnlyNotice /> : null}
+          <ReadOnlyForm reason={screenAccess === BranchRestrictedAccess.ReadOnly ? t("branchRestriction.readOnlyControl") : null}>
+            <Suspense fallback={<ScreenLoading />}>
+              <Outlet />
+            </Suspense>
+          </ReadOnlyForm>
+        </>
+      )}
 
       {activeScreen === "users" ? (
         <UsersPage
@@ -701,6 +724,7 @@ export function AppLayout() {
       ) : null}
       <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} moduleJumps={moduleJumps} />
     </AppShell>
+    </SubPageNamesProvider>
     </NavigationProvider>
     </TenantPreferences>
   );

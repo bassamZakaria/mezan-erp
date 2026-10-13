@@ -1,5 +1,9 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 import {
+  RowActionOutcome,
   Button,
   Card,
   Chip,
@@ -12,8 +16,9 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type { FiscalPeriodDTO, FiscalPeriodStatusDTO } from "@mezan/contracts";
+import { PeriodCloseErrorCodeDTO, type FiscalPeriodDTO, type FiscalPeriodStatusDTO } from "@mezan/contracts";
 import {
+  ApiError,
   useClosePeriod,
   useFiscalPeriods,
   useGenerateFiscalYear,
@@ -22,6 +27,10 @@ import {
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
+import { fiscalMonthLabel } from "../lib/fiscal-month";
+import { useNavigation } from "../navigation";
+import { pathForRoute } from "../routing";
+import type { ScreenKey } from "../router/screens";
 import { YearEndCloseCard } from "./YearEndCloseCard";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam } from "../lib/url-state";
@@ -38,26 +47,6 @@ import { useUrlNumber, useUrlParam } from "../lib/url-state";
 const STATUS_KEY: Record<FiscalPeriodStatusDTO, AppTranslationKey> = { open: "fiscalPeriods.status.open", closed: "fiscalPeriods.status.closed", locked: "fiscalPeriods.status.locked" };
 const STATUS_TONE: Record<FiscalPeriodStatusDTO, PillTone> = { open: "success", closed: "warning", locked: "neutral" };
 
-const MONTH_KEYS: AppTranslationKey[] = [
-  "month.january",
-  "month.february",
-  "month.march",
-  "month.april",
-  "month.may",
-  "month.june",
-  "month.july",
-  "month.august",
-  "month.september",
-  "month.october",
-  "month.november",
-  "month.december",
-];
-
-function monthLabel(periodNumber: number, t: (key: AppTranslationKey) => string): string {
-  const key = MONTH_KEYS[periodNumber - 1];
-  return key ? t(key) : String(periodNumber);
-}
-
 const TODAY = todayIso();
 
 function isCurrentPeriod(period: FiscalPeriodDTO): boolean {
@@ -65,10 +54,19 @@ function isCurrentPeriod(period: FiscalPeriodDTO): boolean {
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+const CLOSE_WORKSPACE_SCREEN: ScreenKey = "period-close";
+const CLOSE_WORKSPACE_PERIOD_PARAM = "period";
+
+function blockedByCloseChecks(error: unknown): boolean {
+  return error instanceof ApiError && error.code === PeriodCloseErrorCodeDTO.Blocked;
+}
 
 export function FiscalPeriodsScreen() {
+  const branchGate = useBranchGate();
   const { t } = useAppTranslation();
   const query = useFiscalPeriods();
+  const nav = useNavigation();
+  const routerNavigate = useNavigate();
   const generateFiscalYear = useGenerateFiscalYear();
   const closePeriodMutation = useClosePeriod();
   const reopenPeriodMutation = useReopenPeriod();
@@ -107,6 +105,10 @@ export function FiscalPeriodsScreen() {
   const currentPeriod = periods.find(isCurrentPeriod) ?? null;
   const stalePeriods = periodsInYear.filter((p) => p.status === "open" && p.endDate < TODAY);
 
+  function openCloseWorkspace(periodId: string) {
+    routerNavigate({ pathname: pathForRoute(CLOSE_WORKSPACE_SCREEN), search: `?${new URLSearchParams({ [CLOSE_WORKSPACE_PERIOD_PARAM]: periodId }).toString()}` });
+  }
+
   // Each action calls the real API, which enforces the fiscal-period state
   // machine server-side — an invalid transition surfaces the server's own
   // error message rather than one guessed on the client.
@@ -117,7 +119,12 @@ export function FiscalPeriodsScreen() {
     try {
       await closePeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.closeFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+      if (blockedByCloseChecks(err)) {
+        openCloseWorkspace(period.id);
+        return RowActionOutcome.Refused;
+      }
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.closeFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -130,7 +137,12 @@ export function FiscalPeriodsScreen() {
     try {
       await lockPeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.lockFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+      if (blockedByCloseChecks(err)) {
+        openCloseWorkspace(period.id);
+        return RowActionOutcome.Refused;
+      }
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.lockFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -143,7 +155,8 @@ export function FiscalPeriodsScreen() {
     try {
       await reopenPeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.reopenFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.reopenFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -167,7 +180,7 @@ export function FiscalPeriodsScreen() {
       render: (p) => (
         <div className="flex items-center gap-[8px]">
           <span className="font-semibold text-ink">
-            {monthLabel(p.periodNumber, t)} {p.year}
+            {fiscalMonthLabel(p.periodNumber, t)} {p.year}
           </span>
           {isCurrentPeriod(p) ? <StatusPill label={t("fiscalPeriods.currentPeriod")} tone="info" /> : p.endDate < TODAY ? <StatusPill label={t("fiscalPeriods.ended")} tone="neutral" /> : null}
         </div>
@@ -202,6 +215,7 @@ export function FiscalPeriodsScreen() {
             onChange={(value) => setYear(Number(value))}
             options={(years.length > 0 ? years : [selectedYear]).map((y) => ({ value: String(y), label: String(y) }))}
           />
+          <Button onClick={() => nav.navigate(CLOSE_WORKSPACE_SCREEN)}>{t("fiscalPeriods.openCloseWorkspace")}</Button>
           <Button variant="primary" onClick={generateNextYear}>
             {t("fiscalPeriods.createNextYear")}
           </Button>
@@ -219,7 +233,7 @@ export function FiscalPeriodsScreen() {
           <div className="text-[12px] font-semibold text-ink-faint">{t("fiscalPeriods.currentPeriod")}</div>
           <div className="mt-[4px] flex flex-wrap items-center gap-[10px]">
             <span className="font-display text-[15px] font-bold text-ink">
-              {monthLabel(currentPeriod.periodNumber, t)} {currentPeriod.year} ({currentPeriod.startDate} → {currentPeriod.endDate})
+              {fiscalMonthLabel(currentPeriod.periodNumber, t)} {currentPeriod.year} ({currentPeriod.startDate} → {currentPeriod.endDate})
             </span>
             <StatusPill label={currentPeriod.status === "open" ? t("fiscalPeriods.allowed") : t("fiscalPeriods.notAllowed")} tone={currentPeriod.status === "open" ? "success" : "danger"} />
           </div>
@@ -231,7 +245,7 @@ export function FiscalPeriodsScreen() {
         </div>
       ) : null}
 
-      <YearEndCloseCard year={selectedYear} periodsInYear={periodsInYear} />
+      {branchGate.allows(BranchGatedAction.YearEndClose) ? <YearEndCloseCard year={selectedYear} periodsInYear={periodsInYear} /> : null}
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-surface p-[14px_16px]">
@@ -286,14 +300,14 @@ export function FiscalPeriodsScreen() {
         rowAction={(p) => {
           const menuItems: RowMenuItem[] =
             p.status === "open"
-              ? [{ key: "close", label: t("fiscalPeriods.close"), disabled: pendingId === p.id, onSelect: () => void closePeriod(p) }]
+              ? [{ key: "close", label: t("fiscalPeriods.close"), disabled: pendingId === p.id, onSelect: () => closePeriod(p) }]
               : p.status === "closed"
                 ? [
-                    { key: "reopen", label: t("fiscalPeriods.reopen"), disabled: pendingId === p.id, onSelect: () => void reopenPeriod(p) },
-                    { key: "lock", label: t("fiscalPeriods.lock"), disabled: pendingId === p.id, onSelect: () => void lockPeriod(p) },
+                    { key: "reopen", label: t("fiscalPeriods.reopen"), disabled: pendingId === p.id, onSelect: () => reopenPeriod(p) },
+                    { key: "lock", label: t("fiscalPeriods.lock"), disabled: pendingId === p.id, onSelect: () => lockPeriod(p) },
                   ]
                 : [];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: `${monthLabel(p.periodNumber, t)} ${p.year}` })} />;
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: `${fiscalMonthLabel(p.periodNumber, t)} ${p.year}` })} />;
         }}
         page={page}
         pageCount={pageCount}

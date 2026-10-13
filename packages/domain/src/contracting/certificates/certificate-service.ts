@@ -800,9 +800,6 @@ export class CertificateService {
     const composed = await this.compose(cmd.id, contract, previous, cmd, []);
 
     return this.deps.store.transaction(async () => {
-      if (await this.deps.store.findById(cmd.id)) {
-        throw new InvalidProgressCertificateError([`المستخلص "${cmd.id}" موجود بالفعل`]);
-      }
       const number = await this.deps.numbering.next(CERTIFICATE_SEQUENCE);
       const certificate: ProgressCertificate = {
         id: cmd.id,
@@ -845,7 +842,7 @@ export class CertificateService {
         materialLines: composed.materialLines,
         computed: composed.computed,
       };
-      await this.deps.store.save(certificate);
+      await this.deps.store.insert(certificate);
       return this.view(certificate);
     });
   }

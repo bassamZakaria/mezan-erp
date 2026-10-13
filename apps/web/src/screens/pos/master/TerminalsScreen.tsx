@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -210,6 +211,7 @@ export function TerminalsScreen() {
       await updateTerminal.mutateAsync({ id: terminal.id, body: bodyFromTerminal(terminal, !terminal.active) });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("pos.common.saveFailed"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }

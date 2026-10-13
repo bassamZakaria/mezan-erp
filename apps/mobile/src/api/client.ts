@@ -1,4 +1,4 @@
-import type { ZodType } from "zod";
+import type { ZodType, ZodTypeDef } from "zod";
 import { ApiError, ApiFailure } from "./errors";
 
 export enum HttpMethod {
@@ -23,7 +23,7 @@ export interface ApiCredentials {
 export interface RequestOptions<T> {
   readonly method?: HttpMethod;
   readonly body?: unknown;
-  readonly schema?: ZodType<T>;
+  readonly schema?: ZodType<T, ZodTypeDef, unknown>;
   readonly signal?: AbortSignal;
 }
 
@@ -40,7 +40,19 @@ function headersFor(credentials: ApiCredentials): Record<string, string> {
   return headers;
 }
 
-async function readRefusal(response: Response): Promise<{ message: string | null; messageEn: string | null }> {
+interface Refusal {
+  readonly message: string | null;
+  readonly messageEn: string | null;
+  readonly recalculatedGrandTotal: string | null;
+}
+
+function recalculatedGrandTotalOf(record: Record<string, unknown>): string | null {
+  if (record.taxRecalculated !== true || !record.totals || typeof record.totals !== "object") return null;
+  const grandTotal = (record.totals as Record<string, unknown>).grandTotal;
+  return typeof grandTotal === "string" ? grandTotal : null;
+}
+
+async function readRefusal(response: Response): Promise<Refusal> {
   try {
     const body: unknown = await response.json();
     if (body && typeof body === "object") {
@@ -48,12 +60,13 @@ async function readRefusal(response: Response): Promise<{ message: string | null
       return {
         message: typeof record.message === "string" ? record.message : null,
         messageEn: typeof record.messageEn === "string" ? record.messageEn : null,
+        recalculatedGrandTotal: recalculatedGrandTotalOf(record),
       };
     }
   } catch {
     // A refusal with no JSON body is still a refusal; the caller falls back to a named reason.
   }
-  return { message: null, messageEn: null };
+  return { message: null, messageEn: null, recalculatedGrandTotal: null };
 }
 
 export function joinUrl(baseUrl: string, path: string): string {
@@ -87,7 +100,7 @@ export async function apiRequest<T>(
           : REFUSAL_STATUSES.has(response.status)
             ? ApiFailure.Refused
             : ApiFailure.Server;
-    throw new ApiError(failure, response.status, refusal.message, refusal.messageEn);
+    throw new ApiError(failure, response.status, refusal.message, refusal.messageEn, refusal.recalculatedGrandTotal);
   }
 
   if (response.status === 204) return undefined as T;

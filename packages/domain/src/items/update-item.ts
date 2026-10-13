@@ -1,7 +1,7 @@
 import type { Account } from "../accounts/index.js";
 import type { Money } from "../money/index.js";
-import type { AlternateUnit, CostingMethod, EtaCodeType, Item, ItemRepository, ItemStatus, ItemType, ItemSpecificationValue } from "./item.js";
-import { InvalidItemError, ItemNotFoundError } from "./errors.js";
+import { ItemStatusCode, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType, type ItemSpecificationValue } from "./item.js";
+import { InvalidItemError, ItemNotFoundError, ItemPriceRequiredError, ItemStatusNotSettableError } from "./errors.js";
 import { collectItemFieldErrors, validateGlAccountRefs } from "./validation.js";
 
 /**
@@ -55,6 +55,12 @@ export async function updateItem(
 ): Promise<Item> {
   const current = await repo.findById(itemId);
   if (!current) throw new ItemNotFoundError(itemId);
+  const awaitedPricing = current.status === ItemStatusCode.PendingPricing;
+  if (!awaitedPricing && command.status === ItemStatusCode.PendingPricing) throw new ItemStatusNotSettableError(itemId);
+  const salePrice = command.salePrice !== undefined ? command.salePrice : current.salePrice;
+  const priced = salePrice !== null && salePrice.scaled > 0n;
+  if (awaitedPricing && !priced && command.status !== undefined && command.status !== ItemStatusCode.PendingPricing) throw new ItemPriceRequiredError(itemId);
+  const releasedStatus = command.status === undefined || command.status === ItemStatusCode.PendingPricing ? ItemStatusCode.Active : command.status;
 
   const updated: Item = {
     ...current,
@@ -88,7 +94,7 @@ export async function updateItem(
     etaCodeType: command.etaCodeType !== undefined ? command.etaCodeType : current.etaCodeType,
     etaItemCode: command.etaItemCode !== undefined ? command.etaItemCode : current.etaItemCode,
     gpcCode: command.gpcCode !== undefined ? command.gpcCode : current.gpcCode,
-    status: command.status ?? current.status,
+    status: awaitedPricing ? (priced ? releasedStatus : ItemStatusCode.PendingPricing) : (command.status ?? current.status),
   };
 
   const reasons = [...collectItemFieldErrors(updated), ...validateGlAccountRefs(updated, accounts)];

@@ -4,6 +4,7 @@ import type { InstallmentLine, InstallmentPlanDocument } from "../installments/i
 import type { Customer } from "../customers/customer.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, percentOf } from "./kpi.js";
+import { BRANCH_PARAM_FIELD } from "./branch-filter.js";
 
 /**
  * نظرة عامة على الأقساط — Installments Overview (docs/archive/catalog/08-reports.md):
@@ -64,7 +65,7 @@ export function createInstallmentsOverviewReport(
     descriptionAr: "ما وضع المحفظة الآن — الخطط النشطة ونسبة التحصيل في كل خطة.",
     paramsSchema,
     defaultParams: {},
-    paramFields: [],
+    paramFields: [BRANCH_PARAM_FIELD],
     rowKey: (row) => row.planId,
     columns: [
       { key: "planNo", header: "رقم الخطة", format: "text", value: (row) => row.planNo },

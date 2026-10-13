@@ -1,5 +1,8 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction, type ReversalTarget } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   DocumentList,
   EmptyState,
   Money as MoneyDisplay,
@@ -58,7 +61,12 @@ function validateDraft(draft: RunDraft): AppTranslationKey | null {
   return null;
 }
 
+function reversalTarget(run: WritedownRunDTO): ReversalTarget {
+  return { id: run.id, params: { id: run.id }, subject: run.period };
+}
+
 export function WritedownRunsScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.WritedownRun);
   const { t } = useAppTranslation();
   const query = useWritedownRuns();
   const warehousesQuery = useWarehouses();
@@ -137,6 +145,7 @@ export function WritedownRunsScreen() {
       await postRun.mutateAsync(run.id);
     } catch (err) {
       setPostError(err instanceof ApiError ? err.message : t("writedown.theWriteDownRunCould2"));
+      return RowActionOutcome.Refused;
     } finally {
       setPostingId(null);
     }
@@ -204,8 +213,9 @@ export function WritedownRunsScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => setSelectedId(r.id) },
             ...(r.status === "draft"
-              ? [{ key: "post", label: t("writedown.post"), disabled: postingId === r.id, onSelect: () => void handlePost(r) }]
+              ? [{ key: "post", label: t("writedown.post"), disabled: postingId === r.id, onSelect: () => handlePost(r) }]
               : []),
+            ...(r.status === "posted" ? reversal.menuItems(reversalTarget(r)) : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.period })} />;
         }}
@@ -291,6 +301,8 @@ export function WritedownRunsScreen() {
           </div>
         ) : null}
       </SidePanel>
+
+      {reversal.dialog}
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("writedown.runANewWriteDown")} description={t("writedown.periodAndWarehouse")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">

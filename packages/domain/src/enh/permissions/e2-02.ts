@@ -5,5 +5,6 @@ export const fragment: PermissionFragment = {
   rows: [
     ["accounting.recurring.view", "accounting.journal.view"],
     ["accounting.recurring.manage", "accounting.recurring.view,accounting.journal.create"],
+    ["accounting.recurring.reverse", "accounting.recurring.view", "s"],
   ],
 };

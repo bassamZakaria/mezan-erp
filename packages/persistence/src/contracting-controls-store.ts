@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   type RetentionRelease,
@@ -98,6 +99,7 @@ function toRelease(row: ReleaseRow): RetentionRelease {
 
 class SqliteRetentionReleaseStore implements RetentionReleaseStore {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByDocNo: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -128,6 +130,7 @@ class SqliteRetentionReleaseStore implements RetentionReleaseStore {
         approved_by = excluded.approved_by,
         cancelled_at = excluded.cancelled_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM contracting_retention_release WHERE id = ?`);
     this.selectByDocNo = sqlite.prepare(`SELECT * FROM contracting_retention_release WHERE doc_no = ?`);
     this.selectAll = sqlite.prepare(
@@ -157,7 +160,15 @@ class SqliteRetentionReleaseStore implements RetentionReleaseStore {
   }
 
   async save(release: RetentionRelease): Promise<void> {
-    this.upsert.run({
+    this.write(release);
+  }
+
+  async insert(release: RetentionRelease): Promise<void> {
+    insertingNew(release.id, () => this.write(release, this.insertOnly));
+  }
+
+  private write(release: RetentionRelease, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: release.id,
       doc_no: release.docNo,
       contract_id: release.contractId,

@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { FiscalPeriod, FiscalPeriodRepository, FiscalPeriodStatus } from "@mezan/domain";
 import { calendarDay } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /** SQLite-backed FiscalPeriodRepository (docs/archive/catalog/04 "الفترات المالية"). Standalone, mirroring `createSqliteAccountRepository`. */
 
@@ -40,6 +41,7 @@ function toFiscalPeriod(row: FiscalPeriodRow): FiscalPeriod {
 
 class SqliteFiscalPeriodRepository implements FiscalPeriodRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByDate: Database.Statement;
   private readonly selectByYearAndNumber: Database.Statement;
@@ -57,6 +59,7 @@ class SqliteFiscalPeriodRepository implements FiscalPeriodRepository {
         end_date = excluded.end_date,
         status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM fiscal_period WHERE id = ?`);
     this.selectByDate = sqlite.prepare(`SELECT * FROM fiscal_period WHERE ? BETWEEN start_date AND end_date`);
     this.selectByYearAndNumber = sqlite.prepare(`SELECT * FROM fiscal_period WHERE year = ? AND period_number = ?`);
@@ -95,15 +98,15 @@ class SqliteFiscalPeriodRepository implements FiscalPeriodRepository {
   }
 
   async create(period: FiscalPeriod): Promise<void> {
-    this.write(period);
+    insertingNew(period.id, () => this.write(period, this.insertOnly));
   }
 
   async update(period: FiscalPeriod): Promise<void> {
     this.write(period);
   }
 
-  private write(period: FiscalPeriod): void {
-    this.upsert.run({
+  private write(period: FiscalPeriod, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: period.id,
       year: period.year,
       period_number: period.periodNumber,

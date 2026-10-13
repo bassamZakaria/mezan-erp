@@ -329,9 +329,6 @@ export class WorksContractService {
     if (reasons.length > 0) throw new InvalidWorksContractError(reasons);
 
     return this.deps.store.transaction(async () => {
-      if (await this.deps.store.findContractById(cmd.id)) {
-        throw new InvalidWorksContractError([`العقد "${cmd.id}" موجود بالفعل`]);
-      }
       const number = await this.deps.numbering.next("CONTRACT");
       const contract: WorksContract = {
         ...terms,
@@ -356,7 +353,7 @@ export class WorksContractService {
         provisionalHandoverDate: null,
         finalHandoverDate: null,
       };
-      await this.deps.store.saveContract(contract);
+      await this.deps.store.insertContract(contract);
       return this.view(contract);
     });
   }
@@ -626,9 +623,6 @@ export class WorksContractService {
     const lines = this.buildVariationLines(cmd.id, cmd.lines, boqLines);
 
     return this.deps.store.transaction(async () => {
-      if (await this.deps.store.findVariationOrderById(cmd.id)) {
-        throw new InvalidWorksContractError([`أمر التغيير "${cmd.id}" موجود بالفعل`]);
-      }
       const number = await this.deps.numbering.next("VARIATION_ORDER");
       const order: VariationOrder = {
         id: cmd.id,
@@ -645,7 +639,7 @@ export class WorksContractService {
         createdBy: actor.userId,
         lines,
       };
-      await this.deps.store.saveVariationOrder(order);
+      await this.deps.store.insertVariationOrder(order);
       return { order, netValue: computeVariationOrderValue(order, boqLines) };
     });
   }

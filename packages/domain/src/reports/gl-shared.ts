@@ -28,6 +28,8 @@ export interface GlReportContext {
    * exchange-difference accounts the tenant's routing names (D229).
    */
   readonly otherIncomeExpenseAccountIds?: readonly string[];
+  /** The accounts a sale's cost is posted to (`costOfSalesLedgerAccountIds`); omitted, the routing defaults stand. */
+  readonly costOfSalesAccountIds?: readonly string[];
   /**
    * The branches this caller is allowed to see (DEC-20). Undefined = every
    * branch. AUTHORITY, applied before the reader's own `branchId` parameter
@@ -208,11 +210,18 @@ function* ledgerLines(
       // every leg, but one manual journal may legitimately split across two
       // branches, and cutting at the entry would hand both to whichever branch
       // the first line named (DEC-20).
-      if (!withinBranchScope(line.branchId, options.branchScope)) continue;
-      if (!matchesStatementBranch(line.branchId, branchId)) continue;
+      if (!lineInBranchView(line, { branchScope: options.branchScope, branchId })) continue;
       yield { entry, line };
     }
   }
+}
+
+/** Whether a posted line is inside the caller's authority AND the reader's own branch filter (DEC-20). */
+export function lineInBranchView(
+  line: { readonly branchId?: string | null },
+  options: Pick<NetBalanceOptions, "branchScope" | "branchId">,
+): boolean {
+  return withinBranchScope(line.branchId, options.branchScope) && matchesStatementBranch(line.branchId, options.branchId ?? "");
 }
 
 export interface AccountActivity {
@@ -262,6 +271,7 @@ export function accountNet(
   journalEntries: readonly JournalEntry[],
   accountId: string,
   range: DateRange = {},
+  options: NetBalanceOptions = {},
 ): number {
-  return moneyToNumber(netBalancesByAccount(journalEntries, range).get(accountId) ?? Money.zero());
+  return moneyToNumber(netBalancesByAccount(journalEntries, range, options).get(accountId) ?? Money.zero());
 }

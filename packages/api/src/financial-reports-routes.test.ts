@@ -640,9 +640,12 @@ describe("financial reports — بُعد الفرع on the statements (DEC-20)",
     return seeded;
   }
 
-  function scopedReq(path: string, branchScope: string) {
+  function scopedReq(path: string, branchScope: string, extraPermission?: string) {
     return new Request(`http://local${path}`, {
-      headers: { "x-permissions": "accounting.reports.view", "x-branch-scope": branchScope },
+      headers: {
+        "x-permissions": ["accounting.reports.view", ...(extraPermission ? [extraPermission] : [])].join(","),
+        "x-branch-scope": branchScope,
+      },
     });
   }
 
@@ -699,10 +702,18 @@ describe("financial reports — بُعد الفرع on the statements (DEC-20)",
     const { ledger, accounts } = await seedWithBranch();
     const app = makeApp({ ledger, accounts });
 
-    // Scoped to a branch that posted nothing: the branch-tagged sale is out of
-    // reach, while the unattributed lines — attributable to nobody — stay.
+    // Granted a branch that posted nothing: the branch-tagged sale is out of
+    // reach, and so are the unattributed lines — on a books file older than
+    // the branch fill they are the company's whole history (D111).
     const scoped = await trialBalance(app, scopedReq("/trial-balance?asOfDate=2026-08-31", "br-9"));
-    expect(scoped.rows.find((r) => r.accountId === "4100")?.credit).toBe(2200);
+    expect(scoped.rows.find((r) => r.accountId === "4100")?.credit).toBe(0);
+
+    // The right to read them is its own permission, and brings them back.
+    const trusted = await trialBalance(
+      app,
+      scopedReq("/trial-balance?asOfDate=2026-08-31", "br-9", "accounting.reports.view_unattributed"),
+    );
+    expect(trusted.rows.find((r) => r.accountId === "4100")?.credit).toBe(2200);
 
     // Asking for br-1 by name does not widen the scope back out.
     const asking = await trialBalance(app, scopedReq("/trial-balance?asOfDate=2026-08-31&branchId=br-1", "br-9"));
@@ -757,10 +768,10 @@ describe("financial reports routes — the income statement narrows by branch (D
     return seeded;
   }
 
-  function scoped(path: string, branchScope?: string): Request {
+  function scoped(path: string, branchScope?: string, extraPermission?: string): Request {
     return new Request(`http://local${path}`, {
       headers: {
-        "x-permissions": "accounting.reports.view",
+        "x-permissions": ["accounting.reports.view", ...(extraPermission ? [extraPermission] : [])].join(","),
         ...(branchScope ? { "x-branch-scope": branchScope } : {}),
       },
     });
@@ -771,19 +782,21 @@ describe("financial reports routes — the income statement narrows by branch (D
   it("counts only the branch's own lines when the session is scoped to one branch", async () => {
     const { ledger, accounts } = await seedTwoBranches();
     const app = makeApp({ ledger, accounts });
-    const res = await app.fetch(scoped(`/income-statement?${PERIOD}`, "br-1"));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { rows: { accountId: string; amount: number }[] };
+    const amountFor = async (extraPermission?: string) => {
+      const res = await app.fetch(scoped(`/income-statement?${PERIOD}`, "br-1", extraPermission));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { rows: { accountId: string; amount: number }[] };
+      return body.rows.find((r) => r.accountId === "4100")?.amount;
+    };
     /*
-     * 1,400 untagged + فرع ١'s own 1,000, and NOT فرع ٢'s 400.
+     * فرع ١'s own 1,000 — NOT فرع ٢'s 400, and not the 1,400 no branch owns.
      *
-     * The unattributed lines stay visible on purpose: branch scope is authority,
-     * not presentation. A line no branch owns belongs to the company, and hiding
-     * it from every branch would mean no set of branch statements ever summed
-     * back to the entity — which is the reconciling guarantee «غير مخصص» exists
-     * to keep.
+     * «غير مخصص» is a reconciling item for whoever reads the whole company. A
+     * branch-granted session reads it only with its own permission (D111): on
+     * a books file older than the branch fill it is every posting ever made.
      */
-    expect(body.rows.find((r) => r.accountId === "4100")?.amount).toBe(2400);
+    expect(await amountFor()).toBe(1000);
+    expect(await amountFor("accounting.reports.view_unattributed")).toBe(2400);
   });
 
   it("?branchId= narrows an unscoped caller, and can never widen a scoped one", async () => {

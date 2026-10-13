@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -34,7 +35,6 @@ import {
   WorkOrderNotFoundError,
   ConfigurableProductNotFoundError,
   ConfigInstanceNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
   WorkOrderStageError,
   FormulaError,
@@ -75,8 +75,11 @@ import {
   warehouseScopeOf,
   withinScope,
 } from "./permission-gate.js";
+import { branchesOfWarehouses, withinBranchGrant } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Permission-gated routes for the manufacturing module (docs/archive/catalog/07),
@@ -366,6 +369,9 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (
     err instanceof BomNotFoundError ||
     err instanceof WorkOrderNotFoundError ||
@@ -373,9 +379,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof ConfigInstanceNotFoundError
   ) {
     return c.json(withMessageEn(err), 404);
-  }
-  if (err instanceof DuplicateManufacturingDocumentError) {
-    return c.json(withMessageEn(err), 409);
   }
   if (err instanceof WorkOrderStageError) {
     return c.json(withMessageEn(err), 409);
@@ -417,7 +420,14 @@ export function createManufacturingRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: async (c) => {
+      const id = c.req.param("id");
+      if (!id || !c.req.routePath.includes("/work-orders/:id")) return null;
+      const order = await deps.workOrders.findById(id);
+      return order ? branchesOfWarehouses(c, [order.sourceWarehouseId]) : null;
+    },
+  });
   const actor = (c: Context) => getAuthContext(c)?.userId ?? "system";
   const resolveUnitCost = deps.resolveUnitCost ?? (async () => Money.zero());
   const bomDeps = { boms: deps.boms, numbering: deps.numbering, now: deps.now };
@@ -621,7 +631,9 @@ export function createManufacturingRoutes(
    * may not see another's orders, and no query parameter widens that.
    */
   async function listFilteredWorkOrders(c: Context, filter: WorkOrderListFilter): Promise<readonly WorkOrder[]> {
-    let rows = withinScope(await deps.workOrders.list(), warehouseScopeOf(c), (o) => o.sourceWarehouseId);
+    let rows = await withinBranchGrant(c, withinScope(await deps.workOrders.list(), warehouseScopeOf(c), (o) => o.sourceWarehouseId), (o) =>
+      branchesOfWarehouses(c, [o.sourceWarehouseId]),
+    );
     if (filter.status && filter.status !== "all") rows = rows.filter((o) => o.status === filter.status);
     if (filter.priority) rows = rows.filter((o) => o.priority === filter.priority);
     if (filter.stage) rows = rows.filter((o) => o.stage === filter.stage);
@@ -779,9 +791,10 @@ export function createManufacturingRoutes(
     }
   });
 
-  const stockDeps = () => ({ workOrders: deps.workOrders, stock: deps.stock, now: deps.now });
+  const postingDay = (c: Context) => tenantDay(c, deps.now?.() ?? new Date().toISOString());
+  const stockDeps = async (c: Context) => ({ workOrders: deps.workOrders, stock: deps.stock, now: deps.now, postingDay: await postingDay(c) });
   /** Stock deps plus the ledger — every stage that can move scrap value needs both. */
-  const stockGlDeps = () => ({ ...stockDeps(), gl: deps.gl, accounts: deps.accounts });
+  const stockGlDeps = async (c: Context) => ({ ...(await stockDeps(c)), gl: deps.gl, accounts: deps.accounts });
 
   app.post("/work-orders/:id/start", gate("manufacturing.wo.execute"), async (c) => {
     try {
@@ -796,7 +809,7 @@ export function createManufacturingRoutes(
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const attribution = await resolveAttribution(parsed.data);
-      return c.json(serializeWorkOrder(await issueWorkOrderMaterials(c.req.param("id"), stockDeps(), attribution)));
+      return c.json(serializeWorkOrder(await issueWorkOrderMaterials(c.req.param("id"), (await stockDeps(c)), attribution)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -809,7 +822,7 @@ export function createManufacturingRoutes(
       const order = await extraIssueWorkOrderMaterials(
         c.req.param("id"),
         parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
-        stockDeps(),
+        (await stockDeps(c)),
         await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
@@ -825,7 +838,7 @@ export function createManufacturingRoutes(
       const order = await returnWorkOrderMaterials(
         c.req.param("id"),
         parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
-        stockDeps(),
+        (await stockDeps(c)),
         await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
@@ -841,7 +854,7 @@ export function createManufacturingRoutes(
       const order = await logWorkOrderWaste(
         c.req.param("id"),
         parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty), notes: l.notes })),
-        stockGlDeps(),
+        (await stockGlDeps(c)),
         await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
@@ -872,7 +885,7 @@ export function createManufacturingRoutes(
       const order = await receiveWorkOrderProduct(
         c.req.param("id"),
         Qty.fromMajor(parsed.data.producedQty),
-        stockGlDeps(),
+        (await stockGlDeps(c)),
         await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
@@ -888,6 +901,7 @@ export function createManufacturingRoutes(
         gl: deps.gl,
         accounts: deps.accounts,
         now: deps.now,
+        postingDay: await postingDay(c),
       });
       return c.json(serializeWorkOrder(order));
     } catch (err) {

@@ -8,6 +8,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * المشتريات حسب الصنف — Purchases by Item (docs/archive/catalog/08-reports.md):
@@ -58,7 +59,7 @@ export function createPurchasesByItemReport(
     descriptionAr: "ما هي الأصناف الأكثر تكلفة في الشراء خلال الفترة المحددة.",
     paramsSchema,
     defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, branchId: "" },
-    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.itemId,
     columns: [
       { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },

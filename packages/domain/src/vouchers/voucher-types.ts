@@ -46,6 +46,8 @@ export type VoucherType =
   | "tax_payment"
   | "inter_treasury_transfer";
 
+export const REFUNDED_MONEY: Partial<Record<VoucherType, VoucherType>> = { customer_refund: "customer_collection", supplier_refund: "supplier_payment" };
+
 /** Which sub-ledger invoice kind an allocatable voucher applies against. */
 export type AllocationInvoiceKind = "sales" | "purchase";
 

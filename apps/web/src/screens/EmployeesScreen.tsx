@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Money } from "@mezan/domain";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -29,6 +31,7 @@ import {
   useEmployees,
   useJobTitles,
   useTerminateEmployee,
+  useCorrectTerminationDate,
   useTransitionEmployee,
   useAttendance,
   useLeaveBalances,
@@ -41,6 +44,7 @@ import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_
 import { useClockCredentialStatus, useResetClockCredential } from "../data/hr-self-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
+import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -365,6 +369,11 @@ function ClockDeviceControl({ employeeId }: { employeeId: string }) {
   );
 }
 
+enum TerminationPanelMode {
+  Terminate = "terminate",
+  Correct = "correct",
+}
+
 export function EmployeesScreen() {
   const { t, locale } = useAppTranslation();
   const statutoryEnabled = usePayrollStatutoryFlag().data?.enabled === true;
@@ -376,6 +385,7 @@ export function EmployeesScreen() {
   const createEmployee = useCreateEmployee();
   const transitionEmployee = useTransitionEmployee();
   const terminateEmployee = useTerminateEmployee();
+  const correctTerminationDate = useCorrectTerminationDate();
 
   const employees = query.data ?? EMPTY;
   const departments = departmentsQuery.data ?? [];
@@ -403,6 +413,11 @@ export function EmployeesScreen() {
   const selected = selectedId ? (employees.find((e) => e.id === selectedId) ?? null) : null;
   const contractsQuery = useEmployeeContracts(selectedId);
   const [detailTab, setDetailTab] = useState("personal");
+  const [terminateOpen, setTerminateOpen] = useState(false);
+  const [terminateMode, setTerminateMode] = useState(TerminationPanelMode.Terminate);
+  const [terminateDate, setTerminateDate] = useState("");
+  const [terminateError, setTerminateError] = useState<string | null>(null);
+  const [terminateNotice, setTerminateNotice] = useState<string | null>(null);
   const [rehireOpen, setRehireOpen] = useState(false);
   const [rehireDate, setRehireDate] = useState("");
   const rehireEmployee = useRehireEmployee();
@@ -540,19 +555,48 @@ export function EmployeesScreen() {
       await transitionEmployee.mutateAsync({ id: employee.id, body: { status } });
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("employees.couldnTUpdateTheEmployee"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
   }
 
+  function openTerminate(employee: EmployeeDTO, mode = TerminationPanelMode.Terminate) {
+    setTerminateMode(mode);
+    setDetailError(null);
+    setTerminateError(null);
+    setTerminateNotice(null);
+    setTerminateDate(mode === TerminationPanelMode.Correct ? (employee.terminatedAt ?? todayIso()) : todayIso());
+    setSelectedId(employee.id);
+    setTerminateOpen(true);
+  }
+
   async function runTerminate(employee: EmployeeDTO) {
     if (pendingId) return;
+    if (terminateDate.trim() === "") {
+      setTerminateError(t("employees.aLastDayIsRequired"));
+      return;
+    }
     setPendingId(employee.id);
-    setDetailError(null);
+    setTerminateError(null);
     try {
-      await terminateEmployee.mutateAsync(employee.id);
+      const command = { id: employee.id, effectiveDate: terminateDate.trim() };
+      const { payRecovery } = terminateMode === TerminationPanelMode.Correct ? await correctTerminationDate.mutateAsync(command) : await terminateEmployee.mutateAsync(command);
+      setTerminateOpen(false);
+      const twoPlaces = (amount: string) => amount.replace(/(\.\d{2})\d*$/, "$1");
+      const parts = payRecovery
+        ? [
+            payRecovery.payableReduced && Money.fromMajor(payRecovery.payableReduced).scaled > 0n
+              ? t("employees.payRecoveryOffPayable", { days: payRecovery.days, paidThrough: payRecovery.paidThrough, amount: twoPlaces(payRecovery.payableReduced) })
+              : null,
+            payRecovery.advanceNumber
+              ? t("employees.payRecoveryBooked", { days: payRecovery.days, paidThrough: payRecovery.paidThrough, number: payRecovery.advanceNumber, amount: twoPlaces(payRecovery.amount) })
+              : null,
+          ].filter((part): part is string => part !== null)
+        : [];
+      setTerminateNotice(parts.length > 0 ? parts.join(" ") : terminateMode === TerminationPanelMode.Correct ? t("employees.terminationDateCorrected") : null);
     } catch (err) {
-      setDetailError(err instanceof ApiError ? err.message : t("employees.couldnTTerminateTheEmployee"));
+      setTerminateError(err instanceof ApiError ? err.message : t(terminateMode === TerminationPanelMode.Correct ? "employees.couldnTCorrectTheTerminationDate" : "employees.couldnTTerminateTheEmployee"));
     } finally {
       setPendingId(null);
     }
@@ -621,6 +665,32 @@ export function EmployeesScreen() {
     { key: "hireDate", header: t("employees.hireDate"), render: (e) => <span className="mz-num">{e.hireDate}</span> },
     { key: "status", header: t("common.status"), render: (e) => <StatusPill label={t(STATUS_KEY[e.status])} tone={STATUS_TONE[e.status]} /> },
   ];
+
+  const terminatePanel = (
+    <SidePanel
+      open={terminateOpen}
+      onClose={() => setTerminateOpen(false)}
+      title={t(terminateMode === TerminationPanelMode.Correct ? "employees.correctTerminationDate" : "employees.terminate")}
+      description={t(terminateMode === TerminationPanelMode.Correct ? "employees.correctTerminationDateExplained" : "employees.terminateExplained")}
+    >
+      <div className="flex flex-col gap-[14px]">
+        <TextField label={t("employees.lastWorkingDay")} type="date" value={terminateDate} onChange={setTerminateDate} />
+        {terminateError ? (
+          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {terminateError}
+          </div>
+        ) : null}
+        <div className="flex justify-end gap-[9px]">
+          <Button type="button" onClick={() => setTerminateOpen(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="button" variant="danger-outline" disabled={selected !== null && pendingId === selected.id} onClick={() => selected && void runTerminate(selected)}>
+            {t(terminateMode === TerminationPanelMode.Correct ? "employees.confirmCorrectedDate" : "employees.confirmTermination")}
+          </Button>
+        </div>
+      </div>
+    </SidePanel>
+  );
 
   const rehirePanel = (
       <SidePanel open={rehireOpen} onClose={() => setRehireOpen(false)} title={t("employees.rehire")} description={t("employees.theYearsAlreadyServedAre")}>
@@ -929,9 +999,14 @@ export function EmployeesScreen() {
             <>
               <Button onClick={() => setSelectedId(null)}>{t("employees.backToTheList")}</Button>
               {selected.status === "terminated" ? (
-                <Button variant="primary" disabled={pendingId === selected.id} onClick={() => setRehireOpen(true)}>
-                  {t("employees.rehire")}
-                </Button>
+                <>
+                  <Button disabled={pendingId === selected.id} onClick={() => openTerminate(selected, TerminationPanelMode.Correct)}>
+                    {t("employees.correctTerminationDate")}
+                  </Button>
+                  <Button variant="primary" disabled={pendingId === selected.id} onClick={() => setRehireOpen(true)}>
+                    {t("employees.rehire")}
+                  </Button>
+                </>
               ) : (
                 <>
                   {validTransitions(selected.status).map((status) => (
@@ -939,7 +1014,7 @@ export function EmployeesScreen() {
                       {t(STATUS_KEY[status])}
                     </Button>
                   ))}
-                  <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => void runTerminate(selected)}>
+                  <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => openTerminate(selected)}>
                     {t("employees.terminate")}
                   </Button>
                 </>
@@ -965,6 +1040,12 @@ export function EmployeesScreen() {
             {detailError}
           </div>
         ) : null}
+        {terminateNotice ? (
+          <div role="status" className="mt-[14px] rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink">
+            {terminateNotice}
+          </div>
+        ) : null}
+        {terminatePanel}
         {rehirePanel}
       </div>
     );
@@ -1031,6 +1112,12 @@ export function EmployeesScreen() {
             ...(e.status === "terminated"
               ? [
                   {
+                    key: "correct-termination-date",
+                    label: t("employees.correctTerminationDate"),
+                    disabled: pendingId === e.id,
+                    onSelect: () => openTerminate(e, TerminationPanelMode.Correct),
+                  },
+                  {
                     key: "rehire",
                     label: t("employees.rehire"),
                     disabled: pendingId === e.id,
@@ -1046,9 +1133,9 @@ export function EmployeesScreen() {
                     key: `transition-${status}`,
                     label: t(STATUS_KEY[status]),
                     disabled: pendingId === e.id,
-                    onSelect: () => void runTransition(e, status),
+                    onSelect: () => runTransition(e, status),
                   })),
-                  { key: "terminate", label: t("employees.terminate"), tone: "danger" as const, disabled: pendingId === e.id, onSelect: () => void runTerminate(e) },
+                  { key: "terminate", label: t("employees.terminate"), tone: "danger" as const, disabled: pendingId === e.id, onSelect: () => openTerminate(e) },
                 ]),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: e.code })} />;

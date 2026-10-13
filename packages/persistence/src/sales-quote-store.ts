@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import { childRowsByParent } from "./list-query.js";
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
 import {
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS sales_quote_line (
   unit_price           INTEGER NOT NULL,
   discount_percent     REAL NOT NULL,
   tax_rate_percent     REAL NOT NULL,
+  tax_rate_id          TEXT,
   PRIMARY KEY (quote_id, line_no)
 );
 CREATE INDEX IF NOT EXISTS idx_sales_quote_line_quote ON sales_quote_line(quote_id);
@@ -102,6 +104,7 @@ interface LineRow {
   unit_price: bigint;
   discount_percent: number;
   tax_rate_percent: number;
+  tax_rate_id: string | null;
 }
 
 function toDiscount(row: QuoteRow): SalesQuoteDiscount {
@@ -121,6 +124,7 @@ function toLine(row: LineRow): SalesQuoteLine {
     unitPrice: Money.fromScaled(row.unit_price),
     discountPercent: row.discount_percent,
     taxRatePercent: row.tax_rate_percent,
+    taxRateId: row.tax_rate_id ?? null,
   };
 }
 
@@ -205,23 +209,23 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
     this.insertLine = sqlite.prepare(`
       INSERT INTO sales_quote_line (
         quote_id, line_no, line_id, item_id, item_name_ar, qty, unit_price,
-        discount_percent, tax_rate_percent
+        discount_percent, tax_rate_percent, tax_rate_id
       ) VALUES (
         @quote_id, @line_no, @line_id, @item_id, @item_name_ar, @qty, @unit_price,
-        @discount_percent, @tax_rate_percent
+        @discount_percent, @tax_rate_percent, @tax_rate_id
       )
     `);
     this.selectQuoteById = sqlite.prepare(`SELECT * FROM sales_quote WHERE id = ?`);
     this.selectLines = sqlite
       .prepare(
-        `SELECT line_id, item_id, item_name_ar, qty, unit_price, discount_percent, tax_rate_percent
+        `SELECT line_id, item_id, item_name_ar, qty, unit_price, discount_percent, tax_rate_percent, tax_rate_id
            FROM sales_quote_line WHERE quote_id = ? ORDER BY line_no`,
       )
       .safeIntegers();
   }
 
   async save(quote: SalesQuote): Promise<void> {
-    this.insertQuote.run(quoteParams(quote));
+    insertingNew(quote.id, () => this.insertQuote.run(quoteParams(quote)));
     this.insertLines(quote);
   }
 
@@ -267,7 +271,7 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
       parentColumn: "quote_id",
       parentIds: rows.map((row) => row.id),
       orderBy: "quote_id, line_no",
-      columns: "quote_id, line_id, item_id, item_name_ar, qty, unit_price, discount_percent, tax_rate_percent",
+      columns: "quote_id, line_id, item_id, item_name_ar, qty, unit_price, discount_percent, tax_rate_percent, tax_rate_id",
       safeIntegers: true,
     });
     return rows.map((row) => this.hydrate(row, linesByQuote.get(row.id) ?? []));
@@ -289,6 +293,7 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
         unit_price: line.unitPrice.toScaledNumber(),
         discount_percent: line.discountPercent,
         tax_rate_percent: line.taxRatePercent,
+        tax_rate_id: line.taxRateId,
       });
     });
   }
@@ -333,6 +338,10 @@ export function createSqliteSalesQuoteStore(path: SqliteConnectionInput = ":memo
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  const lineColumns = new Set(
+    (sqlite.prepare(`PRAGMA table_info(sales_quote_line)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!lineColumns.has("tax_rate_id")) sqlite.exec(`ALTER TABLE sales_quote_line ADD COLUMN tax_rate_id TEXT`);
   addVersionColumns(sqlite, "sales_quote");
   const versions = createDocumentVersionStore(sqlite, "sales_quote");
   const repo = new SqliteSalesQuoteRepository(sqlite, versions);

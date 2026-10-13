@@ -8,11 +8,15 @@ import {
   buildGoodsReceiptPosting,
   buildReceiptLinesFromOrder,
   goodsReceiptTotalCost,
-  markGoodsReceiptInvoiced,
+  billGoodsReceipt,
+  unbillGoodsReceipt,
+  goodsReceiptInvoicingStatus,
+  goodsReceiptUninvoicedCost,
+  GoodsReceiptInvoicingStatus,
 } from "./goods-receipt.js";
 import { createPurchaseOrder, confirmPurchaseOrder, cancelPurchaseOrder } from "./purchase-order.js";
 import {
-  DuplicatePurchaseDocumentError,
+  GoodsReceiptAccrualAccountMissingError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
   OverReceiptError,
@@ -26,6 +30,7 @@ import {
   makeNumbering,
   makeStockService,
 } from "./test-helpers.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const now = () => "2026-08-21T09:00:00.000Z";
 const WH = "MAIN-WH";
@@ -163,7 +168,7 @@ describe("goods receipt — receiving lifecycle", () => {
     await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
     await expect(
       createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering }),
-    ).rejects.toThrow(DuplicatePurchaseDocumentError);
+    ).rejects.toThrow(DuplicateRecordIdError);
   });
 
   it("refuses a line costCategory when the receipt carries no projectId", async () => {
@@ -294,15 +299,21 @@ describe("goods receipt — GL posting (both stock and control account)", () => 
     expect(debit.toString()).toBe(stockValue.toString());
   });
 
-  it("confirm posts stock but nothing to GL when the GRNI account is not configured (documented fallback)", async () => {
+  it("refuses to confirm, in Arabic, when a ledger is wired but no received-not-invoiced account is configured — no stock moves without its entry", async () => {
     const { orders, numbering } = await sentOrder();
     const receipts = new InMemoryGoodsReceipts();
     const stock = makeStockService();
     const gl = new RecordingGlPort();
     await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
-    await confirmGoodsReceipt("gr-1", { receipts, orders, stock, gl, accounts: { inventoryAccountId: "1300-inventory", payableAccountId: "2100-payables", taxAccountId: "1360-input-vat" } });
+
+    const refused = await confirmGoodsReceipt("gr-1", { receipts, orders, stock, gl, accounts: { inventoryAccountId: "1300-inventory", payableAccountId: "2100-payables", taxAccountId: "1360-input-vat" } }).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(GoodsReceiptAccrualAccountMissingError);
+    expect((refused as GoodsReceiptAccrualAccountMissingError).message).toMatch(/[\u0600-\u06FF]/);
+    expect((refused as GoodsReceiptAccrualAccountMissingError).messageEn).toContain("received-not-invoiced");
     expect(gl.postings).toHaveLength(0);
-    expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("10.000000");
+    expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("0.000000");
+    expect((await receipts.findById("gr-1"))?.status).toBe("draft");
   });
 });
 
@@ -383,29 +394,49 @@ describe("goods receipt — cancel with trackSoldPurchaseItems on and nothing co
   it("succeeds when the strictness gate is on but no layer has been drawn down", async () => {
     const { orders, numbering } = await sentOrder();
     const receipts = new InMemoryGoodsReceipts();
-    const stock = makeStockService();
     const { InMemoryCostLayers } = await import("../inventory/test-helpers/in-memory-stores.js");
+    const layers = new InMemoryCostLayers();
+    const stock = makeStockService(layers);
     await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
     await confirmGoodsReceipt("gr-1", { receipts, orders, stock });
-    const cancelled = await cancelGoodsReceipt("gr-1", { receipts, orders, stock, layers: new InMemoryCostLayers() });
+    const cancelled = await cancelGoodsReceipt("gr-1", { receipts, orders, stock, layers });
     expect(cancelled.status).toBe("cancelled");
     expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("0.000000");
   });
 });
 
-describe("markGoodsReceiptInvoiced", () => {
-  it("flags a receipt invoiced, idempotently", async () => {
+describe("billGoodsReceipt", () => {
+  it("is invoiced only once every line is fully billed, and a cancel gives back exactly what it billed", async () => {
     const { orders, numbering } = await sentOrder();
     const receipts = new InMemoryGoodsReceipts();
-    await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
-    await markGoodsReceiptInvoiced("gr-1", { receipts });
-    expect((await receipts.findById("gr-1"))?.invoiced).toBe(true);
-    await expect(markGoodsReceiptInvoiced("gr-1", { receipts })).resolves.toBeUndefined();
+    const receipt = await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
+    const whole = receipt.lines.map((line, lineIndex) => ({ lineIndex, qty: line.qty }));
+    const first = { lineIndex: 0, qty: Qty.fromMajor("1") };
+
+    await billGoodsReceipt("gr-1", [first], { receipts });
+    const partly = await receipts.findById("gr-1");
+    expect(partly?.invoiced).toBe(false);
+    expect(goodsReceiptInvoicingStatus(partly!)).toBe(GoodsReceiptInvoicingStatus.PartiallyInvoiced);
+
+    await unbillGoodsReceipt("gr-1", [first], { receipts });
+    expect(goodsReceiptInvoicingStatus((await receipts.findById("gr-1"))!)).toBe(GoodsReceiptInvoicingStatus.NotInvoiced);
+
+    await billGoodsReceipt("gr-1", whole, { receipts });
+    const full = await receipts.findById("gr-1");
+    expect(full?.invoiced).toBe(true);
+    expect(goodsReceiptInvoicingStatus(full!)).toBe(GoodsReceiptInvoicingStatus.Invoiced);
   });
 
-  it("404s marking an unknown receipt invoiced", async () => {
+  it("reads a receipt flagged invoiced before billing was tracked per line as fully billed", () => {
+    const line = { itemId: "i", description: null, qty: Qty.fromMajor("5"), unitCost: Money.fromMajor("2") };
+    expect(goodsReceiptInvoicingStatus({ invoiced: true, lines: [line] })).toBe(GoodsReceiptInvoicingStatus.Invoiced);
+    expect(goodsReceiptUninvoicedCost({ invoiced: true, lines: [line] }).toString()).toBe("0.000000");
+    expect(goodsReceiptUninvoicedCost({ invoiced: false, lines: [line] }).toString()).toBe("10.000000");
+  });
+
+  it("404s billing an unknown receipt", async () => {
     const receipts = new InMemoryGoodsReceipts();
-    await expect(markGoodsReceiptInvoiced("nope", { receipts })).rejects.toThrow(GoodsReceiptNotFoundError);
+    await expect(billGoodsReceipt("nope", [], { receipts })).rejects.toThrow(GoodsReceiptNotFoundError);
   });
 });
 

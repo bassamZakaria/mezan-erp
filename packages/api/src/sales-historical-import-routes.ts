@@ -12,6 +12,7 @@ import {
   type HistoricalSalesImportGroup,
 } from "@mezan/domain";
 import { historicalSalesImportBatchSchema } from "@mezan/contracts";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { tenantDay } from "./tenant-day.js";
 import {
   createPermissionGate,
@@ -138,6 +139,8 @@ export function createSalesHistoricalImportRoutes(
         201,
       );
     } catch (err) {
+      const refusal = postingRefusalResponse(c, err);
+      if (refusal) return refusal;
       if (err instanceof InvalidSalesInvoiceError) {
         return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
       }

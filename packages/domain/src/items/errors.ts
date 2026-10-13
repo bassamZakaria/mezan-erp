@@ -90,21 +90,6 @@ export class ItemUnitInUseError extends Error {
 }
 
 /**
- * Raised when an item-category code already exists (codes are unique across
- * the catalog). Currently unreachable in production: `item-catalog.ts` throws
- * its own, separately-defined `DuplicateItemCategoryError` (no "Code" suffix).
- */
-export class DuplicateItemCategoryCodeError extends Error {
-  readonly code = "DUPLICATE_ITEM_CATEGORY_CODE";
-  readonly messageEn: string;
-  constructor(readonly categoryCode: string) {
-    super(`كود فئة الصنف "${categoryCode}" مستخدم من قبل.`);
-    this.messageEn = `Item category code "${categoryCode}" already exists.`;
-    this.name = "DuplicateItemCategoryCodeError";
-  }
-}
-
-/**
  * Raised when an operation references an item-category id that does not
  * exist. Currently unreachable in production: `item-catalog.ts` throws its
  * own, separately-defined `ItemCategoryNotFoundError`.
@@ -192,5 +177,34 @@ export class ItemSpecificationInUseError extends Error {
     super(`مواصفة الصنف "${specificationCode}" لا تزال مرتبطة بـ ${referenceCount} سجل؛ لا يمكن حذفها.`);
     this.messageEn = `Item specification "${specificationCode}" is still referenced by ${referenceCount} record(s).`;
     this.name = "ItemSpecificationInUseError";
+  }
+}
+
+export class ItemPriceRequiredError extends Error {
+  readonly code = "ITEM_PRICE_REQUIRED";
+  readonly messageEn: string;
+  constructor(readonly itemId: string) {
+    super("الصنف بانتظار التسعير: حدّد سعر البيع أولاً، ولا يُفعَّل الصنف قبل تسعيره.");
+    this.messageEn = "This item is waiting to be priced: set its sale price first.";
+    this.name = "ItemPriceRequiredError";
+  }
+}
+
+export class ItemStatusNotSettableError extends Error {
+  readonly code = "ITEM_STATUS_NOT_SETTABLE";
+  readonly messageEn: string;
+  constructor(readonly itemId: string) {
+    super("حالة «بانتظار التسعير» يحددها النظام عند إنشاء الصنف من فرع، ولا يمكن إعادة صنف مُسعَّر إليها.");
+    this.messageEn = "“Waiting to be priced” is set by the system when a branch creates an item; a priced item cannot be put back into it.";
+    this.name = "ItemStatusNotSettableError";
+  }
+}
+
+export class ItemPendingPricingError extends Error {
+  readonly code = "ITEM_PENDING_PRICING";
+  readonly messageEn = "An item waiting to be priced cannot be sold or put on a price list or promotion. It can be bought, received, transferred and counted; it sells once head office prices it.";
+  constructor(readonly itemIds: readonly string[]) {
+    super("لا يمكن بيع صنف بانتظار التسعير ولا إدراجه في قائمة أسعار أو عرض. يمكن شراؤه واستلامه وتحويله وجرده، ويُتاح للبيع بعد أن تسعّره الإدارة.");
+    this.name = "ItemPendingPricingError";
   }
 }

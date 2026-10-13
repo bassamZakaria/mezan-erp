@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within, waitFor } from "@testing-library/react";
+import { act, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { useState, type ReactElement } from "react";
 import type { ItemDTO, PurchaseInvoiceDTO, PurchaseReturnDocumentDTO, SupplierDTO, WarehouseDTO } from "@mezan/contracts";
 import { PurchaseReturnsScreen } from "./PurchaseReturnsScreen";
@@ -84,8 +84,8 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
     notes: null,
     receiptId: null,
     lines: [
-      { itemId: "item-cement", description: null, kind: "inventory", qty: "20.000000", unitCost: "85.000000", taxRatePercent: 14, batchNo: null, expiryDate: null },
-      { itemId: "item-brick", description: null, kind: "inventory", qty: "40.000000", unitCost: "35.000000", taxRatePercent: 14, batchNo: null, expiryDate: null },
+      { itemId: "item-cement", description: null, kind: "inventory", qty: "20.000000", unitCost: "85.000000", taxRatePercent: 14, taxRateId: null, batchNo: null, expiryDate: null },
+      { itemId: "item-brick", description: null, kind: "inventory", qty: "40.000000", unitCost: "35.000000", taxRatePercent: 14, taxRateId: null, batchNo: null, expiryDate: null },
     ],
     status: "confirmed",
     subtotal: "1700.000000",
@@ -102,7 +102,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
 const purchaseInvoiceTile = purchaseInvoice({
   id: "pi-2",
   number: "PI-000200",
-  lines: [{ itemId: "item-tile", description: null, kind: "inventory", qty: "15.000000", unitCost: "60.000000", taxRatePercent: 14, batchNo: null, expiryDate: null }],
+  lines: [{ itemId: "item-tile", description: null, kind: "inventory", qty: "15.000000", unitCost: "60.000000", taxRatePercent: 14, taxRateId: null, batchNo: null, expiryDate: null }],
 });
 
 function purchaseReturn(overrides: Partial<PurchaseReturnDocumentDTO> = {}): PurchaseReturnDocumentDTO {
@@ -116,7 +116,7 @@ function purchaseReturn(overrides: Partial<PurchaseReturnDocumentDTO> = {}): Pur
     lines: [
       {
         itemId: "item-cement", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", reason: "DEFECTIVE", availableQty: "20.000000", qty: "3.000000",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "0", reason: "DEFECTIVE", availableQty: "20.000000", qty: "3.000000",
         unitCost: "85.000000", taxAmount: "35.700000",
       },
     ],
@@ -130,8 +130,24 @@ function purchaseReturn(overrides: Partial<PurchaseReturnDocumentDTO> = {}): Pur
   };
 }
 
-function baseHandlers(returns: PurchaseReturnDocumentDTO[], invoices: PurchaseInvoiceDTO[] = [purchaseInvoice()]) {
+function baseHandlers(
+  returns: PurchaseReturnDocumentDTO[],
+  invoices: PurchaseInvoiceDTO[] = [purchaseInvoice()],
+  returnedByLine: Record<string, string> = {},
+) {
   return {
+    "GET /purchase-returns/source-lines/*": (_init: unknown, path: string) => {
+      const invoice = invoices.find((i) => i.id === decodeURIComponent(path.split("/").pop()!.split("?")[0]!));
+      if (!invoice) return { status: 404, body: { error: "SOURCE_INVOICE_NOT_FOUND" } };
+      return {
+        body: {
+          sourceInvoiceId: invoice.id,
+          lines: invoice.lines.flatMap((l, index) =>
+            l.itemId === null ? [] : [{ sourceLineId: String(index), itemId: l.itemId, soldQty: l.qty, returnedQty: returnedByLine[String(index)] ?? "0" }],
+          ),
+        },
+      };
+    },
     "GET /purchases/invoices": () => ({ body: invoices }),
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /suppliers": () => ({ body: suppliers2 }),
@@ -193,12 +209,46 @@ describe("PurchaseReturnsScreen", () => {
     await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
     fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
     expect(screen.getByRole("heading", { name: "مرتجع مشتريات جديد" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ كمسودة" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     expect(await screen.findByText("شركة النيل للتوريدات")).toBeInTheDocument();
   });
 
-  it("confirms then cancels a draft return", async () => {
+  it("cancels a draft return from its page through the cancel route, asking for no reason and never calling the void route", async () => {
     let current: PurchaseReturnDocumentDTO[] = [purchaseReturn()];
+    const called: string[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /purchase-returns": () => ({ body: current }),
+      "POST /purchase-returns/pr-1/cancel": () => {
+        called.push("cancel");
+        current = current.map((d) => (d.id === "pr-1" ? { ...d, status: "cancelled" as const } : d));
+        return { body: current[0] };
+      },
+      "POST /purchase-returns/pr-1/void": () => {
+        called.push("void");
+        return { status: 409, body: { error: "INVALID_DOCUMENT_TRANSITION", message: "لا يُلغى مرتجع غير مؤكد." } };
+      },
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    fireEvent.click(await screen.findByText("PR-000001"));
+    const detail = screen.getByRole("heading", { name: "PR-000001" }).closest("div.w-full") as HTMLElement;
+    expect(within(detail).queryByRole("button", { name: "إلغاء المرتجع" })).not.toBeInTheDocument();
+    fireEvent.click(within(detail).getByRole("button", { name: "إلغاء" }));
+    await within(detail).findByText("ملغي");
+    expect(called).toEqual(["cancel"]);
+    expect(screen.queryByLabelText("سبب الإلغاء")).not.toBeInTheDocument();
+    expect(within(detail).queryByRole("button", { name: "إلغاء" })).not.toBeInTheDocument();
+  });
+
+  it("confirms a draft return, then voids it with a reason through its own route", async () => {
+    let current: PurchaseReturnDocumentDTO[] = [purchaseReturn()];
+    const voidBodies: unknown[] = [];
     const transport = stubTransport({
       ...baseHandlers(current),
       "GET /purchase-returns": () => ({ body: current }),
@@ -206,8 +256,9 @@ describe("PurchaseReturnsScreen", () => {
         current = current.map((d) => (d.id === "pr-1" ? { ...d, status: "confirmed" as const, confirmedAt: "2026-08-21T10:00:00.000Z" } : d));
         return { body: { document: current[0], held: false } };
       },
-      "POST /purchase-returns/pr-1/cancel": () => {
-        current = current.map((d) => (d.id === "pr-1" ? { ...d, status: "cancelled" as const } : d));
+      "POST /purchase-returns/pr-1/void": (init) => {
+        voidBodies.push(JSON.parse((init?.body as string) ?? "{}"));
+        current = current.map((d) => (d.id === "pr-1" ? { ...d, status: "reversed" as const, voidReason: "خطأ" } : d));
         return { body: current[0] };
       },
     });
@@ -222,10 +273,15 @@ describe("PurchaseReturnsScreen", () => {
     fireEvent.click(within(detail).getByRole("button", { name: "تأكيد المرتجع" }));
     expect(await within(detail).findByRole("button", { name: "إلغاء المرتجع" })).toBeInTheDocument();
     fireEvent.click(within(detail).getByRole("button", { name: "إلغاء المرتجع" }));
-    await within(detail).findByText("ملغي");
+    expect(voidBodies).toEqual([]);
+    fireEvent.change(screen.getByLabelText("سبب الإلغاء"), { target: { value: "خطأ" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "إلغاء المرتجع" }).at(-1)!);
+    await within(detail).findByText("معكوس");
+    expect(voidBodies).toEqual([{ reason: "خطأ" }]);
+    expect(within(detail).getByRole("note")).toHaveTextContent("سبب الإلغاء: خطأ");
   });
 
-  it("editing quantities across two real lines computes each line's own unitCost/taxAmount from the source invoice, and reaches the request exactly", async () => {
+  it("editing quantities across two real lines sends each line's own source line and quantity — and no cost, tax or returnable quantity, which the server reads off the invoice", async () => {
     let createdBody: Record<string, unknown> | undefined;
     const transport = stubTransport({
       ...baseHandlers([]),
@@ -258,14 +314,121 @@ describe("PurchaseReturnsScreen", () => {
     expect(lines).toEqual([
       {
         itemId: "item-cement", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", reason: "DEFECTIVE", availableQty: "20.000000", qty: "4",
-        unitCost: "85.000000", taxAmount: "47.600000",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "0", reason: "DEFECTIVE", qty: "4",
       },
       {
         itemId: "item-brick", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", reason: "DEFECTIVE", availableQty: "40.000000", qty: "2",
-        unitCost: "35.000000", taxAmount: "9.800000",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "1", reason: "DEFECTIVE", qty: "2",
       },
+    ]);
+  });
+
+  it("clearing a quantity and pressing «إضافة بند» adds a row instead of crashing the form — an empty field takes nothing from its line (D79 round 4)", async () => {
+    const transport = stubTransport(baseHandlers([]));
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
+
+    fireEvent.change(qtyInputAt(0), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+
+    expect(screen.getAllByText("الكمية")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "مرتجع مشتريات جديد" })).toBeInTheDocument();
+  });
+
+  it("starts a new row from what the SERVER says is left of each invoice line, not from the returns the list happens to show (D79 round 4)", async () => {
+    let served = false;
+    const handlers = baseHandlers([], [purchaseInvoice()], { "0": "20" });
+    const transport = stubTransport({
+      ...handlers,
+      "GET /purchase-returns/source-lines/*": (init, path) => {
+        served = true;
+        return handlers["GET /purchase-returns/source-lines/*"](init, path);
+      },
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
+    await waitFor(() => expect(served).toBe(true));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    await waitFor(() => expect(screen.getAllByRole("combobox", { name: "الصنف" })).toHaveLength(2));
+    expect(screen.getAllByRole("combobox", { name: "الصنف" })[1]!.textContent).toBe("طوب أحمر");
+  });
+
+  it("holds «إضافة بند» and both save buttons until the server has said what is left of the invoice, and offers a retry in Arabic when it cannot", async () => {
+    let fail = true;
+    const handlers = baseHandlers([], [purchaseInvoice()], {});
+    const transport = stubTransport({
+      ...handlers,
+      "GET /purchase-returns/source-lines/*": (init, path) =>
+        fail ? { status: 500, body: { error: "INTERNAL", message: "خطأ داخلي" } } : handlers["GET /purchase-returns/source-lines/*"](init, path),
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("تعذّر قراءة ما تبقّى من بنود الفاتورة");
+    for (const name of ["إضافة بند", "حفظ كمسودة", "حفظ وتأكيد"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+
+    fail = false;
+    fireEvent.click(within(alert).getByRole("button", { name: "إعادة المحاولة" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "إضافة بند" })).toBeEnabled());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("«إضافة بند» starts the new row on the next invoice line once the rows above take the whole of the first — never the same line twice by default", async () => {
+    let createdBody: Record<string, unknown> | undefined;
+    const transport = stubTransport({
+      ...baseHandlers([]),
+      "POST /purchase-returns": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        const created = purchaseReturn({ id: (createdBody as { id: string }).id, docNo: null, status: "draft" });
+        return { status: 201, body: created };
+      },
+    });
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
+
+    fireEvent.change(qtyInputAt(0), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    fireEvent.change(qtyInputAt(1), { target: { value: "2" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(createdBody).toBeDefined());
+    const lines = createdBody!.lines as Array<Record<string, unknown>>;
+    expect(lines.map((l) => [l.itemId, l.sourceLineId, l.qty])).toEqual([
+      ["item-cement", "0", "20"],
+      ["item-brick", "1", "2"],
     ]);
   });
 
@@ -303,8 +466,7 @@ describe("PurchaseReturnsScreen", () => {
     expect(lines).toEqual([
       {
         itemId: "item-brick", warehouseId: "MAIN-WH", supplierId: "sup-1", sourceInvoiceId: "pi-1",
-        sourceInvoiceNumber: "PI-000001", reason: "DEFECTIVE", availableQty: "40.000000", qty: "6",
-        unitCost: "35.000000", taxAmount: "29.400000",
+        sourceInvoiceNumber: "PI-000001", sourceLineId: "1", reason: "DEFECTIVE", qty: "6",
       },
     ]);
   });
@@ -323,7 +485,7 @@ describe("PurchaseReturnsScreen", () => {
 
     selectOptionAt("الفاتورة الأصلية *", 0, "PI-000200 — شركة النيل للتوريدات");
 
-    fireEvent.click(screen.getByRole("combobox", { name: "الصنف" }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "الصنف" }));
     expect(screen.getByRole("option", { name: "بلاط" })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "أسمنت بورتلاندي" })).not.toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "طوب أحمر" })).not.toBeInTheDocument();
@@ -402,5 +564,30 @@ describe("PurchaseReturnsScreen", () => {
 
     fireEvent.change(screen.getAllByText("من تاريخ")[0]!.parentElement!.querySelector("input")!, { target: { value: "2026-08-01" } });
     await waitFor(() => expect(lastPath).toContain("fromDate=2026-08-01"));
+  });
+});
+
+describe("PurchaseReturnsScreen — a held document whose approval no longer stands", () => {
+  it("says why in Arabic and asks for approval again through the document's own confirm", async () => {
+    let standing = "reapproval_required";
+    let confirms = 0;
+    const held = purchaseReturn({ id: "held-1", docNo: "HELD-0001", status: "pending", workflowRequestId: "held-1:confirm" });
+    const transport = stubTransport({
+      ...baseHandlers([]),
+      "GET /purchase-returns": () => ({ body: [held] }),
+      "GET /workflow/requests/*/standing": () => ({ body: { id: "held-1:confirm", status: standing, reason: standing === "reapproval_required" ? "الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد." : null, reasonEn: null } }),
+      "POST /purchase-returns/held-1/confirm": () => {
+        confirms += 1;
+        standing = "pending";
+        return { body: held };
+      },
+    });
+    renderWithProviders(<WithSubPageNav><PurchaseReturnsScreen /></WithSubPageNav>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("HELD-0001"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent("الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد.");
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirms).toBe(1));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
   });
 });

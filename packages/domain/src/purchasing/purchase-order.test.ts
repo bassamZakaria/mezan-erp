@@ -15,8 +15,9 @@ import {
   type PurchaseOrder,
   type PurchaseOrderLine,
 } from "./purchase-order.js";
-import { DuplicatePurchaseDocumentError, InvalidPurchaseDocumentError, PurchaseOrderNotFoundError } from "./errors.js";
+import { InvalidPurchaseDocumentError, PurchaseOrderNotFoundError } from "./errors.js";
 import { InMemoryPurchaseOrders, makeNumbering } from "./test-helpers.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const now = () => "2026-08-21T09:00:00.000Z";
 
@@ -158,9 +159,7 @@ describe("createPurchaseOrder", () => {
     const orders = new InMemoryPurchaseOrders();
     const numbering = makeNumbering();
     await createPurchaseOrder(poBase(), { orders, numbering, now });
-    await expect(createPurchaseOrder(poBase(), { orders, numbering, now })).rejects.toThrow(
-      DuplicatePurchaseDocumentError,
-    );
+    await expect(createPurchaseOrder(poBase(), { orders, numbering, now })).rejects.toThrow(DuplicateRecordIdError);
   });
 
   it("rejects a blank item id on a line", async () => {

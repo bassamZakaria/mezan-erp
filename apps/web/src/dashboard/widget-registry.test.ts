@@ -59,10 +59,15 @@ describe("the dashboard layout a user actually gets (§8.5, §8.7)", () => {
     // The permission is checked when the layout is RESOLVED, not when it was
     // saved: a layout stored before a permission was revoked must degrade
     // quietly rather than render a card the user is not allowed to see.
-    const canAllButAging = (p: string) => p !== "reports.aging.read";
+    const canAllButAging = (p: string) => p !== "sales.invoice.view" && p !== "purchases.invoice.view";
     const resolved = resolveDashboardWidgets(defaultDashboardLayout(), canAllButAging);
     expect(resolved.map((w) => w.kind)).not.toContain("aging");
     expect(resolved.map((w) => w.kind)).toContain("expenses");
+  });
+
+  it("keeps the aging panel for a user who reads only one side of it", () => {
+    const supplierSideOnly = (p: string) => p === "purchases.invoice.view";
+    expect(resolveDashboardWidgets(defaultDashboardLayout(), supplierSideOnly).map((w) => w.kind)).toEqual(["aging"]);
   });
 
   it("shows nothing at all to a user who may read none of it, rather than erroring", () => {
@@ -90,7 +95,7 @@ describe("the dashboard layout a user actually gets (§8.5, §8.7)", () => {
 
   it("offers the editor only the widgets the user may read", () => {
     const canOnlySales = (p: string) => p === "sales.invoice.view";
-    expect(availableDashboardWidgets(canOnlySales).map((w) => w.kind)).toEqual(["topItems"]);
+    expect(availableDashboardWidgets(canOnlySales).map((w) => w.kind)).toEqual(["aging", "topItems"]);
   });
 
   it("gives every default widget a distinct id, so a stored layout can name one", () => {

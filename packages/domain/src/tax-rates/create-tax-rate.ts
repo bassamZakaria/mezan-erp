@@ -1,4 +1,5 @@
-import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository } from "./tax-rate.js";
+import { EtaVatSubTypeCode, TaxCalculationTypeCode, TaxRateStatusCode, type EtaVatSubType, type TaxCalculationType, type TaxRate, type TaxRateRepository } from "./tax-rate.js";
+import { assertNotReservedTaxRate } from "./system-tax-rates.js";
 import { DuplicateTaxCodeError, InvalidTaxRateError } from "./errors.js";
 
 export interface CreateTaxRateCommand {
@@ -27,6 +28,7 @@ function assertValidRate(rate: number): void {
  * "الضرائب"): the code must be unique and the rate must be a 0–100 percentage.
  */
 export function validateNewTaxRate(command: CreateTaxRateCommand, existing: readonly TaxRate[]): void {
+  assertNotReservedTaxRate({ ...command, etaSubType: command.etaSubType ?? EtaVatSubTypeCode.Auto });
   if (existing.some((t) => t.code === command.code)) {
     throw new DuplicateTaxCodeError(command.code);
   }
@@ -40,29 +42,34 @@ export function validateNewTaxRate(command: CreateTaxRateCommand, existing: read
  * single "الافتراضي" badge).
  */
 export async function createTaxRate(command: CreateTaxRateCommand, repo: TaxRateRepository): Promise<TaxRate> {
+  return repo.transaction(() => createTaxRateInTransaction(command, repo));
+}
+
+async function createTaxRateInTransaction(command: CreateTaxRateCommand, repo: TaxRateRepository): Promise<TaxRate> {
   const existing = await repo.list();
   validateNewTaxRate(command, existing);
 
   const isDefault = command.isDefault ?? false;
-  if (isDefault) {
-    for (const other of existing) {
-      if (other.isDefault) await repo.update({ ...other, isDefault: false });
-    }
-  }
 
   const taxRate: TaxRate = {
     id: command.id,
     code: command.code,
     name: command.name,
     rate: command.rate,
-    calculationType: command.calculationType ?? "exclusive",
+    calculationType: command.calculationType ?? TaxCalculationTypeCode.Exclusive,
     isDefault,
     outputTaxAccountId: command.outputTaxAccountId ?? null,
     inputTaxAccountId: command.inputTaxAccountId ?? null,
-    etaSubType: command.etaSubType ?? "auto",
-    status: "active",
+    etaSubType: command.etaSubType ?? EtaVatSubTypeCode.Auto,
+    status: TaxRateStatusCode.Active,
   };
 
+  // ORDERING: the insert goes first — it is what refuses a taken id, and a refused create must not have un-defaulted another rate.
   await repo.create(taxRate);
+  if (isDefault) {
+    for (const other of existing) {
+      if (other.isDefault) await repo.update({ ...other, isDefault: false });
+    }
+  }
   return taxRate;
 }

@@ -1,5 +1,7 @@
 import { randomBytes, randomInt } from "node:crypto";
 import {
+  EtaVatSubTypeCode,
+  TaxRateStatusCode,
   seedStandardChartOfAccounts,
   createBranch,
   createWarehouse,
@@ -243,8 +245,8 @@ export async function seedIfEmpty(
     isDefault: true,
     outputTaxAccountId: null,
     inputTaxAccountId: null,
-    etaSubType: "auto",
-    status: "active",
+    etaSubType: EtaVatSubTypeCode.Auto,
+    status: TaxRateStatusCode.Active,
   };
   await stores.taxRates.create(vat);
 

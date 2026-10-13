@@ -30,10 +30,10 @@ describe("buildSalesReturnLinesFromInvoice", () => {
   it("excludes lines with zero or omitted requested qty", () => {
     const lines = buildSalesReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [
       { itemId: "ITEM1", qty: Qty.zero() },
-    ]);
+    ]).lines;
     expect(lines).toHaveLength(0);
 
-    const linesOmitted = buildSalesReturnLinesFromInvoice(invoice(), "WH1", "OTHER", []);
+    const linesOmitted = buildSalesReturnLinesFromInvoice(invoice(), "WH1", "OTHER", []).lines;
     expect(linesOmitted).toHaveLength(0);
   });
 
@@ -53,7 +53,7 @@ describe("buildSalesReturnLinesFromInvoice", () => {
     });
     const lines = buildSalesReturnLinesFromInvoice(inv, "WH1", "DEFECTIVE", [
       { itemId: "ITEM1", qty: Qty.fromMajor("2") },
-    ]);
+    ]).lines;
     expect(lines[0]?.availableQty.toString()).toBe("7.000000");
     expect(lines[0]?.qty.toString()).toBe("2.000000");
   });
@@ -74,7 +74,7 @@ describe("buildSalesReturnLinesFromInvoice", () => {
     });
     const lines = buildSalesReturnLinesFromInvoice(inv, "WH1", "DEFECTIVE", [
       { itemId: "ITEM1", qty: Qty.fromMajor("5") },
-    ]);
+    ]).lines;
     expect(lines[0]?.availableQty.toString()).toBe("1.000000");
     expect(lines[0]?.qty.toString()).toBe("5.000000");
   });
@@ -82,7 +82,7 @@ describe("buildSalesReturnLinesFromInvoice", () => {
   it("prorates tax exactly for a full-line return (whole invoiced qty)", () => {
     const lines = buildSalesReturnLinesFromInvoice(invoice(), "WH1", "DEFECTIVE", [
       { itemId: "ITEM1", qty: Qty.fromMajor("10") },
-    ]);
+    ]).lines;
     expect(lines[0]?.taxAmount.toString()).toBe("28.000000");
     expect(lines[0]?.unitPrice.toString()).toBe("20.000000");
     expect(lines[0]?.unitCost.toString()).toBe("12.000000");
@@ -92,7 +92,7 @@ describe("buildSalesReturnLinesFromInvoice", () => {
     // 10 units carry 28.00 tax → 4 units carry 4/10 * 28 = 11.20 exactly.
     const lines = buildSalesReturnLinesFromInvoice(invoice(), "WH1", "DEFECTIVE", [
       { itemId: "ITEM1", qty: Qty.fromMajor("4") },
-    ]);
+    ]).lines;
     expect(lines[0]?.taxAmount.toString()).toBe("11.200000");
   });
 
@@ -113,7 +113,7 @@ describe("buildSalesReturnLinesFromInvoice", () => {
     // unitCostOf(10, 3) = 3.333333; extend(1, 3.333333) = 3.333333
     const lines = buildSalesReturnLinesFromInvoice(inv, "WH1", "DEFECTIVE", [
       { itemId: "ITEM1", qty: Qty.fromMajor("1") },
-    ]);
+    ]).lines;
     expect(lines[0]?.taxAmount.toString()).toBe("3.333333");
   });
 
@@ -133,35 +133,35 @@ describe("buildSalesReturnLinesFromInvoice", () => {
     });
     const lines = buildSalesReturnLinesFromInvoice(inv, "WH1", "DEFECTIVE", [
       { itemId: "ITEM1", qty: Qty.fromMajor("4") },
-    ]);
+    ]).lines;
     expect(lines[0]?.taxAmount.toString()).toBe("0.000000");
   });
 
   it("uses the per-request line reason over the document-level default", () => {
     const lines = buildSalesReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [
       { itemId: "ITEM1", qty: Qty.fromMajor("1"), reason: "WRONG_ITEM" },
-    ]);
+    ]).lines;
     expect(lines[0]?.reason).toBe("WRONG_ITEM");
   });
 
   it("falls back to the document-level reason when a request names none", () => {
     const lines = buildSalesReturnLinesFromInvoice(invoice(), "WH1", "EXCESS_QTY", [
       { itemId: "ITEM1", qty: Qty.fromMajor("1") },
-    ]);
+    ]).lines;
     expect(lines[0]?.reason).toBe("EXCESS_QTY");
   });
 
   it("silently skips a requested item that is not on the source invoice", () => {
     const lines = buildSalesReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [
       { itemId: "ITEM-NOT-ON-INVOICE", qty: Qty.fromMajor("1") },
-    ]);
+    ]).lines;
     expect(lines).toHaveLength(0);
   });
 
   it("stamps the document's warehouse, the invoice's customer and the source invoice identity onto every line", () => {
     const lines = buildSalesReturnLinesFromInvoice(invoice(), "WH-RETURNS", "DEFECTIVE", [
       { itemId: "ITEM1", qty: Qty.fromMajor("1") },
-    ]);
+    ]).lines;
     expect(lines[0]?.warehouseId).toBe("WH-RETURNS");
     expect(lines[0]?.customerId).toBe("CUST1");
     expect(lines[0]?.sourceInvoiceId).toBe("INV1");
@@ -178,7 +178,7 @@ describe("buildSalesReturnLinesFromInvoice", () => {
     const lines = buildSalesReturnLinesFromInvoice(inv, "WH1", "DEFECTIVE", [
       { itemId: "ITEM2", qty: Qty.fromMajor("2") },
       { itemId: "ITEM1", qty: Qty.fromMajor("1") },
-    ]);
+    ]).lines;
     expect(lines.map((l) => l.itemId)).toEqual(["ITEM1", "ITEM2"]);
   });
 });

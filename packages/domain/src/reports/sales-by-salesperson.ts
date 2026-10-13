@@ -7,6 +7,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * المبيعات حسب المندوب — Sales by Salesperson (docs/archive/catalog/08-reports.md).
@@ -69,9 +70,9 @@ export function createSalesBySalespersonReport(
     paramsSchema,
     defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, taxMode: "inc", branchId: "" },
     paramFields: [
-      { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
+      { kind: ReportParamKind.DateRange, fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "taxMode",
         label: "عرض الإيرادات",
         options: [

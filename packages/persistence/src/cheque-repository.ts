@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import {
   Money,
   type Cheque,
@@ -175,7 +176,7 @@ class SqliteChequeRepository implements ChequeRepository {
   }
 
   async save(cheque: Cheque): Promise<void> {
-    this.insert.run(chequeParams(cheque));
+    insertingNew(cheque.id, () => this.insert.run(chequeParams(cheque)));
   }
 
   async update(cheque: Cheque): Promise<void> {

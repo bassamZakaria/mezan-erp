@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   type AdvanceInstallment,
@@ -164,6 +165,7 @@ function toAdvance(row: AdvanceRow): EmployeeAdvance {
 
 class SqliteEmployeeAdvanceRepository implements EmployeeAdvanceRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByEmployee: Database.Statement;
@@ -196,6 +198,7 @@ class SqliteEmployeeAdvanceRepository implements EmployeeAdvanceRepository {
         repaid_at = excluded.repaid_at,
         repayments_json = excluded.repayments_json
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_employee_advance WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM hr_employee_advance ORDER BY created_at DESC`);
     this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_employee_advance WHERE employee_id = ? ORDER BY created_at`);
@@ -215,15 +218,15 @@ class SqliteEmployeeAdvanceRepository implements EmployeeAdvanceRepository {
   }
 
   async create(advance: EmployeeAdvance): Promise<void> {
-    this.write(advance);
+    insertingNew(advance.id, () => this.write(advance, this.insertOnly));
   }
 
   async update(advance: EmployeeAdvance): Promise<void> {
     this.write(advance);
   }
 
-  private write(advance: EmployeeAdvance): void {
-    this.upsert.run({
+  private write(advance: EmployeeAdvance, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: advance.id,
       number: advance.number,
       employee_id: advance.employeeId,
@@ -347,6 +350,7 @@ function toPayrollRun(row: PayrollRunRow): PayrollRun {
 
 class SqlitePayrollRunRepository implements PayrollRunRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByPeriod: Database.Statement;
   private readonly selectByPeriodNullBranch: Database.Statement;
@@ -388,6 +392,7 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
         disbursed_at = excluded.disbursed_at,
         cancelled_at = excluded.cancelled_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_payroll_run WHERE id = ?`);
     this.selectByPeriod = sqlite.prepare(`SELECT * FROM hr_payroll_run WHERE year = ? AND month = ? AND branch_id = ?`);
     this.selectByPeriodNullBranch = sqlite.prepare(`SELECT * FROM hr_payroll_run WHERE year = ? AND month = ? AND branch_id IS NULL`);
@@ -411,15 +416,15 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
   }
 
   async create(run: PayrollRun): Promise<void> {
-    this.write(run);
+    insertingNew(run.id, () => this.write(run, this.insertOnly));
   }
 
   async update(run: PayrollRun): Promise<void> {
     this.write(run);
   }
 
-  private write(run: PayrollRun): void {
-    this.upsert.run({
+  private write(run: PayrollRun, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: run.id,
       number: run.number,
       year: run.year,
@@ -758,6 +763,7 @@ function toGarnishment(row: GarnishmentRow): GarnishmentRecord {
 
 class SqliteGarnishmentRepository implements GarnishmentRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByEmployee: Database.Statement;
 
@@ -786,6 +792,7 @@ class SqliteGarnishmentRepository implements GarnishmentRepository {
         active = excluded.active,
         updated_at = excluded.updated_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_garnishment WHERE id = ?`);
     this.selectByEmployee = sqlite.prepare(`SELECT * FROM hr_garnishment WHERE employee_id = ? ORDER BY start_date DESC, reference`);
   }
@@ -818,15 +825,15 @@ class SqliteGarnishmentRepository implements GarnishmentRepository {
   }
 
   async create(record: GarnishmentRecord): Promise<void> {
-    this.write(record);
+    insertingNew(record.id, () => this.write(record, this.insertOnly));
   }
 
   async update(record: GarnishmentRecord): Promise<void> {
     this.write(record);
   }
 
-  private write(record: GarnishmentRecord): void {
-    this.upsert.run({
+  private write(record: GarnishmentRecord, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: record.id,
       employee_id: record.employeeId,
       kind: record.kind,
@@ -1057,6 +1064,7 @@ function toPayrollComponent(row: PayrollComponentRow): PayrollComponent {
 
 class SqlitePayrollComponentRepository implements PayrollComponentRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -1074,6 +1082,7 @@ class SqlitePayrollComponentRepository implements PayrollComponentRepository {
         active = excluded.active,
         updated_at = excluded.updated_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_payroll_component WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM hr_payroll_component WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM hr_payroll_component ORDER BY kind, code`);
@@ -1097,15 +1106,15 @@ class SqlitePayrollComponentRepository implements PayrollComponentRepository {
   }
 
   async create(component: PayrollComponent): Promise<void> {
-    this.write(component);
+    insertingNew(component.id, () => this.write(component, this.insertOnly));
   }
 
   async update(component: PayrollComponent): Promise<void> {
     this.write(component);
   }
 
-  private write(component: PayrollComponent): void {
-    this.upsert.run({
+  private write(component: PayrollComponent, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: component.id,
       code: component.code,
       name_ar: component.nameAr,

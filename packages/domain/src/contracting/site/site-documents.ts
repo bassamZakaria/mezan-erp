@@ -59,7 +59,11 @@ export interface SiteReceipt {
   readonly confirmedAt: string | null;
 }
 
-export type MaterialConsumptionStatus = "draft" | "confirmed";
+export enum MaterialConsumptionStatus {
+  Draft = "draft",
+  Confirmed = "confirmed",
+  Reversed = "reversed",
+}
 
 export interface MaterialConsumptionLine {
   readonly itemId: string;
@@ -113,7 +117,11 @@ export interface CustodyItem {
   readonly notes: string | null;
 }
 
-export type EquipmentLogStatus = "draft" | "confirmed";
+export enum EquipmentLogStatus {
+  Draft = "draft",
+  Confirmed = "confirmed",
+  Reversed = "reversed",
+}
 
 export interface EquipmentLog {
   readonly id: string;

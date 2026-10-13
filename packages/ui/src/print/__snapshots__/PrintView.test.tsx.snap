@@ -3,12 +3,13 @@
 exports[`PrintView > matches the rendered structure snapshot for the sample invoice 1`] = `
 <div
   class="mz-print-root"
+  style="--mz-print-screen-scale: 1;"
 >
   <style>
-    @page { size: A4; margin: 14mm 12mm; }
+    @page { size: A4; margin: 14mm 12mm; } @media screen { .mz-print-page { zoom: var(--mz-print-screen-scale, 1); } }
   </style>
   <div
-    class="relative mx-auto overflow-hidden bg-surface p-[16mm_14mm] text-[12.5px] text-ink print:m-0"
+    class="mz-print-page relative mx-auto overflow-hidden bg-surface p-[16mm_14mm] text-[12.5px] text-ink print:m-0"
     dir="rtl"
     style="width: 210mm; min-height: 297mm; border-color: rgb(31, 41, 55);"
   >

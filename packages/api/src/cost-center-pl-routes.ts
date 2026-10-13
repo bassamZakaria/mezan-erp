@@ -6,6 +6,7 @@ import {
   type LedgerRepository,
 } from "@mezan/domain";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { branchLineViewOf, lineInView } from "./branch-view.js";
 
 export interface CostCenterPnLRoutesDeps {
   readonly ledger: Pick<LedgerRepository, "listLines">;
@@ -28,7 +29,8 @@ export function createCostCenterPnLRoutes(
   app.get("/", gate("accounting.reports.view"), async (c) => {
     const fromDate = c.req.query("fromDate");
     const toDate = c.req.query("toDate");
-    const lines = (await deps.ledger.listLines?.({ fromDate, toDate })) ?? [];
+    const view = branchLineViewOf(c);
+    const lines = ((await deps.ledger.listLines?.({ fromDate, toDate })) ?? []).filter((line) => lineInView(view, line.branchId));
     const [accounts, costCenters] = await Promise.all([deps.accounts.list(), deps.costCenters.list()]);
     const report = computeCostCenterPnL(lines, accounts, costCenters);
     return c.json({

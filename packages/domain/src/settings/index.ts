@@ -16,6 +16,9 @@ export type {
   SmtpSecurity,
 } from "./settings.js";
 
+export { DISPLAY_SETTING_KEYS, DisplaySettingKey, displaySettingsOf } from "./display-settings.js";
+export type { DisplaySettings } from "./display-settings.js";
+
 export { createBranch, updateBranch, InvalidBranchError } from "./branch.js";
 export type { Branch, CreateBranchInput } from "./branch.js";
 

@@ -73,6 +73,8 @@ async function harness() {
 
   const deps: SalesInvoiceRoutesDeps = {
     repo,
+    taxPolicy: () => ({ enabled: true, defaultRatePercent: 0, inclusive: false }),
+    taxRates: { list: async () => [] },
     // The two id spaces must DIFFER in this harness. They used to be the same
     // string, which is why D147 — `view_own` comparing an employee id against a
     // user id — passed every test in this file while showing a real rep nothing.
@@ -144,6 +146,18 @@ describe("sales invoices — a `.view_own` caller sees their own work and only t
     expect(text).not.toContain("emp-b");
     expect(text).not.toContain("9999.99");
     expect(text).not.toContain("عميل المندوب ب");
+  });
+
+  it("an invoice an own-records rep raises without naming a salesperson is theirs: they can open it and confirm it, and a colleague cannot", async () => {
+    const { app } = await harness();
+    const REP = "sales.invoice.create,sales.invoice.confirm";
+    const { salespersonId: _unnamed, ...unassigned } = draft("inv-unnamed", "emp-a", "عميل المندوب أ", "100");
+    const created = await app.fetch(req("/", { method: "POST", permissions: REP, userId: "rep-a", body: JSON.stringify(unassigned) }));
+    expect(created.status).toBe(201);
+    expect(((await created.json()) as { salespersonId: string | null }).salespersonId).toBe("emp-a");
+    expect((await app.fetch(req("/inv-unnamed", { permissions: REP, userId: "rep-a" }))).status).toBe(200);
+    expect((await app.fetch(req("/inv-unnamed/confirm", { method: "POST", permissions: REP, userId: "rep-b", body: "{}" }))).status).toBe(404);
+    expect((await app.fetch(req("/inv-unnamed/confirm", { method: "POST", permissions: REP, userId: "rep-a", body: "{}" }))).status).toBe(200);
   });
 
   it("answers 404 — not 403 — for the other reps invoice by direct id, with no fields in the body", async () => {

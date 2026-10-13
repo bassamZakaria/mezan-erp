@@ -126,6 +126,16 @@ describe("createBackend — seeded app", () => {
     expect(signedInElsewhere.status).toBe(403);
   });
 
+  it("the dashboard asks for dashboard.view as well as the ledger read it folds", async () => {
+    const app = await newBackend();
+    const as = (permissions: string[]) => app.fetch(new Request("http://local/dashboard/summary", { headers: sessionHeaders(app, "u-dash", permissions) }));
+    const ledgerOnly = await as(["accounting.journal.view"]);
+    expect(ledgerOnly.status).toBe(403);
+    expect(((await ledgerOnly.json()) as { permission?: string }).permission).toBe("dashboard.view");
+    expect((await as(["dashboard.view"])).status).toBe(403);
+    expect((await as(["dashboard.view", "accounting.journal.view"])).status).toBe(200);
+  });
+
   it("bootstrap/seed is idempotent and reports counts", async () => {
     const app = await newBackend();
     const res = await post(app, "/bootstrap/seed", {});
@@ -405,6 +415,8 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
     expect(created.status).toBe(201);
     expect((await created.json()) as { status: string }).toMatchObject({ status: "pending" });
 
+    const bank = await post(app, "/treasury-accounts", { id: "ta-bank1", code: "BANK-1", name: "البنك", type: "bank", currency: "EGP", branchId: "BR-MAIN", glAccountId: "1310" }, admin(app));
+    expect(bank.status).toBe(201);
     const deposited = await post(app, "/cheques/chq-1/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app));
     expect(deposited.status).toBe(200);
 
@@ -1744,6 +1756,23 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
     expect((await receipt(app, issued!.receiptNo)).submission.payload.paymentMethod).toBe("V");
   });
 
+  it("the retry says the receipt was issued when the first attempt had no device, and that nothing is left once it is with the authority", async () => {
+    const handle = await createBackend({ dbPath: ":memory:" });
+    const app = keep(handle);
+    await createServiceItem(app);
+    await createCustomer(app, "cust-r-7", "0");
+    await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-r-7", "cust-r-7", "100"), branchId: "BR-MAIN" });
+    const confirm = await authedPost(app, "/sales-invoices/inv-r-7/confirm", {});
+    expect(((await confirm.json()) as { etaReceiptError: { code: string } }).etaReceiptError.code).toBe("ETA_DEVICE_SERIAL_NOT_REGISTERED");
+    await registerDevice(app);
+
+    const retried = await post(app, "/sales-invoices/inv-r-7/eta-receipt/retry", {}, admin(app));
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toEqual({ documentId: "inv-r-7", filing: "issued" });
+    const again = await post(app, "/sales-invoices/inv-r-7/eta-receipt/retry", {}, admin(app));
+    expect(await again.json()).toEqual({ documentId: "inv-r-7", filing: null });
+  });
+
   it("refuses a serial no device registered, rather than filing it", async () => {
     const handle = await createBackend({ dbPath: ":memory:" });
     const app = keep(handle);
@@ -1866,6 +1895,12 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
       expect(corrected.submission.payload.header.referenceOldUUID).toBe(rejected!.uuid);
       expect(corrected.submission.payload.header.previousUUID).toBe(rejected!.uuid);
       expect(corrected.submission.status).toBe("ready");
+
+      const second = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, admin(app));
+      expect(second.status).toBe(422);
+      expect((await second.json()) as { error: string }).toMatchObject({ error: "ETA_RECEIPT_NOT_APPLICABLE" });
+      const third = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(`${sale.docNo}-R3`)}`, { headers: admin(app) }));
+      expect(third.status).toBe(404);
     });
 
     it("refuses to correct a receipt the authority has not rejected", async () => {
@@ -2410,6 +2445,7 @@ describe("createBackend — phase9/accounting-depth: reconciliation, inventory-o
       "contracting_retention_payable",
       "contracting_retention_receivable",
       "contracting_wip",
+      "grni",
       "inventory",
     ]);
     for (const row of body.rows) {
@@ -2822,6 +2858,45 @@ describe("createBackend — financial statements over real posted GL (file-backe
     expect(body.reconciliation?.referenceTotal).toBeCloseTo(340200, 2);
     const retained = body.rows.find((r) => r.nameAr?.includes("الأرباح المحتجزة"));
     expect(retained?.amount).toBeCloseTo(35000, 2);
+  });
+
+  it("a cash drawer nobody hand-listed is still cash: the van drawer, a second branch's drawer and the dollar account sit in the cash section and in closing cash", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    for (const [id, nameAr] of [["1300-2", "صندوق المندوب"], ["1300-ALEX", "صندوق فرع الإسكندرية"], ["1310-USD", "حساب بنكي بالدولار"]] as const) {
+      expect((await post(app, "/accounts", { id, code: id, nameAr, type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false }, admin(app))).status, id).toBe(201);
+    }
+    await postEntry(app, "je-van", "2026-05-01", "عهدة نقدية للمندوب", [line("1300-2", "7000", "0"), line("1300-1", "0", "7000")]);
+    await postEntry(app, "je-alex", "2026-05-02", "تمويل صندوق الفرع", [line("1300-ALEX", "3000", "0"), line("3100", "0", "3000")]);
+    await postEntry(app, "je-usd", "2026-05-03", "إيداع بالحساب الدولاري", [line("1310-USD", "1500", "0"), line("3100", "0", "1500")]);
+
+    const sheet = (await getReport(app, "/balance-sheet?asOfDate=2026-12-31")) as unknown as { rows: { code: string; sectionKey: string; amount: number }[] };
+    for (const code of ["1300-1", "1300-2", "1300-ALEX", "1310-USD"]) expect(sheet.rows.find((row) => row.code === code)?.sectionKey, code).toBe("cash");
+    const cashSection = sheet.rows.filter((row) => row.sectionKey === "cash").reduce((sum, row) => sum + row.amount, 0);
+    expect(cashSection).toBeCloseTo(195000 + 3000 + 1500, 2);
+
+    const flow = (await getReport(app, "/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31")) as unknown as { rows: { closingCash: number }[]; reconciliation: { withinTolerance: boolean } };
+    expect(flow.rows[0]?.closingCash).toBeCloseTo(199500, 2);
+    expect(flow.reconciliation.withinTolerance).toBe(true);
+  });
+
+  it("the dashboard's cash tile is the same set: a guarantee margin is not cash, though its code starts with 13", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    const cashOf = async () => Number(((await (await app.fetch(new Request("http://local/dashboard/summary", { headers: admin(app) }))).json()) as DashboardSummaryDTO).gl.cash);
+    expect(await cashOf()).toBeCloseTo(195000, 2);
+    await postEntry(app, "je-margin-2", "2026-05-05", "غطاء خطاب ضمان", [line("1340", "20000", "0"), line("1300-1", "0", "20000")]);
+    expect(await cashOf()).toBeCloseTo(175000, 2);
+    const flow = (await getReport(app, "/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31")) as unknown as { rows: { closingCash: number }[] };
+    expect(flow.rows[0]?.closingCash).toBeCloseTo(175000, 2);
+  });
+
+  it("restricted cash held as a guarantee margin stays out of cash, as before", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    await postEntry(app, "je-margin", "2026-05-04", "غطاء خطاب ضمان", [line("1340", "10000", "0"), line("1300-1", "0", "10000")]);
+    const sheet = (await getReport(app, "/balance-sheet?asOfDate=2026-12-31")) as unknown as { rows: { code: string; sectionKey: string }[] };
+    expect(sheet.rows.find((row) => row.code === "1340")?.sectionKey).toBe("current-asset");
   });
 
   it("cash flow ties out (opening + net change = closing) from real cash movements", async () => {
@@ -3909,7 +3984,7 @@ describe("createBackend — a landed cost does not touch the AP control account 
       "/landed-costs",
       {
         id: "lc-1",
-        date: "2026-08-24",
+        date: new Date().toISOString().slice(0, 10),
         memo: "شحن وتخليص",
         distributionMethod: "BY_VALUE",
         costItems: [{ costType: "SHIPPING", description: "شحن بحري", amount: "500", supplierId: "SUP-FREIGHT" }],
@@ -4557,7 +4632,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(list.filter((e) => e.sourceModule === "unknown")).toEqual([]);
   });
 
-  it("D194: both ladders age a foreign invoice at its booked EGP value, and still tie once revaluation restates the control accounts", async () => {
+  it("D194: both ladders age a foreign invoice at its booked EGP value, and at what it is carried at once a revaluation that does not reverse itself restates it", async () => {
     const app = await newBackend();
     await createCustomer(app, "cust-usd", "0");
     await createServiceItem(app);
@@ -4603,9 +4678,6 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(suppliers.rows.find((row: { supplierId: string }) => row.supplierId === "sup-sar")?.total).toBe("1320.000000");
     expect(suppliers.reconciliation).toMatchObject({ reportTotal: "1320.000000", referenceTotal: "1320.000000", withinTolerance: true });
 
-    // A month-end revaluation that is NOT auto-reversed restates both control
-    // accounts and touches no invoice: the ladders stay at the booked rate and
-    // the restatement is the one named reconciling item.
     await approvedRate(app, "fx-usd-2", "USD", "50.00", "2026-08-31");
     await approvedRate(app, "fx-sar-2", "SAR", "13.50", "2026-08-31");
     const revalued = await post(app, "/revaluation/post", { date: "2026-08-31", currencies: ["USD", "SAR"], autoReverse: false }, admin(app));
@@ -4614,19 +4686,19 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect(-(await glBalance(app, "2100"))).toBe(1350);
 
     const customersAfter = await get(app, "/reports/aging/customers?asOfDate=2026-08-31");
-    expect(customersAfter.grandTotals.total).toBe("4800.000000");
+    expect(customersAfter.grandTotals.total).toBe("5000.000000");
     expect(customersAfter.reconciliation).toMatchObject({
-      referenceTotal: "4800.000000",
+      referenceTotal: "5000.000000",
       withinTolerance: true,
-      reconcilingItems: [{ key: "fxRevaluation", amount: "200.000000" }],
     });
+    expect(customersAfter.reconciliation.reconcilingItems ?? []).toEqual([]);
     const suppliersAfter = await get(app, "/reports/aging/suppliers?asOfDate=2026-08-31");
-    expect(suppliersAfter.grandTotals.total).toBe("1320.000000");
+    expect(suppliersAfter.grandTotals.total).toBe("1350.000000");
     expect(suppliersAfter.reconciliation).toMatchObject({
-      referenceTotal: "1320.000000",
+      referenceTotal: "1350.000000",
       withinTolerance: true,
-      reconcilingItems: [{ key: "fxRevaluation", amount: "30.000000" }],
     });
+    expect(suppliersAfter.reconciliation.reconcilingItems ?? []).toEqual([]);
     expect(await reconDiff(app, "ar")).toBe(0);
     expect(await reconDiff(app, "ap")).toBe(0);
   });
@@ -5254,17 +5326,21 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/purchases/invoices/pi-sar/confirm", {}, admin(app))).status).toBe(200);
     await approvedRate(app, "fx-sar-135", "SAR", "13.50", "2026-08-25");
+    expect((await post(app, "/accounts", { id: "1300-SAR", code: "1300-SAR", nameAr: "خزينة الريال", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false }, admin(app))).status).toBe(201);
     expect((await post(app, "/gl/journal-entries", {
       id: "je-fund", date: "2026-08-24", memo: "تمويل", source: "manual", lines: [
-        { accountId: "1300-1", debit: "5000", credit: "0" },
+        { accountId: "1300-SAR", debit: "5000", credit: "0" },
         { accountId: "3100", debit: "0", credit: "5000" },
       ],
     }, admin(app))).status).toBeLessThan(300);
 
-    expect((await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app))).status).toBe(201);
+    const shared = await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "0" }, admin(app));
+    expect(shared.status).toBe(422);
+    expect(((await shared.json()) as { error: string }).error).toBe("TREASURY_GL_ACCOUNT_CURRENCY_CONFLICT");
+    expect((await post(app, "/treasury-accounts", { id: "ta-cash-sar", code: "TA-CASH-SAR", name: "خزينة الريال", type: "bank", currency: "SAR", branchId: "BR-MAIN", glAccountId: "1300-SAR", openingBalance: "0" }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers", {
       id: "v-sar", date: "2026-08-26", voucherType: "supplier_payment", amount: "100", currency: "SAR", branchId: "BR-MAIN", paymentMethod: "cash",
-      treasuryAccountId: "ta-cash-sar", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-sar",
+      treasuryAccountId: "ta-cash-sar", treasuryGlAccountId: "1300-SAR", counterpartyGlAccountId: "2100", supplierId: "sup-sar",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-sar/confirm", {}, admin(app))).status).toBe(200);
     const allocated = await post(app, "/vouchers/v-sar/allocations", { allocationId: "al-sar", invoiceId: "pi-sar", amount: "1350" }, admin(app));
@@ -5687,6 +5763,33 @@ describe("createBackend — foreign documents settle and return in base (D202, D
   const onAccount = (date: string) => ({ date, position: OPEN, gain: 0, control: 2300, ladderRow: 2300, ladderTies: true });
   const settled = (date: string) => ({ date, position: HALF, gain: -100, control: 2400, ladderRow: 2400, ladderTies: true });
 
+  it("ENH-E1-04: the FX check wants a revaluation run AS OF the period end, per currency — a mid-month run does not pass, a run for another currency does not pass, and a month-end run does", async () => {
+    const app = await newBackend();
+    await halfReceiptOnAccount(app);
+    const periods = (await (await app.fetch(new Request("http://local/fiscal-periods", { headers: admin(app) }))).json()) as { id: string; startDate: string; endDate: string }[];
+    const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
+    const fx = async () => {
+      const checklist = (await (await app.fetch(new Request(`http://local/period-close/${august.id}/checks`, { headers: admin(app) }))).json()) as { checks: { code: string; status: string; findings: { ref: string; passed: boolean; asOfDate: string | null }[] }[] };
+      return checklist.checks.find((c) => c.code === "fx_revaluation")!;
+    };
+    const revalue = (body: Record<string, unknown>) => post(app, "/revaluation/post", { autoReverse: false, ...body }, admin(app));
+
+    expect(await fx()).toMatchObject({ status: "fail", findings: [{ ref: "USD", passed: false, asOfDate: "2026-08-31" }] });
+
+    expect((await revalue({ date: "2026-08-27" })).status).toBe(201);
+    expect((await fx()).status).toBe("fail");
+
+    expect((await revalue({ date: "2026-08-31", currencies: ["EUR"] })).status).toBe(201);
+    expect((await fx()).status).toBe("fail");
+
+    expect((await revalue({ date: "2026-08-31" })).status).toBe(201);
+    expect(await fx()).toMatchObject({ status: "pass", findings: [{ ref: "USD", passed: true }] });
+
+    const again = await revalue({ date: "2026-08-31" });
+    expect(again.status).toBe(201);
+    expect((await fx()).status).toBe("pass");
+  });
+
   it("D265: EGP 2,500 applied to half a USD 100 invoice, undone and applied again today, is one settlement dated today — revaluation, 4920, 1105 and the ladder agree on every day", async () => {
     const app = await newBackend();
     await halfReceiptOnAccount(app);
@@ -5716,7 +5819,10 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       const periods = (await get(app, "/fiscal-periods")) as { id: string; startDate: string; endDate: string }[];
       const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
       at("2026-09-02");
-      expect((await post(app, `/fiscal-periods/${august.id}/close`, {}, admin(app))).status).toBe(200);
+      const bareClose = await post(app, `/fiscal-periods/${august.id}/close`, {}, admin(app));
+      expect(bareClose.status).toBe(409);
+      expect(((await bareClose.json()) as { failedChecks: string[] }).failedChecks).toEqual(["fx_revaluation"]);
+      expect((await post(app, `/fiscal-periods/${august.id}/close`, { overrideReason: "إقفال أغسطس قبل إعادة تقييم العملات" }, admin(app))).status).toBe(200);
       expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
       at("2026-09-05");
       expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
@@ -5782,7 +5888,7 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/cheques/chq-asof/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app))).status).toBe(200);
     expect((await post(app, "/cheques/chq-asof/bounce", { date: "2026-08-28" }, admin(app))).status).toBe(200);
-    expect((await post(app, "/sales-invoices/inv-v/void", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-v/void", { reason: "صدرت بالخطأ" }, admin(app))).status).toBe(200);
 
     for (const [date, owed] of [
       ["2026-08-05", 1300], ["2026-08-11", 900], ["2026-08-13", 400], ["2026-08-16", 300],

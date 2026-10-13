@@ -157,7 +157,7 @@ export function Approvals() {
               ]}
             >
               <Text style={[styles.rowLabel, { color: theme.text }]} numberOfLines={2}>
-                {item.entityLabel ?? item.actionType}
+                {item.entityLabel ?? item.documentNo ?? item.documentId ?? item.actionType}
               </Text>
               <Text style={[styles.rowMeta, { color: theme.textMuted }]}>
                 {strings.approvals.step} {item.currentStep + 1}/{item.steps.length}
@@ -221,9 +221,9 @@ function ApprovalCard({
   const theme = useTheme();
   return (
     <Card>
-      <Text style={[styles.rowLabel, { color: theme.text }]}>{request.entityLabel ?? request.actionType}</Text>
+      <Text style={[styles.rowLabel, { color: theme.text }]}>{request.entityLabel ?? request.documentNo ?? request.documentId ?? request.actionType}</Text>
       <Text style={[styles.rowMeta, { color: theme.textMuted }]}>
-        {strings.approvals.submittedBy} <Submitter userId={request.submittedBy} /> · {strings.approvals.step}{" "}
+        {strings.approvals.submittedBy} {request.submittedByName ?? <Submitter userId={request.submittedBy} />} · {strings.approvals.step}{" "}
         {request.currentStep + 1}/{request.steps.length}
       </Text>
 

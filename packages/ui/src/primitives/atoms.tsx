@@ -48,6 +48,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   return (
     <button
       ref={ref}
+      data-variant={variant}
       className={cn(
         "inline-flex items-center gap-[7px] rounded-md border font-semibold transition-colors disabled:cursor-not-allowed disabled:border-border disabled:bg-surface-3 disabled:text-ink-faint disabled:shadow-none",
         buttonVariantClass[variant],
@@ -242,18 +243,19 @@ export interface MoneyProps {
   /** Overrides useFormat()'s default currency label (ج.م). */
   currencyLabel?: string;
   showUnit?: boolean;
+  storedPrecision?: boolean;
   className?: string;
   numFontClassName?: string;
 }
 
-export function Money({ value, currencyLabel, showUnit = true, className, numFontClassName }: MoneyProps) {
+export function Money({ value, currencyLabel, showUnit = true, storedPrecision = false, className, numFontClassName }: MoneyProps) {
   const format = useFormat({ currencyLabel });
   return (
     // flex-wrap + min-w-0 let a large figure's currency unit drop to its own
     // line instead of being clipped by an ancestor's overflow-hidden (a stat
     // tile at a 7-digit value) — the figure itself never breaks mid-number.
     <span className={cn("inline-flex min-w-0 flex-wrap items-baseline gap-x-[5px] gap-y-[1px]", className)}>
-      <span className={cn("mz-num", numFontClassName)}>{format.money(value)}</span>
+      <span className={cn("mz-num", numFontClassName)}>{storedPrecision ? format.unitCost(value) : format.money(value)}</span>
       {showUnit ? <span className="font-ar text-[0.85em] font-semibold text-ink-faint">{format.currencyLabel}</span> : null}
     </span>
   );

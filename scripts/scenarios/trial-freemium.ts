@@ -272,7 +272,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const taxAccountId = accountId("2200");
     const revenueAccountId = accountId("4100");
     const postableCashAccountId = String(
-      ctx.rows(accounts.body).find((a: any) => !a.isHeader && String(a.code).startsWith("11") && a.status === "active")?.id ?? "",
+      ctx.rows(accounts.body).find((a: any) => !a.isHeader && a.parentId === "1300" && a.status === "active")?.id ?? "",
     );
 
     const invoiceBody = (n: number) => ({

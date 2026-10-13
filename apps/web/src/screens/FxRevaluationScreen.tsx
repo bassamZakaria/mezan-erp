@@ -1,3 +1,6 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { ReverseDocumentAction } from "../reversal/ReverseDocumentAction";
+import { useFxRevaluationRuns } from "../reversal/posted-runs-hooks";
 import { Fragment, useEffect, useState } from "react";
 import {
   Button,
@@ -7,12 +10,13 @@ import {
   DocumentList,
   EmptyState,
   StatCard,
+  StatusPill,
   TextInput,
   VarianceBeam,
   formatNumber,
   type DocumentListColumn,
 } from "@mezan/ui";
-import type { CurrencyBalanceGroupDTO, FxRevaluationDetailDTO } from "@mezan/contracts";
+import type { CurrencyBalanceGroupDTO, TreasuryCurrencyBalanceDTO, FxRevaluationDetailDTO } from "@mezan/contracts";
 import { foreignCurrencies, nextDay } from "@mezan/domain";
 import {
   useAllowedCurrencies,
@@ -174,6 +178,8 @@ export function FxRevaluationScreen() {
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-muted">{t("fx.pressPreviewToListThe")}</div>
       )}
 
+      <PostedRunsCard />
+
       {/*
         R1.16 — what the revaluation above is actually exposed to. A balance
         collapsed to base loses which currency it is denominated in, so this
@@ -202,8 +208,81 @@ export function FxRevaluationScreen() {
             totalBase={balances?.payableTotalBase ?? "0"}
           />
         </div>
+        {(balances?.treasury ?? []).length > 0 ? <TreasuryCurrencyTable rows={balances?.treasury ?? []} /> : null}
       </section>
     </div>
+  );
+}
+
+function TreasuryCurrencyTable({ rows }: { rows: readonly TreasuryCurrencyBalanceDTO[] }) {
+  const { t } = useAppTranslation();
+  const headCell =
+    "whitespace-nowrap border-b border-border bg-surface-2 px-[13px] py-[9px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted";
+  return (
+    <Card className="mt-[16px] overflow-hidden">
+      <div className="border-b border-border px-[14px] py-[10px]">
+        <h3 className="text-[13px] font-bold text-ink">{t("fx.balances.treasury")}</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table aria-label={t("fx.balances.treasury")} className="w-full min-w-[420px] border-collapse text-[13px]">
+          <thead>
+            <tr>
+              <th scope="col" className={headCell}>{t("fx.balances.treasuryAccount")}</th>
+              <th scope="col" className={headCell}>{t("fx.currency")}</th>
+              <th scope="col" className={headCell}>{t("fx.balances.transactionAmount")}</th>
+              <th scope="col" className={headCell}>{t("fx.balances.baseAmount")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.treasuryAccountId} className="border-b border-border last:border-b-0">
+                <td className="px-[13px] py-[8px] text-ink">
+                  {row.name}
+                  {row.derivedLines > 0 ? <div className="text-[11.5px] text-warning-ink">{t("fx.balances.derivedLines", { count: row.derivedLines })}</div> : null}
+                </td>
+                <td className="mz-num px-[13px] py-[8px] text-ink-muted">{row.currency}</td>
+                <td className="mz-num px-[13px] py-[8px] text-ink">{fmt(row.foreignBalance)}</td>
+                <td className="mz-num px-[13px] py-[8px] text-ink-muted">{fmt(row.baseBalance)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function PostedRunsCard() {
+  const { t } = useAppTranslation();
+  const runs = useFxRevaluationRuns();
+  const rows = runs.data ?? [];
+  return (
+    <Card className="mt-[18px] p-[16px_18px]">
+      <h2 className="font-display text-[14px] font-bold text-ink">{t("reversal.fxRuns.title")}</h2>
+      {runs.error ? (
+        <p role="alert" className="mt-[10px] text-[12.5px] text-danger-ink">{runs.error.message}</p>
+      ) : rows.length === 0 ? (
+        <p className="mt-[10px] text-[12.5px] text-ink-muted">{runs.isLoading ? t("common.loading") : t("reversal.fxRuns.empty")}</p>
+      ) : (
+        <ul className="mt-[10px] flex flex-col gap-[8px]">
+          {rows.map((run) => (
+            <li key={run.entryId} className="flex flex-wrap items-center justify-between gap-[10px] rounded-md border border-border px-[12px] py-[9px] text-[12.5px]">
+              <span className="flex min-w-0 flex-wrap items-center gap-x-[12px] gap-y-[2px]">
+                <span className="mz-num font-semibold text-ink">{run.entryNo ?? run.entryId}</span>
+                <span className="mz-num text-ink-muted">{run.date.slice(0, 10)}</span>
+                {run.memo ? <span className="text-ink-muted">{run.memo}</span> : null}
+                {run.reversalEntryId ? (
+                  <StatusPill label={t("reversal.reversedBy", { entry: run.reversalEntryNo ?? run.reversalEntryId, date: (run.reversalDate ?? "").slice(0, 10) })} tone="neutral" />
+                ) : null}
+              </span>
+              {run.reversible ? (
+                <ReverseDocumentAction type={ReversalDocumentType.FxRevaluation} target={{ id: run.entryId, params: { entryId: run.entryId }, subject: run.entryNo ?? run.entryId }} />
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

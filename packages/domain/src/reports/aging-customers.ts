@@ -7,6 +7,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumMoneyStrings, percentOfMoneyStrings } from "./kpi.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
 import type { AgingOpenItem } from "./aging-open-items.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * أعمار ديون العملاء — Customer Debt Aging (docs/archive/catalog/08-reports.md): the
@@ -155,7 +156,7 @@ export function createAgingCustomersReport(
     descriptionAr: "العملاء المتأخرون 90 يوماً أو أكثر يحتاجون تدخلاً فورياً.",
     paramsSchema,
     defaultParams: { asOfDate: defaultAsOfDate, branchId: "" },
-    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }, BRANCH_PARAM_FIELD],
+    paramFields: [{ kind: ReportParamKind.Date, key: "asOfDate", label: "حتى تاريخ" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.customerId,
     columns: [
       { key: "customerNameAr", header: "اسم العميل", format: "text", value: (row) => row.customerNameAr, entity: { kind: "customer", id: (row) => row.customerId } },

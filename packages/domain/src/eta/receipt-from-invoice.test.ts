@@ -6,6 +6,7 @@ import type { SalesReturnLine } from "../sales-returns/sales-return-document.js"
 import { DEFAULT_ETA_CONFIG, type EtaConfig } from "./config.js";
 import { buildEtaReceiptPayload, canonicalizeEtaDocument, etaReceiptDecimal } from "./receipt.js";
 import { buildPosReceiptInput, buildRefundReceiptInput, type EtaReceiptLookups } from "./receipt-from-invoice.js";
+import { EtaReceiptNotReadyError } from "./errors.js";
 
 const config: EtaConfig = {
   ...DEFAULT_ETA_CONFIG,
@@ -32,6 +33,7 @@ function line(lineId: string, qty: string, unitPrice: string, extra: Partial<Sal
     revenueAccountId: "4100",
     cogsAccountId: null,
     inventoryAccountId: null,
+    taxRateId: null,
     costCenterId: null,
     unitCost: null,
     ...extra,
@@ -81,7 +83,7 @@ const lookups: EtaReceiptLookups = {
     ["ITEM-L1", { code: "SKU-1", etaItemCode: "EG-100-1", etaCodeType: "EGS", baseUnitCode: "PCS" }],
     ["ITEM-L2", { code: "SKU-2", etaItemCode: "10000159", etaCodeType: "GPC", baseUnitCode: "PCS" }],
   ]),
-  taxRates: [{ status: "active", rate: 14, etaSubType: "V009" }],
+  taxRates: [{ id: "VAT14", status: "active", rate: 14, etaSubType: "V009" }],
   unitByCode: new Map([["PCS", "EA"]]),
 };
 
@@ -294,5 +296,99 @@ describe("buildRefundReceiptInput — a consumer return is a refund receipt (D28
     });
     const payload = buildEtaReceiptPayload({ ...refund, previousUuid: null }, config) as unknown as Payload;
     expectSdkArithmetic(payload);
+  });
+});
+
+describe("buildPosReceiptInput — the VAT sub-type comes from the rate each line stored (D79)", () => {
+  const zeroRated = {
+    ...lookups,
+    taxRates: [
+      { id: "VAT14", status: "active", rate: 14, etaSubType: "V009" },
+      { id: "VAT-EXEMPT", status: "active", rate: 0, etaSubType: "V003" },
+      { id: "VAT-EXPORT", status: "active", rate: 0, etaSubType: "V001" },
+    ],
+  };
+  const subTypes = (inv: SalesInvoice): string[] =>
+    buildPosReceiptInput({ invoice: inv, issuedAt: inv.confirmedAt!, device, paymentMethod: "cash", lookups: zeroRated }).lines.map((l) => l.taxSubType);
+
+  it("files an exempt line V003 and a zero-rated export line V001, though both are 0%", () => {
+    const inv = invoice([
+      line("L1", "1", "100.00", { taxRatePercent: 0, taxRateId: "VAT-EXEMPT" }),
+      line("L2", "1", "100.00", { taxRatePercent: 0, taxRateId: "VAT-EXPORT" }),
+    ]);
+    expect(subTypes(inv)).toEqual(["V003", "V001"]);
+  });
+
+  it("refuses a receipt for a 0% line with no stored rate while the tenant holds exempt or export — never filed V004 by default, never a guess between the two", () => {
+    const unnamed = invoice([line("L1", "1", "100.00", { taxRatePercent: 0, taxRateId: null })]);
+    expect(() => subTypes(unnamed)).toThrow(EtaReceiptNotReadyError);
+    expect(() => subTypes(unnamed)).toThrow(/ضريبة البند بنسبة 0% غير مسماة \(SKU-1\)/);
+  });
+
+  it("files the neutral V004 for that same unnamed 0% line on a tenant with no specific zero classification", () => {
+    const inv = invoice([line("L1", "1", "100.00", { taxRatePercent: 0, taxRateId: null })]);
+    const unspecific = [
+      { id: "VAT14", status: "active", rate: 14, etaSubType: "V009" },
+      { id: "ZERO", status: "active", rate: 0, etaSubType: "auto" },
+      { id: "NOT-SUBJECT", status: "active", rate: 0, etaSubType: "V004" },
+      { id: "OLD-EXEMPT", status: "inactive", rate: 0, etaSubType: "V003" },
+    ];
+    const receipt = buildPosReceiptInput({ invoice: inv, issuedAt: inv.confirmedAt!, device, paymentMethod: "cash", lookups: { ...lookups, taxRates: unspecific } });
+    expect(receipt.lines.map((l) => l.taxSubType)).toEqual(["V004"]);
+  });
+
+  it("still matches a legacy taxed line by its percent", () => {
+    expect(subTypes(invoice([line("L1", "1", "100.00", { taxRatePercent: 14, taxRateId: null })]))).toEqual(["V009"]);
+  });
+});
+
+describe("buildRefundReceiptInput — a refund reverses the sale line it names (D79 review round 2)", () => {
+  const twoRates = {
+    ...lookups,
+    taxRates: [
+      { id: "VAT14", status: "active", rate: 14, etaSubType: "V009" },
+      { id: "VAT-EXEMPT", status: "active", rate: 0, etaSubType: "V003" },
+    ],
+  };
+  const sold = invoice([
+    line("L1", "2", "100.00", { itemId: "ITEM-L1", taxRatePercent: 14, taxRateId: "VAT14" }),
+    line("L2", "2", "100.00", { itemId: "ITEM-L1", taxRatePercent: 0, taxRateId: "VAT-EXEMPT", discountType: "percent", discountPercent: 50 }),
+  ]);
+  const refundOf = (ret: SalesReturnLine) =>
+    buildRefundReceiptInput({
+      invoice: sold,
+      returnLines: [ret],
+      receiptNumber: "SR-9",
+      issuedAt: "2026-09-02T09:00:00Z",
+      device,
+      referenceUuid: "c".repeat(64),
+      referenceIssuedAt: "2026-09-01T10:00:00Z",
+      paymentMethod: "cash",
+      lookups: twoRates,
+    }).lines[0]!;
+  const exemptReturn: SalesReturnLine = { ...returned("ITEM-L1", "1", "0.00"), unitPrice: Money.fromMajor("100"), taxRatePercent: 0, taxRateId: null };
+
+  it("files the named exempt line's own classification and discounted base, though the item's first line is taxed at the same price", () => {
+    const refund = refundOf({ ...exemptReturn, sourceLineId: "L2" });
+    expect(refund).toMatchObject({ taxSubType: "V003", totalSale: "100.000000", commercialDiscount: "50.000000", netSale: "50.000000", taxAmount: "0.000000" });
+  });
+
+  it("ignores a named line that belongs to another item rather than borrowing its figures", () => {
+    const other = invoice([
+      line("L1", "2", "100.00", { itemId: "ITEM-L1", taxRatePercent: 14, taxRateId: "VAT14" }),
+      line("L2", "2", "80.00", { itemId: "ITEM-L2", taxRatePercent: 0, taxRateId: "VAT-EXEMPT" }),
+    ]);
+    const refund = buildRefundReceiptInput({
+      invoice: other,
+      returnLines: [{ ...returned("ITEM-L1", "1", "14.00"), sourceLineId: "L2" }],
+      receiptNumber: "SR-10",
+      issuedAt: "2026-09-02T09:00:00Z",
+      device,
+      referenceUuid: "c".repeat(64),
+      referenceIssuedAt: "2026-09-01T10:00:00Z",
+      paymentMethod: "cash",
+      lookups: twoRates,
+    }).lines[0]!;
+    expect(refund).toMatchObject({ taxSubType: "V009", netSale: "100.000000", taxAmount: "14.000000" });
   });
 });

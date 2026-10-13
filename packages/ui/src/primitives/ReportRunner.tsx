@@ -52,7 +52,7 @@ export interface ReportRunnerEntityRef {
 export type ReportRunnerParamField =
   | { readonly kind: "date"; readonly key: string; readonly label: string }
   | { readonly kind: "dateRange"; readonly fromKey: string; readonly toKey: string; readonly label: string }
-  | { readonly kind: "select"; readonly key: string; readonly label: string; readonly options: readonly { value: string; label: string }[] }
+  | { readonly kind: "select"; readonly key: string; readonly label: string; readonly options: readonly { value: string; label: string }[]; readonly wide?: boolean }
   | { readonly kind: "text"; readonly key: string; readonly label: string; readonly placeholder?: string };
 
 export interface ReportRunnerGroup<Row> {
@@ -120,6 +120,8 @@ export interface ReportRunnerResult<Row> {
 export interface ReportRunnerProps<Row> {
   title: string;
   description?: string;
+  /** A caveat about the figures themselves; shown above them and printed with them. */
+  notice?: ReactNode;
   paramFields: readonly ReportRunnerParamField[];
   /** Raw (untyped) param form state — keyed by each field's `key`/`fromKey`/`toKey`. */
   params: Record<string, string>;
@@ -308,6 +310,7 @@ function ParamField({
       ) : field.kind === "select" ? (
         <Select
           size="sm"
+          className={field.wide ? "[min-inline-size:190px]" : undefined}
           aria-label={field.label}
           value={params[field.key] ?? ""}
           onChange={(next) => set(field.key, next)}
@@ -330,6 +333,7 @@ function ParamField({
 export function ReportRunner<Row>({
   title,
   description,
+  notice,
   paramFields,
   params,
   onParamsChange,
@@ -434,6 +438,8 @@ export function ReportRunner<Row>({
           </Button>
         </div>
       </div>
+
+      {notice ? <div className="mb-[12px]">{notice}</div> : null}
 
       {pdfNotice ? (
         <p role="status" className="mb-[12px] text-[12px] text-ink-muted print:hidden">

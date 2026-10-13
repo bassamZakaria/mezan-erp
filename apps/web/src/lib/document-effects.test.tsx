@@ -99,3 +99,23 @@ describe("useDocumentEffectText", () => {
     expect(screen.getByTestId("detail").textContent).toBe("—");
   });
 });
+
+describe("a voucher's journal effect", () => {
+  const voucherEffect = (currency?: string): DocumentEffect =>
+    ({
+      kind: "gl",
+      description: "يُنشئ قيداً محاسبياً متوازناً بقيمة 300.00 EGP (تحصيل من عميل)",
+      key: "docEffects.voucher.gl",
+      params: { amount: "300.000000", ...(currency ? { currency } : {}), reasonAr: "تحصيل من عميل", reasonEn: "Customer collection" },
+    }) as DocumentEffect;
+
+  it("reads the amount through the money formatter with the tenant's currency label — two decimals, never six", async () => {
+    renderEffect(voucherEffect());
+    await waitFor(() => expect(screen.getByTestId("text")).toHaveTextContent("يُنشئ قيداً محاسبياً متوازناً بقيمة 300.00 ج.م (تحصيل من عميل)"));
+  });
+
+  it("carries the voucher's own currency when it is foreign", async () => {
+    renderEffect(voucherEffect("USD"));
+    await waitFor(() => expect(screen.getByTestId("text")).toHaveTextContent("بقيمة 300.00 USD (تحصيل من عميل)"));
+  });
+});

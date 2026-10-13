@@ -1,3 +1,4 @@
+import { reversalRefusalResponse } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -9,6 +10,7 @@ import {
   DuplicateChequeNumberError,
   InvalidChequeCommandError,
   InvalidChequeTransitionError,
+  ChequeBankRateMissingError,
   ReplacementAmountMismatchError,
   UnbalancedEntryError,
   AccountNotFoundError,
@@ -16,7 +18,6 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
-  AllocationExceedsError,
   SettlementRateMissingError,
   AllocationMismatchError,
   InvoiceNotFoundError,
@@ -24,8 +25,10 @@ import {
   type VoucherAllocation,
   type Cheque,
   type ChequeServiceDeps,
+  type TreasuryAccountRepository,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createChequeSchema,
   depositChequeSchema,
   collectChequeSchema,
@@ -36,9 +39,13 @@ import {
   type ChequeListQueryDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
+import { storedBranchesById } from "./stored-branches.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
+import { treasuryLedgerAccount } from "./treasury-ledger-account.js";
 
 export type ChequeRoutesDeps = ChequeServiceDeps & {
   /** Generates ids (cheque id, journal-entry id) when the request omits them. Defaults to a UUID. */
@@ -52,6 +59,8 @@ export type ChequeRoutesDeps = ChequeServiceDeps & {
   readonly audit?: AuditSink;
   /** Refuses a cheque naming a branch no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
+  /** Where a deposited cheque's bank ledger account is read from at collection. */
+  readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
 };
 
 function serialize(cheque: Cheque, asOfDate: string, allocations: readonly VoucherAllocation[] = []) {
@@ -94,7 +103,16 @@ function serialize(cheque: Cheque, asOfDate: string, allocations: readonly Vouch
   };
 }
 
+export enum ChequeCollectRefusalCode {
+  BankAccountRequired = "CHEQUE_BANK_ACCOUNT_REQUIRED",
+  BankAccountFixed = "CHEQUE_BANK_ACCOUNT_FIXED",
+  NotABankAccount = "CHEQUE_NOT_A_BANK_ACCOUNT",
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = reversalRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof ChequeNotFoundError || err instanceof InvoiceNotFoundError) {
@@ -105,8 +123,8 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (
     err instanceof InvalidChequeCommandError ||
+    err instanceof ChequeBankRateMissingError ||
     err instanceof ReplacementAmountMismatchError ||
-    err instanceof AllocationExceedsError ||
     err instanceof AllocationMismatchError ||
     err instanceof SettlementRateMissingError ||
     err instanceof UnbalancedEntryError ||
@@ -143,10 +161,13 @@ function handleDomainError(c: Context, err: unknown): Response {
  */
 export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: AuthContextResolver) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const idGen = deps.idGen ?? (() => randomUUID());
   const service = new ChequeService(deps);
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById((id) => service.findById(id), (cheque) => [cheque.branchId]),
+  });
+  const idGen = deps.idGen ?? (() => randomUUID());
   const asOf = () => (deps.now ? deps.now() : new Date().toISOString()).slice(0, 10);
+  const postingDay = (c: Context, date: string | undefined): Promise<string> => tenantDay(c, date ?? (deps.now ? deps.now() : new Date().toISOString()));
   /**
    * WHO. Read off the resolved session, never `x-user-id` — an actor the
    * caller named would make the register's attribution fiction (D80).
@@ -273,14 +294,20 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     });
   });
 
+  /** 404, not 403, for a cheque of a branch the caller does not hold: its existence is itself information. */
+  async function visibleCheque(c: Context) {
+    const cheque = await service.findById(c.req.param("id") ?? "");
+    return cheque && withinScope([cheque], branchScopeOf(c), (ch) => ch.branchId).length > 0 ? cheque : null;
+  }
+
   app.get("/:id", gate("cheques.view"), async (c) => {
-    const cheque = await service.findById(c.req.param("id"));
+    const cheque = await visibleCheque(c);
     if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(await present(cheque, asOf()));
   });
 
   app.get("/:id/allocations", gate("cheques.view"), async (c) => {
-    const cheque = await service.findById(c.req.param("id"));
+    const cheque = await visibleCheque(c);
     if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json((await service.listAllocations(cheque.id)).map((a) => ({
       id: a.id,
@@ -370,16 +397,57 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     }
   });
 
+  const collectRefusal = (c: Context, error: ChequeCollectRefusalCode, message: string, messageEn: string) => c.json({ error, message, messageEn }, 422);
+
+  /**
+   * LEDGER INVARIANT: a cheque is collected into the bank account it was
+   * deposited at. Only when that account is gone or no longer active may the
+   * request name another — an active BANK account — so the entry is never
+   * posted to no account and a closed account never strands a cheque.
+   */
+  async function collectionBank(c: Context, storedAccountId: string | null | undefined, body: { bankTreasuryAccountId?: string; bankGlAccountId?: string }) {
+    const stored = storedAccountId ? await deps.treasuryAccounts.findById(storedAccountId) : null;
+    const storedUsable = stored !== null && stored.status === "active" && !!stored.glAccountId;
+    if (storedUsable && body.bankTreasuryAccountId && body.bankTreasuryAccountId !== stored.id) {
+      return collectRefusal(
+        c,
+        ChequeCollectRefusalCode.BankAccountFixed,
+        "الشيك مودَع في حساب بنكي نشط ويُحصَّل فيه؛ لا يُحوَّل التحصيل إلى حساب آخر.",
+        "The cheque is deposited at an active bank account and is collected there; the collection cannot be redirected.",
+      );
+    }
+    const targetId = storedUsable ? stored.id : body.bankTreasuryAccountId;
+    if (!targetId) {
+      return collectRefusal(
+        c,
+        ChequeCollectRefusalCode.BankAccountRequired,
+        "الحساب البنكي المودَع فيه الشيك غير مسجَّل أو لم يعد نشطًا. اختر الحساب البنكي النشط الذي حُصِّل فيه الشيك.",
+        "The bank account this cheque was deposited at is not on record or is no longer active. Choose the active bank account it was collected into.",
+      );
+    }
+    const target = await treasuryLedgerAccount(c, deps.treasuryAccounts, targetId, body.bankGlAccountId);
+    if (target instanceof Response) return target;
+    if (target.type !== "bank") {
+      return collectRefusal(c, ChequeCollectRefusalCode.NotABankAccount, "يُحصَّل الشيك في حساب بنكي، لا في خزينة نقدية.", "A cheque is collected into a bank account, not a cash drawer.");
+    }
+    return target;
+  }
+
   app.post("/:id/collect", gate("cheques.collect"), async (c) => {
     const parsed = collectChequeSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const deposited = await service.findById(c.req.param("id"));
+    // A cheque in any other state is refused by its own lifecycle, which says why.
+    const bank = deposited?.status === "deposited" ? await collectionBank(c, deposited.bankTreasuryAccountId, parsed.data) : null;
+    if (bank instanceof Response) return bank;
     try {
       const cheque = await service.collect({
         chequeId: c.req.param("id"),
-        bankGlAccountId: parsed.data.bankGlAccountId,
-        date: await tenantDay(c, parsed.data.date),
+        bankGlAccountId: bank?.glAccountId ?? "",
+        ...(bank ? { bankTreasuryAccountId: bank.id } : {}),
+        date: await postingDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });
@@ -404,11 +472,31 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     try {
       const cheque = await service.bounce({
         chequeId: c.req.param("id"),
-        date: await tenantDay(c, parsed.data.date),
+        date: await postingDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });
       await auditTransition(c, "BOUNCE", cheque);
+      return c.json(await present(cheque, asOf()));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/return", gate(ReversalPermission.Cheque), async (c) => {
+    const parsed = bounceChequeSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const cheque = await service.returnCollected({
+        chequeId: c.req.param("id"),
+        date: await postingDay(c, parsed.data.date),
+        journalEntryId: idGen(),
+        collectionReversalId: idGen(),
+        actor: actorOf(c),
+      });
+      await auditTransition(c, "RETURN", cheque);
       return c.json(await present(cheque, asOf()));
     } catch (err) {
       return handleDomainError(c, err);
@@ -439,7 +527,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
           branchId: d.newCheque.branchId,
           notes: d.newCheque.notes ?? null,
         },
-        date: d.date,
+        date: await postingDay(c, d.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });

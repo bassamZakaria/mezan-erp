@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyString } from "./money-string.js";
+import { decimalRateString, moneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
 
 /**
@@ -10,7 +10,7 @@ import { isoDateOrInstant } from "./iso-date.js";
 
 // --- Employee advances -----------------------------------------------------
 
-export const employeeAdvanceStatusSchema = z.enum(["pending", "approved", "disbursed", "repaid", "rejected"]);
+export const employeeAdvanceStatusSchema = z.enum(["pending", "approved", "disbursed", "repaid", "rejected", "cancelled"]);
 
 export const advanceInstallmentSchema = z.object({
   seq: z.number().int().positive(),
@@ -22,7 +22,7 @@ export const advanceInstallmentSchema = z.object({
 export const advanceRepaymentSchema = z.object({
   id: z.string().min(1),
   date: z.string().min(1),
-  amount: z.string(),
+  amount: moneyString,
   paymentMethod: z.string().min(1),
   treasuryAccountId: z.string().min(1),
   voucherId: z.string().min(1),
@@ -99,7 +99,7 @@ export const employeeAdvanceBalanceSchema = z.object({
 // --- Payroll runs & payslips ----------------------------------------------
 
 export const payrollRunStatusSchema = z.enum(["draft", "calculated", "approved", "disbursed", "cancelled"]);
-export const payslipLineKindSchema = z.enum(["earning", "deduction", "employer_contribution"]);
+export const payslipLineKindSchema = z.enum(["earning", "deduction", "employer_contribution", "termination_adjustment"]);
 export const payslipLineSourceSchema = z.enum([
   "contract_basic",
   "contract_allowance",
@@ -112,6 +112,7 @@ export const payslipLineSourceSchema = z.enum([
   "social_insurance_employee",
   "social_insurance_employer",
   "statutory_levy",
+  "termination_adjustment",
 ]);
 
 export const payslipLineSchema = z.object({
@@ -130,9 +131,9 @@ export const payslipLineSchema = z.object({
 export const payslipBasisSchema = z.object({
   payBasis: z.enum(["monthly", "hourly", "daily"]),
   quantity: z.number().nonnegative().nullable(),
-  rate: z.string(),
+  rate: moneyString,
   contractCurrency: z.string().min(1),
-  fxRate: z.string().nullable(),
+  fxRate: decimalRateString.nullable(),
   fxRateDate: z.string().nullable(),
   grossInContractCurrency: z.string().nullable(),
   netInContractCurrency: z.string().nullable(),
@@ -149,6 +150,8 @@ export const payslipSchema = z.object({
   periodEnd: z.string().min(1),
   periodDays: z.number().int().positive(),
   paidDays: z.number().int().nonnegative(),
+  partMonthTaxNotice: z.string().nullable().optional(),
+  partMonthTaxNoticeEn: z.string().nullable().optional(),
   lines: z.array(payslipLineSchema),
   grossEarnings: z.string(),
   totalDeductions: z.string(),
@@ -229,7 +232,7 @@ export type CreatePayrollRunDTO = z.infer<typeof createPayrollRunSchema>;
 
 // --- Payroll components (GL routing, R10.7) --------------------------------
 
-export const payrollComponentKindSchema = payslipLineKindSchema;
+export const payrollComponentKindSchema = z.enum(["earning", "deduction", "employer_contribution"]);
 
 export const payrollComponentSchema = z.object({
   id: z.string().min(1),

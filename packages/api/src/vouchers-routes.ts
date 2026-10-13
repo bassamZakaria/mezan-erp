@@ -1,3 +1,6 @@
+import type { DocumentApprovalDTO } from "@mezan/contracts";
+import { mountResubmitRoute, serializeApproval } from "./document-resubmit.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -12,7 +15,6 @@ import {
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   DocumentNotFoundError,
-  DuplicateDocumentError,
   UnbalancedEntryError,
   AccountNotFoundError,
   HeaderAccountNotPostableError,
@@ -26,9 +28,9 @@ import {
   InvoiceNotFoundError,
   AllocationNotFoundError,
   AllocationMismatchError,
-  AllocationExceedsError,
   SettlementRateMissingError,
   ReversalDateBeforeOriginalError,
+  ReversalNotReversibleError,
   allocationFxDifference,
   allocationInvoiceAmount,
   invoiceOpenBalance,
@@ -39,9 +41,11 @@ import {
   branchScopedAuditSink,
   can,
   type VoucherServiceDeps,
+  type CollectionAllocationRequest,
   type HeldAllocationRequest,
   type VoucherDocument,
   type VoucherAllocation,
+  type AllocatableInvoiceRepository,
   type AllocatableInvoice,
   type AllocationSummary,
 } from "@mezan/domain";
@@ -52,11 +56,16 @@ import {
   reverseVoucherSchema,
   createAllocationSchema,
   voucherListQuerySchema,
+  type RequestedAllocationDTO,
   type VoucherListQueryDTO,
 } from "@mezan/contracts";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, withinScope } from "./permission-gate.js";
+import { storedBranchesById, withinBranchView } from "./stored-branches.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { tenantDay } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
+import { treasuryLedgerAccount } from "./treasury-ledger-account.js";
 
 /** The register port moved into the domain with the call that uses it (D196). */
 export type { VoucherChequeRegistration, VoucherChequeRegistrationPort } from "@mezan/domain";
@@ -84,9 +93,11 @@ export type VoucherRoutesDeps = Omit<VoucherServiceDeps, "events"> & {
   readonly receivableAccountId?: string;
 };
 
-function serialize(doc: VoucherDocument) {
+function serialize(doc: VoucherDocument, approval: DocumentApprovalDTO | null = null) {
   const line = voucherLine(doc);
   return {
+    approval,
+    workflowRequestId: doc.workflowRequestId ?? null,
     id: doc.id,
     docNo: doc.docNo,
     voucherType: line.voucherType,
@@ -97,6 +108,19 @@ function serialize(doc: VoucherDocument) {
     amount: line.amount.toString(),
     currency: line.currency,
     fxRate: line.fxRate ?? null,
+    treasuryFx: line.treasuryFx
+      ? {
+          currency: line.treasuryFx.currency,
+          fxRate: line.treasuryFx.fxRate,
+          foreignAmount: line.treasuryFx.foreignAmount.toString(),
+          ...(line.treasuryFx.carryingBase ? { carryingBase: line.treasuryFx.carryingBase.toString() } : {}),
+          ...(line.treasuryFx.realised ? { realised: line.treasuryFx.realised.toString() } : {}),
+          ...(line.treasuryFx.realisedAccountId ? { realisedAccountId: line.treasuryFx.realisedAccountId } : {}),
+        }
+      : null,
+    counterTreasuryFx: line.counterTreasuryFx
+      ? { currency: line.counterTreasuryFx.currency, fxRate: line.counterTreasuryFx.fxRate, foreignAmount: line.counterTreasuryFx.foreignAmount.toString() }
+      : null,
     baseAmount: voucherBaseAmount(line).toString(),
     branchId: line.branchId,
     paymentMethod: line.paymentMethod,
@@ -117,21 +141,35 @@ function serialize(doc: VoucherDocument) {
     journalEntryId: doc.journalEntryId,
     confirmedAt: doc.confirmedAt,
     reversesDocId: doc.reversesDocId ?? null,
+    reversedByDocId: doc.reversedByDocId ?? null,
     heldAllocations: (line.heldAllocations ?? []).map(serializeHeldAllocation),
   };
+}
+
+async function presentAllocationsWith(invoices: Pick<AllocatableInvoiceRepository, "findById">, allocations: readonly VoucherAllocation[]) {
+  const numbers = new Map<string, string | null>();
+  for (const allocation of allocations) {
+    if (!numbers.has(allocation.invoiceId)) numbers.set(allocation.invoiceId, (await invoices.findById(allocation.invoiceId))?.invoiceNo ?? null);
+  }
+  return allocations.map((allocation) => serializeAllocation(allocation, numbers.get(allocation.invoiceId) ?? null));
 }
 
 function serializeHeldAllocation(a: HeldAllocationRequest) {
   return { allocationId: a.allocationId, invoiceId: a.invoiceId, amount: a.amount ? a.amount.toString() : null };
 }
 
-function serializeAllocation(a: VoucherAllocation) {
+function serializeAllocation(a: VoucherAllocation, invoiceNo: string | null) {
   return {
     id: a.id,
     voucherId: a.voucherId,
     invoiceId: a.invoiceId,
+    invoiceNo,
     amount: a.amount.toString(),
     invoiceAmount: allocationInvoiceAmount(a).toString(),
+    revaluationShare: (a.revaluationShare ?? Money.zero()).toString(),
+    carryingAmount: Money.fromScaled(allocationInvoiceAmount(a).scaled + (a.revaluationShare?.scaled ?? 0n)).toString(),
+    moneyRevaluationShare: (a.moneyRevaluationShare ?? Money.zero()).toString(),
+    moneyCarryingAmount: Money.fromScaled(a.amount.scaled - (a.moneyRevaluationShare?.scaled ?? 0n)).toString(),
     fxDifference: allocationFxDifference(a).toString(),
     fxEntryId: a.fxEntryId ?? null,
     status: a.status,
@@ -164,13 +202,26 @@ function serializeInvoice(i: AllocatableInvoice, returned: Money = Money.zero())
   };
 }
 
+const ALLOCATE = "treasury.allocation.manage";
+
+function requestedAllocations(voucherId: string, requested: readonly RequestedAllocationDTO[]): CollectionAllocationRequest[] {
+  return requested.map((a, i) => ({
+    allocationId: a.allocationId ?? `${voucherId}:A${i + 1}`,
+    invoiceId: a.invoiceId,
+    ...(a.amount ? { amount: Money.fromMajor(a.amount) } : {}),
+  }));
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof CashBalanceWouldGoNegativeError) {
     return refuse(err, 422);
   }
-  if (err instanceof ReversalDateBeforeOriginalError) {
+  if (err instanceof ReversalDateBeforeOriginalError || err instanceof ReversalNotReversibleError) {
     return refuse(err, 422);
   }
   if (err instanceof AdvanceDisbursementNotReversibleError) {
@@ -185,7 +236,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof AllocationMismatchError ||
-    err instanceof AllocationExceedsError ||
     err instanceof SettlementRateMissingError
   ) {
     return refuse(err, 422);
@@ -194,7 +244,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     return refuse(err, 404);
   }
   if (
-    err instanceof DuplicateDocumentError ||
     err instanceof InvalidDocumentTransitionError ||
     err instanceof ApprovalRequestRejectedError ||
     err instanceof VoucherNotAllocatableError ||
@@ -261,7 +310,8 @@ const VOUCHER_TYPE_PERMISSION_PREFIX: Readonly<Record<string, string>> = {
  * every till cashier does.
  */
 const CERTIFICATE_COLLECT = "contracting.certificate.collect";
-const CERTIFICATE_COLLECTION_TYPES: ReadonlySet<string> = new Set(["customer_collection", "customer_advance"]);
+const CUSTOMER_COLLECTION = "customer_collection";
+const CERTIFICATE_COLLECTION_TYPES: ReadonlySet<string> = new Set([CUSTOMER_COLLECTION, "customer_advance"]);
 
 type VoucherAction = "create" | "confirm" | "void";
 
@@ -301,9 +351,17 @@ export function createVouchersRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  const storedBranches = storedBranchesById(
+    async (id, c) => {
+      const svc = serviceFor(c);
+      return (await svc.findById(id)) ?? (await svc.list({})).find((d) => d.docNo === id) ?? null;
+    },
+    (doc) => [voucherLine(doc).branchId],
+  );
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
   const idGen = deps.idGen ?? (() => randomUUID());
+  const presentAllocations = (allocations: readonly VoucherAllocation[]) => presentAllocationsWith(deps.invoices, allocations);
 
   function serviceFor(c: Context): VoucherService {
     const ctx = getAuthContext(c);
@@ -361,7 +419,7 @@ export function createVouchersRoutes(
           (voucherLine(d).referenceNo ?? "").toLowerCase().includes(term),
       );
     }
-    docs = [...withinScope(docs, branchScopeOf(c), (d) => voucherLine(d).branchId)];
+    docs = await withinBranchView(c, docs, async (d) => [voucherLine(d).branchId]);
 
     // Cut the page BEFORE the per-row allocation summary — that summary is a
     // sub-ledger read per voucher, and running it over the whole book to
@@ -373,12 +431,13 @@ export function createVouchersRoutes(
 
     // Row-level allocation summary so the list's "needs allocation" chip and
     // filter don't need an N+1 detail fetch per row.
+    const approvals = await svc.approvalsOf(window);
     let rows = await Promise.all(
       window.map(async (doc) => {
         const line = voucherLine(doc);
         const def = getVoucherTypeDefinition(line.voucherType);
         return {
-          ...serialize(doc),
+          ...serialize(doc, serializeApproval(approvals.get(doc.id))),
           allocatable: def.allocatable,
           allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
           direction: def.direction,
@@ -520,10 +579,10 @@ export function createVouchersRoutes(
     const summary = await svc.allocationSummary(doc);
     const allocations = await svc.listAllocations(doc.id);
     return c.json({
-      ...serialize(doc),
+      ...serialize(doc, serializeApproval((await svc.approvalsOf([doc])).get(doc.id))),
       allocatable,
       allocationSummary: serializeSummary(summary),
-      allocations: allocations.map(serializeAllocation),
+      allocations: await presentAllocations(allocations),
     });
   });
 
@@ -543,6 +602,9 @@ export function createVouchersRoutes(
     const d = parsed.data;
     const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
     if (refusal) return refusal;
+    const intended = d.allocations ?? [];
+    const drafter = getAuthContext(c);
+    if (intended.length > 0 && !(drafter && can(drafter, ALLOCATE))) return c.json(permissionDeniedBody(ALLOCATE), 403);
     const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Customer, ids: [d.customerId] },
       { kind: MasterDataKind.Supplier, ids: [d.supplierId] },
@@ -570,10 +632,17 @@ export function createVouchersRoutes(
         );
       }
     }
+    const treasury = await treasuryLedgerAccount(c, deps.treasuryAccounts, d.treasuryAccountId, d.treasuryGlAccountId);
+    if (treasury instanceof Response) return treasury;
+    const counterTreasury = d.counterTreasuryAccountId
+      ? await treasuryLedgerAccount(c, deps.treasuryAccounts, d.counterTreasuryAccountId, d.counterTreasuryGlAccountId)
+      : null;
+    if (counterTreasury instanceof Response) return counterTreasury;
     try {
       const svc = serviceFor(c);
-      const doc = await svc.createVoucher({
-        id: d.id ?? idGen(),
+      const id = d.id ?? idGen();
+      const doc = await svc.createVoucherCarrying({
+        id,
         date: d.date,
         memo: d.memo,
         voucherType: d.voucherType,
@@ -581,11 +650,11 @@ export function createVouchersRoutes(
         currency: d.currency,
         branchId: d.branchId,
         paymentMethod: d.paymentMethod,
-        treasuryAccountId: d.treasuryAccountId,
-        treasuryGlAccountId: d.treasuryGlAccountId,
-        counterpartyGlAccountId: d.counterpartyGlAccountId ?? null,
-        counterTreasuryAccountId: d.counterTreasuryAccountId ?? null,
-        counterTreasuryGlAccountId: d.counterTreasuryGlAccountId ?? null,
+        treasuryAccountId: treasury.id,
+        treasuryGlAccountId: treasury.glAccountId,
+        counterpartyGlAccountId: d.counterpartyGlAccountId ?? (d.voucherType === CUSTOMER_COLLECTION ? (deps.receivableAccountId ?? null) : null),
+        counterTreasuryAccountId: counterTreasury?.id ?? null,
+        counterTreasuryGlAccountId: counterTreasury?.glAccountId ?? null,
         customerId: d.customerId ?? null,
         supplierId: d.supplierId ?? null,
         referenceNo: d.referenceNo ?? null,
@@ -595,7 +664,7 @@ export function createVouchersRoutes(
         withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
         withholdingRatePercent: d.withholdingRatePercent ?? null,
         withholdingGlAccountId: d.withholdingGlAccountId ?? null,
-      });
+      }, requestedAllocations(id, intended));
       return c.json(serialize(doc), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -609,14 +678,14 @@ export function createVouchersRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
-    const voucherType = "customer_collection";
+    const voucherType = CUSTOMER_COLLECTION;
     for (const action of ["create", "confirm"] as const) {
       const refusal = refuseVoucherType(c, voucherPermissions(action, voucherType, d.projectId));
       if (refusal) return refusal;
     }
     const ctx = getAuthContext(c);
-    if (d.allocations.length > 0 && !(ctx && can(ctx, "treasury.allocation.manage"))) {
-      return c.json(permissionDeniedBody("treasury.allocation.manage"), 403);
+    if (d.allocations.length > 0 && !(ctx && can(ctx, ALLOCATE))) {
+      return c.json(permissionDeniedBody(ALLOCATE), 403);
     }
     const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Customer, ids: [d.customerId] },
@@ -627,17 +696,8 @@ export function createVouchersRoutes(
     if (!deps.receivableAccountId) {
       return c.json({ error: "COLLECTION_UNAVAILABLE", message: "حساب ذمم العملاء غير مهيأ.", messageEn: "The receivables control account is not configured." }, 503);
     }
-    const treasury = await deps.treasuryAccounts.findById(d.treasuryAccountId);
-    if (!treasury || treasury.status !== "active" || !treasury.glAccountId) {
-      return c.json(
-        {
-          error: "TREASURY_ACCOUNT_NOT_FOUND",
-          message: "حساب الخزينة غير موجود أو غير نشط أو بلا حساب دفتري.",
-          messageEn: "The treasury account does not exist, is inactive, or has no ledger account.",
-        },
-        422,
-      );
-    }
+    const treasury = await treasuryLedgerAccount(c, deps.treasuryAccounts, d.treasuryAccountId, null);
+    if (treasury instanceof Response) return treasury;
     const date = await tenantDay(c, d.date ?? (deps.now ? deps.now() : new Date().toISOString()));
     if (d.withholdingAmount && Money.fromMajor(d.withholdingAmount).scaled !== 0n && deps.simplifiedRegimeActiveOn) {
       if (await deps.simplifiedRegimeActiveOn(date)) {
@@ -660,7 +720,7 @@ export function createVouchersRoutes(
           memo: d.memo,
           voucherType,
           amount: Money.fromMajor(d.amount),
-          currency: treasury.currency,
+          currency: d.currency ?? treasury.currency,
           branchId: d.branchId,
           paymentMethod: d.paymentMethod,
           treasuryAccountId: treasury.id,
@@ -675,18 +735,14 @@ export function createVouchersRoutes(
           withholdingRatePercent: d.withholdingRatePercent ?? null,
           withholdingGlAccountId: d.withholdingGlAccountId ?? null,
         },
-        d.allocations.map((a, i) => ({
-          allocationId: a.allocationId ?? `${id}:A${i + 1}`,
-          invoiceId: a.invoiceId,
-          ...(a.amount ? { amount: Money.fromMajor(a.amount) } : {}),
-        })),
-        { requestId: d.requestId, actor: ctx?.userId, actorRoles: gateActorRoles(c) },
+        requestedAllocations(id, d.allocations),
+        { actor: ctx?.userId, actorRoles: gateActorRoles(c) },
       );
       return c.json(
         {
           voucher: serialize(result.document),
           held: result.held,
-          allocations: result.allocations.map(serializeAllocation),
+          allocations: await presentAllocations(result.allocations),
           heldAllocations: result.heldAllocations.map(serializeHeldAllocation),
         },
         201,
@@ -734,17 +790,31 @@ export function createVouchersRoutes(
     if (refusal) return refusal;
     try {
       const ctx = getAuthContext(c);
-      const result = await serviceFor(c).confirmVoucher(c.req.param("id"), {
-        requestId: parsed.data.requestId,
+      const svc = serviceFor(c);
+      const result = await svc.confirmVoucher(c.req.param("id"), {
         actor: ctx?.userId,
         actorRoles: gateActorRoles(c),
       });
-      return c.json({ ...serialize(result.document), held: result.held });
+      const approval = serializeApproval((await svc.approvalsOf([result.document])).get(result.document.id));
+      return c.json({ ...serialize(result.document, approval), held: result.held });
     } catch (err) {
       return handleDomainError(c, err);
     }
     },
   );
+
+  mountResubmitRoute<VoucherDocument>(app, {
+    permission: gateAny(
+      "treasury.cash_voucher.confirm",
+      "treasury.customer_refund.confirm",
+      "treasury.transfer.confirm",
+      CERTIFICATE_COLLECT,
+    ),
+    refuse: (c, id) => refuseStoredVoucher(c, id, "confirm"),
+    resubmit: (c, id) => serviceFor(c).resubmitVoucher(id, { actor: getAuthContext(c)?.userId, actorRoles: gateActorRoles(c) }),
+    serialize: async (c, doc) => serialize(doc, serializeApproval((await serviceFor(c).approvalsOf([doc])).get(doc.id))),
+    onError: handleDomainError,
+  });
 
   app.post(
     "/:id/cancel",
@@ -802,7 +872,7 @@ export function createVouchersRoutes(
     const allocations = await svc.listAllocations(doc.id);
     return c.json({
       allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
-      allocations: allocations.map(serializeAllocation),
+      allocations: await presentAllocations(allocations),
     });
   });
 
@@ -818,7 +888,7 @@ export function createVouchersRoutes(
         amount: Money.fromMajor(parsed.data.amount),
         date: await tenantDay(c, new Date().toISOString()),
       });
-      return c.json(serializeAllocation(result.allocation), 201);
+      return c.json((await presentAllocations([result.allocation]))[0], 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -836,13 +906,23 @@ export function createAllocationRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
   const service = () => new VoucherService(deps);
+  /** An allocation is its voucher's: reversing one restores that voucher's remainder. */
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById(
+      async (id) => {
+        const allocation = await deps.allocations.findById(id);
+        return allocation ? service().findById(allocation.voucherId) : null;
+      },
+      (doc) => [voucherLine(doc).branchId],
+    ),
+  });
+  const presentAllocations = (allocations: readonly VoucherAllocation[]) => presentAllocationsWith(deps.invoices, allocations);
 
   app.post("/allocations/:id/reverse", gate("treasury.allocation.manage"), async (c) => {
     try {
       const result = await service().reverseAllocation(c.req.param("id"), { date: await tenantDay(c, new Date().toISOString()) });
-      return c.json(serializeAllocation(result.allocation));
+      return c.json((await presentAllocations([result.allocation]))[0]);
     } catch (err) {
       return handleDomainError(c, err);
     }

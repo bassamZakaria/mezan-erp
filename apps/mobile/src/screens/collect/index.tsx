@@ -10,6 +10,7 @@ import { describeWriteError } from "@/api/errors";
 import {
   useBranches,
   useCreateCollection,
+  useCreateVoucherDraft,
   useCustomers,
   useOpenInvoices,
   useSalesInvoice,
@@ -21,6 +22,7 @@ import { useFormPadding } from "@/layout";
 import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { todayIso } from "@/domain/dates";
 import { AllocationInvoiceKind, CollectPaymentMethod, TreasuryAccountStatus } from "@/domain/enums";
+import { CollectPath, CollectPermission, allocationRequest, collectPathFor, draftCollectionBody, intendedAllocationFor } from "@/domain/collect-path";
 import { resolveDefaultBranch } from "@/domain/working-location";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
@@ -45,7 +47,8 @@ export function Collect() {
   const strings = useStrings();
   const theme = useTheme();
   const { can } = useSession();
-  const allowed = can("treasury.cash_voucher.create");
+  const path = collectPathFor(can);
+  const allowed = path === CollectPath.ConfirmNow || path === CollectPath.DraftForApproval;
   const formPadding = useFormPadding();
 
   const [customerQuery, setCustomerQuery] = useState("");
@@ -91,6 +94,7 @@ export function Collect() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const createCollection = useCreateCollection();
+  const createDraft = useCreateVoucherDraft();
 
   async function submit() {
     setNotice(null);
@@ -111,10 +115,32 @@ export function Collect() {
       return;
     }
     const voucherAmount = amount.trim();
-    const inBaseCurrency = invoiceDetail.data.fxRate === null;
+    const allocation = intendedAllocationFor(invoice.id, voucherAmount, invoiceDetail.data.fxRate === null);
     setBusy(true);
     setError(null);
     try {
+      if (path === CollectPath.DraftForApproval) {
+        const carries = can(CollectPermission.Allocate);
+        const draft = await createDraft.mutateAsync(
+          draftCollectionBody({
+            date: todayIso(),
+            customerId: customer.id,
+            branchId: branch.id,
+            treasuryAccountId: treasuryAccount.id,
+            amount: voucherAmount,
+            referenceNo,
+            invoiceNo: invoice.invoiceNo,
+            memoPrefix: strings.collect.draftMemo,
+            ...(carries ? { allocation } : {}),
+          }),
+        );
+        setNotice(`${carries ? strings.collect.draftSavedCarrying : strings.collect.draftSaved} — ${draft.docNo ?? invoice.invoiceNo}`);
+        setAmount("");
+        setReferenceNo("");
+        setInvoice(null);
+        setTreasuryAccount(null);
+        return;
+      }
       const result = await createCollection.mutateAsync({
         date: todayIso(),
         customerId: customer.id,
@@ -123,10 +149,7 @@ export function Collect() {
         amount: voucherAmount,
         paymentMethod: CollectPaymentMethod.Cash,
         referenceNo: referenceNo.trim() === "" ? null : referenceNo.trim(),
-        // The allocation is in base currency. Only a base-currency collection
-        // can name it from the typed figure; a foreign one lets the server
-        // allocate the voucher's base amount at its own approved rate.
-        allocations: [inBaseCurrency ? { invoiceId: invoice.id, amount: voucherAmount } : { invoiceId: invoice.id }],
+        allocations: [allocationRequest(allocation)],
       });
       const docNo = result.voucher.docNo ?? result.voucher.id;
       setNotice(result.held ? `${strings.collect.held} — ${docNo}` : `${strings.collect.success} ${invoice.invoiceNo} — ${docNo}`);
@@ -154,7 +177,7 @@ export function Collect() {
 
       {allowed ? null : (
         <Card>
-          <Text style={[styles.notice, { color: theme.negative }]}>{strings.collect.noPermission}</Text>
+          <Text style={[styles.notice, { color: theme.negative }]}>{path === CollectPath.ConfirmOnly ? strings.collect.confirmOnly : strings.collect.noPermission}</Text>
         </Card>
       )}
 
@@ -239,7 +262,7 @@ export function Collect() {
       <Button
         busy={busy}
         disabled={!allowed}
-        label={strings.collect.submit}
+        label={path === CollectPath.DraftForApproval ? strings.collect.submitDraft : strings.collect.submit}
         onPress={() => {
           void submit();
         }}

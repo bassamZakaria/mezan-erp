@@ -1,4 +1,4 @@
-import type { ReportColumn, ReportParamField } from "@mezan/domain";
+import { BRANCH_PARAM_FIELD, ReportParamKind, type ReportColumn, type ReportParamField } from "@mezan/domain";
 import { ReportScreen, type ReportScreenDefinition } from "./ReportScreen";
 import { monthStartIso, todayIso } from "../../lib/dates";
 
@@ -45,7 +45,8 @@ const TYPE_LABEL_AR: Readonly<Record<string, string>> = {
 };
 
 const paramFields: readonly ReportParamField[] = [
-  { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
+  { kind: ReportParamKind.DateRange, fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
+  BRANCH_PARAM_FIELD,
 ];
 
 const columns: readonly ReportColumn<OffersReportRow>[] = [

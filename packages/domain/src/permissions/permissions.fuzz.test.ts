@@ -139,16 +139,15 @@ describe("can() — fuzz", () => {
     );
   });
 
-  it("fuzz: a tenant admin passes every permission and every scope", () => {
+  it("fuzz: an unrestricted tenant admin passes every permission and every scope; one granted nothing passes no scope (D111)", () => {
     fc.assert(
       fc.property(codeArb, idArb, idArb, (asked, branch, warehouse) => {
-        const admin = createAuthContext({
-          userId: "USER-ADMIN",
-          permissions: [WILDCARD_PERMISSION],
-          branchScope: [],
-          warehouseScope: [],
-        });
+        const admin = createAuthContext({ userId: "USER-ADMIN", permissions: [WILDCARD_PERMISSION], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+        const confined = createAuthContext({ userId: "USER-ADMIN", permissions: [WILDCARD_PERMISSION], branchScope: [], warehouseScope: [] });
         expect(can(admin, asked, { branch, warehouse })).toBe(true);
+        expect(can(confined, asked)).toBe(true);
+        expect(can(confined, asked, { branch })).toBe(false);
+        expect(can(confined, asked, { warehouse })).toBe(false);
       }),
       { numRuns: 300 },
     );

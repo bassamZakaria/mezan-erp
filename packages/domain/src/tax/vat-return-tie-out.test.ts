@@ -84,6 +84,7 @@ function invoiceLine(
     revenueAccountId: REVENUE,
     cogsAccountId: null,
     inventoryAccountId: null,
+    taxRateId: null,
     costCenterId: null,
     unitCost: null,
   };
@@ -341,27 +342,23 @@ describe("إشعار خصم — a credit note belongs to the period it was ISSUE
 });
 
 /**
- * DEFECT — the input side of the return reports the tax but no وعاء (taxable
- * base). buildInvoicePosting tags only its INPUT-VAT lines with taxRatePercent;
- * the expense/inventory debit that IS the base carries no rate, so the report
- * per-rate reader (ratedBuckets) skips it and the row goes out at base 0.
- *
- * The sales side does not have this hole: buildSalesInvoiceGlPosting tags the
- * revenue line with the rate too, which is why the output rows above carry a
- * real base. Filing an input row of 280.00 tax on a base of 0.00 is an
- * arithmetic impossibility on the ETA form and invites the input tax to be
- * disallowed outright.
+ * Guards the input side's وعاء (taxable base). buildInvoicePosting used to tag
+ * only its input-VAT line with the rate; the expense/inventory debit that IS
+ * the base carried none, so the row went out at 280.00 of tax on a base of
+ * 0.00 — an arithmetic impossibility on the ETA form. The cost-side lines now
+ * carry the rate their invoice lines were charged under, as the revenue line
+ * on the sales side always did.
  */
-describe("DEFECT: the return input side declares tax with a zero taxable base", () => {
-  it("reports 280.00 of input tax against a base of 0.00, though the purchase base was 2,000.00", () => {
+describe("the return input side declares its tax against the base it was charged on", () => {
+  it("reports 280.00 of input tax against the 2,000.00 the purchase was for", () => {
     const march = rows(LEDGER, "2026-03-01", "2026-03-31");
     const input = row(march, "input", 14)!;
     expect(input.tax).toBe(280);
-    expect(input.base).toBe(0);
+    expect(input.base).toBe(2000);
 
     const purchase = LEDGER.find((e) => e.id === "PI-MAR")!;
     const base = purchase.lines.find((l) => l.accountId === PURCHASES)!;
     expect(base.debit.toString()).toBe("2000.000000");
-    expect(base.taxRatePercent ?? null).toBeNull();
+    expect(base.taxRatePercent).toBe(14);
   });
 });

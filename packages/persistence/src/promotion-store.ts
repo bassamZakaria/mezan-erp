@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import { childRowsByParent } from "./list-query.js";
 import {
   Money,
@@ -229,7 +230,7 @@ class SqlitePromotionRepository implements PromotionRepository {
   }
 
   async save(promotion: Promotion): Promise<void> {
-    this.insertPromotion.run(promotionParams(promotion));
+    insertingNew(promotion.id, () => this.insertPromotion.run(promotionParams(promotion)));
     this.insertBundleComponents(promotion);
   }
 

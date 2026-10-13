@@ -95,6 +95,10 @@ export interface Strings {
     readonly submitInvoice: string;
     readonly quoteCreated: string;
     readonly invoiceCreated: string;
+    readonly rerateTotals: string;
+    readonly rerateConfirm: string;
+    readonly rerateKeepDraft: string;
+    readonly rerateKeptDraft: string;
     readonly noPermission: string;
     readonly customerRequired: string;
     readonly locationRequired: string;
@@ -117,6 +121,11 @@ export interface Strings {
     readonly submit: string;
     readonly success: string;
     readonly held: string;
+    readonly submitDraft: string;
+    readonly draftSaved: string;
+    readonly draftSavedCarrying: string;
+    readonly draftMemo: string;
+    readonly confirmOnly: string;
     readonly noPermission: string;
     readonly missingGlAccount: string;
     readonly invoiceRequired: string;
@@ -294,6 +303,10 @@ const AR: Strings = {
     submitInvoice: "إنشاء الفاتورة وتأكيدها",
     quoteCreated: "تم إنشاء عرض السعر",
     invoiceCreated: "تم إنشاء الفاتورة وتأكيدها",
+    rerateTotals: "الإجمالي الذي سيُرحَّل: {recalculated} — المعروض حالياً: {shown}. التأكيد يُرحِّل الإجمالي الجديد.",
+    rerateConfirm: "تأكيد بالإجمالي الجديد",
+    rerateKeepDraft: "حفظ كمسودة دون تأكيد",
+    rerateKeptDraft: "حُفظت الفاتورة كمسودة ولم تُرحَّل. راجع إجماليها الجديد {recalculated} ثم أكِّدها من قائمة الفواتير.",
     noPermission: "لا تملك صلاحية إنشاء مستندات البيع.",
     customerRequired: "اختر عميلًا أولًا.",
     locationRequired: "اختر الفرع والمستودع أولًا.",
@@ -316,6 +329,11 @@ const AR: Strings = {
     submit: "تسجيل التحصيل",
     success: "تم تسجيل التحصيل وتخصيصه على الفاتورة",
     held: "سُجّل سند التحصيل وهو بانتظار الاعتماد؛ لم يُرحَّل ولم يُخصَّص على الفاتورة بعد",
+    submitDraft: "حفظ كمسودة للاعتماد",
+    draftSaved: "حُفظ سند التحصيل كمسودة بانتظار من يؤكده؛ لم يتحرك رصيد الخزينة ولم تُسدَّد الفاتورة بعد",
+    draftSavedCarrying: "حُفظ سند التحصيل كمسودة بانتظار من يؤكده؛ لم يتحرك رصيد الخزينة بعد، وسيُخصَّص على الفاتورة عند تأكيده",
+    draftMemo: "تحصيل الفاتورة",
+    confirmOnly: "صلاحيتك تأكيد السندات لا تسجيلها. تأكيد المسودات يتم من نسخة الويب أو سطح المكتب؛ تطبيق الجوال لا يعرض قائمة السندات.",
     noPermission: "لا تملك صلاحية تسجيل سندات التحصيل.",
     missingGlAccount: "حساب الخزينة المختار غير مربوط بحساب دفتر أستاذ؛ راجع الإعدادات على سطح المكتب.",
     invoiceRequired: "اختر عميلًا ثم فاتورة مفتوحة له.",
@@ -494,6 +512,10 @@ const EN: Strings = {
     submitInvoice: "Create and confirm invoice",
     quoteCreated: "Quote created",
     invoiceCreated: "Invoice created and confirmed",
+    rerateTotals: "Total that will post: {recalculated} — currently shown: {shown}. Confirming posts the new total.",
+    rerateConfirm: "Confirm at the new total",
+    rerateKeepDraft: "Keep as a draft, do not confirm",
+    rerateKeptDraft: "The invoice was saved as a draft and was not posted. Review its new total {recalculated}, then confirm it from the invoices list.",
     noPermission: "You do not hold the right to create sales documents.",
     customerRequired: "Choose a customer first.",
     locationRequired: "Choose the branch and warehouse first.",
@@ -516,6 +538,11 @@ const EN: Strings = {
     submit: "Record collection",
     success: "Collection recorded and allocated to the invoice",
     held: "The collection voucher is recorded and waiting for approval; it is not posted or allocated to the invoice yet",
+    submitDraft: "Save as a draft for approval",
+    draftSaved: "The collection voucher is saved as a draft for someone to confirm; the drawer has not moved and the invoice is not settled yet",
+    draftSavedCarrying: "The collection voucher is saved as a draft for someone to confirm; the drawer has not moved yet, and it will be allocated to the invoice when it is confirmed",
+    draftMemo: "Collection for invoice",
+    confirmOnly: "You may confirm vouchers, not record them. Drafts are confirmed from the web or desktop app; the mobile app has no vouchers list.",
     noPermission: "You do not hold the right to record collection vouchers.",
     missingGlAccount: "The chosen treasury account has no ledger account linked; check the desktop settings.",
     invoiceRequired: "Choose a customer, then one of their open invoices.",

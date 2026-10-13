@@ -1,6 +1,32 @@
 import { OwnerHandOverOutcome, sessionSchema, type SessionDTO } from "@mezan/contracts";
+import { ALL_SCOPE, SHELL_REQUESTS, can, createAuthContext, mayAskScreenRequest, type AuthContext, type Entitlements, type ScreenRequest, type ShellRequest } from "@mezan/domain";
 
 export type Session = SessionDTO;
+
+const grants = new WeakMap<Session, AuthContext>();
+
+function grantOf(session: Session): AuthContext {
+  let grant = grants.get(session);
+  if (!grant) {
+    grant = createAuthContext({ userId: session.userId, permissions: session.permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    grants.set(session, grant);
+  }
+  return grant;
+}
+
+export function sessionHolds(session: Session | null, permission: string): boolean {
+  return session !== null && can(grantOf(session), permission);
+}
+
+// SECURITY: decides only whether a read is worth sending — the server decides
+// whether it is allowed, on the permission and on the module it belongs to.
+export function sessionMayAskScreen(session: Session | null, entitlements: Entitlements | null, request: ScreenRequest): boolean {
+  return session !== null && mayAskScreenRequest(grantOf(session), entitlements, request);
+}
+
+export function sessionMayAsk(session: Session | null, request: ShellRequest): boolean {
+  return sessionHolds(session, SHELL_REQUESTS[request].permission);
+}
 
 const SESSION_STORAGE_KEY = "mezan.session";
 

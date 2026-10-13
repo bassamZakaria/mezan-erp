@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -252,6 +253,7 @@ export function BomsScreen() {
       // used to do — left a refused deactivate completely silent, so the BOM
       // stayed active and the person had no way to know the server had said
       // no.
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -411,7 +413,7 @@ export function BomsScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => setSelectedId(b.id) },
             ...(b.status === "active"
-              ? [{ key: "deactivate", label: t("boms.deactivate"), onSelect: () => void deactivate(b.id) }]
+              ? [{ key: "deactivate", label: t("boms.deactivate"), onSelect: () => deactivate(b.id) }]
               : []),
           ];
           return (

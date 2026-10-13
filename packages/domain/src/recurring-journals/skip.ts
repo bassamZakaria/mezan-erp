@@ -11,6 +11,7 @@ export interface SkipRecurringJournalOccurrenceDeps {
   readonly templates: Pick<RecurringJournalTemplateRepository, "findById">;
   readonly runs: Pick<RecurringJournalRunRepository, "findByTemplateAndPeriod">;
   readonly skips: RecurringJournalSkipRepository;
+  readonly entryStatusOf?: (journalEntryId: string) => Promise<string | null>;
   readonly audit?: AuditSink;
   readonly now?: () => string;
   readonly actor?: string;
@@ -38,7 +39,8 @@ export async function skipRecurringJournalOccurrence(
   const template = await deps.templates.findById(templateId);
   if (!template) throw new RecurringJournalTemplateNotFoundError(templateId);
 
-  if (await deps.runs.findByTemplateAndPeriod(templateId, period)) {
+  const run = await deps.runs.findByTemplateAndPeriod(templateId, period);
+  if (run && (await deps.entryStatusOf?.(run.journalEntryId)) !== "reversed") {
     throw new RecurringJournalPeriodAlreadyGeneratedError(templateId, period);
   }
 

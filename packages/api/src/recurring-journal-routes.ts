@@ -1,6 +1,13 @@
+import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
+import { reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  ReversalDateBeforeOriginalError,
+  JournalEntryAlreadyReversedError,
+  JournalEntryNotPostedError,
+  reverseJournalEntry,
   AccountNotFoundError,
   HeaderAccountNotPostableError,
   InactiveAccountError,
@@ -18,11 +25,13 @@ import {
   RecurringJournalTemplateStatus,
   UnbalancedEntryError,
   type RecurringJournalFrequency,
+  type RecurringJournalRun,
   type RecurringJournalSkip,
   createRecurringJournalTemplate,
   dueDepreciationPeriods,
   duePeriods,
   generateDueRecurringJournals,
+  recurringRunStanding,
   setRecurringJournalTemplateStatus,
   skipRecurringJournalOccurrence,
   updateRecurringJournalTemplate,
@@ -41,6 +50,7 @@ import {
   type RecurringJournalTemplateRepository,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createRecurringJournalTemplateSchema,
   generateDueRecurringJournalsSchema,
   saveJournalEntryAsTemplateSchema,
@@ -51,9 +61,15 @@ import {
   type RecurringJournalTemplateStatusDTO,
 } from "@mezan/contracts";
 import { tenantDay, tenantToday } from "./tenant-day.js";
-import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { branchGrantOf, branchScopeOf, createPermissionGate, getAuthContext, storedDocumentRefusal, type AuthContextResolver } from "./permission-gate.js";
+import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 export interface RecurringJournalRoutesDeps {
+  /** Refuses a template line naming a branch no master record holds. */
+  readonly masterData?: MasterDataChecks;
   readonly templates: RecurringJournalTemplateRepository;
   readonly runs: RecurringJournalRunRepository;
   readonly skips: RecurringJournalSkipRepository;
@@ -66,6 +82,7 @@ export interface RecurringJournalRoutesDeps {
   readonly projects?: JournalPostingDeps["projects"];
   readonly projectRequiredAccountIds?: JournalPostingDeps["projectRequiredAccountIds"];
   readonly audit?: AuditSink;
+  readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly events?: GlEventPublisher;
   readonly now?: () => string;
   readonly idGen?: () => string;
@@ -148,14 +165,26 @@ function parseLine(line: { accountId: string; debit: string; credit: string; mem
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof RecurringJournalTemplateNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (err instanceof JournalEntryNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
-  if (err instanceof InvalidRecurringJournalScheduleError || err instanceof InvalidJournalEntryError) {
+  if (err instanceof InvalidJournalEntryError) {
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 400);
+  }
+  if (err instanceof InvalidRecurringJournalScheduleError) {
     return c.json({ error: err.code, message: err.message }, 400);
+  }
+  if (err instanceof ReversalDateBeforeOriginalError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  }
+  if (err instanceof JournalEntryAlreadyReversedError || err instanceof JournalEntryNotPostedError) {
+    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (err instanceof RecurringJournalPeriodAlreadyGeneratedError || err instanceof RecurringJournalPeriodAlreadySkippedError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
@@ -188,6 +217,41 @@ function handleDomainError(c: Context, err: unknown): Response {
 export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, resolveAuthContext: AuthContextResolver) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  /**
+   * Every route that WRITES template lines goes through here: a template posts
+   * its lines verbatim every period, so a branch outside the author's grant, or
+   * one that does not exist, would be posted to for as long as it stays active.
+   */
+  async function refuseTemplateBranches(c: Context, branchIds: readonly (string | null | undefined)[]): Promise<Response | null> {
+    return (
+      refuseOutOfScopeBranches(c, branchIds) ??
+      (await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Branch, ids: branchIds }]))
+    );
+  }
+
+  function namesOnly(template: RecurringJournalTemplate, branches: readonly string[] | undefined): boolean {
+    return !branches || template.lines.every((line) => !line.branchId || branches.includes(line.branchId));
+  }
+
+  /** A template naming a branch the caller does not hold is absent to them — 404, as its existence is itself information. */
+  async function visibleTemplate(c: Context, id: string): Promise<RecurringJournalTemplate | null> {
+    const template = await deps.templates.findById(id);
+    return template && namesOnly(template, branchScopeOf(c)) ? template : null;
+  }
+
+  async function visibleTemplateIds(c: Context): Promise<ReadonlySet<string> | null> {
+    const scope = branchScopeOf(c);
+    if (!scope) return null;
+    const named = (await deps.templates.list()).filter((template) => namesOnly(template, scope));
+    return new Set((await recordsInBranchGrant(c, BranchRecordKind.RecurringTemplate, named, (template) => template.id)).map((template) => template.id));
+  }
+
+  /** Changing, pausing or skipping a STORED template acts on the branches its lines already carry. */
+  async function refuseStoredTemplateBranches(c: Context, id: string): Promise<Response | null> {
+    const stored = await deps.templates.findById(id);
+    return stored ? storedDocumentRefusal(c, branchGrantOf(c), stored.lines.map((line) => line.branchId)) : null;
+  }
   const idGen = deps.idGen ?? (() => randomUUID());
 
   async function postingDeps(c: Context): Promise<JournalPostingDeps> {
@@ -208,22 +272,45 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   }
 
   app.get("/templates", gate("accounting.recurring.view"), async (c) => {
-    return c.json((await deps.templates.list()).map(serializeTemplate));
+    const scope = branchScopeOf(c);
+    return c.json((await deps.templates.list()).filter((template) => namesOnly(template, scope)).map(serializeTemplate));
   });
 
   app.get("/templates/:id", gate("accounting.recurring.view"), async (c) => {
-    const template = await deps.templates.findById(c.req.param("id"));
+    const template = await visibleTemplate(c, c.req.param("id"));
     if (!template) return c.json({ error: "RECURRING_JOURNAL_TEMPLATE_NOT_FOUND" }, 404);
     return c.json(serializeTemplate(template));
   });
 
+  async function withEntryState(runs: readonly RecurringJournalRun[]) {
+    return Promise.all(
+      runs.map(async (run) => {
+        const entry = await deps.ledger.findById(run.journalEntryId);
+        const reversal = entry?.reversedByEntryId ? await deps.ledger.findById(entry.reversedByEntryId) : null;
+        const newest = await deps.runs.findByTemplateAndPeriod(run.templateId, run.period);
+        return {
+          ...run,
+          journalEntryNo: entry?.entryNo ?? run.journalEntryNo ?? null,
+          entryStatus: entry?.status ?? null,
+          current: newest?.id === run.id,
+          reversedByEntryId: reversal?.id ?? null,
+          reversedByEntryNo: reversal?.entryNo ?? null,
+          reversedOn: reversal ? reversal.date.slice(0, 10) : null,
+        };
+      }),
+    );
+  }
+
   app.get("/templates/:id/runs", gate("accounting.recurring.view"), async (c) => {
-    return c.json(await deps.runs.listByTemplate(c.req.param("id")));
+    if (!(await visibleTemplate(c, c.req.param("id")))) return c.json({ error: "RECURRING_JOURNAL_TEMPLATE_NOT_FOUND" }, 404);
+    return c.json(await withEntryState(await deps.runs.listByTemplate(c.req.param("id"))));
   });
 
   app.post("/templates", gate("accounting.recurring.manage"), async (c) => {
     const parsed = createRecurringJournalTemplateSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const branchRefusal = await refuseTemplateBranches(c, parsed.data.lines.map((line) => line.branchId));
+    if (branchRefusal) return branchRefusal;
     try {
       const template = await createRecurringJournalTemplate(
         {
@@ -250,6 +337,10 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.put("/templates/:id", gate("accounting.recurring.manage"), async (c) => {
     const parsed = updateRecurringJournalTemplateSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const branchRefusal =
+      (await refuseStoredTemplateBranches(c, c.req.param("id"))) ??
+      (await refuseTemplateBranches(c, parsed.data.lines.map((line) => line.branchId)));
+    if (branchRefusal) return branchRefusal;
     try {
       const template = await updateRecurringJournalTemplate(
         c.req.param("id"),
@@ -276,6 +367,8 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.post("/templates/:id/status", gate("accounting.recurring.manage"), async (c) => {
     const parsed = setRecurringJournalTemplateStatusSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const storedRefusal = await refuseStoredTemplateBranches(c, c.req.param("id"));
+    if (storedRefusal) return storedRefusal;
     try {
       const template = await setRecurringJournalTemplateStatus(c.req.param("id"), toDomainStatus(parsed.data.status), {
         templates: deps.templates,
@@ -296,6 +389,9 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const entry = await deps.ledger.findById(c.req.param("entryId"));
     if (!entry) return c.json({ error: "JOURNAL_ENTRY_NOT_FOUND" }, 404);
+    const entryBranches = entry.lines.map((line) => line.branchId);
+    const branchRefusal = storedDocumentRefusal(c, branchGrantOf(c), entryBranches) ?? (await refuseTemplateBranches(c, entryBranches));
+    if (branchRefusal) return branchRefusal;
     try {
       const template = await createRecurringJournalTemplate(
         {
@@ -332,13 +428,14 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   /** The worklist: every active template's outstanding periods as of `asOfDate` (default: today) — a skipped period is not outstanding. */
   app.get("/due", gate("accounting.recurring.view"), async (c) => {
     const asOfDate = await tenantDay(c, c.req.query("asOfDate")) ?? (await tenantToday(c, deps.now));
-    const templates = await deps.templates.list();
+    const scope = branchScopeOf(c);
+    const templates = (await deps.templates.list()).filter((template) => namesOnly(template, scope));
     const due: { templateId: string; nameAr: string; nameEn: string | null; periods: string[] }[] = [];
     for (const template of templates) {
       if (template.status !== RecurringJournalTemplateStatus.Active) continue;
       const outstanding: string[] = [];
       for (const period of duePeriods(template, asOfDate)) {
-        if (await deps.runs.findByTemplateAndPeriod(template.id, period)) continue;
+        if ((await recurringRunStanding(deps, template.id, period)).standing) continue;
         if (await deps.skips.findByTemplateAndPeriod(template.id, period)) continue;
         outstanding.push(period);
       }
@@ -358,6 +455,9 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const asOfDate = parsed.data.asOfDate ? await tenantDay(c, parsed.data.asOfDate) : await tenantToday(c, deps.now);
+      // The sweep posts every due template's lines verbatim, across branches:
+      // the branch policy declares this route company-wide, so a session
+      // restricted to branches never reaches it.
       const { generated, failed } = await generateDueRecurringJournals(
         { ...(await postingDeps(c)), templates: deps.templates, runs: deps.runs, skips: deps.skips, idGen },
         { asOfDate, templateIds: parsed.data.templateIds },
@@ -371,7 +471,42 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.get("/runs", gate("accounting.recurring.view"), async (c) => {
     const limitParam = c.req.query("limit");
     const limit = limitParam ? Number(limitParam) : undefined;
-    return c.json(await deps.runs.list(Number.isFinite(limit) ? limit : undefined));
+    const visible = await visibleTemplateIds(c);
+    const runs = await deps.runs.list(Number.isFinite(limit) ? limit : undefined, visible ? [...visible] : undefined);
+    return c.json(await withEntryState(visible ? runs.filter((run) => visible.has(run.templateId)) : runs));
+  });
+
+  app.post("/runs/:id/reverse", gate(ReversalPermission.RecurringJournalRun), gate("accounting.journal.post"), requireReversalReason, async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; memo?: unknown } | null;
+    const run = await deps.runs.findById(c.req.param("id"));
+    if (!run || !(await visibleTemplate(c, run.templateId))) return c.json({ error: "RECURRING_JOURNAL_RUN_NOT_FOUND", message: "دورة القيد المتكرر غير موجودة.", messageEn: "The recurring journal run does not exist." }, 404);
+    try {
+      const date = await tenantDay(c, typeof body?.date === "string" && body.date !== "" ? body.date : (deps.now?.() ?? new Date().toISOString()));
+      const original = await deps.ledger.findById(run.journalEntryId);
+      if (original && date < original.date) throw new ReversalDateBeforeOriginalError(run.journalEntryId, date, original.date);
+      const result = await reverseJournalEntry(
+        run.journalEntryId,
+        {
+          ledger: deps.ledger,
+          accounts: deps.accounts,
+          periods: deps.periods,
+          numbering: deps.numbering,
+          projects: deps.projects,
+          audit: deps.audit,
+          vatFilings: deps.vatFilings,
+          events: deps.events,
+          now: deps.now,
+          actor: getAuthContext(c)?.userId ?? "system",
+        },
+        { reversalId: idGen(), date, memo: typeof body?.memo === "string" && body.memo !== "" ? body.memo : undefined },
+      );
+      return c.json(
+        { runId: run.id, templateId: run.templateId, period: run.period, journalEntryId: run.journalEntryId, entryStatus: result.original.status, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null },
+        201,
+      );
+    } catch (err) {
+      return reversalRefusalResponse(c, err) ?? handleDomainError(c, err);
+    }
   });
 
   /**
@@ -384,6 +519,8 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   app.post("/templates/:id/skip", gate("accounting.recurring.manage"), async (c) => {
     const parsed = skipRecurringJournalOccurrenceSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const storedRefusal = await refuseStoredTemplateBranches(c, c.req.param("id"));
+    if (storedRefusal) return storedRefusal;
     try {
       const skip = await skipRecurringJournalOccurrence(
         c.req.param("id"),
@@ -393,6 +530,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
           templates: deps.templates,
           runs: deps.runs,
           skips: deps.skips,
+          entryStatusOf: async (journalEntryId) => (await deps.ledger.findById(journalEntryId))?.status ?? null,
           audit: deps.audit,
           now: deps.now,
           actor: getAuthContext(c)?.userId ?? "system",
@@ -406,13 +544,16 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
   });
 
   app.get("/templates/:id/skips", gate("accounting.recurring.view"), async (c) => {
+    if (!(await visibleTemplate(c, c.req.param("id")))) return c.json({ error: "RECURRING_JOURNAL_TEMPLATE_NOT_FOUND" }, 404);
     return c.json((await deps.skips.listByTemplate(c.req.param("id"))).map(serializeSkip));
   });
 
   app.get("/skips", gate("accounting.recurring.view"), async (c) => {
     const limitParam = c.req.query("limit");
     const limit = limitParam ? Number(limitParam) : undefined;
-    return c.json((await deps.skips.list(Number.isFinite(limit) ? limit : undefined)).map(serializeSkip));
+    const visible = await visibleTemplateIds(c);
+    const skips = await deps.skips.list(Number.isFinite(limit) ? limit : undefined, visible ? [...visible] : undefined);
+    return c.json((visible ? skips.filter((skip) => visible.has(skip.templateId)) : skips).map(serializeSkip));
   });
 
   /** Due depreciation runs, cross-linked into DepreciationRunsScreen — not a second depreciation engine. */

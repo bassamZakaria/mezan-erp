@@ -1,3 +1,4 @@
+import { assertTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
 import { Money } from "../money/index.js";
 import {
   MAX_GUARANTEE_FACILITY_LIMIT_SCALED,
@@ -11,7 +12,10 @@ import {
   InvalidGuaranteeFacilityLimitError,
   InvalidOpeningBalanceError,
   NegativeCashBalanceError,
+  TreasuryAccountFixedField,
+  TreasuryAccountHasMovementsError,
   TreasuryAccountNotFoundError,
+  assertGlAccountHoldsOneCurrency,
 } from "./errors.js";
 
 export interface UpdateTreasuryAccountCommand {
@@ -21,7 +25,7 @@ export interface UpdateTreasuryAccountCommand {
   readonly currency?: string;
   /** رقم الحساب البنكي / IBAN; null clears it. */
   readonly bankAccountNumber?: string | null;
-  readonly branchId?: string;
+  readonly branchId?: string | null;
   readonly glAccountId?: string | null;
   /** Exact decimal string — parsed via `Money.fromMajor`. Use "إضافة رصيد افتتاحي" semantics: this replaces the stored opening balance. */
   readonly openingBalance?: string;
@@ -62,13 +66,30 @@ function assertOpeningBalanceBound(accountId: string, openingBalance: Money): vo
  * (add/adjust opening balance) menu action the catalog documents on the
  * account statement page. Re-validates the cash-can't-go-negative rule.
  */
+export interface TreasuryAccountMovementProbe {
+  hasPostedLines(glAccountId: string): Promise<boolean>;
+}
+
 export async function updateTreasuryAccount(
   accountId: string,
   command: UpdateTreasuryAccountCommand,
   repo: TreasuryAccountRepository,
+  ledgerAccounts?: TreasuryLedgerAccountDeps,
+  movements?: TreasuryAccountMovementProbe,
 ): Promise<TreasuryAccount> {
   const current = await repo.findById(accountId);
   if (!current) throw new TreasuryAccountNotFoundError(accountId);
+
+  const changed: TreasuryAccountFixedField[] = [];
+  if (command.currency !== undefined && command.currency !== current.currency) changed.push(TreasuryAccountFixedField.Currency);
+  if (command.glAccountId !== undefined && command.glAccountId !== current.glAccountId) changed.push(TreasuryAccountFixedField.GlAccount);
+  if (changed.length > 0) {
+    if (current.glAccountId && (await movements?.hasPostedLines(current.glAccountId))) throw new TreasuryAccountHasMovementsError(accountId, changed);
+    assertGlAccountHoldsOneCurrency(
+      { id: accountId, glAccountId: command.glAccountId !== undefined ? command.glAccountId : current.glAccountId, currency: command.currency ?? current.currency },
+      await repo.list(),
+    );
+  }
 
   const nextType = command.type ?? current.type;
   const nextOpeningBalance = command.openingBalance ? Money.fromMajor(command.openingBalance) : current.openingBalance;
@@ -91,13 +112,15 @@ export async function updateTreasuryAccount(
     currency: command.currency ?? current.currency,
     bankAccountNumber:
       command.bankAccountNumber !== undefined ? (command.bankAccountNumber?.trim() || null) : current.bankAccountNumber,
-    branchId: command.branchId ?? current.branchId,
+    branchId: command.branchId === undefined ? current.branchId : command.branchId,
     glAccountId: command.glAccountId !== undefined ? command.glAccountId : current.glAccountId,
     openingBalance: nextOpeningBalance,
     openingBalanceDate: command.openingBalanceDate !== undefined ? command.openingBalanceDate : current.openingBalanceDate,
     guaranteeFacilityLimit: nextFacilityLimit,
     status: command.status ?? current.status,
   };
+
+  if (ledgerAccounts) await assertTreasuryLedgerAccount(updated, ledgerAccounts);
 
   await repo.update(updated);
   return updated;

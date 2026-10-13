@@ -119,7 +119,9 @@ Apply these first — they have the highest yield per minute.
   cost) and allocations use largest-remainder so parts sum **exactly** to the total.
 - **Every stock or cash movement posts a balanced journal entry.** A confirm that
   moves the sub-ledger and posts nothing is this app's most common bug class (D2,
-  D3). Posted entries are immutable: correct by reversal, never by edit or delete.
+  D3). Posted entries are immutable: correct by reversal, never by edit or delete —
+  the one exception, naming the tax rate of a posted line that stored none, is
+  `references/ledger-invariants.md` §9 «Tax rate».
 - **No mocked data in application code, ever.** Fixtures live in
   `packages/backend/src/demo-seed.ts` behind `MEZAN_SEED_DEMO=1`, and screens read
   them through the real API. If an endpoint is missing, build the endpoint. An

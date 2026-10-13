@@ -1,8 +1,15 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { IconButton } from "./atoms";
 import { useUiTranslation } from "../i18n";
 import { FOCUSABLE_SELECTOR, useFocusTrap } from "../hooks/useFocusTrap";
+
+const EditScopeContext = createContext(false);
+
+/** True inside a panel a record is created or edited in — as opposed to the list, its filters and its paging. */
+export function useInEditScope(): boolean {
+  return useContext(EditScopeContext);
+}
 
 export interface SidePanelProps {
   open: boolean;
@@ -103,7 +110,9 @@ export function SidePanel({ open, onClose, title, description, children, classNa
             </svg>
           </IconButton>
         </div>
-        <div className="px-[21px] py-[19px]">{children}</div>
+        <div className="px-[21px] py-[19px]" data-edit-scope="">
+          <EditScopeContext.Provider value={true}>{children}</EditScopeContext.Provider>
+        </div>
       </div>
     </>
   );

@@ -62,7 +62,8 @@ describe("addMissingStandardAccounts (D229)", () => {
 
   it("adds the exchange-difference accounts to a chart seeded before them, under 4000 and 5000", async () => {
     const repo = await chartWithout(LATER_STANDARD_ACCOUNT_IDS);
-    expect(await addMissingStandardAccounts(repo)).toEqual({ added: ["4920", "4940", "5920", "5940"], skipped: [] });
+    expect(await addMissingStandardAccounts(repo)).toEqual({ added: ["4920", "4940", "5920", "5940", "1240"], skipped: [] });
+    expect(await repo.findById("1240")).toMatchObject({ nameAr: "تكاليف واردة تحت التسوية", nameEn: "Landed Costs In Clearing", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false });
     expect(await repo.findById("4920")).toMatchObject({ nameAr: "أرباح فروق العملة المحققة", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false });
     expect(await repo.findById("5920")).toMatchObject({ nameAr: "خسائر فروق العملة المحققة", type: "expense", naturalBalance: "debit", parentId: "5000" });
     expect(await repo.findById("4940")).toMatchObject({ type: "revenue", parentId: "4000" });
@@ -89,7 +90,7 @@ describe("addMissingStandardAccounts (D229)", () => {
   it("skips an id the tenant already uses for another kind of account instead of overwriting it", async () => {
     const repo = await chartWithout(LATER_STANDARD_ACCOUNT_IDS);
     await createAccount({ id: "4920", code: "4920", nameAr: "حساب العميل", type: "asset", naturalBalance: "debit", parentId: null, isHeader: false }, repo);
-    expect(await addMissingStandardAccounts(repo)).toEqual({ added: ["4940", "5920", "5940"], skipped: ["4920"] });
+    expect(await addMissingStandardAccounts(repo)).toEqual({ added: ["4940", "5920", "5940", "1240"], skipped: ["4920"] });
     expect(await repo.findById("4920")).toMatchObject({ nameAr: "حساب العميل", type: "asset" });
   });
 });

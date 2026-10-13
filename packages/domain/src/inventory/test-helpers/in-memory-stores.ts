@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import { Qty } from "../../money/index.js";
 import type { CostLayer } from "../cost-layer.js";
 import type { StockMovement } from "../movement.js";
@@ -97,7 +98,7 @@ export class InMemoryWritedownRuns implements WritedownRunRepository {
     return [...this.rows.values()];
   }
   async create(run: WritedownRun): Promise<void> {
-    this.rows.set(run.id, run);
+    insertOnly(this.rows, run.id, run);
   }
   async update(run: WritedownRun): Promise<void> {
     this.rows.set(run.id, run);
@@ -121,7 +122,7 @@ export class InMemoryProductTemplates implements ProductTemplateRepository {
     return [...this.rows.values()];
   }
   async create(template: ProductTemplate): Promise<void> {
-    this.rows.set(template.id, template);
+    insertOnly(this.rows, template.id, template);
   }
   async update(template: ProductTemplate): Promise<void> {
     this.rows.set(template.id, template);

@@ -52,7 +52,6 @@ export async function createWorkStation(
   const reasons: string[] = [];
   if (command.code.trim() === "") reasons.push("محطة العمل تحتاج كوداً.");
   if (command.nameAr.trim() === "") reasons.push("محطة العمل تحتاج اسماً بالعربية.");
-  if (await deps.stations.findById(command.id)) reasons.push(`محطة عمل بالمعرّف "${command.id}" موجودة بالفعل.`);
   if (command.code.trim() !== "" && (await deps.stations.findByCode(command.code.trim()))) {
     reasons.push(`كود محطة العمل "${command.code.trim()}" مستخدم بالفعل.`);
   }

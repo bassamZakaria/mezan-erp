@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   ControlsService,
@@ -7,7 +8,6 @@ import {
   PeriodNotOpenForPostingError,
   RetentionReleaseExceedsBalanceError,
   RetentionReleaseNotFoundError,
-  VatPeriodAlreadyFiledError,
   getBoqUnitLabel,
   getRetentionReleaseKindLabel,
   getRetentionReleaseStatusLabel,
@@ -28,6 +28,8 @@ import {
   updateRetentionReleaseSchema,
 } from "@mezan/contracts";
 import { callerUserId, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * تقارير الاستثناءات الستة، الإفراج عن المحتجزات وتقويم المحتجزات — slice 5B
@@ -202,6 +204,9 @@ function serializeBoqLine(line: BoqLine) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof RetentionReleaseNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -217,9 +222,6 @@ function handleDomainError(c: Context, err: unknown) {
   // A closed month is a refusal the accountant has to read, never a 500.
   if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
     return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
-  }
-  if (err instanceof VatPeriodAlreadyFiledError) {
-    return c.json({ error: "VAT_PERIOD_FILED", message: err.message }, 409);
   }
   throw err;
 }

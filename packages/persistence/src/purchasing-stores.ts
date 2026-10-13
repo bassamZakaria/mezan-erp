@@ -1,7 +1,10 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { countMatching, FilterClauses, selectPage } from "./list-query.js";
+import { columnsOf, writeRowColumnsWhere } from "./document-field-write.js";
+import { markInvoicesNamedByRegister } from "./document-kind-backfill.js";
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   Qty,
@@ -13,12 +16,16 @@ import {
   type GoodsReceiptLine,
   type GoodsReceiptRepository,
   type GoodsReceiptStatus,
+  GoodsReceiptField,
+  PurchaseInvoiceField,
   type PurchaseInvoice,
   type PurchaseInvoiceLine,
   type PurchaseInvoiceLineKind,
   type PurchaseInvoiceListFilter,
   type PurchaseInvoiceRepository,
   type PurchaseInvoiceStatus,
+  InvoiceDocumentKind,
+  PurchaseInvoiceStatusCode,
 } from "@mezan/domain";
 
 /**
@@ -99,6 +106,7 @@ function poToDomain(row: PoRow): PurchaseOrder {
 
 class SqlitePurchaseOrderStore implements PurchaseOrderRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
 
@@ -112,6 +120,7 @@ class SqlitePurchaseOrderStore implements PurchaseOrderRepository {
         warehouse_id = excluded.warehouse_id, currency = excluded.currency, notes = excluded.notes,
         lines = excluded.lines, status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM purchase_order WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM purchase_order`);
   }
@@ -124,15 +133,15 @@ class SqlitePurchaseOrderStore implements PurchaseOrderRepository {
     return (this.selectAll.all() as PoRow[]).map(poToDomain);
   }
   async create(order: PurchaseOrder): Promise<void> {
-    this.write(order);
+    insertingNew(order.id, () => this.write(order, this.insertOnly));
   }
   async update(order: PurchaseOrder): Promise<void> {
     this.write(order);
     // N-9: any write moves the version, whichever path made the change.
     this.versions?.bump(order.id);
   }
-  private write(o: PurchaseOrder): void {
-    this.upsert.run({
+  private write(o: PurchaseOrder, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: o.id,
       number: o.number,
       supplier_id: o.supplierId,
@@ -204,6 +213,7 @@ function grToDomain(row: GrRow): GoodsReceipt {
     batchNo?: string | null;
     expiryDate?: string | null;
     costCategory?: GoodsReceiptLine["costCategory"];
+    invoicedQty?: string;
   }[]).map<GoodsReceiptLine>((l) => ({
     itemId: l.itemId,
     description: l.description,
@@ -212,6 +222,7 @@ function grToDomain(row: GrRow): GoodsReceipt {
     batchNo: l.batchNo ?? null,
     expiryDate: l.expiryDate ?? null,
     costCategory: l.costCategory ?? null,
+    ...(l.invoicedQty === undefined ? {} : { invoicedQty: Qty.fromMajor(l.invoicedQty) }),
   }));
   return {
     id: row.id,
@@ -232,11 +243,12 @@ function grToDomain(row: GrRow): GoodsReceipt {
 
 class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByOrder: Database.Statement;
 
-  constructor(sqlite: Database.Database) {
+  constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
       INSERT INTO goods_receipt (id, number, purchase_order_id, supplier_id, warehouse_id, date, notes, project_id, lines, status, invoiced, created_by, created_at)
       VALUES (@id, @number, @purchase_order_id, @supplier_id, @warehouse_id, @date, @notes, @project_id, @lines, @status, @invoiced, @created_by, @created_at)
@@ -244,6 +256,7 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
         supplier_id = excluded.supplier_id, warehouse_id = excluded.warehouse_id, date = excluded.date,
         notes = excluded.notes, project_id = excluded.project_id, lines = excluded.lines, status = excluded.status, invoiced = excluded.invoiced
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM goods_receipt WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM goods_receipt`);
     this.selectByOrder = sqlite.prepare(`SELECT * FROM goods_receipt WHERE purchase_order_id = ?`);
@@ -260,13 +273,22 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
     return (this.selectByOrder.all(purchaseOrderId) as GrRow[]).map(grToDomain);
   }
   async create(receipt: GoodsReceipt): Promise<void> {
-    this.write(receipt);
+    insertingNew(receipt.id, () => this.write(receipt, this.insertOnly));
   }
   async update(receipt: GoodsReceipt): Promise<void> {
     this.write(receipt);
   }
-  private write(r: GoodsReceipt): void {
-    this.upsert.run({
+  async writeFields(next: GoodsReceipt, fields: readonly GoodsReceiptField[], expected: { readonly status: GoodsReceipt["status"] }): Promise<boolean> {
+    return writeRowColumnsWhere(this.sqlite, {
+      table: "goods_receipt",
+      row: { status: next.status, invoiced: next.invoiced ? 1 : 0, lines: goodsReceiptLinesJson(next) },
+      columns: columnsOf(GOODS_RECEIPT_COLUMNS, fields),
+      id: next.id,
+      expectedStatuses: [expected.status],
+    });
+  }
+  private write(r: GoodsReceipt, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: r.id,
       number: r.number,
       purchase_order_id: r.purchaseOrderId,
@@ -275,23 +297,57 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
       date: r.date,
       notes: r.notes,
       project_id: r.projectId ?? null,
-      lines: JSON.stringify(
-        r.lines.map((l) => ({
-          itemId: l.itemId,
-          description: l.description,
-          qty: l.qty.toString(),
-          unitCost: l.unitCost.toString(),
-          batchNo: l.batchNo,
-          expiryDate: l.expiryDate,
-          costCategory: l.costCategory ?? null,
-        })),
-      ),
+      lines: goodsReceiptLinesJson(r),
       status: r.status,
       invoiced: r.invoiced ? 1 : 0,
       created_by: r.createdBy,
       created_at: r.createdAt,
     });
   }
+}
+
+const GOODS_RECEIPT_COLUMNS: Readonly<Record<GoodsReceiptField, readonly string[]>> = {
+  [GoodsReceiptField.Status]: ["status"],
+  [GoodsReceiptField.Billing]: ["invoiced", "lines"],
+};
+
+function goodsReceiptLinesJson(receipt: GoodsReceipt): string {
+  return JSON.stringify(
+    receipt.lines.map((l) => ({
+      itemId: l.itemId,
+      description: l.description,
+      qty: l.qty.toString(),
+      unitCost: l.unitCost.toString(),
+      batchNo: l.batchNo,
+      expiryDate: l.expiryDate,
+      costCategory: l.costCategory ?? null,
+      ...(l.invoicedQty === undefined ? {} : { invoicedQty: l.invoicedQty.toString() }),
+    })),
+  );
+}
+
+const PURCHASE_INVOICE_COLUMNS: Readonly<Record<PurchaseInvoiceField, readonly string[]>> = {
+  [PurchaseInvoiceField.Status]: ["status"],
+  [PurchaseInvoiceField.FxRate]: ["fx_rate"],
+  [PurchaseInvoiceField.Lines]: ["lines"],
+};
+
+function purchaseInvoiceLinesJson(invoice: PurchaseInvoice): string {
+  return JSON.stringify(
+    invoice.lines.map((l) => ({
+      itemId: l.itemId,
+      description: l.description,
+      kind: l.kind,
+      qty: l.qty.toString(),
+      unitCost: l.unitCost.toString(),
+      taxRatePercent: l.taxRatePercent,
+      taxRateId: l.taxRateId ?? null,
+      batchNo: l.batchNo,
+      expiryDate: l.expiryDate,
+      costCategory: l.costCategory ?? null,
+      ...(l.receiptBillings === undefined ? {} : { receiptBillings: l.receiptBillings.map((b) => ({ lineIndex: b.lineIndex, qty: b.qty.toString() })) }),
+    })),
+  );
 }
 
 // --- Purchase Invoice ------------------------------------------------------
@@ -314,7 +370,8 @@ CREATE TABLE IF NOT EXISTS purchase_invoice (
   status                  TEXT NOT NULL,
   fx_rate                 TEXT,
   created_by              TEXT NOT NULL,
-  created_at              TEXT NOT NULL
+  created_at              TEXT NOT NULL,
+  document_kind           TEXT NOT NULL DEFAULT 'standard'
 );
 CREATE INDEX IF NOT EXISTS idx_pi_supplier ON purchase_invoice(supplier_id);
 CREATE INDEX IF NOT EXISTS idx_pi_status ON purchase_invoice(status);
@@ -341,6 +398,7 @@ interface PiRow {
   status: string;
   created_by: string;
   created_at: string;
+  document_kind: string | null;
 }
 
 function piToDomain(row: PiRow): PurchaseInvoice {
@@ -351,9 +409,11 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     qty: string;
     unitCost: string;
     taxRatePercent: number;
+    taxRateId?: string | null;
     batchNo?: string | null;
     expiryDate?: string | null;
     costCategory?: PurchaseInvoiceLine["costCategory"];
+    receiptBillings?: { lineIndex: number; qty: string }[];
   }[]).map<PurchaseInvoiceLine>((l) => ({
     itemId: l.itemId,
     description: l.description,
@@ -361,12 +421,15 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     qty: Qty.fromMajor(l.qty),
     unitCost: Money.fromMajor(l.unitCost),
     taxRatePercent: l.taxRatePercent,
+    taxRateId: l.taxRateId ?? null,
     batchNo: l.batchNo ?? null,
     expiryDate: l.expiryDate ?? null,
     costCategory: l.costCategory ?? null,
+    ...(l.receiptBillings === undefined ? {} : { receiptBillings: l.receiptBillings.map((b) => ({ lineIndex: b.lineIndex, qty: Qty.fromMajor(b.qty) })) }),
   }));
   return {
     id: row.id,
+    documentKind: row.document_kind === InvoiceDocumentKind.RetentionRelease ? InvoiceDocumentKind.RetentionRelease : InvoiceDocumentKind.Standard,
     number: row.number,
     supplierId: row.supplier_id,
     date: row.date,
@@ -388,12 +451,13 @@ function piToDomain(row: PiRow): PurchaseInvoice {
 
 class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database, private readonly versions?: DocumentVersionStore) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO purchase_invoice (id, number, supplier_id, date, due_date, supplier_invoice_number, branch_id, warehouse_id, currency, notes, receipt_id, project_id, lines, status, fx_rate, created_by, created_at)
-      VALUES (@id, @number, @supplier_id, @date, @due_date, @supplier_invoice_number, @branch_id, @warehouse_id, @currency, @notes, @receipt_id, @project_id, @lines, @status, @fx_rate, @created_by, @created_at)
+      INSERT INTO purchase_invoice (id, number, supplier_id, date, due_date, supplier_invoice_number, branch_id, warehouse_id, currency, notes, receipt_id, project_id, lines, status, fx_rate, created_by, created_at, document_kind)
+      VALUES (@id, @number, @supplier_id, @date, @due_date, @supplier_invoice_number, @branch_id, @warehouse_id, @currency, @notes, @receipt_id, @project_id, @lines, @status, @fx_rate, @created_by, @created_at, @document_kind)
       ON CONFLICT(id) DO UPDATE SET
         supplier_id = excluded.supplier_id, date = excluded.date, due_date = excluded.due_date,
         supplier_invoice_number = excluded.supplier_invoice_number, branch_id = excluded.branch_id,
@@ -401,6 +465,7 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
         receipt_id = excluded.receipt_id, project_id = excluded.project_id, lines = excluded.lines, status = excluded.status,
         fx_rate = excluded.fx_rate
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM purchase_invoice WHERE id = ?`);
   }
 
@@ -416,7 +481,8 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
       .gte("date", filter.fromDate)
       .lte("date", filter.toDate)
       .eq("branch_id", filter.branchId)
-      .eq("warehouse_id", filter.warehouseId);
+      .eq("warehouse_id", filter.warehouseId)
+      .eq("receipt_id", filter.receiptId);
     if (filter.statusIn) {
       // An empty set matches nothing, exactly as asked — dropping the clause
       // would widen it to every status.
@@ -445,15 +511,45 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
     return countMatching(this.sqlite, "purchase_invoice", this.clausesFor(filter));
   }
   async create(invoice: PurchaseInvoice): Promise<void> {
-    this.write(invoice);
+    insertingNew(invoice.id, () => this.write(invoice, this.insertOnly));
   }
   async update(invoice: PurchaseInvoice): Promise<void> {
     this.write(invoice);
     // N-9: any write moves the version, whichever path made the change.
     this.versions?.bump(invoice.id);
   }
-  private write(inv: PurchaseInvoice): void {
-    this.upsert.run({
+  async writeFields(next: PurchaseInvoice, fields: readonly PurchaseInvoiceField[], expected: { readonly status: PurchaseInvoice["status"] }): Promise<boolean> {
+    const written = writeRowColumnsWhere(this.sqlite, {
+      table: "purchase_invoice",
+      row: { status: next.status, fx_rate: next.fxRate ?? null, lines: purchaseInvoiceLinesJson(next) },
+      columns: columnsOf(PURCHASE_INVOICE_COLUMNS, fields),
+      id: next.id,
+      expectedStatuses: [expected.status],
+    });
+    if (written) this.versions?.bump(next.id);
+    return written;
+  }
+  async nameLineTaxRate(invoiceId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    const row = this.selectById.get(invoiceId) as PiRow | undefined;
+    if (!row || row.status !== PurchaseInvoiceStatusCode.Confirmed) return 0;
+    const lines = JSON.parse(row.lines) as { taxRatePercent: number; taxRateId?: string | null }[];
+    let named = 0;
+    for (const index of new Set(lineIndexes)) {
+      const line = lines[index];
+      if (!line || (line.taxRateId ?? null) !== null || line.taxRatePercent !== taxRatePercent) continue;
+      line.taxRateId = taxRateId;
+      named += 1;
+    }
+    if (named === 0) return 0;
+    const written = this.sqlite
+      .prepare(`UPDATE purchase_invoice SET lines = ? WHERE id = ? AND status = ? AND lines = ?`)
+      .run(JSON.stringify(lines), invoiceId, PurchaseInvoiceStatusCode.Confirmed, row.lines).changes;
+    if (written === 0) return 0;
+    this.versions?.bump(invoiceId);
+    return named;
+  }
+  private write(inv: PurchaseInvoice, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: inv.id,
       number: inv.number,
       supplier_id: inv.supplierId,
@@ -466,19 +562,8 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
       notes: inv.notes,
       receipt_id: inv.receiptId,
       project_id: inv.projectId ?? null,
-      lines: JSON.stringify(
-        inv.lines.map((l) => ({
-          itemId: l.itemId,
-          description: l.description,
-          kind: l.kind,
-          qty: l.qty.toString(),
-          unitCost: l.unitCost.toString(),
-          taxRatePercent: l.taxRatePercent,
-          batchNo: l.batchNo,
-          expiryDate: l.expiryDate,
-          costCategory: l.costCategory ?? null,
-        })),
-      ),
+      document_kind: inv.documentKind ?? InvoiceDocumentKind.Standard,
+      lines: purchaseInvoiceLinesJson(inv),
       status: inv.status,
       fx_rate: inv.fxRate ?? null,
       created_by: inv.createdBy,
@@ -513,6 +598,18 @@ export function createSqlitePurchaseOrderStore(path: SqliteConnectionInput = ":m
 }
 
 /** Add a column in place when an existing books file predates it — `CREATE TABLE IF NOT EXISTS` never widens an existing table. */
+// ORDER MATTERS: `pending` is read before CREATE_PI runs — running it brings an
+// older table up to the declared shape, after which the column always exists.
+function purchaseInvoiceKindUnrecorded(sqlite: Database.Database): boolean {
+  const columns = sqlite.prepare(`PRAGMA table_info(purchase_invoice)`).all() as { name: string }[];
+  return columns.length > 0 && !columns.some((c) => c.name === "document_kind");
+}
+
+function markPurchaseRetentionReleases(sqlite: Database.Database, pending: boolean): void {
+  if (!pending) return;
+  markInvoicesNamedByRegister(sqlite, { table: "purchase_invoice", register: "subcontract_retention_release", kind: InvoiceDocumentKind.RetentionRelease });
+}
+
 function addColumnIfMissing(sqlite: Database.Database, table: string, column: string, ddl: string): void {
   const columns = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
   if (!columns.some((c) => c.name === column)) {
@@ -532,10 +629,12 @@ export function createSqliteGoodsReceiptStore(path: SqliteConnectionInput = ":me
 /** Open a SQLite-backed PurchaseInvoiceRepository. */
 export function createSqlitePurchaseInvoiceStore(path: SqliteConnectionInput = ":memory:"): SqlitePurchaseInvoiceStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
+  const kindUnrecorded = purchaseInvoiceKindUnrecorded(sqlite);
   sqlite.exec(CREATE_PI);
   // `fx_rate`/`project_id` arrived after the table shipped; add them in place.
   addColumnIfMissing(sqlite, "purchase_invoice", "fx_rate", "fx_rate TEXT");
   addColumnIfMissing(sqlite, "purchase_invoice", "project_id", "project_id TEXT");
+  markPurchaseRetentionReleases(sqlite, kindUnrecorded);
   addVersionColumns(sqlite, "purchase_invoice");
   const versions = createDocumentVersionStore(sqlite, "purchase_invoice");
   return Object.assign(new SqlitePurchaseInvoiceStore(sqlite, versions), { versions, close: () => { if (owned) sqlite.close(); } });
@@ -554,12 +653,14 @@ export interface SqlitePurchasingStores {
 
 export function createSqlitePurchasingStores(path: SqliteConnectionInput = ":memory:"): SqlitePurchasingStores {
   const { sqlite, owned } = openSqliteConnection(path);
+  const kindUnrecorded = purchaseInvoiceKindUnrecorded(sqlite);
   sqlite.exec(CREATE_PO);
   sqlite.exec(CREATE_GR);
   sqlite.exec(CREATE_PI);
   addColumnIfMissing(sqlite, "goods_receipt", "project_id", "project_id TEXT");
   addColumnIfMissing(sqlite, "purchase_invoice", "fx_rate", "fx_rate TEXT");
   addColumnIfMissing(sqlite, "purchase_invoice", "project_id", "project_id TEXT");
+  markPurchaseRetentionReleases(sqlite, kindUnrecorded);
   return {
     orders: new SqlitePurchaseOrderStore(sqlite),
     receipts: new SqliteGoodsReceiptStore(sqlite),

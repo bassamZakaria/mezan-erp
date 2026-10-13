@@ -15,6 +15,7 @@ const ARABIC = /[؀-ۿ]/;
 
 /** Ids, codes and statuses interpolated into a message are not prose. */
 const SAMPLE = "x";
+const SAMPLE_PERIOD = { id: SAMPLE, year: 2026, periodNumber: 4 };
 
 function messagesFrom(module: Record<string, unknown>): { name: string; message: string }[] {
   const out: { name: string; message: string }[] = [];
@@ -28,6 +29,7 @@ function messagesFrom(module: Record<string, unknown>): { name: string; message:
       [[SAMPLE, SAMPLE]],
       [SAMPLE, 1],
       [],
+      [SAMPLE_PERIOD, "closed", "close"],
     ]) {
       try {
         const instance = new Ctor(...args);

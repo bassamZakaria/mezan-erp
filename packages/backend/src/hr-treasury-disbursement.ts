@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  DisbursementTreasuryAccountNotFoundError,
   TreasuryDisbursementHeldError,
   VoucherService,
   type TreasuryAccountRepository,
@@ -28,8 +29,8 @@ export function createHrTreasuryDisbursementPort(
   const vouchers = new VoucherService(deps);
   async function post(request: TreasuryDisbursementRequest, voucherType: "other_expense" | "other_income") {
     const treasury = await deps.treasuryAccounts.findById(request.treasuryAccountId);
-    if (!treasury?.glAccountId) {
-      throw new Error(`Treasury account "${request.treasuryAccountId}" has no GL account.`);
+    if (!treasury || treasury.status !== "active" || !treasury.glAccountId) {
+      throw new DisbursementTreasuryAccountNotFoundError(request.treasuryAccountId);
     }
     const voucherId = request.id || randomUUID();
     // A gated voucher is a TWO-step flow: the first call leaves it
@@ -66,5 +67,8 @@ export function createHrTreasuryDisbursementPort(
   return {
     disburse: (request) => post(request, "other_expense"),
     receive: (request) => post(request, "other_income"),
+    reverse: async (voucherId, opts) => {
+      await vouchers.reverseVoucher(voucherId, opts);
+    },
   };
 }

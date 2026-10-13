@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import { randomUUID } from "node:crypto";
 import {
@@ -23,6 +24,8 @@ import {
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 const AUDITED_COST_CENTER_FIELDS = ["code", "nameAr", "nameEn", "type", "departmentId", "branchId", "parentId", "status"] as const;
 
@@ -42,6 +45,9 @@ function serialize(costCenter: CostCenter) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof CostCenterNotFoundError) {

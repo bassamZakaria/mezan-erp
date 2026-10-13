@@ -1,5 +1,6 @@
 export { Money, MONEY_SCALE_DECIMALS } from "./money.js";
 export { Qty, QTY_SCALE_DECIMALS } from "./qty.js";
+export { DecimalErrorCode, InvalidDecimalLiteralError } from "./invalid-decimal-literal.js";
 export {
   allocate,
   allocateScaled,

@@ -1,3 +1,4 @@
+import { EtaVatSubTypeCode, TaxCalculationTypeCode, TaxRateStatusCode } from "@mezan/contracts";
 /**
  * Tax rates — core entity (docs/archive/catalog/04-accounting-treasury.md "الضرائب").
  * A `TaxRate` is the master record used when building sales/purchase invoice
@@ -7,29 +8,14 @@
  * e-invoice VAT sub-type classification (V001–V009).
  */
 
-export type TaxCalculationType = "exclusive" | "inclusive";
-export type TaxRateStatus = "active" | "inactive";
+export { EtaVatSubTypeCode, TaxCalculationTypeCode, TaxRateStatusCode };
+export type TaxCalculationType = `${TaxCalculationTypeCode}`;
+export type TaxRateStatus = `${TaxRateStatusCode}`;
 
-/**
- * Egyptian ETA e-invoice VAT sub-type codes (docs/archive/catalog/04's "الضرائب"
- * section transcribes V001–V009 from the tax dialog's helper text). "auto"
- * mirrors the mockup's default option — "تلقائي (أساسي عند وجود ضريبة، غير
- * خاضع عند 0%)" — which lets the invoicing engine pick V009 (basic sales) or
- * V004 (not subject) itself based on the line's rate at submission time.
- */
-export const ETA_VAT_SUBTYPES = [
-  "auto",
-  "V001",
-  "V002",
-  "V003",
-  "V004",
-  "V005",
-  "V006",
-  "V007",
-  "V008",
-  "V009",
-] as const;
-export type EtaVatSubType = (typeof ETA_VAT_SUBTYPES)[number];
+export const ETA_VAT_SUBTYPES: readonly EtaVatSubTypeCode[] = Object.values(EtaVatSubTypeCode);
+// EXTERNAL CONTRACT: the wire carries these as plain strings, so the value
+// type is the enum's own values — derived from it, never listed a second time.
+export type EtaVatSubType = `${EtaVatSubTypeCode}`;
 
 export interface EtaVatSubTypeDefinition {
   readonly code: EtaVatSubType;
@@ -38,16 +24,16 @@ export interface EtaVatSubTypeDefinition {
 
 /** Only the four codes the catalog documents a meaning for carry a specific label; the rest are listed generically. */
 export const ETA_VAT_SUBTYPE_DEFINITIONS: readonly EtaVatSubTypeDefinition[] = [
-  { code: "auto", labelAr: "تلقائي (أساسي عند وجود ضريبة، غير خاضع عند 0%)" },
-  { code: "V001", labelAr: "V001 — تصدير (سلع)" },
-  { code: "V002", labelAr: "V002 — تصدير (خدمات)" },
-  { code: "V003", labelAr: "V003 — معفى" },
-  { code: "V004", labelAr: "V004 — غير خاضع للضريبة" },
-  { code: "V005", labelAr: "V005" },
-  { code: "V006", labelAr: "V006" },
-  { code: "V007", labelAr: "V007" },
-  { code: "V008", labelAr: "V008" },
-  { code: "V009", labelAr: "V009 — ضريبة أساسية على المبيعات" },
+  { code: EtaVatSubTypeCode.Auto, labelAr: "تلقائي (أساسي عند وجود ضريبة، غير خاضع عند 0%)" },
+  { code: EtaVatSubTypeCode.ExportGoods, labelAr: "V001 — تصدير (سلع)" },
+  { code: EtaVatSubTypeCode.ExportServices, labelAr: "V002 — تصدير (خدمات)" },
+  { code: EtaVatSubTypeCode.Exempt, labelAr: "V003 — معفى" },
+  { code: EtaVatSubTypeCode.NotSubject, labelAr: "V004 — غير خاضع للضريبة" },
+  { code: EtaVatSubTypeCode.V005, labelAr: "V005" },
+  { code: EtaVatSubTypeCode.V006, labelAr: "V006" },
+  { code: EtaVatSubTypeCode.V007, labelAr: "V007" },
+  { code: EtaVatSubTypeCode.V008, labelAr: "V008" },
+  { code: EtaVatSubTypeCode.BasicSales, labelAr: "V009 — ضريبة أساسية على المبيعات" },
 ] as const;
 
 export function getEtaVatSubTypeLabel(code: EtaVatSubType): string {
@@ -72,10 +58,19 @@ export interface TaxRate {
 }
 
 /** Persistence port for tax rates. The domain depends on this interface only — no SQL, no driver. */
+export interface TaxRateUsage {
+  isReferenced(taxRateId: string): Promise<boolean>;
+  exemptCustomerCount?(taxRateId: string): Promise<number>;
+}
+
+export const ASSUME_TAX_RATE_REFERENCED: TaxRateUsage = { isReferenced: async () => true };
+
 export interface TaxRateRepository {
   findById(id: string): Promise<TaxRate | null>;
   findByCode(code: string): Promise<TaxRate | null>;
   list(): Promise<TaxRate[]>;
+  /** INVARIANT: inserts only. An id that already exists is an error, never an overwrite. */
   create(taxRate: TaxRate): Promise<void>;
   update(taxRate: TaxRate): Promise<void>;
+  transaction<T>(fn: () => Promise<T>): Promise<T>;
 }

@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
 import { screen, fireEvent, waitFor, within } from "@testing-library/react";
+import type { Session } from "../data/session";
 import type { AccountDTO, BranchDTO, CustomerDTO, OpenInvoiceDTO, SupplierDTO, TreasuryAccountDTO, VoucherAllocationDTO, VoucherDTO } from "@mezan/contracts";
 import { TreasuryVouchersScreen } from "./TreasuryVouchersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -56,7 +57,7 @@ const customers: CustomerDTO[] = [
   {
     id: "cust-amal", code: "C1", nameAr: "شركة الأمل للتجارة", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
     category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, priceListId: null,
-    creditLimit: "0", taxExempt: false, etaBuyerType: "auto", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
+    creditLimit: "0", taxExempt: false, taxExemptionRateId: null, etaBuyerType: "auto", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
   },
 ];
 const suppliers: SupplierDTO[] = [];
@@ -148,8 +149,18 @@ function statsOf(rows: VoucherRowDTO[]): Record<string, number> {
   };
 }
 
-function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]> } = {}) {
-  let current = [...seededVouchers];
+function renderScreen({
+  heldOnConfirm = false,
+  allocations = seededAllocations,
+  heldOnStaleApproval = false,
+  session = testAdminSession,
+  drafts = [],
+}: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]>; heldOnStaleApproval?: boolean; session?: Session; drafts?: VoucherRowDTO[] } = {}) {
+  let current = heldOnStaleApproval ? seededVouchers.map((v) => (v.id === "cv-1" ? { ...v, status: "pending" as const, workflowRequestId: "cv-1:confirm" } : v)) : [...seededVouchers, ...drafts];
+  const createRequests: Record<string, unknown>[] = [];
+  const draftConfirms: string[] = [];
+  let standingStatus = "reapproval_required";
+  const confirmRequests: string[] = [];
   let nextSeq = 5;
   const allocationsByVoucher = { ...allocations };
   const reverseRequests: { date?: string }[] = [];
@@ -180,14 +191,32 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
       const doc = current.find((v) => v.id === "cv-1")!;
       return { body: { ...doc, allocations: allocationsByVoucher["cv-1"] ?? [] } satisfies VoucherDetailDTO };
     },
+    "GET /workflow/requests/*/standing": () => ({
+      body: { id: "cv-1:confirm", status: standingStatus, reason: standingStatus === "reapproval_required" ? STALE_APPROVAL_REASON : null, reasonEn: null },
+    }),
+    "POST /vouchers/cv-1/confirm": () => {
+      confirmRequests.push("cv-1");
+      standingStatus = "pending";
+      return { body: { ...current.find((v) => v.id === "cv-1")!, held: true } };
+    },
     "GET /customers": () => ({ body: customers }),
     "GET /suppliers": () => ({ body: suppliers }),
     "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
     "GET /accounts": () => ({ body: accounts }),
     "GET /open-invoices": () => ({ body: openInvoices }),
     "GET /branches": () => ({ body: branches }),
+    "POST /vouchers/draft-a/confirm": () => {
+      draftConfirms.push("draft-a");
+      current = current.map((v) => (v.id === "draft-a" ? { ...v, status: "confirmed" as const, docNo: "CV-000101", confirmedAt: "2026-08-22T10:00:00.000Z" } : v));
+      return { body: { ...current.find((v) => v.id === "draft-a")!, held: false } };
+    },
+    "POST /vouchers/draft-b/confirm": () => {
+      draftConfirms.push("draft-b");
+      return { status: 422, body: { error: "CASH_BALANCE_NEGATIVE", message: "لا يمكن تأكيد السند: رصيد الخزينة سيصبح سالباً." } };
+    },
     "POST /vouchers": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
+      createRequests.push(body);
       const created = voucher({ ...body, id: `cv-${nextSeq}`, docNo: null, status: "draft", confirmedAt: null, journalEntryId: null });
       current = [...current, { ...created, allocatable: false, allocationSummary: { voucherAmount: created.amount, allocated: "0", unallocated: created.amount, fullyAllocated: false, needsAllocation: false } }];
       return { status: 201, body: created };
@@ -243,10 +272,31 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
     <TestNavigation>
       <TreasuryVouchersScreen />
     </TestNavigation>,
-    { transport, initialSession: testAdminSession },
+    { transport, initialSession: session },
   );
-  return { ...result, reverseRequests, collectionRequests };
+  return { ...result, reverseRequests, collectionRequests, confirmRequests, createRequests, draftConfirms };
 }
+
+const STALE_APPROVAL_REASON = "اعتُمد هذا المستند أو أُرسل للموافقة قبل تحديث النظام ولم يُرحَّل؛ الموافقة السابقة لم تعد صالحة للترحيل.";
+
+describe("TreasuryVouchersScreen — a voucher held on an approval given before the upgrade", () => {
+  it("says why on the voucher and requests approval again through its own confirm", async () => {
+    const { confirmRequests } = renderScreen({ heldOnStaleApproval: true });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent(STALE_APPROVAL_REASON);
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirmRequests).toEqual(["cv-1"]));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
+  });
+
+  it("a voucher that is not held shows no such notice", async () => {
+    renderScreen();
+    fireEvent.click(await screen.findByText("CV-000001"));
+    await screen.findByRole("tab", { name: /تخصيص على الفواتير/ });
+    expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument();
+  });
+});
 
 describe("TreasuryVouchersScreen — list", () => {
   it("renders the seeded vouchers and type-breakdown chips", async () => {
@@ -310,6 +360,22 @@ describe("TreasuryVouchersScreen — create + confirm", () => {
     expect(await screen.findByText("CV-000005")).toBeInTheDocument();
     expect(collectionRequests).toHaveLength(1);
     expect(collectionRequests[0]).toMatchObject({ amount: "300.000000", allocations: [] });
+  });
+
+  it("sends the amount as the decimal that was typed, digit for digit, where a binary number would have changed it", async () => {
+    const { collectionRequests } = renderScreen();
+    await screen.findByText("CV-000001");
+    fireEvent.click(screen.getByRole("button", { name: "سند جديد" }));
+    fireEvent.click(screen.getByText("تحصيل من عميل"));
+    setMoney(screen.getByLabelText("المبلغ"), "9007199254740993.10");
+    const partyInput = screen.getByPlaceholderText("ابحث عن عميل…");
+    fireEvent.focus(partyInput);
+    fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"));
+
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء وتأكيد" }));
+
+    await waitFor(() => expect(collectionRequests).toHaveLength(1));
+    expect(collectionRequests[0]).toMatchObject({ amount: "9007199254740993.100000" });
   });
 
   /**
@@ -390,6 +456,42 @@ describe("TreasuryVouchersScreen — reversal (D270)", () => {
   });
 });
 
+describe("TreasuryVouchersScreen — an allocation on a revalued invoice", () => {
+  it("shows the invoice relieved at what it was carried at, so applied less relieved is the realised difference", async () => {
+    renderScreen({
+      allocations: {
+        "cv-1": [
+          { id: "alloc-r", voucherId: "cv-1", invoiceId: "inv-1", amount: "48700.000000", invoiceAmount: "48000.000000", revaluationShare: "450.000000", carryingAmount: "48450.000000", fxDifference: "250.000000", status: "active", createdAt: "2026-09-10T10:00:00.000Z", reversedAt: null },
+        ],
+      },
+    });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+    const row = (await screen.findByText("INV-000001")).closest("tr")!;
+    expect(within(row).getByText("48,700.00")).toBeInTheDocument();
+    expect(within(row).getByText("48,450.00")).toBeInTheDocument();
+    expect(within(row).getByText("250.00")).toBeInTheDocument();
+    expect(within(row).getByText("ربح")).toBeInTheDocument();
+    expect(within(row).queryByText("48,000.00")).not.toBeInTheDocument();
+  });
+});
+
+describe("TreasuryVouchersScreen — an allocation whose invoice is no longer open", () => {
+  it("names the document by the number the allocation carries, never by its internal id", async () => {
+    renderScreen({
+      allocations: {
+        "cv-1": [
+          { id: "alloc-paid", voucherId: "cv-1", invoiceId: "0b8f6c1e-7c1d-4f0a-9d55-2f3f1c9a7e10", invoiceNo: "CV-000042", amount: "500.000000", status: "active", createdAt: "2026-09-10T10:00:00.000Z", reversedAt: null },
+        ],
+      },
+    });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+    expect(await screen.findByText("CV-000042")).toBeInTheDocument();
+    expect(screen.queryByText(/0b8f6c1e/)).not.toBeInTheDocument();
+  });
+});
+
 describe("TreasuryVouchersScreen — allocation table (D228)", () => {
   it("shows per allocation what was applied, what the invoice was relieved of and the realised difference as a gain or a loss", async () => {
     renderScreen({
@@ -414,5 +516,64 @@ describe("TreasuryVouchersScreen — allocation table (D228)", () => {
     expect(within(lossRow).getByText("خسارة")).toBeInTheDocument();
     expect(within(lossRow).getByText("312.50")).toBeInTheDocument();
     expect(within(lossRow).getByText("12.50")).toBeInTheDocument();
+  });
+});
+
+
+describe("TreasuryVouchersScreen — the cashier writes a voucher and the branch manager confirms it", () => {
+  const cashier: Session = { ...testAdminSession, isCompanyAdmin: false, roleCode: "TREASURY_CASHIER", permissions: ["treasury.account.view", "treasury.cash_voucher.view", "treasury.cash_voucher.create", "sales.customer.view"] };
+  const manager: Session = { ...testAdminSession, isCompanyAdmin: false, roleCode: "BRANCH_MANAGER", permissions: ["treasury.account.view", "treasury.cash_voucher.view", "treasury.cash_voucher.confirm", "sales.customer.view"] };
+  const draft = (id: string, memo: string): VoucherRowDTO => ({
+    ...voucher({ id, docNo: null, status: "draft", confirmedAt: null, journalEntryId: null, memo, voucherType: "other_income", amount: "75.000000", counterpartyGlAccountId: "4900", customerId: null }),
+    allocatable: false,
+    allocationSummary: { voucherAmount: "75.000000", allocated: "0", unallocated: "75.000000", fullyAllocated: false, needsAllocation: false },
+  });
+
+  it("a cashier's voucher is saved as a draft for confirmation — neither the one-call collection nor a confirm is attempted", async () => {
+    const { createRequests, collectionRequests, draftConfirms, confirmRequests } = renderScreen({ session: cashier });
+    await screen.findByText("CV-000001");
+    fireEvent.click(screen.getByRole("button", { name: "سند جديد" }));
+    fireEvent.click(screen.getByText("تحصيل من عميل"));
+    setMoney(screen.getByLabelText("المبلغ"), "300");
+    const partyInput = screen.getByPlaceholderText("ابحث عن عميل…");
+    fireEvent.focus(partyInput);
+    fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"));
+    expect(screen.queryByRole("button", { name: "إنشاء وتأكيد" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة للاعتماد" }));
+
+    expect(await screen.findByText("حُفظ السند مسودة بانتظار الاعتماد")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("لم يُرحَّل شيء ولم تتحرك أي نقدية");
+    expect(createRequests).toHaveLength(1);
+    expect(createRequests[0]).toMatchObject({ voucherType: "customer_collection", amount: "300.000000", customerId: "cust-amal" });
+    expect(collectionRequests).toEqual([]);
+    expect(draftConfirms).toEqual([]);
+    expect(confirmRequests).toEqual([]);
+  });
+
+  it("a branch manager has no «سند جديد» and confirms the cashier's draft from its row", async () => {
+    const { draftConfirms } = renderScreen({ session: manager, drafts: [draft("draft-a", "إيراد من الصندوق")] });
+    await screen.findByText("CV-000001");
+    expect(screen.queryByRole("button", { name: "سند جديد" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "عرض draft-a" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد السند" }));
+    await waitFor(() => expect(draftConfirms).toEqual(["draft-a"]));
+    expect(await screen.findByText("CV-000101")).toBeInTheDocument();
+  });
+
+  it("a refused confirm says why in Arabic on the list and leaves the other draft's own action usable", async () => {
+    const { draftConfirms } = renderScreen({ session: manager, drafts: [draft("draft-a", "إيراد من الصندوق"), draft("draft-b", "صرف بلا رصيد")] });
+    fireEvent.click(await screen.findByRole("button", { name: "عرض draft-b" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد السند" }));
+    expect(await screen.findByText("لا يمكن تأكيد السند: رصيد الخزينة سيصبح سالباً.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "عرض draft-a" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد السند" }));
+    await waitFor(() => expect(draftConfirms).toEqual(["draft-b", "draft-a"]));
+  });
+
+  it("a cashier's draft row offers no confirm", async () => {
+    renderScreen({ session: cashier, drafts: [draft("draft-a", "إيراد من الصندوق")] });
+    fireEvent.click(await screen.findByRole("button", { name: "عرض draft-a" }));
+    await screen.findByRole("menuitem", { name: "عرض" });
+    expect(screen.queryByRole("menuitem", { name: "تأكيد السند" })).not.toBeInTheDocument();
   });
 });

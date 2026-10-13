@@ -32,7 +32,7 @@ export async function boot() {
   // allow (A3's SEAT_LIMIT_REACHED); this stand-in resolver keeps every cap off.
   const resolveEntitlements = () =>
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
-  const { app, sessions } = await createBackend({ dbPath, seedDemoData: true, resolveEntitlements });
+  const { app, sessions, drain } = await createBackend({ dbPath, seedDemoData: true, resolveEntitlements });
 
   /**
    * A scenario acts as an identity by minting a session for it, not by writing
@@ -149,6 +149,26 @@ export async function boot() {
     return m[1] ? -units : units;
   }
 
+  async function goodsReceivedNotInvoicedGap(): Promise<bigint | null> {
+    const receipts = await req("GET", "/purchases/receipts?status=confirmed&pageSize=10000");
+    const ledger = await req("GET", "/gl/accounts/2120/ledger");
+    const list = rows(receipts.body);
+    const credit = scaled(ledger.body?.balance?.credit);
+    const debit = scaled(ledger.body?.balance?.debit);
+    if (receipts.status !== 200 || credit === null || debit === null) return null;
+    let accrued = 0n;
+    for (const receipt of list) {
+      if (receipt.status !== "confirmed") continue;
+      for (const line of receipt.lines ?? []) {
+        const qty = scaled(line.remainingQty);
+        const unitCost = scaled(line.unitCost);
+        if (qty === null || unitCost === null) return null;
+        accrued += (qty * unitCost) / 1_000_000n;
+      }
+    }
+    return accrued - (credit - debit);
+  }
+
   async function invariants() {
     const tb = await req("GET", "/financial-reports/trial-balance");
     const g = tb.body?.grandTotals ?? {};
@@ -162,14 +182,37 @@ export async function boot() {
     };
     const debit = scaled(g.debit);
     const credit = scaled(g.credit);
+    const valuation = await req("GET", "/inventory/valuation");
+    const positions: { itemId: string; warehouseId: string; onHand: unknown; totalValue: unknown }[] | null = Array.isArray(valuation.body?.rows) ? valuation.body.rows : null;
+    const stranded = (positions ?? []).filter((p) => {
+      const onHand = scaled(p.onHand) ?? 0n;
+      const value = scaled(p.totalValue) ?? 0n;
+      return (onHand === 0n && value !== 0n) || (onHand > 0n && value < 0n);
+    });
+    const magnitude = (x: bigint) => (x < 0n ? -x : x);
     const exact = {
       tb: debit === null || credit === null ? null : debit - credit,
       inventory: diff("inventory"),
       ap: diff("ap"),
       ar: diff("ar"),
+      grni: await goodsReceivedNotInvoicedGap(),
+      fxResidue: scaled(recon.body?.foreignResidue?.total),
+      stockLedgerDates: typeof recon.body?.stockLedgerDates?.count === "number" ? BigInt(recon.body.stockLedgerDates.count) : null,
+      strandedStock: positions === null ? null : stranded.reduce((sum, p) => sum + magnitude(scaled(p.totalValue) ?? 0n), 0n),
     };
     const asNumber = (x: bigint | null) => (x === null ? NaN : Number(x) / 1e6);
-    return { tb: asNumber(exact.tb), inventory: asNumber(exact.inventory), ap: asNumber(exact.ap), ar: asNumber(exact.ar), exact };
+    return {
+      tb: asNumber(exact.tb),
+      inventory: asNumber(exact.inventory),
+      ap: asNumber(exact.ap),
+      ar: asNumber(exact.ar),
+      grni: asNumber(exact.grni),
+      fxResidue: asNumber(exact.fxResidue),
+      stockLedgerDates: exact.stockLedgerDates === null ? NaN : Number(exact.stockLedgerDates),
+      strandedStock: asNumber(exact.strandedStock),
+      strandedPositions: stranded.map((p) => `${p.itemId}@${p.warehouseId}=${String(p.totalValue)}`),
+      exact,
+    };
   }
 
   /**
@@ -193,6 +236,10 @@ export async function boot() {
     check("inventory still reconciles to GL 1200", same("inventory"), moved("inventory"));
     check("AP still reconciles", same("ap"), moved("ap"));
     check("AR still reconciles", same("ar"), moved("ar"));
+    check("GL 2120 still equals the goods received and not yet invoiced", after.exact.grni !== null && after.exact.grni === before.exact.grni, `${before.grni.toFixed(6)} → ${after.grni.toFixed(6)}`);
+    check("nothing holds base with none of its foreign currency", after.exact.fxResidue === 0n, `${before.fxResidue.toFixed(6)} → ${after.fxResidue.toFixed(6)}`);
+    check("no stock movement sits in a different month from its document's entry", after.exact.stockLedgerDates === 0n, `${before.stockLedgerDates} → ${after.stockLedgerDates}`);
+    check("no stock position holds value with no quantity, or quantity valued below zero", after.exact.strandedStock === 0n, after.strandedPositions.slice(0, 5).join(" · "));
   }
 
   function report(): number {
@@ -259,6 +306,8 @@ export async function boot() {
   return {
     app,
     sessions,
+    dbPath,
+    drain,
     today,
     onCalendar,
     req,

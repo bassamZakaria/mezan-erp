@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { ACCOUNTS, BRANCH_ID, CORE, VAT_PERCENT, WAREHOUSE_ID, step } from "./shared.js";
+import { ACCOUNTS, BRANCH_ID, CORE, VAT_RATE_ID, WAREHOUSE_ID, step } from "./shared.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -141,7 +141,7 @@ async function createQuote(
       itemNameAr: ITEM_NAMES_AR[spec.itemId] as string,
       qty: spec.qty,
       unitPrice: await priceFrom(app, quote.priceListId, spec.itemId, fallback, spec.qty),
-      taxRatePercent: VAT_PERCENT,
+      taxRateId: VAT_RATE_ID,
     });
   }
   await step(app, "POST", "/sales-quotes", {
@@ -300,8 +300,8 @@ export async function seedPurchasing(app: App): Promise<void> {
     currency: "EGP",
     receiptId: "GRN-DEMO-1",
     lines: [
-      { itemId: "ITEM-DEMO-1", kind: "inventory", qty: "100", unitCost: "140", taxRatePercent: VAT_PERCENT },
-      { itemId: "ITEM-DEMO-3", kind: "inventory", qty: "300", unitCost: "31", taxRatePercent: VAT_PERCENT },
+      { itemId: "ITEM-DEMO-1", kind: "inventory", qty: "100", unitCost: "140", taxRateId: VAT_RATE_ID },
+      { itemId: "ITEM-DEMO-3", kind: "inventory", qty: "300", unitCost: "31", taxRateId: VAT_RATE_ID },
     ],
   });
   await step(app, "POST", "/purchases/invoices/PI-DEMO-6/confirm", {});
@@ -326,7 +326,7 @@ export async function seedPurchasing(app: App): Promise<void> {
     currency: "EGP",
     receiptId: "GRN-DEMO-2",
     lines: [
-      { itemId: "ITEM-DEMO-2", kind: "inventory", qty: "120", unitCost: "72", taxRatePercent: VAT_PERCENT },
+      { itemId: "ITEM-DEMO-2", kind: "inventory", qty: "120", unitCost: "72", taxRateId: VAT_RATE_ID },
     ],
   });
   await step(app, "POST", "/purchases/invoices/PI-DEMO-7/confirm", {});
@@ -370,7 +370,7 @@ export async function seedPurchasing(app: App): Promise<void> {
    */
   await step(app, "POST", "/landed-costs", {
     id: "LC-DEMO-1",
-    date: "2026-08-13",
+    date: "2026-08-18",
     memo: `تكاليف توريد إذن الاستلام ${receiptOne.number}`,
     distributionMethod: "BY_VALUE",
     costItems: [
@@ -396,7 +396,6 @@ export async function seedPurchasing(app: App): Promise<void> {
       },
     ],
   });
-  await step(app, "POST", "/landed-costs/LC-DEMO-1/confirm", {});
 
   await step(app, "POST", "/landed-costs", {
     id: "LC-DEMO-2",
@@ -593,6 +592,9 @@ export async function seedPurchasing(app: App): Promise<void> {
     ],
   });
   await step(app, "POST", "/sales-returns/SRT-DEMO-1/confirm", {});
+
+  // INVARIANT: confirmed after every seeded movement dated before its absorption day on the positions it loads — an earlier-dated movement is refused once a landed cost stands (landed-cost-backdated-movement.test.ts).
+  await step(app, "POST", "/landed-costs/LC-DEMO-1/confirm", { absorptionDate: "2026-08-18" });
 
   await step(app, "POST", "/sales-returns", {
     id: "SRT-DEMO-2",

@@ -1,6 +1,8 @@
+import { PayBasis } from "./contract.js";
+import { ContractStatus } from "./contract.js";
 import type { Money } from "../money/index.js";
 import { InvalidContractError, ContractNotActiveError } from "./errors.js";
-import type { Contract, ContractLineItem, ContractRepository, ContractType, LeaveEntitlementOverrides, PayBasis, PayFrequency } from "./contract.js";
+import type { Contract, ContractLineItem, ContractRepository, ContractType, LeaveEntitlementOverrides, PayFrequency } from "./contract.js";
 
 export interface CreateContractCommand {
   readonly id: string;
@@ -43,7 +45,7 @@ export async function createContract(command: CreateContractCommand, repo: Contr
     number: command.number,
     employeeId: command.employeeId,
     type,
-    payBasis: command.payBasis ?? "monthly",
+    payBasis: command.payBasis ?? PayBasis.Monthly,
     payFrequency: command.payFrequency ?? "monthly",
     startDate: command.startDate,
     endDate: type === "indefinite" ? null : (command.endDate ?? null),
@@ -56,7 +58,7 @@ export async function createContract(command: CreateContractCommand, repo: Contr
     },
     allowances: command.allowances ?? [],
     deductions: command.deductions ?? [],
-    status: "active",
+    status: ContractStatus.Active,
     terminatedAt: null,
     createdAt: new Date().toISOString(),
   };
@@ -67,6 +69,6 @@ export async function createContract(command: CreateContractCommand, repo: Contr
 
 /** Terminates an active contract (docs/archive/catalog/06 "إنهاء العقد"). */
 export function terminateContract(contract: Contract, terminatedAt: string = new Date().toISOString()): Contract {
-  if (contract.status !== "active") throw new ContractNotActiveError(contract.id);
-  return { ...contract, status: "terminated", terminatedAt };
+  if (contract.status !== ContractStatus.Active) throw new ContractNotActiveError(contract.id);
+  return { ...contract, status: ContractStatus.Terminated, terminatedAt };
 }

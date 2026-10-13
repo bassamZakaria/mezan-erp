@@ -1,6 +1,6 @@
 import { amountInWords } from "@mezan/domain";
 import type { PrintDocumentLine, PrintDocumentModel, PrintPartyInfo } from "@mezan/ui";
-import type { TenantSettingsDTO } from "@mezan/contracts";
+import type { DisplaySettingsDTO } from "../data/hooks";
 import { majorOf, scaledOf, toMajorNumber } from "../lib/money";
 
 /**
@@ -32,6 +32,7 @@ export interface DocumentPrintLineInput {
   /** A percentage discount instead — the shape a quote line stores. */
   readonly discountPercent?: number | null;
   readonly taxRatePercent?: number | null;
+  readonly taxRateName?: string | null;
   /**
    * The tax the document itself recorded for this line, where it stores one
    * (both returns do). Given, it is used verbatim rather than recomputed —
@@ -47,7 +48,7 @@ export interface DocumentPrintInput {
   readonly date: string;
   readonly dueDate?: string;
   readonly statusLabel?: string;
-  readonly settings: TenantSettingsDTO | null;
+  readonly settings: DisplaySettingsDTO | null;
   readonly branchName?: string;
   readonly warehouseName?: string;
   readonly party?: PrintPartyInfo;
@@ -83,7 +84,7 @@ function lineTaxScaled(line: DocumentPrintLineInput): bigint {
   return (lineNetScaled(line) * rate) / 100_000_000n;
 }
 
-export function companyOf(settings: TenantSettingsDTO | null) {
+export function companyOf(settings: DisplaySettingsDTO | null) {
   return {
     name: settings?.companyName ?? "",
     address: settings?.address || undefined,
@@ -106,6 +107,7 @@ export function documentPrintModel(input: DocumentPrintInput): PrintDocumentMode
       unitPrice: majorOf(line.unitPrice),
       discount: toMajorNumber(lineDiscountScaled(line)),
       taxPercent: line.taxRatePercent ?? undefined,
+      taxName: line.taxRateName ?? undefined,
       taxAmount: toMajorNumber(tax),
       lineTotal: toMajorNumber(net + tax),
     };

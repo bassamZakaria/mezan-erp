@@ -11,7 +11,11 @@
  * an invalid patch can never reach persistence.
  */
 
-export type TaxCalculationMode = "EXCLUSIVE" | "INCLUSIVE";
+export enum TaxCalculationModeCode {
+  Exclusive = "EXCLUSIVE",
+  Inclusive = "INCLUSIVE",
+}
+export type TaxCalculationMode = `${TaxCalculationModeCode}`;
 export type CreditControlMode = "WARNING" | "BLOCK";
 export type FxRateMissingPolicy = "STRICT" | "ALLOW_MISSING";
 export type DepreciationProrateMode = "DAILY" | "FULL_MONTH";
@@ -126,6 +130,7 @@ export interface TenantSettings {
    * off, and the admin bypass that used to be unconditional is gone.
    */
   readonly contractingSingleOperatorMode: boolean;
+  readonly periodCloseSingleOperatorMode: boolean;
 
   // --- سياسة المخزون (Inventory policy) ---
   readonly allowCrossWarehouseSales: boolean;
@@ -167,7 +172,7 @@ export class InvalidSettingsError extends Error {
   }
 }
 
-const TAX_CALCULATION_MODES: readonly TaxCalculationMode[] = ["EXCLUSIVE", "INCLUSIVE"];
+const TAX_CALCULATION_MODES: readonly TaxCalculationMode[] = Object.values(TaxCalculationModeCode);
 const CREDIT_CONTROL_MODES: readonly CreditControlMode[] = ["WARNING", "BLOCK"];
 const FX_RATE_MISSING_POLICIES: readonly FxRateMissingPolicy[] = ["STRICT", "ALLOW_MISSING"];
 const DEPRECIATION_PRORATE_MODES: readonly DepreciationProrateMode[] = ["DAILY", "FULL_MONTH"];
@@ -220,6 +225,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   maxLineDiscountPercent: 100,
   contractingCbeCreditDiscountRatePercent: null,
   contractingSingleOperatorMode: false,
+  periodCloseSingleOperatorMode: false,
 
   allowCrossWarehouseSales: true,
   showOtherWarehouseStock: true,

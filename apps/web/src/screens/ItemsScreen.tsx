@@ -1,3 +1,5 @@
+import { LockedFieldset } from "../shell/LockedFieldset";
+import { useLockedFields } from "../shell/useLockedFields";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { matchesSearch } from "@mezan/domain";
 import {
@@ -22,7 +24,7 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import type { AlternateUnitDTO, CostingMethodDTO, CreateItemDTO, EtaCodeTypeDTO, ItemDTO, ItemStatusDTO, ItemTypeDTO } from "@mezan/contracts";
+import { ItemStatusCode, type AlternateUnitDTO, type CostingMethodDTO, type CreateItemDTO, type EtaCodeTypeDTO, type ItemDTO, type ItemStatusDTO, type ItemTypeDTO } from "@mezan/contracts";
 import { ITEM_TYPES, itemTypeTracksStock } from "@mezan/domain";
 import {
   useAccounts,
@@ -75,8 +77,16 @@ const TYPE_TONE: Record<ItemTypeDTO, PillTone> = {
   consumable: "neutral",
   recipe: "info",
 };
-const STATUS_KEY: Record<ItemStatusDTO, AppTranslationKey> = { active: "common.active", inactive: "common.inactive" };
-const STATUS_TONE: Record<ItemStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
+const STATUS_KEY: Record<ItemStatusDTO, AppTranslationKey> = {
+  [ItemStatusCode.Active]: "common.active",
+  [ItemStatusCode.Inactive]: "common.inactive",
+  [ItemStatusCode.PendingPricing]: "items.status.pendingPricing",
+};
+const STATUS_TONE: Record<ItemStatusDTO, PillTone> = {
+  [ItemStatusCode.Active]: "success",
+  [ItemStatusCode.Inactive]: "neutral",
+  [ItemStatusCode.PendingPricing]: "warning",
+};
 const COSTING_KEY: Record<CostingMethodDTO, AppTranslationKey> = { WAC: "items.weightedAverageWac", FIFO: "items.oldestFirstFifo" };
 const ETA_CODE_TYPE_LABEL: Record<EtaCodeTypeDTO, string> = { EGS: "EGS", GPC: "GPC" };
 
@@ -179,6 +189,8 @@ const BLANK_DRAFT: ItemDraft = {
   gpcCode: "",
   status: "active",
 };
+
+const ITEMS_API = "/items";
 
 function draftFromItem(item: ItemDTO): ItemDraft {
   return {
@@ -676,6 +688,8 @@ export function ItemsScreen() {
   const brandName = (id: string | null | undefined) => (id ? nameOf(brands.find((b) => b.id === id), id) : "—");
   const seasonName = (id: string | null | undefined) => (id ? nameOf(seasons.find((x) => x.id === id), id) : "—");
   const createItem = useCreateItem();
+  const locked = useLockedFields(ITEMS_API);
+  const lockedReason = t("branchRestriction.fieldLocked");
   const updateItem = useUpdateItem();
   const accountsQuery = useAccounts();
   const unitsQuery = useItemUnits();
@@ -749,6 +763,8 @@ export function ItemsScreen() {
   const totalCount = counts.all ?? 0;
   const activeCount = counts.active ?? 0;
   const lowStockCount = counts.low_stock ?? 0;
+  const pendingPricingCount = counts[ItemStatusCode.PendingPricing] ?? 0;
+  const branchSeat = locked.isLocked("salePrice");
   const outOfStockCount = counts.out_of_stock ?? 0;
 
   // What the server returned IS the page, already in the requested order.
@@ -846,9 +862,11 @@ export function ItemsScreen() {
     try {
       if (editingId) {
         const { id: _id, code: _code, ...patch } = draftToItem(draft, editingId);
-        await updateItem.mutateAsync({ id: editingId, patch });
+        await updateItem.mutateAsync({ id: editingId, patch: locked.withoutLocked(patch) });
       } else {
-        await createItem.mutateAsync(draftToItem(draft, crypto.randomUUID()));
+        const created = draftToItem(draft, crypto.randomUUID());
+        const { id, nameAr, type, baseUnitCode } = created;
+        await createItem.mutateAsync({ ...locked.withoutLocked(created), id, nameAr, type, baseUnitCode });
       }
       subPage.close();
     } catch (err) {
@@ -943,10 +961,19 @@ export function ItemsScreen() {
     },
   ];
 
+  const pendingPricingNotice = editingId
+    ? draft.status === ItemStatusCode.PendingPricing
+      ? t(branchSeat ? "items.pendingPricing.editNotice.branch" : "items.pendingPricing.editNotice.headOffice")
+      : null
+    : branchSeat
+      ? t("items.pendingPricing.createNotice")
+      : null;
+
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: totalCount },
     { key: "active", label: t("common.active"), count: activeCount },
     { key: "inactive", label: t("common.inactive"), count: counts.inactive ?? 0 },
+    { key: ItemStatusCode.PendingPricing, label: t("items.status.pendingPricing"), count: pendingPricingCount },
     // The type axis shares one `status` parameter with the state axis, so the
     // route answers for it under a `type:` prefix.
     ...ITEM_TYPES.map((type) => ({ key: type, label: t(TYPE_KEY[type]), count: counts[`type:${type}`] ?? 0 })),
@@ -961,19 +988,23 @@ export function ItemsScreen() {
         options={glOptions}
         value={draft.revenueAccountId ? (glOptions.find((o) => o.id === draft.revenueAccountId) ?? null) : (glOptions[0] ?? null)}
         onChange={(option) => setDraft((d) => ({ ...d, revenueAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
+        disabled={locked.isLocked("revenueAccountId")}
       />
       <EntityPicker
         label={t("items.costAccount")}
         options={glOptions}
         value={draft.cogsAccountId ? (glOptions.find((o) => o.id === draft.cogsAccountId) ?? null) : (glOptions[0] ?? null)}
         onChange={(option) => setDraft((d) => ({ ...d, cogsAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
+        disabled={locked.isLocked("cogsAccountId")}
       />
       <EntityPicker
         label={t("items.inventoryAccount")}
         options={glOptions}
         value={draft.inventoryAccountId ? (glOptions.find((o) => o.id === draft.inventoryAccountId) ?? null) : (glOptions[0] ?? null)}
         onChange={(option) => setDraft((d) => ({ ...d, inventoryAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
+        disabled={locked.isLocked("inventoryAccountId")}
       />
+      {locked.isLocked("inventoryAccountId") ? <p className="text-[11.5px] text-ink-faint">{t("branchRestriction.fieldLocked")}</p> : null}
     </>
   );
 
@@ -1019,18 +1050,26 @@ export function ItemsScreen() {
               <SectionCard title={t("items.section.accounts")} description={t("items.section.accountsHint")} columns={1}>
                 {accountFields}
               </SectionCard>
-              <SectionCard title={t("items.section.eta")} columns={1}>
-                {etaFields}
-              </SectionCard>
-              {editingId ? (
+              <LockedFieldset locked={locked.isLocked("etaItemCode")} reason={lockedReason}>
+                <SectionCard title={t("items.section.eta")} columns={1}>
+                  {etaFields}
+                </SectionCard>
+              </LockedFieldset>
+              {editingId && draft.status === ItemStatusCode.PendingPricing ? (
+                <SectionCard title={t("items.section.status")} columns={1}>
+                  <StatusPill label={t("items.status.pendingPricing")} tone="warning" />
+                  <p className="text-[11.5px] text-ink-faint">{t("items.pendingPricing.statusHint")}</p>
+                </SectionCard>
+              ) : editingId ? (
                 <SectionCard title={t("items.section.status")} columns={1}>
                   <SelectField
                     label={t("common.status")}
                     value={draft.status}
                     onChange={(v) => setDraft((d) => ({ ...d, status: v as ItemStatusDTO }))}
+                    {...locked.props("status")}
                     options={[
-                      { value: "active", label: t("common.active") },
-                      { value: "inactive", label: t("common.inactive") },
+                      { value: ItemStatusCode.Active, label: t("common.active") },
+                      { value: ItemStatusCode.Inactive, label: t("common.inactive") },
                     ]}
                   />
                 </SectionCard>
@@ -1038,9 +1077,15 @@ export function ItemsScreen() {
             </>
           }
         >
+        {pendingPricingNotice ? (
+          <p data-testid="item-pending-pricing-notice" role="note" className="rounded-[8px] border border-warning bg-warning-soft px-[12px] py-[8px] text-[12.5px] text-warning-ink">
+            {pendingPricingNotice}
+          </p>
+        ) : null}
         <SectionCard title={t("items.section.identity")} description={t("items.section.identityHint")}>
         <SelectField
           label={t("items.itemType")}
+          {...(editingId ? locked.props("type") : {})}
           required
           value={draft.type}
           onChange={(v) => {
@@ -1081,6 +1126,7 @@ export function ItemsScreen() {
         />
         <SelectField
           label={t("items.defaultSupplier")}
+          {...locked.props("defaultSupplierId")}
           value={draft.defaultSupplierId}
           onChange={(v) => setDraft((d) => ({ ...d, defaultSupplierId: v }))}
           options={[
@@ -1148,12 +1194,14 @@ export function ItemsScreen() {
         <SectionCard title={t("items.section.units")} description={t("items.section.unitsHint")}>
         <SelectField
           label={t("items.baseUnit")}
+          {...(editingId ? locked.props("baseUnitCode") : {})}
           required
           value={draft.baseUnitCode}
           onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))}
           options={itemUnits.map((u) => ({ value: u.code, label: `${nameOf(u)} (${u.code})` }))}
         />
 
+        <LockedFieldset locked={locked.isLocked("alternateUnits")} reason={lockedReason} className="sm:col-span-2">
         <FieldGroup label={t("items.alternateUnitsOfMeasure")} hint={t("items.forExampleCarton12Pieces")} className="sm:col-span-2">
           <div className="flex flex-col gap-[8px]">
             {draft.alternateUnits.map((unit, index) => (
@@ -1169,7 +1217,7 @@ export function ItemsScreen() {
                 />
                 <TextInput
                   size="sm"
-                  className="flex-1"
+                  className="min-w-0 flex-1"
                   aria-label={t("items.unitName")}
                   value={unit.name}
                   onChange={(e) => updateAlternateUnit(index, { name: e.target.value })}
@@ -1206,6 +1254,7 @@ export function ItemsScreen() {
             </Button>
           </div>
         </FieldGroup>
+        </LockedFieldset>
 
         </SectionCard>
 
@@ -1242,18 +1291,22 @@ export function ItemsScreen() {
 
         </SectionCard>
 
+        <LockedFieldset locked={locked.isLocked("salePrice")} reason={lockedReason}>
         <SectionCard title={t("items.section.pricing")}>
         <Field label={t("items.salePrice")}>
           <MoneyInput aria-label={t("items.salePrice")} value={draft.salePrice} onChange={(v) => setDraft((d) => ({ ...d, salePrice: v }))} />
         </Field>
         <Field label={t("items.costPrice")}>
-          <MoneyInput aria-label={t("items.costPrice")} value={draft.costPrice} onChange={(v) => setDraft((d) => ({ ...d, costPrice: v }))} />
+          <MoneyInput aria-label={t("items.costPrice")} value={draft.costPrice} onChange={(v) => setDraft((d) => ({ ...d, costPrice: v }))} disabled={locked.isLocked("costPrice")} />
+          {locked.isLocked("costPrice") ? <p className="mt-[5px] text-[11.5px] text-ink-faint">{t("branchRestriction.fieldLocked")}</p> : null}
         </Field>
         <NumberField label={t("items.taxRate")} value={draft.taxRatePercent} onChange={(v) => setDraft((d) => ({ ...d, taxRatePercent: v ?? 0 }))} min={0} />
 
         </SectionCard>
+        </LockedFieldset>
 
         {draft.type === "stock" ? (
+          <LockedFieldset locked={locked.isLocked("trackInventory")} reason={lockedReason}>
           <SectionCard title={t("items.section.stockPolicy")}>
             <div className="sm:col-span-2">
               <ToggleField
@@ -1296,6 +1349,7 @@ export function ItemsScreen() {
               />
             </div>
           </SectionCard>
+          </LockedFieldset>
         ) : null}
 
 
@@ -1589,6 +1643,16 @@ export function ItemsScreen() {
           { label: t("items.nonStockItems"), value: <span className="mz-num">{stats.nonStock ?? 0}</span> },
         ]}
         attentionBanners={[
+          {
+            key: ItemStatusCode.PendingPricing,
+            label: t(branchSeat ? "items.banner.pendingPricing.branch" : "items.banner.pendingPricing.headOffice", { count: pendingPricingCount }),
+            count: pendingPricingCount,
+            tone: "warning",
+            onApply: () => {
+              setStatusChipKey(ItemStatusCode.PendingPricing);
+              setPage(1);
+            },
+          },
           {
             key: "out_of_stock",
             label: t("items.banner.outOfStock", { count: outOfStockCount }),

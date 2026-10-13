@@ -67,7 +67,7 @@ function baseInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO 
 function baseTransport(settingsOverrides: Record<string, unknown> = {}) {
   return stubTransport({
     "GET /print-template-config": () => ({ body: DEFAULT_PRINT_TEMPLATE_CONFIG }),
-    "GET /settings": () => ({
+    "GET /settings/display": () => ({
       body: {
         companyName: "شركة سايج",
         address: "القاهرة الجديدة",
@@ -75,10 +75,15 @@ function baseTransport(settingsOverrides: Record<string, unknown> = {}) {
         ...settingsOverrides,
       },
     }),
-    "GET /customers": () => ({ body: [{ id: "C1", code: "CUST-1", taxNumber: "999", address: "القاهرة", phone: "0100000000" }] }),
-    "GET /branches": () => ({ body: [{ id: "B1", name: "الفرع الرئيسي" }] }),
-    "GET /warehouses": () => ({ body: [{ id: "W1", name: "المخزن الرئيسي" }] }),
-    "GET /eta/submissions": () => ({ body: [] }),
+    "GET /sales-invoices/*/print-context": () => ({
+      body: {
+        branchName: "الفرع الرئيسي",
+        warehouseName: "المخزن الرئيسي",
+        customer: { code: "CUST-1", taxNumber: "999-888-777", address: "القاهرة", phone: "0100000000" },
+        etaUuid: "ETA-UUID-1",
+        etaQrValue: null,
+      },
+    }),
   });
 }
 
@@ -86,11 +91,8 @@ describe("SalesInvoicePrintPage", () => {
   it("shows the empty-state notice when no print template config is available", async () => {
     const transport = stubTransport({
       "GET /print-template-config": () => ({ status: 404, body: {} }),
-      "GET /settings": () => ({ body: {} }),
-      "GET /customers": () => ({ body: [] }),
-      "GET /branches": () => ({ body: [] }),
-      "GET /warehouses": () => ({ body: [] }),
-      "GET /eta/submissions": () => ({ body: [] }),
+      "GET /settings/display": () => ({ body: {} }),
+      "GET /sales-invoices/*/print-context": () => ({ body: { branchName: null, warehouseName: null, customer: null, etaUuid: null, etaQrValue: null } }),
     });
     renderWithProviders(<SalesInvoicePrintPage invoice={baseInvoice()} />, { transport, initialSession: testAdminSession });
     expect(await screen.findByRole("alert").catch(() => null)).toBeFalsy();
@@ -113,13 +115,29 @@ describe("SalesInvoicePrintPage", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("resolves the customer/branch/warehouse names for the invoice's ids without crashing", async () => {
+  it("prints the customer's tax number and the authority's identifier from the invoice's own print context, asking for no list it may be refused", async () => {
+    const asked: string[] = [];
     const transport = baseTransport();
-    const { container } = renderWithProviders(<SalesInvoicePrintPage invoice={baseInvoice()} />, {
-      transport,
-      initialSession: testAdminSession,
-    });
-    await new Promise((r) => setTimeout(r, 20));
-    expect(container.firstChild).not.toBeNull();
+    const recording: typeof transport = (path, init) => {
+      asked.push(path);
+      return transport(path, init);
+    };
+    renderWithProviders(<SalesInvoicePrintPage invoice={baseInvoice()} />, { transport: recording, initialSession: testAdminSession });
+    expect(await screen.findByText("999-888-777", { exact: false })).toBeInTheDocument();
+    expect(await screen.findByText("ETA-UUID-1", { exact: false })).toBeInTheDocument();
+    expect(asked.filter((path) => /^\/(settings(?!\/display)|customers|branches|warehouses|eta\/submissions)/.test(path))).toEqual([]);
+  });
+
+  it("a role that may not read the settings still prints the company's name, address and tax number on the invoice", async () => {
+    const base = baseTransport();
+    const transport: typeof base = (path, init) =>
+      path.split("?")[0] === "/settings"
+        ? Promise.resolve({ status: 403, ok: false, json: <T,>() => Promise.resolve({ error: "PERMISSION_DENIED" } as T), text: () => Promise.resolve("{}") })
+        : base(path, init);
+    const restricted = { ...testAdminSession, userId: "USER-CASHIER", isCompanyAdmin: false, roleCode: "CASHIER", permissions: ["sales.invoice.view_own", "sales.invoice.print"] };
+    renderWithProviders(<SalesInvoicePrintPage invoice={baseInvoice()} />, { transport, initialSession: restricted });
+    expect((await screen.findAllByText(/شركة سايج/)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/123-456-789/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/اسم الشركة غير|الرقم الضريبي غير/)).not.toBeInTheDocument();
   });
 });

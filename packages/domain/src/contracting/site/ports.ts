@@ -16,6 +16,8 @@ export interface SiteIssueRepository {
   findById(id: string): Promise<SiteIssue | null>;
   findByDocNo(docNo: string): Promise<SiteIssue | null>;
   list(filter?: SiteIssueFilter): Promise<readonly SiteIssue[]>;
+  /** Insert-only: a taken id is refused with DuplicateRecordIdError, never replaced. */
+  insert(issue: SiteIssue): Promise<void>;
   save(issue: SiteIssue): Promise<void>;
 }
 
@@ -28,6 +30,8 @@ export interface SiteReceiptRepository {
   findById(id: string): Promise<SiteReceipt | null>;
   findByDocNo(docNo: string): Promise<SiteReceipt | null>;
   list(filter?: SiteReceiptFilter): Promise<readonly SiteReceipt[]>;
+  /** Insert-only: a taken id is refused with DuplicateRecordIdError, never replaced. */
+  insert(receipt: SiteReceipt): Promise<void>;
   save(receipt: SiteReceipt): Promise<void>;
 }
 
@@ -42,6 +46,8 @@ export interface MaterialConsumptionRepository {
   findById(id: string): Promise<MaterialConsumption | null>;
   findByDocNo(docNo: string): Promise<MaterialConsumption | null>;
   list(filter?: MaterialConsumptionFilter): Promise<readonly MaterialConsumption[]>;
+  /** Insert-only: a taken id is refused with DuplicateRecordIdError, never replaced. */
+  insert(consumption: MaterialConsumption): Promise<void>;
   save(consumption: MaterialConsumption): Promise<void>;
 }
 
@@ -55,6 +61,8 @@ export interface CustodyFilter {
 export interface CustodyRepository {
   findById(id: string): Promise<CustodyItem | null>;
   list(filter?: CustodyFilter): Promise<readonly CustodyItem[]>;
+  /** Insert-only: a taken id is refused with DuplicateRecordIdError, never replaced. */
+  insert(item: CustodyItem): Promise<void>;
   save(item: CustodyItem): Promise<void>;
 }
 
@@ -68,6 +76,8 @@ export interface EquipmentLogRepository {
   findById(id: string): Promise<EquipmentLog | null>;
   findByDocNo(docNo: string): Promise<EquipmentLog | null>;
   list(filter?: EquipmentLogFilter): Promise<readonly EquipmentLog[]>;
+  /** Insert-only: a taken id is refused with DuplicateRecordIdError, never replaced. */
+  insert(log: EquipmentLog): Promise<void>;
   save(log: EquipmentLog): Promise<void>;
 }
 

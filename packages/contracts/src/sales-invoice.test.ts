@@ -107,6 +107,18 @@ describe("createSalesInvoiceLineSchema", () => {
   it("refuses an empty costCenterId rather than booking revenue to a centre named ''", () => {
     expect(createSalesInvoiceLineSchema.safeParse({ ...line, costCenterId: "" }).success).toBe(false);
   });
+
+  it("carries taxRateId — stripped here, exempt and export are the same 0% line behind a 201 (D79)", () => {
+    const result = createSalesInvoiceLineSchema.safeParse({ ...line, taxRateId: "VAT-EXEMPT" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.taxRateId).toBe("VAT-EXEMPT");
+  });
+
+  it("lets a line name no tax rate, and refuses an empty id", () => {
+    expect(createSalesInvoiceLineSchema.safeParse({ ...line, taxRateId: null }).success).toBe(true);
+    expect(createSalesInvoiceLineSchema.safeParse(line).success).toBe(true);
+    expect(createSalesInvoiceLineSchema.safeParse({ ...line, taxRateId: "" }).success).toBe(false);
+  });
 });
 
 describe("createSalesInvoiceSchema", () => {

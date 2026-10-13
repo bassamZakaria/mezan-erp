@@ -95,8 +95,13 @@ export const scenario: ScenarioFragment = {
       checkEq("a caller granted another branch sees none of them", rows(elsewhere.body).filter((s: any) => s.branchId === "BR-MAIN").length, 0);
 
       const opened = await req("GET", `/bank-statements/${USD_STATEMENT}`, undefined, { "x-branch-grant": "BR-ALEX" });
-      checkEq("and cannot open one by its id either", opened.status, 403);
-      check("refused as a branch-scope matter, not a missing row", opened.body?.error === "STATEMENT_OUT_OF_BRANCH_SCOPE", JSON.stringify(opened.body));
+      const unknown = await req("GET", "/bank-statements/SCN-BS-NO-SUCH", undefined, { "x-branch-grant": "BR-ALEX" });
+      checkEq("and cannot open one by its id either", opened.status, 404);
+      check(
+        "answered exactly as an id nothing holds, so the refusal does not confirm the statement exists (D111)",
+        opened.body?.error === "NOT_FOUND" && JSON.stringify(opened.body) === JSON.stringify(unknown.body),
+        JSON.stringify(opened.body),
+      );
 
       const imported = await req(
         "POST",

@@ -16,19 +16,26 @@ import type { CostCategory } from "../contracting/cost-category.js";
  */
 
 import { Money } from "../money/index.js";
-import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import { inBranchOf, postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import {
   ApprovalRequestRejectedError,
+  ApprovalRequestUntrustedError,
+  documentFingerprint,
+  reopenApprovalForModification,
   resubmitApproval,
   startApproval,
   submitApproval,
+  type ApprovalRequestRecord,
   type ApprovalRequestRepository,
+  type ApprovalSubject,
   type GateConfig,
   type GateableActionType,
 } from "../workflow/index.js";
+import type { JournalLine } from "../journal.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "./document.js";
+import { UnbookedStockVarianceError } from "./errors.js";
 import { buildEffects } from "./effects.js";
-import type { DocumentGlHook, DocumentGlPosting, DocumentWorkflowGate } from "./hooks.js";
+import type { DocumentApprovalView, DocumentGlHook, DocumentGlPosting, DocumentWorkflowGate } from "./hooks.js";
 import { InvalidDocumentError } from "./errors.js";
 
 /** A single debit/credit line of a journal document. */
@@ -142,7 +149,12 @@ export const journalDocumentType: DocumentTypeDefinition<JournalDocLine> = {
  * entry id equals the document id (`posting.sourceDocId`), so the ledger entry
  * and the document share one identity and one JE- number.
  */
-export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
+export interface StockReversalVarianceAccounts {
+  readonly inventoryAccountId: string;
+  readonly costVarianceAccountId: string;
+}
+
+export function createJournalGlHook(deps: JournalPostingDeps, stockVariance?: StockReversalVarianceAccounts): DocumentGlHook {
   return {
     async post(posting) {
       const entry = await postJournalEntry(
@@ -154,7 +166,7 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
           sourceDocType: posting.sourceDocType,
           sourceDocId: posting.sourceDocId,
           sourceDocNumber: posting.sourceDocNumber,
-          lines: posting.lines.map((l) => ({
+          lines: [...posting.lines, ...inBranchOf(posting.lines, stockVarianceLines(posting.stockVariance, stockVariance, BACK_ORDER_COVER_MEMO))].map((l) => ({
             accountId: l.accountId,
             debit: l.debit,
             credit: l.credit,
@@ -165,9 +177,11 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
             // posted line and can never recover them afterwards (D24, D26).
             costCenterId: l.costCenterId ?? null,
             taxRatePercent: l.taxRatePercent ?? null,
+            taxRateId: l.taxRateId ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
             branchId: l.branchId ?? null,
+            treasuryAccountId: l.treasuryAccountId ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
           })),
@@ -177,14 +191,35 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
       return { journalEntryId: entry.id, journalEntryNo: entry.entryNo ?? null };
     },
     async reverse(journalEntryId, opts) {
+      const stock = opts.stock;
       const { reversal } = await reverseJournalEntry(journalEntryId, deps, {
         reversalId: opts.reversalId,
         date: opts.date,
         memo: opts.memo,
+        appendLines: stock
+          ? async (entry) => stockVarianceLines((await stock({ journalEntryId: entry.id, journalEntryNo: entry.entryNo }))?.unmirroredValue, stockVariance)
+          : undefined,
       });
       return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
     },
   };
+}
+
+const STOCK_VARIANCE_MEMO = "فرق تكلفة: عكس حركة مخزنية بمتوسط تكلفة الرصيد";
+const BACK_ORDER_COVER_MEMO = "فرق تكلفة: بضاعة غطّت كمية بيعت قبل وصولها";
+
+export function stockVarianceLines(unmirrored: Money | undefined, accounts: StockReversalVarianceAccounts | undefined, memo: string = STOCK_VARIANCE_MEMO): JournalLine[] {
+  if (!unmirrored || unmirrored.scaled === 0n) return [];
+  if (!accounts) throw new UnbookedStockVarianceError(unmirrored);
+  const heldMore = unmirrored.scaled < 0n;
+  const magnitude = heldMore ? unmirrored.negate() : unmirrored;
+  const [debited, credited] = heldMore
+    ? [accounts.costVarianceAccountId, accounts.inventoryAccountId]
+    : [accounts.inventoryAccountId, accounts.costVarianceAccountId];
+  return [
+    { accountId: debited, debit: magnitude, credit: Money.zero(), memo },
+    { accountId: credited, debit: Money.zero(), credit: magnitude, memo },
+  ];
 }
 
 /**
@@ -208,17 +243,37 @@ export function createDocumentWorkflowGate(
     async evaluate(input) {
       const config = resolveConfig(input.actionType) ?? { actionType: input.actionType, steps: [] };
       if (requests) {
+        const subject: ApprovalSubject = {
+          documentId: input.document.id,
+          branchId: input.document.branchId,
+          fingerprint: documentFingerprint(input.document.content),
+        };
         // A confirm of an already-submitted document must READ its standing
         // request, never overwrite it: submitting afresh on every confirm threw
         // away the approval that had just been granted, so an approved document
         // could never be posted by anyone.
         const existing = await requests.findById(input.requestId);
         if (existing) {
-          if (existing.status === "approved") return { granted: true, requestId: existing.id };
-          if (existing.status === "pending") return { granted: false, requestId: existing.id };
+          if (existing.actionType !== input.actionType || existing.subject?.documentId !== subject.documentId) {
+            throw new ApprovalRequestUntrustedError(existing.id);
+          }
           if (existing.status === "rejected") throw new ApprovalRequestRejectedError(existing.id);
-          const resumed = await resubmitApproval(existing.id, { submittedBy: input.submittedBy }, requests);
-          return { granted: resumed.status === "approved", requestId: resumed.id };
+          if (existing.status === "modification_requested") {
+            const resumed = await resubmitApproval(existing.id, { submittedBy: input.submittedBy, subject, entityLabel: input.entityLabel }, requests);
+            return { granted: resumed.status === "approved", requestId: resumed.id };
+          }
+          const standsForThisDocument = sameSubject(existing.subject, subject) && input.document.heldRequestId === existing.id;
+          if (existing.status === "approved" && decidedBySomeoneElse(existing)) {
+            if (!standsForThisDocument) throw new ApprovalRequestUntrustedError(existing.id);
+            return { granted: true, requestId: existing.id };
+          }
+          if (existing.status === "pending" && standsForThisDocument) return { granted: false, requestId: existing.id };
+          // What is left was never decided by a second person: a request
+          // granted at submission whose document then failed to post, or one
+          // whose document changed while it waited. It is judged afresh.
+          const { request } = startApproval(config, { requestId: existing.id, submittedBy: input.submittedBy, submitterRoles: input.submitterRoles });
+          await requests.save({ ...existing, ...request, subject, updatedAt: new Date().toISOString() });
+          return { granted: request.status === "approved", requestId: existing.id };
         }
         const record = await submitApproval(
           {
@@ -227,6 +282,7 @@ export function createDocumentWorkflowGate(
             submittedBy: input.submittedBy,
             submitterRoles: input.submitterRoles,
             entityLabel: input.entityLabel ?? null,
+            subject,
           },
           config,
           requests,
@@ -240,5 +296,41 @@ export function createDocumentWorkflowGate(
       });
       return { granted: request.status === "approved", requestId: request.id };
     },
+    async standing(requestIds) {
+      if (!requests || requestIds.length === 0) return new Map();
+      const wanted = new Set(requestIds);
+      const records =
+        requestIds.length === 1
+          ? [await requests.findById(requestIds[0] as string)]
+          : (await requests.list()).filter((record) => wanted.has(record.id));
+      return new Map(records.filter((record): record is ApprovalRequestRecord => record !== null).map((record) => [record.id, approvalViewOf(record)]));
+    },
+    async reopen(requestId) {
+      if (requests) await reopenApprovalForModification(requestId, requests);
+    },
   };
+}
+
+function approvalViewOf(record: ApprovalRequestRecord): DocumentApprovalView {
+  const rejection = [...record.decisions].reverse().find((decision) => decision.kind === "reject") ?? null;
+  return {
+    status: record.status,
+    rejectionReason: rejection?.comment?.trim() || null,
+    rejectedBy: rejection?.actorId ?? null,
+  };
+}
+
+function sameSubject(stored: ApprovalSubject | null | undefined, current: ApprovalSubject): boolean {
+  return !!stored && stored.documentId === current.documentId && stored.branchId === current.branchId && stored.fingerprint === current.fingerprint;
+}
+
+/**
+ * SECURITY (maker-checker): a stored «approved» counts only when somebody
+ * other than the submitter closed the chain. One granted at submission — no
+ * chain configured, or an admin submitter — is judged again by the chain in
+ * force when its document is next confirmed.
+ */
+function decidedBySomeoneElse(request: ApprovalRequestRecord): boolean {
+  const closing = request.decisions[request.decisions.length - 1];
+  return closing !== undefined && (closing.kind === "approve" || closing.kind === "bypass") && closing.actorId !== request.submittedBy;
 }

@@ -13,6 +13,7 @@ import {
 } from "./branch-filter.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * ميزان المراجعة — Trial Balance (docs/archive/catalog/08-reports.md), the report
@@ -100,7 +101,7 @@ export function createTrialBalanceReport(
       BRANCH_STATEMENT_NOTE_AR,
     paramsSchema: trialBalanceParamsSchema,
     defaultParams: { asOfDate: defaultAsOfDate, branchId: "" },
-    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }, BRANCH_STATEMENT_PARAM_FIELD],
+    paramFields: [{ kind: ReportParamKind.Date, key: "asOfDate", label: "حتى تاريخ" }, BRANCH_STATEMENT_PARAM_FIELD],
     // A full ledger dump is the catalog's canonical "heavy report" example
     // (دفتر الأستاذ العام) — this demo report follows the same on-demand
     // "عرض التقرير" pattern to prove the engine supports it.

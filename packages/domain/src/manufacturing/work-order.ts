@@ -30,8 +30,9 @@
  */
 
 import { Money, Qty, allocate } from "../money/index.js";
-import { extend, unitCostOf } from "../inventory/index.js";
+import { extend, occurredAtFromDocumentDate, unitCostOf } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
+import { UnbookedStockVarianceError } from "../documents/errors.js";
 import { type Bom, type BomRepository, bomLineEffectiveQty, wasteAllowanceOf } from "./bom.js";
 import {
   type ManufacturingGlPosting,
@@ -45,7 +46,6 @@ import {
 } from "./types.js";
 import {
   BomNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
   WorkOrderNotFoundError,
   WorkOrderStageError,
@@ -195,6 +195,14 @@ function nowIso(deps: { now?: () => string }): string {
   return deps.now ? deps.now() : new Date().toISOString();
 }
 
+function postingDayOf(deps: { postingDay?: string }, instant: string): string {
+  return deps.postingDay ?? instant.slice(0, 10);
+}
+
+function stockMomentOf(deps: { postingDay?: string }, instant: string): string {
+  return deps.postingDay ? occurredAtFromDocumentDate(deps.postingDay) : instant;
+}
+
 // --- pure read helpers ------------------------------------------------------
 
 /** Total work-in-process cost so far (materials + labour + overhead + extra). */
@@ -236,6 +244,7 @@ export interface CreateWorkOrderDeps {
   readonly boms: BomRepository;
   readonly numbering: NextNumberService;
   readonly now?: () => string;
+  readonly postingDay?: string;
 }
 
 /**
@@ -267,9 +276,6 @@ export async function createWorkOrder(
 
   const bom = await deps.boms.findById(command.bomId);
   if (!bom) throw new BomNotFoundError(command.bomId);
-  if (await deps.workOrders.findById(command.id)) {
-    throw new DuplicateManufacturingDocumentError(command.id);
-  }
 
   const planned = command.plannedQty.scaled;
   const standard = bom.standardQty.scaled;
@@ -352,6 +358,7 @@ export interface WorkOrderStockDeps {
   readonly workOrders: WorkOrderRepository;
   readonly stock: ManufacturingStockPort;
   readonly now?: () => string;
+  readonly postingDay?: string;
 }
 
 /**
@@ -458,7 +465,7 @@ export async function issueWorkOrderMaterials(
     fromWarehouseId: order.sourceWarehouseId,
     toWarehouseId: wipWarehouseId,
     lines: toIssue.map((m) => ({ itemId: m.itemId, qty: m.requiredQty })),
-    occurredAt,
+    occurredAt: stockMomentOf(deps, occurredAt),
   });
 
   const costByItem = new Map<string, Money>();
@@ -516,7 +523,7 @@ export async function extraIssueWorkOrderMaterials(
     fromWarehouseId: order.sourceWarehouseId,
     toWarehouseId: wipWarehouseId,
     lines: lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
-    occurredAt,
+    occurredAt: stockMomentOf(deps, occurredAt),
   });
 
   const addQty = new Map<string, Qty>();
@@ -590,12 +597,14 @@ export async function returnWorkOrderMaterials(
   if (lines.length === 0) throw new InvalidManufacturingDocumentError(["لا توجد مواد لإرجاعها"]);
 
   const byItem = new Map(order.materials.map((m) => [m.itemId, m]));
-  for (const l of lines) {
-    const mat = byItem.get(l.itemId);
+  const requestedByItem = new Map<string, Qty>();
+  for (const l of lines) requestedByItem.set(l.itemId, (requestedByItem.get(l.itemId) ?? Qty.zero()).add(l.qty));
+  for (const [itemId, requested] of requestedByItem) {
+    const mat = byItem.get(itemId);
     const outstanding = mat ? workOrderWipQty(order, mat) : Qty.zero();
-    if (!mat || l.qty.compare(outstanding) > 0) {
+    if (!mat || requested.compare(outstanding) > 0) {
       throw new InvalidManufacturingDocumentError([
-        `لا يمكن إرجاع ${l.qty.toString()} من "${l.itemId}"؛ القائم فقط ${outstanding.toString()}`,
+        `لا يمكن إرجاع ${requested.toString()} من "${itemId}"؛ القائم فقط ${outstanding.toString()}`,
       ]);
     }
   }
@@ -610,15 +619,11 @@ export async function returnWorkOrderMaterials(
     fromWarehouseId: wipWarehouseId,
     toWarehouseId: order.sourceWarehouseId,
     lines: lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
-    occurredAt,
+    occurredAt: stockMomentOf(deps, occurredAt),
   });
 
-  const returnedQtyByItem = new Map<string, Qty>();
-  for (const l of lines) {
-    returnedQtyByItem.set(l.itemId, (returnedQtyByItem.get(l.itemId) ?? Qty.zero()).add(l.qty));
-  }
   const materials = order.materials.map<WorkOrderMaterial>((m) => {
-    const ret = returnedQtyByItem.get(m.itemId);
+    const ret = requestedByItem.get(m.itemId);
     return ret ? { ...m, returnedQty: m.returnedQty.add(ret) } : m;
   });
 
@@ -719,7 +724,7 @@ export async function logWorkOrderWaste(
     sourceDocNumber: order.number,
     warehouseId: wipWarehouseId,
     lines: issueLines,
-    occurredAt: at,
+    occurredAt: stockMomentOf(deps, at),
   });
 
   const costByItem = new Map<string, Money>();
@@ -787,12 +792,13 @@ export async function logWorkOrderWaste(
       sourceDocId: order.id,
       sourceDocNumber: order.number,
       // The GL is dated with a DAY; `at` is an ISO instant.
-      date: at.slice(0, 10),
+      date: postingDayOf(deps, at),
       memo: `فاقد أمر التصنيع ${order.number}`,
       // Scrap can be logged many times on one order, so the ref carries the
       // waste id (which is already unique per call) rather than the order's.
       entryRef: `WO-WASTE-JE:${wasteId}`,
       lines: glLines,
+      warehouseId: order.destinationWarehouseId,
     });
   }
 
@@ -857,7 +863,7 @@ export async function logWorkOrderCost(
  */
 export interface WorkOrderReceiveDeps extends WorkOrderStockDeps {
   readonly gl: ManufacturingGlPostingPort;
-  readonly accounts: Pick<WorkOrderWasteAccounts, "rawInventoryAccountId" | "wipAccountId">;
+  readonly accounts: Pick<WorkOrderWasteAccounts, "rawInventoryAccountId" | "wipAccountId"> & { readonly backOrderCostAccountId?: string };
 }
 
 export async function receiveWorkOrderProduct(
@@ -894,7 +900,7 @@ export async function receiveWorkOrderProduct(
       sourceDocNumber: order.number,
       warehouseId: wipWarehouseId,
       lines: consumeLines,
-      occurredAt,
+      occurredAt: stockMomentOf(deps, occurredAt),
     });
     consumedCost = consumed.totalCost;
   }
@@ -907,15 +913,36 @@ export async function receiveWorkOrderProduct(
   const materialCost = consumedCost.add(workOrderNormalWasteCost(order));
   const wip = workOrderWipTotal({ ...order, materialCost });
   const unitCost = unitCostFloor(wip, producedQty);
-  await deps.stock.postReceipt({
+  const received = await deps.stock.postReceipt({
     receiptId,
     sourceDocId: order.id,
     receiptNumber: order.number,
     warehouseId: order.destinationWarehouseId,
     sourceDocType: "WORK_ORDER",
     lines: finishedGoodsReceiptLines(order.productItemId, producedQty, wip, unitCost),
-    occurredAt,
+    occurredAt: stockMomentOf(deps, occurredAt),
   });
+  const cover = received.coverVariance;
+  if (cover.scaled !== 0n) {
+    if (!deps.accounts.backOrderCostAccountId) throw new UnbookedStockVarianceError(cover.negate());
+    const dearer = cover.scaled > 0n;
+    const magnitude = dearer ? cover : cover.negate();
+    const [debited, credited] = dearer
+      ? [deps.accounts.backOrderCostAccountId, deps.accounts.rawInventoryAccountId]
+      : [deps.accounts.rawInventoryAccountId, deps.accounts.backOrderCostAccountId];
+    await deps.gl.post({
+      sourceDocType: "WORK_ORDER",
+      sourceDocId: order.id,
+      sourceDocNumber: order.number,
+      date: postingDayOf(deps, occurredAt),
+      memo: `فرق تكلفة منتج غطّى كمية بيعت قبل استلامه — أمر التصنيع ${order.number}`,
+      entryRef: `WO-RECEIVE-COVER-JE:${order.id}`,
+      lines: [
+        { accountId: debited, debit: magnitude, credit: Money.zero() },
+        { accountId: credited, debit: Money.zero(), credit: magnitude },
+      ],
+    });
+  }
 
   // The normal scrap parked in إنتاج تحت التشغيل is now inside the finished
   // goods the stock ledger just valued at `unitCost`, so it comes back to the
@@ -927,10 +954,11 @@ export async function receiveWorkOrderProduct(
       sourceDocType: "WORK_ORDER",
       sourceDocId: order.id,
       sourceDocNumber: order.number,
-      date: occurredAt.slice(0, 10),
+      date: postingDayOf(deps, occurredAt),
       memo: `تحميل الفاقد الطبيعي على المنتج — أمر التصنيع ${order.number}`,
       // Once per order: the stage guard admits exactly one receipt.
       entryRef: `WO-RECEIVE-JE:${order.id}`,
+      warehouseId: order.destinationWarehouseId,
       lines: [
         { accountId: deps.accounts.rawInventoryAccountId, debit: parkedWaste, credit: Money.zero() },
         { accountId: deps.accounts.wipAccountId, debit: Money.zero(), credit: parkedWaste },
@@ -987,6 +1015,7 @@ export interface CompleteWorkOrderDeps {
   readonly gl: ManufacturingGlPostingPort;
   readonly accounts: WorkOrderGlAccounts;
   readonly now?: () => string;
+  readonly postingDay?: string;
 }
 
 export interface CompleteWorkOrderResult {
@@ -1044,6 +1073,7 @@ export function buildWorkOrderGlPosting(
     date,
     memo: `إكمال أمر التصنيع ${order.number}`,
     lines,
+    warehouseId: order.destinationWarehouseId,
   };
 }
 
@@ -1060,7 +1090,7 @@ export async function completeWorkOrder(
   if (order.stage !== "product_received") throw new WorkOrderStageError("complete", order.stage);
 
   const completedAt = nowIso(deps);
-  const posting = buildWorkOrderGlPosting(order, deps.accounts, completedAt.slice(0, 10));
+  const posting = buildWorkOrderGlPosting(order, deps.accounts, postingDayOf(deps, completedAt));
   if (posting) await deps.gl.post(posting);
 
   const updated: WorkOrder = {

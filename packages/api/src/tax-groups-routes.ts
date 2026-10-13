@@ -56,7 +56,6 @@ export function createTaxGroupsRoutes(
   app.post("/", gate("accounting.tax.manage"), async (c) => {
     const parsed = upsertTaxGroupSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    if (await repo.findById(parsed.data.id)) return c.json({ error: "ALREADY_EXISTS" }, 409);
     const group: TaxGroup = {
       ...parsed.data,
       nameEn: parsed.data.nameEn ?? null,

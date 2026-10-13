@@ -1,5 +1,9 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import Database from "better-sqlite3";
 import { describe, it, expect } from "vitest";
-import { createCustomer, Money } from "@mezan/domain";
+import { createCustomer, Money, SYSTEM_NOT_SUBJECT_TAX_RATE_ID } from "@mezan/domain";
 import { createSqliteCustomerRepository } from "./customer-repository.js";
 
 describe("SqliteCustomerRepository", () => {
@@ -59,5 +63,24 @@ describe("SqliteCustomerRepository", () => {
     } finally {
       repo.close();
     }
+  });
+});
+
+describe("an exemption card left holding the system's not-subject rate", () => {
+  it("is cleared when the books are opened, and a card holding the tenant's own rate is left alone", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "mezan-cust-")), "books.db");
+    const before = createSqliteCustomerRepository(path);
+    await before.save(createCustomer({ id: "C-SYS", code: "C-SYS", nameAr: "جهة", taxExempt: true, taxExemptionRateId: "OWN-EXEMPT" }));
+    await before.save(createCustomer({ id: "C-OWN", code: "C-OWN", nameAr: "جهة", taxExempt: true, taxExemptionRateId: "OWN-EXEMPT" }));
+    before.close();
+    const raw = new Database(path);
+    raw.prepare("UPDATE customer SET tax_exemption_rate_id = ? WHERE id = 'C-SYS'").run(SYSTEM_NOT_SUBJECT_TAX_RATE_ID);
+    raw.close();
+
+    const after = createSqliteCustomerRepository(path);
+    expect((await after.findById("C-SYS"))?.taxExemptionRateId).toBeNull();
+    expect((await after.findById("C-SYS"))?.taxExempt).toBe(true);
+    expect((await after.findById("C-OWN"))?.taxExemptionRateId).toBe("OWN-EXEMPT");
+    after.close();
   });
 });

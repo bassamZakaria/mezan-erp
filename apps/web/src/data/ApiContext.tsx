@@ -13,6 +13,18 @@ import {
 } from "./session";
 import { resolveDefaultTransport, type Transport, type TransportResponse } from "./transport";
 import { publishLoaderApi } from "./api-bridge";
+import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
+
+const BRANCH_REFUSAL_STATUS = 403;
+
+function locallyRefused(body: unknown): TransportResponse {
+  return {
+    status: BRANCH_REFUSAL_STATUS,
+    ok: false,
+    json: <T,>() => Promise.resolve(body as T),
+    text: () => Promise.resolve(JSON.stringify(body)),
+  };
+}
 
 interface ApiContextValue {
   readonly session: Session | null;
@@ -100,6 +112,8 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
         const narrowing = method === "GET" || method === "HEAD" ? scopeSelection : undefined;
         for (const [k, v] of Object.entries(authHeaders(session, narrowing))) headers.set(k, v);
         if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+        const refusedByBranchPolicy = isBranchRestricted(session) ? branchRefusalBefore(path, method) : null;
+        if (refusedByBranchPolicy) return locallyRefused(refusedByBranchPolicy);
         const response = await resolvedTransport(path, { ...init, headers });
 
         /*

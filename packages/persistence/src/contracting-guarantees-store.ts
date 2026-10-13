@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   type GuaranteeKind,
@@ -126,6 +127,7 @@ function toGuarantee(row: GuaranteeRow): LetterOfGuarantee {
 
 class SqliteLetterOfGuaranteeRepository implements LetterOfGuaranteeRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByDocNo: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -167,6 +169,7 @@ class SqliteLetterOfGuaranteeRepository implements LetterOfGuaranteeRepository {
         closed_amount = excluded.closed_amount,
         notes = excluded.notes
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM contracting_guarantee WHERE id = ?`);
     this.selectByDocNo = sqlite.prepare(`SELECT * FROM contracting_guarantee WHERE doc_no = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM contracting_guarantee ORDER BY issue_date DESC, id DESC`);
@@ -187,15 +190,15 @@ class SqliteLetterOfGuaranteeRepository implements LetterOfGuaranteeRepository {
   }
 
   async create(guarantee: LetterOfGuarantee): Promise<void> {
-    this.write(guarantee);
+    insertingNew(guarantee.id, () => this.write(guarantee, this.insertOnly));
   }
 
   async update(guarantee: LetterOfGuarantee): Promise<void> {
     this.write(guarantee);
   }
 
-  private write(guarantee: LetterOfGuarantee): void {
-    this.upsert.run({
+  private write(guarantee: LetterOfGuarantee, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: guarantee.id,
       doc_no: guarantee.docNo,
       kind: guarantee.kind,

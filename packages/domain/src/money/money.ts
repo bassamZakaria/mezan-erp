@@ -1,3 +1,4 @@
+import { InvalidDecimalLiteralError } from "./invalid-decimal-literal.js";
 /**
  * Money value object.
  *
@@ -34,15 +35,13 @@ export class Money {
     const trimmed = value.trim();
     const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(trimmed);
     if (!match) {
-      throw new RangeError(`Invalid money literal: "${value}"`);
+      throw new InvalidDecimalLiteralError(`Invalid money literal: "${value}"`, value);
     }
     const sign = match[1] ?? "";
     const intPart = match[2] ?? "0";
     const fracPartRaw = match[3] ?? "";
     if (fracPartRaw.length > MONEY_SCALE_DECIMALS) {
-      throw new RangeError(
-        `Money supports at most ${MONEY_SCALE_DECIMALS} decimal places: "${value}"`,
-      );
+      throw new InvalidDecimalLiteralError(`Money supports at most ${MONEY_SCALE_DECIMALS} decimal places: "${value}"`, value);
     }
     const frac = (fracPartRaw + "000000").slice(0, MONEY_SCALE_DECIMALS);
     const scaled = BigInt(intPart) * SCALE + BigInt(frac);

@@ -1,5 +1,6 @@
 import type { FiscalPeriod } from "./fiscal-period.js";
 import { InvalidPeriodTransitionError, PeriodNotOpenForPostingError } from "./errors.js";
+import { FiscalPeriodTransition, type FiscalPeriodRef } from "./labels.js";
 
 /**
  * Pure state-transition functions for the three-tier fiscal-period lifecycle
@@ -13,7 +14,7 @@ import { InvalidPeriodTransitionError, PeriodNotOpenForPostingError } from "./er
 /** open → closed. */
 export function closePeriod(period: FiscalPeriod): FiscalPeriod {
   if (period.status !== "open") {
-    throw new InvalidPeriodTransitionError(period.id, period.status, "close");
+    throw new InvalidPeriodTransitionError(period, period.status, FiscalPeriodTransition.Close);
   }
   return { ...period, status: "closed" };
 }
@@ -21,7 +22,7 @@ export function closePeriod(period: FiscalPeriod): FiscalPeriod {
 /** closed → open. */
 export function reopenPeriod(period: FiscalPeriod): FiscalPeriod {
   if (period.status !== "closed") {
-    throw new InvalidPeriodTransitionError(period.id, period.status, "reopen");
+    throw new InvalidPeriodTransitionError(period, period.status, FiscalPeriodTransition.Reopen);
   }
   return { ...period, status: "open" };
 }
@@ -33,7 +34,7 @@ export function reopenPeriod(period: FiscalPeriod): FiscalPeriod {
  */
 export function lockPeriod(period: FiscalPeriod): FiscalPeriod {
   if (period.status !== "closed") {
-    throw new InvalidPeriodTransitionError(period.id, period.status, "lock");
+    throw new InvalidPeriodTransitionError(period, period.status, FiscalPeriodTransition.Lock);
   }
   return { ...period, status: "locked" };
 }
@@ -43,8 +44,8 @@ export function lockPeriod(period: FiscalPeriod): FiscalPeriod {
  * into `period` — throws {@link PeriodNotOpenForPostingError} unless the
  * period is مفتوحة (open).
  */
-export function assertOpenForPosting(period: Pick<FiscalPeriod, "id" | "status">): void {
+export function assertOpenForPosting(period: FiscalPeriodRef & Pick<FiscalPeriod, "status">): void {
   if (period.status !== "open") {
-    throw new PeriodNotOpenForPostingError(period.id, period.status);
+    throw new PeriodNotOpenForPostingError(period, period.status);
   }
 }

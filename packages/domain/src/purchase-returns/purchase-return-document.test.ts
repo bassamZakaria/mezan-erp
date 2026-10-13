@@ -138,6 +138,22 @@ describe("Purchase Return — de-stock + GL", () => {
     expect(totalDebit.equals(totalCredit)).toBe(true);
   });
 
+  it("stamps the de-stock movement with the return's own date, not the wall clock", async () => {
+    const { service, stockService } = harness();
+    await stockService.postAdjustment({
+      adjustmentId: "SEED",
+      warehouseId: "WH1",
+      reason: "INITIAL_STOCK",
+      occurredAt: "2026-08-01T00:00:00.000Z",
+      lines: [{ itemId: "ITEM1", direction: "IN", qty: Qty.fromMajor("5"), unitCost: Money.fromMajor("40") }],
+    });
+
+    await service.createDraft({ id: "PRT-DATED", date: "2026-08-05", memo: "", lines: [line()] });
+    await service.confirm("PRT-DATED");
+
+    expect((await stockService.getMovementsOfDocument("PRT-DATED")).map((m) => m.occurredAt)).toEqual(["2026-08-05T00:00:00.000Z"]);
+  });
+
   it("blocks over-return via NegativeStockError when returning more than is on hand", async () => {
     const { service } = harness();
     await service.createDraft({
@@ -341,7 +357,37 @@ describe("a return against a foreign invoice reverses at the invoice's rate (D20
       "WH1",
       "DEFECTIVE",
       [{ itemId: "ITEM1", qty: Qty.fromMajor("3") }],
-    );
+    ).lines;
     expect(lines[0]).toMatchObject({ currency: "SAR", fxRate: "13.20" });
+  });
+});
+
+describe("a purchase return posts in its source invoice's branch (D111)", () => {
+  const type = createPurchaseReturnDocumentType(ACCOUNTS);
+  const docOf = (lines: PurchaseReturnLine[]) => ({
+    id: "PRT-BR",
+    docType: "PURCHASE_RETURN",
+    docNo: "PRT-000010",
+    date: "2026-08-21",
+    memo: "",
+    status: "draft" as const,
+    lines,
+    createdAt: "2026-08-21T00:00:00.000Z",
+    confirmedAt: null,
+    reversesDocId: null,
+    reversedByDocId: null,
+    workflowRequestId: null,
+    journalEntryId: null,
+  });
+
+  it("stamps the invoice's branch on the payable, VAT, inventory and variance legs", () => {
+    const posting = type.buildGlPosting?.(docOf([line({ branchId: "BR-ALEX" })]), { valueMoved: Money.fromMajor("-90") });
+    expect(posting!.lines.length).toBeGreaterThan(2);
+    expect(posting!.lines.every((l) => l.branchId === "BR-ALEX")).toBe(true);
+  });
+
+  it("leaves a return whose invoice carried no branch unattributed", () => {
+    const posting = type.buildGlPosting?.(docOf([line()]), { valueMoved: Money.fromMajor("-90") });
+    expect(posting!.lines.every((l) => l.branchId === null)).toBe(true);
   });
 });

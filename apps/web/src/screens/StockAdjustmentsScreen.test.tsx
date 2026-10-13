@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { AccountDTO, ItemDTO, StockAdjustmentDocumentDTO, WarehouseDTO } from "@mezan/contracts";
 import { StockAdjustmentsScreen } from "./StockAdjustmentsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -26,8 +26,8 @@ function chooseSelectOption(triggerLabel: string, optionLabel: string) {
   fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
 }
 
-function TestNavigation({ children }: { children: ReactNode }) {
-  const [segments, setSegments] = useState<readonly string[]>([]);
+function TestNavigation({ children, initialSegments = [] }: { children: ReactNode; initialSegments?: readonly string[] }) {
+  const [segments, setSegments] = useState<readonly string[]>(initialSegments);
   return (
     <NavigationProvider
       value={{
@@ -277,5 +277,91 @@ describe("StockAdjustmentsScreen — themes", () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "تسويات المخزون" })).toBeInTheDocument();
     await screen.findByText("ADJ-000001");
+  });
+});
+
+describe("StockAdjustmentsScreen — a held document whose approval no longer stands", () => {
+  it("says why in Arabic and asks for approval again through the document's own confirm", async () => {
+    let standing = "reapproval_required";
+    let confirms = 0;
+    const held = { ...adj1, id: "held-1", docNo: "HELD-0001", status: "pending" as const, workflowRequestId: "held-1:confirm" };
+    const transport = stubTransport({
+      ...baseHandlers(() => []),
+      "GET /inventory/stock-adjustments": () => ({ body: [held] }),
+      "GET /workflow/requests/*/standing": () => ({ body: { id: "held-1:confirm", status: standing, reason: standing === "reapproval_required" ? "الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد." : null, reasonEn: null } }),
+      "POST /inventory/stock-adjustments/held-1/confirm": () => {
+        confirms += 1;
+        standing = "pending";
+        return { body: held };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockAdjustmentsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("HELD-0001"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent("الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد.");
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirms).toBe(1));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
+  });
+});
+
+describe("StockAdjustmentsScreen — a reversed adjustment and its reversal point at each other", () => {
+  const reversed: StockAdjustmentDocumentDTO = { ...adj5, id: "adj-6", docNo: "ADJ-000006", status: "reversed", reversesDocId: null, reversedByDocId: "adj-6:REVERSAL" };
+  const mirror: StockAdjustmentDocumentDTO = { ...adj5, id: "adj-6:REVERSAL", docNo: "ADJ-000007", date: "2026-10-13", memo: "عكس", status: "confirmed", reversesDocId: "adj-6", reversedByDocId: null };
+
+  function renderPair() {
+    const transport = stubTransport({
+      ...baseHandlers(() => [reversed, mirror]),
+      "GET /gl/journal-entries/adj-6": () => ({ status: 404, body: { error: "NOT_FOUND" } }),
+      "GET /gl/journal-entries/adj-6:REVERSAL": () => ({ status: 404, body: { error: "NOT_FOUND" } }),
+    });
+    return renderWithProviders(
+      <TestNavigation>
+        <StockAdjustmentsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+  }
+
+  it("the list names the other document by its number on both rows, and neither row shows a dash for a number", async () => {
+    renderPair();
+    expect(await screen.findByText("ADJ-000007")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "عُكست بالمستند ADJ-000007" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تعكس المستند ADJ-000006" })).toBeInTheDocument();
+  });
+
+  it("offers no reversal on the document that is itself a reversal", async () => {
+    renderPair();
+    fireEvent.click(await screen.findByRole("button", { name: "إجراءات ADJ-000007" }));
+    expect(await screen.findByRole("menuitem", { name: "عرض" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "عكس التسوية" })).not.toBeInTheDocument();
+  });
+
+  it("the link opens the other document, whose detail links back", async () => {
+    renderPair();
+    fireEvent.click(await screen.findByRole("button", { name: "عُكست بالمستند ADJ-000007" }));
+    expect(await screen.findByRole("heading", { name: "ADJ-000007" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "تعكس المستند ADJ-000006" }));
+    expect(await screen.findByRole("heading", { name: "ADJ-000006" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "عُكست بالمستند ADJ-000007" })).toBeInTheDocument();
+  });
+});
+
+describe("StockAdjustmentsScreen — opening a document by its number on a fresh load", () => {
+  it("waits for the list instead of asking the server for a document whose id is the number, so the reload raises no 404", async () => {
+    const asked: string[] = [];
+    const base = stubTransport(baseHandlers(() => [adj1, adj5]));
+    const transport: typeof base = (path, init) => {
+      asked.push(path.split("?")[0] ?? path);
+      return base(path, init);
+    };
+    renderWithProviders(
+      <TestNavigation initialSegments={["ADJ-000005"]}>
+        <StockAdjustmentsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    expect(await screen.findByRole("heading", { name: "ADJ-000005" })).toBeInTheDocument();
+    expect(asked).not.toContain("/inventory/stock-adjustments/ADJ-000005");
   });
 });

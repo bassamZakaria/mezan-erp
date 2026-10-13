@@ -80,6 +80,7 @@ const CUSTOMER: CustomerDTO = {
   priceListId: null,
   creditLimit: "0.00",
   taxExempt: false,
+  taxExemptionRateId: null,
   etaBuyerType: "business",
   commercialRegistrationNumber: null,
   address: null,
@@ -336,6 +337,72 @@ describe("ChequesScreen — list", () => {
     const panel = await screen.findByRole("dialog", { name: /CHQ-5001/ });
     await user.click(within(panel).getByRole("button", { name: "تأكيد التحصيل" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("الفترة المالية مغلقة.");
+  });
+});
+
+describe("ChequesScreen — a collected cheque the bank returns", () => {
+  const collected = () => cheque({ status: "collected", effectiveStatus: "collected", bankTreasuryAccountId: "ta-bank1", collectedAt: "2026-06-10" });
+
+  it("is offered on a collected cheque only, dated by the user, and the row reads bounced once the list refreshes", async () => {
+    const user = userEvent.setup();
+    const bodies: unknown[] = [];
+    let returned = false;
+    renderWithProviders(<ChequesScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        ...baseHandlers([]),
+        "GET /cheques": () => ({ body: [returned ? cheque({ status: "bounced", effectiveStatus: "bounced" }) : collected(), cheque({ id: "chq-2", chequeNumber: "CHQ-5002" })] }),
+        "POST /cheques/chq-1/return": (init) => {
+          bodies.push(JSON.parse((init?.body as string) ?? "{}"));
+          returned = true;
+          return { body: cheque({ status: "bounced", effectiveStatus: "bounced" }) };
+        },
+      }),
+    });
+    await screen.findByText("CHQ-5001");
+    await user.click(screen.getByRole("button", { name: "إجراءات CHQ-5002" }));
+    const pendingRow = screen.getByText("CHQ-5002").closest("tr") as HTMLElement;
+    expect(within(pendingRow).queryByRole("menuitem", { name: "ارتداد بعد التحصيل" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "إجراءات CHQ-5001" }));
+    await user.click(screen.getByRole("menuitem", { name: "ارتداد بعد التحصيل" }));
+
+    const dialog = screen.getByRole("dialog", { name: "تسجيل ارتداد الشيك بعد تحصيله؟" });
+    expect(within(dialog).getByText(/CHQ-5001/)).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText("تاريخ العكس"), "2026-06-20");
+    await user.click(within(dialog).getByRole("button", { name: "ارتداد بعد التحصيل" }));
+
+    await waitFor(() => expect(bodies).toEqual([{ date: "2026-06-20" }]));
+    const row = (await screen.findByText("CHQ-5001")).closest("tr") as HTMLElement;
+    await waitFor(() => expect(within(row).getByText("مرتد")).toBeInTheDocument());
+  });
+
+  it("keeps the bank's refusal on screen in the server's words", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ChequesScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        ...baseHandlers([collected()]),
+        "POST /cheques/chq-1/return": () => ({ status: 422, body: { error: "VAT_PERIOD_FILED", message: "شهر يونيو 2026 قُدِّم إقراره الضريبي؛ لا يُرحَّل إليه.", messageEn: "June 2026 has a filed VAT return." } }),
+      }),
+    });
+    await screen.findByText("CHQ-5001");
+    await user.click(screen.getByRole("button", { name: "إجراءات CHQ-5001" }));
+    await user.click(screen.getByRole("menuitem", { name: "ارتداد بعد التحصيل" }));
+    const dialog = screen.getByRole("dialog", { name: "تسجيل ارتداد الشيك بعد تحصيله؟" });
+    await user.click(within(dialog).getByRole("button", { name: "ارتداد بعد التحصيل" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("شهر يونيو 2026 قُدِّم إقراره الضريبي؛ لا يُرحَّل إليه.");
+  });
+
+  it("is hidden from a seat that cannot bounce cheques", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ChequesScreen />, {
+      initialSession: { ...testAdminSession, permissions: ["cheques.view", "cheques.collect"] },
+      transport: stubTransport(baseHandlers([collected()])),
+    });
+    await screen.findByText("CHQ-5001");
+    await user.click(screen.getByRole("button", { name: "إجراءات CHQ-5001" }));
+    expect(screen.getByRole("menuitem", { name: "عرض" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "ارتداد بعد التحصيل" })).not.toBeInTheDocument();
   });
 });
 

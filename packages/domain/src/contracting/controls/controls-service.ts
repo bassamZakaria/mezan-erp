@@ -28,6 +28,7 @@ import type {
   EquipmentLogRepository,
   UnreceivedRow,
 } from "../site/index.js";
+import { EquipmentLogStatus } from "../site/index.js";
 import { getBoqUnitLabel } from "../contracts/boq-unit.js";
 import { contractValueAsOf } from "../recognition/recognition-math.js";
 import type { SubcontractView } from "../subcontracts/subcontract-service.js";
@@ -539,7 +540,7 @@ export class ControlsService {
     const byProject = new Map(contexts.map((ctx) => [ctx.contract.projectId, ctx]));
     const logs: readonly EquipmentLog[] =
       (await this.deps.equipmentLogs?.list({
-        status: "confirmed",
+        status: EquipmentLogStatus.Confirmed,
         ...(params.projectId ? { projectId: params.projectId } : {}),
       })) ?? [];
     const candidates: EquipmentExceptionCandidate[] = [];
@@ -965,9 +966,6 @@ export class ControlsService {
     await this.assertWithinCap(contract, cmd.kind, amount);
 
     return this.deps.releases.transaction(async () => {
-      if (await this.deps.releases.findById(cmd.id)) {
-        throw new InvalidRetentionReleaseError([`مستند الإفراج "${cmd.id}" موجود بالفعل`]);
-      }
       const number = await this.deps.numbering.next(RETENTION_RELEASE_SEQUENCE);
       const release: RetentionRelease = {
         id: cmd.id,
@@ -992,7 +990,7 @@ export class ControlsService {
         createdAt: this.today(),
         createdBy: cmd.createdBy ?? null,
       };
-      await this.deps.releases.save(release);
+      await this.deps.releases.insert(release);
       return this.view(release);
     });
   }

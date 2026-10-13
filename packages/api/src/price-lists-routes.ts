@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -24,6 +25,8 @@ import {
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 const AUDITED_PRICE_LIST_FIELDS = ["code", "nameAr", "nameEn", "description", "isBase", "active"] as const;
 
@@ -94,6 +97,9 @@ function serialize(priceList: PriceList) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof PriceListNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

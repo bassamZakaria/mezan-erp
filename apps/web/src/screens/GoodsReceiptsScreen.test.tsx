@@ -1,3 +1,4 @@
+import { GoodsReceiptInvoicingStatusDTO } from "@mezan/contracts";
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
@@ -101,9 +102,11 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
     warehouseId: "MAIN-WH",
     date: "2026-08-19",
     notes: null,
-    lines: [{ itemId: "item-cement", description: null, qty: "20.000000", unitCost: "85.000000", batchNo: null, expiryDate: null }],
+    lines: [{ itemId: "item-cement", description: null, qty: "20.000000", unitCost: "85.000000", batchNo: null, expiryDate: null, invoicedQty: "0.000000", remainingQty: "20.000000" }],
     status: "confirmed",
     invoiced: false,
+    invoicingStatus: GoodsReceiptInvoicingStatusDTO.NotInvoiced,
+    uninvoicedCost: "1700.000000",
     totalCost: "1700.000000",
     createdBy: "محمد الشهابي",
     createdAt: "2026-08-19T10:00:00.000Z",
@@ -153,10 +156,19 @@ describe("GoodsReceiptsScreen", () => {
 
     fireEvent.click(screen.getByText("GR-000010"));
     // Line qty/unit-cost/total: "20.000000"/"85.000000" formatted, not raw.
-    expect(screen.getByText("20")).toBeInTheDocument();
+    expect(screen.getAllByText("20")).toHaveLength(2);
     expect(screen.queryByText("20.000000")).not.toBeInTheDocument();
     expect(screen.getAllByText("85.00")).not.toHaveLength(0);
     expect(screen.queryByText("85.000000")).not.toBeInTheDocument();
+  });
+
+  it("names the warehouse on the receipt's page instead of printing its id", async () => {
+    renderScreen(stubTransport({ ...baseHandlers, "GET /purchases/receipts": () => ({ body: [goodsReceipt()] }) }));
+
+    fireEvent.click(await screen.findByText("GR-000010"));
+
+    expect(await screen.findByText("المخزن الرئيسي")).toBeInTheDocument();
+    expect(screen.queryByText("MAIN-WH")).not.toBeInTheDocument();
   });
 
   it("shows an honest empty state when the server returns no receipts", async () => {
@@ -220,7 +232,7 @@ describe("GoodsReceiptsScreen", () => {
     const transport = stubTransport({
       ...baseHandlers,
       "GET /purchases/receipts": () => ({ body: [] }),
-      "GET /settings": () => ({ body: { requirePoForGrn: false } }),
+      "GET /settings/lookup": () => ({ body: { requirePoForGrn: false } }),
       "POST /purchases/receipts": (init) => {
         posted = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
         return { body: goodsReceipt({ id: "gr-new", number: "GR-000099", purchaseOrderId: null, invoiced: false }) };

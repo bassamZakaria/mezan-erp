@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { errorMessage } from "../../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -75,7 +76,7 @@ export function SalesQuotesScreen() {
     id: string,
     transition: { mutateAsync: (input: { id: string; expectedVersion?: number }) => Promise<unknown> },
     expectedVersion?: number,
-  ): Promise<void> {
+  ): Promise<RowActionOutcome | void> {
     if (pendingId) return;
     setRowError(null);
     setPendingId(id);
@@ -85,6 +86,7 @@ export function SalesQuotesScreen() {
       await transition.mutateAsync({ id, expectedVersion });
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -309,12 +311,12 @@ export function SalesQuotesScreen() {
             { key: "view", label: t("quotes.row.view"), onSelect: () => subPage.open(q.docNo ?? q.id) },
             { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(q.docNo ?? q.id, "print") },
             ...(q.status === "draft"
-              ? [{ key: "send", label: t("quotes.send"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, send, q.version) }]
+              ? [{ key: "send", label: t("quotes.send"), disabled: pendingId === q.id, onSelect: () => runTransition(q.id, send, q.version) }]
               : []),
             ...(q.status === "sent"
               ? [
-                  { key: "accept", label: t("quotes.accept"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, accept, q.version) },
-                  { key: "reject", label: t("quotes.reject"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, reject, q.version) },
+                  { key: "accept", label: t("quotes.accept"), disabled: pendingId === q.id, onSelect: () => runTransition(q.id, accept, q.version) },
+                  { key: "reject", label: t("quotes.reject"), disabled: pendingId === q.id, onSelect: () => runTransition(q.id, reject, q.version) },
                 ]
               : []),
             ...(q.status === "accepted"
@@ -330,7 +332,7 @@ export function SalesQuotesScreen() {
                     label: t("quotes.cancel"),
                     tone: "danger" as const,
                     disabled: pendingId === q.id,
-                    onSelect: () => void runTransition(q.id, cancel, q.version),
+                    onSelect: () => runTransition(q.id, cancel, q.version),
                   },
                 ]
               : []),

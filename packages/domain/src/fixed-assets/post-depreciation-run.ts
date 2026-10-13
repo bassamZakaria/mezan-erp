@@ -1,12 +1,15 @@
 import { Money } from "../money/index.js";
-import { postJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import { postJournalEntry, type JournalPostingDeps, type WarehouseBranchLookup } from "../gl/index.js";
+import { branchOfAsset } from "./asset-branch.js";
 import type { Asset, AssetRepository } from "./asset.js";
 import type { AssetCategoryRepository } from "./asset-category.js";
-import type { DepreciationRun, DepreciationRunRepository } from "./depreciation-run.js";
+import type { DepreciationRun, DepreciationRunRepository, DepreciationRunSkippedLine } from "./depreciation-run.js";
 import { depreciableBase, periodBounds } from "./depreciation.js";
 import {
+  AssetAlreadyDepreciatedError,
   AssetCategoryNotFoundError,
   AssetNotFoundError,
+  DepreciationRunDraftAction,
   DepreciationRunNotDraftError,
   DepreciationRunNotFoundError,
 } from "./errors.js";
@@ -16,6 +19,8 @@ export interface PostDepreciationRunDeps {
   readonly assets: AssetRepository;
   readonly categories: AssetCategoryRepository;
   readonly gl: JournalPostingDeps;
+  /** Resolves a warehouse-scoped asset's branch through the warehouse it sits in. */
+  readonly warehouses?: WarehouseBranchLookup;
   readonly now?: () => string;
   /** Fallback GL account ids used when neither the asset nor its category has an override configured. Required so posting never silently fails for under-configured data. */
   readonly defaultAccounts: {
@@ -48,8 +53,8 @@ async function resolveAccounts(asset: Asset, deps: PostDepreciationRunDeps): Pro
   };
 }
 
-function pairKey(accounts: ResolvedAccounts, projectId: string | null): string {
-  return `${accounts.depreciationExpenseAccountId}::${accounts.accumulatedDepreciationAccountId}::${projectId ?? ""}`;
+function pairKey(accounts: ResolvedAccounts, projectId: string | null, branchId: string | null): string {
+  return `${accounts.depreciationExpenseAccountId}::${accounts.accumulatedDepreciationAccountId}::${projectId ?? ""}::${branchId ?? ""}`;
 }
 
 /**
@@ -72,39 +77,60 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
     assetsById.set(line.assetId, asset);
   }
 
+  const branchByWarehouse = new Map<string, string | null>();
+  const branchOf = async (asset: Asset): Promise<string | null> => {
+    if (asset.branchId || !asset.warehouseId) return asset.branchId;
+    if (!branchByWarehouse.has(asset.warehouseId)) branchByWarehouse.set(asset.warehouseId, await branchOfAsset(asset, deps.warehouses));
+    return branchByWarehouse.get(asset.warehouseId) ?? null;
+  };
+  const chargedElsewhere = new Set(
+    (await deps.runs.list())
+      .filter((other) => other.id !== run.id && other.period === run.period && other.status === "posted")
+      .flatMap((other) => other.lines.map((line) => line.assetId)),
+  );
+  const skippedLines: DepreciationRunSkippedLine[] = run.lines
+    .filter((line) => chargedElsewhere.has(line.assetId))
+    .map((line) => ({ assetId: line.assetId, assetCode: assetsById.get(line.assetId)?.code ?? line.assetId, amount: line.amount }));
+  const chargeable = run.lines.filter((line) => !chargedElsewhere.has(line.assetId));
+  if (chargeable.length === 0) throw new AssetAlreadyDepreciatedError(run.period, skippedLines.map((line) => line.assetCode));
+
   const totalsByPair = new Map<
     string,
-    { accounts: ResolvedAccounts; projectId: string | null; total: Money }
+    { accounts: ResolvedAccounts; projectId: string | null; branchId: string | null; total: Money }
   >();
-  for (const line of run.lines) {
+  for (const line of chargeable) {
     const asset = assetsById.get(line.assetId)!;
     const accounts = await resolveAccounts(asset, deps);
     // Use the asset's CURRENT project assignment, not whatever the draft line
     // captured — an asset reassigned between drafting and posting the run
     // should post equipment cost to the project it belongs to today.
     const projectId = asset.projectId;
-    const key = pairKey(accounts, projectId);
+    const branchId = await branchOf(asset);
+    const key = pairKey(accounts, projectId, branchId);
     const existing = totalsByPair.get(key);
     totalsByPair.set(key, {
       accounts,
       projectId,
+      branchId,
       total: existing ? existing.total.add(line.amount) : line.amount,
     });
   }
 
-  const journalLines = [...totalsByPair.values()].flatMap(({ accounts, projectId, total }) => [
+  const journalLines = [...totalsByPair.values()].flatMap(({ accounts, projectId, branchId, total }) => [
     {
       accountId: accounts.depreciationExpenseAccountId,
       debit: total,
       credit: Money.zero(),
       projectId,
       costCategory: projectId ? ("equipment" as const) : null,
+      branchId,
     },
     {
       accountId: accounts.accumulatedDepreciationAccountId,
       debit: Money.zero(),
       credit: total,
       projectId,
+      branchId,
     },
   ]);
 
@@ -114,7 +140,7 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
   // ONE TRANSACTION for the entry, every asset write and the run's own status
   // (B-9). A failure part-way used to leave the GL entry posted against assets
   // whose accumulated depreciation had not moved, and the run still `draft` —
-  // so re-posting threw DuplicateJournalEntryError and the period could never
+  // so re-posting threw a duplicate-id refusal and the period could never
   // be closed.
   return deps.gl.ledger.transaction(async () => {
     const entry = await postJournalEntry(
@@ -131,7 +157,7 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
       deps.gl,
     );
 
-    for (const line of run.lines) {
+    for (const line of chargeable) {
       const asset = assetsById.get(line.assetId)!;
       const newAccumulated = asset.accumulatedDepreciation.add(line.amount);
       const fullyDepreciated = newAccumulated.scaled >= depreciableBase(asset).scaled;
@@ -145,6 +171,9 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
 
     const postedRun: DepreciationRun = {
       ...run,
+      lines: chargeable,
+      skippedLines,
+      totalAmount: Money.sum(chargeable.map((line) => line.amount)),
       status: "posted",
       journalEntryId: entry.id,
       postedAt: deps.now?.() ?? new Date().toISOString(),
@@ -152,4 +181,13 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
     await deps.runs.update(postedRun);
     return postedRun;
   });
+}
+
+export async function discardDepreciationRun(runId: string, deps: Pick<PostDepreciationRunDeps, "runs">): Promise<DepreciationRun> {
+  const run = await deps.runs.findById(runId);
+  if (!run) throw new DepreciationRunNotFoundError(runId);
+  if (run.status !== "draft") throw new DepreciationRunNotDraftError(runId, run.status, DepreciationRunDraftAction.Discard);
+  const discarded: DepreciationRun = { ...run, status: "cancelled" };
+  await deps.runs.update(discarded);
+  return discarded;
 }

@@ -2,7 +2,8 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { FiscalPeriodDTO, FiscalPeriodStatusDTO } from "@mezan/contracts";
+import { useLocation } from "react-router";
+import { PeriodCloseErrorCodeDTO, type FiscalPeriodDTO, type FiscalPeriodStatusDTO } from "@mezan/contracts";
 import { FiscalPeriodsScreen } from "./FiscalPeriodsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -61,7 +62,12 @@ function periodsForYear(year: number): FiscalPeriodDTO[] {
   });
 }
 
-function renderScreen(periods: FiscalPeriodDTO[] = periodsForYear(CURRENT_YEAR)) {
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
+}
+
+function renderScreen(periods: FiscalPeriodDTO[] = periodsForYear(CURRENT_YEAR), blocked: readonly string[] = []) {
   let current = [...periods];
   const transport = stubTransport({
     "GET /fiscal-periods": () => ({ body: current }),
@@ -74,6 +80,7 @@ function renderScreen(periods: FiscalPeriodDTO[] = periodsForYear(CURRENT_YEAR))
     ...Object.fromEntries(
       current.flatMap((p) => [
         [`POST /fiscal-periods/${p.id}/close`, () => {
+          if (blocked.includes(p.id)) return { status: 409, body: BLOCKED_REFUSAL };
           const target = current.find((x) => x.id === p.id)!;
           const updated = { ...target, status: "closed" as const };
           current = current.map((x) => (x.id === p.id ? updated : x));
@@ -86,6 +93,7 @@ function renderScreen(periods: FiscalPeriodDTO[] = periodsForYear(CURRENT_YEAR))
           return { body: updated };
         }],
         [`POST /fiscal-periods/${p.id}/lock`, () => {
+          if (blocked.includes(p.id)) return { status: 409, body: BLOCKED_REFUSAL };
           const target = current.find((x) => x.id === p.id)!;
           const updated = { ...target, status: "locked" as const };
           current = current.map((x) => (x.id === p.id ? updated : x));
@@ -94,8 +102,16 @@ function renderScreen(periods: FiscalPeriodDTO[] = periodsForYear(CURRENT_YEAR))
       ]),
     ),
   });
-  return renderWithProviders(<FiscalPeriodsScreen />, { transport, initialSession: testAdminSession });
+  return renderWithProviders(
+    <>
+      <FiscalPeriodsScreen />
+      <LocationProbe />
+    </>,
+    { transport, initialSession: testAdminSession, route: "/money/fiscal-periods" },
+  );
 }
+
+const BLOCKED_REFUSAL = { error: PeriodCloseErrorCodeDTO.Blocked, message: "لا يمكن إقفال الفترة المحاسبية: فحوص الإقفال غير مكتملة.", failedChecks: ["drafts"] };
 
 describe("FiscalPeriodsScreen", () => {
   it("renders the period grid from the real backend with a mix of open/closed/locked states", async () => {
@@ -159,5 +175,22 @@ describe("FiscalPeriodsScreen", () => {
 
     fireEvent.click(combobox);
     expect(screen.getByRole("option", { name: String(nextYear) })).toHaveAttribute("aria-selected", "true");
+  });
+  it("a close the pre-close checks refuse sends the user to the close workspace for that month", async () => {
+    const currentId = `fp-${CURRENT_YEAR}-${pad2(CURRENT_MONTH)}`;
+    renderScreen(periodsForYear(CURRENT_YEAR), [currentId]);
+    const row = (await screen.findByText(`${MONTH_LABEL_AR[CURRENT_MONTH - 1]} ${CURRENT_YEAR}`)).closest("tr") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: `إجراءات ${MONTH_LABEL_AR[CURRENT_MONTH - 1]} ${CURRENT_YEAR}` }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: "إغلاق" }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(`/money/period-close?period=${currentId}`));
+  });
+
+  it("a lock the pre-close checks refuse goes to the close workspace too", async () => {
+    const closedId = `fp-${CURRENT_YEAR}-${pad2(CLOSED_MONTH)}`;
+    renderScreen(periodsForYear(CURRENT_YEAR), [closedId]);
+    const row = (await screen.findByText(`${MONTH_LABEL_AR[CLOSED_MONTH - 1]} ${CURRENT_YEAR}`)).closest("tr") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: `إجراءات ${MONTH_LABEL_AR[CLOSED_MONTH - 1]} ${CURRENT_YEAR}` }));
+    fireEvent.click(within(row).getByRole("menuitem", { name: /قفل/ }));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent(`/money/period-close?period=${closedId}`));
   });
 });

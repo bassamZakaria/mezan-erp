@@ -8,6 +8,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, averageOf } from "./kpi.js";
 import { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * المبيعات حسب الفترة — Sales by Period (docs/archive/catalog/08-reports.md): day/
@@ -55,9 +56,9 @@ export function createSalesByPeriodReport(
     paramsSchema,
     defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, groupBy: "day", branchId: "" },
     paramFields: [
-      { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
+      { kind: ReportParamKind.DateRange, fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "groupBy",
         label: "التجميع",
         options: [

@@ -88,6 +88,7 @@ describe("whatever holds none of its foreign currency holds no base either", () 
     const swept = await ok("POST", "/revaluation/residue/sweep", { date: "2026-08-31" });
 
     expect(swept.swept).toEqual([{ kind: "account", ref: "1310-USD", currency: "USD", base: "0.000003" }]);
+    expect(swept.sweptCount).toBe(1);
     expect(world.balance("1310-USD")).toBe(0n);
     expect(world.balance("5920") - lossBefore).toBe(3n);
     expect((await residue()).total).toBe("0.000000");
@@ -100,8 +101,9 @@ describe("whatever holds none of its foreign currency holds no base either", () 
         { accountId: "2190", debit: "540", credit: "0" },
       ],
     });
-    const left = await ok("POST", "/revaluation/residue/sweep", { date: "2026-08-31" });
+    const left = await ok("POST", "/revaluation/residue/sweep", { date: "2026-08-31" }, 200);
     expect(left.swept).toEqual([]);
+    expect(left.sweptCount).toBe(0);
     expect(left.refused).toEqual([expect.objectContaining({ kind: "account", ref: "1310-USD", base: "-540.000000" })]);
     expect(String((left.refused as { message: string }[])[0]?.message)).toMatch(/[؀-ۿ]/);
     expect((await residue()).total).toBe("540.000000");

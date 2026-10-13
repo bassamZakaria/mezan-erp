@@ -246,3 +246,147 @@ describe("a run whose share a standing document has taken cannot be reversed out
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });
+
+describe("a month-end run posted after the item it restates was already relieved leaves the books the run-first order leaves", () => {
+  const CONTROL: Record<FxSide, string> = { [FxSide.Receivable]: "1105", [FxSide.Payable]: "2100" };
+
+  async function relievedThenRestated(side: FxSide, path: ReliefPath, usd: 400n | 1000n): Promise<string> {
+    books = await openFxBooks();
+    await books.invoice(side);
+    await books.rate("fx-settle", "48.70", "2026-09-10");
+    await relieve(path, side, usd);
+    return books.revalue("48.45");
+  }
+
+  function shareRows(): { item: string; amount: string }[] {
+    const rows = books.world.sqlite.prepare("SELECT item_id, amount FROM fx_revaluation_share ORDER BY rowid").safeIntegers().all() as { item_id: string; amount: bigint }[];
+    return rows.map((row) => ({ item: row.item_id, amount: major(row.amount) }));
+  }
+
+  const whole = SIDES.flatMap((side) => Object.values(ReliefPath).map((path) => ({ side, path })));
+  it.each(whole)("$side cleared in full by $path before the August run was posted: 450 unrealised on 31 August, the relief's own day gives it up, and the control account holds nothing", async ({ side, path }) => {
+    await relievedThenRestated(side, path, 1000n);
+
+    const realised = realisedBy(path, 1000n);
+    expect(books.fx(side)).toEqual({ control: major(0n), unrealised: pnl(side, RESTATED), realised: pnl(side, realised) });
+    expect(major(books.world.balance(CONTROL[side], "2026-08-31"))).toBe(carried(side, 48_450n * SCALE));
+    expect(shareRows()).toEqual([
+      { item: side === FxSide.Receivable ? "inv-usd" : "pi-usd", amount: major(RESTATED) },
+      { item: side === FxSide.Receivable ? "inv-usd" : "pi-usd", amount: major(-RESTATED) },
+    ]);
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  const partial = SIDES.flatMap((side) => [ReliefPath.Settlement, ReliefPath.Cheque, ReliefPath.Return].map((path) => ({ side, path })));
+  it.each(partial)("$side relieved of USD 400 by $path before the run: the USD 600 left is carried at 29,070, and paying it leaves nothing", async ({ side, path }) => {
+    await relievedThenRestated(side, path, 400n);
+
+    const first = realisedBy(path, 400n);
+    expect(books.fx(side)).toEqual({ control: carried(side, 29_070n * SCALE), unrealised: pnl(side, RESTATED), realised: pnl(side, first) });
+    expect(major(books.world.balance(CONTROL[side], "2026-08-31"))).toBe(carried(side, 48_450n * SCALE));
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+
+    await books.settle(side, "v-rest", "29220");
+
+    expect(books.fx(side)).toEqual({ control: major(0n), unrealised: pnl(side, RESTATED), realised: pnl(side, first + realisedBy(ReliefPath.Settlement, 600n)) });
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: undoing a settlement the late run already charged gives the restatement back to the invoice, exactly as it does when the run came first", async (side) => {
+    const runId = await relievedThenRestated(side, ReliefPath.Settlement, 1000n);
+    await expectRunHeldBy(runId, await consumerNumber(ReliefPath.Settlement, side, 1000n));
+
+    await books.ok("POST", "/allocations/al-v-1000/reverse", {}, 200);
+
+    expect(books.fx(side)).toEqual({ control: carried(side, (48_450n - 48_700n) * SCALE), unrealised: pnl(side, RESTATED), realised: major(0n) });
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+    expect((await reverseRun(runId)).status).toBe(201);
+    expect(books.fx(side)).toEqual({ control: carried(side, (48_000n - 48_700n) * SCALE), unrealised: major(0n), realised: major(0n) });
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: USD 1,000 held on account and applied to an invoice before the run was posted — the money carries the −450 and the application gives it up", async (side) => {
+    books = await openFxBooks();
+    await books.voucher(side, "v-held", "1000", { date: "2026-08-22", currency: "USD" });
+    await books.rate("fx-settle", "48.70", "2026-09-10");
+    await books.invoice(side, side === FxSide.Receivable ? "inv-usd" : "pi-usd", { date: "2026-09-10" });
+    await books.ok("POST", "/vouchers/v-held/allocations", { allocationId: "al-held", invoiceId: side === FxSide.Receivable ? "inv-usd" : "pi-usd", amount: "48000" });
+
+    await books.revalue("48.45");
+
+    expect(books.fx(side)).toEqual({ control: major(0n), unrealised: mirrored(side, -RESTATED), realised: mirrored(side, -250n * SCALE) });
+    expect(major(books.world.balance(CONTROL[side], "2026-08-31"))).toBe(carried(side, -48_450n * SCALE));
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: money on account whose voucher was reversed in September, before the August run was posted, gives its −450 back on the reversal's day", async (side) => {
+    books = await openFxBooks();
+    await books.voucher(side, "v-held", "1000", { date: "2026-08-22", currency: "USD" });
+    await books.ok("POST", "/vouchers/v-held/reverse", { memo: "أُدخل بالخطأ", date: "2026-09-10" }, 201);
+
+    await books.revalue("48.45");
+
+    expect(books.fx(side)).toEqual({ control: major(0n), unrealised: mirrored(side, -RESTATED), realised: mirrored(side, RESTATED) });
+    expect(major(books.world.balance(CONTROL[side], "2026-08-31"))).toBe(carried(side, -48_450n * SCALE));
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: when the relief sits in a period that has since been closed the run is refused in Arabic naming that period, and nothing is posted", async (side) => {
+    books = await openFxBooks();
+    await books.invoice(side);
+    await books.rate("fx-settle", "48.70", "2026-09-10");
+    await relieve(ReliefPath.Return, side, 400n);
+    await books.rate("fx-closing-2026-08-31", "48.45", "2026-08-31");
+    const periods = (await books.world.request("GET", "/fiscal-periods")).body as unknown as { id: string; startDate: string; endDate: string }[];
+    const september = periods.find((period) => period.startDate <= "2026-09-10" && period.endDate >= "2026-09-10")!;
+    await books.ok("POST", `/fiscal-periods/${september.id}/close`, { overrideReason: "إقفال سبتمبر قبل ترحيل إعادة تقييم أغسطس" }, 200);
+    const entries = books.world.sqlite.prepare("SELECT COUNT(*) AS n FROM journal_entry").get();
+    const held = books.fx(side);
+
+    const refused = await books.world.request("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: false });
+
+    expect(`${refused.status} ${String(refused.body.error)}`).toBe("422 PERIOD_NOT_OPEN_FOR_POSTING");
+    expect(String(refused.body.message)).toContain("سبتمبر");
+    expect(books.world.sqlite.prepare("SELECT COUNT(*) AS n FROM journal_entry").get()).toEqual(entries);
+    expect(shareRows()).toEqual([]);
+    expect(books.fx(side)).toEqual(held);
+    expect((await books.world.request("GET", "/revaluation/runs")).body.runs).toEqual([]);
+  });
+
+  it.each(SIDES)("%s: an August run is refused while a later run that does not reverse itself still stands, because that run already restated what August would restate again", async (side) => {
+    books = await openFxBooks();
+    await books.invoice(side);
+    const september = await books.revalue("48.70", "2026-09-30");
+    const septemberNo = String(((await books.world.request("GET", "/revaluation/runs")).body.runs as { entryNo: string }[])[0]?.entryNo);
+    await books.rate("fx-closing-2026-08-31", "48.45", "2026-08-31");
+    const held = books.fx(side);
+
+    const refused = await books.world.request("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: false });
+
+    expect(`${refused.status} ${String(refused.body.error)}`).toBe("409 FX_REVALUATION_LATER_RUN_STANDS");
+    expect(String(refused.body.message)).toContain(septemberNo);
+    expect(String(refused.body.message)).toMatch(/[\u0600-\u06FF]/);
+    expect(books.fx(side)).toEqual(held);
+
+    await books.ok("POST", `/revaluation/runs/${september}/reverse`, { memo: "يُعاد ترحيله بعد أغسطس", date: "2026-10-01" });
+    await books.ok("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: false });
+    expect(books.fx(side)).toEqual({ control: carried(side, 48_450n * SCALE), unrealised: pnl(side, RESTATED), realised: major(0n) });
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it("a later run that reversed itself the next day does not stand in the way of an earlier month's run", async () => {
+    books = await openFxBooks();
+    await books.invoice(FxSide.Receivable);
+    await books.rate("fx-closing-2026-09-30", "48.70", "2026-09-30");
+    await books.ok("POST", "/revaluation/post", { date: "2026-09-30", currencies: ["USD"], autoReverse: true });
+
+    await books.revalue("48.45");
+
+    expect(books.fx(FxSide.Receivable)).toEqual({ control: major(48_450n * SCALE), unrealised: major(RESTATED), realised: major(0n) });
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});

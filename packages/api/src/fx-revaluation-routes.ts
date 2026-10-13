@@ -59,6 +59,7 @@ export interface FxRevaluationRoutesDeps {
   readonly openFxItems?: (asOfDate: string) => Promise<ReadonlyMap<string, readonly OpenFxItem[]>>;
   readonly saveShares?: (entryId: string, shares: readonly FxRevaluationShare[]) => Promise<void>;
   readonly shareConsumer?: (entryId: string) => Promise<string | null>;
+  readonly releaseSharesRelievedSince?: (asOfDate: string, shares: readonly FxRevaluationShare[]) => Promise<void>;
   readonly foreignResidues?: (asOfDate?: string) => Promise<readonly ForeignResidue[]>;
   readonly realisedDifferenceAccounts?: () => Promise<FxDifferenceAccounts>;
   readonly releaseItemShare?: (item: FxOpenItemRef, date: string) => Promise<void>;
@@ -148,6 +149,15 @@ export function createFxRevaluationRoutes(
     return { balances, config: { date, closingRates, ...(await deps.differenceAccounts()), ...(openItems ? { openItems } : {}) }, derived: reported };
   }
 
+  class LaterRevaluationStandsError extends Error {
+    constructor(readonly entryNo: string, readonly runDate: string) {
+      super(`لا يمكن ترحيل إعادة تقييم بتاريخ سابق: التشغيل ${entryNo} بتاريخ ${runDate} ما زال قائماً وقد أعاد تقييم الأرصدة نفسها. اعكسه أولاً ثم رحّل التشغيلين بترتيب تواريخهما.`);
+    }
+    get messageEn(): string {
+      return `An earlier-dated revaluation cannot be posted while run ${this.entryNo} dated ${this.runDate} still stands: it already restated the same balances. Reverse it first, then post the runs in date order.`;
+    }
+  }
+
   app.post("/preview", gate("accounting.journal.post"), async (c) => {
     const parsed = fxRevaluationRequestSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -181,12 +191,22 @@ export function createFxRevaluationRoutes(
       };
       const requested = parsed.data.currencies ?? [];
       const result = await deps.ledger.transaction(async () => {
+        if (!autoReverse) {
+          const restating = new Set(balances.map((balance) => balance.currency));
+          const later = (await deps.ledger.list({ sourceDocTypes: [FX_REVALUATION_DOC_TYPE] })).find(
+            (entry) => entry.status === "posted" && !entry.reversesEntryId && !entry.reversedByEntryId && entry.date.slice(0, 10) > date && entry.lines.some((line) => line.currency && restating.has(line.currency)),
+          );
+          if (later) throw new LaterRevaluationStandsError(later.entryNo ?? later.id, later.date.slice(0, 10));
+        }
         const posted = await postFxRevaluation(balances, config, postingDeps, {
           id: idGen(),
           reversalId: idGen(),
           autoReverse,
         });
-        if (posted.entry && posted.computed.shares.length > 0) await deps.saveShares?.(posted.entry.id, posted.computed.shares);
+        if (posted.entry && posted.computed.shares.length > 0) {
+          await deps.saveShares?.(posted.entry.id, posted.computed.shares);
+          await deps.releaseSharesRelievedSince?.(date, posted.computed.shares);
+        }
         deps.recordRun?.({
           asOfDate: date,
           currencies: requested.length > 0 ? requested : [FX_REVALUATION_ALL_CURRENCIES],
@@ -207,6 +227,7 @@ export function createFxRevaluationRoutes(
         201,
       );
     } catch (err) {
+      if (err instanceof LaterRevaluationStandsError) return c.json({ error: "FX_REVALUATION_LATER_RUN_STANDS", message: err.message, messageEn: err.messageEn, laterRun: err.entryNo }, 409);
       return handleError(c, err);
     }
   });
@@ -228,39 +249,40 @@ export function createFxRevaluationRoutes(
     const parsed = fxRevaluationRequestSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const date = await tenantDay(c, parsed.data.date);
-    const residues = (await deps.foreignResidues?.()) ?? [];
-    const sweepable = residues.filter(isRoundingResidue);
-    const refused = residues.filter((row) => !isRoundingResidue(row)).map((row) => ({
+    const refusalOf = (row: ForeignResidue) => ({
       ...serializeResidue(row),
       message: "الرصيد المتبقي ليس فرق تقريب؛ يُعالج من مصدره ولا يُرحَّل إلى فروق العملة.",
       messageEn: "This residue is not a rounding remainder; it is corrected at its source, not swept to exchange differences.",
-    }));
-    if (sweepable.length === 0 || !deps.realisedDifferenceAccounts) return c.json({ swept: [], refused, entryId: null }, 201);
+    });
     try {
-      const accounts = await deps.realisedDifferenceAccounts();
-      const zero = Money.zero();
-      const lines: JournalLineInput[] = [];
-      for (const row of sweepable) {
-        if (row.kind !== ForeignResidueKind.Account) continue;
-        const magnitude = Money.fromScaled(row.base.scaled < 0n ? -row.base.scaled : row.base.scaled);
-        const fxRate = (await deps.exchangeRates.findRate(row.currency, date))?.rate ?? "1";
-        const overstated = row.base.scaled > 0n;
-        lines.push({ accountId: row.ref, debit: overstated ? zero : magnitude, credit: overstated ? magnitude : zero, memo: FX_REVALUATION_LINE_MEMO, currency: row.currency, fxRate });
-        lines.push({ accountId: overstated ? accounts.lossAccountId : accounts.gainAccountId, debit: overstated ? magnitude : zero, credit: overstated ? zero : magnitude, memo: FX_REALISED_LINE_MEMO });
-      }
       const actor = getAuthContext(c)?.userId ?? "system";
-      const entryId = await deps.ledger.transaction(async () => {
+      const outcome = await deps.ledger.transaction(async () => {
+        const residues = (await deps.foreignResidues?.()) ?? [];
+        const sweepable = deps.realisedDifferenceAccounts ? residues.filter(isRoundingResidue) : [];
+        const refused = residues.filter((row) => !isRoundingResidue(row)).map(refusalOf);
+        if (sweepable.length === 0 || !deps.realisedDifferenceAccounts) return { swept: sweepable, refused, entryId: null };
+        const accounts = await deps.realisedDifferenceAccounts();
+        const zero = Money.zero();
+        const lines: JournalLineInput[] = [];
         for (const row of sweepable) {
-          if (row.kind === ForeignResidueKind.Item) await deps.releaseItemShare?.({ id: row.ref, type: row.itemType ?? FxOpenItemType.Invoice }, date);
+          if (row.kind === ForeignResidueKind.Item) {
+            await deps.releaseItemShare?.({ id: row.ref, type: row.itemType ?? FxOpenItemType.Invoice }, date);
+            continue;
+          }
+          const magnitude = Money.fromScaled(row.base.scaled < 0n ? -row.base.scaled : row.base.scaled);
+          const fxRate = (await deps.exchangeRates.findRate(row.currency, date))?.rate ?? "1";
+          const overstated = row.base.scaled > 0n;
+          lines.push({ accountId: row.ref, debit: overstated ? zero : magnitude, credit: overstated ? magnitude : zero, memo: FX_REVALUATION_LINE_MEMO, currency: row.currency, fxRate });
+          lines.push({ accountId: overstated ? accounts.lossAccountId : accounts.gainAccountId, debit: overstated ? magnitude : zero, credit: overstated ? zero : magnitude, memo: FX_REALISED_LINE_MEMO });
         }
-        if (lines.length === 0) return null;
+        if (lines.length === 0) return { swept: sweepable, refused, entryId: null };
         const posted = await postJournalEntry(
           { id: idGen(), date, memo: `ترحيل فروق تقريب العملات الأجنبية حتى ${date}`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, lines },
           { ledger: deps.ledger, accounts: deps.accounts, periods: deps.periods, numbering: deps.numbering, projects: deps.projects, audit: deps.audit, vatFilings: deps.vatFilings, events: deps.events, now: deps.now, actor },
         );
-        return posted.id;
+        return { swept: sweepable, refused, entryId: posted.id };
       });
-      return c.json({ swept: sweepable.map(serializeResidue), refused, entryId }, 201);
+      return c.json({ swept: outcome.swept.map(serializeResidue), sweptCount: outcome.swept.length, refused: outcome.refused, entryId: outcome.entryId }, outcome.swept.length > 0 ? 201 : 200);
     } catch (err) {
       return handleError(c, err);
     }

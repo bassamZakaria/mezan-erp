@@ -267,13 +267,21 @@ export async function allocationUndoDay(
 }
 
 /** Mirrors the settlement entry of an allocation being undone, on the day from {@link allocationUndoDay}. */
+export const FX_SHARE_RELEASE_ENTRY_PREFIX = "FXR:release:";
+
+export function fxLateReleaseEntryId(itemId: string, allocationId: string): string {
+  return `${FX_SHARE_RELEASE_ENTRY_PREFIX}${itemId}:late:${allocationId}`;
+}
+
 export async function reverseRealisedFx(allocation: VoucherAllocation, gl: JournalPostingDeps, date: string): Promise<void> {
-  if (!allocation.fxEntryId) return;
-  const entry = await gl.ledger.findById(allocation.fxEntryId);
-  if (!entry || entry.reversedByEntryId) return;
-  await reverseJournalEntry(allocation.fxEntryId, gl, {
-    reversalId: realisedFxReversalId(allocation.fxEntryId),
-    date,
-    memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})`,
-  });
+  for (const entryId of [allocation.fxEntryId, fxLateReleaseEntryId(allocation.invoiceId, allocation.id), fxLateReleaseEntryId(allocation.voucherId, allocation.id)]) {
+    if (!entryId) continue;
+    const entry = await gl.ledger.findById(entryId);
+    if (!entry || entry.status !== "posted" || entry.reversedByEntryId) continue;
+    await reverseJournalEntry(entryId, gl, {
+      reversalId: realisedFxReversalId(entryId),
+      date: laterDay(date, entry.date.slice(0, 10)),
+      memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})`,
+    });
+  }
 }

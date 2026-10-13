@@ -81,9 +81,9 @@ describe("the residue sweep, for a restatement left on a document that has close
     const row = { kind: "item", ref: "inv-usd", itemType: "invoice", currency: "USD", base: "0.500000" };
     const entriesBefore = books.world.count("journal_entry");
 
-    const left = await books.ok("POST", "/revaluation/residue/sweep", { date: "2026-09-30" });
+    const left = await books.ok("POST", "/revaluation/residue/sweep", { date: "2026-09-30" }, 200);
 
-    expect(left).toMatchObject({ swept: [], entryId: null, refused: [expect.objectContaining(row)] });
+    expect(left).toMatchObject({ swept: [], sweptCount: 0, entryId: null, refused: [expect.objectContaining(row)] });
     expect(String((left.refused as { message: string }[])[0]?.message)).toMatch(/[؀-ۿ]/);
     expect(books.world.count("journal_entry")).toBe(entriesBefore);
     expect(books.world.balance("1105")).toBe(500_000n);

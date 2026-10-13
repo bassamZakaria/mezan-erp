@@ -1021,8 +1021,8 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   const bulkMutation = useBulkRequeueSubmitEta();
   const [notice, setNotice] = useState<
     | { kind: "offline" }
-    | { kind: "queued"; count: number; blocked: number }
-    | { kind: "processed"; submitted: number; accepted: number; rejected: number; queued: number; unsigned: number; blocked: number }
+    | { kind: "queued"; count: number; blocked: readonly string[] }
+    | { kind: "processed"; submitted: number; accepted: number; rejected: number; queued: number; unsigned: number; blocked: readonly string[] }
     | null
   >(null);
   const [bulkNotice, setBulkNotice] = useState<{
@@ -1068,8 +1068,8 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   async function submitAll() {
     setNotice(null);
     const result = await submitAllMutation.mutateAsync();
-    const blocked = result.blocked?.length ?? 0;
-    if (result.queued.length > 0 || blocked > 0) setNotice({ kind: "queued", count: result.queued.length, blocked });
+    const blocked = result.blocked ?? [];
+    if (result.queued.length > 0 || blocked.length > 0) setNotice({ kind: "queued", count: result.queued.length, blocked });
   }
 
   async function processQueue() {
@@ -1084,7 +1084,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         rejected: result.rejected.length,
         queued: result.queued.length,
         unsigned: result.unsigned.length,
-        blocked: result.blocked?.length ?? 0,
+        blocked: result.blocked ?? [],
       });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
@@ -1199,14 +1199,17 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
       render: (s) => {
         const findings = s.prevalidation ?? [];
         if (findings.length === 0) return <span className="text-ink-muted">—</span>;
-        const blocking = findings.filter((f) => f.severity === EtaPrevalidationSeverity.Blocking).length;
+        const blockers = findings.filter((f) => f.severity === EtaPrevalidationSeverity.Blocking);
+        const blocking = blockers.length;
         const warnings = findings.length - blocking;
+        const first = blockers[0] ?? findings[0]!;
         return (
           <div className="flex flex-col gap-[4px]" title={findings.map((f) => f.messageAr).join(" / ")}>
             {blocking > 0 ? <StatusPill label={`${pt("findingsBlocking")} (${blocking})`} tone="danger" /> : null}
             {warnings > 0 ? <StatusPill label={`${pt("findingsWarning")} (${warnings})`} tone="warning" /> : null}
+            {blocking > 0 ? <span className="max-w-[36ch] text-[11.5px] text-danger-ink">{first.messageAr}</span> : null}
             <a
-              href={fixHrefFor(findings[0]!, s.internalId)}
+              href={fixHrefFor(first, s.internalId)}
               className="text-[11.5px] font-semibold text-brand hover:underline"
             >
               {pt("fixLink")}
@@ -1273,7 +1276,31 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
                   queued: String(notice.queued),
                   unsigned: String(notice.unsigned),
                 })}
-          {notice.kind !== "offline" && notice.blocked > 0 ? <span className="block">{t("eta.blockedNotice", { count: String(notice.blocked) })}</span> : null}
+          {notice.kind !== "offline" && notice.blocked.length > 0 ? (
+            <div className="mt-[4px]">
+              <span className="block">{t("eta.blockedNotice", { count: String(notice.blocked.length) })}</span>
+              <ul aria-label={t("eta.blockedList")} className="mt-[4px] flex flex-col gap-[3px]">
+                {notice.blocked.map((id) => {
+                  const held = allSubs.find((s) => s.id === id);
+                  const reason = (held?.prevalidation ?? []).find((f) => f.severity === EtaPrevalidationSeverity.Blocking);
+                  return (
+                    <li key={id}>
+                      <span className="mz-num font-semibold">{held?.internalId ?? id}</span>
+                      {reason ? (
+                        <>
+                          {" — "}
+                          <span>{reason.messageAr}</span>{" "}
+                          <a href={fixHrefFor(reason, held?.internalId ?? id)} className="font-semibold text-brand hover:underline">
+                            {pt("fixLink")}
+                          </a>
+                        </>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

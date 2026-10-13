@@ -236,6 +236,14 @@ function esealPortFromExternalSigner(signer: EtaSignerPort, now: () => string): 
  * drive the جاهز→بانتظار التوقيع→مرسل→مقبول lifecycle, and route the online
  * transmit through a (stubbed) port. All queue state is real and offline.
  */
+// INVARIANT: a document's blocking findings are stored with it and change only
+// when it is rebuilt (a requeue, a classification). A queue pass therefore
+// reads them and moves on — it attempts nothing for a document that has not
+// changed since it was held back.
+function isBlockedBeforeTransmit(submission: EtaSubmission): boolean {
+  return submission.prevalidation !== undefined && hasBlockingEtaFindings(submission.prevalidation);
+}
+
 export class EtaService {
   private readonly transmitPort: EtaTransmitPort;
   private readonly signerPort: EtaSignerPort;
@@ -615,6 +623,10 @@ export class EtaService {
       ...(await this.deps.submissions.list("pending_signature")),
     ].sort(queueOrder);
     for (const s of pending) {
+      if (isBlockedBeforeTransmit(s)) {
+        blocked.push(s.id);
+        continue;
+      }
       try {
         const next = await this.submit(s.id);
         if (next.status === "submitted") submitted.push(next);
@@ -867,6 +879,10 @@ export class EtaService {
     const queued: string[] = [];
     const blocked: string[] = [];
     for (const s of ready) {
+      if (isBlockedBeforeTransmit(s)) {
+        blocked.push(s.id);
+        continue;
+      }
       try {
         submitted.push(await this.submit(s.id));
       } catch (err) {

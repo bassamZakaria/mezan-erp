@@ -21,7 +21,7 @@ afterEach(() => {
   for (const h of closers.splice(0)) h.close();
 });
 
-function harness() {
+function harness(extra: Partial<SalesQuoteRoutesDeps> = {}) {
   const repo = createSqliteSalesQuoteStore();
   closers.push(repo);
 
@@ -36,6 +36,7 @@ function harness() {
       let n = 0;
       return () => `qt-${++n}`;
     })(),
+    ...extra,
   };
   return { app: createSalesQuotesRoutes(deps, insecureHeaderAuthContextResolver), repo };
 }
@@ -59,6 +60,30 @@ const draftBody = {
     { lineId: "L2", itemId: "SVC-1", itemNameAr: "خدمة", qty: "2", unitPrice: "50", discountPercent: 10, taxRatePercent: 14 },
   ],
 };
+
+describe("sales-quotes routes — the search names the customer", () => {
+  it("finds a customer's quotes by the directory's Arabic or English name, any case, padded, in the rows and the chips", async () => {
+    const { app } = harness({
+      customers: {
+        findAll: async () => [
+          { id: "cust-1", nameAr: "مؤسسة النور للمقاولات", nameEn: "Al Noor Contracting" },
+          { id: "cust-2", nameAr: "شركة الأمل التجارية", nameEn: "Al Amal Trading" },
+        ],
+      },
+    });
+    const create = (body: unknown) => app.fetch(req("/", { method: "POST", body: JSON.stringify(body), permissions: "sales.quote.create" }));
+    const first = (await (await create({ ...draftBody, customerNameAr: "مؤسسة النور للمقاولات" })).json()) as { id: string };
+    await create({ ...draftBody, customerId: "cust-2", customerNameAr: "شركة الأمل التجارية" });
+    const view = { permissions: "sales.quote.view" };
+    for (const term of ["النور", "al noor", "  NOOR  "]) {
+      const rows = (await (await app.fetch(req(`/?search=${encodeURIComponent(term)}`, view))).json()) as { id: string }[];
+      expect(rows.map((r) => r.id), term).toEqual([first.id]);
+    }
+    const counts = (await (await app.fetch(req(`/counts?search=${encodeURIComponent("noor")}`, view))).json()) as Record<string, number>;
+    expect(counts.all).toBe(1);
+    expect(await (await app.fetch(req(`/?search=${encodeURIComponent("لا أحد")}`, view))).json()).toEqual([]);
+  });
+});
 
 describe("sales-quotes routes", () => {
   it("rejects an unauthenticated create with 403", async () => {

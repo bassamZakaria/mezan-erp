@@ -111,6 +111,7 @@ import {
 } from "./document-version.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
+import { partyIdsNamed, type PartyDirectory } from "./party-name-search.js";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -120,6 +121,7 @@ import { DuplicateRecordIdError } from "@mezan/domain";
  */
 export interface SalesInvoiceRoutesDeps {
   readonly repo: SalesInvoiceRepository;
+  readonly customers?: PartyDirectory;
   /**
    * The plan's monthly invoice quota (DEC-31 rule 6). Applies to `POST /` only:
    * a return, a void, a collection, an e-receipt and every read stay open at
@@ -992,6 +994,7 @@ export function createSalesInvoicesRoutes(
       branchId,
       warehouseId,
       search,
+      searchCustomerIds: [...(await partyIdsNamed(search, deps.customers))],
       ...(ownVisibilityOnly(c) ? { salespersonId: await ownSalespersonIdOf(c) } : {}),
       ...(page ? { limit: page.limit, offset: page.offset } : {}),
     } as Parameters<SalesInvoiceService["list"]>[0];

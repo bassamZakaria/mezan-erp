@@ -130,6 +130,7 @@ import {
 import { branchesOfWarehouses, documentBranches, withinBranchGrant, withinBranchView } from "./stored-branches.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
+import { normalizedSearchTerm, partyIdsNamed, type PartyDirectory } from "./party-name-search.js";
 
 /**
  * Permission-gated routes for the purchase chain (docs/archive/catalog/02), mounted
@@ -155,6 +156,7 @@ export interface PurchasesRoutesDeps {
   readonly orders: PurchaseOrderRepository;
   readonly receipts: GoodsReceiptRepository;
   readonly invoices: PurchaseInvoiceRepository;
+  readonly suppliers?: PartyDirectory;
   /**
    * N-9 — optimistic concurrency for orders and invoices. Omitted, the routes
    * behave exactly as before; supplied, a caller holding a stale
@@ -571,9 +573,10 @@ export function createPurchasesRoutes(
     if (filter.toDate) rows = rows.filter((o) => o.date <= filter.toDate!);
     if (filter.branchId) rows = rows.filter((o) => o.branchId === filter.branchId);
     if (filter.warehouseId) rows = rows.filter((o) => o.warehouseId === filter.warehouseId);
-    const term = filter.search?.trim().toLowerCase();
+    const term = normalizedSearchTerm(filter.search);
     if (term) {
-      rows = rows.filter((o) => o.number.toLowerCase().includes(term) || o.supplierId.toLowerCase().includes(term));
+      const named = await partyIdsNamed(term, deps.suppliers);
+      rows = rows.filter((o) => o.number.toLowerCase().includes(term) || o.supplierId.toLowerCase().includes(term) || named.has(o.supplierId));
     }
     return rows;
   }
@@ -756,9 +759,10 @@ export function createPurchasesRoutes(
     if (filter.toDate) rows = rows.filter((r) => r.date <= filter.toDate!);
     if (filter.warehouseId) rows = rows.filter((r) => r.warehouseId === filter.warehouseId);
     if (filter.invoiced !== undefined) rows = rows.filter((r) => r.invoiced === filter.invoiced);
-    const term = filter.search?.trim().toLowerCase();
+    const term = normalizedSearchTerm(filter.search);
     if (term) {
-      rows = rows.filter((r) => r.number.toLowerCase().includes(term) || r.supplierId.toLowerCase().includes(term));
+      const named = await partyIdsNamed(term, deps.suppliers);
+      rows = rows.filter((r) => r.number.toLowerCase().includes(term) || r.supplierId.toLowerCase().includes(term) || named.has(r.supplierId));
     }
     return rows;
   }
@@ -993,6 +997,8 @@ export function createPurchasesRoutes(
 
   async function listFilteredInvoices(c: Context, filter: PurchaseInvoiceListQueryDTO): Promise<FilteredInvoices> {
     const { status, supplierId, fromDate, toDate, branchId, warehouseId, search } = filter;
+    const term = normalizedSearchTerm(search);
+    const named = await partyIdsNamed(term, deps.suppliers);
     // Everything that is a column reaches the store as SQL (Q-8); every JS
     // predicate below is re-applied so a repository that cannot express one
     // still answers the same rows.
@@ -1006,6 +1012,7 @@ export function createPurchasesRoutes(
           branchId,
           warehouseId,
           search,
+          searchSupplierIds: [...named],
           status: storedInvoiceStatus(status),
         }),
         (i) => documentBranches(c, [i.branchId], [i.warehouseId]),
@@ -1022,11 +1029,12 @@ export function createPurchasesRoutes(
     if (toDate) rows = rows.filter((inv) => inv.date <= toDate);
     if (branchId) rows = rows.filter((inv) => inv.branchId === branchId);
     if (warehouseId) rows = rows.filter((inv) => inv.warehouseId === warehouseId);
-    const term = search?.trim().toLowerCase();
     if (term) {
       rows = rows.filter(
         (inv) =>
-          inv.number.toLowerCase().includes(term) || (inv.supplierInvoiceNumber ?? "").toLowerCase().includes(term),
+          inv.number.toLowerCase().includes(term) ||
+          (inv.supplierInvoiceNumber ?? "").toLowerCase().includes(term) ||
+          named.has(inv.supplierId),
       );
     }
 

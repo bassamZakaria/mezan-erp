@@ -25,6 +25,7 @@ import { tenantDay } from "./tenant-day.js";
 import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
 import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReasonsOf, voidReturn } from "./return-void.js";
 import { DOCUMENT_NOT_FOUND, MirrorAccess, anyLineInWarehouseScope, createVisibleDocumentResolver } from "./document-visibility.js";
+import { normalizedSearchTerm, partyIdsNamed, type PartyDirectory } from "./party-name-search.js";
 
 function serializeLine(l: PurchaseReturnLine) {
   return {
@@ -82,6 +83,7 @@ export function createPurchaseReturnsRoutes(
    */
   invoices?: PurchaseInvoiceLookupPort,
   journalTax?: ReturnJournalTaxPort<PurchaseReturnLine>,
+  suppliers?: PartyDirectory,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext, {
@@ -182,15 +184,17 @@ export function createPurchaseReturnsRoutes(
     if (filter.supplierId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.supplierId === filter.supplierId));
     }
-    const term = filter.search?.trim().toLowerCase();
+    const term = normalizedSearchTerm(filter.search);
     if (term) {
+      const named = await partyIdsNamed(term, suppliers);
       rows = rows.filter(
         (doc) =>
           (doc.docNo ?? "").toLowerCase().includes(term) ||
           doc.lines.some(
             (line) =>
               (line.sourceInvoiceNumber ?? "").toLowerCase().includes(term) ||
-              line.supplierId.toLowerCase().includes(term),
+              line.supplierId.toLowerCase().includes(term) ||
+              named.has(line.supplierId),
           ),
       );
     }

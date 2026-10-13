@@ -106,6 +106,8 @@ export interface SalesInvoiceListFilter {
   readonly salespersonId?: string;
   /** Substring of the document number or the customer name. */
   readonly search?: string;
+  /** Customers the search term names; ORed with the number and stored-name match, and read only beside `search`. */
+  readonly searchCustomerIds?: readonly string[];
   /** Row order; absent keeps the register's date order. Drafts carry no number and sort last either way. */
   readonly sort?: { readonly key: "docNo"; readonly direction: "asc" | "desc" };
   readonly limit?: number;

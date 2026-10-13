@@ -585,7 +585,9 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     const term = filter.search?.trim();
     if (term) {
       const like = `%${term.toLowerCase()}%`;
-      where.raw("(LOWER(doc_no) LIKE ? OR LOWER(customer_name_ar) LIKE ?)", like, like);
+      const named = filter.searchCustomerIds ?? [];
+      const byName = named.length > 0 ? ` OR customer_id IN (${named.map(() => "?").join(",")})` : "";
+      where.raw(`(LOWER(doc_no) LIKE ? OR LOWER(customer_name_ar) LIKE ?${byName})`, like, like, ...named);
     }
     return where;
   }

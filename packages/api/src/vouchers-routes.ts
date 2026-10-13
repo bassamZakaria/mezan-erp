@@ -75,6 +75,7 @@ import { tenantDay } from "./tenant-day.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
 import { treasuryLedgerAccount } from "./treasury-ledger-account.js";
+import { normalizedSearchTerm, partyIdsNamed, type PartyDirectory } from "./party-name-search.js";
 
 /** The register port moved into the domain with the call that uses it (D196). */
 export type { VoucherChequeRegistration, VoucherChequeRegistrationPort } from "@mezan/domain";
@@ -87,6 +88,8 @@ export type { VoucherChequeRegistration, VoucherChequeRegistrationPort } from "@
  */
 export type VoucherRoutesDeps = Omit<VoucherServiceDeps, "events"> & {
   readonly events?: VoucherServiceDeps["events"];
+  readonly customers?: PartyDirectory;
+  readonly suppliers?: PartyDirectory;
   /** Generates ids when the request omits them. Defaults to a UUID. */
   readonly idGen?: () => string;
   /**
@@ -400,24 +403,19 @@ export function createVouchersRoutes(
     if (filter.branchId) docs = docs.filter((d) => voucherLine(d).branchId === filter.branchId);
     if (filter.fromDate) docs = docs.filter((d) => d.date >= filter.fromDate!);
     if (filter.toDate) docs = docs.filter((d) => d.date <= filter.toDate!);
-    const term = filter.search?.trim().toLowerCase();
+    const term = normalizedSearchTerm(filter.search);
     if (term) {
-      const namesByParty = new Map<string, Promise<string | null>>();
-      const partyNameOf = (line: ReturnType<typeof voucherLine>): Promise<string | null> => {
-        const partyId = line.customerId ?? line.supplierId;
-        if (!partyId || !deps.partyName) return Promise.resolve(null);
-        const known = namesByParty.get(partyId) ?? deps.partyName(line);
-        namesByParty.set(partyId, known);
-        return known;
-      };
-      const matches = await Promise.all(
-        docs.map(async (d) => {
-          const line = voucherLine(d);
-          if ((d.docNo ?? "").toLowerCase().includes(term) || (line.referenceNo ?? "").toLowerCase().includes(term)) return true;
-          return ((await partyNameOf(line)) ?? "").toLowerCase().includes(term);
-        }),
-      );
-      docs = docs.filter((_, index) => matches[index]);
+      const customers = await partyIdsNamed(term, deps.customers);
+      const suppliers = await partyIdsNamed(term, deps.suppliers);
+      docs = docs.filter((d) => {
+        const line = voucherLine(d);
+        return (
+          (d.docNo ?? "").toLowerCase().includes(term) ||
+          (line.referenceNo ?? "").toLowerCase().includes(term) ||
+          (!!line.customerId && customers.has(line.customerId)) ||
+          (!!line.supplierId && suppliers.has(line.supplierId))
+        );
+      });
     }
     docs = await withinBranchView(c, docs, async (d) => [voucherLine(d).branchId]);
 

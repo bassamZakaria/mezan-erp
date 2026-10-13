@@ -492,7 +492,9 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
     const term = filter.search?.trim();
     if (term) {
       const like = `%${term.toLowerCase()}%`;
-      where.raw("(LOWER(number) LIKE ? OR LOWER(COALESCE(supplier_invoice_number, '')) LIKE ?)", like, like);
+      const named = filter.searchSupplierIds ?? [];
+      const byName = named.length > 0 ? ` OR supplier_id IN (${named.map(() => "?").join(",")})` : "";
+      where.raw(`(LOWER(number) LIKE ? OR LOWER(COALESCE(supplier_invoice_number, '')) LIKE ?${byName})`, like, like, ...named);
     }
     return where;
   }

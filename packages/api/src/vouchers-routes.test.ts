@@ -153,8 +153,17 @@ describe("vouchers routes", () => {
   });
 
   it("a search for a customer's or a supplier's name finds their vouchers, in the rows and in the chip counts", async () => {
-    const names: Record<string, string> = { "cust-1": "مؤسسة النور للمقاولات", "sup-9": "شركة الدلتا للتوريدات" };
-    const { vouchers } = await newApp({ partyName: async (line) => names[line.customerId ?? line.supplierId ?? ""] ?? null });
+    let directoryReads = 0;
+    const directory = (rows: { id: string; nameAr: string; nameEn: string }[]) => ({
+      findAll: async () => {
+        directoryReads += 1;
+        return rows;
+      },
+    });
+    const { vouchers } = await newApp({
+      customers: directory([{ id: "cust-1", nameAr: "مؤسسة النور للمقاولات", nameEn: "Al Noor Contracting" }]),
+      suppliers: directory([{ id: "sup-9", nameAr: "شركة الدلتا للتوريدات", nameEn: "Delta Supplies Co." }]),
+    });
     await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collection) }));
     await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify({ ...collection, id: "v2", customerId: "cust-other" }) }));
     await vouchers.fetch(
@@ -165,8 +174,12 @@ describe("vouchers routes", () => {
     );
     expect(((await (await vouchers.fetch(req("/"))).json()) as unknown[]).length).toBe(3);
 
+    directoryReads = 0;
     const byCustomer = (await (await vouchers.fetch(req(`/?search=${encodeURIComponent("النور")}`))).json()) as { id: string }[];
     expect(byCustomer.map((row) => row.id)).toEqual(["v1"]);
+    expect(directoryReads).toBe(2);
+    const byEnglishName = (await (await vouchers.fetch(req(`/?search=${encodeURIComponent("  DELTA  ")}`))).json()) as { id: string }[];
+    expect(byEnglishName.map((row) => row.id)).toEqual(["v3"]);
     const bySupplier = (await (await vouchers.fetch(req(`/?search=${encodeURIComponent("الدلتا")}`))).json()) as { id: string }[];
     expect(bySupplier.map((row) => row.id)).toEqual(["v3"]);
     const counts = (await (await vouchers.fetch(req(`/counts?search=${encodeURIComponent("النور")}`))).json()) as Record<string, number>;

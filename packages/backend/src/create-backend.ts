@@ -128,6 +128,7 @@ import {
   MaterialConsumptionStatus,
   FX_SHARE_RELEASE_ENTRY_PREFIX,
   fxLateReleaseEntryId,
+  fxLateReleaseEntryIds,
   isBaseCurrency,
   allocationInvoiceAmount,
   type VoucherAllocation,
@@ -3215,7 +3216,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           await releaseItemShare(ref, relief.date, undefined, relief.releasedBy);
           continue;
         }
-        await releaseItemShare(ref, relief.date, { relieved: relief.relieved, outstanding: Money.fromScaled(outstanding) }, relief.releasedBy, relief.allocationId ? fxLateReleaseEntryId(ref.id, relief.allocationId) : undefined);
+        await releaseItemShare(ref, relief.date, { relieved: relief.relieved, outstanding: Money.fromScaled(outstanding) }, relief.releasedBy, relief.allocationId ? fxLateReleaseEntryId(ref.id, relief.allocationId, (await fxLateReleaseEntryIds(ref.id, relief.allocationId, ledger)).length) : undefined);
         outstanding -= relief.relieved.scaled;
       }
     }

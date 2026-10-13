@@ -74,6 +74,7 @@ export {
   FX_REALISED_DOC_TYPE,
   FX_SHARE_RELEASE_ENTRY_PREFIX,
   fxLateReleaseEntryId,
+  fxLateReleaseEntryIds,
   FX_REALISED_LINE_MEMO,
   FX_SETTLEMENT_LINE_MEMO,
   SettlementRateMissingError,

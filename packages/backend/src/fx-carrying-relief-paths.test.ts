@@ -357,6 +357,25 @@ describe("a month-end run posted after the item it restates was already relieved
     expect((await books.world.request("GET", "/revaluation/runs")).body.runs).toEqual([]);
   });
 
+  it.each(SIDES)("%s: two month-end runs posted after the same settlement each give their share up on it, and undoing the settlement gives both back", async (side) => {
+    books = await openFxBooks();
+    await books.invoice(side);
+    await books.rate("fx-settle", "48.70", "2026-09-10");
+    await relieve(ReliefPath.Settlement, side, 1000n);
+    await books.revalue("48.45", "2026-08-31");
+
+    await books.revalue("49.00", "2026-09-30");
+
+    expect(books.fx(side)).toEqual({ control: major(0n), unrealised: pnl(side, 1000n * SCALE), realised: pnl(side, -300n * SCALE) });
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+
+    await books.ok("POST", "/allocations/al-v-1000/reverse", {}, 200);
+
+    expect(books.fx(side)).toEqual({ control: carried(side, 300n * SCALE), unrealised: pnl(side, 1000n * SCALE), realised: major(0n) });
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
   it.each(SIDES)("%s: an August run is refused while a later run that does not reverse itself still stands, because that run already restated what August would restate again", async (side) => {
     books = await openFxBooks();
     await books.invoice(side);

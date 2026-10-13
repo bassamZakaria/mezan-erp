@@ -269,12 +269,23 @@ export async function allocationUndoDay(
 /** Mirrors the settlement entry of an allocation being undone, on the day from {@link allocationUndoDay}. */
 export const FX_SHARE_RELEASE_ENTRY_PREFIX = "FXR:release:";
 
-export function fxLateReleaseEntryId(itemId: string, allocationId: string): string {
-  return `${FX_SHARE_RELEASE_ENTRY_PREFIX}${itemId}:late:${allocationId}`;
+export function fxLateReleaseEntryId(itemId: string, allocationId: string, generation: number): string {
+  return `${FX_SHARE_RELEASE_ENTRY_PREFIX}${itemId}:late:${allocationId}:${generation}`;
+}
+
+// INVARIANT: one late release per run posted after the allocation, numbered from 0 with no gaps — undoing the allocation walks them until the first number that was never posted.
+export async function fxLateReleaseEntryIds(itemId: string, allocationId: string, ledger: Pick<JournalPostingDeps["ledger"], "findById">): Promise<string[]> {
+  const ids: string[] = [];
+  for (let generation = 0; ; generation += 1) {
+    const id = fxLateReleaseEntryId(itemId, allocationId, generation);
+    if (!(await ledger.findById(id))) return ids;
+    ids.push(id);
+  }
 }
 
 export async function reverseRealisedFx(allocation: VoucherAllocation, gl: JournalPostingDeps, date: string): Promise<void> {
-  for (const entryId of [allocation.fxEntryId, fxLateReleaseEntryId(allocation.invoiceId, allocation.id), fxLateReleaseEntryId(allocation.voucherId, allocation.id)]) {
+  const late = [...(await fxLateReleaseEntryIds(allocation.invoiceId, allocation.id, gl.ledger)), ...(await fxLateReleaseEntryIds(allocation.voucherId, allocation.id, gl.ledger))];
+  for (const entryId of [allocation.fxEntryId, ...late]) {
     if (!entryId) continue;
     const entry = await gl.ledger.findById(entryId);
     if (!entry || entry.status !== "posted" || entry.reversedByEntryId) continue;

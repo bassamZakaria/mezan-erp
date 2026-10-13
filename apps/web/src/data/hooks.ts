@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+import { loadTenantCode, subscribeTenantCode } from "./session";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AuditEventDTO,
@@ -464,11 +466,16 @@ export interface PlatformResolveDTO {
   readonly exists: boolean;
 }
 
-export function usePlatformResolve(): UseQueryResult<PlatformResolveDTO, ApiError> {
+export function noPlatformInFront(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
+export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
   return useQuery<PlatformResolveDTO, ApiError>({
     queryKey: ["platform", "resolve"],
+    enabled: options.enabled ?? true,
     queryFn: async () => {
       const res = await request("/platform/resolve");
       if (!res.ok) throw await loaderError(res, t("api.theCompanySDetailsCould"));
@@ -477,12 +484,28 @@ export function usePlatformResolve(): UseQueryResult<PlatformResolveDTO, ApiErro
   });
 }
 
+// SECURITY: a tenant-scoped request must never leave before a company is known. On a shared address that is the code the person typed and confirmed; with no platform in front (LAN, desktop) the only company there is, is known from the start.
+export function useCompanyKnown(): boolean {
+  const { session } = useApi();
+  const alreadyKnown = session !== null || isDesktopHost();
+  const resolve = usePlatformResolve({ enabled: !alreadyKnown });
+  const storedCode = useSyncExternalStore(subscribeTenantCode, loadTenantCode, () => null);
+  const companyTyped = storedCode !== null && storedCode !== "";
+  if (alreadyKnown) return true;
+  if (resolve.isError) return noPlatformInFront(resolve.error) || companyTyped;
+  if (!resolve.data) return false;
+  if (resolve.data.mode === "subdomain") return resolve.data.exists;
+  return companyTyped;
+}
+
 /** What base data already exists — drives the wizard's seed checklist without triggering a seed. */
-export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
+export function useBootstrapStatus(options: { enabled?: boolean } = {}): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
+  const companyKnown = useCompanyKnown();
   return useQuery<BootstrapSeedResultDTO, ApiError>({
     queryKey: ["bootstrap", "status"],
+    enabled: companyKnown && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request("/bootstrap/status");
       if (!res.ok) throw await loaderError(res, t("api.theCoreDataStatusCould"), t);
@@ -500,8 +523,10 @@ export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, Api
 export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
+  const companyKnown = useCompanyKnown();
   return useQuery<EntitlementsDTO, ApiError>({
     queryKey: ["entitlements"],
+    enabled: companyKnown,
     queryFn: async () => {
       const res = await request("/entitlements");
       if (!res.ok) throw await loaderError(res, t("api.licenceDetailsCouldNotBe"), t);

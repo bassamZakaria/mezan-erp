@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { ACCOUNTS, BRANCH_ID, VAT_PERCENT, WAREHOUSE_ID, call, nextBankTransferReference, step } from "./shared.js";
+import { ACCOUNTS, BRANCH_ID, VAT_PERCENT, VAT_RATE_ID, WAREHOUSE_ID, call, nextBankTransferReference, step } from "./shared.js";
 import {
   EXPENSE_ACCOUNTS,
   HISTORY_CUSTOMERS,
@@ -495,7 +495,7 @@ async function postPurchases(app: App, month: Month, sales: readonly PlannedSale
           kind: "inventory",
           qty: String(line.qty),
           unitCost: money(wholeHalfPounds(costAt(line.item, month.index))),
-          taxRatePercent: VAT_PERCENT,
+          taxRateId: VAT_RATE_ID,
         })),
       });
       const confirmed = await step(app, "POST", `/purchases/invoices/${id}/confirm`, {});
@@ -539,7 +539,7 @@ async function postSales(app: App, month: Month, sales: readonly PlannedSale[]):
         isStock: true,
         qty: String(line.qty),
         unitPrice: money(priceAt(line.item, month.index)),
-        taxRatePercent: VAT_PERCENT,
+        taxRateId: VAT_RATE_ID,
         revenueAccountId: ACCOUNTS.revenue,
         cogsAccountId: ACCOUNTS.cogs,
         inventoryAccountId: ACCOUNTS.inventory,

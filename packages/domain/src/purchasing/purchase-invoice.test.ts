@@ -476,6 +476,7 @@ describe("confirmPurchaseInvoice — one transaction", () => {
       stockPort: {
         async postReceipt() {
           if (failNext) throw new Error("stock store went away mid-confirm");
+          return { coverVariance: Money.zero() };
         },
       },
     };

@@ -110,7 +110,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
     currency: "EGP",
     notes: null,
     receiptId: null,
-    lines: [{ itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, batchNo: null, expiryDate: null }],
+    lines: [{ itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, taxRateId: null, batchNo: null, expiryDate: null }],
     status: "confirmed",
     subtotal: "100.000000",
     tax: "0.000000",

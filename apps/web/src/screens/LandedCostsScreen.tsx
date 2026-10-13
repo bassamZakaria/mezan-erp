@@ -47,6 +47,7 @@ import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** التكاليف الإضافية (Landed Costs) — docs/archive/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
 
@@ -116,6 +117,7 @@ export function LandedCostsScreen() {
   const projectsQuery = useProjects();
   const createLandedCost = useCreateLandedCost();
   const confirmLandedCost = useConfirmLandedCost();
+  const resubmit = useResubmitForApproval(ResubmitFamily.LandedCosts);
   const cancelLandedCost = useCancelLandedCost();
   const reverseLandedCost = useReverseLandedCost();
 
@@ -448,6 +450,7 @@ export function LandedCostsScreen() {
           </Button>
         </Card>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<(typeof documents)[number]>
         title={t("landedCosts.title")}
         description={t("landedCosts.description")}
@@ -516,6 +519,7 @@ export function LandedCostsScreen() {
                   { key: "cancel", label: t("common.cancel"), onSelect: () => cancelExisting(d.id) },
                 ]
               : []),
+            ...resubmitRowMenuItems(resubmit, d),
             ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), tone: "danger" as const, disabled: reversingId === d.id, confirm: { title: t("landedCosts.void"), consequence: t("landedCosts.voidConsequence", { doc: d.docNo ?? d.id }), confirmLabel: t("landedCosts.void") }, onSelect: () => reverseConfirmed(d.id) }] : []),
           ];
           return (
@@ -747,6 +751,7 @@ export function LandedCostsScreen() {
               <MoneyDisplay value={sumMajor(selected.lines.map((l) => l.allocatedAmount))} />
             </div>
             {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
+            <ResubmitForApprovalAction family={ResubmitFamily.LandedCosts} document={selected} />
             {selected.status === "draft" ? (
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => confirmExisting(selected.id)}>

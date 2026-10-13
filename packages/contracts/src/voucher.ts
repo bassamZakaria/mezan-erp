@@ -3,6 +3,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { decimalRateString, moneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { documentApprovalSchema } from "./workflow.js";
 
 /**
  * Wire contracts for Treasury Vouchers (docs/archive/catalog/04 §"السندات النقدية") —
@@ -90,6 +91,8 @@ export const voucherSchema = z.object({
   /** What actually leaves the treasury: amount − withholdingAmount. */
   netPaidAmount: moneyString,
   journalEntryId: z.string().nullable(),
+  workflowRequestId: z.string().nullable().optional(),
+  approval: documentApprovalSchema.nullable().optional(),
   confirmedAt: z.string().nullable(),
   /**
    * On a reversal's mirror: the voucher it reverses. The mirror is saved
@@ -97,8 +100,7 @@ export const voucherSchema = z.object({
    * skip it (D197, D200). Optional so older payloads still parse.
    */
   reversesDocId: z.string().nullish(),
-  /** The approval request a held voucher waits on; what its screen asks the standing of. */
-  workflowRequestId: z.string().nullish(),
+  reversedByDocId: z.string().nullish(),
   /** Allocations a collection carries while held for approval; the approved confirm applies them (D344). */
   heldAllocations: z.array(heldAllocationSchema).optional(),
 });

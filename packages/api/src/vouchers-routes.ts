@@ -1,3 +1,5 @@
+import type { DocumentApprovalDTO } from "@mezan/contracts";
+import { mountResubmitRoute, serializeApproval } from "./document-resubmit.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -26,7 +28,6 @@ import {
   InvoiceNotFoundError,
   AllocationNotFoundError,
   AllocationMismatchError,
-  AllocationExceedsError,
   SettlementRateMissingError,
   ReversalDateBeforeOriginalError,
   ReversalNotReversibleError,
@@ -90,9 +91,11 @@ export type VoucherRoutesDeps = Omit<VoucherServiceDeps, "events"> & {
   readonly receivableAccountId?: string;
 };
 
-function serialize(doc: VoucherDocument) {
+function serialize(doc: VoucherDocument, approval: DocumentApprovalDTO | null = null) {
   const line = voucherLine(doc);
   return {
+    approval,
+    workflowRequestId: doc.workflowRequestId ?? null,
     id: doc.id,
     docNo: doc.docNo,
     voucherType: line.voucherType,
@@ -136,7 +139,7 @@ function serialize(doc: VoucherDocument) {
     journalEntryId: doc.journalEntryId,
     confirmedAt: doc.confirmedAt,
     reversesDocId: doc.reversesDocId ?? null,
-    workflowRequestId: doc.workflowRequestId ?? null,
+    reversedByDocId: doc.reversedByDocId ?? null,
     heldAllocations: (line.heldAllocations ?? []).map(serializeHeldAllocation),
   };
 }
@@ -221,7 +224,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof AllocationMismatchError ||
-    err instanceof AllocationExceedsError ||
     err instanceof SettlementRateMissingError
   ) {
     return refuse(err, 422);
@@ -417,12 +419,13 @@ export function createVouchersRoutes(
 
     // Row-level allocation summary so the list's "needs allocation" chip and
     // filter don't need an N+1 detail fetch per row.
+    const approvals = await svc.approvalsOf(window);
     let rows = await Promise.all(
       window.map(async (doc) => {
         const line = voucherLine(doc);
         const def = getVoucherTypeDefinition(line.voucherType);
         return {
-          ...serialize(doc),
+          ...serialize(doc, serializeApproval(approvals.get(doc.id))),
           allocatable: def.allocatable,
           allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
           direction: def.direction,
@@ -564,7 +567,7 @@ export function createVouchersRoutes(
     const summary = await svc.allocationSummary(doc);
     const allocations = await svc.listAllocations(doc.id);
     return c.json({
-      ...serialize(doc),
+      ...serialize(doc, serializeApproval((await svc.approvalsOf([doc])).get(doc.id))),
       allocatable,
       allocationSummary: serializeSummary(summary),
       allocations: await presentAllocations(allocations),
@@ -775,16 +778,31 @@ export function createVouchersRoutes(
     if (refusal) return refusal;
     try {
       const ctx = getAuthContext(c);
-      const result = await serviceFor(c).confirmVoucher(c.req.param("id"), {
+      const svc = serviceFor(c);
+      const result = await svc.confirmVoucher(c.req.param("id"), {
         actor: ctx?.userId,
         actorRoles: gateActorRoles(c),
       });
-      return c.json({ ...serialize(result.document), held: result.held });
+      const approval = serializeApproval((await svc.approvalsOf([result.document])).get(result.document.id));
+      return c.json({ ...serialize(result.document, approval), held: result.held });
     } catch (err) {
       return handleDomainError(c, err);
     }
     },
   );
+
+  mountResubmitRoute<VoucherDocument>(app, {
+    permission: gateAny(
+      "treasury.cash_voucher.confirm",
+      "treasury.customer_refund.confirm",
+      "treasury.transfer.confirm",
+      CERTIFICATE_COLLECT,
+    ),
+    refuse: (c, id) => refuseStoredVoucher(c, id, "confirm"),
+    resubmit: (c, id) => serviceFor(c).resubmitVoucher(id, { actor: getAuthContext(c)?.userId, actorRoles: gateActorRoles(c) }),
+    serialize: async (c, doc) => serialize(doc, serializeApproval((await serviceFor(c).approvalsOf([doc])).get(doc.id))),
+    onError: handleDomainError,
+  });
 
   app.post(
     "/:id/cancel",

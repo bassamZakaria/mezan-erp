@@ -16,7 +16,7 @@ import {
 } from "@mezan/ui";
 import { GATEABLE_ACTION_TYPES } from "@mezan/domain";
 import type { ApprovalRequestDTO } from "@mezan/contracts";
-import { useDecideApproval, useMyApprovalDecisions, useMyApprovalRequests, usePendingApprovals } from "../data/hooks";
+import { useDecideApproval, useMyApprovalDecisions, useMyApprovalRequests, usePendingApprovals, useRoles, useUsers } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { useDomainLabels } from "../lib/domain-labels";
 import { useUrlNumber, useUrlSearch } from "../lib/url-state";
@@ -53,6 +53,10 @@ export function ApprovalsInboxScreen() {
   const mine = useMyApprovalRequests();
   const acted = useMyApprovalDecisions();
   const decide = useDecideApproval();
+  const roles = useRoles().data;
+  const users = useUsers().data;
+  const roleNames = useMemo(() => new Map((roles ?? []).map((role) => [role.code, role.name])), [roles]);
+  const userNames = useMemo(() => new Map((users ?? []).map((user) => [user.id, user.nameAr])), [users]);
 
   const [tab, setTab] = useState<TabKey>("inbox");
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -164,8 +168,8 @@ export function ApprovalsInboxScreen() {
       ? [
           documentColumn,
           progressColumn,
-          { key: "role", header: t("approvals.roleRequired"), render: (r) => r.steps[r.currentStep]?.role ?? "—" },
-          { key: "submittedBy", header: t("approvals.raisedBy"), render: (r) => (r.submittedByName ? <span>{r.submittedByName}</span> : <span className="mz-lat">{r.submittedBy}</span>) },
+          { key: "role", header: t("approvals.roleRequired"), render: (r) => roleNames.get(r.steps[r.currentStep]?.role ?? "") ?? r.steps[r.currentStep]?.role ?? "—" },
+          { key: "submittedBy", header: t("approvals.raisedBy"), render: (r) => r.submittedByName ?? userNames.get(r.submittedBy) ?? <span className="mz-lat">{r.submittedBy}</span> },
           noteColumn,
         ]
       : [documentColumn, statusColumn, progressColumn, submittedColumn];
@@ -223,7 +227,7 @@ export function ApprovalsInboxScreen() {
             ]}
           />
           {actionError ? (
-            <div className="rounded-md border border-danger bg-danger-soft px-[12px] py-[7px] text-[12px] text-danger-ink">{actionError}</div>
+            <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[7px] text-[12px] text-danger-ink">{actionError}</div>
           ) : null}
         </div>
       }

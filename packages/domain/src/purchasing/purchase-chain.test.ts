@@ -44,8 +44,9 @@ import {
 class RecordingStockPort implements PurchaseStockPostingPort {
   readonly received: unknown[] = [];
   readonly reversed: unknown[] = [];
-  async postReceipt(command: unknown): Promise<void> {
+  async postReceipt(command: unknown): Promise<{ coverVariance: Money }> {
     this.received.push(command);
+    return { coverVariance: Money.zero() };
   }
   async reverseReceipt(command: unknown): Promise<void> {
     this.reversed.push(command);

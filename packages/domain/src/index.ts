@@ -11,7 +11,7 @@ export type {
   UnitOfWork,
   JournalSourceModule,
 } from "./journal.js";
-export { journalSourceModule } from "./journal.js";
+export { journalSourceModule, JournalSourceModuleCode } from "./journal.js";
 // The spike's minimal poster (backs the legacy `/journal-entries` route). The
 // full GL posting engine below owns the primary `postJournalEntry` name.
 export {
@@ -57,13 +57,13 @@ export type {
 // audit/ — append-only audit trail (security + sensitive streams)
 export {
   AUDIT_SEVERITIES,
+  AuditSeverityCode,
   AUDIT_STREAMS,
   createAuditEvent,
   recordSecurityEvent,
   recordSensitiveEvent,
   auditBranchFromScope,
   branchScopedAuditSink,
-  AuditSeverityCode,
 } from "./audit/index.js";
 export type {
   AuditSeverity,
@@ -192,6 +192,7 @@ export * from "./cost-center-pl/index.js";
 export * from "./reconciliation/index.js";
 // eta/ — الفاتورة الإلكترونية (ETA e-invoicing) config + submission queue
 export * from "./eta/index.js";
+export { InvoiceDocumentKind, isRetentionRelease } from "./documents/invoice-document-kind.js";
 // --- cheques/ — Cheque Register (phase7/treasury-completion) ---
 export * from "./cheques/index.js";
 

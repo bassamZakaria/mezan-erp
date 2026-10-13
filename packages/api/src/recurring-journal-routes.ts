@@ -174,7 +174,10 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof JournalEntryNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
-  if (err instanceof InvalidRecurringJournalScheduleError || err instanceof InvalidJournalEntryError) {
+  if (err instanceof InvalidJournalEntryError) {
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 400);
+  }
+  if (err instanceof InvalidRecurringJournalScheduleError) {
     return c.json({ error: err.code, message: err.message }, 400);
   }
   if (err instanceof ReversalDateBeforeOriginalError) {

@@ -179,3 +179,31 @@ describe("QuoteDetailView", () => {
     expect(screen.getByRole("button", { name: "إلغاء العرض" })).toBeInTheDocument();
   });
 });
+
+describe("QuoteDetailView — a line shows the tax rate it stored, by name (D79)", () => {
+  const zeroRated = quote({
+    lines: [
+      { lineId: "l1", itemId: "item-1", itemNameAr: "خدمة معفاة", qty: "1.000000", unitPrice: "100.000000", discountPercent: 0, taxRatePercent: 0, taxRateId: "VAT-EXEMPT" },
+      { lineId: "l2", itemId: "item-1", itemNameAr: "توريد تصدير", qty: "1.000000", unitPrice: "100.000000", discountPercent: 0, taxRatePercent: 0, taxRateId: "VAT-EXPORT" },
+      { lineId: "l3", itemId: "item-1", itemNameAr: "بند بلا ضريبة مسماة", qty: "1.000000", unitPrice: "100.000000", discountPercent: 0, taxRatePercent: 0, taxRateId: null },
+    ],
+  });
+  const taxRate = (id: string, name: string, status: "active" | "inactive" = "active") => ({
+    id, code: id, name, rate: 0, calculationType: "exclusive", isDefault: false, outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status,
+  });
+
+  it("names the exempt and the export line apart though both are 0%, names a rate deactivated since, and shows the percent alone for a line with no rate", async () => {
+    renderDetail(zeroRated, { "GET /tax-rates": () => ({ body: [taxRate("VAT-EXEMPT", "معفى من الضريبة"), taxRate("VAT-EXPORT", "تصدير — نسبة صفر", "inactive")] }) });
+    expect(await screen.findByText("معفى من الضريبة · 0٪")).toBeInTheDocument();
+    expect(screen.getByText("تصدير — نسبة صفر · 0٪")).toBeInTheDocument();
+    expect(screen.getAllByText("0٪")).toHaveLength(1);
+    expect(screen.queryByText(/VAT-EXEMPT|VAT-EXPORT/)).not.toBeInTheDocument();
+  });
+
+  it("falls back to the percent when the tax rates cannot be read — never to the raw id", async () => {
+    renderDetail(zeroRated, { "GET /tax-rates": () => ({ status: 403, body: { error: "PERMISSION_DENIED" } }) });
+    await waitFor(() => expect(screen.getAllByText("0٪")).toHaveLength(3));
+    expect(screen.queryByText(/VAT-EXEMPT|VAT-EXPORT/)).not.toBeInTheDocument();
+  });
+});
+

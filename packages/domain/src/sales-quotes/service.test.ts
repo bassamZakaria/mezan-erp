@@ -49,6 +49,29 @@ function draftCmd(overrides: Partial<CreateSalesQuoteCommand> = {}): CreateSales
  * invoice is implemented outside this module"). This suite tests exactly what
  * `markConverted` does; it does not assert conversion behaviour that isn't here.
  */
+describe("SalesQuoteService.reopenConvertedBy", () => {
+  async function converted() {
+    const { svc } = harness();
+    await svc.createDraft(draftCmd());
+    await svc.send("qt-1");
+    await svc.accept("qt-1");
+    await svc.markConverted("qt-1", "inv-1");
+    return svc;
+  }
+
+  it("hands the quote back as accepted when the draft it became is the only invoice raised from it", async () => {
+    const svc = await converted();
+    expect((await svc.reopenConvertedBy("inv-1", async () => ["inv-1"]))?.status).toBe("accepted");
+  });
+
+  it("keeps the quote converted while another live invoice was raised from it, so it cannot be invoiced a further time", async () => {
+    const svc = await converted();
+    expect(await svc.reopenConvertedBy("inv-1", async () => ["inv-1", "inv-2"])).toBeNull();
+    expect((await svc.findById("qt-1"))?.status).toBe("converted");
+    await expect(svc.markConverted("qt-1", "inv-3")).rejects.toBeInstanceOf(InvalidSalesQuoteTransitionError);
+  });
+});
+
 describe("SalesQuoteService.markConverted", () => {
   it("requires the quote to be accepted first, then flips it to converted with the invoice id and timestamp", async () => {
     const { svc } = harness();

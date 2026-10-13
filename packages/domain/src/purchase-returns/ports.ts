@@ -7,6 +7,8 @@ import type { Money, Qty } from "../money/index.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 
 export interface SourcePurchaseInvoiceLine {
+  /** EXTERNAL CONTRACT: a purchase invoice line has no id; this is its position in the invoice. */
+  readonly sourceLineId?: string | null;
   readonly itemId: string;
   readonly itemName: string;
   readonly qty: Qty;
@@ -16,6 +18,7 @@ export interface SourcePurchaseInvoiceLine {
   readonly taxAmount: Money;
   /** The VAT rate this line was charged at, carried onto the return line (D76). */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
   /** فئة التكلفة this line was invoiced under — a return inherits it (D-01). */
   readonly costCategory?: CostCategory | null;
 }
@@ -23,6 +26,7 @@ export interface SourcePurchaseInvoiceLine {
 export interface SourcePurchaseInvoice {
   readonly id: string;
   readonly number: string;
+  readonly createdBy?: string | null;
   readonly supplierId: string;
   readonly warehouseId: string;
   readonly date: string;

@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 266 permissions across 20 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 268 permissions across 20 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -46,14 +46,18 @@ describe("permission catalog", () => {
     // one code of a `dashboard` module, now that `GET /dashboard/summary`
     // (`packages/backend/src/dashboard-routes.ts`) and the home entry of the
     // rail both check it.
+    // 248 → 250. D79 added `sales.invoice.classify_tax` and
+    // `purchases.invoice.classify_tax`, gated on
+    // `POST /sales-invoices/:id/lines/:lineId/classify-tax` and its purchase
+    // twin — naming the tax rate of a posted line that stored none.
     //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(266);
+    expect(PERMISSIONS).toHaveLength(268);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(266);
+    expect(summed).toBe(268);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -125,6 +129,14 @@ describe("permission catalog", () => {
 });
 
 describe("dependency resolution", () => {
+  it("creating a sales invoice, a quote or a purchase invoice implies reading the tax rates its lines pick from (D79)", () => {
+    for (const create of ["sales.invoice.create", "sales.quote.create", "purchases.invoice.create"]) {
+      const resolved = resolvePermissions([create]);
+      expect(resolved.has("accounting.tax.view")).toBe(true);
+      expect(resolved.has("accounting.tax.manage")).toBe(false);
+    }
+  });
+
   it("granting .confirm implies .view_own (single hop)", () => {
     const resolved = resolvePermissions(["sales.invoice.confirm"]);
     expect(resolved.has("sales.invoice.confirm")).toBe(true);
@@ -270,3 +282,13 @@ describe("three-tier visibility", () => {
     expect(visibilityTier(ctx, "hr.employee")).toBe("all");
   });
 });
+
+describe("raising a return implies reading the invoice it is raised against", () => {
+  it("a returns-only grant reads its own source invoices, sales and purchases alike, and nobody else's", () => {
+    expect([...resolvePermissions(["sales.return.create"])]).toEqual(expect.arrayContaining(["sales.return.view_own", "sales.invoice.view_own"]));
+    expect([...resolvePermissions(["purchases.return.create"])]).toEqual(expect.arrayContaining(["purchases.return.view", "purchases.invoice.view_own"]));
+    expect(resolvePermissions(["sales.return.create"]).has("sales.invoice.view")).toBe(false);
+    expect(resolvePermissions(["purchases.return.create"]).has("purchases.invoice.view")).toBe(false);
+  });
+});
+

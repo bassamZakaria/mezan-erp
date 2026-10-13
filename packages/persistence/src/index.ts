@@ -92,6 +92,7 @@ export {
   createSqliteTaxRateRepository,
   type SqliteTaxRateRepositoryHandle,
 } from "./tax-rate-repository.js";
+export { createSqliteTaxRateUsage } from "./tax-rate-usage.js";
 export {
   createSqliteCostCenterRepository,
   type SqliteCostCenterRepositoryHandle,

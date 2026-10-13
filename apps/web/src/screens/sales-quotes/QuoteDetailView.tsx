@@ -10,6 +10,7 @@ import {
   useItems,
   useRejectSalesQuote,
   useSendSalesQuote,
+  useTaxRates,
   useWarehouses,
   type SalesQuoteRecord,
 } from "../../data/hooks";
@@ -17,6 +18,8 @@ import { useAuditLog } from "../../data/platform-hooks";
 import { useWorkingLocation } from "../../data/hub-hooks";
 import { useAppTranslation } from "../../i18n";
 import { useNavigation } from "../../navigation";
+import { EMPTY } from "../../lib/empty";
+import { postedTaxRateLabel } from "../tax-rate-field";
 import { AttachmentsTab } from "../../attachments/AttachmentsTab";
 import { Money, Qty, computeQuoteTotals, type SalesQuoteDiscount, type SalesQuoteLine } from "@mezan/domain";
 import {
@@ -53,6 +56,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
   const items = useItems().data ?? [];
   const branches = useBranches().data ?? [];
   const warehouses = useWarehouses().data ?? [];
+  const taxRates = useTaxRates().data ?? EMPTY;
   const workingLocation = useWorkingLocation();
   const send = useSendSalesQuote();
   const accept = useAcceptSalesQuote();
@@ -92,6 +96,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
       unitPrice: Money.fromMajor(l.unitPrice),
       discountPercent: l.discountPercent ?? 0,
       taxRatePercent: l.taxRatePercent ?? 0,
+      taxRateId: l.taxRateId ?? null,
     }));
     const discount: SalesQuoteDiscount =
       quote.discount.type === "percent"
@@ -203,7 +208,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
                     <MoneyDisplay value={unitPrice} />
                   </td>
                   <td className="mz-num p-2 text-end">{format.number(discountPercent)}%</td>
-                  <td className="mz-num p-2 text-end">{format.number(taxPercent)}%</td>
+                  <td className="p-2 text-end">{postedTaxRateLabel(taxRates, { taxRateId: line.taxRateId, taxRatePercent: taxPercent }, t)}</td>
                   <td className="p-2 text-end">
                     <MoneyDisplay value={computed ? Number(computed.total.toString()) : 0} />
                   </td>
@@ -356,7 +361,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
                   </Button>
                 ) : null}
 
-                {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
+                {error ? <div role="alert" className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
               </div>
             </SectionCard>
 

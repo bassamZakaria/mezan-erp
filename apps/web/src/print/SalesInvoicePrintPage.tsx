@@ -2,9 +2,8 @@ import { useMemo } from "react";
 import { EmptyState, PrintView, resolvePrintTemplateConfig, useFormat, type PrintTemplateConfig } from "@mezan/ui";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
-import { useBranches, useCustomers, useEtaSubmissions, usePrintTemplateConfig, useDisplaySettings, useWarehouses } from "../data/hooks";
+import { useDisplaySettings, usePrintTemplateConfig, useSalesInvoicePrintContext, useTaxRates } from "../data/hooks";
 import { salesInvoicePrintModel } from "./sales-invoice-print";
-import { useEtaReceiptPrint } from "../screens/eta/receipt-print";
 import { EMPTY } from "../lib/empty";
 
 /**
@@ -22,39 +21,32 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
   const format = useFormat();
   const configQuery = usePrintTemplateConfig();
   const settings = useDisplaySettings().data ?? null;
-  const customers = useCustomers().data ?? [];
-  const branches = useBranches().data ?? EMPTY;
-  const warehouses = useWarehouses().data ?? EMPTY;
-  // Only an ACCEPTED submission carries the authority's identifier; anything
-  // else has no number to print and the block is left out entirely.
-  const accepted = useEtaSubmissions("accepted").data ?? EMPTY;
-  // The number the ETA queue keys on is the document NUMBER, not the row id —
-  // matching on the id found nothing once a confirm had assigned a docNo.
-  const etaInternalId = invoice.docNo ?? invoice.id;
-  // A consumer sale is reported as an e-receipt, whose QR must be on the paper.
-  const receipt = useEtaReceiptPrint(etaInternalId).data ?? null;
-
-  const customer = customers.find((c) => c.id === invoice.customerId);
+  const taxRates = useTaxRates().data ?? EMPTY;
+  // SECURITY: one read under the invoice's own visibility rule. The page used
+  // to list every customer, branch, warehouse and the e-invoice queue to find
+  // five values, which a role that may only view invoices is refused.
+  const context = useSalesInvoicePrintContext(invoice.id).data ?? null;
 
   const document = useMemo(
     () =>
       salesInvoicePrintModel({
         invoice,
         settings,
-        branchName: branches.find((b) => b.id === invoice.branchId)?.name,
-        warehouseName: warehouses.find((w) => w.id === invoice.warehouseId)?.name,
-        customerCode: customer?.code,
-        customerTaxNumber: customer?.taxNumber ?? undefined,
-        customerAddress: customer?.address ?? undefined,
-        customerPhone: customer?.phone ?? undefined,
-        etaUuid: accepted.find((s) => s.internalId === etaInternalId)?.etaUuid ?? receipt?.uuid ?? null,
-        etaQrValue: receipt?.qrValue ?? null,
+        branchName: context?.branchName ?? undefined,
+        warehouseName: context?.warehouseName ?? undefined,
+        customerCode: context?.customer?.code,
+        customerTaxNumber: context?.customer?.taxNumber ?? undefined,
+        customerAddress: context?.customer?.address ?? undefined,
+        customerPhone: context?.customer?.phone ?? undefined,
+        etaUuid: context?.etaUuid ?? null,
+        etaQrValue: context?.etaQrValue ?? null,
         currencyLabel: format.currencyLabel,
         documentTypeLabel: t("salesInvoices.print.documentType"),
         customerRoleLabel: t("common.customer"),
         vatLabel: t("salesInvoices.print.vat"),
+        taxRates,
       }),
-    [invoice, settings, branches, warehouses, customer, accepted, etaInternalId, receipt, format.currencyLabel, t],
+    [invoice, settings, context, taxRates, format.currencyLabel, t],
   );
 
   if (configQuery.isLoading) return null;

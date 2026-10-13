@@ -8,6 +8,7 @@ import {
   createSqlitePurchasingStores,
   createSqlitePurchaseOrderStore,
   createSqliteStockLedgerStore,
+  createSqliteTaxRateRepository,
 } from "@mezan/persistence";
 import { createApp } from "./app.js";
 
@@ -31,7 +32,7 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   };
 }
 
-async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy; withVersions?: boolean } = {}) {
+async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy; withVersions?: boolean; withTaxRates?: boolean } = {}) {
   const uow = createSqliteUnitOfWork();
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
@@ -65,7 +66,20 @@ async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy; wit
   const versionedOrders = opts.withVersions ? createSqlitePurchaseOrderStore() : null;
   if (versionedOrders) closers.push(versionedOrders);
 
+  const taxRates = opts.withTaxRates ? createSqliteTaxRateRepository() : undefined;
+  if (taxRates) {
+    closers.push(taxRates);
+    const rate = (id: string, percent: number, etaSubType: "auto" | "V001" | "V003") => ({
+      id, code: id, name: id, rate: percent, calculationType: "exclusive" as const, isDefault: false,
+      outputTaxAccountId: null, inputTaxAccountId: null, etaSubType, status: "active" as const,
+    });
+    await taxRates.create(rate("VAT14", 14, "auto"));
+    await taxRates.create(rate("VAT-EXEMPT", 0, "V003"));
+    await taxRates.create(rate("VAT-EXPORT", 0, "V001"));
+  }
+
   const app = createApp(uow, {
+    taxRateRepo: taxRates,
     purchases: {
       orderVersions: versionedOrders ? { versions: versionedOrders.versions } : undefined,
       orders: versionedOrders ?? purchasing.orders,
@@ -108,6 +122,66 @@ const orderBody = {
     { itemId: "item-B", qty: "5", unitPrice: "12.00" },
   ],
 };
+
+describe("purchases-routes — an invoice line stores the tax rate applied (D79)", () => {
+  const invoiceBody = (lines: unknown[]) => ({ id: "pi-tax", supplierId: "sup-1", date: "2026-08-22", branchId: "MAIN", warehouseId: "MAIN-WH", lines });
+  const postInvoice = (app: Awaited<ReturnType<typeof newApp>>["app"], body: unknown) =>
+    app.fetch(req("/purchases/invoices", { method: "POST", permissions: ADMIN, body: JSON.stringify(body) }));
+
+  it("the bare receiptId shape — what the screen sends — resolves a real rate id for every auto-filled line", async () => {
+    const { app } = await newApp({ withTaxRates: true });
+    await app.fetch(req("/purchases/orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(orderBody) }));
+    await app.fetch(req("/purchases/orders/po-1/confirm", { method: "POST", permissions: ADMIN }));
+    await app.fetch(req("/purchases/receipts", { method: "POST", permissions: ADMIN, body: JSON.stringify({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }) }));
+    await app.fetch(req("/purchases/receipts/gr-1/confirm", { method: "POST", permissions: ADMIN }));
+
+    const res = await postInvoice(app, { id: "pi-1", supplierId: "sup-1", date: "2026-08-22", branchId: "MAIN", warehouseId: "MAIN-WH", receiptId: "gr-1" });
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { lines: { taxRatePercent: number; taxRateId: string | null }[] };
+    expect(created.lines).toHaveLength(2);
+    expect(created.lines.map((l) => [l.taxRatePercent, l.taxRateId])).toEqual([[14, "VAT14"], [14, "VAT14"]]);
+
+    const reread = await app.fetch(req("/purchases/invoices/pi-1", { permissions: ADMIN }));
+    const stored = (await reread.json()) as { lines: { taxRateId: string | null }[] };
+    expect(stored.lines.map((l) => l.taxRateId)).toEqual(["VAT14", "VAT14"]);
+  });
+
+  it("explicit lines keep exempt and export apart, infer only above 0%, and honour an explicit 'no rate'", async () => {
+    const { app } = await newApp({ withTaxRates: true });
+    const res = await postInvoice(app, invoiceBody([
+      { itemId: null, kind: "expense", description: "معفى", qty: "1", unitCost: "100", taxRateId: "VAT-EXEMPT" },
+      { itemId: null, kind: "expense", description: "تصدير", qty: "1", unitCost: "100", taxRateId: "VAT-EXPORT" },
+      { itemId: null, kind: "expense", description: "بلا تسمية", qty: "1", unitCost: "100", taxRatePercent: 0 },
+      { itemId: null, kind: "expense", description: "نسبة فقط", qty: "1", unitCost: "100", taxRatePercent: 14 },
+      { itemId: null, kind: "expense", description: "بدون ضريبة مسماة", qty: "1", unitCost: "100", taxRateId: null, taxRatePercent: 14 },
+    ]));
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { lines: { taxRatePercent: number; taxRateId: string | null }[] };
+    expect(created.lines.map((l) => [l.taxRatePercent, l.taxRateId])).toEqual([
+      [0, "VAT-EXEMPT"],
+      [0, "VAT-EXPORT"],
+      [0, null],
+      [14, "VAT14"],
+      [14, null],
+    ]);
+  });
+
+  it("refuses a rate id no tax rate has, and a percent that is not the named rate's own, with 422 and an Arabic message", async () => {
+    const { app } = await newApp({ withTaxRates: true });
+    const unknown = await postInvoice(app, invoiceBody([{ itemId: null, kind: "expense", description: "x", qty: "1", unitCost: "100", taxRateId: "TAX-1" }]));
+    expect(unknown.status).toBe(422);
+    expect(((await unknown.json()) as { error: string }).error).toBe("TAX_RATE_NOT_FOUND");
+
+    const mismatch = await postInvoice(app, invoiceBody([{ itemId: null, kind: "expense", description: "x", qty: "1", unitCost: "100", taxRateId: "VAT-EXEMPT", taxRatePercent: 14 }]));
+    expect(mismatch.status).toBe(422);
+    const body = (await mismatch.json()) as { error: string; message: string };
+    expect(body.error).toBe("TAX_RATE_PERCENT_MISMATCH");
+    expect(body.message).toMatch(/[\u0600-\u06FF]/);
+
+    const nothingStored = await app.fetch(req("/purchases/invoices/pi-tax", { permissions: ADMIN }));
+    expect(nothingStored.status).toBe(404);
+  });
+});
 
 describe("purchases-routes — permission gates", () => {
   it("403s creating a PO with no permission", async () => {

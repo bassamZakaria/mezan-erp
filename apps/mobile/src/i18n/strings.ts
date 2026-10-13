@@ -95,6 +95,10 @@ export interface Strings {
     readonly submitInvoice: string;
     readonly quoteCreated: string;
     readonly invoiceCreated: string;
+    readonly rerateTotals: string;
+    readonly rerateConfirm: string;
+    readonly rerateKeepDraft: string;
+    readonly rerateKeptDraft: string;
     readonly noPermission: string;
     readonly customerRequired: string;
     readonly locationRequired: string;
@@ -298,6 +302,10 @@ const AR: Strings = {
     submitInvoice: "إنشاء الفاتورة وتأكيدها",
     quoteCreated: "تم إنشاء عرض السعر",
     invoiceCreated: "تم إنشاء الفاتورة وتأكيدها",
+    rerateTotals: "الإجمالي الذي سيُرحَّل: {recalculated} — المعروض حالياً: {shown}. التأكيد يُرحِّل الإجمالي الجديد.",
+    rerateConfirm: "تأكيد بالإجمالي الجديد",
+    rerateKeepDraft: "حفظ كمسودة دون تأكيد",
+    rerateKeptDraft: "حُفظت الفاتورة كمسودة ولم تُرحَّل. راجع إجماليها الجديد {recalculated} ثم أكِّدها من قائمة الفواتير.",
     noPermission: "لا تملك صلاحية إنشاء مستندات البيع.",
     customerRequired: "اختر عميلًا أولًا.",
     locationRequired: "اختر الفرع والمستودع أولًا.",
@@ -502,6 +510,10 @@ const EN: Strings = {
     submitInvoice: "Create and confirm invoice",
     quoteCreated: "Quote created",
     invoiceCreated: "Invoice created and confirmed",
+    rerateTotals: "Total that will post: {recalculated} — currently shown: {shown}. Confirming posts the new total.",
+    rerateConfirm: "Confirm at the new total",
+    rerateKeepDraft: "Keep as a draft, do not confirm",
+    rerateKeptDraft: "The invoice was saved as a draft and was not posted. Review its new total {recalculated}, then confirm it from the invoices list.",
     noPermission: "You do not hold the right to create sales documents.",
     customerRequired: "Choose a customer first.",
     locationRequired: "Choose the branch and warehouse first.",

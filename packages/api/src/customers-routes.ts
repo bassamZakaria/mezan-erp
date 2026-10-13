@@ -14,10 +14,12 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   AuditChangeAction,
-  VatPeriodAlreadyFiledError,
+  TaxRateStatusCode,
+  isSystemTaxRate,
   type AuditSink,
   type Customer,
   type CustomerRepository,
+  type TaxRate,
   POS_WALK_IN_CUSTOMER_ID,
 } from "@mezan/domain";
 import { createCustomerSchema, updateCustomerSchema } from "@mezan/contracts";
@@ -32,6 +34,10 @@ import { tenantToday } from "./tenant-day.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { atomically, type ConfigTransactor } from "./config-transactor.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
+
+export interface CustomerTaxRateLookup {
+  findById(id: string): Promise<Pick<TaxRate, "id" | "name" | "rate" | "status"> | null>;
+}
 
 /** Resolves a price list by id, so `priceListId` can be checked against the real resource. */
 export interface CustomerPriceListLookup {
@@ -107,6 +113,7 @@ function serialize(customer: Customer) {
     priceListId: customer.priceListId,
     creditLimit: customer.creditLimit.toString(),
     taxExempt: customer.taxExempt,
+    taxExemptionRateId: customer.taxExemptionRateId,
     etaBuyerType: customer.etaBuyerType,
     commercialRegistrationNumber: customer.commercialRegistrationNumber,
     address: customer.address,
@@ -133,6 +140,7 @@ export const AUDITED_CUSTOMER_FIELDS = [
   "priceListId",
   "creditLimit",
   "taxExempt",
+  "taxExemptionRateId",
   "etaBuyerType",
   "commercialRegistrationNumber",
   "address",
@@ -151,8 +159,7 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof HeaderAccountNotPostableError ||
     err instanceof InactiveAccountError ||
     err instanceof NoFiscalPeriodForDateError ||
-    err instanceof PeriodNotOpenForPostingError ||
-    err instanceof VatPeriodAlreadyFiledError
+    err instanceof PeriodNotOpenForPostingError
   ) {
     const messageEn = (err as Error & { messageEn?: string }).messageEn;
     return c.json({ error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) }, 422);
@@ -176,9 +183,57 @@ export function createCustomersRouter(
   openingBalances?: PartyOpeningBalancePoster,
   /** SECURITY: makes a refused create — a taken id included — leave no opening-balance entry behind. */
   transactor?: ConfigTransactor,
+  taxRates?: CustomerTaxRateLookup,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  /**
+   * INVARIANT: the exemption rate is what the customer's zero-rated lines are
+   * filed under, so it must be a real, active, 0% rate and the customer must
+   * be exempt. Which 0% rate — exempt, export, not subject — is the tenant's
+   * declaration; nothing here chooses or checks the authority's sub-type.
+   */
+  async function exemptionRateRefusal(taxExempt: boolean, taxExemptionRateId: string | null) {
+    if (taxExemptionRateId === null) return null;
+    if (!taxExempt) {
+      return {
+        error: "CUSTOMER_EXEMPTION_RATE_WITHOUT_EXEMPTION",
+        message: "لا تُحدَّد ضريبة إعفاء لعميل غير معفى. فعّل «إعفاء ضريبي» أولاً.",
+        messageEn: "An exemption tax rate needs a tax-exempt customer. Turn on tax exemption first.",
+      };
+    }
+    if (!taxRates) {
+      return {
+        error: "CUSTOMER_EXEMPTION_RATE_UNVERIFIABLE",
+        message: "تعذّر التحقق من ضريبة الإعفاء: جدول الضرائب غير متاح.",
+        messageEn: "The exemption tax rate cannot be verified: tax rates are unavailable.",
+      };
+    }
+    const rate = await taxRates.findById(taxExemptionRateId);
+    if (!rate) {
+      return {
+        error: "TAX_RATE_NOT_FOUND",
+        message: "ضريبة الإعفاء المحددة غير موجودة.",
+        messageEn: "The selected exemption tax rate was not found.",
+      };
+    }
+    if (isSystemTaxRate(rate.id)) {
+      return {
+        error: "CUSTOMER_EXEMPTION_RATE_SYSTEM",
+        message: `«${rate.name}» ضريبة يسمّيها النظام للمنشأة التي أوقفت ضريبة القيمة المضافة، ولا تُسجَّل ضريبةَ إعفاء على بطاقة عميل. اختر ضريبة بنسبة 0٪ من ضرائب المنشأة.`,
+        messageEn: `"${rate.name}" is named by the system for a tenant whose VAT is off; it cannot be a customer's exemption rate. Pick one of the tenant's own 0% rates.`,
+      };
+    }
+    if (rate.status !== TaxRateStatusCode.Active || rate.rate !== 0) {
+      return {
+        error: "CUSTOMER_EXEMPTION_RATE_INVALID",
+        message: `ضريبة الإعفاء يجب أن تكون ضريبة مفعّلة بنسبة 0٪، و«${rate.name}» ليست كذلك.`,
+        messageEn: `The exemption tax rate must be an active 0% rate, and "${rate.name}" is not.`,
+      };
+    }
+    return null;
+  }
 
   /**
    * `priceListId` names an entity, so it has to resolve to one. Accepting an
@@ -204,7 +259,7 @@ export function createCustomersRouter(
       before: before ? serialize(before) : null,
       after: serialize(customer),
       fields: AUDITED_CUSTOMER_FIELDS,
-      warnOn: ["creditLimit", "openingBalance", "priceListId", "taxNumber", "taxExempt", "active"],
+      warnOn: ["creditLimit", "openingBalance", "priceListId", "taxNumber", "taxExempt", "taxExemptionRateId", "active"],
       details: { code: customer.code, nameAr: customer.nameAr },
     });
   }
@@ -383,6 +438,8 @@ export function createCustomersRouter(
     if (await priceListMissing(parsed.data.priceListId)) {
       return c.json({ error: "PRICE_LIST_NOT_FOUND", message: "قائمة الأسعار المحددة غير موجودة." }, 422);
     }
+    const exemptionRefusal = await exemptionRateRefusal(parsed.data.taxExempt ?? false, parsed.data.taxExemptionRateId ?? null);
+    if (exemptionRefusal) return c.json(exemptionRefusal, 422);
     try {
       const { openingBalance, openingBalanceDate, creditLimit, ...fields } = parsed.data;
       const rest = { ...fields, code };
@@ -442,6 +499,13 @@ export function createCustomersRouter(
     if (await priceListMissing(parsed.data.priceListId)) {
       return c.json({ error: "PRICE_LIST_NOT_FOUND", message: "قائمة الأسعار المحددة غير موجودة." }, 422);
     }
+    const nextTaxExempt = parsed.data.taxExempt ?? current.taxExempt;
+    const namedExemptionRate = parsed.data.taxExemptionRateId;
+    const nextExemptionRateId = namedExemptionRate !== undefined ? namedExemptionRate : nextTaxExempt ? current.taxExemptionRateId : null;
+    if (nextExemptionRateId !== current.taxExemptionRateId || nextTaxExempt !== current.taxExempt) {
+      const exemptionRefusal = await exemptionRateRefusal(nextTaxExempt, nextExemptionRateId);
+      if (exemptionRefusal) return c.json(exemptionRefusal, 422);
+    }
     try {
       // Only include openingBalance/creditLimit in the patch when the caller
       // actually supplied one — updateCustomer does a blind `{ ...current,
@@ -450,6 +514,7 @@ export function createCustomersRouter(
       const { openingBalance, openingBalanceDate, creditLimit, ...rest } = parsed.data;
       const patch: Parameters<typeof updateCustomer>[1] = {
         ...rest,
+        taxExemptionRateId: nextExemptionRateId,
         ...(openingBalance !== undefined ? { openingBalance: Money.fromMajor(openingBalance) } : {}),
         ...(creditLimit !== undefined ? { creditLimit: Money.fromMajor(creditLimit) } : {}),
       };

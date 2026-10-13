@@ -4,6 +4,7 @@ import {
   LandedCostStandsOnDocumentError,
   ApprovalRequestRejectedError,
   DocumentNotFoundError,
+  DocumentReversalRefusedError,
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   MissingHookError,
@@ -11,6 +12,9 @@ import {
   NegativeStockError,
   UncostedDeficitIssueError,
   InvalidStockMovementError,
+  NoFiscalPeriodForDateError,
+  PeriodNotOpenForPostingError,
+  ReversalDateBeforeOriginalError,
 } from "@mezan/domain";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
@@ -37,6 +41,9 @@ export function handleDocumentError(c: Context, err: unknown): Response {
   if (err instanceof InvalidDocumentTransitionError) {
     return refuse(err, 409);
   }
+  if (err instanceof DocumentReversalRefusedError) {
+    return refuse(err, 409);
+  }
   if (
     err instanceof LandedCostDateBeforeStockMovementError ||
     err instanceof LandedCostStandsOnDocumentError
@@ -52,6 +59,13 @@ export function handleDocumentError(c: Context, err: unknown): Response {
     );
   }
   if (err instanceof InvalidDocumentError || err instanceof ReversalNotReversibleError) {
+    return refuse(err, 422);
+  }
+  if (
+    err instanceof PeriodNotOpenForPostingError ||
+    err instanceof NoFiscalPeriodForDateError ||
+    err instanceof ReversalDateBeforeOriginalError
+  ) {
     return refuse(err, 422);
   }
   if (err instanceof MissingHookError) {

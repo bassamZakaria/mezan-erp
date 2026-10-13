@@ -20,6 +20,7 @@ import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/doc
 import { buildEffects, type DocumentEffects } from "../documents/effects.js";
 import type { DocumentGlPosting, DocumentStockPlan } from "../documents/hooks.js";
 import { InvalidDocumentError } from "../documents/errors.js";
+import { assertReturnTotalsWithinAvailable, isStandingReturn } from "../documents/return-availability.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 
 export const DOC_TYPE = "PURCHASE_RETURN";
@@ -40,6 +41,7 @@ export interface PurchaseReturnLine {
   readonly supplierId: string;
   readonly sourceInvoiceId: string;
   readonly sourceInvoiceNumber: string | null;
+  readonly sourceLineId?: string | null;
   readonly reason: PurchaseReturnReason;
   /** Originally invoiced qty still eligible to return (caller-computed: invoice qty − already returned). */
   readonly availableQty: Qty;
@@ -55,6 +57,7 @@ export interface PurchaseReturnLine {
    * carrying none posts exactly the entry it always did.
    */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
   /**
    * بُعد المشروع — every line of a confirmed return carries the same
    * document-wide value (D-01), the same convention as `sourceInvoiceId`.
@@ -122,7 +125,7 @@ export function purchaseReturnCreditByInvoice(
 ): ReadonlyMap<string, Money> {
   const byInvoice = new Map<string, Money>();
   for (const doc of docs) {
-    if (doc.status !== "confirmed" || doc.reversesDocId) continue;
+    if (!isStandingReturn(doc)) continue;
     for (const line of doc.lines) {
       if (!line.sourceInvoiceId) continue;
       byInvoice.set(line.sourceInvoiceId, (byInvoice.get(line.sourceInvoiceId) ?? Money.zero()).add(purchaseReturnLineCredit(line)));
@@ -186,6 +189,7 @@ export function createPurchaseReturnDocumentType(
           );
         }
       }
+      assertReturnTotalsWithinAvailable(DOC_TYPE, doc.id, doc.lines);
     },
 
     buildStockPlan(doc): DocumentStockPlan {
@@ -225,15 +229,17 @@ export function createPurchaseReturnDocumentType(
       // exactly the supplier credit at that rate — the input base the VAT
       // return needs. One untagged pair when no line carries a rate, which is
       // the entry this type always posted (D28, D76).
-      const byRate = new Map<number | null, { base: Money; tax: Money }>();
+      type RateGroup = { readonly rate: number | null; readonly taxRateId: string | null; readonly base: Money; readonly tax: Money };
+      const taxKeyOf = (l: PurchaseReturnLine): string => `${l.sourceInvoiceId}|${l.taxRatePercent ?? null}|${l.taxRateId ?? ""}`;
+      const byRate = new Map<string, RateGroup>();
       for (const l of doc.lines) {
-        const rate = l.taxRatePercent ?? null;
-        const slot = byRate.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
+        const key = taxKeyOf(l);
+        const slot = byRate.get(key) ?? { rate: l.taxRatePercent ?? null, taxRateId: l.taxRateId ?? null, base: Money.zero(), tax: Money.zero() };
         const part = purchaseReturnLineBase(l);
-        byRate.set(rate, { base: slot.base.add(part.cost), tax: slot.tax.add(part.tax) });
+        byRate.set(key, { ...slot, base: slot.base.add(part.cost), tax: slot.tax.add(part.tax) });
       }
-      const rates = [...byRate.keys()];
-      const weights = rates.map((r) => (byRate.get(r) as { base: Money }).base.scaled);
+      const rates = [...byRate.values()];
+      const weights = rates.map((r) => r.base.scaled);
       const splitByRate = (amount: Money): Money[] =>
         weights.some((w) => w > 0n) ? allocate(amount, weights) : rates.map(() => amount);
       // The variance (price-difference) account is never a cost-side line, so
@@ -247,15 +253,16 @@ export function createPurchaseReturnDocumentType(
       const projectId = doc.lines[0]?.projectId ?? null;
       const first = doc.lines[0];
       const fxTag = first?.fxRate ? { currency: first.currency ?? null, fxRate: first.fxRate } : {};
-      type RateCatGroup = { readonly rate: number | null; readonly costCategory: CostCategory | null; readonly base: Money };
+      type RateCatGroup = { readonly rate: number | null; readonly taxRateId: string | null; readonly costCategory: CostCategory | null; readonly base: Money };
       const byRateAndCategory = new Map<string, RateCatGroup>();
       for (const l of doc.lines) {
         const rate = l.taxRatePercent ?? null;
         const costCategory = l.costCategory ?? null;
-        const key = `${rate}|${costCategory}`;
+        const taxRateId = l.taxRateId ?? null;
+        const key = `${taxKeyOf(l)}|${costCategory}`;
         const existing = byRateAndCategory.get(key);
         const base = purchaseReturnLineBase(l).cost;
-        byRateAndCategory.set(key, { rate, costCategory, base: existing ? existing.base.add(base) : base });
+        byRateAndCategory.set(key, { rate, taxRateId, costCategory, base: existing ? existing.base.add(base) : base });
       }
       const rcGroups = [...byRateAndCategory.values()];
       const rcWeights = rcGroups.map((g) => g.base.scaled);
@@ -271,12 +278,11 @@ export function createPurchaseReturnDocumentType(
         memo: doc.memo || `مرتجع مشتريات ${doc.docNo ?? doc.id} — فاتورة ${doc.lines[0]?.sourceInvoiceNumber ?? doc.lines[0]?.sourceInvoiceId}`,
         lines: [
           { accountId: accounts.accountsPayableId, debit: grandTotal, credit: Money.zero(), ...fxTag },
-          ...rates.flatMap((rate) => {
-            const tax = (byRate.get(rate) as { tax: Money }).tax;
-            return tax.scaled > 0n
-              ? [{ accountId: accounts.inputTaxPayableId, debit: Money.zero(), credit: tax, taxRatePercent: rate }]
-              : [];
-          }),
+          ...rates.flatMap(({ rate, taxRateId, tax }) =>
+            tax.scaled > 0n
+              ? [{ accountId: accounts.inputTaxPayableId, debit: Money.zero(), credit: tax, taxRatePercent: rate, taxRateId }]
+              : [],
+          ),
           ...rcGroups.flatMap((g, i) => {
             const share = inventoryRcShares[i] as Money;
             return share.scaled === 0n
@@ -286,15 +292,16 @@ export function createPurchaseReturnDocumentType(
                   debit: Money.zero(),
                   credit: share,
                   taxRatePercent: g.rate,
+                  taxRateId: g.taxRateId,
                   ...(g.costCategory ? { costCategory: g.costCategory } : {}),
                 }];
           }),
-          ...rates.flatMap((rate, i) => {
+          ...rates.flatMap(({ rate, taxRateId }, i) => {
             const share = varianceShares[i] as Money;
             if (share.scaled === 0n) return [];
             return share.scaled > 0n
-              ? [{ accountId: accounts.priceVarianceAccountId, debit: Money.zero(), credit: share, taxRatePercent: rate }]
-              : [{ accountId: accounts.priceVarianceAccountId, debit: share.negate(), credit: Money.zero(), taxRatePercent: rate }];
+              ? [{ accountId: accounts.priceVarianceAccountId, debit: Money.zero(), credit: share, taxRatePercent: rate, taxRateId }]
+              : [{ accountId: accounts.priceVarianceAccountId, debit: share.negate(), credit: Money.zero(), taxRatePercent: rate, taxRateId }];
           }),
         ].map((l) => ({ ...l, projectId, branchId: doc.lines[0]?.branchId ?? null })),
       };

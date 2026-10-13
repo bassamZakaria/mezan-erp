@@ -16,6 +16,7 @@ function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
     revenueAccountId: "4100",
     cogsAccountId: null,
     inventoryAccountId: null,
+    taxRateId: null,
     costCenterId: null,
     unitCost: null,
     unitCode: "",
@@ -65,6 +66,15 @@ function invoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
 }
 
 describe("aggregateItemSales", () => {
+  it("counts what was sold in base units, so a carton of 12 and 3 loose pieces are 15 and never 4", () => {
+    const sold = aggregateItemSales(
+      [invoice({ lines: [line({ lineId: "c", qty: Qty.fromMajor("1"), unitFactor: 12, baseQty: Qty.fromMajor("12") }), line({ lineId: "p", qty: Qty.fromMajor("3") })] })],
+      undefined,
+      undefined,
+    );
+    expect(sold.map((row) => row.qty)).toEqual([15]);
+  });
+
   it("aggregates qty and taxable-base revenue per item across invoices", () => {
     const invoices = [
       invoice({ id: "i1", lines: [line({ itemId: "item-a", itemNameAr: "صنف أ", qty: Qty.fromMajor("2"), unitPrice: Money.fromMajor("50.00") })] }),

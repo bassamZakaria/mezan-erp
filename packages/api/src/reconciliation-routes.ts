@@ -8,6 +8,7 @@ import {
   type ReconciliationSummary,
   type ForeignResidue,
   type StockLedgerDateMismatch,
+  type StockPositionFaultRow,
 } from "@mezan/domain";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
@@ -28,6 +29,7 @@ export interface ReconciliationRoutesDeps {
   readonly resolveControls: () => Promise<readonly ReconciliationControl[]>;
   readonly foreignResidues?: () => Promise<readonly ForeignResidue[]>;
   readonly stockLedgerDates?: () => Promise<readonly StockLedgerDateMismatch[]>;
+  readonly stockPositionFaults?: () => Promise<readonly StockPositionFaultRow[]>;
 }
 
 export async function reconcileControls(
@@ -75,6 +77,7 @@ export function createReconciliationRoutes(
     const unlinked = findUnlinkedControlLines(lines, controlIds);
     const residues = (await deps.foreignResidues?.()) ?? [];
     const misdated = (await deps.stockLedgerDates?.()) ?? [];
+    const faultyPositions = (await deps.stockPositionFaults?.()) ?? [];
     const residueTotal = residues.reduce((sum, row) => sum + (row.base.scaled < 0n ? -row.base.scaled : row.base.scaled), 0n);
 
     return c.json({
@@ -95,6 +98,10 @@ export function createReconciliationRoutes(
       stockLedgerDates: {
         count: misdated.length,
         rows: misdated.map((row) => ({ docType: row.docType, docId: row.docId, docNo: row.docNo, movedOn: row.movedOn, postedOn: [...row.postedOn] })),
+      },
+      stockPositions: {
+        count: faultyPositions.length,
+        rows: faultyPositions.map((row) => ({ itemId: row.itemId, warehouseId: row.warehouseId, onHand: row.onHand.toString(), totalValue: row.totalValue.toString(), fault: row.fault })),
       },
       unlinked: unlinked.map((u) => ({
         entryId: u.entryId,

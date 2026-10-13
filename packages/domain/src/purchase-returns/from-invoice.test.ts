@@ -23,7 +23,7 @@ describe("buildPurchaseReturnLinesFromInvoice", () => {
   it("builds one return line per requested item, carrying the invoice's supplier/source refs", () => {
     const lines = buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "DEFECTIVE", [
       { itemId: "ITEM1", qty: Qty.fromMajor("3") },
-    ]);
+    ]).lines;
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({
       itemId: "ITEM1",
@@ -43,7 +43,7 @@ describe("buildPurchaseReturnLinesFromInvoice", () => {
         { itemId: "ITEM1", itemName: "صنف 1", qty: Qty.fromMajor("10"), alreadyReturnedQty: Qty.fromMajor("4"), unitCost: Money.fromMajor("40"), taxAmount: Money.fromMajor("56") },
       ],
     });
-    const lines = buildPurchaseReturnLinesFromInvoice(inv, "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.fromMajor("2") }]);
+    const lines = buildPurchaseReturnLinesFromInvoice(inv, "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.fromMajor("2") }]).lines;
     expect(lines[0]?.availableQty.toString()).toBe("6.000000");
   });
 
@@ -56,13 +56,13 @@ describe("buildPurchaseReturnLinesFromInvoice", () => {
     });
     const secondLines = buildPurchaseReturnLinesFromInvoice(afterFirstReturn, "WH1", "OTHER", [
       { itemId: "ITEM1", qty: Qty.fromMajor("7") },
-    ]);
+    ]).lines;
     expect(secondLines[0]?.availableQty.toString()).toBe("7.000000");
     expect(secondLines[0]?.qty.toString()).toBe("7.000000");
   });
 
   it("filters out an item that was not requested", () => {
-    const lines = buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.fromMajor("1") }]);
+    const lines = buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.fromMajor("1") }]).lines;
     expect(lines.map((l) => l.itemId)).toEqual(["ITEM1"]);
   });
 
@@ -70,16 +70,16 @@ describe("buildPurchaseReturnLinesFromInvoice", () => {
     const lines = buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [
       { itemId: "ITEM1", qty: Qty.zero() },
       { itemId: "ITEM2", qty: Qty.fromMajor("1") },
-    ]);
+    ]).lines;
     expect(lines.map((l) => l.itemId)).toEqual(["ITEM2"]);
   });
 
   it("returns no lines when nothing was requested", () => {
-    expect(buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [])).toEqual([]);
+    expect(buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "OTHER", []).lines).toEqual([]);
   });
 
   it("prorates the tax share proportionally to the requested qty out of the line's full qty", () => {
-    const lines = buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.fromMajor("5") }]);
+    const lines = buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.fromMajor("5") }]).lines;
     // full line qty 10 carries 56 tax; returning 5 of 10 => half the tax.
     expect(lines[0]?.taxAmount.toString()).toBe("28.000000");
   });
@@ -90,12 +90,12 @@ describe("buildPurchaseReturnLinesFromInvoice", () => {
     });
     // With qty zero the invoice line offers nothing to request against a positive qty in practice,
     // but the guard exists precisely so a zero-qty line never divides by zero.
-    const lines = buildPurchaseReturnLinesFromInvoice(inv, "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.zero() }]);
+    const lines = buildPurchaseReturnLinesFromInvoice(inv, "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.zero() }]).lines;
     expect(lines).toEqual([]);
   });
 
   it("carries the invoice line's unitCost onto the return line unchanged", () => {
-    const lines = buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [{ itemId: "ITEM2", qty: Qty.fromMajor("2") }]);
+    const lines = buildPurchaseReturnLinesFromInvoice(invoice(), "WH1", "OTHER", [{ itemId: "ITEM2", qty: Qty.fromMajor("2") }]).lines;
     expect(lines[0]?.unitCost.toString()).toBe("20.000000");
   });
 
@@ -106,7 +106,7 @@ describe("buildPurchaseReturnLinesFromInvoice", () => {
         { itemId: "ITEM1", itemName: "صنف 1", qty: Qty.fromMajor("10"), alreadyReturnedQty: Qty.zero(), unitCost: Money.fromMajor("40"), taxAmount: Money.fromMajor("56"), costCategory: "materials" },
       ],
     });
-    const lines = buildPurchaseReturnLinesFromInvoice(inv, "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.fromMajor("3") }]);
+    const lines = buildPurchaseReturnLinesFromInvoice(inv, "WH1", "OTHER", [{ itemId: "ITEM1", qty: Qty.fromMajor("3") }]).lines;
     expect(lines[0]?.projectId).toBe("proj-1");
     expect(lines[0]?.costCategory).toBe("materials");
   });

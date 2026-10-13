@@ -15,6 +15,8 @@ import {
   type Account,
   type SalesReturnDocument,
   type DocumentWorkflowGate,
+  EtaSubmissionStatusCode,
+  EtaDocumentTypeCode,
 } from "@mezan/domain";
 import { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "@mezan/persistence";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
@@ -86,7 +88,7 @@ class MemLedger {
   async transaction<T>(fn: () => Promise<T>) { return fn(); }
 }
 class MemSeq { m = new Map<string, number>(); async increment(code: string, period: number | null) { const k = `${code}:${period ?? ""}`; const n = (this.m.get(k) ?? 0) + 1; this.m.set(k, n); return n; } }
-class MemStockLedger { rows: any[] = []; async append(m: any) { this.rows.push(m); } async listByPosition(i: string, w: string) { return this.rows.filter((m) => m.itemId === i && m.warehouseId === w); } async listByItem() { return []; } async listByWarehouse() { return []; } async listPositions() { return []; } }
+class MemStockLedger { rows: any[] = []; async append(m: any) { this.rows.push(m); } async listByPosition(i: string, w: string) { return this.rows.filter((m) => m.itemId === i && m.warehouseId === w); } async listByItem() { return []; } async listByWarehouse() { return []; } async listPositions() { return []; } async listBySourceDoc(id: string) { return this.rows.filter((m) => m.sourceDocId === id); } }
 class MemLayers { rows = new Map<string, any>(); async add(l: any) { this.rows.set(l.id, l); } async listByPosition(i: string, w: string) { return [...this.rows.values()].filter((l) => l.itemId === i && l.warehouseId === w); } async updateRemaining(id: string, q: any) { const l = this.rows.get(id); if (l) this.rows.set(id, { ...l, remainingQty: q }); } async remove(id: string) { this.rows.delete(id); } }
 class MemSnaps { rows = new Map<string, any>(); key(i: string, w: string) { return `${i}:${w}`; } async get(i: string, w: string) { return this.rows.get(this.key(i, w)) ?? null; } async save(s: any) { this.rows.set(this.key(s.itemId, s.warehouseId), s); } async list() { return [...this.rows.values()]; } }
 
@@ -95,6 +97,8 @@ async function harness(
     maxLineDiscountPercent?: number;
     returns?: SalesInvoiceRoutesDeps["returns"];
     withoutStockRestore?: boolean;
+    etaDocumentOf?: SalesInvoiceRoutesDeps["etaDocumentOf"];
+    withdrawUnsentEtaSubmission?: SalesInvoiceRoutesDeps["withdrawUnsentEtaSubmission"];
     now?: string;
     workflow?: DocumentWorkflowGate;
   } = {},
@@ -145,6 +149,9 @@ async function harness(
   const collectionNumbering = new NextNumberService(new MemSeq());
   const deps: SalesInvoiceRoutesDeps = {
     repo,
+    users: { findById: async (id: string) => ({ id, employeeId: `emp-${id}` }) as Awaited<ReturnType<NonNullable<SalesInvoiceRoutesDeps["users"]>["findById"]>> },
+    taxPolicy: () => ({ enabled: true, defaultRatePercent: 0, inclusive: false }),
+    taxRates: { list: async () => [] },
     ...(opts.returns ? { returns: opts.returns } : {}),
     ...(opts.maxLineDiscountPercent === undefined
       ? {}
@@ -156,6 +163,8 @@ async function harness(
     stock: createSalesInvoiceStockHook(stockService),
     ...(opts.workflow ? { workflow: opts.workflow } : {}),
     ...(opts.withoutStockRestore ? {} : { stockRestore: createInventoryStockHook(stockService) }),
+    ...(opts.etaDocumentOf ? { etaDocumentOf: opts.etaDocumentOf } : {}),
+    ...(opts.withdrawUnsentEtaSubmission ? { withdrawUnsentEtaSubmission: opts.withdrawUnsentEtaSubmission } : {}),
     now: () => opts.now ?? NOW,
     idGen: (() => { let n = 0; return () => `inv-${++n}`; })(),
     /**
@@ -201,6 +210,7 @@ function req(path: string, init: RequestInit & { permissions?: string; roleCodes
 }
 
 const draftBody = {
+  salespersonId: "emp-u1",
   date: "2026-08-22",
   dueDate: "2026-09-21",
   customerId: "cust-1",
@@ -402,6 +412,58 @@ describe("what the confirm route feeds the workflow gate", () => {
  * so a wrong CONFIRMED invoice had no exit at all — only a draft could be
  * cancelled. Every assertion here is on the books, not on the status flag.
  */
+const VOID_BODY = JSON.stringify({ reason: "صدرت بالخطأ" });
+
+const VOID_WITH_VIEW = "sales.invoice.void,sales.invoice.view";
+
+describe("voiding an invoice the tax authority holds, or is about to", () => {
+  async function confirmedWith(documentType: EtaDocumentTypeCode, status: EtaSubmissionStatusCode | null) {
+    const withdrawn: string[] = [];
+    const h = await harness({
+      etaDocumentOf: async () => (status === null ? null : { status, documentType }),
+      withdrawUnsentEtaSubmission: async (invoice) => {
+        withdrawn.push(invoice.id);
+      },
+    });
+    const create = await h.app.fetch(req("/", { method: "POST", body: JSON.stringify(draftBody), permissions: "sales.invoice.create" }));
+    const { id } = (await create.json()) as { id: string };
+    await h.app.fetch(req(`/${id}/confirm`, { method: "POST", body: "{}", permissions: "sales.invoice.confirm" }));
+    const res = await h.app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID_WITH_VIEW }));
+    const stored = await h.repo.findById(id);
+    return { res, body: (await res.json()) as { error?: string; message?: string; messageEn?: string }, stored, withdrawn, id };
+  }
+
+  it.each([
+    [EtaDocumentTypeCode.Invoice, EtaSubmissionStatusCode.Submitted, "ETA_INVOICE_AWAITING_VERDICT", "انتظر"],
+    [EtaDocumentTypeCode.Invoice, EtaSubmissionStatusCode.Accepted, "ETA_INVOICE_ACCEPTED", "إشعار دائن"],
+    [EtaDocumentTypeCode.Receipt, EtaSubmissionStatusCode.Submitted, "ETA_RECEIPT_AWAITING_VERDICT", "انتظر"],
+    [EtaDocumentTypeCode.Receipt, EtaSubmissionStatusCode.Accepted, "ETA_RECEIPT_ACCEPTED", "إيصال مرتجع"],
+  ])("refuses while its e-%s is %s: the books never drop VAT the authority keeps", async (documentType, status, code, way) => {
+    const { res, body, stored, withdrawn } = await confirmedWith(documentType, status);
+    expect([res.status, body.error]).toEqual([409, code]);
+    expect(body.message).toContain(way);
+    expect(body.messageEn).toBeTruthy();
+    expect([stored?.status, withdrawn]).toEqual(["confirmed", []]);
+  });
+
+  it.each(
+    [EtaDocumentTypeCode.Invoice, EtaDocumentTypeCode.Receipt].flatMap((documentType) =>
+      [EtaSubmissionStatusCode.Ready, EtaSubmissionStatusCode.PendingSignature, EtaSubmissionStatusCode.Error, EtaSubmissionStatusCode.Excluded, null].map(
+        (status) => [documentType, status] as const,
+      ),
+    ),
+  )("proceeds while its e-%s is %s, and withdraws it in the same act", async (documentType, status) => {
+    const { res, stored, withdrawn, id } = await confirmedWith(documentType, status);
+    expect([res.status, stored?.status, withdrawn]).toEqual([200, "reversed", [id]]);
+  });
+
+  it("judges every status the queue knows, for both document types", () => {
+    expect(Object.values(EtaSubmissionStatusCode).sort()).toEqual(
+      [EtaSubmissionStatusCode.Ready, EtaSubmissionStatusCode.PendingSignature, EtaSubmissionStatusCode.Error, EtaSubmissionStatusCode.Excluded, EtaSubmissionStatusCode.Submitted, EtaSubmissionStatusCode.Accepted].sort(),
+    );
+  });
+});
+
 describe("voiding a confirmed invoice", () => {
   const VOID = "sales.invoice.void";
 
@@ -439,7 +501,7 @@ describe("voiding a confirmed invoice", () => {
     expect(postedBalance(ledger, AR).toString()).toBe("387.600000");
     expect((await stockService.getPosition("ITEM-A", "WH1")).onHand.toString()).toBe("90.000000");
 
-    const res = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }));
+    const res = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }));
     expect(res.status).toBe(200);
     const voided = (await res.json()) as any;
     expect(voided.status).toBe("reversed");
@@ -478,7 +540,7 @@ describe("voiding a confirmed invoice", () => {
 
   it("refuses without sales.invoice.void", async () => {
     const { app, id } = await confirmedInvoice();
-    const res = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: "sales.invoice.confirm" }));
+    const res = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: "sales.invoice.confirm" }));
     expect(res.status).toBe(403);
   });
 
@@ -486,12 +548,12 @@ describe("voiding a confirmed invoice", () => {
     const { app } = await harness();
     const create = await app.fetch(req("/", { method: "POST", body: JSON.stringify(draftBody), permissions: "sales.invoice.create" }));
     const { id } = (await create.json()) as any;
-    const draftVoid = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }));
+    const draftVoid = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }));
     expect(draftVoid.status).toBe(409);
 
     await app.fetch(req(`/${id}/confirm`, { method: "POST", body: JSON.stringify({}), permissions: "sales.invoice.confirm" }));
-    expect((await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }))).status).toBe(200);
-    expect((await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }))).status).toBe(409);
+    expect((await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }))).status).toBe(200);
+    expect((await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }))).status).toBe(409);
   });
 
   it("refuses an invoice that has been collected against, and moves nothing", async () => {
@@ -504,7 +566,7 @@ describe("voiding a confirmed invoice", () => {
       }),
     );
 
-    const res = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }));
+    const res = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }));
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: "INVOICE_HAS_COLLECTIONS" });
     expect((await ledger.findById(id)).status).toBe("posted");
@@ -516,7 +578,7 @@ describe("voiding a confirmed invoice", () => {
     // (a document posts on its own date), but the void's mirror entry is
     // stamped "now" — September — and there is no open period to take it.
     const { app, ledger, stockService, id } = await confirmedInvoice({ now: "2026-09-05T09:00:00.000Z" });
-    const res = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }));
+    const res = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }));
     expect(res.status).toBe(422);
 
     expect((await ledger.findById(id)).status).toBe("posted");
@@ -526,7 +588,7 @@ describe("voiding a confirmed invoice", () => {
 
   it("answers 503 rather than reversing the GL when no stock-restore hook is mounted", async () => {
     const { app, ledger, id } = await confirmedInvoice({ withoutStockRestore: true });
-    const res = await app.fetch(req(`/${id}/void`, { method: "POST", permissions: VOID }));
+    const res = await app.fetch(req(`/${id}/void`, { method: "POST", body: VOID_BODY, permissions: VOID }));
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ error: "STOCK_RESTORE_UNAVAILABLE" });
     // The GL must be exactly where it was: a one-sided void is the bug this guards.

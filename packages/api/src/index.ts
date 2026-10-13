@@ -52,6 +52,8 @@ export {
   type VoucherRoutesDeps,
 } from "./vouchers-routes.js";
 export { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
+export { buildSalesInvoiceService, salesTaxRerating, type SalesInvoiceServiceWiring, type SalesItemTaxSource } from "./sales-invoice-service.js";
+export { customerTaxProfileFrom } from "./customer-tax-profile.js";
 export { createDocumentsRoutes } from "./documents-routes.js";
 export { createPurchasesRoutes, type PurchasesRoutesDeps } from "./purchases-routes.js";
 export { createManufacturingRoutes, type ManufacturingRoutesDeps } from "./manufacturing-routes.js";

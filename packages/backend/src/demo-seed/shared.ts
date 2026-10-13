@@ -102,6 +102,7 @@ export function seededUserId(person: SeedPerson): string {
 export const BRANCH_ID = "BR-MAIN";
 export const WAREHOUSE_ID = "WH-MAIN";
 export const VAT_PERCENT = 14;
+export const VAT_RATE_ID = "VAT14";
 
 /** Standard chart-of-accounts ids from `packages/domain/src/accounts/coa-template.ts`. */
 export const ACCOUNTS = {

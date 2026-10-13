@@ -24,6 +24,10 @@ export class InMemoryTaxRateRepository implements TaxRateRepository {
     insertOnly(this.rows, taxRate.id, taxRate);
   }
 
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    return fn();
+  }
+
   async update(taxRate: TaxRate): Promise<void> {
     this.rows.set(taxRate.id, taxRate);
   }

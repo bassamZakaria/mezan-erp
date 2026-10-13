@@ -2,10 +2,16 @@ import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { insertingNew } from "./insert-new.js";
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
+import { columnsOf, writeRowColumnsWhere } from "./document-field-write.js";
+import { markInvoicesNamedByRegister } from "./document-kind-backfill.js";
 import { childRowsByParent, countMatching, FilterClauses, selectPage } from "./list-query.js";
 import {
+  InvoiceDocumentKind,
   Money,
   Qty,
+  SALES_INVOICE_ACTIVE_STATUSES,
+  SalesInvoiceField,
+  type SalesInvoiceWritePrecondition,
   type AppliedSalesInvoicePromotion,
   type SalesInvoice,
   type SalesInvoiceDiscount,
@@ -63,7 +69,10 @@ CREATE TABLE IF NOT EXISTS sales_invoice (
   journal_entry_id       TEXT,
   workflow_request_id    TEXT,
   reverses_invoice_id    TEXT REFERENCES sales_invoice(id),
-  reversed_by_invoice_id TEXT REFERENCES sales_invoice(id)
+  reversed_by_invoice_id TEXT REFERENCES sales_invoice(id),
+  document_kind          TEXT NOT NULL DEFAULT 'standard',
+  void_reason            TEXT,
+  source_quote_id        TEXT
 );
 CREATE TABLE IF NOT EXISTS sales_invoice_line (
   invoice_id           TEXT NOT NULL REFERENCES sales_invoice(id),
@@ -81,6 +90,7 @@ CREATE TABLE IF NOT EXISTS sales_invoice_line (
   line_discount_amount INTEGER,
   discount_percent     REAL NOT NULL,
   tax_rate_percent     REAL NOT NULL,
+  tax_rate_id          TEXT,
   revenue_account_id   TEXT NOT NULL,
   cogs_account_id      TEXT,
   inventory_account_id TEXT,
@@ -103,6 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_sales_invoice_date ON sales_invoice(date);
 CREATE INDEX IF NOT EXISTS idx_sales_invoice_salesperson ON sales_invoice(salesperson_id);
 CREATE INDEX IF NOT EXISTS idx_sales_invoice_promotion ON sales_invoice(promotion_id);
 CREATE INDEX IF NOT EXISTS idx_sales_invoice_line_invoice ON sales_invoice_line(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_sales_invoice_line_tax_rate ON sales_invoice_line(tax_rate_id) WHERE tax_rate_id IS NOT NULL;
 `;
 
 /**
@@ -126,6 +137,9 @@ const ADDED_COLUMNS: readonly (readonly [string, string])[] = [
   ["tax_inclusive", "INTEGER"],
   ["fx_rate", "TEXT"],
   ["project_id", "TEXT"],
+  ["document_kind", `TEXT NOT NULL DEFAULT '${InvoiceDocumentKind.Standard}'`],
+  ["void_reason", "TEXT"],
+  ["source_quote_id", "TEXT"],
 ];
 
 /** Line columns added after the table shipped — see {@link ADDED_COLUMNS}. */
@@ -136,7 +150,13 @@ const ADDED_LINE_COLUMNS: readonly [string, string][] = [
   ["line_discount_type", "TEXT"],
   ["line_discount_amount", "INTEGER"],
   ["cost_center_id", "TEXT"],
+  ["tax_rate_id", "TEXT"],
 ];
+
+function lacksColumn(sqlite: Database.Database, table: string, column: string): boolean {
+  const columns = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return columns.length > 0 && !columns.some((c) => c.name === column);
+}
 
 function addMissingColumns(sqlite: Database.Database): void {
   const existing = new Set(
@@ -162,6 +182,9 @@ interface InvoiceRow {
   due_date: string;
   customer_id: string;
   customer_name_ar: string;
+  document_kind: string | null;
+  void_reason: string | null;
+  source_quote_id: string | null;
   customer_tax_exempt: number;
   tax_inclusive: number | null;
   warehouse_id: string;
@@ -209,6 +232,7 @@ interface LineRow {
   line_discount_amount: bigint | null;
   discount_percent: number;
   tax_rate_percent: number;
+  tax_rate_id: string | null;
   revenue_account_id: string;
   cogs_account_id: string | null;
   inventory_account_id: string | null;
@@ -242,6 +266,7 @@ function toLine(row: LineRow): SalesInvoiceLine {
     discountAmount: Money.fromScaled(row.line_discount_amount ?? 0n),
     discountPercent: row.discount_percent,
     taxRatePercent: row.tax_rate_percent,
+    taxRateId: row.tax_rate_id ?? null,
     revenueAccountId: row.revenue_account_id,
     cogsAccountId: row.cogs_account_id,
     inventoryAccountId: row.inventory_account_id,
@@ -293,6 +318,9 @@ function invoiceParams(invoice: SalesInvoice) {
     due_date: invoice.dueDate,
     customer_id: invoice.customerId,
     customer_name_ar: invoice.customerNameAr,
+    document_kind: invoice.documentKind ?? InvoiceDocumentKind.Standard,
+    void_reason: invoice.voidReason ?? null,
+    source_quote_id: invoice.sourceQuoteId ?? null,
     customer_tax_exempt: invoice.customerTaxExempt ? 1 : 0,
     tax_inclusive: invoice.taxInclusive ? 1 : 0,
     warehouse_id: invoice.warehouseId,
@@ -337,6 +365,15 @@ function invoiceParams(invoice: SalesInvoice) {
   };
 }
 
+const UNPOSTED_STATUSES: readonly SalesInvoiceStatus[] = ["draft", "pending"];
+
+const SALES_INVOICE_COLUMNS: Readonly<Record<SalesInvoiceField, readonly string[]>> = {
+  [SalesInvoiceField.Status]: ["status"],
+  [SalesInvoiceField.AmountPaid]: ["amount_paid"],
+  [SalesInvoiceField.WorkflowRequestId]: ["workflow_request_id"],
+  [SalesInvoiceField.VoidReason]: ["void_reason"],
+};
+
 class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
   private readonly insertInvoice: Database.Statement;
   private readonly updateInvoice: Database.Statement;
@@ -357,7 +394,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         currency, fx_rate, notes, internal_notes,
         discount_type, discount_percent, discount_amount, ar_account_id, tax_account_id,
         amount_paid, created_at, confirmed_at, journal_entry_id, workflow_request_id,
-        reverses_invoice_id, reversed_by_invoice_id
+        reverses_invoice_id, reversed_by_invoice_id, document_kind, void_reason, source_quote_id
       ) VALUES (
         @id, @doc_type, @doc_no, @status, @date, @due_date, @customer_id, @customer_name_ar,
         @customer_tax_exempt, @tax_inclusive, @warehouse_id, @branch_id, @salesperson_id, @salesperson_name_ar,
@@ -367,7 +404,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         @currency, @fx_rate, @notes, @internal_notes,
         @discount_type, @discount_percent, @discount_amount, @ar_account_id, @tax_account_id,
         @amount_paid, @created_at, @confirmed_at, @journal_entry_id, @workflow_request_id,
-        @reverses_invoice_id, @reversed_by_invoice_id
+        @reverses_invoice_id, @reversed_by_invoice_id, @document_kind, @void_reason, @source_quote_id
       )
     `);
     this.updateInvoice = sqlite.prepare(`
@@ -409,7 +446,10 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         journal_entry_id = @journal_entry_id,
         workflow_request_id = @workflow_request_id,
         reverses_invoice_id = @reverses_invoice_id,
-        reversed_by_invoice_id = @reversed_by_invoice_id
+        reversed_by_invoice_id = @reversed_by_invoice_id,
+        document_kind = @document_kind,
+        void_reason = @void_reason,
+        source_quote_id = @source_quote_id
       WHERE id = @id
     `);
     this.deleteLines = sqlite.prepare(`DELETE FROM sales_invoice_line WHERE invoice_id = ?`);
@@ -418,13 +458,13 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         invoice_id, line_no, line_id, item_id, item_name_ar, is_stock, qty,
         unit_code, unit_factor, base_qty, unit_price,
         line_discount_type, line_discount_amount,
-        discount_percent, tax_rate_percent, revenue_account_id, cogs_account_id,
+        discount_percent, tax_rate_percent, tax_rate_id, revenue_account_id, cogs_account_id,
         inventory_account_id, unit_cost, cost_center_id
       ) VALUES (
         @invoice_id, @line_no, @line_id, @item_id, @item_name_ar, @is_stock, @qty,
         @unit_code, @unit_factor, @base_qty, @unit_price,
         @line_discount_type, @line_discount_amount,
-        @discount_percent, @tax_rate_percent, @revenue_account_id, @cogs_account_id,
+        @discount_percent, @tax_rate_percent, @tax_rate_id, @revenue_account_id, @cogs_account_id,
         @inventory_account_id, @unit_cost, @cost_center_id
       )
     `);
@@ -434,7 +474,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       .prepare(
         `SELECT line_id, item_id, item_name_ar, is_stock, qty, unit_code, unit_factor, base_qty,
                 unit_price, line_discount_type, line_discount_amount, discount_percent,
-                tax_rate_percent, revenue_account_id, cogs_account_id, inventory_account_id, unit_cost,
+                tax_rate_percent, tax_rate_id, revenue_account_id, cogs_account_id, inventory_account_id, unit_cost,
                 cost_center_id
            FROM sales_invoice_line WHERE invoice_id = ? ORDER BY line_no`,
       )
@@ -453,6 +493,43 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     // N-9: EVERY write moves the version, so a caller holding an older one is
     // detectable whichever path made the change.
     this.versions?.bump(invoice.id);
+  }
+
+  async writeFields(next: SalesInvoice, fields: readonly SalesInvoiceField[], expected: SalesInvoiceWritePrecondition): Promise<boolean> {
+    const written = writeRowColumnsWhere(this.sqlite, {
+      table: "sales_invoice",
+      row: invoiceParams(next),
+      columns: columnsOf(SALES_INVOICE_COLUMNS, fields),
+      id: next.id,
+      expectedStatuses: expected.status,
+    });
+    if (written) this.versions?.bump(next.id);
+    return written;
+  }
+
+  async replaceUnposted(next: SalesInvoice, expected: SalesInvoiceWritePrecondition): Promise<boolean> {
+    const unposted = expected.status.filter((status) => UNPOSTED_STATUSES.includes(status));
+    if (unposted.length === 0) return false;
+    const changes = this.sqlite
+      .prepare(`SELECT 1 FROM sales_invoice WHERE id = ? AND status IN (${unposted.map(() => "?").join(",")})`)
+      .get(next.id, ...unposted);
+    if (!changes) return false;
+    await this.update(next);
+    return true;
+  }
+
+  async nameLineTaxRate(invoiceId: string, lineIds: readonly string[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    if (lineIds.length === 0) return 0;
+    const named = this.sqlite
+      .prepare(
+        `UPDATE sales_invoice_line SET tax_rate_id = ?
+          WHERE invoice_id = ? AND tax_rate_id IS NULL AND tax_rate_percent = ?
+            AND line_id IN (${lineIds.map(() => "?").join(",")})
+            AND invoice_id IN (SELECT id FROM sales_invoice WHERE status IN (${[...SALES_INVOICE_ACTIVE_STATUSES].map(() => "?").join(",")}))`,
+      )
+      .run(taxRateId, invoiceId, taxRatePercent, ...lineIds, ...SALES_INVOICE_ACTIVE_STATUSES).changes;
+    if (named > 0) this.versions?.bump(invoiceId);
+    return named;
   }
 
   async findById(id: string): Promise<SalesInvoice | null> {
@@ -478,7 +555,8 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       .lte("date", filter.toDate)
       .eq("branch_id", filter.branchId)
       .eq("warehouse_id", filter.warehouseId)
-      .eq("salesperson_id", filter.salespersonId);
+      .eq("salesperson_id", filter.salespersonId)
+      .eq("source_quote_id", filter.sourceQuoteId);
     if (filter.statusIn) {
       // An empty set matches nothing, exactly as the caller asked — falling
       // through to "no clause" would widen it to every status.
@@ -530,7 +608,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       orderBy: "invoice_id, line_no",
       columns:
         "invoice_id, line_id, item_id, item_name_ar, is_stock, qty, unit_code, unit_factor, base_qty, " +
-        "unit_price, line_discount_type, line_discount_amount, discount_percent, tax_rate_percent, " +
+        "unit_price, line_discount_type, line_discount_amount, discount_percent, tax_rate_percent, tax_rate_id, " +
         "revenue_account_id, cogs_account_id, inventory_account_id, unit_cost, cost_center_id",
       safeIntegers: true,
     });
@@ -578,6 +656,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         line_discount_amount: line.discountAmount.toScaledNumber(),
         discount_percent: line.discountPercent,
         tax_rate_percent: line.taxRatePercent,
+        tax_rate_id: line.taxRateId,
         revenue_account_id: line.revenueAccountId,
         cogs_account_id: line.cogsAccountId,
         inventory_account_id: line.inventoryAccountId,
@@ -598,6 +677,9 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       dueDate: row.due_date,
       customerId: row.customer_id,
       customerNameAr: row.customer_name_ar,
+      documentKind: row.document_kind === InvoiceDocumentKind.RetentionRelease ? InvoiceDocumentKind.RetentionRelease : InvoiceDocumentKind.Standard,
+      voidReason: row.void_reason ?? null,
+      sourceQuoteId: row.source_quote_id ?? null,
       customerTaxExempt: row.customer_tax_exempt === 1,
       taxInclusive: row.tax_inclusive === 1,
       warehouseId: row.warehouse_id,
@@ -636,8 +718,14 @@ export interface SqliteSalesInvoiceStoreHandle extends SalesInvoiceRepository {
 export function createSqliteSalesInvoiceStore(path: SqliteConnectionInput = ":memory:"): SqliteSalesInvoiceStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
+  // ORDER MATTERS: read before CREATE_TABLES — running it brings an older
+  // table up to the declared shape, after which the column always exists.
+  const kindUnrecorded = lacksColumn(sqlite, "sales_invoice", "document_kind");
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
+  if (kindUnrecorded) {
+    markInvoicesNamedByRegister(sqlite, { table: "sales_invoice", register: "contracting_retention_release", kind: InvoiceDocumentKind.RetentionRelease });
+  }
   sqlite.exec(CREATE_INDEXES);
   addVersionColumns(sqlite, "sales_invoice");
   const versions = createDocumentVersionStore(sqlite, "sales_invoice");

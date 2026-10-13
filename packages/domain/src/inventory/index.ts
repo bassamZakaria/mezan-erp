@@ -20,6 +20,7 @@ export {
   signedQty,
   occurredAtFromDocumentDate,
   signedValue,
+  movementValue,
   type StockMovement,
   type StockMovementDirection,
   type StockSourceDocType,
@@ -93,6 +94,7 @@ export {
   type PostTransferResult,
   type ReceiptLine,
   type PostReceiptCommand,
+  type PostReceiptResult,
   type IssueLine,
   type PostIssueCommand,
   type IssueLineCost,
@@ -283,3 +285,4 @@ export {
   type StockReservations,
   type StockReservationSource,
 } from "./reservations.js";
+export { StockPositionFault, stockPositionFaults, type StockPositionFaultRow } from "./stock-position-faults.js";

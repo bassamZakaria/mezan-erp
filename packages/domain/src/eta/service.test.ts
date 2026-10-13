@@ -3,6 +3,7 @@ import { DEFAULT_ETA_CONFIG, computeEtaReadiness, type EtaConfig, type EtaConfig
 import type { EtaSubmission, EtaSubmissionRepository, EtaSubmissionStatus } from "./submission.js";
 import { EtaService, stubOnlineTransmitPort, type EtaTransmitPort, type EtaEnqueueInput } from "./service.js";
 import type { EtaSignerPort } from "./signer.js";
+import { EtaPrevalidationSeverity, type EtaPrevalidationFinding } from "./prevalidate.js";
 import {
   DuplicateEtaSubmissionError,
   EtaExclusionReasonRequiredError,
@@ -164,6 +165,34 @@ describe("EtaService — lifecycle", () => {
     expect(result.submitted.map((x) => x.id)).toEqual([s.id]);
     expect(result.accepted.map((x) => x.id)).toEqual([s.id]);
     expect((await svc.findById(s.id))!.status).toBe("accepted");
+  });
+
+  it("a queue pass holds a document back on its stored findings without attempting it, every pass, until it is rebuilt without them", async () => {
+    let transmitted = 0;
+    const counting: EtaTransmitPort = { async transmit() { transmitted++; return { ok: true, etaUuid: "UUID-B" }; } };
+    const { svc } = service({}, counting);
+    const blocking: EtaPrevalidationFinding = {
+      code: "BUYER_TIN_MISSING" as EtaPrevalidationFinding["code"],
+      severity: EtaPrevalidationSeverity.Blocking,
+      messageAr: "الرقم الضريبي للعميل ناقص",
+      messageEn: "The buyer's tax registration number is missing",
+      fixHintAr: "سجّله على بطاقة العميل",
+      fixHintEn: "Record it on the customer card",
+      fixScreen: "customer" as EtaPrevalidationFinding["fixScreen"],
+    };
+    const held = await svc.enqueue(doc, [blocking]);
+
+    for (const pass of [1, 2]) {
+      const result = await svc.processQueue();
+      expect([pass, result.blocked, result.submitted.length]).toEqual([pass, [held.id], 0]);
+      expect((await svc.submitAllReady()).blocked).toEqual([held.id]);
+    }
+    const untouched = (await svc.findById(held.id))!;
+    expect([transmitted, untouched.status, untouched.updatedAt, untouched.transmitLog.length]).toEqual([0, "ready", held.updatedAt, 0]);
+
+    await svc.requeue(held.id, { payload: untouched.payload, prevalidation: [] });
+    const cleared = await svc.processQueue();
+    expect([cleared.blocked, cleared.submitted.map((x) => x.id), transmitted]).toEqual([[], [held.id], 1]);
   });
 
   // guards P-1 — an install with no credentials opens no socket and loses nothing.

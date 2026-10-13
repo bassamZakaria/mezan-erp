@@ -13,10 +13,12 @@ export {
   startApproval,
   decide,
   resubmit,
+  reopenForModification,
   WorkflowError,
   type GateStep,
   type GateConfig,
   type ApprovalRequest,
+  ApprovalStatusCode,
   type ApprovalStatus,
   type DecisionKind,
   type DecisionRecord,
@@ -44,6 +46,7 @@ export {
   submitApproval,
   decideApproval,
   resubmitApproval,
+  reopenApprovalForModification,
   ApprovalRequestNotFoundError,
   ApprovalRequestRejectedError,
   ApprovalRequestUntrustedError,
@@ -57,4 +60,3 @@ export {
 } from "./requests.js";
 
 export { documentFingerprint, sha256Hex } from "./fingerprint.js";
-export { ApprovalStatusCode } from "./gate.js";

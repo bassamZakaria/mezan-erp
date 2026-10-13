@@ -13,7 +13,7 @@ import type { CostCategory } from "../contracting/cost-category.js";
  */
 
 import type { Money } from "../money/index.js";
-import type { PostReceiptCommand, ReverseReceiptCommand } from "../inventory/index.js";
+import type { PostReceiptCommand, PostReceiptResult, ReverseReceiptCommand } from "../inventory/index.js";
 
 /** أمر الشراء lifecycle (docs/archive/catalog/02 §Purchase Orders §Workflows/statuses). */
 export type PurchaseOrderStatus =
@@ -27,7 +27,12 @@ export type PurchaseOrderStatus =
 export type GoodsReceiptStatus = "draft" | "confirmed" | "cancelled";
 
 /** فاتورة المشتريات lifecycle (docs/archive/catalog/02 §Purchase Invoices). */
-export type PurchaseInvoiceStatus = "draft" | "confirmed" | "cancelled";
+export enum PurchaseInvoiceStatusCode {
+  Draft = "draft",
+  Confirmed = "confirmed",
+  Cancelled = "cancelled",
+}
+export type PurchaseInvoiceStatus = `${PurchaseInvoiceStatusCode}`;
 
 /**
  * The purchase-strictness gates (docs/archive/catalog/09 §"التحكم في المشتريات"): a
@@ -91,6 +96,7 @@ export interface PurchaseGlPostingLine {
    * dividing tax by base per entry (D28).
    */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
 }
 
 /**
@@ -141,6 +147,7 @@ export interface PurchaseGlAccounts {
    */
   readonly goodsReceivedNotInvoicedAccountId?: string;
   readonly priceVarianceAccountId?: string;
+  readonly backOrderCostAccountId?: string;
 }
 
 /**
@@ -149,7 +156,7 @@ export interface PurchaseGlAccounts {
  * `postReceipt` method (the costing/stock-ledger engine).
  */
 export interface PurchaseStockPostingPort {
-  postReceipt(command: PostReceiptCommand): Promise<void>;
+  postReceipt(command: PostReceiptCommand): Promise<PostReceiptResult>;
   /** Undo a prior `postReceipt` (cancellation). `StockLedgerService.reverseReceipt` satisfies this structurally. */
   reverseReceipt(command: ReverseReceiptCommand): Promise<void>;
   applyReceiptCostVariance?(command: ReceiptCostVarianceCommand): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money; readonly occurredAt?: string }>;

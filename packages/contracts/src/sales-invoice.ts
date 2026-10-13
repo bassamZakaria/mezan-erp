@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { decimalRateString, moneyString, quantityString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { InvoiceDocumentKind } from "./invoice-document-kind.js";
 
 /**
  * Wire contracts for Sales Invoices (docs/archive/catalog/01-sales.md §"فواتير المبيعات").
@@ -53,6 +54,23 @@ export const createSalesInvoiceLineSchema = z.object({
   /** Fixed line discount as an exact decimal string; capped at the line's gross. */
   discountAmount: moneyString.optional(),
   taxRatePercent: z.number().min(0).optional(),
+  /**
+   * EXTERNAL CONTRACT: three answers, not two. A string names the tax rate:
+   * the server checks it exists and is active, reads the percent off it, and
+   * refuses a `taxRatePercent` that disagrees. `null` says the line names no
+   * rate, and none is stored. Omitted, the server infers the one active rate
+   * at the line's percent — but never at 0%, where exempt and zero-rated
+   * export cannot be told apart (D79). Two cases are not the caller's to
+   * answer. A line policy zero-rates keeps a 0% rate it named itself;
+   * otherwise it names the system «غير خاضع» rate when the tenant's VAT is
+   * off, and — for a tax-exempt customer — the 0% rate on that customer's
+   * card, or none when the card holds none. A line converted from a quote
+   * carries the quote line's stored rate exactly: a quote line that stored
+   * none converts to none unless the convert request names a rate for it, at
+   * that line's own percent. A posted line left with none is named afterwards
+   * through `POST /sales-invoices/:id/lines/:lineId/classify-tax`.
+   */
+  taxRateId: z.string().min(1).nullish(),
   revenueAccountId: z.string().min(1),
   cogsAccountId: z.string().min(1).nullish(),
   inventoryAccountId: z.string().min(1).nullish(),
@@ -74,6 +92,7 @@ export const createSalesInvoiceSchema = z.object({
   dueDate: z.string().min(1),
   customerId: z.string().min(1),
   customerNameAr: z.string().min(1),
+  /** EXTERNAL CONTRACT: ignored — exemption is read off the customer record server-side. Kept so older clients still parse. */
   customerTaxExempt: z.boolean().optional(),
   warehouseId: z.string().min(1),
   branchId: z.string().min(1),
@@ -95,6 +114,7 @@ export const createSalesInvoiceSchema = z.object({
 
 /** Confirm a draft invoice (posts stock + the AR/revenue/COGS journal entry). */
 export const confirmSalesInvoiceSchema = z.object({
+  acknowledgeTaxRecalculation: z.boolean().optional(),
   /**
    * N-9 — the `version` the screen was served. Sent back on the act so a second
    * till acting on a document that has already moved is refused with 409 rather
@@ -119,6 +139,23 @@ export const confirmSalesInvoiceSchema = z.object({
  * without it was how the invoice's `amountPaid` drifted from the ledger (D1).
  * The route creates and confirms a real collection voucher and allocates it.
  */
+export const editSalesInvoiceDraftLineSchema = z
+  .object({
+    qty: moneyString.optional(),
+    unitPrice: moneyString.optional(),
+    taxRateId: z.string().min(1).optional(),
+  })
+  .refine((change) => change.qty !== undefined || change.unitPrice !== undefined || change.taxRateId !== undefined, {
+    message: "حدّد الكمية أو السعر أو الضريبة المراد تعديلها.",
+  });
+export type EditSalesInvoiceDraftLineDTO = z.infer<typeof editSalesInvoiceDraftLineSchema>;
+
+export const voidSalesInvoiceSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+  expectedVersion: z.number().int().positive().optional(),
+});
+export type VoidSalesInvoiceDTO = z.infer<typeof voidSalesInvoiceSchema>;
+
 export const salesInvoicePaymentSchema = z.object({
   amount: moneyString,
   treasuryAccountId: z.string().min(1),
@@ -240,6 +277,7 @@ export const salesInvoiceLineRowSchema = z.object({
   discountPercent: z.number(),
   discountAmount: moneyString,
   taxRatePercent: z.number(),
+  taxRateId: z.string().nullable(),
   revenueAccountId: z.string().min(1),
   cogsAccountId: z.string().nullable(),
   inventoryAccountId: z.string().nullable(),
@@ -273,6 +311,16 @@ export const salesInvoiceSchema = z.object({
   dueDate: z.string().min(1),
   customerId: z.string().min(1),
   customerNameAr: z.string(),
+  documentKind: z.nativeEnum(InvoiceDocumentKind).optional(),
+  voidReason: z.string().nullish(),
+  confirmPreview: z
+    .object({
+      taxRecalculated: z.literal(true),
+      message: z.string(),
+      lines: z.array(z.object({ lineId: z.string(), taxRatePercent: z.number(), taxRateId: z.string().nullable() })),
+      totals: z.object({ taxableTotal: moneyString, taxTotal: moneyString, grandTotal: moneyString }),
+    })
+    .nullish(),
   customerTaxExempt: z.boolean(),
   taxInclusive: z.boolean(),
   warehouseId: z.string().min(1),

@@ -131,6 +131,34 @@ describe("DocumentService — generic lifecycle with hooks", () => {
     expect(audit.events[0]?.action).toBe("CONFIRM");
   });
 
+  it("confirming an already-confirmed document is an illegal transition, answered before the guard or the validator can call it something else (D79)", async () => {
+    const repo = new InMemoryDocumentRepository<FakeLine>();
+    let guarded = 0;
+    let validated = 0;
+    const numbering = { next: async () => ({ value: 1, formatted: "SO-000001" }) };
+    const svc = new DocumentService(
+      fakeType({
+        validate: () => {
+          validated += 1;
+        },
+      }),
+      {
+        repo,
+        numbering,
+        confirmGuard: async (doc) => {
+          guarded += 1;
+          if (doc.status !== "draft") throw new InvalidDocumentError("FAKE_DOC", doc.id, "exceeds available (0)");
+        },
+      },
+    );
+    await svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [{ note: "a" }] });
+    await svc.confirm("d1");
+    const before = { guarded, validated };
+
+    await expect(svc.confirm("d1")).rejects.toBeInstanceOf(InvalidDocumentTransitionError);
+    expect({ guarded, validated }).toEqual(before);
+  });
+
   // guards B-10: reverse mirrored the GL entry and left the goods on hand, so
   // a reversed document's stock stayed put while GL 1200 had been credited.
   it("reverse mirrors the stock plan when the document moved stock", async () => {

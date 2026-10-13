@@ -1756,6 +1756,23 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
     expect((await receipt(app, issued!.receiptNo)).submission.payload.paymentMethod).toBe("V");
   });
 
+  it("the retry says the receipt was issued when the first attempt had no device, and that nothing is left once it is with the authority", async () => {
+    const handle = await createBackend({ dbPath: ":memory:" });
+    const app = keep(handle);
+    await createServiceItem(app);
+    await createCustomer(app, "cust-r-7", "0");
+    await authedPost(app, "/sales-invoices", { ...invoiceBody("inv-r-7", "cust-r-7", "100"), branchId: "BR-MAIN" });
+    const confirm = await authedPost(app, "/sales-invoices/inv-r-7/confirm", {});
+    expect(((await confirm.json()) as { etaReceiptError: { code: string } }).etaReceiptError.code).toBe("ETA_DEVICE_SERIAL_NOT_REGISTERED");
+    await registerDevice(app);
+
+    const retried = await post(app, "/sales-invoices/inv-r-7/eta-receipt/retry", {}, admin(app));
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toEqual({ documentId: "inv-r-7", filing: "issued" });
+    const again = await post(app, "/sales-invoices/inv-r-7/eta-receipt/retry", {}, admin(app));
+    expect(await again.json()).toEqual({ documentId: "inv-r-7", filing: null });
+  });
+
   it("refuses a serial no device registered, rather than filing it", async () => {
     const handle = await createBackend({ dbPath: ":memory:" });
     const app = keep(handle);
@@ -1878,6 +1895,12 @@ describe("createBackend — the e-receipt path (D282–D284)", () => {
       expect(corrected.submission.payload.header.referenceOldUUID).toBe(rejected!.uuid);
       expect(corrected.submission.payload.header.previousUUID).toBe(rejected!.uuid);
       expect(corrected.submission.status).toBe("ready");
+
+      const second = await post(app, `/eta/receipts/reissue/invoice/${sale.id}`, {}, admin(app));
+      expect(second.status).toBe(422);
+      expect((await second.json()) as { error: string }).toMatchObject({ error: "ETA_RECEIPT_NOT_APPLICABLE" });
+      const third = await app.fetch(new Request(`http://local/eta/receipts/${encodeURIComponent(`${sale.docNo}-R3`)}`, { headers: admin(app) }));
+      expect(third.status).toBe(404);
     });
 
     it("refuses to correct a receipt the authority has not rejected", async () => {
@@ -5865,7 +5888,7 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/cheques/chq-asof/deposit", { bankTreasuryAccountId: "ta-bank1" }, admin(app))).status).toBe(200);
     expect((await post(app, "/cheques/chq-asof/bounce", { date: "2026-08-28" }, admin(app))).status).toBe(200);
-    expect((await post(app, "/sales-invoices/inv-v/void", {}, admin(app))).status).toBe(200);
+    expect((await post(app, "/sales-invoices/inv-v/void", { reason: "صدرت بالخطأ" }, admin(app))).status).toBe(200);
 
     for (const [date, owed] of [
       ["2026-08-05", 1300], ["2026-08-11", 900], ["2026-08-13", 400], ["2026-08-16", 300],

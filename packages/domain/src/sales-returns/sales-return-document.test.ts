@@ -238,6 +238,14 @@ describe("a return against a foreign invoice reverses at the invoice's rate (D20
     expect(refundDue(doc, []).toString()).toBe("10944.000000");
   });
 
+  it("counts neither a voided return nor the mirror document that voided it", () => {
+    const voided = { ...doc, status: "reversed" as const, reversedByDocId: "R-VOID" };
+    const mirror = { ...doc, id: "R-VOID", reversesDocId: doc.id };
+    expect(salesReturnCreditByInvoice([voided, mirror]).get("INV1")).toBeUndefined();
+    expect(refundDue(mirror, []).toString()).toBe("0.000000");
+    expect(isAwaitingRefund(mirror, [])).toBe(false);
+  });
+
   it("stamps the invoice's currency and rate onto every line built from it", () => {
     const lines = buildSalesReturnLinesFromInvoice(
       {
@@ -254,7 +262,7 @@ describe("a return against a foreign invoice reverses at the invoice's rate (D20
       "WH1",
       "DEFECTIVE",
       [{ itemId: "ITEM1", qty: Qty.fromMajor("1") }],
-    );
+    ).lines;
     expect(lines[0]).toMatchObject({ currency: "USD", fxRate: "48.00" });
   });
 });
@@ -289,7 +297,7 @@ describe("a sales return posts in its source invoice's branch (D111)", () => {
   });
 
   it("reads the branch off the invoice when the lines are built from it", () => {
-    const [built] = buildSalesReturnLinesFromInvoice(
+    const { lines: [built] } = buildSalesReturnLinesFromInvoice(
       {
         id: "INV1",
         number: "INV-000001",

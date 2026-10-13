@@ -15,11 +15,14 @@ import {
   branchOfPostingWarehouse,
 } from "@mezan/domain";
 import { ReversalPermission, createLandedCostSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { documentBranches, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
+import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
+import type { DocumentApprovalDTO } from "@mezan/contracts";
 import { noteReversalOriginalDay } from "./posting-refusal.js";
+import { DOCUMENT_NOT_FOUND, MirrorAccess, anyLineInWarehouseScope, createVisibleDocumentResolver } from "./document-visibility.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 
 function serializeLine(l: LandedCostLine) {
@@ -45,8 +48,9 @@ function serializeLine(l: LandedCostLine) {
   };
 }
 
-function serialize(doc: FrameworkDocument<LandedCostLine>) {
+function serialize(doc: FrameworkDocument<LandedCostLine>, approval: DocumentApprovalDTO | null = null) {
   return {
+    approval,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -83,17 +87,21 @@ export function createLandedCostsRoutes(
   const gate = createPermissionGate(resolveAuthContext, {
     storedBranches: storedBranchesById((id) => documents.findById(id), (doc, c) => branchesOf(c, doc)),
   });
+  const inScope = (c: Context, doc: FrameworkDocument<LandedCostLine>) => anyLineInWarehouseScope(c, doc.lines.map((line) => line.warehouseId));
+  const visibleLandedCost = createVisibleDocumentResolver(documents, inScope);
 
   app.get("/", gate("purchases.landed_cost.view"), async (c) => {
     const status = c.req.query("status");
-    const list = await withinBranchGrant(c, await documents.list({ status: status as never }), (doc) => branchesOf(c, doc));
-    return c.json(list.map(serialize));
+    const inWarehouseScope = (await documents.list({ status: status as never })).filter((doc) => inScope(c, doc));
+    const list = await withinBranchGrant(c, inWarehouseScope, (doc) => branchesOf(c, doc));
+    const approval = await approvalReader(documents, list);
+    return c.json(list.map((doc) => serialize(doc, approval(doc))));
   });
 
   app.get("/:id", gate("purchases.landed_cost.view"), async (c) => {
-    const doc = await documents.findById(c.req.param("id"));
-    if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(doc));
+    const doc = await visibleLandedCost(c, MirrorAccess.Reachable);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
+    return c.json(serialize(doc, await approvalOf(documents, doc)));
   });
 
   app.post("/", gate("purchases.landed_cost.create"), async (c) => {
@@ -143,12 +151,13 @@ export function createLandedCostsRoutes(
   });
 
   app.post("/:id/confirm", gate("purchases.landed_cost.confirm"), async (c) => {
+    if (!(await visibleLandedCost(c))) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
       const body = (await c.req.json().catch(() => ({}))) as { absorptionDate?: unknown } | null;
       const absorptionDate = typeof body?.absorptionDate === "string" && body.absorptionDate !== "" ? await tenantDay(c, body.absorptionDate) : undefined;
-      const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c), today: await tenantToday(c), absorptionDate });
+      const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c), today: await tenantToday(c), absorptionDate });
       return c.json({
-        document: serialize(result.document),
+        document: serialize(result.document, await approvalOf(documents, result.document)),
         held: result.held,
         // A landed cost that arrives after the goods were sold cannot raise the
         // basis of stock that is gone. That part is reclassified out of
@@ -171,9 +180,18 @@ export function createLandedCostsRoutes(
     }
   });
 
+  mountResubmitRoute(app, {
+    permission: gate("purchases.landed_cost.confirm"),
+    refuse: async (c) => ((await visibleLandedCost(c)) ? undefined : c.json(DOCUMENT_NOT_FOUND, 404)),
+    resubmit: (c, id) => documents.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
+    serialize: async (_c, doc) => serialize(doc, await approvalOf(documents, doc)),
+    onError: handleDocumentError,
+  });
+
   app.post("/:id/cancel", gate("purchases.landed_cost.void"), async (c) => {
+    if (!(await visibleLandedCost(c))) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const doc = await documents.cancel(c.req.param("id"));
+      const doc = await documents.cancel(c.req.param("id"), { actor: callerUserId(c) });
       return c.json(serialize(doc));
     } catch (err) {
       return handleDocumentError(c, err);
@@ -181,13 +199,15 @@ export function createLandedCostsRoutes(
   });
 
   app.post("/:id/reverse", gate(ReversalPermission.LandedCost), async (c) => {
+    const visible = await visibleLandedCost(c, MirrorAccess.Reachable);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
     const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; reversalId?: unknown } | null;
     if (body?.date !== undefined && body.date !== null && (typeof body.date !== "string" || body.date.trim() === "")) {
       return c.json({ error: "VALIDATION_ERROR", message: "تاريخ العكس يجب أن يكون نصاً بصيغة YYYY-MM-DD.", messageEn: "The reversal date must be a YYYY-MM-DD string." }, 400);
     }
     try {
       const date = await tenantDay(c, typeof body?.date === "string" ? body.date : new Date().toISOString());
-      await noteReversalOriginalDay(c, (await documents.findById(c.req.param("id")))?.date);
+      await noteReversalOriginalDay(c, visible.date);
       const result = await landedCostService.reverse(c.req.param("id"), {
         reversalId: typeof body?.reversalId === "string" && body.reversalId !== "" ? body.reversalId : randomUUID(),
         date,

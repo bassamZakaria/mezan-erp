@@ -11,9 +11,11 @@ import { extend } from "../inventory/wac-math.js";
 import { unitCostOf } from "../inventory/wac-math.js";
 import type { SalesReturnLine, SalesReturnReason } from "./sales-return-document.js";
 import type { SourceSalesInvoice } from "./ports.js";
+import { matchSourceLines } from "../documents/match-source-lines.js";
 
 export interface SalesReturnRequestedQty {
   readonly itemId: string;
+  readonly sourceLineId?: string | null;
   readonly qty: Qty;
   /**
    * سبب الإرجاع for THIS line (R3.9). A document can return one item because
@@ -22,6 +24,12 @@ export interface SalesReturnRequestedQty {
    * for lines that name none.
    */
   readonly reason?: SalesReturnReason;
+  readonly warehouseId?: string;
+}
+
+export interface SalesReturnLinesFromInvoice {
+  readonly lines: SalesReturnLine[];
+  readonly unmatched: SalesReturnRequestedQty[];
 }
 
 /** One line per requested item with qty > 0; lines with 0/omitted qty are excluded (docs: "اتركه صفر لاستثنائه"). */
@@ -36,13 +44,11 @@ export function buildSalesReturnLinesFromInvoice(
    * stock lands in that branch's store and its counter gives the credit.
    */
   receivingBranchId?: string | null,
-): SalesReturnLine[] {
-  const requestedByItem = new Map(requested.map((r) => [r.itemId, r]));
+): SalesReturnLinesFromInvoice {
   const lines: SalesReturnLine[] = [];
-  for (const invLine of invoice.lines) {
-    const request = requestedByItem.get(invLine.itemId);
-    const qty = request?.qty;
-    if (!qty || qty.isZero()) continue;
+  const { matched, unmatched } = matchSourceLines(invoice.lines, requested.filter((r) => !r.qty.isZero()));
+  for (const { line: invLine, request } of matched) {
+    const qty = request.qty;
     const availableQty = invLine.qty.subtract(invLine.alreadyReturnedQty);
     const taxShare =
       invLine.qty.isZero() || invLine.taxAmount.scaled === 0n
@@ -50,10 +56,11 @@ export function buildSalesReturnLinesFromInvoice(
         : extend(qty, unitCostOf(invLine.taxAmount, invLine.qty));
     lines.push({
       itemId: invLine.itemId,
-      warehouseId,
+      warehouseId: request.warehouseId ?? warehouseId,
       customerId: invoice.customerId,
       sourceInvoiceId: invoice.id,
       sourceInvoiceNumber: invoice.number,
+      sourceLineId: invLine.sourceLineId ?? null,
       reason: request.reason ?? reason,
       availableQty,
       qty,
@@ -61,10 +68,11 @@ export function buildSalesReturnLinesFromInvoice(
       unitCost: invLine.unitCost,
       taxAmount: taxShare,
       taxRatePercent: invLine.taxRatePercent ?? null,
+      taxRateId: invLine.taxRateId ?? null,
       projectId: invoice.projectId ?? null,
       branchId: receivingBranchId ?? invoice.branchId ?? null,
       ...(invoice.fxRate ? { currency: invoice.currency ?? null, fxRate: invoice.fxRate } : {}),
     });
   }
-  return lines;
+  return { lines, unmatched };
 }

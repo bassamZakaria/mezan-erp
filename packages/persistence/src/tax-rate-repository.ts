@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository, TaxRateStatus } from "@mezan/domain";
 import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
@@ -49,28 +49,32 @@ function toTaxRate(row: TaxRateRow): TaxRate {
 }
 
 class SqliteTaxRateRepository implements TaxRateRepository {
-  private readonly upsert: Database.Statement;
-  private readonly insertOnly: Database.Statement;
+  private readonly insert: Database.Statement;
+  private readonly updateById: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
-    this.upsert = sqlite.prepare(`
+    // INVARIANT: create is a plain INSERT. An upsert here let `POST /tax-rates`
+    // with an existing id overwrite a rate posted documents name.
+    this.insert = sqlite.prepare(`
       INSERT INTO tax_rate (id, code, name, rate, calculation_type, is_default, output_tax_account_id, input_tax_account_id, eta_sub_type, status)
       VALUES (@id, @code, @name, @rate, @calculation_type, @is_default, @output_tax_account_id, @input_tax_account_id, @eta_sub_type, @status)
-      ON CONFLICT(id) DO UPDATE SET
-        code = excluded.code,
-        name = excluded.name,
-        rate = excluded.rate,
-        calculation_type = excluded.calculation_type,
-        is_default = excluded.is_default,
-        output_tax_account_id = excluded.output_tax_account_id,
-        input_tax_account_id = excluded.input_tax_account_id,
-        eta_sub_type = excluded.eta_sub_type,
-        status = excluded.status
     `);
-    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
+    this.updateById = sqlite.prepare(`
+      UPDATE tax_rate SET
+        code = @code,
+        name = @name,
+        rate = @rate,
+        calculation_type = @calculation_type,
+        is_default = @is_default,
+        output_tax_account_id = @output_tax_account_id,
+        input_tax_account_id = @input_tax_account_id,
+        eta_sub_type = @eta_sub_type,
+        status = @status
+      WHERE id = @id
+    `);
     this.selectById = sqlite.prepare(`SELECT * FROM tax_rate WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM tax_rate WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM tax_rate`);
@@ -92,15 +96,20 @@ class SqliteTaxRateRepository implements TaxRateRepository {
   }
 
   async create(taxRate: TaxRate): Promise<void> {
-    insertingNew(taxRate.id, () => this.write(taxRate, this.insertOnly));
+    insertingNew(taxRate.id, () => this.insert.run(toParams(taxRate)));
   }
 
   async update(taxRate: TaxRate): Promise<void> {
-    this.write(taxRate);
+    this.updateById.run(toParams(taxRate));
   }
 
-  private write(taxRate: TaxRate, statement: Database.Statement = this.upsert): void {
-    statement.run({
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
+  }
+}
+
+function toParams(taxRate: TaxRate) {
+  return {
       id: taxRate.id,
       code: taxRate.code,
       name: taxRate.name,
@@ -111,8 +120,7 @@ class SqliteTaxRateRepository implements TaxRateRepository {
       input_tax_account_id: taxRate.inputTaxAccountId,
       eta_sub_type: taxRate.etaSubType,
       status: taxRate.status,
-    });
-  }
+  };
 }
 
 export interface SqliteTaxRateRepositoryHandle extends TaxRateRepository {

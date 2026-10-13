@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
-import { DocumentList, EmptyState, StatusPill, Chip, Button, Card, formatNumber, type DocumentListColumn } from "@mezan/ui";
-import type { ReconciliationRowDTO, UnlinkedEntryLineDTO } from "@mezan/contracts";
+import { DocumentList, EmptyState, StatusPill, Chip, Button, Card, Money as MoneyValue, Qty as QtyDisplay, formatNumber, type DocumentListColumn } from "@mezan/ui";
+import { StockPositionFaultCode, type ReconciliationRowDTO, type UnlinkedEntryLineDTO } from "@mezan/contracts";
 import { useReconciliation } from "../data/hooks";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
+
+const STOCK_POSITION_FAULT_KEY: Record<StockPositionFaultCode, AppTranslationKey> = {
+  [StockPositionFaultCode.ValueWithoutQuantity]: "reconciliation.stockPositions.valueWithoutQuantity",
+  [StockPositionFaultCode.NegativeValue]: "reconciliation.stockPositions.negativeValue",
+};
 
 function fmt(value: string): string {
   return formatNumber(Number(value), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -29,7 +34,8 @@ export function ReconciliationScreen() {
   const [unlinkedPageSize, setUnlinkedPageSize] = useState<number>(25);
 
   const misdated = report?.stockLedgerDates?.rows ?? [];
-  const everythingTies = (report?.allMatched ?? false) && misdated.length === 0;
+  const faultyPositions = report?.stockPositions?.rows ?? [];
+  const everythingTies = (report?.allMatched ?? false) && misdated.length === 0 && faultyPositions.length === 0;
   const summaryRows = report?.rows ?? [];
   const summaryPageCount = Math.max(1, Math.ceil(summaryRows.length / summaryPageSize));
   const summaryPageRows = summaryRows.slice((summaryPage - 1) * summaryPageSize, summaryPage * summaryPageSize);
@@ -95,6 +101,25 @@ export function ReconciliationScreen() {
                 <span className="mz-num font-semibold">{row.docNo ?? row.docId}</span>
                 {" — "}
                 {t("reconciliation.stockLedgerDates.row", { moved: row.movedOn, posted: row.postedOn.join("، ") })}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {faultyPositions.length > 0 ? (
+        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          <p className="font-semibold">{t("reconciliation.stockPositions.title", { count: String(faultyPositions.length) })}</p>
+          <ul className="mt-[6px] flex flex-col gap-[3px]">
+            {faultyPositions.map((row) => (
+              <li key={`${row.itemId} ${row.warehouseId}`}>
+                <span className="mz-num font-semibold">{row.itemId}</span>
+                {" · "}
+                <span className="mz-num">{row.warehouseId}</span>
+                {" — "}
+                {t(STOCK_POSITION_FAULT_KEY[row.fault])}
+                {" — "}
+                <QtyDisplay value={row.onHand} /> {" / "} <MoneyValue value={row.totalValue} />
               </li>
             ))}
           </ul>

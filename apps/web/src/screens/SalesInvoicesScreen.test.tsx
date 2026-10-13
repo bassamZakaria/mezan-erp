@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
 import { screen, fireEvent, waitFor, within } from "@testing-library/react";
-import type { AccountDTO, CustomerDTO, ItemDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
+import type { AccountDTO, CustomerDTO, ItemDTO, TaxRateDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
 import { SalesInvoicesScreen } from "./SalesInvoicesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { Transport } from "../data/transport";
@@ -78,7 +78,7 @@ const customers: CustomerDTO[] = [
   {
     id: "cust-amal", code: "C1", nameAr: "شركة الأمل للتجارة", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
     category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, priceListId: null,
-    creditLimit: "0", taxExempt: false, etaBuyerType: "auto", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
+    creditLimit: "0", taxExempt: false, taxExemptionRateId: null, etaBuyerType: "auto", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
   },
 ];
 
@@ -115,7 +115,7 @@ const accounts: AccountDTO[] = [
 
 function invoiceLine(overrides: Partial<SalesInvoiceDTO["lines"][number]> = {}): SalesInvoiceDTO["lines"][number] {
   return {
-    unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "1.000000", lineId: "l1", itemId: "item-rice", itemNameAr: "أرز أبيض مصري 5 كجم", isStock: true, qty: "1.000000", unitPrice: "185.000000",
+    unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "1.000000", lineId: "l1", itemId: "item-rice", itemNameAr: "أرز أبيض مصري 5 كجم", isStock: true, qty: "1.000000", unitPrice: "185.000000",
     discountPercent: 0, taxRatePercent: 14, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", unitCost: "150.000000",
     ...overrides,
   };
@@ -662,6 +662,64 @@ describe("SalesInvoicesScreen — row-scoped confirm from the list", () => {
     await waitFor(() => expect(screen.getByText("INV-000900")).toBeInTheDocument());
   });
 
+  it("a row whose confirm would re-rate the invoice shows the old and the new total, and confirms only once the change is acknowledged", async () => {
+    const list = [invoice({ id: "inv-draft-a", docNo: null, status: "draft", version: 4, totals: { ...invoice().totals, grandTotal: "114.000000" } })];
+    const sent: Record<string, unknown>[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(list),
+      "POST /sales-invoices/inv-draft-a/confirm": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
+        sent.push(body);
+        if (body.acknowledgeTaxRecalculation !== true) {
+          return {
+            status: 409,
+            body: {
+              error: "SALES_TAX_RECALCULATION_UNACKNOWLEDGED", taxRecalculated: true, message: "تغيّر إعداد ضريبة القيمة المضافة منذ إنشاء المسودة.",
+              lines: [], totals: { taxableTotal: "100.000000", taxTotal: "0.000000", grandTotal: "100.000000" },
+            },
+          };
+        }
+        return { body: { ...list[0], status: "confirmed", docNo: "INV-000901", held: false, taxRecalculated: { message: "أُعيد احتساب الضريبة." } } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findAllByText("مسودة");
+    fireEvent.click(within(screen.getAllByRole("row")[1]!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("تغيّر إعداد ضريبة القيمة المضافة منذ إنشاء المسودة.");
+    expect(dialog).toHaveTextContent("الإجمالي الذي سيُرحَّل: 100.00 — المعروض حالياً: 114.00");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(sent).toEqual([{ expectedVersion: 4 }]);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد الفاتورة" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({ expectedVersion: 4, acknowledgeTaxRecalculation: true });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText("أُعيد احتساب الضريبة.")).toBeInTheDocument();
+  });
+
+  it("a re-rate notice that is dismissed confirms nothing", async () => {
+    const list = [invoice({ id: "inv-draft-a", docNo: null, status: "draft", version: 4 })];
+    let calls = 0;
+    const transport = stubTransport({
+      ...baseHandlers(list),
+      "POST /sales-invoices/inv-draft-a/confirm": () => {
+        calls += 1;
+        return { status: 409, body: { error: "SALES_TAX_RECALCULATION_UNACKNOWLEDGED", taxRecalculated: true, message: "تغيّر الإعداد.", lines: [], totals: { taxableTotal: "1", taxTotal: "0", grandTotal: "1" } } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findAllByText("مسودة");
+    fireEvent.click(within(screen.getAllByRole("row")[1]!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getAllByRole("button")[0]!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(calls).toBe(1);
+  });
+
   it("shows the server's refusal for the failed row and leaves the other draft row's own confirm action untouched", async () => {
     const list = [draftA, draftB];
     const transport = stubTransport({
@@ -777,5 +835,96 @@ describe("SalesInvoicesScreen — convert an accepted quote", () => {
       { lineId: "l1", isStock: true, revenueAccountId: "4100-CUSTOM", cogsAccountId: "5100-CUSTOM", inventoryAccountId: "1200-CUSTOM" },
       { lineId: "l2", isStock: false, revenueAccountId: "4100", cogsAccountId: null, inventoryAccountId: null },
     ]);
+  });
+});
+
+describe("SalesInvoicesScreen — the line's tax is a picked tax rate (D79)", () => {
+  const taxRate = (id: string, name: string, rate: number, etaSubType: TaxRateDTO["etaSubType"]): TaxRateDTO => ({
+    id, code: id, name, rate, calculationType: "exclusive", isDefault: id === "VAT14",
+    outputTaxAccountId: null, inputTaxAccountId: null, etaSubType, status: "active",
+  });
+  const taxRates: TaxRateDTO[] = [
+    taxRate("VAT14", "ضريبة القيمة المضافة", 14, "auto"),
+    taxRate("VAT-EXEMPT", "معفى", 0, "V003"),
+    taxRate("VAT-EXPORT", "تصدير", 0, "V001"),
+  ];
+  const zeroRatedItem: ItemDTO = { ...items[1]!, id: "item-freight", code: "SVC-2", nameAr: "شحن دولي", taxRatePercent: 0 };
+
+  async function openFormAndPick(itemName: string) {
+    let createdBody: Record<string, unknown> | undefined;
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "GET /items": () => ({ body: [...items, zeroRatedItem] }),
+      "GET /tax-rates": () => ({ body: taxRates }),
+      "POST /sales-invoices": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        return { status: 201, body: invoice({ id: "inv-9", docNo: null, status: "draft", journalEntryId: null, confirmedAt: null }) };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", itemName);
+    return {
+      save: async () => {
+        fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+        await waitFor(() => expect(createdBody).toBeDefined());
+        return (createdBody!.lines as Array<Record<string, unknown>>)[0]!;
+      },
+    };
+  }
+
+  function chooseTaxRate(optionLabel: string): void {
+    fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+  }
+
+  it("a 14% item preselects the one active 14% rate, and the request names it by id with no percent", async () => {
+    const form = await openFormAndPick("أرز أبيض مصري");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("ضريبة القيمة المضافة · 14٪"));
+    const line = await form.save();
+    expect(line.taxRateId).toBe("VAT14");
+    expect(line).not.toHaveProperty("taxRatePercent");
+  });
+
+  it("picking معفى on a taxed item removes the previewed tax and sends the exempt rate's id", async () => {
+    const form = await openFormAndPick("أرز أبيض مصري");
+    chooseTaxRate("معفى · 0٪");
+    const grandTotal = () => screen.getByText("الإجمالي الكلي").closest("div")?.textContent ?? "";
+    await waitFor(() => expect(grandTotal()).toContain("185.00"));
+    const line = await form.save();
+    expect(line.taxRateId).toBe("VAT-EXEMPT");
+    expect(line).not.toHaveProperty("taxRatePercent");
+  });
+
+  it("a 0% item preselects NOTHING when معفى and تصدير both exist, and sends its percent with no id", async () => {
+    const form = await openFormAndPick("شحن دولي");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("بدون ضريبة مسماة (0٪)"));
+    const line = await form.save();
+    expect(line.taxRatePercent).toBe(0);
+    expect(line).not.toHaveProperty("taxRateId");
+  });
+
+  it("a posted invoice's line shows the rate it stored by name under its tax, and a line with no rate its percent alone", async () => {
+    const posted = invoice({
+      lines: [
+        invoiceLine({ lineId: "l1", taxRatePercent: 0, taxRateId: "VAT-EXEMPT" }),
+        invoiceLine({ lineId: "l2", taxRatePercent: 0, taxRateId: null }),
+      ],
+    });
+    const transport = stubTransport({ ...baseHandlers([posted]), "GET /tax-rates": () => ({ body: taxRates }) });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000001"));
+    expect(await screen.findByText("معفى · 0٪")).toBeInTheDocument();
+    expect(screen.getAllByText("0٪")).toHaveLength(1);
+    expect(screen.queryByText("VAT-EXEMPT")).not.toBeInTheDocument();
+  });
+
+  it("…and the user settles it by picking تصدير, which is what the request then carries", async () => {
+    const form = await openFormAndPick("شحن دولي");
+    chooseTaxRate("تصدير · 0٪");
+    const line = await form.save();
+    expect(line.taxRateId).toBe("VAT-EXPORT");
   });
 });

@@ -22,6 +22,7 @@ import {
 } from "./purchase-order.js";
 import { LandedCostStandsOnDocumentError } from "../landed-costs/errors.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
+import { UnbookedStockVarianceError, assertDocumentWritten } from "../documents/errors.js";
 import {
   DEFAULT_PURCHASE_POLICY,
   type GoodsReceiptStatus,
@@ -29,6 +30,7 @@ import {
   type PurchaseStockPostingPort,
   type PurchaseGlAccounts,
   type PurchaseGlPosting,
+  type PurchaseGlPostingLine,
   type PurchaseGlPostingPort,
   type PurchaseGlReversalPort,
 } from "./types.js";
@@ -125,12 +127,23 @@ export interface GoodsReceipt {
   readonly createdAt: string;
 }
 
+export enum GoodsReceiptField {
+  Status = "status",
+  Billing = "billing",
+}
+
 export interface GoodsReceiptRepository {
   findById(id: string): Promise<GoodsReceipt | null>;
   list(): Promise<GoodsReceipt[]>;
   listByOrder(purchaseOrderId: string): Promise<GoodsReceipt[]>;
   create(receipt: GoodsReceipt): Promise<void>;
   update(receipt: GoodsReceipt): Promise<void>;
+  /**
+   * INVARIANT: the ONE write a state change makes to a stored receipt — the
+   * named fields of `next`, only while the stored row is still in
+   * `expected.status`. It answers whether a row was written.
+   */
+  writeFields(next: GoodsReceipt, fields: readonly GoodsReceiptField[], expected: { readonly status: GoodsReceipt["status"] }): Promise<boolean>;
 }
 
 export interface GoodsReceiptLineInput {
@@ -428,9 +441,31 @@ async function createAdHocGoodsReceipt(
  * invoice later clears the GRNI credit against the real payable, so inventory
  * is debited exactly once, by whichever document actually moved the stock.
  */
+// INVARIANT: the receiving document's own entry debits inventory by what the
+// receipt stated; the stock ledger added less (or more) where the goods
+// levelled a back-order. These two lines carry the difference to the cost of
+// the goods already sold, so the control account moves by what the stock did.
+export function backOrderCoverLines(
+  variance: Money,
+  accounts: { readonly inventoryAccountId: string; readonly backOrderCostAccountId?: string; readonly priceVarianceAccountId?: string },
+  dimensions: { readonly projectId?: string | null; readonly branchId?: string | null } = {},
+): PurchaseGlPostingLine[] {
+  if (variance.scaled === 0n) return [];
+  const costAccountId = accounts.backOrderCostAccountId ?? accounts.priceVarianceAccountId;
+  if (!costAccountId) throw new UnbookedStockVarianceError(variance.negate());
+  const dearer = variance.scaled > 0n;
+  const magnitude = dearer ? variance : variance.negate();
+  const [debited, credited] = dearer ? [costAccountId, accounts.inventoryAccountId] : [accounts.inventoryAccountId, costAccountId];
+  return [
+    { accountId: debited, debit: magnitude, credit: Money.zero(), ...dimensions },
+    { accountId: credited, debit: Money.zero(), credit: magnitude, ...dimensions },
+  ];
+}
+
 export function buildGoodsReceiptPosting(
   receipt: GoodsReceipt,
-  accounts: { readonly inventoryAccountId: string; readonly goodsReceivedNotInvoicedAccountId: string },
+  accounts: { readonly inventoryAccountId: string; readonly goodsReceivedNotInvoicedAccountId: string; readonly backOrderCostAccountId?: string; readonly priceVarianceAccountId?: string },
+  coverVariance: Money = Money.zero(),
 ): PurchaseGlPosting {
   const value = Money.sum(receipt.lines.map((l) => extend(l.qty, l.unitCost)));
   // Split the inventory debit by cost category (never the GRNI credit — that
@@ -462,6 +497,7 @@ export function buildGoodsReceiptPosting(
     lines: [
       ...debitLines,
       { accountId: accounts.goodsReceivedNotInvoicedAccountId, debit: Money.zero(), credit: value, projectId },
+      ...backOrderCoverLines(coverVariance, accounts, { projectId }),
     ],
   };
 }
@@ -470,14 +506,13 @@ export async function confirmGoodsReceipt(
   id: string,
   deps: ConfirmGoodsReceiptDeps,
 ): Promise<GoodsReceipt> {
+  return atomically(deps, async () => {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
   if (receipt.status !== "draft") {
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
-
-  return atomically(deps, async () => {
-  await deps.stock.postReceipt({
+  const received = await deps.stock.postReceipt({
     receiptId: receipt.id,
     receiptNumber: receipt.number,
     warehouseId: receipt.warehouseId,
@@ -497,10 +532,16 @@ export async function confirmGoodsReceipt(
   // behind if something later fails.
   if (deps.gl && deps.accounts?.goodsReceivedNotInvoicedAccountId) {
     await deps.gl.post(
-      buildGoodsReceiptPosting(receipt, {
-        inventoryAccountId: deps.accounts.inventoryAccountId,
-        goodsReceivedNotInvoicedAccountId: deps.accounts.goodsReceivedNotInvoicedAccountId,
-      }),
+      buildGoodsReceiptPosting(
+        receipt,
+        {
+          inventoryAccountId: deps.accounts.inventoryAccountId,
+          goodsReceivedNotInvoicedAccountId: deps.accounts.goodsReceivedNotInvoicedAccountId,
+          backOrderCostAccountId: deps.accounts.backOrderCostAccountId,
+          priceVarianceAccountId: deps.accounts.priceVarianceAccountId,
+        },
+        received.coverVariance,
+      ),
     );
   }
 
@@ -515,7 +556,7 @@ export async function confirmGoodsReceipt(
   }
 
   const confirmed: GoodsReceipt = { ...receipt, status: "confirmed" };
-  await deps.receipts.update(confirmed);
+  await writeReceipt(deps.receipts, confirmed, [GoodsReceiptField.Status], receipt.status);
   await recordPurchaseAudit(deps, "GOODS_RECEIPT", "CONFIRM", {
     receiptId: confirmed.id,
     number: confirmed.number,
@@ -543,6 +584,8 @@ export async function cancelGoodsReceipt(
   options: { readonly date?: string } = {},
 ): Promise<GoodsReceipt> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
+
+  return atomically(deps, async () => {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
   if (receipt.status === "cancelled") {
@@ -559,8 +602,6 @@ export async function cancelGoodsReceipt(
     const standing = (await deps.landedCostsStandingOn?.(receipt.id)) ?? [];
     if (standing.length > 0) throw new LandedCostStandsOnDocumentError(receipt.id, standing);
   }
-
-  return atomically(deps, async () => {
   if (receipt.status === "confirmed") {
     const positions = distinctPositions(receipt.lines.map((l) => ({ itemId: l.itemId, warehouseId: receipt.warehouseId })));
     if (policy.trackSoldPurchaseItems) {
@@ -601,7 +642,7 @@ export async function cancelGoodsReceipt(
   }
 
   const cancelled: GoodsReceipt = { ...receipt, status: "cancelled" };
-  await deps.receipts.update(cancelled);
+  await writeReceipt(deps.receipts, cancelled, [GoodsReceiptField.Status], receipt.status);
   await recordPurchaseAudit(deps, "GOODS_RECEIPT", "CANCEL", {
     receiptId: cancelled.id,
     number: cancelled.number,
@@ -618,15 +659,21 @@ export async function cancelGoodsReceipt(
 export async function billGoodsReceipt(id: string, billings: readonly ReceiptLineBilling[], deps: Pick<ConfirmGoodsReceiptDeps, "receipts">): Promise<void> {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
-  await deps.receipts.update(withBilling(receipt, billings, 1));
+  await writeReceipt(deps.receipts, withBilling(receipt, billings, 1), [GoodsReceiptField.Billing], receipt.status);
 }
 
 export async function unbillGoodsReceipt(id: string, billings: readonly ReceiptLineBilling[] | null, deps: Pick<ConfirmGoodsReceiptDeps, "receipts">): Promise<void> {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) return;
-  if (billings === null) {
-    await deps.receipts.update({ ...receipt, invoiced: false, lines: receipt.lines.map((line) => ({ ...line, invoicedQty: Qty.zero() })) });
-    return;
-  }
-  await deps.receipts.update(withBilling(receipt, billings, -1));
+  const unbilled = billings === null ? { ...receipt, invoiced: false, lines: receipt.lines.map((line) => ({ ...line, invoicedQty: Qty.zero() })) } : withBilling(receipt, billings, -1);
+  await writeReceipt(deps.receipts, unbilled, [GoodsReceiptField.Billing], receipt.status);
+}
+
+async function writeReceipt(
+  receipts: GoodsReceiptRepository,
+  next: GoodsReceipt,
+  fields: readonly GoodsReceiptField[],
+  expectedStatus: GoodsReceipt["status"],
+): Promise<void> {
+  assertDocumentWritten(await receipts.writeFields(next, fields, { status: expectedStatus }), "GOODS_RECEIPT", next.id);
 }

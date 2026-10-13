@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS journal_line (
   currency      TEXT,
   fx_rate       TEXT,
   tax_rate_percent REAL,
+  tax_rate_id   TEXT,
   project_id    TEXT,
   cost_category TEXT,
   branch_id     TEXT,
@@ -106,6 +107,7 @@ interface LineRow {
   currency: string | null;
   fx_rate: string | null;
   tax_rate_percent: number | null;
+  tax_rate_id: string | null;
   project_id: string | null;
   cost_category: string | null;
   branch_id: string | null;
@@ -145,6 +147,7 @@ class SqliteLedgerRepository implements LedgerRepository {
   private readonly updateDraftEntry: Database.Statement;
   private readonly insertLine: Database.Statement;
   private readonly deleteLinesByEntry: Database.Statement;
+  private readonly retagTaxRate: Database.Statement;
   private readonly deleteEntryById: Database.Statement;
   private readonly selectEntryById: Database.Statement;
   private readonly selectEntryByNo: Database.Statement;
@@ -179,8 +182,13 @@ class SqliteLedgerRepository implements LedgerRepository {
       WHERE id = @id AND status = 'draft'
     `);
     this.insertLine = sqlite.prepare(`
-      INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id, party_id, treasury_account_id)
-      VALUES (@entry_id, @line_no, @account_id, @debit, @credit, @memo, @cost_center_id, @currency, @fx_rate, @tax_rate_percent, @project_id, @cost_category, @branch_id, @party_id, @treasury_account_id)
+      INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, tax_rate_id, project_id, cost_category, branch_id, party_id, treasury_account_id)
+      VALUES (@entry_id, @line_no, @account_id, @debit, @credit, @memo, @cost_center_id, @currency, @fx_rate, @tax_rate_percent, @tax_rate_id, @project_id, @cost_category, @branch_id, @party_id, @treasury_account_id)
+    `);
+    this.retagTaxRate = sqlite.prepare(`
+      UPDATE journal_line SET tax_rate_id = @tax_rate_id
+      WHERE entry_id = @entry_id AND tax_rate_id IS NULL AND tax_rate_percent = @tax_rate_percent
+        AND entry_id IN (SELECT id FROM journal_entry WHERE status <> 'draft')
     `);
     this.deleteLinesByEntry = sqlite.prepare(`DELETE FROM journal_line WHERE entry_id = ? AND entry_id IN (SELECT id FROM journal_entry WHERE status = 'draft')`);
     this.deleteEntryById = sqlite.prepare(`DELETE FROM journal_entry WHERE id = ? AND status = 'draft'`);
@@ -188,7 +196,7 @@ class SqliteLedgerRepository implements LedgerRepository {
     this.selectEntryByNo = sqlite.prepare(`SELECT * FROM journal_entry WHERE entry_no = ?`);
     this.selectLines = sqlite
       .prepare(
-        `SELECT line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id, party_id, treasury_account_id FROM journal_line WHERE entry_id = ? ORDER BY line_no`,
+        `SELECT line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, tax_rate_id, project_id, cost_category, branch_id, party_id, treasury_account_id FROM journal_line WHERE entry_id = ? ORDER BY line_no`,
       )
       .safeIntegers();
   }
@@ -206,6 +214,7 @@ class SqliteLedgerRepository implements LedgerRepository {
         currency: line.currency ?? null,
         fx_rate: line.fxRate ?? null,
         tax_rate_percent: line.taxRatePercent ?? null,
+        tax_rate_id: line.taxRateId ?? null,
         project_id: line.projectId ?? null,
         cost_category: line.costCategory ?? null,
         branch_id: line.branchId ?? null,
@@ -231,6 +240,22 @@ class SqliteLedgerRepository implements LedgerRepository {
       source_doc_id: entry.sourceDocId ?? null,
       source_doc_number: entry.sourceDocNumber ?? null,
     });
+  }
+
+  async retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string): Promise<number> {
+    return this.retagTaxRate.run({ entry_id: entryId, tax_rate_percent: taxRatePercent, tax_rate_id: taxRateId }).changes;
+  }
+
+  async tagJournalLines(entryId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    if (lineIndexes.length === 0) return 0;
+    return this.sqlite
+      .prepare(
+        `UPDATE journal_line SET tax_rate_percent = ?, tax_rate_id = ?
+          WHERE entry_id = ? AND tax_rate_id IS NULL AND (tax_rate_percent IS NULL OR tax_rate_percent = ?)
+            AND entry_id IN (SELECT id FROM journal_entry WHERE status <> 'draft')
+            AND line_no IN (${lineIndexes.map(() => "?").join(",")})`,
+      )
+      .run(taxRatePercent, taxRateId, entryId, taxRatePercent, ...lineIndexes).changes;
   }
 
   async replaceDraft(entry: JournalEntry): Promise<void> {
@@ -341,7 +366,7 @@ class SqliteLedgerRepository implements LedgerRepository {
       parentColumn: "entry_id",
       parentIds: rows.map((row) => row.id),
       orderBy: "entry_id, line_no",
-      columns: "entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, project_id, cost_category, branch_id, party_id, treasury_account_id",
+      columns: "entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent, tax_rate_id, project_id, cost_category, branch_id, party_id, treasury_account_id",
       safeIntegers: true,
     });
     return rows.map((row) => this.hydrate(row, linesByEntry.get(row.id) ?? []));
@@ -592,6 +617,7 @@ class SqliteLedgerRepository implements LedgerRepository {
       partyId: l.party_id,
       treasuryAccountId: l.treasury_account_id,
       taxRatePercent: l.tax_rate_percent === null ? null : Number(l.tax_rate_percent),
+      taxRateId: l.tax_rate_id,
       currency: l.currency,
       fxRate: l.fx_rate,
     }));
@@ -662,6 +688,8 @@ export function createSqliteLedgerStore(
   // has the table already, so CREATE TABLE IF NOT EXISTS alone never adds it.
   const lineColumns = new Set((sqlite.prepare(`PRAGMA table_info(journal_line)`).all() as { name: string }[]).map((c) => c.name));
   if (!lineColumns.has("tax_rate_percent")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN tax_rate_percent REAL`);
+  if (!lineColumns.has("tax_rate_id")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN tax_rate_id TEXT`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_journal_line_tax_rate ON journal_line(tax_rate_id) WHERE tax_rate_id IS NOT NULL`);
   // The two contracting dimensions (D-01) arrived later still.
   if (!lineColumns.has("project_id")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN project_id TEXT`);
   if (!lineColumns.has("cost_category")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN cost_category TEXT`);

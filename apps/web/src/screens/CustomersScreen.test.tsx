@@ -14,6 +14,7 @@ import type {
   PriceListDTO,
   SalesReturnDocumentDTO,
   SalesReturnLineDTO,
+  TaxRateDTO,
   VoucherAllocationDTO,
 } from "@mezan/contracts";
 import { BranchCaveatCodeDTO } from "@mezan/contracts";
@@ -65,6 +66,7 @@ function customer(overrides: Partial<CustomerDTO> = {}): CustomerDTO {
     priceListId: null,
     creditLimit: "15000.00",
     taxExempt: false,
+    taxExemptionRateId: null,
     etaBuyerType: "business",
     commercialRegistrationNumber: null,
     address: null,
@@ -300,6 +302,7 @@ function renderScreen(
   customers: CustomerDTO[] = [customer(), inactiveCustomer],
   opts: {
     priceLists?: PriceListDTO[];
+    taxRates?: TaxRateDTO[];
     customersRequests?: string[];
     onCreateCustomer?: (body: Record<string, unknown>) => { status?: number; body: unknown } | undefined;
     patchRequests?: Array<{ id: string; patch: Record<string, unknown> }>;
@@ -353,6 +356,7 @@ function renderScreen(
       },
     }),
     "GET /price-lists": () => ({ body: opts.priceLists ?? [] }),
+    "GET /tax-rates": () => ({ body: opts.taxRates ?? [] }),
     "POST /customers": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       const overridden = opts.onCreateCustomer?.(body);
@@ -991,6 +995,7 @@ describe("CustomersScreen", () => {
       taxNumber: "300999888700003",
       commercialRegistrationNumber: "CR-055012",
       taxExempt: true,
+      taxExemptionRateId: null,
       etaBuyerType: "individual",
       nationalId: "29001011234567",
       contactPerson: "كريم حسن",
@@ -1201,5 +1206,59 @@ describe("CustomersScreen", () => {
     expect(await screen.findByText("تعذّر تحميل حركة حساب العميل.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect((await screen.findAllByText("رصيد افتتاحي")).length).toBe(2);
+  });
+
+  describe("ضريبة الإعفاء — the 0% rate an exempt customer's lines are filed under (D79)", () => {
+    const taxRate = (overrides: Partial<TaxRateDTO>): TaxRateDTO => ({
+      id: "VAT14", code: "VAT14", name: "ضريبة القيمة المضافة", rate: 14, calculationType: "exclusive", isDefault: true,
+      outputTaxAccountId: null, inputTaxAccountId: null, etaSubType: "auto", status: "active", isSystem: false, ...overrides,
+    });
+    const taxRates = [
+      taxRate({}),
+      taxRate({ id: "VAT-EXEMPT", code: "VAT-EXEMPT", name: "معفى من الضريبة", rate: 0, isDefault: false, etaSubType: "V003" }),
+      taxRate({ id: "VAT-EXPORT", code: "VAT-EXPORT", name: "تصدير — نسبة صفر", rate: 0, isDefault: false, etaSubType: "V001" }),
+      taxRate({ id: "OLD-ZERO", code: "OLD-ZERO", name: "صفر قديمة", rate: 0, isDefault: false, etaSubType: "V003", status: "inactive" }),
+      taxRate({ id: "SYS-NOT-SUBJECT", code: "SYS-NOT-SUBJECT", name: "غير خاضع", rate: 0, isDefault: false, etaSubType: "V004", isSystem: true }),
+    ];
+
+    async function openAdvanced() {
+      await screen.findByText("شركة الأمل للتجارة");
+      fireEvent.click(screen.getByRole("button", { name: "إضافة عميل" }));
+      const dialog = screen.getByRole("dialog", { name: "إضافة عميل" });
+      fireEvent.change(textFieldInput(dialog, "اسم العميل *"), { target: { value: "جهة معفاة" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "خيارات متقدمة" }));
+      return dialog;
+    }
+
+    it("offers the picker only for an exempt customer, over the tenant's ACTIVE 0% rates, and sends the picked rate's real id", async () => {
+      let created: Record<string, unknown> | undefined;
+      renderScreen([customer()], { taxRates, onCreateCustomer: (body) => { created = body; return undefined; } });
+      const dialog = await openAdvanced();
+      expect(within(dialog).queryByLabelText("ضريبة الإعفاء")).toBeNull();
+
+      fireEvent.click(within(dialog).getByRole("switch", { name: "إعفاء ضريبي" }));
+      fireEvent.click(within(dialog).getByLabelText("ضريبة الإعفاء"));
+      const offered = screen.getAllByRole("option").map((option) => option.textContent);
+      expect(offered).toEqual(["بدون — تُصنَّف بنود فواتيره يدوياً", "معفى من الضريبة", "تصدير — نسبة صفر"]);
+      fireEvent.mouseDown(screen.getByRole("option", { name: "تصدير — نسبة صفر" }));
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "إضافة عميل" }));
+      await waitFor(() => expect(created).toBeDefined());
+      expect(created).toMatchObject({ taxExempt: true, taxExemptionRateId: "VAT-EXPORT" });
+    });
+
+    it("drops the picked rate when the exemption is switched back off", async () => {
+      let created: Record<string, unknown> | undefined;
+      renderScreen([customer()], { taxRates, onCreateCustomer: (body) => { created = body; return undefined; } });
+      const dialog = await openAdvanced();
+      const exempt = within(dialog).getByRole("switch", { name: "إعفاء ضريبي" });
+      fireEvent.click(exempt);
+      selectOption(within(dialog).getByLabelText("ضريبة الإعفاء"), "معفى من الضريبة");
+      fireEvent.click(exempt);
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "إضافة عميل" }));
+      await waitFor(() => expect(created).toBeDefined());
+      expect(created).toMatchObject({ taxExempt: false, taxExemptionRateId: null });
+    });
   });
 });

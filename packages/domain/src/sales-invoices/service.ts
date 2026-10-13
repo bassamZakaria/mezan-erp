@@ -14,9 +14,44 @@
 
 import { Money, Qty } from "../money/index.js";
 import { toBaseQty } from "../units/index.js";
+import {
+  resolveDocumentLineTax,
+  classifyStoredTaxRate,
+  planTaxClassification,
+  alreadyClassifiedAs,
+  TaxClassificationFilingOutcome,
+  TaxClassificationNotPostedError,
+  TaxClassificationNotASupplyError,
+  PostedLineNotFoundError,
+  SystemTaxRateOnlyError,
+  SYSTEM_NOT_SUBJECT_TAX_RATE,
+  isSystemTaxRate,
+  TaxClassificationAuditAction,
+  TaxClassificationAuditEntity,
+  TaxClassificationAuditModule,
+  TaxClassificationJournalUntaggedError,
+  TaxClassificationStaleError,
+  JournalTaxLineUnclassifiedError,
+  TaxRateAlreadyClassifiedError,
+  type ExpectedTaxJournalLine,
+  type ChosenJournalLinesNamed,
+  type TaxClassificationDependentsPort,
+  type ClassifyPostedLineTaxRequest,
+  type JournalTaxTagPort,
+  type TaxClassificationPlan,
+  ZeroRatingCause,
+  type ZeroRating,
+  resolveInheritedTaxRate,
+  type AppliedTaxRate,
+  type AppliedTaxRateRequest,
+  type TaxRate,
+  type TaxRateRepository,
+} from "../tax-rates/index.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
+import { InvoiceDocumentKind, isRetentionRelease, RETENTION_RELEASE_ITEM_ID } from "../documents/invoice-document-kind.js";
+import { SalesPricingMode, type SalesInvoiceTaxPolicy, type SalesTaxPolicySource } from "./tax-policy.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
-import { recordSensitiveEvent, type AuditSink } from "../audit/index.js";
+import { AuditSeverityCode, recordSensitiveEvent, type AuditSink } from "../audit/index.js";
 import type {
   DocumentGlHook,
   DocumentNumberingHook,
@@ -27,7 +62,7 @@ import { confirmRequestIdOf, statedBranchOf } from "../documents/hooks.js";
 import type { GateableActionType } from "../workflow/index.js";
 import type { CreditControlMode } from "../settings/settings.js";
 import { checkCustomerCredit, CreditLimitExceededError, type CreditCheckResult } from "../credit-control/index.js";
-import { SALES_INVOICE_STATUS_LABELS_AR, SALES_INVOICE_ACTIVE_STATUSES } from "./sales-invoice.js";
+import { SALES_INVOICE_STATUS_LABELS_AR, SALES_INVOICE_ACTIVE_STATUSES, SalesInvoiceStatusCode } from "./sales-invoice.js";
 import type {
   SalesInvoice,
   SalesInvoiceDiscount,
@@ -36,6 +71,9 @@ import type {
   SalesInvoiceStatus,
 } from "./sales-invoice.js";
 import { assertTransition } from "./status.js";
+import { DocumentChangedError } from "../documents/errors.js";
+import { displayAmount } from "../documents/approval-label.js";
+import { SalesInvoiceField } from "./ports.js";
 import { salesInvoiceTotals, salesInvoiceBaseGrandTotal, type SalesInvoiceTotals } from "./totals.js";
 import { describeSalesInvoiceEffects } from "./effects.js";
 import { buildSalesInvoiceGlPosting, type SalesInvoiceCogsLine, type SalesInvoiceFxContext } from "./gl.js";
@@ -47,6 +85,10 @@ import type {
   SalesInvoicePromotionHook,
 } from "./ports.js";
 import {
+  ApprovedSalesInvoiceReratedError,
+  SalesTaxRecalculationUnacknowledgedError,
+  SalesInvoiceNotDraftError,
+  SalesInvoiceLineNotFoundError,
   InvalidSalesInvoiceError,
   InvalidSalesInvoicePaymentError,
   SalesInvoiceNotFoundError,
@@ -98,15 +140,21 @@ export interface PricingVariance {
 /** The workflow action gated on confirm (docs/archive/catalog/09). */
 const GATE_ACTION: GateableActionType = "SALES_INVOICE_CONFIRM";
 
-/** The tenant's VAT rules as a document sees them (settings §"الضريبة"). */
-export interface SalesInvoiceTaxPolicy {
-  /** VAT switched off: every line on a new invoice is raised at a zero rate. */
-  readonly enabled: boolean;
-  /** The rate a line that names none is raised at. */
-  readonly defaultRatePercent: number;
-  /** Unit prices already contain the tax. */
-  readonly inclusive: boolean;
+export type { SalesInvoiceTaxPolicy };
+
+export enum SalesInvoiceDraftAuditAction {
+  EditDraftLine = "EDIT_DRAFT_LINE",
 }
+
+export enum SalesInvoiceLifecycleAuditAction {
+  Confirm = "CONFIRM",
+  Cancel = "CANCEL",
+  ReturnReratedToDraft = "RETURN_RERATED_TO_DRAFT",
+}
+
+const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
+const SALES_MODULE = "sales";
+
 
 export interface SalesInvoiceServiceDeps {
   readonly repo: SalesInvoiceRepository;
@@ -130,11 +178,17 @@ export interface SalesInvoiceServiceDeps {
   readonly allocatable?: AllocatableInvoiceRepository;
   readonly events?: DocumentEventPublisher;
   /**
-   * The tenant's VAT rules (settings §"الضريبة"), read when a draft is raised
-   * and stamped onto it. Omit and an invoice behaves as it always did: tax
-   * added on top, and a line with no rate carries none.
+   * INVARIANT: the three tax dependencies are REQUIRED. A service built
+   * without the tenant's VAT switch, its rate table or the re-rating port
+   * posts a line under no rate and a total nobody approved — which is what a
+   * held invoice's approval did while they were optional.
    */
-  readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
+  readonly taxPolicy: SalesTaxPolicySource;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
+  readonly taxRerating: SalesTaxReratingPort;
+  readonly taxTags?: JournalTaxTagPort;
+  readonly taxFiling?: SalesInvoiceTaxFilingPort;
+  readonly taxDependents?: TaxClassificationDependentsPort;
   /**
    * Exchange rates, so a foreign-currency invoice posts its base-currency
    * value at the rate that applied on its own date and keeps that rate on the
@@ -196,6 +250,14 @@ export interface CreateSalesInvoiceLine {
   readonly discountPercent?: number;
   readonly discountAmount?: Money;
   readonly taxRatePercent?: number;
+  readonly taxRateId?: string | null;
+  /**
+   * SECURITY: server-internal — the tax another document already resolved for this line
+   * (a quote converting into an invoice). Taken as it stands — no active check,
+   * no repricing. Never map it from a request body.
+   */
+  readonly inheritedTax?: AppliedTaxRate;
+  readonly inheritedTaxRateId?: string | null;
   readonly revenueAccountId: string;
   readonly cogsAccountId?: string | null;
   readonly inventoryAccountId?: string | null;
@@ -205,11 +267,15 @@ export interface CreateSalesInvoiceLine {
 
 export interface CreateSalesInvoiceCommand {
   readonly id: string;
+  readonly documentKind?: InvoiceDocumentKind;
   readonly date: string;
   readonly dueDate: string;
   readonly customerId: string;
   readonly customerNameAr: string;
+  /** SECURITY: server-derived from the customer record; never map it from a request body. */
   readonly customerTaxExempt?: boolean;
+  /** SECURITY: server-derived — the 0% rate on the exempt customer's card; never map it from a request body. */
+  readonly customerTaxExemptionRateId?: string | null;
   readonly warehouseId: string;
   readonly branchId: string;
   readonly salespersonId?: string | null;
@@ -222,10 +288,21 @@ export interface CreateSalesInvoiceCommand {
   readonly discount?: SalesInvoiceDiscount;
   readonly arAccountId: string;
   readonly taxAccountId: string;
+  /**
+   * INVARIANT: an invoice derived from another document — a quote, a progress
+   * certificate, a retention release — states the pricing that document was
+   * priced under. The tenant's setting decides only for an invoice keyed in
+   * directly; reading a derived one under it bills a different total than the
+   * document the customer agreed to.
+   */
+  readonly sourcePricing?: SalesPricingMode;
+  /** SECURITY: server-derived by a quote's conversion; never map it from a request body. */
+  readonly sourceQuoteId?: string | null;
   readonly lines: readonly CreateSalesInvoiceLine[];
 }
 
 export interface ConfirmSalesInvoiceOptions {
+  readonly acknowledgeTaxRecalculation?: boolean;
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
 }
@@ -238,6 +315,29 @@ export interface ConfirmSalesInvoiceResult {
   readonly creditWarning: CreditCheckResult | null;
   /** Lines charged below the customer's assigned price list; empty when none, or when no list applies. */
   readonly pricingVariances: readonly PricingVariance[];
+  readonly taxRecalculated: boolean;
+}
+
+export interface SalesInvoiceTaxFilingPort {
+  reconcile(change: { readonly before: SalesInvoice; readonly after: SalesInvoice }): Promise<TaxClassificationFilingOutcome>;
+}
+
+export interface SalesTaxReratingPort {
+  customerExemptionRateId(customerId: string): Promise<string | null>;
+  itemTax(itemId: string): Promise<AppliedTaxRateRequest | null>;
+}
+
+export interface EditSalesInvoiceDraftLineCommand {
+  readonly qty?: Qty;
+  readonly unitPrice?: Money;
+  readonly taxRateId?: string;
+}
+
+export interface ClassifySalesInvoiceLineTaxResult {
+  readonly invoice: SalesInvoice;
+  readonly plan: TaxClassificationPlan;
+  readonly journalLinesNamed: number;
+  readonly filing: TaxClassificationFilingOutcome;
 }
 
 export class SalesInvoiceService {
@@ -284,7 +384,8 @@ export class SalesInvoiceService {
 
   /** Open a new مسودة (draft): validated and persisted, not numbered or posted. */
   async createDraft(cmd: CreateSalesInvoiceCommand): Promise<SalesInvoice> {
-    const invoice = this.buildDraft(cmd, await this.resolveTaxPolicy());
+    const taxRates = await this.deps.taxRates.list();
+    const { invoice } = await this.rerateForCurrentVat(this.buildDraft(cmd, await this.resolveTaxPolicy(), taxRates));
     this.validate(invoice);
     await this.deps.repo.save(invoice);
     this.emit("DOCUMENT_DRAFTED", invoice);
@@ -296,8 +397,30 @@ export class SalesInvoiceService {
    * approval is required the invoice is held بانتظار الموافقة (pending). Otherwise
    * it runs numbering → stock issue → GL post → persist in one transaction.
    */
+  async confirmPreview(invoice: SalesInvoice): Promise<{ readonly invoice: SalesInvoice; readonly totals: SalesInvoiceTotals } | null> {
+    if (invoice.status !== SalesInvoiceStatusCode.Draft) return null;
+    const rerated = await this.rerateForCurrentVat(invoice);
+    return rerated.recalculated ? { invoice: rerated.invoice, totals: this.totalsOf(rerated.invoice) } : null;
+  }
+
   async confirm(id: string, opts: ConfirmSalesInvoiceOptions = {}): Promise<ConfirmSalesInvoiceResult> {
-    const existing = await this.require(id);
+    const stored = await this.require(id);
+    const requestId = confirmRequestIdOf(id);
+    // INVARIANT: a draft the VAT setting has re-rated is never posted — or
+    // sent for approval — at figures its screen did not show. Unacknowledged
+    // it is refused with the new totals; acknowledged, the re-rated lines are
+    // written to the draft BEFORE the approval gate, so the approver reads
+    // what will post.
+    const preview = await this.confirmPreview(stored);
+    if (preview && !opts.acknowledgeTaxRecalculation) {
+      throw new SalesTaxRecalculationUnacknowledgedError(id, displayAmount(this.totalsOf(stored).grandTotal), displayAmount(preview.totals.grandTotal));
+    }
+    if (preview) {
+      this.validate(preview.invoice);
+      if (!(await this.deps.repo.replaceUnposted(preview.invoice, { status: [stored.status] }))) throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, id);
+    }
+    const existing = preview?.invoice ?? stored;
+    const reratedBeforeGate = preview !== null;
     this.validate(existing);
 
     const effects = this.effectsOf(existing);
@@ -311,45 +434,82 @@ export class SalesInvoiceService {
     if (this.deps.workflow) {
       const decision = await this.deps.workflow.evaluate({
         actionType: GATE_ACTION,
-        requestId: confirmRequestIdOf(id),
+        requestId,
         submittedBy: opts.actor ?? this.deps.actor ?? "system",
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
+        entityLabel: existing.docNo ?? `فاتورة مبيعات بقيمة ${displayAmount(this.totalsOf(existing).grandTotal)} — ${existing.customerNameAr}`,
         document: { id, branchId: statedBranchOf(existing), content: existing, heldRequestId: existing.workflowRequestId },
       });
       if (!decision.granted) {
         // Re-confirming while the request is still in the inbox is a no-op, not
         // an illegal pending → pending transition.
-        if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null, pricingVariances: [] };
-        assertTransition(id, existing.status, "pending");
-        const held: SalesInvoice = {
-          ...existing,
-          status: "pending",
-          workflowRequestId: decision.requestId,
-        };
-        await this.deps.repo.update(held);
+        if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
+
+        const held = await this.deps.repo.transaction(async () => {
+          const fresh = await this.require(id);
+          assertTransition(id, fresh.status, "pending");
+          const next: SalesInvoice = { ...fresh, status: "pending", workflowRequestId: decision.requestId };
+          await this.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], fresh.status);
+          return next;
+        });
         this.emit("DOCUMENT_SUBMITTED", held);
-        return { invoice: held, held: true, creditWarning: null, pricingVariances: [] };
+        return { invoice: held, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: reratedBeforeGate };
       }
     }
 
     assertTransition(id, existing.status, "confirmed");
 
-    // The promotion is evaluated only once the gate has granted, so a snapshot
-    // exists only on an invoice that really went live — and every figure below
-    // (credit exposure, GL posting, AR) reflects the discount it granted.
-    const promoted = await this.applyContractBilling(await this.applyPromotion(existing));
-    const totals = this.totalsOf(promoted);
+    const outcome = await this.deps.repo.transaction(async () => {
+      // INVARIANT: the invoice is re-read and every guard re-run inside the
+      // transaction that posts it. A draft edited, cancelled or confirmed since
+      // the request began is posted as it now stands, or refused — an earlier
+      // copy is never posted or written back.
+      const stored = await this.require(id);
+      assertTransition(id, stored.status, "confirmed");
+      // INVARIANT: a draft posts under the VAT setting of the day it posts. One
+      // raised outside VAT and confirmed inside it (or the reverse) is re-rated
+      // here, so it can neither be stranded nor charge a tax the tenant is not in.
+      const { invoice: fresh, recalculated: taxRecalculated } = await this.rerateForCurrentVat(stored);
+      this.validate(fresh);
+      await this.assertNoStaleSystemRate(fresh);
+      // INVARIANT (maker-checker): an approval covers the figures it was given
+      // for. A held invoice the VAT setting has since re-rated is never posted
+      // on that approval: it goes back to its submitter as a draft carrying the
+      // recalculated lines, and its request is reopened in this transaction so
+      // the next confirm is judged afresh.
+      if (taxRecalculated && stored.status === SalesInvoiceStatusCode.Pending) {
+        assertTransition(id, stored.status, SalesInvoiceStatusCode.Draft);
+        const handedBack: SalesInvoice = { ...fresh, status: SalesInvoiceStatusCode.Draft, workflowRequestId: null };
+        if (!(await this.deps.repo.replaceUnposted(handedBack, { status: [stored.status] }))) throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, id);
+        await this.deps.workflow?.reopen?.(stored.workflowRequestId ?? requestId);
+        await this.recordAudit(SalesInvoiceLifecycleAuditAction.ReturnReratedToDraft, handedBack, AuditSeverityCode.Warning, {
+          approvedTotal: this.totalsOf(stored).grandTotal.toString(),
+          recalculatedTotal: this.totalsOf(handedBack).grandTotal.toString(),
+        });
+        return { posted: false, handedBack, approvedTotal: this.totalsOf(stored).grandTotal } as const;
+      }
+      const freshEffects = this.effectsOf(fresh);
+      if (freshEffects.blocked) {
+        throw new InvalidSalesInvoiceError([
+          freshEffects.blockedReason ?? "الفاتورة غير قابلة للتأكيد في حالتها الحالية.",
+        ]);
+      }
 
-    // A foreign-currency invoice needs the rate BEFORE anything is written:
-    // resolved here, a missing rate refuses the confirm outright rather than
-    // leaving stock issued against a document that never posted.
-    const fx = await this.resolveFxRate(promoted);
+      // The promotion is evaluated only once the gate has granted, so a snapshot
+      // exists only on an invoice that really went live — and every figure below
+      // (credit exposure, GL posting, AR) reflects the discount it granted.
+      const promoted = await this.applyContractBilling(await this.applyPromotion(fresh));
+      const totals = this.totalsOf(promoted);
 
-    const creditWarning = await this.checkCredit(promoted, salesInvoiceBaseGrandTotal(totals, fx?.rate));
-    const pricingVariances = await this.checkPricing(promoted);
+      // A foreign-currency invoice needs the rate BEFORE anything is written:
+      // resolved here, a missing rate refuses the confirm outright rather than
+      // leaving stock issued against a document that never posted.
+      const fx = await this.resolveFxRate(promoted);
 
-    const confirmed = await this.deps.repo.transaction(async () => {
-      const number = await this.deps.numbering.next({ branchId: existing.branchId });
+      const creditWarning = await this.checkCredit(promoted, salesInvoiceBaseGrandTotal(totals, fx?.rate));
+      const pricingVariances = await this.checkPricing(promoted);
+
+      const number = await this.deps.numbering.next({ branchId: fresh.branchId });
       const docNo = number.formatted;
       // The LEDGER timestamp is the invoice's own date, never the wall clock:
       // a document-dated movement and a now()-stamped one cannot be replayed in
@@ -401,7 +561,7 @@ export class SalesInvoiceService {
         journalEntryId: glResult.journalEntryId,
         workflowRequestId: null,
       };
-      await this.deps.repo.update(next);
+      if (!(await this.deps.repo.replaceUnposted(next, { status: [fresh.status] }))) throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, id);
 
       // The allocation sub-ledger row and the audit row are part of the confirm,
       // not a follow-up: written after the commit, a failure between them left a
@@ -421,12 +581,17 @@ export class SalesInvoiceService {
           allocated: Money.zero(),
         });
       }
-      await this.recordAudit("CONFIRM", next, "INFO");
-      return next;
+      await this.recordAudit(SalesInvoiceLifecycleAuditAction.Confirm, next, AuditSeverityCode.Info);
+      return { posted: true, confirmed: next, creditWarning, pricingVariances, taxRecalculated } as const;
     });
 
+    if (!outcome.posted) {
+      this.emit("DOCUMENT_DRAFTED", outcome.handedBack);
+      throw new ApprovedSalesInvoiceReratedError(id, displayAmount(outcome.approvedTotal), displayAmount(this.totalsOf(outcome.handedBack).grandTotal));
+    }
+    const { confirmed, creditWarning, pricingVariances, taxRecalculated } = outcome;
     this.emit("DOCUMENT_CONFIRMED", confirmed);
-    return { invoice: confirmed, held: false, creditWarning, pricingVariances };
+    return { invoice: confirmed, held: false, creditWarning, pricingVariances, taxRecalculated: taxRecalculated || reratedBeforeGate };
   }
 
   /**
@@ -495,26 +660,37 @@ export class SalesInvoiceService {
    * to for the approval request.
    */
   async returnToDraft(id: string): Promise<SalesInvoice> {
-    const existing = await this.require(id);
-    if (existing.status === "draft") return existing;
-    assertTransition(id, existing.status, "draft");
-    const returned: SalesInvoice = { ...existing, status: "draft", workflowRequestId: null };
-    await this.deps.repo.update(returned);
+    const returned = await this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      if (existing.status === "draft") return null;
+      assertTransition(id, existing.status, "draft");
+      const next: SalesInvoice = { ...existing, status: "draft", workflowRequestId: null };
+      await this.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], existing.status);
+      return next;
+    });
+    if (!returned) return this.require(id);
     this.emit("DOCUMENT_DRAFTED", returned);
     return returned;
   }
 
   /** Cancel a draft/pending invoice (never a live one — those are corrected by a return). */
   async cancel(id: string): Promise<SalesInvoice> {
-    const existing = await this.require(id);
-    assertTransition(id, existing.status, "cancelled");
-    const cancelled: SalesInvoice = { ...existing, status: "cancelled", workflowRequestId: null };
-    await this.deps.repo.transaction(async () => {
-      await this.deps.repo.update(cancelled);
-      await this.recordAudit("CANCEL", cancelled, "WARNING");
+    const cancelled = await this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      assertTransition(id, existing.status, "cancelled");
+      const next: SalesInvoice = { ...existing, status: "cancelled", workflowRequestId: null };
+      await this.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.WorkflowRequestId], existing.status);
+      await this.recordAudit(SalesInvoiceLifecycleAuditAction.Cancel, next, AuditSeverityCode.Warning);
+      return next;
     });
     this.emit("DOCUMENT_CANCELLED", cancelled);
     return cancelled;
+  }
+
+  private async writeFields(next: SalesInvoice, fields: readonly SalesInvoiceField[], expectedStatus: SalesInvoiceStatus): Promise<void> {
+    if (!(await this.deps.repo.writeFields(next, fields, { status: [expectedStatus] }))) {
+      throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, next.id);
+    }
   }
 
   /**
@@ -583,15 +759,224 @@ export class SalesInvoiceService {
 
   // --- internals ---
 
+  // INVARIANT: the system's «غير خاضع» rate says the TENANT is outside VAT.
+  // A draft raised while VAT was off, or converted from a quote raised then,
+  // may not post under it once VAT is on — its lines are re-rated first.
+  private async assertNoStaleSystemRate(invoice: SalesInvoice): Promise<void> {
+    if (!(await this.deps.taxPolicy()).enabled) return;
+    const stale = invoice.lines.filter((line) => line.taxRateId !== null && isSystemTaxRate(line.taxRateId));
+    if (stale.length === 0) return;
+    throw new InvalidSalesInvoiceError(
+      stale.map(
+        (line) =>
+          `الصنف "${line.itemNameAr}": مسجّل تحت «${SYSTEM_NOT_SUBJECT_TAX_RATE.name}»، وهي ضريبة يسمّيها النظام للمنشأة التي أوقفت ضريبة القيمة المضافة. الضريبة مفعّلة الآن — اختر ضريبة البند ثم أكّد.`,
+      ),
+    );
+  }
+
+  private async rerateForCurrentVat(invoice: SalesInvoice): Promise<{ invoice: SalesInvoice; recalculated: boolean }> {
+    if (isRetentionRelease(invoice)) return { invoice, recalculated: false };
+    const policy = await this.deps.taxPolicy();
+    const taxRates = await this.deps.taxRates.list();
+    const lines: SalesInvoiceLine[] = [];
+    for (const line of invoice.lines) lines.push({ ...line, ...(await this.currentTaxOf(invoice, line, policy, taxRates)) });
+    const recalculated = lines.some((line, index) => {
+      const before = invoice.lines[index] as SalesInvoiceLine;
+      return (line.taxRateId ?? null) !== (before.taxRateId ?? null) || line.taxRatePercent !== before.taxRatePercent;
+    });
+    return recalculated ? { invoice: { ...invoice, lines }, recalculated } : { invoice, recalculated };
+  }
+
+  private async currentTaxOf(
+    invoice: SalesInvoice,
+    line: SalesInvoiceLine,
+    policy: SalesInvoiceTaxPolicy,
+    taxRates: readonly TaxRate[] | null,
+  ): Promise<AppliedTaxRate> {
+    const stored: AppliedTaxRate = { taxRateId: line.taxRateId ?? null, taxRatePercent: line.taxRatePercent };
+    if (!policy.enabled) {
+      if (stored.taxRatePercent === 0 && stored.taxRateId !== null) return stored;
+      return resolveDocumentLineTax(taxRates, {}, { defaultPercent: 0, zeroRating: { cause: ZeroRatingCause.VatOff } });
+    }
+    if (stored.taxRateId === null || !isSystemTaxRate(stored.taxRateId)) return stored;
+    if (invoice.customerTaxExempt) {
+      const exemptionTaxRateId = await this.deps.taxRerating.customerExemptionRateId(invoice.customerId);
+      return resolveDocumentLineTax(taxRates, {}, { defaultPercent: 0, zeroRating: { cause: ZeroRatingCause.ExemptCustomer, exemptionTaxRateId } });
+    }
+    const itemTax = (await this.deps.taxRerating.itemTax(line.itemId)) ?? {};
+    return resolveDocumentLineTax(taxRates, itemTax, { defaultPercent: policy.defaultRatePercent, zeroRating: null });
+  }
+
+  /**
+   * تسمية ضريبة سطر القيد — for a posted invoice whose entry the automatic
+   * match could not name. On a line that names no rate yet it is a
+   * classification with the journal lines chosen by hand; on a line that
+   * already names one it names the entry's lines under that same rate.
+   *
+   * INVARIANT: no amount, account, date or status moves, the chosen lines must
+   * be exactly what the document's lines at that rate posted, and a filed VAT
+   * month refuses it.
+   */
+  async nameJournalLineTax(
+    id: string,
+    request: { readonly lineRef: string; readonly withLineRefs?: readonly string[]; readonly taxRateId?: string; readonly journalLineIndexes: readonly number[] },
+  ): Promise<ClassifySalesInvoiceLineTaxResult> {
+    const target = (await this.require(id)).lines.find((line) => line.lineId === request.lineRef);
+    if (!target) throw new PostedLineNotFoundError(request.lineRef);
+    if ((target.taxRateId ?? null) === null) {
+      if (!request.taxRateId) throw new JournalTaxLineUnclassifiedError(request.lineRef);
+      return this.classifyLineTax(id, { ...request, taxRateId: request.taxRateId });
+    }
+    return this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) {
+        throw new TaxClassificationNotPostedError(SALES_INVOICE_STATUS_LABELS_AR[existing.status]);
+      }
+      const line = existing.lines.find((candidate) => candidate.lineId === request.lineRef);
+      const taxRateId = line?.taxRateId ?? null;
+      if (!line || taxRateId === null) throw new JournalTaxLineUnclassifiedError(request.lineRef);
+      const taxRates = await this.deps.taxRates.list();
+      const taxRateName = taxRates?.find((rate) => rate.id === taxRateId)?.name ?? taxRateId;
+      if (request.taxRateId && request.taxRateId !== taxRateId) throw new TaxRateAlreadyClassifiedError(taxRateId, taxRateName);
+      const stored: AppliedTaxRate = { taxRateId, taxRatePercent: line.taxRatePercent };
+      if (!existing.journalEntryId || !this.deps.taxTags) throw new TaxClassificationJournalUntaggedError(existing.docNo ?? existing.id);
+      const journalLines = await this.deps.taxTags.nameChosenLines(
+        existing.journalEntryId,
+        request.journalLineIndexes,
+        stored.taxRatePercent,
+        taxRateId,
+        expectedSalesTaxJournalLines(existing, stored),
+      );
+      const lineRefs = existing.lines
+        .filter((candidate) => (candidate.taxRateId ?? null) === taxRateId && candidate.taxRatePercent === stored.taxRatePercent)
+        .map((candidate) => candidate.lineId);
+      if (this.deps.audit) {
+        await recordSensitiveEvent(this.deps.audit, {
+          module: TaxClassificationAuditModule.Sales,
+          entityType: TaxClassificationAuditEntity.SalesInvoice,
+          entityId: existing.id,
+          action: TaxClassificationAuditAction.NameJournalLineTax,
+          actor: this.deps.actor ?? "system",
+          branchId: existing.branchId ?? null,
+          severity: AuditSeverityCode.Warning,
+          details: { invoiceId: existing.id, docNo: existing.docNo, lineIds: lineRefs, taxRateId, taxRateName, journalEntryId: existing.journalEntryId, journalLines },
+        });
+      }
+      return {
+        invoice: existing,
+        plan: { lineRefs, before: stored, after: stored, taxRateName },
+        journalLinesNamed: journalLines.after.length,
+        filing: TaxClassificationFilingOutcome.NotQueued,
+      };
+    });
+  }
+
+  async editDraftLine(id: string, lineId: string, change: EditSalesInvoiceDraftLineCommand): Promise<SalesInvoice> {
+    return this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      if (existing.status !== SalesInvoiceStatusCode.Draft) throw new SalesInvoiceNotDraftError(id, existing.status);
+      const before = existing.lines.find((line) => line.lineId === lineId);
+      if (!before) throw new SalesInvoiceLineNotFoundError(id, lineId);
+      const policy = await this.resolveTaxPolicy();
+      const taxRates = await this.deps.taxRates.list();
+      const qty = change.qty ?? before.qty;
+      const tax: AppliedTaxRate =
+        change.taxRateId === undefined
+          ? { taxRateId: before.taxRateId ?? null, taxRatePercent: before.taxRatePercent }
+          : resolveDocumentLineTax(taxRates, { taxRateId: change.taxRateId }, {
+              defaultPercent: policy.defaultRatePercent,
+              zeroRating: await this.zeroRatingOf(existing, policy),
+            });
+      const after: SalesInvoiceLine = {
+        ...before,
+        qty,
+        baseQty: Number.isFinite(before.unitFactor) && before.unitFactor > 0 ? toBaseQty(qty, before.unitFactor) : qty,
+        unitPrice: change.unitPrice ?? before.unitPrice,
+        taxRateId: tax.taxRateId,
+        taxRatePercent: tax.taxRatePercent,
+      };
+      const next: SalesInvoice = { ...existing, lines: existing.lines.map((line) => (line.lineId === lineId ? after : line)) };
+      this.validate(next);
+      if (!(await this.deps.repo.replaceUnposted(next, { status: [existing.status] }))) throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, id);
+      // INVARIANT: a verdict covers the document it was given on. A draft
+      // edited after its request was rejected — or approved — is judged afresh
+      // on its next confirm: the request goes back to «طلب تعديل» here, in the
+      // edit's own transaction, and the gate's rules are not touched.
+      await this.deps.workflow?.reopen?.(confirmRequestIdOf(id));
+      if (this.deps.audit) {
+        const figures = (line: SalesInvoiceLine) => ({
+          qty: line.qty.toString(),
+          unitPrice: line.unitPrice.toString(),
+          taxRateId: line.taxRateId ?? null,
+          taxRatePercent: line.taxRatePercent,
+        });
+        await recordSensitiveEvent(this.deps.audit, {
+          module: SALES_MODULE,
+          entityType: SALES_INVOICE_DOC_TYPE,
+          entityId: id,
+          action: SalesInvoiceDraftAuditAction.EditDraftLine,
+          actor: this.deps.actor ?? "system",
+          branchId: existing.branchId ?? null,
+          severity: AuditSeverityCode.Info,
+          details: {
+            invoiceId: id,
+            lineId,
+            before: figures(before),
+            after: figures(after),
+            grandTotalBefore: this.totalsOf(existing).grandTotal.toString(),
+            grandTotalAfter: this.totalsOf(next).grandTotal.toString(),
+          },
+        });
+      }
+      return next;
+    });
+  }
+
+  private async zeroRatingOf(invoice: SalesInvoice, policy: SalesInvoiceTaxPolicy): Promise<ZeroRating | null> {
+    if (isRetentionRelease(invoice)) return null;
+    if (!policy.enabled) return { cause: ZeroRatingCause.VatOff };
+    if (!invoice.customerTaxExempt) return null;
+    const exemptionTaxRateId = await this.deps.taxRerating.customerExemptionRateId(invoice.customerId);
+    return { cause: ZeroRatingCause.ExemptCustomer, exemptionTaxRateId };
+  }
+
   private async resolveTaxPolicy(): Promise<SalesInvoiceTaxPolicy> {
-    if (!this.deps.taxPolicy) return { enabled: true, defaultRatePercent: 0, inclusive: false };
     return this.deps.taxPolicy();
   }
 
-  private buildDraft(cmd: CreateSalesInvoiceCommand, taxPolicy: SalesInvoiceTaxPolicy): SalesInvoice {
-    const zeroRated = cmd.customerTaxExempt === true || !taxPolicy.enabled;
+  private buildDraft(
+    cmd: CreateSalesInvoiceCommand,
+    taxPolicy: SalesInvoiceTaxPolicy,
+    taxRates: readonly TaxRate[] | null,
+  ): SalesInvoice {
+    const zeroRating: ZeroRating | null =
+      cmd.documentKind === InvoiceDocumentKind.RetentionRelease
+        ? null
+        : !taxPolicy.enabled
+          ? { cause: ZeroRatingCause.VatOff }
+          : cmd.customerTaxExempt === true
+            ? { cause: ZeroRatingCause.ExemptCustomer, exemptionTaxRateId: cmd.customerTaxExemptionRateId ?? null }
+            : null;
+    const appliedTax = (l: CreateSalesInvoiceLine): AppliedTaxRate => {
+      if (!l.inheritedTax) return resolveDocumentLineTax(taxRates, l, { defaultPercent: taxPolicy.defaultRatePercent, zeroRating });
+      const inherited = resolveInheritedTaxRate(taxRates, l.inheritedTax);
+      if (zeroRating?.cause === ZeroRatingCause.VatOff) {
+        return inherited.taxRatePercent === 0 && inherited.taxRateId !== null
+          ? inherited
+          : resolveDocumentLineTax(taxRates, {}, { defaultPercent: 0, zeroRating });
+      }
+      if (inherited.taxRateId !== null && isSystemTaxRate(inherited.taxRateId)) {
+        return typeof l.inheritedTaxRateId === "string"
+          ? resolveDocumentLineTax(taxRates, { taxRateId: l.inheritedTaxRateId }, { defaultPercent: taxPolicy.defaultRatePercent, zeroRating })
+          : inherited;
+      }
+      if (typeof l.inheritedTaxRateId === "string") return classifyStoredTaxRate(taxRates, inherited, l.inheritedTaxRateId);
+      const raisedBySystem = zeroRating !== null && inherited.taxRateId === null && inherited.taxRatePercent === 0;
+      return raisedBySystem ? resolveDocumentLineTax(taxRates, {}, { defaultPercent: 0, zeroRating }) : inherited;
+    };
     const lines: SalesInvoiceLine[] = cmd.lines.map((l) => {
       const unitFactor = l.unitFactor ?? 1;
+      const tax = appliedTax(l);
       return {
       lineId: l.lineId,
       itemId: l.itemId,
@@ -608,7 +993,8 @@ export class SalesInvoiceService {
       discountType: l.discountType ?? "percent",
       discountPercent: l.discountPercent ?? 0,
       discountAmount: l.discountAmount ?? Money.zero(),
-      taxRatePercent: zeroRated ? 0 : (l.taxRatePercent ?? taxPolicy.defaultRatePercent),
+      taxRatePercent: tax.taxRatePercent,
+      taxRateId: tax.taxRateId,
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId ?? null,
       inventoryAccountId: l.inventoryAccountId ?? null,
@@ -618,7 +1004,8 @@ export class SalesInvoiceService {
     });
     return {
       id: cmd.id,
-      docType: "SALES_INVOICE",
+      docType: SALES_INVOICE_DOC_TYPE,
+      documentKind: cmd.documentKind ?? InvoiceDocumentKind.Standard,
       docNo: null,
       status: "draft",
       date: cmd.date,
@@ -626,12 +1013,13 @@ export class SalesInvoiceService {
       customerId: cmd.customerId,
       customerNameAr: cmd.customerNameAr,
       customerTaxExempt: cmd.customerTaxExempt ?? false,
-      taxInclusive: taxPolicy.inclusive,
+      taxInclusive: cmd.sourcePricing ? cmd.sourcePricing === SalesPricingMode.TaxInclusive : taxPolicy.inclusive,
       warehouseId: cmd.warehouseId,
       branchId: cmd.branchId,
       salespersonId: cmd.salespersonId ?? null,
       salespersonNameAr: cmd.salespersonNameAr ?? null,
       projectId: cmd.projectId ?? null,
+      sourceQuoteId: cmd.sourceQuoteId ?? null,
       currency: cmd.currency ?? "EGP",
       couponCode: cmd.couponCode ?? null,
       appliedPromotion: null,
@@ -659,6 +1047,9 @@ export class SalesInvoiceService {
     if (invoice.lines.length === 0) reasons.push("الفاتورة تتطلب بنداً واحداً على الأقل.");
     for (const line of invoice.lines) {
       if (line.itemId.trim() === "") reasons.push("كل بند يجب أن يستهدف صنفاً.");
+      if (line.itemId === RETENTION_RELEASE_ITEM_ID && !isRetentionRelease(invoice)) {
+        reasons.push(`الصنف "${line.itemNameAr}": صنف الإفراج عن المحتجزات يصدر على مستند الإفراج وحده، ولا يُباع على فاتورة عادية.`);
+      }
       if (line.qty.isNegative() || line.qty.isZero()) {
         reasons.push(`الصنف "${line.itemNameAr}": الكمية يجب أن تكون أكبر من صفر.`);
       }
@@ -694,6 +1085,118 @@ export class SalesInvoiceService {
     if (reasons.length > 0) throw new InvalidSalesInvoiceError(reasons);
   }
 
+  /**
+   * تصنيف ضريبة البند — names the tax rate of a POSTED line that stored none.
+   *
+   * INVARIANT: the only change is NULL → a rate at the line's own stored
+   * percent, on the invoice line and on its journal lines, in one transaction.
+   * No amount, account, date or status moves, and a line that names a rate is
+   * never re-pointed — that correction is a return or a credit note.
+   */
+  async classifyLineTax(id: string, request: ClassifyPostedLineTaxRequest): Promise<ClassifySalesInvoiceLineTaxResult> {
+    // INVARIANT: the read, the plan and both writes share ONE transaction, and
+    // the invoice is written by `nameLineTaxRate` alone — never `update`. A
+    // copy read before the transaction would race a void, a collection or a
+    // second classification and write their work away.
+    return this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) {
+        throw new TaxClassificationNotPostedError(SALES_INVOICE_STATUS_LABELS_AR[existing.status]);
+      }
+      const documentNumber = existing.docNo ?? existing.id;
+      if (isRetentionRelease(existing)) throw new TaxClassificationNotASupplyError(documentNumber);
+      const taxRates = await this.deps.taxRates.list();
+      const postedLines = existing.lines.map((l) => ({ lineRef: l.lineId, label: l.itemNameAr, stored: { taxRateId: l.taxRateId ?? null, taxRatePercent: l.taxRatePercent } }));
+      const standing = alreadyClassifiedAs(taxRates, postedLines, request);
+      if (standing) {
+        const reached = await this.deps.taxDependents?.carry({ sourceDocumentId: existing.id, taxRatePercent: standing.before.taxRatePercent, taxRateId: request.taxRateId });
+        // INVARIANT: every write is audited. A retry that names a return's
+        // lines or its entry leaves a row saying which; one that reaches
+        // nothing writes nothing and leaves none.
+        if (this.deps.audit && reached && (reached.documentNumbers.length > 0 || reached.journalLinesNamed > 0)) {
+          await recordSensitiveEvent(this.deps.audit, {
+            module: TaxClassificationAuditModule.Sales,
+            entityType: TaxClassificationAuditEntity.SalesInvoice,
+            entityId: existing.id,
+            action: TaxClassificationAuditAction.CarryLineTax,
+            actor: this.deps.actor ?? "system",
+            branchId: existing.branchId ?? null,
+            severity: AuditSeverityCode.Warning,
+            details: {
+              invoiceId: existing.id,
+              docNo: existing.docNo,
+              lineIds: standing.lineRefs,
+              before: standing.before,
+              after: standing.after,
+              taxRateName: standing.taxRateName,
+              carriedToDocuments: reached.documentNumbers,
+              carriedJournalLinesNamed: reached.journalLinesNamed,
+            },
+          });
+        }
+        return { invoice: existing, plan: standing, journalLinesNamed: 0, filing: TaxClassificationFilingOutcome.NotQueued };
+      }
+      const plan = planTaxClassification(taxRates, postedLines, request);
+      if (isSystemTaxRate(request.taxRateId) && (await this.deps.taxPolicy()).enabled) {
+        throw new SystemTaxRateOnlyError(request.taxRateId, plan.taxRateName);
+      }
+      // ORDER MATTERS: the journal goes first — it is what refuses a filed
+      // VAT period, and it must refuse before the invoice line is written.
+      let journalLinesNamed = 0;
+      let chosenJournalLines: ChosenJournalLinesNamed | null = null;
+      if (existing.journalEntryId && this.deps.taxTags) {
+        const expected = expectedSalesTaxJournalLines(existing, plan.before);
+        if (request.journalLineIndexes) {
+          chosenJournalLines = await this.deps.taxTags.nameChosenLines(
+            existing.journalEntryId,
+            request.journalLineIndexes,
+            plan.before.taxRatePercent,
+            request.taxRateId,
+            expected,
+          );
+          journalLinesNamed = chosenJournalLines.after.length;
+        } else {
+          journalLinesNamed = await this.deps.taxTags.retagUnnamedTaxRate(existing.journalEntryId, plan.before.taxRatePercent, request.taxRateId, expected);
+        }
+        if (journalLinesNamed === 0 && expected.length > 0) throw new TaxClassificationJournalUntaggedError(documentNumber);
+      }
+      const carried = (await this.deps.taxDependents?.carry({
+        sourceDocumentId: existing.id,
+        taxRatePercent: plan.before.taxRatePercent,
+        taxRateId: request.taxRateId,
+      })) ?? { documentNumbers: [], journalLinesNamed: 0 };
+      const linesNamed = await this.deps.repo.nameLineTaxRate(existing.id, plan.lineRefs, plan.before.taxRatePercent, request.taxRateId);
+      if (linesNamed !== plan.lineRefs.length) throw new TaxClassificationStaleError(documentNumber);
+      const invoice = await this.require(id);
+      const filing = (await this.deps.taxFiling?.reconcile({ before: existing, after: invoice })) ?? TaxClassificationFilingOutcome.NotQueued;
+      if (this.deps.audit) {
+        await recordSensitiveEvent(this.deps.audit, {
+          module: TaxClassificationAuditModule.Sales,
+          entityType: TaxClassificationAuditEntity.SalesInvoice,
+          entityId: invoice.id,
+          action: TaxClassificationAuditAction.ClassifyLineTax,
+          actor: this.deps.actor ?? "system",
+          branchId: invoice.branchId ?? null,
+          severity: AuditSeverityCode.Warning,
+          details: {
+            invoiceId: invoice.id,
+            docNo: invoice.docNo,
+            lineIds: plan.lineRefs,
+            before: plan.before,
+            after: plan.after,
+            taxRateName: plan.taxRateName,
+            journalEntryId: existing.journalEntryId,
+            journalLinesNamed,
+            ...(chosenJournalLines ? { journalLines: chosenJournalLines } : {}),
+            carriedToDocuments: carried.documentNumbers,
+            filing,
+          },
+        });
+      }
+      return { invoice, plan, journalLinesNamed, filing };
+    });
+  }
+
   private async require(id: string): Promise<SalesInvoice> {
     const invoice = await this.deps.repo.findById(id);
     if (!invoice) throw new SalesInvoiceNotFoundError(id);
@@ -715,14 +1218,15 @@ export class SalesInvoiceService {
   }
 
   private async recordAudit(
-    action: "CONFIRM" | "CANCEL",
+    action: SalesInvoiceLifecycleAuditAction,
     invoice: SalesInvoice,
-    severity: "INFO" | "WARNING",
+    severity: AuditSeverityCode,
+    extra: Record<string, string> = {},
   ): Promise<void> {
     if (!this.deps.audit) return;
     await recordSensitiveEvent(this.deps.audit, {
-      module: "sales",
-      entityType: "SALES_INVOICE",
+      module: SALES_MODULE,
+      entityType: SALES_INVOICE_DOC_TYPE,
       entityId: invoice.id,
       action,
       actor: this.deps.actor ?? "system",
@@ -735,6 +1239,7 @@ export class SalesInvoiceService {
         docNo: invoice.docNo,
         status: invoice.status,
         customerId: invoice.customerId,
+        ...extra,
       },
     });
   }
@@ -766,7 +1271,12 @@ export async function applyAllocatedSettlement(
 ): Promise<SalesInvoice | null> {
   const existing = await repo.findById(id);
   if (!existing) return null;
-  if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) return existing;
+  if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) {
+    if (settled.scaled <= 0n) return existing;
+    throw new InvalidSalesInvoicePaymentError(
+      `لا يمكن تسجيل دفعة على فاتورة في حالة ${SALES_INVOICE_STATUS_LABELS_AR[existing.status]}.`,
+    );
+  }
 
   const grandTotal = salesInvoiceBaseGrandTotal(salesInvoiceTotals(existing), existing.fxRate);
   const capped = settled.scaled > grandTotal.scaled ? grandTotal : settled;
@@ -776,6 +1286,14 @@ export async function applyAllocatedSettlement(
 
   if (nextStatus !== existing.status) assertTransition(id, existing.status, nextStatus);
   const updated: SalesInvoice = { ...existing, amountPaid: capped, status: nextStatus };
-  await repo.update(updated);
+  const written = await repo.writeFields(updated, [SalesInvoiceField.AmountPaid, SalesInvoiceField.Status], { status: [existing.status] });
+  if (!written) throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, id);
   return updated;
+}
+
+function expectedSalesTaxJournalLines(invoice: SalesInvoice, tax: AppliedTaxRate): ExpectedTaxJournalLine[] {
+  const posting = buildSalesInvoiceGlPosting(invoice, salesInvoiceTotals(invoice), [], invoice.fxRate ? { rate: invoice.fxRate } : undefined);
+  return posting.lines
+    .filter((line) => line.taxRatePercent === tax.taxRatePercent && (line.taxRateId ?? null) === tax.taxRateId)
+    .map((line) => ({ accountId: line.accountId, debit: line.debit, credit: line.credit }));
 }

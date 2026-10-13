@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { CustomerDTO, ItemDTO, SalesReturnDocumentDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { SalesReturnsScreen } from "./SalesReturnsScreen";
@@ -38,7 +38,7 @@ const customers: CustomerDTO[] = [
   {
     id: "cust-1", code: "C1", nameAr: "شركة الأمل للتجارة", nameEn: null, phone: null, email: null, contactPerson: null,
     taxNumber: null, category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true,
-    priceListId: null, creditLimit: "0", taxExempt: false, etaBuyerType: "business", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
+    priceListId: null, creditLimit: "0", taxExempt: false, taxExemptionRateId: null, etaBuyerType: "business", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
   },
 ];
 
@@ -104,12 +104,12 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
     fxRate: null,
     lines: [
       {
-        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
+        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
         unitPrice: "100.000000", discountPercent: 0, taxRatePercent: 14, revenueAccountId: "acc-rev",
         cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "85.000000",
       },
       {
-        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "20.000000", lineId: "l2", itemId: "item-brick", itemNameAr: "طوب أحمر", isStock: true, qty: "20.000000",
+        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "20.000000", lineId: "l2", itemId: "item-brick", itemNameAr: "طوب أحمر", isStock: true, qty: "20.000000",
         unitPrice: "50.000000", discountPercent: 0, taxRatePercent: 14, revenueAccountId: "acc-rev",
         cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "35.000000",
       },
@@ -125,7 +125,7 @@ const salesInvoiceTile = salesInvoice({
   docNo: "INV-000200",
   lines: [
     {
-      unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "8.000000", lineId: "l1", itemId: "item-tile", itemNameAr: "بلاط", isStock: true, qty: "8.000000",
+      unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "8.000000", lineId: "l1", itemId: "item-tile", itemNameAr: "بلاط", isStock: true, qty: "8.000000",
       unitPrice: "75.000000", discountPercent: 0, taxRatePercent: 14, revenueAccountId: "acc-rev",
       cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "60.000000",
     },
@@ -161,8 +161,22 @@ function salesReturn(overrides: Partial<SalesReturnDocumentDTO> = {}): SalesRetu
   };
 }
 
-function baseHandlers(returns: SalesReturnDocumentDTO[], invoices: SalesInvoiceDTO[] = [salesInvoice()]) {
+function baseHandlers(
+  returns: SalesReturnDocumentDTO[],
+  invoices: SalesInvoiceDTO[] = [salesInvoice()],
+  returnedByLine: Record<string, string> = {},
+) {
   return {
+    "GET /sales-returns/source-lines/*": (_init: unknown, path: string) => {
+      const invoice = invoices.find((i) => i.id === decodeURIComponent(path.split("/").pop()!.split("?")[0]!));
+      if (!invoice) return { status: 404, body: { error: "SOURCE_INVOICE_NOT_FOUND" } };
+      return {
+        body: {
+          sourceInvoiceId: invoice.id,
+          lines: invoice.lines.map((l) => ({ sourceLineId: l.lineId, itemId: l.itemId, soldQty: l.baseQty, returnedQty: returnedByLine[l.lineId] ?? "0" })),
+        },
+      };
+    },
     "GET /sales-invoices": () => ({ body: invoices }),
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /customers": () => ({ body: customers }),
@@ -227,12 +241,41 @@ describe("SalesReturnsScreen", () => {
     // Create is a sub-page, not a dialog: the list is replaced, not overlaid.
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "حفظ كمسودة" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     expect(await screen.findByText("شركة الأمل للتجارة")).toBeInTheDocument();
   });
 
-  it("confirms then cancels a draft return", async () => {
+  it("cancels a draft return from its page through the cancel route, asking for no reason and never calling the void route", async () => {
     let current: SalesReturnDocumentDTO[] = [salesReturn()];
+    const called: string[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /sales-returns": () => ({ body: current }),
+      "POST /sales-returns/sr-1/cancel": () => {
+        called.push("cancel");
+        current = current.map((d) => (d.id === "sr-1" ? { ...d, status: "cancelled" as const } : d));
+        return { body: current[0] };
+      },
+      "POST /sales-returns/sr-1/void": () => {
+        called.push("void");
+        return { status: 409, body: { error: "INVALID_DOCUMENT_TRANSITION", message: "لا يُلغى مرتجع غير مؤكد." } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("SR-000001"));
+    await screen.findByRole("heading", { name: "SR-000001" });
+    expect(screen.queryByRole("button", { name: "إلغاء المرتجع" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء" }));
+    await waitFor(() => expect(screen.getByText("ملغي")).toBeInTheDocument());
+    expect(called).toEqual(["cancel"]);
+    expect(screen.queryByLabelText("سبب الإلغاء")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إلغاء" })).not.toBeInTheDocument();
+  });
+
+  it("confirms a draft return, then voids it with a reason through its own route", async () => {
+    let current: SalesReturnDocumentDTO[] = [salesReturn()];
+    const voidBodies: unknown[] = [];
     const transport = stubTransport({
       ...baseHandlers(current),
       "GET /sales-returns": () => ({ body: current }),
@@ -240,8 +283,9 @@ describe("SalesReturnsScreen", () => {
         current = current.map((d) => (d.id === "sr-1" ? { ...d, status: "confirmed" as const, docNo: "SR-000001", confirmedAt: "2026-08-20T10:00:00.000Z" } : d));
         return { body: { document: current[0], held: false } };
       },
-      "POST /sales-returns/sr-1/cancel": () => {
-        current = current.map((d) => (d.id === "sr-1" ? { ...d, status: "cancelled" as const } : d));
+      "POST /sales-returns/sr-1/void": (init) => {
+        voidBodies.push(JSON.parse((init?.body as string) ?? "{}"));
+        current = current.map((d) => (d.id === "sr-1" ? { ...d, status: "reversed" as const, voidReason: "خطأ" } : d));
         return { body: current[0] };
       },
     });
@@ -253,7 +297,12 @@ describe("SalesReturnsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "تأكيد المرتجع" }));
     expect(await screen.findByRole("button", { name: "إلغاء المرتجع" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "إلغاء المرتجع" }));
-    await waitFor(() => expect(screen.getByText("ملغي")).toBeInTheDocument());
+    expect(voidBodies).toEqual([]);
+    fireEvent.change(screen.getByLabelText("سبب الإلغاء"), { target: { value: "خطأ" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "إلغاء المرتجع" }).at(-1)!);
+    await waitFor(() => expect(screen.getByText("معكوس")).toBeInTheDocument());
+    expect(voidBodies).toEqual([{ reason: "خطأ" }]);
+    expect(screen.getByRole("note")).toHaveTextContent("سبب الإلغاء: خطأ");
   });
 
   it("picking a two-line invoice and editing quantities, then adding and removing a second line, reaches the request with real per-item quantities", async () => {
@@ -283,10 +332,106 @@ describe("SalesReturnsScreen", () => {
     await waitFor(() => expect(createdBody).toBeDefined());
     const requested = createdBody!.requested as Array<Record<string, unknown>>;
     expect(requested).toEqual([
-      { itemId: "item-cement", qty: "4", reason: "DEFECTIVE" },
-      { itemId: "item-brick", qty: "2", reason: "WRONG_ITEM" },
+      { itemId: "item-cement", sourceLineId: "l1", qty: "4", reason: "DEFECTIVE" },
+      { itemId: "item-brick", sourceLineId: "l2", qty: "2", reason: "WRONG_ITEM" },
     ]);
     expect(createdBody!.sourceInvoiceId).toBe("inv-1");
+  });
+
+  it("«إضافة بند» starts the new row on the next invoice line once the rows above take the whole of the first — never the same line twice by default", async () => {
+    let createdBody: Record<string, unknown> | undefined;
+    const transport = stubTransport({
+      ...baseHandlers([]),
+      "POST /sales-returns/from-invoice": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        const created = salesReturn({ id: (createdBody as { id: string }).id, docNo: null, status: "draft" });
+        return { status: 201, body: created };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
+
+    fireEvent.change(qtyInputAt(0), { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    fireEvent.change(qtyInputAt(1), { target: { value: "2" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(createdBody).toBeDefined());
+    const requested = createdBody!.requested as Array<Record<string, unknown>>;
+    expect(requested.map((r) => [r.itemId, r.sourceLineId, r.qty])).toEqual([
+      ["item-cement", "l1", "10"],
+      ["item-brick", "l2", "2"],
+    ]);
+  });
+
+  it("clearing a quantity and pressing «إضافة بند» adds a row instead of crashing the form — an empty field takes nothing from its line (D79 round 4)", async () => {
+    const transport = stubTransport(baseHandlers([]));
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
+
+    fireEvent.change(qtyInputAt(0), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+
+    expect(screen.getAllByText("الكمية")).toHaveLength(2);
+    expect(screen.getByRole("heading", { name: "مرتجع مبيعات جديد" })).toBeInTheDocument();
+    expect(screen.getAllByRole("combobox", { name: "الصنف" }).map((c) => c.textContent)).toEqual(["أسمنت بورتلاندي", "أسمنت بورتلاندي"]);
+  });
+
+  it("starts a new row from what the SERVER says is left of each invoice line, not from the returns the list happens to show (D79 round 4)", async () => {
+    let createdBody: Record<string, unknown> | undefined;
+    let served = false;
+    const handlers = baseHandlers([], [salesInvoice()], { l1: "10" });
+    const transport = stubTransport({
+      ...handlers,
+      "GET /sales-returns/source-lines/*": (init, path) => {
+        served = true;
+        return handlers["GET /sales-returns/source-lines/*"](init, path);
+      },
+      "POST /sales-returns/from-invoice": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        return { status: 201, body: salesReturn({ id: (createdBody as { id: string }).id, docNo: null, status: "draft" }) };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
+    await waitFor(() => expect(served).toBe(true));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
+    await waitFor(() => expect(screen.getAllByRole("combobox", { name: "الصنف" })).toHaveLength(2));
+    expect(screen.getAllByRole("combobox", { name: "الصنف" })[1]!.textContent).toBe("طوب أحمر");
+  });
+
+  it("holds «إضافة بند» and both save buttons until the server has said what is left of the invoice, and offers a retry in Arabic when it cannot", async () => {
+    let fail = true;
+    const handlers = baseHandlers([], [salesInvoice()], {});
+    const transport = stubTransport({
+      ...handlers,
+      "GET /sales-returns/source-lines/*": (init, path) =>
+        fail ? { status: 500, body: { error: "INTERNAL", message: "خطأ داخلي" } } : handlers["GET /sales-returns/source-lines/*"](init, path),
+    });
+    renderWithProviders(<TestNavigation><SalesReturnsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("تعذّر قراءة ما تبقّى من بنود الفاتورة");
+    for (const name of ["إضافة بند", "حفظ كمسودة", "حفظ وتأكيد"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+
+    fail = false;
+    fireEvent.click(within(alert).getByRole("button", { name: "إعادة المحاولة" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "إضافة بند" })).toBeEnabled());
+    for (const name of ["حفظ كمسودة", "حفظ وتأكيد"]) expect(screen.getByRole("button", { name })).toBeEnabled();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("removing a line drops only that item from the request, leaving the survivor's own qty and reason untouched", async () => {
@@ -315,7 +460,7 @@ describe("SalesReturnsScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
     await waitFor(() => expect(createdBody).toBeDefined());
     const requested = createdBody!.requested as Array<Record<string, unknown>>;
-    expect(requested).toEqual([{ itemId: "item-brick", qty: "6", reason: "DEFECTIVE" }]);
+    expect(requested).toEqual([{ itemId: "item-brick", sourceLineId: "l2", qty: "6", reason: "DEFECTIVE" }]);
   });
 
   it("switching the source invoice repopulates the returnable lines from the NEWLY picked invoice, not the stale one", async () => {

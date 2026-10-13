@@ -31,6 +31,12 @@ export const createSalesQuoteLineSchema = z.object({
   unitPrice: moneyString,
   discountPercent: z.number().min(0).max(100).optional(),
   taxRatePercent: z.number().min(0).optional(),
+  /**
+   * EXTERNAL CONTRACT: same three answers as a sales invoice line. Whatever is
+   * stored here is what the invoice this quote converts into carries — a line
+   * that stored no rate converts to a line with no rate, at any percent.
+   */
+  taxRateId: z.string().min(1).nullish(),
 });
 
 /** Create a draft sales quote. */
@@ -40,6 +46,7 @@ export const createSalesQuoteSchema = z.object({
   expiryDate: z.string().min(1),
   customerId: z.string().min(1),
   customerNameAr: z.string().min(1),
+  /** EXTERNAL CONTRACT: ignored — exemption is read off the customer record server-side. Kept so older clients still parse. */
   customerTaxExempt: z.boolean().optional(),
   branchId: z.string().min(1),
   currency: z.string().optional(),
@@ -71,6 +78,7 @@ export const convertSalesQuoteLineSchema = z.object({
   revenueAccountId: z.string().min(1),
   cogsAccountId: z.string().min(1).nullish(),
   inventoryAccountId: z.string().min(1).nullish(),
+  taxRateId: z.string().min(1).nullish(),
 });
 
 export const convertSalesQuoteToInvoiceSchema = z.object({
@@ -103,6 +111,7 @@ export const salesQuoteLineRowSchema = z.object({
   unitPrice: moneyString,
   discountPercent: z.number(),
   taxRatePercent: z.number(),
+  taxRateId: z.string().nullable(),
 });
 
 export const salesQuoteTotalsSchema = z.object({

@@ -369,6 +369,11 @@ export function resubmit(
   };
 }
 
+export function reopenForModification(request: ApprovalRequest): ApprovalRequest | null {
+  if (request.status !== "rejected" && request.status !== "approved") return null;
+  return { ...request, status: "modification_requested" };
+}
+
 function appendDecision(
   request: ApprovalRequest,
   record: DecisionRecord,

@@ -209,6 +209,24 @@ describe("postJournalEntry — rejections", () => {
     ).rejects.toBeInstanceOf(InvalidJournalEntryError);
   });
 
+  it("refuses a malformed entry in Arabic, with the English beside it", async () => {
+    const { deps } = await harness();
+    const malformed: Parameters<typeof postJournalEntry>[0]["lines"][] = [
+      [{ accountId: "1300-1", debit: Money.fromMajor("1"), credit: Money.zero() }],
+      [{ accountId: " ", debit: Money.fromMajor("1"), credit: Money.zero() }, { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("1") }],
+      [{ accountId: "1300-1", debit: Money.fromMajor("-2"), credit: Money.zero() }, { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("-2") }],
+      [{ accountId: "1300-1", debit: Money.fromMajor("5"), credit: Money.fromMajor("5") }, { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("1") }],
+      [{ accountId: "1300-1", debit: Money.zero(), credit: Money.zero() }, { accountId: "4000", debit: Money.zero(), credit: Money.fromMajor("1") }],
+    ];
+    for (const lines of malformed) {
+      const refusal = await postJournalEntry({ ...cashSale, lines }, deps).catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(InvalidJournalEntryError);
+      expect((refusal as InvalidJournalEntryError).message).toMatch(/[\u0600-\u06FF]/);
+      expect((refusal as InvalidJournalEntryError).message).not.toMatch(/[A-Za-z]{4,}/);
+      expect((refusal as InvalidJournalEntryError).messageEn).toMatch(/[a-z]{4,}/);
+    }
+  });
+
   it("rejects a negative amount", async () => {
     const { deps } = await harness();
     await expect(

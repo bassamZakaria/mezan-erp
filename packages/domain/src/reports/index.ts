@@ -291,6 +291,7 @@ export {
   type VatReturnContext,
   type VatReturnParams,
   type VatReturnRow,
+  type VatReturnTaxRate,
   type VatSide,
 } from "./vat-return.js";
 export {

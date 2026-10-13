@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS, writeRowColumnsWhere } from "./document-field-write.js";
 import type {
   DocumentListFilter,
   DocumentRepository,
@@ -146,6 +147,16 @@ export function createSqliteDocumentStore<Line>(
     async update(doc) {
       update.run(toRow(doc));
     },
+    async writeFields(next, fields, expected) {
+      return writeRowColumnsWhere(sqlite, {
+        table: "framework_document",
+        row: toRow(next),
+        columns: columnsOf(FRAMEWORK_DOCUMENT_COLUMNS, fields),
+        id: next.id,
+        expectedStatuses: [expected.status],
+        and: { sql: "doc_type = ?", params: [docType] },
+      });
+    },
     async findById(id) {
       const row = selectById.get(id, docType) as DocumentRow | undefined;
       return row ? fromRow(row) : null;
@@ -180,6 +191,23 @@ export function createSqliteDocumentStore<Line>(
         for (const row of rows) out.push(fromRow(row));
       }
       return out;
+    },
+    async nameSourcedLineTaxRate(docId: string, sourceInvoiceId: string, taxRatePercent: number, taxRateId: string) {
+      const row = selectById.get(docId, docType) as DocumentRow | undefined;
+      if (!row) return 0;
+      // EXTERNAL CONTRACT: the wire names both return stores serialise.
+      const lines = JSON.parse(row.lines_json) as { sourceInvoiceId?: string; taxRatePercent?: number | null; taxRateId?: string | null }[];
+      let named = 0;
+      for (const line of lines) {
+        if (line.sourceInvoiceId !== sourceInvoiceId || (line.taxRateId ?? null) !== null || line.taxRatePercent !== taxRatePercent) continue;
+        line.taxRateId = taxRateId;
+        named += 1;
+      }
+      if (named === 0) return 0;
+      const written = sqlite
+        .prepare(`UPDATE framework_document SET lines_json = ? WHERE id = ? AND doc_type = ? AND lines_json = ?`)
+        .run(JSON.stringify(lines), docId, docType, row.lines_json).changes;
+      return written === 0 ? 0 : named;
     },
     async transaction(fn) {
       return withSqliteTransaction(sqlite, fn);

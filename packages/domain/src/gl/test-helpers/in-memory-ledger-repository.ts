@@ -27,6 +27,33 @@ export class InMemoryLedgerRepository implements LedgerRepository {
     this.rows.set(entry.id, entry);
   }
 
+  async retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string): Promise<number> {
+    const entry = this.rows.get(entryId);
+    if (!entry || entry.status === "draft") return 0;
+    let named = 0;
+    const lines = entry.lines.map((line) => {
+      if (line.taxRatePercent !== taxRatePercent || (line.taxRateId ?? null) !== null) return line;
+      named += 1;
+      return { ...line, taxRateId };
+    });
+    this.rows.set(entryId, { ...entry, lines });
+    return named;
+  }
+
+  async tagJournalLines(entryId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    const entry = this.rows.get(entryId);
+    if (!entry || entry.status === "draft") return 0;
+    let named = 0;
+    const lines = entry.lines.map((line, index) => {
+      if (!lineIndexes.includes(index) || (line.taxRateId ?? null) !== null) return line;
+      if ((line.taxRatePercent ?? null) !== null && line.taxRatePercent !== taxRatePercent) return line;
+      named += 1;
+      return { ...line, taxRatePercent, taxRateId };
+    });
+    this.rows.set(entryId, { ...entry, lines });
+    return named;
+  }
+
   async replaceDraft(entry: JournalEntry): Promise<void> {
     this.rows.set(entry.id, entry);
   }

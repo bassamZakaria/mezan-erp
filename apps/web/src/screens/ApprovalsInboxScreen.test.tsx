@@ -51,6 +51,19 @@ function renderScreen(requests: ApprovalRequestDTO[] = [pendingRequest]) {
 }
 
 describe("ApprovalsInboxScreen", () => {
+  it("names the approver role and the submitter, not the role's code and the user's id", async () => {
+    const transport = stubTransport({
+      "GET /workflow/requests/pending": () => ({ body: [{ ...pendingRequest, submittedBy: "USER-77", steps: [{ role: "FINANCE_MANAGER" }], currentStep: 0 }] }),
+      "GET /roles": () => ({ body: [{ id: "r1", code: "FINANCE_MANAGER", name: "المدير المالي", description: "", permissions: [], isSystem: false }] }),
+      "GET /users": () => ({ body: [{ id: "USER-77", nameAr: "هالة مصطفى", nameEn: null, email: "hala@example.test" }] }),
+    });
+    renderWithProviders(<ApprovalsInboxScreen />, { transport, initialSession: testAdminSession });
+    expect(await screen.findByText("المدير المالي")).toBeInTheDocument();
+    expect(await screen.findByText("هالة مصطفى")).toBeInTheDocument();
+    expect(screen.queryByText("FINANCE_MANAGER")).toBeNull();
+    expect(screen.queryByText("USER-77")).toBeNull();
+  });
+
   it("lists a pending approval with its action type, entity, and required role", async () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "الموافقات" })).toBeInTheDocument();

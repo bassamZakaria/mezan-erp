@@ -50,7 +50,7 @@ export interface HeldDocumentActions {
   /** Post the document the request was gating (its gate now grants). */
   confirm(docId: string, actor: string): Promise<void>;
   /** Hand the document back to its submitter as an editable draft. */
-  returnToDraft(docId: string): Promise<void>;
+  returnToDraft(docId: string, actor: string): Promise<void>;
 }
 
 export interface WorkflowRoutesDeps {
@@ -373,7 +373,7 @@ export function createWorkflowRoutes(
           if ((await actions.heldRequestId(docId)) !== record.id) return c.json(await serializeRequest(deps, record));
           if (record.status === "approved") await actions.confirm(docId, ctx.userId);
           else if (record.status === "rejected" || record.status === "modification_requested") {
-            await actions.returnToDraft(docId);
+            await actions.returnToDraft(docId, ctx.userId);
           }
         } catch (err) {
           // The decision itself stands — it is already persisted. Report the

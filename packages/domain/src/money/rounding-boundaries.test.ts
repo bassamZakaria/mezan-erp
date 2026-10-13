@@ -32,6 +32,7 @@ function invoiceLine(overrides: Partial<SalesInvoiceLine> & { lineId: string }):
     revenueAccountId: "4000",
     cogsAccountId: null,
     inventoryAccountId: null,
+    taxRateId: null,
     costCenterId: null,
     unitCost: null,
     ...overrides,

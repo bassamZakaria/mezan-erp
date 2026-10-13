@@ -34,6 +34,8 @@ export enum ApprovalStatusCode {
 }
 const APPROVAL_STATUS_VALUES = Object.values(ApprovalStatusCode) as [`${ApprovalStatusCode}`, ...`${ApprovalStatusCode}`[]];
 export const approvalStatusSchema = z.enum(APPROVAL_STATUS_VALUES);
+export const DocumentApprovalStatus = ApprovalStatusCode;
+export type DocumentApprovalStatus = ApprovalStatusCode;
 
 export const approvalStandingSchema = z.object({
   id: z.string(),
@@ -43,6 +45,12 @@ export const approvalStandingSchema = z.object({
   reasonEn: z.string().nullable(),
 });
 export type ApprovalStandingDTO = z.infer<typeof approvalStandingSchema>;
+
+export const documentApprovalSchema = z.object({
+  status: approvalStatusSchema,
+  rejectionReason: z.string().nullable(),
+  rejectedBy: z.string().nullable(),
+});
 export const decisionKindSchema = z.enum(["approve", "reject", "request_modification", "bypass"]);
 
 export const decisionRecordSchema = z.object({
@@ -88,6 +96,7 @@ export type WorkflowConfigDTO = z.infer<typeof workflowConfigSchema>;
 export type CreateWorkflowConfigDTO = z.infer<typeof createWorkflowConfigSchema>;
 export type UpdateWorkflowConfigDTO = z.infer<typeof updateWorkflowConfigSchema>;
 export type ApprovalStatusDTO = z.infer<typeof approvalStatusSchema>;
+export type DocumentApprovalDTO = z.infer<typeof documentApprovalSchema>;
 export type DecisionKindDTO = z.infer<typeof decisionKindSchema>;
 export type DecisionRecordDTO = z.infer<typeof decisionRecordSchema>;
 export type ApprovalRequestDTO = z.infer<typeof approvalRequestSchema>;

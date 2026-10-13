@@ -119,7 +119,7 @@ export async function openFxBooks(): Promise<FxBooks> {
   }
 
   async function voidInvoice(side: FxSide) {
-    if (side === FxSide.Receivable) await ok("POST", `/sales-invoices/${FX_INVOICE_ID[side]}/void`, {}, 200);
+    if (side === FxSide.Receivable) await ok("POST", `/sales-invoices/${FX_INVOICE_ID[side]}/void`, { reason: "خطأ في الإدخال" }, 200);
     else await ok("POST", `/purchases/invoices/${FX_INVOICE_ID[side]}/cancel`, {}, 200);
   }
 

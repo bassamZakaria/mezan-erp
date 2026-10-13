@@ -330,6 +330,13 @@ describe("StockAdjustmentsScreen — a reversed adjustment and its reversal poin
     expect(screen.getByRole("button", { name: "تعكس المستند ADJ-000006" })).toBeInTheDocument();
   });
 
+  it("offers no reversal on the document that is itself a reversal", async () => {
+    renderPair();
+    fireEvent.click(await screen.findByRole("button", { name: "إجراءات ADJ-000007" }));
+    expect(await screen.findByRole("menuitem", { name: "عرض" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "عكس التسوية" })).not.toBeInTheDocument();
+  });
+
   it("the link opens the other document, whose detail links back", async () => {
     renderPair();
     fireEvent.click(await screen.findByRole("button", { name: "عُكست بالمستند ADJ-000007" }));

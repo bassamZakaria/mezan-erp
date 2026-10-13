@@ -6,7 +6,6 @@ import {
   recordSensitiveEvent,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
-  VatPeriodAlreadyFiledError,
   JournalEntryAlreadyReversedError,
   JournalEntryNotFoundError,
   JournalEntryNotPostedError,
@@ -58,9 +57,6 @@ function handleDomainError(c: Context, err: unknown): Response {
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof NoFiscalPeriodForDateError || err instanceof PeriodNotOpenForPostingError) {
-    return c.json({ error: err.code, message: err.message }, 422);
-  }
-  if (err instanceof VatPeriodAlreadyFiledError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof JournalEntryNotFoundError) {

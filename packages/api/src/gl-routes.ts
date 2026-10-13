@@ -49,7 +49,6 @@ import {
   NothingToCloseError,
   recordVatFiling,
   amendVatFiling,
-  VatPeriodAlreadyFiledError,
   DuplicateVatFilingError,
   VatFilingNotFoundError,
   type VatFiling,
@@ -158,6 +157,7 @@ function serialize(entry: JournalEntry) {
       currency: l.currency ?? null,
       fxRate: l.fxRate ?? null,
       taxRatePercent: l.taxRatePercent ?? null,
+      taxRateId: l.taxRateId ?? null,
       projectId: l.projectId ?? null,
       costCategory: l.costCategory ?? null,
       branchId: l.branchId ?? null,
@@ -233,16 +233,13 @@ function handleDomainError(c: Context, err: unknown): Response {
     );
   }
   if (err instanceof InvalidJournalEntryError) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 400);
   }
   if (err instanceof PartyRequiredOnControlAccountError || err instanceof InvalidJournalPartyError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, accountId: err.accountId }, 422);
   }
   if (err instanceof ReversalDateBeforeOriginalError || err instanceof JournalEntryOwnedByDocumentError || err instanceof JournalReversalNotReversibleError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
-  }
-  if (err instanceof VatPeriodAlreadyFiledError) {
-    return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof DuplicateVatFilingError) {
     return c.json({ error: err.code, message: err.message }, 409);

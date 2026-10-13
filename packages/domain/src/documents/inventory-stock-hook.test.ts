@@ -116,6 +116,26 @@ describe("createInventoryStockHook.reverse", () => {
     expect(result.valueMoved.toString()).toBe("0.000000");
   });
 
+  it("returns an issue drawn from two warehouses to each of them, at the cost each left at", async () => {
+    const applyDocumentStockPlan = vi.fn().mockResolvedValue({ valueMoved: Money.zero() });
+    const service = {
+      applyDocumentStockPlan,
+      getMovementsOfDocument: vi.fn().mockResolvedValue([
+        { itemId: "I1", warehouseId: "WH1", direction: "OUT", qty: Qty.fromMajor("12"), unitCost: Money.fromMajor("40.00") },
+        { itemId: "I2", warehouseId: "WH2", direction: "OUT", qty: Qty.fromMajor("3"), unitCost: Money.fromMajor("7.50") },
+      ]),
+    } as unknown as StockLedgerService;
+
+    await createInventoryStockHook(service).reverse!(plan, "INV1");
+
+    const applied = applyDocumentStockPlan.mock.calls[0]![0];
+    expect(applied.warehouseId).toBe("WH1");
+    expect(applied.lines.map((l: { itemId: string; direction: string; qty: Qty; unitCost: Money; warehouseId?: string }) => [l.itemId, l.direction, l.qty.toString(), l.unitCost.toString(), l.warehouseId ?? "WH1"])).toEqual([
+      ["I1", "IN", "12.000000", "40.000000", "WH1"],
+      ["I2", "IN", "3.000000", "7.500000", "WH2"],
+    ]);
+  });
+
   it("refuses rather than guess when the original spanned two warehouses", async () => {
     const service = {
       applyDocumentStockPlan: vi.fn(),

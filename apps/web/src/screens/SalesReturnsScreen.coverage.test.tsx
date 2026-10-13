@@ -31,7 +31,7 @@ const customers: CustomerDTO[] = [
   {
     id: "cust-1", code: "C1", nameAr: "شركة الأمل للتجارة", nameEn: null, phone: null, email: null, contactPerson: null,
     taxNumber: null, category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true,
-    priceListId: null, creditLimit: "0", taxExempt: false, etaBuyerType: "business", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
+    priceListId: null, creditLimit: "0", taxExempt: false, taxExemptionRateId: null, etaBuyerType: "business", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
   },
 ];
 
@@ -85,7 +85,7 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
     fxRate: null,
     lines: [
       {
-        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
+        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
         unitPrice: "100.000000", discountPercent: 0, taxRatePercent: 14, revenueAccountId: "acc-rev",
         cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "85.000000",
       },
@@ -102,7 +102,7 @@ const serviceInvoice = salesInvoice({
   docNo: null,
   lines: [
     {
-      unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "1.000000", lineId: "s1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: false, qty: "1.000000",
+      unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "1.000000", lineId: "s1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: false, qty: "1.000000",
       unitPrice: "300.000000", discountPercent: 0, taxRatePercent: 14, revenueAccountId: "acc-rev",
       cogsAccountId: null, inventoryAccountId: null, unitCost: null,
     },
@@ -140,6 +140,11 @@ function salesReturn(overrides: Partial<SalesReturnDocumentDTO> = {}): SalesRetu
 
 function baseHandlers(returns: SalesReturnDocumentDTO[], invoices: SalesInvoiceDTO[] = [salesInvoice()]) {
   return {
+    "GET /sales-returns/source-lines/*": (_init: unknown, path: string) => {
+      const invoice = invoices.find((i) => i.id === decodeURIComponent(path.split("/").pop()!.split("?")[0]!));
+      if (!invoice) return { status: 404, body: { error: "SOURCE_INVOICE_NOT_FOUND" } };
+      return { body: { sourceInvoiceId: invoice.id, lines: invoice.lines.map((l) => ({ sourceLineId: l.lineId, itemId: l.itemId, soldQty: l.baseQty, returnedQty: "0" })) } };
+    },
     "GET /sales-invoices": () => ({ body: invoices }),
     "GET /warehouses": () => ({ body: warehouses }),
     "GET /customers": () => ({ body: customers }),
@@ -147,6 +152,11 @@ function baseHandlers(returns: SalesReturnDocumentDTO[], invoices: SalesInvoiceD
     "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
     "GET /sales-returns": () => ({ body: returns }),
   };
+}
+
+async function pressOnceTheServerAnswered(name: string) {
+  await waitFor(() => expect(screen.getByRole("button", { name })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name }));
 }
 
 function selectOptionAt(label: string, index: number, optionLabel: string) {
@@ -331,7 +341,7 @@ describe("SalesReturnsScreen — creating a return with nothing configured to re
     expect(screen.getByText("لا توجد أصناف مخزنية قابلة للإرجاع في هذه الفاتورة")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "إضافة بند" })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await pressOnceTheServerAnswered("حفظ كمسودة");
     expect(await screen.findByText("اختر فاتورة المصدر والمستودع.")).toBeInTheDocument();
     expect(posted).toBe(false);
   });
@@ -425,7 +435,7 @@ describe("SalesReturnsScreen — saving and confirming a new return in one step"
     fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
     await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
 
-    fireEvent.click(screen.getByRole("button", { name: "حفظ وتأكيد" }));
+    await pressOnceTheServerAnswered("حفظ وتأكيد");
 
     await waitFor(() => expect(confirmedId).not.toBeNull());
     expect(await screen.findByRole("heading", { name: "مرتجعات المبيعات" })).toBeInTheDocument();
@@ -446,7 +456,7 @@ describe("SalesReturnsScreen — saving and confirming a new return in one step"
     fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
     await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
 
-    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await pressOnceTheServerAnswered("حفظ كمسودة");
 
     expect(await screen.findByText("الكمية المطلوبة تتجاوز المتاح للإرجاع.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "مرتجع مبيعات جديد" })).toBeInTheDocument();
@@ -474,7 +484,7 @@ describe("SalesReturnsScreen — a line grid with nothing left to return", () =>
     await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
 
     fireEvent.change(qtyInputAt(0), { target: { value: "0" } });
-    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await pressOnceTheServerAnswered("حفظ كمسودة");
 
     expect(await screen.findByText("أضف بنداً واحداً على الأقل بكمية أكبر من صفر.")).toBeInTheDocument();
     expect(posted).toBe(false);

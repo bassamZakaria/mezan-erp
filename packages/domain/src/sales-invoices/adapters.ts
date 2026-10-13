@@ -11,13 +11,14 @@
 
 import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import type { DocumentGlHook } from "../documents/hooks.js";
+import { stockVarianceLines, type StockReversalVarianceAccounts } from "../documents/journal-document.js";
 import type { StockLedgerService } from "../inventory/index.js";
 import { Money, type Qty } from "../money/index.js";
 import { salesInvoiceBaseGrandTotal, salesInvoiceTotals } from "./totals.js";
 import type { SalesInvoiceRepository, SalesInvoiceStockHook, SalesInvoiceCustomerExposureHook } from "./ports.js";
 
 /** Bind the GL posting engine behind the framework's GL hook, posting as a system document. */
-export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHook {
+export function createSalesInvoiceGlHook(deps: JournalPostingDeps, stockVariance?: StockReversalVarianceAccounts): DocumentGlHook {
   return {
     async post(posting) {
       const entry = await postJournalEntry(
@@ -40,6 +41,7 @@ export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHo
             // from a base-currency one (D24, D26).
             costCenterId: l.costCenterId ?? null,
             taxRatePercent: l.taxRatePercent ?? null,
+            taxRateId: l.taxRateId ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
             projectId: l.projectId ?? null,
@@ -52,10 +54,14 @@ export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHo
       return { journalEntryId: entry.id, journalEntryNo: entry.entryNo ?? null };
     },
     async reverse(journalEntryId, opts) {
+      const stock = opts.stock;
       const { reversal } = await reverseJournalEntry(journalEntryId, deps, {
         reversalId: opts.reversalId,
         date: opts.date,
         memo: opts.memo,
+        appendLines: stock
+          ? async (entry) => stockVarianceLines((await stock({ journalEntryId: entry.id, journalEntryNo: entry.entryNo }))?.unmirroredValue, stockVariance)
+          : undefined,
       });
       return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
     },

@@ -13,7 +13,7 @@ import { run as shell } from "./scenarios/shell.js";
 import { run as crossModule } from "./scenarios/cross-module.js";
 import { run as seams } from "./scenarios/seams.js";
 import { run as trialFreemium } from "./scenarios/trial-freemium.js";
-import { run as eta } from "./scenarios/eta.js";
+import { run as eta, vatReturnInputBaseTiesToItsTax_D79, vatReturnOutputBaseTiesToItsTax_D79 } from "./scenarios/eta.js";
 import {
   run as reports,
   agingLaddersTieToTheirControlAccounts_D192,
@@ -47,12 +47,13 @@ import type { Ctx } from "./scenarios/harness.js";
  */
 const ctx = await boot();
 const start = await ctx.invariants();
-console.log(`baseline  tb ${start.tb.toFixed(6)} · inventory ${start.inventory.toFixed(6)} · ap ${start.ap.toFixed(6)} · ar ${start.ar.toFixed(6)} · 2120 ${start.grni.toFixed(6)} · fx residue ${start.fxResidue.toFixed(6)} · stock/ledger dates ${start.stockLedgerDates}`);
+console.log(`baseline  tb ${start.tb.toFixed(6)} · inventory ${start.inventory.toFixed(6)} · ap ${start.ap.toFixed(6)} · ar ${start.ar.toFixed(6)} · 2120 ${start.grni.toFixed(6)} · fx residue ${start.fxResidue.toFixed(6)} · stock/ledger dates ${start.stockLedgerDates} · stranded stock ${start.strandedStock.toFixed(6)}`);
 const exactlyZero = (label: string, inv: Awaited<ReturnType<typeof ctx.invariants>>) => {
-  for (const key of ["tb", "inventory", "ap", "ar", "grni", "fxResidue"] as const) {
+  for (const key of ["tb", "inventory", "ap", "ar", "grni", "fxResidue", "strandedStock"] as const) {
     if (inv.exact[key] !== 0n) ctx.failures.push(`${label} invariants · ${key} is ${inv[key].toFixed(6)}, not exactly 0`);
   }
   if (inv.exact.stockLedgerDates !== 0n) ctx.failures.push(`${label} invariants · stockLedgerDates is ${inv.stockLedgerDates}, not exactly 0`);
+  if (inv.strandedPositions.length > 0) ctx.failures.push(`${label} invariants · stock positions holding value with no quantity, or quantity valued below zero: ${inv.strandedPositions.slice(0, 8).join(" · ")}`);
 };
 exactlyZero("baseline", start);
 
@@ -76,6 +77,11 @@ if (!only.size || only.has("reports")) {
   await allocationUndoneAndMadeAgainSettlesOnce_D265(ctx);
   await voucherReversalDatedByReversalDay_D270(ctx);
   console.log(` ${ctx.passes.length + ctx.failures.length - before} assertions`);
+}
+
+if (!only.size || only.has("eta")) {
+  await vatReturnInputBaseTiesToItsTax_D79(ctx);
+  await vatReturnOutputBaseTiesToItsTax_D79(ctx);
 }
 
 const fragmentSuites = [...POS_SCENARIOS, ...ENH_SCENARIOS].flatMap(([name, scenario]) =>
@@ -116,6 +122,6 @@ if (!only.size || only.has("reports")) {
 }
 
 const end = await ctx.invariants();
-console.log(`final     tb ${end.tb.toFixed(6)} · inventory ${end.inventory.toFixed(6)} · ap ${end.ap.toFixed(6)} · ar ${end.ar.toFixed(6)} · 2120 ${end.grni.toFixed(6)} · fx residue ${end.fxResidue.toFixed(6)} · stock/ledger dates ${end.stockLedgerDates}`);
+console.log(`final     tb ${end.tb.toFixed(6)} · inventory ${end.inventory.toFixed(6)} · ap ${end.ap.toFixed(6)} · ar ${end.ar.toFixed(6)} · 2120 ${end.grni.toFixed(6)} · fx residue ${end.fxResidue.toFixed(6)} · stock/ledger dates ${end.stockLedgerDates} · stranded stock ${end.strandedStock.toFixed(6)}`);
 exactlyZero("final", end);
 process.exit(ctx.report());

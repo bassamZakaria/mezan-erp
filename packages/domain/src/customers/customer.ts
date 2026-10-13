@@ -23,6 +23,7 @@ export interface Customer extends PartnerBase {
   /** Always in base (tenant) currency regardless of the customer's own `currency` (catalog note). */
   readonly creditLimit: Money;
   readonly taxExempt: boolean;
+  readonly taxExemptionRateId: string | null;
   readonly etaBuyerType: EtaBuyerType;
   /** رقم السجل التجاري — required on an Egyptian B2B invoice alongside the tax number. */
   readonly commercialRegistrationNumber: string | null;
@@ -66,6 +67,7 @@ export interface CreateCustomerInput {
   readonly priceListId?: string | null;
   readonly creditLimit?: Money;
   readonly taxExempt?: boolean;
+  readonly taxExemptionRateId?: string | null;
   readonly etaBuyerType?: EtaBuyerType;
   readonly commercialRegistrationNumber?: string | null;
   readonly address?: string | null;
@@ -105,6 +107,7 @@ export function createCustomer(input: CreateCustomerInput): Customer {
     priceListId: input.priceListId ?? null,
     creditLimit: input.creditLimit ?? Money.zero(),
     taxExempt: input.taxExempt ?? false,
+    taxExemptionRateId: input.taxExemptionRateId ?? null,
     etaBuyerType: input.etaBuyerType ?? "auto",
     commercialRegistrationNumber: input.commercialRegistrationNumber ?? null,
     address: input.address ?? null,

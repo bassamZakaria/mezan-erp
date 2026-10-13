@@ -112,6 +112,25 @@ describe("createSqlitePlatformStores", () => {
     db.close();
   });
 
+  it.each([
+    ["with no expiry, as an earlier build stored it", { userId: "U2", email: "next@cyag.eg", requestedBy: "tenant:cyag:U9", requestedAt: NOW, tokenHash: null }],
+    ["with its fields in another order", { tokenHash: "abc", expiresAt: "2026-09-20T10:00:00.000Z", requestedAt: NOW, requestedBy: "tenant:cyag:U9", email: "next@cyag.eg", userId: "U2" }],
+  ])("moves the owner of a tenant whose pending hand-over was stored %s", async (_label, storedPending) => {
+    const db = new Database(":memory:");
+    const earlier = createSqlitePlatformStores(db);
+    await earlier.tenants.save(tenant);
+    db.prepare("UPDATE tenant SET pending_owner = ? WHERE id = 'T1'").run(JSON.stringify(storedPending));
+
+    const stores = createSqlitePlatformStores(db);
+    const before = (await stores.tenants.findById("T1"))!;
+    const declined = await stores.tenants.compareAndSetOwner(before, { ...before, pendingOwner: null }, async () => undefined);
+
+    expect(before.pendingOwner).toMatchObject({ userId: "U2", expiresAt: "2026-09-20T10:00:00.000Z" });
+    expect(declined).toBe(true);
+    expect((await stores.tenants.findById("T1"))?.pendingOwner).toBeUndefined();
+    db.close();
+  });
+
   it("moves the owner only while the stored owner is the one the caller read, and undoes the move when its side effect fails", async () => {
     const stores = createSqlitePlatformStores(":memory:");
     await stores.tenants.save(tenant);

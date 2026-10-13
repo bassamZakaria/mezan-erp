@@ -277,18 +277,38 @@ function pendingOwnerOf(stored: string): PendingOwner {
   return { ...read, expiresAt: read.expiresAt ?? pendingOwnerExpiresAt(read.requestedAt) };
 }
 
-function storedPendingOwner(tenant: Tenant): string | null {
-  const pending = tenant.pendingOwner;
-  if (!pending) return null;
+function pendingOwnerText(pending: PendingOwner): string {
   return JSON.stringify({
     userId: pending.userId, email: pending.email, requestedBy: pending.requestedBy, requestedAt: pending.requestedAt, expiresAt: pending.expiresAt, tokenHash: pending.tokenHash,
   });
 }
 
-function storedOwnerRecordDue(tenant: Tenant): string | null {
-  const due = tenant.ownerRecordDue;
-  if (!due) return null;
+function ownerRecordDueText(due: OwnerRecordDue): string {
   return JSON.stringify({ eventId: due.eventId, userId: due.userId, previousUserId: due.previousUserId, actor: due.actor, confirmedBy: due.confirmedBy });
+}
+
+function storedPendingOwner(tenant: Tenant): string | null {
+  return tenant.pendingOwner ? pendingOwnerText(tenant.pendingOwner) : null;
+}
+
+function storedOwnerRecordDue(tenant: Tenant): string | null {
+  return tenant.ownerRecordDue ? ownerRecordDueText(tenant.ownerRecordDue) : null;
+}
+
+// CONTRACT: the owner compare-and-set matches these two columns as text. A row
+// an earlier build wrote in another form (no expiry, another field order) is
+// rewritten once into the form this build writes, or it could never be moved.
+function rewriteOwnerTextAsThisBuildWritesIt(sqlite: Database.Database): void {
+  const rows = sqlite.prepare(`SELECT id, pending_owner, owner_record_due FROM tenant WHERE pending_owner IS NOT NULL OR owner_record_due IS NOT NULL`).all() as Pick<
+    TenantRow,
+    "id" | "pending_owner" | "owner_record_due"
+  >[];
+  const rewrite = sqlite.prepare(`UPDATE tenant SET pending_owner = @pending, owner_record_due = @due WHERE id = @id`);
+  for (const row of rows) {
+    const pending = row.pending_owner === null ? null : pendingOwnerText(pendingOwnerOf(row.pending_owner));
+    const due = row.owner_record_due === null ? null : ownerRecordDueText(JSON.parse(row.owner_record_due) as OwnerRecordDue);
+    if (pending !== row.pending_owner || due !== row.owner_record_due) rewrite.run({ id: row.id, pending, due });
+  }
 }
 
 class SqliteTenantStore implements TenantRepository {
@@ -1122,6 +1142,7 @@ export function createSqlitePlatformStores(
   const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
+  rewriteOwnerTextAsThisBuildWritesIt(sqlite);
   guardOneDbFilePerTenant(sqlite);
   backfillBillingAnchors(sqlite);
   repairUtcBillingAnchors(sqlite, UTC_ANCHOR_REPAIR, UtcAnchorRepairScope.EveryAnchor);

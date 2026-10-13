@@ -352,6 +352,7 @@ export function createFxRevaluationRoutes(
           original.id,
           { ledger: deps.ledger, accounts: deps.accounts, periods: deps.periods, numbering: deps.numbering, projects: deps.projects, audit: deps.audit, vatFilings: deps.vatFilings, events: deps.events, now: deps.now, actor },
           { reversalId: idGen(), date: reversalDate, memo: memo ?? `عكس إعادة تقييم العملات الأجنبية (${original.entryNo ?? original.id})` },
+          { isRevaluationRun: true },
         );
         await recordDocumentReversal(deps.audit, {
           module: "accounting",

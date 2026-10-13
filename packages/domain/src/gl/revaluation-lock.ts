@@ -1,3 +1,6 @@
+import type { AccountRepository } from "../accounts/account.js";
+import { isMonetaryAccountType } from "../accounts/monetary.js";
+import { isBaseCurrency } from "../exchange-rates/convert.js";
 import type { JournalEntry } from "../journal.js";
 import type { LedgerRepository } from "./ledger.js";
 
@@ -15,10 +18,10 @@ export class PostingBeforeRevaluationError extends Error {
     readonly earliestAllowedDate: string,
   ) {
     super(
-      `لا يمكن الترحيل بعملة ${currency} بتاريخ ${date}: تشغيل إعادة تقييم العملات ${runNo} بتاريخ ${runDate} ما زال قائماً وقد أعاد تقييم أرصدة هذه العملة حتى ذلك اليوم. ` +
-        `أرّخ المستند من ${earliestAllowedDate} فصاعداً، أو اعكس التشغيل أولاً.`,
+      `لا يمكن ترحيل حركة بعملة ${currency} على حساب ذمم أو خزينة أو بنك بتاريخ ${date}: تشغيل إعادة تقييم العملات ${runNo} بتاريخ ${runDate} ما زال قائماً وقد أعاد تقييم أرصدة هذه العملة حتى ذلك اليوم. ` +
+        `أرّخ المستند من ${earliestAllowedDate} فصاعداً، أو اعكس التشغيل أولاً ثم أعد الترحيل.`,
     );
-    this.messageEn = `Nothing in ${currency} can be posted on ${date}: revaluation run ${runNo} dated ${runDate} still stands and restated this currency's balances as of that day. Date the document ${earliestAllowedDate} or later, or reverse the run first.`;
+    this.messageEn = `A ${currency} line on a receivable, payable, cash or bank account cannot be posted on ${date}: revaluation run ${runNo} dated ${runDate} still stands and restated this currency's balances as of that day. Date the document ${earliestAllowedDate} or later, or reverse the run first and post again.`;
     this.name = "PostingBeforeRevaluationError";
   }
 }
@@ -46,13 +49,33 @@ export async function earliestDayAfterRevaluation(currencies: ReadonlySet<string
   return standing ? nextDay(standing.run.date.slice(0, 10)) : null;
 }
 
-// INVARIANT: a standing non-reversing run restated every balance in its currencies as of its own day; a posting dated on or before that day would change what the run should have restated (fx-late-runs.test.ts).
+export interface JournalPostingInternals {
+  readonly isRevaluationRun?: boolean;
+}
+
+export interface RevaluationLockDeps {
+  readonly ledger: Pick<LedgerRepository, "list">;
+  readonly accounts: Pick<AccountRepository, "findById">;
+}
+
+async function restatedCurrenciesOf(lines: readonly { readonly accountId: string; readonly currency?: string | null }[], accounts: Pick<AccountRepository, "findById">): Promise<Set<string>> {
+  const currencies = new Set<string>();
+  for (const line of lines) {
+    if (!line.currency || isBaseCurrency(line.currency) || currencies.has(line.currency)) continue;
+    const account = await accounts.findById(line.accountId);
+    if (account && isMonetaryAccountType(account.type)) currencies.add(line.currency);
+  }
+  return currencies;
+}
+
+// INVARIANT: a standing non-reversing run restated every monetary balance in its currencies as of its own day; a line on such an account dated on or before that day would change what the run should have restated. Only the run's own entry and its reversal are let through, by an option no request body can set (fx-backdate-guard.test.ts).
 export async function assertNotBeforeStandingRevaluation(
-  posting: { readonly id: string; readonly date: string; readonly sourceDocType?: string | null; readonly lines: readonly { readonly currency?: string | null }[] },
-  ledger: Pick<LedgerRepository, "list">,
+  posting: { readonly date: string; readonly lines: readonly { readonly accountId: string; readonly currency?: string | null }[] },
+  deps: RevaluationLockDeps,
+  internal: JournalPostingInternals = {},
 ): Promise<void> {
-  if (posting.sourceDocType === FX_REVALUATION_DOC_TYPE || posting.id.startsWith(FX_SHARE_RELEASE_ENTRY_PREFIX)) return;
-  const standing = await latestStandingRevaluation(new Set(posting.lines.flatMap((line) => (line.currency ? [line.currency] : []))), ledger);
+  if (internal.isRevaluationRun) return;
+  const standing = await latestStandingRevaluation(await restatedCurrenciesOf(posting.lines, deps.accounts), deps.ledger);
   if (!standing) return;
   const day = posting.date.slice(0, 10);
   const runDay = standing.run.date.slice(0, 10);

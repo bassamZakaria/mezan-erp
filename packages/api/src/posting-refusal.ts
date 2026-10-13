@@ -1,5 +1,5 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { earliestOpenDayFrom, type FiscalPeriodRepository, type FiscalPeriodStatus, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, PostingBeforeRevaluationError, StockMovementBeforeRevaluationError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
+import { earliestOpenDayFrom, type FiscalPeriodRepository, type FiscalPeriodStatus, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, PostingBeforeRevaluationError, ReservedJournalEntryIdError, isReservedJournalEntryId, StockMovementBeforeRevaluationError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
 
 type ReversalDayEnv = { Variables: { listFiscalPeriods?: () => Promise<readonly { status: FiscalPeriodStatus; startDate: string; endDate: string }[]>; reversalEarliestOpenDay?: string | null } };
 
@@ -16,6 +16,12 @@ export async function noteReversalOriginalDay(c: Context, originalDay: string | 
   const list = env.get("listFiscalPeriods");
   if (!list || !originalDay) return;
   env.set("reversalEarliestOpenDay", earliestOpenDayFrom(await list(), originalDay.slice(0, 10)));
+}
+
+export function refuseReservedEntryId(c: Context, id: string | null | undefined): Response | null {
+  if (!id || !isReservedJournalEntryId(id)) return null;
+  const refusal = new ReservedJournalEntryIdError(id);
+  return c.json({ error: refusal.code, message: refusal.message, messageEn: refusal.messageEn }, 422);
 }
 
 export function postingRefusalResponse(c: Context, err: unknown): Response | null {

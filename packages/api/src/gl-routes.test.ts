@@ -1423,7 +1423,7 @@ describe("gl-routes — an instant on the wire lands on the tenant's calendar da
       req("/journal-entries", {
         method: "POST",
         permissions: "accounting.journal.post",
-        body: JSON.stringify({ ...balanced, id: `je-${date}`, date }),
+        body: JSON.stringify({ ...balanced, id: `je-${date.replace(/\D/g, "")}`, date }),
       }),
     );
     return { res, body: (await res.json()) as any, ledger };

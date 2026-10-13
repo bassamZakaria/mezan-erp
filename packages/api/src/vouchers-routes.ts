@@ -1,4 +1,4 @@
-import { postingRefusalResponse } from "./posting-refusal.js";
+import { postingRefusalResponse, refuseReservedEntryId } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -580,6 +580,8 @@ export function createVouchersRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    const reserved = refuseReservedEntryId(c, d.id);
+    if (reserved) return reserved;
     const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
     if (refusal) return refusal;
     const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
@@ -654,6 +656,8 @@ export function createVouchersRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    const reserved = refuseReservedEntryId(c, d.id);
+    if (reserved) return reserved;
     const voucherType = "customer_collection";
     for (const action of ["create", "confirm"] as const) {
       const refusal = refuseVoucherType(c, voucherPermissions(action, voucherType, d.projectId));
@@ -812,6 +816,8 @@ export function createVouchersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const reserved = refuseReservedEntryId(c, parsed.data.reversalId);
+    if (reserved) return reserved;
     const refusal = await refuseStoredVoucher(c, c.req.param("id"), "void");
     if (refusal) return refusal;
     try {

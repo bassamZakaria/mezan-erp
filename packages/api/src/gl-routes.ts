@@ -1,4 +1,4 @@
-import { postingRefusalResponse } from "./posting-refusal.js";
+import { postingRefusalResponse, refuseReservedEntryId } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -344,6 +344,8 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const reserved = refuseReservedEntryId(c, parsed.data.id);
+    if (reserved) return reserved;
     try {
       const entry = await postJournalEntry(
         {
@@ -529,6 +531,8 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const reserved = refuseReservedEntryId(c, parsed.data.id);
+    if (reserved) return reserved;
     try {
       const entry = await createJournalEntry(
         {
@@ -631,6 +635,8 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const reserved = refuseReservedEntryId(c, parsed.data.reversalId);
+    if (reserved) return reserved;
     try {
       const entryId = c.req.param("id");
       const resolvedDate = await tenantDay(c, parsed.data.date ?? (deps.now ? deps.now() : new Date().toISOString()));

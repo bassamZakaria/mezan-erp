@@ -6,6 +6,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { SHELL_REQUESTS, ShellRequest } from "@mezan/domain";
 import { AppLayout } from "./AppLayout";
 import { AppProviders } from "./data/AppProviders";
+import { useSettings } from "./data/hooks";
 import { persistSession, sessionHolds, type Session } from "./data/session";
 import { testAdminSession } from "./data/test-support";
 import type { Transport } from "./data/transport";
@@ -17,6 +18,7 @@ const BODIES: Record<string, unknown> = {
   "/workflow/requests/pending-count": { count: 0 },
   "/notifications/unread-count": { count: 0 },
   "/settings": { language: "ar", dateNumerals: "western" },
+  "/settings/display": { language: "ar", dateNumerals: "western" },
   "/billing/subscription": null,
 };
 
@@ -33,9 +35,14 @@ function recordingTransport(session: Session): { transport: Transport; asked: st
   return { transport, asked };
 }
 
+function ScreenReadingSettings() {
+  useSettings();
+  return <div data-testid="screen" />;
+}
+
 function renderShell(session: Session) {
   const recorded = recordingTransport(session);
-  const router = createMemoryRouter([{ path: "/", Component: AppLayout, children: [{ path: "*", element: <div data-testid="screen" /> }] }], { initialEntries: ["/dashboard"] });
+  const router = createMemoryRouter([{ path: "/", Component: AppLayout, children: [{ path: "*", element: <ScreenReadingSettings /> }] }], { initialEntries: ["/dashboard"] });
   render(
     <AppProviders transport={recorded.transport} initialSession={session}>
       <RouterProvider router={router} />

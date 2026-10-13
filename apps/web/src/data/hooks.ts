@@ -302,7 +302,7 @@ import type {
   RecurringJournalTemplateStatusDTO,
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
-import { ShellRequest } from "@mezan/domain";
+import { ShellRequest, type DisplaySettingKey } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { sessionMayAsk } from "./session";
 import type { TransportResponse } from "./transport";
@@ -1947,6 +1947,22 @@ export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
       const res = await request("/settings");
       if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
       return res.json<TenantSettingsDTO>();
+    },
+  });
+}
+
+export type DisplaySettingsDTO = Pick<TenantSettingsDTO, `${DisplaySettingKey}`>;
+
+export function useDisplaySettings(): UseQueryResult<DisplaySettingsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<DisplaySettingsDTO, ApiError>({
+    queryKey: ["settings", "display"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings/display");
+      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
+      return res.json<DisplaySettingsDTO>();
     },
   });
 }

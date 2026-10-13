@@ -38,6 +38,16 @@ async function unallocated(voucherId: string): Promise<string> {
   return String(voucher.allocationSummary?.unallocated);
 }
 
+async function allocationsOf(voucherId: string): Promise<Record<string, unknown>[]> {
+  return (await books.world.request("GET", `/vouchers/${voucherId}/allocations`)).body.allocations as Record<string, unknown>[];
+}
+
+async function numberOf(side: FxSide): Promise<string> {
+  const path = side === FxSide.Receivable ? `/sales-invoices/${FX_INVOICE_ID[side]}` : `/purchases/invoices/${FX_INVOICE_ID[side]}`;
+  const invoice = (await books.world.request("GET", path)).body;
+  return String(side === FxSide.Receivable ? invoice.docNo : invoice.number);
+}
+
 async function restatedOnAccount(side: FxSide): Promise<string> {
   books = await openFxBooks();
   await onAccount(side, "v-held", "1000");
@@ -58,12 +68,43 @@ describe("foreign money held on account is an open item of its own", () => {
     expect(books.fx(side)).toEqual({ control: major(0n), unrealised: mirrored(side, -450n * SCALE), realised: mirrored(side, -250n * SCALE) });
     expect(await residueRows()).toEqual([]);
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+    expect(await allocationsOf("v-held")).toEqual([
+      expect.objectContaining({ invoiceNo: await numberOf(side), amount: "48000.000000", moneyRevaluationShare: "-450.000000", moneyCarryingAmount: "48450.000000", carryingAmount: "48700.000000", fxDifference: "-250.000000" }),
+    ]);
     const refused = await books.world.request("POST", `/revaluation/runs/${runId}/reverse`, { memo: "سبب العكس" });
     expect(`${refused.status} ${String(refused.body.error)}`).toBe("409 FX_REVALUATION_SHARE_CONSUMED");
 
     await books.ok("POST", "/allocations/al-held/reverse", {}, 200);
 
     expect(books.fx(side)).toEqual({ control: mirrored(side, 250n * SCALE), unrealised: mirrored(side, -450n * SCALE), realised: major(0n) });
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: money that arrived by cheque and is applied from the cheque register gives up its restatement the same way", async (side) => {
+    books = await openFxBooks();
+    await books.voucher(side, "v-held", "1000", { date: "2026-08-22", currency: "USD", paymentMethod: "cheque", referenceNo: "CHQ-77" });
+    await books.revalue("48.45");
+    await books.rate("fx-settle", "48.70", "2026-09-10");
+    await books.invoice(side, FX_INVOICE_ID[side], { date: "2026-09-10" });
+    expect(shares()).toEqual([{ item: "v-held", type: "money", amount: "-450.000000" }]);
+
+    await books.ok("POST", "/cheques/v-held/allocations", { allocationId: "al-held", invoiceId: FX_INVOICE_ID[side], amount: "48000" });
+
+    expect(books.fx(side)).toEqual({ control: major(0n), unrealised: mirrored(side, -450n * SCALE), realised: mirrored(side, -250n * SCALE) });
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: restated money whose cheque bounces was never held, and its restatement goes back with it", async (side) => {
+    books = await openFxBooks();
+    await books.voucher(side, "v-held", "1000", { date: "2026-08-22", currency: "USD", paymentMethod: "cheque", referenceNo: "CHQ-78" });
+    await books.revalue("48.45");
+    await books.ok("POST", "/cheques/v-held/deposit", { bankTreasuryAccountId: "ta-bank" }, 200);
+
+    await books.ok("POST", "/cheques/v-held/bounce", { date: "2026-09-10" }, 200);
+
+    expect(books.fx(side)).toEqual({ control: major(0n), unrealised: mirrored(side, -450n * SCALE), realised: mirrored(side, 450n * SCALE) });
+    expect(await residueRows()).toEqual([]);
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 
@@ -74,6 +115,9 @@ describe("foreign money held on account is an open item of its own", () => {
 
     expect(books.fx(side)).toEqual({ control: major(0n), unrealised: mirrored(side, -450n * SCALE), realised: mirrored(side, -250n * SCALE) });
     expect(await unallocated("v-held")).toBe("0.000000");
+    const refundNo = String((await books.world.request("GET", "/vouchers/v-refund")).body.docNo);
+    expect(refundNo).toMatch(/\d/);
+    expect(await allocationsOf("v-held")).toEqual([expect.objectContaining({ invoiceId: "v-refund", invoiceNo: refundNo, status: "active" })]);
     expect(await residueRows()).toEqual([]);
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
 

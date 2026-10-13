@@ -44,6 +44,7 @@ import {
   type HeldAllocationRequest,
   type VoucherDocument,
   type VoucherAllocation,
+  type AllocatableInvoiceRepository,
   type AllocatableInvoice,
   type AllocationSummary,
 } from "@mezan/domain";
@@ -137,19 +138,30 @@ function serialize(doc: VoucherDocument) {
   };
 }
 
+async function presentAllocationsWith(invoices: Pick<AllocatableInvoiceRepository, "findById">, allocations: readonly VoucherAllocation[]) {
+  const numbers = new Map<string, string | null>();
+  for (const allocation of allocations) {
+    if (!numbers.has(allocation.invoiceId)) numbers.set(allocation.invoiceId, (await invoices.findById(allocation.invoiceId))?.invoiceNo ?? null);
+  }
+  return allocations.map((allocation) => serializeAllocation(allocation, numbers.get(allocation.invoiceId) ?? null));
+}
+
 function serializeHeldAllocation(a: HeldAllocationRequest) {
   return { allocationId: a.allocationId, invoiceId: a.invoiceId, amount: a.amount ? a.amount.toString() : null };
 }
 
-function serializeAllocation(a: VoucherAllocation) {
+function serializeAllocation(a: VoucherAllocation, invoiceNo: string | null) {
   return {
     id: a.id,
     voucherId: a.voucherId,
     invoiceId: a.invoiceId,
+    invoiceNo,
     amount: a.amount.toString(),
     invoiceAmount: allocationInvoiceAmount(a).toString(),
     revaluationShare: (a.revaluationShare ?? Money.zero()).toString(),
     carryingAmount: Money.fromScaled(allocationInvoiceAmount(a).scaled + (a.revaluationShare?.scaled ?? 0n)).toString(),
+    moneyRevaluationShare: (a.moneyRevaluationShare ?? Money.zero()).toString(),
+    moneyCarryingAmount: Money.fromScaled(a.amount.scaled - (a.moneyRevaluationShare?.scaled ?? 0n)).toString(),
     fxDifference: allocationFxDifference(a).toString(),
     fxEntryId: a.fxEntryId ?? null,
     status: a.status,
@@ -324,6 +336,7 @@ export function createVouchersRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const gateAny = createAnyPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
+  const presentAllocations = (allocations: readonly VoucherAllocation[]) => presentAllocationsWith(deps.invoices, allocations);
 
   function serviceFor(c: Context): VoucherService {
     const ctx = getAuthContext(c);
@@ -543,7 +556,7 @@ export function createVouchersRoutes(
       ...serialize(doc),
       allocatable,
       allocationSummary: serializeSummary(summary),
-      allocations: allocations.map(serializeAllocation),
+      allocations: await presentAllocations(allocations),
     });
   });
 
@@ -703,7 +716,7 @@ export function createVouchersRoutes(
         {
           voucher: serialize(result.document),
           held: result.held,
-          allocations: result.allocations.map(serializeAllocation),
+          allocations: await presentAllocations(result.allocations),
           heldAllocations: result.heldAllocations.map(serializeHeldAllocation),
         },
         201,
@@ -819,7 +832,7 @@ export function createVouchersRoutes(
     const allocations = await svc.listAllocations(doc.id);
     return c.json({
       allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
-      allocations: allocations.map(serializeAllocation),
+      allocations: await presentAllocations(allocations),
     });
   });
 
@@ -835,7 +848,7 @@ export function createVouchersRoutes(
         amount: Money.fromMajor(parsed.data.amount),
         date: await tenantDay(c, new Date().toISOString()),
       });
-      return c.json(serializeAllocation(result.allocation), 201);
+      return c.json((await presentAllocations([result.allocation]))[0], 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -855,11 +868,12 @@ export function createAllocationRoutes(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const service = () => new VoucherService(deps);
+  const presentAllocations = (allocations: readonly VoucherAllocation[]) => presentAllocationsWith(deps.invoices, allocations);
 
   app.post("/allocations/:id/reverse", gate("treasury.allocation.manage"), async (c) => {
     try {
       const result = await service().reverseAllocation(c.req.param("id"), { date: await tenantDay(c, new Date().toISOString()) });
-      return c.json(serializeAllocation(result.allocation));
+      return c.json((await presentAllocations([result.allocation]))[0]);
     } catch (err) {
       return handleDomainError(c, err);
     }

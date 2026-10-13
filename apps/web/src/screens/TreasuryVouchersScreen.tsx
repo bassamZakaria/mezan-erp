@@ -783,7 +783,7 @@ function VoucherDetailView({
                     const isGain = def.allocationKind === "purchase" ? difference < 0n : difference > 0n;
                     return (
                       <tr key={a.id} className="border-b border-border last:border-b-0">
-                        <td className="mz-num px-[15px] py-[11px] text-ink">{inv?.invoiceNo ?? a.invoiceId}</td>
+                        <td className="mz-num px-[15px] py-[11px] text-ink">{a.invoiceNo ?? inv?.invoiceNo ?? a.invoiceId}</td>
                         <td className="px-[15px] py-[11px] text-end">
                           <MoneyDisplay value={toMajor(applied.toString())} currencyLabel={doc.fxRate ? doc.currency : undefined} />
                         </td>

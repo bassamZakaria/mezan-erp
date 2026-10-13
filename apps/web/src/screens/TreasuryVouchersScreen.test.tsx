@@ -426,6 +426,22 @@ describe("TreasuryVouchersScreen — an allocation on a revalued invoice", () =>
   });
 });
 
+describe("TreasuryVouchersScreen — an allocation whose invoice is no longer open", () => {
+  it("names the document by the number the allocation carries, never by its internal id", async () => {
+    renderScreen({
+      allocations: {
+        "cv-1": [
+          { id: "alloc-paid", voucherId: "cv-1", invoiceId: "0b8f6c1e-7c1d-4f0a-9d55-2f3f1c9a7e10", invoiceNo: "CV-000042", amount: "500.000000", status: "active", createdAt: "2026-09-10T10:00:00.000Z", reversedAt: null },
+        ],
+      },
+    });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+    expect(await screen.findByText("CV-000042")).toBeInTheDocument();
+    expect(screen.queryByText(/0b8f6c1e/)).not.toBeInTheDocument();
+  });
+});
+
 describe("TreasuryVouchersScreen — allocation table (D228)", () => {
   it("shows per allocation what was applied, what the invoice was relieved of and the realised difference as a gain or a loss", async () => {
     renderScreen({

@@ -3268,6 +3268,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         audit: auditSink,
         events: voucherEventBridge,
         actor,
+        realisedFx,
       }).reverseVoucher(doc.id, {
         reversalId: `${doc.id}:BOUNCED`,
         date,

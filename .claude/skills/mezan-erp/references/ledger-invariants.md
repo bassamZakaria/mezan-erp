@@ -65,6 +65,20 @@ period directly is rejected so the reversible close step is never skipped.
   created at the receipt-time cost.
 - Issue (OUT): stock leaves at the **current moving average**; the average does not
   change on an issue. Layers draw down FIFO for display only.
+- A **mirrored** issue (the void of a return, a reversal) leaves at the moving
+  average like any other issue — never at the value its original moved, which
+  the position may no longer hold. What it was asked to take and did not is
+  `unmirroredValue`, and the reversing entry books it 1200↔5100. A movement
+  that leaves quantity 0 leaves value 0; one that leaves quantity above 0 never
+  leaves value below 0 (`/reconciliation` → `stockPositions`, and the scenario
+  invariant, name any position that breaks either).
+- A receipt into a position that is **short** (a back-order) does not average
+  into the shortfall: the quantity that levels it takes exactly the share of
+  value the shortfall carried, only the excess enters at the receipt's cost and
+  is the only layer, and the difference between what the receipt stated and
+  what stock took is booked 1200↔5100 in the receiving document's own entry
+  (`coverDeficit`; a transfer books its own `:cover` entry). A receipt whose
+  goods covered a back-order is not taken back by cancelling it.
 - A layer's `unitCost` is **never rewritten**. Layer value and WAC value therefore
   diverge legitimately over time — that gap is the *drift report*, not a bug.
 - Replay ordering depends on `occurredAt`. Stamp it with the **document date**, not

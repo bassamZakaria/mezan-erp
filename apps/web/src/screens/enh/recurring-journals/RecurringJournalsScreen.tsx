@@ -630,6 +630,10 @@ export function RecurringJournalHistory() {
 
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const draftEntryLabel = (row: RecurringJournalHistoryRow): string => {
+    const template = nameById.get(row.templateId);
+    return template ? t("recurringJournals.draftEntry", { template, period: row.period }) : t("recurringJournals.draftEntryUnnamed", { period: row.period });
+  };
 
   const columns: DocumentListColumn<RecurringJournalHistoryRow>[] = [
     { key: "templateId", header: t("recurringJournals.name"), render: (row) => nameById.get(row.templateId) ?? row.templateId },
@@ -657,7 +661,7 @@ export function RecurringJournalHistory() {
         if (!run) return <span className="text-ink-faint">{row.skip?.note ?? "—"}</span>;
         return (
           <button type="button" className="text-brand underline" onClick={() => nav.openScreenAt("journals", [run.journalEntryNo ?? run.journalEntryId])}>
-            {run.journalEntryNo ?? run.journalEntryId}
+            {run.journalEntryNo ?? draftEntryLabel(row)}
           </button>
         );
       },

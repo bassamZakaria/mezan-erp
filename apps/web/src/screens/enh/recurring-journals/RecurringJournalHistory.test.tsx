@@ -77,3 +77,25 @@ describe("a period that was reversed and generated again", () => {
     await waitFor(() => expect(sent).toEqual(["r1b"]));
   });
 });
+
+describe("a run whose entry is still a draft", () => {
+  const draft = { ...run("r3", "2026-11"), journalEntryId: "3f0c7b1a-52de-4a8e-9d1b-7a6f0c2e4b19", journalEntryNo: null, entryStatus: "draft", current: true };
+
+  it("is named «مسودة» with its template and period, never by the entry's internal id", async () => {
+    show(() => ({ status: 201, body: {} }), [draft]);
+    const link = await screen.findByRole("button", { name: "مسودة — رسوم اشتراك · 2026-11" });
+    expect(link).toBeInTheDocument();
+    expect(screen.queryByText(/3f0c7b1a/)).not.toBeInTheDocument();
+  });
+
+  it("with its template gone it is still «مسودة» and the period, not an id", async () => {
+    show(() => ({ status: 201, body: {} }), [{ ...draft, templateId: "9a1d2c3b-0000-4000-8000-000000000001" }]);
+    expect(await screen.findByRole("button", { name: "مسودة · 2026-11" })).toBeInTheDocument();
+    expect(screen.queryByText(/3f0c7b1a/)).not.toBeInTheDocument();
+  });
+
+  it("a numbered entry is still named by its number", async () => {
+    show(() => ({ status: 201, body: {} }), [run("r4", "2026-12")]);
+    expect(await screen.findByRole("button", { name: "JE-r4" })).toBeInTheDocument();
+  });
+});

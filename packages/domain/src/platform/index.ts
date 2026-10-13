@@ -1,10 +1,13 @@
 export { MODULE_CATALOG, isKnownModule, type ModuleId } from "./module-catalog.js";
 export * from "./errors.js";
-export { isValidSlug } from "./slug.js";
+export { isValidSlug, isReservedTenantCode, RESERVED_TENANT_CODE_MESSAGE } from "./slug.js";
+export { COMPANY_NAME_MAX_LENGTH, CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
 export {
-  createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant,
+  createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant, releaseTenant, releasedTenantCode, tenantWithOwnerContact, tenantHandedTo, tenantNeedingOwner, tenantWithPendingOwner, tenantWithPendingOwnerConfirmed, tenantWithPendingOwnerDeclined, tenantWithPendingOwnerLink, tenantWithOwnerRecordDue,
+  PendingOwnerLink, OwnerConfirmation, PENDING_OWNER_MAX_AGE_MS, pendingOwnerExpiresAt, pendingOwnerExpired,
   tenantDbFile,
-  type Tenant, type TenantStatus, type TenantRepository,
+  TenantStatusCode, OwnerContactProof,
+  type Tenant, type TenantStatus, type TenantRepository, type TenantOwnerAccount, type PendingOwner, type OwnerRecordDue,
   type CreateTenantCommand, type TenantTransitionCommand,
 } from "./tenant.js";
 export {
@@ -13,14 +16,15 @@ export {
   type CreatePlanCommand, type UpdatePlanCommand, type HasLiveSubscribers,
 } from "./plan.js";
 export {
-  DEFAULT_GRACE_DAYS,
-  startSubscription, renewSubscription, applyRenewal, changePlan, markPastDue,
-  suspendSubscription, resumeSubscription, cancelSubscription,
+  DEFAULT_GRACE_DAYS, SubscriptionStatusKind, billingAnchorDayOf, inferBillingAnchorDay, settledPeriodEnd, setBillingAnchorDay,
+  startSubscription, renewSubscription, applyRenewal, anchorIsUtcDayOfCreation, changePlan, markPastDue,
+  suspendSubscription, resumeSubscription, cancelSubscription, RENEWABLE_SUBSCRIPTION_STATES,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
   type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,
 } from "./subscription.js";
 export {
-  deriveEntitlements, subscriptionLicenseState, subscriptionExpiresAt,
+  deriveEntitlements, subscriptionLicenseState, subscriptionExpiresAt, tenantIsServed,
+  LicenseReasonCode, LicenseStateName, STATUS_UNKNOWN_MESSAGE_AR,
   type SubscriptionLicenseState, type SubscriptionLicenseStateName, type SubscriptionLicenseReason,
 } from "./derive.js";
 export {
@@ -32,27 +36,30 @@ export {
 export {
   recordPayment,
   type Payment, type PaymentRepository,
-  type RecordPaymentCommand, type RecordPaymentResult,
+  type RecordPaymentCommand, type RecordPaymentResult, type RecordPaymentHooks,
 } from "./payment.js";
-export type {
-  PaymentProvider, PaymentProviderId, CheckoutRequest, CheckoutSession,
-  ProviderTransactionOutcome, VerifiedProviderTransaction,
+export {
+  ProviderInquiryStatus,
+  type PaymentProvider, type PaymentProviderId, type CheckoutRequest, type CheckoutSession,
+  ProviderTransactionOutcome, ProviderNonPaymentKind, type VerifiedProviderTransaction,
+  type ProviderInquiry, type ProviderInquiryRequest,
 } from "./payment-provider.js";
 export {
   PAYMOB_TRANSACTION_HMAC_FIELDS, paymobTransactionHmacMessage, hasPaymobSignedShape, parsePaymobTransaction,
-  classifyPaymobTransaction, moneyToPaymobCents, paymobCentsToMoney,
+  classifyPaymobTransaction, paymobNonPaymentKind, moneyToPaymobCents, paymobCentsToMoney,
   type PaymobTransactionObject, type ParsedPaymobTransaction,
 } from "./paymob.js";
 export {
-  cardCheckoutAmount, CardCheckoutUnavailableError,
-  type CardCheckout, type CardCheckoutStatus, type CardCheckoutRepository, type CardCheckoutSettlement,
+  cardCheckoutAmount, CardCheckoutUnavailableError, CardPaymentNotApplicableError, CardCheckoutFailureReason,
+  CardCheckoutStatus, CardCheckoutAttentionCause, CardCheckoutResolution, PaidSettlementOutcome, ProviderEventOutcome,
+  type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement,
 } from "./card-checkout.js";
 export {
   startSignup, verifySignup, isDisposableEmailDomain, DISPOSABLE_EMAIL_DOMAINS, SignupRequestStatus,
   type SignupRequest, type SignupRequestRepository, type StartSignupCommand,
 } from "./signup.js";
 export {
-  PlanKind, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, topPublicPaidPlan, defaultFreePlan,
+  PlanKind, PlanStatusCode, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, topPublicPaidPlan, defaultFreePlan,
   type PlanQuotas,
 } from "./plan.js";
 export {

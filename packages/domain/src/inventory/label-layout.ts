@@ -45,6 +45,7 @@ export interface LabelLayoutRepository {
   findById(id: string): Promise<LabelLayout | null>;
   findByCode(code: string): Promise<LabelLayout | null>;
   save(layout: LabelLayout): Promise<void>;
+  insert(layout: LabelLayout): Promise<void>;
   delete(id: string): Promise<void>;
 }
 
@@ -169,7 +170,7 @@ export async function createLabelLayout(
   const reasons = validate(layout);
   if (reasons.length > 0) throw new InvalidLabelLayoutError(reasons);
   if (await repo.findByCode(layout.code)) throw new DuplicateLabelLayoutCodeError(layout.code);
-  await repo.save(layout);
+  await repo.insert(layout);
   return layout;
 }
 

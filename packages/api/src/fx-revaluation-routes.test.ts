@@ -7,7 +7,7 @@ import {
   createSqliteExchangeRateRepository,
 } from "@mezan/persistence";
 import { createSessionRegistry, createSessionAuthContextResolver } from "./session-auth.js";
-import { createFxRevaluationRoutes, type FxRevaluationRoutesDeps } from "./fx-revaluation-routes.js";
+import { createFxRevaluationRoutes, type FxRevaluationRun, type FxRevaluationRoutesDeps } from "./fx-revaluation-routes.js";
 
 const closers: Array<{ close(): void }> = [];
 afterEach(() => {
@@ -222,5 +222,55 @@ describe("fx-revaluation router — fiscal period gate", () => {
     );
     expect(res.status).toBe(422);
     expect(((await res.json()) as { error: string }).error).toBe("PERIOD_NOT_OPEN_FOR_POSTING");
+  });
+});
+
+describe("fx-revaluation router — the run record and the entry are one fact", () => {
+  it("posts nothing when the run cannot be recorded", async () => {
+    const seeded = await seed();
+    const sessions = createSessionRegistry();
+    const app = createFxRevaluationRoutes(
+      {
+        ledger: seeded.ledger,
+        accounts: seeded.accounts,
+        periods: seeded.periods,
+        numbering: seeded.ledger.numbering,
+        exchangeRates: seeded.exchangeRates,
+        differenceAccounts: async () => ({ gainAccountId: "4940", lossAccountId: "5940" }),
+        now: () => "2026-08-31T10:00:00.000Z",
+        recordRun: () => {
+          throw new Error("run log unavailable");
+        },
+      },
+      createSessionAuthContextResolver(sessions),
+    );
+    const auth = grant(sessions, ["accounting.journal.post"]);
+    const res = await app.fetch(req("/post", { method: "POST", json: { date: "2026-08-31", autoReverse: false }, headers: auth.headers }));
+    expect(res.status).toBe(500);
+    expect((await seeded.ledger.list()).map((entry) => entry.id)).toEqual(["je1"]);
+    expect((await seeded.ledger.accountBalance("4940")).balance.toString()).toBe(Money.zero().toString());
+  });
+
+  it("records the run with the entry it posted", async () => {
+    const seeded = await seed();
+    const sessions = createSessionRegistry();
+    const runs: FxRevaluationRun[] = [];
+    const app = createFxRevaluationRoutes(
+      {
+        ledger: seeded.ledger,
+        accounts: seeded.accounts,
+        periods: seeded.periods,
+        numbering: seeded.ledger.numbering,
+        exchangeRates: seeded.exchangeRates,
+        differenceAccounts: async () => ({ gainAccountId: "4940", lossAccountId: "5940" }),
+        now: () => "2026-08-31T10:00:00.000Z",
+        recordRun: (run) => runs.push(run),
+      },
+      createSessionAuthContextResolver(sessions),
+    );
+    const auth = grant(sessions, ["accounting.journal.post"]);
+    const res = await app.fetch(req("/post", { method: "POST", json: { date: "2026-08-31", autoReverse: false }, headers: auth.headers }));
+    const { entryId } = (await res.json()) as { entryId: string };
+    expect(runs).toEqual([{ asOfDate: "2026-08-31", currencies: ["*"], entryId, ranBy: "u1", ranAt: "2026-08-31T10:00:00.000Z" }]);
   });
 });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for a Customer (docs/archive/catalog/01-sales.md "العملاء"). Money
@@ -26,6 +27,11 @@ export const customerSchema = z.object({
   priceListId: z.string().nullable(),
   creditLimit: z.string(),
   taxExempt: z.boolean(),
+  /**
+   * The active 0% tax rate the customer's exemption is filed under; null when none is set (D79).
+   * EXTERNAL CONTRACT: a server older than the field omits it, and a shipped mobile build parses this.
+   */
+  taxExemptionRateId: z.string().min(1).nullable().default(null),
   etaBuyerType: etaBuyerTypeSchema,
   commercialRegistrationNumber: z.string().nullable(),
   address: z.string().nullable(),
@@ -41,7 +47,7 @@ export const customerSchema = z.object({
 
 /** POST /customers body — matches the catalog's "Add customer" dialog defaults. */
 export const createCustomerSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   /** Omitted, the server allocates the next free code. */
   code: z.string().trim().min(1).optional(),
   /** The branch that owns this record; omitted, it is stamped from the creator's own scope (D71). */
@@ -68,6 +74,7 @@ export const createCustomerSchema = z.object({
   priceListId: z.string().nullable().optional(),
   creditLimit: z.string().optional(),
   taxExempt: z.boolean().optional(),
+  taxExemptionRateId: z.string().min(1).nullable().optional(),
   etaBuyerType: etaBuyerTypeSchema.optional(),
   commercialRegistrationNumber: z.string().nullable().optional(),
   address: z.string().nullable().optional(),

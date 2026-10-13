@@ -1,3 +1,5 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../../../reversal/ReverseDocumentAction";
 import { useMemo, useState } from "react";
 import {
   Button,
@@ -121,6 +123,7 @@ function toMoneyString(value: number | null): string {
 }
 
 export function GuaranteesScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.LetterOfGuarantee);
   const { t } = useAppTranslation();
   const format = useFormat();
   const { session } = useApi();
@@ -663,6 +666,7 @@ export function GuaranteesScreen() {
               onSelect: () => void runAction(g, () => issueGuarantee.mutateAsync({ id: g.id, body: {} })),
             });
           }
+          if (g.status !== "draft") items.push(...reversal.menuItems({ id: g.id, params: { id: g.id }, subject: g.docNo ?? g.id }));
           return <RowMenu items={items} label={t("common.rowActionsFor", { name: g.docNo ?? g.id })} />;
         }}
         page={currentPage}
@@ -688,6 +692,7 @@ export function GuaranteesScreen() {
           />
         }
       />
+      {reversal.dialog}
       {summary && summary.byBank.length > 0 ? (
         <Card className="mt-[18px] divide-y divide-border">
           <div className="p-[13px_15px] text-[12.5px] font-bold text-ink">{t("guarantees.byBankTitle")}</div>

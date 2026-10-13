@@ -3,6 +3,8 @@ import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
+import { documentApprovalSchema } from "./workflow.js";
 
 /** Wire contracts for Landed Costs (التكاليف الإضافية، docs/archive/catalog/02). */
 
@@ -40,7 +42,7 @@ export const landedCostTargetSchema = z.object({
  * allocation math itself.
  */
 export const createLandedCostSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDateOrInstant,
   memo: z.string().default(""),
   distributionMethod: landedCostDistributionMethodSchema,
@@ -72,6 +74,7 @@ export const landedCostDocumentSchema = z.object({
   docType: z.literal("LANDED_COST"),
   docNo: z.string().nullable(),
   date: z.string(),
+  absorptionDate: z.string().nullable().optional(),
   memo: z.string(),
   status: documentStatusSchema,
   lines: z.array(landedCostLineSchema),
@@ -80,6 +83,7 @@ export const landedCostDocumentSchema = z.object({
   reversesDocId: z.string().nullable(),
   reversedByDocId: z.string().nullable(),
   workflowRequestId: z.string().nullable(),
+  approval: documentApprovalSchema.nullable().optional(),
   journalEntryId: z.string().nullable(),
 });
 

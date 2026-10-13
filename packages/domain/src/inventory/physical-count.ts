@@ -106,14 +106,6 @@ export class PhysicalCountNotFoundError extends Error {
   }
 }
 
-export class DuplicatePhysicalCountError extends Error {
-  readonly code = "DUPLICATE_PHYSICAL_COUNT";
-  constructor(readonly id: string) {
-    super(`Physical count "${id}" already exists.`);
-    this.name = "DuplicatePhysicalCountError";
-  }
-}
-
 export class InvalidPhysicalCountError extends Error {
   readonly code = "INVALID_PHYSICAL_COUNT";
   constructor(readonly id: string, message: string) {
@@ -165,6 +157,7 @@ export interface GenerateAdjustmentCommand {
   readonly countId: string;
   /** Id for the generated stock-adjustment document. */
   readonly adjustmentId: string;
+  readonly actor?: string;
 }
 
 export interface GenerateAdjustmentResult {
@@ -189,9 +182,6 @@ export class PhysicalCountService {
 
   /** Open a new count session, snapshotting each item's current system qty. */
   async start(cmd: StartPhysicalCountCommand): Promise<PhysicalCount> {
-    if (await this.deps.repo.findById(cmd.id)) {
-      throw new DuplicatePhysicalCountError(cmd.id);
-    }
     if (cmd.itemIds.length === 0) {
       throw new InvalidPhysicalCountError(cmd.id, "الجرد يتطلب صنفاً واحداً على الأقل.");
     }
@@ -312,7 +302,7 @@ export class PhysicalCountService {
       memo: `تسوية جرد ${count.countNo ?? count.id}`,
       lines,
     });
-    const { document } = await this.deps.adjustments.confirm(cmd.adjustmentId);
+    const { document } = await this.deps.adjustments.confirm(cmd.adjustmentId, { actor: cmd.actor });
 
     const next: PhysicalCount = {
       ...count,

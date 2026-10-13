@@ -1,3 +1,4 @@
+import { insertOnly } from "../records/test-helpers/insert-only.js";
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import {
@@ -20,9 +21,9 @@ import {
   RfqNotSentError,
   RfqNotOpenError,
   RfqQuoteNotFoundError,
-  DuplicatePurchaseDocumentError,
 } from "./errors.js";
 import { InMemoryPurchaseOrders, makeNumbering } from "./test-helpers.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 const now = () => "2026-08-21T09:00:00.000Z";
 
@@ -35,7 +36,7 @@ class InMemoryRfqs implements PurchaseRfqRepository {
     return [...this.rows.values()];
   }
   async create(rfq: PurchaseRfq): Promise<void> {
-    this.rows.set(rfq.id, rfq);
+    insertOnly(this.rows, rfq.id, rfq);
   }
   async update(rfq: PurchaseRfq): Promise<void> {
     this.rows.set(rfq.id, rfq);
@@ -51,7 +52,7 @@ class InMemoryRfqQuotes implements RfqQuoteRepository {
     return [...this.rows.values()].filter((q) => q.rfqId === rfqId);
   }
   async create(quote: RfqQuote): Promise<void> {
-    this.rows.set(quote.id, quote);
+    insertOnly(this.rows, quote.id, quote);
   }
 }
 
@@ -116,9 +117,7 @@ describe("createRfq", () => {
   it("rejects a duplicate id", async () => {
     const rfqs = new InMemoryRfqs();
     await createRfq(rfqBase(), { rfqs, numbering: makeNumbering(), now });
-    await expect(createRfq(rfqBase(), { rfqs, numbering: makeNumbering(), now })).rejects.toThrow(
-      DuplicatePurchaseDocumentError,
-    );
+    await expect(createRfq(rfqBase(), { rfqs, numbering: makeNumbering(), now })).rejects.toThrow(DuplicateRecordIdError);
   });
 });
 

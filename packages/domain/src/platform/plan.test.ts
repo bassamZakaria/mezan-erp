@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/money.js";
 import { createPlan, updatePlan, retirePlan, type Plan, type PlanRepository, type UpdatePlanCommand } from "./plan.js";
-import { InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
+import { FreePlanRequiredError, InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
+import { PlanKind } from "./plan.js";
 
 function memoryRepo(): PlanRepository & { rows: Map<string, Plan> } {
   const rows = new Map<string, Plan>();
@@ -115,5 +116,35 @@ describe("retirePlan", () => {
     await createPlan(cmd, repo);
     expect((await retirePlan({ id: "P1" }, repo)).status).toBe("retired");
     expect((await retirePlan({ id: "P1" }, repo)).status).toBe("retired");
+  });
+});
+
+describe("the free plan every trial ends on", () => {
+  const free = { ...cmd, id: "F1", code: "free", kind: PlanKind.Free, priceMonthly: Money.zero(), priceYearly: Money.zero(), trialDays: 0 };
+
+  it("cannot be retired while it is the only one, and can once another free plan is active", async () => {
+    const repo = memoryRepo();
+    await createPlan(free, repo);
+
+    await expect(retirePlan({ id: "F1" }, repo)).rejects.toThrow(FreePlanRequiredError);
+    expect(repo.rows.get("F1")?.status).toBe("active");
+
+    await createPlan({ ...free, id: "F2", code: "free-2" }, repo);
+    expect((await retirePlan({ id: "F1" }, repo)).status).toBe("retired");
+  });
+
+  it("cannot be turned into a paid plan while it is the only one, by the edit that would leave none", async () => {
+    const repo = memoryRepo();
+    await createPlan(free, repo);
+    const makePaid = { id: "F1", kind: PlanKind.Paid, priceMonthly: Money.fromMajor("100"), priceYearly: Money.fromMajor("1000") };
+
+    const refused = await updatePlan(makePaid, repo, noSubscribers).catch((err: unknown) => err);
+    expect(refused).toBeInstanceOf(FreePlanRequiredError);
+    expect((refused as FreePlanRequiredError).message).toMatch(/لا يمكن تحويل الباقة المجانية الوحيدة/);
+    expect(repo.rows.get("F1")?.kind).toBe(PlanKind.Free);
+
+    expect((await updatePlan({ id: "F1", nameAr: "المجانية" }, repo, noSubscribers)).nameAr).toBe("المجانية");
+    await createPlan({ ...free, id: "F2", code: "free-2" }, repo);
+    expect((await updatePlan(makePaid, repo, noSubscribers)).kind).toBe(PlanKind.Paid);
   });
 });

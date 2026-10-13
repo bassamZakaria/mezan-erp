@@ -6,4 +6,5 @@ export interface CustomerRepository {
   findById(id: string): Promise<Customer | null>;
   findByCode(code: string): Promise<Customer | null>;
   save(customer: Customer): Promise<void>;
+  insert(customer: Customer): Promise<void>;
 }

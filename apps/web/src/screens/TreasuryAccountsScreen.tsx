@@ -93,6 +93,8 @@ function blankDraft(branches: BranchDTO[]): TreasuryAccountDraft {
   };
 }
 
+const COMPANY_LEVEL = "";
+
 function draftFromAccount(account: TreasuryAccountDTO): TreasuryAccountDraft {
   return {
     code: account.code,
@@ -101,7 +103,7 @@ function draftFromAccount(account: TreasuryAccountDTO): TreasuryAccountDraft {
     type: account.type,
     currency: account.currency,
     bankAccountNumber: account.bankAccountNumber ?? "",
-    branchId: account.branchId,
+    branchId: account.branchId ?? COMPANY_LEVEL,
     glAccountId: account.glAccountId ?? "",
     openingBalance: toMajor(account.openingBalance),
     openingBalanceDate: account.openingBalanceDate ?? "",
@@ -118,11 +120,17 @@ function validateDraft(draft: TreasuryAccountDraft, existing: TreasuryAccountDTO
   if (code === "") return { key: "treasuryAcc.codeRequired" as const };
   if (existing.some((a) => a.code === code && a.id !== editingId)) return { key: "treasuryAcc.codeInUse" as const, params: { code } };
   if (draft.name.trim() === "") return { key: "treasuryAcc.nameRequired" as const };
-  if (draft.branchId.trim() === "") return { key: "treasuryAcc.branchRequired" as const };
   if (draft.type === "cash" && (draft.openingBalance ?? 0) < 0) {
     return { key: "treasuryAcc.cashNotNegative" as const };
   }
   return null;
+}
+
+function formatForeignBalance(amount: string): string {
+  const [whole = "0", fraction = ""] = amount.split(".");
+  const negative = whole.startsWith("-");
+  const digits = negative ? whole.slice(1) : whole;
+  return `${negative ? "-" : ""}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction.padEnd(2, "0").slice(0, 2)}`;
 }
 
 export function TreasuryAccountsScreen() {
@@ -224,7 +232,7 @@ export function TreasuryAccountsScreen() {
       type: draft.type,
       currency: draft.currency,
       bankAccountNumber: draft.bankAccountNumber.trim() === "" ? null : draft.bankAccountNumber.trim(),
-      branchId: draft.branchId,
+      branchId: draft.branchId === COMPANY_LEVEL ? null : draft.branchId,
       glAccountId: draft.glAccountId.trim() === "" ? null : draft.glAccountId.trim(),
       openingBalance: (draft.openingBalance ?? 0).toFixed(6),
       openingBalanceDate: draft.openingBalanceDate.trim() === "" ? null : draft.openingBalanceDate.trim(),
@@ -250,14 +258,24 @@ export function TreasuryAccountsScreen() {
         <div>
           <div className="font-semibold text-ink">{nameOf(a)}</div>
           <div className="mz-num mt-[2px] text-[11px] text-ink-faint">
-            {a.code} · {branchName(a.branchId, branches)}
+            {a.code} · {a.branchId === null ? t("treasuryAcc.companyLevel") : branchName(a.branchId, branches)}
           </div>
         </div>
       ),
     },
     { key: "type", header: t("treasuryAcc.accountType"), render: (a) => <StatusPill label={getTreasuryAccountTypeLabel(a.type as DomainTreasuryAccountType)} tone="info" /> },
     { key: "currency", header: t("treasuryAcc.currency"), render: (a) => a.currency },
-    { key: "balance", header: t("treasuryAcc.balance"), align: "end", render: (a) => <MoneyDisplay value={balanceOf(a.id)} /> },
+    { key: "balance", header: t("treasuryAcc.balance"), align: "end", render: (a) => (
+        <div>
+          <MoneyDisplay value={balanceOf(a.id)} />
+          {a.foreignBalance ? (
+            <div className="mz-num text-[11.5px] text-ink-muted">
+              {formatForeignBalance(a.foreignBalance)} {a.currency}
+            </div>
+          ) : null}
+        </div>
+      ),
+    },
     { key: "status", header: t("common.status"), render: (a) => <StatusPill label={t(STATUS_KEY[a.status])} tone={STATUS_TONE[a.status]} /> },
     {
       key: "actions",
@@ -456,7 +474,7 @@ export function TreasuryAccountsScreen() {
               </div>
               <div className="border-e border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("common.branch")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{branchName(selected.branchId, branches)}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.branchId === null ? t("treasuryAcc.companyLevel") : branchName(selected.branchId, branches)}</div>
               </div>
               <div className="p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("treasuryAcc.ledgerAccount")}</div>
@@ -504,7 +522,7 @@ export function TreasuryAccountsScreen() {
             label={t("treasuryAcc.branch")}
             value={draft.branchId}
             onChange={(v) => setDraft((d) => ({ ...d, branchId: v }))}
-            options={branches.map((b) => ({ value: b.id, label: b.name }))}
+            options={[{ value: COMPANY_LEVEL, label: t("treasuryAcc.companyLevel") }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
           />
           <TextField
             label={t("treasuryAcc.ledgerAccount")}

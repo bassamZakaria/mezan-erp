@@ -142,3 +142,33 @@ describe("createGeneralLedgerReport — exact arithmetic", () => {
     expect(outcome.rows.map((r) => r.debit + r.credit).sort()).toEqual([0.1, 0.1, 0.2, 0.2]);
   });
 });
+
+describe("createGeneralLedgerReport — branch scope and filter (D111)", () => {
+  const tagged = (branchId: string | null, major: string) => [
+    { ...dr("1100", major), branchId },
+    { ...cr("4100", major), branchId },
+  ];
+  const entries = [
+    je({ id: "je-main", entryNo: "JE-1", lines: tagged("BR-MAIN", "100") }),
+    je({ id: "je-alex", entryNo: "JE-2", lines: tagged("BR-ALEX", "40") }),
+    je({ id: "je-none", entryNo: "JE-3", lines: tagged(null, "7") }),
+  ];
+  const definition = createGeneralLedgerReport({ periodFrom: "2026-03-01", periodTo: "2026-03-31" });
+  const debitOf = (params: Record<string, string>, ctx: Partial<GlReportContext> = {}) => {
+    const outcome = runReport(definition, { periodFrom: "2026-03-01", periodTo: "2026-03-31", ...params }, { accounts, journalEntries: entries, ...ctx });
+    if (!outcome.ok) throw new Error("report refused");
+    return outcome.rows.reduce((sum, row) => sum + row.debit, 0);
+  };
+
+  it("never hands a scoped caller another branch's lines, whatever branch they ask for", () => {
+    expect(debitOf({}, { branchScope: ["BR-ALEX"] })).toBe(47);
+    expect(debitOf({ branchId: "BR-MAIN" }, { branchScope: ["BR-ALEX"] })).toBe(0);
+  });
+
+  it("narrows to one branch, or to the unattributed bucket, and the three add up to the company", () => {
+    const company = debitOf({});
+    const parts = debitOf({ branchId: "BR-MAIN" }) + debitOf({ branchId: "BR-ALEX" }) + debitOf({ branchId: "__unattributed__" });
+    expect(company).toBe(147);
+    expect(parts).toBe(company);
+  });
+});

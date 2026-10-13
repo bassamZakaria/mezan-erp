@@ -1,3 +1,4 @@
+import { PayBasis } from "./contract.js";
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
 import { createInMemoryContractRepository } from "./test-helpers/in-memory-hr-repositories.js";
@@ -185,9 +186,9 @@ describe("label helpers", () => {
   });
 
   it("getPayBasisLabel/getPayFrequencyLabel translate the raw code into Arabic prose for payroll warnings", () => {
-    expect(getPayBasisLabel("hourly")).toBe("بالساعة");
-    expect(getPayBasisLabel("daily")).toBe("يومي");
-    expect(getPayBasisLabel("monthly")).toBe("شهري");
+    expect(getPayBasisLabel(PayBasis.Hourly)).toBe("بالساعة");
+    expect(getPayBasisLabel(PayBasis.Daily)).toBe("يومي");
+    expect(getPayBasisLabel(PayBasis.Monthly)).toBe("شهري");
     expect(getPayFrequencyLabel("weekly")).toBe("أسبوعي");
     expect(getPayFrequencyLabel("biweekly")).toBe("كل أسبوعين");
   });

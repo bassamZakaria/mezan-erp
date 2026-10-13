@@ -41,3 +41,10 @@ export {
   type AccountRoutingSlot,
   type LatePenaltyTreatment,
 } from "./account-routing.js";
+export {
+  COST_OF_SALES_ROUTING_KEYS,
+  INVENTORY_ROUTING_KEYS,
+  costOfSalesLedgerAccountIds,
+  inventoryLedgerAccountIds,
+  type ItemLedgerAccounts,
+} from "./derived-account-sets.js";

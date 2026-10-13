@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPlatform, SEED_ADMIN_EMAIL, type PlatformHandle } from "@mezan/backend";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
+import { reachable } from "./cloud-harness.js";
 import { provisionDemoTenant, DEMO_TENANT_CODE } from "./demo-tenant.js";
 
 const T = "2026-01-15T00:00:00.000Z";
@@ -26,6 +27,7 @@ describe("provisionDemoTenant", () => {
     platform = await createPlatform({ dbPath: ":memory:" });
     dataDir = mkdtempSync(path.join(tmpdir(), "mezan-demo-"));
     router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
+    reachable(router.app);
     env = { platformDir: dataDir, sqliteExclusive: false };
     await provisionDemoTenant({ platform, router, env });
   }, 60000);

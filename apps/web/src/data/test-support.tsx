@@ -1,13 +1,16 @@
-import type { ReactElement } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 import { render, type RenderResult } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { AppProviders } from "./AppProviders";
 import type { Session } from "./session";
 import type { Transport, TransportResponse } from "./transport";
+import { NavigationProvider } from "../navigation";
 
 export interface StubResult {
   status?: number;
   body: unknown;
+  retryAfterSeconds?: number;
+  sessionEnded?: string;
 }
 
 /** A handler key segment of `*` matches any single path segment, e.g. a generated document id. */
@@ -45,6 +48,8 @@ export function stubTransport(
     const response: TransportResponse = {
       status,
       ok: status >= 200 && status < 400,
+      retryAfterSeconds: result.retryAfterSeconds ?? null,
+      sessionEnded: result.sessionEnded ?? null,
       json: <T,>() => Promise.resolve(result.body as T),
       text: () => Promise.resolve(JSON.stringify(result.body)),
     };
@@ -81,5 +86,26 @@ export function renderWithProviders(
     <AppProviders transport={options.transport} initialSession={options.initialSession ?? null}>
       <MemoryRouter initialEntries={[options.route ?? "/"]}>{ui}</MemoryRouter>
     </AppProviders>,
+  );
+}
+
+export function TestNavigation({ children, initialSegments = [], onSegments }: { children: ReactNode; initialSegments?: readonly string[]; onSegments?: (segments: readonly string[]) => void }) {
+  const [segments, setSegments] = useState<readonly string[]>(initialSegments);
+  return (
+    <NavigationProvider
+      value={{
+        navigate: () => {},
+        segments,
+        openSubPage: (next) => {
+          onSegments?.(next);
+          setSegments(next);
+        },
+        openScreenAt: () => {},
+        intent: null,
+        clearIntent: () => {},
+      }}
+    >
+      {children}
+    </NavigationProvider>
   );
 }

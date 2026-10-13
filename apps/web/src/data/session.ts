@@ -1,6 +1,32 @@
-import { sessionSchema, type SessionDTO } from "@mezan/contracts";
+import { OwnerHandOverOutcome, sessionSchema, type SessionDTO } from "@mezan/contracts";
+import { ALL_SCOPE, SHELL_REQUESTS, can, createAuthContext, mayAskScreenRequest, type AuthContext, type Entitlements, type ScreenRequest, type ShellRequest } from "@mezan/domain";
 
 export type Session = SessionDTO;
+
+const grants = new WeakMap<Session, AuthContext>();
+
+function grantOf(session: Session): AuthContext {
+  let grant = grants.get(session);
+  if (!grant) {
+    grant = createAuthContext({ userId: session.userId, permissions: session.permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    grants.set(session, grant);
+  }
+  return grant;
+}
+
+export function sessionHolds(session: Session | null, permission: string): boolean {
+  return session !== null && can(grantOf(session), permission);
+}
+
+// SECURITY: decides only whether a read is worth sending — the server decides
+// whether it is allowed, on the permission and on the module it belongs to.
+export function sessionMayAskScreen(session: Session | null, entitlements: Entitlements | null, request: ScreenRequest): boolean {
+  return session !== null && mayAskScreenRequest(grantOf(session), entitlements, request);
+}
+
+export function sessionMayAsk(session: Session | null, request: ShellRequest): boolean {
+  return sessionHolds(session, SHELL_REQUESTS[request].permission);
+}
 
 const SESSION_STORAGE_KEY = "mezan.session";
 
@@ -66,8 +92,29 @@ function getTabStorage(): Storage | null {
   }
 }
 
+export enum SignInNotice {
+  SessionExpired = "1",
+  AccountUnlocked = "unlocked",
+  SignedInElsewhere = "displaced",
+}
+
+const SIGN_IN_NOTICES: ReadonlySet<string> = new Set(Object.values(SignInNotice));
+
+export function markSignInNotice(notice: SignInNotice): void {
+  getTabStorage()?.setItem(SESSION_EXPIRED_KEY, notice);
+}
+
+export function pendingSignInNotice(): SignInNotice | null {
+  const stored = getTabStorage()?.getItem(SESSION_EXPIRED_KEY) ?? null;
+  return stored !== null && SIGN_IN_NOTICES.has(stored) ? (stored as SignInNotice) : null;
+}
+
+export function clearSignInNotice(): void {
+  getTabStorage()?.removeItem(SESSION_EXPIRED_KEY);
+}
+
 export function markSessionExpired(): void {
-  getTabStorage()?.setItem(SESSION_EXPIRED_KEY, "1");
+  markSignInNotice(SignInNotice.SessionExpired);
 }
 
 /**
@@ -80,12 +127,32 @@ export function markSessionExpired(): void {
  * clear belongs in an effect, where running twice is also harmless.
  */
 export function sessionExpiredPending(): boolean {
-  return getTabStorage()?.getItem(SESSION_EXPIRED_KEY) === "1";
+  return pendingSignInNotice() === SignInNotice.SessionExpired;
 }
 
 /** Clears the flag so the notice shows once, not on every later visit. */
 export function clearSessionExpired(): void {
-  getTabStorage()?.removeItem(SESSION_EXPIRED_KEY);
+  clearSignInNotice();
+}
+
+const OWNER_HAND_OVER_KEY = "mezan.ownerHandOver";
+const UNSETTLED_HAND_OVERS: readonly OwnerHandOverOutcome[] = [OwnerHandOverOutcome.Pending, OwnerHandOverOutcome.PendingUnmailed, OwnerHandOverOutcome.Failed];
+
+// REQUIRED ORDERING: written by the screen that asked for the hand-over, read by
+// the sign-in screen. Stepping down ends the owner's session in the same
+// request, so a notice kept only on the Users page is never seen.
+export function markOwnerHandOver(outcome: OwnerHandOverOutcome): void {
+  if (UNSETTLED_HAND_OVERS.includes(outcome)) getTabStorage()?.setItem(OWNER_HAND_OVER_KEY, outcome);
+  else clearOwnerHandOver();
+}
+
+export function pendingOwnerHandOver(): OwnerHandOverOutcome | null {
+  const stored = getTabStorage()?.getItem(OWNER_HAND_OVER_KEY);
+  return UNSETTLED_HAND_OVERS.find((outcome) => outcome === stored) ?? null;
+}
+
+export function clearOwnerHandOver(): void {
+  getTabStorage()?.removeItem(OWNER_HAND_OVER_KEY);
 }
 
 export const NO_SCOPE_SELECTION: ScopeSelection = { branchId: null, warehouseId: null };
@@ -125,10 +192,24 @@ const TENANT_CODE_STORAGE_KEY = "mezan.tenantCode";
  * it. Stripping to the header-safe slug alphabet here is what keeps that
  * failure from ever reaching `authHeaders`.
  */
+const tenantCodeListeners = new Set<() => void>();
+
+export function subscribeTenantCode(listener: () => void): () => void {
+  tenantCodeListeners.add(listener);
+  return () => {
+    tenantCodeListeners.delete(listener);
+  };
+}
+
+function tenantCodeChanged(): void {
+  for (const listener of [...tenantCodeListeners]) listener();
+}
+
 export function persistTenantCode(code: string): void {
   const storage = getSessionStorage();
   if (!storage) return;
   storage.setItem(TENANT_CODE_STORAGE_KEY, code.trim().toLowerCase().replace(/[^a-z0-9-]/g, ""));
+  tenantCodeChanged();
 }
 
 export function loadTenantCode(): string | null {
@@ -141,6 +222,31 @@ export function clearTenantCode(): void {
   const storage = getSessionStorage();
   if (!storage) return;
   storage.removeItem(TENANT_CODE_STORAGE_KEY);
+  tenantCodeChanged();
+}
+
+const TENANT_CODE_CONFIRMED_KEY = "mezan.tenantCodeConfirmed";
+// INVARIANT: not a secret, only a name for this page load. `crypto.randomUUID` is absent on
+// the plain-http LAN origin a till runs on, and would stop the app loading there.
+const PAGE_LOAD_ID = `${Date.now()}:${Math.random()}`;
+
+export function markTenantCodeConfirmed(code: string): void {
+  getTabStorage()?.setItem(TENANT_CODE_CONFIRMED_KEY, JSON.stringify({ code, load: PAGE_LOAD_ID }));
+}
+
+export function clearTenantCodeConfirmed(): void {
+  getTabStorage()?.removeItem(TENANT_CODE_CONFIRMED_KEY);
+}
+
+export function tenantCodeConfirmedThisVisit(): boolean {
+  const raw = getTabStorage()?.getItem(TENANT_CODE_CONFIRMED_KEY) ?? null;
+  if (raw === null) return false;
+  try {
+    const confirmed = JSON.parse(raw) as { code?: unknown; load?: unknown };
+    return confirmed.load === PAGE_LOAD_ID && confirmed.code === loadTenantCode();
+  } catch {
+    return false;
+  }
 }
 
 const TENANT_CODE_BY_EMAIL_STORAGE_KEY = "mezan.tenantCodeByEmail";
@@ -188,6 +294,14 @@ export function tenantCodeForEmail(email: string): string | null {
   const key = normalizeEmail(email);
   if (key === "") return null;
   return readTenantCodeByEmail()[key] ?? null;
+}
+
+export function deviceSharedAcrossTenants(): boolean {
+  return new Set(Object.values(readTenantCodeByEmail())).size > 1;
+}
+
+export function tenantCodeIsLeftover(): boolean {
+  return loadTenantCode() !== null && deviceSharedAcrossTenants() && !tenantCodeConfirmedThisVisit();
 }
 
 export function rememberTenantCodeForEmail(email: string, code: string): void {

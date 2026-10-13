@@ -34,6 +34,24 @@ describe("createBackendCache", () => {
     expect(cache.size).toBe(2);
   });
 
+  it("peeks at an open handle without counting as use, so an idle tenant is still swept", async () => {
+    let t = 0;
+    const closed: string[] = [];
+    const open = vi.fn(async (code: string) => ({ code, close: () => void closed.push(code) }));
+    const cache = createBackendCache({ open, idleMs: 1000, now: () => t, sweepEveryMs: 0 });
+    const handle = await cache.get("a");
+
+    t = 900;
+    expect(await cache.peek("a")).toBe(handle);
+    expect(cache.peek("never-opened")).toBeUndefined();
+    t = 1000;
+    await cache.sweep();
+
+    expect(closed).toEqual(["a"]);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(cache.peek("a")).toBeUndefined();
+  });
+
   it("closes idle handles on sweep and reopens on next get", async () => {
     let t = 0;
     const open = vi.fn(async (code: string) => ({ code, close: vi.fn() }));
@@ -155,5 +173,29 @@ describe("createBackendCache", () => {
     expect(a.close).toHaveBeenCalledTimes(1);
     expect(b.close).toHaveBeenCalledTimes(1);
     await expect(cache.get("a")).rejects.toThrow("CACHE_CLOSED");
+  });
+
+  it("closes one code's handle when it is evicted, has finished closing before it answers, and opens a new one on the next get", async () => {
+    const closed: string[] = [];
+    const evicted: string[] = [];
+    const open = vi.fn(async (code: string) => ({
+      code,
+      close: async () => {
+        await Promise.resolve();
+        closed.push(code);
+      },
+    }));
+    const cache = createBackendCache({ open, sweepEveryMs: 0, onEvict: (code) => evicted.push(code) });
+    const first = await cache.get("a");
+    await cache.get("b");
+
+    await cache.evict("a");
+
+    expect(closed).toEqual(["a"]);
+    expect(evicted).toEqual(["a"]);
+    expect(cache.openCodes()).toEqual(["b"]);
+    expect(await cache.get("a")).not.toBe(first);
+    await cache.evict("never-opened");
+    expect(closed).toEqual(["a"]);
   });
 });

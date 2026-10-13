@@ -140,6 +140,17 @@ describe("Sales Return — restock + GL", () => {
     expect(totalDebit.equals(totalCredit)).toBe(true);
   });
 
+  it("stamps the restock movement with the return's own date, not the wall clock, and a later reversal with the reversal's date", async () => {
+    const { service, stockService } = harness();
+
+    await service.createDraft({ id: "SR-DATED", date: "2026-08-05", memo: "", lines: [line()] });
+    await service.confirm("SR-DATED");
+    await service.reverse("SR-DATED", { reversalId: "SR-DATED-REV", date: "2026-08-19" });
+
+    expect((await stockService.getMovementsOfDocument("SR-DATED")).map((m) => m.occurredAt)).toEqual(["2026-08-05T00:00:00.000Z"]);
+    expect((await stockService.getMovementsOfDocument("SR-DATED-REV")).map((m) => m.occurredAt)).toEqual(["2026-08-19T00:00:00.000Z"]);
+  });
+
   it("carries the return's projectId onto every posted GL line (D-01)", async () => {
     const { service, ledger } = harness();
 
@@ -227,6 +238,14 @@ describe("a return against a foreign invoice reverses at the invoice's rate (D20
     expect(refundDue(doc, []).toString()).toBe("10944.000000");
   });
 
+  it("counts neither a voided return nor the mirror document that voided it", () => {
+    const voided = { ...doc, status: "reversed" as const, reversedByDocId: "R-VOID" };
+    const mirror = { ...doc, id: "R-VOID", reversesDocId: doc.id };
+    expect(salesReturnCreditByInvoice([voided, mirror]).get("INV1")).toBeUndefined();
+    expect(refundDue(mirror, []).toString()).toBe("0.000000");
+    expect(isAwaitingRefund(mirror, [])).toBe(false);
+  });
+
   it("stamps the invoice's currency and rate onto every line built from it", () => {
     const lines = buildSalesReturnLinesFromInvoice(
       {
@@ -243,7 +262,66 @@ describe("a return against a foreign invoice reverses at the invoice's rate (D20
       "WH1",
       "DEFECTIVE",
       [{ itemId: "ITEM1", qty: Qty.fromMajor("1") }],
-    );
+    ).lines;
     expect(lines[0]).toMatchObject({ currency: "USD", fxRate: "48.00" });
+  });
+});
+
+describe("a sales return posts in its source invoice's branch (D111)", () => {
+  const type = createSalesReturnDocumentType(ACCOUNTS);
+  const docOf = (lines: SalesReturnLine[]) => ({
+    id: "SR-BR",
+    docType: "SALES_RETURN",
+    docNo: "SRT-000010",
+    date: "2026-08-21",
+    memo: "",
+    status: "confirmed" as const,
+    lines,
+    createdAt: "2026-08-21T00:00:00.000Z",
+    confirmedAt: "2026-08-21T00:00:00.000Z",
+    reversesDocId: null,
+    reversedByDocId: null,
+    workflowRequestId: null,
+    journalEntryId: null,
+  });
+
+  it("stamps the invoice's branch on the receivable, revenue, VAT and restock legs", () => {
+    const posting = type.buildGlPosting?.(docOf([line({ branchId: "BR-ALEX" })]), undefined);
+    expect(posting!.lines.length).toBeGreaterThan(2);
+    expect(posting!.lines.every((l) => l.branchId === "BR-ALEX")).toBe(true);
+  });
+
+  it("leaves a return whose invoice carried no branch unattributed", () => {
+    const posting = type.buildGlPosting?.(docOf([line()]), undefined);
+    expect(posting!.lines.every((l) => l.branchId === null)).toBe(true);
+  });
+
+  it("reads the branch off the invoice when the lines are built from it", () => {
+    const { lines: [built] } = buildSalesReturnLinesFromInvoice(
+      {
+        id: "INV1",
+        number: "INV-000001",
+        customerId: "C1",
+        warehouseId: "WH1",
+        branchId: "BR-ALEX",
+        date: "2026-08-20",
+        status: "confirmed",
+        lines: [
+          {
+            itemId: "ITEM1",
+            itemName: "صنف 1",
+            qty: Qty.fromMajor("10"),
+            alreadyReturnedQty: Qty.zero(),
+            unitPrice: Money.fromMajor("20"),
+            unitCost: Money.fromMajor("12"),
+            taxAmount: Money.fromMajor("28"),
+          },
+        ],
+      },
+      "WH1",
+      "OTHER",
+      [{ itemId: "ITEM1", qty: Qty.fromMajor("2") }],
+    );
+    expect(built?.branchId).toBe("BR-ALEX");
   });
 });

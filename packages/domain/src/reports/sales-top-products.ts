@@ -5,6 +5,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { aggregateItemSales } from "./sales-item-aggregation.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * أفضل المنتجات — Top Products (docs/archive/catalog/08-reports.md): a ranked/
@@ -62,10 +63,10 @@ export function createTopProductsReport(
     paramsSchema,
     defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, limit: 20, rankBy: "revenue", branchId: "" },
     paramFields: [
-      { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
-      { kind: "text", key: "limit", label: "الحد الأقصى" },
+      { kind: ReportParamKind.DateRange, fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
+      { kind: ReportParamKind.Text, key: "limit", label: "الحد الأقصى" },
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "rankBy",
         label: "الترتيب حسب",
         options: [

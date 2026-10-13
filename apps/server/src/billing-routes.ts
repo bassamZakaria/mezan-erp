@@ -18,26 +18,33 @@ import {
   SubscriptionTransition,
   TenantNotFoundError,
   PlanNotFoundError,
+  CardCheckoutStatus,
   type CardCheckout,
   type ModuleTrial,
   type Plan,
   type Tenant,
+  TenantStatusCode,
+  SubscriptionStatusKind,
 } from "@mezan/domain";
 import {
   createCardCheckoutRequestSchema,
   startModuleTrialRequestSchema,
+  subscriptionStatusOf,
   type BillingLimitDTO,
   type BillingModuleDTO,
   type BillingQuotaDTO,
   type TenantBillingDTO,
 } from "@mezan/contracts";
-import { readSessionToken, type SessionGrant } from "@mezan/api";
-import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
-import type { CardCheckoutService } from "./card-checkout.js";
+import { BodyLimitRefusal, DEVICE_SECRET_HEADER, connectionTurn, readSessionToken, type SessionGrant } from "@mezan/api";
+import { resolveTenantPlan, serializeCardCheckoutForTenant, type PlatformHandle } from "@mezan/backend";
+import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
-import type { CloudEnv } from "./env.js";
-import type { TenantRouter } from "./tenant-router.js";
+import { PaymobMode, type CloudEnv } from "./env.js";
+import type { TenantDoor, TenantRouter } from "./tenant-router.js";
+import { deviceSecretOf } from "./device-cookie.js";
+import { callerSource, requireCloudSource, type CloudSource, type SourceReporter } from "./client-source.js";
 import { resolveTenantCode } from "./tenant-resolver.js";
+import { servedTenantLookup, trustedPublicOrigin, type ServedTenantLookup } from "./public-origin.js";
 
 export const PAYMOB_WEBHOOK_PATH = "/api/billing/paymob/webhook";
 const MAX_WEBHOOK_BYTES = 256 * 1024;
@@ -51,26 +58,12 @@ export function forwardedOrigin(request: Request, trustProxy: boolean): string {
   return `${proto === "https" || proto === "http" ? proto : url.protocol.replace(":", "")}://${host}`;
 }
 
-/**
- * The origin a browser is sent back to after the hosted checkout. Only the
- * configured public URL or one of this deployment's own tenant subdomains —
- * never a host the caller merely claims.
- */
-export function trustedReturnOrigin(request: Request, env: CloudEnv): string {
-  const publicUrl = env.paymob.mode === "off" ? undefined : env.paymob.publicUrl;
-  if (env.tenantDomain && publicUrl) {
-    const raw = (env.trustProxy ? request.headers.get("x-forwarded-host") : null) ?? request.headers.get("host") ?? "";
-    const host = raw.split(",")[0]!.trim().toLowerCase().replace(/:\d+$/, "");
-    const domain = env.tenantDomain.toLowerCase();
-    if (host.endsWith(`.${domain}`) && !host.slice(0, -(domain.length + 1)).includes(".")) {
-      return `${new URL(publicUrl).protocol}//${host}`;
-    }
-  }
-  return publicUrl ?? forwardedOrigin(request, env.trustProxy);
+export async function trustedReturnOrigin(request: Request, env: CloudEnv, servesTenant: ServedTenantLookup): Promise<string> {
+  return (await trustedPublicOrigin(request, env, servesTenant)) ?? forwardedOrigin(request, env.trustProxy);
 }
 
 export function notificationUrl(request: Request, env: CloudEnv): string {
-  const publicUrl = env.paymob.mode === "off" ? undefined : env.paymob.publicUrl;
+  const publicUrl = env.paymob.mode === PaymobMode.Off ? undefined : env.paymob.publicUrl;
   return `${publicUrl ?? forwardedOrigin(request, env.trustProxy)}${PAYMOB_WEBHOOK_PATH}`;
 }
 
@@ -79,12 +72,12 @@ export function createPaymobWebhookRoutes(service: CardCheckoutService): Hono {
   const app = new Hono();
   app.post("/", async (c) => {
     const declared = Number(c.req.header("content-length") ?? "0");
-    if (Number.isFinite(declared) && declared > MAX_WEBHOOK_BYTES) return c.json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+    if (Number.isFinite(declared) && declared > MAX_WEBHOOK_BYTES) return c.json({ error: BodyLimitRefusal.PayloadTooLarge }, 413);
     const raw = await c.req.text();
-    if (raw.length > MAX_WEBHOOK_BYTES) return c.json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+    if (raw.length > MAX_WEBHOOK_BYTES) return c.json({ error: BodyLimitRefusal.PayloadTooLarge }, 413);
     const result = await service.handleWebhook(raw, c.req.query("hmac") ?? "");
-    if (result.status === "rejected") return c.json({ error: "INVALID_SIGNATURE" }, 401);
-    if (result.status === "retry") return c.json({ error: "RETRY" }, 503);
+    if (result.status === SettlementStatus.Rejected) return c.json({ error: "INVALID_SIGNATURE" }, 401);
+    if (result.status === SettlementStatus.Retry) return c.json({ error: "RETRY" }, 503);
     return c.json({ received: true });
   });
   return app;
@@ -95,6 +88,9 @@ interface Caller {
   readonly grant: SessionGrant;
   /** The caller's own bearer token, so the tenant-side usage read is made AS them. */
   readonly token: string;
+  readonly source: CloudSource;
+  readonly door: TenantDoor;
+  readonly device: Readonly<Record<string, string>>;
 }
 
 function allowed(grant: SessionGrant, permission: string): boolean {
@@ -179,6 +175,7 @@ export interface TenantBillingRoutesOptions {
   readonly env: CloudEnv;
   readonly service: CardCheckoutService | null;
   readonly now?: () => Date;
+  readonly sourceReporter?: SourceReporter;
 }
 
 /**
@@ -191,33 +188,39 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
   const { platform, router, env, service } = options;
   const now = options.now ?? (() => new Date());
   const app = new Hono();
+  app.use("*", requireCloudSource(env.clientSource, options.sourceReporter));
+  app.use("*", connectionTurn(platform.audit));
 
   async function resolveCaller(c: Context): Promise<Caller | Response> {
     const code = resolveTenantCode(c.req.raw, { tenantDomain: env.tenantDomain, trustForwardedHost: env.trustProxy, allowTenantHeader: true });
     if (!code) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
     const tenant = await platform.stores.tenants.findByCode(code);
-    if (!tenant || tenant.status === "archived" || tenant.status === "provisioning") {
+    if (!tenant || tenant.status === TenantStatusCode.Archived || tenant.status === TenantStatusCode.Provisioning) {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
     const token = readSessionToken(c);
     if (!token) return c.json({ error: "UNAUTHENTICATED", message: "سجّل الدخول أولًا" }, 401);
-    const backend = await router.backendFor(code);
-    // Must look the token up with the same origin the tenant backend saw at
-    // login. The tenant router forwards `backend.app.fetch(request)` without
-    // the socket env, so every tenant session is bound to the null origin; a
-    // mismatched lookup here would not just fail, it would REVOKE the session.
-    const grant = backend.sessions.find(token, null);
+    const source = callerSource(c);
+    const door = await router.callerDoor(code);
+    const deviceSecret = deviceSecretOf(c.req.raw);
+    const device: Record<string, string> = deviceSecret ? { [DEVICE_SECRET_HEADER]: deviceSecret } : {};
+    // REQUIRED ORDERING: the tenant's own app sees the request first, so an
+    // address change on a device-bound session is written to its audit log
+    // exactly as it is on any tenant route; the lookup below would otherwise
+    // absorb the change unrecorded.
+    await door.fetch(new Request("http://tenant/profile", { headers: { authorization: `Bearer ${token}`, ...device } }), source);
+    const grant = door.findSession(token, source, deviceSecret);
     if (!grant) return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى" }, 401);
-    return { tenant, grant, token };
+    return { tenant, grant, token, source, door, device };
   }
 
   const forbidden = (c: Context) => c.json({ error: "FORBIDDEN", message: "ليست لديك صلاحية إدارة الاشتراك" }, 403);
 
   /** What this tenant's own backend counts against its plan, on its own day. Forwarded with the caller's token, so it is the caller's own read. */
-  async function planUsage(code: string, token: string): Promise<PlanUsage> {
-    const backend = await router.backendFor(code);
-    const res = await backend.app.fetch(
-      new Request("http://tenant/plan-usage", { headers: { authorization: `Bearer ${token}` } }),
+  async function planUsage(caller: Caller): Promise<PlanUsage> {
+    const res = await caller.door.fetch(
+      new Request("http://tenant/plan-usage", { headers: { authorization: `Bearer ${caller.token}`, ...caller.device } }),
+      caller.source,
     );
     if (!res.ok) return { today: null, month: null, quotas: [], limits: [] };
     return (await res.json()) as PlanUsage;
@@ -240,7 +243,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
         amountDue = (subscription.billingCycle === "yearly" ? plan.priceYearly : plan.priceMonthly).toString();
       }
     }
-    const usage = await planUsage(caller.tenant.code, caller.token);
+    const usage = await planUsage(caller);
     const plans = (await platform.stores.plans.list()).filter((p) => p.status === "active" && p.isPublic);
     const checkouts: CardCheckout[] = service ? (await service.listByTenant(caller.tenant.id)).slice(0, 10) : [];
 
@@ -251,7 +254,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
       subscription:
         subscription && plan && amountDue !== null
           ? {
-              status: subscription.status,
+              status: subscriptionStatusOf(subscription.status),
               billingCycle: subscription.billingCycle,
               currentPeriodEnd: subscription.currentPeriodEnd,
               planNameAr: plan.nameAr,
@@ -262,8 +265,8 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
           : null,
       today: usage.today,
       month: usage.month,
-      trialEndsAt: subscription?.status === "trialing" ? subscription.trialEndsAt : null,
-      trialDaysLeft: trialDaysLeft(subscription?.status === "trialing" ? subscription.trialEndsAt : null, usage.today),
+      trialEndsAt: subscription?.status === SubscriptionStatusKind.Trialing ? subscription.trialEndsAt : null,
+      trialDaysLeft: trialDaysLeft(subscription?.status === SubscriptionStatusKind.Trialing ? subscription.trialEndsAt : null, usage.today),
       moduleTrialDays: MODULE_TRIAL_DAYS,
       quotas: usage.quotas as BillingQuotaDTO[],
       limits: usage.limits as BillingLimitDTO[],
@@ -278,7 +281,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
           priceMonthly: p.priceMonthly.toString(), priceYearly: p.priceYearly.toString(),
           trialDays: p.trialDays, current: p.id === plan?.id,
         })),
-      checkouts: checkouts.map(serializeCardCheckout),
+      checkouts: checkouts.map(serializeCardCheckoutForTenant),
     };
     return c.json(body);
   });
@@ -347,7 +350,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     }
     const parsed = createCardCheckoutRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const origin = trustedReturnOrigin(c.req.raw, env);
+    const origin = await trustedReturnOrigin(c.req.raw, env, servedTenantLookup(platform));
     try {
       const checkout = await service.open({
         tenantId: caller.tenant.id,
@@ -355,7 +358,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
         returnUrl: (id) => `${origin}${parsed.data.returnPath}?checkout=${encodeURIComponent(id)}`,
         notificationUrl: notificationUrl(c.req.raw, env),
       });
-      return c.json(serializeCardCheckout(checkout), 201);
+      return c.json(serializeCardCheckoutForTenant(checkout), 201);
     } catch (err) {
       return unavailable(c, err);
     }
@@ -367,7 +370,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     if (!allowed(caller.grant, "admin.settings.view")) return forbidden(c);
     const checkout = service ? await service.find(c.req.param("id")) : null;
     if (!checkout || checkout.tenantId !== caller.tenant.id) return c.json({ error: "NOT_FOUND", message: "عملية الدفع غير موجودة" }, 404);
-    return c.json(serializeCardCheckout(checkout));
+    return c.json(serializeCardCheckoutForTenant(checkout));
   });
 
   return app;
@@ -380,7 +383,7 @@ function escapeHtml(value: string): string {
 function testCheckoutPage(checkout: CardCheckout, tenantCode: string): string {
   const id = escapeHtml(checkout.id);
   const amount = escapeHtml(checkout.amount.toString().replace(/0{1,4}$/, ""));
-  const open = checkout.status === "pending" || checkout.status === "failed";
+  const open = checkout.status === CardCheckoutStatus.Pending || checkout.status === CardCheckoutStatus.Failed;
   const statusLine = open ? "" : `<p class="state">الحالة: ${escapeHtml(checkout.status)} — Status: ${escapeHtml(checkout.status)}</p>`;
   const actions = open
     ? `<form method="post" action="/billing/test-checkout/${id}/complete">
@@ -434,6 +437,8 @@ function testCheckoutPage(checkout: CardCheckout, tenantCode: string): string {
  * buttons do not mark anything paid themselves: they sign a Paymob-shaped
  * callback with the test secret and run it through the same webhook handler.
  */
+const TEST_CHECKOUT_NOT_FOUND = "صفحة الدفع التجريبية غير موجودة";
+
 export function createTestCheckoutRoutes(options: {
   readonly platform: PlatformHandle;
   readonly service: CardCheckoutService;
@@ -444,17 +449,17 @@ export function createTestCheckoutRoutes(options: {
 
   app.get("/:id", async (c) => {
     const checkout = await service.find(c.req.param("id"));
-    if (!checkout || checkout.provider !== provider.id) return c.text("Not found", 404);
+    if (!checkout || checkout.provider !== provider.id) return c.text(TEST_CHECKOUT_NOT_FOUND, 404);
     const tenant = await platform.stores.tenants.findById(checkout.tenantId);
     return c.html(testCheckoutPage(checkout, tenant?.code ?? ""));
   });
 
   app.post("/:id/complete", async (c) => {
     const checkout = await service.find(c.req.param("id"));
-    if (!checkout || checkout.provider !== provider.id) return c.text("Not found", 404);
+    if (!checkout || checkout.provider !== provider.id) return c.text(TEST_CHECKOUT_NOT_FOUND, 404);
     const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
     const outcome = form["outcome"] === "success" ? "success" : "failure";
-    if (checkout.status === "pending" || checkout.status === "failed") {
+    if (checkout.status === CardCheckoutStatus.Pending || checkout.status === CardCheckoutStatus.Failed) {
       const { rawBody, signature } = provider.simulateCallback(checkout, outcome);
       await service.handleWebhook(rawBody, signature);
     }

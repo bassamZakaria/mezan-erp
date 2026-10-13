@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { ACCOUNTS, BRANCH_ID, VAT_PERCENT, WAREHOUSE_ID, call, nextBankTransferReference, step } from "./shared.js";
+import { ACCOUNTS, BRANCH_ID, VAT_PERCENT, VAT_RATE_ID, WAREHOUSE_ID, call, nextBankTransferReference, step } from "./shared.js";
 import {
   EXPENSE_ACCOUNTS,
   HISTORY_CUSTOMERS,
@@ -155,6 +155,12 @@ function costAt(item: HistoryItem, monthIndex: number): number {
   return item.costPiastres * priceDrift(monthIndex) * between(0.985, 1.015);
 }
 
+const HALF_POUND_PIASTRES = 50;
+
+function wholeHalfPounds(piastres: number): number {
+  return Math.max(HALF_POUND_PIASTRES, Math.round(piastres / HALF_POUND_PIASTRES) * HALF_POUND_PIASTRES);
+}
+
 function priceAt(item: HistoryItem, monthIndex: number): number {
   return item.pricePiastres * priceDrift(monthIndex) * between(0.97, 1.03);
 }
@@ -202,6 +208,13 @@ async function seedExpenseAccounts(app: App): Promise<void> {
   }
 }
 
+// INVARIANT: every customer with no tax registration is a sole trader the shop
+// holds a national ID for — a receipt of EGP 150,000 or more to a natural
+// person is refused without one, and the history sells that much to two.
+function soleTraderNationalId(customerCode: string): string {
+  return `2850101${customerCode.replace(/\D/g, "").padStart(5, "0")}17`;
+}
+
 async function seedParties(app: App): Promise<void> {
   for (const customer of HISTORY_CUSTOMERS) {
     await step(app, "POST", "/customers", {
@@ -217,6 +230,7 @@ async function seedParties(app: App): Promise<void> {
       creditLimit: customer.creditLimit,
       taxNumber: customer.taxNumber ?? null,
       etaBuyerType: customer.taxNumber ? "business" : "individual",
+      nationalId: customer.taxNumber ? null : soleTraderNationalId(customer.code),
       currency: "EGP",
       active: true,
     });
@@ -270,22 +284,9 @@ async function seedItems(app: App): Promise<void> {
  * first two years of purchases and overheads disburse from an account that was
  * never funded, and every cash figure on the dashboard reads negative (D17).
  */
-/**
- * The authority's EGS code for every history item, registered BEFORE the first
- * sale confirms.
- *
- * Without it a consumer sale cannot be receipted — `buildPosReceiptInput`
- * refuses with `ETA_RECEIPT_NOT_READY` naming every «كود الصنف لدى المصلحة»
- * it could not find — so the whole e-receipt path was unreachable from the
- * seed and each of those confirms logged the refusal instead. The items the
- * bootstrap seed creates and never sells stay unmapped, so the readiness
- * meter, the «غير مرتبط» filter and تطبيق الاقتراحات still open on real rows.
- *
- * Two consumer sales still cannot be receipted, and that is the point: each is
- * EGP 150,000 or more to a شخص طبيعي the shop never took a national ID from,
- * which the regime refuses. They are the rows «إيصالات لم تصدر» exists to
- * show, not a seeding gap.
- */
+// ORDER MATTERS: the authority's EGS code for every history item is registered
+// BEFORE the first sale confirms — a consumer sale of an item without one
+// cannot be receipted, and its confirm logs the refusal instead.
 async function seedEtaItemCodes(app: App): Promise<void> {
   for (const item of HISTORY_ITEMS) {
     await step(app, "PUT", `/eta/item-mappings/${item.id}`, {
@@ -488,8 +489,8 @@ async function postPurchases(app: App, month: Month, sales: readonly PlannedSale
           itemId: line.item.id,
           kind: "inventory",
           qty: String(line.qty),
-          unitCost: money(costAt(line.item, month.index)),
-          taxRatePercent: VAT_PERCENT,
+          unitCost: money(wholeHalfPounds(costAt(line.item, month.index))),
+          taxRateId: VAT_RATE_ID,
         })),
       });
       const confirmed = await step(app, "POST", `/purchases/invoices/${id}/confirm`, {});
@@ -533,7 +534,7 @@ async function postSales(app: App, month: Month, sales: readonly PlannedSale[]):
         isStock: true,
         qty: String(line.qty),
         unitPrice: money(priceAt(line.item, month.index)),
-        taxRatePercent: VAT_PERCENT,
+        taxRateId: VAT_RATE_ID,
         revenueAccountId: ACCOUNTS.revenue,
         cogsAccountId: ACCOUNTS.cogs,
         inventoryAccountId: ACCOUNTS.inventory,

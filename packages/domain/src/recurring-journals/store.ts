@@ -5,6 +5,7 @@ export interface RecurringJournalTemplateRepository {
   findById(id: string): Promise<RecurringJournalTemplate | null>;
   list(): Promise<readonly RecurringJournalTemplate[]>;
   save(template: RecurringJournalTemplate): Promise<void>;
+  insert(template: RecurringJournalTemplate): Promise<void>;
 }
 
 /**
@@ -21,9 +22,11 @@ export interface RecurringJournalTemplateRepository {
  * an orphan entry with no run record pointing at it.
  */
 export interface RecurringJournalRunRepository {
+  findById(id: string): Promise<RecurringJournalRun | null>;
   findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalRun | null>;
   listByTemplate(templateId: string): Promise<readonly RecurringJournalRun[]>;
-  list(limit?: number): Promise<readonly RecurringJournalRun[]>;
+  /** The newest runs, of `templateIds` only when given — the limit counts the rows asked for, never rows the caller may not see. */
+  list(limit?: number, templateIds?: readonly string[]): Promise<readonly RecurringJournalRun[]>;
   /** Returns `true` if this call recorded the run, `false` if (template, period) was already claimed. */
   save(run: RecurringJournalRun): Promise<boolean>;
 }
@@ -37,7 +40,7 @@ export interface RecurringJournalRunRepository {
 export interface RecurringJournalSkipRepository {
   findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalSkip | null>;
   listByTemplate(templateId: string): Promise<readonly RecurringJournalSkip[]>;
-  list(limit?: number): Promise<readonly RecurringJournalSkip[]>;
+  list(limit?: number, templateIds?: readonly string[]): Promise<readonly RecurringJournalSkip[]>;
   /** Returns `true` if this call recorded the skip, `false` if (template, period) was already claimed. */
   save(skip: RecurringJournalSkip): Promise<boolean>;
 }

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { AccountDTO, ItemDTO, StockAdjustmentDocumentDTO, WarehouseDTO } from "@mezan/contracts";
 import { StockAdjustmentsScreen } from "./StockAdjustmentsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -10,6 +10,7 @@ import type { JournalEntryDTO } from "../data/hooks";
 import { NavigationProvider } from "../navigation";
 
 afterEach(() => {
+  vi.restoreAllMocks();
   document.documentElement.removeAttribute("data-theme");
 });
 
@@ -26,8 +27,8 @@ function chooseSelectOption(triggerLabel: string, optionLabel: string) {
   fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
 }
 
-function TestNavigation({ children }: { children: ReactNode }) {
-  const [segments, setSegments] = useState<readonly string[]>([]);
+function TestNavigation({ children, initialSegments = [] }: { children: ReactNode; initialSegments?: readonly string[] }) {
+  const [segments, setSegments] = useState<readonly string[]>(initialSegments);
   return (
     <NavigationProvider
       value={{
@@ -271,11 +272,165 @@ describe("StockAdjustmentsScreen — create: reason picker + INITIAL_STOCK flow"
   });
 });
 
+describe("StockAdjustmentsScreen — a save pressed again", () => {
+  async function fillOpeningBalance() {
+    fireEvent.click((await screen.findAllByRole("button", { name: "تسوية جديدة" }))[0]!);
+    fireEvent.click(screen.getByRole("button", { name: /رصيد افتتاحي/ }));
+    chooseSelectOption("الصنف للسطر 1", "منتج 3");
+    fireEvent.change(screen.getByLabelText("الكمية للسطر 1"), { target: { value: "40" } });
+    fireEvent.change(screen.getByLabelText("سعر التكلفة للسطر 1"), { target: { value: "60" } });
+  }
+  const draftOf = (body: { id: string; date: string; memo?: string; lines: StockAdjustmentDocumentDTO["lines"] }): StockAdjustmentDocumentDTO => ({
+    id: body.id, docType: "STOCK_ADJUSTMENT", docNo: null, date: body.date, memo: body.memo ?? "", status: "draft", lines: body.lines,
+    createdAt: "2026-08-22T10:00:00.000Z", confirmedAt: null, journalEntryId: null,
+  });
+
+  it("sends the same id after a confirm that failed, and a new id for the next adjustment", async () => {
+    const sentIds: string[] = [];
+    let current = [adj1];
+    let confirms = 0;
+    const transport = stubTransport({
+      ...baseHandlers(() => current),
+      "POST /inventory/stock-adjustments/draft": (init) => {
+        const created = draftOf(JSON.parse((init?.body as string) ?? "{}"));
+        sentIds.push(created.id);
+        current = [adj1, created];
+        return { status: 201, body: created };
+      },
+      "POST /inventory/stock-adjustments/*/confirm": () => {
+        confirms += 1;
+        if (confirms === 1) return { status: 503, body: { error: "DATABASE_BUSY", message: "الخادم مشغول، أعد المحاولة" } };
+        const confirmed = { ...current[current.length - 1]!, status: "confirmed" as const, docNo: `ADJ-00001${confirms}` };
+        current = [adj1, confirmed];
+        return { body: { document: confirmed, held: false } };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockAdjustmentsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+
+    await fillOpeningBalance();
+    fireEvent.click(screen.getByRole("button", { name: "اعتماد التسوية" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("الخادم مشغول");
+    fireEvent.click(screen.getByRole("button", { name: "اعتماد التسوية" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "تسويات المخزون" })).toBeInTheDocument());
+
+    await fillOpeningBalance();
+    fireEvent.click(screen.getByRole("button", { name: "اعتماد التسوية" }));
+    await waitFor(() => expect(sentIds).toHaveLength(3));
+
+    expect(sentIds[1]).toBe(sentIds[0]);
+    expect(sentIds[2]).not.toBe(sentIds[0]);
+  });
+
+  it("opens the adjustment already saved, with a notice, when its id was used with other contents", async () => {
+    let current = [adj1];
+    const transport = stubTransport({
+      ...baseHandlers(() => current),
+      "POST /inventory/stock-adjustments/draft": (init) => {
+        current = [adj1, { ...draftOf(JSON.parse((init?.body as string) ?? "{}")), status: "confirmed", docNo: "ADJ-000077" }];
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockAdjustmentsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+
+    await fillOpeningBalance();
+    fireEvent.click(screen.getByRole("button", { name: "اعتماد التسوية" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");
+    expect(await screen.findByText("ADJ-000077")).toBeInTheDocument();
+  });
+});
+
 describe("StockAdjustmentsScreen — themes", () => {
   it.each(["light", "dark"] as const)("renders the list in the %s theme", async (theme) => {
     document.documentElement.setAttribute("data-theme", theme);
     renderScreen();
     expect(screen.getByRole("heading", { name: "تسويات المخزون" })).toBeInTheDocument();
     await screen.findByText("ADJ-000001");
+  });
+});
+
+describe("StockAdjustmentsScreen — a held document whose approval no longer stands", () => {
+  it("says why in Arabic and asks for approval again through the document's own confirm", async () => {
+    let standing = "reapproval_required";
+    let confirms = 0;
+    const held = { ...adj1, id: "held-1", docNo: "HELD-0001", status: "pending" as const, workflowRequestId: "held-1:confirm" };
+    const transport = stubTransport({
+      ...baseHandlers(() => []),
+      "GET /inventory/stock-adjustments": () => ({ body: [held] }),
+      "GET /workflow/requests/*/standing": () => ({ body: { id: "held-1:confirm", status: standing, reason: standing === "reapproval_required" ? "الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد." : null, reasonEn: null } }),
+      "POST /inventory/stock-adjustments/held-1/confirm": () => {
+        confirms += 1;
+        standing = "pending";
+        return { body: held };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockAdjustmentsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("HELD-0001"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent("الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد.");
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirms).toBe(1));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
+  });
+});
+
+describe("StockAdjustmentsScreen — a reversed adjustment and its reversal point at each other", () => {
+  const reversed: StockAdjustmentDocumentDTO = { ...adj5, id: "adj-6", docNo: "ADJ-000006", status: "reversed", reversesDocId: null, reversedByDocId: "adj-6:REVERSAL" };
+  const mirror: StockAdjustmentDocumentDTO = { ...adj5, id: "adj-6:REVERSAL", docNo: "ADJ-000007", date: "2026-10-13", memo: "عكس", status: "confirmed", reversesDocId: "adj-6", reversedByDocId: null };
+
+  function renderPair() {
+    const transport = stubTransport({
+      ...baseHandlers(() => [reversed, mirror]),
+      "GET /gl/journal-entries/adj-6": () => ({ status: 404, body: { error: "NOT_FOUND" } }),
+      "GET /gl/journal-entries/adj-6:REVERSAL": () => ({ status: 404, body: { error: "NOT_FOUND" } }),
+    });
+    return renderWithProviders(
+      <TestNavigation>
+        <StockAdjustmentsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+  }
+
+  it("the list names the other document by its number on both rows, and neither row shows a dash for a number", async () => {
+    renderPair();
+    expect(await screen.findByText("ADJ-000007")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "عُكست بالمستند ADJ-000007" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "تعكس المستند ADJ-000006" })).toBeInTheDocument();
+  });
+
+  it("offers no reversal on the document that is itself a reversal", async () => {
+    renderPair();
+    fireEvent.click(await screen.findByRole("button", { name: "إجراءات ADJ-000007" }));
+    expect(await screen.findByRole("menuitem", { name: "عرض" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "عكس التسوية" })).not.toBeInTheDocument();
+  });
+
+  it("the link opens the other document, whose detail links back", async () => {
+    renderPair();
+    fireEvent.click(await screen.findByRole("button", { name: "عُكست بالمستند ADJ-000007" }));
+    expect(await screen.findByRole("heading", { name: "ADJ-000007" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "تعكس المستند ADJ-000006" }));
+    expect(await screen.findByRole("heading", { name: "ADJ-000006" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "عُكست بالمستند ADJ-000007" })).toBeInTheDocument();
+  });
+});
+
+describe("StockAdjustmentsScreen — opening a document by its number on a fresh load", () => {
+  it("waits for the list instead of asking the server for a document whose id is the number, so the reload raises no 404", async () => {
+    const asked: string[] = [];
+    const base = stubTransport(baseHandlers(() => [adj1, adj5]));
+    const transport: typeof base = (path, init) => {
+      asked.push(path.split("?")[0] ?? path);
+      return base(path, init);
+    };
+    renderWithProviders(
+      <TestNavigation initialSegments={["ADJ-000005"]}>
+        <StockAdjustmentsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    expect(await screen.findByRole("heading", { name: "ADJ-000005" })).toBeInTheDocument();
+    expect(asked).not.toContain("/inventory/stock-adjustments/ADJ-000005");
   });
 });

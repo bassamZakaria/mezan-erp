@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   type AssetCategory,
@@ -84,6 +85,7 @@ function toAssetCategory(row: AssetCategoryRow): AssetCategory {
 
 class SqliteAssetCategoryRepository implements AssetCategoryRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -114,6 +116,7 @@ class SqliteAssetCategoryRepository implements AssetCategoryRepository {
         loss_on_disposal_account_id = excluded.loss_on_disposal_account_id,
         active = excluded.active
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM asset_category WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM asset_category WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM asset_category`);
@@ -134,15 +137,15 @@ class SqliteAssetCategoryRepository implements AssetCategoryRepository {
   }
 
   async create(category: AssetCategory): Promise<void> {
-    this.write(category);
+    insertingNew(category.id, () => this.write(category, this.insertOnly));
   }
 
   async update(category: AssetCategory): Promise<void> {
     this.write(category);
   }
 
-  private write(category: AssetCategory): void {
-    this.upsert.run({
+  private write(category: AssetCategory, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: category.id,
       code: category.code,
       name_ar: category.nameAr,
@@ -263,6 +266,7 @@ function toAsset(row: AssetRow): Asset {
 
 class SqliteAssetRepository implements AssetRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -304,6 +308,7 @@ class SqliteAssetRepository implements AssetRepository {
         project_id = excluded.project_id,
         internal_hourly_rate = excluded.internal_hourly_rate
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM asset WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM asset WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM asset`);
@@ -324,15 +329,15 @@ class SqliteAssetRepository implements AssetRepository {
   }
 
   async create(asset: Asset): Promise<void> {
-    this.write(asset);
+    insertingNew(asset.id, () => this.write(asset, this.insertOnly));
   }
 
   async update(asset: Asset): Promise<void> {
     this.write(asset);
   }
 
-  private write(asset: Asset): void {
-    this.upsert.run({
+  private write(asset: Asset, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: asset.id,
       code: asset.code,
       name_ar: asset.nameAr,
@@ -471,10 +476,18 @@ CREATE TABLE IF NOT EXISTS depreciation_run (
   total_amount     INTEGER NOT NULL,
   journal_entry_id TEXT,
   created_at       TEXT NOT NULL,
-  posted_at        TEXT
+  posted_at        TEXT,
+  skipped_lines    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_depreciation_run_period ON depreciation_run(period, branch_id);
 `;
+
+function addRunSkippedLinesColumnIfMissing(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(depreciation_run)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "skipped_lines")) {
+    sqlite.exec(`ALTER TABLE depreciation_run ADD COLUMN skipped_lines TEXT`);
+  }
+}
 
 interface DepreciationRunRow {
   id: string;
@@ -486,6 +499,7 @@ interface DepreciationRunRow {
   journal_entry_id: string | null;
   created_at: string;
   posted_at: string | null;
+  skipped_lines: string | null;
 }
 
 function toDepreciationRun(row: DepreciationRunRow): DepreciationRun {
@@ -508,6 +522,11 @@ function toDepreciationRun(row: DepreciationRunRow): DepreciationRun {
     branchId: row.branch_id,
     status: row.status as DepreciationRunStatus,
     lines,
+    skippedLines: (JSON.parse(row.skipped_lines ?? "[]") as { assetId: string; assetCode: string; amount: string }[]).map((l) => ({
+      assetId: l.assetId,
+      assetCode: l.assetCode,
+      amount: Money.fromMajor(l.amount),
+    })),
     totalAmount: Money.fromScaled(row.total_amount),
     journalEntryId: row.journal_entry_id,
     createdAt: row.created_at,
@@ -517,6 +536,7 @@ function toDepreciationRun(row: DepreciationRunRow): DepreciationRun {
 
 class SqliteDepreciationRunRepository implements DepreciationRunRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByPeriodBranch: Database.Statement;
@@ -524,8 +544,8 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO depreciation_run (id, period, branch_id, status, lines, total_amount, journal_entry_id, created_at, posted_at)
-      VALUES (@id, @period, @branch_id, @status, @lines, @total_amount, @journal_entry_id, @created_at, @posted_at)
+      INSERT INTO depreciation_run (id, period, branch_id, status, lines, total_amount, journal_entry_id, created_at, posted_at, skipped_lines)
+      VALUES (@id, @period, @branch_id, @status, @lines, @total_amount, @journal_entry_id, @created_at, @posted_at, @skipped_lines)
       ON CONFLICT(id) DO UPDATE SET
         period = excluded.period,
         branch_id = excluded.branch_id,
@@ -534,8 +554,10 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
         total_amount = excluded.total_amount,
         journal_entry_id = excluded.journal_entry_id,
         created_at = excluded.created_at,
-        posted_at = excluded.posted_at
+        posted_at = excluded.posted_at,
+        skipped_lines = excluded.skipped_lines
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM depreciation_run WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM depreciation_run`);
     this.selectByPeriodBranch = sqlite.prepare(`SELECT * FROM depreciation_run WHERE period = ? AND branch_id = ?`);
@@ -563,15 +585,15 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
   }
 
   async create(run: DepreciationRun): Promise<void> {
-    this.write(run);
+    insertingNew(run.id, () => this.write(run, this.insertOnly));
   }
 
   async update(run: DepreciationRun): Promise<void> {
     this.write(run);
   }
 
-  private write(run: DepreciationRun): void {
-    this.upsert.run({
+  private write(run: DepreciationRun, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: run.id,
       period: run.period,
       branch_id: run.branchId,
@@ -588,6 +610,7 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
       journal_entry_id: run.journalEntryId,
       created_at: run.createdAt,
       posted_at: run.postedAt,
+      skipped_lines: JSON.stringify((run.skippedLines ?? []).map((l) => ({ assetId: l.assetId, assetCode: l.assetCode, amount: l.amount.toString() }))),
     });
   }
 }
@@ -600,6 +623,7 @@ export interface SqliteDepreciationRunRepositoryHandle extends DepreciationRunRe
 export function createSqliteDepreciationRunRepository(path: SqliteConnectionInput = ":memory:"): SqliteDepreciationRunRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_DEPRECIATION_RUN);
+  addRunSkippedLinesColumnIfMissing(sqlite);
   const repo = new SqliteDepreciationRunRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteDepreciationRunRepositoryHandle;
 }

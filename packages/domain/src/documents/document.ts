@@ -99,6 +99,20 @@ export interface DocumentTypeDefinition<Line> {
   describeEffects(doc: FrameworkDocument<Line>): DocumentEffects;
 }
 
+export enum DocumentField {
+  DocNo = "docNo",
+  Status = "status",
+  ConfirmedAt = "confirmedAt",
+  JournalEntryId = "journalEntryId",
+  WorkflowRequestId = "workflowRequestId",
+  ReversedByDocId = "reversedByDocId",
+  Lines = "lines",
+}
+
+export interface DocumentWritePrecondition {
+  readonly status: DocumentStatus;
+}
+
 /** Persistence port for framework documents (one store per concrete type, keyed by id). */
 export interface DocumentRepository<Line> {
   save(doc: FrameworkDocument<Line>): Promise<void>;
@@ -117,6 +131,21 @@ export interface DocumentRepository<Line> {
     ids: readonly string[],
     filter?: DocumentListFilter,
   ): Promise<readonly FrameworkDocument<Line>[]>;
+  /**
+   * INVARIANT: the ONE write a posted document's lines take. It sets
+   * `taxRateId` on the lines of `docId` that cite `sourceInvoiceId`, store NO
+   * rate and carry `taxRatePercent`, and returns how many it named. Nothing
+   * else on the document is written. Optional: only a document whose lines
+   * are sourced from an invoice (a return) has anything to name.
+   */
+  nameSourcedLineTaxRate?(docId: string, sourceInvoiceId: string, taxRatePercent: number, taxRateId: string): Promise<number>;
+  /**
+   * INVARIANT: the ONE write a state change makes to a stored document. Only
+   * the named fields of `next` are written, and only while the stored row is
+   * still in `expected.status`; it answers whether a row was written. A
+   * lifecycle operation never saves a whole document it read earlier.
+   */
+  writeFields(next: FrameworkDocument<Line>, fields: readonly DocumentField[], expected: DocumentWritePrecondition): Promise<boolean>;
   /** Run `fn` in one atomic transaction. In-memory implementations may just call `fn`. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }

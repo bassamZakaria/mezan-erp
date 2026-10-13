@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BranchDTO, CustomerDTO, ItemDTO, WarehouseDTO } from "@mezan/contracts";
@@ -26,9 +26,12 @@ import { DEFAULT_GL_ACCOUNTS } from "@/domain/accounts";
 import { addDaysIso, todayIso } from "@/domain/dates";
 import { DocumentKind, ItemType } from "@/domain/enums";
 import { makeLocalId } from "@/domain/local-id";
+import { useDocumentId } from "@/hooks/use-document-id";
 import { resolveDefaultBranch, resolveDefaultWarehouse } from "@/domain/working-location";
 import { useSession } from "@/session/SessionProvider";
 import { RADIUS, SPACE, TYPE, useTheme } from "@/theme";
+import { RerateNotice } from "./rerate-notice";
+import { useRerateAcknowledgement } from "./use-rerate-acknowledgement";
 
 const QUOTE_VALIDITY_DAYS = 14;
 
@@ -112,8 +115,14 @@ export function Sell() {
   }, [customer, date, dueDateTouched]);
 
   const createInvoice = useCreateSalesInvoice();
+  const invoiceId = useDocumentId((savedId) => {
+    setNotice(`${strings.common.alreadySaved} — ${savedId}`);
+    setLines([blankLine()]);
+    setNotes("");
+  });
   const confirmInvoice = useConfirmSalesInvoice();
   const createQuote = useCreateSalesQuote();
+  const rerate = useRerateAcknowledgement((input) => confirmInvoice.mutateAsync(input));
 
   function updateLine(lineId: string, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l) => (l.lineId === lineId ? { ...l, ...patch } : l)));
@@ -147,6 +156,7 @@ export function Sell() {
     setBusy(true);
     setError(null);
     setNotice(null);
+    rerate.clear();
     try {
       if (kind === DocumentKind.Quote) {
         const created = await createQuote.mutateAsync({
@@ -174,6 +184,7 @@ export function Sell() {
           return;
         }
         const created = await createInvoice.mutateAsync({
+          id: invoiceId.current(),
           date,
           dueDate,
           customerId: customer.id,
@@ -202,20 +213,29 @@ export function Sell() {
             };
           }),
         });
-        const confirmed = await confirmInvoice.mutateAsync({ id: created.id });
-        const total = confirmed.totals?.grandTotal;
-        setNotice(
-          `${strings.sell.invoiceCreated} — ${confirmed.docNo ?? confirmed.id}` +
-            (total ? ` — ${formatAmountWithCurrency(total)}` : ""),
-        );
+        const posted = await rerate.confirmDraft(created.id, created.totals.grandTotal);
+        if (!posted) return;
+        announceConfirmed(posted);
       }
       setLines([blankLine()]);
       setNotes("");
     } catch (err) {
+      if (invoiceId.recover(err)) return;
       setError(describeWriteError(err, strings));
     } finally {
       setBusy(false);
     }
+  }
+
+  function announceConfirmed(confirmed: { readonly id: string; readonly docNo?: string | null; readonly totals?: { readonly grandTotal: string } }) {
+    invoiceId.renew();
+    const total = confirmed.totals?.grandTotal;
+    setNotice(`${strings.sell.invoiceCreated} — ${confirmed.docNo ?? confirmed.id}` + (total ? ` — ${formatAmountWithCurrency(total)}` : ""));
+  }
+
+  function startNextDocument() {
+    setLines([blankLine()]);
+    setNotes("");
   }
 
   const submitLabel = kind === DocumentKind.Quote ? strings.sell.submitQuote : strings.sell.submitInvoice;
@@ -330,10 +350,20 @@ export function Sell() {
 
       {error ? <Text style={[styles.notice, { color: theme.negative }]}>{error}</Text> : null}
       {notice ? <Text style={[styles.notice, { color: theme.positive }]}>{notice}</Text> : null}
+      <RerateNotice
+        rerate={rerate}
+        strings={strings}
+        onError={(err) => setError(describeWriteError(err, strings))}
+        onConfirmed={(confirmed) => {
+          announceConfirmed(confirmed);
+          startNextDocument();
+        }}
+        onKeptDraft={startNextDocument}
+      />
 
       <Button
         busy={busy}
-        disabled={!canSubmitKind}
+        disabled={!canSubmitKind || rerate.pending !== null}
         label={submitLabel}
         onPress={() => {
           void submit();

@@ -13,7 +13,7 @@
  * `buildGlPosting` owns that).
  */
 
-import { occurredAtFromDocumentDate, type StockLedgerService, type StockSourceDocType } from "../inventory/index.js";
+import { stockPlanOccurredAt, type StockLedgerService, type StockSourceDocType } from "../inventory/index.js";
 import { mirrorStockPlan } from "./hooks.js";
 import type { DocumentStockHook, DocumentStockPlan, DocumentStockResult } from "./hooks.js";
 import { Money } from "../money/index.js";
@@ -33,7 +33,7 @@ export function createInventoryStockHook(service: StockLedgerService): DocumentS
         lines: plan.lines,
         // The document's own date, not the wall clock, so a replay of the
         // ledger can order these against every other document-dated movement.
-        occurredAt: plan.date ? occurredAtFromDocumentDate(plan.date) : undefined,
+        occurredAt: stockPlanOccurredAt(plan),
       });
     },
 
@@ -46,7 +46,7 @@ export function createInventoryStockHook(service: StockLedgerService): DocumentS
         sourceDocNumber: mirrored.sourceDocNumber,
         warehouseId: mirrored.warehouseId,
         lines: mirrored.lines,
-        occurredAt: mirrored.date ? occurredAtFromDocumentDate(mirrored.date) : undefined,
+        occurredAt: stockPlanOccurredAt(mirrored),
       });
     },
   };

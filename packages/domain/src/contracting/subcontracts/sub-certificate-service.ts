@@ -563,9 +563,6 @@ export class SubCertificateService {
     const composed = await this.compose(cmd.id, subcontract, previous, cmd, []);
 
     return this.deps.store.transaction(async () => {
-      if (await this.deps.store.findCertificateById(cmd.id)) {
-        throw new InvalidSubCertificateError([`المستخلص "${cmd.id}" موجود بالفعل`]);
-      }
       const number = await this.deps.numbering.next(SUB_CERTIFICATE_SEQUENCE);
       const certificate: SubCertificate = {
         id: cmd.id,
@@ -605,7 +602,7 @@ export class SubCertificateService {
         workLines: composed.workLines,
         computed: composed.computed,
       };
-      await this.deps.store.saveCertificate(certificate);
+      await this.deps.store.insertCertificate(certificate);
       return this.view(certificate);
     });
   }
@@ -1060,6 +1057,7 @@ export class SubCertificateService {
         lines,
       },
       this.deps.gl,
+      { mintedBySystem: true },
     );
   }
 }

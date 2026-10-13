@@ -800,9 +800,6 @@ export class CertificateService {
     const composed = await this.compose(cmd.id, contract, previous, cmd, []);
 
     return this.deps.store.transaction(async () => {
-      if (await this.deps.store.findById(cmd.id)) {
-        throw new InvalidProgressCertificateError([`المستخلص "${cmd.id}" موجود بالفعل`]);
-      }
       const number = await this.deps.numbering.next(CERTIFICATE_SEQUENCE);
       const certificate: ProgressCertificate = {
         id: cmd.id,
@@ -845,7 +842,7 @@ export class CertificateService {
         materialLines: composed.materialLines,
         computed: composed.computed,
       };
-      await this.deps.store.save(certificate);
+      await this.deps.store.insert(certificate);
       return this.view(certificate);
     });
   }
@@ -957,7 +954,7 @@ export class CertificateService {
     return this.view(next);
   }
 
-  /** One forensic row per transition; never allowed to fail the transition itself. */
+  /** One forensic row per transition, written with it: a row that cannot be written fails the transition. */
   private async audit(
     certificate: ProgressCertificate,
     action: string,
@@ -1174,7 +1171,7 @@ export class CertificateService {
           reversalId: voidJournalEntryId,
           date: input.date,
           memo: `عكس خصومات المستخلص ${current.docNo} — ${input.reasonAr.trim()}`,
-        });
+        }, { mintedBySystem: true });
         voidJournalEntryId = reversal.reversal.id;
       }
       if (current.invoiceId) {
@@ -1338,6 +1335,7 @@ export class CertificateService {
         lines,
       },
       this.deps.gl,
+      { mintedBySystem: true },
     );
   }
 

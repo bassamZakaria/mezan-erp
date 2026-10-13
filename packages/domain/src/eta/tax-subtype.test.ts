@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveEtaVatSubType, findLineTaxRate } from "./tax-subtype.js";
+import { resolveEtaVatSubType, findLineTaxRate, resolveLineTaxRate } from "./tax-subtype.js";
 
 describe("resolveEtaVatSubType", () => {
   it("uses the sub-type the tax rate declares, whatever the rate is", () => {
@@ -28,21 +28,17 @@ describe("resolveEtaVatSubType", () => {
     expect(resolveEtaVatSubType("", 0)).toBe("V004");
   });
 
-  it("LIMITATION (D79): an unconfigured 0% line is filed as V004 whether it is exempt or a zero-rated export", () => {
-    // Both an exempt item (V003) and a zero-rated export (V001) carry a rate of
-    // zero. With nothing configured on the tax rate they are indistinguishable
-    // here, and both go to the authority as V004 — the reason a tenant selling
-    // exports must set `TaxRate.etaSubType` explicitly rather than leave it on
-    // "auto". If the resolver ever learns to tell them apart, this expectation
-    // is the one to change.
-    const exempt = resolveEtaVatSubType(null, 0);
-    const zeroRatedExport = resolveEtaVatSubType(null, 0);
-    expect(exempt).toBe("V004");
-    expect(zeroRatedExport).toBe("V004");
-    expect(exempt).toBe(zeroRatedExport);
+  it("D79: an exempt line files V003 and a zero-rated export files V001, read off the rate each line stored", () => {
+    const master = [
+      { id: "EXEMPT", status: "active", rate: 0, etaSubType: "V003" },
+      { id: "EXPORT", status: "active", rate: 0, etaSubType: "V001" },
+    ];
+    const subTypeOf = (taxRateId: string | null): string =>
+      resolveEtaVatSubType(resolveLineTaxRate(master, { taxRateId, taxRatePercent: 0 })?.etaSubType, 0);
 
-    // Configured explicitly, they are correctly distinct.
-    expect(resolveEtaVatSubType("V003", 0)).not.toBe(resolveEtaVatSubType("V001", 0));
+    expect(subTypeOf("EXEMPT")).toBe("V003");
+    expect(subTypeOf("EXPORT")).toBe("V001");
+    expect(subTypeOf(null)).toBe("V004");
   });
 
   it("never returns 'auto' itself, which the authority would reject", () => {
@@ -54,6 +50,37 @@ describe("resolveEtaVatSubType", () => {
 
   it("treats a negative rate as untaxed rather than as a taxed line", () => {
     expect(resolveEtaVatSubType("auto", -14)).toBe("V004");
+  });
+});
+
+describe("resolveLineTaxRate — the stored id decides, the percent only for a line without one (D79)", () => {
+  const master = [
+    { id: "VAT14", status: "active", rate: 14, etaSubType: "V009" },
+    { id: "EXEMPT", status: "active", rate: 0, etaSubType: "V003" },
+    { id: "EXPORT", status: "active", rate: 0, etaSubType: "V001" },
+    { id: "OLD-EXPORT", status: "inactive", rate: 0, etaSubType: "V002" },
+  ];
+
+  it("reads the rate the line stored, whichever other rates share its percent", () => {
+    expect(resolveLineTaxRate(master, { taxRateId: "EXEMPT", taxRatePercent: 0 })?.etaSubType).toBe("V003");
+    expect(resolveLineTaxRate(master, { taxRateId: "EXPORT", taxRatePercent: 0 })?.etaSubType).toBe("V001");
+  });
+
+  it("still answers for a rate deactivated after the line was posted", () => {
+    expect(resolveLineTaxRate(master, { taxRateId: "OLD-EXPORT", taxRatePercent: 0 })?.etaSubType).toBe("V002");
+  });
+
+  it("matches the percent for a legacy line with no stored id", () => {
+    expect(resolveLineTaxRate(master, { taxRateId: null, taxRatePercent: 14 })?.id).toBe("VAT14");
+    expect(resolveLineTaxRate(master, { taxRatePercent: 14 })?.id).toBe("VAT14");
+  });
+
+  it("refuses to guess for a legacy 0% line when exempt and export are both configured", () => {
+    expect(resolveLineTaxRate(master, { taxRateId: null, taxRatePercent: 0 })).toBeNull();
+  });
+
+  it("falls back to the percent when the stored id names a row that no longer exists", () => {
+    expect(resolveLineTaxRate(master, { taxRateId: "GONE", taxRatePercent: 14 })?.id).toBe("VAT14");
   });
 });
 
@@ -72,14 +99,22 @@ describe("findLineTaxRate — the rate value cannot decide a classification (D79
     expect(findLineTaxRate([rate("V003"), rate("V001")], 0)).toBeNull();
   });
 
-  it("still answers when several 0% rates all classify the same way — the ambiguity is only in the name", () => {
-    const found = findLineTaxRate([rate("V003"), rate("V003")], 0);
-    expect(found?.etaSubType).toBe("V003");
+  it("still answers above 0% when several rates at the percent all classify the same way — the ambiguity is only in the name", () => {
+    const found = findLineTaxRate([rate("V009", 14), rate("V009", 14)], 14);
+    expect(found?.etaSubType).toBe("V009");
+    expect(findLineTaxRate([rate("V009", 14), rate("V010", 14)], 14)).toBeNull();
   });
 
   it("ignores an inactive rate, so a retired classification cannot make the live one ambiguous", () => {
-    const found = findLineTaxRate([rate("V001", 0, "inactive"), rate("V003")], 0);
-    expect(found?.etaSubType).toBe("V003");
+    const found = findLineTaxRate([rate("V010", 14, "inactive"), rate("V009", 14)], 14);
+    expect(found?.etaSubType).toBe("V009");
+  });
+
+  it("infers nothing at 0%, even when exactly one active 0% rate exists or every 0% rate classifies the same way", () => {
+    expect(findLineTaxRate([rate("V003")], 0)).toBeNull();
+    expect(findLineTaxRate([rate("V003"), rate("V003")], 0)).toBeNull();
+    expect(findLineTaxRate([rate("V001", 0, "inactive"), rate("V003")], 0)).toBeNull();
+    expect(resolveEtaVatSubType(findLineTaxRate([rate("V003")], 0)?.etaSubType, 0)).toBe("V004");
   });
 
   it("returns null when nothing matches, rather than the nearest rate", () => {

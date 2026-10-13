@@ -596,3 +596,55 @@ describe("data-migration-routes — أرصدة العملاء/الموردين �
     expect(posted).toBe(0);
   });
 });
+
+describe("how much of the catalog an items import reads while it holds the connection", () => {
+  function counted<T extends object>(repo: T): { readonly repo: T; readonly lists: () => number; readonly rowsRead: () => number } {
+    let lists = 0;
+    let rowsRead = 0;
+    const tally = (answer: unknown): void => {
+      if (Array.isArray(answer)) rowsRead += answer.length;
+      else if (answer !== null && answer !== undefined) rowsRead += 1;
+    };
+    const wrapped = new Proxy(repo, {
+      get(target, property, receiver) {
+        const member: unknown = Reflect.get(target, property, receiver);
+        if (typeof member !== "function" || typeof property !== "string" || !/^(list|find)/.test(property)) return member;
+        return async (...args: unknown[]) => {
+          if (property === "list") lists += 1;
+          const answer: unknown = await (member as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+          tally(answer);
+          return answer;
+        };
+      },
+    });
+    return { repo: wrapped, lists: () => lists, rowsRead: () => rowsRead };
+  }
+
+  async function importOf(count: number) {
+    const base = await newApp();
+    const items = counted(base.items);
+    const app = createDataMigrationRoutes(
+      { ...base.deps, departments: base.departments, employees: base.employees, items: items.repo },
+      insecureHeaderAuthContextResolver,
+    );
+    const seeded = await app.fetch(req("/items/commit", Array.from({ length: 50 }, (_, i) => ({ code: `OLD-${i}`, nameAr: `قديم ${i}`, baseUnitCode: "PCS", type: "stock" }))));
+    expect(seeded.status).toBe(201);
+    const listsBefore = items.lists();
+    const readBefore = items.rowsRead();
+    const res = await app.fetch(req("/items/commit", Array.from({ length: count }, (_, i) => ({ code: `NEW-${i}`, nameAr: `صنف ${i}`, baseUnitCode: "PCS", type: "stock" }))));
+    expect(res.status).toBe(201);
+    expect((await base.items.list()).length).toBe(50 + count);
+    return { lists: items.lists() - listsBefore, rowsRead: items.rowsRead() - readBefore };
+  }
+
+  it("reads the catalog once whatever the file's size, and never once per row", async () => {
+    const small = await importOf(100);
+    const large = await importOf(400);
+
+    expect(small.lists).toBe(1);
+    expect(large.lists).toBe(1);
+    expect(small.rowsRead).toBeLessThanOrEqual(50 + 100);
+    expect(large.rowsRead).toBeLessThanOrEqual(50 + 400);
+    expect(large.rowsRead - small.rowsRead).toBeLessThanOrEqual(300);
+  });
+});

@@ -10,14 +10,23 @@ export interface RowMenuItemConfirm {
   confirmLabel?: string;
 }
 
+export enum RowActionOutcome {
+  /** The action did not happen and the screen has already said why. */
+  Refused = "refused",
+}
+
 export interface RowMenuItem {
   key: string;
   label: string;
   /**
    * May return a promise. When it does, the menu reports its outcome: the
    * success toast waits for the server rather than firing on the click.
+   *
+   * INVARIANT: a handler that catches its own failure must resolve to
+   * `RowActionOutcome.Refused`, and must be RETURNED here, not fired with
+   * `void` — otherwise the menu says «تم تنفيذ» beside the screen's refusal.
    */
-  onSelect: () => void | Promise<unknown>;
+  onSelect: () => void | RowActionOutcome | Promise<unknown>;
   /** `danger` for destructive entries — cancel, void, delete. */
   tone?: "default" | "danger";
   disabled?: boolean;
@@ -116,7 +125,7 @@ export function RowMenu({ items, label, align = "end", className }: RowMenuProps
 
   async function run(item: RowMenuItem) {
     try {
-      await item.onSelect();
+      if ((await item.onSelect()) === RowActionOutcome.Refused) return;
       toast?.show({ tone: "success", message: item.successMessage ?? t("ui.rowAction.done", { action: item.label }) });
     } catch (error) {
       // A failed destructive action must say so: the row simply not changing

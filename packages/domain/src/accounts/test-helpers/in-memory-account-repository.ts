@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import type { Account, AccountRepository } from "../account.js";
 
 /** A trivial in-memory {@link AccountRepository} fake for domain-layer unit tests. */
@@ -20,7 +21,7 @@ export class InMemoryAccountRepository implements AccountRepository {
   }
 
   async create(account: Account): Promise<void> {
-    this.rows.set(account.id, account);
+    insertOnly(this.rows, account.id, account);
   }
 
   async update(account: Account): Promise<void> {

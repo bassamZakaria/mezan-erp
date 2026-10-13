@@ -61,3 +61,16 @@ export class ReplacementAmountMismatchError extends Error {
     this.name = "ReplacementAmountMismatchError";
   }
 }
+
+export class ChequeBankRateMissingError extends Error {
+  readonly code = "FX_RATE_MISSING";
+  readonly messageEn: string;
+  constructor(
+    readonly currency: string,
+    readonly date: string,
+  ) {
+    super(`لا يوجد سعر صرف معتمد للعملة ${currency} بتاريخ ${date}؛ لا يمكن تحصيل الشيك على حساب بنكي بهذه العملة.`);
+    this.messageEn = `There is no approved exchange rate for ${currency} on ${date}; the cheque cannot clear through a bank account kept in that currency.`;
+    this.name = "ChequeBankRateMissingError";
+  }
+}

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { PLAIN_SALES_TAX_DEPS } from "./test-support.js";
 import { Money, Qty } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import { InMemoryAccountRepository } from "../accounts/test-helpers/in-memory-account-repository.js";
@@ -89,6 +90,7 @@ async function harness(opts: {
   const repo = opts.repo ?? new InMemorySalesInvoiceRepository();
   const numbering = new NextNumberService(new InMemorySequenceStore());
   const svc = new SalesInvoiceService({
+    ...PLAIN_SALES_TAX_DEPS,
     repo,
     numbering: { next: () => numbering.next("SALES_INVOICE") },
     gl: glHook,

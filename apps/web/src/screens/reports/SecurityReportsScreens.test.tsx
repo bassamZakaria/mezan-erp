@@ -67,6 +67,36 @@ describe("the four exception-report screens", () => {
     expect(screen.getByText("إعادة تعيين رمز مدير")).toBeInTheDocument();
   });
 
+  it("shows how many security events the audit log could not record, and the latest of them", async () => {
+    const transport = stubTransport({
+      "GET /security-reports/exceptions": () => ({
+        body: envelope([], {
+          unrecorded: {
+            count: 7,
+            recent: [{ at: "2026-09-03T08:00:00.000Z", module: "auth", action: "LOGIN_FAILED", severity: "WARNING", actor: "anonymous", entityId: null, reason: "database is locked" }],
+          },
+        }),
+      }),
+    });
+    renderWithProviders(<ExceptionsReportScreen />, { transport, initialSession: testAdminSession });
+
+    const block = await screen.findByRole("alert");
+    expect(block).toHaveTextContent("أحداث أمنية لم يتمكّن سجل التدقيق من تسجيلها");
+    expect(block).toHaveTextContent("7");
+    expect(block).toHaveTextContent("LOGIN_FAILED");
+    expect(block).toHaveTextContent("database is locked");
+  });
+
+  it("says no security event went unrecorded when the count is zero", async () => {
+    const transport = stubTransport({
+      "GET /security-reports/exceptions": () => ({ body: envelope([], { unrecorded: { count: 0, recent: [] } }) }),
+    });
+    renderWithProviders(<ExceptionsReportScreen />, { transport, initialSession: testAdminSession });
+
+    expect(await screen.findByText("لم يفُت سجلَّ التدقيق أيُّ حدث أمني")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("says out loud that the totals are a floor when the server truncated its scan", async () => {
     const transport = stubTransport({
       "GET /security-reports/exceptions": () => ({

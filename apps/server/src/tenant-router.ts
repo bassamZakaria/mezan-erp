@@ -1,26 +1,69 @@
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import path from "node:path";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
-import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
+import { createSourceThrottle, throttleSource, tooManyAttempts, type SourceThrottle } from "@mezan/api";
+import { createBackend, type BackendHandle, type CompanyAdminAccount, type PlatformHandle, type SignedInUser } from "@mezan/backend";
+import type { SessionGrant, SmtpConfig } from "@mezan/api";
 import type { SqliteOpenOptions } from "@mezan/persistence";
+import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
+import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
+import { tenantIsServed, TenantStatusCode, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
+import { callerSource, originEnv, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type CloudSource, type SourceReporter } from "./client-source.js";
+import {
+  createOwnerContact,
+  hashHandOverToken,
+  NoPendingOwnerError,
+  OwnerCandidateNotFoundError,
+  OwnerConfirmation,
+  PendingOwnerExpiredError,
+  PREVIOUS_OWNER_ACTOR,
+  type PendingHandOverMail,
+} from "./owner-contact.js";
+import { settleTenantDbFile, TenantDbFileError } from "./tenant-db-file.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
-import { resolveTenantCode, TENANT_HEADER } from "./tenant-resolver.js";
+import { requestHost, resolveTenantCode, tenantSlugOfHost, TENANT_HEADER } from "./tenant-resolver.js";
+import { asksForDeviceCookie, clearingCookie, secretIntoCookie, withDeviceSecretHeader } from "./device-cookie.js";
 
 export interface TenantRouterOptions {
   readonly platform: PlatformHandle;
   readonly dataDir: string;
   readonly tenantDomain?: string;
+  readonly unlockLinkFor?: (tenantCode: string) => ((token: string) => string) | undefined;
   readonly trustForwardedHost?: boolean;
+  readonly clientSource?: ClientSourceOptions;
+  readonly sourceReporter?: SourceReporter;
+  readonly securityMail?: SmtpConfig;
   readonly allowTenantHeader?: boolean;
   readonly idleMs?: number;
   readonly ttlMs?: number;
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
-  readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers) => Promise<BackendHandle>;
+  readonly dbFileWaitMs?: number;
+  readonly openBackend?: (
+    code: string,
+    dbPath: string,
+    resolvers: TenantResolvers,
+    hooks: TenantBackendHooks,
+    connection: SqliteOpenOptions,
+    mail: TenantMail,
+  ) => Promise<BackendHandle>;
+  readonly signInSources?: SourceThrottle;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
+  readonly mailPendingHandOver?: (mail: PendingHandOverMail) => Promise<void>;
+}
+
+export interface TenantBackendHooks {
+  readonly onUserEmailChanged: (change: UserEmailChange) => Promise<void>;
+  readonly onUserSignedIn: (user: SignedInUser) => Promise<void>;
+  readonly companyOwner: CompanyOwnerPort;
+  readonly claimedElsewhere: () => Promise<boolean>;
+}
+
+export interface TenantMail {
+  readonly unlockLink?: (token: string) => string;
 }
 
 function safeEqual(provided: string, secret: string): boolean {
@@ -45,38 +88,72 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
   };
 }
 
+const SIGN_IN = "/auth/login";
+const SIGN_OUT = "/auth/logout";
+
+function isHttps(request: Request, trustForwarded: boolean): boolean {
+  const forwarded = trustForwarded ? request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() : undefined;
+  return (forwarded ?? new URL(request.url).protocol.replace(":", "")) === "https";
+}
+const COUNTED_AS_FAILED: ReadonlySet<number> = new Set([401, 423]);
+const CROSS_TENANT_FREE_ATTEMPTS = 90;
+
+export interface TenantDoor {
+  fetch(request: Request, source: CloudSource): Promise<Response>;
+  findSession(token: string, source: CloudSource, deviceSecret: string | null): SessionGrant | null;
+}
+
+function doorTo(backend: BackendHandle): TenantDoor {
+  return {
+    fetch: async (request, source) => backend.app.fetch(request, originEnv(source)),
+    findSession: (token, source, deviceSecret) => backend.sessions.find(token, source, deviceSecret),
+  };
+}
+
+export interface OpenTenant {
+  readonly id: string;
+  readonly code: string;
+}
+
 export interface TenantRouter {
   readonly app: Hono;
+  // SECURITY: the backend as THIS PROCESS acts on it (provisioning, backups,
+  // seeding) — an in-process call with no address reads as the host's own
+  // console. A route answering a caller uses `callerDoor`, never this.
   backendFor(code: string): Promise<BackendHandle>;
+  callerDoor(code: string): Promise<TenantDoor>;
+  backendOf(tenantId: string): Promise<BackendHandle>;
+  reconcileOwner(code: string): Promise<void>;
+  reconcileOwnerOf(tenantId: string): Promise<void>;
+  reconcileOpenOwners(): Promise<void>;
+  ownerCandidates(tenantId: string): Promise<CompanyAdminAccount[]>;
+  assignOwner(input: { readonly tenantId: string; readonly userId: string; readonly actor: string }): Promise<Tenant>;
+  confirmPendingOwner(input: { readonly tenantId: string; readonly actor: string }): Promise<Tenant>;
+  declinePendingOwner(input: { readonly tenantId: string; readonly actor: string }): Promise<Tenant>;
+  resendPendingOwner(input: { readonly tenantId: string; readonly actor: string }): Promise<Tenant>;
+  // SECURITY: null for every link that confirms nothing, whatever the reason, so the caller answers them all alike.
+  confirmPendingOwnerByToken(token: string): Promise<Tenant | null>;
+  lockedAccountsOf(tenantId: string): Promise<readonly string[]>;
+  unlockAccountOf(input: { readonly tenantId: string; readonly account: string; readonly actor: string }): Promise<boolean>;
+  evict(tenantId: string): Promise<void>;
   invalidate(code: string): void;
+  // REQUIRED ORDERING: called only for a tenant whose registration has just
+  // been discarded. It closes the open backend BEFORE it removes the database
+  // and every file written beside it, so nothing is left writing to a file
+  // that is gone.
+  discardDatabase(tenant: Pick<Tenant, "id" | "dbFile">): Promise<void>;
   sweep(): Promise<void>;
   close(): Promise<void>;
-  /** Codes with a currently open (cached) tenant backend — an idle-evicted or never-opened tenant is absent. */
-  openTenants(): string[];
+  openTenants(): OpenTenant[];
 }
 
 export function tenantDbPath(dataDir: string, dbFile: string): string {
   return path.join(dataDir, dbFile);
 }
 
-/** Whether THIS request's host itself matched the tenant domain, vs. resolving via the header. */
-function hostMatchesTenantDomain(request: Request, options: TenantResolverOptionsForMode): boolean {
-  if (!options.tenantDomain) return false;
-  const raw = (options.trustForwardedHost ? request.headers.get("x-forwarded-host") : null) ?? request.headers.get("host");
-  if (!raw) return false;
-  const host = raw.split(",")[0]!.trim().toLowerCase().replace(/:\d+$/, "");
-  const domain = options.tenantDomain.toLowerCase();
-  if (!host.endsWith(`.${domain}`)) return false;
-  return !host.slice(0, -(domain.length + 1)).includes(".");
-}
-
-interface TenantResolverOptionsForMode {
-  readonly tenantDomain?: string;
-  readonly trustForwardedHost?: boolean;
-}
-
 /** This router's own catch-all pattern — kept as a constant so its length can be subtracted from `routePath`. */
 const REST_PATTERN = "/:rest{.*}";
+const DB_FILE_RETRY_AFTER_SECONDS = 5;
 
 export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   const resolvers = new Map<string, TenantResolvers>();
@@ -88,28 +165,95 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     }
     return r;
   };
-  const openBackend = options.openBackend ?? (async (_code, dbPath, r) => {
+  const ownerContact = createOwnerContact({
+    platform: options.platform,
+    now: options.now ?? (() => new Date()),
+    mailPendingHandOver: options.mailPendingHandOver,
+  });
+  const hooksFor = (tenantId: string, code: string): TenantBackendHooks => ({
+    onUserEmailChanged: (change) => ownerContact.emailChanged(tenantId, change),
+    onUserSignedIn: (user) => ownerContact.signedIn(tenantId, user),
+    companyOwner: {
+      currentOwnerUserId: async () => {
+        await reconcileOwnerOf(tenantId).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
+        return ownerContact.effectiveOwnerUserId(tenantId, await opened(tenantId));
+      },
+      handOver: (input) => ownerContact.handOver(tenantId, input),
+    },
+    claimedElsewhere: async () => {
+      const tenant = await options.platform.stores.tenants.findById(tenantId);
+      return !tenant || tenant.ownerUserId !== null || tenant.status !== TenantStatusCode.Provisioning;
+    },
+  });
+  const openBackend = options.openBackend ?? (async (_code, dbPath, r, hooks, connection, mail) => {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     return createBackend({
       dbPath,
-      connection: options.connection,
+      connection,
+      securityMail: options.securityMail,
+      unlockLink: mail.unlockLink,
+      platformOperatorUnlocks: true,
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
+      onUserEmailChanged: hooks.onUserEmailChanged,
+      onUserSignedIn: hooks.onUserSignedIn,
+      companyOwner: hooks.companyOwner,
+      claimedElsewhere: hooks.claimedElsewhere,
     });
   });
+  // SECURITY: open backends are keyed by tenant id, never by code. A code is
+  // reused once its tenant is released; keyed by code, the next company under
+  // that code could be handed the previous company's open database.
+  const openCodes = new Map<string, string>();
   const cache: BackendCache<BackendHandle> = createBackendCache({
     idleMs: options.idleMs,
     sweepEveryMs: options.sweepEveryMs,
     now: options.now ? () => options.now!().getTime() : undefined,
-    onEvict: (code) => { resolvers.delete(code); },
-    open: async (code) => {
-      const tenant = await options.platform.stores.tenants.findByCode(code);
-      if (!tenant) throw new Error("TENANT_NOT_FOUND");
-      return openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code));
+    onEvict: (tenantId) => {
+      const code = openCodes.get(tenantId);
+      openCodes.delete(tenantId);
+      if (code) resolvers.delete(code);
+    },
+    open: async (tenantId) => {
+      const stored = await options.platform.stores.tenants.findById(tenantId);
+      if (!stored) throw new Error("TENANT_NOT_FOUND");
+      const tenant = await settleTenantDbFile(options.platform.stores.tenants, options.dataDir, stored, { waitMs: options.dbFileWaitMs, outsideTheTurn: options.platform.outsideTheTurn });
+      const { code } = tenant;
+      const connection: SqliteOpenOptions = { ...options.connection, fileMustExist: tenant.status !== TenantStatusCode.Provisioning };
+      const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code) };
+      const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(tenantId, code), connection, mail);
+      openCodes.set(tenantId, code);
+      await ownerContact.reconcile(tenantId, backend).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled on open`, err));
+      return backend;
     },
   });
 
+  // REQUIRED: opening a tenant is file and tenant-database work. A console
+  // route reaches it holding the platform connection's turn, and hands it back here.
+  const opened = (tenantId: string): Promise<BackendHandle> => options.platform.outsideTheTurn(() => cache.get(tenantId));
+
+  async function reconcileOwnerOf(tenantId: string): Promise<void> {
+    const tenant = await options.platform.stores.tenants.findById(tenantId);
+    if (!tenant || tenant.status === TenantStatusCode.Archived) return;
+    await ownerContact.reconcile(tenant.id, await opened(tenant.id));
+  }
+
+  async function reconcileOwner(code: string): Promise<void> {
+    const tenant = await options.platform.stores.tenants.findByCode(code);
+    if (tenant) await reconcileOwnerOf(tenant.id);
+  }
+
+  async function liveTenant(tenantId: string): Promise<Tenant> {
+    const tenant = await options.platform.stores.tenants.findById(tenantId);
+    if (!tenant || tenant.status === TenantStatusCode.Archived) throw new Error("TENANT_NOT_FOUND");
+    return tenant;
+  }
+
+  const signInSources =
+    options.signInSources ?? createSourceThrottle(options.now ? () => options.now!().getTime() : undefined, CROSS_TENANT_FREE_ATTEMPTS);
+
   const app = new Hono();
+  app.use("*", requireCloudSource(options.clientSource ?? SOCKET_ONLY, options.sourceReporter));
   const resolverOptions = {
     tenantDomain: options.tenantDomain,
     trustForwardedHost: options.trustForwardedHost,
@@ -121,6 +265,11 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
     console.error(err);
+    if (err instanceof TenantDbFileError) {
+      if (!err.retryable) return c.json({ error: err.code, message: "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم." }, 503);
+      c.header("Retry-After", String(DB_FILE_RETRY_AFTER_SECONDS));
+      return c.json({ error: err.code, message: "بيانات المنشأة قيد النقل الآن. أعد المحاولة بعد لحظات." }, 503);
+    }
     return c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 
@@ -133,11 +282,11 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
    * it echoes back the code the person typed.
    */
   app.get("/platform/resolve", async (c) => {
-    const mode = hostMatchesTenantDomain(c.req.raw, resolverOptions) ? "subdomain" : "code";
+    const mode = tenantSlugOfHost(requestHost(c.req.raw, options.trustForwardedHost ?? false), options.tenantDomain) !== null ? TenantResolveMode.Subdomain : TenantResolveMode.Code;
     const code = resolveTenantCode(c.req.raw, resolverOptions);
     const tenant = code ? await options.platform.stores.tenants.findByCode(code) : null;
-    const exists = Boolean(tenant && (tenant.status === "active" || tenant.status === "suspended"));
-    return c.json({ mode, exists });
+    const body: PlatformResolveDTO = { mode, exists: tenantIsServed(tenant) };
+    return c.json(body);
   });
 
   /** `c.req.path`/`routePath` stay undecoded, unlike `c.req.param`, so an encoded segment (e.g. `%2F`) survives the forward. */
@@ -145,27 +294,110 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     const code = resolveTenantCode(c.req.raw, resolverOptions);
     if (!code) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
     const tenant = await options.platform.stores.tenants.findByCode(code);
-    if (!tenant || tenant.status === "archived" || tenant.status === "provisioning") {
+    if (!tenant || !tenantIsServed(tenant)) {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
-    const backend = await cache.get(code);
+    const door = doorTo(await opened(tenant.id));
     const prefixLen = c.req.routePath.length - REST_PATTERN.length;
     const subPath = c.req.path.slice(prefixLen) || "/";
     const targetUrl = new URL(`${subPath}${new URL(c.req.raw.url).search}`, c.req.raw.url);
-    return backend.app.fetch(new Request(targetUrl, c.req.raw));
+    const cookieSignIn = asksForDeviceCookie(c.req.raw);
+    const secure = isHttps(c.req.raw, options.trustForwardedHost === true);
+    const forwarded = withDeviceSecretHeader(new Request(targetUrl, c.req.raw));
+    const source = callerSource(c);
+    if (c.req.method === "POST" && subPath === SIGN_OUT) return clearingCookie(await door.fetch(forwarded, source), secure);
+    if (c.req.method !== "POST" || subPath !== SIGN_IN) return door.fetch(forwarded, source);
+
+    const counted = throttleSource(source) ?? source;
+    const wait = signInSources.retryAfter(counted);
+    if (wait > 0) {
+      c.header("retry-after", String(wait));
+      return c.json(tooManyAttempts(wait), 429);
+    }
+    const answer = await door.fetch(forwarded, source);
+    if (COUNTED_AS_FAILED.has(answer.status)) signInSources.fail(counted);
+    return cookieSignIn ? secretIntoCookie(answer, secure) : answer;
   });
+
+  async function openFor(code: string): Promise<BackendHandle> {
+    const tenant = await options.platform.stores.tenants.findByCode(code);
+    if (!tenant || tenant.status === TenantStatusCode.Archived) throw new Error("TENANT_NOT_FOUND");
+    return opened(tenant.id);
+  }
+
+  async function discardDatabase(tenant: Pick<Tenant, "id" | "dbFile">): Promise<void> {
+    await cache.evict(tenant.id);
+    const database = tenantDbPath(options.dataDir, tenant.dbFile);
+    const directory = path.dirname(database);
+    if (!existsSync(directory)) return;
+    const ownFiles = readdirSync(directory).filter((name) => name === path.basename(database) || name.startsWith(`${path.basename(database)}-`) || name.startsWith(`${path.basename(database)}.`));
+    for (const name of ownFiles) rmSync(path.join(directory, name), { force: true });
+  }
 
   return {
     app,
-    async backendFor(code) {
-      const tenant = await options.platform.stores.tenants.findByCode(code);
-      if (!tenant || tenant.status === "archived") throw new Error("TENANT_NOT_FOUND");
-      return cache.get(code);
+    discardDatabase,
+    backendFor: openFor,
+    callerDoor: async (code) => doorTo(await openFor(code)),
+    async backendOf(tenantId) {
+      return opened((await liveTenant(tenantId)).id);
     },
+    reconcileOwner,
+    reconcileOwnerOf,
+    async reconcileOpenOwners() {
+      await Promise.all(
+        [...openCodes].map(async ([tenantId, code]) => {
+          const open = cache.peek(tenantId);
+          if (!open) return;
+          await ownerContact
+            .reconcile(tenantId, await open)
+            .catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
+        }),
+      );
+    },
+    async ownerCandidates(tenantId) {
+      return (await opened((await liveTenant(tenantId)).id)).companyAdmins();
+    },
+    async assignOwner({ tenantId, userId, actor }) {
+      const tenant = await liveTenant(tenantId);
+      return ownerContact.assign(tenant.id, userId, actor, await opened(tenant.id));
+    },
+    async confirmPendingOwner({ tenantId, actor }) {
+      const tenant = await liveTenant(tenantId);
+      return ownerContact.confirmPending(tenant.id, actor, OwnerConfirmation.PlatformConsole, await opened(tenant.id));
+    },
+    async confirmPendingOwnerByToken(token) {
+      const tenant = await ownerContact.pendingByToken(token);
+      if (!tenant || tenant.status === TenantStatusCode.Archived) return null;
+      try {
+        return await ownerContact.confirmPending(tenant.id, PREVIOUS_OWNER_ACTOR, OwnerConfirmation.PreviousOwnerLink, await opened(tenant.id), { tokenHash: hashHandOverToken(token) });
+      } catch (err) {
+        if (err instanceof OwnerCandidateNotFoundError || err instanceof PendingOwnerExpiredError || err instanceof NoPendingOwnerError) return null;
+        throw err;
+      }
+    },
+    async declinePendingOwner({ tenantId, actor }) {
+      return ownerContact.declinePending((await liveTenant(tenantId)).id, actor);
+    },
+    async resendPendingOwner({ tenantId, actor }) {
+      return ownerContact.resendPending((await liveTenant(tenantId)).id, actor);
+    },
+    async lockedAccountsOf(tenantId) {
+      return (await opened((await liveTenant(tenantId)).id)).lockedAccounts();
+    },
+    async unlockAccountOf({ tenantId, account, actor }) {
+      const backend = await opened((await liveTenant(tenantId)).id);
+      return options.platform.outsideTheTurn(() => backend.unlockAccount(account, actor));
+    },
+    evict: (tenantId) => cache.evict(tenantId),
     invalidate(code) { resolvers.get(code)?.invalidate(); },
     sweep: () => cache.sweep(),
     close: () => cache.close(),
-    openTenants: () => cache.openCodes(),
+    openTenants: () =>
+      cache.openCodes().flatMap((id) => {
+        const code = openCodes.get(id);
+        return code === undefined ? [] : [{ id, code }];
+      }),
   };
 }
 

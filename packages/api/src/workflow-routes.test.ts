@@ -142,6 +142,7 @@ describe("approval request routes", () => {
       req("/requests", {
         method: "POST",
         userId: "alice",
+        permissions: "workflow.view",
         body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM", entityLabel: "فاتورة INV-001" }),
       }),
     );
@@ -168,7 +169,7 @@ describe("approval request routes", () => {
   it("submits and immediately grants when no config exists for the action type", async () => {
     const { app, req } = newApp();
     const res = await app.fetch(
-      req("/requests", { method: "POST", userId: "alice", body: JSON.stringify({ actionType: "PURCHASE_ORDER_CONFIRM" }) }),
+      req("/requests", { method: "POST", userId: "alice", permissions: "workflow.view", body: JSON.stringify({ actionType: "PURCHASE_ORDER_CONFIRM" }) }),
     );
     expect((await res.json() as { status: string }).status).toBe("approved");
   });
@@ -186,7 +187,7 @@ describe("approval request routes", () => {
       }),
     );
     const submitted = (await (
-      await app.fetch(req("/requests", { method: "POST", userId: "alice", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) }))
+      await app.fetch(req("/requests", { method: "POST", userId: "alice", permissions: "workflow.view", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) }))
     ).json()) as { id: string };
 
     const wrongRole = await app.fetch(
@@ -242,7 +243,7 @@ describe("approval request routes", () => {
     const submit = async () =>
       ((await (
         await app.fetch(
-          req("/requests", { method: "POST", userId: "alice", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) }),
+          req("/requests", { method: "POST", userId: "alice", permissions: "workflow.view", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) }),
         )
       ).json()) as { id: string }).id;
 
@@ -283,7 +284,7 @@ describe("approval request routes", () => {
       }),
     );
     const submitted = (await (
-      await app.fetch(req("/requests", { method: "POST", userId: "alice", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) }))
+      await app.fetch(req("/requests", { method: "POST", userId: "alice", permissions: "workflow.view", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) }))
     ).json()) as { id: string };
 
     const denied = await app.fetch(
@@ -331,5 +332,29 @@ describe("approval request routes", () => {
       req("/requests", { method: "POST", userId: "admin", permissions: "*", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) }),
     );
     expect((await res.json() as { status: string }).status).toBe("approved");
+  });
+
+  it("refuses a submission from a caller with no session, or without the inbox permission, and stores nothing", async () => {
+    const { app, req, requests } = newApp();
+    const body = JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" });
+    expect((await app.fetch(req("/requests", { method: "POST", body }))).status).toBe(401);
+    expect((await app.fetch(req("/requests", { method: "POST", userId: "alice", permissions: "sales.invoice.confirm", body }))).status).toBe(403);
+    expect(await requests.list()).toHaveLength(0);
+  });
+
+  it("refuses a submission that names its own request id and leaves a standing request as it was", async () => {
+    const { app, req, requests } = newApp();
+    const first = await app.fetch(req("/requests", { method: "POST", userId: "alice", permissions: "workflow.view", body: JSON.stringify({ actionType: "SALES_INVOICE_CONFIRM" }) }));
+    const { id } = (await first.json()) as { id: string };
+    const before = await requests.findById(id);
+    for (const key of ["requestId", "id"]) {
+      const res = await app.fetch(
+        req("/requests", { method: "POST", userId: "mallory", permissions: "workflow.view", body: JSON.stringify({ actionType: "TREASURY_VOUCHER_CONFIRM", [key]: id }) }),
+      );
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { message: string }).message).toMatch(/[\u0600-\u06ff]/);
+    }
+    expect(await requests.findById(id)).toEqual(before);
+    expect(await requests.list()).toHaveLength(1);
   });
 });

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   DEFAULT_ETA_CONFIG,
   ETA_DEFAULT_ENDPOINTS,
@@ -71,9 +72,11 @@ CREATE TABLE IF NOT EXISTS eta_submission (
   receipt_serial   TEXT,
   receipt_seq      INTEGER,
   prevalidation    TEXT,
-  rejection_codes  TEXT
+  rejection_codes  TEXT,
+  transmit_started_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_eta_submission_status ON eta_submission(status);
+CREATE INDEX IF NOT EXISTS idx_eta_submission_uuid ON eta_submission(eta_uuid);
 CREATE TABLE IF NOT EXISTS eta_branch_code (
   branch_id      TEXT PRIMARY KEY,
   eta_branch_code TEXT NOT NULL,
@@ -270,6 +273,7 @@ interface SubmissionRow {
   receipt_seq: number | null;
   prevalidation: string | null;
   rejection_codes: string | null;
+  transmit_started_at: string | null;
 }
 
 function toSubmission(row: SubmissionRow): EtaSubmission {
@@ -292,24 +296,27 @@ function toSubmission(row: SubmissionRow): EtaSubmission {
     receiptSeq: row.receipt_seq ?? null,
     prevalidation: row.prevalidation ? (JSON.parse(row.prevalidation) as EtaPrevalidationFinding[]) : [],
     rejectionCodes: row.rejection_codes ? (JSON.parse(row.rejection_codes) as (string | null)[]) : [],
+    transmitStartedAt: row.transmit_started_at ?? null,
   };
 }
 
 class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByInternal: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByStatus: Database.Statement;
+  private readonly selectReceiptStatusByUuid: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
       INSERT INTO eta_submission
         (id, internal_id, document_type, status, eta_uuid, payload, errors, exclusion_reason, created_at, updated_at, submitted_at,
-         gateway_submission_id, signature, transmit_log, receipt_serial, receipt_seq, prevalidation, rejection_codes)
+         gateway_submission_id, signature, transmit_log, receipt_serial, receipt_seq, prevalidation, rejection_codes, transmit_started_at)
       VALUES
         (@id, @internal_id, @document_type, @status, @eta_uuid, @payload, @errors, @exclusion_reason, @created_at, @updated_at, @submitted_at,
-         @gateway_submission_id, @signature, @transmit_log, @receipt_serial, @receipt_seq, @prevalidation, @rejection_codes)
+         @gateway_submission_id, @signature, @transmit_log, @receipt_serial, @receipt_seq, @prevalidation, @rejection_codes, @transmit_started_at)
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
         eta_uuid = excluded.eta_uuid,
@@ -322,12 +329,15 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
         signature = excluded.signature,
         transmit_log = excluded.transmit_log,
         prevalidation = excluded.prevalidation,
-        rejection_codes = excluded.rejection_codes
+        rejection_codes = excluded.rejection_codes,
+        transmit_started_at = excluded.transmit_started_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM eta_submission WHERE id = ?`);
     this.selectByInternal = sqlite.prepare(`SELECT * FROM eta_submission WHERE internal_id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM eta_submission ORDER BY created_at DESC`);
     this.selectByStatus = sqlite.prepare(`SELECT * FROM eta_submission WHERE status = ? ORDER BY created_at DESC`);
+    this.selectReceiptStatusByUuid = sqlite.prepare(`SELECT status FROM eta_submission WHERE eta_uuid = ? AND document_type = 'receipt'`);
   }
 
   async findById(id: string): Promise<EtaSubmission | null> {
@@ -345,8 +355,13 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
     return rows.map(toSubmission);
   }
 
+  async statusByEtaUuid(etaUuid: string): Promise<EtaSubmissionStatus | null> {
+    const row = this.selectReceiptStatusByUuid.get(etaUuid) as { status: EtaSubmissionStatus } | undefined;
+    return row?.status ?? null;
+  }
+
   async create(submission: EtaSubmission): Promise<void> {
-    this.write(submission);
+    insertingNew(submission.id, () => this.write(submission, this.insertOnly));
   }
 
   async update(submission: EtaSubmission): Promise<void> {
@@ -354,8 +369,8 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   }
 
   /** Exposed for the chain's transaction; everything else goes through `create`/`update`. */
-  write(s: EtaSubmission): void {
-    this.upsert.run({
+  write(s: EtaSubmission, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: s.id,
       internal_id: s.internalId,
       document_type: s.documentType,
@@ -374,6 +389,7 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
       receipt_seq: s.receiptSeq ?? null,
       prevalidation: JSON.stringify(s.prevalidation ?? []),
       rejection_codes: JSON.stringify(s.rejectionCodes ?? []),
+      transmit_started_at: s.transmitStartedAt ?? null,
     });
   }
 }
@@ -665,6 +681,7 @@ function migrateEtaTables(sqlite: Database.Database): void {
   addColumnIfMissing(sqlite, "eta_submission", "receipt_seq", "receipt_seq INTEGER");
   addColumnIfMissing(sqlite, "eta_submission", "prevalidation", "prevalidation TEXT");
   addColumnIfMissing(sqlite, "eta_submission", "rejection_codes", "rejection_codes TEXT");
+  addColumnIfMissing(sqlite, "eta_submission", "transmit_started_at", "transmit_started_at TEXT");
 }
 
 /**

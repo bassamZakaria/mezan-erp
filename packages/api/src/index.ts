@@ -18,6 +18,7 @@ export { createAccountsRouter } from "./accounts.js";
 export {
   createAuthenticatedGate,
   createPermissionGate,
+  displacedSessionRefusal,
   insecureHeaderAuthContextResolver,
   getAuthContext,
   type AuthContextResolver,
@@ -26,13 +27,13 @@ export { atomically, type ConfigTransactor } from "./config-transactor.js";
 export { MasterDataKind, refuseUnknownMasterData, unknownMasterIds, type MasterDataChecks, type MasterDataRef, type MasterRecordCheck } from "./master-data-check.js";
 export { createSettingsRoutes } from "./settings-routes.js";
 export { createBranchesRoutes } from "./branches-routes.js";
-export { createWarehousesRoutes } from "./warehouses-routes.js";
+export { createWarehousesRoutes, WarehouseRefusalCode, type WarehouseUse } from "./warehouses-routes.js";
 export { createCustomersRouter } from "./customers-routes.js";
 export { createSuppliersRouter } from "./suppliers-routes.js";
 export { createItemsRouter } from "./items-routes.js";
 export { createLabelLayoutsRouter } from "./label-routes.js";
 export { createRolesRoutes } from "./roles-routes.js";
-export { createUsersRoutes } from "./users-routes.js";
+export { createUsersRoutes, OwnerHandOverOutcome, COMPANY_OWNER_HAND_OVER_AUDIT, type CompanyOwnerPort, type UserEmailChange } from "./users-routes.js";
 export {
   createUserErasurePort,
   EMPTY_ERASURE_COUNTS,
@@ -52,6 +53,8 @@ export {
   type VoucherRoutesDeps,
 } from "./vouchers-routes.js";
 export { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
+export { buildSalesInvoiceService, salesTaxRerating, type SalesInvoiceServiceWiring, type SalesItemTaxSource } from "./sales-invoice-service.js";
+export { customerTaxProfileFrom } from "./customer-tax-profile.js";
 export { createDocumentsRoutes } from "./documents-routes.js";
 export { createPurchasesRoutes, type PurchasesRoutesDeps } from "./purchases-routes.js";
 export { createManufacturingRoutes, type ManufacturingRoutesDeps } from "./manufacturing-routes.js";
@@ -72,27 +75,81 @@ export { createNotificationsRoutes } from "./notifications-routes.js";
 export { createItemUnitsRoutes, createItemCategoriesRoutes } from "./item-catalog-routes.js";
 export { createItemSpecificationsRoutes, type ItemSpecificationsRoutesDeps } from "./item-specifications-routes.js";
 export { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
-export { createAttachmentsRoutes, type AttachmentsRoutesDeps } from "./attachments-routes.js";
+export { ATTACHMENT_ENTITY_OWNERS, AttachmentOwner, createAttachmentsRoutes, type AttachmentsRoutesDeps } from "./attachments-routes.js";
 export {
   createSessionRegistry,
   createSessionAuthContextResolver,
   readSessionToken,
   sessionOriginReporting,
   canonicalOrigin,
+  stepUpGate,
+  STEP_UP_REQUIRED,
+  DEVICE_SECRET_HEADER,
+  DEVICE_BINDING_HEADER,
+  DEVICE_MISMATCH_LIMIT,
+  DEVICE_MISMATCH_WINDOW_MS,
+  MAX_SESSION_MS,
+  SessionRefusalKind,
+  type DeviceBoundSession,
   type SessionGrant,
   type SessionRegistry,
   type SessionLookup,
   type SessionRefusal,
-  type SessionRefusalReason,
 } from "./session-auth.js";
-export { createLoginThrottle, throttleKey, type LoginThrottle } from "./login-throttle.js";
+export {
+  createLoginThrottle,
+  createSourceThrottle,
+  throttleKey,
+  throttleSource,
+  tooManyAttempts,
+  accountLocked,
+  signInBusy,
+  waitPhrase,
+  SignInRefusal,
+  type LoginThrottle,
+  type SourceThrottle,
+} from "./login-throttle.js";
+export {
+  ACCOUNT_LOCK_FAILURES,
+  ACCOUNT_LOCK_WINDOW_MS,
+  UNLOCK_CODE_TTL_MS,
+  SignInVerdict,
+  createAccountLocks,
+  createMemoryAccountLockStore,
+  createSignInGuard,
+  type AccountLockRecord,
+  type AccountLockStore,
+  type AccountLocks,
+  type SignInDecision,
+  type SignInGuard,
+} from "./sign-in-guard.js";
+export { createSignInGate, type SignInGate, type SignInGateOptions } from "./sign-in-gate.js";
 export { requestOrigin } from "./request-origin.js";
+export {
+  BODY_REFERENCE_KEYS,
+  BRANCH_POLICY_TABLE,
+  BRANCH_REFUSALS,
+  BranchAccess,
+  BranchPolicy,
+  BranchRecordKind,
+  BranchRefusalCode,
+  ScopedReads,
+  branchPolicyEnforcement,
+  branchPolicyFor,
+  undeclaredPolicyOf,
+  type BranchDirectory,
+  type BranchPolicyEntry,
+  type BranchRefusalBody,
+} from "./branch-policy.js";
+export { branchLineViewOf, canSeeUnattributed, entriesInView, isWholeLedgerView, lineInView, type BranchLineView } from "./branch-view.js";
 export { permissionRefusalReporting, type PermissionRefusal, type PermissionRefusalReporter } from "./permission-gate.js";
 export {
   createSecurityReportsRoutes,
   type SecurityReportsRoutesDeps,
 } from "./security-reports-routes.js";
 export { sendNotificationEmail, type SmtpConfig } from "./smtp-client.js";
+export { createPrecomputingHasher, type PrecomputingHasher, type SecretsToPrecompute } from "./precomputed-secrets.js";
+export { drainTurnYields, reportTurnYield } from "./turn-yields.js";
 export {
   createSimplifiedRegimeRoutes,
   type SimplifiedRegimeRoutesDeps,
@@ -100,3 +157,8 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { AUDITED_MOUNTS, MutatingMethod, connectionTurn, type AuditedMount, type BoundaryPreparation, type ConnectionTurnOptions } from "./audit-boundary.js";
+export { BodyLimitBytes, BodyLimitRefusal, bodyLimitFor, requestBodyLimit } from "./body-limit.js";
+export { IDEMPOTENT_CREATES, IDEMPOTENT_REPLAY_HEADER, IdempotencyRefusal, idempotentCreate, type IdempotentRequests } from "./idempotent-create.js";
+
+export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, reversalRoute, type DocumentReversalPath } from "./document-reversal-paths.js";

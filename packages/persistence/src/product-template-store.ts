@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Money,
   type CostingMethod,
@@ -87,6 +88,7 @@ function toProductTemplate(row: ProductTemplateRow): ProductTemplate {
 
 class SqliteProductTemplateRepository implements ProductTemplateRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -109,6 +111,7 @@ class SqliteProductTemplateRepository implements ProductTemplateRepository {
         attributes = excluded.attributes,
         status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM product_template WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM product_template WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM product_template`);
@@ -129,15 +132,15 @@ class SqliteProductTemplateRepository implements ProductTemplateRepository {
   }
 
   async create(template: ProductTemplate): Promise<void> {
-    this.write(template);
+    insertingNew(template.id, () => this.write(template, this.insertOnly));
   }
 
   async update(template: ProductTemplate): Promise<void> {
     this.write(template);
   }
 
-  private write(template: ProductTemplate): void {
-    this.upsert.run({
+  private write(template: ProductTemplate, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: template.id,
       code: template.code,
       name_ar: template.nameAr,

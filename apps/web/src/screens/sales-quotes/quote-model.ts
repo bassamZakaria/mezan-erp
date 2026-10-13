@@ -1,9 +1,11 @@
 import { Money, Qty, computeQuoteTotals, type SalesQuoteDiscount, type SalesQuoteLine, type SalesQuoteTotals } from "@mezan/domain";
-import type { ItemDTO } from "@mezan/contracts";
+import type { ItemDTO, TaxRateDTO } from "@mezan/contracts";
+import { DERIVED_TAX, appliedTaxPercent, chosenTaxRateId, type TaxChoice } from "../tax-rate-field";
 import type { SalesQuoteRecord } from "../../data/hooks";
 import type { AppTranslationKey } from "../../i18n";
 import type { PillTone } from "@mezan/ui";
 import { todayIso } from "../../lib/dates";
+import { finiteOrZero } from "../../lib/money";
 
 export type QuoteStatus = SalesQuoteRecord["status"];
 /** The list's own status axis: the stored statuses plus the derived منتهي (expired). */
@@ -58,19 +60,22 @@ export interface LineDraft {
   /** null until an item is chosen — then the item's sale price, editable. */
   unitPrice: number | null;
   discountPercent: number;
-  /** Defaults to the item's own rate; editable per line, as on the reference. */
-  taxRatePercent: number | null;
+  tax: TaxChoice;
   expanded: boolean;
 }
 
 let lineSeq = 0;
 export function blankLine(): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: "", qty: 1, unitPrice: null, discountPercent: 0, taxRatePercent: null, expanded: false };
+  return { key: `l${lineSeq}`, itemId: "", qty: 1, unitPrice: null, discountPercent: 0, tax: DERIVED_TAX, expanded: false };
 }
 
 /** The draft lines that carry a real item, as domain lines the totals engine can price. */
-export function toDomainLines(lines: readonly LineDraft[], items: readonly ItemDTO[]): SalesQuoteLine[] {
+export function toDomainLines(
+  lines: readonly LineDraft[],
+  items: readonly ItemDTO[],
+  taxRates: readonly TaxRateDTO[],
+): SalesQuoteLine[] {
   const out: SalesQuoteLine[] = [];
   for (const l of lines) {
     const item = items.find((i) => i.id === l.itemId);
@@ -80,9 +85,10 @@ export function toDomainLines(lines: readonly LineDraft[], items: readonly ItemD
       itemId: item.id,
       itemNameAr: item.nameAr,
       qty: Qty.fromMajor(String(l.qty || 0)),
-      unitPrice: Money.fromMajor(String(l.unitPrice ?? item.salePrice ?? 0)),
+      unitPrice: Money.fromMajor(l.unitPrice === null ? String(item.salePrice ?? 0) : String(finiteOrZero(l.unitPrice))),
       discountPercent: l.discountPercent || 0,
-      taxRatePercent: l.taxRatePercent ?? item.taxRatePercent,
+      taxRatePercent: appliedTaxPercent(l.tax, taxRates, item.taxRatePercent),
+      taxRateId: chosenTaxRateId(l.tax, taxRates, item.taxRatePercent),
     });
   }
   return out;

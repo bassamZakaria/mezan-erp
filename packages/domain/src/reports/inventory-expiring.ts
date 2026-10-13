@@ -6,6 +6,7 @@ import { layerRemainingValue } from "../inventory/cost-layer.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * أصناف قاربت على الانتهاء — Expiring Soon / FEFO (docs/archive/catalog/08-reports.md):
@@ -90,7 +91,7 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
     defaultParams: { window: "", search: "", warehouseId: "", branchId: "" },
     paramFields: [
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "window",
         label: "فترة الاستحقاق",
         options: [
@@ -101,8 +102,8 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
           { value: "within90", label: WINDOW_LABELS.within90 },
         ],
       },
-      { kind: "text", key: "search", label: "بحث", placeholder: "اسم الصنف أو رقم الدفعة" },
-      { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      { kind: ReportParamKind.Text, key: "search", label: "بحث", placeholder: "اسم الصنف أو رقم الدفعة" },
+      { kind: ReportParamKind.Text, key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.key,

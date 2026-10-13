@@ -2,16 +2,21 @@ import type { Context } from "hono";
 import {
   auditBranchFromScope,
   auditFieldValue,
+  createAuditEvent,
   diffAuditFields,
   recordSecurityEvent,
+  recordSecurityEventOrFallback,
   recordSensitiveEvent,
   type AuditChangeAction,
+  type AuditEvent,
+  type AuditEventInput,
   type AuditFieldChange,
   type AuditSeverity,
   type AuditSink,
 } from "@mezan/domain";
 import { getAuthContext } from "./permission-gate.js";
 import { requestOrigin } from "./request-origin.js";
+import { assertAuditIsTransactional, markAuditFailure } from "./audit-boundary.js";
 
 /**
  * The forensic trail for administrative acts.
@@ -22,8 +27,10 @@ import { requestOrigin } from "./request-origin.js";
  * the changes that decide who may do what left no record, and the change that
  * decides how much one customer may owe left a detailed one.
  *
- * Recording is best-effort by design: an audit sink that is unavailable must
- * not turn a legitimate admin action into a 500. What it must never do is
+ * Recording is NOT best-effort: an act that cannot be recorded does not
+ * happen. Under `auditBoundary` (audit-boundary.ts) the handler's writes and
+ * this append share one transaction, so a sink that refuses the event rolls
+ * the change back and the request answers 503. What it must never do is
  * silently succeed while writing nothing, which is why the sink is a required
  * argument rather than an optional field with a default.
  */
@@ -36,14 +43,13 @@ export interface AdminAuditEntry {
   readonly details?: Readonly<Record<string, unknown>> | null;
 }
 
-export async function recordAdminEvent(
-  audit: AuditSink | undefined,
-  c: Context,
-  entry: AdminAuditEntry,
-): Promise<void> {
-  if (!audit) return;
+export function buildAdminEvent(c: Context, entry: AdminAuditEntry): AuditEvent {
+  return createAuditEvent({ ...adminEventInput(c, entry), stream: "sensitive" });
+}
+
+function adminEventInput(c: Context, entry: AdminAuditEntry): Omit<AuditEventInput, "stream"> {
   const ctx = getAuthContext(c);
-  await recordSensitiveEvent(audit, {
+  return {
     module: entry.module,
     entityType: entry.entityType,
     entityId: entry.entityId,
@@ -63,7 +69,26 @@ export async function recordAdminEvent(
     branchId: ctx ? auditBranchFromScope(ctx.branchScope) : null,
     severity: entry.severity ?? "WARNING",
     details: withOrigin(c, entry.details),
-  });
+  };
+}
+
+async function failingTheRequest(c: Context, append: Promise<void>): Promise<void> {
+  try {
+    await append;
+  } catch (err) {
+    markAuditFailure(c, err);
+    throw err;
+  }
+}
+
+export async function recordAdminEvent(
+  audit: AuditSink | undefined,
+  c: Context,
+  entry: AdminAuditEntry,
+): Promise<void> {
+  if (!audit) return;
+  assertAuditIsTransactional(audit, c);
+  await failingTheRequest(c, recordSensitiveEvent(audit, adminEventInput(c, entry)));
 }
 
 /**
@@ -104,7 +129,28 @@ export async function recordSecurityAdminEvent(
   entry: AdminAuditEntry,
 ): Promise<void> {
   if (!audit) return;
-  await recordSecurityEvent(audit, {
+  assertAuditIsTransactional(audit, c);
+  await failingTheRequest(c, recordSecurityEvent(audit, {
+    module: entry.module,
+    entityType: entry.entityType,
+    entityId: entry.entityId,
+    action: entry.action,
+    actor: getAuthContext(c)?.userId ?? "anonymous",
+    severity: entry.severity ?? "CRITICAL",
+    details: withOrigin(c, entry.details),
+  }));
+}
+
+// For a change that has ALREADY committed (work queued with afterAuditCommit):
+// there is nothing left to roll back, so a refused row goes to the
+// unrecorded-events file rather than failing a request whose work is done.
+export async function recordSecurityAdminEventOrFallback(
+  audit: AuditSink | undefined,
+  c: Context,
+  entry: AdminAuditEntry,
+): Promise<void> {
+  if (!audit) return;
+  await recordSecurityEventOrFallback(audit, {
     module: entry.module,
     entityType: entry.entityType,
     entityId: entry.entityId,

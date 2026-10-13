@@ -119,5 +119,6 @@ export interface RevenueRecognitionRunRepository {
   findByDocNo(docNo: string): Promise<RevenueRecognitionRun | null>;
   list(filter?: RecognitionRunFilter): Promise<RevenueRecognitionRun[]>;
   save(run: RevenueRecognitionRun): Promise<void>;
+  insert(run: RevenueRecognitionRun): Promise<void>;
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }

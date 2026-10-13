@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /** The warehouse types (docs/archive/catalog/09 §"إدارة المستودعات" + SITE for المقاولات). Duplicated here
  *  (rather than imported from @mezan/domain) because @mezan/contracts has no
@@ -23,7 +24,7 @@ export const warehouseSchema = z.object({
 
 /** POST /warehouses body. */
 export const createWarehouseSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().regex(/^[A-Z0-9_-]{1,20}$/),
   name: z.string().min(1),
   nameEn: z.string().nullable().optional(),
@@ -40,5 +41,9 @@ export const updateWarehouseSchema = warehouseSchema.omit({ id: true }).partial(
 
 export type WarehouseTypeDTO = z.infer<typeof warehouseTypeSchema>;
 export type WarehouseDTO = z.infer<typeof warehouseSchema>;
+
+/** GET /warehouses/lookup — what a warehouse picker needs, for the warehouses the session was granted. */
+export const warehouseLookupSchema = warehouseSchema;
+export type WarehouseLookupDTO = z.infer<typeof warehouseLookupSchema>;
 export type CreateWarehouseDTO = z.infer<typeof createWarehouseSchema>;
 export type UpdateWarehouseDTO = z.infer<typeof updateWarehouseSchema>;

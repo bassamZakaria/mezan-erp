@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import type { TaxRate, TaxRateRepository } from "../tax-rate.js";
 
 /** A trivial in-memory {@link TaxRateRepository} fake for domain-layer unit tests. */
@@ -20,7 +21,11 @@ export class InMemoryTaxRateRepository implements TaxRateRepository {
   }
 
   async create(taxRate: TaxRate): Promise<void> {
-    this.rows.set(taxRate.id, taxRate);
+    insertOnly(this.rows, taxRate.id, taxRate);
+  }
+
+  async transaction<T>(fn: () => Promise<T>): Promise<T> {
+    return fn();
   }
 
   async update(taxRate: TaxRate): Promise<void> {

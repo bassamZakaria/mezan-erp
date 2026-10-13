@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { importRowLimit } from "./import-limit.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -77,7 +78,7 @@ const MIGRATION_AUDIT_DETAILS = { source: "data-migration" } as const;
 export interface DataMigrationTransactor {
   run<T>(fn: () => Promise<T>): Promise<T>;
 }
-import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { callerUserId, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * نقل البيانات (Data Migration wizard) — docs/archive/catalog/09 §"نقل البيانات":
@@ -289,6 +290,8 @@ export function createDataMigrationRoutes(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 
+  app.use("*", importRowLimit());
+
   function readBody(c: Context) {
     return c.req.json() as Promise<{ rows?: unknown }>;
   }
@@ -437,7 +440,7 @@ export function createDataMigrationRoutes(
         };
       },
       async (item) => {
-        const account = await createTreasuryAccount(item, deps.treasuryAccounts);
+        const account = await createTreasuryAccount(item, deps.treasuryAccounts, deps.accounts ? { accounts: deps.accounts } : undefined);
         await recordFieldChanges(audit, c, {
           entity: { module: "treasury", entityType: "TREASURY_ACCOUNT", entityId: account.id },
           action: AuditChangeAction.Create,
@@ -1186,7 +1189,7 @@ export function createDataMigrationRoutes(
             unitCost: l.unitCost,
           })),
         });
-        const { document } = await openingBalanceAdjustments!.confirm(draft.id);
+        const { document } = await openingBalanceAdjustments!.confirm(draft.id, { actor: callerUserId(c) });
         return c.json({ validCount: resolved.lines.length, total, errors: [], createdIds: [document.id] }, 201);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

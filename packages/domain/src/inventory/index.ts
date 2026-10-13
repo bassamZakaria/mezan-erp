@@ -20,6 +20,7 @@ export {
   signedQty,
   occurredAtFromDocumentDate,
   signedValue,
+  movementValue,
   type StockMovement,
   type StockMovementDirection,
   type StockSourceDocType,
@@ -32,6 +33,7 @@ export {
 } from "./cost-layer.js";
 
 export { extend, unitCostOf } from "./wac-math.js";
+export { StockChangeKind, changeStockPosition, type StockChange, type StockChangeResult, type StockHolding } from "./position-change.js";
 
 export {
   emptyPosition,
@@ -45,6 +47,8 @@ export {
 export {
   ExpiredStockError,
   NegativeStockError,
+  StockAdjustmentNotFoundError,
+  StockAdjustmentAlreadyReversedError,
   UncostedDeficitIssueError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
@@ -75,8 +79,11 @@ export type {
   InventoryGlPostingPort,
 } from "./ports.js";
 
+export { STOCK_ADJUSTMENT_MIRROR_ENTRY_SUFFIX, stockLedgerDateMismatches, type DatedJournalEntry, type DatedStockMovement, type StockLedgerDateMismatch } from "./stock-ledger-dates.js";
+
 export {
   StockLedgerService,
+  latestStandingRevaluation,
   type StockLedgerServiceDeps,
   type StockLedgerPolicy,
   type StockLedgerPolicySource,
@@ -88,6 +95,7 @@ export {
   type PostTransferResult,
   type ReceiptLine,
   type PostReceiptCommand,
+  type PostReceiptResult,
   type IssueLine,
   type PostIssueCommand,
   type IssueLineCost,
@@ -95,6 +103,7 @@ export {
   type PostIssueResult,
   type ReverseReceiptPosition,
   type ReverseReceiptCommand,
+  type ReverseReceiptResult,
   type DocumentStockPlanResult,
 } from "./stock-ledger-service.js";
 
@@ -118,6 +127,7 @@ export {
   type AdjustmentGlAccounts,
   createInventoryOpsStockHook,
   createInventoryGlPostingHook,
+  stockPlanOccurredAt,
 } from "./document-hooks.js";
 
 export {
@@ -138,7 +148,6 @@ export {
   type PhysicalCountNumberingHook,
   type StockBalanceReader,
   PhysicalCountNotFoundError,
-  DuplicatePhysicalCountError,
   InvalidPhysicalCountError,
   InvalidPhysicalCountStatusError,
   type PhysicalCountServiceDeps,
@@ -194,6 +203,7 @@ export {
 export {
   WritedownRunNotFoundError,
   WritedownRunNotDraftError,
+  WritedownRunNotPostedError,
   DuplicateWritedownPeriodError,
   NoSlowMovingStockError,
 } from "./errors.js";
@@ -201,6 +211,7 @@ export {
 export { createWritedownRun, type CreateWritedownRunCommand, type CreateWritedownRunDeps } from "./create-writedown-run.js";
 
 export { postWritedownRun, type PostWritedownRunDeps } from "./post-writedown-run.js";
+export { reverseWritedownRun, type ReverseWritedownRunDeps, type ReverseWritedownRunOptions } from "./reverse-writedown-run.js";
 
 // --- inv/labels-templates-writedown — product templates (attribute CRUD + variant/SKU generator) ---
 
@@ -276,3 +287,4 @@ export {
   type StockReservations,
   type StockReservationSource,
 } from "./reservations.js";
+export { StockPositionFault, stockPositionFaults, type StockPositionFaultRow } from "./stock-position-faults.js";

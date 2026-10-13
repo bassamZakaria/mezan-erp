@@ -1,3 +1,7 @@
+import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
+import { useCallback, useSyncExternalStore } from "react";
+import { loadTenantCode, subscribeTenantCode } from "./session";
+import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AuditEventDTO,
@@ -8,6 +12,7 @@ import type {
   SubmitApprovalRequestDTO,
   DecideApprovalRequestDTO,
   AccountDTO,
+  DisposalProceedsAccountDTO,
   ActivityDTO,
   AddAttributeValueDTO,
   AddTemplateAttributeDTO,
@@ -29,6 +34,7 @@ import type {
   UpdateItemUnitDTO,
   BounceChequeDTO,
   BranchDTO,
+  BranchLookupDTO,
   EntitlementsDTO,
   ChequeDirectionDTO,
   ChequeDTO,
@@ -193,7 +199,6 @@ import type {
   RecordVanCashMovementDTO,
   ReplaceChequeDTO,
   ReverseGlJournalEntryDTO,
-  ReverseVoucherDTO,
   RfqQuoteDTO,
   RoleDTO,
   SalesInvoiceDiscountDTO,
@@ -215,6 +220,13 @@ import type {
   UpsertTaxGroupDTO,
   UpdateAccountRoutingDTO,
   SalesReturnDocumentDTO,
+  ReturnSourceLinesDTO,
+  ClassifyLineTaxDTO,
+  NameJournalLineTaxDTO,
+  EditSalesInvoiceDraftLineDTO,
+  VoidSalesInvoiceDTO,
+  LineTaxClassificationDTO,
+  EtaReceiptRetryDTO,
   SessionDTO,
   SettleVanTripDTO,
   StartPhysicalCountDTO,
@@ -226,6 +238,7 @@ import type {
   SupplierDTO,
   TaxRateDTO,
   TenantSettingsDTO,
+  TenantSettingsLookupDTO,
   UserPreferencesDTO,
   TransitionLeadDTO,
   TreasuryAccountDTO,
@@ -254,6 +267,7 @@ import type {
   VoucherDTO,
   VoucherListQueryDTO,
   WarehouseDTO,
+  WarehouseLookupDTO,
   PrintTemplateConfigDTO,
   DepartmentDTO,
   CreateDepartmentDTO,
@@ -302,9 +316,14 @@ import type {
   RecurringJournalTemplateStatusDTO,
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
+import { DashboardRequest, ScreenRequest, ShellRequest, mayAskDashboard, type DisplaySettingKey } from "@mezan/domain";
+import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
+import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
+import { sessionHolds, sessionMayAsk, sessionMayAskScreen } from "./session";
 import type { TransportResponse } from "./transport";
-import { useAppTranslation } from "../i18n";
+import { BranchRefusalCode } from "@mezan/contracts";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * The `/sales-quotes` responses (create/list/get/send/accept/reject) — the
@@ -321,6 +340,7 @@ export interface SalesQuoteLineRecord {
   readonly unitPrice: string;
   readonly discountPercent?: number;
   readonly taxRatePercent?: number;
+  readonly taxRateId?: string | null;
 }
 
 export type SalesQuoteDiscountRecord =
@@ -403,7 +423,7 @@ export function useLogin() {
     mutationFn: async (body) => {
       const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number };
+        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number; unlockByCode?: boolean };
         const err = await res.json<LoginError>().catch((): LoginError => ({}));
         const message =
           err.error === "TENANT_REQUIRED"
@@ -411,11 +431,46 @@ export function useLogin() {
             : err.error === "TENANT_NOT_FOUND"
               ? t("login.tenantNotFound")
               : (err.message ?? t("api.signInFailed"));
-        throw new ApiError(res.status, message, undefined, err.retryAfterSeconds, err.error);
+        if (err.error === SignInRefusalCode.AccountLocked) throw new AccountLockedError(res.status, message, err.unlockByCode === true);
+        throw new ApiError(res.status, message, undefined, err.retryAfterSeconds ?? res.retryAfterSeconds ?? undefined, err.error);
       }
       return res.json<SessionDTO>();
     },
     onSuccess: (session) => setSession(session),
+  });
+}
+
+export enum SignInRefusalCode {
+  AccountLocked = "ACCOUNT_LOCKED",
+  TooManyAttempts = "TOO_MANY_ATTEMPTS",
+}
+
+export class AccountLockedError extends ApiError {
+  constructor(status: number, message: string, readonly unlockByCode: boolean) {
+    super(status, message, undefined, undefined, SignInRefusalCode.AccountLocked);
+    this.name = "AccountLockedError";
+  }
+}
+
+export function useUnlockAccount() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<void, ApiError, { username: string; code: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/auth/unlock", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
+    },
+  });
+}
+
+export function useUnlockAccountByLink() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<void, ApiError, { token: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/auth/unlock-link", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
+    },
   });
 }
 
@@ -452,35 +507,89 @@ export function useTenantInfo(
   });
 }
 
-/**
- * Deliberately name-free: this is an unauthenticated lookup anyone who knows
- * (or guesses) a tenant code can call, so it must never become a
- * name-enumeration oracle (see `tenant-router.ts`'s `/platform/resolve`).
- */
-export interface PlatformResolveDTO {
-  readonly mode: "subdomain" | "code";
-  readonly exists: boolean;
+export const PLATFORM_LOOKUP_FIRST_RETRY_MS = 1_000;
+export const PLATFORM_LOOKUP_MAX_RETRY_MS = 30_000;
+const PLATFORM_LOOKUP_MAX_RETRY_AFTER_MS = 5 * 60_000;
+const UNREADABLE_LOOKUP_STATUS = 502;
+const TENANT_RESOLVE_MODES: readonly string[] = Object.values(TenantResolveMode);
+
+function retryAfterSecondsOf(res: TransportResponse): number | undefined {
+  const seconds = Number(res.header?.("retry-after") ?? "");
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
-export function usePlatformResolve(): UseQueryResult<PlatformResolveDTO, ApiError> {
+const PLATFORM_LOOKUP_JITTER = 0.2;
+const PERMANENT_LOOKUP_REFUSALS: readonly number[] = [400, 401, 403, 410];
+
+export function platformLookupRetryDelay(failureCount: number, error: unknown, random: () => number = Math.random): number {
+  const backoff = PLATFORM_LOOKUP_FIRST_RETRY_MS * 2 ** Math.min(failureCount, 16);
+  const spread = 1 + PLATFORM_LOOKUP_JITTER * (2 * random() - 1);
+  const jittered = Math.min(PLATFORM_LOOKUP_MAX_RETRY_MS, Math.round(backoff * spread));
+  const asked = error instanceof ApiError && error.retryAfterSeconds !== undefined ? error.retryAfterSeconds * 1000 : 0;
+  return Math.min(PLATFORM_LOOKUP_MAX_RETRY_AFTER_MS, Math.max(asked, jittered));
+}
+
+export function noPlatformInFront(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
+export function platformLookupWorthRetrying(error: unknown): boolean {
+  if (noPlatformInFront(error)) return false;
+  return !(error instanceof ApiError && PERMANENT_LOOKUP_REFUSALS.includes(error.status));
+}
+
+export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
   return useQuery<PlatformResolveDTO, ApiError>({
     queryKey: ["platform", "resolve"],
+    enabled: options.enabled ?? true,
+    retry: (_failureCount, error) => platformLookupWorthRetrying(error),
+    retryDelay: (failureCount, error) => platformLookupRetryDelay(failureCount, error),
     queryFn: async () => {
       const res = await request("/platform/resolve");
-      if (!res.ok) throw await loaderError(res, t("api.theCompanySDetailsCould"));
-      return res.json<PlatformResolveDTO>();
+      if (!res.ok) {
+        const refused = await loaderError(res, t("api.theCompanySDetailsCould"));
+        throw new ApiError(res.status, refused.message, undefined, retryAfterSecondsOf(res));
+      }
+      const body = await res.json<Partial<PlatformResolveDTO> | null>().catch(() => null);
+      if (!body || typeof body.exists !== "boolean" || !TENANT_RESOLVE_MODES.includes(String(body.mode))) {
+        throw new ApiError(UNREADABLE_LOOKUP_STATUS, t("api.theCompanySDetailsCould"));
+      }
+      return { mode: body.mode as TenantResolveMode, exists: body.exists };
     },
   });
 }
 
+export function platformLookupFailing(resolve: Pick<UseQueryResult<PlatformResolveDTO, ApiError>, "data" | "failureCount" | "failureReason">): boolean {
+  return resolve.data === undefined && resolve.failureCount > 0 && !noPlatformInFront(resolve.failureReason);
+}
+
+// SECURITY (D-SAAS-06): a tenant-scoped request must never leave before a
+// company is known, and a lookup that failed knows nothing. While it fails the
+// only company there can be is one the person typed and confirmed.
+export function useCompanyKnown(): boolean {
+  const { session } = useApi();
+  const alreadyKnown = session !== null || isDesktopHost();
+  const resolve = usePlatformResolve({ enabled: !alreadyKnown });
+  const storedCode = useSyncExternalStore(subscribeTenantCode, loadTenantCode, () => null);
+  const companyTyped = storedCode !== null && storedCode !== "";
+  if (alreadyKnown) return true;
+  if (resolve.isError) return noPlatformInFront(resolve.error);
+  if (platformLookupFailing(resolve)) return companyTyped;
+  if (!resolve.data) return false;
+  if (resolve.data.mode === TenantResolveMode.Subdomain) return resolve.data.exists;
+  return companyTyped;
+}
+
 /** What base data already exists — drives the wizard's seed checklist without triggering a seed. */
-export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
+export function useBootstrapStatus(options: { enabled?: boolean } = {}): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
+  const companyKnown = useCompanyKnown();
   return useQuery<BootstrapSeedResultDTO, ApiError>({
     queryKey: ["bootstrap", "status"],
+    enabled: companyKnown && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request("/bootstrap/status");
       if (!res.ok) throw await loaderError(res, t("api.theCoreDataStatusCould"), t);
@@ -498,14 +607,41 @@ export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, Api
 export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
+  const companyKnown = useCompanyKnown();
   return useQuery<EntitlementsDTO, ApiError>({
     queryKey: ["entitlements"],
+    enabled: companyKnown,
     queryFn: async () => {
       const res = await request("/entitlements");
       if (!res.ok) throw await loaderError(res, t("api.licenceDetailsCouldNotBe"), t);
       return res.json<EntitlementsDTO>();
     },
   });
+}
+
+export interface QueryGate {
+  readonly enabled?: boolean;
+}
+
+export function useDashboardGate(): (request: DashboardRequest) => boolean {
+  const { session } = useApi();
+  const entitlements = useEntitlements();
+  const plan = entitlements.data;
+  const planKnown = plan !== undefined || entitlements.isError;
+  return useCallback(
+    (request: DashboardRequest) => session !== null && planKnown && mayAskDashboard(request, (permission) => sessionHolds(session, permission), plan),
+    [session, plan, planKnown],
+  );
+}
+
+// INVARIANT: waits for the licence's first answer — a list asked for while the
+// entitlements are still loading is refused on a tenant without its module. A
+// licence that cannot be read leaves the permission alone to decide.
+export function useMayAskScreen(request: ScreenRequest): boolean {
+  const { session } = useApi();
+  const entitlements = useEntitlements();
+  if (entitlements.isLoading && entitlements.failureCount === 0) return false;
+  return sessionMayAskScreen(session, entitlements.data ?? null, request);
 }
 
 /** First-run wizard "create admin" step — persists the admin, then establishes their session. */
@@ -538,10 +674,11 @@ export interface DashboardRange {
  */
 export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<DashboardSummaryDTO, ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useDashboardGate();
   return useQuery<DashboardSummaryDTO, ApiError>({
     queryKey: ["dashboard", "summary", range.fromDate ?? null, range.toDate ?? null],
-    enabled: session !== null,
+    enabled: mayAsk(DashboardRequest.Summary),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (range.fromDate) params.set("fromDate", range.fromDate);
@@ -574,6 +711,16 @@ export async function readError(
   return withSupportCode(fallback, res.status, t);
 }
 
+export async function codedError(
+  res: { readonly status: number; json<T>(): Promise<T> },
+  fallback: string,
+  t?: AppTranslate,
+): Promise<ApiError> {
+  const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
+  const message = body.message !== undefined && body.message !== "" ? body.message : withSupportCode(fallback, res.status, t);
+  return new ApiError(res.status, message, undefined, undefined, body.error);
+}
+
 /** `t`, narrowed to what {@link readError} needs, so data files need no i18n types of their own. */
 export type AppTranslate = ReturnType<typeof useAppTranslation>["t"];
 
@@ -594,6 +741,37 @@ export function withSupportCode(message: string, status: number, t?: AppTranslat
  * غير مفعّلة في باقتكم») — that must reach the screen, not the generic
  * "تعذّر تحميل…" `fallback` every other failure keeps.
  */
+const PROJECTS_API = "/projects";
+const LEADS_API = "/crm/leads";
+
+/** True when the server would refuse this read to the signed-in, branch-restricted session — the query is then never sent. */
+function refusedForBranch(session: SessionDTO, path: string): boolean {
+  return isBranchRestricted(session) && branchRefusalBefore(path, "GET") !== null;
+}
+
+const BRANCH_REFUSAL_MESSAGE_KEYS: Readonly<Record<BranchRefusalCode, AppTranslationKey>> = {
+  [BranchRefusalCode.NotFound]: "branchRefusal.NOT_FOUND",
+  [BranchRefusalCode.BranchOutOfScope]: "branchRefusal.BRANCH_OUT_OF_SCOPE",
+  [BranchRefusalCode.CompanyWideOnly]: "branchRefusal.COMPANY_WIDE_REPORT",
+  [BranchRefusalCode.PolicyUndeclared]: "branchRefusal.BRANCH_POLICY_UNDECLARED",
+  [BranchRefusalCode.BranchRequired]: "branchRefusal.BRANCH_REQUIRED",
+  [BranchRefusalCode.TreasuryBranchMismatch]: "branchRefusal.TREASURY_BRANCH_MISMATCH",
+  [BranchRefusalCode.WarehouseBranchMismatch]: "branchRefusal.WAREHOUSE_BRANCH_MISMATCH",
+  [BranchRefusalCode.WarehouseOutOfScope]: "branchRefusal.WAREHOUSE_OUT_OF_SCOPE",
+  [BranchRefusalCode.SharedFieldRestricted]: "branchRefusal.SHARED_FIELD_RESTRICTED",
+  [BranchRefusalCode.HeadOfficeCreatesOnly]: "branchRefusal.HEAD_OFFICE_CREATES_ONLY",
+};
+
+/**
+ * The catalogue key for a branch-boundary refusal, in the reader's language.
+ * `NOT_FOUND` is left to the server's own sentence: other routes answer that
+ * code for reasons that have nothing to do with a branch.
+ */
+export function branchRefusalMessageKey(code: string | undefined): AppTranslationKey | undefined {
+  if (code === undefined || code === BranchRefusalCode.NotFound) return undefined;
+  return (BRANCH_REFUSAL_MESSAGE_KEYS as Readonly<Record<string, AppTranslationKey>>)[code];
+}
+
 /**
  * The ApiError a loader throws, carrying everything the screen and support both
  * need. Both branches of this merge had grown their own half of this, and each
@@ -622,6 +800,8 @@ export async function loaderError(
   if (res.status === 403 && body.error === "MODULE_NOT_LICENSED" && body.message) {
     return new ApiError(res.status, body.message, undefined, undefined, body.error);
   }
+  const branchRefusal = branchRefusalMessageKey(body.error);
+  if (branchRefusal && t) return new ApiError(res.status, t(branchRefusal), undefined, undefined, body.error);
   if (body.message !== undefined && body.message !== "") return new ApiError(res.status, body.message);
   return new ApiError(res.status, withSupportCode(fallback, res.status, t));
 }
@@ -701,7 +881,7 @@ export function useItems(filter: ItemListFilter = {}): UseQueryResult<ItemDTO[],
   const { request, session } = useApi();
   return useQuery<ItemDTO[], ApiError>({
     queryKey: ["items", filter],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.Items),
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.itemsCouldNotBeLoaded"), t);
@@ -829,7 +1009,7 @@ export function useCustomers(filter: CustomerListFilter = {}): UseQueryResult<Cu
   const { request, session } = useApi();
   return useQuery<CustomerDTO[], ApiError>({
     queryKey: ["customers", filter],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.Customers),
     queryFn: async () => {
       const qs = customerParams(filter).toString();
       const res = await request(`/customers${qs ? `?${qs}` : ""}`);
@@ -990,12 +1170,27 @@ export function useUpdateSupplier() {
 }
 
 /** دليل الحسابات (docs/archive/catalog/04) — list, create, edit. */
-export function useAccounts(): UseQueryResult<AccountDTO[], ApiError> {
+export function useDisposalProceedsAccounts(): UseQueryResult<DisposalProceedsAccountDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  return useQuery<DisposalProceedsAccountDTO[], ApiError>({
+    queryKey: ["assets", "disposal-proceeds-accounts"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/assets/disposal-proceeds-accounts");
+      if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"), t);
+      return res.json<DisposalProceedsAccountDTO[]>();
+    },
+  });
+}
+
+export function useAccounts(): UseQueryResult<AccountDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Accounts);
   return useQuery<AccountDTO[], ApiError>({
     queryKey: ["accounts"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/accounts");
       if (!res.ok) throw await loaderError(res, t("api.theChartOfAccountsCould"), t);
@@ -1035,10 +1230,11 @@ export function useUpdateAccount() {
 /** حسابات الخزينة (docs/archive/catalog/04) — list, create, edit. */
 export function useTreasuryAccounts(): UseQueryResult<TreasuryAccountDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.TreasuryAccounts);
   return useQuery<TreasuryAccountDTO[], ApiError>({
     queryKey: ["treasury-accounts"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/treasury-accounts");
       if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"), t);
@@ -1332,6 +1528,7 @@ export interface JournalEntryDTO {
   readonly postedAt: string | null;
   readonly reversesEntryId: string | null;
   readonly reversedByEntryId: string | null;
+  readonly reversibleFromJournal?: boolean;
   /** The document this entry came from, and the module derived from it (R6.3). */
   readonly sourceDocType: string | null;
   readonly sourceDocId: string | null;
@@ -1347,6 +1544,8 @@ export interface JournalEntryDTO {
     costCategory?: CostCategoryDTO | null;
     branchId?: string | null;
     partyId?: string | null;
+    taxRatePercent?: number | null;
+    taxRateId?: string | null;
   }>;
 }
 
@@ -1468,7 +1667,7 @@ export function useCreateJournalEntry() {
   return useMutation<JournalEntryDTO, ApiError, CreateGlJournalEntryDTO>({
     mutationFn: async (body) => {
       const res = await request("/gl/journal-entries", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theEntryCouldNotBe"), t);
       return res.json<JournalEntryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
@@ -1552,16 +1751,28 @@ export interface RecurringJournalTemplateDTO {
   readonly updatedAt: string;
 }
 
+export enum RecurringJournalRunEntryStatusDTO {
+  Draft = "draft",
+  Posted = "posted",
+  Reversed = "reversed",
+}
+
 export interface RecurringJournalRunDTO {
   readonly id: string;
   readonly templateId: string;
   readonly period: string;
+  readonly generation?: number;
   readonly journalEntryId: string;
   readonly journalEntryNo: string | null;
   readonly reversalJournalEntryId: string | null;
   readonly reversalJournalEntryNo: string | null;
   readonly generatedAt: string;
   readonly generatedBy: string;
+  readonly entryStatus?: RecurringJournalRunEntryStatusDTO | null;
+  readonly current?: boolean;
+  readonly reversedByEntryId?: string | null;
+  readonly reversedByEntryNo?: string | null;
+  readonly reversedOn?: string | null;
 }
 
 export interface DueRecurringJournalDTO {
@@ -1664,12 +1875,12 @@ export function useRecurringJournalSkips(templateId: string | null): UseQueryRes
   });
 }
 
-export function useAllRecurringJournalSkips(limit = 200): UseQueryResult<RecurringJournalSkipDTO[], ApiError> {
+export function useAllRecurringJournalSkips(limit = 200, enabled = true): UseQueryResult<RecurringJournalSkipDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<RecurringJournalSkipDTO[], ApiError>({
     queryKey: ["recurring-journal-skips", limit],
-    enabled: session !== null,
+    enabled: session !== null && enabled,
     queryFn: async () => {
       const res = await request(`/gl/recurring/skips?limit=${limit}`);
       if (!res.ok) throw await loaderError(res, t("recurringJournals.historyCouldNotLoad"), t);
@@ -1789,7 +2000,7 @@ export function useUsers(): UseQueryResult<UserDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<UserDTO[], ApiError>({
     queryKey: ["users"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.Users),
     queryFn: async () => {
       const res = await request("/users");
       if (!res.ok) throw await loaderError(res, t("api.usersCouldNotBeLoaded"), t);
@@ -1830,9 +2041,12 @@ export function useSetUserStatus() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<UserDTO, ApiError, { id: string; status: "active" | "inactive" }>({
-    mutationFn: async ({ id, status }) => {
-      const res = await request(`/users/${id}/${status === "active" ? "activate" : "deactivate"}`, { method: "POST" });
+  return useMutation<UserDTO, ApiError, { id: string; status: UserStatusCode; newOwnerUserId?: string }>({
+    mutationFn: async ({ id, status, newOwnerUserId }) => {
+      const res = await request(`/users/${id}/${status === UserStatusCode.Active ? "activate" : "deactivate"}`, {
+        method: "POST",
+        ...(newOwnerUserId ? { body: JSON.stringify({ newOwnerUserId }) } : {}),
+      });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserSStatusCould"), t));
       return res.json<UserDTO>();
     },
@@ -1846,7 +2060,7 @@ export function useRoles(): UseQueryResult<RoleDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<RoleDTO[], ApiError>({
     queryKey: ["roles"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.Roles),
     queryFn: async () => {
       const res = await request("/roles");
       if (!res.ok) throw await loaderError(res, t("api.rolesCouldNotBeLoaded"), t);
@@ -1922,16 +2136,46 @@ export function useUserPreferences(): UseQueryResult<UserPreferencesDTO | null, 
   });
 }
 
+export function useTenantSettings(): UseQueryResult<TenantSettingsLookupDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<TenantSettingsLookupDTO, ApiError>({
+    queryKey: ["settings", "lookup"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings/lookup");
+      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
+      return res.json<TenantSettingsLookupDTO>();
+    },
+  });
+}
+
 export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<TenantSettingsDTO, ApiError>({
     queryKey: ["settings"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.Settings),
     queryFn: async () => {
       const res = await request("/settings");
       if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
       return res.json<TenantSettingsDTO>();
+    },
+  });
+}
+
+export type DisplaySettingsDTO = Pick<TenantSettingsDTO, `${DisplaySettingKey}`>;
+
+export function useDisplaySettings(): UseQueryResult<DisplaySettingsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<DisplaySettingsDTO, ApiError>({
+    queryKey: ["settings", "display"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings/display");
+      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
+      return res.json<DisplaySettingsDTO>();
     },
   });
 }
@@ -1958,13 +2202,34 @@ export function useUpdateSettings() {
 export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  const administers = sessionMayAsk(session, ShellRequest.Branches) && !isBranchRestricted(session);
   return useQuery<BranchDTO[], ApiError>({
-    queryKey: ["branches"],
+    queryKey: ["branches", administers ? "records" : "granted"],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/branches");
+      if (administers) {
+        const res = await request("/branches");
+        if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
+        return res.json<BranchDTO[]>();
+      }
+      const res = await request("/branches/lookup");
       if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
-      return res.json<BranchDTO[]>();
+      const lookup = await res.json<BranchLookupDTO>();
+      return lookup.branches.map((branch) => ({ ...branch, parentBranchId: null, phone: null, email: null, address: null }));
+    },
+  });
+}
+
+export function useBranchLookup(): UseQueryResult<BranchLookupDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<BranchLookupDTO, ApiError>({
+    queryKey: ["branches", "lookup"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/branches/lookup");
+      if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
+      return res.json<BranchLookupDTO>();
     },
   });
 }
@@ -2084,7 +2349,7 @@ export function useCreateCheque() {
   return useMutation<ChequeDTO, ApiError, CreateChequeDTO>({
     mutationFn: async (body) => {
       const res = await request("/cheques", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChequeCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theChequeCouldNotBe"), t);
       return res.json<ChequeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
@@ -2316,7 +2581,7 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
   const { request, session } = useApi();
   return useQuery<JournalEntryDTO, ApiError>({
     queryKey: ["journal-entries", "detail", id],
-    enabled: session !== null && id !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.JournalEntries) && id !== null,
     queryFn: async () => {
       const res = await request(`/gl/journal-entries/${id}`);
       if (!res.ok) throw await loaderError(res, t("api.theJournalEntryCouldNot"), t);
@@ -2329,13 +2594,19 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
 export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
+  const administers = sessionMayAsk(session, ShellRequest.Warehouses) && !isBranchRestricted(session);
   return useQuery<WarehouseDTO[], ApiError>({
-    queryKey: ["warehouses"],
+    queryKey: ["warehouses", administers ? "records" : "granted"],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/warehouses");
+      if (administers) {
+        const res = await request("/warehouses");
+        if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
+        return res.json<WarehouseDTO[]>();
+      }
+      const res = await request("/warehouses/lookup");
       if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
-      return res.json<WarehouseDTO[]>();
+      return res.json<WarehouseLookupDTO[]>();
     },
   });
 }
@@ -2394,12 +2665,12 @@ function voucherParams(filter: Partial<VoucherListQueryDTO>): URLSearchParams {
  * to drop for which count. Withholding both here made the status chips report
  * the whole book while a type was selected.
  */
-export function useVoucherCounts(filter: Partial<VoucherListQueryDTO> = {}): UseQueryResult<ListCountsDTO, ApiError> {
+export function useVoucherCounts(filter: Partial<VoucherListQueryDTO> = {}, gate: QueryGate = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ListCountsDTO, ApiError>({
     queryKey: ["vouchers", "counts", filter],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers/counts${qs ? `?${qs}` : ""}`);
@@ -2427,10 +2698,11 @@ export function useVoucherStats(filter: Partial<VoucherListQueryDTO> = {}): UseQ
 
 export function useVouchers(filter: Partial<VoucherListQueryDTO> = {}): UseQueryResult<VoucherRowDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Vouchers);
   return useQuery<VoucherRowDTO[], ApiError>({
     queryKey: ["vouchers", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.vouchersCouldNotBeLoaded"), t);
@@ -2478,7 +2750,7 @@ export function useCreateVoucher() {
   return useMutation<VoucherDTO, ApiError, CreateVoucherDTO>({
     mutationFn: async (body) => {
       const res = await request("/vouchers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2"), t));
+      if (!res.ok) throw await codedError(res, t("api.theVoucherCouldNotBe2"), t);
       return res.json<VoucherDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2492,7 +2764,7 @@ export function useCreateCollection() {
   return useMutation<CollectionResultDTO, ApiError, CreateCollectionDTO>({
     mutationFn: async (body) => {
       const res = await request("/vouchers/collections", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2"), t));
+      if (!res.ok) throw await codedError(res, t("api.theVoucherCouldNotBe2"), t);
       return res.json<CollectionResultDTO>();
     },
     onSuccess: () => {
@@ -2532,20 +2804,6 @@ export function useCancelVoucher() {
   });
 }
 
-export function useReverseVoucher() {
-  const { t } = useAppTranslation();
-  const { request } = useApi();
-  const queryClient = useQueryClient();
-  return useMutation<{ original: VoucherDTO; reversal: VoucherDTO }, ApiError, { id: string; body?: ReverseVoucherDTO }>({
-    mutationFn: async ({ id, body }) => {
-      const res = await request(`/vouchers/${id}/reverse`, { method: "POST", body: JSON.stringify(body ?? {}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe4"), t));
-      return res.json<{ original: VoucherDTO; reversal: VoucherDTO }>();
-    },
-    onSuccess: () => invalidateVouchers(queryClient),
-  });
-}
-
 export function useCreateAllocation() {
   const { t } = useAppTranslation();
   const { request } = useApi();
@@ -2553,7 +2811,7 @@ export function useCreateAllocation() {
   return useMutation<VoucherAllocationDTO, ApiError, { voucherId: string; body: CreateAllocationDTO }>({
     mutationFn: async ({ voucherId, body }) => {
       const res = await request(`/vouchers/${voucherId}/allocations`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAmountCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theAmountCouldNotBe"), t);
       return res.json<VoucherAllocationDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2883,7 +3141,7 @@ export function useCreatePurchaseInvoice() {
   return useMutation<PurchaseInvoiceDTO, ApiError, CreatePurchaseInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchases/invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseInvoiceCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.thePurchaseInvoiceCouldNot"), t);
       return res.json<PurchaseInvoiceDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] }),
@@ -2911,12 +3169,12 @@ export function useConfirmPurchaseInvoice() {
 export type { SalesInvoiceLineRowDTO, SalesInvoiceTotalsDTO, SalesInvoiceDTO };
 
 /** فواتير المبيعات (docs/archive/catalog/01) — list, create, confirm, record a payment. */
-export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
+export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> = {}, gate: QueryGate = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SalesInvoiceDTO[], ApiError>({
     queryKey: ["sales-invoices", filter],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.salesInvoicesCouldNotBe"), t);
@@ -3024,7 +3282,7 @@ export function useCreateSalesInvoice() {
   return useMutation<SalesInvoiceDTO, ApiError, CreateSalesInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theInvoiceCouldNotBe"), t);
       return res.json<SalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
@@ -3040,22 +3298,167 @@ export function useCreateSalesInvoice() {
  */
 export type ConfirmSalesInvoiceAct =
   | string
-  | ({ readonly id: string; readonly expectedVersion?: number } & Pick<ConfirmSalesInvoiceDTO, "receiptPaymentMethod">);
+  | ({ readonly id: string; readonly expectedVersion?: number } & Pick<ConfirmSalesInvoiceDTO, "receiptPaymentMethod" | "acknowledgeTaxRecalculation">);
+
+export class SalesTaxRecalculationPendingError extends ApiError {
+  constructor(
+    status: number,
+    message: string,
+    readonly recalculatedGrandTotal: string,
+  ) {
+    super(status, message);
+    this.name = "SalesTaxRecalculationPendingError";
+  }
+}
 
 export function useConfirmSalesInvoice() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<SalesInvoiceDTO & { held: boolean }, ApiError, ConfirmSalesInvoiceAct>({
+  return useMutation<ConfirmedSalesInvoiceDTO, ApiError, ConfirmSalesInvoiceAct>({
     mutationFn: async (input) => {
       const id = typeof input === "string" ? input : input.id;
       const dto: ConfirmSalesInvoiceDTO = typeof input === "string" ? {} : {
         ...(input.expectedVersion === undefined ? {} : { expectedVersion: input.expectedVersion }),
         ...(input.receiptPaymentMethod === undefined ? {} : { receiptPaymentMethod: input.receiptPaymentMethod }),
+        ...(input.acknowledgeTaxRecalculation === undefined ? {} : { acknowledgeTaxRecalculation: input.acknowledgeTaxRecalculation }),
       };
       const res = await request(`/sales-invoices/${id}/confirm`, { method: "POST", body: JSON.stringify(dto) });
+      if (!res.ok) {
+        const body = await res.json<{ message?: string; taxRecalculated?: boolean; totals?: { grandTotal?: string } }>().catch(() => null);
+        const message = await readError({ status: res.status, json: async <T,>() => (body ?? {}) as T }, t("api.theInvoiceCouldNotBe2"), t);
+        const recalculated = res.status === 409 && body?.taxRecalculated === true ? body.totals?.grandTotal : undefined;
+        if (recalculated !== undefined) throw new SalesTaxRecalculationPendingError(res.status, message, recalculated);
+        throw new ApiError(res.status, message);
+      }
+      return res.json<ConfirmedSalesInvoiceDTO>();
+    },
+    onSuccess: () => invalidateSalesInvoices(queryClient),
+  });
+}
+
+export function useVoidSalesInvoice() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesInvoiceDTO, ApiError, { id: string } & VoidSalesInvoiceDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/sales-invoices/${encodeURIComponent(id)}/void`, { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2"), t));
-      return res.json<SalesInvoiceDTO & { held: boolean }>();
+      return res.json<SalesInvoiceDTO>();
+    },
+    onSuccess: () => {
+      invalidateSalesInvoices(queryClient);
+      for (const key of ["journal-entries", "gl", "stock-balance", "eta-submissions", "eta", "dashboard", "financial-reports", "audit"]) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
+    },
+  });
+}
+
+export type ConfirmedSalesInvoiceDTO = SalesInvoiceDTO & { held: boolean; taxRecalculated?: { message: string } };
+
+export enum ClassifiableDocument {
+  SalesInvoice = "sales-invoices",
+  PurchaseInvoice = "purchases/invoices",
+}
+
+export interface ClassifyLineTaxAct {
+  readonly documentId: string;
+  readonly lineId: string;
+  readonly taxRateId: string;
+  readonly withLineIds: readonly string[];
+}
+
+export function useClassifyLineTax(document: ClassifiableDocument) {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LineTaxClassificationDTO, ApiError, ClassifyLineTaxAct>({
+    mutationFn: async ({ documentId, lineId, taxRateId, withLineIds }) => {
+      const dto: ClassifyLineTaxDTO = { taxRateId, ...(withLineIds.length > 0 ? { withLineIds: [...withLineIds] } : {}) };
+      const res = await request(`/${document}/${encodeURIComponent(documentId)}/lines/${encodeURIComponent(lineId)}/classify-tax`, {
+        method: "POST",
+        body: JSON.stringify(dto),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.lineTaxCouldNotBeClassified"), t));
+      return res.json<LineTaxClassificationDTO>();
+    },
+    onSuccess: () => invalidateAfterTaxClassification(queryClient, document),
+  });
+}
+
+export function useRetryEtaReceipt() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaReceiptRetryDTO, ApiError, { documentId: string }>({
+    mutationFn: async ({ documentId }) => {
+      const res = await request(`/${ClassifiableDocument.SalesInvoice}/${encodeURIComponent(documentId)}/eta-receipt/retry`, { method: "POST", body: "{}" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("classifyTax.outcome.reissueFailed"), t));
+      return res.json<EtaReceiptRetryDTO>();
+    },
+    onSuccess: () => invalidateAfterTaxClassification(queryClient, ClassifiableDocument.SalesInvoice),
+  });
+}
+
+const QUERIES_A_TAX_CLASSIFICATION_MOVES = ["eta-submissions", "eta", "journal-entries", "gl", "audit", "entity-audit", "financial-reports", "vat-filings"];
+
+function invalidateAfterTaxClassification(queryClient: ReturnType<typeof useQueryClient>, document: ClassifiableDocument | ReturnFamily): void {
+  const sales = document === ClassifiableDocument.SalesInvoice || document === ReturnFamily.Sales;
+  for (const key of [sales ? "sales-invoices" : "purchase-invoices", sales ? "sales-returns" : "purchase-returns", ...QUERIES_A_TAX_CLASSIFICATION_MOVES]) {
+    queryClient.invalidateQueries({ queryKey: [key] });
+  }
+}
+
+export interface NameJournalLineTaxAct {
+  readonly documentId: string;
+  readonly lineId: string;
+  readonly journalLineIndexes: readonly number[];
+  readonly taxRateId?: string;
+  readonly withLineIds: readonly string[];
+}
+
+export function useNameJournalLineTax(document: ClassifiableDocument | ReturnFamily) {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LineTaxClassificationDTO, ApiError, NameJournalLineTaxAct>({
+    mutationFn: async ({ documentId, lineId, journalLineIndexes, taxRateId, withLineIds }) => {
+      const dto: NameJournalLineTaxDTO = {
+        journalLineIndexes: [...journalLineIndexes],
+        ...(taxRateId ? { taxRateId } : {}),
+        ...(withLineIds.length > 0 ? { withLineIds: [...withLineIds] } : {}),
+      };
+      const res = await request(`/${document}/${encodeURIComponent(documentId)}/lines/${encodeURIComponent(lineId)}/journal-tax`, {
+        method: "POST",
+        body: JSON.stringify(dto),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.lineTaxCouldNotBeClassified"), t));
+      return res.json<LineTaxClassificationDTO>();
+    },
+    onSuccess: () => invalidateAfterTaxClassification(queryClient, document),
+  });
+}
+
+export interface EditSalesInvoiceDraftLineAct extends EditSalesInvoiceDraftLineDTO {
+  readonly invoiceId: string;
+  readonly lineId: string;
+  readonly expectedVersion?: number;
+}
+
+export function useEditSalesInvoiceDraftLine() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesInvoiceDTO, ApiError, EditSalesInvoiceDraftLineAct>({
+    mutationFn: async ({ invoiceId, lineId, ...change }) => {
+      const res = await request(`/sales-invoices/${encodeURIComponent(invoiceId)}/lines/${encodeURIComponent(lineId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(change),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe"), t));
+      return res.json<SalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
   });
@@ -3091,9 +3494,9 @@ export function useLeads(): UseQueryResult<LeadDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<LeadDTO[], ApiError>({
     queryKey: ["crm-leads"],
-    enabled: session !== null,
+    enabled: session !== null && !refusedForBranch(session, LEADS_API),
     queryFn: async () => {
-      const res = await request("/crm/leads");
+      const res = await request(LEADS_API);
       if (!res.ok) throw await loaderError(res, t("api.leadsCouldNotBeLoaded"), t);
       return res.json<LeadDTO[]>();
     },
@@ -3301,9 +3704,9 @@ export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<ProjectDTO[], ApiError>({
     queryKey: ["projects"],
-    enabled: session !== null,
+    enabled: session !== null && sessionMayRead(session, DocumentReadPermission.Projects) && !refusedForBranch(session, PROJECTS_API),
     queryFn: async () => {
-      const res = await request("/projects");
+      const res = await request(PROJECTS_API);
       if (!res.ok) throw await loaderError(res, t("api.projectsCouldNotBeLoaded"), t);
       return res.json<ProjectDTO[]>();
     },
@@ -3528,6 +3931,20 @@ export function useCreateDepreciationRun() {
     mutationFn: async (body) => {
       const res = await request("/assets/depreciation/runs", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationRunCouldNot"), t));
+      return res.json<DepreciationRunDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] }),
+  });
+}
+
+export function useDiscardDepreciationRun() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DepreciationRunDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/assets/depreciation/runs/${id}/discard`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationDraftCouldNotBeDiscarded"), t));
       return res.json<DepreciationRunDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] }),
@@ -4536,13 +4953,22 @@ export function useGenerateFiscalYear() {
   });
 }
 
-function useFiscalPeriodTransition(action: "close" | "reopen" | "lock", fallbackMessage: string) {
+enum FiscalPeriodTransitionAction {
+  Close = "close",
+  Reopen = "reopen",
+  Lock = "lock",
+}
+
+function useFiscalPeriodTransition(action: FiscalPeriodTransitionAction, fallbackMessage: string) {
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<FiscalPeriodDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/fiscal-periods/${id}/${action}`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, fallbackMessage));
+      if (!res.ok) {
+        const refusal = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
+        throw new ApiError(res.status, refusal.message ? refusal.message : fallbackMessage, undefined, undefined, refusal.error);
+      }
       return res.json<FiscalPeriodDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fiscal-periods"] }),
@@ -4552,17 +4978,17 @@ function useFiscalPeriodTransition(action: "close" | "reopen" | "lock", fallback
 /** إغلاق الفترة (مفتوحة → مغلقة). */
 export function useClosePeriod() {
   const { t } = useAppTranslation();
-  return useFiscalPeriodTransition("close", t("api.thePeriodCouldNotBe"));
+  return useFiscalPeriodTransition(FiscalPeriodTransitionAction.Close, t("api.thePeriodCouldNotBe"));
 }
 /** إعادة فتح الفترة (مغلقة → مفتوحة). */
 export function useReopenPeriod() {
   const { t } = useAppTranslation();
-  return useFiscalPeriodTransition("reopen", t("api.thePeriodCouldNotBe2"));
+  return useFiscalPeriodTransition(FiscalPeriodTransitionAction.Reopen, t("api.thePeriodCouldNotBe2"));
 }
 /** قفل الفترة (مغلقة → مقفلة، نهائي). */
 export function useLockPeriod() {
   const { t } = useAppTranslation();
-  return useFiscalPeriodTransition("lock", t("api.thePeriodCouldNotBe3"));
+  return useFiscalPeriodTransition(FiscalPeriodTransitionAction.Lock, t("api.thePeriodCouldNotBe3"));
 }
 
 /**
@@ -4643,13 +5069,27 @@ export function useTaxRates(): UseQueryResult<TaxRateDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<TaxRateDTO[], ApiError>({
     queryKey: ["tax-rates"],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.TaxRates),
     queryFn: async () => {
       const res = await request("/tax-rates");
       if (!res.ok) throw await loaderError(res, t("api.taxesCouldNotBeLoaded"), t);
       return res.json<TaxRateDTO[]>();
     },
   });
+}
+
+export function useVatEnabled(): boolean | null {
+  const { request, session } = useApi();
+  const query = useQuery<{ vatEnabled: boolean }, ApiError>({
+    queryKey: ["tax-rates", "policy"],
+    enabled: sessionMayRead(session, DocumentReadPermission.TaxRates),
+    queryFn: async () => {
+      const res = await request("/tax-rates/policy");
+      if (!res.ok) throw new ApiError(res.status, "");
+      return res.json<{ vatEnabled: boolean }>();
+    },
+  });
+  return query.data?.vatEnabled ?? null;
 }
 
 export function useCreateTaxRate() {
@@ -4771,7 +5211,10 @@ export function useFxRevaluationPost() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRevaluationCouldNotBe2"), t));
       return res.json<FxRevaluationPostResultDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reconciliation"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["reconciliation"] });
+      void queryClient.invalidateQueries({ queryKey: ["revaluation"] });
+    },
   });
 }
 
@@ -4835,7 +5278,7 @@ export function useEtaSubmissions(status?: EtaSubmissionStatusDTO): UseQueryResu
   const { request, session } = useApi();
   return useQuery<EtaSubmissionDTO[], ApiError>({
     queryKey: ["eta-submissions", status ?? "all"],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.EtaQueue),
     queryFn: async () => {
       const res = await request(`/eta/submissions${status ? `?status=${status}` : ""}`);
       if (!res.ok) throw await loaderError(res, t("api.theSubmissionQueueCouldNot"), t);
@@ -4870,6 +5313,7 @@ export function useSubmitEtaSubmission() {
 export interface SubmitAllReadyEtaResult {
   readonly submitted: readonly EtaSubmissionDTO[];
   readonly queued: readonly string[];
+  readonly blocked?: readonly string[];
 }
 
 export function useSubmitAllReadyEta() {
@@ -4892,6 +5336,7 @@ export interface ProcessEtaQueueResult {
   readonly rejected: EtaSubmissionDTO[];
   readonly queued: string[];
   readonly unsigned: string[];
+  readonly blocked?: string[];
 }
 
 export function useProcessEtaQueue() {
@@ -4931,6 +5376,20 @@ export function useRequeueEtaSubmission() {
     mutationFn: async (id) => {
       const res = await request(`/eta/submissions/${id}/requeue`, { method: "POST" });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDocumentCouldNotBe"), t));
+      return res.json<EtaSubmissionDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
+export function useRecordEtaSubmissionUuid() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaSubmissionDTO, ApiError, { id: string; etaUuid: string }>({
+    mutationFn: async ({ id, etaUuid }) => {
+      const res = await request(`/eta/submissions/${id}/accept`, { method: "POST", body: JSON.stringify({ etaUuid }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thatActionCouldNotBe"), t));
       return res.json<EtaSubmissionDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
@@ -5257,7 +5716,7 @@ export function useCreateStockAdjustment() {
   return useMutation<StockAdjustmentDocumentDTO, ApiError, CreateStockAdjustmentDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-adjustments/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockAdjustmentCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theStockAdjustmentCouldNot"), t);
       return res.json<StockAdjustmentDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] }),
@@ -5352,7 +5811,7 @@ export function useCreateStockTransfer() {
   return useMutation<StockTransferDocumentDTO, ApiError, CreateStockTransferDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-transfers/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockTransferCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theStockTransferCouldNot"), t);
       return res.json<StockTransferDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-transfers"] }),
@@ -5853,12 +6312,31 @@ export function useSalesReturns(filter: SalesReturnListFilter = {}): UseQueryRes
   const { request, session } = useApi();
   return useQuery<SalesReturnDocumentDTO[], ApiError>({
     queryKey: ["sales-returns", filter],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.SalesReturns, DocumentReadPermission.SalesReturnsOwn),
     queryFn: async () => {
       const qs = salesReturnParams(filter).toString();
       const res = await request(`/sales-returns${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw await loaderError(res, t("api.salesReturnsCouldNotBe"), t);
       return res.json<SalesReturnDocumentDTO[]>();
+    },
+  });
+}
+
+export enum ReturnKind {
+  Sales = "sales-returns",
+  Purchase = "purchase-returns",
+}
+
+export function useReturnSourceLines(kind: ReturnKind, invoiceId: string): UseQueryResult<ReturnSourceLinesDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ReturnSourceLinesDTO, ApiError>({
+    queryKey: [kind, "source-lines", invoiceId],
+    enabled: session !== null && invoiceId !== "",
+    queryFn: async () => {
+      const res = await request(`/${kind}/source-lines/${encodeURIComponent(invoiceId)}`);
+      if (!res.ok) throw await loaderError(res, t(kind === ReturnKind.Sales ? "api.salesReturnsCouldNotBe" : "api.purchaseReturnsCouldNotBe"), t);
+      return res.json<ReturnSourceLinesDTO>();
     },
   });
 }
@@ -5903,7 +6381,7 @@ export function useCreateSalesReturn() {
   return useMutation<SalesReturnDocumentDTO, ApiError, CreateSalesReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theSalesReturnCouldNot"), t);
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -5935,6 +6413,47 @@ export function useCancelSalesReturn() {
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
+  });
+}
+
+export enum ReturnFamily {
+  Sales = "sales-returns",
+  Purchases = "purchase-returns",
+}
+
+// INVARIANT: the lists of both return families leave out the document that
+// reversed another; its own address is the only way to it, so a screen opened
+// at an address its list does not hold asks for the one document here.
+export function useReturnDocument<Document>(family: ReturnFamily, id: string): UseQueryResult<Document | null, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<Document | null, ApiError>({
+    queryKey: [family, "document", id],
+    enabled: session !== null && id !== "",
+    queryFn: async () => {
+      const res = await request(`/${family}/${encodeURIComponent(id)}`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw await loaderError(res, t(family === ReturnFamily.Sales ? "api.salesReturnsCouldNotBe" : "api.purchaseReturnsCouldNotBe"), t);
+      return res.json<Document>();
+    },
+  });
+}
+
+const RETURN_VOID_INVALIDATIONS = ["sales-returns", "purchase-returns", "sales-invoices", "purchase-invoices", "purchases", "journal-entries", "gl", "stock-balance", "eta-submissions", "eta", "dashboard", "financial-reports", "audit"];
+
+export function useVoidReturn(family: ReturnFamily) {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ id: string; status: string; voidReason?: string | null }, ApiError, { id: string; reason: string }>({
+    mutationFn: async ({ id, reason }) => {
+      const res = await request(`/${family}/${encodeURIComponent(id)}/void`, { method: "POST", body: JSON.stringify({ reason }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("voidReturn.failed"), t));
+      return res.json();
+    },
+    onSuccess: () => {
+      for (const key of RETURN_VOID_INVALIDATIONS) queryClient.invalidateQueries({ queryKey: [key] });
+    },
   });
 }
 
@@ -6017,7 +6536,7 @@ export function useCreatePurchaseReturn() {
   return useMutation<PurchaseReturnDocumentDTO, ApiError, CreatePurchaseReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchase-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.thePurchaseReturnCouldNot"), t);
       return res.json<PurchaseReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
@@ -6075,7 +6594,7 @@ export function useCreateLandedCost() {
   return useMutation<LandedCostDocumentDTO, ApiError, CreateLandedCostDTO>({
     mutationFn: async (body) => {
       const res = await request("/landed-costs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould"), t));
+      if (!res.ok) throw await codedError(res, t("api.theLandedCostDocumentCould"), t);
       return res.json<LandedCostDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-costs"] }),
@@ -6113,6 +6632,23 @@ export function useCancelLandedCost() {
   });
 }
 
+export function useReverseLandedCost() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ original: LandedCostDocumentDTO; reversal: LandedCostDocumentDTO }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/landed-costs/${id}/reverse`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould3"), t));
+      return res.json<{ original: LandedCostDocumentDTO; reversal: LandedCostDocumentDTO }>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["landed-costs"] });
+      void queryClient.invalidateQueries({ queryKey: ["stock-levels"] });
+    },
+  });
+}
+
 export interface InstallmentPlanListFilter {
   /** A stored document status, or one of the derived axis keys `all` / `overdue`. */
   readonly status?: DocumentStatusDTO | "all" | "overdue";
@@ -6134,7 +6670,7 @@ export function useInstallmentPlans(filter: InstallmentPlanListFilter = {}): Use
   const { request, session } = useApi();
   return useQuery<InstallmentPlanDocumentDTO[], ApiError>({
     queryKey: ["installment-plans", filter],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.InstallmentPlans),
     queryFn: async () => {
       const qs = installmentPlanParams(filter).toString();
       const res = await request(`/installments/plans${qs ? `?${qs}` : ""}`);
@@ -6387,12 +6923,12 @@ export function useUpdateDepartment() {
   });
 }
 
-export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
+export function useJobTitles(enabled = true): UseQueryResult<JobTitleDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JobTitleDTO[], ApiError>({
     queryKey: ["hr-job-titles"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.JobTitles) && enabled,
     queryFn: async () => {
       const res = await request("/hr/job-titles");
       if (!res.ok) throw await loaderError(res, t("api.jobTitlesCouldNotBe"), t);
@@ -6429,12 +6965,12 @@ export function useUpdateJobTitle() {
   });
 }
 
-export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
+export function useEmployees(enabled = true): UseQueryResult<EmployeeDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<EmployeeDTO[], ApiError>({
     queryKey: ["hr-employees"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.Employees) && enabled,
     queryFn: async () => {
       const res = await request("/hr/employees");
       if (!res.ok) throw await loaderError(res, t("api.employeesCouldNotBeLoaded"), t);
@@ -6499,17 +7035,52 @@ export function useTransitionEmployee() {
   });
 }
 
+export interface TerminationPayRecoveryDTO {
+  readonly advanceId: string | null;
+  readonly advanceNumber: string | null;
+  readonly days: number;
+  readonly gross: string;
+  readonly amount: string;
+  readonly payableReduced: string;
+  readonly taxRelief: string;
+  readonly journalEntryId: string;
+  readonly paidThrough: string;
+}
+
+export type TerminatedEmployeeDTO = EmployeeDTO & { readonly payRecovery?: TerminationPayRecoveryDTO | null };
+
 export function useTerminateEmployee() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<EmployeeDTO, ApiError, string>({
-    mutationFn: async (id) => {
-      const res = await request(`/hr/employees/${id}/terminate`, { method: "POST" });
+  return useMutation<TerminatedEmployeeDTO, ApiError, { id: string; effectiveDate: string }>({
+    mutationFn: async ({ id, effectiveDate }) => {
+      const res = await request(`/hr/employees/${id}/terminate`, { method: "POST", body: JSON.stringify({ effectiveDate }) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeSServiceCould"), t));
-      return res.json<EmployeeDTO>();
+      return res.json<TerminatedEmployeeDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["hr-employees"] });
+      void queryClient.invalidateQueries({ queryKey: ["hr-advances"] });
+    },
+  });
+}
+
+export function useCorrectTerminationDate() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TerminatedEmployeeDTO, ApiError, { id: string; effectiveDate: string }>({
+    mutationFn: async ({ id, effectiveDate }) => {
+      const res = await request(`/hr/employees/${id}/correct-termination-date`, { method: "POST", body: JSON.stringify({ effectiveDate }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("employees.couldnTCorrectTheTerminationDate"), t));
+      return res.json<TerminatedEmployeeDTO>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["hr-employees"] });
+      void queryClient.invalidateQueries({ queryKey: ["hr-advances"] });
+      void queryClient.invalidateQueries({ queryKey: ["hr-payroll-runs"] });
+    },
   });
 }
 
@@ -6638,12 +7209,12 @@ export interface MyLeaveDTO {
   readonly requests: LeaveRequestDTO[];
 }
 
-export function useMyLeave(): UseQueryResult<MyLeaveDTO, ApiError> {
+export function useMyLeave(gate: QueryGate = {}): UseQueryResult<MyLeaveDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<MyLeaveDTO, ApiError>({
     queryKey: ["hr-my-leave"],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const res = await request("/hr/leave-requests/me");
       if (!res.ok) throw await loaderError(res, t("api.yourLeaveCouldNotBe"), t);
@@ -7119,6 +7690,28 @@ export function usePrintTemplateConfig(): UseQueryResult<PrintTemplateConfigDTO,
   });
 }
 
+export interface SalesInvoicePrintContextDTO {
+  readonly branchName: string | null;
+  readonly warehouseName: string | null;
+  readonly customer: { readonly code: string; readonly taxNumber: string | null; readonly address: string | null; readonly phone: string | null } | null;
+  readonly etaUuid: string | null;
+  readonly etaQrValue: string | null;
+}
+
+export function useSalesInvoicePrintContext(invoiceId: string): UseQueryResult<SalesInvoicePrintContextDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<SalesInvoicePrintContextDTO, ApiError>({
+    queryKey: ["sales-invoices", "print-context", invoiceId],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/sales-invoices/${encodeURIComponent(invoiceId)}/print-context`);
+      if (!res.ok) throw await loaderError(res, t("api.thePrintTemplateCouldNot"), t);
+      return res.json<SalesInvoicePrintContextDTO>();
+    },
+  });
+}
+
 export function useSavePrintTemplateConfig() {
   const { t } = useAppTranslation();
   const { request } = useApi();
@@ -7448,7 +8041,7 @@ export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
   const { request, session } = useApi();
   return useQuery<number, ApiError>({
     queryKey: ["workflow-requests", "pending-count"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.PendingApprovals),
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/workflow/requests/pending-count");
@@ -7504,7 +8097,7 @@ export function useItemUnits(): UseQueryResult<ItemUnitDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<ItemUnitDTO[], ApiError>({
     queryKey: ["item-units"],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.Items),
     queryFn: async () => {
       const res = await request("/item-units");
       if (!res.ok) throw await loaderError(res, t("api.unitsOfMeasureCouldNot"), t);
@@ -7915,12 +8508,12 @@ export interface LeaveRequestCountsDTO {
   readonly cancelled: number;
 }
 
-export function useLeaveRequestCounts(): UseQueryResult<LeaveRequestCountsDTO, ApiError> {
+export function useLeaveRequestCounts(gate: QueryGate = {}): UseQueryResult<LeaveRequestCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LeaveRequestCountsDTO, ApiError>({
     queryKey: ["hr-leave-request-counts"],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const res = await request("/hr/leave-requests/counts");
       if (!res.ok) throw await loaderError(res, t("api.theLeaveRequestSummaryCould"), t);
@@ -8298,7 +8891,7 @@ export function useCreateSalesReturnFromInvoice() {
   return useMutation<SalesReturnDocumentDTO, ApiError, BuildSalesReturnFromInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns/from-invoice", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theSalesReturnCouldNot"), t);
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -8386,12 +8979,12 @@ export interface TreasuryAccountStatsDTO {
  * The live figures come from the GL, because a treasury account's balance IS
  * its control account's balance.
  */
-export function useTreasuryAccountStats(): UseQueryResult<TreasuryAccountStatsDTO, ApiError> {
+export function useTreasuryAccountStats(gate: QueryGate = {}): UseQueryResult<TreasuryAccountStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<TreasuryAccountStatsDTO, ApiError>({
     queryKey: ["treasury-accounts", "stats"],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const res = await request("/treasury-accounts/stats");
       if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"), t);

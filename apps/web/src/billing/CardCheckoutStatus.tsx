@@ -7,6 +7,7 @@ const TONE: Record<CardCheckoutStatusDTO, PillTone> = {
   paid: "success",
   failed: "danger",
   unapplied: "warning",
+  refunded: "neutral",
 };
 
 const LABEL: Record<CardCheckoutStatusDTO, AppTranslationKey> = {
@@ -14,6 +15,7 @@ const LABEL: Record<CardCheckoutStatusDTO, AppTranslationKey> = {
   paid: "billing.checkoutStatus.paid",
   failed: "billing.checkoutStatus.failed",
   unapplied: "billing.checkoutStatus.unapplied",
+  refunded: "billing.checkoutStatus.refunded",
 };
 
 export function CardCheckoutChip({ status }: { status: CardCheckoutStatusDTO }) {

@@ -1,6 +1,9 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import {
+  EtaVatSubTypeCode,
+  TaxRateStatusCode,
   ETA_ACTIVITY_CODES,
   ETA_UNIT_CODES,
   EtaService,
@@ -20,6 +23,7 @@ import {
   EtaDeviceSerialUnknownError,
   EtaMissingExchangeRateError,
   EtaReissueNotRejectedError,
+  EtaReceiptNotASupplyError,
   EtaReissueWindowExpiredError,
   EtaReissueSameInternalIdError,
   ETA_RECEIPT_PAYMENT_METHODS,
@@ -30,6 +34,7 @@ import {
   EtaSignerNotConfiguredError,
   EtaSigningFailedError,
   EtaSubmissionNotFoundError,
+  EtaSubmissionInFlightError,
   InvalidEtaTransitionError,
   type EtaBranchCodeRepository,
   type EtaConfig,
@@ -47,6 +52,8 @@ import {
   type TaxRateRepository,
   AuditChangeAction,
   type AuditSink,
+  EtaReceiptSourceKind,
+  parseEtaReceiptSourceKind,
 } from "@mezan/domain";
 import { recordFieldChanges } from "./admin-audit.js";
 import {
@@ -59,6 +66,8 @@ import {
   EtaBulkRequeueOutcome,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 export interface EtaRoutesDeps {
   readonly service: EtaService;
@@ -78,7 +87,7 @@ export interface EtaRoutesDeps {
    * (a gap), once its cause is fixed. Wired to the backend's receipt issuer.
    */
   readonly issueDocumentReceipt?: (
-    kind: "invoice" | "return",
+    kind: EtaReceiptSourceKind,
     docId: string,
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
   /**
@@ -87,7 +96,7 @@ export interface EtaRoutesDeps {
    * Null when the document's receipt was never rejected — nothing to correct.
    */
   readonly reissueDocumentReceipt?: (
-    kind: "invoice" | "return",
+    kind: EtaReceiptSourceKind,
     docId: string,
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
   /**
@@ -128,7 +137,7 @@ async function readinessCounts(deps: EtaRoutesDeps): Promise<EtaReadinessCounts 
     branchesMissingCode: branches.filter((b) => b.active && !codedBranches.has(b.id)).length,
     itemsMissingCode: items.filter((i) => i.status === "active" && itemNeedsCode(i)).length,
     unitsMissingMapping: units.filter((u) => u.status === "active" && !mappedUnits.has(u.code)).length,
-    taxRatesMissingSubType: taxRates.filter((t) => t.status === "active" && t.etaSubType === "auto").length,
+    taxRatesMissingSubType: taxRates.filter((t) => t.status === TaxRateStatusCode.Active && t.etaSubType === EtaVatSubTypeCode.Auto).length,
   };
 }
 
@@ -187,10 +196,13 @@ function serializeSubmission(s: EtaSubmission, opts: { payload?: boolean } = {})
 }
 
 function handleError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof EtaSubmissionNotFoundError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
-  if (err instanceof DuplicateEtaSubmissionError) {
+  if (err instanceof DuplicateEtaSubmissionError || err instanceof EtaSubmissionInFlightError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof InvalidEtaTransitionError) {
@@ -209,8 +221,9 @@ function handleError(c: Context, err: unknown): Response {
   if (err instanceof EtaReceiptUuidUnavailableError) return c.json({ error: err.code, message: err.message }, 501);
   // A till whose device is not registered must be told so, loudly — not have a
   // receipt filed with a blank serial the authority will not accept.
-  if (err instanceof EtaDeviceSerialNotRegisteredError) return c.json({ error: err.code, message: err.message }, 409);
-  if (err instanceof EtaRefundReferenceRequiredError) return c.json({ error: err.code, message: err.message }, 400);
+  if (err instanceof EtaDeviceSerialNotRegisteredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  if (err instanceof EtaRefundReferenceRequiredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
+  if (err instanceof EtaReceiptNotASupplyError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   // D-B4 — a rejected receipt corrected too late, twice, or not rejected at all.
   if (
     err instanceof EtaReissueWindowExpiredError ||
@@ -224,11 +237,11 @@ function handleError(c: Context, err: unknown): Response {
     err instanceof EtaBuyerIdentityRequiredError ||
     err instanceof EtaRefundTooLateError ||
     err instanceof EtaOriginalReceiptNotFoundError ||
-    err instanceof EtaDeviceSerialUnknownError ||
-    err instanceof EtaMissingExchangeRateError
+    err instanceof EtaDeviceSerialUnknownError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
+  if (err instanceof EtaMissingExchangeRateError) return c.json({ error: err.code, message: err.message }, 422);
   if (err instanceof EtaReceiptChainConflictError) return c.json({ error: err.code, message: err.message }, 409);
   // ENH-011b: blocked before transmit — every failing rule, not just the
   // first, so a "Fix & Requeue" pass clears the batch in one read.
@@ -598,14 +611,14 @@ export function createEtaRoutes(
     const rates = await deps.taxRates.list();
     return c.json(
       rates
-        .filter((r) => r.status === "active")
+        .filter((r) => r.status === TaxRateStatusCode.Active)
         .map((r) => ({
           taxRateId: r.id,
           code: r.code,
           name: r.name,
           rate: r.rate,
           etaSubType: r.etaSubType,
-          resolved: r.etaSubType !== "auto",
+          resolved: r.etaSubType !== EtaVatSubTypeCode.Auto,
         })),
     );
   });
@@ -657,8 +670,8 @@ export function createEtaRoutes(
   });
 
   app.post("/receipts/issue/:kind/:docId", gate("accounting.eta.submit"), async (c) => {
-    const kind = c.req.param("kind");
-    if (kind !== "invoice" && kind !== "return") return c.json({ error: "NOT_FOUND" }, 404);
+    const kind = parseEtaReceiptSourceKind(c.req.param("kind"));
+    if (!kind) return c.json({ error: "NOT_FOUND" }, 404);
     if (!deps.issueDocumentReceipt) return c.json({ error: "NOT_CONFIGURED" }, 404);
     try {
       const printed = await deps.issueDocumentReceipt(kind, c.req.param("docId"));
@@ -675,8 +688,8 @@ export function createEtaRoutes(
   });
 
   app.post("/receipts/reissue/:kind/:docId", gate("accounting.eta.submit"), async (c) => {
-    const kind = c.req.param("kind");
-    if (kind !== "invoice" && kind !== "return") return c.json({ error: "NOT_FOUND" }, 404);
+    const kind = parseEtaReceiptSourceKind(c.req.param("kind"));
+    if (!kind) return c.json({ error: "NOT_FOUND" }, 404);
     if (!deps.reissueDocumentReceipt) return c.json({ error: "NOT_CONFIGURED" }, 404);
     try {
       const printed = await deps.reissueDocumentReceipt(kind, c.req.param("docId"));
@@ -740,6 +753,7 @@ export function createEtaRoutes(
       rejected: result.rejected.map((s) => serializeSubmission(s)),
       queued: result.queued,
       unsigned: result.unsigned,
+      blocked: result.blocked,
     });
   });
 
@@ -753,7 +767,7 @@ export function createEtaRoutes(
 
   app.post("/submissions/submit-all", gate("accounting.eta.submit"), async (c) => {
     const result = await service.submitAllReady();
-    return c.json({ submitted: result.submitted.map((s) => serializeSubmission(s)), queued: result.queued });
+    return c.json({ submitted: result.submitted.map((s) => serializeSubmission(s)), queued: result.queued, blocked: result.blocked });
   });
 
   app.post("/submissions/:id/accept", gate("accounting.eta.submit"), async (c) => {
@@ -827,7 +841,7 @@ export function createEtaRoutes(
         const submitted = await service.submit(id);
         results.push({ id, outcome: EtaBulkRequeueOutcome.Submitted, submission: serializeSubmission(submitted) });
       } catch (err) {
-        if (err instanceof EtaOfflineError) {
+        if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) {
           results.push({ id, outcome: EtaBulkRequeueOutcome.Queued, message: err.message });
         } else if (err instanceof EtaPrevalidationFailedError) {
           results.push({ id, outcome: EtaBulkRequeueOutcome.Blocked, message: err.message });

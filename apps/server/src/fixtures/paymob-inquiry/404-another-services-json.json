@@ -1,0 +1,9 @@
+{
+  "documentedAt": null,
+  "note": "",
+  "status": 404,
+  "body": {
+    "message": "not found"
+  },
+  "expect": "unreadable"
+}

@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   InvalidRecognitionRunError,
@@ -9,7 +10,6 @@ import {
   RecognitionRunNotFoundError,
   RecognitionRunNotLatestError,
   RecognitionService,
-  VatPeriodAlreadyFiledError,
   type RecognitionFigures,
   type RecognitionPreview,
   type RecognitionServiceDeps,
@@ -17,6 +17,8 @@ import {
 } from "@mezan/domain";
 import { postRecognitionRunSchema } from "@mezan/contracts";
 import { callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * تشغيل الاعتراف بالإيراد — the monthly EAS 48 run, its cost-to-complete
@@ -104,6 +106,9 @@ function serializePreview(preview: RecognitionPreview) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof RecognitionRunNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -126,9 +131,6 @@ function handleDomainError(c: Context, err: unknown) {
   // is a refusal the accountant has to read, never a 500.
   if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
     return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
-  }
-  if (err instanceof VatPeriodAlreadyFiledError) {
-    return c.json({ error: "VAT_PERIOD_FILED", message: err.message }, 409);
   }
   throw err;
 }

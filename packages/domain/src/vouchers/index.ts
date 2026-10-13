@@ -14,6 +14,7 @@ export {
   VOUCHER_TYPE_DEFINITIONS,
   VOUCHER_PAYMENT_METHODS,
   getVoucherTypeDefinition,
+  REFUNDED_MONEY,
   getVoucherPaymentMethodLabel,
   isVoucherType,
   isAllocatableType,
@@ -21,15 +22,19 @@ export {
 
 export {
   type VoucherLine,
+  type TreasuryLegFx,
   type VoucherDocument,
   type HeldAllocationRequest,
   VOUCHER_DOC_TYPE,
   voucherDocumentType,
   voucherLine,
   isStandingVoucher,
+  voucherTakesAllocations,
+  voucherStandsAsOf,
   voucherNetPaid,
   voucherBaseAmount,
   voucherBaseWithholding,
+  COMPANY_LEVEL_VOUCHER_BRANCH,
 } from "./voucher-document.js";
 
 export {
@@ -53,8 +58,15 @@ export {
   returnedByInvoice,
   allocationInvoiceAmount,
   allocationFxDifference,
+  unconsumedRevaluationShare,
+  FxOpenItemType,
+  type FxOpenItemRef,
+  type FxRevaluationShareRecord,
+  type FxRevaluationShareRepository,
+  type FxShareRelief,
   laterDay,
   settlementSplit,
+  settlementWithShares,
   sumActive,
   summarize,
   allocate,
@@ -63,10 +75,15 @@ export {
 
 export {
   FX_REALISED_DOC_TYPE,
+  FX_SHARE_RELEASE_ENTRY_PREFIX,
+  fxLateReleaseEntryId,
+  fxLateReleaseEntryIds,
   FX_REALISED_LINE_MEMO,
   FX_SETTLEMENT_LINE_MEMO,
   SettlementRateMissingError,
   buildRealisedFxLines,
+  buildRevaluationReleaseLines,
+  type RevaluationRelease,
   postRealisedFx,
   realisedFxEntryId,
   realisedFxReversalId,
@@ -98,13 +115,17 @@ export {
   CashBalanceWouldGoNegativeError,
   VoucherNotAllocatableError,
   VoucherNotConfirmedError,
+  VoucherReversedError,
   InvoiceNotFoundError,
   AllocationNotFoundError,
   AllocationMismatchError,
   AllocationCurrencyMismatchError,
   VoucherTreasuryCurrencyMismatchError,
   AllocationExceedsError,
+  AllocationIdTakenError,
   AllocationAlreadyReversedError,
   HeldAllocationRefusal,
   HeldAllocationRefusedError,
 } from "./errors.js";
+export { AllocationDateTooEarlyError, laterAllocationDay } from "./allocation-day.js";
+export { FxItemEventKind, fxItemOpenOn, fxItemTimeline, walkRunShare, type FxItemEvent, type FxItemTimeline, type RunShareStep, type RunShareWalk } from "./revaluation-share-timeline.js";

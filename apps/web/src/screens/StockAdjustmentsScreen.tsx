@@ -1,6 +1,11 @@
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -25,6 +30,7 @@ import {
   Money,
   Qty,
   ADJUSTMENT_REASON_DEFINITIONS,
+  DocumentStatusCode,
   getAdjustmentReasonDefinition,
   isAdjustmentReason,
   stockAdjustmentDocumentType,
@@ -56,6 +62,7 @@ import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** تسويات المخزون (Stock Adjustments) — docs/archive/catalog/03. List + detail + create, on the real document-framework API. */
 
@@ -132,6 +139,7 @@ function blankLine(direction: StockMovementDirection): LineDraft {
 }
 
 export function StockAdjustmentsScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.StockAdjustment);
   const effectText = useDocumentEffectText();
   const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
@@ -186,6 +194,7 @@ export function StockAdjustmentsScreen() {
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
   const [reasonChoice, setReasonChoice] = useState<AdjustmentReasonDefinition | null>(null);
+  const savedNotice = useAlreadySavedNotice();
   /**
    * `#/…/stock-adjustments/new/<REASON>/<itemId?>` — the reason (and optionally
    * the item) can arrive in the URL, which is how "set opening balance" on a
@@ -211,6 +220,7 @@ export function StockAdjustmentsScreen() {
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const listConfirm = useConfirmStockAdjustment();
+  const resubmit = useResubmitForApproval(ResubmitFamily.StockAdjustments);
 
   const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
   const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
@@ -227,16 +237,21 @@ export function StockAdjustmentsScreen() {
    * say so plainly when the server does not have it either.
    */
   const inList = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
-  const fetched = useStockAdjustment(selectedId !== null && inList === null ? selectedId : null);
+  const fetched = useStockAdjustment(selectedId !== null && inList === null && !query.isPending ? selectedId : null);
   const selected: StockAdjustmentDocumentDTO | null = inList ?? fetched.data ?? null;
-  const selectedMissing = selectedId !== null && selected === null && !fetched.isPending;
+  const selectedMissing = selectedId !== null && selected === null && !query.isPending && !fetched.isPending;
 
   const columns: DocumentListColumn<StockAdjustmentDocumentDTO>[] = [
     {
       key: "docNo",
       header: t("stockAdj.adjustmentNumber"),
       sortable: true,
-      render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? "—"}</span>,
+      render: (d) => (
+        <span className="flex flex-col items-start gap-[2px]">
+          <span className="mz-num font-semibold text-ink">{d.docNo ?? "—"}</span>
+          {reversalLink(d)}
+        </span>
+      ),
     },
     { key: "date", header: t("common.date"), sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
     {
@@ -255,12 +270,31 @@ export function StockAdjustmentsScreen() {
     { key: "status", header: t("common.status"), render: (d) => <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} /> },
   ];
 
+  function reversalLink(d: StockAdjustmentDocumentDTO) {
+    const otherId = d.reversedByDocId ?? d.reversesDocId ?? null;
+    if (otherId === null) return null;
+    const other = documents.find((candidate) => candidate.id === otherId);
+    const label = t(d.reversedByDocId ? "stockAdj.reversedByDocument" : "stockAdj.reversesDocument", { number: other?.docNo ?? otherId });
+    return (
+      <button
+        type="button"
+        className="text-[11.5px] font-semibold text-brand underline-offset-2 hover:underline"
+        onClick={(event) => {
+          event.stopPropagation();
+          subPage.open(other?.docNo ?? otherId);
+        }}
+      >
+        {label}
+      </button>
+    );
+  }
+
   function openDetail(id: string) {
     const doc = documents.find((d) => d.id === id);
     subPage.open(doc?.docNo ?? id);
   }
 
-  async function confirmRow(id: string): Promise<void> {
+  async function confirmRow(id: string): Promise<RowActionOutcome | void> {
     if (rowPendingId) return;
     setRowError(null);
     setRowPendingId(id);
@@ -268,6 +302,7 @@ export function StockAdjustmentsScreen() {
       await listConfirm.mutateAsync(id);
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -313,6 +348,11 @@ export function StockAdjustmentsScreen() {
           setSelectedReason(null);
           subPage.close();
         }}
+        onAlreadySaved={(savedId) => {
+          savedNotice.show(savedId);
+          setSelectedReason(null);
+          subPage.open(savedId);
+        }}
         onBack={() => setSelectedReason(null)}
       />
     );
@@ -336,6 +376,8 @@ export function StockAdjustmentsScreen() {
     const effects = stockAdjustmentDocumentType.describeEffects(toDomainDoc(selected));
     return (
       <div className="w-full">
+        <AlreadySavedNotice notice={savedNotice} openId={selected.id} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
+        <HeldDocumentReapproval document={selected} pending={listConfirm.isPending} confirm={(id) => listConfirm.mutateAsync(id)} />
         <DocumentDetail
           title={selected.docNo ?? t("stockAdj.stockAdjustment")}
           statusLabel={documentStatusLabel(selected.status, t)}
@@ -346,6 +388,7 @@ export function StockAdjustmentsScreen() {
             { label: t("stockAdj.reason"), value: domainLabel(def) },
             { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
             { label: t("stockAdj.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
+            ...(selected.reversedByDocId || selected.reversesDocId ? [{ label: t("stockAdj.linkedReversal"), value: reversalLink(selected) }] : []),
             ...(selected.projectId ? [{ label: t("common.project"), value: projectLabel(selected.projectId) ?? selected.projectId }] : []),
             ...(selected.costCategory
               ? [{ label: t("common.costCategory"), value: t(`costCategory.${selected.costCategory}` as AppTranslationKey) }]
@@ -373,6 +416,9 @@ export function StockAdjustmentsScreen() {
             },
           ]}
         />
+        <div className="mt-[16px]">
+          <ResubmitForApprovalAction family={ResubmitFamily.StockAdjustments} document={selected} />
+        </div>
       </div>
     );
   }
@@ -395,6 +441,7 @@ export function StockAdjustmentsScreen() {
           {rowError}
         </div>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<StockAdjustmentDocumentDTO>
         title={t("stockAdj.stockAdjustments")}
         description={t("stockAdj.draftConfirmedAdjustmentsThatChange")}
@@ -466,8 +513,10 @@ export function StockAdjustmentsScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => openDetail(d.id) },
             ...(d.status === "draft"
-              ? [{ key: "confirm", label: t("stockAdj.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
+              ? [{ key: "confirm", label: t("stockAdj.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => confirmRow(d.id) }]
               : []),
+            ...resubmitRowMenuItems(resubmit, d),
+            ...(d.status === DocumentStatusCode.Confirmed && !d.reversesDocId ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
         }}
@@ -493,6 +542,7 @@ export function StockAdjustmentsScreen() {
           />
         }
       />
+      {reversal.dialog}
     </div>
   );
 }
@@ -600,8 +650,10 @@ function CreateAdjustmentView({
   warehouses,
   items,
   onDone,
+  onAlreadySaved,
   onBack,
 }: {
+  onAlreadySaved: (savedId: string) => void;
   /** Prefills the first line, for "set opening balance" on an item row (R5.3). */
   initialItemId?: string | null;
   reason: AdjustmentReasonDefinition;
@@ -616,6 +668,7 @@ function CreateAdjustmentView({
   const reasonLabel = reasonLabelOf(reason);
   const createAdjustment = useCreateStockAdjustment();
   const confirmAdjustment = useConfirmStockAdjustment();
+  const adjustmentId = useDocumentId(onAlreadySaved);
   const projectsQuery = useProjects();
   const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
@@ -669,7 +722,7 @@ function CreateAdjustmentView({
     setError(null);
     try {
       const draft = await createAdjustment.mutateAsync({
-        id: crypto.randomUUID(),
+        id: adjustmentId.current(),
         date,
         memo: memo.trim() || `${reason.labelAr} — ${warehouseLabel(warehouseId)}`,
         lines: lines.map((l) => ({
@@ -683,9 +736,11 @@ function CreateAdjustmentView({
         projectId: projectId || null,
         costCategory: projectId && costCategory ? costCategory : null,
       });
-      await confirmAdjustment.mutateAsync(draft.id);
+      if (draft.status === "draft") await confirmAdjustment.mutateAsync(draft.id);
+      adjustmentId.renew();
       onDone();
     } catch (err) {
+      if (adjustmentId.recover(err)) return;
       setError(err instanceof Error ? err.message : t("stockAdj.theAdjustmentCouldNotBe"));
     }
   }

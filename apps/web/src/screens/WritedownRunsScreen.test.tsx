@@ -35,7 +35,11 @@ const sampleRuns: WritedownRunDTO[] = [
   },
 ];
 
-function renderScreen(runs: WritedownRunDTO[] = sampleRuns) {
+let reverseBodies: unknown[] = [];
+let reverseRefusal: { error: string; message: string; messageEn: string } | null = null;
+
+function renderScreen(runs: WritedownRunDTO[] = sampleRuns, session = testAdminSession) {
+  reverseBodies = [];
   let current = [...runs];
   const transport = stubTransport({
     "GET /inventory/writedown-runs": () => ({ body: current }),
@@ -59,13 +63,19 @@ function renderScreen(runs: WritedownRunDTO[] = sampleRuns) {
       current = [...current, created];
       return { status: 201, body: created };
     },
+    "POST /inventory/writedown-runs/run-2/reverse": (init) => {
+      reverseBodies.push(JSON.parse((init?.body as string) ?? "{}"));
+      if (reverseRefusal) return { status: 422, body: reverseRefusal };
+      current = current.map((r) => (r.id === "run-2" ? { ...r, status: "cancelled" } : r));
+      return { body: current[1] };
+    },
     "POST /inventory/writedown-runs/run-1/post": () => {
       const posted: WritedownRunDTO = { ...current[0]!, status: "posted", journalEntryId: "je-901", postedAt: "2026-06-02T00:00:00.000Z" };
       current = [posted, ...current.slice(1)];
       return { body: posted };
     },
   });
-  return renderWithProviders(<WritedownRunsScreen />, { transport, initialSession: testAdminSession });
+  return renderWithProviders(<WritedownRunsScreen />, { transport, initialSession: session });
 }
 
 describe("WritedownRunsScreen", () => {
@@ -130,5 +140,55 @@ describe("WritedownRunsScreen", () => {
     const detail = screen.getByRole("dialog", { name: /عملية هبوط قيمة —/ });
     expect(within(detail).getByText("item-2")).toBeInTheDocument();
     expect(within(detail).getByText("400")).toBeInTheDocument();
+  });
+
+  describe("reversing a posted run", () => {
+    it("offers the reversal on a posted run only, and not at all to a seat without the right to run write-downs", async () => {
+      reverseRefusal = null;
+      const view = renderScreen();
+      await screen.findByText("2026-06");
+      fireEvent.click(screen.getByRole("button", { name: "إجراءات 2026-05" }));
+      expect(screen.getByRole("menuitem", { name: "عكس تشغيل الهبوط" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "إجراءات 2026-06" }));
+      const draftRow = screen.getByText("2026-06").closest("tr") as HTMLElement;
+      expect(within(draftRow).getByRole("menuitem", { name: "ترحيل" })).toBeInTheDocument();
+      expect(within(draftRow).queryByRole("menuitem", { name: "عكس تشغيل الهبوط" })).not.toBeInTheDocument();
+      view.unmount();
+
+      renderScreen(sampleRuns, { ...testAdminSession, permissions: ["inventory.writedown.view"] });
+      await screen.findByText("2026-06");
+      fireEvent.click(screen.getByRole("button", { name: "إجراءات 2026-05" }));
+      expect(screen.queryByRole("menuitem", { name: "عكس تشغيل الهبوط" })).not.toBeInTheDocument();
+    });
+
+    it("sends the stated reason, then shows the run as cancelled from the refreshed list", async () => {
+      reverseRefusal = null;
+      renderScreen();
+      await screen.findByText("2026-06");
+      fireEvent.click(screen.getByRole("button", { name: "إجراءات 2026-05" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "عكس تشغيل الهبوط" }));
+      const dialog = screen.getByRole("dialog", { name: "عكس تشغيل هبوط قيمة المخزون؟" });
+      expect(within(dialog).getByText(/2026-05/)).toBeInTheDocument();
+      fireEvent.change(within(dialog).getByLabelText("سبب العكس"), { target: { value: "نسبة الهبوط أُدخلت خطأ" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "عكس تشغيل الهبوط" }));
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "عكس تشغيل هبوط قيمة المخزون؟" })).not.toBeInTheDocument());
+      expect(reverseBodies).toEqual([{ memo: "نسبة الهبوط أُدخلت خطأ" }]);
+      const row = (await screen.findByText("2026-05")).closest("tr") as HTMLElement;
+      await waitFor(() => expect(within(row).getByText("ملغي")).toBeInTheDocument());
+    });
+
+    it("shows the server's refusal in the dialog and leaves the run posted", async () => {
+      reverseRefusal = { error: "PERIOD_LOCKED", message: "الفترة «مايو 2026» مقفلة ولا يُرحَّل إليها.", messageEn: "May 2026 is locked." };
+      renderScreen();
+      await screen.findByText("2026-06");
+      fireEvent.click(screen.getByRole("button", { name: "إجراءات 2026-05" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "عكس تشغيل الهبوط" }));
+      const dialog = screen.getByRole("dialog", { name: "عكس تشغيل هبوط قيمة المخزون؟" });
+      fireEvent.change(within(dialog).getByLabelText("سبب العكس"), { target: { value: "خطأ" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "عكس تشغيل الهبوط" }));
+      expect(await within(dialog).findByRole("alert")).toHaveTextContent("الفترة «مايو 2026» مقفلة ولا يُرحَّل إليها.");
+      const row = screen.getByText("2026-05").closest("tr") as HTMLElement;
+      expect(within(row).getByText("مرحل")).toBeInTheDocument();
+    });
   });
 });

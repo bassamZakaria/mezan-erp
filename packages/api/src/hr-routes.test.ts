@@ -153,6 +153,32 @@ describe("Employees", () => {
     expect(fetched.status).toBe(200);
   });
 
+  it("terminates on an effective date: today when none is given, a past day when named, never a day to come or one before the hire", async () => {
+    const { app } = newApp();
+    const hire = async (id: string) =>
+      ((await (await app.fetch(jsonReq("/employees", "hr.employee.create", { id, firstName: "A", lastName: id, branchId: "MAIN", hireDate: "2026-01-10" }))).json()) as { id: string }).id;
+    const terminate = (id: string, body: unknown) => app.fetch(jsonReq(`/employees/${id}/terminate`, "hr.employee.terminate", body));
+    const today = new Date().toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+
+    const backdated = await terminate(await hire("e-back"), { effectiveDate: "2026-06-12" });
+    expect(backdated.status).toBe(200);
+    expect(await backdated.json()).toMatchObject({ status: "terminated", terminatedAt: "2026-06-12" });
+
+    const defaulted = (await (await terminate(await hire("e-today"), {})).json()) as { terminatedAt: string };
+    expect(Math.abs(Date.parse(defaulted.terminatedAt) - Date.parse(today))).toBeLessThanOrEqual(86_400_000);
+    expect(defaulted.terminatedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    const stays = await hire("e-stays");
+    for (const effectiveDate of [tomorrow, "2026-01-09", "12/06/2026"]) {
+      const refused = await terminate(stays, { effectiveDate });
+      expect([effectiveDate, refused.status]).toEqual([effectiveDate, 422]);
+      expect(((await refused.json()) as { message: string }).message).toMatch(/[\u0600-\u06FF]/);
+    }
+    const still = (await (await app.fetch(req(`/employees/${stays}`, { permissions: "hr.employee.view" }))).json()) as { status: string; terminatedAt: string | null };
+    expect(still).toMatchObject({ status: "active", terminatedAt: null });
+  });
+
   it("transitions and terminates an employee", async () => {
     const { app } = newApp();
     const created = (await (

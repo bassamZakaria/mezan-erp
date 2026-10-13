@@ -1,24 +1,58 @@
 import { useRouter } from "expo-router";
-import { Children, useState, type ReactNode } from "react";
+import { Children, useEffect, useState, type ReactNode } from "react";
 import { KeyboardAvoidingView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Button } from "@/components/button";
+import { Button, ButtonTone } from "@/components/button";
 import { LegalLinks } from "@/components/legal-links";
 import { TextField } from "@/components/text-field";
-import { describeApiError } from "@/api/errors";
-import { useStrings } from "@/i18n";
+import { ApiError, ApiFailure, describeApiError } from "@/api/errors";
+import { useStrings, WaitUnit, type Strings, type WaitForms } from "@/i18n";
 import { SizeClass, useFormPadding, useSizeClass } from "@/layout";
-import { useSession } from "@/session/SessionProvider";
+import { SessionEnded, useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
 
 const PIN_LENGTH = 6;
+const SECOND_MS = 1000;
+const SHOWN_AS_MINUTES_FROM = 120;
+
+enum Hold {
+  None = "none",
+  Throttled = "throttled",
+  ServerBusy = "server-busy",
+}
+
+const FEW = 10;
+
+function counted(count: number, forms: WaitForms): string {
+  const form = count === 1 ? forms.one : count === 2 ? forms.two : count <= FEW ? forms.few : forms.many;
+  return form.replace("{count}", String(count));
+}
+
+function formatWait(seconds: number, strings: Strings): string {
+  if (seconds < SHOWN_AS_MINUTES_FROM) return counted(seconds, strings.signIn.wait[WaitUnit.Seconds]);
+  return counted(Math.ceil(seconds / 60), strings.signIn.wait[WaitUnit.Minutes]);
+}
+
+// The wait is counted down in ONE place, on the button. A throttle's own
+// sentence names a number of seconds that is stale a second later, so the
+// screen says what happened and leaves the number to the button.
+function refusalSentence(error: unknown, hold: Hold, strings: Strings): string {
+  return hold === Hold.Throttled ? strings.signIn.tooManyAttempts : describeApiError(error, strings);
+}
+
+function holdFor(error: unknown): { readonly hold: Hold; readonly seconds: number } {
+  if (!(error instanceof ApiError) || error.retryAfterSeconds === null) return { hold: Hold.None, seconds: 0 };
+  if (error.failure === ApiFailure.Throttled) return { hold: Hold.Throttled, seconds: error.retryAfterSeconds };
+  if (error.failure === ApiFailure.Unavailable) return { hold: Hold.ServerBusy, seconds: error.retryAfterSeconds };
+  return { hold: Hold.None, seconds: 0 };
+}
 
 export function SignIn() {
   const strings = useStrings();
   const theme = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { connection, signIn } = useSession();
+  const { connection, signIn, unlockAccount, sessionEnded, acknowledgeSessionEnded } = useSession();
   const formPadding = useFormPadding();
   const paired = useSizeClass() !== SizeClass.Compact;
 
@@ -28,24 +62,75 @@ export function SignIn() {
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [hold, setHold] = useState(Hold.None);
+  const [heldForSeconds, setHeldForSeconds] = useState(0);
+  const [unlockOffered, setUnlockOffered] = useState(false);
+  const [unlockCode, setUnlockCode] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+
+  const held = heldForSeconds > 0;
+  useEffect(() => {
+    if (held || hold !== Hold.Throttled) return;
+    setFailure(null);
+    setHold(Hold.None);
+  }, [held, hold]);
+  useEffect(() => {
+    if (!held) return;
+    const timer = setInterval(() => {
+      setHeldForSeconds((seconds) => Math.max(0, seconds - 1));
+    }, SECOND_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [held]);
 
   const complete = baseUrl.trim().length > 0 && email.trim().length > 0 && pin.length === PIN_LENGTH;
+  const tenant = tenantCode.trim() === "" ? null : tenantCode.trim();
+
+  const submitUnlockCode = (): void => {
+    const code = unlockCode.trim();
+    if (unlocking || held || code === "") return;
+    setUnlocking(true);
+    void unlockAccount({ baseUrl: baseUrl.trim(), tenantCode: tenant, email: email.trim(), code })
+      .then(() => {
+        setUnlockOffered(false);
+        setUnlockCode("");
+        setFailure(null);
+        setNotice(strings.signIn.unlockDone);
+      })
+      .catch((error: unknown) => {
+        const wait = holdFor(error);
+        setFailure(refusalSentence(error, wait.hold, strings));
+        setHold(wait.hold);
+        setHeldForSeconds(wait.seconds);
+      })
+      .finally(() => {
+        setUnlocking(false);
+      });
+  };
 
   const submit = (): void => {
-    if (busy || !complete) return;
+    if (busy || !complete || held) return;
     setBusy(true);
     setFailure(null);
+    setNotice(null);
     void signIn({
       baseUrl: baseUrl.trim(),
-      tenantCode: tenantCode.trim() === "" ? null : tenantCode.trim(),
+      tenantCode: tenant,
       email: email.trim(),
       pin,
     })
       .then(() => {
+        acknowledgeSessionEnded();
         router.replace("/(tabs)");
       })
       .catch((error: unknown) => {
-        setFailure(describeApiError(error, strings));
+        const wait = holdFor(error);
+        setFailure(refusalSentence(error, wait.hold, strings));
+        setUnlockOffered(error instanceof ApiError && error.failure === ApiFailure.Locked && error.unlockByCode);
+        setHold(wait.hold);
+        setHeldForSeconds(wait.seconds);
         setPin("");
       })
       .finally(() => {
@@ -118,12 +203,52 @@ export function SignIn() {
           />
         </Pair>
 
-        {failure === null ? null : <Text style={[styles.failure, { color: theme.negative }]}>{failure}</Text>}
+        {sessionEnded === null || failure !== null ? null : (
+          <Text accessibilityRole="alert" style={[styles.failure, { color: theme.negative }]} testID="sign-in-session-ended">
+            {sessionEnded === SessionEnded.Displaced ? strings.signIn.sessionDisplaced : strings.signIn.sessionExpired}
+          </Text>
+        )}
+        {failure === null ? null : (
+          <Text accessibilityRole="alert" style={[styles.failure, { color: theme.negative }]} testID="sign-in-failure">
+            {failure}
+          </Text>
+        )}
+        {notice === null ? null : (
+          <Text style={[styles.failure, { color: theme.positive }]} testID="sign-in-notice">
+            {notice}
+          </Text>
+        )}
+
+        {unlockOffered ? (
+          <View style={styles.unlock}>
+            <TextField
+              autoCapitalize="characters"
+              label={strings.signIn.unlockCodeLabel}
+              onChangeText={setUnlockCode}
+              testID="sign-in-unlock-code"
+              value={unlockCode}
+            />
+            <Button
+              busy={unlocking}
+              disabled={unlockCode.trim() === "" || held}
+              label={strings.signIn.unlockSubmit}
+              onPress={submitUnlockCode}
+              testID="sign-in-unlock-submit"
+              tone={ButtonTone.Quiet}
+            />
+          </View>
+        ) : null}
 
         <Button
           busy={busy}
-          disabled={!complete}
-          label={busy ? strings.signIn.submitting : strings.signIn.submit}
+          disabled={!complete || held}
+          label={
+            held
+              ? `${hold === Hold.ServerBusy ? strings.signIn.busyFor : strings.signIn.throttledFor} ${formatWait(heldForSeconds, strings)}`
+              : busy
+                ? strings.signIn.submitting
+                : strings.signIn.submit
+          }
           onPress={submit}
           testID="sign-in-submit"
         />
@@ -160,4 +285,5 @@ const styles = StyleSheet.create({
   title: { fontSize: TYPE.title, fontWeight: "700" },
   subtitle: { fontSize: TYPE.label },
   failure: { fontSize: TYPE.label, fontWeight: "600" },
+  unlock: { gap: SPACE.sm },
 });

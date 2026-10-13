@@ -251,9 +251,6 @@ test.describe("Treasury accounts", () => {
   });
 
   test("lists the seeded treasury accounts with type and status", async ({ page }) => {
-    // demo-seed.ts's TREASURY_ACCOUNTS (cash, the EGP bank, the USD bank) plus
-    // the van cash custody account. The total is not pinned: treasury-vouchers
-    // and sales-invoices add accounts of their own to this shared tenant.
     await expect(page.getByText(/عرض \d+ من \d+ حساب/)).toBeVisible();
     const usdRow = row(page, "البنك الأهلي — دولار");
     await expect(usdRow.getByText("بنكي", { exact: true })).toBeVisible();
@@ -364,20 +361,53 @@ test.describe("Fiscal periods", () => {
     await expect(page.getByRole("heading", { name: "الفترات المالية" })).toBeVisible();
   });
 
-  test("shows the current fiscal year's 12 periods, all seeded open", async ({ page }) => {
+  const OVERRIDE_REASON = "تجاوز لاختبار دورة حياة الفترة";
+
+  async function closeWithOverride(page: Page, month: string): Promise<void> {
+    const period = row(page, month, false);
+    await period.getByRole("button", { name: /^إجراءات/ }).click();
+    await period.getByRole("menuitem", { name: "إغلاق" }).click();
+    await expect(page.getByRole("heading", { name: "مساحة إقفال الفترة" })).toBeVisible();
+    await page.getByRole("button", { name: "إقفال مع تجاوز الفحوص" }).click();
+    const dialog = page.getByRole("dialog", { name: new RegExp(`تجاوز فحوص الإقفال لـ ${month} ${SANDBOX_YEAR}`) });
+    await dialog.getByRole("textbox", { name: "سبب التجاوز" }).fill(OVERRIDE_REASON);
+    await dialog.getByRole("button", { name: "إقفال مع تجاوز الفحوص" }).click();
+    await expect(page.getByText(`تم إقفال ${month} ${SANDBOX_YEAR}.`)).toBeVisible();
+    await page.getByRole("button", { name: "الفترات المالية" }).click();
+    await expect(page.getByRole("heading", { name: "الفترات المالية" })).toBeVisible();
+    await showYear(page, SANDBOX_YEAR);
+    await expect(row(page, month, false).getByText("مغلقة")).toBeVisible();
+  }
+
+  async function expectLockNeedsASecondUser(page: Page, month: string): Promise<void> {
+    const period = row(page, month, false);
+    await period.getByRole("button", { name: /^إجراءات/ }).click();
+    await period.getByRole("menuitem", { name: "قفل" }).click();
+    await expect(page.getByRole("heading", { name: "مساحة إقفال الفترة" })).toBeVisible();
+    await expect(page.getByText("أنت من أقفل هذه الفترة؛ قفلها نهائياً فوق فحوص غير مكتملة يتطلب مستخدماً آخر يملك الصلاحية، أو عالج الفحوص أولاً.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "قفل الفترة نهائياً" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "قفل مع تجاوز الفحوص" })).toHaveCount(0);
+    await page.getByRole("button", { name: "الفترات المالية" }).click();
+    await expect(page.getByRole("heading", { name: "الفترات المالية" })).toBeVisible();
+    await showYear(page, SANDBOX_YEAR);
+  }
+
+  test("shows the current fiscal year's 12 periods: January to July closed by the seed, August onward open", async ({ page }) => {
     await showYear(page, CURRENT_YEAR);
     await expect(page.getByText("عرض 12 من 12 فترة")).toBeVisible();
-    await expect(row(page, "يناير", false).getByText("مفتوحة")).toBeVisible();
+    await expect(row(page, "يناير", false).getByText("مغلقة")).toBeVisible();
+    await expect(row(page, "يوليو", false).getByText("مغلقة")).toBeVisible();
+    await expect(row(page, "أغسطس", false).getByText("مفتوحة")).toBeVisible();
     await expect(row(page, "ديسمبر", false).getByText("مفتوحة")).toBeVisible();
 
     // The filter chips render as radios inside a `role="radiogroup"`.
     await expect(page.getByRole("radio", { name: "الكل (12)" })).toBeVisible();
-    await expect(page.getByRole("radio", { name: "مفتوحة (12)" })).toBeVisible();
-    await expect(page.getByRole("radio", { name: "مغلقة (0)" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "مفتوحة (5)" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "مغلقة (7)" })).toBeVisible();
     await expect(page.getByRole("radio", { name: "مقفلة (0)" })).toBeVisible();
   });
 
-  test("an open period only offers إغلاق; closing it swaps in إعادة فتح/قفل", async ({ page }) => {
+  test("an open period only offers إغلاق; closing it through the close workspace swaps in إعادة فتح/قفل", async ({ page }) => {
     await showSandboxYear(page);
     const period = row(page, "أكتوبر", false); // untouched by every other test in this block
     await expect(period.getByText("مفتوحة")).toBeVisible();
@@ -385,57 +415,51 @@ test.describe("Fiscal periods", () => {
     await expect(period.getByRole("menuitem", { name: "إغلاق" })).toBeVisible();
     await expect(period.getByRole("menuitem", { name: "إعادة فتح" })).toHaveCount(0);
     await expect(period.getByRole("menuitem", { name: "قفل" })).toHaveCount(0);
-    await period.getByRole("menuitem", { name: "إغلاق" }).click();
+    await page.keyboard.press("Escape");
 
-    await expect(period.getByText("مغلقة")).toBeVisible();
-    await period.getByRole("button", { name: /^إجراءات/ }).click();
-    await expect(period.getByRole("menuitem", { name: "إغلاق" })).toHaveCount(0);
-    await expect(period.getByRole("menuitem", { name: "إعادة فتح" })).toBeVisible();
-    await expect(period.getByRole("menuitem", { name: "قفل" })).toBeVisible();
+    await closeWithOverride(page, "أكتوبر");
+
+    const closed = row(page, "أكتوبر", false);
+    await closed.getByRole("button", { name: /^إجراءات/ }).click();
+    await expect(closed.getByRole("menuitem", { name: "إغلاق" })).toHaveCount(0);
+    await expect(closed.getByRole("menuitem", { name: "إعادة فتح" })).toBeVisible();
+    await expect(closed.getByRole("menuitem", { name: "قفل" })).toBeVisible();
     await page.keyboard.press("Escape");
 
     await expect(page.getByRole("radio", { name: "مفتوحة (11)" })).toBeVisible();
     await expect(page.getByRole("radio", { name: "مغلقة (1)" })).toBeVisible();
   });
 
-  test("locking a closed period removes every further lifecycle action", async ({ page }) => {
+  test("locking a month over failing checks is refused to the user who closed it, and the month stays closed", async ({ page }) => {
     await showSandboxYear(page);
-    const period = row(page, "أبريل", false); // untouched by every other test in this block
-    await period.getByRole("button", { name: /^إجراءات/ }).click();
-    await period.getByRole("menuitem", { name: "إغلاق" }).click();
+    await closeWithOverride(page, "أبريل");
+
+    await expectLockNeedsASecondUser(page, "أبريل");
+
+    const period = row(page, "أبريل", false);
     await expect(period.getByText("مغلقة")).toBeVisible();
-
-    await period.getByRole("button", { name: /^إجراءات/ }).click();
-    await period.getByRole("menuitem", { name: "قفل" }).click();
-
-    await expect(period.getByText("مقفلة")).toBeVisible();
-    await expect(period.getByRole("button", { name: /^إجراءات/ })).toHaveCount(0); // locked is terminal — no actions at all
+    await expect(page.getByRole("radio", { name: "مقفلة (0)" })).toBeVisible();
   });
 
-  test("a period that has been locked has no lifecycle actions after a reload", async ({ page }) => {
+  test("a month whose lock was refused still offers إعادة فتح and قفل after a reload", async ({ page }) => {
     await showSandboxYear(page);
-    const period = row(page, "نوفمبر", false); // untouched by every other test in this block
-    await period.getByRole("button", { name: /^إجراءات/ }).click();
-    await period.getByRole("menuitem", { name: "إغلاق" }).click();
-    await expect(period.getByText("مغلقة")).toBeVisible();
-    await period.getByRole("button", { name: /^إجراءات/ }).click();
-    await period.getByRole("menuitem", { name: "قفل" }).click();
-    await expect(period.getByText("مقفلة")).toBeVisible();
+    await closeWithOverride(page, "نوفمبر");
+    await expectLockNeedsASecondUser(page, "نوفمبر");
 
     await page.reload();
     await expect(page.getByRole("heading", { name: "الفترات المالية" })).toBeVisible();
     await showYear(page, SANDBOX_YEAR);
     const reloaded = row(page, "نوفمبر", false);
-    await expect(reloaded.getByText("مقفلة")).toBeVisible();
-    await expect(reloaded.getByRole("button")).toHaveCount(0);
+    await expect(reloaded.getByText("مغلقة")).toBeVisible();
+    await reloaded.getByRole("button", { name: /^إجراءات/ }).click();
+    await expect(reloaded.getByRole("menuitem", { name: "إعادة فتح" })).toBeVisible();
+    await expect(reloaded.getByRole("menuitem", { name: "قفل" })).toBeVisible();
   });
 
   test("reopening a closed period restores it to open with only إغلاق available", async ({ page }) => {
     await showSandboxYear(page);
-    const period = row(page, "مايو", false); // untouched by every other test in this block
-    await period.getByRole("button", { name: /^إجراءات/ }).click();
-    await period.getByRole("menuitem", { name: "إغلاق" }).click();
-    await expect(period.getByText("مغلقة")).toBeVisible();
+    await closeWithOverride(page, "مايو");
+    const period = row(page, "مايو", false);
 
     await period.getByRole("button", { name: /^إجراءات/ }).click();
     await period.getByRole("menuitem", { name: "إعادة فتح" }).click();
@@ -449,8 +473,8 @@ test.describe("Fiscal periods", () => {
 
   test("none of the lifecycle transitions above touched the current year", async ({ page }) => {
     await showYear(page, CURRENT_YEAR);
-    await expect(page.getByRole("radio", { name: "مفتوحة (12)" })).toBeVisible();
-    await expect(page.getByRole("radio", { name: "مغلقة (0)" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "مفتوحة (5)" })).toBeVisible();
+    await expect(page.getByRole("radio", { name: "مغلقة (7)" })).toBeVisible();
     await expect(page.getByRole("radio", { name: "مقفلة (0)" })).toBeVisible();
   });
 });

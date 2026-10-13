@@ -3,6 +3,7 @@ import { Button, Card, Money as MoneyValue, StatusPill } from "@mezan/ui";
 import type { PartyStatementEntryKindDTO, PartyStatementLineDTO } from "@mezan/contracts";
 import { moneyToNumber, parseMoney, usePartyStatement } from "../data/partner-detail-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { BranchCaveatNote } from "./reports/BranchCaveatNote";
 
 type PartyKind = "customer" | "supplier";
 
@@ -100,6 +101,8 @@ export function PartyStatementTab({ kind, partyId }: { kind: PartyKind; partyId:
         <MiniStat label={t(key("totalCredit"))} value={<MoneyValue value={moneyToNumber(totals.credit)} showUnit={false} />} />
         <MiniStat label={t(key("closing"))} value={<MoneyValue value={moneyToNumber(closing)} showUnit={false} />} />
       </div>
+
+      {statement.branchCaveat ? <BranchCaveatNote caveat={statement.branchCaveat} /> : null}
 
       <div className="flex flex-wrap items-center gap-[10px] rounded-lg border border-border bg-surface p-[12px_15px]">
         <StatusPill label={matchesAging ? t(key("matchesAging")) : t(key("differsFromAging"))} tone={matchesAging ? "success" : "warning"} />

@@ -14,15 +14,42 @@
  */
 import type { EtaPrevalidationFinding } from "./prevalidate.js";
 
-export type EtaDocumentType = "invoice" | "credit_note" | "debit_note" | "receipt";
+export enum EtaDocumentTypeCode {
+  Invoice = "invoice",
+  CreditNote = "credit_note",
+  DebitNote = "debit_note",
+  Receipt = "receipt",
+}
+export type EtaDocumentType = `${EtaDocumentTypeCode}`;
 
-export type EtaSubmissionStatus =
-  | "ready" // جاهز — in the queue, not yet sent
-  | "pending_signature" // بانتظار التوقيع — awaiting e-seal (v1.0)
-  | "submitted" // مرسل — transmitted, awaiting authority acceptance
-  | "accepted" // مقبول — accepted by the authority (has a UUID)
-  | "error" // أخطاء — rejected / transmission error
-  | "excluded"; // مستبعد — deliberately not submitted (reason required)
+export enum EtaSubmissionStatusCode {
+  Ready = "ready",
+  PendingSignature = "pending_signature",
+  Submitted = "submitted",
+  Accepted = "accepted",
+  Error = "error",
+  Excluded = "excluded",
+}
+export type EtaSubmissionStatus = `${EtaSubmissionStatusCode}`;
+
+export enum EtaRequeueMode {
+  Never = "never",
+  OnRequest = "on_request",
+  Automatic = "automatic",
+}
+
+// INVARIANT: the ONE list of which queued documents may be rebuilt. A sent or
+// accepted document is evidence of what was filed and is never rebuilt. An
+// excluded one is rebuilt only when a user asks for it by name — nothing that
+// happens to its source document may put it back in the queue.
+export const ETA_REQUEUE_MODE: Readonly<Record<EtaSubmissionStatusCode, EtaRequeueMode>> = {
+  [EtaSubmissionStatusCode.Ready]: EtaRequeueMode.Automatic,
+  [EtaSubmissionStatusCode.PendingSignature]: EtaRequeueMode.Automatic,
+  [EtaSubmissionStatusCode.Error]: EtaRequeueMode.Automatic,
+  [EtaSubmissionStatusCode.Excluded]: EtaRequeueMode.OnRequest,
+  [EtaSubmissionStatusCode.Submitted]: EtaRequeueMode.Never,
+  [EtaSubmissionStatusCode.Accepted]: EtaRequeueMode.Never,
+};
 
 export interface EtaSubmissionStatusDefinition {
   readonly code: EtaSubmissionStatus;
@@ -110,6 +137,13 @@ export interface EtaSubmission {
    * report's grouping; `errors` alone is prose, not a stable key.
    */
   readonly rejectionCodes?: readonly (string | null)[];
+  /**
+   * When this document was handed to the authority with no answer recorded
+   * yet; null once the answer is. REQUIRED ORDERING: written BEFORE the call,
+   * so a crash or a lost turn after the authority received it leaves this set
+   * and the next drive asks what the authority holds instead of sending again.
+   */
+  readonly transmitStartedAt?: string | null;
 }
 
 /** Persistence port for the submission queue. */
@@ -117,6 +151,7 @@ export interface EtaSubmissionRepository {
   findById(id: string): Promise<EtaSubmission | null>;
   findByInternalId(internalId: string): Promise<EtaSubmission | null>;
   list(status?: EtaSubmissionStatus): Promise<EtaSubmission[]>;
+  statusByEtaUuid(etaUuid: string): Promise<EtaSubmissionStatus | null>;
   create(submission: EtaSubmission): Promise<void>;
   update(submission: EtaSubmission): Promise<void>;
 }

@@ -97,7 +97,16 @@ export async function run(ctx: Ctx): Promise<void> {
       "an unnamed dimension is not a widening",
       ungrantableScopes(branchManager, {}).length === 0,
     );
-    check("a tenant admin is never scope-limited", ungrantableScopes(admin, { branchScope: ALL_SCOPE }).length === 0);
+    // D111 round 3: `"*"` is every permission, not every branch. The bypass
+    // this line used to assert let an administrator granted one branch write
+    // `branchScope: "*"` onto any account, its own first.
+    check(
+      "a tenant admin granted one branch cannot hand out every branch",
+      ungrantableScopes(admin, { branchScope: ALL_SCOPE }).includes("branch:*"),
+      JSON.stringify(ungrantableScopes(admin, { branchScope: ALL_SCOPE })),
+    );
+    check("a tenant admin granted one branch can hand out that branch", ungrantableScopes(admin, { branchScope: ["BR-1"] }).length === 0);
+    check("a tenant admin granted every branch is not scope-limited", ungrantableScopes(ctxWith(["*"]), { branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }).length === 0);
   });
 
   await ctx.scenario("units — outranking accounts for both dimensions and fails CLOSED", async () => {
@@ -164,7 +173,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     // An unlock means "this person can sign in now", so it must clear every
     // source the account was counted under, not just the one that locked it.
-    remote.succeed(atCounter);
+    remote.unlock("owner@shop.example");
     check("an admin unlock clears the remote streak too", remote.retryAfter(fromWifi) === 0);
 
     // Unbounded growth: records are written BEFORE any account lookup, so an

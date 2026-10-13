@@ -2,6 +2,7 @@ import { z } from "zod";
 import { nonNegativeMoneyString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /** Wire contracts for Installments (خطط الأقساط + متابعة التحصيل، docs/archive/catalog/05). */
 
@@ -13,7 +14,7 @@ export const installmentLineStatusSchema = z.enum(["pending", "paid", "overdue",
 
 /** The create request carries raw schedule inputs; the API computes `generateInstallmentSchedule` server-side. */
 export const createInstallmentPlanSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDateOrInstant,
   memo: z.string().default(""),
   customerId: z.string().min(1),
@@ -91,7 +92,7 @@ export const followUpTypeSchema = z.enum(["CALL", "VISIT", "SMS", "EMAIL", "NOTE
 export const followUpStatusSchema = z.enum(["pending", "completed", "cancelled"]);
 
 export const createFollowUpSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   customerId: z.string().min(1),
   installmentPlanId: z.string().nullish(),
   type: followUpTypeSchema,

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { costCategorySchema } from "./contracting.js";
 import { moneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for the generic document framework (docs/archive/plan.md §3 document
@@ -52,7 +53,7 @@ export const journalDocumentLineSchema = z.object({
 
 /** Create a journal document (draft or to post in one step). */
 export const createJournalDocumentSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDateOrInstant,
   memo: z.string(),
   lines: z.array(journalDocumentLineSchema).min(2),

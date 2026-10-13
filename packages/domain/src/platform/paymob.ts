@@ -1,5 +1,5 @@
 import { Money } from "../money/money.js";
-import type { ProviderTransactionOutcome } from "./payment-provider.js";
+import { ProviderNonPaymentKind, ProviderTransactionOutcome } from "./payment-provider.js";
 
 // Paymob's documented concatenation order for the Transaction Processed
 // callback HMAC (HMAC-SHA512, lowercase hex, key = the merchant's HMAC secret).
@@ -108,12 +108,19 @@ function flag(obj: PaymobTransactionObject, key: string): boolean {
  * money yet.
  */
 export function classifyPaymobTransaction(obj: PaymobTransactionObject): ProviderTransactionOutcome {
-  if (flag(obj, "pending")) return "pending";
+  if (flag(obj, "pending")) return ProviderTransactionOutcome.Pending;
   if (flag(obj, "has_parent_transaction") || flag(obj, "is_refunded") || flag(obj, "is_voided") || flag(obj, "is_auth")) {
-    return "not_a_payment";
+    return ProviderTransactionOutcome.NotAPayment;
   }
-  if (flag(obj, "success") && !flag(obj, "error_occured")) return "paid";
-  return "failed";
+  if (flag(obj, "success") && !flag(obj, "error_occured")) return ProviderTransactionOutcome.Paid;
+  return ProviderTransactionOutcome.Failed;
+}
+
+export function paymobNonPaymentKind(obj: PaymobTransactionObject): ProviderNonPaymentKind | null {
+  if (classifyPaymobTransaction(obj) !== ProviderTransactionOutcome.NotAPayment) return null;
+  if (flag(obj, "is_refunded") || flag(obj, "is_refund")) return ProviderNonPaymentKind.Refund;
+  if (flag(obj, "is_voided") || flag(obj, "is_void")) return ProviderNonPaymentKind.Void;
+  return ProviderNonPaymentKind.Other;
 }
 
 export interface ParsedPaymobTransaction {
@@ -124,6 +131,7 @@ export interface ParsedPaymobTransaction {
   readonly amount: Money;
   readonly currency: string;
   readonly outcome: ProviderTransactionOutcome;
+  readonly nonPayment: ProviderNonPaymentKind | null;
   readonly occurredAt: string;
 }
 
@@ -153,6 +161,7 @@ export function parsePaymobTransaction(obj: PaymobTransactionObject): ParsedPaym
     amount,
     currency,
     outcome: classifyPaymobTransaction(obj),
+    nonPayment: paymobNonPaymentKind(obj),
     occurredAt: typeof createdAt === "string" ? createdAt : "",
   };
 }

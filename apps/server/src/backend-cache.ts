@@ -11,7 +11,9 @@ export interface BackendCacheOptions<H extends CachedHandle> {
 
 export interface BackendCache<H> {
   get(code: string): Promise<H>;
+  peek(code: string): Promise<H> | undefined;
   sweep(): Promise<void>;
+  evict(code: string): Promise<void>;
   close(): Promise<void>;
   readonly size: number;
   /** The codes with a currently open (cached) handle — a closed tenant's code is absent, not merely idle. */
@@ -59,7 +61,15 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
         throw err;
       }
     },
+    peek: (code) => entries.get(code)?.handle,
     sweep,
+    async evict(code) {
+      const entry = entries.get(code);
+      if (!entry) return;
+      entries.delete(code);
+      options.onEvict?.(code);
+      await entry.handle.then((handle) => handle.close()).catch(() => undefined);
+    },
     async close() {
       closed = true;
       if (timer) clearInterval(timer);

@@ -16,7 +16,8 @@
 
 import { Money } from "../money/index.js";
 import { postJournalEntry, reverseJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
-import { laterDay, type AllocatableInvoice, type SettlementRates, type SettlementSplit, type VoucherAllocation } from "./allocation.js";
+import { FX_SHARE_RELEASE_ENTRY_PREFIX } from "../gl/revaluation-lock.js";
+import { laterDay, type AllocatableInvoice, type FxOpenItemRef, type FxShareRelief, type SettlementRates, type SettlementSplit, type VoucherAllocation } from "./allocation.js";
 import type { AllocationInvoiceKind } from "./voucher-types.js";
 
 /** `sourceDocType` of a realised-FX entry and, through the mirror, of its reversal. The ladders skip these lines by it. */
@@ -32,6 +33,9 @@ export const FX_REALISED_LINE_MEMO = "فروق عملة محققة";
 /** Memo on the two control-account lines of a settlement entry (D260); FX revaluation reads their foreign amounts. */
 export const FX_SETTLEMENT_LINE_MEMO = "تسوية فاتورة بعملة أجنبية";
 
+/** INVARIANT: the revaluation's own memo — FX revaluation reads such a line as base only, and the aging ladders net it against the restatement it relieves. */
+export const FX_REVALUATION_SHARE_MEMO = "إعادة تقييم عملات أجنبية";
+
 /** What a settlement needs to know about rates and where the difference goes. */
 export interface RealisedFxPort {
   /** The currency and rate a foreign invoice was booked at; null for a base-currency one. */
@@ -40,6 +44,10 @@ export interface RealisedFxPort {
   rateOn(currency: string, date: string): Promise<string | null>;
   /** Where a realised difference posts, read at each posting so a tenant's account routing applies at once (D229). */
   differenceAccounts(): Promise<FxDifferenceAccounts>;
+  revaluationShareTaken?(item: FxOpenItemRef, relief: FxShareRelief): Promise<Money>;
+  releaseMoneyShare?(voucherId: string, date: string): Promise<void>;
+  treasuryRevaluationShare?(treasuryAccountId: string, foreign: Money, fromDate: string, toDate: string): Promise<Money>;
+  treasuryPosition?(treasuryAccountId: string, asOfDate: string): Promise<{ readonly foreign: Money; readonly base: Money } | null>;
 }
 
 /** أرباح / خسائر فروق العملة المحققة — the realised gain and loss accounts. */
@@ -130,12 +138,13 @@ export function buildRealisedFxLines(input: RealisedFxPostingInput, accounts: Fx
   const diff = input.split.fxDifference.scaled;
   const moneyRate = input.money.fxRate ?? null;
   const moneyCurrency = moneyRate ? (input.money.currency ?? null) : null;
-  if (diff === 0n && moneyRate && moneyCurrency === input.currency && sameRate(moneyRate, input.invoiceRate)) return null;
+  const share = (input.split.revaluationShare?.scaled ?? 0n) + (input.split.moneyRevaluationShare?.scaled ?? 0n);
+  if (diff === 0n && share === 0n && moneyRate && moneyCurrency === input.currency && sameRate(moneyRate, input.invoiceRate)) return null;
   const zero = Money.zero();
   const receivable = input.invoice.kind === "sales";
   const branchId = input.branchId ?? null;
   const partyId = input.invoice.partyId;
-  const used = Money.fromScaled(input.split.relief.scaled + diff);
+  const used = Money.fromScaled(input.split.relief.scaled + share + diff);
   const relief = input.split.relief;
   const lines: JournalLineInput[] = [
     {
@@ -159,6 +168,20 @@ export function buildRealisedFxLines(input: RealisedFxPostingInput, accounts: Fx
       branchId,
     },
   ];
+  if (share !== 0n) {
+    const magnitude = Money.fromScaled(share < 0n ? -share : share);
+    const relievesDebit = receivable ? share > 0n : share < 0n;
+    lines.push({
+      accountId: input.controlAccountId,
+      debit: relievesDebit ? zero : magnitude,
+      credit: relievesDebit ? magnitude : zero,
+      memo: FX_REVALUATION_SHARE_MEMO,
+      currency: input.currency,
+      fxRate: input.invoiceRate,
+      partyId,
+      branchId,
+    });
+  }
   if (diff !== 0n) {
     const magnitude = Money.fromScaled(diff < 0n ? -diff : diff);
     const gain = receivable ? diff > 0n : diff < 0n;
@@ -197,8 +220,32 @@ export async function postRealisedFx(
       lines,
     },
     gl,
+    { mintedBySystem: true },
   );
   return id;
+}
+
+export interface RevaluationRelease {
+  readonly kind: AllocationInvoiceKind;
+  readonly controlAccountId: string;
+  readonly partyId: string;
+  readonly currency: string;
+  readonly fxRate: string;
+  readonly share: Money;
+  readonly branchId?: string | null;
+}
+
+export function buildRevaluationReleaseLines(release: RevaluationRelease, accounts: FxDifferenceAccounts): JournalLineInput[] {
+  const debitPositive = release.kind === "sales" ? release.share.scaled : -release.share.scaled;
+  if (debitPositive === 0n) return [];
+  const zero = Money.zero();
+  const magnitude = Money.fromScaled(debitPositive < 0n ? -debitPositive : debitPositive);
+  const overstated = debitPositive > 0n;
+  const branchId = release.branchId ?? null;
+  return [
+    { accountId: release.controlAccountId, debit: overstated ? zero : magnitude, credit: overstated ? magnitude : zero, memo: FX_REVALUATION_SHARE_MEMO, currency: release.currency, fxRate: release.fxRate, partyId: release.partyId, branchId },
+    { accountId: overstated ? accounts.lossAccountId : accounts.gainAccountId, debit: overstated ? magnitude : zero, credit: overstated ? zero : magnitude, memo: FX_REALISED_LINE_MEMO, branchId },
+  ];
 }
 
 export function realisedFxReversalId(fxEntryId: string): string {
@@ -221,13 +268,32 @@ export async function allocationUndoDay(
 }
 
 /** Mirrors the settlement entry of an allocation being undone, on the day from {@link allocationUndoDay}. */
+export { FX_SHARE_RELEASE_ENTRY_PREFIX };
+
+export function fxLateReleaseEntryId(itemId: string, allocationId: string, generation: number): string {
+  return `${FX_SHARE_RELEASE_ENTRY_PREFIX}${itemId}:late:${allocationId}:${generation}`;
+}
+
+// INVARIANT: one late release per run posted after the allocation, numbered from 0 with no gaps — undoing the allocation walks them until the first number that was never posted.
+export async function fxLateReleaseEntryIds(itemId: string, allocationId: string, ledger: Pick<JournalPostingDeps["ledger"], "findById">): Promise<string[]> {
+  const ids: string[] = [];
+  for (let generation = 0; ; generation += 1) {
+    const id = fxLateReleaseEntryId(itemId, allocationId, generation);
+    if (!(await ledger.findById(id))) return ids;
+    ids.push(id);
+  }
+}
+
 export async function reverseRealisedFx(allocation: VoucherAllocation, gl: JournalPostingDeps, date: string): Promise<void> {
-  if (!allocation.fxEntryId) return;
-  const entry = await gl.ledger.findById(allocation.fxEntryId);
-  if (!entry || entry.reversedByEntryId) return;
-  await reverseJournalEntry(allocation.fxEntryId, gl, {
-    reversalId: realisedFxReversalId(allocation.fxEntryId),
-    date,
-    memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})`,
-  });
+  const late = [...(await fxLateReleaseEntryIds(allocation.invoiceId, allocation.id, gl.ledger)), ...(await fxLateReleaseEntryIds(allocation.voucherId, allocation.id, gl.ledger))];
+  for (const entryId of [allocation.fxEntryId, ...late]) {
+    if (!entryId) continue;
+    const entry = await gl.ledger.findById(entryId);
+    if (!entry || entry.status !== "posted" || entry.reversedByEntryId) continue;
+    await reverseJournalEntry(entryId, gl, {
+      reversalId: realisedFxReversalId(entryId),
+      date: laterDay(date, entry.date.slice(0, 10)),
+      memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})`,
+    }, { mintedBySystem: true });
+  }
 }

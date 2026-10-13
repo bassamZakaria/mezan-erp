@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -203,6 +204,7 @@ export function LeadsScreen() {
       await transitionLead.mutateAsync({ id: lead.id, body: { status } });
     } catch (err) {
       setDetailError(err instanceof Error ? err.message : t("leads.failedToUpdateTheStatus"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingRowId(null);
     }
@@ -323,7 +325,7 @@ export function LeadsScreen() {
               label: t(STATUS_KEY[status]),
               tone: status === "lost" || status === "unqualified" ? ("danger" as const) : undefined,
               disabled: pendingRowId === l.id,
-              onSelect: () => void runTransition(l, status),
+              onSelect: () => runTransition(l, status),
             })),
             // Converting collects a customer code and an opportunity stage, so it opens that form.
             ...(l.status === "qualified"

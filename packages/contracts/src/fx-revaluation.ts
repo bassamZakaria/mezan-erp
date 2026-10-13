@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { decimalRateString, moneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
 
 /** Wire contract for FX revaluation (docs/archive/catalog/04 "إعادة تقييم العملات الأجنبية"). */
@@ -18,9 +19,9 @@ export const fxRevaluationDetailSchema = z.object({
   accountId: z.string(),
   currency: z.string(),
   label: z.string().nullable(),
-  foreignAmount: z.string(),
+  foreignAmount: moneyString,
   bookedBase: z.string(),
-  closingRate: z.string(),
+  closingRate: decimalRateString,
   revaluedBase: z.string(),
   delta: z.string(),
   gainLoss: z.string(),

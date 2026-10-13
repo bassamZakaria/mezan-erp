@@ -1,6 +1,8 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  type ForeignTreasuryBalance,
   Money,
   createJournalEntry,
   postJournalEntry,
@@ -15,7 +17,6 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   InactiveAccountError,
-  DuplicateJournalEntryError,
   JournalEntryNotFoundError,
   JournalEntryNotDraftError,
   JournalEntryNotPostedError,
@@ -23,6 +24,9 @@ import {
   PartyRequiredOnControlAccountError,
   InvalidJournalPartyError,
   ReversalDateBeforeOriginalError,
+  JournalEntryOwnedByDocumentError,
+  JournalReversalNotReversibleError,
+  assertReversibleFromJournal,
   type PartyControlKind,
   type JournalEntry,
   type JournalPostingDeps,
@@ -38,10 +42,13 @@ import {
   closeFiscalYear,
   planYearEndClose,
   YearAlreadyClosedError,
+  YearNotClosedError,
+  FollowingYearClosedError,
+  reopenFiscalYear,
+  standingYearClose,
   NothingToCloseError,
   recordVatFiling,
   amendVatFiling,
-  VatPeriodAlreadyFiledError,
   DuplicateVatFilingError,
   VatFilingNotFoundError,
   type VatFiling,
@@ -52,7 +59,9 @@ import {
   type CurrencyBalanceGroup,
 } from "@mezan/domain";
 import { tenantDay } from "./tenant-day.js";
+import { readReversalRequest, requireReversalReason } from "./document-reversal.js";
 import {
+  ReversalPermission,
   createGlJournalEntrySchema,
   updateGlJournalEntrySchema,
   reverseGlJournalEntrySchema,
@@ -64,9 +73,19 @@ import {
 } from "@mezan/contracts";
 import {
   createPermissionGate,
+  branchGrantOf,
   getAuthContext,
+  storedDocumentRefusal,
   type AuthContextResolver,
 } from "./permission-gate.js";
+import { refuseBranchScopedCaller, refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
+import { branchLineViewOf, canSeeUnattributed, entriesInView, entryInView, isWholeLedgerView, lineInView, type BranchLineView } from "./branch-view.js";
+import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
+
+/** Stands in for the branch of a line the caller may not read; never a real id, so never inside a grant. */
+const UNREADABLE_BRANCH = "\u0000unattributed";
 
 /** External dependencies the GL routes bind the posting engine to. */
 export interface GlRoutesDeps {
@@ -94,6 +113,8 @@ export interface GlRoutesDeps {
   readonly audit?: AuditSink;
   readonly events?: GlEventPublisher;
   readonly now?: () => string;
+  /** Refuses a hand-written line naming a branch no master record holds. */
+  readonly masterData?: MasterDataChecks;
   /** Generates a reversing-entry id when the request body omits one. Defaults to a UUID. */
   readonly idGen?: () => string;
   /**
@@ -103,6 +124,7 @@ export interface GlRoutesDeps {
    * balance is base-currency.
    */
   readonly openPartyDocuments?: () => Promise<readonly OpenPartyDocument[]>;
+  readonly treasuryCurrencyBalances?: () => Promise<readonly ForeignTreasuryBalance[]>;
   /** The tenant's base currency; defaults to EGP. */
   readonly baseCurrency?: () => Promise<string> | string;
 }
@@ -119,6 +141,7 @@ function serialize(entry: JournalEntry) {
     postedAt: entry.postedAt ?? null,
     reversesEntryId: entry.reversesEntryId ?? null,
     reversedByEntryId: entry.reversedByEntryId ?? null,
+    reversibleFromJournal: reversibleFromJournal(entry),
     sourceDocType: entry.sourceDocType ?? null,
     sourceDocId: entry.sourceDocId ?? null,
     sourceDocNumber: entry.sourceDocNumber ?? null,
@@ -134,6 +157,7 @@ function serialize(entry: JournalEntry) {
       currency: l.currency ?? null,
       fxRate: l.fxRate ?? null,
       taxRatePercent: l.taxRatePercent ?? null,
+      taxRateId: l.taxRateId ?? null,
       projectId: l.projectId ?? null,
       costCategory: l.costCategory ?? null,
       branchId: l.branchId ?? null,
@@ -194,6 +218,9 @@ function serializeFiling(f: VatFiling) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof UnbalancedEntryError) {
     return c.json(
       {
@@ -206,16 +233,13 @@ function handleDomainError(c: Context, err: unknown): Response {
     );
   }
   if (err instanceof InvalidJournalEntryError) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 400);
   }
   if (err instanceof PartyRequiredOnControlAccountError || err instanceof InvalidJournalPartyError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, accountId: err.accountId }, 422);
   }
-  if (err instanceof ReversalDateBeforeOriginalError) {
+  if (err instanceof ReversalDateBeforeOriginalError || err instanceof JournalEntryOwnedByDocumentError || err instanceof JournalReversalNotReversibleError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
-  }
-  if (err instanceof VatPeriodAlreadyFiledError) {
-    return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof DuplicateVatFilingError) {
     return c.json({ error: err.code, message: err.message }, 409);
@@ -225,6 +249,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof YearAlreadyClosedError) {
     return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof YearNotClosedError || err instanceof FollowingYearClosedError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof NothingToCloseError) {
     return c.json({ error: err.code, message: err.message }, 422);
@@ -242,7 +269,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (
-    err instanceof DuplicateJournalEntryError ||
     err instanceof JournalEntryNotDraftError ||
     err instanceof JournalEntryNotPostedError ||
     err instanceof JournalEntryAlreadyReversedError
@@ -269,6 +295,16 @@ function handleDomainError(c: Context, err: unknown): Response {
  * reversing is a money-reversing posting action, so `/reverse` reuses
  * `accounting.journal.post`.
  */
+function reversibleFromJournal(entry: Parameters<typeof assertReversibleFromJournal>[0]): boolean {
+  try {
+    assertReversibleFromJournal(entry);
+    return true;
+  } catch (err) {
+    if (err instanceof JournalEntryOwnedByDocumentError || err instanceof JournalReversalNotReversibleError) return false;
+    throw err;
+  }
+}
+
 export function createGlRoutes(
   deps: GlRoutesDeps,
   resolveAuthContext: AuthContextResolver,
@@ -306,6 +342,35 @@ export function createGlRoutes(
    * supplier (D205), so the journal screen can ask for the party before the
    * post is refused.
    */
+  /**
+   * A hand-written line's branch is the caller's to state, so it is checked
+   * here: inside the caller's own branch scope, and a branch that exists.
+   */
+  async function refuseLineBranches(
+    c: Context,
+    lines: readonly { readonly branchId?: string | null }[],
+  ): Promise<Response | null> {
+    const branchIds = lines.map((line) => line.branchId);
+    return (
+      refuseOutOfScopeBranches(c, branchIds) ??
+      (await refuseUnknownMasterData(c, deps.masterData, [{ kind: MasterDataKind.Branch, ids: branchIds }]))
+    );
+  }
+
+  /**
+   * Acting on a STORED entry — post, replace, delete, reverse — acts on the
+   * branches its lines already carry, which the request body never names: a
+   * reversal mirrors them, a replace discards them. A line with no branch
+   * counts as foreign to a session that may not read «غير مخصص»: what it
+   * cannot see by id it cannot reverse by id.
+   */
+  async function refuseStoredEntryBranches(c: Context, entryId: string): Promise<Response | null> {
+    const stored = await deps.ledger.findById(entryId);
+    if (!stored) return null;
+    const unattributed = canSeeUnattributed(c) ? null : UNREADABLE_BRANCH;
+    return storedDocumentRefusal(c, branchGrantOf(c), stored.lines.map((line) => line.branchId ?? unattributed));
+  }
+
   app.get("/party-control-accounts", gate("accounting.journal.view"), async (c) => {
     const controls = (await deps.resolvePartyControlAccounts?.()) ?? new Map<string, PartyControlKind>();
     return c.json([...controls].map(([accountId, partyKind]) => ({ accountId, partyKind })));
@@ -316,13 +381,15 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const branchRefusal = await refuseLineBranches(c, parsed.data.lines);
+    if (branchRefusal) return branchRefusal;
     try {
       const entry = await postJournalEntry(
         {
           id: parsed.data.id,
           date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
-          source: parsed.data.source,
+          source: "manual",
           lines: parsed.data.lines.map((l) => ({
             accountId: l.accountId,
             debit: Money.fromMajor(l.debit),
@@ -352,11 +419,15 @@ export function createGlRoutes(
    * without anyone deciding to (D29).
    */
   app.get("/vat-filings", gate("accounting.reports.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     if (!deps.vatFilings) return c.json([]);
     return c.json((await deps.vatFilings.list()).map(serializeFiling));
   });
 
   app.post("/vat-filings", gate("accounting.period.close"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     if (!deps.vatFilings) return c.json({ error: "NOT_FOUND" }, 404);
     const parsed = recordVatFilingSchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -381,6 +452,8 @@ export function createGlRoutes(
   });
 
   app.post("/vat-filings/:id/amend", gate("accounting.period.close"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     if (!deps.vatFilings) return c.json({ error: "NOT_FOUND" }, 404);
     const parsed = amendVatFilingSchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -399,12 +472,15 @@ export function createGlRoutes(
    * is a normal state, so it answers 200 with `entry: null` rather than a 404.
    */
   app.get("/year-end-close/:year", gate("accounting.journal.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const year = Number(c.req.param("year"));
     if (!Number.isInteger(year) || year < 1900 || year > 9999) {
       return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة." }, 400);
     }
-    const entry = await deps.ledger.findById(`YEAR-CLOSE:${year}`);
-    return c.json({ year, closed: entry !== null, entry: entry ? serialize(entry) : null });
+    const entry = await standingYearClose(deps.ledger, year);
+    const followingClosed = (await standingYearClose(deps.ledger, year + 1)) !== null;
+    return c.json({ year, closed: entry !== null, reopenable: entry !== null && !followingClosed, entry: entry ? serialize(entry) : null });
   });
 
   /**
@@ -415,6 +491,8 @@ export function createGlRoutes(
    * how the screen knows to show the posted entry instead of the button.
    */
   app.get("/year-end-close/:year/preview", gate("accounting.period.close"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const year = Number(c.req.param("year"));
     if (!Number.isInteger(year) || year < 1900 || year > 9999) {
       return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة." }, 400);
@@ -455,6 +533,8 @@ export function createGlRoutes(
    * the same year twice is refused rather than posted twice.
    */
   app.post("/year-end-close", gate("accounting.period.close"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const parsed = closeFiscalYearSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -481,18 +561,34 @@ export function createGlRoutes(
     }
   });
 
+  app.post("/year-end-close/:year/reopen", gate(ReversalPermission.YearEndClose), requireReversalReason, async (c) => {
+    const year = Number(c.req.param("year"));
+    if (!Number.isInteger(year) || year < 1900 || year > 9999) {
+      return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة.", messageEn: "Invalid year." }, 400);
+    }
+    try {
+      const { memo } = await readReversalRequest(c);
+      const result = await reopenFiscalYear(year, { ...postingDeps(c), ledger: deps.ledger, accounts: deps.accounts }, { reversalId: idGen(), memo });
+      return c.json({ year, journalEntryId: result.journalEntryId, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null, reversalDate: result.reversal.date }, 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
   app.post("/journal-entries/draft", gate("accounting.journal.create"), async (c) => {
     const parsed = createGlJournalEntrySchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const branchRefusal = await refuseLineBranches(c, parsed.data.lines);
+    if (branchRefusal) return branchRefusal;
     try {
       const entry = await createJournalEntry(
         {
           id: parsed.data.id,
           date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
-          source: parsed.data.source,
+          source: "manual",
           lines: parsed.data.lines.map((l) => ({
             accountId: l.accountId,
             debit: Money.fromMajor(l.debit),
@@ -517,6 +613,8 @@ export function createGlRoutes(
   });
 
   app.post("/journal-entries/:id/post", gate("accounting.journal.post"), async (c) => {
+    const storedRefusal = await refuseStoredEntryBranches(c, c.req.param("id"));
+    if (storedRefusal) return storedRefusal;
     try {
       const entry = await postDraftJournalEntry(c.req.param("id"), await manualPostingDeps(c));
       return c.json(serialize(entry));
@@ -537,13 +635,15 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const branchRefusal = (await refuseStoredEntryBranches(c, c.req.param("id"))) ?? (await refuseLineBranches(c, parsed.data.lines));
+    if (branchRefusal) return branchRefusal;
     try {
       const entry = await replaceDraftJournalEntry(
         c.req.param("id"),
         {
           date: await tenantDay(c, parsed.data.date),
           memo: parsed.data.memo,
-          source: parsed.data.source,
+          source: "manual",
           lines: parsed.data.lines.map((l) => ({
             accountId: l.accountId,
             debit: Money.fromMajor(l.debit),
@@ -569,6 +669,8 @@ export function createGlRoutes(
 
   /** Delete a مسودة (draft) entry (D226). Refused 409 on anything that is not a draft. */
   app.delete("/journal-entries/:id", gate("accounting.journal.create"), async (c) => {
+    const storedRefusal = await refuseStoredEntryBranches(c, c.req.param("id"));
+    if (storedRefusal) return storedRefusal;
     try {
       await deleteDraftJournalEntry(c.req.param("id"), postingDeps(c));
       return c.body(null, 204);
@@ -588,6 +690,8 @@ export function createGlRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const storedRefusal = await refuseStoredEntryBranches(c, c.req.param("id"));
+    if (storedRefusal) return storedRefusal;
     try {
       const entryId = c.req.param("id");
       const resolvedDate = await tenantDay(c, parsed.data.date ?? (deps.now ? deps.now() : new Date().toISOString()));
@@ -597,6 +701,7 @@ export function createGlRoutes(
       // `reverseJournalEntry` directly with its own date semantics and is
       // gated by the period lock alone.
       const existing = await deps.ledger.findById(entryId);
+      if (existing) assertReversibleFromJournal(existing);
       if (existing && resolvedDate < existing.date) {
         throw new ReversalDateBeforeOriginalError(entryId, resolvedDate, existing.date);
       }
@@ -656,6 +761,7 @@ export function createGlRoutes(
    */
   async function listFilteredJournalEntries(
     filter: JournalListFilter,
+    view: BranchLineView,
     page?: { limit: number; offset: number },
   ): Promise<readonly JournalEntry[]> {
     const { sourceModule, search, ...ledgerFilter } = filter;
@@ -665,12 +771,15 @@ export function createGlRoutes(
     // mapping SQL does not hold, so a request carrying either of the two JS
     // filters is paged after them — a LIMIT ahead of a filter is a wrong page,
     // not a fast one.
-    const pagedInSql = page !== undefined && !sourceModule;
+    // A narrowed view drops entries with no visible line, which SQL cannot
+    // know either — so it too is paged after the cut.
+    const pagedInSql = page !== undefined && !sourceModule && isWholeLedgerView(view);
     let entries = await deps.ledger.list({
       ...ledgerFilter,
       ...(search ? { search } : {}),
       ...(pagedInSql ? page : {}),
     });
+    entries = entriesInView(view, entries);
     if (sourceModule) entries = entries.filter((e) => journalSourceModule(e.sourceDocType, e.source) === sourceModule);
     if (search) entries = entries.filter((e) => matchesSearch(search, e.entryNo, e.memo, e.sourceDocNumber));
     if (page && !pagedInSql) entries = entries.slice(page.offset, page.offset + page.limit);
@@ -683,7 +792,7 @@ export function createGlRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
     const { page, pageSize } = parsed.filter;
-    const rows = await listFilteredJournalEntries(parsed.filter, {
+    const rows = await listFilteredJournalEntries(parsed.filter, branchLineViewOf(c), {
       limit: pageSize,
       offset: (page - 1) * pageSize,
     });
@@ -702,7 +811,7 @@ export function createGlRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
     const { status: _ignored, ...withoutStatus } = parsed.filter;
-    const entries = await listFilteredJournalEntries(withoutStatus);
+    const entries = await listFilteredJournalEntries(withoutStatus, branchLineViewOf(c));
     const counts: Record<string, number> = {
       all: entries.length,
       draft: 0,
@@ -725,7 +834,7 @@ export function createGlRoutes(
     if (!parsed.ok) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
-    const entries = await listFilteredJournalEntries(parsed.filter);
+    const entries = await listFilteredJournalEntries(parsed.filter, branchLineViewOf(c));
     let totalDebit = Money.zero();
     let totalCredit = Money.zero();
     for (const entry of entries) {
@@ -747,8 +856,9 @@ export function createGlRoutes(
   app.get("/journal-entries/:id", gate("accounting.journal.view"), async (c) => {
     const key = c.req.param("id");
     // The register addresses an entry by its number (`/money/journals/JE-000100`).
-    const entry =
+    const stored =
       (await deps.ledger.findById(key)) ?? (await deps.ledger.list({ search: key })).find((e) => e.entryNo === key) ?? null;
+    const entry = stored ? entryInView(branchLineViewOf(c), stored) : null;
     if (!entry) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(entry));
   });
@@ -759,6 +869,8 @@ export function createGlRoutes(
    * or supplier actually owes, in the currency the document was raised in.
    */
   app.get("/balances-by-currency", gate("accounting.reports.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const baseCurrency = (await deps.baseCurrency?.()) ?? "EGP";
     const documents = (await deps.openPartyDocuments?.()) ?? [];
     const report = summarizePartyBalancesByCurrency(documents, baseCurrency);
@@ -768,12 +880,33 @@ export function createGlRoutes(
       payables: report.payables.map(serializeCurrencyGroup),
       receivableTotalBase: report.receivableTotalBase.toString(),
       payableTotalBase: report.payableTotalBase.toString(),
+      treasury: ((await deps.treasuryCurrencyBalances?.()) ?? []).map((row) => ({
+        treasuryAccountId: row.treasuryAccountId,
+        name: row.name,
+        glAccountId: row.glAccountId,
+        currency: row.currency,
+        foreignBalance: row.foreignBalance.toString(),
+        baseBalance: row.baseBalance.toString(),
+        derivedLines: row.derivedLines,
+      })),
     });
   });
 
   app.get("/accounts/:accountId/ledger", gate("accounting.journal.view"), async (c) => {
     const accountId = c.req.param("accountId");
     const asOf = c.req.query("asOf");
+    const view = branchLineViewOf(c);
+    if (!isWholeLedgerView(view)) {
+      const visible = ((await deps.ledger.listLines?.({ accountIds: [accountId], toDate: asOf })) ?? []).filter((line) =>
+        lineInView(view, line.branchId),
+      );
+      const debit = Money.sum(visible.map((line) => line.debit));
+      const credit = Money.sum(visible.map((line) => line.credit));
+      return c.json({
+        balance: serializeBalance({ accountId, debit, credit, balance: debit.add(credit.negate()) }),
+        lines: visible.map(serializeLedgerLine),
+      });
+    }
     const balance = await deps.ledger.accountBalance(accountId, asOf);
     const lines = await deps.ledger.accountLedger(accountId, asOf);
     return c.json({

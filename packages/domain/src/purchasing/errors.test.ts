@@ -3,7 +3,6 @@ import {
   PurchaseOrderNotFoundError,
   GoodsReceiptNotFoundError,
   PurchaseInvoiceNotFoundError,
-  DuplicatePurchaseDocumentError,
   InvalidPurchaseDocumentError,
   PurchaseDocumentNotDraftError,
   PurchaseOrderNotReceivableError,
@@ -42,11 +41,6 @@ describe("purchasing errors", () => {
     expect(err.id).toBe("pi-1");
   });
 
-  it("DuplicatePurchaseDocumentError names the duplicate id", () => {
-    const err = new DuplicatePurchaseDocumentError("doc-1");
-    expect(err.code).toBe("DUPLICATE_PURCHASE_DOCUMENT");
-    expect(err.message).toContain("doc-1");
-  });
 
   it("InvalidPurchaseDocumentError joins every reason into the message", () => {
     const err = new InvalidPurchaseDocumentError(["reason A", "reason B"]);
@@ -94,6 +88,8 @@ describe("purchasing errors", () => {
     const err = new PurchaseItemsAlreadyConsumedError("doc-9");
     expect(err.code).toBe("PURCHASE_ITEMS_ALREADY_CONSUMED");
     expect(err.id).toBe("doc-9");
+    expect(err.message).toContain("مرتجع مشتريات");
+    expect(err.messageEn).toBe('Purchase document "doc-9" cannot be cancelled: some of its goods have already been sold, transferred or consumed. Record a purchase return for what is still on hand instead.');
   });
 
   it("GoodsReceiptAlreadyInvoicedError names the id", () => {

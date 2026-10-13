@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { Button, Card, DocumentList, EmptyState, EntityPicker, SidePanel, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type EntityPickerOption, type PillTone } from "@mezan/ui";
 import type { JobTitleDTO } from "@mezan/contracts";
 import { TextField, ToggleField } from "../settings/form-controls";
@@ -220,7 +221,7 @@ export function JobTitlesScreen() {
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("jobTitles.editJobTitle") : ""}>
         {selected ? (
-          <form onSubmit={handleEditSave} className="flex flex-col gap-[14px]">
+          <ReadOnlyFields><form onSubmit={handleEditSave} className="flex flex-col gap-[14px]">
             {editError ? (
               <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
                 {editError}
@@ -231,19 +232,19 @@ export function JobTitlesScreen() {
             <TextField label={t("jobTitles.nameArabic")} value={editNameAr} onChange={setEditNameAr} />
             <ToggleField label={t("common.active")} checked={editActive} onChange={setEditActive} />
             <div className="mt-[6px] flex justify-end gap-[9px]">
-              <Button type="button" onClick={() => setSelectedId(null)}>
+              <Button type="button" {...READ_ONLY_KEEP} onClick={() => setSelectedId(null)}>
                 {t("common.cancel")}
               </Button>
               <Button type="submit" variant="primary">
                 {t("jobTitles.saveChanges")}
               </Button>
             </div>
-          </form>
+          </form></ReadOnlyFields>
         ) : null}
       </SidePanel>
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("jobTitles.addJobTitle")} description={t("jobTitles.theJobTitleSCore")}>
-        <form onSubmit={handleCreate} className="flex flex-col gap-[14px]">
+        <ReadOnlyFields><form onSubmit={handleCreate} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
               {formError}
@@ -258,14 +259,14 @@ export function JobTitlesScreen() {
           <TextField label={t("jobTitles.jobTitle2")} value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
           <TextField label={t("jobTitles.nameArabic")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
           <div className="mt-[6px] flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setFormOpen(false)}>
+            <Button type="button" {...READ_ONLY_KEEP} onClick={() => setFormOpen(false)}>
               {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
               {t("common.add")}
             </Button>
           </div>
-        </form>
+        </form></ReadOnlyFields>
       </SidePanel>
     </div>
   );

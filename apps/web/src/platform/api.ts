@@ -1,4 +1,5 @@
 import { createContext, createElement, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { QueryClientContext } from "@tanstack/react-query";
 import { createHttpTransport, type Transport, type TransportResponse } from "../data/transport";
 import type { AppTranslationKey } from "../i18n";
 import { loadPersistedPlatformSession, persistPlatformSession, type PlatformSession } from "./session";
@@ -15,6 +16,7 @@ export class PlatformApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: string,
   ) {
     super(message);
     this.name = "PlatformApiError";
@@ -24,6 +26,7 @@ export class PlatformApiError extends Error {
 interface PlatformApiContextValue {
   readonly session: PlatformSession | null;
   setSession(session: PlatformSession | null): void;
+  endSession(): void;
   request(path: string, init?: RequestInit): Promise<TransportResponse>;
 }
 
@@ -47,11 +50,17 @@ export function PlatformApiProvider({ children, transport, initialSession }: Pla
     setSessionState(next);
     persistPlatformSession(next);
   }, []);
+  const queryClient = useContext(QueryClientContext);
+  const endSession = useCallback(() => {
+    queryClient?.clear();
+    setSession(null);
+  }, [queryClient, setSession]);
 
   const value = useMemo<PlatformApiContextValue>(
     () => ({
       session,
       setSession,
+      endSession,
       async request(path, init) {
         const headers = new Headers(init?.headers);
         if (session) headers.set("authorization", `Bearer ${session.token}`);
@@ -62,12 +71,12 @@ export function PlatformApiProvider({ children, transport, initialSession }: Pla
         // password is a 401 the login screen reports itself, not a session
         // that went stale.
         if (response.status === 401 && session !== null && !path.startsWith("/auth/login")) {
-          setSession(null);
+          endSession();
         }
         return response;
       },
     }),
-    [session, setSession, resolvedTransport],
+    [session, setSession, endSession, resolvedTransport],
   );
 
   return createElement(PlatformApiContext.Provider, { value }, children);
@@ -96,11 +105,19 @@ export async function readPlatformErrorMessage(
   t: (key: AppTranslationKey) => string,
   fallbackKey: AppTranslationKey,
 ): Promise<string> {
+  return (await readPlatformError(res, t, fallbackKey)).message;
+}
+
+export async function readPlatformError(
+  res: Pick<TransportResponse, "json">,
+  t: (key: AppTranslationKey) => string,
+  fallbackKey: AppTranslationKey,
+): Promise<{ readonly message: string; readonly code: string | undefined }> {
   const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as {
     error?: string;
     message?: string;
   };
-  if (body.message) return body.message;
+  if (body.message) return { message: body.message, code: body.error };
   const key = body.error ? PLATFORM_ERROR_CODE_KEY[body.error] : undefined;
-  return t(key ?? fallbackKey);
+  return { message: t(key ?? fallbackKey), code: body.error };
 }

@@ -1,5 +1,10 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -64,6 +69,7 @@ const LINE_KIND_KEY = {
   earning: "payroll.lineKind.earning",
   deduction: "payroll.lineKind.deduction",
   employer_contribution: "payroll.lineKind.employer_contribution",
+  termination_adjustment: "payroll.lineKind.termination_adjustment",
 } as const;
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
@@ -150,6 +156,8 @@ function NetPayQualifierBadge({ statutory }: { statutory: boolean }) {
 }
 
 export function PayrollRunsScreen() {
+  const branchGate = useBranchGate();
+  const reversal = useReverseDocumentAction(ReversalDocumentType.PayrollRun);
   const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const query = usePayrollRuns();
@@ -238,6 +246,7 @@ export function PayrollRunsScreen() {
       else await cancelRun.mutateAsync(run.id);
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("payroll.thatActionCouldNotBe"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -366,7 +375,7 @@ export function PayrollRunsScreen() {
               key: "calculate",
               label: t("payroll.calculatePayroll"),
               disabled: pendingId === r.id,
-              onSelect: () => void runAction(r, "calculate"),
+              onSelect: () => runAction(r, "calculate"),
             });
           }
           if (r.status === "calculated") {
@@ -374,7 +383,7 @@ export function PayrollRunsScreen() {
               key: "approve",
               label: t("payroll.approveAndPostTheEntry"),
               disabled: pendingId === r.id,
-              onSelect: () => void runAction(r, "approve"),
+              onSelect: () => runAction(r, "approve"),
             });
           }
           if (r.status === "draft" || r.status === "calculated") {
@@ -383,12 +392,13 @@ export function PayrollRunsScreen() {
               label: t("payroll.cancelRun"),
               tone: "danger",
               disabled: pendingId === r.id,
-              onSelect: () => void runAction(r, "cancel"),
+              onSelect: () => runAction(r, "cancel"),
             });
           }
           // Disbursing needs a treasury account and a branch the row cannot supply — the menu opens the panel that collects them.
           if (r.status === "approved") {
             items.push({ key: "disburse", label: t("payroll.payOut"), onSelect: openRow });
+            items.push(...reversal.menuItems({ id: r.id, params: { id: r.id }, subject: r.number }));
           }
           return <RowMenu items={items} label={t("common.rowActionsFor", { name: r.number })} />;
         }}
@@ -414,6 +424,7 @@ export function PayrollRunsScreen() {
           />
         }
       />
+      {reversal.dialog}
 
       <SidePanel open={selectedId !== null} onClose={() => setSelectedId(null)} title={detail ? detail.number : ""}>
         {detail ? (
@@ -530,6 +541,11 @@ export function PayrollRunsScreen() {
                       <div className="mz-num mt-[3px] text-[11.5px] text-ink-faint">
                         {p.paidDays} / {p.periodDays} {t("payroll.days")}
                       </div>
+                      {p.partMonthTaxNotice ? (
+                        <div role="note" className="mt-[6px] rounded-md border border-warning bg-warning-soft px-[10px] py-[7px] text-[11.5px] text-warning-ink">
+                          {locale === "en" ? (p.partMonthTaxNoticeEn ?? p.partMonthTaxNotice) : p.partMonthTaxNotice}
+                        </div>
+                      ) : null}
                       {p.basis ? <PayslipBasisSummary basis={p.basis} runCurrency={p.currency} /> : null}
                       {statutoryRun ? (
                         <div className="mt-[6px] flex flex-wrap gap-x-[16px] gap-y-[3px] text-[11.5px] text-ink-faint">
@@ -660,9 +676,11 @@ export function PayrollRunsScreen() {
         </form>
       </SidePanel>
 
-      <div className="mt-[18px]">
-        <HrProvisionsPanel />
-      </div>
+      {branchGate.allows(BranchGatedAction.PayrollProvisions) ? (
+        <div className="mt-[18px]">
+          <HrProvisionsPanel />
+        </div>
+      ) : null}
     </div>
   );
 }

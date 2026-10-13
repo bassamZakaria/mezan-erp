@@ -221,3 +221,30 @@ describe("PrintView — the ETA block", () => {
     expect(document.querySelector("svg[data-qr]")).toBeNull();
   });
 });
+
+describe("PrintView — the tax column names the rate (D79)", () => {
+  const withTaxPercent: PrintTemplateConfig = {
+    ...DEFAULT_PRINT_TEMPLATE_CONFIG,
+    columns: { ...DEFAULT_PRINT_TEMPLATE_CONFIG.columns, showLineTaxPercent: true },
+  };
+  const sample = createSampleInvoiceDocument();
+  const [first, second] = sample.lines;
+
+  it("prints the rate's name beside its percent, so two 0% lines are told apart on paper", () => {
+    const doc = createSampleInvoiceDocument({
+      lines: [
+        { ...first!, taxPercent: 0, taxName: "معفى من الضريبة" },
+        { ...second!, taxPercent: 0, taxName: "تصدير — نسبة صفر" },
+      ],
+    });
+    render(<PrintView config={withTaxPercent} document={doc} />);
+    expect(screen.getByText("معفى من الضريبة")).toBeInTheDocument();
+    expect(screen.getByText("تصدير — نسبة صفر")).toBeInTheDocument();
+  });
+
+  it("prints the percent alone for a line with no named rate", () => {
+    const doc = createSampleInvoiceDocument({ lines: [{ ...first!, taxPercent: 14, taxName: undefined }] });
+    const { container } = render(<PrintView config={withTaxPercent} document={doc} />);
+    expect(container.querySelector("[data-print-tax-name]")).toBeNull();
+  });
+});

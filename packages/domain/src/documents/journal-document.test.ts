@@ -8,7 +8,8 @@ import {
   InMemoryLedgerRepository,
   InMemorySequenceStore,
 } from "../gl/test-helpers/in-memory-ledger-repository.js";
-import type { ApprovalRequestRecord, ApprovalRequestRepository } from "../workflow/index.js";
+import { ApprovalRequestUntrustedError, DuplicateRecordIdError, decideApproval, type ApprovalRequestRecord, type ApprovalRequestRepository } from "../index.js";
+import type { DocumentWorkflowInput } from "./hooks.js";
 import {
   journalDocumentType,
   createJournalGlHook,
@@ -232,54 +233,39 @@ describe("createJournalGlHook", () => {
 });
 
 /* -------------------------------------------------------------------- */
-/* createDocumentWorkflowGate — the pure (no-repository) path            */
+/* createDocumentWorkflowGate                                            */
 /* -------------------------------------------------------------------- */
+
+const heldJournal = { id: "j1", date: "2026-08-22", memo: "قيد", lines: [{ accountId: "5200", debit: "10.00", credit: "0" }] };
+
+function ask(overrides: Partial<DocumentWorkflowInput> & { content?: object; heldRequestId?: string | null } = {}): DocumentWorkflowInput {
+  const { content, heldRequestId, ...rest } = overrides;
+  return {
+    actionType: "ACCOUNTING_JOURNAL_POST",
+    requestId: "j1:confirm",
+    submittedBy: "clerk",
+    submitterRoles: ["clerk"],
+    document: { id: "j1", branchId: "BR-MAIN", content: content ?? heldJournal, heldRequestId: heldRequestId === undefined ? null : heldRequestId },
+    ...rest,
+  };
+}
 
 describe("createDocumentWorkflowGate without a request repository (pure gate)", () => {
   it("grants immediately when no steps are configured", async () => {
     const gate = createDocumentWorkflowGate(() => null);
-    const decision = await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-1",
-      submittedBy: "clerk",
-    });
-    expect(decision.granted).toBe(true);
+    expect((await gate.evaluate(ask({ submitterRoles: undefined }))).granted).toBe(true);
   });
 
   it("holds the request when steps are configured and submitter lacks the role", async () => {
-    const gate = createDocumentWorkflowGate(() => ({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      steps: [{ role: "MANAGER" }],
-    }));
-    const decision = await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-2",
-      submittedBy: "clerk",
-      submitterRoles: ["clerk"],
-    });
-    expect(decision.granted).toBe(false);
+    const gate = createDocumentWorkflowGate(() => ({ actionType: "ACCOUNTING_JOURNAL_POST", steps: [{ role: "MANAGER" }] }));
+    expect((await gate.evaluate(ask())).granted).toBe(false);
   });
 
   it("a role code passed where a permission is expected grants nothing (submitter roles are matched by exact role code, never a permission string)", async () => {
-    const gate = createDocumentWorkflowGate(() => ({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      steps: [{ role: "MANAGER" }],
-    }));
-    // "accounting.journal.post" looks like a permission code, not the "MANAGER" role
-    // the step names — it must not be treated as an admin bypass or a role match.
-    const decision = await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-2b",
-      submittedBy: "clerk",
-      submitterRoles: ["accounting.journal.post"],
-    });
-    expect(decision.granted).toBe(false);
+    const gate = createDocumentWorkflowGate(() => ({ actionType: "ACCOUNTING_JOURNAL_POST", steps: [{ role: "MANAGER" }] }));
+    expect((await gate.evaluate(ask({ submitterRoles: ["accounting.journal.post"] }))).granted).toBe(false);
   });
 });
-
-/* -------------------------------------------------------------------- */
-/* createDocumentWorkflowGate — the persisted-request path               */
-/* -------------------------------------------------------------------- */
 
 function fakeApprovalRepo(): ApprovalRequestRepository & { rows: Map<string, ApprovalRequestRecord> } {
   const rows = new Map<string, ApprovalRequestRecord>();
@@ -290,6 +276,10 @@ function fakeApprovalRepo(): ApprovalRequestRepository & { rows: Map<string, App
     },
     async findById(id) {
       return rows.get(id) ?? null;
+    },
+    async insert(record) {
+      if (rows.has(record.id)) throw new DuplicateRecordIdError(record.id);
+      rows.set(record.id, record);
     },
     async save(record) {
       rows.set(record.id, record);
@@ -309,127 +299,152 @@ function fakeApprovalRepo(): ApprovalRequestRepository & { rows: Map<string, App
 }
 
 const oneStepConfig = { actionType: "ACCOUNTING_JOURNAL_POST" as const, steps: [{ role: "MANAGER" }] };
+const HELD = "j1:confirm";
+
+async function heldRequest() {
+  const repo = fakeApprovalRepo();
+  const gate = createDocumentWorkflowGate(() => oneStepConfig, repo);
+  await gate.evaluate(ask());
+  return { repo, gate };
+}
+
+const approveAsManager = (repo: ApprovalRequestRepository) => decideApproval(HELD, { actorId: "manager", actorRoles: ["MANAGER"], decision: "approve" }, repo);
 
 describe("createDocumentWorkflowGate with a request repository — persists a real inbox row", () => {
-  it("first evaluate() submits and persists a pending request the inbox can find", async () => {
-    const repo = fakeApprovalRepo();
-    const gate = createDocumentWorkflowGate(() => oneStepConfig, repo);
-    const decision = await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-3",
-      submittedBy: "clerk",
-      submitterRoles: ["clerk"],
-    });
-    expect(decision.granted).toBe(false);
-    const stored = await repo.findById("req-3");
+  it("first evaluate() submits and persists a pending request the inbox can find, bound to its document", async () => {
+    const { repo } = await heldRequest();
+    const stored = await repo.findById(HELD);
     expect(stored?.status).toBe("pending");
     expect(stored?.steps[0]?.role).toBe("MANAGER");
+    expect(stored?.subject).toMatchObject({ documentId: "j1", branchId: "BR-MAIN" });
+    expect(stored?.subject?.fingerprint).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("a second evaluate() on the same requestId READS the standing request rather than resubmitting it", async () => {
-    const repo = fakeApprovalRepo();
-    const gate = createDocumentWorkflowGate(() => oneStepConfig, repo);
-    await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-4",
-      submittedBy: "clerk",
-      submitterRoles: ["clerk"],
-    });
-    const before = await repo.findById("req-4");
-    const decision = await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-4",
-      submittedBy: "clerk",
-      submitterRoles: ["clerk"],
-    });
+  it("a second evaluate() READS the standing request rather than resubmitting it", async () => {
+    const { repo, gate } = await heldRequest();
+    const before = await repo.findById(HELD);
+    const decision = await gate.evaluate(ask({ heldRequestId: HELD }));
     expect(decision.granted).toBe(false);
-    const after = await repo.findById("req-4");
-    // still one row, unchanged decision/step state — re-submitting did not occur
-    expect(after?.currentStep).toBe(before?.currentStep);
-    expect(after?.decisions).toEqual(before?.decisions);
+    expect(await repo.findById(HELD)).toEqual(before);
   });
 
-  it("grants once the standing request has been approved out-of-band", async () => {
-    const repo = fakeApprovalRepo();
-    const gate = createDocumentWorkflowGate(() => oneStepConfig, repo);
-    await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-5",
-      submittedBy: "clerk",
-      submitterRoles: ["clerk"],
-    });
-    const pending = await repo.findById("req-5");
-    if (!pending) throw new Error("expected a pending request");
-    repo.rows.set("req-5", { ...pending, status: "approved" });
-
-    const decision = await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-5",
-      submittedBy: "clerk",
-      submitterRoles: ["clerk"],
-    });
-    expect(decision.granted).toBe(true);
+  it("grants once another person has approved the request the document raised", async () => {
+    const { repo, gate } = await heldRequest();
+    await approveAsManager(repo);
+    expect((await gate.evaluate(ask({ heldRequestId: HELD, submittedBy: "manager" }))).granted).toBe(true);
   });
 
   it("throws when the standing request has been rejected — a rejected request never re-opens", async () => {
-    const repo = fakeApprovalRepo();
-    const gate = createDocumentWorkflowGate(() => oneStepConfig, repo);
-    await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-6",
-      submittedBy: "clerk",
-      submitterRoles: ["clerk"],
-    });
-    const pending = await repo.findById("req-6");
-    if (!pending) throw new Error("expected a pending request");
-    repo.rows.set("req-6", { ...pending, status: "rejected" });
-
-    await expect(
-      gate.evaluate({
-        actionType: "ACCOUNTING_JOURNAL_POST",
-        requestId: "req-6",
-        submittedBy: "clerk",
-        submitterRoles: ["clerk"],
-      }),
-    ).rejects.toThrow(/مرفوض/);
+    const { repo, gate } = await heldRequest();
+    await decideApproval(HELD, { actorId: "manager", actorRoles: ["MANAGER"], decision: "reject" }, repo);
+    await expect(gate.evaluate(ask())).rejects.toThrow(/مرفوض/);
   });
 
-  it("resubmits a modification_requested request from step 0", async () => {
-    const repo = fakeApprovalRepo();
-    const gate = createDocumentWorkflowGate(() => oneStepConfig, repo);
-    await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-7",
-      submittedBy: "clerk",
-      submitterRoles: ["clerk"],
-    });
-    const pending = await repo.findById("req-7");
-    if (!pending) throw new Error("expected a pending request");
-    repo.rows.set("req-7", { ...pending, status: "modification_requested" });
-
-    const decision = await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-7",
-      submittedBy: "clerk",
-      submitterRoles: ["clerk"],
-    });
+  it("resubmits a modification_requested request from step 0, under the content the submitter now sends", async () => {
+    const { repo, gate } = await heldRequest();
+    await decideApproval(HELD, { actorId: "manager", actorRoles: ["MANAGER"], decision: "request_modification" }, repo);
+    const edited = { ...heldJournal, memo: "قيد معدّل" };
+    const decision = await gate.evaluate(ask({ content: edited }));
     expect(decision.granted).toBe(false);
-    const after = await repo.findById("req-7");
+    const after = await repo.findById(HELD);
     expect(after?.status).toBe("pending");
     expect(after?.currentStep).toBe(0);
+    await approveAsManager(repo);
+    expect((await gate.evaluate(ask({ content: edited, heldRequestId: HELD }))).granted).toBe(true);
+    await expect(gate.evaluate(ask({ heldRequestId: HELD }))).rejects.toBeInstanceOf(ApprovalRequestUntrustedError);
   });
 
   it("a gate with no approver configured (empty steps) grants immediately, even through the persisted path", async () => {
     const repo = fakeApprovalRepo();
-    const gate = createDocumentWorkflowGate(
-      () => ({ actionType: "ACCOUNTING_JOURNAL_POST", steps: [] }),
-      repo,
+    const gate = createDocumentWorkflowGate(() => ({ actionType: "ACCOUNTING_JOURNAL_POST", steps: [] }), repo);
+    expect((await gate.evaluate(ask({ submitterRoles: undefined }))).granted).toBe(true);
+  });
+});
+
+describe("createDocumentWorkflowGate — an approval is trusted only for the document that raised it", () => {
+  const approved = (overrides: Partial<ApprovalRequestRecord>): ApprovalRequestRecord => ({
+    id: HELD,
+    actionType: "ACCOUNTING_JOURNAL_POST",
+    submittedBy: "clerk",
+    steps: [],
+    currentStep: 0,
+    status: "approved",
+    decisions: [],
+    entityLabel: null,
+    createdAt: "2026-08-22T10:00:00.000Z",
+    updatedAt: "2026-08-22T10:00:00.000Z",
+    ...overrides,
+  });
+
+  it("refuses an approved request planted under the document's id before its first confirm", async () => {
+    const repo = fakeApprovalRepo();
+    repo.rows.set(HELD, approved({ actionType: "TREASURY_VOUCHER_CONFIRM", submittedBy: "nobody" }));
+    const gate = createDocumentWorkflowGate(() => oneStepConfig, repo);
+    await expect(gate.evaluate(ask())).rejects.toBeInstanceOf(ApprovalRequestUntrustedError);
+    expect((await repo.findById(HELD))?.submittedBy).toBe("nobody");
+  });
+
+  it("refuses an approval recorded for another action type", async () => {
+    const { repo, gate } = await heldRequest();
+    await approveAsManager(repo);
+    const stored = (await repo.findById(HELD))!;
+    repo.rows.set(HELD, { ...stored, actionType: "TREASURY_VOUCHER_CONFIRM" });
+    await expect(gate.evaluate(ask({ heldRequestId: HELD }))).rejects.toBeInstanceOf(ApprovalRequestUntrustedError);
+  });
+
+  it("refuses an approval the document itself is not held under", async () => {
+    const { repo, gate } = await heldRequest();
+    await approveAsManager(repo);
+    await expect(gate.evaluate(ask({ heldRequestId: null }))).rejects.toBeInstanceOf(ApprovalRequestUntrustedError);
+  });
+
+  it("refuses an approval when the document changed after it was submitted", async () => {
+    const { repo, gate } = await heldRequest();
+    await approveAsManager(repo);
+    const edited = { ...heldJournal, lines: [{ accountId: "5200", debit: "9000.00", credit: "0" }] };
+    await expect(gate.evaluate(ask({ heldRequestId: HELD, content: edited }))).rejects.toBeInstanceOf(ApprovalRequestUntrustedError);
+  });
+
+  it("refuses an approval when the document moved to another branch", async () => {
+    const { repo, gate } = await heldRequest();
+    await approveAsManager(repo);
+    await expect(gate.evaluate({ ...ask({ heldRequestId: HELD }), document: { id: "j1", branchId: "BR-ALEX", content: heldJournal, heldRequestId: HELD } })).rejects.toBeInstanceOf(
+      ApprovalRequestUntrustedError,
     );
-    const decision = await gate.evaluate({
-      actionType: "ACCOUNTING_JOURNAL_POST",
-      requestId: "req-8",
-      submittedBy: "clerk",
-    });
-    expect(decision.granted).toBe(true);
+  });
+
+  it("an approval no second person gave is not honoured: the chain in force is asked again", async () => {
+    const { repo, gate } = await heldRequest();
+    const stored = (await repo.findById(HELD))!;
+    for (const decisions of [[], [{ stepIndex: 0, kind: "approve" as const, actorId: "clerk" }]]) {
+      repo.rows.set(HELD, { ...stored, status: "approved", currentStep: 1, decisions });
+      expect((await gate.evaluate(ask({ heldRequestId: HELD }))).granted).toBe(false);
+      expect(await repo.findById(HELD)).toMatchObject({ status: "pending", currentStep: 0, decisions: [] });
+    }
+  });
+
+  it("a request granted at submission is granted again when its document failed to post and is retried", async () => {
+    const repo = fakeApprovalRepo();
+    const ungated = createDocumentWorkflowGate(() => null, repo);
+    expect((await ungated.evaluate(ask())).granted).toBe(true);
+    expect((await ungated.evaluate(ask())).granted).toBe(true);
+    const gated = createDocumentWorkflowGate(() => oneStepConfig, repo);
+    expect((await gated.evaluate(ask())).granted).toBe(false);
+    expect((await repo.findById(HELD))?.status).toBe("pending");
+  });
+
+  it("a pending request whose document changed while it waited restarts under the new content", async () => {
+    const { repo, gate } = await heldRequest();
+    const edited = { ...heldJournal, memo: "بعد التعديل" };
+    expect((await gate.evaluate(ask({ content: edited }))).granted).toBe(false);
+    await approveAsManager(repo);
+    await expect(gate.evaluate(ask({ heldRequestId: HELD }))).rejects.toBeInstanceOf(ApprovalRequestUntrustedError);
+    expect((await gate.evaluate(ask({ heldRequestId: HELD, content: edited }))).granted).toBe(true);
+  });
+
+  it("answers the refusal in Arabic", async () => {
+    const error = new ApprovalRequestUntrustedError(HELD);
+    expect(error.message).toMatch(/[؀-ۿ]/);
+    expect(error.code).toBe("APPROVAL_REQUEST_UNTRUSTED");
   });
 });

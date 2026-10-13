@@ -1,3 +1,5 @@
+import { tenantDay, tenantStockMoment } from "./tenant-day.js";
+import { noteReversalOriginalDay } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -24,15 +26,21 @@ import {
   availableQty,
   type StockReservationSource,
   type StockReservations,
+  ReversalDateBeforeOriginalError,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   postAdjustmentSchema,
   postTransferSchema,
   postedAdjustmentListQuerySchema,
   postedTransferListQuerySchema,
   itemStockSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
+import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
+import { StockAdjustmentAlreadyReversedError, StockAdjustmentNotFoundError, type AuditSink } from "@mezan/domain";
 
 /**
  * Permission-gated routes for the costing + stock-ledger engine (docs/archive/catalog/03).
@@ -138,6 +146,11 @@ function serializePostedTransfer(t: PostedTransfer) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = reversalRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
+  if (err instanceof StockAdjustmentNotFoundError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
+  if (err instanceof StockAdjustmentAlreadyReversedError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   if (err instanceof NegativeStockError) {
     return c.json(
       {
@@ -173,7 +186,7 @@ function handleDomainError(c: Context, err: unknown) {
  * caller passes everything.
  */
 function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Response | undefined {
-  const scope = warehouseScopeOf(c);
+  const scope = sessionWarehouseScopeOf(c);
   if (!scope) return undefined;
   const offending = warehouseIds.find((id) => !scope.includes(id));
   if (offending === undefined) return undefined;
@@ -193,6 +206,11 @@ function requireQuery(c: Context, name: string): string {
   return value;
 }
 
+export interface InventoryAdjustmentReversalDeps {
+  readonly documents?: { findById(id: string): Promise<unknown | null> };
+  readonly audit?: AuditSink;
+}
+
 export function createInventoryRoutes(
   service: StockLedgerService,
   resolveAuthContext: AuthContextResolver,
@@ -210,6 +228,7 @@ export function createInventoryRoutes(
    * switched it off does not want a counter clerk quoting another branch's stock.
    */
   settings?: SettingsRepository,
+  reversal?: InventoryAdjustmentReversalDeps,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -387,7 +406,7 @@ export function createInventoryRoutes(
         adjustmentNumber: parsed.data.adjustmentNumber ?? null,
         warehouseId: parsed.data.warehouseId,
         reason: parsed.data.reason,
-        occurredAt: parsed.data.occurredAt,
+        occurredAt: await tenantStockMoment(c, parsed.data.occurredAt),
         // The reason decides which account absorbs the value, not the caller
         // (R5.9). Seven of the eight reasons previously posted nothing at all.
         gl: {
@@ -404,6 +423,44 @@ export function createInventoryRoutes(
         })),
       });
       return c.json({ ok: true }, 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/adjustments/:id/reverse", gate(ReversalPermission.StockAdjustment), requireReversalReason, async (c) => {
+    const adjustmentId = c.req.param("id");
+    const posted = await service.getPostedAdjustment(adjustmentId);
+    if (posted) {
+      const refusal = warehouseScopeRefusal(c, [posted.warehouseId]);
+      if (refusal) return refusal;
+    }
+    if (await reversal?.documents?.findById(adjustmentId)) {
+      return c.json(
+        {
+          error: "STOCK_ADJUSTMENT_HAS_DOCUMENT",
+          message: "هذه التسوية مستند في شاشة تسويات المخزون؛ اعكسها من هناك لتتغير حالة المستند مع المخزون والقيد.",
+          messageEn: "This adjustment is a document on the stock adjustments screen; reverse it there so the document's state moves with the stock and the entry.",
+        },
+        409,
+      );
+    }
+    try {
+      const { date, memo } = await readReversalRequest(c);
+      const originalDay = posted ? await tenantDay(c, posted.occurredAt) : null;
+      if (originalDay && date < originalDay) throw new ReversalDateBeforeOriginalError(adjustmentId, date, originalDay);
+      await noteReversalOriginalDay(c, originalDay);
+      const occurredAt = await tenantStockMoment(c, date);
+      const reversalId = `${adjustmentId}:REVERSAL`;
+      await service.reverseAdjustment({ adjustmentId, reversalId, occurredAt, memo, mintedBySystem: true });
+      await recordDocumentReversal(reversal?.audit, {
+        module: "inventory",
+        entityType: "STOCK_ADJUSTMENT",
+        entityId: adjustmentId,
+        actor: getAuthContext(c)?.userId ?? "system",
+        details: { reversalDocId: reversalId, date: occurredAt.slice(0, 10) },
+      });
+      return c.json({ adjustmentId, reversalId, date: occurredAt.slice(0, 10) }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -462,7 +519,7 @@ export function createInventoryRoutes(
         transferNumber: parsed.data.transferNumber ?? null,
         fromWarehouseId: parsed.data.fromWarehouseId,
         toWarehouseId: parsed.data.toWarehouseId,
-        occurredAt: parsed.data.occurredAt,
+        occurredAt: await tenantStockMoment(c, parsed.data.occurredAt),
         lines: parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
       });
       return c.json({ ok: true }, 201);

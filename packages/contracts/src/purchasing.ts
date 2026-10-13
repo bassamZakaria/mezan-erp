@@ -3,6 +3,8 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
+import { InvoiceDocumentKind } from "./invoice-document-kind.js";
 
 /**
  * Wire contracts for the purchase chain (docs/archive/catalog/02): أوامر الشراء →
@@ -24,6 +26,12 @@ export const purchaseOrderStatusSchema = z.enum([
   "cancelled",
 ]);
 export const goodsReceiptStatusSchema = z.enum(["draft", "confirmed", "cancelled"]);
+export enum GoodsReceiptInvoicingStatusDTO {
+  NotInvoiced = "not_invoiced",
+  PartiallyInvoiced = "partially_invoiced",
+  Invoiced = "invoiced",
+}
+export const goodsReceiptInvoicingStatusSchema = z.nativeEnum(GoodsReceiptInvoicingStatusDTO);
 export const purchaseInvoiceStatusSchema = z.enum(["draft", "confirmed", "cancelled"]);
 export const purchaseInvoiceLineKindSchema = z.enum(["inventory", "expense", "freight"]);
 
@@ -65,7 +73,7 @@ export const createPurchaseOrderLineSchema = z.object({
 });
 
 export const createPurchaseOrderSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   supplierId: z.string().min(1),
   date: isoDate,
   expectedDeliveryDate: z.string().nullable().optional(),
@@ -82,6 +90,8 @@ export const goodsReceiptLineSchema = z.object({
   itemId: z.string().min(1),
   description: z.string().nullable(),
   qty: decimalString,
+  invoicedQty: decimalString,
+  remainingQty: decimalString,
   unitCost: decimalString,
   batchNo: z.string().nullable(),
   expiryDate: z.string().nullable(),
@@ -103,6 +113,8 @@ export const goodsReceiptSchema = z.object({
   lines: z.array(goodsReceiptLineSchema),
   status: goodsReceiptStatusSchema,
   invoiced: z.boolean(),
+  invoicingStatus: goodsReceiptInvoicingStatusSchema,
+  uninvoicedCost: decimalString,
   totalCost: decimalString,
   createdBy: z.string(),
   createdAt: z.string(),
@@ -119,7 +131,7 @@ export const createGoodsReceiptLineSchema = z.object({
 });
 
 export const createGoodsReceiptSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   /** Omit for an ad-hoc (PO-less) receipt — only allowed when `requirePoForGrn` is off. */
   purchaseOrderId: z.string().min(1).nullable().optional(),
   date: isoDate,
@@ -142,6 +154,7 @@ export const purchaseInvoiceLineSchema = z.object({
   qty: decimalString,
   unitCost: decimalString,
   taxRatePercent: z.number(),
+  taxRateId: z.string().nullable(),
   batchNo: z.string().nullable(),
   expiryDate: z.string().nullable(),
   /** فئة التكلفة — only meaningful with the header's `projectId` (D-01). */
@@ -150,6 +163,7 @@ export const purchaseInvoiceLineSchema = z.object({
 
 export const purchaseInvoiceSchema = z.object({
   id: z.string().min(1),
+  documentKind: z.nativeEnum(InvoiceDocumentKind).optional(),
   number: z.string().min(1),
   supplierId: z.string().min(1),
   date: isoDate,
@@ -194,6 +208,7 @@ export const createPurchaseInvoiceLineSchema = z.object({
   qty: positiveDecimalString,
   unitCost: positiveDecimalString,
   taxRatePercent: z.number().min(0).optional(),
+  taxRateId: z.string().min(1).nullish(),
   batchNo: z.string().min(1).nullable().optional(),
   expiryDate: isoDate.nullable().optional(),
   costCategory: costCategorySchema.nullish(),
@@ -234,7 +249,7 @@ export const purchaseInvoicePaymentSchema = z.object({
 });
 
 export const createPurchaseInvoiceSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   supplierId: z.string().min(1),
   date: isoDate,
   dueDate: z.string().nullable().optional(),
@@ -248,6 +263,7 @@ export const createPurchaseInvoiceSchema = z.object({
   /** بُعد المشروع — optional; omit to inherit the receipt's (create-from-receipt) or leave unset. */
   projectId: z.string().min(1).nullable().optional(),
   lines: z.array(createPurchaseInvoiceLineSchema).min(1).optional(),
+  receiptQuantities: z.array(z.object({ lineIndex: z.number().int().min(0), qty: positiveDecimalString })).min(1).optional(),
 });
 
 export type PurchaseOrderStatusDTO = z.infer<typeof purchaseOrderStatusSchema>;
@@ -301,7 +317,7 @@ export const createPurchaseRfqLineSchema = z.object({
 });
 
 export const createPurchaseRfqSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDate,
   requiredByDate: z.string().nullable().optional(),
   branchId: z.string().min(1),
@@ -332,7 +348,7 @@ export const createRfqQuoteLineSchema = z.object({
 });
 
 export const createRfqQuoteSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   supplierId: z.string().min(1),
   lines: z.array(createRfqQuoteLineSchema).min(1),
   notes: z.string().nullable().optional(),

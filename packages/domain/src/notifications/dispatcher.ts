@@ -1,8 +1,9 @@
-import type {
-  Notification,
-  NotificationChannel,
-  NotificationChannelStatus,
-  NotificationRepository,
+import {
+  NotificationChannelState,
+  type Notification,
+  type NotificationChannel,
+  type NotificationChannelStatus,
+  type NotificationRepository,
 } from "./types.js";
 
 /**
@@ -47,7 +48,7 @@ export type DispatchOutcome =
  */
 export interface NotificationTransport {
   readonly channel: NotificationChannel;
-  send(notification: Notification, recipientEmail: string | null): Promise<DispatchOutcome>;
+  send(notification: Notification, recipientEmail: string | null, claim: string): Promise<DispatchOutcome>;
 }
 
 export interface DispatchPolicy {
@@ -58,6 +59,7 @@ export interface DispatchPolicy {
   readonly maxAgeHours: number;
   /** Messages to attempt in one drain, so a month offline does not become one enormous send. */
   readonly batchSize: number;
+  readonly sendingTimeoutMinutes: number;
 }
 
 export const DEFAULT_DISPATCH_POLICY: DispatchPolicy = {
@@ -65,12 +67,16 @@ export const DEFAULT_DISPATCH_POLICY: DispatchPolicy = {
   // enough that nothing arrives describing a week-old event.
   maxAgeHours: 72,
   batchSize: 50,
+  sendingTimeoutMinutes: 10,
 };
 
 export interface NotificationDispatcherDeps {
   readonly notifications: NotificationRepository & {
     /** Every notification with at least one channel still `"queued"`. */
     listQueued(limit: number): Promise<readonly Notification[]>;
+    claimChannel(id: string, channel: string, at: string): Promise<string | null>;
+    settleChannel(id: string, channel: string, status: NotificationChannelStatus, claim: string): Promise<boolean>;
+    requeueStaleSending(before: string): Promise<number>;
   };
   readonly transports: readonly NotificationTransport[];
   /** The recipient's address, or null when the user has none on file. */
@@ -90,6 +96,14 @@ export interface DrainResult {
   readonly skipped: number;
 }
 
+const ONLY_SCAN_LIMIT = 10_000;
+
+export const SETTLED_AS: Readonly<Record<DispatchOutcome["kind"], NotificationChannelState>> = {
+  sent: NotificationChannelState.Sent,
+  rejected: NotificationChannelState.Failed,
+  offline: NotificationChannelState.Queued,
+};
+
 function hoursBetween(fromIso: string, toIso: string): number {
   return (Date.parse(toIso) - Date.parse(fromIso)) / 3_600_000;
 }
@@ -97,10 +111,21 @@ function hoursBetween(fromIso: string, toIso: string): number {
 export class NotificationDispatcher {
   constructor(private readonly deps: NotificationDispatcherDeps) {}
 
-  async drain(): Promise<DrainResult> {
+  // TWO DRAINS MAY RUN AT ONCE — an operator pressing the button twice, a
+  // second tab — and every send hands the connection back while the mail server
+  // answers. So a channel is claimed (queued → sending) before its send, and
+  // only the drain that claimed it sends it; afterwards that one channel is
+  // written, never the row as it was read before the wait.
+  async drain(options: { readonly only?: ReadonlySet<string> } = {}): Promise<DrainResult> {
     const policy = this.deps.policy ?? DEFAULT_DISPATCH_POLICY;
-    const now = this.deps.now?.() ?? new Date().toISOString();
-    const queued = await this.deps.notifications.listQueued(policy.batchSize);
+    const clock = this.deps.now ?? (() => new Date().toISOString());
+    const now = clock();
+    const notifications = this.deps.notifications;
+    await notifications.requeueStaleSending(new Date(Date.parse(now) - policy.sendingTimeoutMinutes * 60_000).toISOString());
+    const only = options.only;
+    const queued = only
+      ? (await notifications.listQueued(ONLY_SCAN_LIMIT)).filter((notification) => only.has(notification.id))
+      : await notifications.listQueued(policy.batchSize);
 
     let attempted = 0;
     let sent = 0;
@@ -109,22 +134,19 @@ export class NotificationDispatcher {
     let skipped = 0;
 
     for (const notification of queued) {
-      const next: Record<string, NotificationChannelStatus> = { ...notification.channelStatus };
-      let changed = false;
-
       for (const [channel, status] of Object.entries(notification.channelStatus)) {
-        if (status !== "queued") continue;
-
-        if (hoursBetween(notification.createdAt, now) > policy.maxAgeHours) {
-          next[channel] = "failed";
-          failed += 1;
-          changed = true;
-          continue;
-        }
+        if (status !== NotificationChannelState.Queued) continue;
 
         const transport = this.deps.transports.find((t) => t.channel === channel);
-        if (!transport) {
+        const stale = hoursBetween(notification.createdAt, now) > policy.maxAgeHours;
+        if (!stale && !transport) {
           skipped += 1;
+          continue;
+        }
+        const claim = await notifications.claimChannel(notification.id, channel, clock());
+        if (claim === null) continue;
+        if (stale || !transport) {
+          if (await notifications.settleChannel(notification.id, channel, NotificationChannelState.Failed, claim)) failed += 1;
           continue;
         }
 
@@ -132,24 +154,13 @@ export class NotificationDispatcher {
         const outcome = await transport.send(
           notification,
           await this.deps.recipientEmail(notification.recipientUserId),
+          claim,
         );
-        if (outcome.kind === "sent") {
-          next[channel] = "sent";
-          sent += 1;
-          changed = true;
-        } else if (outcome.kind === "rejected") {
-          next[channel] = "failed";
-          failed += 1;
-          changed = true;
-        } else {
-          // Offline. Deliberately leaves the status alone so the next drain
-          // picks it up unchanged.
-          stillQueued += 1;
-        }
-      }
-
-      if (changed) {
-        await this.deps.notifications.save({ ...notification, channelStatus: next });
+        const settled = SETTLED_AS[outcome.kind];
+        if (!(await notifications.settleChannel(notification.id, channel, settled, claim))) continue;
+        if (outcome.kind === "sent") sent += 1;
+        else if (outcome.kind === "rejected") failed += 1;
+        else stillQueued += 1;
       }
     }
 

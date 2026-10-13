@@ -44,11 +44,13 @@ import {
 class RecordingStockPort implements PurchaseStockPostingPort {
   readonly received: unknown[] = [];
   readonly reversed: unknown[] = [];
-  async postReceipt(command: unknown): Promise<void> {
+  async postReceipt(command: unknown): Promise<{ coverVariance: Money }> {
     this.received.push(command);
+    return { coverVariance: Money.zero() };
   }
-  async reverseReceipt(command: unknown): Promise<void> {
+  async reverseReceipt(command: unknown): Promise<{ unmirroredValue: Money }> {
     this.reversed.push(command);
+    return { unmirroredValue: Money.zero() };
   }
 }
 
@@ -675,7 +677,9 @@ describe("Purchase Invoice", () => {
       const { invoices } = await confirmedManualInvoice();
       const stock = new RecordingStockPort();
       const glReverse = new RecordingGlReversalPort();
-      const layers = new FakeCostLayers();
+      const layers = new FakeCostLayers([
+        layer({ id: "layer-1", itemId: "item-Q", warehouseId: WH, sourceDocId: "pi-c", originalQty: Qty.fromMajor("2"), remainingQty: Qty.fromMajor("2") }),
+      ]);
       await cancelPurchaseInvoice("pi-c", { invoices, stock, glReverse, layers });
       await expect(cancelPurchaseInvoice("pi-c", { invoices, stock, glReverse, layers })).rejects.toThrow(PurchaseDocumentNotDraftError);
     });

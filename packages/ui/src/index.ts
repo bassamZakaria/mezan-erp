@@ -149,11 +149,13 @@ export {
 } from "./primitives/DocumentStatusStepper";
 
 export { Kbd, modKeyLabel, type KbdProps, type KbdTone } from "./primitives/Kbd";
-export { SidePanel, type SidePanelProps } from "./primitives/SidePanel";
+export { SidePanel, useInEditScope, type SidePanelProps } from "./primitives/SidePanel";
 export { MoneyInput, type MoneyInputProps } from "./primitives/MoneyInput";
+export { MoneyStringInput, toMoneyDecimal, type MoneyStringInputProps } from "./primitives/MoneyStringInput";
+export { DecimalStringInput, toExactDecimal, type DecimalStringInputProps } from "./primitives/DecimalStringInput";
 export { QtyInput, type QtyInputProps } from "./primitives/QtyInput";
 export { EntityPicker, type EntityPickerProps, type EntityPickerOption } from "./primitives/EntityPicker";
-export { RowMenu } from "./primitives/RowMenu";
+export { RowActionOutcome, RowMenu } from "./primitives/RowMenu";
 export type { RowMenuItem, RowMenuItemConfirm, RowMenuProps } from "./primitives/RowMenu";
 export { Select, type SelectProps, type SelectOption, type SelectSize, type SelectVariant } from "./primitives/Select";
 export {

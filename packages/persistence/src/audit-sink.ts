@@ -2,9 +2,19 @@ import Database from "better-sqlite3";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { auditChangedFieldNames } from "@mezan/domain";
-import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream } from "@mezan/domain";
+import {
+  insideSqliteTransaction,
+  openSqliteConnection,
+  sqliteTransactionsSettled,
+  withSqliteTurn,
+  outsideSqliteTurn,
+  holdsSqliteTurn,
+  withSqliteTransaction,
+  type SqliteConnectionInput,
+} from "./sqlite-connection.js";
+import { auditChangedFieldNames, AuditStreamName } from "@mezan/domain";
+import { reportUntransactedAudit } from "./untransacted-audits.js";
+import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream, TurnObserver } from "@mezan/domain";
 
 /**
  * SQLite-backed AuditSink (docs/archive/plan.md §5.7).
@@ -21,6 +31,7 @@ import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, Au
  * single branch to name. It is added by ALTER on an existing database, which
  * does not fire the append-only triggers.
  */
+
 
 const CREATE_TABLE = `
 CREATE TABLE IF NOT EXISTS audit_event (
@@ -243,12 +254,27 @@ const FILTER_COLUMNS: Record<string, string> = {
   severity: "severity",
 };
 
+function chainFieldsOf(event: AuditEvent): AuditChainFields {
+  return {
+    stream: event.stream,
+    module: event.module,
+    entity_type: event.entityType,
+    entity_id: event.entityId,
+    action: event.action,
+    actor: event.actor,
+    branch_id: event.branchId,
+    timestamp: event.timestamp,
+    severity: event.severity,
+    details: event.details === null ? null : JSON.stringify(event.details),
+  };
+}
+
 class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort {
   private readonly insert: Database.Statement;
   private readonly select: Database.Statement;
   private readonly writeHead: Database.Statement;
   private readonly insertField: Database.Statement;
-  private readonly appendChained: (row: AuditChainFields, fields: readonly string[]) => void;
+  private readonly appendNested: (row: AuditChainFields, fields: readonly string[]) => void;
 
   constructor(
     private readonly sqlite: Database.Database,
@@ -268,22 +294,24 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
       `INSERT INTO audit_chain_head (id, row_id, row_hash, mac) VALUES (1, @row_id, @row_hash, @mac)
          ON CONFLICT(id) DO UPDATE SET row_id = @row_id, row_hash = @row_hash, mac = @mac`,
     );
-    // ORDERING IS THE WHOLE CONTROL: the row and the head it advances have to
-    // land together. A row appended without its head update reads as a
-    // truncated chain on the next verify; a head advanced without its row reads
-    // as a deleted one. Both are false alarms that would teach an owner to
-    // ignore the alarm.
-    // The field index rides in the same transaction as the row: a row whose
-    // index entries are missing is invisible to a field search, which is the
-    // exact hiding place this index exists to close.
-    this.appendChained = sqlite.transaction((row: AuditChainFields, fields: readonly string[]) => {
-      const prevHash = this.currentHeadHash();
-      const rowHash = hashRow(row, prevHash);
-      const info = this.insert.run({ ...row, prev_hash: prevHash, row_hash: rowHash });
-      const rowId = Number(info.lastInsertRowid);
-      for (const field of fields) this.insertField.run(rowId, field);
-      this.writeHead.run({ row_id: rowId, row_hash: rowHash, mac: macHead(this.chainKey, rowId, rowHash) });
-    });
+    this.appendNested = sqlite.transaction((row: AuditChainFields, fields: readonly string[]) => this.appendChained(row, fields));
+  }
+
+  // ORDERING IS THE WHOLE CONTROL: the row and the head it advances have to
+  // land together. A row appended without its head update reads as a
+  // truncated chain on the next verify; a head advanced without its row reads
+  // as a deleted one. Both are false alarms that would teach an owner to
+  // ignore the alarm.
+  // The field index rides in the same transaction as the row: a row whose
+  // index entries are missing is invisible to a field search, which is the
+  // exact hiding place this index exists to close.
+  private appendChained(row: AuditChainFields, fields: readonly string[]): void {
+    const prevHash = this.currentHeadHash();
+    const rowHash = hashRow(row, prevHash);
+    const info = this.insert.run({ ...row, prev_hash: prevHash, row_hash: rowHash });
+    const rowId = Number(info.lastInsertRowid);
+    for (const field of fields) this.insertField.run(rowId, field);
+    this.writeHead.run({ row_id: rowId, row_hash: rowHash, mac: macHead(this.chainKey, rowId, rowHash) });
   }
 
   private currentHeadHash(): string {
@@ -296,19 +324,51 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     return GENESIS;
   }
 
+  // A STAND-ALONE append must take the connection's turn through
+  // withSqliteTransaction, never better-sqlite3's own `transaction()`: that one
+  // keys off `sqlite.inTransaction`, which is true for the whole shared
+  // connection, so the row would nest as a SAVEPOINT inside whatever unrelated
+  // request has a BEGIN open and vanish if that request rolls back.
+  // An append made INSIDE its caller's transaction stays synchronous: its
+  // savepoint is released before this function returns, so a caller that does
+  // not await the append cannot commit ahead of it.
   async append(event: AuditEvent): Promise<void> {
-    this.appendChained({
-      stream: event.stream,
-      module: event.module,
-      entity_type: event.entityType,
-      entity_id: event.entityId,
-      action: event.action,
-      actor: event.actor,
-      branch_id: event.branchId,
-      timestamp: event.timestamp,
-      severity: event.severity,
-      details: event.details === null ? null : JSON.stringify(event.details),
-    }, auditChangedFieldNames(event.details));
+    const row = chainFieldsOf(event);
+    const fields = auditChangedFieldNames(event.details);
+    if (insideSqliteTransaction(this.sqlite)) {
+      this.appendNested(row, fields);
+      return;
+    }
+    if (event.stream === AuditStreamName.Sensitive && holdsSqliteTurn(this.sqlite)) {
+      reportUntransactedAudit(`${event.module}/${event.entityType}/${event.action}`);
+    }
+    await withSqliteTransaction(this.sqlite, async () => this.appendChained(row, fields));
+  }
+
+  // CONTRACT: for a caller already inside its own synchronous transaction on
+  // this connection; the row is a savepoint of that transaction.
+  appendSync(event: AuditEvent): void {
+    this.appendNested(chainFieldsOf(event), auditChangedFieldNames(event.details));
+  }
+
+  atomic<T>(fn: () => Promise<T>): Promise<T> {
+    return withSqliteTransaction(this.sqlite, fn);
+  }
+
+  insideTransaction(): boolean {
+    return insideSqliteTransaction(this.sqlite);
+  }
+
+  settled(): Promise<void> {
+    return sqliteTransactionsSettled(this.sqlite);
+  }
+
+  turn<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T> {
+    return withSqliteTurn(this.sqlite, fn, observer);
+  }
+
+  outsideTurn<T>(fn: () => Promise<T>): Promise<T> {
+    return outsideSqliteTurn(this.sqlite, fn);
   }
 
   private findIndexFault(rows: readonly { id: number; details: string | null }[]): number | null {
@@ -415,6 +475,13 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
         params[key] = value;
       }
     }
+    if (filter.branchIds !== undefined) {
+      const names = filter.branchIds.map((id, index) => {
+        params[`branchIds${index}`] = id;
+        return `@branchIds${index}`;
+      });
+      conditions.push(names.length > 0 ? `branch_id IN (${names.join(", ")})` : "0 = 1");
+    }
     if (filter.field !== undefined) {
       conditions.push("EXISTS (SELECT 1 FROM audit_event_field f WHERE f.event_id = audit_event.id AND f.field = @field)");
       params.field = filter.field;
@@ -446,6 +513,12 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
 }
 
 export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort, AuditChainVerifyPort {
+  atomic<T>(fn: () => Promise<T>): Promise<T>;
+  insideTransaction(): boolean;
+  settled(): Promise<void>;
+  turn<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T>;
+  outsideTurn<T>(fn: () => Promise<T>): Promise<T>;
+  appendSync(event: AuditEvent): void;
   close(): void;
   /** The raw connection, for tests asserting the append-only triggers fire. */
   readonly db: Database.Database;

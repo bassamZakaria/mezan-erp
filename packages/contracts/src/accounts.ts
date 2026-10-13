@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /** Wire contract for the Chart of Accounts (docs/archive/catalog/04 "دليل الحسابات"). */
 export const accountTypeSchema = z.enum(["asset", "liability", "equity", "revenue", "expense", "memorandum"]);
@@ -18,7 +19,7 @@ export const accountSchema = z.object({
 });
 
 export const createAccountSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),

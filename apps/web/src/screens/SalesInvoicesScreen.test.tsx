@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { useState, type ReactNode } from "react";
 import { screen, fireEvent, waitFor, within } from "@testing-library/react";
-import type { AccountDTO, CustomerDTO, ItemDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
+import type { AccountDTO, CustomerDTO, ItemDTO, TaxRateDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
 import { SalesInvoicesScreen } from "./SalesInvoicesScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { Transport } from "../data/transport";
@@ -78,7 +78,7 @@ const customers: CustomerDTO[] = [
   {
     id: "cust-amal", code: "C1", nameAr: "شركة الأمل للتجارة", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
     category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, priceListId: null,
-    creditLimit: "0", taxExempt: false, etaBuyerType: "auto", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
+    creditLimit: "0", taxExempt: false, taxExemptionRateId: null, etaBuyerType: "auto", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
   },
 ];
 
@@ -115,7 +115,7 @@ const accounts: AccountDTO[] = [
 
 function invoiceLine(overrides: Partial<SalesInvoiceDTO["lines"][number]> = {}): SalesInvoiceDTO["lines"][number] {
   return {
-    unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "1.000000", lineId: "l1", itemId: "item-rice", itemNameAr: "أرز أبيض مصري 5 كجم", isStock: true, qty: "1.000000", unitPrice: "185.000000",
+    unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "1.000000", lineId: "l1", itemId: "item-rice", itemNameAr: "أرز أبيض مصري 5 كجم", isStock: true, qty: "1.000000", unitPrice: "185.000000",
     discountPercent: 0, taxRatePercent: 14, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", unitCost: "150.000000",
     ...overrides,
   };
@@ -314,7 +314,7 @@ describe("SalesInvoicesScreen — create + confirm flow", () => {
       "GET /sales-invoices": () => ({ body: current }),
       "POST /sales-invoices": (init) => {
         const body = JSON.parse((init?.body as string) ?? "{}");
-        const created = invoice({ id: "inv-4", docNo: null, status: "draft", journalEntryId: null, confirmedAt: null, ...body, lines: body.lines ?? [] });
+        const created = invoice({ docNo: null, status: "draft", journalEntryId: null, confirmedAt: null, ...body, id: "inv-4", lines: body.lines ?? [] });
         current = [...current, created];
         return { status: 201, body: created };
       },
@@ -339,6 +339,71 @@ describe("SalesInvoicesScreen — create + confirm flow", () => {
     expect(await screen.findByText("INV-000004")).toBeInTheDocument();
   });
 
+  it("sends the same invoice id again when the first save got no answer, and a fresh one for the next invoice", async () => {
+    const sentIds: string[] = [];
+    let answers = 0;
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "POST /sales-invoices": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        sentIds.push(body.id);
+        answers += 1;
+        if (answers === 1) return { status: 503, body: { error: "DATABASE_BUSY", message: "قاعدة البيانات مشغولة" } };
+        return { status: 201, body: invoice({ docNo: null, status: "draft", journalEntryId: null, confirmedAt: null, ...body, lines: body.lines ?? [] }) };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+    const save = screen.getByRole("button", { name: "حفظ كمسودة" });
+    await waitFor(() => expect(save).toBeEnabled());
+
+    fireEvent.click(save);
+    await waitFor(() => expect(sentIds).toHaveLength(1));
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "فاتورة مبيعات جديدة" })).not.toBeInTheDocument());
+
+    expect(sentIds[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(sentIds[1]).toBe(sentIds[0]);
+
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+    const saveNext = screen.getByRole("button", { name: "حفظ كمسودة" });
+    await waitFor(() => expect(saveNext).toBeEnabled());
+    fireEvent.click(saveNext);
+    await waitFor(() => expect(sentIds).toHaveLength(3));
+
+    expect(sentIds[2]).not.toBe(sentIds[0]);
+  });
+
+  it("opens the invoice already saved, with a notice, when its id was used with other contents", async () => {
+    let sends = 0;
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "POST /sales-invoices": () => {
+        sends += 1;
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+    const save = screen.getByRole("button", { name: "حفظ كمسودة" });
+    await waitFor(() => expect(save).toBeEnabled());
+
+    fireEvent.click(save);
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذه الفاتورة، ففُتحت الفاتورة المحفوظة بدل إنشاء أخرى");
+    expect(screen.queryByRole("heading", { name: "فاتورة مبيعات جديدة" })).not.toBeInTheDocument();
+    expect(sends).toBe(1);
+  });
+
   it("shows a domain validation error instead of confirming an invoice without a customer", async () => {
     const transport = stubTransport(baseHandlers(seededInvoices));
     renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
@@ -348,6 +413,67 @@ describe("SalesInvoicesScreen — create + confirm flow", () => {
 
     // With no customer chosen the confirm button stays disabled — no invoice is created.
     expect(screen.getByRole("button", { name: "تأكيد الفاتورة" })).toBeDisabled();
+  });
+});
+
+describe("SalesInvoicesScreen — an item waiting to be priced", () => {
+  const pending: ItemDTO = { ...items[1]!, id: "item-pending", code: "ITM-9", nameAr: "شاي أخضر بانتظار التسعير", salePrice: null, status: "pending_pricing" };
+
+  it("is not offered on an invoice line", async () => {
+    const transport = stubTransport({ ...baseHandlers(seededInvoices), "GET /items": () => ({ body: [...items, pending] }) });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    const input = screen.getByLabelText("الصنف — سطر 1");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "خدمة" } });
+    expect(await screen.findByRole("button", { name: /خدمة تركيب/ })).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "شاي" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /خدمة تركيب/ })).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /شاي أخضر بانتظار التسعير/ })).not.toBeInTheDocument();
+  });
+
+  it("shows the server's Arabic refusal when a line names one anyway", async () => {
+    const refusal = "لا يمكن استخدام صنف بانتظار التسعير في مستند: «أرز أبيض مصري 5 كجم». يُتاح الصنف بعد أن تسعّره الإدارة.";
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "POST /sales-invoices": () => ({ status: 409, body: { error: "ITEM_PENDING_PRICING", message: refusal, itemIds: ["item-rice"] } }),
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+    const confirmButton = screen.getByRole("button", { name: "تأكيد الفاتورة" });
+    await waitFor(() => expect(confirmButton).toBeEnabled());
+    fireEvent.click(confirmButton);
+    expect(await screen.findByText(refusal)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "فاتورة مبيعات جديدة" })).toBeInTheDocument();
+  });
+});
+
+describe("SalesInvoicesScreen — an invoice held on an approval given before the upgrade", () => {
+  it("says why on the invoice and requests approval again through its own confirm", async () => {
+    const reason = "اعتُمد هذا المستند أو أُرسل للموافقة قبل تحديث النظام ولم يُرحَّل؛ الموافقة السابقة لم تعد صالحة للترحيل.";
+    const held = invoice({ id: "inv-held", docNo: "INV-000009", status: "pending", journalEntryId: null, confirmedAt: null, workflowRequestId: "inv-held:confirm" });
+    let standingStatus = "reapproval_required";
+    let confirmed = 0;
+    const transport = stubTransport({
+      ...baseHandlers([held]),
+      "GET /workflow/requests/*/standing": () => ({ body: { id: "inv-held:confirm", status: standingStatus, reason: standingStatus === "reapproval_required" ? reason : null, reasonEn: null } }),
+      "POST /sales-invoices/inv-held/confirm": () => {
+        confirmed += 1;
+        standingStatus = "pending";
+        return { body: { ...held, held: true } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000009"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent(reason);
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirmed).toBe(1));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
   });
 });
 
@@ -601,6 +727,64 @@ describe("SalesInvoicesScreen — row-scoped confirm from the list", () => {
     await waitFor(() => expect(screen.getByText("INV-000900")).toBeInTheDocument());
   });
 
+  it("a row whose confirm would re-rate the invoice shows the old and the new total, and confirms only once the change is acknowledged", async () => {
+    const list = [invoice({ id: "inv-draft-a", docNo: null, status: "draft", version: 4, totals: { ...invoice().totals, grandTotal: "114.000000" } })];
+    const sent: Record<string, unknown>[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(list),
+      "POST /sales-invoices/inv-draft-a/confirm": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
+        sent.push(body);
+        if (body.acknowledgeTaxRecalculation !== true) {
+          return {
+            status: 409,
+            body: {
+              error: "SALES_TAX_RECALCULATION_UNACKNOWLEDGED", taxRecalculated: true, message: "تغيّر إعداد ضريبة القيمة المضافة منذ إنشاء المسودة.",
+              lines: [], totals: { taxableTotal: "100.000000", taxTotal: "0.000000", grandTotal: "100.000000" },
+            },
+          };
+        }
+        return { body: { ...list[0], status: "confirmed", docNo: "INV-000901", held: false, taxRecalculated: { message: "أُعيد احتساب الضريبة." } } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findAllByText("مسودة");
+    fireEvent.click(within(screen.getAllByRole("row")[1]!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveTextContent("تغيّر إعداد ضريبة القيمة المضافة منذ إنشاء المسودة.");
+    expect(dialog).toHaveTextContent("الإجمالي الذي سيُرحَّل: 100.00 — المعروض حالياً: 114.00");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(sent).toEqual([{ expectedVersion: 4 }]);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد الفاتورة" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual({ expectedVersion: 4, acknowledgeTaxRecalculation: true });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText("أُعيد احتساب الضريبة.")).toBeInTheDocument();
+  });
+
+  it("a re-rate notice that is dismissed confirms nothing", async () => {
+    const list = [invoice({ id: "inv-draft-a", docNo: null, status: "draft", version: 4 })];
+    let calls = 0;
+    const transport = stubTransport({
+      ...baseHandlers(list),
+      "POST /sales-invoices/inv-draft-a/confirm": () => {
+        calls += 1;
+        return { status: 409, body: { error: "SALES_TAX_RECALCULATION_UNACKNOWLEDGED", taxRecalculated: true, message: "تغيّر الإعداد.", lines: [], totals: { taxableTotal: "1", taxTotal: "0", grandTotal: "1" } } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findAllByText("مسودة");
+    fireEvent.click(within(screen.getAllByRole("row")[1]!).getByRole("button", { name: /^إجراءات/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "تأكيد الفاتورة" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getAllByRole("button")[0]!);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(calls).toBe(1);
+  });
+
   it("shows the server's refusal for the failed row and leaves the other draft row's own confirm action untouched", async () => {
     const list = [draftA, draftB];
     const transport = stubTransport({
@@ -716,5 +900,96 @@ describe("SalesInvoicesScreen — convert an accepted quote", () => {
       { lineId: "l1", isStock: true, revenueAccountId: "4100-CUSTOM", cogsAccountId: "5100-CUSTOM", inventoryAccountId: "1200-CUSTOM" },
       { lineId: "l2", isStock: false, revenueAccountId: "4100", cogsAccountId: null, inventoryAccountId: null },
     ]);
+  });
+});
+
+describe("SalesInvoicesScreen — the line's tax is a picked tax rate (D79)", () => {
+  const taxRate = (id: string, name: string, rate: number, etaSubType: TaxRateDTO["etaSubType"]): TaxRateDTO => ({
+    id, code: id, name, rate, calculationType: "exclusive", isDefault: id === "VAT14",
+    outputTaxAccountId: null, inputTaxAccountId: null, etaSubType, status: "active",
+  });
+  const taxRates: TaxRateDTO[] = [
+    taxRate("VAT14", "ضريبة القيمة المضافة", 14, "auto"),
+    taxRate("VAT-EXEMPT", "معفى", 0, "V003"),
+    taxRate("VAT-EXPORT", "تصدير", 0, "V001"),
+  ];
+  const zeroRatedItem: ItemDTO = { ...items[1]!, id: "item-freight", code: "SVC-2", nameAr: "شحن دولي", taxRatePercent: 0 };
+
+  async function openFormAndPick(itemName: string) {
+    let createdBody: Record<string, unknown> | undefined;
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "GET /items": () => ({ body: [...items, zeroRatedItem] }),
+      "GET /tax-rates": () => ({ body: taxRates }),
+      "POST /sales-invoices": (init) => {
+        createdBody = JSON.parse((init?.body as string) ?? "{}");
+        return { status: 201, body: invoice({ id: "inv-9", docNo: null, status: "draft", journalEntryId: null, confirmedAt: null }) };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", itemName);
+    return {
+      save: async () => {
+        fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+        await waitFor(() => expect(createdBody).toBeDefined());
+        return (createdBody!.lines as Array<Record<string, unknown>>)[0]!;
+      },
+    };
+  }
+
+  function chooseTaxRate(optionLabel: string): void {
+    fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+  }
+
+  it("a 14% item preselects the one active 14% rate, and the request names it by id with no percent", async () => {
+    const form = await openFormAndPick("أرز أبيض مصري");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("ضريبة القيمة المضافة · 14٪"));
+    const line = await form.save();
+    expect(line.taxRateId).toBe("VAT14");
+    expect(line).not.toHaveProperty("taxRatePercent");
+  });
+
+  it("picking معفى on a taxed item removes the previewed tax and sends the exempt rate's id", async () => {
+    const form = await openFormAndPick("أرز أبيض مصري");
+    chooseTaxRate("معفى · 0٪");
+    const grandTotal = () => screen.getByText("الإجمالي الكلي").closest("div")?.textContent ?? "";
+    await waitFor(() => expect(grandTotal()).toContain("185.00"));
+    const line = await form.save();
+    expect(line.taxRateId).toBe("VAT-EXEMPT");
+    expect(line).not.toHaveProperty("taxRatePercent");
+  });
+
+  it("a 0% item preselects NOTHING when معفى and تصدير both exist, and sends its percent with no id", async () => {
+    const form = await openFormAndPick("شحن دولي");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("بدون ضريبة مسماة (0٪)"));
+    const line = await form.save();
+    expect(line.taxRatePercent).toBe(0);
+    expect(line).not.toHaveProperty("taxRateId");
+  });
+
+  it("a posted invoice's line shows the rate it stored by name under its tax, and a line with no rate its percent alone", async () => {
+    const posted = invoice({
+      lines: [
+        invoiceLine({ lineId: "l1", taxRatePercent: 0, taxRateId: "VAT-EXEMPT" }),
+        invoiceLine({ lineId: "l2", taxRatePercent: 0, taxRateId: null }),
+      ],
+    });
+    const transport = stubTransport({ ...baseHandlers([posted]), "GET /tax-rates": () => ({ body: taxRates }) });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("INV-000001"));
+    expect(await screen.findByText("معفى · 0٪")).toBeInTheDocument();
+    expect(screen.getAllByText("0٪")).toHaveLength(1);
+    expect(screen.queryByText("VAT-EXEMPT")).not.toBeInTheDocument();
+  });
+
+  it("…and the user settles it by picking تصدير, which is what the request then carries", async () => {
+    const form = await openFormAndPick("شحن دولي");
+    chooseTaxRate("تصدير · 0٪");
+    const line = await form.save();
+    expect(line.taxRateId).toBe("VAT-EXPORT");
   });
 });

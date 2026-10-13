@@ -84,6 +84,7 @@ const customers: CustomerDTO[] = [
     priceListId: null,
     creditLimit: "0",
     taxExempt: false,
+    taxExemptionRateId: null,
     etaBuyerType: "auto",
     commercialRegistrationNumber: null,
     address: null,

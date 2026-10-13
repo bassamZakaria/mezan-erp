@@ -8,16 +8,6 @@ export class AttachmentNotFoundError extends Error {
   }
 }
 
-export class DuplicateAttachmentIdError extends Error {
-  readonly code = "DUPLICATE_ATTACHMENT_ID";
-  readonly messageEn: string;
-  constructor(id: string) {
-    super(`المرفق '${id}' موجود بالفعل.`);
-    this.messageEn = `Attachment '${id}' already exists.`;
-    this.name = "DuplicateAttachmentIdError";
-  }
-}
-
 export class InvalidAttachmentError extends Error {
   readonly code = "INVALID_ATTACHMENT";
   readonly reasons: readonly string[];

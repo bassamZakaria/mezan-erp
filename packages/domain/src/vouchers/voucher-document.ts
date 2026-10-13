@@ -17,12 +17,14 @@
  * stays pure so it drives both the UI effects panel and tests.
  */
 
-import { Money } from "../money/index.js";
+import { Money, roundMoney } from "../money/index.js";
 import { convertToBase } from "../exchange-rates/convert.js";
+import { FX_REALISED_LINE_MEMO } from "./realised-fx.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/document.js";
 import { buildEffects } from "../documents/effects.js";
 import type { DocumentGlPosting } from "../documents/hooks.js";
 import { InvalidDocumentError } from "../documents/errors.js";
+import { reversalChainPresenceAsOf } from "../documents/as-of.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import {
   getVoucherTypeDefinition,
@@ -38,6 +40,12 @@ import {
  * are resolved by the caller (treasury account → its GL account; customer →
  * receivable; income/expense → the picked account) so the domain stays pure.
  */
+/**
+ * The branch of a voucher raised on an account the company holds and no branch
+ * owns. Its journal lines post with no branch — «غير مخصص».
+ */
+export const COMPANY_LEVEL_VOUCHER_BRANCH = "";
+
 export interface VoucherLine {
   readonly voucherType: VoucherType;
   readonly direction: VoucherDirection;
@@ -53,6 +61,8 @@ export interface VoucherLine {
    * the FX revaluation's open position forever (B-5).
    */
   readonly fxRate?: string | null;
+  readonly treasuryFx?: TreasuryLegFx | null;
+  readonly counterTreasuryFx?: TreasuryLegFx | null;
   readonly branchId: string;
   readonly paymentMethod: VoucherPaymentMethod;
   /** The treasury account the money moves in/out of (source treasury for a transfer). */
@@ -99,6 +109,32 @@ export interface VoucherLine {
   readonly heldAllocations?: readonly HeldAllocationRequest[] | null;
 }
 
+export interface TreasuryLegFx {
+  readonly currency: string;
+  readonly fxRate: string;
+  readonly foreignAmount: Money;
+  readonly carryingBase?: Money;
+  readonly realised?: Money;
+  readonly realisedAccountId?: string;
+}
+
+function realisedTreasuryLines(
+  treasuryGlAccountId: string,
+  leg: TreasuryLegFx | null | undefined,
+  projectId: string | null,
+  treasuryAccountId: string | null | undefined,
+): DocumentGlPosting["lines"] {
+  if (!leg?.realised || leg.realised.scaled === 0n || !leg.realisedAccountId) return [];
+  const gain = leg.realised.scaled > 0n;
+  const amount = gain ? leg.realised : leg.realised.negate();
+  const zero = Money.zero();
+  const onAccount = { accountId: treasuryGlAccountId, memo: FX_REALISED_LINE_MEMO, projectId, treasuryAccountId: treasuryAccountId ?? null, currency: leg.currency, fxRate: leg.fxRate };
+  const onDifference = { accountId: leg.realisedAccountId, memo: FX_REALISED_LINE_MEMO, projectId };
+  return gain
+    ? [{ ...onAccount, debit: amount, credit: zero }, { ...onDifference, debit: zero, credit: amount }]
+    : [{ ...onDifference, debit: amount, credit: zero }, { ...onAccount, debit: zero, credit: amount }];
+}
+
 export interface HeldAllocationRequest {
   readonly allocationId: string;
   readonly invoiceId: string;
@@ -125,6 +161,26 @@ export function voucherLine(doc: VoucherDocument): VoucherLine {
  */
 export function isStandingVoucher(doc: VoucherDocument): boolean {
   return (doc.status === "confirmed" || doc.status === "posted") && !doc.reversesDocId;
+}
+
+export function voucherTakesAllocations(doc: VoucherDocument): boolean {
+  return getVoucherTypeDefinition(voucherLine(doc).voucherType).allocatable && doc.status !== "reversed" && !doc.reversesDocId;
+}
+
+export function voucherStandsAsOf(doc: VoucherDocument, byId: ReadonlyMap<string, VoucherDocument>, asOfDate: string | undefined): boolean {
+  if (doc.reversesDocId) return false;
+  const dates = [doc.date];
+  const seen = new Set([doc.id]);
+  let link = doc;
+  while (link.status === "reversed" && link.reversedByDocId) {
+    const next = byId.get(link.reversedByDocId);
+    if (!next || seen.has(next.id)) break;
+    seen.add(next.id);
+    dates.push(next.date);
+    link = next;
+  }
+  if (link.status !== "confirmed" && link.status !== "posted") return false;
+  return reversalChainPresenceAsOf(dates, asOfDate) === 1;
 }
 
 class InvalidVoucherLineError extends Error {
@@ -197,8 +253,7 @@ export function voucherBaseWithholding(line: VoucherLine): Money {
 
 function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   const { treasuryGlAccountId } = line;
-  // BASE, always: GL 1105/2100 and every treasury account are base-currency,
-  // so a foreign voucher converts at the rate stamped on it at confirm (B-4).
+  const treasuryAccountId = line.treasuryAccountId;
   const amount = voucherBaseAmount(line);
   // The counterparty leg carries the currency and the rate it was booked at,
   // or FX revaluation can never see that this settlement closed the position
@@ -212,19 +267,22 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   // on the counterparty (expense/income) line — see the field docs above.
   const projectId = line.projectId ?? null;
   const costCategory = line.costCategory ?? null;
+  const treasuryFx = line.treasuryFx ? { currency: line.treasuryFx.currency, fxRate: line.treasuryFx.fxRate } : {};
+  const counterTreasuryFx = line.counterTreasuryFx ? { currency: line.counterTreasuryFx.currency, fxRate: line.counterTreasuryFx.fxRate } : {};
   if (line.direction === "transfer") {
     const destGl = line.counterTreasuryGlAccountId;
     if (!destGl) throw new Error("transfer voucher missing destination GL account");
     return [
-      { accountId: destGl, debit: amount, credit: zero, memo: null, projectId },
-      { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId },
+      { accountId: destGl, debit: amount, credit: zero, memo: null, projectId, treasuryAccountId: line.counterTreasuryAccountId ?? null, ...counterTreasuryFx },
+      { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId, treasuryAccountId, ...treasuryFx },
+      ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId, treasuryAccountId),
     ];
   }
   const counter = line.counterpartyGlAccountId;
   if (!counter) throw new Error("voucher missing counterparty GL account");
   if (line.direction === "receipt") {
     return [
-      { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null, projectId },
+      { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null, projectId, treasuryAccountId, ...treasuryFx },
       { accountId: counter, debit: zero, credit: amount, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
     ];
   }
@@ -235,19 +293,39 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
     if (!whtAccount) throw new Error("a withholding voucher needs a withholding-tax GL account");
     return [
       { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
-      { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null, projectId },
+      { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null, projectId, treasuryAccountId, ...treasuryFx },
       { accountId: whtAccount, debit: zero, credit: withheld, memo: null, projectId },
+      ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId, treasuryAccountId),
     ];
   }
   return [
     { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc, projectId, costCategory, ...fx },
-    { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId },
+    { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null, projectId, treasuryAccountId, ...treasuryFx },
+    ...realisedTreasuryLines(treasuryGlAccountId, line.treasuryFx, projectId, treasuryAccountId),
   ];
 }
 
 /** What actually leaves the treasury, in BASE currency: the settling amount less any tax withheld. */
 export function voucherNetPaid(line: VoucherLine): Money {
   return Money.fromScaled(voucherBaseAmount(line).scaled - voucherBaseWithholding(line).scaled);
+}
+
+function twoDecimals(amount: Money): string {
+  const text = roundMoney(amount, 2, "HALF_UP").toString();
+  return text.slice(0, text.length - 4);
+}
+
+function realisedFxEffect(line: VoucherLine): { kind: "gl"; description: string }[] {
+  const leg = line.treasuryFx;
+  if (!leg?.realised || leg.realised.scaled === 0n || !leg.carryingBase) return [];
+  const gain = leg.realised.scaled > 0n;
+  const amount = twoDecimals(gain ? leg.realised : leg.realised.negate());
+  return [
+    {
+      kind: "gl",
+      description: `فروق عملة محققة: ${gain ? "ربح" : "خسارة"} ${amount} — خرج ${twoDecimals(leg.foreignAmount)} ${leg.currency} من الحساب بقيمته الدفترية ${twoDecimals(leg.carryingBase)} وسعر السند ${leg.fxRate}`,
+    },
+  ];
 }
 
 /** The treasury-voucher document type definition. Plugs into {@link DocumentService}. */
@@ -260,50 +338,50 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
 
   validate(doc) {
     if (doc.lines.length !== 1) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "السند يجب أن يحمل بنداً اقتصادياً واحداً بالضبط.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "السند يجب أن يحمل بنداً اقتصادياً واحداً بالضبط.", "A voucher carries exactly one economic line.");
     }
     const line = doc.lines[0]!;
     const def = getVoucherTypeDefinition(line.voucherType);
     if (line.amount.scaled <= 0n) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "مبلغ السند يجب أن يكون أكبر من صفر.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "مبلغ السند يجب أن يكون أكبر من صفر.", "The voucher amount must be greater than zero.");
     }
     if (line.treasuryAccountId.trim() === "" || line.treasuryGlAccountId.trim() === "") {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب الخزينة مطلوب.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب الخزينة مطلوب.", "A treasury account is required.");
     }
     if (def.direction === "transfer") {
       if (!line.counterTreasuryAccountId || !line.counterTreasuryGlAccountId) {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "التحويل يتطلب خزينة مستقبِلة.");
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "التحويل يتطلب خزينة مستقبِلة.", "A transfer needs a receiving treasury account.");
       }
       if (line.counterTreasuryAccountId === line.treasuryAccountId) {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "لا يمكن التحويل إلى نفس الخزينة.");
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "لا يمكن التحويل إلى نفس الخزينة.", "A transfer cannot go to the treasury account it comes from.");
       }
     } else if (!line.counterpartyGlAccountId || line.counterpartyGlAccountId.trim() === "") {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "الحساب المقابل مطلوب.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "الحساب المقابل مطلوب.", "A counterparty account is required.");
     }
     const withheld = line.withholdingAmount?.scaled ?? 0n;
     if (withheld !== 0n) {
       if (def.direction !== "payment") {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "ضريبة الخصم لا تُطبَّق إلا على سندات الصرف.");
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "ضريبة الخصم لا تُطبَّق إلا على سندات الصرف.", "Withholding tax applies to payment vouchers only.");
       }
       if (withheld < 0n || withheld >= line.amount.scaled) {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "قيمة ضريبة الخصم يجب أن تكون أكبر من صفر وأقل من قيمة السند.");
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "قيمة ضريبة الخصم يجب أن تكون أكبر من صفر وأقل من قيمة السند.", "The withholding tax must be greater than zero and less than the voucher amount.");
       }
       if (!line.withholdingGlAccountId) {
-        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب ضريبة الخصم مطلوب.");
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب ضريبة الخصم مطلوب.", "A withholding tax account is required.");
       }
     }
     if (def.requiresCustomer && !line.customerId) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار عميل.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار عميل.", "This voucher type needs a customer.");
     }
     if (def.requiresSupplier && !line.supplierId) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار مورّد.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار مورّد.", "This voucher type needs a supplier.");
     }
     const projectId = line.projectId ?? null;
     if (def.requiresProject && !projectId) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار مشروع.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار مشروع.", "This voucher type needs a project.");
     }
     if (line.costCategory && !projectId) {
-      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "فئة التكلفة تتطلب اختيار مشروع.");
+      throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "فئة التكلفة تتطلب اختيار مشروع.", "A cost category needs a project.");
     }
   },
 
@@ -321,7 +399,7 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
       memo: doc.memo,
       // بُعد الفرع (DEC-20) on both legs: a branch cash statement that saw the
       // counterparty leg but not the treasury one would not balance.
-      lines: buildVoucherLines(line).map((l) => ({ ...l, branchId: line.branchId ?? null })),
+      lines: buildVoucherLines(line).map((l) => ({ ...l, branchId: line.branchId || null })),
     };
   },
 
@@ -337,9 +415,12 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
       effects: [
         { kind: "balance", description: a },
         { kind: def.allocatable ? "info" : "gl", description: b },
+        ...realisedFxEffect(line),
         {
           kind: "gl",
-          description: `يُنشئ قيداً محاسبياً متوازناً بقيمة ${line.amount.toString()} (${def.labelAr})`,
+          description: `يُنشئ قيداً محاسبياً متوازناً بقيمة ${twoDecimals(line.amount)} ${line.currency} (${def.labelAr})`,
+          key: "docEffects.voucher.gl",
+          params: { amount: line.amount.toString(), ...(line.fxRate ? { currency: line.currency } : {}), reasonAr: def.labelAr, reasonEn: def.labelEn },
         },
       ],
     });

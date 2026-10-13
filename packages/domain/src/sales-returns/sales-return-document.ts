@@ -18,6 +18,7 @@ import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/doc
 import { buildEffects, type DocumentEffects } from "../documents/effects.js";
 import type { DocumentGlPosting, DocumentStockPlan } from "../documents/hooks.js";
 import { InvalidDocumentError } from "../documents/errors.js";
+import { assertReturnTotalsWithinAvailable, isStandingReturn } from "../documents/return-availability.js";
 import { convertToBase } from "../exchange-rates/convert.js";
 
 export const DOC_TYPE = "SALES_RETURN";
@@ -46,6 +47,7 @@ export interface SalesReturnLine {
   readonly customerId: string;
   readonly sourceInvoiceId: string;
   readonly sourceInvoiceNumber: string | null;
+  readonly sourceLineId?: string | null;
   readonly reason: SalesReturnReason;
   /** Originally invoiced qty still eligible to return (caller-computed: invoice qty − already returned). */
   readonly availableQty: Qty;
@@ -63,6 +65,7 @@ export interface SalesReturnLine {
    * posts exactly the entry it always did.
    */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
   /**
    * بُعد المشروع, inherited from the source invoice's own `projectId` (a
    * return built via `/from-invoice` copies it straight off the invoice; one
@@ -71,6 +74,8 @@ export interface SalesReturnLine {
    * none, same as `taxRatePercent`.
    */
   readonly projectId?: string | null;
+  /** بُعد الفرع (DEC-20) — the source invoice's branch, stamped by the server from that invoice and never from the caller. */
+  readonly branchId?: string | null;
   /**
    * The source invoice's currency and the rate it confirmed at, stamped by the
    * server from that invoice — never from the caller. `unitPrice` and
@@ -138,7 +143,7 @@ export function salesReturnCreditByInvoice(
 ): ReadonlyMap<string, Money> {
   const byInvoice = new Map<string, Money>();
   for (const doc of docs) {
-    if (doc.status !== "confirmed") continue;
+    if (!isStandingReturn(doc)) continue;
     for (const line of doc.lines) {
       const current = byInvoice.get(line.sourceInvoiceId) ?? Money.zero();
       byInvoice.set(line.sourceInvoiceId, current.add(salesReturnLineCredit(line)));
@@ -167,6 +172,9 @@ export function createSalesReturnDocumentType(
         if (line.sourceInvoiceId !== invoiceId) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تنتمي لنفس الفاتورة.");
         }
+        if ((line.branchId ?? null) !== (doc.lines[0]?.branchId ?? null)) {
+          throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تُستلم في مستودعات فرع واحد؛ سجّل مرتجعاً لكل فرع.");
+        }
         if ((line.fxRate ?? null) !== (doc.lines[0]?.fxRate ?? null)) {
           throw new InvalidDocumentError(DOC_TYPE, doc.id, "كل بنود المرتجع يجب أن تحمل سعر صرف الفاتورة نفسه.");
         }
@@ -184,6 +192,7 @@ export function createSalesReturnDocumentType(
           throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند الصنف "${line.itemId}": القيم المالية لا يمكن أن تكون سالبة.`);
         }
       }
+      assertReturnTotalsWithinAvailable(DOC_TYPE, doc.id, doc.lines);
     },
 
     buildStockPlan(doc): DocumentStockPlan {
@@ -193,6 +202,7 @@ export function createSalesReturnDocumentType(
         sourceDocId: doc.id,
         sourceDocNumber: doc.docNo,
         warehouseId: first.warehouseId,
+        date: doc.date,
         lines: doc.lines.map((l) => ({
           itemId: l.itemId,
           direction: "IN" as const,
@@ -209,37 +219,42 @@ export function createSalesReturnDocumentType(
       // (`validate` above), so its projectId — inherited from that invoice —
       // is the same on every line; the first line's is the document's.
       const projectId = doc.lines[0]?.projectId ?? null;
-      // Grouped by the rate the source invoice line charged, so a mixed-rate
-      // return posts one base line and one VAT line PER RATE. The VAT return
+      // Grouped by source invoice and the rate its line charged, so a return
+      // posts one base line and one VAT line PER (INVOICE, RATE) — each
+      // invoice's lines can then be classified without the other's. The VAT return
       // reports the rates actually charged, and it can only do that if the
       // ledger recorded them (D28, D76). Lines carrying no rate group under
       // `null` and post the single untagged pair they always did.
-      const byRate = new Map<number | null, { base: Money; tax: Money }>();
+      const byRate = new Map<string, { rate: number | null; taxRateId: string | null; base: Money; tax: Money }>();
       for (const l of doc.lines) {
         const rate = l.taxRatePercent ?? null;
-        const slot = byRate.get(rate) ?? { base: Money.zero(), tax: Money.zero() };
+        const taxRateId = l.taxRateId ?? null;
+        const key = `${l.sourceInvoiceId}|${rate}|${taxRateId ?? ""}`;
+        const slot = byRate.get(key) ?? { rate, taxRateId, base: Money.zero(), tax: Money.zero() };
         const part = salesReturnLineBase(l);
-        byRate.set(rate, { base: slot.base.add(part.revenue), tax: slot.tax.add(part.tax) });
+        byRate.set(key, { ...slot, base: slot.base.add(part.revenue), tax: slot.tax.add(part.tax) });
       }
       const first = doc.lines[0];
       const fxTag = first?.fxRate ? { currency: first.currency ?? null, fxRate: first.fxRate } : {};
       const lines = [
-        ...[...byRate.entries()]
-          .filter(([, v]) => v.base.scaled !== 0n)
-          .map(([rate, v]) => ({
+        ...[...byRate.values()]
+          .filter((v) => v.base.scaled !== 0n)
+          .map((v) => ({
             accountId: accounts.salesReturnsAccountId,
             debit: v.base,
             credit: Money.zero(),
-            taxRatePercent: rate,
+            taxRatePercent: v.rate,
+            taxRateId: v.taxRateId,
             projectId,
           })),
-        ...[...byRate.entries()]
-          .filter(([, v]) => v.tax.scaled > 0n)
-          .map(([rate, v]) => ({
+        ...[...byRate.values()]
+          .filter((v) => v.tax.scaled > 0n)
+          .map((v) => ({
             accountId: accounts.outputTaxPayableAccountId,
             debit: v.tax,
             credit: Money.zero(),
-            taxRatePercent: rate,
+            taxRatePercent: v.rate,
+            taxRateId: v.taxRateId,
             projectId,
           })),
         { accountId: accounts.accountsReceivableId, debit: Money.zero(), credit: grandTotal, projectId, ...fxTag },
@@ -258,7 +273,7 @@ export function createSalesReturnDocumentType(
         sourceDocNumber: doc.docNo,
         date: doc.date,
         memo: doc.memo || `مرتجع مبيعات ${doc.docNo ?? doc.id} — فاتورة ${doc.lines[0]?.sourceInvoiceNumber ?? doc.lines[0]?.sourceInvoiceId}`,
-        lines: [...lines, ...stockLines],
+        lines: [...lines, ...stockLines].map((line) => ({ ...line, branchId: doc.lines[0]?.branchId ?? null })),
       };
     },
 

@@ -18,6 +18,7 @@ import {
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
 import { diffOf, sumRows } from "./kpi.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * الميزانية العمومية — Balance Sheet (docs/archive/catalog/08-reports.md), point in
@@ -87,7 +88,7 @@ export function createBalanceSheetReport(
       "الأصول والالتزامات وحقوق الملكية حتى تاريخ محدد — تتحقق من معادلة الأصول = الالتزامات + حقوق الملكية. " + BRANCH_STATEMENT_NOTE_AR,
     paramsSchema,
     defaultParams: { asOfDate: defaultAsOfDate, branchId: "" },
-    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }, BRANCH_STATEMENT_PARAM_FIELD],
+    paramFields: [{ kind: ReportParamKind.Date, key: "asOfDate", label: "حتى تاريخ" }, BRANCH_STATEMENT_PARAM_FIELD],
     showGrandTotal: false,
     rowKey: (row) => row.rowId,
     columns: [

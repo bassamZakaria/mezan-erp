@@ -2,28 +2,28 @@ import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import type { Cheque, ChequeStatus, ChequeStoredStatus } from "./cheque.js";
 import { CHEQUE_STATUS_DEFINITIONS } from "./cheque.js";
-import { COLLECTION_WINDOW_DAYS, assertChequeTransition, effectiveChequeStatus } from "./status.js";
+import { COLLECTION_WINDOW_DAYS, ChequeAction, assertChequeTransition, effectiveChequeStatus } from "./status.js";
 import { InvalidChequeTransitionError } from "./errors.js";
 
-type Action = "deposit" | "collect" | "bounce" | "replace";
+type Action = Exclude<ChequeAction, ChequeAction.Return>;
 
 const storedArb = fc.constantFrom<ChequeStoredStatus>("pending", "deposited", "collected", "bounced", "replaced");
-const actionArb = fc.constantFrom<Action>("deposit", "collect", "bounce", "replace");
+const actionArb = fc.constantFrom<Action>(ChequeAction.Deposit, ChequeAction.Collect, ChequeAction.Bounce, ChequeAction.Replace);
 const dateArb = fc
   .date({ min: new Date("2020-01-01T00:00:00.000Z"), max: new Date("2035-12-31T00:00:00.000Z") })
   .map((d) => d.toISOString().slice(0, 10));
 
 const LEGAL: Record<Action, ChequeStoredStatus> = {
-  deposit: "pending",
-  collect: "deposited",
-  bounce: "deposited",
-  replace: "bounced",
+  [ChequeAction.Deposit]: "pending",
+  [ChequeAction.Collect]: "deposited",
+  [ChequeAction.Bounce]: "deposited",
+  [ChequeAction.Replace]: "bounced",
 };
 const TARGET: Record<Action, ChequeStoredStatus> = {
-  deposit: "deposited",
-  collect: "collected",
-  bounce: "bounced",
-  replace: "replaced",
+  [ChequeAction.Deposit]: "deposited",
+  [ChequeAction.Collect]: "collected",
+  [ChequeAction.Bounce]: "bounced",
+  [ChequeAction.Replace]: "replaced",
 };
 
 function chequeOf(status: ChequeStoredStatus, dueDate: string): Cheque {
@@ -64,7 +64,7 @@ describe("cheque lifecycle — fuzz", () => {
     fc.assert(
       fc.property(dateArb, (dueDate) => {
         let status: ChequeStoredStatus = "pending";
-        for (const action of ["deposit", "bounce", "replace"] as const) {
+        for (const action of [ChequeAction.Deposit, ChequeAction.Bounce, ChequeAction.Replace] as const) {
           expect(() => assertChequeTransition(chequeOf(status, dueDate), action)).not.toThrow();
           status = TARGET[action];
         }
@@ -72,7 +72,7 @@ describe("cheque lifecycle — fuzz", () => {
 
         // The shortcut a careless UI might offer — collecting a cheque that was
         // never deposited — must still be refused.
-        expect(() => assertChequeTransition(chequeOf("pending", dueDate), "collect")).toThrow(
+        expect(() => assertChequeTransition(chequeOf("pending", dueDate), ChequeAction.Collect)).toThrow(
           InvalidChequeTransitionError,
         );
       }),

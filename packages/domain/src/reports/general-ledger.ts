@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
-import { type GlReportContext, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
+import { type GlReportContext, isLedgerEffective, lineInBranchView, moneyToNumber } from "./gl-shared.js";
+import { BRANCH_STATEMENT_PARAM_FIELD, branchIdParamSchema } from "./branch-filter.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, countDistinct } from "./kpi.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * دفتر الأستاذ العام — General Ledger (docs/archive/catalog/08-reports.md). Every
@@ -14,6 +16,7 @@ import { sumRows, countDistinct } from "./kpi.js";
 export interface GeneralLedgerParams {
   readonly periodFrom: string;
   readonly periodTo: string;
+  readonly branchId?: string;
 }
 
 export interface GeneralLedgerRow {
@@ -29,7 +32,7 @@ export interface GeneralLedgerRow {
 
 const DATE = isoDateParamSchema;
 const paramsSchema = z
-  .object({ periodFrom: DATE, periodTo: DATE })
+  .object({ periodFrom: DATE, periodTo: DATE, branchId: branchIdParamSchema })
   .refine((p) => p.periodFrom <= p.periodTo, {
     message: "تاريخ البداية يجب أن يسبق تاريخ النهاية",
     path: ["periodFrom"],
@@ -44,7 +47,7 @@ export function createGeneralLedgerReport(
     descriptionAr: "جميع بنود القيود المرحّلة عبر كل الحسابات خلال الفترة، مجمّعة حسب الحساب.",
     paramsSchema,
     defaultParams,
-    paramFields: [{ kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }, BRANCH_STATEMENT_PARAM_FIELD],
     onDemand: true,
     rowKey: (row) => row.rowId,
     columns: [
@@ -84,6 +87,7 @@ export function createGeneralLedgerReport(
         if (!isLedgerEffective(entry)) continue;
         if (entry.date < params.periodFrom || entry.date > params.periodTo) continue;
         for (const line of entry.lines) {
+          if (!lineInBranchView(line, { branchScope: ctx.branchScope, branchId: params.branchId })) continue;
           const account = nameById.get(line.accountId);
           const accountLabel = account ? `${account.code} — ${account.nameAr}` : line.accountId;
           seq += 1;

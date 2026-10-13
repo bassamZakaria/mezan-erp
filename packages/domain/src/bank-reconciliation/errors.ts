@@ -435,6 +435,36 @@ export class StatementOutOfBranchScopeError extends Error {
   }
 }
 
+/** A user who holds several branches imported onto a company-level account without saying which branch it is for. */
+export class StatementBranchRequiredError extends Error {
+  readonly code = "BRANCH_REQUIRED";
+  messageEn = "";
+  constructor() {
+    super();
+    bilingual(
+      this,
+      "حدد الفرع الذي يُسجَّل عليه كشف الحساب: الحساب على مستوى الشركة، وحسابك مصرح له بأكثر من فرع.",
+      "Choose the branch this statement is for: the account is the company's, and your account holds several branches.",
+      "StatementBranchRequiredError",
+    );
+  }
+}
+
+/** A branch was named that is not the branch the account, or the statement, already belongs to. */
+export class StatementBranchMismatchError extends Error {
+  readonly code = "STATEMENT_BRANCH_NOT_THE_ACCOUNTS";
+  messageEn = "";
+  constructor() {
+    super();
+    bilingual(
+      this,
+      "الفرع المحدد ليس فرع الحساب البنكي. يُحدَّد الفرع فقط لحساب على مستوى الشركة.",
+      "The branch named is not the bank account's own. A branch is named only for a company-level account.",
+      "StatementBranchMismatchError",
+    );
+  }
+}
+
 export class TreasuryAccountOutOfBranchScopeError extends Error {
   readonly code = "TREASURY_ACCOUNT_OUT_OF_BRANCH_SCOPE";
   messageEn = "";

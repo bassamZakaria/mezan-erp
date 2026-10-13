@@ -49,6 +49,8 @@ export {
   SuggestionNotFoundError,
   SuggestionNotPendingError,
   TreasuryAccountNumberMissingError,
+  StatementBranchMismatchError,
+  StatementBranchRequiredError,
   TreasuryAccountOutOfBranchScopeError,
   TreasuryAccountUnpostableError,
   ZeroAmountLineError,

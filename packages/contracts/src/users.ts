@@ -19,6 +19,13 @@ const pinSchema = z.string().regex(/^\d{6}$/, "PIN must be exactly 6 digits");
 const loginEmailSchema = z.string().trim().toLowerCase().email();
 
 /** Wire shape returned to clients — secrets never cross this boundary. */
+export enum OwnerHandOverOutcome {
+  Verified = "verified",
+  Pending = "pending",
+  PendingUnmailed = "pending_unmailed",
+  Failed = "failed",
+}
+
 export const userSchema = z.object({
   id: z.string().min(1),
   /**
@@ -44,6 +51,8 @@ export const userSchema = z.object({
   createdAt: z.string(),
   /** When the person's data was erased (D348); the row then carries only placeholders. */
   erasedAt: z.string().nullable().optional(),
+  isCompanyOwner: z.boolean().optional(),
+  ownerHandOver: z.nativeEnum(OwnerHandOverOutcome).optional(),
 });
 
 const userBaseFields = {
@@ -82,6 +91,7 @@ export const updateUserSchema = z
     ...userBaseFields,
     password: z.string().min(8, "Password must be at least 8 characters").optional(),
     pin: pinSchema.nullable().optional(),
+    newOwnerUserId: z.string().trim().min(1).optional(),
     ...sodAcknowledgeFields,
   })
   .refine((v) => v.isCompanyAdmin !== (v.roleId !== null), {
@@ -104,6 +114,10 @@ export enum ErasureRetention {
  * «محو البيانات الشخصية» — the admin types the account's current email to
  * confirm which person is being erased, and records the request it answers.
  */
+export const deactivateUserSchema = z.object({
+  newOwnerUserId: z.string().trim().min(1).optional(),
+});
+
 export const eraseUserSchema = z.object({
   confirmEmail: z.string().trim().min(1),
   reason: z.string().trim().min(3).max(500),

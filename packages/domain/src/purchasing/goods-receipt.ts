@@ -9,8 +9,9 @@
  */
 
 import { Money, Qty } from "../money/index.js";
-import { extend, occurredAtFromDocumentDate, type CostLayerRepository } from "../inventory/index.js";
+import { extend, occurredAtFromDocumentDate, type CostLayer, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
+import { JournalEntryNotFoundError, ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import {
   applyReceiptToOrder,
@@ -19,7 +20,9 @@ import {
   type PurchaseOrder,
   type PurchaseOrderRepository,
 } from "./purchase-order.js";
+import { LandedCostStandsOnDocumentError } from "../landed-costs/errors.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
+import { UnbookedStockVarianceError, assertDocumentWritten } from "../documents/errors.js";
 import {
   DEFAULT_PURCHASE_POLICY,
   type GoodsReceiptStatus,
@@ -27,10 +30,12 @@ import {
   type PurchaseStockPostingPort,
   type PurchaseGlAccounts,
   type PurchaseGlPosting,
+  type PurchaseGlPostingLine,
   type PurchaseGlPostingPort,
+  type PurchaseGlReversalPort,
 } from "./types.js";
 import {
-  DuplicatePurchaseDocumentError,
+  GoodsReceiptAccrualAccountMissingError,
   GoodsReceiptAlreadyInvoicedError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
@@ -56,6 +61,52 @@ export interface GoodsReceiptLine {
   readonly expiryDate?: string | null;
   /** فئة التكلفة — only meaningful with the receipt's `projectId` (D-01). */
   readonly costCategory?: CostCategory | null;
+  /** INVARIANT: moved only by a purchase invoice confirming or cancelling against this line, inside that invoice's transaction; GL 2120 holds (qty − invoicedQty) × unitCost for every confirmed receipt. */
+  readonly invoicedQty?: Qty;
+}
+
+export enum GoodsReceiptInvoicingStatus {
+  NotInvoiced = "not_invoiced",
+  PartiallyInvoiced = "partially_invoiced",
+  Invoiced = "invoiced",
+}
+
+export function receiptLineInvoicedQty(receipt: Pick<GoodsReceipt, "invoiced">, line: GoodsReceiptLine): Qty {
+  if (line.invoicedQty !== undefined) return line.invoicedQty;
+  return receipt.invoiced ? line.qty : Qty.zero();
+}
+
+export function receiptLineRemainingQty(receipt: Pick<GoodsReceipt, "invoiced">, line: GoodsReceiptLine): Qty {
+  return line.qty.subtract(receiptLineInvoicedQty(receipt, line));
+}
+
+export function goodsReceiptInvoicingStatus(receipt: Pick<GoodsReceipt, "invoiced" | "lines">): GoodsReceiptInvoicingStatus {
+  const billed = receipt.lines.map((line) => receiptLineInvoicedQty(receipt, line));
+  if (billed.every((qty) => qty.isZero())) return GoodsReceiptInvoicingStatus.NotInvoiced;
+  const full = receipt.lines.every((line, index) => (billed[index] as Qty).compare(line.qty) >= 0);
+  return full ? GoodsReceiptInvoicingStatus.Invoiced : GoodsReceiptInvoicingStatus.PartiallyInvoiced;
+}
+
+export function goodsReceiptUninvoicedCost(receipt: Pick<GoodsReceipt, "invoiced" | "lines">): Money {
+  return Money.sum(receipt.lines.map((line) => extend(receiptLineRemainingQty(receipt, line), line.unitCost)));
+}
+
+export interface ReceiptLineBilling {
+  readonly lineIndex: number;
+  readonly qty: Qty;
+}
+
+function withBilling(receipt: GoodsReceipt, billings: readonly ReceiptLineBilling[], sign: 1 | -1): GoodsReceipt {
+  const lines = receipt.lines.map((line, index) => {
+    let invoicedQty = receiptLineInvoicedQty(receipt, line);
+    for (const billing of billings) {
+      if (billing.lineIndex !== index) continue;
+      invoicedQty = sign === 1 ? invoicedQty.add(billing.qty) : invoicedQty.subtract(billing.qty);
+    }
+    return { ...line, invoicedQty };
+  });
+  const next = { ...receipt, lines };
+  return { ...next, invoiced: goodsReceiptInvoicingStatus({ invoiced: false, lines }) === GoodsReceiptInvoicingStatus.Invoiced };
 }
 
 export interface GoodsReceipt {
@@ -77,12 +128,23 @@ export interface GoodsReceipt {
   readonly createdAt: string;
 }
 
+export enum GoodsReceiptField {
+  Status = "status",
+  Billing = "billing",
+}
+
 export interface GoodsReceiptRepository {
   findById(id: string): Promise<GoodsReceipt | null>;
   list(): Promise<GoodsReceipt[]>;
   listByOrder(purchaseOrderId: string): Promise<GoodsReceipt[]>;
   create(receipt: GoodsReceipt): Promise<void>;
   update(receipt: GoodsReceipt): Promise<void>;
+  /**
+   * INVARIANT: the ONE write a state change makes to a stored receipt — the
+   * named fields of `next`, only while the stored row is still in
+   * `expected.status`. It answers whether a row was written.
+   */
+  writeFields(next: GoodsReceipt, fields: readonly GoodsReceiptField[], expected: { readonly status: GoodsReceipt["status"] }): Promise<boolean>;
 }
 
 export interface GoodsReceiptLineInput {
@@ -134,19 +196,48 @@ export interface ConfirmGoodsReceiptDeps extends PurchaseAuditDeps {
   readonly receipts: GoodsReceiptRepository;
   readonly orders: PurchaseOrderRepository;
   readonly stock: PurchaseStockPostingPort;
-  /** Both optional together: without them a receipt moves stock and posts nothing, which is what predates D53. */
+  /** INVARIANT: with a ledger wired, a receipt is refused unless `accounts` names the received-not-invoiced account — stock never moves without its entry. Absent, the composition keeps no ledger at all. */
   readonly gl?: PurchaseGlPostingPort;
   readonly accounts?: PurchaseGlAccounts;
   readonly now?: () => string;
 }
 
 export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
+  readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
   readonly receipts: GoodsReceiptRepository;
   readonly orders: PurchaseOrderRepository;
   readonly stock: PurchaseStockPostingPort;
   readonly layers: CostLayerRepository;
+  readonly glReverse?: PurchaseGlReversalPort;
+  readonly accounts?: StockDifferenceAccounts;
   readonly policy?: PurchasePolicy;
   readonly now?: () => string;
+}
+
+export type StockDifferenceAccounts = Pick<PurchaseGlAccounts, "inventoryAccountId" | "backOrderCostAccountId" | "priceVarianceAccountId">;
+
+export function goodsReceiptCancelEntryId(receiptId: string): string {
+  return `${receiptId}:cancel`;
+}
+
+export function receiptLayersConsumed(layers: readonly CostLayer[], sourceDocId: string): boolean {
+  const mine = layers.filter((l) => l.sourceDocId === sourceDocId);
+  return mine.length === 0 || mine.some((l) => l.remainingQty.compare(l.originalQty) !== 0);
+}
+
+export interface StockPosition {
+  readonly itemId: string;
+  readonly warehouseId: string;
+}
+
+export function distinctPositions(positions: readonly StockPosition[]): StockPosition[] {
+  const seen = new Set<string>();
+  return positions.filter((p) => {
+    const key = JSON.stringify([p.itemId, p.warehouseId]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function nowIso(deps: { now?: () => string }): string {
@@ -217,9 +308,6 @@ export async function createGoodsReceipt(
   deps: CreateGoodsReceiptDeps,
 ): Promise<GoodsReceipt> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
-  if (await deps.receipts.findById(command.id)) {
-    throw new DuplicatePurchaseDocumentError(command.id);
-  }
 
   if (!command.purchaseOrderId) {
     if (policy.requirePoForGrn) throw new PurchaseOrderRequiredError();
@@ -343,12 +431,40 @@ async function createAdHocGoodsReceipt(
   return receipt;
 }
 
-/**
- * تأكيد (Confirm): مسودة → مؤكد. Posts stock IN through the costing/stock-ledger
- * engine (sourceDocType PURCHASE_RECEIPT) — no GL entry — then rolls the received
- * quantities into the PO (advancing it to partially/fully received). Gateable
- * action PURCHASE_RECEIPT_CONFIRM is enforced by the workflow gate at the edge.
- */
+// INVARIANT: the receiving document's own entry debits inventory by what the
+// receipt stated; the stock ledger added less (or more) where the goods
+// levelled a back-order. These two lines carry the difference to the cost of
+// the goods already sold, so the control account moves by what the stock did.
+export function backOrderCoverLines(
+  variance: Money,
+  accounts: { readonly inventoryAccountId: string; readonly backOrderCostAccountId?: string; readonly priceVarianceAccountId?: string },
+  dimensions: { readonly projectId?: string | null; readonly branchId?: string | null } = {},
+): PurchaseGlPostingLine[] {
+  if (variance.scaled === 0n) return [];
+  const costAccountId = accounts.backOrderCostAccountId ?? accounts.priceVarianceAccountId;
+  if (!costAccountId) throw new UnbookedStockVarianceError(variance.negate());
+  const dearer = variance.scaled > 0n;
+  const magnitude = dearer ? variance : variance.negate();
+  const [debited, credited] = dearer ? [costAccountId, accounts.inventoryAccountId] : [accounts.inventoryAccountId, costAccountId];
+  return [
+    { accountId: debited, debit: magnitude, credit: Money.zero(), ...dimensions },
+    { accountId: credited, debit: Money.zero(), credit: magnitude, ...dimensions },
+  ];
+}
+
+// INVARIANT: a cancelled receipt's goods leave stock at the moving average,
+// while the reversed entry takes out of inventory what the receipt put in.
+// These lines, booked in the cancelling entry itself, carry the difference.
+export function cancelledReceiptStockLines(
+  unmirrored: Money,
+  accounts: StockDifferenceAccounts | undefined,
+  dimensions: { readonly projectId?: string | null; readonly branchId?: string | null } = {},
+): PurchaseGlPostingLine[] {
+  if (unmirrored.scaled === 0n) return [];
+  if (!accounts) throw new UnbookedStockVarianceError(unmirrored);
+  return backOrderCoverLines(unmirrored.negate(), accounts, dimensions);
+}
+
 /**
  * Dr المخزون / Cr بضاعة واردة لم تُفوتر for what the receipt brought in (D53).
  *
@@ -359,7 +475,8 @@ async function createAdHocGoodsReceipt(
  */
 export function buildGoodsReceiptPosting(
   receipt: GoodsReceipt,
-  accounts: { readonly inventoryAccountId: string; readonly goodsReceivedNotInvoicedAccountId: string },
+  accounts: { readonly inventoryAccountId: string; readonly goodsReceivedNotInvoicedAccountId: string; readonly backOrderCostAccountId?: string; readonly priceVarianceAccountId?: string },
+  coverVariance: Money = Money.zero(),
 ): PurchaseGlPosting {
   const value = Money.sum(receipt.lines.map((l) => extend(l.qty, l.unitCost)));
   // Split the inventory debit by cost category (never the GRNI credit — that
@@ -387,9 +504,11 @@ export function buildGoodsReceiptPosting(
     sourceDocNumber: receipt.number,
     date: receipt.date,
     memo: `إذن استلام ${receipt.number}`,
+    warehouseId: receipt.warehouseId,
     lines: [
       ...debitLines,
       { accountId: accounts.goodsReceivedNotInvoicedAccountId, debit: Money.zero(), credit: value, projectId },
+      ...backOrderCoverLines(coverVariance, accounts, { projectId }),
     ],
   };
 }
@@ -398,14 +517,15 @@ export async function confirmGoodsReceipt(
   id: string,
   deps: ConfirmGoodsReceiptDeps,
 ): Promise<GoodsReceipt> {
+  return atomically(deps, async () => {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
   if (receipt.status !== "draft") {
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
-
-  return atomically(deps, async () => {
-  await deps.stock.postReceipt({
+  const accrualAccountId = deps.accounts?.goodsReceivedNotInvoicedAccountId;
+  if (deps.gl && (!deps.accounts || !accrualAccountId)) throw new GoodsReceiptAccrualAccountMissingError(id);
+  const received = await deps.stock.postReceipt({
     receiptId: receipt.id,
     receiptNumber: receipt.number,
     warehouseId: receipt.warehouseId,
@@ -420,15 +540,21 @@ export async function confirmGoodsReceipt(
     occurredAt: occurredAtFromDocumentDate(receipt.date),
   });
 
-  // Stock first here, unlike the invoice: a receipt's movement is always an IN,
-  // which no stock policy refuses, and the GL entry is what must not be left
-  // behind if something later fails.
-  if (deps.gl && deps.accounts?.goodsReceivedNotInvoicedAccountId) {
+  // ORDER MATTERS: the goods enter stock first — the entry books what they
+  // levelled of a back-order, which only the stock ledger can say.
+  if (!deps.gl && received.coverVariance.scaled !== 0n) throw new UnbookedStockVarianceError(received.coverVariance.negate());
+  if (deps.gl && deps.accounts && accrualAccountId) {
     await deps.gl.post(
-      buildGoodsReceiptPosting(receipt, {
-        inventoryAccountId: deps.accounts.inventoryAccountId,
-        goodsReceivedNotInvoicedAccountId: deps.accounts.goodsReceivedNotInvoicedAccountId,
-      }),
+      buildGoodsReceiptPosting(
+        receipt,
+        {
+          inventoryAccountId: deps.accounts.inventoryAccountId,
+          goodsReceivedNotInvoicedAccountId: accrualAccountId,
+          backOrderCostAccountId: deps.accounts.backOrderCostAccountId,
+          priceVarianceAccountId: deps.accounts.priceVarianceAccountId,
+        },
+        received.coverVariance,
+      ),
     );
   }
 
@@ -443,7 +569,7 @@ export async function confirmGoodsReceipt(
   }
 
   const confirmed: GoodsReceipt = { ...receipt, status: "confirmed" };
-  await deps.receipts.update(confirmed);
+  await writeReceipt(deps.receipts, confirmed, [GoodsReceiptField.Status], receipt.status);
   await recordPurchaseAudit(deps, "GOODS_RECEIPT", "CONFIRM", {
     receiptId: confirmed.id,
     number: confirmed.number,
@@ -468,34 +594,54 @@ export async function confirmGoodsReceipt(
 export async function cancelGoodsReceipt(
   id: string,
   deps: CancelGoodsReceiptDeps,
+  options: { readonly date?: string } = {},
 ): Promise<GoodsReceipt> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
+
+  return atomically(deps, async () => {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
   if (receipt.status === "cancelled") {
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
-  if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(id);
+  if (goodsReceiptInvoicingStatus(receipt) !== GoodsReceiptInvoicingStatus.NotInvoiced) throw new GoodsReceiptAlreadyInvoicedError(id);
+  if (options.date !== undefined && options.date < receipt.date) {
+    throw new ReversalDateBeforeOriginalError(id, options.date, receipt.date);
+  }
+  const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+  const cancelDate = options.date ?? (today < receipt.date ? receipt.date : today);
 
-  return atomically(deps, async () => {
   if (receipt.status === "confirmed") {
+    const standing = (await deps.landedCostsStandingOn?.(receipt.id)) ?? [];
+    if (standing.length > 0) throw new LandedCostStandsOnDocumentError(receipt.id, standing);
+  }
+  if (receipt.status === "confirmed") {
+    const positions = distinctPositions(receipt.lines.map((l) => ({ itemId: l.itemId, warehouseId: receipt.warehouseId })));
     if (policy.trackSoldPurchaseItems) {
-      for (const line of receipt.lines) {
-        const layers = await deps.layers.listByPosition(line.itemId, receipt.warehouseId);
-        const consumed = layers
-          .filter((l) => l.sourceDocId === receipt.id)
-          .some((l) => l.remainingQty.compare(l.originalQty) !== 0);
-        if (consumed) throw new PurchaseItemsAlreadyConsumedError(id);
+      for (const position of positions) {
+        const layers = await deps.layers.listByPosition(position.itemId, position.warehouseId);
+        if (receiptLayersConsumed(layers, receipt.id)) throw new PurchaseItemsAlreadyConsumedError(id);
       }
     }
 
-    await deps.stock.reverseReceipt({
-      reversalId: `${receipt.id}:cancel`,
+    const taken = await deps.stock.reverseReceipt({
+      reversalId: goodsReceiptCancelEntryId(receipt.id),
       sourceDocType: "PURCHASE_RECEIPT",
       sourceDocId: receipt.id,
-      positions: receipt.lines.map((l) => ({ itemId: l.itemId, warehouseId: receipt.warehouseId })),
-      occurredAt: occurredAtFromDocumentDate(receipt.date),
+      positions,
+      occurredAt: occurredAtFromDocumentDate(cancelDate),
     });
+
+    try {
+      await deps.glReverse?.reverse(receipt.id, {
+        reversalId: goodsReceiptCancelEntryId(receipt.id),
+        date: cancelDate,
+        memo: `عكس إذن استلام ${receipt.number}`,
+        appendLines: cancelledReceiptStockLines(taken.unmirroredValue, deps.accounts, { projectId: receipt.projectId ?? null }),
+      });
+    } catch (err) {
+      if (!(err instanceof JournalEntryNotFoundError)) throw err;
+    }
 
     if (receipt.purchaseOrderId) {
       const order = await deps.orders.findById(receipt.purchaseOrderId);
@@ -510,7 +656,7 @@ export async function cancelGoodsReceipt(
   }
 
   const cancelled: GoodsReceipt = { ...receipt, status: "cancelled" };
-  await deps.receipts.update(cancelled);
+  await writeReceipt(deps.receipts, cancelled, [GoodsReceiptField.Status], receipt.status);
   await recordPurchaseAudit(deps, "GOODS_RECEIPT", "CANCEL", {
     receiptId: cancelled.id,
     number: cancelled.number,
@@ -524,13 +670,24 @@ export async function cancelGoodsReceipt(
   });
 }
 
-/** Mark a receipt as invoiced (called when a purchase invoice confirms against it). */
-export async function markGoodsReceiptInvoiced(
-  id: string,
-  deps: Pick<ConfirmGoodsReceiptDeps, "receipts">,
-): Promise<void> {
+export async function billGoodsReceipt(id: string, billings: readonly ReceiptLineBilling[], deps: Pick<ConfirmGoodsReceiptDeps, "receipts">): Promise<void> {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
-  if (receipt.invoiced) return;
-  await deps.receipts.update({ ...receipt, invoiced: true });
+  await writeReceipt(deps.receipts, withBilling(receipt, billings, 1), [GoodsReceiptField.Billing], receipt.status);
+}
+
+export async function unbillGoodsReceipt(id: string, billings: readonly ReceiptLineBilling[] | null, deps: Pick<ConfirmGoodsReceiptDeps, "receipts">): Promise<void> {
+  const receipt = await deps.receipts.findById(id);
+  if (!receipt) return;
+  const unbilled = billings === null ? { ...receipt, invoiced: false, lines: receipt.lines.map((line) => ({ ...line, invoicedQty: Qty.zero() })) } : withBilling(receipt, billings, -1);
+  await writeReceipt(deps.receipts, unbilled, [GoodsReceiptField.Billing], receipt.status);
+}
+
+async function writeReceipt(
+  receipts: GoodsReceiptRepository,
+  next: GoodsReceipt,
+  fields: readonly GoodsReceiptField[],
+  expectedStatus: GoodsReceipt["status"],
+): Promise<void> {
+  assertDocumentWritten(await receipts.writeFields(next, fields, { status: expectedStatus }), "GOODS_RECEIPT", next.id);
 }

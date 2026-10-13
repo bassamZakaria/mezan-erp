@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { LicenseReasonCode } from "@mezan/domain";
 import { LicenseBanner } from "./LicenseBanner";
 import { renderWithProviders, stubTransport, testAdminSession } from "./data/test-support";
 import type { DesktopLicenceResultDTO } from "./data/hooks";
@@ -241,6 +242,15 @@ describe("LicenseBanner — guards L-8 / support #11", () => {
 
   // The browser build holds no licence file and no bridge; it must still render
   // the server's verdict rather than nothing.
+  it("tells a tenant whose stored status is unknown to contact support — never to renew or import a file", async () => {
+    renderBanner({ state: "READ_ONLY", canWrite: false, usable: true, reason: LicenseReasonCode.StatusUnknown });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("حالة الاشتراك غير معروفة — تواصل مع الدعم");
+    expect(alert).not.toHaveTextContent("تجديد الترخيص");
+    expect(screen.queryByRole("button", { name: "استيراد ملف الترخيص" })).not.toBeInTheDocument();
+  });
+
   it("works with no desktop bridge at all", async () => {
     renderBanner({ state: "UNLICENSED", canWrite: false, usable: true, reason: "NO_LICENSE" });
     expect(await screen.findByRole("alert")).toHaveTextContent("لا يوجد ترخيص");

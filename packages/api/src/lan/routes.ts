@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import {
+  can,
   hasFeature,
+  isScopeRestricted,
   LAN_MULTI_TILL_FEATURE,
   SeatLimitExceededError,
   UserSeatLimitExceededError,
@@ -13,8 +15,11 @@ import {
   createAuthenticatedGate,
   createPermissionGate,
   callerUserId,
+  getAuthContext,
   type AuthContextResolver,
 } from "../permission-gate.js";
+
+const DEVICE_REGISTER_PERMISSION = "admin.devices.view";
 import { readSessionToken, type SessionRegistry } from "../session-auth.js";
 import { createLanGate, type EntitlementsResolver, type LanGateVariables } from "./gate.js";
 
@@ -108,17 +113,29 @@ export function createLanRoutes(options: LanRoutesOptions) {
     }
   }
 
-  /** Every open `/lan/events` SSE stream, so a disconnect can push to all of them. */
-  const subscribers = new Set<LanBroadcast>();
+  interface Subscriber {
+    readonly emit: LanBroadcast;
+    readonly userId: string | undefined;
+    readonly keepsDeviceRegister: boolean;
+  }
+
+  /** Every open `/lan/events` SSE stream. */
+  const subscribers = new Set<Subscriber>();
 
   /** How many streams each session currently holds. See `GET /events`. */
   const streamsByToken = new Map<string, number>();
 
-  function broadcast(event: string, data: unknown): void {
-    for (const emit of subscribers) {
+  /**
+   * SECURITY: a seat's event goes to the till that holds the seat and to
+   * whoever may read the device register, which is the company's — not to
+   * every signed-in stream, which told each till the others' session ids.
+   */
+  function tellSeat(seatUserId: string | undefined, event: string, data: unknown): void {
+    for (const subscriber of subscribers) {
+      if (!subscriber.keepsDeviceRegister && (seatUserId === undefined || subscriber.userId !== seatUserId)) continue;
       // A subscriber whose write fails is a stream that already dropped; its
       // own abort handling removes it from `subscribers`, so this is silent.
-      void emit(event, data).catch(() => {});
+      void subscriber.emit(event, data).catch(() => {});
     }
   }
 
@@ -132,7 +149,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
     });
   });
 
-  app.get("/sessions", licensedGate, permission("admin.devices.view"), (c) => {
+  app.get("/sessions", licensedGate, permission(DEVICE_REGISTER_PERMISSION), (c) => {
     registry.setSeats(c.get("lanEntitlements").seats);
     const sessions = registry.list();
     pruneTokens(sessions);
@@ -201,6 +218,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
   app.delete("/sessions/:sessionId", licensedGate, permission("admin.devices.manage"), (c) => {
     const sessionId = c.req.param("sessionId");
     try {
+      const seatUserId = registry.list().find((session) => session.sessionId === sessionId)?.userId;
       registry.disconnect(sessionId);
       const token = tokenBySessionId.get(sessionId);
       tokenBySessionId.delete(sessionId);
@@ -209,7 +227,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
       // connected with is what makes the disconnect real (PR #54 review
       // finding #3).
       if (token && options.sessions) options.sessions.revoke(token);
-      broadcast("disconnected", { sessionId });
+      tellSeat(seatUserId, "disconnected", { sessionId });
       return c.body(null, 204);
     } catch (err) {
       if (err instanceof DeviceSessionNotFoundError) {
@@ -248,13 +266,19 @@ export function createLanRoutes(options: LanRoutesOptions) {
       );
     }
     if (token) streamsByToken.set(token, held + 1);
+    const ctx = getAuthContext(c);
 
     return streamSSE(c, async (stream) => {
       const signal = c.req.raw.signal;
       const emit: LanBroadcast = async (event, data) => {
         await stream.writeSSE({ event, data: JSON.stringify(data) });
       };
-      subscribers.add(emit);
+      const subscriber: Subscriber = {
+        emit,
+        userId: callerUserId(c),
+        keepsDeviceRegister: ctx !== undefined && can(ctx, DEVICE_REGISTER_PERMISSION) && !isScopeRestricted(ctx),
+      };
+      subscribers.add(subscriber);
       try {
         await emit("connected", { seats: registry.seats, connected: registry.connectedCount });
         while (!signal.aborted) {
@@ -263,7 +287,7 @@ export function createLanRoutes(options: LanRoutesOptions) {
           await emit("ping", { at: Date.now(), connected: registry.connectedCount });
         }
       } finally {
-        subscribers.delete(emit);
+        subscribers.delete(subscriber);
         if (token) {
           // In `finally`, so a stream that died mid-write releases its slot
           // too. Counting up on open and down only on a clean close is how a

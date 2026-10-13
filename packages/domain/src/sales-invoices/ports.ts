@@ -9,6 +9,17 @@
 import type { Money, Qty } from "../money/index.js";
 import type { AppliedSalesInvoicePromotion, SalesInvoice, SalesInvoiceLine } from "./sales-invoice.js";
 
+export enum SalesInvoiceField {
+  Status = "status",
+  AmountPaid = "amountPaid",
+  WorkflowRequestId = "workflowRequestId",
+  VoidReason = "voidReason",
+}
+
+export interface SalesInvoiceWritePrecondition {
+  readonly status: readonly SalesInvoice["status"][];
+}
+
 /** Persistence port for sales invoices, keyed by id. */
 export interface SalesInvoiceRepository {
   save(invoice: SalesInvoice): Promise<void>;
@@ -31,12 +42,35 @@ export interface SalesInvoiceRepository {
    * Exists so the chips cost one aggregate rather than hydrating the table.
    */
   countByStatus(filter?: SalesInvoiceListFilter): Promise<ReadonlyMap<SalesInvoice["status"], number>>;
+  /**
+   * INVARIANT: the ONE write a posted invoice line takes. It sets `taxRateId`
+   * on the named lines that store NONE at `taxRatePercent`, on an invoice
+   * still in a posted status, and returns how many it named. Nothing else on
+   * the document is written, so a concurrent collection or void is never
+   * overwritten by a stale copy.
+   */
+  nameLineTaxRate(invoiceId: string, lineIds: readonly string[], taxRatePercent: number, taxRateId: string): Promise<number>;
+  /**
+   * INVARIANT: the ONE write a state change makes to a stored invoice. Only
+   * the named fields of `next` are written, and only while the stored row is
+   * in one of `expected.status`; it answers whether a row was written. A
+   * posted invoice is never saved whole, so a collection, a classification
+   * and a void can never overwrite one another with an earlier copy.
+   */
+  writeFields(next: SalesInvoice, fields: readonly SalesInvoiceField[], expected: SalesInvoiceWritePrecondition): Promise<boolean>;
+  /**
+   * INVARIANT: the whole-document write, taken only by a row that has not
+   * posted yet (draft or pending) and is in one of `expected.status`. It is
+   * how a confirm or a draft edit lands; a posted row answers false.
+   */
+  replaceUnposted(next: SalesInvoice, expected: SalesInvoiceWritePrecondition): Promise<boolean>;
   /** Run `fn` in one atomic transaction. In-memory implementations may just call `fn`. */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 export interface SalesInvoiceListFilter {
   readonly status?: SalesInvoice["status"];
+  readonly sourceQuoteId?: string;
   /**
    * Narrows to a SET of stored statuses, ANDed with `status`. The derived
    * `open`/`overdue` chips are a function of the remaining balance, which no
@@ -58,6 +92,13 @@ export interface SalesInvoiceListFilter {
    * applied and it is why scope is separate from the filters below.
    */
   readonly branchScope?: readonly string[];
+  /**
+   * INVARIANT: the warehouses the branches in `branchScope` hold. An invoice
+   * that states no branch stands on its warehouse's branch — the branch
+   * directory's reading, which the gate applies to every row by id — so the
+   * list has to place it the same way BEFORE the page is cut.
+   */
+  readonly branchScopeWarehouses?: readonly string[];
   readonly warehouseScope?: readonly string[];
   /** Presentation filters the user picked. Strict equality — a null does not match. */
   readonly branchId?: string;

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { DEFAULT_ETA_CONFIG, type EtaConfig, type EtaConfigRepository } from "./config.js";
 import type { EtaSubmission, EtaSubmissionRepository, EtaSubmissionStatus } from "./submission.js";
-import { EtaService } from "./service.js";
+import { EtaService, type EtaTransmitPort } from "./service.js";
+import { ConnectionTurnLostError } from "../audit/index.js";
 import { EtaOfflineError, EtaReissueNotRejectedError, EtaReissueSameInternalIdError, EtaReissueWindowExpiredError } from "./errors.js";
 import { EtaReceiptUuidUnavailableError, type EtaReceiptInput, type EtaReceiptUuidPort } from "./receipt.js";
 import { createInMemoryEtaReceiptChain, type EtaReceiptChainRepository } from "./receipt-chain.js";
@@ -27,6 +28,10 @@ class MemSubmissions implements EtaSubmissionRepository {
   }
   async list(status?: EtaSubmissionStatus) {
     return [...this.rows.values()].filter((s) => (status ? s.status === status : true));
+  }
+  async statusByEtaUuid(etaUuid: string) {
+    for (const s of this.rows.values()) if (s.documentType === "receipt" && s.etaUuid === etaUuid) return s.status;
+    return null;
   }
   async create(s: EtaSubmission) {
     this.rows.set(s.id, s);
@@ -426,6 +431,279 @@ describe("submitReadyReceipts — reported device by device, in chain order", ()
     expect(result.rejected.map((s) => s.internalId)).toEqual(["RCP-BATCH-2"]);
     expect(result.submitted.every((s) => s.status === "submitted")).toBe(true);
     expect(result.rejected[0]?.errors).toEqual(["رفضت المصلحة هذا الإيصال"]);
+  });
+});
+
+describe("submitReadyReceipts — what it reads from the queue", () => {
+  function stored(submissions: MemSubmissions, internalId: string): EtaSubmission {
+    const found = [...submissions.rows.values()].find((s) => s.internalId === internalId);
+    if (!found) throw new Error(`no submission for ${internalId}`);
+    return found;
+  }
+
+  function referTo(submissions: MemSubmissions, refundInternalId: string, sale: EtaSubmission): EtaSubmission {
+    const refund = stored(submissions, refundInternalId);
+    const payload = refund.payload as { header: Record<string, unknown> };
+    const next = { ...refund, payload: { ...payload, header: { ...payload.header, referenceUUID: sale.etaUuid } } };
+    submissions.rows.set(refund.id, next);
+    return next;
+  }
+
+  it("reads only the ready receipts and the one receipt a refund refers to, never the whole history", async () => {
+    let clock = 0;
+    const reads: (EtaSubmissionStatus | "everything")[] = [];
+    const lookups: string[] = [];
+    class CountingSubmissions extends MemSubmissions {
+      override async list(status?: EtaSubmissionStatus) {
+        reads.push(status ?? "everything");
+        return super.list(status);
+      }
+      override async statusByEtaUuid(etaUuid: string) {
+        lookups.push(etaUuid);
+        return super.statusByEtaUuid(etaUuid);
+      }
+    }
+    const submissions = new CountingSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => new Date(Date.UTC(2026, 8, 1, 10, 0, clock++)).toISOString(),
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit(submission) {
+          return { ok: true, etaUuid: submission.etaUuid ?? undefined };
+        },
+      },
+    });
+    for (const n of [1, 2, 3]) await svc.enqueueReceipt({ ...receipt, internalId: `RCP-OLD-${n}` });
+    await svc.submitReadyReceipts();
+    const sale = stored(submissions, "RCP-OLD-2");
+
+    await svc.enqueueReceipt({ ...receipt, internalId: "RCP-NEW-1" });
+    await svc.enqueueReceipt({ ...receipt, internalId: "RCP-NEW-2" });
+    referTo(submissions, "RCP-NEW-2", sale);
+    reads.length = 0;
+    lookups.length = 0;
+    const result = await svc.submitReadyReceipts();
+
+    expect(result.submitted.map((s) => s.internalId)).toEqual(["RCP-NEW-1", "RCP-NEW-2"]);
+    expect(reads).toEqual(["ready"]);
+    expect(lookups).toEqual([sale.etaUuid]);
+  });
+
+  it("holds a refund back while the sale it refers to has not reached the authority", async () => {
+    let clock = 0;
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => new Date(Date.UTC(2026, 8, 1, 10, 0, clock++)).toISOString(),
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit(submission) {
+          return { ok: true, etaUuid: submission.etaUuid ?? undefined };
+        },
+      },
+    });
+    await svc.enqueueReceipt({ ...receipt, internalId: "RCP-SALE", seller: { deviceSerialNumber: "POS-A", branchCode: "1", companyTradeName: "متجر" } });
+    const sale = { ...stored(submissions, "RCP-SALE"), status: "error" as const };
+    submissions.rows.set(sale.id, sale);
+    await svc.enqueueReceipt({ ...receipt, internalId: "RCP-REFUND", seller: { deviceSerialNumber: "POS-B", branchCode: "1", companyTradeName: "متجر" } });
+    const refund = referTo(submissions, "RCP-REFUND", sale);
+
+    const result = await svc.submitReadyReceipts();
+
+    expect(result.submitted).toEqual([]);
+    expect(result.queued).toEqual([refund.id]);
+  });
+});
+
+describe("a submission whose request lost the connection while the authority answered", () => {
+  function lossy(fetchStatus?: EtaTransmitPort["fetchStatus"]) {
+    const calls = { transmit: 0 };
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => "2026-09-01T10:00:00.000Z",
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit(submission) {
+          calls.transmit += 1;
+          if (calls.transmit === 1) throw new ConnectionTurnLostError(10_000);
+          return { ok: true, etaUuid: submission.etaUuid ?? "UUID-1" };
+        },
+        fetchStatus,
+      },
+    });
+    return { svc, submissions, calls };
+  }
+
+  it("lets go of the document and does not send it a second time: the next press asks the authority what it holds", async () => {
+    const { svc, submissions, calls } = lossy(async () => ({ state: "accepted", errors: [] }));
+    await svc.enqueueReceipt({ ...receipt, internalId: "RCP-LOST-1" });
+    const id = (await submissions.findByInternalId("RCP-LOST-1"))!.id;
+
+    await expect(svc.submit(id)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+
+    expect((await svc.submit(id)).status).toBe("accepted");
+    expect(calls.transmit).toBe(1);
+  });
+
+  it("puts it in front of a person when the authority cannot be asked", async () => {
+    const { svc, submissions, calls } = lossy();
+    await svc.enqueueReceipt({ ...receipt, internalId: "RCP-LOST-2" });
+    const id = (await submissions.findByInternalId("RCP-LOST-2"))!.id;
+
+    await expect(svc.submit(id)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+
+    const next = await svc.submit(id);
+    expect(next.status).toBe("error");
+    expect(next.errors[0]).toContain("لم يُسجَّل ردّها");
+    expect(calls.transmit).toBe(1);
+  });
+});
+
+describe("two drives of the receipt queue at once", () => {
+  it("reports each receipt to the authority once, though the first drive listed them all before it waited", async () => {
+    const batches: string[][] = [];
+    let releaseFirst!: () => void;
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => "2026-09-01T10:00:00.000Z",
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit() {
+          throw new Error("the batch leg should have been used");
+        },
+        async transmitReceiptBatch(batch) {
+          batches.push(batch.map((s) => s.internalId));
+          if (batches.length === 1) await firstHeld;
+          return { submissionUUID: `SUB-${batches.length}`, outcomes: batch.map((s) => ({ submissionId: s.id, ok: true, etaUuid: s.etaUuid ?? undefined })) };
+        },
+      },
+    });
+    for (const serial of ["POS-A", "POS-B"]) {
+      await svc.enqueueReceipt({ ...receipt, internalId: `${serial}-1`, seller: { deviceSerialNumber: serial, branchCode: "1", companyTradeName: "متجر" } });
+    }
+
+    const first = svc.submitReadyReceipts();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const second = await svc.submitReadyReceipts();
+    releaseFirst();
+    await first;
+
+    expect(second.submitted.map((s) => s.internalId)).toEqual(["POS-B-1"]);
+    expect(batches).toEqual([["POS-A-1"], ["POS-B-1"]]);
+    expect((await submissions.list()).map((s) => s.status)).toEqual(["submitted", "submitted"]);
+  });
+});
+
+describe("a batch of receipts whose answer was never recorded", () => {
+  const seller = { deviceSerialNumber: "POS-A", branchCode: "1", companyTradeName: "متجر" };
+
+  function batching(fetchStatus?: EtaTransmitPort["fetchStatus"]) {
+    const batches: string[][] = [];
+    let lose = true;
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => "2026-09-01T10:00:00.000Z",
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit() {
+          throw new Error("the batch leg should have been used");
+        },
+        async transmitReceiptBatch(batch) {
+          batches.push(batch.map((s) => s.internalId));
+          if (lose) throw new ConnectionTurnLostError(10_000);
+          return { submissionUUID: "SUB", outcomes: batch.map((s) => ({ submissionId: s.id, ok: true, etaUuid: s.etaUuid ?? undefined })) };
+        },
+        fetchStatus,
+      },
+    });
+    return { svc, submissions, batches, stopLosing: () => (lose = false) };
+  }
+
+  it("is not sent a second time by the next drive: each receipt is settled by what the authority holds", async () => {
+    const { svc, submissions, batches } = batching(async () => ({ state: "accepted", errors: [] }));
+    for (const n of [1, 2]) await svc.enqueueReceipt({ ...receipt, internalId: `POS-A-${n}`, seller });
+
+    await expect(svc.submitReadyReceipts()).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    expect((await submissions.list()).map((s) => s.transmitStartedAt)).toEqual(["2026-09-01T10:00:00.000Z", "2026-09-01T10:00:00.000Z"]);
+
+    await svc.submitReadyReceipts();
+
+    expect(batches).toEqual([["POS-A-1", "POS-A-2"]]);
+    expect((await submissions.list()).map((s) => s.status)).toEqual(["accepted", "accepted"]);
+  });
+
+  it("does not report the later links of a chain once an earlier link is left unsettled", async () => {
+    const { svc, submissions, batches, stopLosing } = batching();
+    for (const n of [1, 2]) await svc.enqueueReceipt({ ...receipt, internalId: `POS-A-${n}`, seller });
+    await expect(svc.submitReadyReceipts()).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    stopLosing();
+    await svc.enqueueReceipt({ ...receipt, internalId: "POS-A-3", seller });
+
+    await svc.submitReadyReceipts();
+
+    expect(batches).toEqual([["POS-A-1", "POS-A-2"]]);
+    const rows = await submissions.list();
+    expect(rows.find((s) => s.internalId === "POS-A-1")!.status).toBe("error");
+    expect(rows.find((s) => s.internalId === "POS-A-3")!.status).toBe("ready");
+  });
+});
+
+describe("a chain link another drive saw rejected while this one waited", () => {
+  it("is not followed by the links after it", async () => {
+    const batches: string[][] = [];
+    const submissions = new MemSubmissions();
+    const seller = { deviceSerialNumber: "POS-A", branchCode: "1", companyTradeName: "متجر" };
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => "2026-09-01T10:00:00.000Z",
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit() {
+          throw new Error("the batch leg should have been used");
+        },
+        async transmitReceiptBatch(batch) {
+          batches.push(batch.map((s) => s.internalId));
+          return { submissionUUID: "SUB", outcomes: batch.map((s) => ({ submissionId: s.id, ok: true, etaUuid: s.etaUuid ?? undefined })) };
+        },
+      },
+    });
+    for (const n of [1, 2, 3]) await svc.enqueueReceipt({ ...receipt, internalId: `POS-A-${n}`, seller });
+    const listed = await submissions.list();
+    const second = listed.find((s) => s.internalId === "POS-A-2")!;
+    const realList = submissions.list.bind(submissions);
+    let first = true;
+    submissions.list = async (status) => {
+      const rows = await realList(status);
+      if (first) {
+        first = false;
+        submissions.rows.set(second.id, { ...second, status: "error", errors: ["رفضته المصلحة"] });
+      }
+      return rows;
+    };
+
+    await svc.submitReadyReceipts();
+
+    expect(batches).toEqual([["POS-A-1"]]);
+    expect((await realList()).find((s) => s.internalId === "POS-A-3")!.status).toBe("ready");
   });
 });
 

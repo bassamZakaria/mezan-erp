@@ -1,6 +1,8 @@
 import { Money } from "../money/index.js";
-import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
-import { InvalidPayrollRunError } from "./errors.js";
+import { recordSensitiveEvent } from "../audit/index.js";
+import type { JournalEntry } from "../journal.js";
+import { nextEntryGenerationId, postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
+import { HrProvisionLaterPostingError, HrProvisionPostingNotFoundError, InvalidPayrollRunError } from "./errors.js";
 
 /**
  * ترحيل المخصصات — posting the HR obligations the books do not otherwise hold.
@@ -107,20 +109,19 @@ export async function postHrProvision(cmd: PostHrProvisionCommand, deps: PostHrP
         { accountId: definition.expenseAccountId, debit: Money.zero(), credit: amount },
       ];
 
-  // The id carries the date, so a provision posted monthly produces one entry
-  // per measurement date rather than overwriting the previous one.
   const entry = await postJournalEntry(
     {
-      id: `HR-PROVISION:${cmd.kind}:${cmd.asOfDate}`,
+      id: await nextEntryGenerationId(deps.gl.ledger, `HR-PROVISION:${cmd.kind}:${cmd.asOfDate}`),
       date: cmd.asOfDate,
       memo: `${definition.labelAr} — تسوية حتى ${cmd.asOfDate}`,
       source: "system",
       sourceDocType: definition.sourceDocType,
-      sourceDocId: `${cmd.kind}:${cmd.asOfDate}`,
+      sourceDocId: provisionSourceDocId(cmd.kind, cmd.asOfDate),
       sourceDocNumber: `${definition.labelAr} ${cmd.asOfDate}`,
       lines,
     },
     deps.gl,
+    { mintedBySystem: true },
   );
 
   return {
@@ -131,4 +132,74 @@ export async function postHrProvision(cmd: PostHrProvisionCommand, deps: PostHrP
     movement,
     journalEntryId: entry.id,
   };
+}
+
+function provisionSourceDocId(kind: HrProvisionKind, asOfDate: string): string {
+  return `${kind}:${asOfDate}`;
+}
+
+export interface HrProvisionPosting {
+  readonly kind: HrProvisionKind;
+  readonly asOfDate: string;
+  readonly entry: JournalEntry;
+  readonly reversal: JournalEntry | null;
+}
+
+export async function listHrProvisionPostings(kind: HrProvisionKind, gl: Pick<JournalPostingDeps, "ledger">): Promise<HrProvisionPosting[]> {
+  const definition = getHrProvisionDefinition(kind);
+  const entries = await gl.ledger.list({ sourceDocTypes: [definition.sourceDocType] });
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  return entries
+    .filter((entry) => !entry.reversesEntryId && entry.status !== "draft")
+    .map((entry) => ({
+      kind,
+      asOfDate: entry.date.slice(0, 10),
+      entry,
+      reversal: entry.reversedByEntryId ? (byId.get(entry.reversedByEntryId) ?? null) : null,
+    }))
+    .sort((a, b) => (a.asOfDate === b.asOfDate ? 0 : a.asOfDate < b.asOfDate ? 1 : -1));
+}
+
+export interface ReverseHrProvisionOptions {
+  readonly reversalId: string;
+  readonly date?: string;
+  readonly memo?: string;
+}
+
+export interface HrProvisionReversalResult {
+  readonly kind: HrProvisionKind;
+  readonly asOfDate: string;
+  readonly journalEntryId: string;
+  readonly reversal: JournalEntry;
+}
+
+export async function reverseHrProvision(kind: HrProvisionKind, asOfDate: string, deps: PostHrProvisionDeps, opts: ReverseHrProvisionOptions): Promise<HrProvisionReversalResult> {
+  const definition = getHrProvisionDefinition(kind);
+  const standing = (await listHrProvisionPostings(kind, deps.gl)).filter((posting) => posting.entry.status === "posted");
+  const target = standing.find((posting) => posting.asOfDate === asOfDate);
+  if (!target) throw new HrProvisionPostingNotFoundError(definition.labelAr, asOfDate);
+  const later = standing.filter((posting) => posting.asOfDate > asOfDate).sort((a, b) => (a.asOfDate < b.asOfDate ? 1 : -1))[0];
+  if (later) throw new HrProvisionLaterPostingError(definition.labelAr, asOfDate, later.asOfDate);
+  const date = opts.date ?? asOfDate;
+  if (date < asOfDate) throw new ReversalDateBeforeOriginalError(target.entry.id, date, target.entry.date);
+
+  return deps.gl.ledger.transaction(async () => {
+    const { reversal } = await reverseJournalEntry(target.entry.id, deps.gl, {
+      reversalId: opts.reversalId,
+      date,
+      memo: opts.memo ?? `عكس ${definition.labelAr} — تسوية ${asOfDate}`,
+    });
+    if (deps.gl.audit) {
+      await recordSensitiveEvent(deps.gl.audit, {
+        module: "hr",
+        entityType: definition.sourceDocType,
+        entityId: provisionSourceDocId(kind, asOfDate),
+        action: "REVERSE",
+        actor: deps.gl.actor ?? "system",
+        severity: "WARNING",
+        details: { kind, asOfDate, journalEntryId: target.entry.id, reversalId: reversal.id, reversalNo: reversal.entryNo ?? null, date },
+      });
+    }
+    return { kind, asOfDate, journalEntryId: target.entry.id, reversal };
+  });
 }

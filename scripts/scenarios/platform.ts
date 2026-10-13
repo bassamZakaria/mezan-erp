@@ -31,6 +31,8 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const SUBMITTER_EMPLOYEE_ID = "EMP-DEMO-1";
+
 export async function run(ctx: Ctx): Promise<void> {
   const { req, rows, check, checkEq } = ctx;
 
@@ -253,7 +255,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const submitter = await req("POST", "/users", {
       nameAr: "SCN Submitter", nameEn: null, email: "scn-submitter@cyag.example", phone: null,
-      roleId: approverRoleId, isCompanyAdmin: false, employeeId: null,
+      roleId: approverRoleId, isCompanyAdmin: false, employeeId: SUBMITTER_EMPLOYEE_ID,
       branchScope: "*", warehouseScope: "*", status: "active", password: "SCN-password-1",
     });
     check("create SCN submitter user", submitter.status === 201, `${submitter.status}: ${JSON.stringify(submitter.body)}`);
@@ -279,7 +281,10 @@ export async function run(ctx: Ctx): Promise<void> {
   const returnLine = invoice.lines[0];
 
   function submitterHeaders(): Record<string, string> {
-    return nonAdmin(submitterUserId, "sales.return.view_own,sales.return.create,sales.return.confirm,workflow.view", "SCN_SUBMITTER_ROLE");
+    return {
+      ...nonAdmin(submitterUserId, "sales.return.view_own,sales.return.create,sales.return.confirm,workflow.view", "SCN_SUBMITTER_ROLE"),
+      "x-warehouse-scope": invoice.warehouseId,
+    };
   }
   function approverHeaders(): Record<string, string> {
     return nonAdmin(approverUserId, "workflow.view,workflow.approve,workflow.reject", "SCN_APPROVER");
@@ -419,10 +424,10 @@ export async function run(ctx: Ctx): Promise<void> {
         qty: "1", unitPrice: returnLine.unitPrice, taxRatePercent: returnLine.taxRatePercent,
         revenueAccountId: returnLine.revenueAccountId, cogsAccountId: returnLine.cogsAccountId, inventoryAccountId: returnLine.inventoryAccountId,
       }],
-    }, nonAdmin("SCN-USER-SALESREP", "sales.invoice.view_own,sales.invoice.create,sales.invoice.confirm", "SCN_SALESREP"));
+    }, nonAdmin(submitterUserId, "sales.invoice.view_own,sales.invoice.create,sales.invoice.confirm", "SCN_SALESREP"));
     check("create a draft sales invoice as a non-SUPERVISOR non-admin", create.status === 201, `${create.status}: ${JSON.stringify(create.body)}`);
 
-    const confirm = await req("POST", "/sales-invoices/SCN-INV-GATE-CHECK/confirm", {}, nonAdmin("SCN-USER-SALESREP", "sales.invoice.view_own,sales.invoice.create,sales.invoice.confirm", "SCN_SALESREP"));
+    const confirm = await req("POST", "/sales-invoices/SCN-INV-GATE-CHECK/confirm", {}, nonAdmin(submitterUserId, "sales.invoice.view_own,sales.invoice.create,sales.invoice.confirm", "SCN_SALESREP"));
     check(
       "SALES_INVOICE_CONFIRM's configured approval chain holds a non-SUPERVISOR submitter's confirm pending",
       confirm.body?.status === "pending",
@@ -480,13 +485,25 @@ export async function run(ctx: Ctx): Promise<void> {
       const onRegister = gaps.some((g: any) => g.docType === gapDocType && (g.docId === doc.id || g.internalId === key));
       return onQueue !== onRegister;
     };
-    const strayInvoices = confirmed.filter((i: any) => !accountedFor(i, "invoice", [queuedInvoices, saleReceipts]));
+    const releaseDocIds = new Set(rows((await req("GET", "/contracting/retention/releases")).body).map((r: any) => r.invoiceId).filter(Boolean));
+    const supplies = confirmed.filter((i: any) => !releaseDocIds.has(i.id));
+    const releaseDocs = confirmed.filter((i: any) => releaseDocIds.has(i.id));
+    const filedReleases = releaseDocs.filter((i: any) => {
+      const key = i.docNo ?? i.id;
+      return queued.some((s: any) => s.internalId === key) || gaps.some((g: any) => g.docId === i.id || g.internalId === key);
+    });
+    check(
+      "D79 — a retention release's document is filed with the authority nowhere: not queued, not receipted, not on the unissued register",
+      releaseDocs.length > 0 && filedReleases.length === 0,
+      `release documents=${releaseDocs.length} filed=${JSON.stringify(filedReleases.map((i: any) => i.docNo ?? i.id))}`,
+    );
+    const strayInvoices = confirmed.filter((i: any) => supplies.includes(i) && !accountedFor(i, "invoice", [queuedInvoices, saleReceipts]));
     const strayReturns = confirmedReturns.filter((r: any) => !accountedFor(r, "return", [queuedNotes, refundReceipts]));
 
     check(
       "D5 — every live sales invoice is accounted for exactly once: queued as an invoice or a receipt, or on the unissued register",
       strayInvoices.length === 0,
-      `invoices=${queuedInvoices.length} receipts=${saleReceipts.length} gaps=${gaps.filter((g: any) => g.docType === "invoice").length} live invoices=${confirmed.length} unaccounted=${JSON.stringify(strayInvoices.slice(0, 5).map((i: any) => i.docNo ?? i.id))}`,
+      `invoices=${queuedInvoices.length} receipts=${saleReceipts.length} gaps=${gaps.filter((g: any) => g.docType === "invoice").length} live supplies=${supplies.length} unaccounted=${JSON.stringify(strayInvoices.slice(0, 5).map((i: any) => i.docNo ?? i.id))}`,
     );
     check("D5 — the B2C half of the queue is not empty: consumer sales really do produce receipts", saleReceipts.length > 0, `receipts=${saleReceipts.length}`);
     check(
@@ -830,7 +847,7 @@ async function settingsPoliciesAreLive(ctx: Ctx): Promise<void> {
     check("and CONFIRMS, because a back-order is exactly what the tenant asked for", confirmed.status === 200 && confirmed.body?.status === "confirmed", JSON.stringify(confirmed.body).slice(0, 200));
     checkEq("the shortfall is recorded as a negative position, not hidden", await onHand(), -3);
 
-    const restored = await adjust("SCN-SET-ADJ-BO-BACK", "IN", "3", "0");
+    const restored = await adjust("SCN-SET-ADJ-BO-BACK", "IN", "3", "90");
     check("goods arrive and clear the back-order", restored.status === 200, JSON.stringify(restored.body).slice(0, 160));
     checkEq("the position is level again", await onHand(), 0);
 
@@ -1185,22 +1202,22 @@ async function taxSettingsAreLive(ctx: Ctx): Promise<void> {
       usefulLifeMonths: 10,
       salvageValue: "0",
     });
-    const a = await req("POST", "/assets", asset("SCN-SET-ASSET-A", "2026-05-20"));
-    const b = await req("POST", "/assets", asset("SCN-SET-ASSET-B", "2026-06-20"));
+    const a = await req("POST", "/assets", asset("SCN-SET-ASSET-A", "2027-05-20"));
+    const b = await req("POST", "/assets", asset("SCN-SET-ASSET-B", "2027-06-20"));
     check("two identical assets, each acquired on the 20th of its own month", a.status === 201 && b.status === 201, `${a.status}/${b.status}`);
 
     // 31,000 over 10 months is 3,100 a month; May has 31 days and the asset was
     // in service for 12 of them, so a day-prorated May charge is 1,200.
     const daily = await setTax({ depreciationProrate: "DAILY" });
     check("the tenant's basis is the IFRS daily proration", daily.status === 200 && daily.body?.depreciationProrate === "DAILY", `status ${daily.status}`);
-    const mayRun = await req("POST", "/assets/depreciation/runs", { period: "2026-05" });
+    const mayRun = await req("POST", "/assets/depreciation/runs", { period: "2027-05" });
     check("the May run drafts", mayRun.status === 201, `${mayRun.status}: ${JSON.stringify(mayRun.body).slice(0, 200)}`);
     const mayLine = (mayRun.body?.lines ?? []).find((l: any) => l.assetId === "SCN-SET-ASSET-A");
     checkEq("and charges 12 of May's 31 days, not a whole month", ctx.n(mayLine?.amount), 1200);
 
     const fullMonth = await setTax({ depreciationProrate: "FULL_MONTH" });
     check("the tenant switches to a whole month in the month of acquisition", fullMonth.status === 200 && fullMonth.body?.depreciationProrate === "FULL_MONTH", `status ${fullMonth.status}`);
-    const juneRun = await req("POST", "/assets/depreciation/runs", { period: "2026-06" });
+    const juneRun = await req("POST", "/assets/depreciation/runs", { period: "2027-06" });
     check("the June run drafts", juneRun.status === 201, `${juneRun.status}: ${JSON.stringify(juneRun.body).slice(0, 200)}`);
     const juneLine = (juneRun.body?.lines ?? []).find((l: any) => l.assetId === "SCN-SET-ASSET-B");
     checkEq("and the identical asset acquired on the 20th now carries the whole 3,100", ctx.n(juneLine?.amount), 3100);

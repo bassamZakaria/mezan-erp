@@ -1,4 +1,5 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import type { BranchCaveatDTO } from "@mezan/contracts";
 import type { ReportFigure, ReportGroupResult, ReportReconciliationResult, ReportKpiResult } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { ApiError, withSupportCode } from "./hooks";
@@ -23,6 +24,7 @@ export interface ReportResult<Row> {
   readonly reconciliation: ReportReconciliationResult | null;
   /** The summary strip's figures, computed server-side over the whole result (R21.2). */
   readonly kpis?: readonly ReportKpiResult[];
+  readonly branchCaveat?: BranchCaveatDTO | null;
 }
 
 /** Blank param values are dropped so the server falls back to the report's own defaults. */

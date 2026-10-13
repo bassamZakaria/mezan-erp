@@ -2,13 +2,14 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { ItemDTO, StockTransferDocumentDTO, WarehouseDTO } from "@mezan/contracts";
 import { StockTransfersScreen } from "./StockTransfersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import { NavigationProvider } from "../navigation";
 
 afterEach(() => {
+  vi.restoreAllMocks();
   document.documentElement.removeAttribute("data-theme");
 });
 
@@ -210,6 +211,98 @@ describe("StockTransfersScreen — create: valuation neutrality end to end", () 
     expect(await screen.findByText("TRF-000003")).toBeInTheDocument();
   });
 
+  function draftOf(body: { id: string; date: string; memo?: string; lines: StockTransferDocumentDTO["lines"] }): StockTransferDocumentDTO {
+    return {
+      id: body.id, docType: "STOCK_TRANSFER", docNo: null, date: body.date, memo: body.memo ?? "", status: "draft", lines: body.lines,
+      createdAt: "2026-08-22T10:00:00.000Z", confirmedAt: null,
+    };
+  }
+
+  async function fillNewTransfer() {
+    fireEvent.click((await screen.findAllByRole("button", { name: /تحويل جديد/ }))[0]!);
+    chooseSelectOption("الصنف للسطر 1", "منتج 1");
+    fireEvent.change(screen.getByLabelText("كمية التحويل للسطر 1"), { target: { value: "5" } });
+  }
+
+  it("sends the same id when save is pressed again after a confirm that failed, and a new id for the next transfer", async () => {
+    const sentIds: string[] = [];
+    let current = [trf1];
+    let confirms = 0;
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /inventory/stock-transfers": () => ({ body: current }),
+      "POST /inventory/stock-transfers/draft": (init) => {
+        const created = draftOf(JSON.parse((init?.body as string) ?? "{}"));
+        sentIds.push(created.id);
+        current = [trf1, created];
+        return { status: 201, body: created };
+      },
+      "POST /inventory/stock-transfers/*/confirm": () => {
+        confirms += 1;
+        if (confirms === 1) return { status: 503, body: { error: "DATABASE_BUSY", message: "الخادم مشغول، أعد المحاولة" } };
+        const confirmed = { ...current[current.length - 1]!, status: "confirmed" as const, docNo: `TRF-00000${confirms}` };
+        current = [trf1, confirmed];
+        return { body: { document: confirmed, held: false } };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockTransfersScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+
+    await fillNewTransfer();
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("الخادم مشغول");
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "تحويلات المخزون" })).toBeInTheDocument());
+
+    await fillNewTransfer();
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+    await waitFor(() => expect(sentIds).toHaveLength(3));
+
+    expect(sentIds[1]).toBe(sentIds[0]);
+    expect(sentIds[2]).not.toBe(sentIds[0]);
+  });
+
+  it("does not confirm again a transfer the resend was answered with as already confirmed", async () => {
+    let confirms = 0;
+    const transport = stubTransport({
+      ...baseHandlers([trf1]),
+      "POST /inventory/stock-transfers/draft": (init) => ({
+        status: 201,
+        body: { ...draftOf(JSON.parse((init?.body as string) ?? "{}")), status: "confirmed", docNo: "TRF-000009" },
+      }),
+      "POST /inventory/stock-transfers/*/confirm": () => {
+        confirms += 1;
+        return { status: 409, body: { error: "INVALID_DOCUMENT_TRANSITION", message: "المستند مؤكَّد بالفعل" } };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockTransfersScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+
+    await fillNewTransfer();
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "تحويلات المخزون" })).toBeInTheDocument());
+    expect(confirms).toBe(0);
+  });
+
+  it("opens the transfer already saved, with a notice, when its id was used with other contents", async () => {
+    let current = [trf1];
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /inventory/stock-transfers": () => ({ body: current }),
+      "POST /inventory/stock-transfers/draft": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        current = [trf1, { ...draftOf(body), status: "confirmed", docNo: "TRF-000007" }];
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockTransfersScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+
+    await fillNewTransfer();
+    fireEvent.click(screen.getByRole("button", { name: "حفظ" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");
+    expect(await screen.findByText("TRF-000007")).toBeInTheDocument();
+  });
+
   it("blocks posting when source and destination warehouses are the same", async () => {
     renderScreen();
     await screen.findByText("TRF-000001");
@@ -217,5 +310,30 @@ describe("StockTransfersScreen — create: valuation neutrality end to end", () 
     chooseSelectOption("المستودع الوجهة *", "المستودع الرئيسي");
     expect(screen.getByText("يجب أن يختلف المستودع المصدر عن مستودع الوجهة.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "حفظ" })).toBeDisabled();
+  });
+});
+
+describe("StockTransfersScreen — a held document whose approval no longer stands", () => {
+  it("says why in Arabic and asks for approval again through the document's own confirm", async () => {
+    let standing = "reapproval_required";
+    let confirms = 0;
+    const held = { ...trf1, id: "held-1", docNo: "HELD-0001", status: "pending" as const, workflowRequestId: "held-1:confirm" };
+    const transport = stubTransport({
+      ...baseHandlers([]),
+      "GET /inventory/stock-transfers": () => ({ body: [held] }),
+      "GET /workflow/requests/*/standing": () => ({ body: { id: "held-1:confirm", status: standing, reason: standing === "reapproval_required" ? "الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد." : null, reasonEn: null } }),
+      "POST /inventory/stock-transfers/held-1/confirm": () => {
+        confirms += 1;
+        standing = "pending";
+        return { body: held };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockTransfersScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("HELD-0001"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent("الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد.");
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirms).toBe(1));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
   });
 });

@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
-import { moneyString } from "./money-string.js";
+import { decimalRateString, moneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
+import { documentApprovalSchema } from "./workflow.js";
 
 /**
  * Wire contracts for Treasury Vouchers (docs/archive/catalog/04 §"السندات النقدية") —
@@ -39,6 +41,15 @@ export const heldAllocationSchema = z.object({
   amount: moneyString.nullable(),
 });
 
+export const treasuryLegFxSchema = z.object({
+  currency: z.string(),
+  fxRate: decimalRateString,
+  foreignAmount: moneyString,
+  carryingBase: moneyString.optional(),
+  realised: moneyString.optional(),
+  realisedAccountId: z.string().optional(),
+});
+
 export const voucherSchema = z.object({
   id: z.string().min(1),
   docNo: z.string().nullable(),
@@ -56,9 +67,11 @@ export const voucherSchema = z.object({
    * digits posted as base and the settlement was invisible to FX revaluation
    * (B-4/B-5).
    */
-  fxRate: z.string().nullable(),
+  fxRate: decimalRateString.nullable(),
+  treasuryFx: treasuryLegFxSchema.nullable().optional(),
+  counterTreasuryFx: treasuryLegFxSchema.nullable().optional(),
   /** `amount` converted at `fxRate` — what the GL, the treasury and every allocation hold. */
-  baseAmount: z.string(),
+  baseAmount: moneyString,
   branchId: z.string(),
   paymentMethod: voucherPaymentMethodSchema,
   treasuryAccountId: z.string(),
@@ -77,8 +90,10 @@ export const voucherSchema = z.object({
   withholdingAmount: moneyString.nullable(),
   withholdingRatePercent: z.number().nullable(),
   /** What actually leaves the treasury: amount − withholdingAmount. */
-  netPaidAmount: z.string(),
+  netPaidAmount: moneyString,
   journalEntryId: z.string().nullable(),
+  workflowRequestId: z.string().nullable().optional(),
+  approval: documentApprovalSchema.nullable().optional(),
   confirmedAt: z.string().nullable(),
   /**
    * On a reversal's mirror: the voucher it reverses. The mirror is saved
@@ -86,13 +101,20 @@ export const voucherSchema = z.object({
    * skip it (D197, D200). Optional so older payloads still parse.
    */
   reversesDocId: z.string().nullish(),
+  reversedByDocId: z.string().nullish(),
   /** Allocations a collection carries while held for approval; the approved confirm applies them (D344). */
   heldAllocations: z.array(heldAllocationSchema).optional(),
 });
 
+export const requestedAllocationSchema = z.object({
+  allocationId: clientSuppliedId.optional(),
+  invoiceId: z.string().min(1),
+  amount: moneyString.optional(),
+});
+
 /** Create a voucher draft. */
 export const createVoucherSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: isoDateOrInstant,
   memo: z.string().optional(),
   voucherType: voucherTypeSchema,
@@ -101,7 +123,8 @@ export const createVoucherSchema = z.object({
   branchId: z.string().min(1),
   paymentMethod: voucherPaymentMethodSchema,
   treasuryAccountId: z.string().min(1),
-  treasuryGlAccountId: z.string().min(1),
+  /** Derived from the treasury account; a request that states it must state the account's own. */
+  treasuryGlAccountId: z.string().min(1).optional(),
   counterpartyGlAccountId: z.string().nullish(),
   counterTreasuryAccountId: z.string().nullish(),
   counterTreasuryGlAccountId: z.string().nullish(),
@@ -117,16 +140,16 @@ export const createVoucherSchema = z.object({
   withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
+  /** The invoices this draft is meant to settle; whoever confirms it applies them in the same act (D344). */
+  allocations: z.array(requestedAllocationSchema).optional(),
 });
 
 /** Confirm a draft voucher (posts GL, stamps CV- number). */
-export const confirmVoucherSchema = z.object({
-  requestId: z.string().min(1).optional(),
-});
+export const confirmVoucherSchema = z.object({});
 
 /** Reverse a confirmed voucher. */
 export const reverseVoucherSchema = z.object({
-  reversalId: z.string().min(1).optional(),
+  reversalId: clientSuppliedId.optional(),
   date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
 });
@@ -150,21 +173,28 @@ export const voucherAllocationSchema = z.object({
   id: z.string(),
   voucherId: z.string(),
   invoiceId: z.string(),
+  invoiceNo: z.string().nullable().optional(),
   amount: moneyString,
   /** What the invoice was relieved of at its booked rate; differs from `amount` by the realised exchange difference (D221). */
-  invoiceAmount: z.string().optional(),
+  invoiceAmount: moneyString.optional(),
+  revaluationShare: moneyString.optional(),
+  carryingAmount: moneyString.optional(),
+  moneyRevaluationShare: moneyString.optional(),
+  moneyCarryingAmount: moneyString.optional(),
   fxDifference: z.string().optional(),
   fxEntryId: z.string().nullable().optional(),
   status: allocationStatusSchema,
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
+  date: z.string().nullable().optional(),
 });
 
 /** Apply an allocation of part of a voucher onto one invoice. */
 export const createAllocationSchema = z.object({
-  allocationId: z.string().min(1).optional(),
+  allocationId: clientSuppliedId.optional(),
   invoiceId: z.string().min(1),
   amount: moneyString,
+  date: isoDateOrInstant.optional(),
 });
 
 /**
@@ -175,7 +205,8 @@ export const createAllocationSchema = z.object({
  * voucher.
  */
 export const createCollectionSchema = z.object({
-  id: z.string().min(1).optional(),
+  currency: z.string().optional(),
+  id: clientSuppliedId.optional(),
   date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
   customerId: z.string().min(1),
@@ -190,16 +221,7 @@ export const createCollectionSchema = z.object({
   withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
-  requestId: z.string().min(1).optional(),
-  allocations: z
-    .array(
-      z.object({
-        allocationId: z.string().min(1).optional(),
-        invoiceId: z.string().min(1),
-        amount: moneyString.optional(),
-      }),
-    )
-    .default([]),
+  allocations: z.array(requestedAllocationSchema).default([]),
 });
 
 export const collectionResultSchema = z.object({
@@ -211,7 +233,7 @@ export const collectionResultSchema = z.object({
 
 /** The allocation summary returned alongside a voucher. */
 export const allocationSummarySchema = z.object({
-  voucherAmount: z.string(),
+  voucherAmount: moneyString,
   allocated: z.string(),
   unallocated: z.string(),
   fullyAllocated: z.boolean(),
@@ -246,6 +268,7 @@ export type AllocationInvoiceKindDTO = z.infer<typeof allocationInvoiceKindSchem
 export type AllocationStatusDTO = z.infer<typeof allocationStatusSchema>;
 export type VoucherDTO = z.infer<typeof voucherSchema>;
 export type CreateVoucherDTO = z.infer<typeof createVoucherSchema>;
+export type RequestedAllocationDTO = z.infer<typeof requestedAllocationSchema>;
 export type ConfirmVoucherDTO = z.infer<typeof confirmVoucherSchema>;
 export type ReverseVoucherDTO = z.infer<typeof reverseVoucherSchema>;
 export type OpenInvoiceDTO = z.infer<typeof openInvoiceSchema>;

@@ -21,11 +21,14 @@ import {
   type EtaSignatureResult,
   type EtaSigningPort,
 } from "./signing.js";
-import type {
-  EtaSubmission,
-  EtaSubmissionRepository,
-  EtaSubmissionStatus,
-  EtaTransmitLogEntry,
+import {
+  ETA_REQUEUE_MODE,
+  EtaRequeueMode,
+  EtaSubmissionStatusCode,
+  type EtaSubmission,
+  type EtaSubmissionRepository,
+  type EtaSubmissionStatus,
+  type EtaTransmitLogEntry,
 } from "./submission.js";
 import { canonicalEtaJson, unconfiguredEtaSigner, type EtaSignerPort } from "./signer.js";
 import { summarizeEtaRejections, type EtaRejectionsReport } from "./rejections-report.js";
@@ -50,6 +53,7 @@ import {
   EtaSignerNotConfiguredError,
   EtaSigningFailedError,
   EtaSubmissionNotFoundError,
+  EtaSubmissionInFlightError,
   InvalidEtaTransitionError,
 } from "./errors.js";
 import {
@@ -190,6 +194,11 @@ export interface EtaReceiptPrintData {
   readonly receiptNo: string;
 }
 
+export const ETA_UNRECORDED_SUBMISSION_CODE = "MEZAN_UNRECORDED_SUBMISSION";
+const ETA_UNRECORDED_SUBMISSION_MESSAGE =
+  "أُرسل هذا المستند إلى مصلحة الضرائب ولم يُسجَّل ردّها، فلم يُرسَل مرة أخرى. راجع بوابة الفواتير الإلكترونية: إن وجدته مسجَّلًا فسجِّل رقمه (UUID) هنا، وإن لم تجده فأعده إلى الطابور ليُرسَل.";
+const HTTP_NOT_FOUND = 404;
+
 const RECEIPT_CHAIN_ATTEMPTS = 3;
 
 function queueOrder(a: EtaSubmission, b: EtaSubmission): number {
@@ -234,6 +243,14 @@ function esealPortFromExternalSigner(signer: EtaSignerPort, now: () => string): 
  * drive the جاهز→بانتظار التوقيع→مرسل→مقبول lifecycle, and route the online
  * transmit through a (stubbed) port. All queue state is real and offline.
  */
+// INVARIANT: a document's blocking findings are stored with it and change only
+// when it is rebuilt (a requeue, a classification). A queue pass therefore
+// reads them and moves on — it attempts nothing for a document that has not
+// changed since it was held back.
+function isBlockedBeforeTransmit(submission: EtaSubmission): boolean {
+  return submission.prevalidation !== undefined && hasBlockingEtaFindings(submission.prevalidation);
+}
+
 export class EtaService {
   private readonly transmitPort: EtaTransmitPort;
   private readonly signerPort: EtaSignerPort;
@@ -242,6 +259,12 @@ export class EtaService {
   private readonly receiptChain: EtaReceiptChainRepository;
   private readonly receiptGaps: EtaReceiptGapRepository;
   private readonly perDevice = createKeyedSerializer();
+  // Signing and transmitting are awaited with the tenant's connection handed
+  // back, so another request can reach the same document meanwhile. One held
+  // here is refused to every other sender and editor until its outcome is
+  // written. In memory on purpose: a process that dies mid-flight must leave
+  // the document where it was, to be sent again.
+  private readonly inFlight = new Set<string>();
   private readonly now: () => string;
   private readonly newId: () => string;
 
@@ -325,7 +348,7 @@ export class EtaService {
     rebuilt: { readonly payload: unknown; readonly prevalidation: readonly EtaPrevalidationFinding[] },
   ): Promise<EtaSubmission> {
     const submission = await this.require(id);
-    if (!["ready", "pending_signature", "error", "excluded"].includes(submission.status)) {
+    if (ETA_REQUEUE_MODE[submission.status] === EtaRequeueMode.Never) {
       throw new InvalidEtaTransitionError(submission.status, "requeue");
     }
     return this.persist({
@@ -335,6 +358,7 @@ export class EtaService {
       prevalidation: rebuilt.prevalidation,
       errors: [],
       rejectionCodes: [],
+      transmitStartedAt: null,
       exclusionReason: null,
       signature: null,
     });
@@ -504,9 +528,18 @@ export class EtaService {
    * document stays queued.
    */
   async submit(id: string): Promise<EtaSubmission> {
-    let submission = await this.require(id);
+    return this.holding([id], () => this.submitHeld(id));
+  }
+
+  private async submitHeld(id: string): Promise<EtaSubmission> {
+    let submission = await this.found(id);
     if (!["ready", "pending_signature", "error"].includes(submission.status)) {
       throw new InvalidEtaTransitionError(submission.status, "submit");
+    }
+    if (submission.transmitStartedAt) {
+      const settled = await this.settleUnrecorded(submission, await this.deps.config.get());
+      if (settled) return settled;
+      submission = await this.found(id);
     }
     // ENH-011b: a `Blocking` finding means the authority would refuse this
     // document outright — refused here, before a wasted round trip, listing
@@ -542,8 +575,17 @@ export class EtaService {
       }
     }
 
-    const result = await this.transmitPort.transmit(submission, config);
-    const withLog = this.appendLog(submission, result.log);
+    submission = await this.persist({ ...submission, transmitStartedAt: this.now() });
+    let result: EtaTransmitResult;
+    try {
+      result = await this.transmitPort.transmit(submission, config);
+    } catch (err) {
+      // Never reached the authority, so nothing is awaiting a record. Any
+      // other failure — a lost turn above all — leaves the mark in place.
+      if (err instanceof EtaOfflineError) await this.persist({ ...submission, transmitStartedAt: null });
+      throw err;
+    }
+    const withLog = { ...this.appendLog(submission, result.log), transmitStartedAt: null };
     if (result.ok) {
       return this.persist({
         ...withLog,
@@ -562,6 +604,48 @@ export class EtaService {
     });
   }
 
+  // A document marked as handed over whose answer was never recorded. It is
+  // never sent again on its own: the authority is asked what it holds when the
+  // UUID is known, and otherwise the document is put in front of a person.
+  // Returns null only when the authority says it has never seen it, which is
+  // the one case a resend is safe.
+  private async settleUnrecorded(submission: EtaSubmission, config: EtaConfig): Promise<EtaSubmission | null> {
+    if (!this.transmitPort.fetchStatus || !submission.etaUuid) {
+      return this.persist({
+        ...submission,
+        status: EtaSubmissionStatusCode.Error,
+        errors: [ETA_UNRECORDED_SUBMISSION_MESSAGE],
+        rejectionCodes: [ETA_UNRECORDED_SUBMISSION_CODE],
+      });
+    }
+    const result = await this.transmitPort.fetchStatus(submission, config);
+    const withLog = this.appendLog(submission, result.log);
+    if (result.state === "accepted") {
+      return this.persist({ ...withLog, status: EtaSubmissionStatusCode.Accepted, errors: [], rejectionCodes: [], transmitStartedAt: null });
+    }
+    if (result.state === "rejected") {
+      return this.persist({
+        ...withLog,
+        status: EtaSubmissionStatusCode.Error,
+        errors: result.errors,
+        rejectionCodes: result.errorCodes ?? [],
+        transmitStartedAt: null,
+      });
+    }
+    if (result.state === "pending") {
+      return this.persist({
+        ...withLog,
+        status: EtaSubmissionStatusCode.Submitted,
+        errors: [],
+        submittedAt: submission.transmitStartedAt ?? this.now(),
+        transmitStartedAt: null,
+      });
+    }
+    if (result.log?.at(-1)?.status !== HTTP_NOT_FOUND) return this.persist(withLog);
+    await this.persist({ ...withLog, status: EtaSubmissionStatusCode.Ready, errors: [], rejectionCodes: [], transmitStartedAt: null });
+    return null;
+  }
+
   /**
    * تحديث الحالة من المصلحة — poll `GET /documents/{uuid}/raw` for one
    * transmitted document and record the clearance or the rejection. A port with
@@ -569,7 +653,11 @@ export class EtaService {
    * nothing.
    */
   async refreshStatus(id: string): Promise<EtaSubmission> {
-    const submission = await this.require(id);
+    return this.holding([id], () => this.refreshStatusHeld(id));
+  }
+
+  private async refreshStatusHeld(id: string): Promise<EtaSubmission> {
+    const submission = await this.found(id);
     if (submission.status !== "submitted") throw new InvalidEtaTransitionError(submission.status, "refresh");
     if (!this.transmitPort.fetchStatus || !submission.etaUuid) throw new EtaOfflineError();
     const config = await this.deps.config.get();
@@ -597,12 +685,14 @@ export class EtaService {
     rejected: EtaSubmission[];
     queued: string[];
     unsigned: string[];
+    blocked: string[];
   }> {
     const submitted: EtaSubmission[] = [];
     const accepted: EtaSubmission[] = [];
     const rejected: EtaSubmission[] = [];
     const queued: string[] = [];
     const unsigned: string[] = [];
+    const blocked: string[] = [];
 
     // Oldest first, and a device's receipts in chain order: a link reported
     // before its predecessor names a previousUUID the authority has not seen.
@@ -611,15 +701,20 @@ export class EtaService {
       ...(await this.deps.submissions.list("pending_signature")),
     ].sort(queueOrder);
     for (const s of pending) {
+      if (isBlockedBeforeTransmit(s)) {
+        blocked.push(s.id);
+        continue;
+      }
       try {
         const next = await this.submit(s.id);
         if (next.status === "submitted") submitted.push(next);
         else if (next.status === "error") rejected.push(next);
         else if (next.status === "pending_signature") unsigned.push(s.id);
       } catch (err) {
-        if (err instanceof EtaOfflineError) queued.push(s.id);
+        if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
         else if (err instanceof EtaSignerNotConfiguredError || err instanceof EtaSigningFailedError) unsigned.push(s.id);
-        else throw err;
+        else if (err instanceof EtaPrevalidationFailedError) blocked.push(s.id);
+        else if (!(err instanceof InvalidEtaTransitionError)) throw err;
       }
     }
 
@@ -630,13 +725,13 @@ export class EtaService {
           if (next.status === "accepted") accepted.push(next);
           else if (next.status === "error") rejected.push(next);
         } catch (err) {
-          if (err instanceof EtaOfflineError) queued.push(s.id);
-          else throw err;
+          if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
+          else if (!(err instanceof InvalidEtaTransitionError)) throw err;
         }
       }
     }
 
-    return { submitted, accepted, rejected, queued, unsigned };
+    return { submitted, accepted, rejected, queued, unsigned, blocked };
   }
 
   /**
@@ -649,16 +744,22 @@ export class EtaService {
    * a partially rejected batch never loses the accepted half.
    */
   async submitReadyReceipts(): Promise<{ submitted: EtaSubmission[]; queued: string[]; rejected: EtaSubmission[] }> {
-    const all = await this.deps.submissions.list();
-    const receipts = all.filter((s) => s.documentType === "receipt");
-    const statusByUuid = new Map(receipts.filter((s) => s.etaUuid).map((s) => [s.etaUuid!, s.status]));
-    const ready = receipts
-      .filter((s) => s.status === "ready")
+    const ready = (await this.deps.submissions.list("ready"))
+      .filter((s) => s.documentType === "receipt")
       .sort((a, b) =>
         (a.receiptSerial ?? "") !== (b.receiptSerial ?? "")
           ? (a.receiptSerial ?? "") < (b.receiptSerial ?? "") ? -1 : 1
           : (a.receiptSeq ?? 0) - (b.receiptSeq ?? 0) || queueOrder(a, b),
       );
+    const referenceOf = (s: EtaSubmission): string | null => {
+      const reference = (s.payload as { header?: { referenceUUID?: unknown } } | null)?.header?.referenceUUID;
+      return typeof reference === "string" ? reference : null;
+    };
+    const statusByUuid = new Map<string, EtaSubmissionStatus>();
+    for (const reference of new Set(ready.map(referenceOf))) {
+      const status = reference === null ? null : await this.deps.submissions.statusByEtaUuid(reference);
+      if (reference !== null && status !== null) statusByUuid.set(reference, status);
+    }
     const submitted: EtaSubmission[] = [];
     const queued: string[] = [];
     const rejected: EtaSubmission[] = [];
@@ -666,8 +767,8 @@ export class EtaService {
     const referenceStatusOf = (s: EtaSubmission): string | undefined => {
       // A refund names its sale receipt, which must already be with the
       // authority — a refund on another till could otherwise overtake it.
-      const reference = (s.payload as { header?: { referenceUUID?: unknown } } | null)?.header?.referenceUUID;
-      return typeof reference === "string" ? statusByUuid.get(reference) : undefined;
+      const reference = referenceOf(s);
+      return reference === null ? undefined : statusByUuid.get(reference);
     };
     const referenceReady = (s: EtaSubmission): boolean => {
       const status = referenceStatusOf(s);
@@ -710,7 +811,7 @@ export class EtaService {
         }
         if (chunkFailed) halted.add(serial);
       } catch (err) {
-        if (!(err instanceof EtaOfflineError)) throw err;
+        if (!(err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError)) throw err;
         halted.add(serial);
         for (const queuedSubmission of chunk) queued.push(queuedSubmission.id);
       }
@@ -724,7 +825,7 @@ export class EtaService {
           const next = await this.refreshStatus(s.id);
           if (next.status === "error") rejected.push(next);
         } catch (err) {
-          if (!(err instanceof EtaOfflineError)) throw err;
+          if (!(err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError || err instanceof InvalidEtaTransitionError)) throw err;
         }
       }
     }
@@ -740,22 +841,59 @@ export class EtaService {
   private async submitReceiptChunk(chunk: readonly EtaSubmission[]): Promise<EtaSubmission[]> {
     if (!this.transmitPort.transmitReceiptBatch) {
       const out: EtaSubmission[] = [];
-      for (const s of chunk) out.push(await this.submit(s.id));
+      for (const s of chunk) {
+        try {
+          out.push(await this.submit(s.id));
+        } catch (err) {
+          if (!(err instanceof InvalidEtaTransitionError)) throw err;
+        }
+      }
       return out;
     }
-    const config = await this.deps.config.get();
-    const result = await this.transmitPort.transmitReceiptBatch(chunk, config);
-    const byId = new Map(result.outcomes.map((o) => [o.submissionId, o]));
-    const out: EtaSubmission[] = [];
-    for (const s of chunk) {
-      const outcome = byId.get(s.id) ?? {
-        submissionId: s.id,
-        ok: false,
-        errors: ["لم يرد رد من مصلحة الضرائب لهذا الإيصال ضمن الدفعة."],
-      };
-      out.push(await this.applyReceiptOutcome(s, outcome, result.log, result.submissionUUID ?? null));
-    }
-    return out;
+    const transmitBatch = this.transmitPort.transmitReceiptBatch.bind(this.transmitPort);
+    return this.holding(
+      chunk.map((s) => s.id),
+      async () => {
+        // The caller listed this chunk before earlier chunks went out, and each
+        // of those waited on the authority. Read again now the ids are held:
+        // a receipt another drive reported meanwhile is not reported twice.
+        const config = await this.deps.config.get();
+        const out: EtaSubmission[] = [];
+        const still: EtaSubmission[] = [];
+        for (const listed of chunk) {
+          let now = await this.found(listed.id);
+          if (now.status === EtaSubmissionStatusCode.Ready && now.transmitStartedAt) {
+            const settled = await this.settleUnrecorded(now, config);
+            if (settled) out.push(settled);
+            now = settled ?? (await this.found(listed.id));
+          }
+          if (now.status === EtaSubmissionStatusCode.Error || now.transmitStartedAt) break;
+          if (now.status === EtaSubmissionStatusCode.Ready) still.push(now);
+        }
+        if (still.length === 0) return out;
+        const startedAt = this.now();
+        for (let i = 0; i < still.length; i += 1) still[i] = await this.persist({ ...at(still, i), transmitStartedAt: startedAt });
+        let result: Awaited<ReturnType<typeof transmitBatch>>;
+        try {
+          result = await transmitBatch(still, config);
+        } catch (err) {
+          if (err instanceof EtaOfflineError) {
+            for (const s of still) await this.persist({ ...s, transmitStartedAt: null });
+          }
+          throw err;
+        }
+        const byId = new Map(result.outcomes.map((o) => [o.submissionId, o]));
+        for (const s of still) {
+          const outcome = byId.get(s.id) ?? {
+            submissionId: s.id,
+            ok: false,
+            errors: ["لم يرد رد من مصلحة الضرائب لهذا الإيصال ضمن الدفعة."],
+          };
+          out.push(await this.applyReceiptOutcome(s, outcome, result.log, result.submissionUUID ?? null));
+        }
+        return out;
+      },
+    );
   }
 
   private async applyReceiptOutcome(
@@ -769,7 +907,7 @@ export class EtaService {
     log: readonly EtaTransmitLogEntry[] | undefined,
     gatewaySubmissionId: string | null,
   ): Promise<EtaSubmission> {
-    const withLog = this.appendLog(submission, log);
+    const withLog = { ...this.appendLog(submission, log), transmitStartedAt: null };
     if (outcome.ok) {
       return this.persist({
         ...withLog,
@@ -820,10 +958,11 @@ export class EtaService {
   /** Authority acceptance callback: مرسل → مقبول with the assigned UUID. */
   async markAccepted(id: string, etaUuid: string): Promise<EtaSubmission> {
     const submission = await this.require(id);
-    if (submission.status !== "submitted") {
+    const unrecorded = submission.status === EtaSubmissionStatusCode.Error && Boolean(submission.transmitStartedAt);
+    if (submission.status !== EtaSubmissionStatusCode.Submitted && !unrecorded) {
       throw new InvalidEtaTransitionError(submission.status, "accept");
     }
-    return this.persist({ ...submission, status: "accepted", etaUuid, errors: [] });
+    return this.persist({ ...submission, status: EtaSubmissionStatusCode.Accepted, etaUuid, errors: [], rejectionCodes: [], transmitStartedAt: null });
   }
 
   /** Authority rejection callback: مرسل → أخطاء with error messages. */
@@ -850,19 +989,25 @@ export class EtaService {
    * failures leave the document queued and are collected rather than thrown, so
    * one unreachable document doesn't abort the batch.
    */
-  async submitAllReady(): Promise<{ submitted: EtaSubmission[]; queued: string[] }> {
+  async submitAllReady(): Promise<{ submitted: EtaSubmission[]; queued: string[]; blocked: string[] }> {
     const ready = (await this.deps.submissions.list("ready")).sort(queueOrder);
     const submitted: EtaSubmission[] = [];
     const queued: string[] = [];
+    const blocked: string[] = [];
     for (const s of ready) {
+      if (isBlockedBeforeTransmit(s)) {
+        blocked.push(s.id);
+        continue;
+      }
       try {
         submitted.push(await this.submit(s.id));
       } catch (err) {
-        if (err instanceof EtaOfflineError) queued.push(s.id);
-        else throw err;
+        if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
+        else if (err instanceof EtaPrevalidationFailedError) blocked.push(s.id);
+        else if (!(err instanceof InvalidEtaTransitionError)) throw err;
       }
     }
-    return { submitted, queued };
+    return { submitted, queued, blocked };
   }
 
   /**
@@ -879,9 +1024,25 @@ export class EtaService {
   }
 
   private async require(id: string): Promise<EtaSubmission> {
+    if (this.inFlight.has(id)) throw new EtaSubmissionInFlightError(id);
+    return this.found(id);
+  }
+
+  private async found(id: string): Promise<EtaSubmission> {
     const submission = await this.deps.submissions.findById(id);
     if (!submission) throw new EtaSubmissionNotFoundError(id);
     return submission;
+  }
+
+  private async holding<T>(ids: readonly string[], send: () => Promise<T>): Promise<T> {
+    const busy = ids.find((id) => this.inFlight.has(id));
+    if (busy !== undefined) throw new EtaSubmissionInFlightError(busy);
+    for (const id of ids) this.inFlight.add(id);
+    try {
+      return await send();
+    } finally {
+      for (const id of ids) this.inFlight.delete(id);
+    }
   }
 
   /** Keeps the last 50 round trips; a submission retried nightly for a month must not become the biggest row in the file. */

@@ -630,8 +630,12 @@ const ADVANCES = [
   { id: "ADV-DEMO-6", employeeId: "EMP-DEMO-3", amount: "5000", installmentCount: 5, firstDeductionDate: "2026-11-01", reason: "تجديد سكن", flow: "approved", disburseDate: null },
 ];
 
-/** June is settled, July is posted and awaiting its transfer, August is still محتسب. */
 const PAYROLL_RUNS = [
+  { id: "PR-DEMO-2026-01", year: 2026, month: 1, stage: "disbursed", disburseDate: "2026-01-31" },
+  { id: "PR-DEMO-2026-02", year: 2026, month: 2, stage: "disbursed", disburseDate: "2026-02-28" },
+  { id: "PR-DEMO-2026-03", year: 2026, month: 3, stage: "disbursed", disburseDate: "2026-03-31" },
+  { id: "PR-DEMO-2026-04", year: 2026, month: 4, stage: "disbursed", disburseDate: "2026-04-30" },
+  { id: "PR-DEMO-2026-05", year: 2026, month: 5, stage: "disbursed", disburseDate: "2026-05-31" },
   { id: "PR-DEMO-1", year: 2026, month: 6, stage: "disbursed", disburseDate: "2026-06-30" },
   { id: "PR-DEMO-2", year: 2026, month: 7, stage: "approved", disburseDate: null },
   { id: "PR-DEMO-3", year: 2026, month: 8, stage: "calculated", disburseDate: null },
@@ -745,7 +749,7 @@ export async function seedHr(app: App): Promise<void> {
     await step(app, "POST", "/hr/contracts", { ...contract, currency: "EGP" });
   }
   await step(app, "POST", "/hr/contracts/ECT-DEMO-10/terminate", {});
-  await step(app, "POST", "/hr/employees/EMP-DEMO-9/terminate", {});
+  await step(app, "POST", "/hr/employees/EMP-DEMO-9/terminate", { effectiveDate: "2026-05-31" });
   await step(app, "POST", "/hr/employees/EMP-DEMO-8/transition", { status: "suspended" });
 
   for (const holiday of HOLIDAYS) {

@@ -1,6 +1,7 @@
 import { useLocation } from "react-router";
 import { SignupScreen } from "./SignupScreen";
 import { VerifyScreen } from "./VerifyScreen";
+import { OwnerHandOverScreen } from "./OwnerHandOverScreen";
 
 /**
  * The signup flow's own root, mounted at `/signup/*` as a sibling of the
@@ -14,5 +15,6 @@ import { VerifyScreen } from "./VerifyScreen";
  */
 export function SignupApp() {
   const location = useLocation();
+  if (location.pathname.startsWith("/signup/owner-handover")) return <OwnerHandOverScreen />;
   return location.pathname.startsWith("/signup/verify") ? <VerifyScreen /> : <SignupScreen />;
 }

@@ -249,6 +249,8 @@ export interface WorksContractStore {
   findContractById(id: string): Promise<WorksContract | null>;
   findContractByDocNo(docNo: string): Promise<WorksContract | null>;
   listContracts(filter?: WorksContractListFilter): Promise<WorksContract[]>;
+  /** Insert-only: a taken id is refused with DuplicateRecordIdError, never replaced. */
+  insertContract(contract: WorksContract): Promise<void>;
   saveContract(contract: WorksContract): Promise<void>;
 
   listBoqLines(contractId: string): Promise<BoqLine[]>;
@@ -261,6 +263,7 @@ export interface WorksContractStore {
   listVariationOrders(filter?: VariationOrderListFilter): Promise<VariationOrder[]>;
   findVariationOrderById(id: string): Promise<VariationOrder | null>;
   findVariationOrderByDocNo(docNo: string): Promise<VariationOrder | null>;
+  insertVariationOrder(order: VariationOrder): Promise<void>;
   saveVariationOrder(order: VariationOrder): Promise<void>;
 
   transaction<T>(fn: () => Promise<T>): Promise<T>;

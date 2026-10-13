@@ -104,6 +104,23 @@ export function expectedVersionOf(body: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
+export type RequestedReversalDate = { readonly ok: true; readonly date: string | undefined } | { readonly ok: false };
+
+const CALENDAR_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+export function requestedReversalDate(body: unknown): RequestedReversalDate {
+  const value = body && typeof body === "object" ? (body as { date?: unknown }).date : undefined;
+  if (value === undefined || value === null) return { ok: true, date: undefined };
+  if (typeof value !== "string" || !CALENDAR_DAY.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00.000Z`))) return { ok: false };
+  return { ok: true, date: value };
+}
+
+export const INVALID_REVERSAL_DATE = {
+  error: "VALIDATION_ERROR",
+  message: "تاريخ الإلغاء يجب أن يكون بالصيغة YYYY-MM-DD.",
+  messageEn: "The cancellation date must be a calendar day, YYYY-MM-DD.",
+} as const;
+
 /** Reads a body that may legitimately be absent — a lifecycle POST often has none. */
 export async function readOptionalBody(c: Context): Promise<unknown> {
   try {

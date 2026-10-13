@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { PLAIN_SALES_TAX_DEPS } from "./test-support.js";
 import { Money, Qty } from "../money/index.js";
 import { InMemoryAccountRepository } from "../accounts/test-helpers/in-memory-account-repository.js";
 import { InMemoryFiscalPeriodRepository } from "../fiscal-periods/test-helpers/in-memory-fiscal-period-repository.js";
@@ -61,6 +62,7 @@ async function harness() {
   const ledger = new InMemoryLedgerRepository();
   const asked: AskedFor[] = [];
   const svc = new SalesInvoiceService({
+    ...PLAIN_SALES_TAX_DEPS,
     repo: new InMemorySalesInvoiceRepository(),
     numbering: { next: () => new NextNumberService(new InMemorySequenceStore()).next("SALES_INVOICE") },
     gl: createSalesInvoiceGlHook({

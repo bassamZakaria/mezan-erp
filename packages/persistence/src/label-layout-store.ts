@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { LabelLayout, LabelLayoutRepository, LabelPageSize } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /** SQLite-backed LabelLayoutRepository (docs/archive/catalog/03 §"طباعة الباركود والملصقات"). */
 
@@ -79,6 +80,7 @@ function toLayout(row: LabelLayoutRow): LabelLayout {
 
 class SqliteLabelLayoutStore implements LabelLayoutRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
@@ -103,6 +105,7 @@ class SqliteLabelLayoutStore implements LabelLayoutRepository {
          show_price = @showPrice, show_unit = @showUnit, show_barcode = @showBarcode,
          show_barcode_text = @showBarcodeText, barcode_height_mm = @barcodeHeightMm, active = @active`,
     );
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectAll = sqlite.prepare(`SELECT * FROM label_layout ORDER BY code ASC`);
     this.selectById = sqlite.prepare(`SELECT * FROM label_layout WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM label_layout WHERE code = ?`);
@@ -124,7 +127,15 @@ class SqliteLabelLayoutStore implements LabelLayoutRepository {
   }
 
   async save(layout: LabelLayout): Promise<void> {
-    this.upsert.run({
+    this.write(layout);
+  }
+
+  async insert(layout: LabelLayout): Promise<void> {
+    insertingNew(layout.id, () => this.write(layout, this.insertOnly));
+  }
+
+  private write(layout: LabelLayout, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: layout.id,
       code: layout.code,
       nameAr: layout.nameAr,

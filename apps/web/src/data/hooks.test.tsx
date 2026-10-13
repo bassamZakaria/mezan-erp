@@ -18,6 +18,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi } from "vitest";
+import { UserStatusCode } from "@mezan/domain";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -39,6 +40,9 @@ import {
   useConfirmPurchaseInvoice,
   useConfirmPurchaseOrder,
   useConfirmSalesInvoice,
+  useClassifyLineTax,
+  useNameJournalLineTax,
+  ClassifiableDocument,
   useConfirmStockAdjustment,
   useConfirmVoucher,
   useCreateAccount,
@@ -72,7 +76,6 @@ import {
   useRecordSalesInvoicePayment,
   useReverseAllocation,
   useReverseJournalEntry,
-  useReverseVoucher,
   useRoles,
   useSalesInvoice,
   useSalesQuoteCounts,
@@ -641,9 +644,9 @@ describe("user status transition", () => {
     });
     const { Wrapper } = makeWrapper(transport);
     const { result } = renderHook(() => useSetUserStatus(), { wrapper: Wrapper });
-    result.current.mutate({ id: "U1", status: "active" });
+    result.current.mutate({ id: "U1", status: UserStatusCode.Active });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    result.current.mutate({ id: "U1", status: "inactive" });
+    result.current.mutate({ id: "U1", status: UserStatusCode.Inactive });
     await waitFor(() => expect(seenPaths.length).toBe(2));
     expect(seenPaths[0]).toBe("/users/U1/activate");
     expect(seenPaths[1]).toBe("/users/U1/deactivate");
@@ -707,10 +710,6 @@ describe("vouchers", () => {
     cancel.current.mutate("V1");
     await waitFor(() => expect(cancel.current.isSuccess).toBe(true));
 
-    const { result: reverse } = renderHook(() => useReverseVoucher(), { wrapper: Wrapper });
-    reverse.current.mutate({ id: "V1" });
-    await waitFor(() => expect(reverse.current.isSuccess).toBe(true));
-
     const { result: allocate } = renderHook(() => useCreateAllocation(), { wrapper: Wrapper });
     allocate.current.mutate({ voucherId: "V1", body: {} as never });
     await waitFor(() => expect(allocate.current.isSuccess).toBe(true));
@@ -719,7 +718,7 @@ describe("vouchers", () => {
     reverseAllocation.current.mutate("AL1");
     await waitFor(() => expect(reverseAllocation.current.isSuccess).toBe(true));
 
-    expect(spy).toHaveBeenCalledTimes(5);
+    expect(spy).toHaveBeenCalledTimes(4);
     for (const call of spy.mock.calls) expect(call[0]).toEqual({ queryKey: ["vouchers"] });
   });
 
@@ -786,6 +785,29 @@ describe("sales invoices", () => {
     expect(keys).toContainEqual(["treasury-accounts"]);
     expect(keys).toContainEqual(["dashboard"]);
     expect(spy).toHaveBeenCalledTimes(4);
+  });
+
+  it("a tax classification and a journal-line naming both make stale the document, its returns, its entry, the audit trail, the e-document queue and receipts, and the VAT report", async () => {
+    const reply = { documentId: "SI1", documentNumber: "INV-1", lineIds: ["A"], taxRateId: "VAT-EXEMPT", taxRateName: "معفى", taxRatePercent: 0, journalLinesNamed: 1, filing: "requeued" };
+    const moved = ["eta-submissions", "eta", "journal-entries", "gl", "audit", "entity-audit", "financial-reports", "vat-filings"];
+    const transport = stubTransport({
+      "POST /sales-invoices/SI1/lines/A/classify-tax": () => ({ body: reply }),
+      "POST /purchases/invoices/PI1/lines/0/journal-tax": () => ({ body: reply }),
+    });
+
+    const sales = makeWrapper(transport);
+    const salesSpy = vi.spyOn(sales.queryClient, "invalidateQueries");
+    const classify = renderHook(() => useClassifyLineTax(ClassifiableDocument.SalesInvoice), { wrapper: sales.Wrapper });
+    classify.result.current.mutate({ documentId: "SI1", lineId: "A", taxRateId: "VAT-EXEMPT", withLineIds: [] });
+    await waitFor(() => expect(classify.result.current.isSuccess).toBe(true));
+    expect(salesSpy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey[0]).sort()).toEqual(["sales-invoices", "sales-returns", ...moved].sort());
+
+    const purchases = makeWrapper(transport);
+    const purchaseSpy = vi.spyOn(purchases.queryClient, "invalidateQueries");
+    const name = renderHook(() => useNameJournalLineTax(ClassifiableDocument.PurchaseInvoice), { wrapper: purchases.Wrapper });
+    name.result.current.mutate({ documentId: "PI1", lineId: "0", journalLineIndexes: [0, 1], withLineIds: [] });
+    await waitFor(() => expect(name.result.current.isSuccess).toBe(true));
+    expect(purchaseSpy.mock.calls.map((c) => (c[0] as { queryKey: unknown[] }).queryKey[0]).sort()).toEqual(["purchase-invoices", "purchase-returns", ...moved].sort());
   });
 });
 

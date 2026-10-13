@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import { childRowsByParent } from "./list-query.js";
 import { Money, Qty, type PriceList, type PriceListLine, type PriceListRepository } from "@mezan/domain";
 
@@ -126,7 +127,7 @@ class SqlitePriceListRepository implements PriceListRepository {
   }
 
   async save(priceList: PriceList): Promise<void> {
-    this.insertPriceList.run(priceListParams(priceList));
+    insertingNew(priceList.id, () => this.insertPriceList.run(priceListParams(priceList)));
     this.insertLines(priceList);
   }
 

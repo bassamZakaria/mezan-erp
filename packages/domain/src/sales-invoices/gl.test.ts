@@ -17,6 +17,7 @@ function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
     revenueAccountId: "4000",
     cogsAccountId: "5000",
     inventoryAccountId: "1200",
+    taxRateId: null,
     costCenterId: null,
     unitCost: null,
     unitCode: "", unitFactor: 1, discountType: "percent" as const, discountAmount: Money.zero(),
@@ -224,5 +225,45 @@ describe("salesInvoiceBaseGrandTotal — agrees with the AR debit to the last un
     const posting = buildSalesInvoiceGlPosting(inv, totals, [], { rate: "48.123457" });
     const ar = posting.lines.find((l) => l.accountId === "1100");
     expect(salesInvoiceBaseGrandTotal(totals, "48.123457").toString()).toBe(ar?.debit.toString());
+  });
+});
+
+describe("buildSalesInvoiceGlPosting — the tax rate's identity (D79)", () => {
+  function post(lines: SalesInvoiceLine[]) {
+    const inv = invoice({ lines });
+    const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+    return buildSalesInvoiceGlPosting(inv, totals, []);
+  }
+
+  it("posts an exempt line and a zero-rated export line as two revenue credits, each tagged with its own rate", () => {
+    const posting = post([
+      line({ lineId: "L1", isStock: false, taxRatePercent: 0, taxRateId: "EXEMPT", unitPrice: Money.fromMajor("100") }),
+      line({ lineId: "L2", isStock: false, taxRatePercent: 0, taxRateId: "EXPORT", unitPrice: Money.fromMajor("250") }),
+    ]);
+    const revenue = posting.lines.filter((l) => l.accountId === "4000" && l.credit.scaled > 0n);
+    expect(revenue).toHaveLength(2);
+    const byRate = Object.fromEntries(revenue.map((l) => [l.taxRateId, l.credit.toString()]));
+    expect(byRate["EXEMPT"]).toBe(Money.fromMajor("100").toString());
+    expect(byRate["EXPORT"]).toBe(Money.fromMajor("250").toString());
+    expect(revenue.every((l) => l.taxRatePercent === 0)).toBe(true);
+  });
+
+  it("tags the VAT credit with the rate that produced it", () => {
+    const posting = post([line({ lineId: "L1", isStock: false, taxRatePercent: 14, taxRateId: "VAT14" })]);
+    const vat = posting.lines.filter((l) => l.accountId === "2300");
+    expect(vat).toHaveLength(1);
+    expect(vat[0]).toMatchObject({ taxRatePercent: 14, taxRateId: "VAT14" });
+  });
+
+  it("keeps a legacy line with no stored rate apart from a tagged line of the same percent", () => {
+    const posting = post([
+      line({ lineId: "L1", isStock: false, taxRatePercent: 14, taxRateId: "VAT14" }),
+      line({ lineId: "L2", isStock: false, taxRatePercent: 14, taxRateId: null }),
+    ]);
+    const vat = posting.lines.filter((l) => l.accountId === "2300");
+    expect(vat.map((l) => l.taxRateId ?? "none").sort()).toEqual(["VAT14", "none"]);
+    const debit = posting.lines.reduce((sum, l) => sum + l.debit.scaled, 0n);
+    const credit = posting.lines.reduce((sum, l) => sum + l.credit.scaled, 0n);
+    expect(debit).toBe(credit);
   });
 });

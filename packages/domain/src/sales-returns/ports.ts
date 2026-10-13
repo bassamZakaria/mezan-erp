@@ -13,6 +13,7 @@
 import type { Money, Qty } from "../money/index.js";
 
 export interface SourceSalesInvoiceLine {
+  readonly sourceLineId?: string | null;
   readonly itemId: string;
   readonly itemName: string;
   readonly qty: Qty;
@@ -23,11 +24,13 @@ export interface SourceSalesInvoiceLine {
   readonly taxAmount: Money;
   /** The VAT rate this line was charged at, carried onto the return line (D76). */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
 }
 
 export interface SourceSalesInvoice {
   readonly id: string;
   readonly number: string;
+  readonly salespersonId?: string | null;
   readonly customerId: string;
   readonly warehouseId: string;
   readonly date: string;
@@ -35,6 +38,7 @@ export interface SourceSalesInvoice {
   readonly lines: readonly SourceSalesInvoiceLine[];
   /** بُعد المشروع on the invoice; a return built from it inherits this onto every line it produces. */
   readonly projectId?: string | null;
+  readonly branchId?: string | null;
   /** The invoice's currency and the rate it confirmed at; a return reverses at this rate (D203). */
   readonly currency?: string | null;
   readonly fxRate?: string | null;

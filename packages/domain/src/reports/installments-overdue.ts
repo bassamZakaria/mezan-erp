@@ -5,6 +5,8 @@ import type { InstallmentLine, InstallmentPlanDocument } from "../installments/i
 import type { Customer } from "../customers/customer.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, countDistinct, maxOf } from "./kpi.js";
+import { BRANCH_PARAM_FIELD } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * الأقساط المتأخرة — Overdue Installments (docs/archive/catalog/08-reports.md):
@@ -81,9 +83,10 @@ export function createInstallmentsOverdueReport(
     paramsSchema,
     defaultParams: { asOfDate: defaultAsOfDate, bucket: "" },
     paramFields: [
-      { kind: "date", key: "asOfDate", label: "حتى تاريخ" },
+      { kind: ReportParamKind.Date, key: "asOfDate", label: "حتى تاريخ" },
+      BRANCH_PARAM_FIELD,
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "bucket",
         label: "التأخر",
         options: [

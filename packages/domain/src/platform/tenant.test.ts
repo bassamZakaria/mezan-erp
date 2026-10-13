@@ -5,6 +5,20 @@ import {
   suspendTenant,
   resumeTenant,
   archiveTenant,
+  tenantWithOwnerContact,
+  tenantHandedTo,
+  tenantNeedingOwner,
+  tenantWithPendingOwner,
+  tenantWithPendingOwnerConfirmed,
+  tenantWithPendingOwnerDeclined,
+  tenantWithPendingOwnerLink,
+  pendingOwnerExpired,
+  pendingOwnerExpiresAt,
+  PendingOwnerLink,
+  releaseTenant,
+  releasedTenantCode,
+  OwnerContactProof,
+  TenantStatusCode,
   type Tenant,
   type TenantRepository,
 } from "./tenant.js";
@@ -23,6 +37,15 @@ function memoryRepo(seed: Tenant[] = []): TenantRepository & { rows: Map<string,
     async findByCode(code) { return [...rows.values()].find((t) => t.code === code) ?? null; },
     async list() { return [...rows.values()]; },
     async save(t) { rows.set(t.id, t); },
+    async discardProvisioning(id) { return rows.get(id)?.status === TenantStatusCode.Provisioning && rows.delete(id); },
+    async compareAndSetOwner() { return false; },
+    async compareAndSetStatus(before, after) {
+      const stored = rows.get(after.id);
+      if (!stored || stored.status !== before.status || stored.code !== before.code) return false;
+      rows.set(after.id, { ...stored, status: after.status, code: after.code, updatedAt: after.updatedAt });
+      return true;
+    },
+    async setDbFile() { return false; },
   };
 }
 
@@ -30,14 +53,20 @@ const NOW = "2026-09-13T10:00:00.000Z";
 const cmd = { id: "T1", code: "cyag", nameAr: "سياج", nameEn: "Cyag", ownerEmail: " Owner@Cyag.EG ", now: NOW };
 
 describe("createTenant", () => {
-  it("creates a provisioning tenant with a derived db file and a normalised email", async () => {
+  it("creates a provisioning tenant whose database file is named by its id, and a normalised email", async () => {
     const repo = memoryRepo();
     const t = await createTenant(cmd, repo);
     expect(t).toEqual({
-      id: "T1", code: "cyag", nameAr: "سياج", nameEn: "Cyag", ownerEmail: "owner@cyag.eg",
-      status: "provisioning", dbFile: "tenants/cyag.db", createdAt: NOW, updatedAt: NOW,
+      id: "T1", code: "cyag", nameAr: "سياج", nameEn: "Cyag", ownerEmail: "owner@cyag.eg", ownerUserId: null, ownerContactVerified: true,
+      status: "provisioning", dbFile: "tenants/T1.db", createdAt: NOW, updatedAt: NOW,
     });
     expect(repo.rows.get("T1")).toEqual(t);
+  });
+
+  it("refuses an id that cannot name a file", async () => {
+    for (const id of ["../platform", "a/b", "t.1", "-lead", "a b"]) {
+      await expect(createTenant({ ...cmd, id }, memoryRepo())).rejects.toThrow(InvalidTenantError);
+    }
   });
 
   it("refuses a bad slug, an empty Arabic name and an empty email, all at once", async () => {
@@ -125,3 +154,149 @@ describe("tenant state machine", () => {
     await expect(activateTenant({ id: "nope", now: LATER }, memoryRepo())).rejects.toThrow(TenantNotFoundError);
   });
 });
+
+describe("tenantWithOwnerContact", () => {
+  const LATER = "2026-09-14T08:00:00.000Z";
+  const linked: Tenant = {
+    id: "T1", code: "cyag", nameAr: "سياج", nameEn: null, ownerEmail: "owner@cyag.eg", ownerUserId: "U-OWNER", ownerContactVerified: true,
+    status: "active", dbFile: "tenants/cyag.db", createdAt: NOW, updatedAt: NOW,
+  };
+  const unlinked: Tenant = { ...linked, ownerUserId: null };
+
+  it("changes nothing when the owner's address is the one already recorded and verified", () => {
+    expect(tenantWithOwnerContact(linked, { id: "U-OWNER", email: " Owner@Cyag.EG " }, OwnerContactProof.Unproven, LATER)).toBeNull();
+    expect(tenantWithOwnerContact(linked, { id: "U-OWNER", email: "owner@cyag.eg" }, OwnerContactProof.OwnerActed, LATER)).toBeNull();
+  });
+
+  it("links an unlinked tenant to the owner's user id", () => {
+    expect(tenantWithOwnerContact(unlinked, { id: "U-OWNER", email: "owner@cyag.eg" }, OwnerContactProof.Unproven, LATER)).toEqual({
+      ...linked, updatedAt: LATER,
+    });
+  });
+
+  it("follows a new address only on the owner's own act", () => {
+    expect(tenantWithOwnerContact(linked, { id: "U-OWNER", email: "New@Cyag.EG" }, OwnerContactProof.OwnerActed, LATER)).toEqual({
+      ...linked, ownerEmail: "new@cyag.eg", updatedAt: LATER,
+    });
+  });
+
+  it("keeps the recorded address and marks the contact unverified when the new address is unproven", () => {
+    const flagged = tenantWithOwnerContact(linked, { id: "U-OWNER", email: "inbox@elsewhere.example" }, OwnerContactProof.Unproven, LATER);
+    expect(flagged).toEqual({ ...linked, ownerContactVerified: false, updatedAt: LATER });
+    expect(tenantWithOwnerContact(flagged!, { id: "U-OWNER", email: "inbox@elsewhere.example" }, OwnerContactProof.Unproven, LATER)).toBeNull();
+  });
+
+  it("verifies again, without moving the address, once the tenant's own address is the recorded one", () => {
+    const flagged: Tenant = { ...linked, ownerContactVerified: false };
+    expect(tenantWithOwnerContact(flagged, { id: "U-OWNER", email: "owner@cyag.eg" }, OwnerContactProof.Unproven, LATER)).toEqual({
+      ...linked, updatedAt: LATER,
+    });
+  });
+
+  it("ignores every user who is not the recorded owner, whatever they prove", () => {
+    expect(tenantWithOwnerContact(linked, { id: "U-OTHER", email: "owner@cyag.eg" }, OwnerContactProof.OwnerActed, LATER)).toBeNull();
+    expect(tenantWithOwnerContact(linked, { id: "U-OTHER", email: "other@cyag.eg" }, OwnerContactProof.OwnerActed, LATER)).toBeNull();
+  });
+
+  it("refuses an empty address and a bad clock", () => {
+    expect(() => tenantWithOwnerContact(linked, { id: "U-OWNER", email: "  " }, OwnerContactProof.OwnerActed, LATER)).toThrow(InvalidTenantError);
+    expect(() => tenantWithOwnerContact(linked, { id: "U-OWNER", email: "a@b.eg" }, OwnerContactProof.OwnerActed, "soon")).toThrow(InvalidTenantError);
+  });
+
+  it("hands the tenant to a successor as its verified owner, clearing a pending successor and the owner-needed flag", () => {
+    expect(tenantHandedTo(linked, { id: "U-NEXT", email: "Next@Cyag.EG" }, LATER)).toEqual({
+      ...linked, ownerUserId: "U-NEXT", ownerEmail: "next@cyag.eg", ownerContactVerified: true, updatedAt: LATER,
+    });
+    const waiting = tenantWithPendingOwner({ ...linked, ownerNeeded: true }, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "tenant:cyag:U-PEER", tokenHash: "h" }, LATER);
+    expect(tenantHandedTo(waiting, { id: "U-NEXT", email: "next@cyag.eg" }, LATER)).toMatchObject({ ownerUserId: "U-NEXT", ownerNeeded: false, pendingOwner: null });
+  });
+
+  it("records a pending successor without moving the recorded owner, address or verification", () => {
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: " Peer@Cyag.EG " }, { requestedBy: "tenant:cyag:U-PEER", tokenHash: "h" }, LATER);
+
+    expect(waiting).toEqual({
+      ...linked,
+      pendingOwner: { userId: "U-PEER", email: "peer@cyag.eg", requestedBy: "tenant:cyag:U-PEER", requestedAt: LATER, expiresAt: pendingOwnerExpiresAt(LATER), tokenHash: "h" },
+      updatedAt: LATER,
+    });
+    expect(() => tenantWithPendingOwner(linked, { id: "U-PEER", email: " " }, { requestedBy: "x", tokenHash: null }, LATER)).toThrow(InvalidTenantError);
+  });
+
+  it("confirms a pending successor as the verified owner, and refuses when none is waiting", () => {
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "tenant:cyag:U-PEER", tokenHash: "h" }, LATER);
+
+    expect(tenantWithPendingOwnerConfirmed(waiting, LATER)).toEqual({
+      ...linked, ownerUserId: "U-PEER", ownerEmail: "peer@cyag.eg", ownerContactVerified: true, pendingOwner: null, updatedAt: LATER,
+    });
+    expect(() => tenantWithPendingOwnerConfirmed(linked, LATER)).toThrow(InvalidTenantError);
+  });
+
+  it("gives a pending successor seven days, to the millisecond", () => {
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "x", tokenHash: "h" }, LATER).pendingOwner!;
+
+    expect(waiting.expiresAt).toBe("2026-09-21T08:00:00.000Z");
+    expect(pendingOwnerExpired(waiting, "2026-09-21T07:59:59.999Z")).toBe(false);
+    expect(pendingOwnerExpired(waiting, "2026-09-21T08:00:00.000Z")).toBe(true);
+  });
+
+  it("drops a declined successor and leaves the recorded owner alone, and refuses when none is waiting", () => {
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "x", tokenHash: "h" }, NOW);
+
+    expect(tenantWithPendingOwnerDeclined(waiting, LATER)).toEqual({ ...linked, pendingOwner: null, updatedAt: LATER });
+    expect(() => tenantWithPendingOwnerDeclined(linked, LATER)).toThrow(InvalidTenantError);
+  });
+
+  it("restarts the seven days when the link is reissued, and keeps them when the link is withdrawn", () => {
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "x", tokenHash: "h" }, NOW);
+
+    expect(tenantWithPendingOwnerLink(waiting, PendingOwnerLink.Reissued, "h2", LATER).pendingOwner).toMatchObject({
+      requestedAt: LATER, expiresAt: pendingOwnerExpiresAt(LATER), tokenHash: "h2", userId: "U-PEER",
+    });
+    expect(tenantWithPendingOwnerLink(waiting, PendingOwnerLink.Withdrawn, null, LATER).pendingOwner).toMatchObject({
+      requestedAt: NOW, expiresAt: pendingOwnerExpiresAt(NOW), tokenHash: null,
+    });
+    expect(() => tenantWithPendingOwnerLink(linked, PendingOwnerLink.Reissued, "h", LATER)).toThrow(InvalidTenantError);
+  });
+
+  it("flags a tenant as needing an owner once, and never while a successor is waiting", () => {
+    expect(tenantNeedingOwner(linked, LATER)).toEqual({ ...linked, ownerNeeded: true, updatedAt: LATER });
+    expect(tenantNeedingOwner({ ...linked, ownerNeeded: true }, LATER)).toBeNull();
+    const waiting = tenantWithPendingOwner(linked, { id: "U-PEER", email: "peer@cyag.eg" }, { requestedBy: "x", tokenHash: null }, LATER);
+    expect(tenantNeedingOwner(waiting, LATER)).toBeNull();
+  });
+
+  it("clears the owner-needed flag when the owner is linked", () => {
+    expect(tenantWithOwnerContact({ ...linked, ownerNeeded: true }, { id: "U-OWNER", email: linked.ownerEmail }, OwnerContactProof.Unproven, LATER)).toMatchObject({ ownerNeeded: false });
+  });
+
+  it("never links an account other than the one already named as owner", () => {
+    expect(tenantWithOwnerContact(linked, { id: "U-OTHER", email: linked.ownerEmail }, OwnerContactProof.OwnerActed, LATER)).toBeNull();
+  });
+});
+
+describe("releaseTenant", () => {
+  it("archives a provisioning tenant under a code of its own and keeps its database file, so the code it held is free", async () => {
+    const repo = memoryRepo();
+    const t = await createTenant(cmd, repo);
+
+    const released = await releaseTenant({ id: t.id, now: "2026-09-14T08:00:00.000Z" }, repo);
+
+    expect(released).toEqual({
+      ...t, status: "archived", code: "released-T1", updatedAt: "2026-09-14T08:00:00.000Z",
+    });
+    expect(released.dbFile).toBe("tenants/T1.db");
+    expect(await repo.findByCode("cyag")).toBeNull();
+    expect(releasedTenantCode("T1")).toBe("released-T1");
+  });
+
+  it("refuses every tenant that is not provisioning", async () => {
+    const repo = memoryRepo();
+    const t = await createTenant(cmd, repo);
+    await activateTenant({ id: t.id, now: NOW }, repo);
+    await expect(releaseTenant({ id: t.id, now: NOW }, repo)).rejects.toBeInstanceOf(InvalidTenantTransitionError);
+    await suspendTenant({ id: t.id, now: NOW }, repo);
+    await expect(releaseTenant({ id: t.id, now: NOW }, repo)).rejects.toBeInstanceOf(InvalidTenantTransitionError);
+    await expect(releaseTenant({ id: "nope", now: NOW }, repo)).rejects.toBeInstanceOf(TenantNotFoundError);
+  });
+});
+

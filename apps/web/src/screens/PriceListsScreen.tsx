@@ -21,7 +21,7 @@ import {
 import type { ItemDTO, PriceListDTO, PriceListLineDTO } from "@mezan/contracts";
 import { Field, TextField, ToggleField } from "../settings/form-controls";
 import { useCreatePriceList, useItems, usePriceLists, useUpdatePriceList } from "../data/hooks";
-import { useSubPage } from "../navigation";
+import { useNameSubPage, useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { majorOf } from "../lib/money";
 import { EMPTY } from "../lib/empty";
@@ -299,6 +299,7 @@ export function PriceListsScreen() {
   ];
 
   const selected = selectedId ? (priceLists.find((pl) => pl.id === selectedId || pl.code === selectedId) ?? null) : null;
+  useNameSubPage(selectedId, selected ? selected.code : null);
 
   const columns: DocumentListColumn<PriceListDTO>[] = [
     {

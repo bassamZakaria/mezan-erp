@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
 import { Button, Card, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type {
@@ -26,6 +28,8 @@ import { AttendanceGrid } from "./AttendanceGrid";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
 import { useUrlNumber } from "../lib/url-state";
+import { linesOfCsvImport } from "@mezan/contracts";
+import { importLimitSentence, oversizeImportRefusal } from "../lib/import-limit";
 
 /** الحضور والانصراف (Attendance) — docs/archive/catalog/06 §"الحضور والانصراف". Per-employee daily check-in/out with a computed worked duration and a day status resolved against the official holiday calendar and approved leave. */
 
@@ -82,6 +86,7 @@ function EditIcon() {
 }
 
 export function AttendanceScreen() {
+  const branchGate = useBranchGate();
   const { t, locale } = useAppTranslation();
   const [month, setMonth] = useState(currentMonth());
   const [employeeId, setEmployeeId] = useState("");
@@ -196,7 +201,12 @@ export function AttendanceScreen() {
     setImportCommitted(false);
     setImportFileName(file.name);
     const reader = new FileReader();
-    reader.onload = () => setImportCsv(typeof reader.result === "string" ? reader.result : null);
+    reader.onload = () => {
+      const csv = typeof reader.result === "string" ? reader.result : null;
+      const tooLarge = csv === null ? null : oversizeImportRefusal(linesOfCsvImport(csv), locale);
+      setImportFileError(tooLarge);
+      setImportCsv(tooLarge === null ? csv : null);
+    };
     reader.onerror = () => setImportFileError(t("attendance.import.fileReadFailed"));
     reader.readAsText(file);
   }
@@ -310,7 +320,7 @@ export function AttendanceScreen() {
   const headerActions = (
     <div className="flex flex-wrap items-center gap-[8px]">
       {viewToggle}
-      <Button onClick={openImport}>{t("attendance.import.button")}</Button>
+      {branchGate.allows(BranchGatedAction.AttendanceImport) ? <Button onClick={openImport}>{t("attendance.import.button")}</Button> : null}
       <Button variant="primary" onClick={openCreate}>
         {t("attendance.recordAttendance")}
       </Button>
@@ -564,6 +574,7 @@ export function AttendanceScreen() {
       <SidePanel open={importOpen} onClose={() => setImportOpen(false)} title={t("attendance.import.title")}>
         <div className="flex flex-col gap-[14px]">
           <p className="text-[12.5px] text-ink-muted">{t("attendance.import.description")}</p>
+          <p className="text-[12.5px] font-semibold text-ink-muted">{importLimitSentence(locale)}</p>
 
           {importFileError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">

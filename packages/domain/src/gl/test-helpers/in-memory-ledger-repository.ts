@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import { Money } from "../../money/index.js";
 import type { JournalEntry } from "../../journal.js";
 import type { SequenceStore } from "../../numbering/index.js";
@@ -7,6 +8,7 @@ import type {
   AccountLedgerLine,
   JournalListFilter,
   LedgerRepository,
+  TreasuryBalanceQuery,
 } from "../ledger.js";
 import type { GlDomainEvent, GlEventPublisher } from "../events.js";
 
@@ -18,11 +20,38 @@ export class InMemoryLedgerRepository implements LedgerRepository {
   private readonly rows = new Map<string, JournalEntry>();
 
   async save(entry: JournalEntry): Promise<void> {
-    this.rows.set(entry.id, entry);
+    insertOnly(this.rows, entry.id, entry);
   }
 
   async update(entry: JournalEntry): Promise<void> {
     this.rows.set(entry.id, entry);
+  }
+
+  async retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string): Promise<number> {
+    const entry = this.rows.get(entryId);
+    if (!entry || entry.status === "draft") return 0;
+    let named = 0;
+    const lines = entry.lines.map((line) => {
+      if (line.taxRatePercent !== taxRatePercent || (line.taxRateId ?? null) !== null) return line;
+      named += 1;
+      return { ...line, taxRateId };
+    });
+    this.rows.set(entryId, { ...entry, lines });
+    return named;
+  }
+
+  async tagJournalLines(entryId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    const entry = this.rows.get(entryId);
+    if (!entry || entry.status === "draft") return 0;
+    let named = 0;
+    const lines = entry.lines.map((line, index) => {
+      if (!lineIndexes.includes(index) || (line.taxRateId ?? null) !== null) return line;
+      if ((line.taxRatePercent ?? null) !== null && line.taxRatePercent !== taxRatePercent) return line;
+      named += 1;
+      return { ...line, taxRatePercent, taxRateId };
+    });
+    this.rows.set(entryId, { ...entry, lines });
+    return named;
   }
 
   async replaceDraft(entry: JournalEntry): Promise<void> {
@@ -51,6 +80,20 @@ export class InMemoryLedgerRepository implements LedgerRepository {
       .filter((e) => (filter.fromDate ? e.date >= filter.fromDate : true))
       .filter((e) => (filter.toDate ? e.date <= filter.toDate : true))
       .sort((a, b) => (a.date === b.date ? a.id.localeCompare(b.id) : a.date.localeCompare(b.date)));
+  }
+
+  async treasuryAccountBalance(query: TreasuryBalanceQuery): Promise<Money> {
+    let net = 0n;
+    for (const entry of this.rows.values()) {
+      if (!LEDGER_STATUSES.has(entry.status)) continue;
+      if (query.asOfDate && entry.date > query.asOfDate) continue;
+      for (const line of entry.lines) {
+        if (line.accountId !== query.accountId) continue;
+        const holder = line.treasuryAccountId ?? null;
+        if (holder === query.treasuryAccountId || (holder === null && query.withUnattributed)) net += line.debit.scaled - line.credit.scaled;
+      }
+    }
+    return Money.fromScaled(net);
   }
 
   async accountBalance(accountId: string, asOfDate?: string): Promise<AccountBalance> {

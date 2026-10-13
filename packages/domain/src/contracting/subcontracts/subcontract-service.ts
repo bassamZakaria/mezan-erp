@@ -440,9 +440,6 @@ export class SubcontractService {
     const lines = this.buildLines(cmd.id, boqLines, cmd.lines ?? []);
 
     return this.deps.store.transaction(async () => {
-      if (await this.deps.store.findById(cmd.id)) {
-        throw new InvalidSubcontractError([`عقد الباطن "${cmd.id}" موجود بالفعل`]);
-      }
       const number = await this.deps.numbering.next(SUBCONTRACT_SEQUENCE);
       const subcontract: Subcontract = {
         ...terms,
@@ -469,7 +466,7 @@ export class SubcontractService {
         retentionReleases: [],
         lines,
       };
-      await this.deps.store.save(subcontract);
+      await this.deps.store.insert(subcontract);
       return this.view(subcontract);
     });
   }

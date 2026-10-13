@@ -3,9 +3,10 @@ import { getPermission, isModuleLicensed, type Entitlements } from "@mezan/domai
 import type { SeedFragmentContext, SeedPerson, SeedRole } from "./fragments.js";
 import { POS_SEED_FRAGMENTS } from "./pos.js";
 import { ENH_SEED_FRAGMENTS } from "./enh.js";
+import { seed as branchDimensionSeed } from "./branch-dimension.js";
 import { step } from "./shared.js";
 
-const FRAGMENTS = [...POS_SEED_FRAGMENTS, ...ENH_SEED_FRAGMENTS];
+const FRAGMENTS = [...POS_SEED_FRAGMENTS, ...ENH_SEED_FRAGMENTS, branchDimensionSeed];
 
 export interface SeedLicensing extends SeedFragmentContext {
   /**

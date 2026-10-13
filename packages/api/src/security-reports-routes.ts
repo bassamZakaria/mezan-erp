@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   DEFAULT_SETTINGS,
   detectSodConflicts,
@@ -11,6 +11,7 @@ import {
   type AuditSeverity,
   type AuditStream,
   type RoleRepository,
+  type SecurityEventFallback,
   type SettingsRepository,
   type SodConflictMatch,
   type User,
@@ -37,9 +38,11 @@ import {
   type SecurityWatchlistEntryDTO,
   type SodConflictRowDTO,
   type SodReportDTO,
+  type UnrecordedSecurityEventsDTO,
   type WorkingHoursDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 
 /**
  * تقارير الرقابة والأمان — the exception-reporting surface, mounted at
@@ -65,6 +68,7 @@ import { createPermissionGate, type AuthContextResolver } from "./permission-gat
 export interface SecurityReportsRoutesDeps {
   /** The append-only trail. The only source these reports aggregate over. */
   readonly audit: AuditQueryPort;
+  readonly unrecorded?: SecurityEventFallback;
   /**
    * The user register, for حسابات أُنشئت حديثاً. Optional, and its route is
    * only mounted when a composition wires it — an app without it serves no
@@ -346,12 +350,25 @@ function flatten(issues: readonly { path: (string | number)[]; message: string }
   }));
 }
 
+function unrecordedOf(fallback: SecurityEventFallback | undefined): UnrecordedSecurityEventsDTO {
+  if (!fallback) return { count: 0, recent: [], dropped: 0, corrupted: 0 };
+  const { count, recent, dropped, corrupted } = fallback.summary();
+  return {
+    count,
+    dropped,
+    corrupted,
+    recent: recent.map(({ at, module, action, severity, actor, entityId, reason }) => ({ at, module, action, severity, actor, entityId, reason })),
+  };
+}
+
 export function createSecurityReportsRoutes(
   deps: SecurityReportsRoutesDeps,
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  /** These reports read the whole company's trail, users and roles; none of them narrows to a branch. */
+  const companyWide: MiddlewareHandler = async (c, next) => refuseBranchScopedCaller(c) ?? (await next());
 
   const now = () => deps.now?.() ?? new Date();
 
@@ -405,7 +422,7 @@ export function createSecurityReportsRoutes(
   // returned 403 fifty times last week" from a row nobody queried into a line
   // with a name on it.
 
-  app.get("/exceptions", gate("audit.logs.view"), async (c) => {
+  app.get("/exceptions", gate("audit.logs.view"), companyWide, async (c) => {
     const parsed = securityExceptionsQuerySchema.safeParse(queryParams(c));
     if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
 
@@ -582,6 +599,7 @@ export function createSecurityReportsRoutes(
       recent: [...events]
         .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
         .slice(0, RECENT_LIMIT),
+      unrecorded: unrecordedOf(deps.unrecorded),
       coverage,
       gaps: [
         {
@@ -603,7 +621,7 @@ export function createSecurityReportsRoutes(
 
   // --- 2) تقرير التعديلات بعد الترحيل ----------------------------------------
 
-  app.get("/post-posting-changes", gate("audit.logs.view"), async (c) => {
+  app.get("/post-posting-changes", gate("audit.logs.view"), companyWide, async (c) => {
     const parsed = postPostingChangesQuerySchema.safeParse(queryParams(c));
     if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
 
@@ -765,7 +783,7 @@ export function createSecurityReportsRoutes(
 
   // --- 3) نشاط خارج أوقات العمل ----------------------------------------------
 
-  app.get("/after-hours", gate("audit.logs.view"), async (c) => {
+  app.get("/after-hours", gate("audit.logs.view"), companyWide, async (c) => {
     const parsed = afterHoursQuerySchema.safeParse(queryParams(c));
     if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
 
@@ -945,7 +963,7 @@ export function createSecurityReportsRoutes(
   if (deps.users) {
     const users = deps.users;
 
-    app.get("/new-accounts", gate("audit.logs.view"), async (c) => {
+    app.get("/new-accounts", gate("audit.logs.view"), companyWide, async (c) => {
       const parsed = newAccountsQuerySchema.safeParse(queryParams(c));
       if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
 
@@ -1185,7 +1203,7 @@ export function createSecurityReportsRoutes(
   if (deps.roles) {
     const roles = deps.roles;
 
-    app.get("/sod", gate("audit.logs.view"), async (c) => {
+    app.get("/sod", gate("audit.logs.view"), companyWide, async (c) => {
       const parsed = sodQuerySchema.safeParse(queryParams(c));
       if (!parsed.success) return respondValidation(c, flatten(parsed.error.issues));
 

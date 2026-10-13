@@ -553,7 +553,7 @@ function OpeningAccountsCard({ forecast }: { forecast: CashForecastDTO }) {
       ) : (
         <ul className="mt-[10px] flex flex-col gap-[6px]">
           {forecast.openingAccounts.map((account) => (
-            <li key={account.treasuryAccountId} className="flex min-w-0 flex-wrap items-center justify-between gap-[8px] text-[12.5px]">
+            <li key={account.treasuryAccountId ?? account.glAccountId} className="flex min-w-0 flex-wrap items-center justify-between gap-[8px] text-[12.5px]">
               <span className="min-w-0 truncate text-ink">{locale === "en" ? (account.nameEn ?? account.name) : account.name}</span>
               {account.balance !== null ? (
                 <Money className="font-semibold text-ink" value={majorOf(account.balance)} />

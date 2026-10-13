@@ -1,3 +1,6 @@
+import { PayBasis } from "@mezan/domain";
+import { EmployeeRefStatus } from "@mezan/domain";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -12,7 +15,6 @@ import {
   createEmployee,
   updateEmployee,
   transitionEmployee,
-  terminateEmployee,
   rehireEmployee,
   createContract,
   terminateContract,
@@ -38,7 +40,14 @@ import {
   InvalidJobTitleError,
   EmployeeNotFoundError,
   InvalidEmployeeError,
+  terminateEmployeeService,
+  recordSensitiveEvent,
+  correctTerminationDate,
+  type TerminationPayRecovery,
+  type TerminationPayrollDeps,
   InvalidEmployeeTransitionError,
+  EmployeeNotTerminatedError,
+  TerminationRecoveryAlreadyCollectedError,
   ContractNotFoundError,
   InvalidContractError,
   ContractNotActiveError,
@@ -83,12 +92,17 @@ import {
   createHolidaySchema,
   updateHolidaySchema,
   createLeaveRequestSchema,
+  type PayBasisDTO,
+  type TransitionEmployeeDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-leave-routes.js";
 import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
 import { createHrSelfRoutes } from "./hr-self-routes.js";
 import { tenantToday } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * The hr/time-leave stores are OPTIONAL here so the composition root can adopt
@@ -102,7 +116,7 @@ type HrTimeLeaveDeps = Pick<HrTimeLeaveRoutesDeps, "attendance" | "leavePolicies
  * `createHrRoutes` does not mount the الرواتب / سلف الموظفين surface. Employees,
  * contracts and numbering are reused from the master-data deps above.
  */
-export type HrPayrollDeps = Omit<HrPayrollRoutesDeps, "employees" | "contracts" | "numbering">;
+export type HrPayrollDeps = Omit<HrPayrollRoutesDeps, "employees" | "contracts" | "numbering" | "transactor">;
 
 /**
  * HR master-data routes (docs/archive/catalog/06-crm-hr.md "الموارد البشرية" —
@@ -127,6 +141,8 @@ export interface HrRoutesDeps extends Partial<HrTimeLeaveDeps> {
   readonly users: Pick<UserRepository, "findById">;
   /** Same shape as `NextNumberService.next(code)` (`packages/domain/src/numbering`) — the SQLite-backed engine slots straight in. */
   readonly numbering: { next(code: string): Promise<{ readonly formatted: string }> };
+  /** The transaction a create shares with the number it mints, so a refused create — a taken id included — spends no number. */
+  readonly transactor?: ConfigTransactor;
   /** Self-service (/hr/self): the web clock's device credentials, its selfie store, and the letterhead a printed payslip needs. */
   readonly clockCredentials?: ClockCredentialRepository;
   /** DB-backed WebAuthn challenge storage (create-backend.ts); omitted only where no persistence is available. */
@@ -135,6 +151,19 @@ export interface HrRoutesDeps extends Partial<HrTimeLeaveDeps> {
   readonly printTemplates?: Pick<PrintTemplateConfigRepository, "get">;
   readonly tenantSettings?: Pick<SettingsRepository, "get">;
 }
+
+const EMPLOYEE_STATUS_FROM_WIRE: Readonly<Record<TransitionEmployeeDTO["status"], EmployeeRefStatus>> = {
+  active: EmployeeRefStatus.Active,
+  on_leave: EmployeeRefStatus.OnLeave,
+  suspended: EmployeeRefStatus.Suspended,
+  terminated: EmployeeRefStatus.Terminated,
+};
+
+const PAY_BASIS_FROM_WIRE: Readonly<Record<PayBasisDTO, PayBasis>> = {
+  monthly: PayBasis.Monthly,
+  hourly: PayBasis.Hourly,
+  daily: PayBasis.Daily,
+};
 
 function serializeDepartment(d: Department) {
   return {
@@ -269,6 +298,9 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof DuplicateDeviceBadgeError) {
     return c.json(withMessageEn(err), 409);
   }
@@ -287,6 +319,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidJobTitleError ||
     err instanceof InvalidEmployeeError ||
     err instanceof InvalidEmployeeTransitionError ||
+    err instanceof EmployeeNotTerminatedError ||
+    err instanceof TerminationRecoveryAlreadyCollectedError ||
     err instanceof InvalidContractError ||
     err instanceof ContractNotActiveError ||
     err instanceof InvalidHolidayError ||
@@ -325,14 +359,14 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const todayIso = await tenantToday(c);
     const monthPrefix = todayIso.slice(0, 7);
 
-    const activeEmployees = employees.filter((e) => e.status === "active").length;
-    const onLeave = employees.filter((e) => e.status === "on_leave").length;
+    const activeEmployees = employees.filter((e) => e.status === EmployeeRefStatus.Active).length;
+    const onLeave = employees.filter((e) => e.status === EmployeeRefStatus.OnLeave).length;
     const hiresThisMonth = employees.filter((e) => e.hireDate.startsWith(monthPrefix)).length;
-    const terminationsThisMonth = employees.filter((e) => e.status === "terminated" && (e.terminatedAt ?? "").startsWith(monthPrefix)).length;
+    const terminationsThisMonth = employees.filter((e) => e.status === EmployeeRefStatus.Terminated && (e.terminatedAt ?? "").startsWith(monthPrefix)).length;
     const contractsExpiringSoon = contracts.filter((ct) => isContractExpiringSoon(ct, now)).length;
     const probationEndingSoonWindowMs = 30 * 24 * 60 * 60 * 1000;
     const probationEndingSoon = employees.filter((e) => {
-      if (!e.probationEndDate || e.status !== "active") return false;
+      if (!e.probationEndDate || e.status !== EmployeeRefStatus.Active) return false;
       const end = new Date(`${e.probationEndDate}T00:00:00Z`).getTime();
       const diff = end - now.getTime();
       return diff >= 0 && diff <= probationEndingSoonWindowMs;
@@ -340,7 +374,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
 
     const byDepartmentMap = new Map<string, number>();
     for (const e of employees) {
-      if (!e.departmentId || e.status === "terminated") continue;
+      if (!e.departmentId || e.status === EmployeeRefStatus.Terminated) continue;
       byDepartmentMap.set(e.departmentId, (byDepartmentMap.get(e.departmentId) ?? 0) + 1);
     }
     const departmentsById = new Map(departments.map((d) => [d.id, d]));
@@ -353,7 +387,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
 
     const byBranchMap = new Map<string, number>();
     for (const e of employees) {
-      if (e.status === "terminated") continue;
+      if (e.status === EmployeeRefStatus.Terminated) continue;
       byBranchMap.set(e.branchId, (byBranchMap.get(e.branchId) ?? 0) + 1);
     }
     const byBranch = [...byBranchMap.entries()].map(([branchId, count]) => ({ branchId, count }));
@@ -512,8 +546,10 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
       const deviceBadgeId = normalizeDeviceBadgeId(parsed.data.deviceBadgeId);
       assertDeviceBadgeAvailable(deviceBadgeId, null, await deps.employees.list());
       const id = parsed.data.id ?? randomUUID();
-      const code = (await deps.numbering.next("EMPLOYEE")).formatted;
-      const employee = await createEmployee({ ...parsed.data, deviceBadgeId, id, code }, deps.employees);
+      const employee = await atomically(deps.transactor, async () => {
+        const code = (await deps.numbering.next("EMPLOYEE")).formatted;
+        return createEmployee({ ...parsed.data, deviceBadgeId, id, code }, deps.employees);
+      });
       return c.json(serializeEmployee(employee), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -542,7 +578,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const parsed = transitionEmployeeSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const next = transitionEmployee(current, parsed.data.status);
+      const next = transitionEmployee(current, EMPLOYEE_STATUS_FROM_WIRE[parsed.data.status]);
       await deps.employees.update(next);
       return c.json(serializeEmployee(next));
     } catch (err) {
@@ -550,13 +586,76 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     }
   });
 
+  async function terminationPayroll(): Promise<TerminationPayrollDeps | undefined> {
+    const payroll = deps.payroll;
+    if (!payroll) return undefined;
+    return {
+      runs: payroll.runs,
+      payslips: payroll.payslips,
+      contracts: deps.contracts,
+      advances: payroll.advances,
+      gl: payroll.gl,
+      accounts: payroll.accounts,
+      numbering: deps.numbering,
+      dayDivisorBasis: payroll.dayDivisorBasis ?? (await payroll.settings?.get())?.payrollDayDivisorBasis ?? "FIXED_30",
+    };
+  }
+
+  function serializePayRecovery(payRecovery: TerminationPayRecovery | null) {
+    return (
+      payRecovery && {
+        advanceId: payRecovery.advance?.id ?? null,
+        advanceNumber: payRecovery.advance?.number ?? null,
+        days: payRecovery.days,
+        gross: payRecovery.gross.toString(),
+        amount: payRecovery.amount.toString(),
+        payableReduced: payRecovery.payableReduced.toString(),
+        taxRelief: payRecovery.taxRelief.toString(),
+        journalEntryId: payRecovery.journalEntryId,
+        paidThrough: payRecovery.paidThrough,
+      }
+    );
+  }
+
   app.post("/employees/:id/terminate", gate("hr.employee.terminate"), async (c) => {
-    const current = await deps.employees.findById(c.req.param("id"));
-    if (!current) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
     try {
-      const next = terminateEmployee(current);
-      await deps.employees.update(next);
-      return c.json(serializeEmployee(next));
+      const body = (await c.req.json().catch(() => ({}))) as { effectiveDate?: unknown } | null;
+      const requested = body?.effectiveDate === undefined || body.effectiveDate === null || body.effectiveDate === "" ? null : String(body.effectiveDate);
+      const { employee, payRecovery } = await terminateEmployeeService(
+        c.req.param("id"),
+        { effectiveDate: requested, today: await tenantToday(c) },
+        { employees: deps.employees, payroll: await terminationPayroll() },
+      );
+      return c.json({ ...serializeEmployee(employee), payRecovery: serializePayRecovery(payRecovery) });
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/employees/:id/correct-termination-date", gate("hr.employee.terminate"), async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { effectiveDate?: unknown } | null;
+    if (typeof body?.effectiveDate !== "string" || body.effectiveDate.trim() === "") {
+      return c.json({ error: "VALIDATION_ERROR", message: "تاريخ آخر يوم عمل الصحيح مطلوب.", messageEn: "The corrected last day of service is required." }, 400);
+    }
+    try {
+      const before = await deps.employees.findById(c.req.param("id"));
+      const { employee, payRecovery } = await correctTerminationDate(
+        c.req.param("id"),
+        { effectiveDate: body.effectiveDate.trim(), today: await tenantToday(c) },
+        { employees: deps.employees, payroll: await terminationPayroll() },
+      );
+      if (deps.audit) {
+        await recordSensitiveEvent(deps.audit, {
+          module: "hr",
+          entityType: "EMPLOYEE",
+          entityId: employee.id,
+          action: "CORRECT_TERMINATION_DATE",
+          actor: getAuthContext(c)?.userId ?? "system",
+          severity: "WARNING",
+          details: { from: before?.terminatedAt ?? null, to: employee.terminatedAt, recoveryEntryId: payRecovery?.journalEntryId ?? null },
+        });
+      }
+      return c.json({ ...serializeEmployee(employee), payRecovery: serializePayRecovery(payRecovery) });
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -677,18 +776,21 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
       const id = parsed.data.id ?? randomUUID();
-      const number = (await deps.numbering.next("EMPLOYMENT_CONTRACT")).formatted;
-      const contract = await createContract(
-        {
-          ...parsed.data,
-          id,
-          number,
-          monthlySalary: Money.fromMajor(parsed.data.monthlySalary),
-          allowances: parsed.data.allowances?.map((a) => ({ id: a.id ?? randomUUID(), name: a.name, amount: Money.fromMajor(a.amount), componentId: a.componentId ?? null })),
-          deductions: parsed.data.deductions?.map((d) => ({ id: d.id ?? randomUUID(), name: d.name, amount: Money.fromMajor(d.amount), componentId: d.componentId ?? null })),
-        },
-        deps.contracts,
-      );
+      const contract = await atomically(deps.transactor, async () => {
+        const number = (await deps.numbering.next("EMPLOYMENT_CONTRACT")).formatted;
+        return createContract(
+          {
+            ...parsed.data,
+            payBasis: parsed.data.payBasis === undefined ? undefined : PAY_BASIS_FROM_WIRE[parsed.data.payBasis],
+            id,
+            number,
+            monthlySalary: Money.fromMajor(parsed.data.monthlySalary),
+            allowances: parsed.data.allowances?.map((a) => ({ id: a.id ?? randomUUID(), name: a.name, amount: Money.fromMajor(a.amount), componentId: a.componentId ?? null })),
+            deductions: parsed.data.deductions?.map((d) => ({ id: d.id ?? randomUUID(), name: d.name, amount: Money.fromMajor(d.amount), componentId: d.componentId ?? null })),
+          },
+          deps.contracts,
+        );
+      });
       return c.json(serializeContract(contract), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -779,8 +881,10 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
 
     try {
       const id = parsed.data.id ?? randomUUID();
-      const number = (await deps.numbering.next("LEAVE_REQUEST")).formatted;
-      const request = await createLeaveRequest({ ...parsed.data, id, number, employeeId }, deps.leaveRequests);
+      const request = await atomically(deps.transactor, async () => {
+        const number = (await deps.numbering.next("LEAVE_REQUEST")).formatted;
+        return createLeaveRequest({ ...parsed.data, id, number, employeeId }, deps.leaveRequests);
+      });
       return c.json(serializeLeaveRequest(request), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -836,6 +940,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
         holidays: deps.holidays,
         leaveRequests: deps.leaveRequests,
         numbering: deps.numbering,
+        transactor: deps.transactor,
         attendance: deps.attendance,
         leaveBalances: deps.leaveBalances,
         advances: deps.payroll?.advances,
@@ -882,6 +987,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
           employees: deps.employees,
           contracts: deps.contracts,
           numbering: deps.numbering,
+          transactor: deps.transactor,
           unpaidLeave: deps.payroll.unpaidLeave ?? createUnpaidLeaveDaysProvider(deps.leaveRequests),
           overtime:
             deps.payroll.overtime ??

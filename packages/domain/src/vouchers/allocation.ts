@@ -17,10 +17,11 @@
  */
 
 import { Money } from "../money/index.js";
-import { convertFromBase, convertToBase } from "../exchange-rates/convert.js";
+import { convertFromBase, convertToBase, shareOfBase } from "../exchange-rates/convert.js";
 import {
   AllocationAlreadyReversedError,
   AllocationExceedsError,
+  AllocationIdTakenError,
   AllocationMismatchError,
   AllocationNotFoundError,
   InvoiceNotFoundError,
@@ -56,6 +57,8 @@ export interface VoucherAllocation {
    * Absent means equal to `amount`.
    */
   readonly invoiceAmount?: Money | null;
+  readonly revaluationShare?: Money | null;
+  readonly moneyRevaluationShare?: Money | null;
   /** The settlement entry this allocation posted, if any: its realised difference (D221) and the move of the money into the invoice's currency (D260). */
   readonly fxEntryId?: string | null;
   readonly status: AllocationStatus;
@@ -76,9 +79,58 @@ export function allocationInvoiceAmount(allocation: VoucherAllocation): Money {
   return allocation.invoiceAmount ?? allocation.amount;
 }
 
-/** The realised exchange difference an allocation carries: what the voucher gave less what the invoice was relieved of. */
 export function allocationFxDifference(allocation: VoucherAllocation): Money {
-  return Money.fromScaled(allocation.amount.scaled - allocationInvoiceAmount(allocation).scaled);
+  return Money.fromScaled(
+    allocation.amount.scaled - allocationInvoiceAmount(allocation).scaled - (allocation.revaluationShare?.scaled ?? 0n) - (allocation.moneyRevaluationShare?.scaled ?? 0n),
+  );
+}
+
+export enum FxOpenItemType {
+  Invoice = "invoice",
+  Money = "money",
+}
+
+export interface FxOpenItemRef {
+  readonly id: string;
+  readonly type: FxOpenItemType;
+}
+
+export interface FxRevaluationShareRecord {
+  readonly entryId: string;
+  readonly accountId: string;
+  readonly itemId: string;
+  readonly itemType: FxOpenItemType;
+  readonly kind: AllocationInvoiceKind;
+  readonly partyId: string;
+  readonly currency: string;
+  readonly amount: Money;
+}
+
+export interface FxRevaluationShareRepository {
+  saveAll(shares: readonly FxRevaluationShareRecord[]): Promise<void>;
+  listByItem(item: FxOpenItemRef): Promise<readonly FxRevaluationShareRecord[]>;
+  listByEntry(entryId: string): Promise<readonly FxRevaluationShareRecord[]>;
+  listItems(): Promise<readonly FxOpenItemRef[]>;
+}
+
+export async function unconsumedRevaluationShare(
+  item: FxOpenItemRef,
+  deps: {
+    readonly shares: FxRevaluationShareRepository;
+    readonly allocations: Pick<AllocationRepository, "listByInvoice" | "listByVoucher">;
+    readonly entryStands: (entryId: string) => Promise<boolean>;
+  },
+): Promise<Money> {
+  let standing = 0n;
+  for (const share of await deps.shares.listByItem(item)) {
+    if (await deps.entryStands(share.entryId)) standing += share.amount.scaled;
+  }
+  if (standing === 0n) return Money.zero();
+  const taking = item.type === FxOpenItemType.Money ? await deps.allocations.listByVoucher(item.id) : await deps.allocations.listByInvoice(item.id);
+  const consumed = taking
+    .filter((allocation) => allocation.status === "active")
+    .reduce((sum, allocation) => sum + ((item.type === FxOpenItemType.Money ? allocation.moneyRevaluationShare : allocation.revaluationShare)?.scaled ?? 0n), 0n);
+  return Money.fromScaled(standing - consumed);
 }
 
 /** Outstanding balance of an invoice (total − allocated). */
@@ -129,7 +181,8 @@ export interface SettlementRates {
 export interface SettlementSplit {
   /** What the invoice is relieved of, at its booked rate. */
   readonly relief: Money;
-  /** What the voucher gives less `relief`: positive when the settlement is worth more base than the booking. */
+  readonly revaluationShare?: Money;
+  readonly moneyRevaluationShare?: Money;
   readonly fxDifference: Money;
   /** The most voucher money this invoice can still absorb at the settlement rate. */
   readonly capacity: Money;
@@ -144,19 +197,33 @@ export interface SettlementSplit {
  * amount itself.
  */
 export function settlementSplit(amount: Money, outstanding: Money, rates?: SettlementRates | null): SettlementSplit {
-  if (!rates || Money.fromMajor(rates.invoiceRate).scaled === Money.fromMajor(rates.settlementRate).scaled) {
-    return { relief: amount, fxDifference: Money.zero(), capacity: outstanding };
-  }
-  const foreignOutstanding = convertFromBase(outstanding, rates.invoiceRate);
-  const capacity = convertToBase(foreignOutstanding, rates.settlementRate);
-  let relief: Money;
-  if (amount.scaled >= capacity.scaled) {
-    relief = outstanding;
-  } else {
+  const sameRate = rates ? Money.fromMajor(rates.invoiceRate).scaled === Money.fromMajor(rates.settlementRate).scaled : true;
+  if (!rates || sameRate) return { relief: amount, fxDifference: Money.zero(), capacity: outstanding };
+  const capacity = convertToBase(convertFromBase(outstanding, rates.invoiceRate), rates.settlementRate);
+  let relief = outstanding;
+  if (amount.scaled < capacity.scaled) {
     const converted = convertToBase(convertFromBase(amount, rates.settlementRate), rates.invoiceRate);
     relief = converted.scaled > outstanding.scaled ? outstanding : converted;
   }
   return { relief, fxDifference: Money.fromScaled(amount.scaled - relief.scaled), capacity };
+}
+
+export function settlementWithShares(split: SettlementSplit, amount: Money, revaluationShare: Money, moneyShare: Money): SettlementSplit {
+  return {
+    relief: split.relief,
+    ...(revaluationShare.scaled === 0n ? {} : { revaluationShare }),
+    ...(moneyShare.scaled === 0n ? {} : { moneyRevaluationShare: moneyShare }),
+    fxDifference: Money.fromScaled(amount.scaled - split.relief.scaled - revaluationShare.scaled - moneyShare.scaled),
+    capacity: split.capacity,
+  };
+}
+
+export interface FxShareRelief {
+  readonly ref: string;
+  readonly day: string;
+  readonly at: string;
+  readonly amount: Money;
+  readonly closes: boolean;
 }
 
 /** Persistence port for allocations. */
@@ -233,6 +300,8 @@ export interface AllocateInput {
    * booked rate and the difference is returned for posting (D221).
    */
   readonly rates?: (invoice: AllocatableInvoice) => Promise<SettlementRates | null>;
+  readonly revaluationShare?: (invoice: AllocatableInvoice, relief: FxShareRelief) => Promise<Money>;
+  readonly moneyRevaluationShare?: (relief: FxShareRelief) => Promise<Money>;
   /**
    * Runs after every check and before anything is written, with the split;
    * returns the realised-FX entry it posted. A refusal here (a closed period)
@@ -254,6 +323,7 @@ export async function allocate(
   if (input.amount.scaled <= 0n) {
     throw new AllocationExceedsError("مبلغ التخصيص يجب أن يكون أكبر من صفر.");
   }
+  if (await deps.allocations.findById(input.allocationId)) throw new AllocationIdTakenError(input.allocationId);
   const invoice = await deps.invoices.findById(input.invoiceId);
   if (!invoice) throw new InvoiceNotFoundError(input.invoiceId);
   if (invoice.kind !== input.expectedKind) {
@@ -274,16 +344,21 @@ export async function allocate(
   }
   const returned = (await returnedByInvoice(deps.returns, [invoice])).get(invoice.id) ?? Money.zero();
   const outstanding = invoiceOpenBalance(invoice, returned);
-  const split = settlementSplit(input.amount, outstanding, input.rates ? await input.rates(invoice) : null);
-  if (input.amount.scaled > split.capacity.scaled) {
+  const rates = input.rates ? await input.rates(invoice) : null;
+  const settled = settlementSplit(input.amount, outstanding, rates);
+  if (input.amount.scaled > settled.capacity.scaled) {
     throw new AllocationExceedsError(
-      `مبلغ التخصيص (${input.amount.toString()}) يتجاوز المتبقي على الفاتورة (${split.capacity.toString()}).`,
+      `مبلغ التخصيص (${input.amount.toString()}) يتجاوز المتبقي على الفاتورة (${settled.capacity.toString()}).`,
     );
   }
-  if (split.relief.scaled <= 0n) {
+  if (settled.relief.scaled <= 0n) {
     throw new AllocationExceedsError("مبلغ التخصيص أصغر من أن يسدد أي جزء من الفاتورة بسعر الصرف.");
   }
   const date = input.date ? laterDay(input.date, invoice.date) : null;
+  const event = { ref: input.allocationId, day: date ?? input.now.slice(0, 10), at: input.now };
+  const invoiceShare = rates && input.revaluationShare ? await input.revaluationShare(invoice, { ...event, amount: settled.relief, closes: settled.relief.scaled >= outstanding.scaled }) : Money.zero();
+  const moneyShare = rates && input.moneyRevaluationShare ? await input.moneyRevaluationShare({ ...event, amount: input.amount, closes: input.amount.scaled >= unallocated.scaled }) : Money.zero();
+  const split = settlementWithShares(settled, input.amount, invoiceShare, moneyShare);
   const posted = input.beforeSave ? await input.beforeSave(invoice, split, date) : { fxEntryId: null };
 
   const allocation: VoucherAllocation = {
@@ -291,7 +366,9 @@ export async function allocate(
     voucherId: input.voucherId,
     invoiceId: input.invoiceId,
     amount: input.amount,
-    ...(split.fxDifference.scaled !== 0n ? { invoiceAmount: split.relief } : {}),
+    ...(split.fxDifference.scaled !== 0n || split.revaluationShare || split.moneyRevaluationShare ? { invoiceAmount: split.relief } : {}),
+    ...(split.revaluationShare ? { revaluationShare: split.revaluationShare } : {}),
+    ...(split.moneyRevaluationShare ? { moneyRevaluationShare: split.moneyRevaluationShare } : {}),
     ...(posted.fxEntryId ? { fxEntryId: posted.fxEntryId } : {}),
     status: "active",
     createdAt: input.now,

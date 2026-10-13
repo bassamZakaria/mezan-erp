@@ -1,6 +1,10 @@
 import type { JournalEntry, JournalLine } from "../journal.js";
 import { recordSensitiveEvent } from "../audit/index.js";
 import { assertBalanced, assertPeriodOpen, assertVatNotFiled, type JournalPostingDeps } from "./post.js";
+import { namingEarliestOpenDay } from "../fiscal-periods/errors.js";
+import { assertNotBeforeStandingRevaluation, type JournalPostingInternals } from "./revaluation-lock.js";
+import { assertEntryIdNotReserved } from "./reserved-entry-ids.js";
+import { inBranchOf } from "./line-branch.js";
 import {
   JournalEntryAlreadyReversedError,
   JournalEntryNotFoundError,
@@ -25,6 +29,12 @@ export interface ReverseJournalEntryOptions {
    * original itself.
    */
   readonly linePatch?: (line: JournalLine) => JournalLine;
+  /**
+   * ORDER MATTERS: called inside the reversal's transaction once its number is
+   * allocated and before it is saved. The balanced lines it returns are booked
+   * in the reversing entry itself, after the mirrored ones.
+   */
+  readonly appendLines?: (reversal: { readonly id: string; readonly entryNo: string }) => Promise<readonly JournalLine[]>;
 }
 
 export interface ReverseJournalEntryResult {
@@ -67,7 +77,9 @@ export async function reverseJournalEntry(
   entryId: string,
   deps: JournalPostingDeps,
   opts: ReverseJournalEntryOptions,
+  internal: JournalPostingInternals = {},
 ): Promise<ReverseJournalEntryResult> {
+  assertEntryIdNotReserved(opts.reversalId, internal);
   const original = await deps.ledger.findById(entryId);
   if (!original) throw new JournalEntryNotFoundError(entryId);
   // Check already-reversed before status: a reversed entry's status is
@@ -82,17 +94,20 @@ export async function reverseJournalEntry(
   const reversalDate = opts.date ?? original.date;
   const reversalLines = original.lines.map(mirror).map(opts.linePatch ?? ((line) => line));
   const { totalDebit, totalCredit } = assertBalanced(reversalLines);
-  await assertPeriodOpen(reversalDate, deps.periods);
+  await namingEarliestOpenDay(deps.periods, original.date, () => assertPeriodOpen(reversalDate, deps.periods));
   // The filed-VAT lock is a second, independent gate: an accounting period can
   // legitimately be open after its return has gone to the authority, and a
   // reversal dated into a filed period would restate a filed return (B-11).
   await assertVatNotFiled(reversalDate, deps.vatFilings);
+  await assertNotBeforeStandingRevaluation({ date: reversalDate, lines: reversalLines }, deps, internal);
 
   const stamp = deps.now ? deps.now() : new Date().toISOString();
   const memo = opts.memo ?? `عكس القيد ${original.entryNo ?? original.id}`;
 
   const result = await deps.ledger.transaction(async () => {
     const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);
+    const appended = inBranchOf(reversalLines, (await opts.appendLines?.({ id: opts.reversalId, entryNo: number.formatted })) ?? []);
+    if (appended.length > 0) assertBalanced(appended);
     const reversal: JournalEntry = {
       id: opts.reversalId,
       entryNo: number.formatted,
@@ -100,7 +115,7 @@ export async function reverseJournalEntry(
       memo,
       status: "posted",
       source: "system",
-      lines: reversalLines,
+      lines: appended.length > 0 ? [...reversalLines, ...appended] : reversalLines,
       createdAt: stamp,
       postedAt: stamp,
       reversesEntryId: original.id,

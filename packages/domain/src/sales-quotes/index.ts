@@ -42,6 +42,5 @@ export {
 export {
   InvalidSalesQuoteError,
   SalesQuoteNotFoundError,
-  DuplicateSalesQuoteError,
   InvalidSalesQuoteTransitionError,
 } from "./errors.js";

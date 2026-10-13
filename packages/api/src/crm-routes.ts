@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
@@ -34,6 +35,7 @@ import {
   type Activity,
   type ActivityRepository,
   type CustomerRepository,
+  AuditChangeAction,
   type AuditSink,
 } from "@mezan/domain";
 import {
@@ -48,7 +50,10 @@ import {
 import { branchScopeOf, createPermissionGate, withinScope, type AuthContextResolver } from "./permission-gate.js";
 import { nextMasterCode } from "./master-code.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { recordCustomerChange } from "./customers-routes.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * CRM routes (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون / الفرص / خط
@@ -60,7 +65,7 @@ export interface CrmRoutesDeps {
   readonly opportunities: OpportunityRepository;
   readonly pipelineStages: PipelineStageRepository;
   readonly activities: ActivityRepository;
-  readonly customers: Pick<CustomerRepository, "save" | "findAll">;
+  readonly customers: Pick<CustomerRepository, "save" | "findAll" | "findById">;
   /**
    * Converting a lead MINTS A CUSTOMER — a party every invoice, allocation and
    * receivable then hangs off — and it was the one master-data creation path in
@@ -142,6 +147,9 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof LeadNotFoundError || err instanceof OpportunityNotFoundError || err instanceof PipelineStageNotFoundError || err instanceof ActivityNotFoundError) {
     return c.json(withMessageEn(err), 404);
   }
@@ -257,6 +265,8 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
         },
         { leads: deps.leads, customers: deps.customers, opportunities: deps.opportunities },
       );
+      const created = result.customerId ? await deps.customers.findById(result.customerId) : null;
+      if (created) await recordCustomerChange(deps.audit, c, created, AuditChangeAction.Create);
       await recordAdminEvent(deps.audit, c, {
         module: "crm",
         entityType: "LEAD",

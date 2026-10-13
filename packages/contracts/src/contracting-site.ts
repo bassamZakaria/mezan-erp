@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * مستودعات المواقع، الصرف والاستلام، الاستهلاك، العهدة، تشغيل المعدات — the wire
@@ -11,6 +12,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "must be an ISO date (YY
 
 export const siteIssueStatusSchema = z.enum(["draft", "issued", "partially_received", "received"]);
 export const siteDocumentStatusSchema = z.enum(["draft", "confirmed"]);
+export const sitePostedDocumentStatusSchema = z.enum(["draft", "confirmed", "reversed"]);
 
 export const siteIssueLineSchema = z.object({
   itemId: z.string().min(1),
@@ -39,7 +41,7 @@ export const siteIssueSchema = z.object({
  * receive it themselves, which is the whole of the control this document is.
  */
 export const createSiteIssueSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDate,
   fromWarehouseId: z.string().min(1),
   toWarehouseId: z.string().min(1),
@@ -67,7 +69,7 @@ export const siteReceiptSchema = z.object({
 });
 
 export const createSiteReceiptSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   issueId: z.string().min(1),
   date: isoDate,
   notes: z.string().nullable().optional(),
@@ -89,7 +91,7 @@ export const materialConsumptionSchema = z.object({
   /** عقد الباطن الذي صُرفت له المواد — prefills the sub certificate's deduction. */
   subcontractId: z.string().nullable(),
   notes: z.string().nullable(),
-  status: siteDocumentStatusSchema,
+  status: sitePostedDocumentStatusSchema,
   lines: z.array(materialConsumptionLineSchema),
   /** The value the stock ledger moved on confirm — "0.000000" while a draft. */
   totalCost: moneyString,
@@ -99,7 +101,7 @@ export const materialConsumptionSchema = z.object({
 });
 
 export const createMaterialConsumptionSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDate,
   warehouseId: z.string().min(1),
   boqLineId: z.string().nullable().optional(),
@@ -122,7 +124,7 @@ export const custodyItemSchema = z.object({
 });
 
 export const issueCustodySchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   warehouseId: z.string().min(1),
   descriptionAr: z.string().min(1),
   qtyOut: nonNegativeMoneyString,
@@ -147,14 +149,14 @@ export const equipmentLogSchema = z.object({
   amount: moneyString,
   boqLineId: z.string().nullable(),
   notes: z.string().nullable(),
-  status: siteDocumentStatusSchema,
+  status: sitePostedDocumentStatusSchema,
   journalEntryId: z.string().nullable(),
   createdAt: z.string(),
   confirmedAt: z.string().nullable(),
 });
 
 export const createEquipmentLogSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   projectId: z.string().min(1),
   assetId: z.string().min(1),
   date: isoDate,

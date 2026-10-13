@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import type { Item, ItemRepository } from "../item.js";
 import { DuplicateItemCodeError } from "../errors.js";
 
@@ -32,7 +33,7 @@ export class InMemoryItemRepository implements ItemRepository {
     for (const row of this.rows.values()) {
       if (row.id !== item.id && row.code === item.code) throw new DuplicateItemCodeError(item.code);
     }
-    this.rows.set(item.id, item);
+    insertOnly(this.rows, item.id, item);
   }
 
   async update(item: Item): Promise<void> {

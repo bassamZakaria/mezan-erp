@@ -50,7 +50,7 @@ export function Field({ label, hint, required, className, hintId, wrapWithLabel 
  */
 export function FieldGroup({ label, hint, className, children }: Omit<FieldProps, "required">) {
   return (
-    <fieldset className={cn("flex flex-col gap-[6px] border-0 p-0 m-0", className)}>
+    <fieldset className={cn("flex min-w-0 flex-col gap-[6px] border-0 p-0 m-0", className)}>
       <legend className="mb-[2px] px-0 text-xs font-semibold text-ink-muted">{label}</legend>
       {children}
       {hint ? <span className="text-[11px] text-ink-faint">{hint}</span> : null}

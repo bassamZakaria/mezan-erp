@@ -1,5 +1,7 @@
-import { Hono } from "hono";
+import { randomUUID } from "node:crypto";
+import { Hono, type Context } from "hono";
 import {
+  landedCostAbsorptionDate,
   Money,
   Qty,
   distributeLandedCost,
@@ -9,11 +11,19 @@ import {
   type FrameworkDocument,
   type LandedCostLine,
   type LandedCostService,
+  type WarehouseBranchLookup,
+  branchOfPostingWarehouse,
 } from "@mezan/domain";
-import { createLandedCostSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
+import { ReversalPermission, clientSuppliedId, createLandedCostSchema } from "@mezan/contracts";
+import { type AuthContextResolver, callerRoleCodes, callerUserId, createPermissionGate } from "./permission-gate.js";
+import { documentBranches, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
-import { tenantDay } from "./tenant-day.js";
+import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
+import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
+import type { DocumentApprovalDTO } from "@mezan/contracts";
+import { noteReversalOriginalDay } from "./posting-refusal.js";
+import { DOCUMENT_NOT_FOUND, MirrorAccess, anyLineInWarehouseScope, createVisibleDocumentResolver } from "./document-visibility.js";
+import { tenantDay, tenantToday } from "./tenant-day.js";
 
 function serializeLine(l: LandedCostLine) {
   return {
@@ -38,12 +48,14 @@ function serializeLine(l: LandedCostLine) {
   };
 }
 
-function serialize(doc: FrameworkDocument<LandedCostLine>) {
+function serialize(doc: FrameworkDocument<LandedCostLine>, approval: DocumentApprovalDTO | null = null) {
   return {
+    approval,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
     date: doc.date,
+    absorptionDate: doc.status === "draft" ? null : landedCostAbsorptionDate(doc),
     memo: doc.memo,
     status: doc.status,
     lines: doc.lines.map(serializeLine),
@@ -67,20 +79,29 @@ export function createLandedCostsRoutes(
   documents: DocumentService<LandedCostLine>,
   landedCostService: LandedCostService,
   resolveAuthContext: AuthContextResolver,
+  warehouses?: WarehouseBranchLookup,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  const branchesOf = (c: Context, doc: { readonly lines: readonly LandedCostLine[] }) =>
+    documentBranches(c, doc.lines.map((line) => line.branchId), doc.lines.map((line) => line.warehouseId));
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById((id) => documents.findById(id), (doc, c) => branchesOf(c, doc)),
+  });
+  const inScope = (c: Context, doc: FrameworkDocument<LandedCostLine>) => anyLineInWarehouseScope(c, doc.lines.map((line) => line.warehouseId));
+  const visibleLandedCost = createVisibleDocumentResolver(documents, inScope);
 
   app.get("/", gate("purchases.landed_cost.view"), async (c) => {
     const status = c.req.query("status");
-    const list = await documents.list({ status: status as never });
-    return c.json(list.map(serialize));
+    const inWarehouseScope = (await documents.list({ status: status as never })).filter((doc) => inScope(c, doc));
+    const list = await withinBranchGrant(c, inWarehouseScope, (doc) => branchesOf(c, doc));
+    const approval = await approvalReader(documents, list);
+    return c.json(list.map((doc) => serialize(doc, approval(doc))));
   });
 
   app.get("/:id", gate("purchases.landed_cost.view"), async (c) => {
-    const doc = await documents.findById(c.req.param("id"));
-    if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(doc));
+    const doc = await visibleLandedCost(c, MirrorAccess.Reachable);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
+    return c.json(serialize(doc, await approvalOf(documents, doc)));
   });
 
   app.post("/", gate("purchases.landed_cost.create"), async (c) => {
@@ -95,7 +116,14 @@ export function createLandedCostsRoutes(
         amount: Money.fromMajor(ci.amount),
         supplierId: ci.supplierId ?? null,
       }));
+      const branchByWarehouse = new Map<string, string | null>();
+      for (const warehouseId of new Set(parsed.data.targets.map((t) => t.warehouseId))) {
+        branchByWarehouse.set(warehouseId, await branchOfPostingWarehouse(warehouses, warehouseId));
+      }
+      const branchRefusal = refuseOutOfScopeBranches(c, [...branchByWarehouse.values()]);
+      if (branchRefusal) return branchRefusal;
       const targets = parsed.data.targets.map((t) => ({
+        branchId: branchByWarehouse.get(t.warehouseId) ?? null,
         itemId: t.itemId,
         warehouseId: t.warehouseId,
         sourceInvoiceId: t.sourceInvoiceId,
@@ -123,16 +151,21 @@ export function createLandedCostsRoutes(
   });
 
   app.post("/:id/confirm", gate("purchases.landed_cost.confirm"), async (c) => {
+    if (!(await visibleLandedCost(c))) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c) });
+      const body = (await c.req.json().catch(() => ({}))) as { absorptionDate?: unknown } | null;
+      const absorptionDate = typeof body?.absorptionDate === "string" && body.absorptionDate !== "" ? await tenantDay(c, body.absorptionDate) : undefined;
+      const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c), today: await tenantToday(c), absorptionDate });
       return c.json({
-        document: serialize(result.document),
+        document: serialize(result.document, await approvalOf(documents, result.document)),
         held: result.held,
         // A landed cost that arrives after the goods were sold cannot raise the
         // basis of stock that is gone. That part is reclassified out of
         // inventory into cost of sales, and the caller is told how much and by
         // which entry rather than being left to wonder why the valuation report
         // moved by less than the document's total (D84).
+        absorbedTotal: result.absorbedTotal.toString(),
+        absorptionJournalEntryId: result.absorptionJournalEntryId,
         unabsorbedTotal: result.unabsorbedTotal.toString(),
         unabsorbedJournalEntryId: result.unabsorbedJournalEntryId,
         unabsorbed: result.unabsorbed.map((u) => ({
@@ -147,10 +180,41 @@ export function createLandedCostsRoutes(
     }
   });
 
+  mountResubmitRoute(app, {
+    permission: gate("purchases.landed_cost.confirm"),
+    refuse: async (c) => ((await visibleLandedCost(c)) ? undefined : c.json(DOCUMENT_NOT_FOUND, 404)),
+    resubmit: (c, id) => documents.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
+    serialize: async (_c, doc) => serialize(doc, await approvalOf(documents, doc)),
+    onError: handleDocumentError,
+  });
+
   app.post("/:id/cancel", gate("purchases.landed_cost.void"), async (c) => {
+    if (!(await visibleLandedCost(c))) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const doc = await documents.cancel(c.req.param("id"));
+      const doc = await documents.cancel(c.req.param("id"), { actor: callerUserId(c) });
       return c.json(serialize(doc));
+    } catch (err) {
+      return handleDocumentError(c, err);
+    }
+  });
+
+  app.post("/:id/reverse", gate(ReversalPermission.LandedCost), async (c) => {
+    const visible = await visibleLandedCost(c, MirrorAccess.Reachable);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; reversalId?: unknown } | null;
+    if (body?.date !== undefined && body.date !== null && (typeof body.date !== "string" || body.date.trim() === "")) {
+      return c.json({ error: "VALIDATION_ERROR", message: "تاريخ العكس يجب أن يكون نصاً بصيغة YYYY-MM-DD.", messageEn: "The reversal date must be a YYYY-MM-DD string." }, 400);
+    }
+    const reversalId = clientSuppliedId.optional().safeParse(body?.reversalId === "" ? undefined : (body?.reversalId ?? undefined));
+    if (!reversalId.success) return c.json({ error: "VALIDATION_ERROR", details: reversalId.error.flatten() }, 400);
+    try {
+      const date = await tenantDay(c, typeof body?.date === "string" ? body.date : new Date().toISOString());
+      await noteReversalOriginalDay(c, visible.date);
+      const result = await landedCostService.reverse(c.req.param("id"), {
+        reversalId: reversalId.data ?? randomUUID(),
+        date,
+      });
+      return c.json({ original: serialize(result.original), reversal: serialize(result.reversal) }, 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }

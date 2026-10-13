@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for treasury accounts (docs/archive/catalog/04 "حسابات الخزينة").
@@ -18,8 +19,12 @@ export const treasuryAccountSchema = z.object({
   currency: z.string().min(1),
   /** رقم الحساب البنكي / IBAN — what an imported statement file's account id is checked against. */
   bankAccountNumber: z.string().nullable(),
-  branchId: z.string().min(1),
+  /** Null for an account the company holds and no branch owns. */
+  branchId: z.string().min(1).nullable(),
   glAccountId: z.string().nullable(),
+  foreignBalance: z.string().nullable().optional(),
+  foreignBalanceBase: z.string().nullable().optional(),
+  foreignBalanceDerivedLines: z.number().int().nullable().optional(),
   openingBalance: moneyString,
   openingBalanceDate: z.string().nullable(),
   /** حد تسهيلات خطابات الضمان — null when the bank has no facility configured. */
@@ -28,14 +33,14 @@ export const treasuryAccountSchema = z.object({
 });
 
 export const createTreasuryAccountSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   name: z.string().min(1),
   nameEn: z.string().nullable().optional(),
   type: treasuryAccountTypeSchema.optional(),
   currency: z.string().min(1).optional(),
   bankAccountNumber: z.string().trim().max(64).nullable().optional(),
-  branchId: z.string().min(1),
+  branchId: z.string().min(1).nullable(),
   glAccountId: z.string().nullable().optional(),
   openingBalance: moneyString.optional(),
   openingBalanceDate: z.string().nullable().optional(),
@@ -49,7 +54,7 @@ export const updateTreasuryAccountSchema = z.object({
   type: treasuryAccountTypeSchema.optional(),
   currency: z.string().min(1).optional(),
   bankAccountNumber: z.string().trim().max(64).nullable().optional(),
-  branchId: z.string().min(1).optional(),
+  branchId: z.string().min(1).nullable().optional(),
   glAccountId: z.string().nullable().optional(),
   openingBalance: moneyString.optional(),
   openingBalanceDate: z.string().nullable().optional(),

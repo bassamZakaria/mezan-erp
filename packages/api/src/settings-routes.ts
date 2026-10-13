@@ -1,14 +1,21 @@
 import { Hono } from "hono";
 import {
   createDefaultSettings,
+  displaySettingsOf,
   updateSettings,
   InvalidSettingsError,
   type AuditSink,
   type SettingsRepository,
   type TenantSettings,
 } from "@mezan/domain";
-import { updateTenantSettingsSchema, sendTestEmailSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import {
+  TENANT_SETTINGS_LOOKUP_KEYS,
+  sendTestEmailSchema,
+  tenantSettingsLookupSchema,
+  updateTenantSettingsSchema,
+  type TenantSettingsLookupDTO,
+} from "@mezan/contracts";
+import { createAuthenticatedGate, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { sendTestEmail } from "./smtp-client.js";
 import { changedKeys, changedKeysAsFieldChanges, recordAdminEvent } from "./admin-audit.js";
 
@@ -26,7 +33,6 @@ import { changedKeys, changedKeysAsFieldChanges, recordAdminEvent } from "./admi
 
 const MASKED_PASSWORD = "";
 
-/** The stored SMTP password never leaves the server — see `mergePassword`. */
 function maskSecrets(settings: TenantSettings): TenantSettings {
   return { ...settings, smtpPassword: MASKED_PASSWORD };
 }
@@ -62,7 +68,24 @@ export function createSettingsRoutes(
     return c.json(maskSecrets(existing ?? createDefaultSettings()));
   });
 
-  app.get("/currencies", gate("admin.settings.view"), async (c) => {
+  /**
+   * The settings every screen and every printed document reads: currency,
+   * numerals, the company's name and tax number, the sales and stock policy.
+   * Any signed-in user may ask — `admin.settings.view` is the settings SCREEN.
+   * SECURITY: an allowlist. It answers `TENANT_SETTINGS_LOOKUP_KEYS` and
+   * nothing else, so no setting is exposed by being added.
+   */
+  app.get("/lookup", createAuthenticatedGate(resolveAuthContext), async (c) => {
+    const settings = (await store.get()) ?? createDefaultSettings();
+    const lookup: TenantSettingsLookupDTO = tenantSettingsLookupSchema.parse(Object.fromEntries(TENANT_SETTINGS_LOOKUP_KEYS.map((key) => [key, settings[key]])));
+    return c.json(lookup);
+  });
+
+  app.get("/display", createAuthenticatedGate(resolveAuthContext), async (c) => {
+    return c.json(displaySettingsOf((await store.get()) ?? createDefaultSettings()));
+  });
+
+  app.get("/currencies", createAuthenticatedGate(resolveAuthContext), async (c) => {
     const settings = (await store.get()) ?? createDefaultSettings();
     return c.json({
       base: settings.currency,
@@ -113,7 +136,8 @@ export function createSettingsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const settings = (await store.get()) ?? createDefaultSettings();
-    const result = await sendTestEmail(settings, parsed.data.to);
+    const send = () => sendTestEmail(settings, parsed.data.to);
+    const result = await (audit?.outsideTurn ? audit.outsideTurn(send) : send());
     return c.json(result, result.ok ? 200 : 422);
   });
 

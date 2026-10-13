@@ -73,6 +73,8 @@ import {
   SuggestionNotFoundError,
   SuggestionNotPendingError,
   TreasuryAccountNumberMissingError,
+  StatementBranchMismatchError,
+  StatementBranchRequiredError,
   TreasuryAccountOutOfBranchScopeError,
   ZeroAmountLineError,
 } from "./errors.js";
@@ -109,6 +111,7 @@ export interface ImportStatementCommand {
   readonly openingBalance: Money;
   readonly closingBalance: Money;
   readonly statementNumber?: string | null;
+  readonly branchId?: string | null;
   /** An Excel statement is converted to CSV text in the browser and arrives here as CSV; this records where it came from. */
   readonly source?: BankStatementSource.Csv | BankStatementSource.Excel;
 }
@@ -123,6 +126,7 @@ export interface ImportStatementFileCommand {
   readonly openingBalance?: Money | null;
   readonly closingBalance?: Money | null;
   readonly statementNumber?: string | null;
+  readonly branchId?: string | null;
 }
 
 /**
@@ -194,6 +198,8 @@ export interface CreateEntryCommand {
   readonly ruleId?: string | null;
   readonly memo?: string | null;
   readonly date?: string | null;
+  /** The branch a charge on a company-level statement is booked to. */
+  readonly branchId?: string | null;
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
 }
@@ -227,6 +233,15 @@ export interface BankReconciliationServiceDeps {
    * client supplied; a route builds one service per request with it.
    */
   readonly branchScope?: readonly string[];
+  /**
+   * INVARIANT: a statement read on an account the company holds takes the one
+   * branch its importer is granted, so the importer can open what it imported
+   * and the bank charges raised from it land in that branch. A caller granted
+   * several branches cannot be placed, and one that does not read «غير مخصص»
+   * is refused rather than left with a statement it cannot see.
+   */
+  readonly soleBranchId?: string;
+  readonly readsUnattributed?: boolean;
   readonly baseCurrency?: string;
   readonly mappings: StatementColumnMappingRepository;
   readonly ledgerReader: TreasuryLedgerReader;
@@ -292,6 +307,22 @@ export class BankReconciliationService {
     return account;
   }
 
+  /**
+   * LEDGER INVARIANT: a statement is its account's branch's. Only a
+   * company-level account takes a stated branch — the one a user of several
+   * branches must name — and with none stated it stays the company's.
+   */
+  private statementBranchOf(account: TreasuryAccount | null, stated?: string | null): string | null {
+    if (account?.branchId) {
+      if (stated && stated !== account.branchId) throw new StatementBranchMismatchError();
+      return account.branchId;
+    }
+    if (stated) return stated;
+    if (this.deps.soleBranchId) return this.deps.soleBranchId;
+    if (account && this.deps.branchScope && this.deps.readsUnattributed === false) throw new StatementBranchRequiredError();
+    return null;
+  }
+
   async assertAccountInScope(treasuryAccountId: string): Promise<void> {
     await this.requireAccount(treasuryAccountId);
   }
@@ -316,7 +347,7 @@ export class BankReconciliationService {
       {
         id: cmd.id,
         treasuryAccountId: cmd.treasuryAccountId,
-        branchId: account?.branchId ?? null,
+        branchId: this.statementBranchOf(account, cmd.branchId),
         currency: account?.currency ?? this.baseCurrency(),
         importFingerprint: this.fingerprintOf(cmd.treasuryAccountId, source, {
           periodStart: cmd.periodStart,
@@ -418,7 +449,7 @@ export class BankReconciliationService {
       {
         id: cmd.id,
         treasuryAccountId: cmd.treasuryAccountId,
-        branchId: account?.branchId ?? null,
+        branchId: this.statementBranchOf(account, cmd.branchId),
         currency: account?.currency ?? parsed.currency ?? this.baseCurrency(),
         importFingerprint: this.fingerprintOf(cmd.treasuryAccountId, source, {
           periodStart,
@@ -745,6 +776,8 @@ export class BankReconciliationService {
 
     const date = cmd.date ?? line.date;
     if (date < line.date) throw new EntryDateBeforeLineError(line.date, date);
+    if (cmd.branchId && statement.branchId && cmd.branchId !== statement.branchId) throw new StatementBranchMismatchError();
+    const chargeBranchId = statement.branchId ?? cmd.branchId ?? null;
     const kind = line.amount.scaled > 0n ? BankEntryKind.Interest : BankEntryKind.BankCharge;
     const memo = cmd.memo?.trim() || `${ENTRY_KIND_LABEL[kind]} — ${line.description}`.trim();
 
@@ -755,6 +788,7 @@ export class BankReconciliationService {
         date,
         amount: line.amount.scaled < 0n ? line.amount.negate() : line.amount,
         treasuryAccountId: statement.treasuryAccountId,
+        branchId: chargeBranchId,
         counterAccountId: accountId,
         costCenterId,
         memo,

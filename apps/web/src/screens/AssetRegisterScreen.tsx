@@ -1,3 +1,5 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   DocumentList,
@@ -18,7 +20,7 @@ import {
 import type { AssetDTO, AssetScopeDTO, AssetStatusDTO, CreateAssetDTO } from "@mezan/contracts";
 import {
   ApiError,
-  useAccounts,
+  useDisposalProceedsAccounts,
   useAssetCategories,
   useAssets,
   useAssetStats,
@@ -111,6 +113,7 @@ function validateDraft(draft: AssetDraft, existing: AssetDTO[]): { key: AppTrans
 }
 
 export function AssetRegisterScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.AssetDisposal);
   const { t } = useAppTranslation();
   const categoriesQuery = useAssetCategories();
   const branchesQuery = useBranches();
@@ -161,18 +164,12 @@ export function AssetRegisterScreen() {
   const [disposeDate, setDisposeDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [disposeProceeds, setDisposeProceeds] = useState<number | null>(null);
   const [disposeError, setDisposeError] = useState<string | null>(null);
-  const accountsQuery = useAccounts();
-  // Where the money from a sale lands: a cash/bank account, or a receivable
-  // when the buyer has not paid yet. HEADER accounts are excluded — nothing may
-  // post to one, so offering it is offering a choice that always fails. The
-  // empty first option is explicit: without it the list rendered its first real
-  // account as though it were selected while the value was still empty, so the
-  // user saw an account chosen and got "حساب التحصيل مطلوب" on submit.
+  const proceedsAccountsQuery = useDisposalProceedsAccounts();
+  // The empty first option is explicit: without it the list rendered its first
+  // real account as though it were selected while the value was still empty.
   const proceedsAccountOptions = [
     { value: "", label: t("assets.disposeProceedsPlaceholder") },
-    ...(accountsQuery.data ?? [])
-      .filter((a) => a.type === "asset" && !a.isHeader && (String(a.code).startsWith("13") || String(a.code).startsWith("11")))
-      .map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` })),
+    ...(proceedsAccountsQuery.data ?? []).map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` })),
   ];
   const [disposeProceedsAccountId, setDisposeProceedsAccountId] = useState("");
   const [draft, setDraft] = useState<AssetDraft>(blankDraft());
@@ -308,7 +305,7 @@ export function AssetRegisterScreen() {
         }
         columns={columns}
         rows={pageRows}
-        loading={accountsQuery.isLoading}
+        loading={proceedsAccountsQuery.isLoading}
         rowKey={(a) => a.id}
         onRowClick={(a) => setSelectedId(a.id)}
         rowAction={(a) => {
@@ -334,7 +331,7 @@ export function AssetRegisterScreen() {
                     },
                   },
                 ]
-              : []),
+              : reversal.menuItems({ id: a.id, params: { id: a.id }, subject: a.nameAr })),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.nameAr })} />;
         }}
@@ -360,6 +357,7 @@ export function AssetRegisterScreen() {
           />
         }
       />
+      {reversal.dialog}
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("asset.panelTitle", { name: selected.nameAr }) : ""}>
         {selected ? (

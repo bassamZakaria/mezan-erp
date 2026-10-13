@@ -1,8 +1,13 @@
+export { branchGrantCoversEvent, COMPANY_LEVEL_EVENT_PERMISSION, EVENT_BRANCH_IDS_KEY, eventBranchIdsOf } from "./branch-audience.js";
 export {
   NOTIFICATION_PRIORITIES,
   NOTIFICATION_CHANNELS,
   CONDITION_OPERATORS,
   NOTIFICATION_RECIPIENT_TYPES,
+  NotificationChannelState,
+  NotificationChannelCode,
+  NotificationPriorityCode,
+  NotificationReadStatusCode,
   type NotificationPriority,
   type NotificationChannel,
   type ConditionOperator,
@@ -49,6 +54,7 @@ export {
   NotificationDispatcher,
   DEFAULT_DISPATCH_POLICY,
   type NotificationDispatcherDeps,
+  SETTLED_AS,
   type NotificationTransport,
   type DispatchOutcome,
   type DispatchPolicy,

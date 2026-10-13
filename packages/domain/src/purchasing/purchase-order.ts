@@ -12,7 +12,6 @@ import { NextNumberService } from "../numbering/index.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import type { PurchaseOrderStatus } from "./types.js";
 import {
-  DuplicatePurchaseDocumentError,
   InvalidPurchaseDocumentError,
   PurchaseOrderNotFoundError,
 } from "./errors.js";
@@ -154,9 +153,6 @@ export async function createPurchaseOrder(
   deps: PurchaseOrderDeps,
 ): Promise<PurchaseOrder> {
   validate(command);
-  if (await deps.orders.findById(command.id)) {
-    throw new DuplicatePurchaseDocumentError(command.id);
-  }
   const number = await deps.numbering.next(PURCHASE_ORDER_SEQUENCE);
   const order: PurchaseOrder = {
     id: command.id,

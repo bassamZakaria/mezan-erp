@@ -1,5 +1,10 @@
+import { DOC_STATUS_TONE, documentStatusLabel } from "../../../doc-status";
+import { ReversalDocumentType } from "@mezan/contracts";
+import { DocumentStatusCode } from "@mezan/domain";
+import { useReverseDocumentAction } from "../../../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -38,6 +43,7 @@ import { trimDecimal } from "./site-common";
  * itself, and the depreciation it offsets is already in the books.
  */
 export function EquipmentLogsScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.EquipmentLog);
   const { t } = useAppTranslation();
   const { money } = useFormat();
   const subPage = useSubPage();
@@ -58,7 +64,7 @@ export function EquipmentLogsScreen() {
     return asset ? `${asset.nameAr} (${asset.code})` : id;
   }
 
-  async function confirmRow(id: string): Promise<void> {
+  async function confirmRow(id: string): Promise<RowActionOutcome | void> {
     if (rowPendingId) return;
     setRowError(null);
     setRowPendingId(id);
@@ -66,6 +72,7 @@ export function EquipmentLogsScreen() {
       await confirmLog.mutateAsync(id);
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -96,8 +103,8 @@ export function EquipmentLogsScreen() {
       header: t("common.status"),
       render: (d) => (
         <StatusPill
-          label={d.status === "confirmed" ? t("docStatus.confirmed") : t("docStatus.draft")}
-          tone={d.status === "confirmed" ? "success" : "neutral"}
+          label={documentStatusLabel(d.status, t)}
+          tone={DOC_STATUS_TONE[d.status]}
         />
       ),
     },
@@ -146,8 +153,9 @@ export function EquipmentLogsScreen() {
         rowAction={(d) => {
           const items: RowMenuItem[] = [
             ...(d.status === "draft"
-              ? [{ key: "confirm", label: t("site.equipment.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
+              ? [{ key: "confirm", label: t("site.equipment.confirm"), disabled: rowPendingId === d.id, onSelect: () => confirmRow(d.id) }]
               : []),
+            ...(d.status === DocumentStatusCode.Confirmed ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
           ];
           return items.length > 0 ? <RowMenu items={items} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} /> : null;
         }}
@@ -166,6 +174,7 @@ export function EquipmentLogsScreen() {
           />
         }
       />
+      {reversal.dialog}
 
       {projectFilter !== "all" ? (
         <Card className="mt-[18px] p-[18px_20px]">

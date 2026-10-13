@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
-import { createRecurringJournalRoutes } from "@mezan/api";
-import { createRecurringJournalCommitmentSource, routedAccountId, type PartyControlKind, type CommitmentSource } from "@mezan/domain";
+import { createRecurringJournalRoutes, MasterDataKind } from "@mezan/api";
+import { DEPRECIABLE_ASSET_STATUSES, createRecurringJournalCommitmentSource, depreciationRunsCoverPeriod, routedAccountId, type PartyControlKind, type CommitmentSource } from "@mezan/domain";
 import {
   createSqliteAccountRoutingStore,
   createSqliteAssetRepository,
@@ -8,6 +8,7 @@ import {
   createSqliteRecurringJournalRunRepository,
   createSqliteRecurringJournalSkipRepository,
   createSqliteRecurringJournalTemplateRepository,
+  createSqliteVatFilingStore,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { registerCashCommitmentSource } from "./e1-02.js";
@@ -25,8 +26,6 @@ const commitmentSourceRegistry = new WeakMap<Database.Database, CommitmentSource
 export function getRecurringJournalCommitmentSource(sqlite: Database.Database): CommitmentSource | undefined {
   return commitmentSourceRegistry.get(sqlite);
 }
-
-const DEPRECIABLE_ASSET_STATUSES = new Set(["active", "under_maintenance"]);
 
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
@@ -54,6 +53,7 @@ export const area: BackendArea = {
       "/gl/recurring",
       createRecurringJournalRoutes(
         {
+          masterData: { [MasterDataKind.Branch]: ctx.stores.branches },
           templates,
           runs,
           skips,
@@ -64,12 +64,10 @@ export const area: BackendArea = {
           resolvePartyControlAccounts,
           partyExists,
           audit: ctx.audit,
+          vatFilings: createSqliteVatFilingStore(ctx.sqlite),
           dueDepreciation: {
             hasDepreciableAssets: async () => (await assets.list()).some((asset) => DEPRECIABLE_ASSET_STATUSES.has(asset.status)),
-            hasRunForPeriod: async (period) => {
-              const run = await depreciationRuns.findByPeriod(period, null);
-              return run !== null && run.status !== "cancelled";
-            },
+            hasRunForPeriod: async (period) => depreciationRunsCoverPeriod(await assets.list(), await depreciationRuns.list(), period),
           },
         },
         ctx.resolveAuthContext,
@@ -80,16 +78,7 @@ export const area: BackendArea = {
       templates,
       runs,
       skips,
-      // The GL accounts the treasury posts through — the same set the cash
-      // forecast reads its opening balance from (`cash-forecast-routes.ts`
-      // `openingCash`), so a commitment and the balance it moves are measured
-      // against the same accounts.
-      cashAccountIds: async () =>
-        new Set(
-          (await ctx.stores.treasuryAccounts.list())
-            .map((account) => account.glAccountId)
-            .filter((id): id is string => typeof id === "string" && id !== ""),
-        ),
+      cashAccountIds: async () => new Set(await ctx.cashAndBankAccountIds()),
       partyControlAccountIds: async () => new Set((await resolvePartyControlAccounts()).keys()),
     });
     commitmentSourceRegistry.set(ctx.sqlite, commitmentSource);

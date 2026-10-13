@@ -176,6 +176,23 @@ describe("JournalsScreen — list", () => {
   });
 });
 
+describe("JournalsScreen — the detail view names where the entry came from", () => {
+  const sourceOf = () => screen.getByText("المصدر").parentElement?.textContent ?? "";
+
+  it.each([
+    { what: "an FX revaluation run", overrides: { source: "system" as const, sourceDocType: "FX_REVALUATION", sourceModule: "treasury" as const, reversibleFromJournal: false }, label: "الخزينة" },
+    { what: "a sales invoice's own entry", overrides: { source: "system" as const, sourceDocType: "SALES_INVOICE", sourceDocId: "inv-1", sourceDocNumber: "INV-000001", sourceModule: "sales" as const, reversibleFromJournal: false }, label: "المبيعات" },
+    { what: "an entry a person typed", overrides: {}, label: "قيد يدوي" },
+  ])("$what reads «$label», the label its row carries in the list", async ({ overrides, label }) => {
+    renderScreen([entry(overrides)]);
+    expect(await screen.findByText(label)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("JE-000001"));
+
+    await screen.findByLabelText("حالة المستند");
+    expect(sourceOf()).toBe(`المصدر${label}`);
+  });
+});
+
 describe("JournalsScreen — create: balance gating", () => {
   it("keeps the post button disabled until the entry balances", async () => {
     renderScreen();
@@ -224,6 +241,42 @@ describe("JournalsScreen — create: decimals and dimensions", () => {
 
   // guards C-5 (first half): glJournalLineSchema already carries costCenterId;
   // the screen sent none, so the cost-centre P&L never saw a manual accrual.
+  it("opens the entry already posted, with a notice, when its id was used with other contents", async () => {
+    let sends = 0;
+    let saved = sampleEntries;
+    const transport = stubTransport({
+      "GET /gl/journal-entries": () => ({ body: saved }),
+      "GET /gl/journal-entries/counts": () => ({ body: countsOf(saved) }),
+      "GET /gl/journal-entries/stats": () => ({ body: statsOf(saved) }),
+      "GET /accounts": () => ({ body: sampleAccounts }),
+      "GET /cost-centers": () => ({ body: [] }),
+      "POST /gl/journal-entries": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        sends += 1;
+        saved = [...sampleEntries, entry({ id: body.id, entryNo: "JE-000009" })];
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <JournalsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("JE-000001");
+    fireEvent.click(screen.getByRole("button", { name: "قيد جديد" }));
+    fireEvent.change(screen.getByPlaceholderText("وصف القيد..."), { target: { value: "مصروف" } });
+    chooseAccount("الحساب للسطر 1", "1300-1");
+    fireEvent.change(screen.getByLabelText("مدين للسطر 1"), { target: { value: "50" } });
+    chooseAccount("الحساب للسطر 2", "4100");
+    fireEvent.change(screen.getByLabelText("دائن للسطر 2"), { target: { value: "50" } });
+    fireEvent.click(screen.getByRole("button", { name: "ترحيل القيد" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");
+    expect(screen.queryByRole("button", { name: "ترحيل القيد" })).not.toBeInTheDocument();
+    expect(sends).toBe(1);
+  });
+
   it("sends the line's cost centre with the posted entry", async () => {
     const posted: unknown[] = [];
     const transport = stubTransport({
@@ -279,6 +332,12 @@ describe("JournalsScreen — create: post flow", () => {
     // posted KPI advanced from 3 → 4.
     const postedStat = screen.getByText("مرحل", { selector: "div" }).closest("div");
     expect(postedStat).not.toBeNull();
+  });
+
+  it("offers no reverse action on an entry a document owns", async () => {
+    renderScreen([entry({ sourceDocType: "TREASURY_VOUCHER", sourceDocId: "V-1", sourceDocNumber: "CV-000001", reversibleFromJournal: false })]);
+    fireEvent.click(await screen.findByText("JE-000001"));
+    expect(screen.queryByRole("button", { name: "عكس القيد" })).not.toBeInTheDocument();
   });
 
   it("reverses a posted entry from its detail view, defaulting the confirm dialog's date to today and sending it (D270)", async () => {

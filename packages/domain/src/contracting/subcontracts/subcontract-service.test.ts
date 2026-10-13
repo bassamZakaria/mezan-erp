@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import { describe, expect, it } from "vitest";
 import { Money, Qty } from "../../money/index.js";
 import type { Account } from "../../accounts/account.js";
@@ -58,6 +59,9 @@ class MemoryContractStore implements WorksContractStore {
   async listContracts(filter?: WorksContractListFilter) {
     return [...this.contracts.values()].filter((c) => !filter?.status || c.status === filter.status);
   }
+  async insertContract(contract: WorksContract) {
+    insertOnly(this.contracts, contract.id, contract);
+  }
   async saveContract(contract: WorksContract) {
     this.contracts.set(contract.id, contract);
   }
@@ -83,6 +87,7 @@ class MemoryContractStore implements WorksContractStore {
   async findVariationOrderByDocNo(_docNo: string) {
     return null;
   }
+  async insertVariationOrder(_order: VariationOrder) {}
   async saveVariationOrder(_order: VariationOrder) {}
   async transaction<T>(fn: () => Promise<T>) {
     return fn();
@@ -102,6 +107,9 @@ class MemorySubcontractStore implements SubcontractStore {
   async list(filter?: SubcontractListFilter) {
     return [...this.rows.values()].filter((r) => !filter?.contractId || r.contractId === filter.contractId);
   }
+  async insert(subcontract: Subcontract) {
+    insertOnly(this.rows, subcontract.id, subcontract);
+  }
   async save(subcontract: Subcontract) {
     this.rows.set(subcontract.id, subcontract);
   }
@@ -120,6 +128,9 @@ class MemorySubcontractStore implements SubcontractStore {
     return [...this.certificates.values()]
       .filter((r) => r.subcontractId === subcontractId)
       .sort((a, b) => a.serial - b.serial);
+  }
+  async insertCertificate(certificate: SubCertificate) {
+    insertOnly(this.certificates, certificate.id, certificate);
   }
   async saveCertificate(certificate: SubCertificate) {
     this.certificates.set(certificate.id, certificate);
@@ -296,6 +307,7 @@ async function harness(): Promise<Harness> {
           ],
         },
         gl,
+        { mintedBySystem: true },
       );
       return {
         invoiceId: `${cmd.releaseId}-PINV`,

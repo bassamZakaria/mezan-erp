@@ -44,31 +44,31 @@ export interface DashboardWidgetSpec {
   /** i18n key for the widget's name in the layout editor. */
   readonly titleKey: string;
   /**
-   * The permission a user must hold to see this widget AT ALL.
+   * The permissions that let a user see this widget AT ALL — any one suffices.
    *
    * Checked when the layout is resolved rather than when it is saved, so a
    * layout stored before a permission was revoked degrades quietly instead of
    * rendering a card the user may not read (§8.7). Retrofitting this check onto
    * a stored layout later is where a feature like this usually leaks data.
    */
-  readonly permission: string;
+  readonly readableWith: readonly string[];
 }
 
 const PANEL_WIDGETS: readonly DashboardWidgetSpec[] = [
-  { kind: "aging", section: DashboardSection.Panels, size: "md", titleKey: "dashboard.aging", permission: "reports.aging.read" },
-  { kind: "expenses", section: DashboardSection.Panels, size: "md", titleKey: "dashboard.expenses", permission: "accounting.reports.view" },
-  { kind: "topItems", section: DashboardSection.Panels, size: "md", titleKey: "dashboard.topItems", permission: "sales.invoice.view" },
-  { kind: "activity", section: DashboardSection.Panels, size: "md", titleKey: "dashboard.activity", permission: "accounting.journal.view" },
+  { kind: "aging", section: DashboardSection.Panels, size: "md", titleKey: "dashboard.aging", readableWith: ["sales.invoice.view", "purchases.invoice.view"] },
+  { kind: "expenses", section: DashboardSection.Panels, size: "md", titleKey: "dashboard.expenses", readableWith: ["accounting.reports.view"] },
+  { kind: "topItems", section: DashboardSection.Panels, size: "md", titleKey: "dashboard.topItems", readableWith: ["sales.invoice.view"] },
+  { kind: "activity", section: DashboardSection.Panels, size: "md", titleKey: "dashboard.activity", readableWith: ["accounting.journal.view"] },
 ];
 
 const COCKPIT_WIDGETS: readonly DashboardWidgetSpec[] = [
-  { kind: CockpitWidgetKind.Pulse, section: DashboardSection.Cockpit, size: "full", titleKey: "cockpit.pulse.title", permission: COCKPIT_PERMISSION },
-  { kind: CockpitWidgetKind.Runway, section: DashboardSection.Cockpit, size: "sm", titleKey: "cockpit.runway.title", permission: "treasury.cash_forecast.view" },
-  { kind: CockpitWidgetKind.Overdue, section: DashboardSection.Cockpit, size: "sm", titleKey: "cockpit.overdue.title", permission: COCKPIT_PERMISSION },
-  { kind: CockpitWidgetKind.LowStock, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.lowStock.title", permission: COCKPIT_PERMISSION },
-  { kind: CockpitWidgetKind.Cash, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.cash.title", permission: COCKPIT_PERMISSION },
-  { kind: CockpitWidgetKind.Movers, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.movers.title", permission: COCKPIT_PERMISSION },
-  { kind: CockpitWidgetKind.Margin, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.margin.title", permission: COCKPIT_PERMISSION },
+  { kind: CockpitWidgetKind.Pulse, section: DashboardSection.Cockpit, size: "full", titleKey: "cockpit.pulse.title", readableWith: [COCKPIT_PERMISSION] },
+  { kind: CockpitWidgetKind.Runway, section: DashboardSection.Cockpit, size: "sm", titleKey: "cockpit.runway.title", readableWith: ["treasury.cash_forecast.view"] },
+  { kind: CockpitWidgetKind.Overdue, section: DashboardSection.Cockpit, size: "sm", titleKey: "cockpit.overdue.title", readableWith: [COCKPIT_PERMISSION] },
+  { kind: CockpitWidgetKind.LowStock, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.lowStock.title", readableWith: [COCKPIT_PERMISSION] },
+  { kind: CockpitWidgetKind.Cash, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.cash.title", readableWith: [COCKPIT_PERMISSION] },
+  { kind: CockpitWidgetKind.Movers, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.movers.title", readableWith: [COCKPIT_PERMISSION] },
+  { kind: CockpitWidgetKind.Margin, section: DashboardSection.Cockpit, size: "md", titleKey: "cockpit.margin.title", readableWith: [COCKPIT_PERMISSION] },
 ];
 
 export const DASHBOARD_WIDGETS: readonly DashboardWidgetSpec[] = [...PANEL_WIDGETS, ...COCKPIT_WIDGETS];
@@ -118,7 +118,7 @@ function resolveAll(
   const appended = fallback.filter((w) => !named.has(w.kind)).map((w, i) => ({ ...w, order: last + 1 + i }));
   return [...known, ...appended]
     .filter((w) => w.visible)
-    .filter((w) => can(SPEC_BY_KIND.get(w.kind)!.permission))
+    .filter((w) => SPEC_BY_KIND.get(w.kind)!.readableWith.some(can))
     .sort((a, b) => a.order - b.order);
 }
 
@@ -158,5 +158,5 @@ export function cockpitLeads(
 
 /** The widgets a user may choose from — the editor's list, permission-filtered. */
 export function availableDashboardWidgets(can: (permission: string) => boolean): readonly DashboardWidgetSpec[] {
-  return DASHBOARD_WIDGETS.filter((spec) => can(spec.permission));
+  return DASHBOARD_WIDGETS.filter((spec) => spec.readableWith.some(can));
 }

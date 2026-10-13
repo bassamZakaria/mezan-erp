@@ -13,7 +13,7 @@ function snapshot(overrides: Partial<WacSnapshot> = {}): WacSnapshot {
   return { itemId: "item-a", warehouseId: "wh-1", onHand: Qty.fromMajor("10"), totalValue: Money.fromMajor("1000.00"), averageCost: Money.fromMajor("100.00"), ...overrides };
 }
 function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
-  return { lineId: "l1", itemId: "item-a", itemNameAr: "صنف أ", isStock: true, qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("10.00"), discountPercent: 0, taxRatePercent: 0, revenueAccountId: "4100", cogsAccountId: null, inventoryAccountId: null, costCenterId: null, unitCost: null, unitCode: "", unitFactor: 1, discountType: "percent" as const, discountAmount: Money.zero(), ...overrides, baseQty: overrides.baseQty ?? overrides.qty ?? Qty.fromMajor("1") };
+  return { lineId: "l1", itemId: "item-a", itemNameAr: "صنف أ", isStock: true, qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("10.00"), discountPercent: 0, taxRatePercent: 0, revenueAccountId: "4100", cogsAccountId: null, inventoryAccountId: null, taxRateId: null, costCenterId: null, unitCost: null, unitCode: "", unitFactor: 1, discountType: "percent" as const, discountAmount: Money.zero(), ...overrides, baseQty: overrides.baseQty ?? overrides.qty ?? Qty.fromMajor("1") };
 }
 function invoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
   return {

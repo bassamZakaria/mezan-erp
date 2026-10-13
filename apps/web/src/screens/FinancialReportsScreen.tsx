@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useMemo, useState, type ReactNode } from "react";
 import { useUrlParam } from "../lib/url-state";
 import {
@@ -86,6 +88,8 @@ interface TabDef {
   readonly render: () => ReactNode;
 }
 
+const VAT_RETURN_TAB = "vat-return";
+
 const TABS: readonly TabDef[] = [
   {
     id: "trial-balance",
@@ -111,7 +115,7 @@ const TABS: readonly TabDef[] = [
     render: () => <ReportScreen definition={cashFlow} apiPath="/cash-flow" apiRoot="/financial-reports" />,
   },
   {
-    id: "vat-return",
+    id: VAT_RETURN_TAB,
     labelKey: "finReports.vatReturn",
     render: () => (
       <ReportScreen
@@ -142,12 +146,14 @@ const TABS: readonly TabDef[] = [
 export function FinancialReportsScreen() {
   const { t } = useAppTranslation();
   const [activeTab, setActiveTab] = useUrlParam("tab", TABS[0]?.id ?? "trial-balance");
-  const tab = TABS.find((entry) => entry.id === activeTab) ?? TABS[0];
+  const branchGate = useBranchGate();
+  const tabs = TABS.filter((entry) => entry.id !== VAT_RETURN_TAB || branchGate.allows(BranchGatedAction.VatReturn));
+  const tab = tabs.find((entry) => entry.id === activeTab) ?? tabs[0];
 
   return (
     <div className="w-full">
       <div className="mb-[18px] flex flex-wrap gap-[6px]" role="tablist" aria-label={t("finReports.financialStatements")}>
-        {TABS.map((entry) => (
+        {tabs.map((entry) => (
           <button
             key={entry.id}
             type="button"

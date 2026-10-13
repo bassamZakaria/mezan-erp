@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   InvalidSalesInvoiceError,
   SalesInvoiceNotFoundError,
-  DuplicateSalesInvoiceError,
   InvalidSalesInvoiceTransitionError,
   InvalidSalesInvoicePaymentError,
 } from "./errors.js";
@@ -27,17 +26,6 @@ describe("SalesInvoiceNotFoundError", () => {
     expect(err.invoiceId).toBe("inv-99");
     expect(err.message).toBe('فاتورة المبيعات "inv-99" غير موجودة.');
     expect(err.messageEn).toBe('Sales invoice "inv-99" was not found.');
-  });
-});
-
-describe("DuplicateSalesInvoiceError", () => {
-  it("carries the duplicated id", () => {
-    const err = new DuplicateSalesInvoiceError("inv-1");
-    expect(err.code).toBe("DUPLICATE_SALES_INVOICE");
-    expect(err.name).toBe("DuplicateSalesInvoiceError");
-    expect(err.invoiceId).toBe("inv-1");
-    expect(err.message).toBe('فاتورة المبيعات "inv-1" موجودة بالفعل.');
-    expect(err.messageEn).toBe('Sales invoice "inv-1" already exists.');
   });
 });
 

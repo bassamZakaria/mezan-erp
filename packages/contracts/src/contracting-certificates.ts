@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { boqUnitSchema, vatBasisSchema } from "./contracting-contracts.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for المستخلص — the progress certificate (design §04).
@@ -81,8 +82,8 @@ export const certificateComputationSchema = z.object({
   suspendedBalance: moneyString,
   invoiceBase: moneyString,
   vatBasis: vatBasisSchema,
-  vatStatutoryRatePercent: z.string(),
-  vatEffectiveRatePercent: z.string(),
+  vatStatutoryRatePercent: moneyString,
+  vatEffectiveRatePercent: moneyString,
   vat: moneyString,
   previousPayments: moneyString,
   netPayableThisCertificate: moneyString,
@@ -188,7 +189,7 @@ export const progressCertificateSchema = z.object({
   daysOverdue: z.number(),
   latePaymentCompensation: moneyString,
   /** «غير مُعد» when the tenant has not set the CBE credit-and-discount rate. */
-  cbeCreditDiscountRatePercent: z.string().nullable(),
+  cbeCreditDiscountRatePercent: moneyString.nullable(),
   hasLaterCertificate: z.boolean(),
 });
 export type ProgressCertificateDTO = z.infer<typeof progressCertificateSchema>;
@@ -223,7 +224,7 @@ const draftBody = {
 };
 
 export const createProgressCertificateSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   contractId: z.string().min(1),
   ...draftBody,
 });

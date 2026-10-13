@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import { describe, it, expect, beforeEach } from "vitest";
 import { Money, Qty } from "../../money/index.js";
 import type { Account } from "../../accounts/account.js";
@@ -65,6 +66,9 @@ class InMemoryWarehouses implements WarehouseRepository {
   async findById(id: string) {
     return this.rows.get(id) ?? null;
   }
+  async insert(warehouse: Warehouse) {
+    insertOnly(this.rows, warehouse.id, warehouse);
+  }
   async save(warehouse: Warehouse) {
     this.rows.set(warehouse.id, warehouse);
   }
@@ -87,6 +91,9 @@ function issueRepo(rows: Map<string, SiteIssue>): SiteIssueRepository {
         (r) => (!filter.projectId || r.projectId === filter.projectId) && (!filter.status || r.status === filter.status),
       );
     },
+    async insert(row) {
+      insertOnly(rows, row.id, row);
+    },
     async save(row) {
       rows.set(row.id, row);
     },
@@ -105,6 +112,9 @@ function receiptRepo(rows: Map<string, SiteReceipt>): SiteReceiptRepository {
       return [...rows.values()].filter(
         (r) => (!filter.projectId || r.projectId === filter.projectId) && (!filter.issueId || r.issueId === filter.issueId),
       );
+    },
+    async insert(row) {
+      insertOnly(rows, row.id, row);
     },
     async save(row) {
       rows.set(row.id, row);
@@ -125,6 +135,9 @@ function consumptionRepo(rows: Map<string, MaterialConsumption>): MaterialConsum
         (r) => (!filter.projectId || r.projectId === filter.projectId) && (!filter.status || r.status === filter.status),
       );
     },
+    async insert(row) {
+      insertOnly(rows, row.id, row);
+    },
     async save(row) {
       rows.set(row.id, row);
     },
@@ -138,6 +151,9 @@ function custodyRepo(rows: Map<string, CustodyItem>): CustodyRepository {
     },
     async list() {
       return [...rows.values()];
+    },
+    async insert(row) {
+      insertOnly(rows, row.id, row);
     },
     async save(row) {
       rows.set(row.id, row);
@@ -157,6 +173,9 @@ function equipmentRepo(rows: Map<string, EquipmentLog>): EquipmentLogRepository 
       return [...rows.values()].filter(
         (r) => (!filter.projectId || r.projectId === filter.projectId) && (!filter.status || r.status === filter.status),
       );
+    },
+    async insert(row) {
+      insertOnly(rows, row.id, row);
     },
     async save(row) {
       rows.set(row.id, row);

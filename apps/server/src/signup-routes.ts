@@ -3,40 +3,61 @@ import { Hono, type Context } from "hono";
 import {
   InvalidSignupError,
   isDisposableEmailDomain,
+  isReservedTenantCode,
   PlanNotFoundError,
-  SignupRequestStatus,
+  SignupActivationIncompleteError,
+  SignupAlreadyActivatedError,
   SignupTokenExpiredError,
   SignupTokenInvalidError,
   startSignup,
   topPublicPaidPlan,
   TenantCodeTakenError,
+  TenantStatusCode,
   verifySignup,
   type Plan,
+  type SignupRequest,
+  type Tenant,
 } from "@mezan/domain";
-import { requestOrigin, sendNotificationEmail } from "@mezan/api";
+import { connectionTurn } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import {
   startSignupRequestSchema,
+  tenantDTOOf,
   verifySignupRequestSchema,
   type PublicPlanDTO,
   type StartSignupResultDTO,
   type VerifySignupResultDTO,
 } from "@mezan/contracts";
-import { provisionTenant, TenantProvisioningError } from "./provision-tenant.js";
+import { provisionResultDTOOf, provisionTenant, ProvisioningSupersededError, TenantProvisioningError } from "./provision-tenant.js";
 import { forwardedOrigin } from "./billing-routes.js";
+import { servedTenantLookup, trustedPublicOrigin } from "./public-origin.js";
+import { MailOutcome, type PlatformMailer } from "./platform-mail.js";
+import { callerSource, requireCloudSource, type SourceReporter } from "./client-source.js";
 import { createRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
 
-const TOKEN_EXPIRES_IN_MS = 24 * 60 * 60 * 1000;
+export const SIGNUP_BASE_PATH = "/api/signup";
 
-/** The IP a signup attempt is counted against — `x-forwarded-for` only when this deployment is known to sit behind a trusted proxy, never taken on a caller's word alone (same gate `forwardedOrigin` uses). */
-function clientIp(c: Context, trustProxy: boolean): string {
-  if (trustProxy) {
-    const forwarded = c.req.header("x-forwarded-for")?.split(",")[0]?.trim();
-    if (forwarded) return forwarded;
+const TOKEN_EXPIRES_IN_MS = 24 * 60 * 60 * 1000;
+const PROVISION_CLAIM_STALE_MS = 2 * 60_000;
+const PROVISION_HEARTBEAT_MS = 30_000;
+const PROVISION_WAIT_MS = 30_000;
+const PROVISION_POLL_FIRST_MS = 50;
+const PROVISION_POLL_MAX_MS = 1_000;
+const PROVISION_RETRY_AFTER_SECONDS = 5;
+
+export class SignupVerificationBusyError extends Error {
+  readonly code = "SIGNUP_VERIFICATION_IN_PROGRESS";
+
+  constructor() {
+    super("جارٍ تفعيل الحساب الآن. أعد فتح الرابط بعد لحظات.");
+    this.name = "SignupVerificationBusyError";
   }
-  return requestOrigin(c) ?? "unknown";
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function hashToken(token: string): string {
@@ -96,8 +117,15 @@ function signupErrorResponse(c: Context, err: unknown): Response {
   if (err instanceof SignupTokenInvalidError) {
     return c.json({ error: err.code, message: err.message }, 400);
   }
-  if (err instanceof SignupTokenExpiredError) {
+  if (err instanceof SignupActivationIncompleteError) {
+    return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof SignupTokenExpiredError || err instanceof SignupAlreadyActivatedError) {
     return c.json({ error: err.code, message: err.message }, 410);
+  }
+  if (err instanceof SignupVerificationBusyError) {
+    c.header("retry-after", String(PROVISION_RETRY_AFTER_SECONDS));
+    return c.json({ error: err.code, message: err.message }, 503);
   }
   if (err instanceof TenantProvisioningError) {
     console.error(err, err.cause);
@@ -111,21 +139,17 @@ export interface SignupRoutesOptions {
   readonly router: TenantRouter;
   readonly env: CloudEnv;
   readonly now?: () => Date;
+  readonly provisionWaitMs?: number;
+  readonly provisionHeartbeatMs?: number;
+  readonly sourceReporter?: SourceReporter;
+  readonly mailer?: PlatformMailer;
 }
 
-/**
- * Public, session-free routes for self-serve signup — mounted under
- * `/api/signup` in `cloud-app.ts` only (never on the desktop LAN socket,
- * which has no concept of "the internet at large" to be rate-limited
- * against). A tenant exists as `provisioning` in the platform tenant table
- * from the moment {@link startSignup} runs, but `provisionTenant` — the only
- * thing that seeds it, creates its admin and starts its trial — runs
- * exclusively from `POST /verify`, so an unverified email can never end up
- * owning a live tenant.
- */
 export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   const { platform, router, env } = options;
   const now = options.now ?? (() => new Date());
+  const provisionWaitMs = options.provisionWaitMs ?? PROVISION_WAIT_MS;
+  const provisionHeartbeatMs = options.provisionHeartbeatMs ?? PROVISION_HEARTBEAT_MS;
 
   // Deliberately generous per-IP, tighter per-email — an office behind one
   // NAT address signing up several trials in an hour is normal; the same
@@ -136,6 +160,8 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   const verifyIpLimit = createRateLimiter(30, 60 * 60_000);
 
   const app = new Hono();
+  app.use("*", requireCloudSource(env.clientSource, options.sourceReporter));
+  app.use("*", connectionTurn(platform.audit));
 
   function tooManyRequests(c: Context, retryAfterSeconds: number): Response {
     c.header("retry-after", String(retryAfterSeconds));
@@ -156,7 +182,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
    * shape as `/platform/resolve`'s fix (see `tenant-router.ts`).
    */
   app.get("/check-code", async (c) => {
-    const ip = clientIp(c, env.trustProxy);
+    const ip = callerSource(c);
     const wait = checkCodeLimit.retryAfter(ip);
     if (wait > 0) return tooManyRequests(c, wait);
     checkCodeLimit.consume(ip);
@@ -166,12 +192,13 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       return c.json({ error: "VALIDATION_ERROR", message: "صيغة الرمز غير صالحة" }, 400);
     }
     const nowIso = now().toISOString();
-    const taken = (await platform.stores.tenants.findByCode(code)) || (await platform.stores.signupRequests.findActiveByCode(code, nowIso));
+    const taken =
+      isReservedTenantCode(code) || (await platform.stores.tenants.findByCode(code)) || (await platform.stores.signupRequests.findActiveByCode(code, nowIso));
     return c.json({ available: !taken });
   });
 
   app.post("/", async (c) => {
-    const ip = clientIp(c, env.trustProxy);
+    const ip = callerSource(c);
     const ipWait = startIpLimit.retryAfter(ip);
     if (ipWait > 0) return tooManyRequests(c, ipWait);
     // Consumed BEFORE parsing, not after: a flood of malformed bodies must
@@ -198,6 +225,17 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
 
     if (isDisposableEmailDomain(body.ownerEmail)) {
       return c.json({ error: "DISPOSABLE_EMAIL", message: "لا يمكن استخدام بريد إلكتروني مؤقّت للتسجيل" }, 400);
+    }
+
+    // SECURITY: a link that will be MAILED is built only on an origin this
+    // deployment trusts, and decided before anything is recorded. With no
+    // trusted origin the signup is refused: a mailed link on a caller-chosen
+    // host hands the activation token to that host.
+    const mailer = options.mailer;
+    const origin = mailer ? await trustedPublicOrigin(c.req.raw, env, servedTenantLookup(platform)) : forwardedOrigin(c.req.raw, env.trustProxy);
+    if (origin === null) {
+      console.error("[signup] refused: mail is configured but no public origin is (set MEZAN_PUBLIC_URL or MEZAN_TENANT_DOMAIN)");
+      return c.json({ error: "SIGNUP_LINK_ORIGIN_UNKNOWN", message: "التسجيل غير متاح الآن. حاول لاحقًا أو تواصل مع الدعم." }, 503);
     }
 
     // DEC-31 rule 1 — every sign-up is a reverse trial on the TOP public paid
@@ -230,21 +268,19 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       return signupErrorResponse(c, err);
     }
 
-    const origin = forwardedOrigin(c.req.raw, env.trustProxy);
     const verifyUrl = `${origin}/signup/verify?token=${encodeURIComponent(token)}`;
 
+    // SECURITY: no platform mail configured at all is dev mode, by deployment choice.
+    // Showing the link back to whoever submitted the form is safe ONLY then:
+    // once mail is configured a delivery failure never leaks a link for an
+    // address the caller does not control.
     let devVerifyUrl: string | null = null;
-    if (!env.platformSmtp) {
-      // No platform SMTP configured at all — dev mode, by deployment choice.
-      // Showing the link back to whoever just submitted this form is safe
-      // ONLY because that is true; the moment SMTP is configured this branch
-      // never runs, so a delivery hiccup below can never leak a link for an
-      // email address the caller does not control.
+    if (!mailer) {
       devVerifyUrl = verifyUrl;
     } else {
       const mail = verificationEmail(verifyUrl, body.nameAr);
-      const result = await sendNotificationEmail(env.platformSmtp, body.ownerEmail, mail);
-      if (result.outcome !== "sent") {
+      const result = await platform.outsideTheTurn(() => mailer.send(body.ownerEmail, mail));
+      if (result.outcome !== MailOutcome.Sent) {
         console.error(`[signup] verification email to a pending tenant could not be delivered (${result.outcome}): ${result.detail}`);
       }
     }
@@ -253,22 +289,22 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     return c.json(responseBody, 201);
   });
 
-  app.post("/verify", async (c) => {
-    const ip = clientIp(c, env.trustProxy);
-    const wait = verifyIpLimit.retryAfter(ip);
-    if (wait > 0) return tooManyRequests(c, wait);
-    verifyIpLimit.consume(ip);
+  async function tenantSettledBy(request: SignupRequest): Promise<Tenant | null> {
+    const tenant = await platform.stores.tenants.findByCode(request.code);
+    if (!tenant || tenant.ownerEmail !== request.ownerEmail) return null;
+    if (tenant.status === TenantStatusCode.Archived) throw new SignupTokenInvalidError();
+    return tenant.status === TenantStatusCode.Active || tenant.status === TenantStatusCode.Suspended ? tenant : null;
+  }
 
-    const parsed = verifySignupRequestSchema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+  function alreadyVerifiedAnswer(tenant: Tenant, request: SignupRequest): VerifySignupResultDTO {
+    return { tenant: tenantDTOOf(tenant), adminEmail: request.ownerEmail, adminPin: null, alreadyVerified: true };
+  }
 
-    const tokenHash = hashToken(parsed.data.token);
-    const nowIso = now().toISOString();
+  async function settleVerification(request: SignupRequest, stillOurs: () => Promise<boolean>, fence: number): Promise<VerifySignupResultDTO> {
+    const settled = await tenantSettledBy(request);
+    if (settled) return alreadyVerifiedAnswer(settled, request);
+
     try {
-      const before = await platform.stores.signupRequests.findByTokenHash(tokenHash);
-      const alreadyVerified = before?.status === SignupRequestStatus.Verified;
-      const request = await verifySignup(tokenHash, platform.stores.signupRequests, nowIso);
-
       const provisioned = await provisionTenant(
         {
           code: request.code,
@@ -280,12 +316,95 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
           billingCycle: request.billingCycle,
           trial: true,
         },
-        { platform, router, now },
+        { platform, router, now, stillOurs, fence },
       );
       router.invalidate(provisioned.tenant.code);
+      return { ...provisionResultDTOOf(provisioned), alreadyVerified: provisioned.adminPin === null };
+    } catch (err) {
+      if (err instanceof ProvisioningSupersededError) throw err;
+      const settledMeanwhile = await tenantSettledBy(request).catch(() => null);
+      if (settledMeanwhile) return alreadyVerifiedAnswer(settledMeanwhile, request);
+      throw err;
+    }
+  }
 
-      const responseBody: VerifySignupResultDTO = { ...provisioned, alreadyVerified };
-      return c.json(responseBody);
+  const claims = platform.stores.signupRequests;
+
+  function claimIsLive(claimedAt: string | null): boolean {
+    return claimedAt !== null && new Date(claimedAt).getTime() >= now().getTime() - PROVISION_CLAIM_STALE_MS;
+  }
+
+  async function waitWhileClaimed(tokenHash: string, giveUpAt: number): Promise<boolean> {
+    let delay = PROVISION_POLL_FIRST_MS;
+    for (;;) {
+      if (!claimIsLive(await claims.provisioningClaimedAt(tokenHash))) return true;
+      const left = giveUpAt - Date.now();
+      if (left <= 0) return false;
+      await platform.outsideTheTurn(() => pause(Math.min(delay, left)));
+      delay = Math.min(delay * 2, PROVISION_POLL_MAX_MS);
+    }
+  }
+
+  async function answerOfTheWinner(request: SignupRequest, tokenHash: string, giveUpAt: number): Promise<VerifySignupResultDTO> {
+    const released = (await waitWhileClaimed(tokenHash, giveUpAt)) && (await claims.provisioningClaimedAt(tokenHash)) === null;
+    const settled = released ? await tenantSettledBy(request) : null;
+    if (!settled) throw new SignupVerificationBusyError();
+    return alreadyVerifiedAnswer(settled, request);
+  }
+
+  async function verifyInTurn(tokenHash: string): Promise<VerifySignupResultDTO> {
+    const request = await verifySignup(tokenHash, claims, now().toISOString(), platform.stores.tenants);
+    const claimId = randomUUID();
+    const giveUpAt = Date.now() + provisionWaitMs;
+    for (;;) {
+      if (!(await waitWhileClaimed(tokenHash, giveUpAt))) throw new SignupVerificationBusyError();
+      const at = now().getTime();
+      if (await claims.tryClaimProvisioning(tokenHash, claimId, new Date(at).toISOString(), new Date(at - PROVISION_CLAIM_STALE_MS).toISOString())) break;
+      if (Date.now() >= giveUpAt) throw new SignupVerificationBusyError();
+    }
+    const stillOurs = () => claims.renewProvisioning(tokenHash, claimId, now().toISOString());
+    const heartbeat = setInterval(() => void stillOurs().catch((err: unknown) => console.error("[signup] provisioning claim heartbeat failed", err)), provisionHeartbeatMs);
+    heartbeat.unref();
+    try {
+      const fence = await claims.provisioningFence(tokenHash, claimId);
+      if (fence === null) throw new ProvisioningSupersededError();
+      return await settleVerification(request, stillOurs, fence);
+    } catch (err) {
+      if (err instanceof ProvisioningSupersededError) return await answerOfTheWinner(request, tokenHash, giveUpAt);
+      throw err;
+    } finally {
+      clearInterval(heartbeat);
+      await claims.releaseProvisioning(tokenHash, claimId);
+    }
+  }
+
+  // SECURITY: the token is the only credential here, and it was mailed to the
+  // previously recorded owner address. Every failure answers the same way.
+  app.post("/owner-handover", async (c) => {
+    const ip = callerSource(c);
+    const wait = verifyIpLimit.retryAfter(ip);
+    if (wait > 0) return tooManyRequests(c, wait);
+    verifyIpLimit.consume(ip);
+
+    const parsed = verifySignupRequestSchema.safeParse(await c.req.json().catch(() => null));
+    const confirmed = parsed.success ? await router.confirmPendingOwnerByToken(parsed.data.token) : null;
+    if (!confirmed) {
+      return c.json({ error: "OWNER_HANDOVER_LINK_INVALID", message: "رابط التأكيد غير صالح أو سبق استخدامه." }, 400);
+    }
+    return c.json({ confirmed: true });
+  });
+
+  app.post("/verify", async (c) => {
+    const ip = callerSource(c);
+    const wait = verifyIpLimit.retryAfter(ip);
+    if (wait > 0) return tooManyRequests(c, wait);
+    verifyIpLimit.consume(ip);
+
+    const parsed = verifySignupRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return signupErrorResponse(c, new SignupTokenInvalidError());
+
+    try {
+      return c.json(await verifyInTurn(hashToken(parsed.data.token)));
     } catch (err) {
       return signupErrorResponse(c, err);
     }

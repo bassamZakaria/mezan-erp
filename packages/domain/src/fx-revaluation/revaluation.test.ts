@@ -11,7 +11,9 @@ import {
 import type { JournalPostingDeps } from "../gl/post.js";
 import { FxRateMissingError } from "../exchange-rates/convert.js";
 import type { PostedLine } from "../gl/ledger.js";
-import { computeFxRevaluation, deriveOpenFxBalances, postFxRevaluation, nextDay, fxRevaluationNet, type OpenFxBalance, type FxRevaluationConfig } from "./revaluation.js";
+import { attributeRevaluation, computeFxRevaluation, deriveOpenFxBalances, postFxRevaluation, nextDay, fxRevaluationNet, openFxItemsKey, type OpenFxBalance, type OpenFxItem, type FxRevaluationConfig } from "./revaluation.js";
+import { convertToBase } from "../exchange-rates/convert.js";
+import { FxOpenItemType } from "../vouchers/allocation.js";
 
 function account(id: string, overrides: Partial<Account> = {}): Account {
   return { id, code: id, nameAr: id, nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active", ...overrides };
@@ -167,7 +169,7 @@ describe("fxRevaluationNet", () => {
     const entries = await ledger.list();
     return entries
       .filter((e) => e.date <= toDate)
-      .flatMap((e) => e.lines.map((l) => ({ accountId: l.accountId, memo: l.memo ?? null, source: e.source ?? "manual", debit: l.debit, credit: l.credit })));
+      .flatMap((e) => e.lines.map((l) => ({ accountId: l.accountId, memo: l.memo ?? null, source: e.source ?? "manual", sourceDocType: e.sourceDocType ?? null, debit: l.debit, credit: l.credit })));
   }
   const balances: OpenFxBalance[] = [
     { accountId: "1100", currency: "USD", foreignAmount: Money.fromMajor("100"), bookedBase: Money.fromMajor("5000"), naturalBalance: "debit" },
@@ -182,6 +184,14 @@ describe("fxRevaluationNet", () => {
 
   it("ignores a manual journal that happens to reuse the memo", () => {
     const lines = [{ accountId: "1100", memo: "إعادة تقييم عملات أجنبية", source: "manual" as const, debit: Money.fromMajor("9"), credit: Money.zero() }];
+    expect(fxRevaluationNet(lines, "1100").toString()).toBe(Money.zero().toString());
+  });
+
+  it("ignores an entry marked system that reuses the memo but is not a revaluation document", () => {
+    const lines = [
+      { accountId: "1100", memo: "إعادة تقييم عملات أجنبية", source: "system" as const, sourceDocType: null, debit: Money.fromMajor("9"), credit: Money.zero() },
+      { accountId: "1100", memo: "إعادة تقييم عملات أجنبية", source: "system" as const, sourceDocType: "JOURNAL", debit: Money.fromMajor("7"), credit: Money.zero() },
+    ];
     expect(fxRevaluationNet(lines, "1100").toString()).toBe(Money.zero().toString());
   });
 });
@@ -244,5 +254,33 @@ describe("deriveOpenFxBalances — only a monetary item is an open FX position (
     );
     expect(open.map((b) => b.accountId)).toEqual(["1105", "1310", "2100"]);
     expect(open.map((b) => b.foreignAmount.toString())).toEqual(["1000.000000", "200.000000", "500.000000"]);
+  });
+});
+
+describe("attributing a restatement to the items behind a balance", () => {
+  const RATE = "0.5";
+  const item = (itemId: string): OpenFxItem => ({ itemId, itemType: FxOpenItemType.Invoice, kind: "sales", partyId: "cust", foreignOutstanding: Money.fromScaled(1n), carryingBase: Money.zero() });
+  const items = [item("a"), item("b"), item("c")];
+  const whole = convertToBase(Money.fromScaled(3n), RATE).scaled;
+  const perItem = items.reduce((sum, row) => sum + convertToBase(row.foreignOutstanding, RATE).scaled, 0n);
+
+  it("three items that each round up while their total rounds once: the shares add up to the balance's own delta, not to the sum of the items' rounded deltas", () => {
+    expect(perItem).not.toBe(whole);
+
+    const shares = attributeRevaluation(whole, items, RATE);
+
+    expect(shares.reduce((sum, value) => sum + value, 0n)).toBe(whole);
+  });
+
+  it("the run's shares and its control lines both equal the delta the preview shows for the balance", () => {
+    const balance: OpenFxBalance = { accountId: "1105", currency: "USD", foreignAmount: Money.fromScaled(3n), bookedBase: Money.zero(), naturalBalance: "debit" };
+    const config: FxRevaluationConfig = { date: "2026-08-31", closingRates: new Map([["USD", RATE]]), gainAccountId: "4940", lossAccountId: "5940", openItems: new Map([[openFxItemsKey("1105", "USD"), items]]) };
+
+    const computed = computeFxRevaluation([balance], config);
+
+    const delta = computed.details[0]!.delta.scaled;
+    expect(delta).toBe(whole);
+    expect(computed.shares.reduce((sum, share) => sum + share.amount.scaled, 0n)).toBe(delta);
+    expect(computed.lines.filter((line) => line.accountId === "1105").reduce((sum, line) => sum + line.debit.scaled - line.credit.scaled, 0n)).toBe(delta);
   });
 });

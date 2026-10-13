@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
-import { parseEnv } from "./env.js";
+import { parseEnv, PaymobMode } from "./env.js";
 import { createCloudApp } from "./cloud-app.js";
 
 /**
@@ -31,7 +31,7 @@ if (env.seedAdminPin) {
  * double's fake checkout renews a subscription for free by design; it is only
  * acceptable where every tenant is seeded demo data.
  */
-if (env.paymob.mode === "test" && !env.seedDemo) {
+if (env.paymob.mode === PaymobMode.Test && !env.seedDemo) {
   console.error("[cloud] REFUSING TO START: MEZAN_PAYMOB_TEST_MODE=1 is only allowed with MEZAN_SEED_DEMO=1.");
   console.error("[cloud] Set the four MEZAN_PAYMOB_* keys for real card checkout, or leave it off.");
   process.exit(1);
@@ -106,19 +106,10 @@ const transformIndexHtml = analyticsToken
 
 const { root } = await createCloudApp(env, { authMiddleware, transformIndexHtml });
 
-/**
- * SECURITY-RELEVANT, AND DELIBERATE: the second argument is dropped, so
- * @mezan/api's requestOrigin() sees no `incoming` socket and every session
- * binds to the null "host" origin instead of a peer address.
- *
- * The session-origin binding (packages/api/src/session-auth.ts) revokes a
- * token the moment it arrives from a second address. Behind this host's
- * reverse proxy the peer address is the proxy, not the client, so the control
- * distinguishes nothing here — but if the proxy answers from a second internal
- * address the demo user is signed out mid-click. Binding to null keeps the
- * demo usable and gives up a control that was already blind at this mount.
- * The desktop and LAN mounts pass the socket through and keep the binding.
- */
-serve({ fetch: (request: Request) => root.fetch(request), port: env.port, hostname: "0.0.0.0" }, (info) => {
+// SECURITY: the socket is passed through, and is the caller's address only
+// when no proxy is trusted. With MEZAN_TRUST_PROXY=1 it is the proxy and is
+// never read: the address comes from the forwarded chain, and a request whose
+// chain yields none is refused (client-source.ts).
+serve({ fetch: root.fetch, port: env.port, hostname: "0.0.0.0" }, (info) => {
   console.log(`[cloud] Mezan platform on :${info.port} (platform dir: ${env.platformDir})`);
 });

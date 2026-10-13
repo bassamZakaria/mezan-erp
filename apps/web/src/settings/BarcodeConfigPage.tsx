@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { READ_ONLY_CLOSE, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import { Card, DocumentDetail, Button, StatusPill, IconButton } from "@mezan/ui";
 import { validateBarcodeConfig, type BarcodeConfig, type EmbeddedBarcodeRule } from "@mezan/domain";
 import type { BarcodeConfigDTO } from "@mezan/contracts";
@@ -68,7 +69,7 @@ function RuleCard({
         </div>
         <div className="flex items-center gap-[8px] pt-[22px]">
           <StatusPill label={rule.active ? t("barcode.enabled") : t("barcode.disabled")} tone={rule.active ? "success" : "neutral"} />
-          <IconButton aria-label={t("barcode.deleteTheRule")} onClick={onRemove}>
+          <IconButton {...READ_ONLY_CLOSE} aria-label={t("barcode.deleteTheRule")} onClick={onRemove}>
             ×
           </IconButton>
         </div>
@@ -94,6 +95,14 @@ function RuleCard({
 }
 
 export function BarcodeConfigPage() {
+  return (
+    <ReadOnlyFields>
+      <BarcodeConfigPageContent />
+    </ReadOnlyFields>
+  );
+}
+
+function BarcodeConfigPageContent() {
   const { t } = useAppTranslation();
   const query = useBarcodeConfig();
   const updateMutation = useUpdateBarcodeConfig();

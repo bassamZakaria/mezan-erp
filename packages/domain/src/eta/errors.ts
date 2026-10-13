@@ -46,6 +46,16 @@ export class InvalidEtaTransitionError extends Error {
   }
 }
 
+export class EtaSubmissionInFlightError extends Error {
+  readonly code = "ETA_SUBMISSION_IN_PROGRESS";
+  readonly messageEn: string;
+  constructor(readonly id: string) {
+    super("هذا المستند قيد الإرسال إلى مصلحة الضرائب الآن. انتظر حتى تنتهي المحاولة الجارية ثم حاول مرة أخرى.");
+    this.messageEn = `ETA submission "${id}" is being transmitted right now; wait for that attempt to finish.`;
+    this.name = "EtaSubmissionInFlightError";
+  }
+}
+
 /** The ONLINE transmit path is a stub in this build — it is refused offline. */
 export class EtaOfflineError extends Error {
   readonly code = "ETA_OFFLINE";
@@ -64,14 +74,15 @@ export class EtaOfflineError extends Error {
  */
 export class EtaDeviceSerialNotRegisteredError extends Error {
   readonly code = "ETA_DEVICE_SERIAL_NOT_REGISTERED";
+  readonly messageEn: string;
   constructor(readonly branch: string | null) {
     const where = branch ? ` (${branch})` : "";
     super(
       `لا يمكن إصدار إيصال إلكتروني: لم يُسجَّل رقم تسلسلي لجهاز نقطة البيع لهذا الفرع${where} لدى المصلحة. ` +
-        `سجّل الرقم التسلسلي للجهاز في «أكواد الفروع لدى المصلحة» قبل البيع. ` +
-        `No POS device serial number is registered with the Tax Authority for this branch${where}; ` +
-        `register the device serial under the ETA branch codes before issuing a receipt.`,
+        `سجّل الرقم التسلسلي للجهاز في «أكواد الفروع لدى المصلحة» قبل البيع.`,
     );
+    this.messageEn = `No POS device serial number is registered with the Tax Authority for this branch${where}; ` +
+      `register the device serial under the ETA branch codes before issuing a receipt.`;
     this.name = "EtaDeviceSerialNotRegisteredError";
   }
 }
@@ -83,11 +94,10 @@ export class EtaDeviceSerialNotRegisteredError extends Error {
  */
 export class EtaRefundReferenceRequiredError extends Error {
   readonly code = "ETA_REFUND_REFERENCE_REQUIRED";
+  readonly messageEn: string;
   constructor(readonly receiptNumber: string) {
-    super(
-      `لا يمكن إصدار إيصال مرتجع (${receiptNumber}) دون الإشارة إلى الإيصال الإلكتروني الأصلي للبيع. ` +
-        `A refund receipt (${receiptNumber}) must reference the original sale receipt's UUID.`,
-    );
+    super(`لا يمكن إصدار إيصال مرتجع (${receiptNumber}) دون الإشارة إلى الإيصال الإلكتروني الأصلي للبيع.`);
+    this.messageEn = `A refund receipt (${receiptNumber}) must reference the original sale receipt's UUID.`;
     this.name = "EtaRefundReferenceRequiredError";
   }
 }
@@ -95,11 +105,10 @@ export class EtaRefundReferenceRequiredError extends Error {
 /** The original sale was never receipted, so there is no UUID a refund receipt can reference. */
 export class EtaOriginalReceiptNotFoundError extends Error {
   readonly code = "ETA_ORIGINAL_RECEIPT_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly invoiceNumber: string) {
-    super(
-      `لا يوجد إيصال إلكتروني للفاتورة الأصلية ${invoiceNumber}، فلا يمكن إصدار إيصال مرتجع يشير إليه. ` +
-        `The original sale ${invoiceNumber} has no e-receipt for a refund receipt to reference.`,
-    );
+    super(`لا يوجد إيصال إلكتروني للفاتورة الأصلية ${invoiceNumber}، فلا يمكن إصدار إيصال مرتجع يشير إليه.`);
+    this.messageEn = `The original sale ${invoiceNumber} has no e-receipt for a refund receipt to reference.`;
     this.name = "EtaOriginalReceiptNotFoundError";
   }
 }
@@ -107,11 +116,10 @@ export class EtaOriginalReceiptNotFoundError extends Error {
 /** A serial named for a receipt that no branch (or terminal) has registered. */
 export class EtaDeviceSerialUnknownError extends Error {
   readonly code = "ETA_DEVICE_SERIAL_UNKNOWN";
+  readonly messageEn: string;
   constructor(readonly serial: string) {
-    super(
-      `الرقم التسلسلي ${serial} غير مسجّل لأي جهاز نقطة بيع لدى المصلحة. ` +
-        `Serial ${serial} is not a registered POS device.`,
-    );
+    super(`الرقم التسلسلي ${serial} غير مسجّل لأي جهاز نقطة بيع لدى المصلحة.`);
+    this.messageEn = `Serial ${serial} is not a registered POS device.`;
     this.name = "EtaDeviceSerialUnknownError";
   }
 }
@@ -123,23 +131,31 @@ export class EtaDeviceSerialUnknownError extends Error {
  */
 export class EtaReceiptNotReadyError extends Error {
   readonly code = "ETA_RECEIPT_NOT_READY";
+  readonly messageEn: string;
   constructor(readonly reasons: readonly string[]) {
-    super(
-      `لا يمكن إصدار الإيصال الإلكتروني قبل استكمال بيانات التسجيل: ${reasons.join("، ")}. ` +
-        `The e-receipt cannot be issued until its registration data is complete: ${reasons.join("; ")}.`,
-    );
+    super(`لا يمكن إصدار الإيصال الإلكتروني قبل استكمال بيانات التسجيل: ${reasons.join("، ")}.`);
+    this.messageEn = `The e-receipt cannot be issued until its registration data is complete: ${reasons.join("; ")}.`;
     this.name = "EtaReceiptNotReadyError";
+  }
+}
+
+export class EtaReceiptNotASupplyError extends Error {
+  readonly code = "ETA_RECEIPT_NOT_A_SUPPLY";
+  readonly messageEn: string;
+  constructor(readonly documentNumber: string) {
+    super(`المستند ${documentNumber} إفراج عن محتجزات وليس بيعاً، فلا يصدر له إيصال إلكتروني ولا يُرسل لمصلحة الضرائب.`);
+    this.messageEn = `Document ${documentNumber} is a retention release, not a sale; it is issued no e-receipt and is not filed with the tax authority.`;
+    this.name = "EtaReceiptNotASupplyError";
   }
 }
 
 /** SDK Receipt v1.2 buyer: a natural person at or above the threshold must carry a national ID and a name. */
 export class EtaBuyerIdentityRequiredError extends Error {
   readonly code = "ETA_BUYER_IDENTITY_REQUIRED";
+  readonly messageEn: string;
   constructor(readonly threshold: string) {
-    super(
-      `إيصال بقيمة ${threshold} جنيه أو أكثر لشخص طبيعي يتطلب الرقم القومي والاسم. سجّلهما على العميل ثم أعد الإصدار. ` +
-        `A receipt of EGP ${threshold} or more to a natural person needs the buyer's national ID and name.`,
-    );
+    super(`إيصال بقيمة ${threshold} جنيه أو أكثر لشخص طبيعي يتطلب الرقم القومي والاسم. سجّلهما على العميل ثم أعد الإصدار.`);
+    this.messageEn = `A receipt of EGP ${threshold} or more to a natural person needs the buyer's national ID and name.`;
     this.name = "EtaBuyerIdentityRequiredError";
   }
 }
@@ -147,28 +163,11 @@ export class EtaBuyerIdentityRequiredError extends Error {
 /** SDK Receipt Issuance FAQ: a return receipt may be issued at most 540 days after the sale receipt. */
 export class EtaRefundTooLateError extends Error {
   readonly code = "ETA_REFUND_TOO_LATE";
+  readonly messageEn: string;
   constructor(readonly saleIssuedAt: string) {
-    super(
-      `لا يمكن إصدار إيصال مرتجع بعد مرور 540 يوماً على إيصال البيع (${saleIssuedAt}). ` +
-        `A return receipt cannot be issued more than 540 days after the sale receipt (${saleIssuedAt}).`,
-    );
+    super(`لا يمكن إصدار إيصال مرتجع بعد مرور 540 يوماً على إيصال البيع (${saleIssuedAt}).`);
+    this.messageEn = `A return receipt cannot be issued more than 540 days after the sale receipt (${saleIssuedAt}).`;
     this.name = "EtaRefundTooLateError";
-  }
-}
-
-/**
- * A consumer sale whose e-receipt exists cannot be voided: the authority has no
- * cancellation for a receipt, so voiding would drop the VAT from the books while
- * the authority keeps it. The correction is a return, which files a refund receipt.
- */
-export class EtaReceiptedSaleVoidRefusedError extends Error {
-  readonly code = "ETA_RECEIPTED_SALE_VOID_REFUSED";
-  constructor(readonly receiptNumber: string) {
-    super(
-      `لا يمكن إلغاء الفاتورة ${receiptNumber}: صدر لها إيصال إلكتروني، والإيصال لا يُلغى لدى المصلحة. استخدم مرتجع مبيعات ليصدر إيصال مرتجع. ` +
-        `Invoice ${receiptNumber} has an e-receipt, which the authority cannot cancel; record a sales return instead.`,
-    );
-    this.name = "EtaReceiptedSaleVoidRefusedError";
   }
 }
 

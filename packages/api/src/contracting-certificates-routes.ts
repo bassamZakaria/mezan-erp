@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   CertificateDateOrderError,
@@ -10,7 +11,6 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   ProgressCertificateNotFoundError,
-  VatPeriodAlreadyFiledError,
   type CertificateComputation,
   type CertificateMaterialLine,
   type CertificateServiceDeps,
@@ -30,6 +30,8 @@ import {
   voidProgressCertificateSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * المستخلص — the certificate, its two-stage approval, the generated invoice
@@ -236,6 +238,9 @@ function serializeInternal(report: InternalCertificateReport) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof ProgressCertificateNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -255,8 +260,7 @@ function handleDomainError(c: Context, err: unknown) {
    */
   if (
     err instanceof PeriodNotOpenForPostingError ||
-    err instanceof NoFiscalPeriodForDateError ||
-    err instanceof VatPeriodAlreadyFiledError
+    err instanceof NoFiscalPeriodForDateError
   ) {
     return c.json({ error: (err as { code?: string }).code ?? "PERIOD_REFUSED", message: err.message }, 409);
   }

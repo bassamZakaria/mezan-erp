@@ -61,6 +61,7 @@ export interface TreasuryDisbursementPort {
   disburse(request: TreasuryDisbursementRequest): Promise<TreasuryDisbursementResult>;
   /** Money coming IN through a receipt voucher: Dr treasury / Cr the counterparty account. */
   receive?(request: TreasuryDisbursementRequest): Promise<TreasuryDisbursementResult>;
+  reverse?(voucherId: string, opts: { readonly reversalId: string; readonly date?: string; readonly memo?: string }): Promise<void>;
 }
 
 export interface DisbursementInput {

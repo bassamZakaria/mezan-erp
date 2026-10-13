@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { DuplicateItemCodeError, Money, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType, type ItemSpecificationValue } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /**
  * Self-contained SQLite-backed ItemRepository (docs/archive/catalog/03-inventory.md
@@ -125,6 +126,7 @@ function toItem(row: ItemRow): Item {
 
 class SqliteItemStore implements ItemRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -176,6 +178,7 @@ class SqliteItemStore implements ItemRepository {
         gpc_code = excluded.gpc_code,
         status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM item WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM item WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM item`);
@@ -197,7 +200,7 @@ class SqliteItemStore implements ItemRepository {
   }
 
   async create(item: Item): Promise<void> {
-    this.write(item);
+    insertingNew(item.id, () => this.write(item, this.insertOnly));
   }
 
   async update(item: Item): Promise<void> {
@@ -211,9 +214,9 @@ class SqliteItemStore implements ItemRepository {
    * the pre-check throw, so `createItem`'s allocation retry can catch it
    * regardless of which layer won the race.
    */
-  private write(item: Item): void {
+  private write(item: Item, statement: Database.Statement = this.upsert): void {
     try {
-      this.runUpsert(item);
+      this.runUpsert(item, statement);
     } catch (err) {
       if (err instanceof Error && "code" in err && (err as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE") {
         throw new DuplicateItemCodeError(item.code);
@@ -222,8 +225,8 @@ class SqliteItemStore implements ItemRepository {
     }
   }
 
-  private runUpsert(item: Item): void {
-    this.upsert.run({
+  private runUpsert(item: Item, statement: Database.Statement): void {
+    statement.run({
       id: item.id,
       code: item.code,
       name_ar: item.nameAr,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for Bank Statement Reconciliation (docs/archive/catalog/04
@@ -120,7 +121,7 @@ export const statementLineSchema = z.object({
 
 /** Import a CSV bank statement. The raw file content crosses as text. */
 export const importBankStatementSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   treasuryAccountId: z.string().min(1),
   rawCsv: z.string().min(1),
   mapping: columnMappingInputSchema,
@@ -129,13 +130,15 @@ export const importBankStatementSchema = z.object({
   openingBalance: moneyString,
   closingBalance: z.string(),
   statementNumber: z.string().nullish(),
+  /** The branch a statement on a company-level account is for; required of a user who holds several branches. */
+  branchId: z.string().min(1).nullish(),
   /** An Excel statement is converted to CSV text in the browser; this records the file it came from. */
   source: z.enum([StatementSourceCode.Csv, StatementSourceCode.Excel]).optional(),
 });
 
 /** Import an OFX or MT940 statement; balances and the period default to what the file states. */
 export const importStatementFileSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   treasuryAccountId: z.string().min(1),
   format: z.nativeEnum(StatementFileFormatCode),
   content: z.string().min(1),
@@ -144,6 +147,7 @@ export const importStatementFileSchema = z.object({
   openingBalance: moneyString.nullish(),
   closingBalance: moneyString.nullish(),
   statementNumber: z.string().nullish(),
+  branchId: z.string().min(1).nullish(),
 });
 
 export const matchManyEntriesSchema = z.object({
@@ -156,6 +160,8 @@ export const createEntryFromLineSchema = z.object({
   ruleId: z.string().min(1).nullish(),
   memo: z.string().max(500).nullish(),
   date: isoDate.nullish(),
+  /** The branch a charge on a company-level statement is booked to; unattributed when omitted. */
+  branchId: z.string().min(1).nullish(),
 });
 
 export const finalizeStatementSchema = z.object({
@@ -195,7 +201,7 @@ export const matchStatementLineSchema = z.object({
 });
 
 export const addManualLineSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: z.string().min(1),
   description: z.string().min(1),
   reference: z.string().nullish(),

@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { ApiProvider, useApi } from "./ApiContext";
+import { AppI18nProvider } from "../i18n";
 import { createQueryClient } from "./queryClient";
 import { stubTransport, testAdminSession } from "./test-support";
-import { sessionExpiredPending, type Session } from "./session";
+import { SignInNotice, pendingSignInNotice, sessionExpiredPending, type Session } from "./session";
 
 const STORAGE_KEY = "mezan.session";
 
@@ -106,11 +107,13 @@ function RequestProbe({ path }: { path: string }) {
 function renderRequestProbe(path: string, transport: ReturnType<typeof stubTransport>, initialSession: Session | null = testAdminSession) {
   const queryClient = createQueryClient();
   const view = render(
-    <QueryClientProvider client={queryClient}>
-      <ApiProvider transport={transport} initialSession={initialSession}>
-        <RequestProbe path={path} />
-      </ApiProvider>
-    </QueryClientProvider>,
+    <AppI18nProvider>
+      <QueryClientProvider client={queryClient}>
+        <ApiProvider transport={transport} initialSession={initialSession}>
+          <RequestProbe path={path} />
+        </ApiProvider>
+      </QueryClientProvider>
+    </AppI18nProvider>,
   );
   return { ...view, queryClient };
 }
@@ -132,6 +135,19 @@ describe("ApiProvider request() — 401 session expiry", () => {
     await screen.findByText("none");
     expect(sessionExpiredPending()).toBe(true);
     expect(clearSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a 401 that says another user signed in on this device signs the user out with that reason, not as an expired session", async () => {
+    const transport = stubTransport({
+      "GET /items": () => ({ status: 401, sessionEnded: "displaced", body: { error: "SESSION_DISPLACED", message: "سجّل مستخدم آخر الدخول على هذا الجهاز" } }),
+    });
+    renderRequestProbe("/items", transport);
+
+    fireEvent.click(screen.getByText("call"));
+
+    await screen.findByText("none");
+    expect(pendingSignInNotice()).toBe(SignInNotice.SignedInElsewhere);
+    expect(sessionExpiredPending()).toBe(false);
   });
 
   it("a 403 (a real permission refusal) does NOT sign the user out or touch the cache — only 401 means the session itself is gone", async () => {
@@ -236,5 +252,77 @@ describe("ApiProvider request() — the topbar narrowing rides on reads only", (
     // testAdminSession holds the all-scope sentinel, so the write is unnarrowed.
     expect(write?.warehouse).toBe("*");
     expect(write?.branch).toBe("*");
+  });
+});
+
+describe("ApiProvider request() — the PIN asked for again after the session's address moved", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  const STEP_UP = { status: 403, body: { error: "STEP_UP_REQUIRED", message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال رمز PIN لتأكيد هذا الإجراء." } };
+
+  it("asks for the PIN in a dialog, confirms it with the server, and sends the original request once more", async () => {
+    let calls = 0;
+    let confirmedPin: unknown = null;
+    const transport = stubTransport({
+      "GET /items": () => {
+        calls += 1;
+        return calls === 1 ? STEP_UP : { body: [] };
+      },
+      "POST /auth/step-up": (init) => {
+        confirmedPin = JSON.parse((init?.body as string) ?? "{}");
+        return { body: { ok: true } };
+      },
+    });
+    renderRequestProbe("/items", transport);
+    fireEvent.click(screen.getByText("call"));
+
+    const dialog = await screen.findByRole("dialog", { name: "تأكيد رمز PIN" });
+    expect(dialog).toHaveTextContent("تغيّر عنوان اتصالك");
+    fireEvent.change(screen.getByLabelText("رمز PIN"), { target: { value: "135790" } });
+    fireEvent.click(screen.getByRole("button", { name: "تأكيد" }));
+
+    await waitFor(() => expect(calls).toBe(2));
+    expect(confirmedPin).toEqual({ pin: "135790" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByTestId("session-id")).toHaveTextContent("USER-ADMIN");
+  });
+
+  it("shows the server's refusal for a wrong PIN and keeps the dialog open; cancelling hands the 403 back to the screen", async () => {
+    let calls = 0;
+    const transport = stubTransport({
+      "GET /items": () => {
+        calls += 1;
+        return STEP_UP;
+      },
+      "POST /auth/step-up": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "رمز PIN غير صحيح." } }),
+    });
+    renderRequestProbe("/items", transport);
+    fireEvent.click(screen.getByText("call"));
+
+    await screen.findByRole("dialog", { name: "تأكيد رمز PIN" });
+    fireEvent.change(screen.getByLabelText("رمز PIN"), { target: { value: "000000" } });
+    fireEvent.click(screen.getByRole("button", { name: "تأكيد" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("رمز PIN غير صحيح.");
+
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(calls).toBe(1);
+    expect(screen.getByTestId("session-id")).toHaveTextContent("USER-ADMIN");
+  });
+
+  it("asks the server for a cookie-kept device secret when signing in", async () => {
+    let binding: string | null = null;
+    const transport = stubTransport({
+      "GET /auth/login": (init) => {
+        binding = new Headers(init?.headers).get("x-mezan-device-binding");
+        return { status: 401, body: { message: "x" } };
+      },
+    });
+    renderRequestProbe("/auth/login", transport, null);
+    fireEvent.click(screen.getByText("call"));
+    await waitFor(() => expect(binding).toBe("cookie"));
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_PRINT_TEMPLATE_CONFIG, type PrintTemplateConfig, type PrintTemplateConfigRepository } from "@mezan/domain";
-import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
+import { DEFAULT_PRINT_TEMPLATE_CONFIG, isKnownPermission, type PrintTemplateConfig, type PrintTemplateConfigRepository } from "@mezan/domain";
+import { DOCUMENT_VIEW_PERMISSIONS, PRINTABLE_DOCUMENT_VIEW_PERMISSIONS, PrintableDocumentFamily, createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
 class InMemoryPrintTemplateConfigRepo implements PrintTemplateConfigRepository {
@@ -34,6 +34,24 @@ describe("print-template-config-routes — GET", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as PrintTemplateConfig;
     expect(body).toEqual(DEFAULT_PRINT_TEMPLATE_CONFIG);
+  });
+
+  it("serves the template to a caller who may view a printable document, and to nobody else", async () => {
+    const { app } = newApp();
+    for (const path of ["/"]) {
+      for (const permissions of ["sales.invoice.view_own", "purchases.invoice.view", "treasury.cash_voucher.view", "admin.settings.view"]) {
+        expect([path, permissions, (await app.fetch(req(path, { permissions }))).status]).not.toEqual([path, permissions, 403]);
+      }
+      for (const permissions of ["inventory.item.view", "inventory.stock.view", "sales.promotion.view", "sales.price_list.view", "workflow.view"]) {
+        expect([path, permissions, (await app.fetch(req(path, { permissions }))).status]).toEqual([path, permissions, 403]);
+      }
+    }
+  });
+
+  it("names every printable family's view permissions from the catalog, and nothing that is not a document", () => {
+    expect(Object.keys(PRINTABLE_DOCUMENT_VIEW_PERMISSIONS).sort()).toEqual(Object.values(PrintableDocumentFamily).sort());
+    for (const code of DOCUMENT_VIEW_PERMISSIONS) expect(isKnownPermission(code), code).toBe(true);
+    expect(DOCUMENT_VIEW_PERMISSIONS).not.toContain("inventory.item.view");
   });
 
   it("403s without admin.settings.view", async () => {
@@ -87,5 +105,34 @@ describe("print-template-config-routes — PUT", () => {
       }),
     );
     expect(res.status).toBe(403);
+  });
+});
+
+describe("print-template-config-routes — a logo stored before the size limit", () => {
+  const oversize = `data:image/png;base64,${"A".repeat(300_000)}`;
+  const put = (app: ReturnType<typeof newApp>["app"], config: PrintTemplateConfig) =>
+    app.fetch(req("/", { method: "PUT", permissions: ADMIN, body: JSON.stringify(config) }));
+
+  it("does not block a later save that leaves it as it is", async () => {
+    const { app, repo } = newApp();
+    await repo.save({ ...DEFAULT_PRINT_TEMPLATE_CONFIG, identity: { ...DEFAULT_PRINT_TEMPLATE_CONFIG.identity, logoUrl: oversize } });
+    const stored = (await repo.get())!;
+
+    const res = await put(app, { ...stored, footer: { ...stored.footer }, pageSize: "A5" });
+
+    expect(res.status).toBe(200);
+    expect((await repo.get())!.pageSize).toBe("A5");
+    expect((await repo.get())!.identity.logoUrl).toBe(oversize);
+  });
+
+  it("still refuses a new logo over the limit, in Arabic, and one swapped in beside the stored one", async () => {
+    const { app, repo } = newApp();
+    const fresh = await put(app, { ...DEFAULT_PRINT_TEMPLATE_CONFIG, identity: { ...DEFAULT_PRINT_TEMPLATE_CONFIG.identity, logoUrl: oversize } });
+    expect(fresh.status).toBe(400);
+    expect(await fresh.json()).toMatchObject({ error: "VALIDATION_ERROR", message: expect.stringContaining("الشعار") });
+
+    await repo.save({ ...DEFAULT_PRINT_TEMPLATE_CONFIG, identity: { ...DEFAULT_PRINT_TEMPLATE_CONFIG.identity, logoUrl: oversize } });
+    const other = await put(app, { ...DEFAULT_PRINT_TEMPLATE_CONFIG, identity: { ...DEFAULT_PRINT_TEMPLATE_CONFIG.identity, logoUrl: `${oversize}B` } });
+    expect(other.status).toBe(400);
   });
 });

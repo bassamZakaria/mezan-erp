@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  GoodsReceiptInvoicingStatusDTO,
   purchaseOrderStatusSchema,
   goodsReceiptStatusSchema,
   purchaseInvoiceStatusSchema,
@@ -95,7 +96,7 @@ describe("purchaseRfqStatusSchema", () => {
 });
 
 describe("goodsReceiptLineSchema", () => {
-  const line = { itemId: "item-1", description: null, qty: "5.000000", unitCost: "50.123456", batchNo: null, expiryDate: null };
+  const line = { itemId: "item-1", description: null, qty: "5.000000", invoicedQty: "0.000000", remainingQty: "5.000000", unitCost: "50.123456", batchNo: null, expiryDate: null };
 
   it("accepts a minimal valid line and preserves every field verbatim", () => {
     const result = goodsReceiptLineSchema.safeParse(line);
@@ -219,6 +220,8 @@ describe("goodsReceiptSchema", () => {
     lines: [],
     status: "confirmed" as const,
     invoiced: false,
+    invoicingStatus: GoodsReceiptInvoicingStatusDTO.NotInvoiced,
+    uninvoicedCost: "0",
     totalCost: "0",
     createdBy: "user-1",
     createdAt: "2026-08-30T10:00:00.000Z",
@@ -241,8 +244,23 @@ describe("goodsReceiptSchema", () => {
   });
 });
 
+describe("createPurchaseInvoiceLineSchema — the tax rate's identity (D79)", () => {
+  const draft = { itemId: "item-1", qty: "1", unitCost: "50" };
+
+  it("carries taxRateId onto the command", () => {
+    const result = createPurchaseInvoiceLineSchema.safeParse({ ...draft, taxRateId: "VAT14" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.taxRateId).toBe("VAT14");
+  });
+
+  it("lets a line name none, and refuses an empty id", () => {
+    expect(createPurchaseInvoiceLineSchema.safeParse(draft).success).toBe(true);
+    expect(createPurchaseInvoiceLineSchema.safeParse({ ...draft, taxRateId: "" }).success).toBe(false);
+  });
+});
+
 describe("purchaseInvoiceLineSchema", () => {
-  const line = { itemId: "item-1", description: null, kind: "inventory" as const, qty: "10.000000", unitCost: "50.000000", taxRatePercent: 14, batchNo: null, expiryDate: null };
+  const line = { itemId: "item-1", description: null, kind: "inventory" as const, qty: "10.000000", unitCost: "50.000000", taxRatePercent: 14, taxRateId: "VAT14", batchNo: null, expiryDate: null };
 
   it("accepts a minimal valid line and preserves every field verbatim", () => {
     const result = purchaseInvoiceLineSchema.safeParse(line);

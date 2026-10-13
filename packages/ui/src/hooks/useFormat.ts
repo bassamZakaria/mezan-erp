@@ -34,6 +34,7 @@ export interface UseFormatResult {
   numerals: NumeralSystem;
   /** Figure only, e.g. "1,150.00" — wrap in <Money> to get the .mz-num isolation + currency label. */
   money: (value: number | string) => string;
+  unitCost: (value: number | string) => string;
   /** Figure only, e.g. "86,240" — wrap in <span className="mz-num"> for RTL-safe rendering. */
   number: (value: number) => string;
   /** Quantity, trailing zeros trimmed — the API carries six decimal places. */
@@ -58,6 +59,7 @@ export function useFormat(options: UseFormatOptions = {}): UseFormatResult {
   const currencyLabel = options.currencyLabel ?? t("ui.currency");
 
   const money = useCallback((value: number | string) => formatMoney(value, { numerals }), [numerals]);
+  const unitCost = useCallback((value: number | string) => formatMoney(value, { numerals, minimumFractionDigits: 2, maximumFractionDigits: 6 }), [numerals]);
   const number = useCallback((value: number) => formatNumber(value, { numerals }), [numerals]);
   const qty = useCallback((value: number) => formatQty(value, { numerals }), [numerals]);
   const date = useCallback(
@@ -71,7 +73,7 @@ export function useFormat(options: UseFormatOptions = {}): UseFormatResult {
   const dateTime = useCallback((value: Date | string) => formatDateTime(value, { numerals, locale }), [numerals, locale]);
 
   return useMemo(
-    () => ({ numerals, money, number, qty, date, time, dateTime, currencyLabel }),
-    [numerals, money, number, qty, date, time, dateTime, currencyLabel],
+    () => ({ numerals, money, unitCost, number, qty, date, time, dateTime, currencyLabel }),
+    [numerals, money, unitCost, number, qty, date, time, dateTime, currencyLabel],
   );
 }

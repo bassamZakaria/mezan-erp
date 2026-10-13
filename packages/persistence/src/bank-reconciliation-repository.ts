@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import {
   BASE_CURRENCY,
   Money,
@@ -304,7 +305,7 @@ class SqliteBankStatementRepository implements BankStatementRepository {
   }
 
   async save(statement: BankStatement): Promise<void> {
-    this.insertStatement.run(statementParams(statement));
+    insertingNew(statement.id, () => this.insertStatement.run(statementParams(statement)));
   }
   async update(statement: BankStatement): Promise<void> {
     this.updateStatement.run(statementParams(statement));
@@ -351,10 +352,10 @@ class SqliteBankStatementRepository implements BankStatementRepository {
     return rows.map(toStatement);
   }
   async saveLines(lines: readonly StatementLine[]): Promise<void> {
-    for (const line of lines) this.insertLine.run(lineParams(line));
+    for (const line of lines) insertingNew(line.id, () => this.insertLine.run(lineParams(line)));
   }
   async saveLine(line: StatementLine): Promise<void> {
-    this.insertLine.run(lineParams(line));
+    insertingNew(line.id, () => this.insertLine.run(lineParams(line)));
   }
   async updateLine(line: StatementLine): Promise<void> {
     this.updateLineStmt.run(lineParams(line));
@@ -650,7 +651,7 @@ class SqliteBankRuleRepository implements BankRuleRepository {
     return row ? toRule(row) : null;
   }
   async save(rule: BankRule): Promise<void> {
-    this.insert.run(ruleParams(rule));
+    insertingNew(rule.id, () => this.insert.run(ruleParams(rule)));
   }
   async update(rule: BankRule): Promise<void> {
     this.updateStmt.run(ruleParams(rule));

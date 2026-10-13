@@ -1,8 +1,8 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   ATTACHMENT_ENTITY_PERMISSIONS,
   AttachmentNotFoundError,
-  DuplicateAttachmentIdError,
   InvalidAttachmentError,
   can,
   createAttachment,
@@ -14,7 +14,11 @@ import {
   type AuthContext,
 } from "@mezan/domain";
 import { createAttachmentSchema } from "@mezan/contracts";
-import { moduleRefusalFor, permissionDeniedBody, type AuthContextResolver } from "./permission-gate.js";
+import { ALL_SCOPE } from "@mezan/domain";
+import { BranchRefusalCode, branchRefusal } from "./branch-policy.js";
+import { moduleRefusalFor, permissionDeniedBody, storedDocumentRefusal, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * المرفقات — `/attachments`. Files hang off a document (invoice, voucher, work
@@ -27,9 +31,48 @@ import { moduleRefusalFor, permissionDeniedBody, type AuthContextResolver } from
  * is in hand.
  */
 
+/**
+ * The branches of the document an attachment hangs off, or null for an entity
+ * no branch owns (an item, a customer) or one nothing holds.
+ */
+export type AttachmentEntityBranches = (
+  c: Context,
+  entityType: AttachmentEntityType,
+  entityId: string,
+) => Promise<readonly (string | null | undefined)[] | null>;
+
+export enum AttachmentOwner {
+  BranchRecord = "branch_record",
+  SharedMasterData = "shared_master_data",
+}
+
+/**
+ * SECURITY: whose branch an entity type's files follow. A type missing here is
+ * refused to a branch-restricted session — `branch-policy.structure.test.ts`
+ * fails first — so a type added later is closed until someone says what it is.
+ */
+export const ATTACHMENT_ENTITY_OWNERS: Readonly<Record<AttachmentEntityType, AttachmentOwner>> = {
+  item: AttachmentOwner.SharedMasterData,
+  customer: AttachmentOwner.SharedMasterData,
+  supplier: AttachmentOwner.SharedMasterData,
+  employee: AttachmentOwner.BranchRecord,
+  attendance: AttachmentOwner.BranchRecord,
+  "sales-invoice": AttachmentOwner.BranchRecord,
+  "sales-quote": AttachmentOwner.BranchRecord,
+  "sales-return": AttachmentOwner.BranchRecord,
+  "purchase-invoice": AttachmentOwner.BranchRecord,
+  "purchase-order": AttachmentOwner.BranchRecord,
+  "goods-receipt": AttachmentOwner.BranchRecord,
+  "stock-adjustment": AttachmentOwner.BranchRecord,
+  "stock-transfer": AttachmentOwner.BranchRecord,
+  "work-order": AttachmentOwner.BranchRecord,
+  voucher: AttachmentOwner.BranchRecord,
+};
+
 export interface AttachmentsRoutesDeps {
   readonly repo: AttachmentRepository;
   readonly resolveAuthContext?: AuthContextResolver;
+  readonly entityBranches?: AttachmentEntityBranches;
 }
 
 function canView(ctx: AuthContext, entityType: AttachmentEntityType): boolean {
@@ -73,11 +116,11 @@ function serialize(attachment: Attachment) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof AttachmentNotFoundError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
-  }
-  if (err instanceof DuplicateAttachmentIdError) {
-    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof InvalidAttachmentError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, reasons: err.reasons }, 422);
@@ -100,6 +143,32 @@ export function createAttachmentsRoutes(
   app.use("*", withAuth);
 
   /**
+   * SECURITY: a file is as readable as the document it hangs off. The entity
+   * permission alone let a branch-granted user open another branch's invoice
+   * scan by attachment id, which the invoice route itself refuses.
+   */
+  async function entityOutsideGrant(c: Context, entityType: AttachmentEntityType, entityId: string): Promise<Response | null> {
+    const ctx = auth(c);
+    if (!deps.entityBranches || ctx.branchGrant === ALL_SCOPE) return null;
+    const owner: AttachmentOwner | undefined = ATTACHMENT_ENTITY_OWNERS[entityType];
+    if (owner === AttachmentOwner.SharedMasterData) return null;
+    if (owner !== AttachmentOwner.BranchRecord) return branchRefusal(c, BranchRefusalCode.NotFound);
+    const branchIds = await deps.entityBranches(c, entityType, entityId);
+    return branchIds ? storedDocumentRefusal(c, ctx.branchGrant, branchIds) : null;
+  }
+
+  async function withinGrant(c: Context, rows: readonly Attachment[]): Promise<Attachment[]> {
+    const kept: Attachment[] = [];
+    const verdicts = new Map<string, boolean>();
+    for (const row of rows) {
+      const key = `${row.entityType}\u0000${row.entityId}`;
+      if (!verdicts.has(key)) verdicts.set(key, (await entityOutsideGrant(c, row.entityType, row.entityId)) === null);
+      if (verdicts.get(key)) kept.push(row);
+    }
+    return kept;
+  }
+
+  /**
    * `?entityType=&entityId=` narrows to one entity's files; without them the
    * route lists every attachment the caller's permissions already let them
    * read, which is what makes it a checkable list surface (`pnpm check:seed`).
@@ -119,12 +188,12 @@ export function createAttachmentsRoutes(
       const rows = entityId
         ? await deps.repo.list(entityType, entityId)
         : (await deps.repo.listAll()).filter((row) => row.entityType === entityType);
-      return c.json(rows.map(serialize));
+      return c.json((await withinGrant(c, rows)).map(serialize));
     }
 
     const all = await deps.repo.listAll();
     return c.json(
-      all.filter((row) => canView(ctx, row.entityType) && viewModuleRefusal(c, row.entityType) === null).map(serialize),
+      (await withinGrant(c, all.filter((row) => canView(ctx, row.entityType) && viewModuleRefusal(c, row.entityType) === null))).map(serialize),
     );
   });
 
@@ -136,6 +205,8 @@ export function createAttachmentsRoutes(
     if (!canView(auth(c), found.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[found.entityType].viewAny[0]!);
     }
+    const outsideGrant = await entityOutsideGrant(c, found.entityType, found.entityId);
+    if (outsideGrant) return outsideGrant;
     return c.json(serialize(found));
   });
 
@@ -152,6 +223,8 @@ export function createAttachmentsRoutes(
     if (!canView(auth(c), content.attachment.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[content.attachment.entityType].viewAny[0]!);
     }
+    const outsideGrant = await entityOutsideGrant(c, content.attachment.entityType, content.attachment.entityId);
+    if (outsideGrant) return outsideGrant;
     return c.json({
       ...serialize(content.attachment),
       contentBase64: Buffer.from(content.bytes).toString("base64"),
@@ -167,6 +240,8 @@ export function createAttachmentsRoutes(
     if (!canManage(ctx, parsed.data.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[parsed.data.entityType].manage);
     }
+    const outsideGrant = await entityOutsideGrant(c, parsed.data.entityType, parsed.data.entityId);
+    if (outsideGrant) return outsideGrant;
     try {
       const attachment = await createAttachment(
         {
@@ -195,6 +270,8 @@ export function createAttachmentsRoutes(
     if (!canManage(auth(c), found.entityType)) {
       return denied(c, ATTACHMENT_ENTITY_PERMISSIONS[found.entityType].manage);
     }
+    const outsideGrant = await entityOutsideGrant(c, found.entityType, found.entityId);
+    if (outsideGrant) return outsideGrant;
     try {
       await deleteAttachment(found.id, deps.repo);
       return c.body(null, 204);

@@ -280,9 +280,14 @@ describe("cash vouchers refuse a caller without the confirming or voiding permis
       expect((await ledger.accountBalance(CASH)).balance.toString()).toBe("410.750000");
     }
 
-    const voided = await app.fetch(
-      req("/v1/reverse", { method: "POST", permissions: "treasury.cash_voucher.void", body: JSON.stringify({ date: "2026-08-23" }) }),
-    );
+    const reason = JSON.stringify({ date: "2026-08-23", memo: "سبب العكس" });
+    for (const permissions of ["treasury.cash_voucher.void", "treasury.cash_voucher.reverse"]) {
+      const half = await app.fetch(req("/v1/reverse", { method: "POST", permissions, body: reason }));
+      expect(half.status, permissions).toBe(403);
+      expect(await ledger.list()).toHaveLength(1);
+    }
+
+    const voided = await app.fetch(req("/v1/reverse", { method: "POST", permissions: "treasury.cash_voucher.reverse,treasury.cash_voucher.void", body: reason }));
     expect(voided.status).toBe(201);
     expect(await ledger.list()).toHaveLength(2);
     expect((await ledger.accountBalance(CASH)).balance.toString()).toBe("0.000000");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveChequeStatus, assertChequeTransition, COLLECTION_WINDOW_DAYS } from "./status.js";
+import { ChequeAction, effectiveChequeStatus, assertChequeTransition, COLLECTION_WINDOW_DAYS } from "./status.js";
 import { InvalidChequeTransitionError } from "./errors.js";
 import type { Cheque } from "./cheque.js";
 import { Money } from "../money/index.js";
@@ -76,35 +76,35 @@ describe("effectiveChequeStatus", () => {
 
 describe("assertChequeTransition", () => {
   it("allows deposit only from pending", () => {
-    expect(() => assertChequeTransition(baseCheque({ status: "pending" }), "deposit")).not.toThrow();
-    expect(() => assertChequeTransition(baseCheque({ status: "deposited" }), "deposit")).toThrow(InvalidChequeTransitionError);
-    expect(() => assertChequeTransition(baseCheque({ status: "collected" }), "deposit")).toThrow(InvalidChequeTransitionError);
+    expect(() => assertChequeTransition(baseCheque({ status: "pending" }), ChequeAction.Deposit)).not.toThrow();
+    expect(() => assertChequeTransition(baseCheque({ status: "deposited" }), ChequeAction.Deposit)).toThrow(InvalidChequeTransitionError);
+    expect(() => assertChequeTransition(baseCheque({ status: "collected" }), ChequeAction.Deposit)).toThrow(InvalidChequeTransitionError);
   });
 
   it("allows collect only from deposited", () => {
-    expect(() => assertChequeTransition(baseCheque({ status: "deposited" }), "collect")).not.toThrow();
-    expect(() => assertChequeTransition(baseCheque({ status: "pending" }), "collect")).toThrow(InvalidChequeTransitionError);
+    expect(() => assertChequeTransition(baseCheque({ status: "deposited" }), ChequeAction.Collect)).not.toThrow();
+    expect(() => assertChequeTransition(baseCheque({ status: "pending" }), ChequeAction.Collect)).toThrow(InvalidChequeTransitionError);
   });
 
   it("allows bounce only from deposited", () => {
-    expect(() => assertChequeTransition(baseCheque({ status: "deposited" }), "bounce")).not.toThrow();
-    expect(() => assertChequeTransition(baseCheque({ status: "pending" }), "bounce")).toThrow(InvalidChequeTransitionError);
-    expect(() => assertChequeTransition(baseCheque({ status: "collected" }), "bounce")).toThrow(InvalidChequeTransitionError);
+    expect(() => assertChequeTransition(baseCheque({ status: "deposited" }), ChequeAction.Bounce)).not.toThrow();
+    expect(() => assertChequeTransition(baseCheque({ status: "pending" }), ChequeAction.Bounce)).toThrow(InvalidChequeTransitionError);
+    expect(() => assertChequeTransition(baseCheque({ status: "collected" }), ChequeAction.Bounce)).toThrow(InvalidChequeTransitionError);
   });
 
   it("allows replace only from bounced", () => {
-    expect(() => assertChequeTransition(baseCheque({ status: "bounced" }), "replace")).not.toThrow();
-    expect(() => assertChequeTransition(baseCheque({ status: "pending" }), "replace")).toThrow(InvalidChequeTransitionError);
-    expect(() => assertChequeTransition(baseCheque({ status: "replaced" }), "replace")).toThrow(InvalidChequeTransitionError);
+    expect(() => assertChequeTransition(baseCheque({ status: "bounced" }), ChequeAction.Replace)).not.toThrow();
+    expect(() => assertChequeTransition(baseCheque({ status: "pending" }), ChequeAction.Replace)).toThrow(InvalidChequeTransitionError);
+    expect(() => assertChequeTransition(baseCheque({ status: "replaced" }), ChequeAction.Replace)).toThrow(InvalidChequeTransitionError);
   });
 
   it("rejects every illegal (status, action) pair across the whole stored-state matrix", () => {
     const statuses: Cheque["status"][] = ["pending", "deposited", "collected", "bounced", "replaced"];
-    const legal: Record<"deposit" | "collect" | "bounce" | "replace", Cheque["status"]> = {
-      deposit: "pending",
-      collect: "deposited",
-      bounce: "deposited",
-      replace: "bounced",
+    const legal: Record<Exclude<ChequeAction, ChequeAction.Return>, Cheque["status"]> = {
+      [ChequeAction.Deposit]: "pending",
+      [ChequeAction.Collect]: "deposited",
+      [ChequeAction.Bounce]: "deposited",
+      [ChequeAction.Replace]: "bounced",
     };
     for (const action of Object.keys(legal) as (keyof typeof legal)[]) {
       for (const status of statuses) {
@@ -117,7 +117,7 @@ describe("assertChequeTransition", () => {
 
   it("carries the cheque id and from/to status on the error", () => {
     try {
-      assertChequeTransition(baseCheque({ id: "chq-42", status: "pending" }), "collect");
+      assertChequeTransition(baseCheque({ id: "chq-42", status: "pending" }), ChequeAction.Collect);
       throw new Error("expected throw");
     } catch (err) {
       expect(err).toBeInstanceOf(InvalidChequeTransitionError);

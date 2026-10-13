@@ -102,16 +102,6 @@ export class ItemUnitNotFoundError extends Error {
   }
 }
 
-export class DuplicateItemCategoryError extends Error {
-  readonly code = "DUPLICATE_ITEM_CATEGORY";
-  readonly messageEn: string;
-  constructor(readonly categoryId: string) {
-    super(`فئة الصنف "${categoryId}" مستخدمة من قبل.`);
-    this.messageEn = `Item category "${categoryId}" already exists.`;
-    this.name = "DuplicateItemCategoryError";
-  }
-}
-
 export class ItemCategoryNotFoundError extends Error {
   readonly code = "ITEM_CATEGORY_NOT_FOUND";
   readonly messageEn: string;
@@ -198,7 +188,6 @@ export async function createItemCategory(
   command: CreateItemCategoryCommand,
   repo: ItemCategoryRepository,
 ): Promise<ItemCategory> {
-  if (await repo.findById(command.id)) throw new DuplicateItemCategoryError(command.id);
   const parentId = command.parentId ?? null;
   await assertParentResolves(command.id, parentId, repo);
   const category: ItemCategory = {

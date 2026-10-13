@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -14,7 +17,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type { DocumentStatusDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
+import type { CreatePurchaseReturnDTO, DocumentStatusDTO, PurchaseInvoiceDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
 import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
   useCancelPurchaseReturn,
@@ -23,6 +26,9 @@ import {
   useItems,
   usePurchaseInvoices,
   usePurchaseReturns,
+  useReturnDocument,
+  useReturnSourceLines,
+  ReturnKind,
   usePurchaseReturnCounts,
   usePurchaseReturnStats,
   useSuppliers,
@@ -31,11 +37,17 @@ import {
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { PurchaseReturnPrintPage } from "../print/documents";
-import { useScreenIntent, useSubPage } from "../navigation";
+import { useNameSubPage, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { nextReturnSourceLine, sourceLineOptions } from "./return-source-lines";
+import { majorOf } from "../lib/money";
+import { returnLinesTotal } from "./exact-line-totals";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
+import { ReturnJournalCard } from "./ReturnJournalCard";
+import { ReturnFamily, ReturnMirrorLinks, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, returnDocumentLabel, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/archive/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
 
@@ -48,18 +60,24 @@ const REASON_KEY: Record<PurchaseReturnReasonDTO, AppTranslationKey> = {
 };
 
 
-const num = (v: string) => Number(v);
-const lineTotal = (l: PurchaseReturnLineDTO) => num(l.unitCost) * num(l.qty) + num(l.taxAmount);
 
 interface LineDraft {
   key: string;
-  itemId: string;
+  sourceLineId: string;
   qty: number;
 }
 let lineSeq = 0;
-function blankLine(defaultItemId: string): LineDraft {
+function blankLine(sourceLineId: string): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: defaultItemId, qty: 1 };
+  return { key: `l${lineSeq}`, sourceLineId, qty: 1 };
+}
+
+// EXTERNAL CONTRACT: a purchase invoice line has no id of its own; the server
+// names it by its position in the invoice, and a return must send the same.
+function returnableLinesOf(invoice: PurchaseInvoiceDTO | null | undefined) {
+  return (invoice?.lines ?? [])
+    .map((l, index) => ({ ...l, sourceLineId: String(index) }))
+    .flatMap((l) => (l.kind === "inventory" && l.itemId !== null ? [{ ...l, itemId: l.itemId }] : []));
 }
 
 export function PurchaseReturnsScreen() {
@@ -69,8 +87,16 @@ export function PurchaseReturnsScreen() {
   const suppliersQuery = useSuppliers();
   const itemsQuery = useItems();
   const createReturn = useCreatePurchaseReturn();
+  const savedNotice = useAlreadySavedNotice();
+  const returnId = useDocumentId((savedId) => {
+    savedNotice.show(savedId);
+    subPage.open(savedId);
+  });
   const confirmReturn = useConfirmPurchaseReturn();
   const cancelReturn = useCancelPurchaseReturn();
+  const mayVoid = useMayVoidReturn(ReturnFamily.Purchases);
+  const resubmit = useResubmitForApproval(ResubmitFamily.PurchaseReturns);
+  const [voidTarget, setVoidTarget] = useState<VoidableReturn | null>(null);
 
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
   const warehouses = warehousesQuery.data ?? EMPTY;
@@ -107,8 +133,6 @@ export function PurchaseReturnsScreen() {
     if (!firstInvoice) return;
     setInvoiceId(firstInvoice.id);
     setWarehouseId(firstInvoice.warehouseId);
-    const firstLine = firstInvoice.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
-    setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
   }, [firstSegment, invoices, invoiceId]);
 
   useEffect(() => {
@@ -118,10 +142,23 @@ export function PurchaseReturnsScreen() {
   }, [firstSegment, warehouses, warehouseId, invoiceId]);
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
-  const returnableLines = useMemo(
-    () => (selectedInvoice?.lines ?? []).filter((l) => l.kind === "inventory" && l.itemId !== null),
-    [selectedInvoice],
-  );
+  const returnableLines = useMemo(() => returnableLinesOf(selectedInvoice), [selectedInvoice]);
+  const sourceLinesQuery = useReturnSourceLines(ReturnKind.Purchase, firstSegment === "new" ? invoiceId : "");
+  const sourceLines = sourceLinesQuery.data?.lines ?? EMPTY;
+  const sourceLinesReady = invoiceId === "" || sourceLinesQuery.isSuccess;
+
+  // INVARIANT: the first row is offered only once the SERVER has said what is
+  // left to return, and it names a line that still has room. Seeded from the
+  // invoice alone it could name a line already returned in full.
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (firstSegment !== "new" || invoiceId === "" || !sourceLinesQuery.isSuccess || seededFor.current === invoiceId) return;
+    seededFor.current = invoiceId;
+    if (lines.length > 0) return;
+    const returnable = new Set(returnableLines.map((line) => line.sourceLineId));
+    const first = nextReturnSourceLine(sourceLines.filter((line) => returnable.has(line.sourceLineId)), [], "");
+    if (first !== "") setLines([blankLine(first)]);
+  }, [firstSegment, invoiceId, sourceLinesQuery.isSuccess, sourceLines, returnableLines, lines.length]);
 
   const [searchText, setSearchText, search] = useUrlSearch();
   const [page, setPage] = useUrlNumber("page", 1);
@@ -155,10 +192,13 @@ export function PurchaseReturnsScreen() {
   const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const pageRows = documents.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const selected =
-    firstSegment !== undefined && firstSegment !== "new"
-      ? (documents.find((d) => d.id === firstSegment || d.docNo === firstSegment) ?? null)
-      : null;
+  const addressed = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : "";
+  const listed = addressed === "" ? null : (documents.find((d) => d.id === addressed || d.docNo === addressed) ?? null);
+  const unlisted = useReturnDocument<(typeof documents)[number]>(ReturnFamily.Purchases, addressed !== "" && !listed && query.isSuccess ? addressed : "");
+  const selected = listed ?? unlisted.data ?? null;
+  const reversedReturnNo = selected?.reversesDocId ? (documents.find((d) => d.id === selected.reversesDocId)?.docNo ?? null) : null;
+  const selectedLabel = selected ? returnDocumentLabel(selected, reversedReturnNo, t("purchaseReturns.detailTitle"), t) : null;
+  useNameSubPage(selected ? addressed : null, selectedLabel);
 
   useScreenIntent((intent) => {
     openCreate(intent.prefill?.invoiceId);
@@ -170,8 +210,8 @@ export function PurchaseReturnsScreen() {
     setInvoiceId(firstInvoice?.id ?? "");
     setWarehouseId(firstInvoice?.warehouseId ?? warehouses[0]?.id ?? "");
     setReason("DEFECTIVE");
-    const firstLine = firstInvoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
-    setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
+    const firstLine = returnableLinesOf(firstInvoice)[0];
+    setLines(firstLine ? [blankLine(firstLine.sourceLineId)] : []);
     subPage.open("new");
   }
 
@@ -179,8 +219,13 @@ export function PurchaseReturnsScreen() {
     setInvoiceId(id);
     const invoice = invoices.find((i) => i.id === id) ?? null;
     if (invoice) setWarehouseId(invoice.warehouseId);
-    const firstLine = invoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
-    setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
+    setLines([]);
+  }
+
+  function nextSourceLineId(rows: readonly LineDraft[]): string {
+    const returnable = new Set(returnableLines.map((l) => l.sourceLineId));
+    const known = sourceLines.filter((line) => returnable.has(line.sourceLineId));
+    return nextReturnSourceLine(known, rows, returnableLines[0]?.sourceLineId ?? "");
   }
 
   async function submit(confirmAfter: boolean) {
@@ -190,36 +235,33 @@ export function PurchaseReturnsScreen() {
       setError(t("purchaseReturns.error.needInvoice"));
       return;
     }
-    const returnLines: PurchaseReturnLineDTO[] = lines
-      .filter((l) => l.qty > 0 && l.itemId !== "")
-      .map((l) => {
-        const source = returnableLines.find((sl) => sl.itemId === l.itemId);
-        const unitCost = source?.unitCost ?? "0";
-        const taxRate = source?.taxRatePercent ?? 0;
-        const taxAmount = ((Number(unitCost) * l.qty * taxRate) / 100).toFixed(6);
-        return {
-          itemId: l.itemId,
+    const returnLines: CreatePurchaseReturnDTO["lines"] = lines.flatMap((l) => {
+      const source = returnableLines.find((sl) => sl.sourceLineId === l.sourceLineId);
+      if (!source || l.qty <= 0) return [];
+      return [
+        {
+          itemId: source.itemId,
           warehouseId,
           supplierId: invoice.supplierId,
           sourceInvoiceId: invoice.id,
           sourceInvoiceNumber: invoice.number,
+          sourceLineId: source.sourceLineId,
           reason,
-          availableQty: source?.qty ?? String(l.qty),
           qty: String(l.qty),
-          unitCost,
-          taxAmount,
-        };
-      });
+        },
+      ];
+    });
     if (returnLines.length === 0) {
       setError(t("purchaseReturns.error.needLine"));
       return;
     }
     try {
-      const id = crypto.randomUUID();
-      const created = await createReturn.mutateAsync({ id, date: todayIso(), memo: "", lines: returnLines });
+      const created = await createReturn.mutateAsync({ id: returnId.current(), date: todayIso(), memo: "", lines: returnLines });
       if (confirmAfter) await confirmReturn.mutateAsync(created.id);
+      returnId.renew();
       subPage.close();
     } catch (err) {
+      if (returnId.recover(err)) return;
       setError(errorMessage(err, t("common.failed")));
     }
   }
@@ -230,6 +272,7 @@ export function PurchaseReturnsScreen() {
       await confirmReturn.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -239,6 +282,7 @@ export function PurchaseReturnsScreen() {
       await cancelReturn.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -261,7 +305,7 @@ export function PurchaseReturnsScreen() {
       ),
     },
     { key: "supplier", header: t("common.supplier"), render: (d) => (d.lines[0] ? supplierName(d.lines[0].supplierId) : "—") },
-    { key: "total", header: t("purchaseReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.grandTotal !== undefined ? num(d.grandTotal) : d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
+    { key: "total", header: t("purchaseReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.grandTotal !== undefined ? majorOf(d.grandTotal) : returnLinesTotal(d.lines.map((l) => ({ qty: l.qty, unitPrice: l.unitCost, taxAmount: l.taxAmount })))} /> },
     { key: "status", header: t("common.status"), render: (d) => <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} /> },
   ];
 
@@ -298,9 +342,9 @@ export function PurchaseReturnsScreen() {
                 <div className="flex-1">
                   <SelectField
                     label={t("common.item")}
-                    value={line.itemId}
-                    onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, itemId: v } : l)))}
-                    options={returnableLines.map((sl) => ({ value: sl.itemId as string, label: itemName(sl.itemId as string) }))}
+                    value={line.sourceLineId}
+                    onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, sourceLineId: v } : l)))}
+                    options={sourceLineOptions(returnableLines.map((sl) => ({ sourceLineId: sl.sourceLineId, itemId: sl.itemId, label: itemName(sl.itemId) })))}
                   />
                 </div>
                 <div className="w-[90px]">
@@ -318,20 +362,29 @@ export function PurchaseReturnsScreen() {
             ))}
             <Button
               variant="default"
-              disabled={returnableLines.length === 0}
-              onClick={() => setLines((prev) => [...prev, blankLine((returnableLines[0]?.itemId as string) ?? "")])}
+              disabled={returnableLines.length === 0 || !sourceLinesReady}
+              onClick={() => setLines((prev) => [...prev, blankLine(nextSourceLineId(prev))])}
             >
               {t("purchaseReturns.addLine")}
             </Button>
           </div>
 
+          {sourceLinesQuery.isError ? (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">
+              <span>{t("returns.sourceLinesFailed")}</span>
+              <Button size="sm" onClick={() => void sourceLinesQuery.refetch()}>
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : null}
+
           {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
 
           <div className="flex gap-2 pt-2">
-            <Button variant="default" onClick={() => submit(false)}>
+            <Button variant="default" disabled={!sourceLinesReady} onClick={() => submit(false)}>
               {t("purchaseReturns.saveDraft")}
             </Button>
-            <Button variant="primary" onClick={() => submit(true)}>
+            <Button variant="primary" disabled={!sourceLinesReady} onClick={() => submit(true)}>
               {t("purchaseReturns.saveConfirm")}
             </Button>
           </div>
@@ -341,11 +394,12 @@ export function PurchaseReturnsScreen() {
 
   const detailPage = (
     <div className="w-full">
+      <AlreadySavedNotice notice={savedNotice} openId={firstSegment ?? null} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.returns")}</div>
-          <h1 className="font-display text-xl font-bold text-ink">{selected?.docNo ?? t("purchaseReturns.detailTitle")}</h1>
-          {selected ? (
+          <h1 className="font-display text-xl font-bold text-ink">{selectedLabel ?? t("purchaseReturns.detailTitle")}</h1>
+          {selected && !selected.reversesDocId ? (
             <Button className="mt-2" onClick={() => subPage.open(selected.docNo ?? selected.id, "print")}>
               {t("print.action.print")}
             </Button>
@@ -355,18 +409,21 @@ export function PurchaseReturnsScreen() {
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+            <HeldDocumentReapproval document={selected} pending={confirmReturn.isPending} confirm={(id) => confirmReturn.mutateAsync(id)} />
+            <ReturnMirrorLinks document={selected} originalNo={reversedReturnNo} onOpen={(id) => subPage.open(id)} />
             <div className="text-[12.5px] text-ink-muted">{t("purchaseReturns.sourceInvoice", { number: selected.lines[0]?.sourceInvoiceNumber ?? "—" })}</div>
             <div className="flex flex-col gap-1.5">
               {selected.lines.map((l, i) => (
                 <div key={i} className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[13px]">
                   <span>{itemName(l.itemId)}</span>
                   <span className="mz-num text-ink-muted">
-                    {l.qty} × <MoneyDisplay value={num(l.unitCost)} />
+                    {l.qty} × <MoneyDisplay value={majorOf(l.unitCost)} />
                   </span>
                 </div>
               ))}
             </div>
             {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
+            <ResubmitForApprovalAction family={ResubmitFamily.PurchaseReturns} document={selected} />
             {selected.status === "draft" ? (
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => confirmExisting(selected.id)}>
@@ -377,11 +434,9 @@ export function PurchaseReturnsScreen() {
                 </Button>
               </div>
             ) : null}
-            {selected.status === "confirmed" ? (
-              <Button variant="default" onClick={() => cancelExisting(selected.id)}>
-                {t("purchaseReturns.void")}
-              </Button>
-            ) : null}
+            <ReturnJournalCard family={ReturnFamily.Purchases} document={selected} lineLabel={itemName} />
+            <VoidReturnReasonNotice document={selected} />
+            <VoidReturnAction family={ReturnFamily.Purchases} document={selected} />
           </div>
         ) : null}
     </div>
@@ -389,7 +444,7 @@ export function PurchaseReturnsScreen() {
 
   if (firstSegment === "new") return createPage;
   // إشعار خصم — the debit note sent to the supplier (P-6).
-  if (selected && subPage.segments[1] === "print") return <PurchaseReturnPrintPage document={selected} />;
+  if (selected && !selected.reversesDocId && subPage.segments[1] === "print") return <PurchaseReturnPrintPage document={selected} />;
   if (selected) return detailPage;
 
   return (
@@ -402,6 +457,7 @@ export function PurchaseReturnsScreen() {
           </Button>
         </Card>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<(typeof documents)[number]>
         title={t("purchaseReturns.title")}
         description={t("purchaseReturns.description")}
@@ -445,11 +501,12 @@ export function PurchaseReturnsScreen() {
             { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(d.docNo ?? d.id, "print") },
             ...(d.status === "draft"
               ? [
-                  { key: "confirm", label: t("purchaseReturns.confirm"), onSelect: () => void confirmExisting(d.id) },
-                  { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
+                  { key: "confirm", label: t("purchaseReturns.confirm"), onSelect: () => confirmExisting(d.id) },
+                  { key: "cancel", label: t("common.cancel"), onSelect: () => cancelExisting(d.id) },
                 ]
               : []),
-            ...(d.status === "confirmed" ? [{ key: "void", label: t("purchaseReturns.void"), onSelect: () => void cancelExisting(d.id) }] : []),
+              ...resubmitRowMenuItems(resubmit, d),
+            ...(mayVoid(d) ? [{ key: "void", label: t("purchaseReturns.void"), tone: "danger" as const, onSelect: () => setVoidTarget(d) }] : []),
           ];
           return (
             <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
@@ -478,8 +535,7 @@ export function PurchaseReturnsScreen() {
           />
         }
       />
-
-
+      <VoidReturnDialog family={ReturnFamily.Purchases} document={voidTarget} onClose={() => setVoidTarget(null)} />
     </div>
   );
 }

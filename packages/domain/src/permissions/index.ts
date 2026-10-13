@@ -32,6 +32,7 @@ export {
   createAuthContext,
   can,
   isTenantAdmin,
+  isScopeRestricted,
   visibilityTier,
   type AuthContext,
   type AuthContextInput,
@@ -69,3 +70,18 @@ export {
   type PermissionLabel,
   type PermissionLabelTranslations,
 } from "./labels.js";
+
+export {
+  ShellRequest,
+  ShellRequestModule,
+  SHELL_REQUESTS,
+  holdsShellRequest,
+  planServesShellRequest,
+  type PlanModules,
+  type ShellRequestGate,
+  ScreenRequest,
+  SCREEN_REQUESTS,
+  mayAskScreenRequest,
+  type ScreenRequestGate,
+} from "./shell-requests.js";
+export { DashboardRequest, DASHBOARD_REQUESTS, mayActWith, mayAskDashboard, mayReadWith, type DashboardRequestGate, type PermissionHeld } from "./dashboard-requests.js";

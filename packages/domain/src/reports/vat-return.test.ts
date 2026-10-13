@@ -5,6 +5,8 @@ import { Money } from "../money/index.js";
 import { assertBalanced } from "../gl/post.js";
 import { runReport } from "./engine.js";
 import { createVatReturnReport, vatNetPayable, type VatReturnContext } from "./vat-return.js";
+import { Qty } from "../money/index.js";
+import { buildInvoicePosting, type PurchaseInvoice, type PurchaseInvoiceLine } from "../purchasing/purchase-invoice.js";
 
 const OUTPUT_VAT = "2200";
 const INPUT_VAT = "1400";
@@ -255,5 +257,420 @@ describe("createVatReturnReport — exact arithmetic", () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(vatNetPayable(outcome.rows)).toBeCloseTo(0.03, 10);
+  });
+});
+
+describe("createVatReturnReport — grouped by the tax rate each line stored (D79)", () => {
+  const taxRates = [
+    { id: "VAT14", name: "ضريبة القيمة المضافة 14%" },
+    { id: "EXEMPT", name: "معفى" },
+    { id: "EXPORT", name: "تصدير" },
+  ];
+  const run = (entries: JournalEntry[], rates: VatReturnContext["taxRates"] = taxRates) => {
+    const definition = createVatReturnReport({ periodFrom: "2026-03-01", periodTo: "2026-03-31" });
+    const outcome = runReport(definition, { periodFrom: "2026-03-01", periodTo: "2026-03-31" }, { ...ctx(entries), taxRates: rates });
+    if (!outcome.ok) throw new Error("the VAT return did not run");
+    return outcome.rows;
+  };
+
+  it("reports an exempt sale and a zero-rated export on separate rows, though both are 0%", () => {
+    const rows = run([
+      je({
+        id: "sale",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("350") }),
+          line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+          line({ accountId: "4100", credit: Money.fromMajor("250"), taxRatePercent: 0, taxRateId: "EXPORT" }),
+        ],
+      }),
+    ]);
+    expect(rows.find((r) => r.taxRateId === "EXEMPT")).toMatchObject({ rowId: "output-0-EXEMPT", rate: 0, base: 100, tax: 0, taxRateName: "معفى" });
+    expect(rows.find((r) => r.taxRateId === "EXPORT")).toMatchObject({ rowId: "output-0-EXPORT", rate: 0, base: 250, tax: 0, taxRateName: "تصدير" });
+  });
+
+  it("leaves a 0% line that stored no rate on its own unnamed row when two rates share the percent", () => {
+    const rows = run([
+      je({
+        id: "legacy",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("130") }),
+          line({ accountId: "4100", credit: Money.fromMajor("60"), taxRatePercent: 0 }),
+          line({ accountId: "4100", credit: Money.fromMajor("70"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+        ],
+      }),
+    ]);
+    expect(rows.find((r) => r.rowId === "output-0")).toMatchObject({ taxRateId: null, taxRateName: null, base: 60 });
+    expect(rows.find((r) => r.rowId === "output-0-EXEMPT")).toMatchObject({ base: 70 });
+  });
+
+  it("keeps a line that stored only a percent on the unnamed row, never on whichever rate is active today", () => {
+    const rows = run([
+      je({
+        id: "mixed-history",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("228") }),
+          line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 14 }),
+          line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("14"), taxRatePercent: 14 }),
+          line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 14, taxRateId: "VAT14" }),
+          line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("14"), taxRatePercent: 14, taxRateId: "VAT14" }),
+        ],
+      }),
+    ]);
+    const fourteen = rows.filter((r) => r.side === "output" && r.rate === 14);
+    expect(fourteen.map((r) => [r.rowId, r.taxRateName, r.base, r.tax])).toEqual([
+      ["output-14", null, 100, 14],
+      ["output-14-VAT14", "ضريبة القيمة المضافة 14%", 100, 14],
+    ]);
+  });
+
+  it("reports a filed period the same whatever rates exist when it is reprinted", () => {
+    const filed = [
+      je({
+        id: "legacy",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("114") }),
+          line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 14 }),
+          line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("14"), taxRatePercent: 14 }),
+        ],
+      }),
+    ];
+    const figures = (rates: VatReturnContext["taxRates"]) => run(filed, rates).map((r) => [r.rowId, r.base, r.tax]);
+    expect(figures(taxRates)).toEqual(figures([]));
+    expect(figures([...taxRates, { id: "VAT14-NEW", name: "ضريبة جديدة" }])).toEqual(figures(taxRates));
+  });
+
+  it("keeps an entry with no rate on any line on the unnamed row for its derived percent", () => {
+    const rows = run([
+      je({
+        id: "untagged",
+        lines: [
+          line({ accountId: "1100", debit: Money.fromMajor("114") }),
+          line({ accountId: "4100", credit: Money.fromMajor("100") }),
+          line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("14") }),
+        ],
+      }),
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ rowId: "output-14", taxRateId: null, base: 100, tax: 14 });
+  });
+
+  it("splits by stored id and names no row when the tax rate master is not supplied", () => {
+    const rows = run(
+      [
+        je({
+          id: "sale",
+          lines: [
+            line({ accountId: "1100", debit: Money.fromMajor("300") }),
+            line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+            line({ accountId: "4100", credit: Money.fromMajor("200"), taxRatePercent: 0 }),
+          ],
+        }),
+      ],
+      [],
+    );
+    expect(rows.map((r) => [r.rowId, r.taxRateName, r.base])).toEqual([
+      ["output-0", null, 200],
+      ["output-0-EXEMPT", null, 100],
+    ]);
+  });
+
+});
+
+describe("createVatReturnReport — the input side, read off the REAL purchase posting (D28, D79)", () => {
+  const GRNI = "2120";
+  const PURCHASE_ACCOUNTS = {
+    inventoryAccountId: "1300",
+    taxAccountId: INPUT_VAT,
+    payableAccountId: "2100",
+    expenseAccountId: "5100",
+    goodsReceivedNotInvoicedAccountId: GRNI,
+  };
+  const purchaseLine = (overrides: Partial<PurchaseInvoiceLine>): PurchaseInvoiceLine => ({
+    itemId: "item-A", description: null, kind: "inventory", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("100"),
+    taxRatePercent: 14, taxRateId: "VAT14", batchNo: null, expiryDate: null, ...overrides,
+  });
+  const purchase = (id: string, receiptId: string | null, lines: PurchaseInvoiceLine[]): PurchaseInvoice => ({
+    id, number: id, supplierId: "sup-1", date: "2026-03-05", dueDate: null, supplierInvoiceNumber: null, branchId: "MAIN",
+    warehouseId: "WH", currency: "EGP", notes: null, receiptId, lines, status: "confirmed", fxRate: null, createdBy: "system",
+    createdAt: "2026-03-05T00:00:00.000Z",
+  });
+  const posted = (invoice: PurchaseInvoice): JournalEntry =>
+    je({ id: invoice.id, date: invoice.date, lines: buildInvoicePosting(invoice, PURCHASE_ACCOUNTS).lines.map((l) => ({ ...l })) });
+  const inputRows = (entries: JournalEntry[]) => {
+    const definition = createVatReturnReport({ periodFrom: "2026-03-01", periodTo: "2026-03-31" });
+    const outcome = runReport(
+      definition,
+      { periodFrom: "2026-03-01", periodTo: "2026-03-31" },
+      {
+        ...ctx(entries),
+        accounts: [...accounts, account({ id: GRNI, code: GRNI, nameAr: "بضاعة واردة لم تُفوتر", type: "liability" })],
+        inputBaseAccountIds: [GRNI],
+      },
+    );
+    if (!outcome.ok) throw new Error("the VAT return did not run");
+    return outcome.rows.filter((r) => r.side === "input").map((r) => [r.rowId, r.base, r.tax]);
+  };
+
+  it("a manual invoice reports each rate's input tax against the base it was charged on", () => {
+    const rows = inputRows([
+      posted(purchase("PI-1", null, [
+        purchaseLine({ qty: Qty.fromMajor("2") }),
+        purchaseLine({ kind: "expense", itemId: null, unitCost: Money.fromMajor("50") }),
+        purchaseLine({ kind: "expense", itemId: null, unitCost: Money.fromMajor("300"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+        purchaseLine({ unitCost: Money.fromMajor("70"), taxRatePercent: 0, taxRateId: null }),
+      ])),
+    ]);
+    expect(rows).toEqual([
+      ["input-14-VAT14", 250, 35],
+      ["input-0", 70, 0],
+      ["input-0-EXEMPT", 300, 0],
+    ]);
+  });
+
+  it("an invoice raised from a goods receipt reports the same base, though it debits the received-not-invoiced liability", () => {
+    const fromReceipt = posted(purchase("PI-2", "gr-1", [purchaseLine({ qty: Qty.fromMajor("2") })]));
+    expect(fromReceipt.lines.some((l) => l.accountId === GRNI && l.debit.scaled > 0n)).toBe(true);
+    expect(inputRows([fromReceipt])).toEqual([["input-14-VAT14", 200, 28]]);
+  });
+});
+
+describe("createVatReturnReport — a sale whose base is credited to a liability (D79 review round 2)", () => {
+  const BILLINGS = "2165";
+  const RETENTION_RECEIVABLE = "1150";
+  const withContracting = [
+    ...accounts,
+    account({ id: BILLINGS, code: BILLINGS, nameAr: "فواتير مستخلصات على العقود", type: "liability" }),
+    account({ id: RETENTION_RECEIVABLE, code: RETENTION_RECEIVABLE, nameAr: "محتجزات ضمان مدينة", type: "asset" }),
+  ];
+  const run = (entries: JournalEntry[], outputBaseAccountIds?: readonly string[]) => {
+    const window = { periodFrom: "2026-03-01", periodTo: "2026-03-31" };
+    const outcome = runReport(createVatReturnReport(window), window, { ...ctx(entries), accounts: withContracting, outputBaseAccountIds });
+    if (!outcome.ok) throw new Error("the VAT return did not run");
+    return outcome.rows.map((r) => [r.rowId, r.base, r.tax]);
+  };
+  const certificateInvoice = je({
+    id: "cert-inv",
+    lines: [
+      line({ accountId: "1100", debit: Money.fromMajor("1454088.24") }),
+      line({ accountId: BILLINGS, credit: Money.fromMajor("178556.00"), taxRatePercent: 14, taxRateId: "VAT14" }),
+      line({ accountId: "4100", credit: Money.fromMajor("1096960.00"), taxRatePercent: 14, taxRateId: "VAT14" }),
+      line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("178572.24"), taxRatePercent: 14, taxRateId: "VAT14" }),
+    ],
+  });
+
+  it("counts the billings liability in the output base, so the row's tax stands against everything it was charged on", () => {
+    expect(run([certificateInvoice], [BILLINGS])).toEqual([["output-14-VAT14", 1275516, 178572.24]]);
+  });
+
+  it("reports the base short by exactly the billings credit when the account is not named — the defect the wiring closes", () => {
+    expect(run([certificateInvoice])).toEqual([["output-14-VAT14", 1096960, 178572.24]]);
+  });
+
+  it("reverses the billings base on the credit note that debits it", () => {
+    const creditNote = je({
+      id: "cert-cn",
+      lines: [
+        line({ accountId: BILLINGS, debit: Money.fromMajor("1000"), taxRatePercent: 14, taxRateId: "VAT14" }),
+        line({ accountId: OUTPUT_VAT, debit: Money.fromMajor("140"), taxRatePercent: 14, taxRateId: "VAT14" }),
+        line({ accountId: "1100", credit: Money.fromMajor("1140") }),
+      ],
+    });
+    expect(run([creditNote], [BILLINGS])).toEqual([["output-14-VAT14", -1000, -140]]);
+  });
+
+  it("gives a sale that credits an asset at 0% no input row — a retention release is not a negative purchase", () => {
+    const release = je({
+      id: "retention-release",
+      sourceDocType: "SALES_INVOICE",
+      lines: [
+        line({ accountId: "1100", debit: Money.fromMajor("100") }),
+        line({ accountId: RETENTION_RECEIVABLE, credit: Money.fromMajor("100"), taxRatePercent: 0 }),
+      ],
+    });
+    expect(run([release], [BILLINGS])).toEqual([]);
+  });
+
+  it("still reports a purchase and a purchase return charged wholly at 0%, which move no input VAT at all", () => {
+    const exemptPurchase = je({
+      id: "pi-exempt",
+      sourceDocType: "PURCHASE_INVOICE",
+      lines: [
+        line({ accountId: "5100", debit: Money.fromMajor("300"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+        line({ accountId: "2100", credit: Money.fromMajor("300") }),
+      ],
+    });
+    const exemptReturn = je({
+      id: "pr-exempt",
+      sourceDocType: "PURCHASE_RETURN",
+      lines: [
+        line({ accountId: "2100", debit: Money.fromMajor("100") }),
+        line({ accountId: "5100", credit: Money.fromMajor("100"), taxRatePercent: 0, taxRateId: "EXEMPT" }),
+      ],
+    });
+    expect(run([exemptPurchase, exemptReturn])).toEqual([["input-0-EXEMPT", 200, 0]]);
+  });
+});
+
+
+describe("createVatReturnReport — the output base counts each supply once and ties to the ledger (D79 review round 3)", () => {
+  const BILLINGS = "2165";
+  const CONTRACT_ASSET = "1160";
+  const RETAINED = "3900";
+  const all = [
+    ...accounts,
+    account({ id: BILLINGS, code: BILLINGS, nameAr: "فواتير مستخلصات على العقود", type: "liability" }),
+    account({ id: CONTRACT_ASSET, code: CONTRACT_ASSET, nameAr: "أصول العقود", type: "asset" }),
+    account({ id: RETAINED, code: RETAINED, nameAr: "الأرباح المرحلة", type: "equity" }),
+  ];
+  const window = { periodFrom: "2026-03-01", periodTo: "2026-03-31" };
+  const run = (entries: JournalEntry[]) => {
+    const outcome = runReport(createVatReturnReport(window), window, { ...ctx(entries), accounts: all, outputBaseAccountIds: [BILLINGS] });
+    if (!outcome.ok) throw new Error("the VAT return did not run");
+    return outcome.rows.map((r) => [r.rowId, r.base, r.tax]);
+  };
+  const certificate = je({
+    id: "cert",
+    lines: [
+      line({ accountId: "1100", debit: Money.fromMajor("1140") }),
+      line({ accountId: BILLINGS, credit: Money.fromMajor("1000"), taxRatePercent: 14, taxRateId: "VAT14" }),
+      line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("140"), taxRatePercent: 14, taxRateId: "VAT14" }),
+    ],
+  });
+  const recognition = (periodRevenue: string, billed: string) =>
+    je({
+      id: `recognition-${periodRevenue}`,
+      sourceDocType: "REVENUE_RECOGNITION_RUN",
+      lines: [
+        line({ accountId: CONTRACT_ASSET, debit: Money.fromMajor(periodRevenue) }),
+        line({ accountId: "4100", credit: Money.fromMajor(periodRevenue) }),
+        line({ accountId: BILLINGS, debit: Money.fromMajor(billed) }),
+        line({ accountId: CONTRACT_ASSET, credit: Money.fromMajor(billed) }),
+      ],
+    });
+
+  it("reports a certificate of 1,000 + 140 once, though the recognition run then credits the same 1,000 to revenue", () => {
+    expect(run([certificate, recognition("1000", "1000")])).toEqual([["output-14-VAT14", 1000, 140]]);
+  });
+
+  it("reports the billing, not the revenue recognised — 700 recognised against 1,000 billed is still a base of 1,000", () => {
+    expect(run([certificate, recognition("700", "1000")])).toEqual([["output-14-VAT14", 1000, 140]]);
+  });
+
+  it("does not read the year-end close's debit to revenue as a negative sale", () => {
+    const close = je({
+      id: "close",
+      sourceDocType: "YEAR_END_CLOSE",
+      lines: [line({ accountId: "4100", debit: Money.fromMajor("500") }), line({ accountId: RETAINED, credit: Money.fromMajor("500") })],
+    });
+    expect(run([close])).toEqual([]);
+  });
+
+  it("nets an untagged entry's debit to revenue against its credit, so the unnamed base is what revenue actually moved", () => {
+    const sale = je({ id: "untagged", lines: [line({ accountId: "1100", debit: Money.fromMajor("100") }), line({ accountId: "4100", credit: Money.fromMajor("100") })] });
+    const correction = je({ id: "correction", lines: [line({ accountId: "4100", debit: Money.fromMajor("40") }), line({ accountId: "1100", credit: Money.fromMajor("40") })] });
+    expect(run([sale, correction])).toEqual([["output-0", 60, 0]]);
+  });
+
+  it("leaves no row at all for a document that was reversed in full — not a row of 0 / 0", () => {
+    const sale = je({
+      id: "sale",
+      lines: [
+        line({ accountId: "1100", debit: Money.fromMajor("114") }),
+        line({ accountId: "4100", credit: Money.fromMajor("100"), taxRatePercent: 14, taxRateId: "VAT14" }),
+        line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("14"), taxRatePercent: 14, taxRateId: "VAT14" }),
+      ],
+    });
+    const creditNote = je({
+      id: "credit-note",
+      lines: [
+        line({ accountId: "4100", debit: Money.fromMajor("100"), taxRatePercent: 14, taxRateId: "VAT14" }),
+        line({ accountId: OUTPUT_VAT, debit: Money.fromMajor("14"), taxRatePercent: 14, taxRateId: "VAT14" }),
+        line({ accountId: "1100", credit: Money.fromMajor("114") }),
+      ],
+    });
+    expect(run([sale, creditNote])).toEqual([]);
+  });
+});
+
+describe("createVatReturnReport — the input side of entries that carry less than today's posting (D79 review round 3)", () => {
+  const window = { periodFrom: "2026-03-01", periodTo: "2026-03-31" };
+  const run = (entries: JournalEntry[]) => {
+    const outcome = runReport(createVatReturnReport(window), window, ctx(entries));
+    if (!outcome.ok) throw new Error("the VAT return did not run");
+    return outcome.rows.map((r) => [r.rowId, r.base, r.tax]);
+  };
+
+  it("gives a purchase posted when only its 1400 line was tagged the base it was charged on, not a base of zero", () => {
+    const legacy = je({
+      id: "pi-legacy",
+      sourceDocType: "PURCHASE_INVOICE",
+      lines: [
+        line({ accountId: "1300", debit: Money.fromMajor("1000") }),
+        line({ accountId: INPUT_VAT, debit: Money.fromMajor("140"), taxRatePercent: 14 }),
+        line({ accountId: "2100", credit: Money.fromMajor("1140") }),
+      ],
+    });
+    expect(run([legacy])).toEqual([["input-14", 1000, 140]]);
+  });
+
+  it("reads that base off the debits alone, so one paid from the till in the same entry is not reduced by the payment", () => {
+    const paidInCash = je({
+      id: "pi-legacy-cash",
+      sourceDocType: "PURCHASE_INVOICE",
+      lines: [
+        line({ accountId: "1300", debit: Money.fromMajor("1000") }),
+        line({ accountId: INPUT_VAT, debit: Money.fromMajor("140"), taxRatePercent: 14 }),
+        line({ accountId: "1100", credit: Money.fromMajor("1140") }),
+      ],
+    });
+    expect(run([paidInCash])).toEqual([["input-14", 1000, 140]]);
+  });
+
+  it("reverses it on the return posted the same way", () => {
+    const legacyReturn = je({
+      id: "pr-legacy",
+      sourceDocType: "PURCHASE_RETURN",
+      lines: [
+        line({ accountId: "2100", debit: Money.fromMajor("228") }),
+        line({ accountId: "1300", credit: Money.fromMajor("200") }),
+        line({ accountId: INPUT_VAT, credit: Money.fromMajor("28"), taxRatePercent: 14 }),
+      ],
+    });
+    expect(run([legacyReturn])).toEqual([["input-14", -200, -28]]);
+  });
+
+  it("shares the untagged base between two tagged rates by the base each tax implies, summing exactly", () => {
+    const mixed = je({
+      id: "pi-legacy-mixed",
+      sourceDocType: "PURCHASE_INVOICE",
+      lines: [
+        line({ accountId: "1300", debit: Money.fromMajor("3000") }),
+        line({ accountId: INPUT_VAT, debit: Money.fromMajor("140"), taxRatePercent: 14 }),
+        line({ accountId: INPUT_VAT, debit: Money.fromMajor("100"), taxRatePercent: 5 }),
+        line({ accountId: "2100", credit: Money.fromMajor("3240") }),
+      ],
+    });
+    expect(run([mixed])).toEqual([["input-14", 1000, 140], ["input-5", 2000, 100]]);
+  });
+
+  it("reports a 0% purchase recorded by manual journal — it has no source document and moves no input VAT", () => {
+    const manual = je({
+      id: "manual-exempt-purchase",
+      lines: [line({ accountId: "5100", debit: Money.fromMajor("300"), taxRatePercent: 0 }), line({ accountId: "1100", credit: Money.fromMajor("300") })],
+    });
+    expect(run([manual])).toEqual([["input-0", 300, 0]]);
+  });
+
+  it("still reports the input side of an entry that moves both VAT accounts — a reverse charge is a purchase too", () => {
+    const reverseCharge = je({
+      id: "reverse-charge",
+      lines: [
+        line({ accountId: "5100", debit: Money.fromMajor("1000"), taxRatePercent: 14 }),
+        line({ accountId: INPUT_VAT, debit: Money.fromMajor("140"), taxRatePercent: 14 }),
+        line({ accountId: OUTPUT_VAT, credit: Money.fromMajor("140"), taxRatePercent: 14 }),
+        line({ accountId: "2100", credit: Money.fromMajor("1000") }),
+      ],
+    });
+    expect(run([reverseCharge]).filter(([rowId]) => String(rowId).startsWith("input"))).toEqual([["input-14", 1000, 140]]);
   });
 });

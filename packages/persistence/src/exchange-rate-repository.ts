@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import type {
   ExchangeRate,
   ExchangeRateRepository,
@@ -47,6 +48,7 @@ function toRate(row: Row): ExchangeRate {
 
 class SqliteExchangeRateRepository implements ExchangeRateRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectRate: Database.Statement;
@@ -63,6 +65,7 @@ class SqliteExchangeRateRepository implements ExchangeRateRepository {
         source = excluded.source,
         status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM exchange_rate WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM exchange_rate ORDER BY currency, effective_date DESC`);
     // Latest usable (approved/locked) rate for a currency on/before a date.
@@ -89,15 +92,15 @@ class SqliteExchangeRateRepository implements ExchangeRateRepository {
   }
 
   async create(rate: ExchangeRate): Promise<void> {
-    this.write(rate);
+    insertingNew(rate.id, () => this.write(rate, this.insertOnly));
   }
 
   async update(rate: ExchangeRate): Promise<void> {
     this.write(rate);
   }
 
-  private write(rate: ExchangeRate): void {
-    this.upsert.run({
+  private write(rate: ExchangeRate, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: rate.id,
       currency: rate.currency,
       rate: rate.rate,

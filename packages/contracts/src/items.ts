@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for Items (docs/archive/catalog/03-inventory.md "الأصناف"). Money
@@ -39,7 +40,13 @@ export const costingMethodSchema = z.enum(["WAC", "FIFO"]);
  * withdrawn until the engine can honour it, rather than left as decoration.
  */
 export const settableCostingMethodSchema = z.enum(["WAC"]);
-export const itemStatusSchema = z.enum(["active", "inactive"]);
+export enum ItemStatusCode {
+  Active = "active",
+  Inactive = "inactive",
+  PendingPricing = "pending_pricing",
+}
+const ITEM_STATUS_VALUES = Object.values(ItemStatusCode) as [`${ItemStatusCode}`, ...`${ItemStatusCode}`[]];
+export const itemStatusSchema = z.enum(ITEM_STATUS_VALUES);
 export const etaCodeTypeSchema = z.enum(["EGS", "GPC"]);
 
 export const alternateUnitSchema = z.object({
@@ -92,7 +99,7 @@ export const itemSchema = z.object({
 });
 
 export const createItemSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   /** Omitted or blank, the server allocates the next free ITM-###### code. */
   code: z.string().trim().min(1).optional(),
   nameAr: z.string().min(1),
@@ -172,7 +179,7 @@ export type UpdateItemDTO = z.infer<typeof updateItemSchema>;
 export const itemCatalogStatusSchema = z.enum(["active", "inactive"]);
 
 export const upsertItemBrandSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullish(),
@@ -180,7 +187,7 @@ export const upsertItemBrandSchema = z.object({
 });
 
 export const upsertItemSeasonSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullish(),

@@ -5,7 +5,10 @@ import type { Context } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { parseEnv, type CloudEnv } from "./env.js";
+import { reachable } from "./cloud-harness.js";
 
+const PROXY_HOPS = 2;
+const PROXIED = { MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: String(PROXY_HOPS) };
 const T = "2026-01-15T00:00:00.000Z";
 
 const backendCloseSpies = vi.hoisted(() => [] as Array<ReturnType<typeof vi.fn>>);
@@ -60,7 +63,7 @@ function webDistFixture(): string {
 
 function testEnv(overrides: Partial<CloudEnv> = {}): CloudEnv {
   return {
-    ...parseEnv({}),
+    ...parseEnv(PROXIED),
     platformDir: tempDir("mezan-cloud-platform-"),
     webDist: webDistFixture(),
     platformOwnerEmail: "owner@mezan.local",
@@ -72,6 +75,7 @@ function testEnv(overrides: Partial<CloudEnv> = {}): CloudEnv {
 async function boot(env: CloudEnv, options: Parameters<typeof createCloudApp>[1] = {}): Promise<CloudApp> {
   const app = await createCloudApp(env, { now: () => new Date(T), ...options });
   apps.push(app);
+  reachable(app.root, PROXY_HOPS);
   return app;
 }
 
@@ -231,8 +235,15 @@ describe("createCloudApp", () => {
     const retried = (await retryRes.json()) as { tenant: { status: string }; adminEmail: string; adminPin: string | null };
     expect(retried.tenant.status).toBe("active");
     expect(retried.adminEmail).toBe("owner@retryco.example");
-    // The admin account was already created on the first, failed attempt (before the retired plan blew up subscription start) — the retry finds it claimed and does not re-issue a PIN.
-    expect(retried.adminPin).toBeNull();
+    expect(retried.adminPin).toMatch(/^[0-9]{6}$/);
+    const login = await app.root.fetch(
+      new Request("http://cloud.internal/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-mezan-tenant": "retryco" },
+        body: JSON.stringify({ username: "owner@retryco.example", pin: retried.adminPin }),
+      }),
+    );
+    expect(login.status).toBe(200);
   });
 
   describe("with MEZAN_ORIGIN_SECRET set", () => {
@@ -311,6 +322,7 @@ describe("createCloudApp", () => {
     const start = vi.fn(() => stop);
     const env = testEnv();
     const app = await createCloudApp(env, { now: () => new Date(T), backups: { start } });
+    reachable(app.root, PROXY_HOPS);
 
     const token = await platformLogin(app, "owner@mezan.local", "owner-password-123");
     await provisionCyag(app, token);
@@ -330,6 +342,22 @@ describe("createCloudApp", () => {
       const res = await app.root.fetch(new Request("http://cloud.internal/"));
       expect(res.status).toBe(200);
       expect(await res.text()).toContain("مزان-تجريبي");
+    });
+
+    it("serves the unlock-link page uncached, with no referrer and without the script a deployment injects into every other page", async () => {
+      const BEACON = '<script src="https://analytics.example/beacon.js"></script>';
+      const app = await boot(testEnv(), { transformIndexHtml: (html) => html.replace("</body>", `${BEACON}</body>`) });
+      const unlock = await app.root.fetch(new Request("http://cloud.internal/unlock"));
+      const home = await app.root.fetch(new Request("http://cloud.internal/"));
+
+      expect(unlock.status).toBe(200);
+      const page = await unlock.text();
+      expect(page).toContain("مزان");
+      expect(page).not.toContain("analytics.example");
+      expect(await home.text()).toContain("analytics.example");
+      expect(unlock.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(unlock.headers.get("cache-control")).toBe("no-store");
+      expect(home.headers.get("cache-control")).not.toBe("no-store");
     });
 
     it("answers a plain 404 JSON at / when no web bundle is present", async () => {

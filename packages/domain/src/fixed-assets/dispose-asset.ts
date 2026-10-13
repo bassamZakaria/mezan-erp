@@ -21,6 +21,8 @@ import { Money } from "../money/index.js";
 import type { Asset, AssetRepository } from "./asset.js";
 import type { AssetCategory, AssetCategoryRepository } from "./asset-category.js";
 import { AssetNotFoundError } from "./errors.js";
+import type { WarehouseBranchLookup } from "../gl/index.js";
+import { branchOfAsset } from "./asset-branch.js";
 
 export interface DisposeAssetGlAccounts {
   /** Where the asset's cost sits when no category or asset override applies. */
@@ -36,6 +38,7 @@ export interface DisposeAssetPostingLine {
   readonly credit: Money;
   readonly projectId?: string | null;
   readonly costCategory?: CostCategory | null;
+  readonly branchId?: string | null;
 }
 
 export interface DisposeAssetPosting {
@@ -69,6 +72,8 @@ export interface DisposeAssetDeps {
   readonly categories: Pick<AssetCategoryRepository, "findById">;
   readonly accounts: DisposeAssetGlAccounts;
   readonly gl?: DisposeAssetGlPort;
+  /** Resolves a warehouse-scoped asset's branch through the warehouse it sits in. */
+  readonly warehouses?: WarehouseBranchLookup;
 }
 
 export class AssetAlreadyDisposedError extends Error {
@@ -131,18 +136,19 @@ export async function disposeAsset(
     const accounts = resolveAccounts(asset, category, deps.accounts);
     const zero = Money.zero();
     const projectId = asset.projectId;
+    const branchId = await branchOfAsset(asset, deps.warehouses);
     const lines: DisposeAssetPostingLine[] = [];
     if (asset.accumulatedDepreciation.scaled > 0n) {
-      lines.push({ accountId: accounts.accumulatedDepreciationAccountId, debit: asset.accumulatedDepreciation, credit: zero, projectId });
+      lines.push({ accountId: accounts.accumulatedDepreciationAccountId, debit: asset.accumulatedDepreciation, credit: zero, projectId, branchId });
     }
     if (proceeds.scaled > 0n) {
-      lines.push({ accountId: cmd.proceedsAccountId as string, debit: proceeds, credit: zero, projectId });
+      lines.push({ accountId: cmd.proceedsAccountId as string, debit: proceeds, credit: zero, projectId, branchId });
     }
-    lines.push({ accountId: accounts.assetAccountId, debit: zero, credit: asset.acquisitionCost, projectId });
+    lines.push({ accountId: accounts.assetAccountId, debit: zero, credit: asset.acquisitionCost, projectId, branchId });
     if (gainOrLoss.scaled > 0n) {
-      lines.push({ accountId: deps.accounts.gainAccountId, debit: zero, credit: gainOrLoss, projectId });
+      lines.push({ accountId: deps.accounts.gainAccountId, debit: zero, credit: gainOrLoss, projectId, branchId });
     } else if (gainOrLoss.scaled < 0n) {
-      lines.push({ accountId: deps.accounts.lossAccountId, debit: Money.fromScaled(-gainOrLoss.scaled), credit: zero, projectId });
+      lines.push({ accountId: deps.accounts.lossAccountId, debit: Money.fromScaled(-gainOrLoss.scaled), credit: zero, projectId, branchId });
     }
     await deps.gl.post({
       sourceDocType: "ASSET_DISPOSAL",

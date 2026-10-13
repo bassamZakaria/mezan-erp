@@ -124,6 +124,8 @@ export interface SubcontractStore {
   findById(id: string): Promise<Subcontract | null>;
   findByDocNo(docNo: string): Promise<Subcontract | null>;
   list(filter?: SubcontractListFilter): Promise<Subcontract[]>;
+  /** Insert-only: a taken id is refused with DuplicateRecordIdError, never replaced. */
+  insert(subcontract: Subcontract): Promise<void>;
   save(subcontract: Subcontract): Promise<void>;
 
   findCertificateById(id: string): Promise<SubCertificate | null>;
@@ -131,6 +133,7 @@ export interface SubcontractStore {
   listCertificates(filter?: SubCertificateListFilter): Promise<SubCertificate[]>;
   /** Every certificate of one subcontract, ordered by serial ascending. */
   listCertificatesBySubcontract(subcontractId: string): Promise<SubCertificate[]>;
+  insertCertificate(certificate: SubCertificate): Promise<void>;
   saveCertificate(certificate: SubCertificate): Promise<void>;
 
   transaction<T>(fn: () => Promise<T>): Promise<T>;

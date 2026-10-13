@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   can,
@@ -11,6 +12,8 @@ import {
 import { notificationListQuerySchema } from "@mezan/contracts";
 import { createAuthenticatedGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { moduleRefusal } from "./module-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Refuses the bell panel when `notifications` isn't licensed. Unlike the other
@@ -56,6 +59,9 @@ function authContextOf(c: Context) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof NotificationNotFoundError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }

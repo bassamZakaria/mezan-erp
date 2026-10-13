@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { Hono } from "hono";
 import { createSessionRegistry } from "@mezan/api";
-import { ALL_SCOPE, createPlatformUser, type PlatformUser } from "@mezan/domain";
+import { ALL_SCOPE, createMemorySecurityEventFallback, createPlatformUser, type PlatformUser } from "@mezan/domain";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth } from "./platform-auth.js";
 
@@ -219,19 +219,20 @@ describe("createPlatformAuth", () => {
     expect(afterWaitRes.status).toBe(200);
   });
 
-  it("logs an audit failure through onAuditError instead of swallowing it, and the login still succeeds", async () => {
+  it("keeps a sign-in the audit log refused in the fallback, counted, without the password, and the login still succeeds", async () => {
     const platform = await newPlatform();
     await seedOwner(platform);
-    const auditErrors: unknown[] = [];
+    const unrecorded = createMemorySecurityEventFallback();
     const brokenPlatform: PlatformHandle = {
       ...platform,
       audit: {
         append: async () => { throw new Error("audit sink down"); },
         query: platform.audit.query.bind(platform.audit),
+        unrecorded,
       },
     };
     const sessions = createSessionRegistry();
-    const auth = createPlatformAuth({ platform: brokenPlatform, sessions, now: FIXED_NOW, onAuditError: (err) => { auditErrors.push(err); } });
+    const auth = createPlatformAuth({ platform: brokenPlatform, sessions, now: FIXED_NOW });
 
     const res = await auth.app.fetch(
       new Request("http://x/login", {
@@ -241,7 +242,18 @@ describe("createPlatformAuth", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(auditErrors).toHaveLength(1);
-    expect((auditErrors[0] as Error).message).toBe("audit sink down");
+    const failed = await auth.app.fetch(
+      new Request("http://x/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "owner@mezan.app", password: "not the password" }),
+      }),
+    );
+    expect(failed.status).toBe(401);
+    const summary = unrecorded.summary();
+    expect(summary.count).toBe(2);
+    expect(summary.recent.map((entry) => entry.action)).toEqual(["PLATFORM_LOGIN_FAILED", "PLATFORM_LOGIN_SUCCEEDED"]);
+    expect(summary.recent.every((entry) => entry.reason === "audit sink down")).toBe(true);
+    expect(JSON.stringify(summary)).not.toMatch(/correct horse battery|not the password/);
   });
 });

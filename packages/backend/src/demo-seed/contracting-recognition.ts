@@ -56,7 +56,7 @@ export async function seedContractingRecognition(app: App): Promise<void> {
     currency: "EGP",
     projectId: VILLAS,
     lines: [
-      { itemId: null, kind: "expense", description: "رخام وأرضيات لفيلات الشيخ زايد", qty: "1", unitCost: "380000", taxRatePercent: 14, costCategory: "materials" },
+      { itemId: null, kind: "expense", description: "رخام وأرضيات لفيلات الشيخ زايد", qty: "1", unitCost: "380000", taxRateId: "VAT14", costCategory: "materials" },
       { itemId: null, kind: "expense", description: "أعمال محارة وبياض بالمقاولة", qty: "1", unitCost: "240000", taxRatePercent: 0, costCategory: "subcontract" },
     ],
   });

@@ -66,6 +66,11 @@ function renderScreen(runs: DepreciationRunDTO[] = sampleRuns) {
       current = [posted, ...current.slice(1)];
       return { body: posted };
     },
+    "POST /assets/depreciation/runs/run-1/discard": () => {
+      const discarded: DepreciationRunDTO = { ...current.find((r) => r.id === "run-1")!, status: "cancelled" as const };
+      current = current.map((r) => (r.id === "run-1" ? discarded : r));
+      return { body: discarded };
+    },
     "POST /assets/depreciation/runs/run-2/reverse": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       reverseRequests.push(body);
@@ -141,6 +146,30 @@ describe("DepreciationRunsScreen", () => {
     const detail = screen.getByRole("dialog", { name: /عملية إهلاك —/ });
     expect(within(detail).getByText("asset-1")).toBeInTheDocument();
     expect(within(detail).getByText("asset-2")).toBeInTheDocument();
+  });
+
+  it("discards a draft run from its row action; a posted run offers no discard", async () => {
+    renderScreen();
+    await screen.findByText("2026-06");
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات 2026-06" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "استبعاد المسودة" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "استبعاد المسودة" }));
+
+    await waitFor(() => expect(within(screen.getByText("2026-06").closest("tr")!).getByText("ملغي")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "إجراءات 2026-05" }));
+    expect(await screen.findByRole("menuitem", { name: "عكس التشغيل" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "استبعاد المسودة" })).not.toBeInTheDocument();
+  });
+
+  it("names the assets a posted run left out because another run had already charged them", async () => {
+    renderScreen([{ ...sampleRuns[1]!, skippedLines: [{ assetId: "asset-9", assetCode: "AST-0009", amount: "120.000000" }] }]);
+    fireEvent.click(await screen.findByText("2026-05"));
+
+    const detail = screen.getByRole("dialog", { name: /عملية إهلاك —/ });
+    expect(within(detail).getByText("أصول لم تُحمَّل في هذا التشغيل لأن تشغيلاً آخر حمّلها عن الفترة نفسها")).toBeInTheDocument();
+    expect(within(detail).getByText("AST-0009")).toBeInTheDocument();
   });
 
   /** guards D275 — the reverse action must send a date, not rely on the server's own default. */

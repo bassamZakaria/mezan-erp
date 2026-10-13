@@ -1,5 +1,8 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -42,6 +45,7 @@ const STATUS_KEY: Record<EmployeeAdvanceStatusDTO, AppTranslationKey> = {
   disbursed: "advances.status.disbursed",
   repaid: "advances.status.repaid",
   rejected: "advances.status.rejected",
+  cancelled: "advances.status.cancelled",
 };
 
 const STATUS_TONE: Record<EmployeeAdvanceStatusDTO, PillTone> = {
@@ -50,6 +54,7 @@ const STATUS_TONE: Record<EmployeeAdvanceStatusDTO, PillTone> = {
   disbursed: "success",
   repaid: "neutral",
   rejected: "danger",
+  cancelled: "neutral",
 };
 
 interface AdvanceDraft {
@@ -67,6 +72,7 @@ function blankDraft(): AdvanceDraft {
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function EmployeeAdvancesScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.EmployeeAdvance);
   const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const query = useEmployeeAdvances();
@@ -168,6 +174,7 @@ export function EmployeeAdvancesScreen() {
       await decideAdvance.mutateAsync({ id: advance.id, decision });
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("advances.theDecisionCouldNotBe"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -269,8 +276,8 @@ export function EmployeeAdvancesScreen() {
             { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(a.id); } },
             ...(a.status === "pending"
               ? [
-                  { key: "approve", label: t("advances.approve"), disabled: pendingId === a.id, onSelect: () => void runDecision(a, "approve") },
-                  { key: "reject", label: t("advances.reject"), tone: "danger" as const, disabled: pendingId === a.id, onSelect: () => void runDecision(a, "reject") },
+                  { key: "approve", label: t("advances.approve"), disabled: pendingId === a.id, onSelect: () => runDecision(a, "approve") },
+                  { key: "reject", label: t("advances.reject"), tone: "danger" as const, disabled: pendingId === a.id, onSelect: () => runDecision(a, "reject") },
                 ]
               : []),
             // Paying out needs a treasury account the row cannot supply, so the
@@ -300,6 +307,7 @@ export function EmployeeAdvancesScreen() {
                   },
                 ]
               : []),
+            ...(a.status === "pending" || a.status === "approved" || a.status === "disbursed" ? reversal.menuItems({ id: a.id, params: { id: a.id }, subject: a.number }) : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.number })} />;
         }}
@@ -325,6 +333,7 @@ export function EmployeeAdvancesScreen() {
           />
         }
       />
+      {reversal.dialog}
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.number : ""}>
         {selected ? (

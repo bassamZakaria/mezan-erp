@@ -12,6 +12,8 @@ export interface BankEntryPostInput {
   /** Always positive; the direction follows from `kind`. */
   readonly amount: Money;
   readonly treasuryAccountId: string;
+  /** The branch of the statement the line was read from — the entry's source document. */
+  readonly branchId?: string | null;
   readonly counterAccountId: string;
   readonly costCenterId: string | null;
   readonly memo: string;

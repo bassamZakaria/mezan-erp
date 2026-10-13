@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { scopeSelectionSchema } from "./roles.js";
+import { companyNameSchema } from "./company-name.js";
 
 /**
  * Real desktop login (docs/archive/plan.md — username + PIN). `POST /auth/login`
@@ -8,6 +9,21 @@ import { scopeSelectionSchema } from "./roles.js";
  * (`x-user-id`, `x-permissions`, `x-branch-scope`, `x-warehouse-scope`) it
  * sends on every subsequent API call.
  */
+export const DEVICE_BINDING_HEADER = "x-mezan-device-binding";
+export const DEVICE_SECRET_HEADER = "x-mezan-device";
+
+export const stepUpRequestSchema = z.object({ pin: z.string().regex(/^\d{6}$/) });
+export type StepUpRequestDTO = z.infer<typeof stepUpRequestSchema>;
+
+export const unlockAccountRequestSchema = z.object({
+  username: z.string().min(1).max(254),
+  code: z.string().min(1).max(64),
+});
+export type UnlockAccountRequestDTO = z.infer<typeof unlockAccountRequestSchema>;
+
+export const unlockAccountByLinkRequestSchema = z.object({ token: z.string().min(20).max(128) });
+export type UnlockAccountByLinkRequestDTO = z.infer<typeof unlockAccountByLinkRequestSchema>;
+
 export const loginRequestSchema = z.object({
   /**
    * The user's EMAIL — never their display name. A display name is neither
@@ -18,6 +34,8 @@ export const loginRequestSchema = z.object({
   username: z.string().min(1),
   pin: z.string().regex(/^\d{6}$/),
 });
+
+export const UNDISCLOSED_TENANT_NAME = "Mezan";
 
 /** The authenticated session — identity + effective authority. */
 export const sessionSchema = z.object({
@@ -48,6 +66,7 @@ export const sessionSchema = z.object({
    * deciding what a request is allowed to do.
    */
   token: z.string(),
+  deviceSecret: z.string().optional(),
 });
 
 export const loginResponseSchema = sessionSchema;
@@ -59,6 +78,7 @@ export const bootstrapAdminRequestSchema = z.object({
   /** The first admin's email — and, from this moment on, their login. */
   email: z.string().trim().toLowerCase().email(),
   pin: z.string().regex(/^\d{6}$/),
+  companyName: companyNameSchema,
 });
 
 /** Result of the idempotent `POST /bootstrap/seed` — what the empty-DB seed created (or found). */
@@ -81,6 +101,7 @@ export const bootstrapSeedResultSchema = z.object({
    * out of a brand-new install inside ninety seconds.
    */
   claimed: z.boolean().optional(),
+  demoSeeded: z.boolean().optional(),
 });
 
 export type LoginRequestDTO = z.infer<typeof loginRequestSchema>;

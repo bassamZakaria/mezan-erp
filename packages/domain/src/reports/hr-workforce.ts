@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { z } from "zod";
 import { Money, Qty } from "../money/index.js";
 import type { AttendanceEntry } from "../hr/attendance.js";
@@ -8,6 +9,8 @@ import type { LeavePolicy } from "../hr/leave-policy.js";
 import { availableLeaveDays } from "../hr/leave-balance.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
+import { BRANCH_PARAM_FIELD } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * The workforce reports — attendance, what unused leave is worth, and who
@@ -94,7 +97,7 @@ export function createAttendanceSummaryReport(): ReportDefinition<AttendanceSumm
     descriptionAr: "أيام الحضور والتأخير والغياب والإجازات لكل موظف خلال الفترة، ومعها ساعات العمل والساعات الإضافية المعتمدة.",
     paramsSchema: dateRangeSchema,
     defaultParams: { from: "", to: "" },
-    paramFields: [{ kind: "dateRange", fromKey: "from", toKey: "to", label: "الفترة" }],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "from", toKey: "to", label: "الفترة" }, BRANCH_PARAM_FIELD],
     run: (params, ctx) => {
       const inRange = ctx.attendance.filter((e) => e.date >= params.from && e.date <= params.to);
       const byEmployee = new Map<string, AttendanceEntry[]>();
@@ -111,7 +114,7 @@ export function createAttendanceSummaryReport(): ReportDefinition<AttendanceSumm
         const lateDays = entries.filter((e) => e.status === "late").length;
         const halfDays = entries.filter((e) => e.status === "half_day").length;
         const absentDays = entries.filter((e) => e.status === "absent").length;
-        const leaveDays = entries.filter((e) => e.status === "on_leave").length;
+        const leaveDays = entries.filter((e) => e.status === EmployeeRefStatus.OnLeave).length;
         const workedMinutes = entries.reduce((sum, e) => sum + e.workedMinutes, 0);
         const overtimeMinutes = entries.reduce((sum, e) => sum + (e.approvedOvertimeMinutes ?? 0), 0);
         // Rest days are not attendance the employee can fail — a rate measured
@@ -198,7 +201,7 @@ export function createLeaveLiabilityReport(): ReportDefinition<LeaveLiabilityPar
     descriptionAr: "قيمة أرصدة الإجازات غير المستخدمة التي تُصرف عند إنهاء الخدمة — التزام قائم على المنشأة حتى لو لم يُقيَّد بعد.",
     paramsSchema: asOfSchema,
     defaultParams: { asOfDate: "" },
-    paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }],
+    paramFields: [{ kind: ReportParamKind.Date, key: "asOfDate", label: "حتى تاريخ" }, BRANCH_PARAM_FIELD],
     run: (params, ctx) => {
       const payoutTypes = new Set(ctx.policies.filter((p) => p.payoutOnTermination && p.active).map((p) => p.leaveType));
       // Each year's balance already carries the previous year's unused days in
@@ -218,7 +221,7 @@ export function createLeaveLiabilityReport(): ReportDefinition<LeaveLiabilityPar
         const available = availableLeaveDays(balance);
         if (available.isZero() || available.isNegative()) continue;
         const employee = ctx.employees.find((e) => e.id === balance.employeeId);
-        if (!employee || employee.status === "terminated") continue;
+        if (!employee || employee.status === EmployeeRefStatus.Terminated) continue;
         const contract = activeContract(ctx.contracts, balance.employeeId, params.asOfDate);
         if (!contract) continue;
         const dailyRate = Money.fromScaled(comprehensiveWage(contract).scaled / 30n);
@@ -288,7 +291,7 @@ export function createHeadcountMovementReport(): ReportDefinition<AttendanceSumm
     descriptionAr: "الملتحقون والمنتهية خدمتهم وصافي التغير وعدد العاملين في نهاية كل شهر خلال الفترة.",
     paramsSchema: dateRangeSchema,
     defaultParams: { from: "", to: "" },
-    paramFields: [{ kind: "dateRange", fromKey: "from", toKey: "to", label: "الفترة" }],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "from", toKey: "to", label: "الفترة" }, BRANCH_PARAM_FIELD],
     run: (params, ctx) => {
       const months: string[] = [];
       const start = params.from.slice(0, 7);

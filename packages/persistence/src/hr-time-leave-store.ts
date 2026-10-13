@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   Qty,
   type AttendanceEntry,
@@ -82,6 +83,7 @@ function toAttendance(row: AttendanceRow): AttendanceEntry {
 
 class SqliteAttendanceRepository implements AttendanceRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByEmployeeAndDate: Database.Statement;
 
@@ -99,6 +101,7 @@ class SqliteAttendanceRepository implements AttendanceRepository {
         notes = excluded.notes,
         updated_at = excluded.updated_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_attendance WHERE id = ?`);
     this.selectByEmployeeAndDate = sqlite.prepare(`SELECT * FROM hr_attendance WHERE employee_id = ? AND date = ?`);
   }
@@ -138,15 +141,15 @@ class SqliteAttendanceRepository implements AttendanceRepository {
   }
 
   async create(entry: AttendanceEntry): Promise<void> {
-    this.write(entry);
+    insertingNew(entry.id, () => this.write(entry, this.insertOnly));
   }
 
   async update(entry: AttendanceEntry): Promise<void> {
     this.write(entry);
   }
 
-  private write(entry: AttendanceEntry): void {
-    this.upsert.run({
+  private write(entry: AttendanceEntry, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: entry.id,
       employee_id: entry.employeeId,
       date: entry.date,
@@ -216,6 +219,7 @@ function toLeavePolicy(row: LeavePolicyRow): LeavePolicy {
 
 class SqliteLeavePolicyRepository implements LeavePolicyRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByLeaveType: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -236,6 +240,7 @@ class SqliteLeavePolicyRepository implements LeavePolicyRepository {
         active = excluded.active,
         updated_at = excluded.updated_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_leave_policy WHERE id = ?`);
     this.selectByLeaveType = sqlite.prepare(`SELECT * FROM hr_leave_policy WHERE leave_type = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM hr_leave_policy ORDER BY leave_type`);
@@ -257,7 +262,7 @@ class SqliteLeavePolicyRepository implements LeavePolicyRepository {
   }
 
   async create(policy: LeavePolicy): Promise<void> {
-    this.write(policy);
+    insertingNew(policy.id, () => this.write(policy, this.insertOnly));
   }
 
   async update(policy: LeavePolicy): Promise<void> {
@@ -268,8 +273,8 @@ class SqliteLeavePolicyRepository implements LeavePolicyRepository {
     this.deleteById.run(id);
   }
 
-  private write(policy: LeavePolicy): void {
-    this.upsert.run({
+  private write(policy: LeavePolicy, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: policy.id,
       leave_type: policy.leaveType,
       entitlement_days: policy.entitlementDays.toScaledNumber(),
@@ -331,6 +336,7 @@ function toLeaveBalance(row: LeaveBalanceRow): LeaveBalance {
 
 class SqliteLeaveBalanceRepository implements LeaveBalanceRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectOne: Database.Statement;
 
@@ -344,6 +350,7 @@ class SqliteLeaveBalanceRepository implements LeaveBalanceRepository {
         used = excluded.used,
         updated_at = excluded.updated_at
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM hr_leave_balance WHERE id = ?`);
     this.selectOne = sqlite.prepare(`SELECT * FROM hr_leave_balance WHERE employee_id = ? AND leave_type = ? AND year = ?`);
   }
@@ -381,15 +388,15 @@ class SqliteLeaveBalanceRepository implements LeaveBalanceRepository {
   }
 
   async create(balance: LeaveBalance): Promise<void> {
-    this.write(balance);
+    insertingNew(balance.id, () => this.write(balance, this.insertOnly));
   }
 
   async update(balance: LeaveBalance): Promise<void> {
     this.write(balance);
   }
 
-  private write(balance: LeaveBalance): void {
-    this.upsert.run({
+  private write(balance: LeaveBalance, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: balance.id,
       employee_id: balance.employeeId,
       leave_type: balance.leaveType,

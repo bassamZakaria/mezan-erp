@@ -171,3 +171,17 @@ describe("ledgerPrintModel", () => {
     expect(model.totals.amountInWords).toBeUndefined();
   });
 });
+
+describe("documentPrintModel — a line prints the name of the tax rate it was charged under (D79)", () => {
+  it("carries the rate's name beside its percent, and none for a line that stored no rate", () => {
+    const model = documentPrintModel({
+      ...base,
+      lines: [
+        { description: "خدمة معفاة", qty: "1", unitPrice: "100.00", taxRatePercent: 0, taxRateName: "معفى" },
+        { description: "توريد تصدير", qty: "1", unitPrice: "100.00", taxRatePercent: 0, taxRateName: "تصدير" },
+        { description: "بند قديم", qty: "1", unitPrice: "100.00", taxRatePercent: 0, taxRateName: null },
+      ],
+    });
+    expect(model.lines.map((l) => [l.taxPercent, l.taxName])).toEqual([[0, "معفى"], [0, "تصدير"], [0, undefined]]);
+  });
+});

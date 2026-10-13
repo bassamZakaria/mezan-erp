@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { CURRENT_SCHEMA_VERSION } from "@mezan/persistence";
 
 /**
  * `backup-hooks.ts` imports electron's `app` for the on-close schedule. The
@@ -27,6 +28,7 @@ vi.mock("electron", () => ({ app: electronApp }));
 
 const { backupThenMigrate, isMigrationPending, scheduleBackups } = await import("./backup-hooks.js");
 const { extractArchive } = await import("../backup/archive.js");
+const { withBackupLock } = await import("../backup/backup-lock.js");
 const { parseManifest } = await import("../backup/manifest.js");
 
 const dirs: string[] = [];
@@ -167,7 +169,7 @@ describe("backupThenMigrate — the books are safe before the schema moves", () 
    */
   it("takes NO backup when the database is already at this build's schema", async () => {
     const { db, backupsDir } = await seededDb();
-    db.pragma("user_version = 1");
+    db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
 
     const result = await backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3" });
 
@@ -177,7 +179,7 @@ describe("backupThenMigrate — the books are safe before the schema moves", () 
 
   it("still runs the migration step on a launch that skips the backup", async () => {
     const { db, backupsDir } = await seededDb();
-    db.pragma("user_version = 1");
+    db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
     const migrate = vi.fn(async () => {});
 
     await backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3", migrate });
@@ -262,11 +264,12 @@ describe("scheduleBackups — the on-close backup actually completes", () => {
     // that keeps hitting the bound has to be diagnosable.
     expect(errors.join("\n")).toContain("did not finish within");
     dispose();
-    // The abandoned copy is still running; let it land before the temp
-    // directory is torn down under it.
-    for (let i = 0; i < 200 && (await archives(backupsDir)).length === 0; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    // The abandoned backup is still running, and it goes on writing into the
+    // directory AFTER its archive appears (the integrity-check state, the
+    // snapshot's removal). Queue behind it, so the directory is torn down only
+    // once it has finished.
+    await withBackupLock(async () => undefined);
+    expect(await archives(backupsDir)).toHaveLength(1);
   });
 
 

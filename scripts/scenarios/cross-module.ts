@@ -448,7 +448,7 @@ export async function run(ctx: Ctx): Promise<void> {
       // suite runs on, not this file's fictional TODAY — pass TODAY
       // explicitly so the reversal stays same-day, as every other posting
       // in this file is, and the as-of-TODAY cash guard below still sees it.
-      await req("POST", "/vouchers/SCN-X-NEG-1/reverse", { date: TODAY });
+      await req("POST", "/vouchers/SCN-X-NEG-1/reverse", { memo: "سبب العكس", date: TODAY });
     }
     check("either way the خزنة is left exactly as this scenario found it", Math.abs((await gl(CASH)) - cashNow) < 0.005, `cash=${await gl(CASH)} started=${cashNow}`);
   });
@@ -647,7 +647,7 @@ export async function run(ctx: Ctx): Promise<void> {
       }],
     });
     check("the landed cost drafts against the receipt", landed.status === 201, `status ${landed.status} ${JSON.stringify(landed.body).slice(0, 250)}`);
-    const lcConfirm = await req("POST", "/landed-costs/SCN-X-LC-1/confirm", {});
+    const lcConfirm = await req("POST", "/landed-costs/SCN-X-LC-1/confirm", { absorptionDate: TODAY });
     check("the landed cost confirms", lcConfirm.status === 200, `status ${lcConfirm.status} ${JSON.stringify(lcConfirm.body).slice(0, 250)}`);
 
     const costAfter = (await stock(itemId)).averageCost;
@@ -950,7 +950,7 @@ export async function run(ctx: Ctx): Promise<void> {
       treasuryAccountId: CASH_TREASURY, treasuryGlAccountId: CASH, counterpartyGlAccountId: EXPENSE,
     });
 
-    const closed = await req("POST", `/fiscal-periods/${august.id}/close`, {});
+    const closed = await req("POST", `/fiscal-periods/${august.id}/close`, { overrideReason: "SCN-X: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
     check("August closes", closed.status === 200 && closed.body?.status === "closed", `status ${closed.status} ${JSON.stringify(closed.body).slice(0, 200)}`);
 
     const cashDuringClose = await gl(CASH);
@@ -1014,7 +1014,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     // D270: pass TODAY explicitly — an omitted date now defaults to the real
     // calendar day, not this file's fictional TODAY (see x5's own note).
-    const reversed = await req("POST", "/vouchers/SCN-X-EXP-1/reverse", { date: TODAY });
+    const reversed = await req("POST", "/vouchers/SCN-X-EXP-1/reverse", { memo: "سبب العكس", date: TODAY });
     check("the voucher reverses", reversed.status === 200 || reversed.status === 201, `status ${reversed.status} ${JSON.stringify(reversed.body).slice(0, 200)}`);
     checkEq("the خزنة returns to exactly its pre-payment balance", await gl(CASH), cashBefore);
     checkEq("and so does the expense account — a reversal undoes both legs, not one", await gl(EXPENSE), expenseBefore);
@@ -1035,7 +1035,20 @@ export async function run(ctx: Ctx): Promise<void> {
     // Recomputed the way a reader of the balance sheet would: every POSTABLE account
     // of the right kind, on its natural side, as of the same date the tile claims.
     const accounts = ctx.rows((await req("GET", "/accounts")).body);
+    // Cash is what the balance sheet files under cash: the postable assets under
+    // the cash-and-bank header (1300) plus whatever a treasury account posts
+    // through — never the restricted guarantee margin (1340), and never an
+    // account that merely starts with 13 (supplier advances 1350, bounced
+    // cheques 1360), which the tile used to count as money in the drawer.
+    const treasuryLedgerIds = new Set(ctx.rows((await req("GET", "/treasury-accounts")).body).map((t: any) => t.glAccountId).filter(Boolean));
+    const byId = new Map((accounts as any[]).map((a) => [a.id, a]));
+    const underCashHeader = (a: any): boolean => {
+      for (let parent = a.parentId, depth = 0; parent && depth < 32; parent = byId.get(parent)?.parentId, depth++) if (parent === "1300") return true;
+      return false;
+    };
+    const isCash = (a: any): boolean => a.type === "asset" && a.id !== "1340" && (treasuryLedgerIds.has(a.id) || underCashHeader(a));
     let cashSum = 0;
+    let notCashThirteens = 0;
     let receivableSum = 0;
     let payableSum = 0;
     for (const a of accounts as any[]) {
@@ -1043,12 +1056,17 @@ export async function run(ctx: Ctx): Promise<void> {
       const code = String(a.code ?? "");
       const raw = n((await req("GET", `/gl/accounts/${a.id}/ledger?asOf=${TODAY}`)).body?.balance?.balance);
       const natural = a.naturalBalance === "credit" ? -raw : raw;
-      if (a.type === "asset" && code.startsWith("13")) cashSum += natural;
+      if (isCash(a)) cashSum += natural;
+      else if (a.type === "asset" && code.startsWith("13")) notCashThirteens += natural;
       if (a.type === "asset" && (code === "1105" || code === "1110")) receivableSum += natural;
       if (a.type === "liability" && code !== OUTPUT_TAX) payableSum += natural;
     }
 
-    checkEq("dashboard cash equals the sum of every 13xx cash/bank account, this file's movements included", n(glBlock?.cash), cashSum);
+    checkEq("dashboard cash equals the sum of every cash and bank ledger account, this file's movements included", n(glBlock?.cash), cashSum);
+    const sheet = await req("GET", `/financial-reports/balance-sheet?asOfDate=${TODAY}`);
+    const sheetCash = ctx.rows(sheet.body).filter((row: any) => row.sectionKey === "cash").reduce((sum: number, row: any) => sum + n(row.amount), 0);
+    checkEq("and it is the balance sheet's own cash section — one set, read by both", n(glBlock?.cash), sheetCash);
+    check("the seeded books hold 13xx balances that are not cash, so the two rules can be told apart", notCashThirteens !== 0, `advances, bounced cheques and restricted cash: ${notCashThirteens}`);
     checkEq("dashboard receivables equals trade plus instalment customer receivables — not the whole 11xx subtree (docs/archive/defect-register.md D37)", n(glBlock?.receivables), receivableSum);
     checkEq("dashboard payables equals the sum of every liability account except output VAT", n(glBlock?.payables), payableSum);
   });
@@ -1201,8 +1219,8 @@ export async function run(ctx: Ctx): Promise<void> {
     const tripId = opened.body?.id ?? "SCN-X-TRIP-1";
 
     check(
-      "FLD-11 (docs/TESTING.md §10) — the route discards the caller's id, so the trip must be found by listing, not by the id that was sent",
-      tripId !== "SCN-X-TRIP-1",
+      "FLD-11 (docs/TESTING.md §10) fixed with D111 — the trip is stored under the id the caller sent",
+      tripId === "SCN-X-TRIP-1",
       `returned id=${tripId}`,
     );
 

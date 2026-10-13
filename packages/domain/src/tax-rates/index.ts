@@ -5,9 +5,52 @@ export type {
   TaxRateStatus,
   EtaVatSubType,
   EtaVatSubTypeDefinition,
+  TaxRateUsage,
 } from "./tax-rate.js";
-export { ETA_VAT_SUBTYPES, ETA_VAT_SUBTYPE_DEFINITIONS, getEtaVatSubTypeLabel } from "./tax-rate.js";
-export { DuplicateTaxCodeError, TaxRateNotFoundError, InvalidTaxRateError } from "./errors.js";
+export {
+  ETA_VAT_SUBTYPES,
+  ETA_VAT_SUBTYPE_DEFINITIONS,
+  getEtaVatSubTypeLabel,
+  TaxRateStatusCode,
+  TaxCalculationTypeCode,
+  EtaVatSubTypeCode,
+  ASSUME_TAX_RATE_REFERENCED,
+} from "./tax-rate.js";
+export {
+  DuplicateTaxCodeError,
+  TaxRateNotFoundError,
+  InvalidTaxRateError,
+  InactiveTaxRateError,
+  SystemTaxRateOnlyError,
+  TaxRatePercentMismatchError,
+  TaxRateUnverifiableError,
+  TaxRateInUseError,
+  TaxRateOnCustomerCardsError,
+  SystemTaxRateLockedError,
+  ReservedTaxRateError,
+  TaxRateAlreadyClassifiedError,
+  TaxRateClassificationPercentError,
+} from "./errors.js";
+export {
+  SYSTEM_NOT_SUBJECT_TAX_RATE_ID,
+  SYSTEM_NOT_SUBJECT_TAX_RATE,
+  ensureSystemTaxRates,
+  isSystemTaxRate,
+  assertNotReservedTaxRate,
+} from "./system-tax-rates.js";
+export {
+  inferTaxRateByPercent,
+  resolveAppliedTaxRate,
+  resolveZeroRatedTaxRate,
+  resolveDocumentLineTax,
+  resolveInheritedTaxRate,
+  classifyStoredTaxRate,
+  ZeroRatingCause,
+  type ZeroRating,
+  type AppliedTaxRate,
+  type AppliedTaxRateRequest,
+  type DocumentLineTaxPolicy,
+} from "./applied-tax-rate.js";
 export { validateNewTaxRate, createTaxRate, type CreateTaxRateCommand } from "./create-tax-rate.js";
 export { updateTaxRate, type UpdateTaxRateCommand } from "./update-tax-rate.js";
 
@@ -23,3 +66,46 @@ export {
   type TaxGroupRateView,
 } from "./tax-group.js";
 export { InvalidTaxGroupError, TaxGroupNotFoundError } from "./errors.js";
+export {
+  planTaxClassification,
+  alreadyClassifiedAs,
+  TaxClassificationFilingOutcome,
+  TaxClassificationAuditAction,
+  TaxClassificationAuditModule,
+  TaxClassificationAuditEntity,
+  TaxClassificationStaleError,
+  TaxClassificationNotASupplyError,
+  TaxClassificationReturnFiledError,
+  TaxClassificationReturnMixedError,
+  TaxClassificationReturnDisagreesError,
+  type TaxClassificationCarryRequest,
+  type TaxClassificationCarryResult,
+  type TaxClassificationDependentsPort,
+  TaxClassificationJournalUntaggedError,
+  TaxClassificationFiledUnreadableError,
+  JournalTaxLineUnclassifiedError,
+  TaxClassificationReturnJournalUntaggedError,
+  PostedLineNotFoundError,
+  TaxClassificationNotPostedError,
+  TaxClassificationSharedPostingError,
+  TaxClassificationAlreadyFiledError,
+  type PostedTaxLine,
+  type ClassifyPostedLineTaxRequest,
+  type TaxClassificationPlan,
+} from "./classify-posted-line-tax.js";
+
+export { createReturnTaxCarry, expectedReturnTaxJournalLines, type ReturnTaxFilingPort } from "./return-tax-carry.js";
+export {
+  nameReturnJournalLineTax,
+  type NameReturnJournalLineTaxDeps,
+  type NameReturnJournalLineTaxRequest,
+  type NameReturnJournalLineTaxResult,
+} from "./return-journal-tax.js";
+export {
+  JournalTaxLineAlreadyNamedError,
+  JournalTaxLinesMismatchError,
+  type ChosenJournalLinesNamed,
+  type ExpectedTaxJournalLine,
+  type JournalLineTaxTag,
+  type JournalTaxTagPort,
+} from "../gl/tax-ports.js";

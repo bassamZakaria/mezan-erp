@@ -16,6 +16,7 @@ interface WireLine {
   customerId: string;
   sourceInvoiceId: string;
   sourceInvoiceNumber: string | null;
+  sourceLineId?: string | null;
   reason: string;
   availableQty: string;
   qty: string;
@@ -24,8 +25,10 @@ interface WireLine {
   taxAmount: string;
   /** The rate the source invoice line charged. Dropped here, the per-rate VAT split the posting computes cannot survive a reload (D76). */
   taxRatePercent?: number | null;
+  taxRateId?: string | null;
   /** بُعد المشروع, inherited from the source invoice. Dropped here, a reload posts an unattributed reversal on the next confirm. */
   projectId?: string | null;
+  branchId?: string | null;
   /** The source invoice's currency and confirm rate (D203). Dropped here, a reload would post the return's foreign digits as base. */
   currency?: string | null;
   fxRate?: string | null;
@@ -38,6 +41,7 @@ function serializeLine(line: SalesReturnLine): WireLine {
     customerId: line.customerId,
     sourceInvoiceId: line.sourceInvoiceId,
     sourceInvoiceNumber: line.sourceInvoiceNumber,
+    sourceLineId: line.sourceLineId ?? null,
     reason: line.reason,
     availableQty: line.availableQty.toString(),
     qty: line.qty.toString(),
@@ -45,7 +49,9 @@ function serializeLine(line: SalesReturnLine): WireLine {
     unitCost: line.unitCost.toString(),
     taxAmount: line.taxAmount.toString(),
     taxRatePercent: line.taxRatePercent ?? null,
+    taxRateId: line.taxRateId ?? null,
     projectId: line.projectId ?? null,
+    branchId: line.branchId ?? null,
     ...(line.fxRate ? { currency: line.currency ?? null, fxRate: line.fxRate } : {}),
   };
 }
@@ -58,6 +64,7 @@ function deserializeLine(wire: unknown): SalesReturnLine {
     customerId: w.customerId,
     sourceInvoiceId: w.sourceInvoiceId,
     sourceInvoiceNumber: w.sourceInvoiceNumber,
+    sourceLineId: w.sourceLineId ?? null,
     reason: w.reason as SalesReturnLine["reason"],
     availableQty: Qty.fromMajor(w.availableQty),
     qty: Qty.fromMajor(w.qty),
@@ -65,7 +72,9 @@ function deserializeLine(wire: unknown): SalesReturnLine {
     unitCost: Money.fromMajor(w.unitCost),
     taxAmount: Money.fromMajor(w.taxAmount),
     taxRatePercent: w.taxRatePercent ?? null,
+    taxRateId: w.taxRateId ?? null,
     projectId: w.projectId ?? null,
+    branchId: w.branchId ?? null,
     ...(w.fxRate ? { currency: w.currency ?? null, fxRate: w.fxRate } : {}),
   };
 }

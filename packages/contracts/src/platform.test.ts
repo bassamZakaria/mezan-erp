@@ -74,7 +74,7 @@ describe("createPlatformUserRequestSchema", () => {
 describe("tenantSchema", () => {
   const tenant = {
     id: "t1", code: "acme", nameAr: "شركة أكمي", nameEn: "Acme Co", ownerEmail: "owner@acme.test",
-    status: "active" as const, dbFile: "tenants/acme.db",
+    ownerContactVerified: true, ownerNeeded: false, pendingOwner: null, status: "active" as const, dbFile: "tenants/acme.db",
     createdAt: "2026-09-14T00:00:00.000Z", updatedAt: "2026-09-14T00:00:00.000Z",
   };
 
@@ -107,7 +107,7 @@ describe("createTenantRequestSchema", () => {
 describe("provisionResultSchema", () => {
   const tenant = {
     id: "t1", code: "acme", nameAr: "شركة أكمي", nameEn: null, ownerEmail: "owner@acme.test",
-    status: "provisioning" as const, dbFile: "tenants/acme.db",
+    ownerContactVerified: true, ownerNeeded: false, pendingOwner: null, status: "provisioning" as const, dbFile: "tenants/acme.db",
     createdAt: "2026-09-14T00:00:00.000Z", updatedAt: "2026-09-14T00:00:00.000Z",
   };
   const result = { tenant, adminEmail: "owner@acme.test", adminPin: "123456" };
@@ -148,10 +148,21 @@ describe("changePlanRequestSchema", () => {
 });
 
 describe("recordPaymentRequestSchema", () => {
-  const req = { amount: "1250.50", reference: "REF-1", paidAt: "2026-09-14T00:00:00.000Z" };
+  const req = { amount: "1250.50", reference: "REF-1", paidAt: "2026-09-14T00:00:00.000Z", idempotencyKey: "0b0f5c1e-6d1b-4a55-9a43-6f0c1d2e3f40" };
 
   it("accepts a valid request", () => {
     expect(recordPaymentRequestSchema.safeParse(req).success).toBe(true);
+  });
+
+  it("refuses a request that carries no idempotency key, so a retry can never be mistaken for a second payment", () => {
+    const { idempotencyKey: _omitted, ...withoutKey } = req;
+    expect(recordPaymentRequestSchema.safeParse(withoutKey).success).toBe(false);
+    expect(recordPaymentRequestSchema.safeParse({ ...req, idempotencyKey: "short" }).success).toBe(false);
+  });
+
+  it("carries an explicit confirmation of a duplicate reference, and only as a boolean", () => {
+    expect(recordPaymentRequestSchema.safeParse({ ...req, confirmDuplicateReference: true }).success).toBe(true);
+    expect(recordPaymentRequestSchema.safeParse({ ...req, confirmDuplicateReference: "yes" }).success).toBe(false);
   });
 
   it("rejects a non-decimal amount", () => {
@@ -189,6 +200,7 @@ describe("subscriptionSchema", () => {
     id: "s1", tenantId: "t1", planId: "plan-core", status: "active" as const, billingCycle: "monthly" as const,
     addOnModules: ["hr"], extraSeats: 0, extraBranches: 0, extraWarehouses: 0,
     currentPeriodStart: "2026-09-01T00:00:00.000Z", currentPeriodEnd: "2026-10-01T00:00:00.000Z",
+    billingAnchorDay: 1, billingAnchorNeedsReview: false,
     trialEndsAt: null, graceDays: 7, cancelledAt: null,
     createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z",
   };
@@ -323,7 +335,7 @@ describe("licenseStateViewSchema", () => {
 describe("tenantSummarySchema", () => {
   const tenant = {
     id: "t1", code: "acme", nameAr: "شركة أكمي", nameEn: null, ownerEmail: "owner@acme.test",
-    status: "active" as const, dbFile: "tenants/acme.db",
+    ownerContactVerified: true, ownerNeeded: false, pendingOwner: null, status: "active" as const, dbFile: "tenants/acme.db",
     createdAt: "2026-09-14T00:00:00.000Z", updatedAt: "2026-09-14T00:00:00.000Z",
   };
   const payment = {

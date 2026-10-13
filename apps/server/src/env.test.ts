@@ -1,5 +1,25 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parseEnv } from "./env.js";
+import { parseEnv, PaymobMode } from "./env.js";
+
+function renderBlueprintVariables(): Record<string, string> {
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "render.yaml");
+  const variables: Record<string, string> = {};
+  const pair = /- key: (\S+)\n\s+value: "?([^"\n]+)"?/g;
+  for (const [, key, value] of readFileSync(file, "utf8").matchAll(pair)) variables[key!] = value!;
+  return variables;
+}
+
+describe("the Render blueprint", () => {
+  it("sets a proxy configuration the server starts with, counting the entry the last proxy wrote", () => {
+    const variables = renderBlueprintVariables();
+
+    expect(variables).toMatchObject({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" });
+    expect(parseEnv(variables).clientSource).toEqual({ trustedProxyHops: 1, trustViewerAddress: false, compareViewerAddress: false });
+  });
+});
 
 describe("parseEnv", () => {
   it("defaults every field when nothing is set", () => {
@@ -8,6 +28,7 @@ describe("parseEnv", () => {
       platformDir: ".data/platform",
       tenantDomain: undefined,
       trustProxy: false,
+      clientSource: { trustedProxyHops: 0, trustViewerAddress: false, compareViewerAddress: false },
       originSecret: undefined,
       sqliteExclusive: false,
       platformOwnerEmail: undefined,
@@ -21,7 +42,7 @@ describe("parseEnv", () => {
       port: 8080,
       // No Paymob keys and no MEZAN_SMTP_HOST: card checkout is off and the
       // platform sends no mail, which is what the dev entrypoint expects.
-      paymob: { mode: "off" },
+      paymob: { mode: PaymobMode.Off },
       platformSmtp: undefined,
       supportEmail: undefined,
       reviewTenant: undefined,
@@ -49,6 +70,22 @@ describe("parseEnv", () => {
     ).toThrow(/MEZAN_SEED_DEMO/);
   });
 
+  it("refuses to trust a proxy without being told how many hops it appends, and trusts none without one", () => {
+    expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1" })).toThrow(/MEZAN_TRUSTED_PROXY_HOPS/);
+    expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "0" })).toThrow(/MEZAN_TRUSTED_PROXY_HOPS/);
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" }).clientSource).toEqual({ trustedProxyHops: 1, trustViewerAddress: false, compareViewerAddress: false });
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2", MEZAN_ORIGIN_SECRET: "s3cr3t" }).clientSource).toEqual({ trustedProxyHops: 2, trustViewerAddress: false, compareViewerAddress: true });
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2" }).clientSource.trustedProxyHops).toBe(2);
+    expect(parseEnv({}).clientSource.trustedProxyHops).toBe(0);
+  });
+
+  it("refuses to count forwarded hops or read the viewer address without the proxy that makes them true", () => {
+    expect(() => parseEnv({ MEZAN_TRUSTED_PROXY_HOPS: "2" })).toThrow(/MEZAN_TRUST_PROXY/);
+    expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "-1" })).toThrow(/MEZAN_TRUSTED_PROXY_HOPS/);
+    expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2", MEZAN_TRUST_VIEWER_ADDRESS: "1" })).toThrow(/MEZAN_ORIGIN_SECRET/);
+    expect(() => parseEnv({ MEZAN_ORIGIN_SECRET: "s3cr3t", MEZAN_TRUST_VIEWER_ADDRESS: "1" })).toThrow(/MEZAN_TRUST_PROXY/);
+  });
+
   it("refuses a support mailbox that is not an address", () => {
     expect(() => parseEnv({ MEZAN_SUPPORT_EMAIL: "support" })).toThrow(/MEZAN_SUPPORT_EMAIL/);
   });
@@ -58,6 +95,8 @@ describe("parseEnv", () => {
       MEZAN_PLATFORM_DIR: "/data",
       MEZAN_TENANT_DOMAIN: "mezan.test",
       MEZAN_TRUST_PROXY: "1",
+      MEZAN_TRUSTED_PROXY_HOPS: "2",
+      MEZAN_TRUST_VIEWER_ADDRESS: "1",
       MEZAN_ORIGIN_SECRET: "s3cr3t",
       MEZAN_SQLITE_EXCLUSIVE: "1",
       MEZAN_PLATFORM_OWNER_EMAIL: "owner@mezan.local",
@@ -86,6 +125,7 @@ describe("parseEnv", () => {
       platformDir: "/data",
       tenantDomain: "mezan.test",
       trustProxy: true,
+      clientSource: { trustedProxyHops: 2, trustViewerAddress: true, compareViewerAddress: true },
       originSecret: "s3cr3t",
       sqliteExclusive: true,
       platformOwnerEmail: "owner@mezan.local",
@@ -98,13 +138,14 @@ describe("parseEnv", () => {
       analyticsToken: "token-123",
       port: 9090,
       paymob: {
-        mode: "live",
+        mode: PaymobMode.Live,
         baseUrl: "https://accept.paymob.com",
         secretKey: "sk-live",
         publicKey: "pk-live",
         hmacSecret: "hmac-live",
         integrationIds: [101, 102],
         publicUrl: "https://pay.mezan.test",
+        notFoundShapeConfirmed: false,
       },
       platformSmtp: {
         smtpEnabled: true,
@@ -143,5 +184,77 @@ describe("parseEnv", () => {
   it("throws on a non-positive PORT", () => {
     expect(() => parseEnv({ PORT: "0" })).toThrow(/PORT/);
     expect(() => parseEnv({ PORT: "abc" })).toThrow(/PORT/);
+  });
+
+  const livePaymob = {
+    MEZAN_PAYMOB_SECRET_KEY: "sk-live",
+    MEZAN_PAYMOB_PUBLIC_KEY: "pk-live",
+    MEZAN_PAYMOB_HMAC_SECRET: "hmac-live",
+    MEZAN_PAYMOB_INTEGRATION_ID: "101",
+    MEZAN_PAYMOB_PUBLIC_URL: "https://pay.mezan.test",
+  };
+
+  it("reads the optional Paymob inquiry API key alongside the live keys", () => {
+    expect(parseEnv({ ...livePaymob, MEZAN_PAYMOB_API_KEY: " dashboard-key " }).paymob).toMatchObject({ mode: "live", apiKey: "dashboard-key" });
+    expect(parseEnv(livePaymob).paymob).not.toHaveProperty("apiKey");
+  });
+
+  it("refuses a Paymob inquiry API key with no live keys to go with it", () => {
+    expect(() => parseEnv({ MEZAN_PAYMOB_API_KEY: "dashboard-key" })).toThrow(/MEZAN_PAYMOB_API_KEY/);
+  });
+});
+
+describe("MEZAN_PAYMOB_NOT_FOUND_CONFIRMED", () => {
+  const live = {
+    MEZAN_PAYMOB_SECRET_KEY: "sk", MEZAN_PAYMOB_PUBLIC_KEY: "pk", MEZAN_PAYMOB_HMAC_SECRET: "hm", MEZAN_PAYMOB_INTEGRATION_ID: "4242",
+    MEZAN_PAYMOB_PUBLIC_URL: "https://app.mezan.test",
+  };
+
+  it("is off unless set to 1, so an unconfirmed not-found answer cannot expire a checkout", () => {
+    expect(parseEnv(live).paymob).toMatchObject({ mode: "live", notFoundShapeConfirmed: false });
+    expect(parseEnv({ ...live, MEZAN_PAYMOB_NOT_FOUND_CONFIRMED: "true" }).paymob).toMatchObject({ notFoundShapeConfirmed: false });
+    expect(parseEnv({ ...live, MEZAN_PAYMOB_NOT_FOUND_CONFIRMED: "1" }).paymob).toMatchObject({ notFoundShapeConfirmed: true });
+  });
+});
+
+describe("MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER", () => {
+  it("names the one header the caller's address is read from, lower-cased, and only with a trusted proxy", () => {
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1", MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: " CF-Connecting-IP " }).clientSource)
+      .toEqual({ trustedProxyHops: 1, trustViewerAddress: false, compareViewerAddress: false, trustedAddressHeader: "cf-connecting-ip" });
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" }).clientSource).not.toHaveProperty("trustedAddressHeader");
+    expect(() => parseEnv({ MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: "cf-connecting-ip" })).toThrow(/MEZAN_TRUST_PROXY=1/);
+  });
+
+  it("refuses a value that is not a header name, and the forwarded chain itself", () => {
+    for (const bad of ["cf connecting ip", "x-real-ip: 1.2.3.4", "x-forwarded-for", "forwarded"]) {
+      expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1", MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: bad }), bad).toThrow(/MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER/);
+    }
+  });
+});
+
+describe("MEZAN_TENANT_DOMAIN", () => {
+  it.each([
+    ["a trailing dot", "mezan.app."],
+    ["a leading dot", ".mezan.app"],
+    ["a wildcard", "*.mezan.app"],
+    ["a port", "mezan.app:8443"],
+    ["a scheme", "https://mezan.app"],
+    ["a path", "mezan.app/x"],
+    ["a space", "mezan .app"],
+    ["an empty label", "mezan..app"],
+    ["a label that starts with a hyphen", "-mezan.app"],
+    ["userinfo", "user@mezan.app"],
+    ["a character outside a hostname", "mezan_app.example"],
+  ])("refuses to start with %s, and says what a tenant domain is", (_label, value) => {
+    expect(() => parseEnv({ MEZAN_TENANT_DOMAIN: value })).toThrow(`MEZAN_TENANT_DOMAIN must be a bare hostname such as "mezan.app" (no scheme, port, path, wildcard or trailing dot), got "${value}"`);
+  });
+
+  it.each([
+    ["mezan.app", "mezan.app"],
+    ["Mezan.App", "mezan.app"],
+    ["  tenants.mezan-erp.example  ", "tenants.mezan-erp.example"],
+    ["localhost", "localhost"],
+  ])("accepts %s and keeps it in lower case", (value, kept) => {
+    expect(parseEnv({ MEZAN_TENANT_DOMAIN: value }).tenantDomain).toBe(kept);
   });
 });

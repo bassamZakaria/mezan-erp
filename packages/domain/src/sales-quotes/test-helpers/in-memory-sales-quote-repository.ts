@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import type { SalesQuote } from "../sales-quote.js";
 import type { SalesQuoteListFilter, SalesQuoteRepository } from "../ports.js";
 
@@ -6,7 +7,7 @@ export class InMemorySalesQuoteRepository implements SalesQuoteRepository {
   private readonly rows = new Map<string, SalesQuote>();
 
   async save(quote: SalesQuote): Promise<void> {
-    this.rows.set(quote.id, quote);
+    insertOnly(this.rows, quote.id, quote);
   }
 
   async update(quote: SalesQuote): Promise<void> {

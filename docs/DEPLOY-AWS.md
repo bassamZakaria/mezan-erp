@@ -42,6 +42,28 @@ without, on either stack:
 
 Every variable is described in `docs/ENVIRONMENTS.md`.
 
+## Company databases after a deploy
+
+Nothing is done to a company's database by hand, and no SQL is run against the platform
+database. When the task starts it reads every company's books without opening one for use and
+prints `[cloud] tenant books at start: N checked: …`, then one line for each company that needs
+somebody: `[cloud] tenant books: "<code>" (<id>) is <standing>`. The console's company list
+shows the same standing as a chip beside the company's name.
+
+A database written before databases were bound to their company is bound on its first open
+when the owner e-mail the platform recorded is an active admin in it and no other company's
+row carries that e-mail. Otherwise the company is served exactly as before and its books are
+marked «دفاتر بانتظار التأكيد»: this is what a company whose owner changed their login e-mail,
+or whose owner was deactivated, looks like, and so do two companies registered under one
+e-mail. The demo and the reviewer company are both owned by `admin@cyag.example`, so on a
+stack that seeds both, each needs this once. Open the company on the console, press «تأكيد
+الدفاتر», check the company name and the admins the file holds, pick the owner and confirm.
+If the name shown is another company's, press «ليست دفاتر هذه المنشأة»: the company answers
+503 until its own file is put in place on the data volume and confirmed.
+
+A company whose file is missing, unreadable or another company's answers 503, on the console
+too, with the reason. Restore its file from a backup; nothing is created in its place.
+
 ## Repository secrets
 
 | Secret | What it is |

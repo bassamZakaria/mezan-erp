@@ -1,17 +1,43 @@
 # Merging `test/w1e-saas-live-walk` (W1E) with `fix/w1d-audit-atomicity-billing` (W1D)
 
-Measured with `git merge-tree --write-tree test/w1e-saas-live-walk fix/w1d-audit-atomicity-billing`,
-W1E at `598b5405` against W1D at `f617baf4`. Nothing was merged to write this. 40 files conflict;
-every other file merges cleanly. W1D was still moving while this was written (it was at
-`36168e5e` when the per-file tables below were first drawn, and six of the files in them
-conflict only since). Re-run the command before starting: a new commit on either side changes
-the list.
+Measured again with `git merge-tree --write-tree --name-only test/w1e-saas-live-walk fix/w1d-audit-atomicity-billing`,
+W1E at `8fd0998d` against W1D at `3027d5d3`. Nothing was merged to write this. W1D has since
+merged `main`, which carried W1E up to `dcbac206`, so the two now share that commit as their
+merge base and most of the per-file tables below describe a merge that is already made. What
+is left is W1E's commits after `dcbac206` against W1D: 14 files conflict, listed under "What
+is left to merge at these tips"; every other file merges cleanly. Both branches were still
+moving when this was measured (W1D was at `e90b802d` an hour earlier). Re-run the command
+before starting: a new commit on either side changes the list.
+
+The first measurement, kept for the record: W1E at `598b5405` against W1D at `f617baf4`, 40
+files in conflict.
 
 One file that merges cleanly is still wrong afterwards: `packages/domain/src/users/index.ts`
 takes W1D's export list, which names `UserState`. Rename it to `UserStatusCode` in the same
 commit as the other 12 sites (see the enum table), or the package does not typecheck.
 
 "Ours" is W1E, "theirs" is W1D.
+
+## What is left to merge at these tips
+
+| File | Hunks | Take |
+|---|---|---|
+| `apps/server/src/tenant-router.ts` | 9 | Both. Imports: union. `openBackend` takes ours' sixth `books` argument (`tenantId`, `provisioning`, `bind`) AND theirs' `mail`; `createBackend` receives ours' `tenantBinding: books.bind ? books.tenantId : undefined` and `seedWhenEmpty: books.provisioning` beside theirs' `securityMail`, `unlockLink` and `platformOperatorUnlocks`. Ours whole for `cache.open` (`settled` → `judged` → the two mark writes → `openBackend` → reconcile only when `bind`), the standings map, `scanBooks`, `booksStandingOf`, `booksOf`, `confirmBooks`, `disownBooks`, `unbindBooks`, and the one refusal table in `onError`. Theirs for the sign-in source throttle and everything it brings. |
+| `packages/backend/src/platform-routes.ts` | 14 | Both. Theirs for the audit plumbing; ours for `tenantBooks`, `handOverMailConfigured`, `summaryOf`, the four `/tenants/:id/books*` routes and the db-file refusal at the top of `domainErrorResponse` (keep it ABOVE theirs' `asCodeProvisioning`: a refusal wrapped in a provisioning failure is read from `err.cause`). See the `platform-routes.ts` row under `packages/backend` for what moves onto `recordedWith`. |
+| `packages/api/src/users-routes.ts` | 2 | Both, in ours' order: the session revoke first, then theirs' `loginThrottle.unlock(...)` lines, then ours' `afterCommit(...)` steps. In the deactivate route theirs' `unlock(user.email)` replaces ours' `succeed(...)`. Under theirs' audit boundary ours' `afterCommit` steps are the ones "Our tenant-to-platform hooks" moves out of the transaction; the guard stays round each. |
+| `packages/backend/src/create-backend.ts` | 1 | Both: ours' `/health` with the schema version and `announceSignIn`, theirs' wrapped `claimedElsewhere` (see the hooks table). `leftEmpty` and its guard round `addMissingStandardAccounts` merge cleanly: check they survive. |
+| `packages/contracts/src/platform.ts` | 1 | Both: ours' `TenantBooksStanding`, `tenantBooksSchema`, the two request schemas and the two summary fields; theirs' unlock schemas. |
+| `apps/server/src/public-origin.ts` | 1 | Theirs for the port carried into the tenant host; keep ours' name `configuredPublicOrigin` if the rest of the file still calls it. |
+| `apps/server/src/owner-contact.test.ts` | 1 | Both describe blocks. |
+| `apps/web/src/platform/TenantDetailPage.tsx`, `TenantDetailPage.test.tsx`, `hooks.ts` | 1 each | Both: ours' `TenantBooksCard`, `handOverMailConfigured` on `TenantOwnerCard`, and the four books hooks; theirs' locked-accounts card and hooks. |
+| `apps/web/src/login/LoginScreen.tsx`, `LoginScreen.test.tsx` | 1 each | Both: ours' signup link and wizard rule, theirs' unlock flow. |
+| `docs/DEPLOY-REVIEW.md`, `docs/ENVIRONMENTS.md` | 2 each | As under "Docs" below: one row per variable, or `documented-env.test.ts` reads a variable twice. |
+
+Files that merge cleanly and carry this round's rules, to read once after the merge:
+`apps/server/src/tenant-books.ts`, `tenant-db-file.ts`, `owner-contact.ts`, `owner-pin-reset.ts`,
+`cloud-app.ts` (the `tenantBooks` port, `handOverMailConfigured` and `reportTenantBooks(await router.scanBooks())`
+before the demo is seeded), `packages/persistence/src/tenant-binding.ts` and `platform-store.ts`,
+`packages/domain/src/platform/tenant.ts`.
 
 ## Order of work
 
@@ -101,6 +127,8 @@ sink:
 | `owner-contact.ts` `write()` (link, e-mail change, verified/unverified, hand-over, pending, declined, link resent/unsent, owner needed, assigned, tenant record written) | Inside `tenants.compareAndSetOwner`, a `withSqliteTransaction(…, "BEGIN IMMEDIATE")` on the platform connection. Nested, synchronous, never reported. Leave as it is. | Its callers hold a turn while they wait on something else. From the console (`assign`, `confirmPending`, `resendPending`, `reconcile` under `/api/platform`'s `connectionTurn`): wrap `backend.companyAdmins()`, `backend.recordOwnerAssigned(...)`, `backend.ownerAccount(...)` and `mailPendingHandOver(...)` in `platform.outsideTheTurn(...)`. From a tenant request the hooks are not all alike, and `outsideTheTurn(...)` is not enough for three of them: see "Our tenant-to-platform hooks under W1D's turn and audit boundary". |
 | `owner-pin-reset.ts` (`TENANT_OWNER_PIN_RESET_REQUESTED`, through `recordIntent`) | Inside `withSqliteTransaction(platform.stores.sqlite, …, "BEGIN IMMEDIATE")` with the fence. Nested, never reported. Leave as it is. | `router.backendOf(...)`, `router.reconcileOwnerOf(...)`, `backend.ownerAccount(...)` and `backend.resetOwnerPin(...)` (the tenant's database, and a scrypt hash) each run in `platform.outsideTheTurn(...)`. Nothing is awaited between the fence transaction's BEGIN and COMMIT except the append. |
 | `release-tenant.ts` (`TENANT_RELEASED`) | Inside the one `withSqliteTransaction` that archives the tenant, cancels the subscription and drops the claim. Nested, never reported. Leave as it is. | `router.evict(...)` (closes the tenant backend) runs in `platform.outsideTheTurn(...)`, after the commit as now. |
+| `tenant-books.ts` `recordBooksReview` (`TENANT_BOOKS_UNCONFIRMED`, `TENANT_BOOKS_CONFIRMED`, `TENANT_BOOKS_DISOWNED`, `TENANT_BOOKS_UNBOUND`) | Inside `tenants.compareAndSetOwner`, a `withSqliteTransaction(…, "BEGIN IMMEDIATE")` on the platform connection, exactly as `owner-contact.ts` `write()`. Nested, never reported. Leave as it is. | `confirmBooks` writes the tenant's binding into the TENANT's file (`writeTenantBinding`, a connection of its own, synchronous) inside that platform transaction, so that an audit row that cannot be written leaves the file unbound. It awaits nothing, so it yields no turn; if theirs' guard reports it as a write to a foreign database, allow it by name there rather than moving it out: outside the transaction the 503 would arrive after the file was bound. Around it, from the console (`/api/platform`'s `connectionTurn`): `cache.evict(...)`, `settleTenantDbFile(...)`, the identity read, `cache.get(...)` and `ownerContact.assign(...)` each run in `platform.outsideTheTurn(...)`. `clearTenantBinding` in `unbindBooks` runs after the mark's transaction has committed, in `outsideTheTurn`. |
+| The mark written on open (`tenant-router.ts` `cache.open` → `reviewed(...)`, twice: `Unconfirmed` for books served unbound, cleared for books found bound under a mark) | Through `recordBooksReview`, as above. | A platform write from the open path, like the reconcile below it and under the same rule: the open is outside work for whoever asked, and the write takes the platform turn through its own transaction. A failure is logged and the open goes on; the mark is tried again on the next open. |
 | Reconcile on open (`tenant-router.ts` `cache.open` → `ownerContact.reconcile`) | Through `owner-contact.ts` `write()`, as above. | The open itself is outside work for whoever asked: `cache.get(...)` reached from a console route or from `provisionTenant` runs in `platform.outsideTheTurn(...)` (W1D's `provision-tenant.ts` already does this for `prepareTenantDatabase`). Inside it, `settleTenantDbFile`'s `setDbFile` and the reconcile's write each take the platform turn through their own transaction. |
 
 Two more places wait on the outside world and go `outsideTheTurn`:
@@ -144,9 +172,9 @@ another chain holds it (a console request, a signup, another tenant's hook).
 
 | Hook | Called from | Counts as a yield | What to do |
 |---|---|---|---|
-| `claimedElsewhere` | `tenantIsClaimed` in `auth-routes.ts`: `GET /bootstrap/status`, `POST /bootstrap/admin`, and after the merge W1D's `hashClaimSecretsBeforeTheTurn` and the second read inside the `uow.transaction` that inserts the admin. | No. One synchronous platform read; the probe cannot fire on it. | Keep it, unwrapped, as the first line of `tenantIsClaimed`. It runs inside the tenant's own transaction in `POST /bootstrap/admin`, where nothing may wait and the turn cannot be handed back, so it must stay a plain read: if `tenants.findById` is ever moved under `withSqliteRead` or made to queue, answer it once in the `beforeTheTurn` preparation and carry the answer on the request instead. |
+| `claimedElsewhere` | `tenantIsClaimed` in `auth-routes.ts` (`if (await deps.claimedElsewhere?.()) return true;`, `auth-routes.ts:277` on W1D at `3027d5d3`): `GET /bootstrap/status`, `POST /bootstrap/admin`, W1D's `hashClaimSecretsBeforeTheTurn` and the second read inside the `uow.transaction` that inserts the admin. | No. One synchronous platform read; the probe cannot fire on it. | W1D already carries the hook and wraps it where it is handed to the auth routes: `create-backend.ts:4053`, `options.claimedElsewhere ? () => outsideTheTurn(() => options.claimedElsewhere!()) : undefined`. Take theirs. An earlier version of this plan said to keep it unwrapped; that was written before W1D had the line and is withdrawn. The wrap is harmless where it matters: inside the tenant transaction of `POST /bootstrap/admin` the turn cannot be handed back (see above), so there it runs the read as it is, and outside a transaction it hands the turn back round a read that does not wait. What must still hold: the line stays the FIRST line of `tenantIsClaimed`, and if `tenants.findById` is ever moved under `withSqliteRead` or made to queue, the answer is taken once in the `beforeTheTurn` preparation and carried on the request instead. |
 | `onUserSignedIn` | `announceSignIn` in `create-backend.ts`, after `LOGIN_SUCCEEDED`, from `POST /auth/login` (under `connectionTurn`, not audited). | Yes, whenever the platform connection is held by someone else at that moment: its write queues behind them with the tenant's turn held. Not on a quiet platform, which makes it an intermittent guard failure. | Call it through the tenant backend's `outsideTheTurn(...)`. The sign-in is already decided and recorded; only the platform's own write is left. Keep the rule in "Session reuse per device": it fires on a real credential check only. |
-| `companyOwner.currentOwnerUserId` | `users-routes.ts`, twice, at the top of the mutating `/users` handlers that protect the owner (an audited mount). It reconciles first (`reconcileOwnerOf`: a platform write, and on a cold cache the open of the tenant backend) and then reads. | Yes, whenever the reconcile's platform write has to queue, and then the audit boundary rolls the request back with `500`. `outsideTheTurn(...)` does not help inside the boundary's transaction. | Split it. The reconcile, which may wait, moves to a `beforeTheTurn` preparation for the mutating `/users` routes, where no turn and no transaction is held. The handler keeps a read that reconciles nothing: `ownerContact.effectiveOwnerUserId(...)`, which is `tenants.findById` and, while the platform row has no owner id yet, the tenant's own `ownerAccount` read. |
+| `companyOwner.currentOwnerUserId` | `users-routes.ts`, in two places (lines on W1D at `3027d5d3`): `isCompanyOwner` (`:498`), which the three routes that protect the owner ask (`PUT /:id` at `:615`, `/:id/deactivate` at `:709`, `/:id/erase` at `:814`), and the list, `GET /` (`:554`), which marks the owner's row. It reconciles first (`reconcileOwnerOf`: a platform write, and on a cold cache the open of the tenant backend; skipped for a tenant whose books carry a review mark) and then reads. | Yes on `PUT /:id` and `/:id/deactivate`, which are audited, whenever the reconcile's platform write has to queue, and then the audit boundary rolls the request back with `500`. `outsideTheTurn(...)` does not help inside the boundary's transaction. `GET /` and `/:id/erase` are not audited: there the reconcile only has to run in `outsideTheTurn(...)`. | Split it. The reconcile, which may wait, moves to a `beforeTheTurn` preparation for the mutating `/users` routes, where no turn and no transaction is held. `isCompanyOwner` keeps a read that reconciles nothing: `ownerContact.effectiveOwnerUserId(...)`, which is `tenants.findById` and, while the platform row has no owner id yet, the tenant's own `ownerAccount` read. |
 | `companyOwner.handOver` and `onUserEmailChanged` | `users-routes.ts`, after the tenant's own save, under the rule written there: only after the tenant's write has COMMITTED. `handOver` also mails the previous owner (`mailPendingHandOver`: a socket). | Yes: a pending hand-over with mail configured always waits on SMTP, so it is rolled back with `500` every time; the others whenever the platform connection is held. And the rule is already broken before any wait: inside an audited mount the tenant's save is a savepoint of the boundary's transaction, so "after the commit" is before it, and a platform write followed by a boundary rollback leaves the platform saying what the tenant does not. | They leave the transaction. The handler records what is due (successor, or the e-mail change) on the request; a middleware mounted for `/users` ahead of `connectionTurn` and `auditBoundary` runs the platform call after `next()` has returned a 2xx, and writes `ownerHandOver` into the response body there, because the outcome (`verified`, `pending`, `pending-unmailed`) is only known then. A request the boundary rolled back calls nothing. |
 
 Tests to write with the merge, in `apps/server/src/owner-contact.test.ts`, each run under
@@ -218,11 +246,11 @@ because a released code is handed to the next company. Take W1E's cache, `openCo
 
 | File | Take |
 |---|---|
-| `src/platform-store.ts` | Both. Imports: union. `addMissingColumns`: ours' tenant/claim/subscription columns AND theirs' `payment.idempotency_key`. Start-up order: `addMissingColumns` → `guardOneDbFilePerTenant` → `ensurePaymentIndexes` → `backfillBillingAnchors` → `repairUtcBillingAnchors(UTC_ANCHOR_REPAIR, EveryAnchor)` → `repairUtcBillingAnchors(UTC_ANCHOR_UNRENEWED_REPAIR, LeftForReview)` → `repairPeriodEnds(PERIOD_END_REPAIR)` → `repairPeriodEnds(PERIOD_END_SHORT_REPAIR)` → `repairPeriodEnds(PERIOD_END_SUMMER_TIME_REPAIR)`. The six passes stay in that order and keep their six markers: both anchor passes before every period-end pass. |
+| `src/platform-store.ts` | Both. Imports: union. `addMissingColumns`: ours' tenant/claim/subscription columns, `tenant.books_review` among them, AND theirs' `payment.idempotency_key`. Ours' `rewriteOwnerTextAsThisBuildWritesIt` runs straight after `addMissingColumns`. The owner compare-and-set also sets and compares `books_review`; `toTenant` reads a mark it does not know as `disowned`. Start-up order: `addMissingColumns` → `guardOneDbFilePerTenant` → `ensurePaymentIndexes` → `backfillBillingAnchors` → `repairUtcBillingAnchors(UTC_ANCHOR_REPAIR, EveryAnchor)` → `repairUtcBillingAnchors(UTC_ANCHOR_UNRENEWED_REPAIR, LeftForReview)` → `repairPeriodEnds(PERIOD_END_REPAIR)` → `repairPeriodEnds(PERIOD_END_SHORT_REPAIR)` → `repairPeriodEnds(PERIOD_END_SUMMER_TIME_REPAIR)`. The six passes stay in that order and keep their six markers: both anchor passes before every period-end pass. |
 | `src/sqlite-connection.ts` | Merges cleanly. Check that ours' `fileMustExist` option is still passed to the driver's constructor in theirs' `openSqliteConnection`. |
 | `src/platform-store.test.ts` | Both describe blocks, one after the other. |
 | `src/index.ts` | Union of exports (ours: owner-pin fence, credential-reset marks, `holdSqliteFile`, and the tenant binding: `bindTenantDatabase`, `readTenantBooksIdentity`, `isUnreadableSqliteError`, `NotASqliteDatabaseError`, `TenantBindingMismatchError`; theirs: idempotent requests, account lock, untransacted audits). |
-| `src/tenant-binding.ts`, `src/settings-store.ts` | Ours; they merge cleanly. `readTenantBooksIdentity` opens a connection of its own and closes it before it returns: it is synchronous, takes no turn and yields none. |
+| `src/tenant-binding.ts`, `src/settings-store.ts` | Ours; they merge cleanly. `readTenantBooksIdentity` opens a connection of its own and closes it before it returns, on a private copy in the temp directory whenever a log, a journal or an index sits beside the database: it is synchronous, takes no turn and yields none. `writeTenantBinding` and `clearTenantBinding` are the same shape and write. |
 
 ### `packages/api`
 
@@ -234,7 +262,7 @@ because a released code is handed to the next company. Take W1E's cache, `openCo
 
 | File | Take |
 |---|---|
-| `src/platform-routes.ts` | Theirs for the audit plumbing (`recordedWith`, `noted`, `activationRecordedAs`, `provisionRetry`'s signature). Ours for every owner route and option (`resetOwnerPin`, `releaseTenant`, `ownerCandidates`, `assignOwner`, `confirmPendingOwner`, `declinePendingOwner`, `resendPendingOwner`, `reconcileOwner`, `reconcileOpenOwners`), `TenantOwnerAccountNotFoundError`, the reserved-code check and the owner conflict codes. Ours' `audit(...)` callers on those routes move to theirs' `recordedWith`. One `PlatformAuditUnavailableError` (theirs). `requirePlatform`'s refusal callback (ours, used by the PIN-reset refusal audit) must survive: see `platform-auth.ts`. |
+| `src/platform-routes.ts` | Theirs for the audit plumbing (`recordedWith`, `noted`, `activationRecordedAs`, `provisionRetry`'s signature). Ours for every owner route and option (`resetOwnerPin`, `releaseTenant`, `ownerCandidates`, `assignOwner`, `confirmPendingOwner`, `declinePendingOwner`, `resendPendingOwner`, `reconcileOwner`, `reconcileOpenOwners`), `TenantOwnerAccountNotFoundError`, the reserved-code check and the owner conflict codes. Ours' `audit(...)` callers on those routes move to theirs' `recordedWith`. So do this round's console mutations, which are ours whole: `POST /tenants/:id/books/confirm`, `/books/disown` and `/books/unbind` (and the read `GET /tenants/:id/books`, which records nothing). Like the owner routes, each writes its own CRITICAL row inside the dependency, in the transaction that makes the change (`tenant-books.ts` `recordBooksReview`), so under `recordedWith` each returns a write that is already recorded rather than a row for the route to append; `books/confirm` may be followed by `ownerContact.assign`, which records itself the same way. Also ours: the `tenantBooks` port and `handOverMailConfigured` in `CreatePlatformRoutesOptions`, `summaryOf` (every summary now carries `books` and `handOverMailConfigured`), the db-file refusal at the top of `domainErrorResponse`, and the four codes added to `SERVER_OWNER_CONFLICT_CODES` (`TENANT_BOOKS_UNCONFIRMED`, `TENANT_BOOKS_BOUND`, `TENANT_BOOKS_NOT_BOUND`, `PLATFORM_MAIL_NOT_CONFIGURED`). One `PlatformAuditUnavailableError` (theirs). `requirePlatform`'s refusal callback (ours, used by the PIN-reset refusal audit) must survive: see `platform-auth.ts`. |
 | `src/platform-auth.ts` | Both: theirs' `sourceOf`, and ours' second `onRefused` parameter on `requirePlatform`. |
 | `src/platform-routes.test.ts` | Theirs' rig (`activation(...)`), with ours' owner, release and PIN-reset tests re-pointed at it. |
 | `src/auth-routes.ts` | See "Session reuse per device". OURS TO KEEP, and easy to lose: the first line of `tenantIsClaimed`, `if (await deps.claimedElsewhere?.()) return true;`. Theirs' `tenantIsClaimed` reads only the tenant's own settings and users, and the hunk conflicts, so taking theirs drops the platform's word that the tenant has an owner: a served tenant whose database holds no claim would then be open at `/bootstrap/admin`. `tenant-router.test.ts` "refuses an anonymous claim at /bootstrap/admin: a served tenant has an owner on the platform, whatever its database holds" turns red without it. Keep ours' `seedWhenEmpty` dependency and its use in `POST /bootstrap/seed` too. Also both: ours' `UNDISCLOSED_TENANT_NAME` and bootstrap claim with the company name; theirs' unlock and step-up schemas, `AccountLockedEvent`, `alreadyClaimed`. In the bootstrap hunk keep ours' rule that a claimed tenant is refused BEFORE the body is validated (an anonymous caller must not learn the schema of a claimed tenant) and write the refusal through theirs' `alreadyClaimed`. |
@@ -253,7 +281,7 @@ because a released code is handed to the next company. Take W1E's cache, `openCo
 | `src/backend-cache.ts` | Ours: both sides added the same `evict`; ours also has `peek`, which `reconcileOpenOwners` needs. |
 | `src/demo-tenant.ts`, `src/tenant-db-file.ts`, `src/documented-env.test.ts` | Ours; they merge cleanly. `provisionSeededTenant` passes `tenantBinding`. `documented-env.test.ts` reads `render.yaml`, which comes from theirs with the two proxy variables: it must still pass. |
 | `src/billing-routes.ts` | Both: theirs' `connectionTurn(platform.audit)` and device header; ours' async `trustedReturnOrigin(request, env, servedTenantLookup(platform))`, `PaymobMode`, and the Arabic not-found text of the test checkout page. |
-| `src/tenant-router.ts` | See "Open backends are keyed by tenant id". Ours: id-keyed cache, db-file settling and its 503s, owner contact wiring, `tenantSlugOfHost`, `claimedElsewhere` in the hooks. Theirs: sign-in source throttle, device cookie, `callerDoor`, `requireCloudSource`. `openBackend`'s signature takes ours' fourth `hooks`, fifth `connection` and sixth `books` arguments; the fifth carries `fileMustExist` for every tenant that is not `provisioning`, the sixth carries the tenant id and whether it is still being provisioned, and both must reach `createBackend` (`tenantBinding`, `seedWhenEmpty`). In `cache.open` keep ours' order: `settleTenantDbFile`, then `requireOwnBooks`, then `openBackend` with an unreadable database mapped to `TenantDbFileUnreadableError`. `requireOwnBooks` is synchronous file work and needs no `outsideTheTurn`. |
+| `src/tenant-router.ts` | See "Open backends are keyed by tenant id". Ours: id-keyed cache, db-file settling and its 503s, owner contact wiring, `tenantSlugOfHost`, `claimedElsewhere` in the hooks. Theirs: sign-in source throttle, device cookie, `callerDoor`, `requireCloudSource`. `openBackend`'s signature takes ours' fourth `hooks`, fifth `connection` and sixth `books` arguments; the fifth carries `fileMustExist` for every tenant that is not `provisioning`, the sixth carries the tenant id and whether it is still being provisioned, and both must reach `createBackend` (`tenantBinding`, `seedWhenEmpty`). In `cache.open` keep ours' order: `settleTenantDbFile`, then `judgeTenantBooks` (through `judged`), then `openBackend` with an unreadable database mapped to `TenantDbFileUnreadableError`. `judgeTenantBooks` is synchronous file work and needs no `outsideTheTurn`. The sixth argument also carries `bind`: false for books served unconfirmed, which must reach `createBackend` as NO `tenantBinding`. |
 | `src/tenant-router.test.ts` | Union of imports; the stub backend carries both sides' members. |
 | `src/provision-tenant.ts` | Ours' body (claim fence, `stillOurs`, PIN reset outcome, resolve by tenant id), run inside theirs' `platform.inTheTurn("tenant registration", ...)` and with theirs' `activation` wrapped round the final `activateTenant` write so the activation and its audit row are one write. Keep both `fence`/`stillOurs` and `activation` in `ProvisionTenantDeps`. |
 | `src/provision-tenant.test.ts` | Union of imports. |
@@ -295,14 +323,25 @@ without it.
   apex, `www.`, `signup.` and `demo.` with `503 SIGNUP_LINK_ORIGIN_UNKNOWN`.
 - Render: after the merge the blueprint carries the two proxy variables. Sync the blueprint, or
   set them in the dashboard, before the `production` branch receives the merge.
-- Tenant databases written before this build carry no tenant binding. Each is bound on its
-  first open when it is claimed and holds the owner the platform row names: by id where the
-  row has one, otherwise an active company admin with the row's owner e-mail. No platform row
-  written by `main` has an owner id, so on the first start every existing tenant is proven by
-  its owner e-mail. A tenant whose owner changed their login e-mail before this build is
-  refused with `503 TENANT_DB_FILE_FOREIGN` and logged; it is opened again by correcting
-  `tenant.owner_email` in the platform database to an active company admin of that tenant.
-  Check the server log for `TENANT_DB_FILE_FOREIGN` after the first start.
+- Tenant databases written before this build carry no tenant binding. Nothing is done to them
+  by hand, in SQL or otherwise. At start-up the server reads every company's books without
+  opening one for use and prints one line, `[cloud] tenant books at start: N checked: …`, and
+  one line for each company that needs somebody, `[cloud] tenant books: "<code>" (<id>) is
+  <standing>`. The console's company list shows the same standing as a chip.
+
+  | What the deploy finds | What happens | What the operator does |
+  |---|---|---|
+  | The row's owner e-mail is an active company admin in the books, and no other row carries that e-mail (`will-bind`) | Served, and bound on the first open | Nothing |
+  | The owner changed their login e-mail; or the owner was deactivated (alone, or with another admin running the company); or two rows carry one owner e-mail, the demo and the reviewer company on one stack among them: both are `admin@cyag.example` (`unconfirmed`) | Served as before, NOT bound, and marked. While marked, the console refuses an owner assignment and an owner PIN reset with `409 TENANT_BOOKS_UNCONFIRMED`, and nothing the company does moves the owner the platform recorded | Open the company on the console, press «تأكيد الدفاتر», check the company name and the admins the file holds, pick the owner, confirm. The books are bound and that admin becomes the recorded owner, in one audited write. If the name shown is another company's, press «ليست دفاتر هذه المنشأة» instead |
+  | Still being provisioned, with no books or books nobody bound | Created or bound on the next provisioning attempt | Nothing, or «إعادة المحاولة» as before |
+  | Suspended | As an active company; it is opened by the console's first owner action | As above |
+  | The books are missing, unreadable, bound to another company, or hold no account anybody created (`missing`, `unreadable`, `foreign`) | `503` to the company in Arabic, as in the build before; the console's owner routes answer the same 503 with the reason, never a 500 | Put the company's own file in place on the server from a backup. Nothing is created in its place |
+  | The operator said the books are not the company's (`disowned`) | `503` to the company until its own file is in place and confirmed | Put the file in place, then «تأكيد الدفاتر» |
+
+  A file an earlier build bound to the wrong company is taken out with «فك ربط الدفاتر» on that
+  company's page, after typing its code; the company is then not served until its own books are
+  confirmed. Each of the three console actions is the platform owner's only, and each writes a
+  CRITICAL row to the platform audit or changes nothing.
 
 ## After the merge, before the gates
 
@@ -323,8 +362,11 @@ without it.
 - `git grep -n "cache.get(code)" apps/server/src` answers nothing.
 - One declaration of `PlatformAuditUnavailableError`.
 - `apps/server/src/client-source.ts` and its test are byte-identical to W1D's.
-- `git grep -n "claimedElsewhere" packages/backend/src/auth-routes.ts` answers the dependency,
-  its use in `tenantIsClaimed`, and nothing wrapped in `outsideTheTurn`.
+- `git grep -n "claimedElsewhere" packages/backend/src/auth-routes.ts` answers the dependency and
+  its use as the first line of `tenantIsClaimed`; `git grep -n "claimedElsewhere" packages/backend/src/create-backend.ts`
+  answers the option and W1D's one wrap of it in `outsideTheTurn`.
+- `apps/server/src/tenant-books.test.ts` is green under theirs' guards: every deploy-day row,
+  the three console actions, the 503 table and the interleaving tests.
 - `apps/server/src/tenant-db-file.test.ts` "a served company whose database file does not hold
   its own books" is green: an empty database, another company's and a torn one are each
   refused with 503 and left byte for byte.

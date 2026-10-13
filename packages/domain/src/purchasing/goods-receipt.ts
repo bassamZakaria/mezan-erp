@@ -36,6 +36,7 @@ import {
 } from "./types.js";
 import {
   DuplicatePurchaseDocumentError,
+  GoodsReceiptAccrualAccountMissingError,
   GoodsReceiptAlreadyInvoicedError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
@@ -196,7 +197,7 @@ export interface ConfirmGoodsReceiptDeps extends PurchaseAuditDeps {
   readonly receipts: GoodsReceiptRepository;
   readonly orders: PurchaseOrderRepository;
   readonly stock: PurchaseStockPostingPort;
-  /** Both optional together: without them a receipt moves stock and posts nothing, which is what predates D53. */
+  /** INVARIANT: with a ledger wired, a receipt is refused unless `accounts` names the received-not-invoiced account — stock never moves without its entry. Absent, the composition keeps no ledger at all. */
   readonly gl?: PurchaseGlPostingPort;
   readonly accounts?: PurchaseGlAccounts;
   readonly now?: () => string;
@@ -209,9 +210,12 @@ export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
   readonly stock: PurchaseStockPostingPort;
   readonly layers: CostLayerRepository;
   readonly glReverse?: PurchaseGlReversalPort;
+  readonly accounts?: StockDifferenceAccounts;
   readonly policy?: PurchasePolicy;
   readonly now?: () => string;
 }
+
+export type StockDifferenceAccounts = Pick<PurchaseGlAccounts, "inventoryAccountId" | "backOrderCostAccountId" | "priceVarianceAccountId">;
 
 export function goodsReceiptCancelEntryId(receiptId: string): string {
   return `${receiptId}:cancel`;
@@ -431,20 +435,6 @@ async function createAdHocGoodsReceipt(
   return receipt;
 }
 
-/**
- * تأكيد (Confirm): مسودة → مؤكد. Posts stock IN through the costing/stock-ledger
- * engine (sourceDocType PURCHASE_RECEIPT) — no GL entry — then rolls the received
- * quantities into the PO (advancing it to partially/fully received). Gateable
- * action PURCHASE_RECEIPT_CONFIRM is enforced by the workflow gate at the edge.
- */
-/**
- * Dr المخزون / Cr بضاعة واردة لم تُفوتر for what the receipt brought in (D53).
- *
- * Receiving goods makes them the buyer's asset and creates the obligation to
- * pay for them; both halves belong on the books from that moment. The purchase
- * invoice later clears the GRNI credit against the real payable, so inventory
- * is debited exactly once, by whichever document actually moved the stock.
- */
 // INVARIANT: the receiving document's own entry debits inventory by what the
 // receipt stated; the stock ledger added less (or more) where the goods
 // levelled a back-order. These two lines carry the difference to the cost of
@@ -466,6 +456,27 @@ export function backOrderCoverLines(
   ];
 }
 
+// INVARIANT: a cancelled receipt's goods leave stock at the moving average,
+// while the reversed entry takes out of inventory what the receipt put in.
+// These lines, booked in the cancelling entry itself, carry the difference.
+export function cancelledReceiptStockLines(
+  unmirrored: Money,
+  accounts: StockDifferenceAccounts | undefined,
+  dimensions: { readonly projectId?: string | null; readonly branchId?: string | null } = {},
+): PurchaseGlPostingLine[] {
+  if (unmirrored.scaled === 0n) return [];
+  if (!accounts) throw new UnbookedStockVarianceError(unmirrored);
+  return backOrderCoverLines(unmirrored.negate(), accounts, dimensions);
+}
+
+/**
+ * Dr المخزون / Cr بضاعة واردة لم تُفوتر for what the receipt brought in (D53).
+ *
+ * Receiving goods makes them the buyer's asset and creates the obligation to
+ * pay for them; both halves belong on the books from that moment. The purchase
+ * invoice later clears the GRNI credit against the real payable, so inventory
+ * is debited exactly once, by whichever document actually moved the stock.
+ */
 export function buildGoodsReceiptPosting(
   receipt: GoodsReceipt,
   accounts: { readonly inventoryAccountId: string; readonly goodsReceivedNotInvoicedAccountId: string; readonly backOrderCostAccountId?: string; readonly priceVarianceAccountId?: string },
@@ -515,6 +526,8 @@ export async function confirmGoodsReceipt(
   if (receipt.status !== "draft") {
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
+  const accrualAccountId = deps.accounts?.goodsReceivedNotInvoicedAccountId;
+  if (deps.gl && (!deps.accounts || !accrualAccountId)) throw new GoodsReceiptAccrualAccountMissingError(id);
   const received = await deps.stock.postReceipt({
     receiptId: receipt.id,
     receiptNumber: receipt.number,
@@ -530,16 +543,16 @@ export async function confirmGoodsReceipt(
     occurredAt: occurredAtFromDocumentDate(receipt.date),
   });
 
-  // Stock first here, unlike the invoice: a receipt's movement is always an IN,
-  // which no stock policy refuses, and the GL entry is what must not be left
-  // behind if something later fails.
-  if (deps.gl && deps.accounts?.goodsReceivedNotInvoicedAccountId) {
+  // ORDER MATTERS: the goods enter stock first — the entry books what they
+  // levelled of a back-order, which only the stock ledger can say.
+  if (!deps.gl && received.coverVariance.scaled !== 0n) throw new UnbookedStockVarianceError(received.coverVariance.negate());
+  if (deps.gl && deps.accounts && accrualAccountId) {
     await deps.gl.post(
       buildGoodsReceiptPosting(
         receipt,
         {
           inventoryAccountId: deps.accounts.inventoryAccountId,
-          goodsReceivedNotInvoicedAccountId: deps.accounts.goodsReceivedNotInvoicedAccountId,
+          goodsReceivedNotInvoicedAccountId: accrualAccountId,
           backOrderCostAccountId: deps.accounts.backOrderCostAccountId,
           priceVarianceAccountId: deps.accounts.priceVarianceAccountId,
         },
@@ -614,7 +627,7 @@ export async function cancelGoodsReceipt(
       }
     }
 
-    await deps.stock.reverseReceipt({
+    const taken = await deps.stock.reverseReceipt({
       reversalId: goodsReceiptCancelEntryId(receipt.id),
       sourceDocType: "PURCHASE_RECEIPT",
       sourceDocId: receipt.id,
@@ -627,6 +640,7 @@ export async function cancelGoodsReceipt(
         reversalId: goodsReceiptCancelEntryId(receipt.id),
         date: cancelDate,
         memo: `عكس إذن استلام ${receipt.number}`,
+        appendLines: cancelledReceiptStockLines(taken.unmirroredValue, deps.accounts, { projectId: receipt.projectId ?? null }),
       });
     } catch (err) {
       if (!(err instanceof JournalEntryNotFoundError)) throw err;

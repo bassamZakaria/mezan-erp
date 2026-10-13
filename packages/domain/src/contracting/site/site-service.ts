@@ -1,7 +1,9 @@
 import { Money, Qty, allocate } from "../../money/index.js";
 import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
 import { postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, type JournalPostingDeps } from "../../gl/index.js";
+import { UnbookedStockVarianceError } from "../../documents/errors.js";
 import { mirrorStockPlan } from "../../documents/hooks.js";
+import { stockVarianceLines, type StockReversalVarianceAccounts } from "../../documents/journal-document.js";
 import { extend } from "../../inventory/wac-math.js";
 import { occurredAtFromDocumentDate } from "../../inventory/movement.js";
 import type { StockLedgerService } from "../../inventory/stock-ledger-service.js";
@@ -68,6 +70,8 @@ export interface SiteServiceDeps {
   readonly stockLedger: StockLedgerService;
   /** The REAL GL posting engine's ports — consumption and plant hours post through it, nothing else. */
   readonly gl: JournalPostingDeps;
+  /** INVARIANT: where a reversed consumption books what its mirrored movement could not put back at the original value; absent, such a reversal is refused. */
+  readonly stockVariance?: StockReversalVarianceAccounts;
   readonly numbering: NextNumberService;
   readonly accountRouting?: Pick<AccountRoutingRepository, "get">;
   readonly boqLines?: BoqLineExistencePort;
@@ -594,18 +598,27 @@ export class SiteService {
         { sourceDocType: "MATERIAL_CONSUMPTION", sourceDocId: opts.reversalId, sourceDocNumber: consumption.docNo, warehouseId: consumption.warehouseId, date, lines: [] },
         await this.deps.stockLedger.getMovementsOfDocument(consumption.id),
       );
-      if (mirrored) {
-        await this.deps.stockLedger.applyDocumentStockPlan({
-          sourceDocType: "MATERIAL_CONSUMPTION",
-          sourceDocId: mirrored.sourceDocId,
-          sourceDocNumber: mirrored.sourceDocNumber,
-          warehouseId: mirrored.warehouseId,
-          lines: mirrored.lines,
-          occurredAt: occurredAtFromDocumentDate(date),
-        });
-      }
+      const returned = mirrored
+        ? await this.deps.stockLedger.applyDocumentStockPlan({
+            sourceDocType: "MATERIAL_CONSUMPTION",
+            sourceDocId: mirrored.sourceDocId,
+            sourceDocNumber: mirrored.sourceDocNumber,
+            warehouseId: mirrored.warehouseId,
+            lines: mirrored.lines,
+            occurredAt: occurredAtFromDocumentDate(date),
+          })
+        : null;
+      const stockLines = stockVarianceLines(returned?.unmirroredValue, this.deps.stockVariance);
+      if (stockLines.length > 0 && !consumption.journalEntryId) throw new UnbookedStockVarianceError(returned?.unmirroredValue ?? Money.zero());
       const reversal = consumption.journalEntryId
-        ? (await reverseJournalEntry(consumption.journalEntryId, gl, { reversalId: opts.reversalId, date, memo: opts.memo ?? `عكس استهلاك مواد ${consumption.docNo ?? consumption.id}` })).reversal
+        ? (
+            await reverseJournalEntry(consumption.journalEntryId, gl, {
+              reversalId: opts.reversalId,
+              date,
+              memo: opts.memo ?? `عكس استهلاك مواد ${consumption.docNo ?? consumption.id}`,
+              appendLines: stockLines.length > 0 ? async () => stockLines : undefined,
+            })
+          ).reversal
         : null;
       const reversed: MaterialConsumption = { ...consumption, status: MaterialConsumptionStatus.Reversed };
       await this.deps.consumptions.save(reversed);

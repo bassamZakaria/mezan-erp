@@ -77,6 +77,11 @@ export interface StockMovement {
    * absorb the cost.
    */
   readonly valueDelta?: Money | null;
+  /**
+   * INVARIANT: on a revaluation, the receipt whose layers absorb it. On a
+   * quantity OUT, the cancelled receipt whose own layers the movement takes
+   * back — the live engine and the replay both draw those layers first.
+   */
   readonly revaluesSourceDocId?: string | null;
 }
 

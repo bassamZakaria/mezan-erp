@@ -132,6 +132,16 @@ export class GoodsReceiptAlreadyInvoicedError extends Error {
   }
 }
 
+export class GoodsReceiptAccrualAccountMissingError extends Error {
+  readonly code = "GOODS_RECEIPT_ACCRUAL_ACCOUNT_MISSING";
+  readonly messageEn: string;
+  constructor(readonly id: string) {
+    super(`لا يمكن تأكيد إذن الاستلام "${id}": حساب «بضاعة واردة لم تُفوتر» غير مُعرَّف، والبضاعة لا تدخل المخزون بلا قيد محاسبي. عرّف الحساب في إعدادات حسابات المشتريات ثم أعد التأكيد.`);
+    this.messageEn = `Goods receipt "${id}" cannot be confirmed: no received-not-invoiced account is configured, and goods do not enter stock without a journal entry. Configure the account in the purchasing account settings, then confirm again.`;
+    this.name = "GoodsReceiptAccrualAccountMissingError";
+  }
+}
+
 export class InvoiceDoesNotMatchReceiptError extends Error {
   readonly code = "INVOICE_DOES_NOT_MATCH_RECEIPT";
   readonly messageEn: string;

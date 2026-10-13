@@ -48,8 +48,9 @@ class RecordingStockPort implements PurchaseStockPostingPort {
     this.received.push(command);
     return { coverVariance: Money.zero() };
   }
-  async reverseReceipt(command: unknown): Promise<void> {
+  async reverseReceipt(command: unknown): Promise<{ unmirroredValue: Money }> {
     this.reversed.push(command);
+    return { unmirroredValue: Money.zero() };
   }
 }
 

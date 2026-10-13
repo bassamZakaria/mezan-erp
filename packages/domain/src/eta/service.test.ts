@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { DEFAULT_ETA_CONFIG, computeEtaReadiness, type EtaConfig, type EtaConfigRepository } from "./config.js";
 import type { EtaSubmission, EtaSubmissionRepository, EtaSubmissionStatus } from "./submission.js";
 import { EtaService, stubOnlineTransmitPort, type EtaTransmitPort, type EtaEnqueueInput } from "./service.js";
@@ -181,18 +181,21 @@ describe("EtaService — lifecycle", () => {
       fixScreen: "customer" as EtaPrevalidationFinding["fixScreen"],
     };
     const held = await svc.enqueue(doc, [blocking]);
+    const attempts = vi.spyOn(svc, "submit");
 
     for (const pass of [1, 2]) {
       const result = await svc.processQueue();
       expect([pass, result.blocked, result.submitted.length]).toEqual([pass, [held.id], 0]);
       expect((await svc.submitAllReady()).blocked).toEqual([held.id]);
     }
+    expect(attempts).not.toHaveBeenCalled();
     const untouched = (await svc.findById(held.id))!;
     expect([transmitted, untouched.status, untouched.updatedAt, untouched.transmitLog.length]).toEqual([0, "ready", held.updatedAt, 0]);
 
     await svc.requeue(held.id, { payload: untouched.payload, prevalidation: [] });
     const cleared = await svc.processQueue();
     expect([cleared.blocked, cleared.submitted.map((x) => x.id), transmitted]).toEqual([[], [held.id], 1]);
+    expect(attempts.mock.calls).toEqual([[held.id]]);
   });
 
   // guards P-1 — an install with no credentials opens no socket and loses nothing.

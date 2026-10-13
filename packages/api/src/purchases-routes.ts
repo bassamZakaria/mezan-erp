@@ -37,6 +37,8 @@ import {
   PurchaseOrderRequiredError,
   PurchaseItemsAlreadyConsumedError,
   GoodsReceiptAlreadyInvoicedError,
+  GoodsReceiptAccrualAccountMissingError,
+  UnbookedStockVarianceError,
   GoodsReceiptInvoicedRefusal,
   InvoiceDoesNotMatchReceiptError,
   InvoiceExceedsReceiptError,
@@ -392,6 +394,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof PurchaseOrderRequiredError ||
     err instanceof PurchaseItemsAlreadyConsumedError ||
     err instanceof GoodsReceiptAlreadyInvoicedError ||
+    err instanceof GoodsReceiptAccrualAccountMissingError ||
+    err instanceof UnbookedStockVarianceError ||
     err instanceof InvoiceDoesNotMatchReceiptError ||
     err instanceof InvoiceExceedsReceiptError ||
     err instanceof LandedCostStandsOnDocumentError
@@ -866,6 +870,7 @@ export function createPurchasesRoutes(
           stock: deps.stock,
           layers,
           glReverse: deps.glReverse,
+          accounts: deps.accounts,
           landedCostsStandingOn: deps.landedCostsStandingOn,
           policy: await resolvePolicy(),
           transactor: deps.transactor,
@@ -1521,6 +1526,7 @@ export function createPurchasesRoutes(
           invoices: deps.invoices,
           stock: deps.stock,
           glReverse,
+          accounts: deps.accounts,
           layers,
           landedCostsStandingOn: deps.landedCostsStandingOn,
           receipts: deps.receipts,

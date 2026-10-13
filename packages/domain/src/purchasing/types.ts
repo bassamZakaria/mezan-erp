@@ -13,7 +13,7 @@ import type { CostCategory } from "../contracting/cost-category.js";
  */
 
 import type { Money } from "../money/index.js";
-import type { PostReceiptCommand, PostReceiptResult, ReverseReceiptCommand } from "../inventory/index.js";
+import type { PostReceiptCommand, PostReceiptResult, ReverseReceiptCommand, ReverseReceiptResult } from "../inventory/index.js";
 
 /** أمر الشراء lifecycle (docs/archive/catalog/02 §Purchase Orders §Workflows/statuses). */
 export type PurchaseOrderStatus =
@@ -140,9 +140,7 @@ export interface PurchaseGlAccounts {
   readonly expenseAccountId?: string;
   /**
    * بضاعة واردة لم تُفوتر — credited when goods are RECEIVED and cleared when
-   * they are invoiced (D53). Optional: without it a receipt posts nothing, which
-   * is the behaviour that predates this and is still what an installation with
-   * no such account configured must fall back to.
+   * they are invoiced (D53). A goods receipt is refused without it.
    */
   readonly goodsReceivedNotInvoicedAccountId?: string;
   readonly priceVarianceAccountId?: string;
@@ -156,8 +154,8 @@ export interface PurchaseGlAccounts {
  */
 export interface PurchaseStockPostingPort {
   postReceipt(command: PostReceiptCommand): Promise<PostReceiptResult>;
-  /** Undo a prior `postReceipt` (cancellation). `StockLedgerService.reverseReceipt` satisfies this structurally. */
-  reverseReceipt(command: ReverseReceiptCommand): Promise<void>;
+  /** INVARIANT: the result is never discarded — the goods leave at the moving average, and the cancelling entry books what the reversed entry moves beyond that. */
+  reverseReceipt(command: ReverseReceiptCommand): Promise<ReverseReceiptResult>;
   applyReceiptCostVariance?(command: ReceiptCostVarianceCommand): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money; readonly occurredAt?: string }>;
   reverseReceiptCostVariance?(command: { readonly varianceDocId: string; readonly reversalId: string; readonly positions: readonly { itemId: string; warehouseId: string }[]; readonly occurredAt: string }): Promise<{ readonly takenBack: boolean; readonly occurredOn: string | null }>;
 }
@@ -182,6 +180,6 @@ export interface ReceiptCostVarianceCommand {
 export interface PurchaseGlReversalPort {
   reverse(
     sourceDocId: string,
-    opts: { readonly reversalId: string; readonly date?: string; readonly memo?: string },
+    opts: { readonly reversalId: string; readonly date?: string; readonly memo?: string; readonly appendLines?: readonly PurchaseGlPostingLine[] },
   ): Promise<void>;
 }

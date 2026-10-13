@@ -33,6 +33,7 @@ export {
 } from "./cost-layer.js";
 
 export { extend, unitCostOf } from "./wac-math.js";
+export { StockChangeKind, changeStockPosition, type StockChange, type StockChangeResult, type StockHolding } from "./position-change.js";
 
 export {
   emptyPosition,
@@ -102,6 +103,7 @@ export {
   type PostIssueResult,
   type ReverseReceiptPosition,
   type ReverseReceiptCommand,
+  type ReverseReceiptResult,
   type DocumentStockPlanResult,
 } from "./stock-ledger-service.js";
 

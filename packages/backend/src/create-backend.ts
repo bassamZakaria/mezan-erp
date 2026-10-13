@@ -1257,6 +1257,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     assetRateHistory,
     stockLedger: stockService,
     gl: salesInvoiceGl,
+    stockVariance: STOCK_VARIANCE_ACCOUNTS,
     audit: auditSink,
     numbering: ledger.numbering,
     accountRouting,

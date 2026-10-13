@@ -110,3 +110,31 @@ describe("an invoice priced differently from its receipt", () => {
     expect(world.count("stock_movement", `item_id = '${itemId}'`)).toBe(1);
   });
 });
+
+describe("the VAT rate on what an invoice states above and below its receipt", () => {
+  it("is carried on the variance lines, so the return reports the invoice's own base of 950 and tax of 133 for a receipt of 1,000", async () => {
+    const day = "2026-10-08";
+    const itemId = "PPV-TAX-ITEM";
+    expect((await world.request("POST", "/items", { id: itemId, code: itemId, nameAr: `صنف ${itemId}`, type: "stock", baseUnitCode: "PCS" })).status).toBe(201);
+    expect((await world.request("POST", "/purchases/receipts", { id: "PPV-TAX-GRN", supplierId: "SUPP-DEMO-1", warehouseId: "WH-MAIN", date: day, lines: [{ itemId, qty: "10", unitCost: "100" }] })).status).toBe(201);
+    expect((await world.request("POST", "/purchases/receipts/PPV-TAX-GRN/confirm", {})).status).toBe(200);
+    const created = await world.request("POST", "/purchases/invoices", {
+      id: "PPV-TAX-PI", supplierId: "SUPP-DEMO-1", date: day, dueDate: "2026-11-05", branchId: "BR-MAIN", warehouseId: "WH-MAIN", receiptId: "PPV-TAX-GRN",
+      lines: [
+        { itemId, kind: "inventory", qty: "5", unitCost: "120", taxRateId: "VAT14" },
+        { itemId, kind: "inventory", qty: "5", unitCost: "70", taxRateId: "VAT14" },
+      ],
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const confirmed = await world.request("POST", "/purchases/invoices/PPV-TAX-PI/confirm", {});
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+
+    const lines = ((await world.request("GET", `/gl/journal-entries/${encodeURIComponent("PI-JE:PPV-TAX-PI")}`)).body.lines as { accountId: string; debit: string; credit: string; taxRateId: string | null; taxRatePercent: number | null }[]).filter(
+      (line) => line.accountId === "1200" || line.accountId === "5080",
+    );
+    expect(lines.map((line) => [line.accountId, line.debit, line.credit, line.taxRateId, line.taxRatePercent])).toEqual([["1200", "0.000000", "50.000000", "VAT14", 14]]);
+    const input = ((await world.request("GET", `/financial-reports/vat-return?periodFrom=${day}&periodTo=${day}`)).body.rows as { side: string; taxRateId: string | null; base: number; tax: number }[]).filter((row) => row.side === "input");
+    expect(input.map((row) => [row.taxRateId, row.base, row.tax])).toEqual([["VAT14", 950, 133]]);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});

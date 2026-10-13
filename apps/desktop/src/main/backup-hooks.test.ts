@@ -26,6 +26,7 @@ const electronApp = {
 vi.mock("electron", () => ({ app: electronApp }));
 
 const { backupThenMigrate, isMigrationPending, scheduleBackups } = await import("./backup-hooks.js");
+const { withBackupLock } = await import("../backup/backup-lock.js");
 const { extractArchive } = await import("../backup/archive.js");
 const { parseManifest } = await import("../backup/manifest.js");
 
@@ -262,11 +263,10 @@ describe("scheduleBackups — the on-close backup actually completes", () => {
     // that keeps hitting the bound has to be diagnosable.
     expect(errors.join("\n")).toContain("did not finish within");
     dispose();
-    // The abandoned copy is still running; let it land before the temp
-    // directory is torn down under it.
-    for (let i = 0; i < 200 && (await archives(backupsDir)).length === 0; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    // The abandoned copy is still running, and its archive is on disk before it
+    // is whole: wait for the writer itself, not for the file to appear.
+    await withBackupLock(async () => undefined);
+    expect(await archives(backupsDir)).toHaveLength(1);
   });
 
 

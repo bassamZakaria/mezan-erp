@@ -285,3 +285,4 @@ export {
   type StockReservations,
   type StockReservationSource,
 } from "./reservations.js";
+export { StockPositionFault, stockPositionFaults, type StockPositionFaultRow } from "./stock-position-faults.js";

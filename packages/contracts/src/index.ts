@@ -973,6 +973,7 @@ export {
   reconciliationRowSchema,
   unlinkedEntryLineSchema,
   reconciliationReportSchema,
+  StockPositionFaultCode,
   type ReconciliationRowDTO,
   type UnlinkedEntryLineDTO,
   type ReconciliationReportDTO,

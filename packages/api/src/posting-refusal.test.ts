@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { Hono } from "hono";
-import { DocumentNotFoundError, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
+import { assertEntryStructure, DocumentNotFoundError, Money, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
 import { handleDocumentError } from "./document-error-handling.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { reversalRefusalResponse } from "./document-reversal.js";
@@ -130,6 +130,26 @@ describe("a posting refused because its VAT return is filed", () => {
     const body = (await res.json()) as { error: string; message: string; filingId: string; date: string };
     expect([res.status, body.error, body.filingId, body.date]).toEqual([422, "VAT_PERIOD_ALREADY_FILED", "VATF-2026-05", "2026-05-10"]);
     expect(body.message).toMatch(/[؀-ۿ]/);
+  });
+
+  it("answers a journal refusal no route mapped as an Arabic 422 with the English beside it, never a 500", async () => {
+    const app = createApp(createSqliteUnitOfWork(":memory:"));
+    const unmapped = new Hono();
+    unmapped.post("/confirm", () => {
+      assertEntryStructure([
+        { accountId: "5100", debit: Money.fromMajor("-2"), credit: Money.zero() },
+        { accountId: "1200", debit: Money.zero(), credit: Money.fromMajor("-2") },
+      ]);
+      return new Response(null, { status: 204 });
+    });
+    app.route("/probe", unmapped);
+
+    const res = await app.fetch(new Request("http://local/probe/confirm", { method: "POST" }));
+    const body = (await res.json()) as { error: string; message: string; messageEn: string };
+    expect([res.status, body.error]).toEqual([422, "INVALID_JOURNAL_ENTRY"]);
+    expect(body.message).toMatch(/[\u0600-\u06FF]/);
+    expect(body.message).not.toMatch(/[A-Za-z]{4,}/);
+    expect(body.messageEn).toMatch(/negative amount/);
   });
 
   it("still answers 500 for an error nobody knows", async () => {

@@ -48,7 +48,7 @@ import {
   createJournalTaxTagPort,
   returnedQtyBySourceLine,
   createReturnConfirmGuard,
-  isStandingReturn,
+  stockPositionFaults,
   ensureSystemTaxRates,
   SALES_RETURN_DOC_TYPE,
   PURCHASE_RETURN_DOC_TYPE,
@@ -4275,7 +4275,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return issued;
       },
     },
-    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite) },
+    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite), stockPositionFaults: async () => stockPositionFaults((await stockService.getValuation()).positions) },
     openingBalanceDuplicates: {
       resolveContext: resolveOpeningBalanceDuplicatesContext,
       repair: repairOpeningBalanceDuplicate,

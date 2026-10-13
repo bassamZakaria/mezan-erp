@@ -538,8 +538,10 @@ function handleDomainError(c: Context, err: unknown): Response {
       422,
     );
   }
+  if (err instanceof InvalidJournalEntryError) {
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 422);
+  }
   if (
-    err instanceof InvalidJournalEntryError ||
     err instanceof AccountNotFoundError ||
     err instanceof HeaderAccountNotPostableError ||
     err instanceof InactiveAccountError ||

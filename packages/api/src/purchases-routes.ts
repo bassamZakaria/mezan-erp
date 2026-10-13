@@ -410,8 +410,10 @@ function handleDomainError(c: Context, err: unknown): Response {
   // Thrown by the GL port inside the confirm, not by the purchase domain — the
   // sales, voucher and journal routes all map these; leaving them out here made
   // a closed period answer 500 on this one module alone (D20).
+  if (err instanceof InvalidJournalEntryError) {
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 422);
+  }
   if (
-    err instanceof InvalidJournalEntryError ||
     err instanceof AccountNotFoundError ||
     err instanceof HeaderAccountNotPostableError ||
     err instanceof InactiveAccountError ||

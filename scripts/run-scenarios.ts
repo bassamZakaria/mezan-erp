@@ -52,7 +52,7 @@ const exactlyZero = (label: string, inv: Awaited<ReturnType<typeof ctx.invariant
     if (inv.exact[key] !== 0n) ctx.failures.push(`${label} invariants · ${key} is ${inv[key].toFixed(6)}, not exactly 0`);
   }
   if (inv.exact.stockLedgerDates !== 0n) ctx.failures.push(`${label} invariants · stockLedgerDates is ${inv.stockLedgerDates}, not exactly 0`);
-  if (inv.strandedPositions.length > 0) ctx.failures.push(`${label} invariants · stock positions with quantity 0 and value: ${inv.strandedPositions.slice(0, 8).join(" · ")}`);
+  if (inv.strandedPositions.length > 0) ctx.failures.push(`${label} invariants · stock positions holding value with no quantity, or quantity valued below zero: ${inv.strandedPositions.slice(0, 8).join(" · ")}`);
 };
 exactlyZero("baseline", start);
 

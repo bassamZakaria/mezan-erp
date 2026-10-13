@@ -221,7 +221,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     );
   }
   if (err instanceof InvalidJournalEntryError) {
-    return c.json({ error: err.code, message: err.message }, 400);
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 400);
   }
   if (err instanceof PartyRequiredOnControlAccountError || err instanceof InvalidJournalPartyError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, accountId: err.accountId }, 422);

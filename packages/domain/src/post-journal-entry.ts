@@ -4,13 +4,13 @@ import type { JournalEntry, JournalLine, UnitOfWork } from "./journal.js";
 /** Raised when a journal entry does not satisfy Σdebit = Σcredit. */
 export class UnbalancedEntryError extends Error {
   readonly code = "UNBALANCED_ENTRY";
+  readonly messageEn: string;
   constructor(
     readonly totalDebit: Money,
     readonly totalCredit: Money,
   ) {
-    super(
-      `Journal entry is unbalanced: debits ${totalDebit.toString()} != credits ${totalCredit.toString()}`,
-    );
+    super(`القيد غير متوازن: المدين ${totalDebit.toString()} لا يساوي الدائن ${totalCredit.toString()}.`);
+    this.messageEn = `Journal entry is unbalanced: debits ${totalDebit.toString()} != credits ${totalCredit.toString()}`;
     this.name = "UnbalancedEntryError";
   }
 }
@@ -18,7 +18,10 @@ export class UnbalancedEntryError extends Error {
 /** Raised when an entry is structurally invalid (too few lines, etc.). */
 export class InvalidJournalEntryError extends Error {
   readonly code = "INVALID_JOURNAL_ENTRY";
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly messageEn?: string,
+  ) {
     super(message);
     this.name = "InvalidJournalEntryError";
   }
@@ -43,9 +46,7 @@ export async function postJournalEntry(
   uow: UnitOfWork,
 ): Promise<JournalEntry> {
   if (cmd.lines.length < 2) {
-    throw new InvalidJournalEntryError(
-      "A journal entry requires at least two lines.",
-    );
+    throw new InvalidJournalEntryError("قيد اليومية يحتاج سطرين على الأقل.", "A journal entry requires at least two lines.");
   }
 
   const totalDebit = Money.sum(cmd.lines.map((l) => l.debit));

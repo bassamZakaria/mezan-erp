@@ -184,7 +184,11 @@ export async function boot() {
     const credit = scaled(g.credit);
     const valuation = await req("GET", "/inventory/valuation");
     const positions: { itemId: string; warehouseId: string; onHand: unknown; totalValue: unknown }[] | null = Array.isArray(valuation.body?.rows) ? valuation.body.rows : null;
-    const stranded = (positions ?? []).filter((p) => scaled(p.onHand) === 0n && scaled(p.totalValue) !== 0n);
+    const stranded = (positions ?? []).filter((p) => {
+      const onHand = scaled(p.onHand) ?? 0n;
+      const value = scaled(p.totalValue) ?? 0n;
+      return (onHand === 0n && value !== 0n) || (onHand > 0n && value < 0n);
+    });
     const magnitude = (x: bigint) => (x < 0n ? -x : x);
     const exact = {
       tb: debit === null || credit === null ? null : debit - credit,
@@ -235,7 +239,7 @@ export async function boot() {
     check("GL 2120 still equals the goods received and not yet invoiced", after.exact.grni !== null && after.exact.grni === before.exact.grni, `${before.grni.toFixed(6)} → ${after.grni.toFixed(6)}`);
     check("nothing holds base with none of its foreign currency", after.exact.fxResidue === 0n, `${before.fxResidue.toFixed(6)} → ${after.fxResidue.toFixed(6)}`);
     check("no stock movement sits in a different month from its document's entry", after.exact.stockLedgerDates === 0n, `${before.stockLedgerDates} → ${after.stockLedgerDates}`);
-    check("no empty stock position holds value", after.exact.strandedStock === 0n, after.strandedPositions.slice(0, 5).join(" · "));
+    check("no stock position holds value with no quantity, or quantity valued below zero", after.exact.strandedStock === 0n, after.strandedPositions.slice(0, 5).join(" · "));
   }
 
   function report(): number {

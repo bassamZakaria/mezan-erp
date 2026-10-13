@@ -115,7 +115,7 @@ import { createSettingsRoutes } from "./settings-routes.js";
 import { tenantTimeZoneMiddleware } from "./tenant-day.js";
 import { fiscalPeriodsMiddleware } from "./posting-refusal.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
-import { postingRefusalResponse } from "./posting-refusal.js";
+import { journalRefusalResponse, postingRefusalResponse } from "./posting-refusal.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
 import {
@@ -1713,7 +1713,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
    * JSON body in the shape every client already parses.
    */
   app.onError((err, c) => {
-    const refusal = postingRefusalResponse(c, err);
+    const refusal = postingRefusalResponse(c, err) ?? journalRefusalResponse(c, err);
     if (refusal) return refusal;
     try {
       console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);

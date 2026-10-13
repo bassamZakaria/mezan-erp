@@ -134,3 +134,33 @@ describe("ReconciliationScreen — stock moved in a different month from its ent
     expect(screen.queryByText(/تحركت كميتها في شهر/)).not.toBeInTheDocument();
   });
 });
+
+describe("ReconciliationScreen — a stock position the books cannot stand behind", () => {
+  const allTied = report({ rows: report().rows.map((row) => ({ ...row, glBalance: row.subLedgerBalance, difference: "0.000000", matched: true })), allMatched: true, unlinked: [] });
+
+  it("lists a position holding value with no quantity and one valued below zero, each with its figures, and no longer says every balance matches", async () => {
+    renderScreen({
+      ...allTied,
+      stockPositions: {
+        count: 2,
+        rows: [
+          { itemId: "ITEM-A", warehouseId: "WH-MAIN", onHand: "0.000000", totalValue: "-30.000000", fault: "value_without_quantity" },
+          { itemId: "ITEM-B", warehouseId: "WH-MAIN", onHand: "1.000000", totalValue: "-2.000000", fault: "negative_value" },
+        ],
+      },
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("أرصدة مخزون تحتاج تصحيحاً (2)");
+    expect(alert).toHaveTextContent("ITEM-A");
+    expect(alert).toHaveTextContent("قيمة بلا كمية");
+    expect(alert).toHaveTextContent("ITEM-B");
+    expect(alert).toHaveTextContent("كمية بقيمة سالبة");
+    expect(screen.queryByText("جميع الأرصدة متطابقة")).not.toBeInTheDocument();
+  });
+
+  it("says nothing when every position is sound", async () => {
+    renderScreen({ ...allTied, stockPositions: { count: 0, rows: [] } });
+    await screen.findByText("العملاء");
+    expect(screen.queryByText(/أرصدة مخزون تحتاج تصحيحاً/)).not.toBeInTheDocument();
+  });
+});

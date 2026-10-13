@@ -174,6 +174,61 @@ describe("voiding a confirmed sales return", () => {
     expect(valuation.filter((row) => row.onHand === "0.000000" && row.totalValue !== "0.000000")).toEqual([]);
   });
 
+  it("takes its share at the moving average once the goods it put back were sold on cheaper, so no stocked position falls below zero and the next sale goes through", async () => {
+    const item = "RV-NEG-ITEM";
+    const created = await kit.call("POST", "/items", { id: item, code: item, nameAr: "صنف المتوسط", type: "stock", baseUnitCode: "PCS", trackInventory: true, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200" });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const held = async () => {
+      const b = (await kit.call("GET", `/inventory/balance?itemId=${item}&warehouseId=${WAREHOUSE}`)).body;
+      return [b.onHand, b.totalValue];
+    };
+    const buy = async (id: string, unitCost: string) => {
+      const drafted = await kit.call("POST", "/purchases/invoices", {
+        id, supplierId: SUPPLIER, date: TODAY, dueDate: "2026-09-23", branchId: "BR-MAIN", warehouseId: WAREHOUSE,
+        lines: [{ itemId: item, kind: "inventory", qty: "2", unitCost, taxRateId: "VAT14" }],
+      });
+      expect(drafted.status, JSON.stringify(drafted.body)).toBe(201);
+      expect((await kit.call("POST", `/purchases/invoices/${id}/confirm`, {})).status).toBe(200);
+    };
+    const sell = async (id: string, qty: string) => {
+      const drafted = await kit.call("POST", "/sales-invoices", {
+        id, date: TODAY, dueDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل", warehouseId: WAREHOUSE, branchId: "BR-MAIN",
+        arAccountId: "1105", taxAccountId: "2200",
+        lines: [{ lineId: "A", itemId: item, itemNameAr: "صنف", isStock: true, qty, unitPrice: "100", revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", taxRateId: "VAT14" }],
+      });
+      expect(drafted.status, JSON.stringify(drafted.body)).toBe(201);
+      return kit.call("POST", `/sales-invoices/${id}/confirm`, {});
+    };
+
+    await buy("RV-NEG-BUY-1", "10");
+    expect((await sell("RV-NEG-S1", "2")).status).toBe(200);
+    await buy("RV-NEG-BUY-2", "2");
+    const drafted = await kit.call("POST", "/sales-returns/from-invoice", {
+      id: "RV-NEG-R", date: TODAY, memo: "", warehouseId: WAREHOUSE, sourceInvoiceId: "RV-NEG-S1", reason: "DEFECTIVE", requested: [{ itemId: item, sourceLineId: "A", qty: "2" }],
+    });
+    expect(drafted.status, JSON.stringify(drafted.body)).toBe(201);
+    expect((await kit.call("POST", "/sales-returns/RV-NEG-R/confirm", {})).status).toBe(200);
+    expect(await held()).toEqual(["4.000000", "24.000000"]);
+    expect((await sell("RV-NEG-S2", "1")).status).toBe(200);
+    expect(await held()).toEqual(["3.000000", "18.000000"]);
+
+    const voided = await kit.call("POST", "/sales-returns/RV-NEG-R/void", { reason: REASON });
+    expect([voided.status, voided.body.status], JSON.stringify(voided.body)).toEqual([200, "reversed"]);
+
+    expect(await held()).toEqual(["1.000000", "6.000000"]);
+    expect(await kit.invariants()).toEqual({ tb: 0n, inventory: 0n, ap: 0n, ar: 0n });
+    const reversal = await kit.journalLines(voided.body.reversalJournalEntryId);
+    const net = (accountId: string) =>
+      reversal.filter((line) => line.accountId === accountId).reduce((sum, line) => sum + BigInt(line.credit.replace(".", "")) - BigInt(line.debit.replace(".", "")), 0n);
+    expect([net("1200"), net("5100")]).toEqual([12_000000n, -12_000000n]);
+    expect((await kit.call("GET", "/reconciliation")).body.stockPositions).toEqual({ count: 0, rows: [] });
+
+    const last = await sell("RV-NEG-S3", "1");
+    expect(last.status, JSON.stringify(last.body)).toBe(200);
+    expect(await held()).toEqual(["0.000000", "0.000000"]);
+    expect(await kit.invariants()).toEqual({ tb: 0n, inventory: 0n, ap: 0n, ar: 0n });
+  });
+
   it("requires a reason and its own permission, and a refusal moves nothing", async () => {
     await confirmedSale("RV-S-2");
     await confirmedSalesReturn("RV-S-2-R", "RV-S-2", "1");

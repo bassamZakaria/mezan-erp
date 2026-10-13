@@ -1,14 +1,25 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
 import { FX_REVALUATION_LINE_MEMO } from "../fx-revaluation/revaluation.js";
-import { relievedRevaluationShare, settlementSplit, type AllocatableInvoice } from "./allocation.js";
+import { settlementSplit, settlementWithShares, type AllocatableInvoice, type SettlementRates, type SettlementSplit } from "./allocation.js";
+import { FxItemEventKind, fxItemTimeline, walkRunShare } from "./revaluation-share-timeline.js";
 import { buildRealisedFxLines, buildRevaluationReleaseLines, FX_REALISED_LINE_MEMO, type RealisedFxPostingInput } from "./realised-fx.js";
 
 const m = (v: string) => Money.fromMajor(v);
 
+function taken(standing: Money, relieved: Money, open: Money): Money {
+  const timeline = fxItemTimeline(open, [{ kind: FxItemEventKind.Relief, ref: "relief", day: "2026-09-10", at: "2026-09-10T10:00:00.000Z", amount: relieved }]);
+  return walkRunShare(timeline, { day: "2026-08-31", share: standing }).takenBy("relief");
+}
+
+function settle(amount: Money, outstanding: Money, rates: SettlementRates, standing: Money): SettlementSplit {
+  const split = settlementSplit(amount, outstanding, rates);
+  return settlementWithShares(split, amount, taken(standing, split.relief, outstanding), Money.zero());
+}
+
 describe("settlementSplit — a revalued invoice is relieved at what it is carried at", () => {
   it("USD 1,000 booked at 48.00, restated by +450 and settled at 48.70: 450 of the 700 was already recognised, 250 is realised", () => {
-    const split = settlementSplit(m("48700"), m("48000"), { invoiceRate: "48", settlementRate: "48.70" }, m("450"));
+    const split = settle(m("48700"), m("48000"), { invoiceRate: "48", settlementRate: "48.70" }, m("450"));
     expect(split.relief.toString()).toBe("48000.000000");
     expect(split.revaluationShare?.toString()).toBe("450.000000");
     expect(split.fxDifference.toString()).toBe("250.000000");
@@ -16,20 +27,20 @@ describe("settlementSplit — a revalued invoice is relieved at what it is carri
 
   it("USD 400 of it takes 180 of the restatement and the rest takes the other 270", () => {
     const rates = { invoiceRate: "48", settlementRate: "48.70" };
-    const first = settlementSplit(m("19480"), m("48000"), rates, m("450"));
+    const first = settle(m("19480"), m("48000"), rates, m("450"));
     expect([first.relief.toString(), first.revaluationShare?.toString(), first.fxDifference.toString()]).toEqual(["19200.000000", "180.000000", "100.000000"]);
-    const last = settlementSplit(m("29220"), m("28800"), rates, m("270"));
+    const last = settle(m("29220"), m("28800"), rates, m("270"));
     expect([last.relief.toString(), last.revaluationShare?.toString(), last.fxDifference.toString()]).toEqual(["28800.000000", "270.000000", "150.000000"]);
   });
 
   it("a downward restatement of 450 settled lower still is a realised loss of 250, not 700", () => {
-    const split = settlementSplit(m("47300"), m("48000"), { invoiceRate: "48", settlementRate: "47.30" }, m("-450"));
+    const split = settle(m("47300"), m("48000"), { invoiceRate: "48", settlementRate: "47.30" }, m("-450"));
     expect(split.revaluationShare?.toString()).toBe("-450.000000");
     expect(split.fxDifference.toString()).toBe("-250.000000");
   });
 
   it("settled at the booked rate the restatement still comes off, as a realised difference the other way", () => {
-    const split = settlementSplit(m("48000"), m("48000"), { invoiceRate: "48", settlementRate: "48.00" }, m("450"));
+    const split = settle(m("48000"), m("48000"), { invoiceRate: "48", settlementRate: "48.00" }, m("450"));
     expect([split.relief.toString(), split.revaluationShare?.toString(), split.fxDifference.toString()]).toEqual(["48000.000000", "450.000000", "-450.000000"]);
   });
 
@@ -39,12 +50,12 @@ describe("settlementSplit — a revalued invoice is relieved at what it is carri
     let unconsumed = m("100.000001");
     let consumed = 0n;
     for (const amount of ["333.33", "333.33"]) {
-      const part = settlementSplit(m(amount), outstanding, rates, unconsumed);
+      const part = settle(m(amount), outstanding, rates, unconsumed);
       outstanding = Money.fromScaled(outstanding.scaled - part.relief.scaled);
       unconsumed = Money.fromScaled(unconsumed.scaled - (part.revaluationShare?.scaled ?? 0n));
       consumed += part.revaluationShare?.scaled ?? 0n;
     }
-    const rest = settlementSplit(settlementSplit(m("1"), outstanding, rates, unconsumed).capacity, outstanding, rates, unconsumed);
+    const rest = settle(settlementSplit(m("1"), outstanding, rates).capacity, outstanding, rates, unconsumed);
     expect(rest.relief.toString()).toBe(outstanding.toString());
     expect((consumed + (rest.revaluationShare?.scaled ?? 0n)).toString()).toBe(m("100.000001").scaled.toString());
   });
@@ -92,29 +103,22 @@ describe("buildRealisedFxLines — the restatement a settlement consumes leaves 
   });
 });
 
-describe("relievedRevaluationShare — the one rule for what a reduction takes of an item's restatement", () => {
+describe("walkRunShare — the one rule for what a reduction takes of an item's restatement", () => {
   it.each([
-    { relieved: "400", outstanding: "1000", share: "450", taken: "180.000000" },
-    { relieved: "600", outstanding: "600", share: "270", taken: "270.000000" },
-    { relieved: "700", outstanding: "600", share: "270", taken: "270.000000" },
-    { relieved: "1", outstanding: "3", share: "0.000001", taken: "0.000000" },
-    { relieved: "400", outstanding: "1000", share: "-450", taken: "-180.000000" },
-  ])("USD $relieved of USD $outstanding carrying $share takes $taken", ({ relieved, outstanding, share, taken }) => {
-    expect(relievedRevaluationShare(m(share), m(relieved), m(outstanding)).toString()).toBe(taken);
+    { relieved: "400", outstanding: "1000", share: "450", expected: "180.000000" },
+    { relieved: "600", outstanding: "600", share: "270", expected: "270.000000" },
+    { relieved: "700", outstanding: "600", share: "270", expected: "270.000000" },
+    { relieved: "1", outstanding: "3", share: "0.000001", expected: "0.000000" },
+    { relieved: "400", outstanding: "1000", share: "-450", expected: "-180.000000" },
+  ])("USD $relieved of USD $outstanding carrying $share takes $expected", ({ relieved, outstanding, share, expected }) => {
+    expect(taken(m(share), m(relieved), m(outstanding)).toString()).toBe(expected);
   });
 
   it("three parts of USD 1 each take every micro-unit of a 0.000002 share between them: the part that closes takes what is left", () => {
-    let left = m("0.000002");
-    let open = m("3");
-    const taken: string[] = [];
-    for (let part = 0; part < 3; part += 1) {
-      const share = relievedRevaluationShare(left, m("1"), open);
-      taken.push(share.toString());
-      left = Money.fromScaled(left.scaled - share.scaled);
-      open = Money.fromScaled(open.scaled - m("1").scaled);
-    }
-    expect(taken).toEqual(["0.000001", "0.000001", "0.000000"]);
-    expect(left.scaled).toBe(0n);
+    const parts = ["p0", "p1", "p2"].map((ref, index) => ({ kind: FxItemEventKind.Relief, ref, day: `2026-09-1${index}`, at: `2026-09-1${index}T10:00:00.000Z`, amount: m("1") }));
+    const walk = walkRunShare(fxItemTimeline(m("3"), parts), { day: "2026-08-31", share: m("0.000002") });
+    expect(["p0", "p1", "p2"].map((ref) => walk.takenBy(ref).toString())).toEqual(["0.000001", "0.000001", "0.000000"]);
+    expect(walk.remaining.scaled).toBe(0n);
   });
 });
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isoDay } from "../iso-date.js";
 import { glJournalLineSchema } from "../gl.js";
+import { clientSuppliedId } from "../client-supplied-id.js";
 
 /**
  * Wire contracts for recurring & template journal automation (ENH-E2-02).
@@ -38,7 +39,7 @@ const scheduleFields = {
 };
 
 export const createRecurringJournalTemplateSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   nameAr: z.string().min(1),
   nameEn: z.string().nullish(),
   memo: z.string().min(1),
@@ -71,7 +72,7 @@ export type GenerateDueRecurringJournalsDTO = z.infer<typeof generateDueRecurrin
 
 /** "Save as template" on JournalsScreen — the schedule is asked for; the lines come straight off the entry being saved. */
 export const saveJournalEntryAsTemplateSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   nameAr: z.string().min(1),
   nameEn: z.string().nullish(),
   ...scheduleFields,

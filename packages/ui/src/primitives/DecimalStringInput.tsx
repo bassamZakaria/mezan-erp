@@ -32,9 +32,14 @@ function toAsciiDigits(input: string): string {
     .join(".");
 }
 
-function sanitizeDraft(input: string, allowNegative: boolean): string {
+enum DecimalRejection {
+  TooManyDecimals = "tooManyDecimals",
+  Negative = "negative",
+}
+
+function sanitizeDraft(input: string): string {
   const ascii = toAsciiDigits(input);
-  const negative = allowNegative && ascii.trim().startsWith("-");
+  const negative = ascii.trim().startsWith("-");
   const digitsAndDot = ascii.replace(/[^0-9.]/g, "");
   const [whole = "", ...rest] = digitsAndDot.split(".");
   const draft = rest.length > 0 ? `${whole}.${rest.join("")}` : whole;
@@ -48,8 +53,9 @@ function fractionDigitsOf(draft: string): number {
 
 export function toExactDecimal(raw: string, options: { readonly allowNegative?: boolean; readonly maximumFractionDigits?: number } = {}): string {
   const maximumFractionDigits = Math.min(options.maximumFractionDigits ?? DECIMAL_STRING_MAX_FRACTION_DIGITS, DECIMAL_STRING_MAX_FRACTION_DIGITS);
-  const draft = sanitizeDraft(raw, options.allowNegative ?? true).replace(/\.$/, "");
+  const draft = sanitizeDraft(raw).replace(/\.$/, "");
   const sign = draft.startsWith("-") ? "-" : "";
+  if (sign !== "" && options.allowNegative === false) return "";
   const unsigned = draft.replace("-", "");
   const decimal = unsigned.startsWith(".") ? `0${unsigned}` : unsigned;
   if (!/^\d+(\.\d+)?$/.test(decimal) || fractionDigitsOf(decimal) > maximumFractionDigits) return "";
@@ -74,18 +80,18 @@ export function DecimalStringInput({
   const errorId = useId();
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState("");
-  const [rejected, setRejected] = useState<string | null>(null);
+  const [rejected, setRejected] = useState<{ readonly text: string; readonly reason: DecimalRejection } | null>(null);
 
   const committed = value === "" ? "" : formatMoney(value, { minimumFractionDigits, maximumFractionDigits: DECIMAL_STRING_MAX_FRACTION_DIGITS });
-  const displayValue = focused ? draft : value === "" && rejected !== null ? rejected : committed;
-  const tooManyDecimals = !focused && value === "" && rejected !== null;
+  const displayValue = focused ? draft : value === "" && rejected !== null ? rejected.text : committed;
+  const refusal = !focused && value === "" && rejected !== null ? rejected.reason : null;
 
   return (
     <div>
       <div
         className={cn(
           "flex items-center gap-2 rounded-md border border-border bg-surface px-[11px] py-[9px] transition-colors focus-within:border-brand",
-          tooManyDecimals && "border-danger",
+          refusal !== null && "border-danger",
           disabled && "cursor-not-allowed opacity-60",
           className,
         )}
@@ -99,28 +105,30 @@ export function DecimalStringInput({
           disabled={disabled}
           placeholder={placeholder}
           value={displayValue}
-          aria-invalid={tooManyDecimals ? true : undefined}
-          aria-describedby={tooManyDecimals ? errorId : undefined}
+          aria-invalid={refusal !== null ? true : undefined}
+          aria-describedby={refusal !== null ? errorId : undefined}
           onFocus={() => {
             setFocused(true);
-            setDraft(value === "" && rejected !== null ? rejected : value);
+            setDraft(value === "" && rejected !== null ? rejected.text : value);
           }}
           onBlur={() => {
             setFocused(false);
             const exact = toExactDecimal(draft, { allowNegative, maximumFractionDigits });
             const unsigned = draft.replace("-", "").replace(/\.$/, "");
-            setRejected(exact === "" && /^\d*\.\d+$/.test(unsigned) && fractionDigitsOf(unsigned) > maximumFractionDigits ? draft : null);
+            const negativeRefused = !allowNegative && draft.startsWith("-") && /^(\d+\.?\d*|\.\d+)$/.test(unsigned);
+            const tooManyDecimals = exact === "" && /^\d*\.\d+$/.test(unsigned) && fractionDigitsOf(unsigned) > maximumFractionDigits;
+            setRejected(negativeRefused ? { text: draft, reason: DecimalRejection.Negative } : tooManyDecimals ? { text: draft, reason: DecimalRejection.TooManyDecimals } : null);
             onChange(exact);
           }}
-          onChange={(event) => setDraft(sanitizeDraft(event.target.value, allowNegative))}
+          onChange={(event) => setDraft(sanitizeDraft(event.target.value))}
           className="mz-num w-full flex-1 border-none bg-transparent text-end text-[13px] text-ink outline-none placeholder:text-ink-faint"
           {...aria}
         />
         {suffix ? <span className="font-ar text-[12px] font-semibold text-ink-faint">{suffix}</span> : null}
       </div>
-      {tooManyDecimals ? (
+      {refusal !== null ? (
         <p id={errorId} role="alert" className="mt-[4px] text-[11.5px] text-danger-ink">
-          {t("ui.decimal.tooManyDecimals", { max: String(maximumFractionDigits) })}
+          {refusal === DecimalRejection.Negative ? t("ui.decimal.negativeNotAllowed") : t("ui.decimal.tooManyDecimals", { max: String(maximumFractionDigits) })}
         </p>
       ) : null}
     </div>

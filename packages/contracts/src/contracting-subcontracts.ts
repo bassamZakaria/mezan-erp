@@ -2,6 +2,7 @@ import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { boqUnitSchema, vatBasisSchema } from "./contracting-contracts.js";
 import { certificateComputationSchema } from "./contracting-certificates.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for عقود الباطن ومستخلصات مقاولي الباطن — slice 3 of
@@ -160,7 +161,7 @@ export const subcontractSchema = z.object({
 export type SubcontractDTO = z.infer<typeof subcontractSchema>;
 
 export const subcontractLineInputSchema = z.object({
-  id: z.string().nullish(),
+  id: clientSuppliedId.nullish(),
   clientBoqLineId: z.string().min(1, "بند جدول الكميات مطلوب"),
   descriptionAr: z.string().nullish(),
   qty: qtyString,
@@ -186,7 +187,7 @@ const termsShape = {
 };
 
 export const createSubcontractSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   contractId: z.string().min(1),
   supplierId: z.string().min(1, "مقاول الباطن مطلوب"),
   titleAr: z.string().min(1, "اسم عقد الباطن مطلوب"),
@@ -343,7 +344,7 @@ const subDraftBody = {
 };
 
 export const createSubCertificateSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   subcontractId: z.string().min(1),
   ...subDraftBody,
 });

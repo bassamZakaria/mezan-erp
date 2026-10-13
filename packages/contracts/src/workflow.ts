@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /** إعدادات الموافقات — one step in a gate config: an ordered approver role + optional description. */
 export const gateStepSchema = z.object({

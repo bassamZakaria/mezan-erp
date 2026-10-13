@@ -2,6 +2,8 @@ import { MANUAL_JOURNAL_DOC_TYPE, type JournalEntry, type JournalLine } from "..
 import { recordSensitiveEvent } from "../audit/index.js";
 import { assertBalanced, assertPeriodOpen, assertVatNotFiled, type JournalPostingDeps } from "./post.js";
 import { namingEarliestOpenDay } from "../fiscal-periods/errors.js";
+import { assertNotBeforeStandingRevaluation, type JournalPostingInternals } from "./revaluation-lock.js";
+import { assertEntryIdNotReserved } from "./reserved-entry-ids.js";
 import { inBranchOf } from "./line-branch.js";
 import {
   JournalEntryAlreadyReversedError,
@@ -75,7 +77,9 @@ export async function reverseJournalEntry(
   entryId: string,
   deps: JournalPostingDeps,
   opts: ReverseJournalEntryOptions,
+  internal: JournalPostingInternals = {},
 ): Promise<ReverseJournalEntryResult> {
+  assertEntryIdNotReserved(opts.reversalId, internal);
   const original = await deps.ledger.findById(entryId);
   if (!original) throw new JournalEntryNotFoundError(entryId);
   // Check already-reversed before status: a reversed entry's status is
@@ -95,6 +99,7 @@ export async function reverseJournalEntry(
   // legitimately be open after its return has gone to the authority, and a
   // reversal dated into a filed period would restate a filed return (B-11).
   await assertVatNotFiled(reversalDate, deps.vatFilings);
+  await assertNotBeforeStandingRevaluation({ date: reversalDate, lines: reversalLines }, deps, internal);
 
   const stamp = deps.now ? deps.now() : new Date().toISOString();
   const memo = opts.memo ?? `عكس القيد ${original.entryNo ?? original.id}`;

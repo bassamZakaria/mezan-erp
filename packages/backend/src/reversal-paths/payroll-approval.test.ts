@@ -73,7 +73,7 @@ describe("cancelling the approval of a payroll run", () => {
     expect(String(refused.body.messageEn)).toContain("disbursement voucher");
     expect(refused.body.disbursementVoucherId).toBe(paid.voucherId);
 
-    const voucherReversed = await world.request("POST", `/vouchers/${paid.voucherId}/reverse`, { date: "2026-08-04" });
+    const voucherReversed = await world.request("POST", `/vouchers/${paid.voucherId}/reverse`, { memo: "سبب العكس", date: "2026-08-04" });
     expect(voucherReversed.status, JSON.stringify(voucherReversed.body)).toBeLessThan(300);
     expect(run("PR-DEMO-1")).toMatchObject({ status: "approved", voucherId: null });
 

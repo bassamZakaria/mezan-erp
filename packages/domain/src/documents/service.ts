@@ -93,6 +93,8 @@ export interface ReverseOptions {
   readonly date?: string;
   readonly memo?: string;
   readonly actor?: string;
+  // INVARIANT: set only by a route that built reversalId itself; a route that copies a caller's id here must leave it unset, or the journal's reserved-id refusal is switched off for that caller.
+  readonly mintedBySystem?: boolean;
   readonly reason?: string;
 }
 
@@ -437,7 +439,7 @@ export class DocumentService<Line> {
         const plan = this.def.buildStockPlan?.(reversalOf(posted));
         if (!plan) return undefined;
         if (!this.deps.stock?.reverse) throw new MissingHookError(this.def.code, "stock");
-        return this.deps.stock.reverse(plan, existing.id);
+        return this.deps.stock.reverse(plan, existing.id, { mintedBySystem: opts.mintedBySystem });
       };
 
       let posted: DocumentGlPostingResult | null = null;
@@ -447,6 +449,7 @@ export class DocumentService<Line> {
           reversalId: opts.reversalId,
           date: opts.date,
           memo: opts.memo,
+          mintedBySystem: opts.mintedBySystem,
           stock: reverseStock,
         });
       }

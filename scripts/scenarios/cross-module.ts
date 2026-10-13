@@ -448,7 +448,7 @@ export async function run(ctx: Ctx): Promise<void> {
       // suite runs on, not this file's fictional TODAY — pass TODAY
       // explicitly so the reversal stays same-day, as every other posting
       // in this file is, and the as-of-TODAY cash guard below still sees it.
-      await req("POST", "/vouchers/SCN-X-NEG-1/reverse", { date: TODAY });
+      await req("POST", "/vouchers/SCN-X-NEG-1/reverse", { memo: "سبب العكس", date: TODAY });
     }
     check("either way the خزنة is left exactly as this scenario found it", Math.abs((await gl(CASH)) - cashNow) < 0.005, `cash=${await gl(CASH)} started=${cashNow}`);
   });
@@ -1014,7 +1014,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     // D270: pass TODAY explicitly — an omitted date now defaults to the real
     // calendar day, not this file's fictional TODAY (see x5's own note).
-    const reversed = await req("POST", "/vouchers/SCN-X-EXP-1/reverse", { date: TODAY });
+    const reversed = await req("POST", "/vouchers/SCN-X-EXP-1/reverse", { memo: "سبب العكس", date: TODAY });
     check("the voucher reverses", reversed.status === 200 || reversed.status === 201, `status ${reversed.status} ${JSON.stringify(reversed.body).slice(0, 200)}`);
     checkEq("the خزنة returns to exactly its pre-payment balance", await gl(CASH), cashBefore);
     checkEq("and so does the expense account — a reversal undoes both legs, not one", await gl(EXPENSE), expenseBefore);

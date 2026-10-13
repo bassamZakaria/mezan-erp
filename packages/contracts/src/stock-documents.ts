@@ -4,6 +4,7 @@ import { documentStatusSchema } from "./documents.js";
 import { adjustmentReasonSchema } from "./inventory.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 import { documentApprovalSchema } from "./workflow.js";
 
 /**
@@ -34,7 +35,7 @@ export const stockAdjustmentDocLineSchema = z.object({
 
 /** Create a stock-adjustment draft. All lines must share one warehouse + one reason. */
 export const createStockAdjustmentSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDateOrInstant,
   memo: z.string().optional(),
   lines: z.array(stockAdjustmentDocLineSchema).min(1),
@@ -78,7 +79,7 @@ export const stockTransferDocLineSchema = z.object({
 
 /** Create a stock-transfer draft. All lines must share one source + one destination warehouse. */
 export const createStockTransferSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDateOrInstant,
   memo: z.string().optional(),
   lines: z.array(stockTransferDocLineSchema).min(1),
@@ -139,7 +140,7 @@ export const physicalCountVarianceSummarySchema = z.object({
 });
 
 export const startPhysicalCountSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   warehouseId: z.string().min(1),
   date: isoDateOrInstant,
   memo: z.string().optional(),
@@ -157,7 +158,7 @@ export const recordPhysicalCountEntriesSchema = z.object({
 });
 
 export const generateAdjustmentFromCountSchema = z.object({
-  adjustmentId: z.string().min(1),
+  adjustmentId: clientSuppliedId,
 });
 
 export const physicalCountSchema = z.object({

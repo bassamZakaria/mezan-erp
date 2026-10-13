@@ -133,11 +133,6 @@ export async function unconsumedRevaluationShare(
   return Money.fromScaled(standing - consumed);
 }
 
-export function relievedRevaluationShare(unconsumedShare: Money, foreignRelieved: Money, foreignOutstanding: Money): Money {
-  if (foreignRelieved.scaled >= foreignOutstanding.scaled) return unconsumedShare;
-  return shareOfBase(unconsumedShare, foreignRelieved, foreignOutstanding);
-}
-
 /** Outstanding balance of an invoice (total − allocated). */
 export function invoiceOutstanding(invoice: AllocatableInvoice): Money {
   return Money.fromScaled(invoice.total.scaled - invoice.allocated.scaled);
@@ -201,36 +196,34 @@ export interface SettlementSplit {
  * a rounding residue. Without rates, or at the booked rate, relief is the
  * amount itself.
  */
-export function settlementSplit(
-  amount: Money,
-  outstanding: Money,
-  rates?: SettlementRates | null,
-  unconsumedShare: Money = Money.zero(),
-  moneyShare: Money = Money.zero(),
-): SettlementSplit {
+export function settlementSplit(amount: Money, outstanding: Money, rates?: SettlementRates | null): SettlementSplit {
   const sameRate = rates ? Money.fromMajor(rates.invoiceRate).scaled === Money.fromMajor(rates.settlementRate).scaled : true;
-  if (!rates || (sameRate && unconsumedShare.scaled === 0n && moneyShare.scaled === 0n)) {
-    return { relief: amount, fxDifference: Money.zero(), capacity: outstanding };
-  }
-  const foreignOutstanding = convertFromBase(outstanding, rates.invoiceRate);
-  const capacity = sameRate ? outstanding : convertToBase(foreignOutstanding, rates.settlementRate);
+  if (!rates || sameRate) return { relief: amount, fxDifference: Money.zero(), capacity: outstanding };
+  const capacity = convertToBase(convertFromBase(outstanding, rates.invoiceRate), rates.settlementRate);
   let relief = outstanding;
-  let foreignRelieved = foreignOutstanding;
   if (amount.scaled < capacity.scaled) {
-    const foreignSettled = convertFromBase(amount, rates.settlementRate);
-    const converted = sameRate ? amount : convertToBase(foreignSettled, rates.invoiceRate);
+    const converted = convertToBase(convertFromBase(amount, rates.settlementRate), rates.invoiceRate);
     relief = converted.scaled > outstanding.scaled ? outstanding : converted;
-    if (relief.scaled !== outstanding.scaled) foreignRelieved = foreignSettled;
   }
-  const revaluationShare = relievedRevaluationShare(unconsumedShare, foreignRelieved, foreignOutstanding);
-  const fxDifference = Money.fromScaled(amount.scaled - relief.scaled - revaluationShare.scaled - moneyShare.scaled);
+  return { relief, fxDifference: Money.fromScaled(amount.scaled - relief.scaled), capacity };
+}
+
+export function settlementWithShares(split: SettlementSplit, amount: Money, revaluationShare: Money, moneyShare: Money): SettlementSplit {
   return {
-    relief,
+    relief: split.relief,
     ...(revaluationShare.scaled === 0n ? {} : { revaluationShare }),
     ...(moneyShare.scaled === 0n ? {} : { moneyRevaluationShare: moneyShare }),
-    fxDifference,
-    capacity,
+    fxDifference: Money.fromScaled(amount.scaled - split.relief.scaled - revaluationShare.scaled - moneyShare.scaled),
+    capacity: split.capacity,
   };
+}
+
+export interface FxShareRelief {
+  readonly ref: string;
+  readonly day: string;
+  readonly at: string;
+  readonly amount: Money;
+  readonly closes: boolean;
 }
 
 /** Persistence port for allocations. */
@@ -307,8 +300,8 @@ export interface AllocateInput {
    * booked rate and the difference is returned for posting (D221).
    */
   readonly rates?: (invoice: AllocatableInvoice) => Promise<SettlementRates | null>;
-  readonly unconsumedShare?: (invoice: AllocatableInvoice) => Promise<Money>;
-  readonly unconsumedMoneyShare?: () => Promise<Money>;
+  readonly revaluationShare?: (invoice: AllocatableInvoice, relief: FxShareRelief) => Promise<Money>;
+  readonly moneyRevaluationShare?: (relief: FxShareRelief) => Promise<Money>;
   /**
    * Runs after every check and before anything is written, with the split;
    * returns the realised-FX entry it posted. A refusal here (a closed period)
@@ -352,18 +345,20 @@ export async function allocate(
   const returned = (await returnedByInvoice(deps.returns, [invoice])).get(invoice.id) ?? Money.zero();
   const outstanding = invoiceOpenBalance(invoice, returned);
   const rates = input.rates ? await input.rates(invoice) : null;
-  const unconsumed = rates && input.unconsumedShare ? await input.unconsumedShare(invoice) : Money.zero();
-  const moneyHeld = rates && input.unconsumedMoneyShare ? await input.unconsumedMoneyShare() : Money.zero();
-  const split = settlementSplit(input.amount, outstanding, rates, unconsumed, relievedRevaluationShare(moneyHeld, input.amount, unallocated));
-  if (input.amount.scaled > split.capacity.scaled) {
+  const settled = settlementSplit(input.amount, outstanding, rates);
+  if (input.amount.scaled > settled.capacity.scaled) {
     throw new AllocationExceedsError(
-      `مبلغ التخصيص (${input.amount.toString()}) يتجاوز المتبقي على الفاتورة (${split.capacity.toString()}).`,
+      `مبلغ التخصيص (${input.amount.toString()}) يتجاوز المتبقي على الفاتورة (${settled.capacity.toString()}).`,
     );
   }
-  if (split.relief.scaled <= 0n) {
+  if (settled.relief.scaled <= 0n) {
     throw new AllocationExceedsError("مبلغ التخصيص أصغر من أن يسدد أي جزء من الفاتورة بسعر الصرف.");
   }
   const date = input.date ? laterDay(input.date, invoice.date) : null;
+  const event = { ref: input.allocationId, day: date ?? input.now.slice(0, 10), at: input.now };
+  const invoiceShare = rates && input.revaluationShare ? await input.revaluationShare(invoice, { ...event, amount: settled.relief, closes: settled.relief.scaled >= outstanding.scaled }) : Money.zero();
+  const moneyShare = rates && input.moneyRevaluationShare ? await input.moneyRevaluationShare({ ...event, amount: input.amount, closes: input.amount.scaled >= unallocated.scaled }) : Money.zero();
+  const split = settlementWithShares(settled, input.amount, invoiceShare, moneyShare);
   const posted = input.beforeSave ? await input.beforeSave(invoice, split, date) : { fxEntryId: null };
 
   const allocation: VoucherAllocation = {

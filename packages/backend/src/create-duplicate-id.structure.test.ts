@@ -294,6 +294,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createWorkOrderSchema: {
     route: "/manufacturing/work-orders",
     table: "work_order",
+    existingIdSql: "SELECT * FROM work_order WHERE id NOT LIKE '%:%' ORDER BY id LIMIT 1",
     body: (sampled) => ({ ...sampled, bomId: "BOM-DEMO-1", plannedQty: "1", sourceWarehouseId: "WH-MAIN", wipWarehouseId: "WH-WIP", destinationWarehouseId: "WH-MAIN", scheduledStartDate: TODAY }),
   },
   createWorkStationSchema: { route: "/manufacturing/work-stations", table: "work_station" },
@@ -356,6 +357,11 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   addManualLineSchema: {
     route: "/bank-statements/:id/lines",
     table: "statement_line",
+    arrange: (sqlite) =>
+      sqlite
+        .prepare("INSERT OR IGNORE INTO statement_line (id, statement_id, date, description, reference, amount, status) SELECT 'DUP-ID-MANUAL-LINE', statement_id, date, description, reference, amount, status FROM statement_line ORDER BY id LIMIT 1")
+        .run(),
+    existingIdSql: "SELECT * FROM statement_line WHERE id = 'DUP-ID-MANUAL-LINE'",
     pathFor: (sqlite) => `/bank-statements/${firstId(sqlite, "bank_statement")}/lines`,
   },
   createBomVersionSchema: {

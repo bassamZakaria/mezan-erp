@@ -9,7 +9,6 @@ import { TreasuryVouchersScreen } from "./TreasuryVouchersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { VoucherDetailDTO, VoucherRowDTO } from "../data/hooks";
 import { NavigationProvider } from "../navigation";
-import { todayIso } from "../lib/dates";
 
 /**
  * TreasuryVouchersScreen's create and detail views are sub-pages addressed via
@@ -154,6 +153,8 @@ type CollectionAnswer = { status: number; body: unknown } | undefined;
 function renderScreen({
   heldOnConfirm = false,
   allocations = seededAllocations,
+  permissions,
+  vouchers = seededVouchers,
   answerCollection,
   answerAllocation,
   heldOnStaleApproval = false,
@@ -162,14 +163,16 @@ function renderScreen({
 }: {
   heldOnConfirm?: boolean;
   allocations?: Record<string, VoucherAllocationDTO[]>;
+  permissions?: string[];
+  vouchers?: VoucherRowDTO[];
   answerCollection?: (attempt: number) => CollectionAnswer;
   answerAllocation?: (attempt: number) => CollectionAnswer;
   heldOnStaleApproval?: boolean;
   session?: Session;
   drafts?: VoucherRowDTO[];
 } = {}) {
-  const allocationRequests: { allocationId?: string; invoiceId: string; amount: string }[] = [];
-  let current = heldOnStaleApproval ? seededVouchers.map((v) => (v.id === "cv-1" ? { ...v, status: "pending" as const, workflowRequestId: "cv-1:confirm" } : v)) : [...seededVouchers, ...drafts];
+  const allocationRequests: { allocationId?: string; invoiceId: string; amount: string; date?: string }[] = [];
+  let current = heldOnStaleApproval ? vouchers.map((v) => (v.id === "cv-1" ? { ...v, status: "pending" as const, workflowRequestId: "cv-1:confirm" } : v)) : [...vouchers, ...drafts];
   const createRequests: Record<string, unknown>[] = [];
   const draftConfirms: string[] = [];
   let standingStatus = "reapproval_required";
@@ -203,6 +206,10 @@ function renderScreen({
     "GET /vouchers/cv-1": () => {
       const doc = current.find((v) => v.id === "cv-1")!;
       return { body: { ...doc, allocations: allocationsByVoucher["cv-1"] ?? [] } satisfies VoucherDetailDTO };
+    },
+    "GET /vouchers/cv-1-rev": () => {
+      const doc = current.find((v) => v.id === "cv-1-rev")!;
+      return { body: { ...doc, allocations: [] } satisfies VoucherDetailDTO };
     },
     "GET /workflow/requests/*/standing": () => ({
       body: { id: "cv-1:confirm", status: standingStatus, reason: standingStatus === "reapproval_required" ? STALE_APPROVAL_REASON : null, reasonEn: null },
@@ -269,7 +276,7 @@ function renderScreen({
       allocationRequests.push(body);
       const refused = answerAllocation?.(allocationRequests.length);
       if (refused) return refused;
-      const alloc: VoucherAllocationDTO = { id: body.allocationId ?? "alloc-2", voucherId: "cv-1", invoiceId: body.invoiceId, amount: body.amount, status: "active", createdAt: "2026-08-22T10:00:00.000Z", reversedAt: null };
+      const alloc: VoucherAllocationDTO = { id: body.allocationId ?? `alloc-${allocationRequests.length + 1}`, voucherId: "cv-1", invoiceId: body.invoiceId, amount: body.amount, status: "active", createdAt: "2026-08-22T10:00:00.000Z", reversedAt: null, date: body.date ?? "2026-09-01" };
       allocationsByVoucher["cv-1"] = [...(allocationsByVoucher["cv-1"] ?? []), alloc];
       return { status: 201, body: alloc };
     },
@@ -290,7 +297,7 @@ function renderScreen({
     <TestNavigation>
       <TreasuryVouchersScreen />
     </TestNavigation>,
-    { transport, initialSession: session },
+    { transport, initialSession: permissions ? { ...session, permissions } : session },
   );
   return { ...result, reverseRequests, collectionRequests, allocationRequests, confirmRequests, createRequests, draftConfirms };
 }
@@ -495,6 +502,49 @@ describe("TreasuryVouchersScreen — allocation", () => {
   });
 });
 
+describe("TreasuryVouchersScreen — the day an allocation takes effect", () => {
+  async function chooseSecondInvoice() {
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "الفاتورة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: /^INV-000002/ }));
+    setMoney(screen.getByLabelText("مبلغ التخصيص"), "100");
+    return screen.getByLabelText("تاريخ التخصيص") as HTMLInputElement;
+  }
+
+  it("shows the later of the voucher's day and the invoice's; left alone it is not sent, and the day the server used is stated", async () => {
+    const { allocationRequests } = renderScreen();
+    const date = await chooseSecondInvoice();
+    expect(date.value).toBe("2026-08-11");
+
+    fireEvent.click(screen.getByRole("button", { name: "تخصيص" }));
+
+    await waitFor(() => expect(allocationRequests).toEqual([{ allocationId: expect.any(String), invoiceId: "inv-2", amount: "100" }]));
+    expect(await screen.findByRole("status")).toHaveTextContent("2026-09-01");
+  });
+
+  it("goes back to the new invoice's own day when another invoice is chosen after a day was picked", async () => {
+    renderScreen();
+    const date = await chooseSecondInvoice();
+    fireEvent.change(date, { target: { value: "2026-08-20" } });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "الفاتورة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: /^INV-000001/ }));
+
+    expect((screen.getByLabelText("تاريخ التخصيص") as HTMLInputElement).value).toBe("2026-08-07");
+  });
+
+  it("sends a later day the user picked", async () => {
+    const { allocationRequests } = renderScreen();
+    const date = await chooseSecondInvoice();
+
+    fireEvent.change(date, { target: { value: "2026-08-20" } });
+    fireEvent.click(screen.getByRole("button", { name: "تخصيص" }));
+
+    await waitFor(() => expect(allocationRequests).toEqual([{ allocationId: expect.any(String), invoiceId: "inv-2", amount: "100", date: "2026-08-20" }]));
+  });
+});
+
 describe("TreasuryVouchersScreen — an allocation pressed again", () => {
   async function allocate(invoice: RegExp, amount: string) {
     fireEvent.click(await screen.findByRole("combobox", { name: "الفاتورة" }));
@@ -540,26 +590,102 @@ describe("TreasuryVouchersScreen — an allocation pressed again", () => {
   });
 });
 
-describe("TreasuryVouchersScreen — reversal (D270)", () => {
-  it("opens a confirm dialog defaulting its date field to today and sends that date, not the voucher's own", async () => {
+describe("TreasuryVouchersScreen — reversal", () => {
+  it("asks for a reason before it reverses, sends it, and leaves the date to the server when none is picked", async () => {
     const { reverseRequests } = renderScreen();
     fireEvent.click(await screen.findByText("CV-000001"));
     fireEvent.click(await screen.findByRole("button", { name: "عكس السند" }));
 
     const dialog = await screen.findByRole("dialog");
-    const dateInput = within(dialog).getByLabelText("تاريخ العكس") as HTMLInputElement;
-    // The component's default is the LOCAL calendar day (`todayIso`), not
-    // `toISOString()`'s UTC day — the two disagree for several hours a day
-    // east of Greenwich, which is where this product ships.
-    const today = todayIso();
-    // The voucher itself is dated 2026-08-07; the dialog defaults to today, not that (D270).
-    expect(dateInput.value).toBe(today);
-    expect(dateInput.value).not.toBe("2026-08-07");
+    const confirm = within(dialog).getByRole("button", { name: "عكس السند" });
+    expect(confirm).toBeDisabled();
+    expect((within(dialog).getByLabelText("تاريخ العكس") as HTMLInputElement).value).toBe("");
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "عكس السند" }));
+    fireEvent.change(within(dialog).getByLabelText("سبب العكس"), { target: { value: "سُجّل على العميل الخطأ" } });
+    fireEvent.click(confirm);
 
-    await waitFor(() => expect(reverseRequests).toEqual([{ date: today }]));
+    await waitFor(() => expect(reverseRequests).toEqual([{ memo: "سُجّل على العميل الخطأ" }]));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("offers no reversal to a user who holds the void permission but not the reversal one", async () => {
+    renderScreen({ permissions: ["treasury.cash_voucher.view", "treasury.account.view", "treasury.allocation.view", "treasury.cash_voucher.void"] });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    await screen.findByRole("tab", { name: /تخصيص على الفواتير/ });
+
+    expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TreasuryVouchersScreen — reversal is offered only to a session the server would let reverse", () => {
+  const VIEW = ["treasury.cash_voucher.view", "treasury.account.view", "treasury.allocation.view"];
+
+  it("a role given only «عكس السند» is offered no reversal, because the server also asks for the type's void", async () => {
+    renderScreen({ permissions: [...VIEW, "treasury.cash_voucher.reverse"] });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    await screen.findByRole("tab", { name: /تخصيص على الفواتير/ });
+
+    expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
+  });
+
+  it("holding both, the reversal is offered", async () => {
+    renderScreen({ permissions: [...VIEW, "treasury.cash_voucher.reverse", "treasury.cash_voucher.void"] });
+    fireEvent.click(await screen.findByText("CV-000001"));
+
+    expect(await screen.findByRole("button", { name: "عكس السند" })).toBeInTheDocument();
+  });
+
+  it("another type's void does not count: a transfer's void with the reversal permission offers nothing on a collection", async () => {
+    renderScreen({ permissions: [...VIEW, "treasury.cash_voucher.reverse", "treasury.transfer.void"] });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    await screen.findByRole("tab", { name: /تخصيص على الفواتير/ });
+
+    expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TreasuryVouchersScreen — a reversed voucher and the voucher that reversed it", () => {
+  it("each row names the other by its number, and the link opens it", async () => {
+    const [first, ...rest] = seededVouchers;
+    const original: VoucherRowDTO = { ...first!, status: "reversed", reversedByDocId: "cv-1-rev" };
+    const mirror: VoucherRowDTO = { ...first!, id: "cv-1-rev", docNo: "CV-000009", date: "2026-08-20", reversesDocId: "cv-1" };
+    renderScreen({ vouchers: [original, mirror, ...rest] });
+
+    expect(await screen.findByRole("button", { name: "عُكس بالسند CV-000009" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "يعكس السند CV-000001" }));
+
+    expect(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "CV-000001" })).toBeInTheDocument();
+  });
+});
+
+describe("TreasuryVouchersScreen — the page of a reversal's mirror", () => {
+  const settled = { voucherAmount: "1000.000000", allocated: "0", unallocated: "1000.000000", fullyAllocated: false, needsAllocation: false };
+  const [first, ...rest] = seededVouchers;
+  const original: VoucherRowDTO = { ...first!, status: "reversed", reversedByDocId: "cv-1-rev", allocatable: false, allocationSummary: settled };
+  const mirror: VoucherRowDTO = { ...first!, id: "cv-1-rev", docNo: "CV-000009", date: "2026-08-20", reversesDocId: "cv-1", allocatable: false, allocationSummary: settled };
+
+  it("offers no allocation — no tab, no badge, no form — and no reversal", async () => {
+    renderScreen({ vouchers: [original, mirror, ...rest] });
+    fireEvent.click(await screen.findByText("CV-000009"));
+
+    expect(await screen.findByRole("heading", { name: "CV-000009" })).toBeInTheDocument();
+    await screen.findByRole("tab", { name: "القيود المحاسبية" });
+    expect(screen.queryByRole("tab", { name: /تخصيص على الفواتير/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("بحاجة لتخصيص")).not.toBeInTheDocument();
+    expect(screen.queryByText("مخصّص بالكامل")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "تخصيص" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
+  });
+
+  it("the reversed original keeps its allocation history but claims neither «بحاجة لتخصيص» nor «مخصّص بالكامل»", async () => {
+    renderScreen({ vouchers: [original, mirror, ...rest] });
+    fireEvent.click(await screen.findByText("CV-000001"));
+
+    expect(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ })).toBeInTheDocument();
+    expect(screen.queryByText("بحاجة لتخصيص")).not.toBeInTheDocument();
+    expect(screen.queryByText("مخصّص بالكامل")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
   });
 });
 

@@ -650,7 +650,7 @@ describe("D270 — a voucher reversal's date", () => {
     await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collectionOn("2026-08-07")) }));
     await vouchers.fetch(req("/v1/confirm", { method: "POST" }));
 
-    const res = await vouchers.fetch(req("/v1/reverse", { method: "POST", body: JSON.stringify({}) }));
+    const res = await vouchers.fetch(req("/v1/reverse", { method: "POST", body: JSON.stringify({ memo: "سبب العكس" }) }));
     expect(res.status).toBe(201);
     const body = await res.json() as any;
     const today = toTenantDay(new Date().toISOString(), DEFAULT_TIME_ZONE);
@@ -665,7 +665,7 @@ describe("D270 — a voucher reversal's date", () => {
     await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collectionOn("2026-08-15")) }));
     await vouchers.fetch(req("/v1/confirm", { method: "POST" }));
 
-    const res = await vouchers.fetch(req("/v1/reverse", { method: "POST", body: JSON.stringify({ date: "2026-08-10" }) }));
+    const res = await vouchers.fetch(req("/v1/reverse", { method: "POST", body: JSON.stringify({ memo: "سبب العكس", date: "2026-08-10" }) }));
     expect(res.status).toBe(422);
     const body = await res.json() as any;
     expect(body.error).toBe("REVERSAL_DATE_BEFORE_ORIGINAL");
@@ -691,7 +691,7 @@ describe("D270 — a voucher reversal's date", () => {
 
     // 09-05 is AFTER the voucher's own 08-10 (so this is not the D270 date-order
     // refusal above) but lands in a closed period.
-    const res = await vouchers.fetch(req("/v1/reverse", { method: "POST", body: JSON.stringify({ date: "2026-09-05" }) }));
+    const res = await vouchers.fetch(req("/v1/reverse", { method: "POST", body: JSON.stringify({ memo: "سبب العكس", date: "2026-09-05" }) }));
     expect(res.status).toBe(422);
     expect((await res.json() as any).error).toBe("PERIOD_NOT_OPEN_FOR_POSTING");
 

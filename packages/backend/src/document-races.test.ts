@@ -186,7 +186,7 @@ describe("two operations on one stored document land as one story", () => {
         return tag;
       },
       first: (id) => kit.call("POST", `/vouchers/${id}/confirm`, {}),
-      second: (id) => kit.call("POST", `/vouchers/${id}/reverse`, { reversalId: `${id}-REV` }),
+      second: (id) => kit.call("POST", `/vouchers/${id}/reverse`, { reversalId: `${id}-REV`, memo: "خطأ في السند" }),
       agree: async ({ fixture, first, second }) => {
         expect(first.status, JSON.stringify(first.body)).toBe(200);
         const voucher = (await kit.call("GET", `/vouchers/${fixture}`)).body;

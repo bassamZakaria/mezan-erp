@@ -276,6 +276,15 @@ describe("voucherAllocationSchema", () => {
   });
 });
 
+describe("createAllocationSchema — the day an allocation takes effect", () => {
+  it("takes a day or an instant when one is chosen, and none when it is left to the server", () => {
+    expect(createAllocationSchema.safeParse({ invoiceId: "si-1", amount: "10", date: "2026-09-20" }).success).toBe(true);
+    expect(createAllocationSchema.safeParse({ invoiceId: "si-1", amount: "10", date: "2026-09-20T10:00:00.000Z" }).success).toBe(true);
+    expect(createAllocationSchema.safeParse({ invoiceId: "si-1", amount: "10" }).success).toBe(true);
+    expect(createAllocationSchema.safeParse({ invoiceId: "si-1", amount: "10", date: "20/09/2026" }).success).toBe(false);
+  });
+});
+
 describe("createAllocationSchema", () => {
   it("accepts a minimal valid payload with allocationId omitted", () => {
     const result = createAllocationSchema.safeParse({ invoiceId: "si-1", amount: "1000.000000" });

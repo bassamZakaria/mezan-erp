@@ -113,10 +113,10 @@ describe("a purchase-returns role reads the source invoices of the warehouses it
       expect([lines.status, lines.body.error], JSON.stringify(scope)).toEqual([404, NOT_FOUND]);
       const nobodyHolds = await clerk("GET", "/purchase-returns/source-lines/VIS-NO-SUCH-INVOICE", undefined, scope);
       expect([nobodyHolds.status, nobodyHolds.body.error], JSON.stringify(scope)).toEqual([lines.status, lines.body.error]);
-      const raised = await clerk("POST", "/purchase-returns", draft(`VIS-P-WH-X-${String(scope)}`), scope);
+      const raised = await clerk("POST", "/purchase-returns", draft(`VIS-P-WH-X-${scope === ALL_SCOPE ? "ALL" : "OUTSIDE"}`), scope);
       expect([raised.status, raised.body.error], JSON.stringify(scope)).toEqual(refusedAs.get(scope));
       expect(JSON.stringify(raised.body), JSON.stringify(scope)).not.toContain("VIS-P");
-      expect((await kit.call("GET", `/purchase-returns/VIS-P-WH-X-${String(scope)}`)).status).toBe(404);
+      expect((await kit.call("GET", `/purchase-returns/VIS-P-WH-X-${scope === ALL_SCOPE ? "ALL" : "OUTSIDE"}`)).status).toBe(404);
     }
   });
 

@@ -205,7 +205,7 @@ describe("a drawer pays out only the cash it holds itself", () => {
   });
 
   it("a reversal hands the cash back to the drawer it left", async () => {
-    const reversed = await admin("POST", "/vouchers/TR-T-V-200/reverse", { reversalId: "TR-T-V-200-R", date: TODAY });
+    const reversed = await admin("POST", "/vouchers/TR-T-V-200/reverse", { reversalId: "TR-T-V-200-R", date: TODAY, memo: "خطأ في السند" });
     expect(reversed.status, JSON.stringify(reversed.body).slice(0, 200)).toBe(201);
     const again = await admin("POST", "/vouchers/TR-T-V-200B/confirm", {});
     expect(again.status, JSON.stringify(again.body)).toBe(200);

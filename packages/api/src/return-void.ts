@@ -38,6 +38,7 @@ export async function voidReturn<Line>(c: Context, service: DocumentService<Line
   const date = parsed.data.date ? await tenantDay(c, parsed.data.date) : await tenantToday(c);
   const { original, reversal } = await service.reverse(id, {
     reversalId: `${id}:void`,
+    mintedBySystem: true,
     date,
     memo: parsed.data.reason,
     reason: parsed.data.reason,

@@ -199,6 +199,7 @@ export async function boot() {
       fxResidue: scaled(recon.body?.foreignResidue?.total),
       stockLedgerDates: typeof recon.body?.stockLedgerDates?.count === "number" ? BigInt(recon.body.stockLedgerDates.count) : null,
       strandedStock: positions === null ? null : stranded.reduce((sum, p) => sum + magnitude(scaled(p.totalValue) ?? 0n), 0n),
+      allocationsOnReversedVouchers: typeof recon.body?.allocationsOnReversedVouchers?.count === "number" ? BigInt(recon.body.allocationsOnReversedVouchers.count) : null,
     };
     const asNumber = (x: bigint | null) => (x === null ? NaN : Number(x) / 1e6);
     return {
@@ -211,6 +212,7 @@ export async function boot() {
       stockLedgerDates: exact.stockLedgerDates === null ? NaN : Number(exact.stockLedgerDates),
       strandedStock: asNumber(exact.strandedStock),
       strandedPositions: stranded.map((p) => `${p.itemId}@${p.warehouseId}=${String(p.totalValue)}`),
+      allocationsOnReversedVouchers: exact.allocationsOnReversedVouchers === null ? NaN : Number(exact.allocationsOnReversedVouchers),
       exact,
     };
   }
@@ -239,6 +241,7 @@ export async function boot() {
     check("GL 2120 still equals the goods received and not yet invoiced", after.exact.grni !== null && after.exact.grni === before.exact.grni, `${before.grni.toFixed(6)} → ${after.grni.toFixed(6)}`);
     check("nothing holds base with none of its foreign currency", after.exact.fxResidue === 0n, `${before.fxResidue.toFixed(6)} → ${after.fxResidue.toFixed(6)}`);
     check("no stock movement sits in a different month from its document's entry", after.exact.stockLedgerDates === 0n, `${before.stockLedgerDates} → ${after.stockLedgerDates}`);
+    check("no allocation stands on a reversed voucher or on a reversal's mirror", after.exact.allocationsOnReversedVouchers === 0n, `${before.allocationsOnReversedVouchers} → ${after.allocationsOnReversedVouchers}`);
     check("no stock position holds value with no quantity, or quantity valued below zero", after.exact.strandedStock === 0n, after.strandedPositions.slice(0, 5).join(" · "));
   }
 

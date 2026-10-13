@@ -1610,6 +1610,7 @@ export function createSalesInvoicesRoutes(
             : undefined;
         const posted = await deps.gl.reverse(journalEntryId, {
           reversalId: salesInvoiceVoidEntryId(current.id),
+          mintedBySystem: true,
           date,
           memo: `عكس فاتورة مبيعات ${current.docNo ?? current.id}`,
           stock: restoreStock,

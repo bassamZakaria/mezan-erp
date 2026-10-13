@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 // INVARIANT: the ONE listing of these closed sets. `@mezan/domain` imports
 // the enums from here — this package is the leaf every client depends on, so
@@ -57,7 +58,7 @@ export const taxRateSchema = z.object({
 });
 
 export const createTaxRateSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   name: z.string().min(1),
   rate: z.number(),
@@ -96,7 +97,7 @@ export const taxGroupMemberSchema = z.object({
 });
 
 export const upsertTaxGroupSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullish(),

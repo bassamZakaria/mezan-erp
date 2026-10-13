@@ -45,6 +45,7 @@ async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy; wit
   await accounts.create(account("1360-vat"));
   await accounts.create(account("2100-ap", { type: "liability", naturalBalance: "credit" }));
   await accounts.create(account("5200-freight", { type: "expense" }));
+  await accounts.create(account("2120-grni", { type: "liability", naturalBalance: "credit" }));
   await periods.create({
     id: "fp-2026-08",
     year: 2026,
@@ -93,6 +94,7 @@ async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy; wit
         payableAccountId: "2100-ap",
         taxAccountId: "1360-vat",
         freightAccountId: "5200-freight",
+        goodsReceivedNotInvoicedAccountId: "2120-grni",
       },
       resolveTaxRate: () => 14,
       now: () => "2026-08-21T09:00:00.000Z",

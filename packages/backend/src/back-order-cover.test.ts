@@ -49,6 +49,39 @@ async function netOf(entryId: string, accountId: string): Promise<bigint> {
   return (await kit.journalLines(entryId)).filter((line) => line.accountId === accountId).reduce((sum, line) => sum + scaled(line.debit) - scaled(line.credit), 0n);
 }
 
+const balanceOf = async (accountId: string): Promise<bigint> => {
+  const balance = (await kit.call("GET", `/gl/accounts/${accountId}/ledger`)).body.balance;
+  return scaled(balance.debit) - scaled(balance.credit);
+};
+
+async function receive(id: string, itemId: string, qty: string, unitCost: string) {
+  const created = await kit.call("POST", "/purchases/receipts", { id, supplierId: SUPPLIER, warehouseId: WAREHOUSE, date: TODAY, lines: [{ itemId, qty, unitCost }] });
+  expect(created.status, JSON.stringify(created.body)).toBe(201);
+  const confirmed = await kit.call("POST", `/purchases/receipts/${id}/confirm`, {});
+  expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+}
+
+async function bill(id: string, receiptId: string, itemId: string, qty: string, unitCost: string) {
+  const created = await kit.call("POST", "/purchases/invoices", {
+    id, supplierId: SUPPLIER, date: TODAY, dueDate: "2026-09-23", branchId: "BR-MAIN", warehouseId: WAREHOUSE, receiptId,
+    lines: [{ itemId, kind: "inventory", qty, unitCost, taxRateId: "VAT14" }],
+  });
+  expect(created.status, JSON.stringify(created.body)).toBe(201);
+  const confirmed = await kit.call("POST", `/purchases/invoices/${id}/confirm`, {});
+  expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+}
+
+async function landedCost(id: string, itemId: string, sourceInvoiceId: string, amount: string, qty: string, unitCost: string) {
+  const drafted = await kit.call("POST", "/landed-costs", {
+    id, date: TODAY, memo: "شحن", distributionMethod: "BY_VALUE",
+    costItems: [{ costType: "SHIPPING", description: "نقل", amount, supplierId: SUPPLIER }],
+    targets: [{ itemId, warehouseId: WAREHOUSE, sourceInvoiceId, sourceInvoiceNumber: null, qty, unitCost }],
+  });
+  expect(drafted.status, JSON.stringify(drafted.body)).toBe(201);
+  const confirmed = await kit.call("POST", `/landed-costs/${id}/confirm`, { absorptionDate: TODAY });
+  expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+}
+
 async function setBackorder(allowBackorder: boolean) {
   const settings = (await kit.call("GET", "/settings")).body;
   const saved = await kit.call("PUT", "/settings", { ...settings, allowBackorder });
@@ -174,5 +207,60 @@ describe("goods that arrive after they were sold", () => {
     expect(voided.status, JSON.stringify(voided.body)).toBe(200);
     expect(await kit.invariants()).toEqual(ZERO);
     expect(await faults()).toEqual({ count: 0, rows: [] });
+  });
+});
+
+describe("a cost that is known only after the goods it belongs to were sold", () => {
+  it("is charged to cost when a supplier bills, above the receipt, goods that had covered a back-order — nothing is capitalised on the empty position and 2120 clears", async () => {
+    await stockItem("BO-G");
+    await buy("BO-G-BUY", "BO-G", "1", "100");
+    await sell("BO-G-INV", "BO-G", "11");
+    expect(await held("BO-G")).toEqual(["-10.000000", "-1000.000000"]);
+    const before = { accrual: await balanceOf("2120"), variance: await balanceOf("5080") };
+    await receive("BO-G-GRN", "BO-G", "10", "90");
+    expect(await held("BO-G")).toEqual(["0.000000", "0.000000"]);
+
+    await bill("BO-G-BILL-1", "BO-G-GRN", "BO-G", "5", "95");
+    await bill("BO-G-BILL-2", "BO-G-GRN", "BO-G", "5", "95");
+
+    expect(await held("BO-G")).toEqual(["0.000000", "0.000000"]);
+    expect(await faults()).toEqual({ count: 0, rows: [] });
+    expect(await kit.invariants()).toEqual(ZERO);
+    expect(await balanceOf("2120")).toBe(before.accrual);
+    expect((await balanceOf("5080")) - before.variance).toBe(50_000000n);
+    for (const entryId of ["PI-JE:BO-G-BILL-1", "PI-JE:BO-G-BILL-2"]) {
+      expect([await netOf(entryId, "2120"), await netOf(entryId, "1200"), await netOf(entryId, "5080")]).toEqual([450_000000n, 0n, 25_000000n]);
+    }
+  });
+
+  it("is charged to cost when a landed cost names a purchase whose goods all went to cover a back-order", async () => {
+    await stockItem("BO-H");
+    await buy("BO-H-BUY-1", "BO-H", "1", "100");
+    await sell("BO-H-INV", "BO-H", "4");
+    await buy("BO-H-BUY-2", "BO-H", "3", "90");
+    expect(await held("BO-H")).toEqual(["0.000000", "0.000000"]);
+    const costBefore = await balanceOf("5100");
+
+    await landedCost("BO-H-LC", "BO-H", "BO-H-BUY-2", "40", "3", "90");
+
+    expect(await held("BO-H")).toEqual(["0.000000", "0.000000"]);
+    expect(await faults()).toEqual({ count: 0, rows: [] });
+    expect(await kit.invariants()).toEqual(ZERO);
+    expect((await balanceOf("5100")) - costBefore).toBe(40_000000n);
+  });
+
+  it("is capitalised only in the share of the purchase that is still on hand: two of five received carry two fifths of the landed cost", async () => {
+    await stockItem("BO-I");
+    await buy("BO-I-BUY-1", "BO-I", "1", "100");
+    await sell("BO-I-INV", "BO-I", "4");
+    await buy("BO-I-BUY-2", "BO-I", "5", "90");
+    expect(await held("BO-I")).toEqual(["2.000000", "180.000000"]);
+    const costBefore = await balanceOf("5100");
+
+    await landedCost("BO-I-LC", "BO-I", "BO-I-BUY-2", "50", "5", "90");
+
+    expect(await held("BO-I")).toEqual(["2.000000", "200.000000"]);
+    expect(await kit.invariants()).toEqual(ZERO);
+    expect((await balanceOf("5100")) - costBefore).toBe(30_000000n);
   });
 });

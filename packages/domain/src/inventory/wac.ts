@@ -28,7 +28,8 @@
 import { Money, Qty, allocate } from "../money/index.js";
 import { CostLayer, drawDownLayer, layerRemainingValue, orderLayersForConsumption } from "./cost-layer.js";
 import { StockMovement, isRevaluation, movementValue, signedQty } from "./movement.js";
-import { extend, unitCostOf } from "./wac-math.js";
+import { StockChangeKind, changeStockPosition } from "./position-change.js";
+import { unitCostOf } from "./wac-math.js";
 
 export interface WacPosition {
   readonly itemId: string;
@@ -67,10 +68,10 @@ export function emptyPosition(itemId: string, warehouseId: string): WacPosition 
  * returning the surviving/updated layers still in RECEIPT order — the order
  * `WacPosition.layers` and the layer store both promise.
  */
-function consumeLayers(layers: readonly CostLayer[], qty: Qty): CostLayer[] {
+function consumeLayers(layers: readonly CostLayer[], qty: Qty, takenBackFrom: string | null = null): CostLayer[] {
   let remaining = qty;
   const drawn = new Map<string, CostLayer | null>();
-  for (const layer of orderLayersForConsumption(layers)) {
+  for (const layer of takeBackOrder(orderLayersForConsumption(layers), takenBackFrom)) {
     if (remaining.isZero() || remaining.isNegative()) break;
     if (layer.remainingQty.compare(remaining) <= 0) {
       // Whole layer consumed.
@@ -96,15 +97,14 @@ function consumeLayers(layers: readonly CostLayer[], qty: Qty): CostLayer[] {
   return out;
 }
 
-/**
- * The share of a revaluation the goods still on hand can carry: `remaining` of
- * the `original` quantity the named receipt brought in, split by largest
- * remainder so absorbed + unabsorbed is EXACTLY the amount booked.
- */
-function absorbShare(amount: Money, remaining: bigint, original: bigint): Money {
-  if (original <= 0n || remaining <= 0n) return Money.zero();
-  if (remaining >= original) return amount;
-  return allocate(amount, [remaining, original - remaining])[0] as Money;
+export function recordedAbsorption(movement: StockMovement): Money | null {
+  if (!movement.value) return null;
+  return movement.direction === "IN" ? movement.value : movement.value.negate();
+}
+
+export function takeBackOrder<T extends { readonly sourceDocId: string }>(ordered: readonly T[], takenBackFrom: string | null | undefined): readonly T[] {
+  if (!takenBackFrom) return ordered;
+  return [...ordered.filter((layer) => layer.sourceDocId === takenBackFrom), ...ordered.filter((layer) => layer.sourceDocId !== takenBackFrom)];
 }
 
 /**
@@ -135,33 +135,28 @@ export function replay(
     }
   };
 
+  const standing: { receipt: string; amount: bigint; direction: StockMovement["direction"]; absorbed: Money }[] = [];
+
   for (const m of movements) {
     if (isRevaluation(m)) {
-      // Value in, no quantity: a landed cost. It belongs to the goods the
-      // named receipt brought in, so only the share those goods STILL
-      // represent may be capitalised; the share attaching to units already
-      // issued is a period cost — the goods it paid for have gone — and is
-      // accumulated in `unabsorbedRevaluation` for the caller to post to cost
-      // of sales / purchase price variance. Capitalising it regardless left a
-      // freight invoice sitting on a position holding nothing, invisible
-      // because the average of zero units is zero, and it then rode into the
-      // next receipt as a cost overstatement (D84, D135).
-      //
-      // When the named document is one this ledger never received stock under
-      // — the ordinary purchase flow names the purchase INVOICE while the
-      // layer carries the goods RECEIPT, so nothing matches — there is nothing to
-      // apportion against, so the position itself is the only basis: stock on
-      // hand can carry the cost, an empty position cannot.
       const delta = m.valueDelta as Money;
-      const signed = m.direction === "IN" ? delta : Money.fromScaled(-delta.scaled);
-      const named = m.revaluesSourceDocId ? receipts.get(m.revaluesSourceDocId) : undefined;
-      const absorbed = named
-        ? absorbShare(signed, named.remaining, named.original)
-        : onHand.scaled > 0n
-          ? signed
-          : Money.zero();
-      totalValue = totalValue.add(absorbed);
-      unabsorbedRevaluation = unabsorbedRevaluation.add(signed.add(absorbed.negate()));
+      const receipt = m.revaluesSourceDocId ?? m.sourceDocId;
+      const undone = standing.findIndex((entry) => entry.receipt === receipt && entry.amount === delta.scaled && entry.direction !== m.direction);
+      const change = changeStockPosition(
+        { onHand, totalValue },
+        {
+          kind: StockChangeKind.Revaluation,
+          delta: m.direction === "IN" ? delta : delta.negate(),
+          receipt: (m.revaluesSourceDocId ? receipts.get(m.revaluesSourceDocId) : undefined) ?? null,
+          undoes: undone === -1 ? undefined : (standing[undone] as (typeof standing)[number]).absorbed,
+          recorded: recordedAbsorption(m),
+        },
+      );
+      if (undone === -1) standing.push({ receipt, amount: delta.scaled, direction: m.direction, absorbed: change.valueChange });
+      else standing.splice(undone, 1);
+      const absorbed = change.valueChange;
+      totalValue = change.totalValue;
+      unabsorbedRevaluation = unabsorbedRevaluation.add(change.difference);
       const targets = layers.filter((l) => l.sourceDocId === m.revaluesSourceDocId);
       const weights = targets.map((l) => l.remainingQty.scaled);
       if (absorbed.scaled !== 0n && weights.some((wgt) => wgt > 0n)) {
@@ -178,10 +173,11 @@ export function replay(
       continue;
     }
     if (m.direction === "IN") {
-      const short = onHand.isNegative() ? onHand.negate() : Qty.zero();
-      const layered = m.qty.compare(short) > 0 ? m.qty.subtract(short) : Qty.zero();
-      totalValue = totalValue.add(movementValue(m));
-      onHand = onHand.add(m.qty);
+      const recorded = movementValue(m);
+      const change = changeStockPosition({ onHand, totalValue }, { kind: StockChangeKind.Addition, qty: m.qty, unitCost: m.unitCost, stated: recorded, recorded });
+      const layered = change.layeredQty;
+      totalValue = change.totalValue;
+      onHand = change.onHand;
       if (!layered.isZero()) layers.push({
         id: m.id,
         itemId: m.itemId,
@@ -198,29 +194,18 @@ export function replay(
       });
       const seen = receipts.get(m.sourceDocId) ?? { original: 0n, remaining: 0n };
       seen.original += m.qty.scaled;
-      seen.remaining += m.qty.scaled;
+      seen.remaining += layered.scaled;
       receipts.set(m.sourceDocId, seen);
     } else {
-      // Value the issue at the cost the LEDGER recorded, not at a freshly
-      // recomputed average. The movement carries the average it actually left
-      // at ("retained on the movement so the ledger is self-describing when
-      // replayed" — movement.ts), and recomputing instead made replay disagree
-      // with the live engine for any document entered out of date order: a
-      // backdated sale, or a landed cost dated after a sale that had already
-      // consumed the revalued stock. Recomputation made `cacheDrift` an
-      // artefact of entry order rather than the cache-corruption signal its own
-      // docstring promises.
+      // INVARIANT: an issue replays at the unit cost the ledger recorded for
+      // it, never at an average recomputed here — a document entered out of
+      // date order would otherwise make the replay disagree with the engine
+      // that wrote it, and `cacheDrift` would report entry order as corruption.
       const issuedAt = m.unitCost.scaled === 0n ? unitCostOf(totalValue, onHand) : m.unitCost;
-      const remainingAfter = onHand.subtract(m.qty);
-      // The same drain-to-zero rule the live engine applies (D-S44, and
-      // stock-ledger-service.ts's `applyMovement` for the reasoning). It has to
-      // be identical in both, or replaying a ledger the engine wrote would
-      // report the difference as `cacheDrift` — turning the fix into a
-      // permanent false corruption signal on every fully-sold item.
-      const cogs = remainingAfter.isZero() ? totalValue : (m.value ?? issueValueWithin(totalValue, remainingAfter, extend(m.qty, issuedAt)));
-      totalValue = totalValue.add(cogs.negate());
-      onHand = remainingAfter;
-      layers = consumeLayers(layers, m.qty);
+      const change = changeStockPosition({ onHand, totalValue }, { kind: StockChangeKind.Removal, qty: m.qty, unitCost: issuedAt, recorded: m.value });
+      totalValue = change.totalValue;
+      onHand = change.onHand;
+      layers = consumeLayers(layers, m.qty, m.revaluesSourceDocId ?? null);
       recountRemaining();
     }
   }
@@ -305,8 +290,4 @@ export function checkDrift(
     withinTolerance: driftMagnitude <= tolerance.scaled,
     unabsorbedRevaluation: recomputed.unabsorbedRevaluation,
   };
-}
-
-function issueValueWithin(held: Money, remaining: Qty, atAverage: Money): Money {
-  return !remaining.isNegative() && held.scaled >= 0n && atAverage.scaled > held.scaled ? held : atAverage;
 }

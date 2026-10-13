@@ -162,6 +162,15 @@ describe("GoodsReceiptsScreen", () => {
     expect(screen.queryByText("85.000000")).not.toBeInTheDocument();
   });
 
+  it("names the warehouse on the receipt's page instead of printing its id", async () => {
+    renderScreen(stubTransport({ ...baseHandlers, "GET /purchases/receipts": () => ({ body: [goodsReceipt()] }) }));
+
+    fireEvent.click(await screen.findByText("GR-000010"));
+
+    expect(await screen.findByText("المخزن الرئيسي")).toBeInTheDocument();
+    expect(screen.queryByText("MAIN-WH")).not.toBeInTheDocument();
+  });
+
   it("shows an honest empty state when the server returns no receipts", async () => {
     const transport = stubTransport({
       ...baseHandlers,

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ALL_SCOPE, SHELL_REQUESTS, ShellRequest, createAuthContext, holdsShellRequest } from "@mezan/domain";
+import { ALL_SCOPE, MODULE_CATALOG, SCREEN_REQUESTS, SHELL_REQUESTS, ScreenRequest, ShellRequest, createAuthContext, createEntitlements, holdsShellRequest, mayAskScreenRequest } from "@mezan/domain";
 import { seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
 
 interface SeededRole {
@@ -64,5 +64,33 @@ describe("what the shell asks for is what the session's role may read", () => {
 
     expect(SHELL_REQUESTS[ShellRequest.Subscription].path).toBe("/billing/subscription");
     expect(gatedOn).toBe(SHELL_REQUESTS[ShellRequest.Subscription].permission);
+  });
+});
+
+describe("what a document screen asks for beside its own document is what the session's role may read", () => {
+  const licensed = createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
+
+  it("for every seeded role, no such request it would send is refused, and every one it withholds would have been", async () => {
+    const refused: string[] = [];
+    const withheldNeedlessly: string[] = [];
+    for (const role of roles) {
+      const auth = createAuthContext({ userId: role.code, permissions: role.permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+      for (const request of Object.values(ScreenRequest)) {
+        const status = await statusAs(role, SCREEN_REQUESTS[request].path);
+        const asks = mayAskScreenRequest(auth, licensed, request);
+        if (asks && status === 403) refused.push(`${role.code} ${SCREEN_REQUESTS[request].path}`);
+        if (!asks && status !== 403) withheldNeedlessly.push(`${role.code} ${SCREEN_REQUESTS[request].path} ${status}`);
+      }
+    }
+    expect(refused).toEqual([]);
+    expect(withheldNeedlessly).toEqual([]);
+  }, 900_000);
+
+  it.each(Object.values(ScreenRequest))("«%s» is withheld from a tenant whose licence never held the module its permission belongs to", (request) => {
+    const auth = createAuthContext({ userId: "ANY", permissions: [SCREEN_REQUESTS[request].permission], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const bare = createEntitlements({ plan: "BARE", activeModules: ["dashboard"], features: {}, seats: 1, expiresAt: null });
+
+    expect(mayAskScreenRequest(auth, licensed, request)).toBe(true);
+    expect(mayAskScreenRequest(auth, bare, request)).toBe(false);
   });
 });

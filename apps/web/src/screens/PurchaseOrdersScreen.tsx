@@ -86,6 +86,7 @@ function OrderDetail({
   onPrint: () => void;
 }) {
   const { t } = useAppTranslation();
+  const warehouses = useWarehouses().data ?? [];
   return (
     <DocumentDetail
       title={t("purchaseOrders.detailTitle", { number: order.number })}
@@ -106,7 +107,7 @@ function OrderDetail({
         { label: t("common.supplier"), value: supplierName(order.supplierId) },
         { label: t("common.date"), value: order.date.split("-").reverse().join("/") },
         { label: t("purchaseOrders.detail.expectedDelivery"), value: order.expectedDeliveryDate?.split("-").reverse().join("/") ?? "—" },
-        { label: t("common.warehouse"), value: order.warehouseId },
+        { label: t("common.warehouse"), value: warehouses.find((warehouse) => warehouse.id === order.warehouseId)?.name ?? order.warehouseId },
         { label: t("common.total"), value: <MoneyValue value={num(order.subtotal)} /> },
         { label: t("purchaseOrders.detail.createdBy"), value: order.createdBy },
       ]}

@@ -46,6 +46,7 @@ async function run(app: App): Promise<void> {
     console.warn(`[demo-seed] ${SECOND_BRANCH_ID} was NOT seeded: the tenant's plan holds no room for a second branch. Every seeded posting is in one branch, so a branch filter has nothing to narrow.`);
     return;
   }
+  await step(app, "PUT", `/eta/branch-codes/${SECOND_BRANCH_ID}`, { etaBranchCode: "2", deviceSerialNumber: "MEZAN-POS-0002" });
   const warehouseCreated = await createWithinPlan(app, "/warehouses", {
     id: SECOND_BRANCH_WAREHOUSE_ID,
     code: "WH-ALEX",

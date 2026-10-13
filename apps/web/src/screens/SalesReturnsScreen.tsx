@@ -28,6 +28,7 @@ import {
   useItems,
   useRefundSalesReturn,
   useSalesInvoices,
+  useReturnDocument,
   useSalesReturns,
   useReturnSourceLines,
   ReturnKind,
@@ -39,7 +40,7 @@ import {
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { SalesReturnPrintPage } from "../print/documents";
-import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
+import { useNameSubPage, useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { nextReturnSourceLine, sourceLineOptions } from "./return-source-lines";
@@ -49,7 +50,7 @@ import { majorOf } from "../lib/money";
 import { returnLinesTotal } from "./exact-line-totals";
 import { EMPTY } from "../lib/empty";
 import { ReturnJournalCard } from "./ReturnJournalCard";
-import { ReturnFamily, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
+import { ReturnFamily, ReturnMirrorLinks, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, returnDocumentLabel, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
@@ -225,10 +226,13 @@ export function SalesReturnsScreen() {
   const activeFilterCount =
     (statusFilter === "all" ? 0 : 1) + (awaitingOnly ? 1 : 0) + (customerFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
-  const selected =
-    firstSegment !== undefined && firstSegment !== "new"
-      ? (documents.find((d) => d.id === firstSegment || d.docNo === firstSegment) ?? null)
-      : null;
+  const addressed = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : "";
+  const listed = addressed === "" ? null : (documents.find((d) => d.id === addressed || d.docNo === addressed) ?? null);
+  const unlisted = useReturnDocument<(typeof documents)[number]>(ReturnFamily.Sales, addressed !== "" && !listed && query.isSuccess ? addressed : "");
+  const selected = listed ?? unlisted.data ?? null;
+  const reversedReturnNo = selected?.reversesDocId ? (documents.find((d) => d.id === selected.reversesDocId)?.docNo ?? null) : null;
+  const selectedLabel = selected ? returnDocumentLabel(selected, reversedReturnNo, t("salesReturns.detailTitle"), t) : null;
+  useNameSubPage(selected ? addressed : null, selectedLabel);
 
   function openCreate() {
     setError(null);
@@ -485,9 +489,9 @@ export function SalesReturnsScreen() {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.sales.returns")}</div>
-          <h1 className="font-display text-xl font-bold text-ink">{selected?.docNo ?? t("salesReturns.detailTitle")}</h1>
+          <h1 className="font-display text-xl font-bold text-ink">{selectedLabel ?? t("salesReturns.detailTitle")}</h1>
         </div>
-        {selected ? (
+        {selected && !selected.reversesDocId ? (
           <Button onClick={() => subPage.open(selected.docNo ?? selected.id, "print")}>{t("print.action.print")}</Button>
         ) : null}
       </div>
@@ -498,6 +502,7 @@ export function SalesReturnsScreen() {
               {selected.awaitingRefund ? <StatusPill label={t("salesReturns.awaitingRefund")} tone="warning" /> : null}
             </div>
             <HeldDocumentReapproval document={selected} pending={confirmReturn.isPending} confirm={(id) => confirmReturn.mutateAsync(id)} />
+            <ReturnMirrorLinks document={selected} originalNo={reversedReturnNo} onOpen={(id) => subPage.open(id)} />
             <div className="flex flex-wrap items-center gap-[10px] text-[12.5px] text-ink-muted">
               <span>{t("salesReturns.sourceInvoice", { number: sourceInvoiceNo(selected.lines[0]) ?? "—" })}</span>
               {selected.lines[0] ? (
@@ -614,7 +619,7 @@ export function SalesReturnsScreen() {
   if (firstSegment === "new") return createPage;
   // إشعار خصم — the credit note the customer keeps (P-6). A destination, not
   // an overlay, so it survives a reload.
-  if (selected && subPage.segments[1] === "print") return <SalesReturnPrintPage document={selected} />;
+  if (selected && !selected.reversesDocId && subPage.segments[1] === "print") return <SalesReturnPrintPage document={selected} />;
   if (selected) return detailPage;
 
   return (

@@ -73,3 +73,41 @@ describe("reversing a material consumption", () => {
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 SITE_DOCUMENT_STATUS");
   });
 });
+
+describe("reversing a material consumption after the site store was sold short", () => {
+  it("levels the shortfall at the value it carried and books the rest of the mirrored entry to cost, so the store's stock still equals 1200", async () => {
+    const settings = (await world.request("GET", "/settings")).body;
+    expect((await world.request("PUT", "/settings", { ...settings, allowBackorder: true })).status).toBe(200);
+    const doc = world.sqlite
+      .prepare(`SELECT id, warehouse_id AS warehouseId, total_cost AS cost, lines_json AS lines FROM material_consumption WHERE status = 'confirmed' AND journal_entry_id IS NOT NULL ORDER BY id LIMIT 1`)
+      .safeIntegers()
+      .get() as { id: string; warehouseId: string; cost: bigint; lines: string };
+    const itemId = (JSON.parse(doc.lines) as { itemId: string }[])[0]!.itemId;
+    const position = () =>
+      world.sqlite.prepare(`SELECT on_hand AS qty, total_value AS value FROM wac_snapshot WHERE item_id = ? AND warehouse_id = ?`).safeIntegers().get(itemId, doc.warehouseId) as { qty: bigint; value: bigint };
+    const today = new Date().toISOString().slice(0, 10);
+    const dearer = await world.request("POST", "/inventory/stock-adjustments/draft", { id: "SITE-SHORT-ADJ", date: today, lines: [{ itemId, warehouseId: doc.warehouseId, reason: "INITIAL_STOCK", direction: "IN", qty: "1", unitCost: "99999" }] });
+    expect(dearer.status, JSON.stringify(dearer.body)).toBe(201);
+    expect((await world.request("POST", "/inventory/stock-adjustments/SITE-SHORT-ADJ/confirm", {})).status).toBe(200);
+    const shortBy = 2_000000n;
+    const sold = await world.request("POST", "/sales-invoices", {
+      id: "SITE-SHORT-INV", date: today, dueDate: today, customerId: "CUST-DEMO-1", customerNameAr: "عميل", warehouseId: doc.warehouseId, branchId: "BR-MAIN", arAccountId: "1105", taxAccountId: "2200",
+      lines: [{ lineId: "A", itemId, itemNameAr: "صنف", isStock: true, qty: (Number(position().qty + shortBy) / 1e6).toFixed(6), unitPrice: "10", revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200", taxRateId: "VAT14" }],
+    });
+    expect(sold.status, JSON.stringify(sold.body)).toBe(201);
+    const confirmed = await world.request("POST", "/sales-invoices/SITE-SHORT-INV/confirm", {});
+    expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
+    expect(position().qty).toBe(-shortBy);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+    const before = { inventory: world.balance("1200"), cost: world.balance("5100"), value: position().value };
+
+    const reversed = await world.request("POST", `/contracting/site/consumptions/${doc.id}/reverse`, { memo: "سبب العكس", date: today });
+
+    expect(reversed.status, JSON.stringify(reversed.body)).toBe(200);
+    const took = position().value - before.value;
+    expect(took).not.toBe(doc.cost);
+    expect(world.balance("1200") - before.inventory).toBe(took);
+    expect(world.balance("5100") - before.cost).toBe(doc.cost - took);
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});

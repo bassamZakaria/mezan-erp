@@ -1,4 +1,5 @@
 import type { App } from "@mezan/api";
+import { Money, approvalLabel } from "@mezan/domain";
 import { CORE, SeedPerson, VAT_PERCENT, WAREHOUSE_ID, seedActorHeaders, seededUserId, step } from "./shared.js";
 
 /**
@@ -90,9 +91,9 @@ export async function seedPlatform(app: App): Promise<void> {
     const raised = (await stepAs(app, "POST", "/workflow/requests", { userId, permissions: `${permission},workflow.view` }, { actionType, entityLabel })) as { id: string };
     return raised.id;
   };
-  await raise(people.salesRep, "sales.invoice.create", "SALES_INVOICE_CONFIRM", "فاتورة مبيعات بقيمة 5,200 ج.م — مجموعة الفجر التجارية");
+  await raise(people.salesRep, "sales.invoice.create", "SALES_INVOICE_CONFIRM", approvalLabel({ type: "فاتورة مبيعات", amount: Money.fromMajor("5200"), party: "مجموعة الفجر التجارية" }));
 
-  const approved = await raise(people.purchasing, "purchases.invoice.create", "PURCHASE_INVOICE_CONFIRM", "فاتورة مشتريات من مصنع الوادي الأخضر بقيمة 32,000 ج.م");
+  const approved = await raise(people.purchasing, "purchases.invoice.create", "PURCHASE_INVOICE_CONFIRM", approvalLabel({ type: "فاتورة مشتريات", amount: Money.fromMajor("32000"), party: "مصنع الوادي الأخضر" }));
   await stepAs(
     app,
     "POST",
@@ -101,7 +102,7 @@ export async function seedPlatform(app: App): Promise<void> {
     { decision: "approve", comment: "المستندات مكتملة والمبلغ ضمن حدود الميزانية." },
   );
 
-  const rejected = await raise(people.vanSales, "sales.invoice.create", "SALES_INVOICE_CONFIRM", "فاتورة مبيعات بقيمة 18,500 ج.م — شركة الأمل للتجارة");
+  const rejected = await raise(people.vanSales, "sales.invoice.create", "SALES_INVOICE_CONFIRM", approvalLabel({ type: "فاتورة مبيعات", amount: Money.fromMajor("18500"), party: "شركة الأمل للتجارة" }));
   await stepAs(
     app,
     "POST",

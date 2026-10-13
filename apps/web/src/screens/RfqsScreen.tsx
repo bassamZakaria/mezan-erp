@@ -35,6 +35,7 @@ import {
   type RfqComparisonRecord,
   type RfqListFilter,
   useUsers,
+  useWarehouses,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useSubPage } from "../navigation";
@@ -170,6 +171,7 @@ function RfqDetail({
   }
 
   const comparison = comparisonQuery.data;
+  const warehouses = useWarehouses().data ?? [];
 
   return (
     <DocumentDetail
@@ -199,7 +201,7 @@ function RfqDetail({
       summary={[
         { label: t("common.date"), value: fmtDate(rfq.date) },
         { label: t("rfqs.detail.requiredBy"), value: fmtDate(rfq.requiredByDate) },
-        { label: t("common.warehouse"), value: rfq.warehouseId },
+        { label: t("common.warehouse"), value: warehouses.find((warehouse) => warehouse.id === rfq.warehouseId)?.name ?? rfq.warehouseId },
         { label: t("rfqs.detail.quotesReceived"), value: <span className="mz-num">{quotes.length}</span> },
         {
           label: t("rfqs.detail.linkedOrder"),

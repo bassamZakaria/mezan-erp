@@ -318,7 +318,7 @@ export class VoucherService {
       approvalLabel: async (doc) => {
         const line = voucherLine(doc);
         const party = (await deps.partyName?.(line)) ?? (await deps.treasuryAccounts.findById(line.treasuryAccountId))?.name ?? null;
-        return approvalLabel({ type: getVoucherTypeDefinition(line.voucherType).labelAr, amount: line.amount, party });
+        return approvalLabel({ type: getVoucherTypeDefinition(line.voucherType).labelAr, amount: line.amount, currency: line.currency, party });
       },
       audit: deps.audit,
       events: deps.events,

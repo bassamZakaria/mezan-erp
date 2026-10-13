@@ -20,8 +20,8 @@ import { JournalEntryNotFoundError, ReversalDateBeforeOriginalError } from "../g
 import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
 import { resolveDocumentLineTax, type TaxRate, type TaxRateRepository } from "../tax-rates/index.js";
-import type { GoodsReceipt, GoodsReceiptRepository, ReceiptLineBilling } from "./goods-receipt.js";
-import { backOrderCoverLines, billGoodsReceipt, distinctPositions, GoodsReceiptInvoicingStatus, goodsReceiptInvoicingStatus, receiptLayersConsumed, receiptLineRemainingQty, unbillGoodsReceipt } from "./goods-receipt.js";
+import type { GoodsReceipt, GoodsReceiptRepository, ReceiptLineBilling, StockDifferenceAccounts } from "./goods-receipt.js";
+import { backOrderCoverLines, billGoodsReceipt, cancelledReceiptStockLines, distinctPositions, GoodsReceiptInvoicingStatus, goodsReceiptInvoicingStatus, receiptLayersConsumed, receiptLineRemainingQty, unbillGoodsReceipt } from "./goods-receipt.js";
 import { LandedCostStandsOnDocumentError } from "../landed-costs/errors.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import { assertDocumentWritten } from "../documents/errors.js";
@@ -241,6 +241,7 @@ export interface CancelPurchaseInvoiceDeps extends PurchaseAuditDeps {
   readonly invoices: PurchaseInvoiceRepository;
   readonly stock: PurchaseStockPostingPort;
   readonly glReverse: PurchaseGlReversalPort;
+  readonly accounts?: StockDifferenceAccounts;
   readonly layers: CostLayerRepository;
   readonly receipts?: GoodsReceiptRepository;
   readonly policy?: PurchasePolicy;
@@ -863,8 +864,8 @@ export async function confirmPurchaseInvoice(
   // invoice was permanently unconfirmable. SAVEPOINT nesting on the shared
   // connection makes the inner GL transaction safe inside this one.
   //
-  // The GL still goes first inside it: a closed period, an inactive account or
-  // an unbalanced entry then refuses before the sub-ledger has moved (D21).
+  // A closed period, an inactive account or an unbalanced entry refuses inside
+  // it, and takes back the stock a manual invoice has already received (D21).
   const transaction = deps.gl.transaction?.bind(deps.gl) ?? (<T,>(fn: () => Promise<T>) => fn());
 
   const { confirmed, posting } = await transaction(async () => {
@@ -1036,14 +1037,16 @@ export async function cancelPurchaseInvoice(
     }
 
     // A from-receipt invoice never posted its own stock (the receipt did) — see confirmPurchaseInvoice.
+    let unmirrored = Money.zero();
     if (!invoice.receiptId && inventoryLines.length > 0) {
-      await deps.stock.reverseReceipt({
+      const taken = await deps.stock.reverseReceipt({
         reversalId: purchaseInvoiceCancelEntryId(invoice.id),
         sourceDocType: "PURCHASE_INVOICE",
         sourceDocId: invoice.id,
         positions,
         occurredAt: occurredAtFromDocumentDate(cancelDate),
       });
+      unmirrored = taken.unmirroredValue;
     }
 
     if (sourceReceipt && deps.stock.reverseReceiptCostVariance) {
@@ -1073,6 +1076,7 @@ export async function cancelPurchaseInvoice(
       reversalId: purchaseInvoiceCancelEntryId(invoice.id),
       date: cancelDate,
       memo: `عكس فاتورة مشتريات ${invoice.number}`,
+      appendLines: cancelledReceiptStockLines(unmirrored, deps.accounts, { projectId: invoice.projectId ?? null, branchId: invoice.branchId ?? null }),
     });
     if (invoice.receiptId && deps.receipts && (await untrackedConfirmedInvoicesOnReceipt(deps.invoices, invoice.receiptId, invoice.id)).length === 0) {
       await unbillGoodsReceipt(invoice.receiptId, tracked ? inventoryLines.flatMap((l) => l.receiptBillings ?? []) : null, { receipts: deps.receipts });

@@ -43,7 +43,7 @@ import type {
   VoucherListQueryDTO,
   VoucherStatusDTO,
 } from "@mezan/contracts";
-import { ReversalDocumentType } from "@mezan/contracts";
+import { ReversalDocumentType, mayReverseVoucher } from "@mezan/contracts";
 import {
   useAccounts,
   useBranches,
@@ -894,7 +894,7 @@ function VoucherDetailView({
         subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={doc.status} tone={doc.status === "reversed" ? "danger" : "brand"} />}
         actions={
           <>
-            {doc.status === "confirmed" && !doc.reversesDocId && reversal.allowed ? (
+            {doc.status === "confirmed" && !doc.reversesDocId && mayReverseVoucher(reversal.holds, doc.voucherType) ? (
               <Button variant="danger-outline" disabled={busy || reversal.pendingId === doc.id} onClick={() => void reversal.ask({ id: doc.id, params: { id: doc.id }, subject: doc.docNo ?? t("vouchers.cashVoucher") })}>
                 {t("vouchers.reverseVoucher")}
               </Button>

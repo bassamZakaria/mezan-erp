@@ -59,6 +59,9 @@ import {
   voucherListQuerySchema,
   type VoucherListQueryDTO,
   ReversalPermission,
+  VoucherPermissionAction,
+  mayReverseVoucher,
+  voucherActionPermissions,
 } from "@mezan/contracts";
 import { requireReversalReason } from "./document-reversal.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, withinScope } from "./permission-gate.js";
@@ -269,26 +272,6 @@ function handleDomainError(c: Context, err: unknown): Response {
 const gateActorRoles = callerRoleCodes;
 
 /**
- * The voucher types that carry a permission of their own, and its prefix.
- *
- * There is ONE voucher document and one voucher list, so there is one `.view`
- * — `treasury.cash_voucher.view`. What a shop separates is not the reading but
- * the ACT: handing cash back to a customer, and moving money between the
- * company's own treasuries, are decisions kept away from the counter. Every
- * voucher route used to gate every type on `treasury.cash_voucher.*`, so the
- * two codes below gated nothing at all and a cashier who could raise a
- * collection could also raise a refund.
- *
- * The gate is "EITHER the generic code OR this type's own": a holder of only
- * `treasury.customer_refund.create` can raise a refund and nothing else, and a
- * cashier holding `treasury.cash_voucher.create` keeps every type they had.
- */
-const VOUCHER_TYPE_PERMISSION_PREFIX: Readonly<Record<string, string>> = {
-  customer_refund: "treasury.customer_refund",
-  inter_treasury_transfer: "treasury.transfer",
-};
-
-/**
  * المقاولات — collecting a progress certificate.
  *
  * A certificate is collected by receiving the customer's money against the
@@ -301,18 +284,15 @@ const VOUCHER_TYPE_PERMISSION_PREFIX: Readonly<Record<string, string>> = {
 const CERTIFICATE_COLLECT = "contracting.certificate.collect";
 const CERTIFICATE_COLLECTION_TYPES: ReadonlySet<string> = new Set(["customer_collection", "customer_advance"]);
 
-type VoucherAction = "create" | "confirm" | "void";
 
 /** Every code that authorises `action` on a voucher of this type. Any one suffices. */
 function voucherPermissions(
-  action: VoucherAction,
+  action: VoucherPermissionAction,
   voucherType: string | null | undefined,
   projectId: string | null | undefined,
 ): string[] {
-  const codes = [`treasury.cash_voucher.${action}`];
-  const prefix = voucherType ? VOUCHER_TYPE_PERMISSION_PREFIX[voucherType] : undefined;
-  if (prefix) codes.push(`${prefix}.${action}`);
-  if (action !== "void" && projectId && voucherType && CERTIFICATE_COLLECTION_TYPES.has(voucherType)) {
+  const codes = voucherActionPermissions(action, voucherType);
+  if (action !== VoucherPermissionAction.Void && projectId && voucherType && CERTIFICATE_COLLECTION_TYPES.has(voucherType)) {
     codes.push(CERTIFICATE_COLLECT);
   }
   return codes;
@@ -582,7 +562,7 @@ export function createVouchersRoutes(
     const d = parsed.data;
     const reserved = refuseReservedEntryId(c, d.id);
     if (reserved) return reserved;
-    const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
+    const refusal = refuseVoucherType(c, voucherPermissions(VoucherPermissionAction.Create, d.voucherType, d.projectId));
     if (refusal) return refusal;
     const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Customer, ids: [d.customerId] },
@@ -659,7 +639,7 @@ export function createVouchersRoutes(
     const reserved = refuseReservedEntryId(c, d.id);
     if (reserved) return reserved;
     const voucherType = "customer_collection";
-    for (const action of ["create", "confirm"] as const) {
+    for (const action of [VoucherPermissionAction.Create, VoucherPermissionAction.Confirm]) {
       const refusal = refuseVoucherType(c, voucherPermissions(action, voucherType, d.projectId));
       if (refusal) return refusal;
     }
@@ -744,7 +724,7 @@ export function createVouchersRoutes(
    * A voucher that is not there at all is left to the handler, so a missing id
    * keeps answering the domain's own 404 rather than gaining a second shape.
    */
-  async function refuseStoredVoucher(c: Context, id: string, action: VoucherAction): Promise<Response | null> {
+  async function refuseStoredVoucher(c: Context, id: string, action: VoucherPermissionAction): Promise<Response | null> {
     const doc = await serviceFor(c).findById(id);
     if (!doc) return null;
     const line = voucherLine(doc);
@@ -770,7 +750,7 @@ export function createVouchersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const refusal = await refuseStoredVoucher(c, c.req.param("id"), "confirm");
+    const refusal = await refuseStoredVoucher(c, c.req.param("id"), VoucherPermissionAction.Confirm);
     if (refusal) return refusal;
     try {
       const ctx = getAuthContext(c);
@@ -790,7 +770,7 @@ export function createVouchersRoutes(
     "/:id/cancel",
     gateAny("treasury.cash_voucher.void", "treasury.customer_refund.void", "treasury.transfer.void"),
     async (c) => {
-      const refusal = await refuseStoredVoucher(c, c.req.param("id"), "void");
+      const refusal = await refuseStoredVoucher(c, c.req.param("id"), VoucherPermissionAction.Void);
       if (refusal) return refusal;
       try {
         const doc = await serviceFor(c).cancelVoucher(c.req.param("id"));
@@ -818,8 +798,12 @@ export function createVouchersRoutes(
     }
     const reserved = refuseReservedEntryId(c, parsed.data.reversalId);
     if (reserved) return reserved;
-    const refusal = await refuseStoredVoucher(c, c.req.param("id"), "void");
-    if (refusal) return refusal;
+    const ctx = getAuthContext(c);
+    const stored = await serviceFor(c).findById(c.req.param("id"));
+    const storedType = stored ? voucherLine(stored).voucherType : null;
+    if (stored && !(ctx && mayReverseVoucher((permission) => can(ctx, permission), storedType))) {
+      return c.json(permissionDeniedBody(voucherActionPermissions(VoucherPermissionAction.Void, storedType).at(-1) ?? ""), 403);
+    }
     try {
       const result = await serviceFor(c).reverseVoucher(c.req.param("id"), {
         reversalId: parsed.data.reversalId ?? idGen(),

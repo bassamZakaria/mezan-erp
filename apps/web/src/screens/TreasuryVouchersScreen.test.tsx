@@ -458,6 +458,33 @@ describe("TreasuryVouchersScreen — reversal", () => {
   });
 });
 
+describe("TreasuryVouchersScreen — reversal is offered only to a session the server would let reverse", () => {
+  const VIEW = ["treasury.cash_voucher.view", "treasury.account.view", "treasury.allocation.view"];
+
+  it("a role given only «عكس السند» is offered no reversal, because the server also asks for the type's void", async () => {
+    renderScreen({ permissions: [...VIEW, "treasury.cash_voucher.reverse"] });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    await screen.findByRole("tab", { name: /تخصيص على الفواتير/ });
+
+    expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
+  });
+
+  it("holding both, the reversal is offered", async () => {
+    renderScreen({ permissions: [...VIEW, "treasury.cash_voucher.reverse", "treasury.cash_voucher.void"] });
+    fireEvent.click(await screen.findByText("CV-000001"));
+
+    expect(await screen.findByRole("button", { name: "عكس السند" })).toBeInTheDocument();
+  });
+
+  it("another type's void does not count: a transfer's void with the reversal permission offers nothing on a collection", async () => {
+    renderScreen({ permissions: [...VIEW, "treasury.cash_voucher.reverse", "treasury.transfer.void"] });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    await screen.findByRole("tab", { name: /تخصيص على الفواتير/ });
+
+    expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
+  });
+});
+
 describe("TreasuryVouchersScreen — a reversed voucher and the voucher that reversed it", () => {
   it("each row names the other by its number, and the link opens it", async () => {
     const [first, ...rest] = seededVouchers;

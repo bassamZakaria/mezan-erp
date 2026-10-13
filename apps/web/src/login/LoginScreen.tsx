@@ -2,27 +2,28 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent
 import { useQueryClient } from "@tanstack/react-query";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { TenantResolveMode } from "@mezan/contracts";
-import { ApiError, isDesktopHost, platformLookupFailing, useBootstrapStatus, useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
+import { AccountLockedError, ApiError, SignInRefusalCode, isDesktopHost, platformLookupFailing, useBootstrapStatus, useLogin, usePlatformResolve, useTenantInfo, useUnlockAccount } from "../data/hooks";
 import { lastTenantMode, LookupHost, lookupHostOf, rememberTenantMode } from "./lookup-host";
 import { useAppVersion } from "../data/hub-hooks";
 import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
 import {
+  SignInNotice,
   clearOwnerHandOver,
-  clearSessionExpired,
+  clearSignInNotice,
   clearTenantCode,
   forgetTenantCodeForEmail,
   clearTenantCodeConfirmed,
   loadTenantCode,
   markTenantCodeConfirmed,
   persistTenantCode,
+  pendingSignInNotice,
   rememberTenantCodeForEmail,
   pendingOwnerHandOver,
-  sessionExpiredPending,
   tenantCodeIsLeftover,
   tenantCodeConfirmedThisVisit,
   tenantCodeForEmail,
 } from "../data/session";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { displayName } from "../display-name";
 import { readDeviceUsers, rememberDeviceUser, type DeviceUser } from "./device-users";
 // lan-ux
@@ -36,9 +37,24 @@ const TENANT_CODE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
  * A wait a person can act on. "900 ثانية" is not one — past two minutes the
  * honest unit is minutes, which is also what the server's own message says.
  */
-function formatWait(seconds: number): string {
-  if (seconds < 120) return `${seconds}s`;
-  return `${Math.ceil(seconds / 60)}m`;
+const WAIT_IN_MINUTES_FROM_SECONDS = 120;
+const FEW = 10;
+
+enum WaitUnit {
+  Seconds = "seconds",
+  Minutes = "minutes",
+}
+
+function waitKey(count: number, unit: WaitUnit): AppTranslationKey {
+  if (count === 1) return `login.wait.${unit}.one`;
+  if (count === 2) return `login.wait.${unit}.two`;
+  return count <= FEW ? `login.wait.${unit}.few` : `login.wait.${unit}.many`;
+}
+
+function formatWait(seconds: number, t: (key: AppTranslationKey, params?: Record<string, string | number>) => string): string {
+  if (seconds < WAIT_IN_MINUTES_FROM_SECONDS) return t(waitKey(seconds, WaitUnit.Seconds), { count: seconds });
+  const minutes = Math.ceil(seconds / 60);
+  return t(waitKey(minutes, WaitUnit.Minutes), { count: minutes });
 }
 // SECURITY: offered only on a desktop host running the demo seed. Any other sign-in opens
 // on an empty email field: a real company's sign-in must never name an account.
@@ -72,6 +88,8 @@ export interface LoginScreenProps {
  * The PIN auto-submits on the fourth digit: at 60 logins a month, a Tab to a
  * button the form already knows how to press is pure friction.
  */
+const SERVER_BUSY = 503;
+
 export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const { t, locale } = useAppTranslation();
   const appVersion = useAppVersion();
@@ -245,7 +263,9 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   }, [tenantNotFound, username, resolvedCode]);
 
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
-  const [expired, setExpired] = useState(sessionExpiredPending);
+  const [arrivedWith, setArrivedWith] = useState(pendingSignInNotice);
+  const signedOutNotice =
+    arrivedWith === SignInNotice.SignedInElsewhere ? t("login.signedInElsewhere") : arrivedWith === SignInNotice.SessionExpired ? t("login.sessionExpired") : null;
   // REQUIRED ORDERING: the flag is cleared by something the person does, never by this
   // screen mounting. A sign-out by the server is followed by a navigation that
   // mounts the screen a second time, and a notice consumed by the first mount
@@ -257,9 +277,9 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     setHandOver(null);
   }
   function acknowledgeExpiry() {
-    if (!expired) return;
-    clearSessionExpired();
-    setExpired(false);
+    if (arrivedWith === null) return;
+    clearSignInNotice();
+    setArrivedWith(null);
   }
   const [error, setError] = useState<string | null>(null);
   /**
@@ -272,6 +292,29 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
    * floor at 6pm does not read carefully; it presses the button again.
    */
   const [lockedForSeconds, setLockedForSeconds] = useState(0);
+  const [waitingOnBusyServer, setWaitingOnBusyServer] = useState(false);
+  const [errorEndsWithTheWait, setErrorEndsWithTheWait] = useState(false);
+  const [unlockOffered, setUnlockOffered] = useState(false);
+  const [unlockCode, setUnlockCode] = useState("");
+  const [unlockedNotice, setUnlockedNotice] = useState(arrivedWith === SignInNotice.AccountUnlocked);
+  const unlock = useUnlockAccount();
+
+  function submitUnlockCode() {
+    if (unlockCode.trim() === "" || unlock.isPending) return;
+    unlock.mutate(
+      { username: identity, code: unlockCode.trim() },
+      {
+        onSuccess: () => {
+          setUnlockOffered(false);
+          setUnlockCode("");
+          setError(null);
+          setUnlockedNotice(true);
+          submittedFor.current = "";
+        },
+        onError: (err) => setError(err.message),
+      },
+    );
+  }
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const submittedFor = useRef<string>("");
 
@@ -303,16 +346,22 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
       { username: identity, pin },
       {
         onSuccess: (session) => {
-          clearSessionExpired();
+          clearSignInNotice();
           clearOwnerHandOver();
           clearTenantCodeConfirmed();
           rememberDeviceUser(session);
           if (tenantMode === TenantResolveMode.Code && resolvedCode !== "") rememberTenantCodeForEmail(session.email, resolvedCode);
         },
         onError: (err) => {
-          setError(err.message || t("login.error.generic"));
-          if (err.status === 429 && typeof err.retryAfterSeconds === "number") {
-            setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds)));
+          const timedWait = (err.status === 429 || err.status === SERVER_BUSY) && typeof err.retryAfterSeconds === "number";
+          const throttled = timedWait && err.code === SignInRefusalCode.TooManyAttempts;
+          setError(throttled ? t("login.tooManyAttempts") : err.message || t("login.error.generic"));
+          setErrorEndsWithTheWait(throttled);
+          setUnlockOffered(err instanceof AccountLockedError && err.unlockByCode);
+          if (timedWait) {
+            setLockedForSeconds(Math.max(1, Math.ceil(err.retryAfterSeconds ?? 1)));
+            setWaitingOnBusyServer(err.status === SERVER_BUSY);
+            submittedFor.current = "";
           }
           setPinDigits(Array(PIN_LENGTH).fill(""));
           inputRefs.current[0]?.focus();
@@ -326,6 +375,11 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   // a lock is running, not on the number: depending on the count would tear
   // down and rebuild the interval every second.
   const isLocked = lockedForSeconds > 0;
+  useEffect(() => {
+    if (isLocked || !errorEndsWithTheWait) return;
+    setError(null);
+    setErrorEndsWithTheWait(false);
+  }, [isLocked, errorEndsWithTheWait]);
   useEffect(() => {
     if (!isLocked) return;
     const id = setInterval(() => setLockedForSeconds((s) => Math.max(0, s - 1)), 1000);
@@ -433,12 +487,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         {/* A session that ended says so, rather than looking like a fresh start
             the user asked for. It sits above the face row, since that is where
             the eye lands first. */}
-        {expired && error === null ? (
+        {signedOutNotice !== null && error === null ? (
           <div
             role="status"
             className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink"
           >
-            {t("login.sessionExpired")}
+            {signedOutNotice}
           </div>
         ) : null}
         {handOverNoticeKey ? (
@@ -610,8 +664,32 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           </p>
         ) : null}
 
+        {unlockedNotice && error === null ? (
+          <p role="status" className="mt-[10px] text-xs font-semibold text-success-ink">
+            {t("login.unlock.done")}
+          </p>
+        ) : null}
+
+        {unlockOffered ? (
+          <div className="mt-[12px] flex items-end gap-[8px]">
+            <label className="flex-1 text-xs text-ink-muted">
+              {t("login.unlock.code")}
+              <TextInput
+                dir="ltr"
+                autoComplete="one-time-code"
+                value={unlockCode}
+                onChange={(e) => setUnlockCode(e.target.value)}
+                className="mt-[4px] w-full"
+              />
+            </label>
+            <Button type="button" disabled={unlockCode.trim() === "" || unlock.isPending} onClick={submitUnlockCode}>
+              {t("login.unlock.submit")}
+            </Button>
+          </div>
+        ) : null}
+
         <Button type="submit" variant="primary" disabled={!canSubmit} className="mt-[16px] w-full justify-center py-[12px]">
-          {lockedForSeconds > 0 ? `${t("login.lockedFor")} ${formatWait(lockedForSeconds)}` : t("login.submit")}
+          {lockedForSeconds > 0 ? t(waitingOnBusyServer ? "login.busyFor" : "login.throttledFor", { wait: formatWait(lockedForSeconds, t) }) : t("login.submit")}
         </Button>
 
         <div className="mt-[16px] flex items-center gap-[10px] text-2xs text-ink-faint">

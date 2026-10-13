@@ -30,6 +30,27 @@ const HEADER_ACCOUNT: Account = {
 };
 
 describe("createItem", () => {
+  it("looks a given code up by itself instead of reading the whole catalog for every item", async () => {
+    class CountingRepository extends InMemoryItemRepository {
+      lists = 0;
+      override async list() {
+        this.lists += 1;
+        return super.list();
+      }
+    }
+    const repo = new CountingRepository();
+
+    for (let i = 0; i < 50; i++) {
+      await createItem({ id: `itm-${i}`, code: `ITM-${i}`, nameAr: `صنف ${i}`, type: "stock", baseUnitCode: "PCS" }, repo);
+    }
+
+    expect(repo.lists).toBe(0);
+    await expect(
+      createItem({ id: "itm-again", code: "ITM-7", nameAr: "مكرر", type: "stock", baseUnitCode: "PCS" }, repo),
+    ).rejects.toBeInstanceOf(DuplicateItemCodeError);
+    expect((await repo.list()).length).toBe(50);
+  });
+
   it("creates a stock item with sensible defaults", async () => {
     const repo = new InMemoryItemRepository();
     const item = await createItem(

@@ -95,6 +95,14 @@ export const assignOwnerRequestSchema = z.object({
   userId: z.string().trim().min(1),
 });
 
+export const unlockTenantAccountRequestSchema = z.object({
+  account: z.string().trim().toLowerCase().min(1).max(320),
+});
+
+export const lockedTenantAccountsSchema = z.object({
+  accounts: z.array(z.string()),
+});
+
 export const tenantSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),
@@ -196,7 +204,14 @@ export const recordPaymentRequestSchema = z.object({
   reference: z.string().min(1),
   paidAt: z.string().datetime(),
   note: z.string().min(1).nullable().optional(),
+  idempotencyKey: z.string().trim().min(8).max(128),
+  confirmDuplicateReference: z.boolean().optional(),
 });
+
+export enum PlatformPaymentRefusal {
+  ReferenceAlreadyRecorded = "PAYMENT_REFERENCE_ALREADY_RECORDED",
+  IdempotencyConflict = "PAYMENT_IDEMPOTENCY_CONFLICT",
+}
 
 export const ownerPinResetResultSchema = z.object({
   adminEmail: z.string().min(1),
@@ -349,7 +364,11 @@ export const tenantSummarySchema = z.object({
   payments: z.array(paymentSchema),
 });
 
-export const cardCheckoutStatusSchema = z.enum(["pending", "paid", "failed", "unapplied"]);
+export const cardCheckoutStatusSchema = z.enum(["pending", "paid", "failed", "unapplied", "refunded"]);
+
+export const cardCheckoutAttentionCauseSchema = z.enum(["REFUND", "VOID", "NOT_A_CAPTURE", "OTHER_CHECKOUT", "UNREADABLE"]);
+
+export const cardCheckoutResolutionSchema = z.enum(["REVIEWED", "APPLIED_BY_HAND", "REFUNDED"]);
 
 export const cardCheckoutSchema = z.object({
   id: z.string().min(1),
@@ -364,7 +383,13 @@ export const cardCheckoutSchema = z.object({
   providerRef: z.string().nullable(),
   paymentId: z.string().nullable(),
   failureReason: z.string().nullable(),
+  capturedAmount: nonNegativeMoneyString.nullable(),
   requestedBy: z.string().min(1),
+  attentionCause: cardCheckoutAttentionCauseSchema.nullable(),
+  resolution: cardCheckoutResolutionSchema.nullable(),
+  resolvedAt: z.string().nullable(),
+  resolvedBy: z.string().nullable(),
+  resolutionReason: z.string().nullable(),
   createdAt: isoLikeSchema,
   updatedAt: isoLikeSchema,
 });
@@ -378,6 +403,39 @@ export const platformCardCheckoutsSchema = z.object({
   cardCheckout: z.boolean(),
   testMode: z.boolean(),
   checkouts: z.array(cardCheckoutSchema),
+});
+
+export const cardCheckoutSweepResultSchema = z.object({
+  examined: z.number().int().nonnegative(),
+  paid: z.number().int().nonnegative(),
+  declined: z.number().int().nonnegative(),
+  unapplied: z.number().int().nonnegative(),
+  expired: z.number().int().nonnegative(),
+  stillPending: z.number().int().nonnegative(),
+  alreadySettled: z.number().int().nonnegative(),
+  needsAttention: z.number().int().nonnegative(),
+  unavailable: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  deferred: z.number().int().nonnegative(),
+});
+
+/**
+ * Omitted, `amount` is the figure the provider reported collecting. Any other
+ * figure — or any figure at all when the provider reported none — is refused
+ * unless `overrideAmount` is true, and is audited as an override.
+ */
+export const applyCardCheckoutRequestSchema = z.object({
+  amount: strictlyPositiveDecimalString.optional(),
+  overrideAmount: z.boolean().optional(),
+  reason: z.string().trim().min(3).max(500),
+});
+
+export const resolveCardCheckoutRequestSchema = z.object({
+  resolution: cardCheckoutResolutionSchema,
+  reason: z.string().trim().min(3).max(500),
+  providerRef: z.string().trim().regex(/^[0-9]{1,20}$/).optional(),
+  amount: strictlyPositiveDecimalString.optional(),
+  overrideAmount: z.boolean().optional(),
 });
 
 /** How a module stands for this tenant right now (DEC-31 rules 3 and 5). */
@@ -461,6 +519,8 @@ export type ProvisionResultDTO = z.infer<typeof provisionResultSchema>;
 export type OwnerPinResetResultDTO = z.infer<typeof ownerPinResetResultSchema>;
 export type OwnerCandidateDTO = z.infer<typeof ownerCandidateSchema>;
 export type AssignOwnerRequestDTO = z.infer<typeof assignOwnerRequestSchema>;
+export type UnlockTenantAccountRequestDTO = z.infer<typeof unlockTenantAccountRequestSchema>;
+export type LockedTenantAccountsDTO = z.infer<typeof lockedTenantAccountsSchema>;
 export type PendingOwnerDTO = z.infer<typeof pendingOwnerSchema>;
 export type StartSubscriptionRequestDTO = z.infer<typeof startSubscriptionRequestSchema>;
 export type ChangePlanRequestDTO = z.infer<typeof changePlanRequestSchema>;
@@ -493,3 +553,8 @@ export type BillingLimitDTO = z.infer<typeof billingLimitSchema>;
 export type BillingPlanOfferDTO = z.infer<typeof billingPlanOfferSchema>;
 export type StartModuleTrialRequestDTO = z.infer<typeof startModuleTrialRequestSchema>;
 export type PlatformCardCheckoutsDTO = z.infer<typeof platformCardCheckoutsSchema>;
+export type CardCheckoutSweepResultDTO = z.infer<typeof cardCheckoutSweepResultSchema>;
+export type ApplyCardCheckoutRequestDTO = z.infer<typeof applyCardCheckoutRequestSchema>;
+export type ResolveCardCheckoutRequestDTO = z.infer<typeof resolveCardCheckoutRequestSchema>;
+export type CardCheckoutAttentionCauseDTO = z.infer<typeof cardCheckoutAttentionCauseSchema>;
+export type CardCheckoutResolutionDTO = z.infer<typeof cardCheckoutResolutionSchema>;

@@ -1,4 +1,5 @@
-import { test, expect, type Browser, type BrowserContext } from "@playwright/test";
+import { type Browser, type BrowserContext } from "@playwright/test";
+import { test, expect, directApi } from "./support/test";
 import { ApiError, CodePrefix, HttpMethod, Locale, PlanId, Theme, VIEWPORT_SIZE, Viewport, uniqueCode } from "./support/env";
 import {
   enterTenantCode,
@@ -70,7 +71,7 @@ async function contextFor(browser: Browser, door: Door, look: Look): Promise<Bro
 
 test.describe("Every SaaS screen — both locales, both themes, desktop and 390px", () => {
   test.beforeAll(async ({ browser, playwright }) => {
-    const request = await playwright.request.newContext();
+    const request = await directApi(playwright);
     tenant = await provisionTenant(request, { code: uniqueCode(CodePrefix.Walk), nameAr: "شركة الجولة", ownerNameAr: "جميلة الجولة", planId: PlanId.Business, trial: true });
     const api = await tenantApiLogin(request, tenant);
     const customer = await tenantCall(request, api, HttpMethod.Post, "/customers", { id: "CUST-WALK", code: "CW1", nameAr: "عميل الجولة" });

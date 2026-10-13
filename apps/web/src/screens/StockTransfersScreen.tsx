@@ -1,3 +1,4 @@
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
@@ -128,6 +129,7 @@ export function StockTransfersScreen() {
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
+  const savedNotice = useAlreadySavedNotice();
   const [rowError, setRowError] = useState<string | null>(null);
   const listConfirm = useConfirmStockTransfer();
   const resubmit = useResubmitForApproval(ResubmitFamily.StockTransfers);
@@ -211,7 +213,18 @@ export function StockTransfersScreen() {
   }
 
   if (firstSegment === "new") {
-    return <CreateTransferView warehouses={warehouses} items={items} onDone={subPage.close} initialItemId={routedItemId} />;
+    return (
+      <CreateTransferView
+        warehouses={warehouses}
+        items={items}
+        onDone={subPage.close}
+        onAlreadySaved={(savedId) => {
+          savedNotice.show(savedId);
+          subPage.open(savedId);
+        }}
+        initialItemId={routedItemId}
+      />
+    );
   }
 
   if (selectedMissing) {
@@ -231,6 +244,7 @@ export function StockTransfersScreen() {
     const effects = stockTransferDocumentType.describeEffects(toDomainDoc(selected));
     return (
       <div className="w-full">
+        <AlreadySavedNotice notice={savedNotice} openId={selected.id} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
         <HeldDocumentReapproval document={selected} pending={listConfirm.isPending} confirm={(id) => listConfirm.mutateAsync(id)} />
         <DocumentDetail
           title={selected.docNo ?? t("stockXfer.stockTransfer")}
@@ -393,8 +407,10 @@ function CreateTransferView({
   warehouses,
   items,
   onDone,
+  onAlreadySaved,
   initialItemId,
 }: {
+  onAlreadySaved: (savedId: string) => void;
   warehouses: ReturnType<typeof useWarehouses>["data"];
   items: ReturnType<typeof useItems>["data"];
   onDone: () => void;
@@ -404,6 +420,7 @@ function CreateTransferView({
   const { t } = useAppTranslation();
   const createTransfer = useCreateStockTransfer();
   const confirmTransfer = useConfirmStockTransfer();
+  const transferId = useDocumentId(onAlreadySaved);
   const warehouseList = warehouses ?? EMPTY;
   const itemList = items ?? EMPTY;
 
@@ -446,14 +463,16 @@ function CreateTransferView({
     setError(null);
     try {
       const draft = await createTransfer.mutateAsync({
-        id: crypto.randomUUID(),
+        id: transferId.current(),
         date,
         memo: memo.trim() || t("stockXfer.defaultMemo", { from: warehouseLabel(fromWarehouseId), to: warehouseLabel(toWarehouseId) }),
         lines: lines.map((l) => ({ itemId: l.itemId, fromWarehouseId, toWarehouseId, qty: String(l.qty) })),
       });
-      await confirmTransfer.mutateAsync(draft.id);
+      if (draft.status === "draft") await confirmTransfer.mutateAsync(draft.id);
+      transferId.renew();
       onDone();
     } catch (err) {
+      if (transferId.recover(err)) return;
       setError(err instanceof Error ? err.message : t("stockXfer.theTransferCouldNotBe"));
     }
   }

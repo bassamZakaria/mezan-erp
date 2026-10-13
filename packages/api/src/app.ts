@@ -1,8 +1,9 @@
 import { customerTaxProfileFrom } from "./customer-tax-profile.js";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
   Money,
+  can,
   SeatSessionRegistry,
   createEntitlements,
   type UnitOfWork,
@@ -26,6 +27,8 @@ import {
   type AllocatableInvoiceRepository,
   type BarcodeConfigRepository,
   type AuditQueryPort,
+  type SecurityEventFallback,
+  ForeignWriteError,
   type AuditSink,
   type LabelLayoutRepository,
   type Entitlements,
@@ -103,7 +106,9 @@ import {
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createLanRoutes } from "./lan/routes.js";
-import { sessionOriginReporting, type SessionRegistry } from "./session-auth.js";
+import { existenceRead, sessionOriginReporting, stepUpGate, type SessionRegistry } from "./session-auth.js";
+
+const STEP_UP_MOUNTS: readonly string[] = ["/users", "/users/*", "/roles", "/roles/*", "/settings", "/settings/*", "/fiscal-periods/*"];
 import type { LoginThrottle } from "./login-throttle.js";
 import { applyModuleGates, entitlementsBinding, type EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
@@ -234,6 +239,10 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
+import { AUDITED_MOUNTS, AuditBoundaryRefusal, MutatingMethod, auditBoundary, beforeTheTurn, connectionTurn, type BoundaryPreparation, type ConnectionTurnOptions } from "./audit-boundary.js";
+import { createPrecomputingHasher, type PrecomputingHasher } from "./precomputed-secrets.js";
+import { requestBodyLimit } from "./body-limit.js";
+import { IDEMPOTENT_CREATES, idempotentCreate, type IdempotentRequests } from "./idempotent-create.js";
 import { branchesOfWarehouses, documentBranches, returnBranches } from "./stored-branches.js";
 import { createSecurityReportsRoutes } from "./security-reports-routes.js";
 import { isProductionRuntime, permissionRefusalReporting, type PermissionRefusalReporter } from "./permission-gate.js";
@@ -275,6 +284,9 @@ export type InstallmentCollectPort = (input: {
 }) => Promise<{ voucherId: string }>;
 
 export interface CreateAppOptions {
+  // EXTERNAL CONTRACT: the body of `GET /health`, which main/lan-client.ts reads
+  // at startup to detect host/client version skew.
+  readonly health?: () => Readonly<Record<string, unknown>>;
   /**
    * Mounts `/lan/*` (docs/archive/plan.md §2.6/§6.3.3) on this same app instance when
    * present. Desktop passes this so the SAME app answers both over IPC
@@ -379,7 +391,7 @@ export interface CreateAppOptions {
   readonly companyOwner?: UsersRoutesOptions["owner"];
   readonly onUserCredentialSetByOther?: UsersRoutesOptions["onCredentialSetByOther"];
   /** Mounts `/audit` — the read-only audit query surface — when present. */
-  readonly audit?: { readonly store: AuditQueryPort; readonly resolveAuthContext?: AuthContextResolver };
+  readonly audit?: { readonly store: AuditQueryPort; readonly unrecorded?: SecurityEventFallback; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
   readonly labelLayouts?: {
     readonly repo: LabelLayoutRepository;
@@ -851,6 +863,10 @@ export interface CreateAppOptions {
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
   readonly hasher?: ReturnType<typeof createScryptHasher>;
+  readonly secrets?: PrecomputingHasher;
+  readonly idempotentRequests?: IdempotentRequests;
+  readonly connectionTurn?: ConnectionTurnOptions;
+  readonly beforeTheTurn?: Readonly<Record<string, BoundaryPreparation>>;
   /**
    * Mounts `/workflow` (docs/archive/catalog/09 §سير العمل — إعدادات الموافقات
    * chain-builder + الموافقات inbox) when present: `/workflow/configs` CRUD
@@ -1018,16 +1034,27 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // cannot ship — it can only fail in dev, where someone will see it.
   const resolveAuth = oncePerRequest(options.resolveAuthContext ?? insecureHeaderAuthContextResolver);
   const resolveEntitlements = options.resolveEntitlements ?? defaultEntitlementsResolver();
-  const hasher = options.hasher ?? createScryptHasher();
+  const secrets = options.secrets ?? createPrecomputingHasher(options.hasher ?? createScryptHasher());
+  const hasher = secrets.hasher;
+
+  // Saving a user hashes its password and PIN, and scrypt gives the event loop
+  // away. Done here, ahead of the audit transaction, and only for a caller who
+  // may make the write at all — an anonymous request must not buy a hash.
+  async function hashUserSecretsBeforeTheTransaction(c: Context): Promise<(() => void) | void> {
+    const permission = c.req.method === MutatingMethod.Post ? "admin.users.create" : "admin.users.edit";
+    if (!can(await resolveAuth(c), permission)) return;
+    const body: unknown = await c.req.json().catch(() => null);
+    if (body === null || typeof body !== "object") return;
+    const { password, pin } = body as { password?: unknown; pin?: unknown };
+    const toHash = [password, pin].filter((secret): secret is string => typeof secret === "string" && secret !== "");
+    if (toHash.length === 0) return;
+    return secrets.precompute({ hash: toHash });
+  }
 
   const app = new Hono();
 
   // AN APP WITH NO SINK RECORDS NOTHING, AND SAYS SO AT BOOT.
   //
-  // `recordAdminEvent` returns early when the sink is absent, deliberately: a
-  // forensic write must never turn a legitimate admin action into a 500. The
-  // cost of that is a composition which omits the sink and writes no trail at
-  // all, quietly and forever — the same failure shape as the header resolver
   // that defaulted to trusting the client. Dev and tests may mount without one;
   // a real build may not, and finds out at construction rather than during the
   // incident the trail was for.
@@ -1036,6 +1063,56 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "createApp was given no auditSink on a production/packaged build. " +
         "Administrative acts would be unrecorded.",
     );
+  }
+
+  // Ahead of the connection's turn on purpose: liveness must answer while the
+  // database is busy, and it reads nothing from it.
+  const health = options.health;
+  if (health) app.get("/health", (c) => c.json(health()));
+
+  app.use("*", requestBodyLimit(resolveAuth));
+
+  const preparations: Readonly<Record<string, BoundaryPreparation>> = { "/users": hashUserSecretsBeforeTheTransaction };
+  for (const [prefix, prepare] of Object.entries(preparations)) {
+    const prepared = beforeTheTurn(prepare);
+    app.use(prefix, prepared);
+    app.use(`${prefix}/*`, prepared);
+  }
+  for (const [path, prepare] of Object.entries(options.beforeTheTurn ?? {})) app.use(path, beforeTheTurn(prepare));
+
+  const idempotent = options.idempotentRequests
+    ? idempotentCreate({
+        requests: options.idempotentRequests,
+        resolveAuthContext: resolveAuth,
+        audit: options.auditSink,
+        readCurrent: (c, path) => {
+          const headers = new Headers(c.req.raw.headers);
+          headers.delete("content-length");
+          headers.delete("content-type");
+          return app.fetch(new Request(new URL(path, c.req.url), { headers }), c.env);
+        },
+        stillExists: async (c, path) => {
+          const read = existenceRead(new URL(path, c.req.url), c.env);
+          return (await app.fetch(read.request, read.env)).status !== 404;
+        },
+      })
+    : undefined;
+  if (idempotent) for (const create of IDEMPOTENT_CREATES) app.use(create.path, idempotent.replay);
+
+  // Before anything reads or writes: a mutating request holds this tenant's
+  // connection for its whole length, and a read waits out an open transaction
+  // (audit-boundary.ts).
+  app.use("*", connectionTurn(options.auditSink, options.connectionTurn));
+
+  if (idempotent) for (const create of IDEMPOTENT_CREATES) app.use(create.path, idempotent.record);
+
+  // Registered before every route: a mutating request under an audited mount
+  // runs inside the sink's transaction, so the write and its audit event commit
+  // or roll back together (audit-boundary.ts).
+  for (const mount of AUDITED_MOUNTS) {
+    const boundary = auditBoundary(options.auditSink, mount);
+    app.use(mount.prefix, boundary);
+    app.use(`${mount.prefix}/*`, boundary);
   }
 
   // The tenant's timezone, published to every handler below so a route can
@@ -1071,6 +1148,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // the write gate turned it away first, the theft would go unrecorded.
   if (options.security?.sessions && options.auditSink) {
     app.use("*", sessionOriginReporting(options.security.sessions, options.auditSink));
+  }
+  if (options.security?.sessions) {
+    const recentPin = stepUpGate(options.security.sessions);
+    for (const mount of STEP_UP_MOUNTS) app.use(mount, recentPin);
   }
 
   /**
@@ -1280,7 +1361,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/sales/historical-import",
       createSalesHistoricalImportRoutes(
-        options.salesHistoricalImport,
+        { ...options.salesHistoricalImport, atomic: options.auditSink?.atomic?.bind(options.auditSink) },
         (options.salesHistoricalImport.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
       ),
     );
@@ -1419,7 +1500,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/security-reports",
       createSecurityReportsRoutes(
-        { audit: options.audit.store, users: uow.users, roles: uow.roles, settings: options.settingsStore },
+        { audit: options.audit.store, unrecorded: options.audit.unrecorded, users: uow.users, roles: uow.roles, settings: options.settingsStore },
         auditAuth,
       ),
     );
@@ -1447,7 +1528,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/purchases/historical-import",
       createHistoricalImportRoutes(
-        options.historicalImport,
+        { ...options.historicalImport, atomic: options.auditSink?.atomic?.bind(options.auditSink) },
         (options.historicalImport.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
       ),
     );
@@ -1847,6 +1928,17 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
     } catch {
       // A logger that throws must not turn a 500 into a crash.
+    }
+    if (err instanceof ForeignWriteError) {
+      c.header("retry-after", "2");
+      return c.json(
+        {
+          error: AuditBoundaryRefusal.ConnectionBusy,
+          message: "تعذّر تنفيذ العملية الآن لأن قاعدة البيانات مشغولة بعملية أخرى، فلم يُحفظ أي تغيير. حاول مرة أخرى بعد قليل.",
+          messageEn: "The database was busy with another operation, so nothing was saved. Try again shortly.",
+        },
+        503,
+      );
     }
     return c.json({ error: "INTERNAL", message: "خطأ داخلي" }, 500);
   });

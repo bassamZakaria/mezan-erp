@@ -108,6 +108,7 @@ export {
   type EtaChainedReceiptInput,
   type EtaReceiptBatchOutcome,
   type EtaReceiptBatchResult,
+  ETA_UNRECORDED_SUBMISSION_CODE,
 } from "./service.js";
 export {
   DEFAULT_ETA_RETRY,
@@ -134,6 +135,7 @@ export {
 } from "./signer.js";
 export {
   EtaSubmissionNotFoundError,
+  EtaSubmissionInFlightError,
   DuplicateEtaSubmissionError,
   InvalidEtaTransitionError,
   EtaOfflineError,

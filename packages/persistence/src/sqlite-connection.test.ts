@@ -3,7 +3,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { openSqliteConnection, withSqliteRead, withSqliteTransaction, type SqliteDriver } from "./sqlite-connection.js";
+import {
+  openSqliteConnection,
+  sqliteTransactionsSettled,
+  withSqliteRead,
+  withSqliteTransaction,
+  withSqliteTurn,
+  outsideSqliteTurn,
+  holdsSqliteTurn,
+  type SqliteDriver,
+} from "./sqlite-connection.js";
+import { ConnectionTurnLostError, ForeignWriteError } from "@mezan/domain";
+import { drainForeignWrites } from "./untransacted-audits.js";
 
 describe("openSqliteConnection", () => {
   it("opens and owns a fresh connection for a string path, with WAL + busy_timeout set", () => {
@@ -364,5 +375,584 @@ describe("withSqliteTransaction — the dirty-read invariant", () => {
       return withSqliteRead(sqlite, () => rows(sqlite));
     });
     expect(inside).toEqual(["a"]);
+  });
+});
+
+describe("withSqliteTurn", () => {
+  const open = () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    return sqlite;
+  };
+  const values = (sqlite: Database.Database) => (sqlite.prepare("SELECT v FROM t ORDER BY rowid").all() as { v: string }[]).map((r) => r.v);
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+  const insert = (sqlite: Database.Database, v: string) => sqlite.prepare("INSERT INTO t VALUES (?)").run(v);
+
+  it("keeps another chain's transaction from opening until the holder is done, even across a wait", async () => {
+    const sqlite = open();
+    const order: string[] = [];
+    const holder = withSqliteTurn(sqlite, async () => {
+      await tick();
+      insert(sqlite, "holder");
+      order.push("holder wrote");
+    });
+    const other = withSqliteTransaction(sqlite, async () => {
+      order.push("other began");
+      insert(sqlite, "other");
+      throw new Error("rolled back");
+    }).catch(() => undefined);
+
+    await Promise.all([holder, other]);
+
+    expect(order).toEqual(["holder wrote", "other began"]);
+    expect(values(sqlite)).toEqual(["holder"]);
+    sqlite.close();
+  });
+
+  it("lets the holder open transactions without waiting on the queue it holds, one at a time", async () => {
+    const sqlite = open();
+    await withSqliteTurn(sqlite, async () => {
+      await Promise.all(
+        ["a", "b"].map((v) =>
+          withSqliteTransaction(sqlite, async () => {
+            await tick();
+            insert(sqlite, v);
+          }),
+        ),
+      );
+      await withSqliteRead(sqlite, () => undefined);
+      await withSqliteTurn(sqlite, async () => insert(sqlite, "c"));
+    });
+
+    expect(values(sqlite)).toEqual(["a", "b", "c"]);
+    expect(sqlite.inTransaction).toBe(false);
+    sqlite.close();
+  });
+
+  it("sends a task the holder left running back to the shared queue once the turn is over", async () => {
+    const sqlite = open();
+    let detached!: Promise<void>;
+    let letGo!: () => void;
+    const lingering = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    await withSqliteTurn(sqlite, async () => {
+      detached = (async () => {
+        await lingering;
+        await withSqliteTransaction(sqlite, async () => insert(sqlite, "detached"));
+      })();
+    });
+
+    let finishNext!: () => void;
+    const nextHolder = withSqliteTransaction(sqlite, async () => {
+      insert(sqlite, "next");
+      await new Promise<void>((resolve) => {
+        finishNext = resolve;
+      });
+    });
+    await tick();
+    letGo();
+    await tick();
+    expect(values(sqlite)).toEqual(["next"]);
+
+    finishNext();
+    await Promise.all([nextHolder, detached]);
+    expect(values(sqlite)).toEqual(["next", "detached"]);
+    sqlite.close();
+  });
+
+  it("does not hand the connection on while a transaction the holder started is still open", async () => {
+    const sqlite = open();
+    let finishInner!: () => void;
+    let inner!: Promise<void>;
+    const holder = withSqliteTurn(sqlite, async () => {
+      inner = withSqliteTransaction(sqlite, async () => {
+        insert(sqlite, "inner");
+        await new Promise<void>((resolve) => {
+          finishInner = resolve;
+        });
+      });
+      await tick();
+    });
+    const next = withSqliteTransaction(sqlite, async () => insert(sqlite, "next"));
+
+    await tick();
+    await tick();
+    expect(values(sqlite)).toEqual(["inner"]);
+
+    finishInner();
+    await Promise.all([holder, inner, next]);
+    expect(values(sqlite)).toEqual(["inner", "next"]);
+    sqlite.close();
+  });
+});
+
+describe("sqliteTransactionsSettled", () => {
+  it("waits for an open transaction, and not for a turn that has none open", async () => {
+    const sqlite = new Database(":memory:");
+    let finish!: () => void;
+    const turn = withSqliteTurn(sqlite, async () => {
+      await sqliteTransactionsSettled(sqlite);
+      await withSqliteTransaction(sqlite, async () => {
+        await sqliteTransactionsSettled(sqlite);
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      });
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sqlite.inTransaction).toBe(true);
+
+    let settled = false;
+    const waiting = sqliteTransactionsSettled(sqlite).then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+
+    finish();
+    await Promise.all([turn, waiting]);
+    expect(settled).toBe(true);
+    expect(sqlite.inTransaction).toBe(false);
+    sqlite.close();
+  });
+});
+
+describe("withSqliteTurn — work a holder starts and does not wait for", () => {
+  it("keeps the turn until database work the holder left running has finished", async () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    const insert = (v: string) => sqlite.prepare("INSERT INTO t VALUES (?)").run(v);
+    const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+    let subscriber: Promise<void> | undefined;
+
+    const holder = withSqliteTurn(sqlite, async () => {
+      insert("holder");
+      subscriber = withSqliteTurn(sqlite, async () => {
+        await tick();
+        insert("subscriber");
+      });
+    });
+    const next = withSqliteTurn(sqlite, async () => insert("next"));
+    await Promise.all([holder, next, subscriber]);
+
+    expect((sqlite.prepare("SELECT v FROM t ORDER BY rowid").all() as { v: string }[]).map((r) => r.v)).toEqual(["holder", "subscriber", "next"]);
+    sqlite.close();
+  });
+});
+
+describe("outsideSqliteTurn", () => {
+  const open = () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    return sqlite;
+  };
+  const values = (sqlite: Database.Database) => (sqlite.prepare("SELECT v FROM t ORDER BY rowid").all() as { v: string }[]).map((r) => r.v);
+  const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+  const insert = (sqlite: Database.Database, v: string) => sqlite.prepare("INSERT INTO t VALUES (?)").run(v);
+  const deferred = () => {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  };
+
+  it("lets another turn run while the holder waits on the outside world, and takes the turn back before the holder writes again", async () => {
+    const sqlite = open();
+    const world = deferred();
+    const holder = withSqliteTurn(sqlite, async () => {
+      insert(sqlite, "holder:intent");
+      await outsideSqliteTurn(sqlite, () => world.promise);
+      insert(sqlite, "holder:result");
+    });
+    await tick();
+
+    await withSqliteTurn(sqlite, async () => insert(sqlite, "other"));
+    expect(values(sqlite)).toEqual(["holder:intent", "other"]);
+
+    const blocker = deferred();
+    const third = withSqliteTurn(sqlite, async () => {
+      insert(sqlite, "third:start");
+      await blocker.promise;
+      insert(sqlite, "third:end");
+    });
+    await tick();
+    world.resolve();
+    await tick();
+    expect(values(sqlite)).toEqual(["holder:intent", "other", "third:start"]);
+
+    blocker.resolve();
+    await Promise.all([holder, third]);
+    expect(values(sqlite)).toEqual(["holder:intent", "other", "third:start", "third:end", "holder:result"]);
+    sqlite.close();
+  });
+
+  it("reports a holder that waits with the turn held, and not one that hands it back first", async () => {
+    const sqlite = open();
+    const yields: string[] = [];
+
+    await withSqliteTurn(sqlite, () => outsideSqliteTurn(sqlite, tick), { onYield: () => yields.push("handed-back") });
+    await withSqliteTurn(sqlite, tick, { onYield: () => yields.push("held") });
+    await withSqliteTurn(sqlite, async () => insert(sqlite, "sync"), { onYield: () => yields.push("database-only") });
+
+    expect(yields).toEqual(["held"]);
+    sqlite.close();
+  });
+
+  it("reports a holder that waits again after it has the turn back", async () => {
+    const sqlite = open();
+    const yields: string[] = [];
+
+    await withSqliteTurn(
+      sqlite,
+      async () => {
+        await outsideSqliteTurn(sqlite, tick);
+        await tick();
+      },
+      { onYield: () => yields.push("after-resume") },
+    );
+
+    expect(yields).toEqual(["after-resume"]);
+    sqlite.close();
+  });
+
+  it("keeps the turn across work started inside a transaction, which cannot hand it back", async () => {
+    const sqlite = open();
+    const yields: string[] = [];
+    let otherRan = false;
+    const holder = withSqliteTurn(
+      sqlite,
+      () =>
+        withSqliteTransaction(sqlite, async () => {
+          insert(sqlite, "inside");
+          await outsideSqliteTurn(sqlite, tick);
+        }),
+      { onYield: () => yields.push("yielded") },
+    );
+    const other = withSqliteTurn(sqlite, async () => {
+      otherRan = true;
+      expect(sqlite.inTransaction).toBe(false);
+    });
+
+    await holder;
+    expect(yields).toEqual(["yielded"]);
+    await other;
+    expect(otherRan).toBe(true);
+    sqlite.close();
+  });
+
+  it("waits for every overlapping piece of outside work before the holder goes on", async () => {
+    const sqlite = open();
+    const first = deferred();
+    const second = deferred();
+    const order: string[] = [];
+    const holder = withSqliteTurn(sqlite, async () => {
+      await Promise.all([
+        outsideSqliteTurn(sqlite, () => first.promise).then(() => order.push("first back")),
+        outsideSqliteTurn(sqlite, () => second.promise).then(() => order.push("second back")),
+      ]);
+      insert(sqlite, "holder");
+    });
+    await tick();
+
+    first.resolve();
+    await tick();
+    await withSqliteTurn(sqlite, async () => insert(sqlite, "other"));
+    expect(order).toEqual([]);
+
+    second.resolve();
+    await holder;
+    expect(order).toEqual(["first back", "second back"]);
+    expect(values(sqlite)).toEqual(["other", "holder"]);
+    sqlite.close();
+  });
+
+  it("takes the turn back after outside work that failed, so the holder can record the failure", async () => {
+    const sqlite = open();
+    await withSqliteTurn(sqlite, async () => {
+      await outsideSqliteTurn(sqlite, async () => {
+        await tick();
+        throw new Error("no answer");
+      }).catch(() => insert(sqlite, "failed"));
+    });
+    expect(values(sqlite)).toEqual(["failed"]);
+    sqlite.close();
+  });
+
+  it("releases the connection when the holder returns without waiting for its outside work", async () => {
+    const sqlite = open();
+    const world = deferred();
+    let leftover: Promise<void> | undefined;
+    await withSqliteTurn(sqlite, async () => {
+      leftover = outsideSqliteTurn(sqlite, () => world.promise);
+      await tick();
+    });
+
+    await withSqliteTurn(sqlite, async () => insert(sqlite, "next"));
+    world.resolve();
+    await leftover;
+    await withSqliteTurn(sqlite, async () => insert(sqlite, "after"));
+
+    expect(values(sqlite)).toEqual(["next", "after"]);
+    sqlite.close();
+  });
+
+  it("runs straight through for a caller that holds no turn", async () => {
+    const sqlite = open();
+    expect(await outsideSqliteTurn(sqlite, async () => 7)).toBe(7);
+    sqlite.close();
+  });
+});
+
+describe("outsideSqliteTurn — taking the turn again has a bound", () => {
+  const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  it("fails the holder once the bound passes behind a holder that never finishes, and leaves the queue usable when that one ends", async () => {
+    const sqlite = new Database(":memory:");
+    let releaseStuck!: () => void;
+    let finallyRan = false;
+
+    const waiting = withSqliteTurn(
+      sqlite,
+      async () => {
+        try {
+          await outsideSqliteTurn(sqlite, () => pause(10));
+          return "took the turn again";
+        } finally {
+          finallyRan = true;
+        }
+      },
+      { retakeTimeoutMs: 60, completedRetakeTimeoutMs: 60 },
+    );
+    await pause(2);
+    const stuck = withSqliteTurn(sqlite, () => new Promise<void>((resolve) => (releaseStuck = resolve)));
+
+    const outcome = await Promise.race([waiting.then((value) => value, (err: unknown) => err), pause(2000).then(() => "still waiting")]);
+
+    expect(outcome).toBeInstanceOf(ConnectionTurnLostError);
+    expect(finallyRan).toBe(true);
+
+    releaseStuck();
+    await stuck;
+    const next = await Promise.race([withSqliteTurn(sqlite, async () => "ran"), pause(1000).then(() => "queue is blocked")]);
+    expect(next).toBe("ran");
+    sqlite.close();
+  });
+
+  it("takes the turn again as before when the wait is inside the bound", async () => {
+    const sqlite = new Database(":memory:");
+
+    const result = await withSqliteTurn(
+      sqlite,
+      async () => {
+        await outsideSqliteTurn(sqlite, () => pause(5));
+        return holdsSqliteTurn(sqlite);
+      },
+      { retakeTimeoutMs: 500 },
+    );
+
+    expect(result).toBe(true);
+    sqlite.close();
+  });
+});
+
+describe("outsideSqliteTurn — work that finished outside is not thrown away with the turn", () => {
+  const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  it("waits the longer bound for work that completed, so what the outside world answered is recorded under the turn", async () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    sqlite.exec("CREATE TABLE filed (id TEXT PRIMARY KEY, status TEXT NOT NULL); INSERT INTO filed VALUES ('doc-1', 'ready')");
+    let delivered = 0;
+
+    const filing = withSqliteTurn(
+      sqlite,
+      async () => {
+        const answer = await outsideSqliteTurn(sqlite, async () => {
+          await pause(10);
+          delivered += 1;
+          return "accepted";
+        });
+        expect(holdsSqliteTurn(sqlite)).toBe(true);
+        sqlite.prepare("UPDATE filed SET status = ? WHERE id = 'doc-1'").run(answer);
+      },
+      { retakeTimeoutMs: 40, completedRetakeTimeoutMs: 2000 },
+    );
+    await pause(2);
+    const other = withSqliteTurn(sqlite, () => pause(200));
+    await Promise.all([filing, other]);
+
+    expect(delivered).toBe(1);
+    expect(sqlite.prepare("SELECT status FROM filed").get()).toEqual({ status: "accepted" });
+    sqlite.close();
+  });
+
+  it("hands the completed work's answer to the caller when even the longer bound passes", async () => {
+    const sqlite = new Database(":memory:");
+    let releaseStuck!: () => void;
+
+    const filing = withSqliteTurn(
+      sqlite,
+      () => outsideSqliteTurn(sqlite, async () => {
+        await pause(10);
+        return "accepted";
+      }),
+      { retakeTimeoutMs: 20, completedRetakeTimeoutMs: 60 },
+    );
+    await pause(2);
+    const stuck = withSqliteTurn(sqlite, () => new Promise<void>((resolve) => (releaseStuck = resolve)));
+    const outcome: unknown = await filing.then((value) => value, (err: unknown) => err);
+
+    expect(outcome).toBeInstanceOf(ConnectionTurnLostError);
+    expect((outcome as ConnectionTurnLostError).completed).toEqual({ value: "accepted" });
+    releaseStuck();
+    await stuck;
+    sqlite.close();
+  });
+
+  it("gives work that failed outside only the short bound, and carries its failure", async () => {
+    const sqlite = new Database(":memory:");
+    let releaseStuck!: () => void;
+    const started = Date.now();
+
+    const filing = withSqliteTurn(
+      sqlite,
+      () => outsideSqliteTurn(sqlite, async () => {
+        await pause(5);
+        throw new Error("socket hang up");
+      }),
+      { retakeTimeoutMs: 40, completedRetakeTimeoutMs: 5000 },
+    );
+    await pause(2);
+    const stuck = withSqliteTurn(sqlite, () => new Promise<void>((resolve) => (releaseStuck = resolve)));
+    const outcome: unknown = await filing.then((value) => value, (err: unknown) => err);
+
+    expect(outcome).toBeInstanceOf(ConnectionTurnLostError);
+    expect((outcome as ConnectionTurnLostError).completed).toBeUndefined();
+    expect(((outcome as ConnectionTurnLostError).cause as Error).message).toBe("socket hang up");
+    expect(Date.now() - started).toBeLessThan(2000);
+    releaseStuck();
+    await stuck;
+    sqlite.close();
+  });
+});
+
+describe("a write that lands inside another chain's open transaction", () => {
+  const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+  it("is refused before it runs and reported by its statement, because it would be lost when that transaction rolls back", async () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    drainForeignWrites();
+
+    const rolledBack = withSqliteTransaction(sqlite, async () => {
+      sqlite.prepare("INSERT INTO t VALUES ('document')").run();
+      await tick();
+      throw new Error("period closed");
+    }).catch(() => undefined);
+    await tick();
+    expect(() => sqlite.prepare("INSERT INTO t VALUES ('timer')").run()).toThrow(ForeignWriteError);
+    await rolledBack;
+
+    expect(sqlite.prepare("SELECT v FROM t").all()).toEqual([]);
+    expect(drainForeignWrites()).toEqual(["INSERT INTO t VALUES ('timer')"]);
+    sqlite.prepare("INSERT INTO t VALUES ('afterwards')").run();
+    expect(sqlite.prepare("SELECT v FROM t").all()).toEqual([{ v: "afterwards" }]);
+    sqlite.close();
+  });
+
+  it("is refused however it was issued: a RETURNING statement read with get or all, an exec, and the driver's own transaction", async () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    drainForeignWrites();
+
+    const rolledBack = withSqliteTransaction(sqlite, async () => {
+      sqlite.prepare("INSERT INTO t VALUES ('document')").run();
+      await tick();
+      throw new Error("period closed");
+    }).catch(() => undefined);
+    await tick();
+    expect(() => sqlite.prepare("INSERT INTO t VALUES ('got') RETURNING v").get()).toThrow(ForeignWriteError);
+    expect(() => sqlite.prepare("INSERT INTO t VALUES ('listed') RETURNING v").all()).toThrow(ForeignWriteError);
+    expect(() => sqlite.exec("INSERT INTO t VALUES ('executed')")).toThrow(ForeignWriteError);
+    expect(() => sqlite.transaction(() => undefined)()).toThrow(ForeignWriteError);
+    sqlite.exec("PRAGMA user_version");
+    await rolledBack;
+
+    expect(drainForeignWrites()).toEqual([
+      "INSERT INTO t VALUES ('got') RETURNING v",
+      "INSERT INTO t VALUES ('listed') RETURNING v",
+      "INSERT INTO t VALUES ('executed')",
+      "db.transaction",
+    ]);
+    sqlite.close();
+  });
+
+  it("reports nothing for an exec or a driver transaction the open transaction issued itself", async () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    drainForeignWrites();
+
+    await withSqliteTransaction(sqlite, async () => {
+      sqlite.exec("INSERT INTO t VALUES ('executed')");
+      sqlite.transaction(() => sqlite.prepare("INSERT INTO t VALUES ('batched') RETURNING v").get())();
+      await withSqliteTransaction(sqlite, async () => {
+        sqlite.exec("INSERT INTO t VALUES ('nested')");
+      });
+    });
+
+    expect(drainForeignWrites()).toEqual([]);
+    expect((sqlite.prepare("SELECT v FROM t ORDER BY rowid").all() as { v: string }[]).map((r) => r.v)).toEqual(["executed", "batched", "nested"]);
+    sqlite.close();
+  });
+
+  it("reports nothing for the transaction's own writes, for a read, or for a writer that waited its turn", async () => {
+    const { sqlite } = openSqliteConnection(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    drainForeignWrites();
+
+    const open = withSqliteTransaction(sqlite, async () => {
+      sqlite.prepare("INSERT INTO t VALUES ('document')").run();
+      await tick();
+      sqlite.prepare("INSERT INTO t VALUES ('line')").run();
+    });
+    await tick();
+    sqlite.prepare("SELECT v FROM t").all();
+    const waited = withSqliteTurn(sqlite, async () => {
+      sqlite.prepare("INSERT INTO t VALUES ('timer')").run();
+    });
+    await Promise.all([open, waited]);
+
+    expect(drainForeignWrites()).toEqual([]);
+    expect((sqlite.prepare("SELECT v FROM t ORDER BY rowid").all() as { v: string }[]).map((r) => r.v)).toEqual(["document", "line", "timer"]);
+    sqlite.close();
+  });
+});
+
+describe("outsideSqliteTurn — a section opened inside another on the same chain", () => {
+  const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 1));
+
+  it("does not wait for the turn its own outer section still has handed back, and the holder continues with the turn retaken", async () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("CREATE TABLE t (v TEXT)");
+    const order: string[] = [];
+
+    await withSqliteTurn(
+      sqlite,
+      async () => {
+        await outsideSqliteTurn(sqlite, async () => {
+          await outsideSqliteTurn(sqlite, tick);
+          order.push("inner back");
+          await withSqliteTransaction(sqlite, async () => void sqlite.prepare("INSERT INTO t VALUES ('from outside')").run());
+          order.push("wrote while handed back");
+        });
+        order.push(`outer back, turn held: ${holdsSqliteTurn(sqlite)}`);
+      },
+      { completedRetakeTimeoutMs: 200, retakeTimeoutMs: 200 },
+    );
+
+    expect(order).toEqual(["inner back", "wrote while handed back", "outer back, turn held: true"]);
+    expect(drainForeignWrites()).toEqual([]);
+    sqlite.close();
   });
 });

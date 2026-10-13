@@ -18,7 +18,7 @@ export {
 export {
   DEFAULT_GRACE_DAYS, SubscriptionStatusKind, billingAnchorDayOf, inferBillingAnchorDay, settledPeriodEnd, setBillingAnchorDay,
   startSubscription, renewSubscription, applyRenewal, anchorIsUtcDayOfCreation, changePlan, markPastDue,
-  suspendSubscription, resumeSubscription, cancelSubscription,
+  suspendSubscription, resumeSubscription, cancelSubscription, RENEWABLE_SUBSCRIPTION_STATES,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
   type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,
 } from "./subscription.js";
@@ -36,27 +36,30 @@ export {
 export {
   recordPayment,
   type Payment, type PaymentRepository,
-  type RecordPaymentCommand, type RecordPaymentResult,
+  type RecordPaymentCommand, type RecordPaymentResult, type RecordPaymentHooks,
 } from "./payment.js";
-export type {
-  PaymentProvider, PaymentProviderId, CheckoutRequest, CheckoutSession,
-  ProviderTransactionOutcome, VerifiedProviderTransaction,
+export {
+  ProviderInquiryStatus,
+  type PaymentProvider, type PaymentProviderId, type CheckoutRequest, type CheckoutSession,
+  ProviderTransactionOutcome, ProviderNonPaymentKind, type VerifiedProviderTransaction,
+  type ProviderInquiry, type ProviderInquiryRequest,
 } from "./payment-provider.js";
 export {
   PAYMOB_TRANSACTION_HMAC_FIELDS, paymobTransactionHmacMessage, hasPaymobSignedShape, parsePaymobTransaction,
-  classifyPaymobTransaction, moneyToPaymobCents, paymobCentsToMoney,
+  classifyPaymobTransaction, paymobNonPaymentKind, moneyToPaymobCents, paymobCentsToMoney,
   type PaymobTransactionObject, type ParsedPaymobTransaction,
 } from "./paymob.js";
 export {
-  cardCheckoutAmount, CardCheckoutUnavailableError,
-  type CardCheckout, type CardCheckoutStatus, type CardCheckoutRepository, type CardCheckoutSettlement,
+  cardCheckoutAmount, CardCheckoutUnavailableError, CardPaymentNotApplicableError, CardCheckoutFailureReason,
+  CardCheckoutStatus, CardCheckoutAttentionCause, CardCheckoutResolution, PaidSettlementOutcome, ProviderEventOutcome,
+  type CardCheckout, type CardCheckoutRepository, type CardCheckoutSettlement,
 } from "./card-checkout.js";
 export {
   startSignup, verifySignup, isDisposableEmailDomain, DISPOSABLE_EMAIL_DOMAINS, SignupRequestStatus,
   type SignupRequest, type SignupRequestRepository, type StartSignupCommand,
 } from "./signup.js";
 export {
-  PlanKind, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, topPublicPaidPlan, defaultFreePlan,
+  PlanKind, PlanStatusCode, QuotaKind, QUOTA_KINDS, normalizeQuotas, isFreePlan, topPublicPaidPlan, defaultFreePlan,
   type PlanQuotas,
 } from "./plan.js";
 export {

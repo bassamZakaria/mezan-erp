@@ -18,7 +18,14 @@ export enum SubscriptionStatusKind {
   Suspended = "suspended",
   Cancelled = "cancelled",
 }
+
 export type SubscriptionStatus = `${SubscriptionStatusKind}`;
+
+export const RENEWABLE_SUBSCRIPTION_STATES: readonly SubscriptionStatus[] = [
+  SubscriptionStatusKind.Trialing,
+  SubscriptionStatusKind.Active,
+  SubscriptionStatusKind.PastDue,
+];
 
 export enum SubscriptionTransition {
   TrialEndedToFree = "TRIAL_ENDED_TO_FREE",
@@ -368,7 +375,7 @@ function requireNow(cmd: SubscriptionCommand): string {
 /** The subscription one paid period later — pure, so a caller can persist it inside its own transaction. */
 export function applyRenewal(s: Subscription, nowIso: string): Subscription {
   const now = requireNow({ id: s.id, now: nowIso });
-  assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue], SubscriptionStatusKind.Active);
+  assertFrom(s, RENEWABLE_SUBSCRIPTION_STATES, SubscriptionStatusKind.Active);
   const periodEnd = settledPeriodEnd(s);
   const lapsed = periodEnd < now;
   const periodStart = lapsed ? now : periodEnd;
@@ -458,7 +465,7 @@ export async function changePlan(
 ): Promise<Subscription> {
   const s = await load(cmd.id, repo);
   const now = requireNow(cmd);
-  assertFrom(s, [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue], SubscriptionStatusKind.Active);
+  assertFrom(s, RENEWABLE_SUBSCRIPTION_STATES, SubscriptionStatusKind.Active);
   const plan = await activePlan(cmd.planId, plans);
   const next: Subscription = {
     ...s,

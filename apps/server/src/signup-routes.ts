@@ -18,6 +18,7 @@ import {
   type SignupRequest,
   type Tenant,
 } from "@mezan/domain";
+import { connectionTurn } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import {
   startSignupRequestSchema,
@@ -160,6 +161,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
 
   const app = new Hono();
   app.use("*", requireCloudSource(env.clientSource, options.sourceReporter));
+  app.use("*", connectionTurn(platform.audit));
 
   function tooManyRequests(c: Context, retryAfterSeconds: number): Response {
     c.header("retry-after", String(retryAfterSeconds));
@@ -276,7 +278,8 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     if (!mailer) {
       devVerifyUrl = verifyUrl;
     } else {
-      const result = await mailer.send(body.ownerEmail, verificationEmail(verifyUrl, body.nameAr));
+      const mail = verificationEmail(verifyUrl, body.nameAr);
+      const result = await platform.outsideTheTurn(() => mailer.send(body.ownerEmail, mail));
       if (result.outcome !== MailOutcome.Sent) {
         console.error(`[signup] verification email to a pending tenant could not be delivered (${result.outcome}): ${result.detail}`);
       }
@@ -337,7 +340,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       if (!claimIsLive(await claims.provisioningClaimedAt(tokenHash))) return true;
       const left = giveUpAt - Date.now();
       if (left <= 0) return false;
-      await pause(Math.min(delay, left));
+      await platform.outsideTheTurn(() => pause(Math.min(delay, left)));
       delay = Math.min(delay * 2, PROVISION_POLL_MAX_MS);
     }
   }

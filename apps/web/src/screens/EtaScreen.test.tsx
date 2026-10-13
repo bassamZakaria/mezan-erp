@@ -558,6 +558,89 @@ describe("EtaScreen — الإرسالات (submissions)", () => {
     await waitFor(() => expect(saved).toEqual({ reason: "مستند اختباري لا يُرسل" }));
   });
 
+  describe("a document sent to the authority whose answer was never recorded", () => {
+    const inDoubt = () =>
+      submission({
+        status: "error",
+        errors: ["أُرسل هذا المستند إلى مصلحة الضرائب ولم يُسجَّل ردّها، فلم يُرسَل مرة أخرى."],
+        rejectionCodes: ["MEZAN_UNRECORDED_SUBMISSION"],
+      });
+
+    async function openMenu() {
+      fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+      const row = (await screen.findByText("INV-000014")).closest("tr") as HTMLElement;
+      fireEvent.click(within(row).getByRole("button", { name: "إجراءات INV-000014" }));
+    }
+
+    it("offers both ways out, and records the UUID the operator read on the portal via POST /eta/submissions/:id/accept", async () => {
+      let saved: unknown = null;
+      const { transport, calls } = trackedTransport({
+        "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
+        "GET /eta/submissions": () => ({ body: [inDoubt()] }),
+        "POST /eta/submissions/s1/accept": (init) => {
+          saved = JSON.parse((init?.body as string) ?? "{}");
+          return { body: submission({ status: "accepted", etaUuid: "ABCDEF0123456789" }) };
+        },
+      });
+      renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+      await openMenu();
+      expect(screen.getByRole("menuitem", { name: "إصلاح وإعادة الطابور" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("menuitem", { name: "تسجيل رقم المستند (UUID)" }));
+
+      const confirm = await screen.findByRole("button", { name: "تأكيد تسجيل الرقم" });
+      expect(confirm).toBeDisabled();
+      fireEvent.change(screen.getByLabelText("رقم المستند (UUID) من بوابة الفواتير الإلكترونية"), { target: { value: "  ABCDEF0123456789  " } });
+      fireEvent.click(confirm);
+
+      await waitFor(() => expect(saved).toEqual({ etaUuid: "ABCDEF0123456789" }));
+      expect(calls).not.toContain("POST /eta/submissions/s1/requeue");
+      await waitFor(() => expect(screen.queryByRole("button", { name: "تأكيد تسجيل الرقم" })).not.toBeInTheDocument());
+    });
+
+    it("puts it back in the queue via POST /eta/submissions/:id/requeue", async () => {
+      const { transport, calls } = trackedTransport({
+        "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
+        "GET /eta/submissions": () => ({ body: [inDoubt()] }),
+        "POST /eta/submissions/s1/requeue": () => ({ body: submission() }),
+      });
+      renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+      await openMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: "إصلاح وإعادة الطابور" }));
+
+      await waitFor(() => expect(calls).toContain("POST /eta/submissions/s1/requeue"));
+    });
+
+    it("shows the server's Arabic refusal when the UUID cannot be recorded, and keeps the form open", async () => {
+      const { transport } = trackedTransport({
+        "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
+        "GET /eta/submissions": () => ({ body: [inDoubt()] }),
+        "POST /eta/submissions/s1/accept": () => ({ status: 409, body: { error: "ETA_INVALID_TRANSITION", message: "لا يمكن قبول هذا المستند في حالته الحالية." } }),
+      });
+      renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+      await openMenu();
+      fireEvent.click(screen.getByRole("menuitem", { name: "تسجيل رقم المستند (UUID)" }));
+      fireEvent.change(await screen.findByLabelText("رقم المستند (UUID) من بوابة الفواتير الإلكترونية"), { target: { value: "X1" } });
+      fireEvent.click(screen.getByRole("button", { name: "تأكيد تسجيل الرقم" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("لا يمكن قبول هذا المستند في حالته الحالية.");
+      expect(screen.getByRole("button", { name: "تأكيد تسجيل الرقم" })).toBeInTheDocument();
+    });
+
+    it("does not offer to record a UUID on an ordinary rejected document", async () => {
+      const { transport } = trackedTransport({
+        "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
+        "GET /eta/submissions": () => ({ body: [submission({ status: "error", errors: ["كود الضريبة غير صالح"], rejectionCodes: ["TAX-01"] })] }),
+      });
+      renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+      await openMenu();
+      expect(screen.queryByRole("menuitem", { name: "تسجيل رقم المستند (UUID)" })).not.toBeInTheDocument();
+    });
+  });
+
   it("submits everything ready via POST /eta/submissions/submit-all and reports what stayed queued", async () => {
     const { transport, calls } = trackedTransport({
       "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),

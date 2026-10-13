@@ -167,6 +167,24 @@ function handleDomainError(c: Context, err: unknown) {
   throw err;
 }
 
+export function recordCustomerChange(
+  audit: AuditSink | undefined,
+  c: Context,
+  customer: Customer,
+  action: AuditChangeAction,
+  before?: Customer,
+) {
+  return recordFieldChanges(audit, c, {
+    entity: { module: "sales", entityType: "CUSTOMER", entityId: customer.id },
+    action,
+    before: before ? serialize(before) : null,
+    after: serialize(customer),
+    fields: AUDITED_CUSTOMER_FIELDS,
+    warnOn: ["creditLimit", "openingBalance", "priceListId", "taxNumber", "taxExempt", "taxExemptionRateId", "active"],
+    details: { code: customer.code, nameAr: customer.nameAr },
+  });
+}
+
 /**
  * Customer routes (docs/archive/catalog/01 "العملاء"): list, get one, create, edit.
  * Every route is permission-gated via the permissions engine
@@ -245,23 +263,8 @@ export function createCustomersRouter(
     return (await priceLists.findById(priceListId)) === null;
   }
 
-  /**
-   * A customer's own trail. The credit limit is the reason this matters: it is
-   * the one master-data field that decides how much a salesperson may sell on
-   * credit, and raising it quietly is the cheapest way to push a bad debt
-   * through. `details` records the before and after so the change is readable
-   * without replaying anything.
-   */
   function record(c: Context, customer: Customer, action: AuditChangeAction, before?: Customer) {
-    return recordFieldChanges(audit, c, {
-      entity: { module: "sales", entityType: "CUSTOMER", entityId: customer.id },
-      action,
-      before: before ? serialize(before) : null,
-      after: serialize(customer),
-      fields: AUDITED_CUSTOMER_FIELDS,
-      warnOn: ["creditLimit", "openingBalance", "priceListId", "taxNumber", "taxExempt", "taxExemptionRateId", "active"],
-      details: { code: customer.code, nameAr: customer.nameAr },
-    });
+    return recordCustomerChange(audit, c, customer, action, before);
   }
 
   interface CustomerListFilter {

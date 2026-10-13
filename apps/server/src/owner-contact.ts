@@ -150,6 +150,9 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
   const { tenants, signupRequests } = deps.platform.stores;
   const tokenOf = deps.tokenOf ?? (() => randomBytes(32).toString("base64url"));
   const eventIdOf = deps.eventIdOf ?? randomUUID;
+  // REQUIRED: the tenant's database and the mail server are not the platform's
+  // connection. A console route reaches them holding its turn, and hands it back here.
+  const outside = <T>(work: () => Promise<T>): Promise<T> => deps.platform.outsideTheTurn(work);
 
   async function write(before: Tenant, after: Tenant, change: Change, actor: string, details: Record<string, unknown>): Promise<boolean> {
     return tenants.compareAndSetOwner(before, after, async () => {
@@ -174,7 +177,8 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
   async function mailLink(tenant: Tenant, pending: Tenant, token: string | null, actor: string): Promise<boolean> {
     if (token === null || !deps.mailPendingHandOver || !pending.pendingOwner) return false;
     try {
-      await deps.mailPendingHandOver({ tenant: pending, to: tenant.ownerEmail, successorEmail: pending.pendingOwner.email, token });
+      const mail = { tenant: pending, to: tenant.ownerEmail, successorEmail: pending.pendingOwner.email, token };
+      await outside(() => deps.mailPendingHandOver!(mail));
       return true;
     } catch (err) {
       console.error(`[cloud] the pending hand-over of "${tenant.code}" is recorded, but mailing its confirmation link failed`, err);
@@ -192,7 +196,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
     const tenant = await tenants.findById(tenantId);
     const due = tenant?.ownerRecordDue;
     if (!tenant || !due) return;
-    await backend.recordOwnerAssigned(due);
+    await outside(() => backend.recordOwnerAssigned(due));
     await write(tenant, tenantWithOwnerRecordDue(tenant, null), { action: OwnerContactAudit.TenantRecordWritten, severity: AuditSeverityCode.Info }, due.actor, { eventId: due.eventId });
   }
 
@@ -237,7 +241,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
   }
 
   async function recordedAccount(tenant: Tenant, backend: OwnerBackend) {
-    return backend.ownerAccount(tenant.ownerUserId === null ? { email: tenant.ownerEmail } : { userId: tenant.ownerUserId });
+    return outside(() => backend.ownerAccount(tenant.ownerUserId === null ? { email: tenant.ownerEmail } : { userId: tenant.ownerUserId }));
   }
 
   async function handOverOnce(tenant: Tenant, input: OwnerHandOver, at: string): Promise<OwnerHandOverOutcome | null> {
@@ -289,7 +293,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
       const tenant = await tenants.findById(tenantId);
       if (!tenant) return null;
       if (tenant.ownerUserId !== null) return tenant.ownerUserId;
-      const account = await backend.ownerAccount({ email: tenant.ownerEmail });
+      const account = await outside(() => backend.ownerAccount({ email: tenant.ownerEmail }));
       return account?.canAdminister ? account.id : null;
     },
 
@@ -322,7 +326,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
     },
 
     async assign(tenantId, userId, actor, backend) {
-      const account = (await backend.companyAdmins()).find((admin) => admin.id === userId);
+      const account = (await outside(() => backend.companyAdmins())).find((admin) => admin.id === userId);
       if (!account) throw new OwnerCandidateNotFoundError();
       await flushOwnerRecordOrRefuse(tenantId, backend);
       const before = await tenants.findById(tenantId);
@@ -343,7 +347,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
       const pending = before?.pendingOwner;
       if (!before || !pending || (link && pending.tokenHash !== link.tokenHash)) throw new NoPendingOwnerError();
       if (pendingOwnerExpired(pending, deps.now().toISOString())) throw new PendingOwnerExpiredError();
-      if (!(await backend.companyAdmins()).some((admin) => admin.id === pending.userId)) throw new OwnerCandidateNotFoundError();
+      if (!(await outside(() => backend.companyAdmins())).some((admin) => admin.id === pending.userId)) throw new OwnerCandidateNotFoundError();
       await flushOwnerRecordOrRefuse(tenantId, backend);
       const due = recordDue(pending.userId, before.ownerUserId, actor, by);
       const confirmed = await settleOwner(

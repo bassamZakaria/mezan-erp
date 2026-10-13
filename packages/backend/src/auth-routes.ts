@@ -7,22 +7,43 @@ import {
   DuplicateUserEmailError,
   AuditSeverityCode,
   recordSecurityEvent,
+  recordSecurityEventOrFallback,
   seatsOverLimitRefusal,
   type AuditSink,
   type Entitlements,
   type UnitOfWork,
   type SecretHasher,
   type SettingsRepository,
+  UserStatusCode,
   type User,
 } from "@mezan/domain";
-import { loginRequestSchema, bootstrapAdminRequestSchema, UNDISCLOSED_TENANT_NAME, type SessionDTO } from "@mezan/contracts";
+import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, unlockAccountByLinkRequestSchema, stepUpRequestSchema, UNDISCLOSED_TENANT_NAME, type SessionDTO } from "@mezan/contracts";
 import {
+  accountLocked,
+  signInBusy,
+  DEVICE_BINDING_HEADER,
+  DEVICE_SECRET_HEADER,
+  type SessionGrant,
+  createAccountLocks,
   createLoginThrottle,
+  createMemoryAccountLockStore,
+  createSignInGuard,
+  createSourceThrottle,
+  createSignInGate,
   readSessionToken,
   requestOrigin,
-  throttleKey,
+  SignInRefusal,
+  SignInVerdict,
+  throttleSource,
+  tooManyAttempts,
+  type AccountLocks,
+  type SignInDecision,
+  type BoundaryPreparation,
   type LoginThrottle,
+  type PrecomputingHasher,
   type SessionRegistry,
+  type SignInGate,
+  type SourceThrottle,
 } from "@mezan/api";
 import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
 
@@ -37,6 +58,13 @@ export interface AuthRoutesDeps {
   readonly sessions: SessionRegistry;
   /** Failed-attempt lockout. Defaults to a fresh in-memory throttle per app. */
   readonly loginThrottle?: LoginThrottle;
+  readonly sourceThrottle?: SourceThrottle;
+  readonly signInGate?: SignInGate;
+  readonly accountLocks?: AccountLocks;
+  readonly onAccountLocked?: (event: AccountLockedEvent) => Promise<void>;
+  readonly canMailUnlockCode?: () => Promise<boolean>;
+  readonly platformOperatorUnlocks?: boolean;
+  readonly secrets?: PrecomputingHasher;
   /**
    * The forensic trail for the credential boundary.
    *
@@ -58,6 +86,18 @@ export interface AuthRoutesDeps {
   readonly claimedElsewhere?: () => Promise<boolean>;
 }
 
+export interface AccountLockedEvent {
+  readonly user: User;
+  readonly unlockCode: string | null;
+  readonly unlockLinkToken: string | null;
+  readonly source: string;
+  readonly reissued?: boolean;
+}
+
+const SIGN_IN_BUSY_RETRY_SECONDS = 2;
+const SIGN_IN_BUSY_STATUS = 503;
+const ACCOUNT_LOCKED_STATUS = 423;
+
 export { UNDISCLOSED_TENANT_NAME };
 
 async function tenantName(settings: SettingsRepository): Promise<string> {
@@ -71,7 +111,7 @@ async function tenantName(settings: SettingsRepository): Promise<string> {
  * @mezan/api's session-auth.ts), so it is read from `requestOrigin(c)` and
  * never from anything in the request body or headers.
  */
-async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null): Promise<SessionDTO> {
+async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null, device: DeviceBinding | null = null): Promise<SessionDTO> {
   let permissions: string[];
   let roleCode: string | null = null;
   if (user.isCompanyAdmin) {
@@ -99,30 +139,20 @@ async function toSession(user: User, deps: AuthRoutesDeps, origin: string | null
     // permissions travel too, but only so the UI can hide what the user cannot
     // do — the server re-reads them from this session on every request and
     // never from what comes back.
-    token: deps.sessions.issue(
-      {
-        userId: user.id,
-        permissions,
-        roleCode,
-        branchScope: user.branchScope,
-        warehouseScope: user.warehouseScope,
-      },
-      origin,
-    ),
+    ...issueSession(deps.sessions, { userId: user.id, permissions, roleCode, branchScope: user.branchScope, warehouseScope: user.warehouseScope }, origin, device),
   };
 }
 
-/**
- * "900 ثانية" is not a wait a person can act on. Past two minutes the honest
- * unit is minutes; the exact second count still travels as `retryAfterSeconds`
- * so the client can run a countdown against it.
- */
-function waitPhrase(seconds: number): string {
-  if (seconds < 120) return `${seconds} ثانية`;
-  const minutes = Math.ceil(seconds / 60);
-  if (minutes === 2) return "دقيقتين";
-  if (minutes <= 10) return `${minutes} دقائق`;
-  return `${minutes} دقيقة`;
+interface DeviceBinding {
+  readonly heldSecret: string | null;
+}
+
+function issueSession(sessions: SessionRegistry, grant: SessionGrant, origin: string | null, device: DeviceBinding | null): { token: string; deviceSecret?: string } {
+  return device ? sessions.issueDeviceBound(grant, origin, device.heldSecret) : { token: sessions.issue(grant, origin) };
+}
+
+function deviceBindingOf(c: Context): DeviceBinding | null {
+  return c.req.header(DEVICE_BINDING_HEADER) === "1" ? { heldSecret: c.req.header(DEVICE_SECRET_HEADER) ?? null } : null;
 }
 
 /**
@@ -140,9 +170,71 @@ function waitPhrase(seconds: number): string {
  * (apps/desktop/src/main/lan-host.ts's allow-list) — this guard is the second
  * of two, not the only one.
  */
-export function createAuthRoutes(deps: AuthRoutesDeps) {
+export interface AuthMount {
+  readonly routes: Hono;
+  readonly beforeTheTurn: Readonly<Record<string, BoundaryPreparation>>;
+}
+
+export function createAuthRoutes(deps: AuthRoutesDeps): Hono {
+  return createAuth(deps).routes;
+}
+
+export function createAuth(deps: AuthRoutesDeps): AuthMount {
   const app = new Hono();
   const throttle = deps.loginThrottle ?? createLoginThrottle();
+  const sources = deps.sourceThrottle ?? createSourceThrottle();
+  const gate = deps.signInGate ?? createSignInGate();
+  const locks = deps.accountLocks ?? createAccountLocks({ known: createMemoryAccountLockStore() });
+  const guard = createSignInGuard({ throttle, sources, locks });
+  const canMailUnlockCode = deps.canMailUnlockCode ?? (async () => false);
+
+  async function refused(c: Context, held: SignInDecision): Promise<Response> {
+    if (held.verdict === SignInVerdict.Locked) {
+      return c.json(accountLocked({ mailed: await canMailUnlockCode(), operatorUnlocks: deps.platformOperatorUnlocks === true }), ACCOUNT_LOCKED_STATUS);
+    }
+    return lockedOut(c, held.retryAfterSeconds);
+  }
+
+  const verifyPinBeforeTheTurn: BoundaryPreparation = async (c) => {
+    const secrets = deps.secrets;
+    if (!secrets) return;
+    const parsed = loginRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return;
+    const needle = parsed.data.username.trim().toLowerCase();
+    const origin = requestOrigin(c);
+    // ORDER MATTERS: the lock and both ladders are asked before a hash is
+    // bought, and a caller the gate has no place for is answered here — it must
+    // not reach the handler, which would hash for it under the connection's turn.
+    await deps.audit?.settled?.();
+    const known = (await deps.uow.users.findByEmail(needle)) !== null;
+    if (guard.check(needle, origin, known).verdict !== SignInVerdict.Proceed) return;
+    const checked = gate.admit(throttleSource(origin), async () => {
+      await deps.audit?.settled?.();
+      const user = await deps.uow.users.findByEmail(needle);
+      const hash = user && user.status === UserStatusCode.Active && user.pinHash ? user.pinHash : await decoyHash();
+      return secrets.precompute({ verify: [[parsed.data.pin, hash]] });
+    });
+    if (checked !== null) return checked;
+    c.header("retry-after", String(SIGN_IN_BUSY_RETRY_SECONDS));
+    return c.json(signInBusy(SIGN_IN_BUSY_RETRY_SECONDS), SIGN_IN_BUSY_STATUS);
+  };
+
+  const claimPasswords = new WeakMap<Request, string>();
+
+  // Hashed before the request queues for the connection, and only while nobody
+  // has claimed the tenant: the handler then checks the claim and inserts the
+  // admin inside one transaction, with nothing left to wait for in between.
+  const hashClaimSecretsBeforeTheTurn: BoundaryPreparation = async (c) => {
+    const secrets = deps.secrets;
+    if (!secrets) return;
+    const parsed = bootstrapAdminRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return;
+    await deps.audit?.settled?.();
+    if (await tenantIsClaimed()) return;
+    const password = `pw-${crypto.randomUUID()}`;
+    claimPasswords.set(c.req.raw, password);
+    return secrets.precompute({ hash: [password, parsed.data.pin] });
+  };
 
   /**
    * A hash to verify against when the account does not exist, so a miss costs
@@ -154,7 +246,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
 
   function security(c: Context, action: string, severity: AuditSeverityCode, details: Record<string, unknown>) {
     if (!deps.audit) return Promise.resolve();
-    return recordSecurityEvent(deps.audit, {
+    return recordSecurityEventOrFallback(deps.audit, {
       module: "auth",
       entityType: "AUTH_USER",
       entityId: typeof details["userId"] === "string" ? (details["userId"] as string) : null,
@@ -162,19 +254,12 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       actor: typeof details["userId"] === "string" ? (details["userId"] as string) : "anonymous",
       severity,
       details: { ...details, origin: requestOrigin(c) ?? "host" },
-    }).catch(() => undefined);
+    });
   }
 
   function lockedOut(c: Context, seconds: number) {
     c.header("retry-after", String(seconds));
-    return c.json(
-      {
-        error: "TOO_MANY_ATTEMPTS",
-        retryAfterSeconds: seconds,
-        message: `محاولات دخول كثيرة. حاول بعد ${waitPhrase(seconds)}.`,
-      },
-      429,
-    );
+    return c.json(tooManyAttempts(seconds), 429);
   }
 
   /**
@@ -190,6 +275,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    */
   async function tenantIsClaimed(): Promise<boolean> {
     if (await deps.claimedElsewhere?.()) return true;
+    return claimedInThisDatabase();
+  }
+
+  async function claimedInThisDatabase(): Promise<boolean> {
     const settings = await deps.settings.get();
     if (settings?.tenantClaimedAt) return true;
     const users = await deps.uow.users.list();
@@ -226,10 +315,35 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * who has lost their PIN, and deleting the row would take the audit history
    * that points at it with it.
    */
-  async function retireSeedAdmin(): Promise<void> {
-    const seed = await deps.uow.users.findById(SEED_ADMIN_USER_ID);
-    if (!seed || seed.status !== "active") return;
-    await deps.uow.users.save({ ...seed, status: "inactive" });
+  async function retireSeedAdmin(uow: UnitOfWork): Promise<void> {
+    const seed = await uow.users.findById(SEED_ADMIN_USER_ID);
+    if (!seed || seed.status !== UserStatusCode.Active) return;
+    await uow.users.save({ ...seed, status: UserStatusCode.Inactive });
+  }
+
+  async function alreadyClaimed(c: Context, email: string | null) {
+    await security(c, "BOOTSTRAP_REFUSED", AuditSeverityCode.Critical, { email });
+    return c.json(
+      {
+        error: "TENANT_ALREADY_PROVISIONED",
+        message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك.",
+      },
+      409,
+    );
+  }
+
+  // SECURITY: a locked account is mailed again only once its last code and
+  // link have expired, so whoever keeps knocking buys the administrators at
+  // most one mail an hour. The second read of `unlockReissueDue` is made after
+  // the only await, with nothing awaited before the issue: two attempts that
+  // arrive together cannot both mail.
+  async function mailFreshUnlockIfDue(c: Context, needle: string, user: User, origin: string | null): Promise<void> {
+    if (!deps.onAccountLocked || !guard.unlockReissueDue(needle)) return;
+    if (!(await canMailUnlockCode()) || !guard.unlockReissueDue(needle)) return;
+    const unlockCode = guard.issueUnlockCode(needle);
+    const unlockLinkToken = guard.issueUnlockLink(needle);
+    await security(c, "ACCOUNT_UNLOCK_REISSUED", AuditSeverityCode.Warning, { username: needle, userId: user.id });
+    await deps.onAccountLocked({ user, unlockCode, unlockLinkToken, source: origin ?? "host", reissued: true });
   }
 
   app.post("/auth/login", async (c) => {
@@ -242,32 +356,58 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     // Remote callers are counted per (account, source); the host's own console
     // is counted per account. See login-throttle.ts — this is what stops one
     // phone on the shop wifi from taking the counter out of service.
-    const key = throttleKey(needle, requestOrigin(c));
-
-    const waitSeconds = throttle.retryAfter(key);
-    if (waitSeconds > 0) {
-      await security(c, "LOGIN_BLOCKED", AuditSeverityCode.Warning, { username: needle, retryAfterSeconds: waitSeconds });
-      return lockedOut(c, waitSeconds);
-    }
+    const origin = requestOrigin(c);
 
     // The email, and only the email. Matching the FULL NAME, as this did, made
     // "who can log in" a property of a field any admin may edit, and two people
     // who share a display name shared an account door.
     const user = await deps.uow.users.findByEmail(needle);
+    const held = guard.check(needle, origin, user !== null);
+    if (held.verdict !== SignInVerdict.Proceed) {
+      await security(c, "LOGIN_BLOCKED", AuditSeverityCode.Warning, {
+        username: needle,
+        retryAfterSeconds: held.retryAfterSeconds,
+        accountLocked: held.verdict === SignInVerdict.Locked,
+      });
+      if (held.verdict === SignInVerdict.Locked && user) await mailFreshUnlockIfDue(c, needle, user, origin);
+      return refused(c, held);
+    }
+
     // An unknown email used to return before any hashing happened, so the
     // response time answered "does this account exist" for free. Verify against
     // a throwaway hash instead, and spend the same scrypt either way.
-    const ok =
-      user && user.status === "active" && user.pinHash
+    const verified =
+      user && user.status === UserStatusCode.Active && user.pinHash
         ? await deps.hasher.verify(pin, user.pinHash)
         : (await deps.hasher.verify(pin, await decoyHash()), false);
-    if (!user || !ok) {
-      const lockedFor = throttle.fail(key);
-      if (lockedFor > 0) {
-        // The taxonomy in audit/audit-event.ts names account lockout as the
-        // canonical CRITICAL event. It wrote nothing until now.
-        await security(c, "ACCOUNT_LOCKED", AuditSeverityCode.Critical, { username: needle, lockedForSeconds: lockedFor });
-        return lockedOut(c, lockedFor);
+    // The check may have handed the connection back. The verdict holds only for
+    // the account as it stands now: still active, still on the PIN it was
+    // checked against.
+    const current = verified && user ? await deps.uow.users.findById(user.id) : null;
+    const signedIn = current !== null && current.status === UserStatusCode.Active && current.pinHash === user?.pinHash ? current : null;
+    if (verified && signedIn === null) {
+      await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle, accountChangedDuringCheck: true });
+      return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
+    }
+    if (signedIn === null) {
+      const failure = guard.failed(needle, origin, user !== null);
+      if (failure.verdict === SignInVerdict.Locked) {
+        if (failure.justLocked) {
+          await security(c, "ACCOUNT_HARD_LOCKED", AuditSeverityCode.Critical, { username: needle, userId: user?.id });
+          if (user) {
+            await deps.onAccountLocked?.({
+              user,
+              unlockCode: guard.issueUnlockCode(needle),
+              unlockLinkToken: guard.issueUnlockLink(needle),
+              source: origin ?? "host",
+            });
+          }
+        }
+        return refused(c, failure);
+      }
+      if (failure.verdict === SignInVerdict.Wait) {
+        await security(c, "ACCOUNT_LOCKED", AuditSeverityCode.Critical, { username: needle, lockedForSeconds: failure.retryAfterSeconds });
+        return lockedOut(c, failure.retryAfterSeconds);
       }
       await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle });
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
@@ -279,30 +419,90 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
      * can sign in, so that a human decides who stays. Checked AFTER the
      * credential, so it can never tell an outsider how many users a tenant has.
      */
-    if (!user.isCompanyAdmin) {
+    if (!signedIn.isCompanyAdmin) {
       const entitlements = await deps.resolveEntitlements?.(c);
       if (entitlements) {
-        const active = (await deps.uow.users.list()).filter((u) => u.status === "active").length;
+        const active = (await deps.uow.users.list()).filter((u) => u.status === UserStatusCode.Active).length;
         if (active > entitlements.seats) {
           const refusal = seatsOverLimitRefusal(entitlements.seats, active, {
             nameAr: entitlements.planNameAr ?? entitlements.plan,
             nameEn: entitlements.planNameEn ?? entitlements.plan,
           });
-          await security(c, "LOGIN_REFUSED_SEATS", AuditSeverityCode.Warning, { userId: user.id, seats: entitlements.seats, active });
+          await security(c, "LOGIN_REFUSED_SEATS", AuditSeverityCode.Warning, { userId: signedIn.id, seats: entitlements.seats, active });
           return c.json(refusal, 403);
         }
       }
     }
-    throttle.succeed(key);
+    guard.succeeded(needle, origin);
     const at = new Date().toISOString();
-    await recordSuccessfulLogin(user.id, at, deps.uow);
-    await security(c, "LOGIN_SUCCEEDED", AuditSeverityCode.Info, { userId: user.id, username: needle });
-    await deps.onSignedIn?.({ userId: user.id, email: user.email }).catch((err: unknown) =>
+    await recordSuccessfulLogin(signedIn.id, at, deps.uow);
+    await security(c, "LOGIN_SUCCEEDED", AuditSeverityCode.Info, { userId: signedIn.id, username: needle });
+    // SECURITY: announced only here, after this request's own PIN check. A
+    // session answered without one proves nothing about who holds the credential.
+    await deps.onSignedIn?.({ userId: signedIn.id, email: signedIn.email }).catch((err: unknown) =>
       console.error("[auth] the sign-in succeeded, but announcing it failed", err),
     );
     // The session is bound to the origin the CREDENTIAL was verified from, so
     // the till that logged in is the only place the token it got back works.
-    return c.json(await toSession(user, deps, requestOrigin(c)));
+    return c.json(await toSession(signedIn, deps, requestOrigin(c), deviceBindingOf(c)));
+  });
+
+  app.post("/auth/step-up", async (c) => {
+    const parsed = stepUpRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const token = readSessionToken(c);
+    const origin = requestOrigin(c);
+    const grant = token ? deps.sessions.find(token, origin, c.req.header(DEVICE_SECRET_HEADER) ?? null) : null;
+    const user = grant ? await deps.uow.users.findById(grant.userId) : null;
+    if (!token || !user || user.status !== UserStatusCode.Active || !user.pinHash) {
+      return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى." }, 401);
+    }
+    const held = guard.check(user.email, origin, true);
+    if (held.verdict !== SignInVerdict.Proceed) return refused(c, held);
+    if (!(await deps.hasher.verify(parsed.data.pin, user.pinHash))) {
+      const failure = guard.failed(user.email, origin, true);
+      await security(c, "STEP_UP_FAILED", AuditSeverityCode.Warning, { userId: user.id });
+      if (failure.verdict === SignInVerdict.Locked || failure.verdict === SignInVerdict.Wait) return refused(c, failure);
+      return c.json({ error: "INVALID_CREDENTIALS", message: "رمز PIN غير صحيح." }, 401);
+    }
+    deps.sessions.confirmStepUp(token);
+    await security(c, "STEP_UP_CONFIRMED", AuditSeverityCode.Info, { userId: user.id });
+    return c.json({ ok: true });
+  });
+
+  app.post("/auth/unlock", async (c) => {
+    const parsed = unlockAccountRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const needle = parsed.data.username.trim().toLowerCase();
+    const origin = requestOrigin(c);
+    const bucket = throttleSource(origin);
+    const wait = bucket === null ? 0 : sources.retryAfter(bucket);
+    if (wait > 0) return lockedOut(c, wait);
+    if (!guard.redeemUnlockCode(needle, parsed.data.code)) {
+      if (bucket !== null) sources.fail(bucket);
+      await security(c, "ACCOUNT_UNLOCK_REFUSED", AuditSeverityCode.Warning, { username: needle });
+      return c.json({ error: SignInRefusal.InvalidUnlockCode, message: "رمز فكّ القفل غير صحيح أو انتهت صلاحيته." }, 400);
+    }
+    const user = await deps.uow.users.findByEmail(needle);
+    await security(c, "ACCOUNT_UNLOCKED_BY_CODE", AuditSeverityCode.Warning, { username: needle, userId: user?.id });
+    return c.json({ ok: true });
+  });
+
+  app.post("/auth/unlock-link", async (c) => {
+    const parsed = unlockAccountByLinkRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const bucket = throttleSource(requestOrigin(c));
+    const wait = bucket === null ? 0 : sources.retryAfter(bucket);
+    if (wait > 0) return lockedOut(c, wait);
+    const account = guard.redeemUnlockLink(parsed.data.token);
+    if (account === null) {
+      if (bucket !== null) sources.fail(bucket);
+      await security(c, "ACCOUNT_UNLOCK_REFUSED", AuditSeverityCode.Warning, { byLink: true });
+      return c.json({ error: SignInRefusal.InvalidUnlockLink, message: "رابط فكّ القفل غير صالح، أو انتهت صلاحيته، أو استُخدم من قبل." }, 400);
+    }
+    const user = await deps.uow.users.findByEmail(account);
+    await security(c, "ACCOUNT_UNLOCKED_BY_LINK", AuditSeverityCode.Warning, { username: account, userId: user?.id });
+    return c.json({ ok: true });
   });
 
   /**
@@ -327,7 +527,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    */
   app.post("/auth/logout", (c) => {
     const token = readSessionToken(c);
-    if (token && deps.sessions.find(token, requestOrigin(c))) deps.sessions.revoke(token);
+    if (token && deps.sessions.find(token, requestOrigin(c), c.req.header(DEVICE_SECRET_HEADER) ?? null)) deps.sessions.revoke(token);
     return c.json({ ok: true });
   });
 
@@ -402,16 +602,11 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    */
   app.post("/bootstrap/admin", async (c) => {
     const raw: unknown = await c.req.json().catch(() => null);
+    // SECURITY: a claimed tenant is refused before the body is validated, so an
+    // anonymous caller learns nothing about the claim's schema.
     if (await tenantIsClaimed()) {
       const attempted = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>)["email"] : null;
-      await security(c, "BOOTSTRAP_REFUSED", AuditSeverityCode.Critical, { email: typeof attempted === "string" ? attempted.slice(0, 320) : null });
-      return c.json(
-        {
-          error: "TENANT_ALREADY_PROVISIONED",
-          message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك.",
-        },
-        409,
-      );
+      return alreadyClaimed(c, typeof attempted === "string" ? attempted.slice(0, 320) : null);
     }
     const parsed = bootstrapAdminRequestSchema.safeParse(raw);
     if (!parsed.success) {
@@ -419,36 +614,52 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     }
     await seedIfEmpty(deps.seedStores);
     try {
-      const user = await saveUser(
-        {
-          id: crypto.randomUUID(),
-          nameAr: parsed.data.nameAr,
-          nameEn: parsed.data.nameEn,
-          email: parsed.data.email,
-          phone: null,
-          password: `pw-${crypto.randomUUID()}`,
-          pin: parsed.data.pin,
-          roleId: null,
-          isCompanyAdmin: true,
-          employeeId: null,
-          branchScope: ALL_SCOPE,
-          warehouseScope: ALL_SCOPE,
-          status: "active",
-          createdAt: new Date().toISOString(),
-        },
-        deps.uow,
-        deps.hasher,
-      );
-      await recordTenantClaim(new Date().toISOString(), parsed.data.companyName);
-      await retireSeedAdmin();
-      // The single highest-authority write in the product, and it recorded
-      // nothing at all — so a company admin appearing from nowhere was
-      // indistinguishable, afterwards, from one that had always been there.
-      await security(c, "TENANT_CLAIMED", AuditSeverityCode.Critical, {
-        userId: user.id,
-        email: user.email,
-        seedAdminRetired: true,
+      // ORDER MATTERS: the claim is read again here, inside the transaction that
+      // inserts the admin and records the claim. Seeding above may have handed
+      // the connection back, and the read at the top of this handler is then
+      // one every concurrent claimant shared.
+      const user = await deps.uow.transaction(async (tx) => {
+        if (await claimedInThisDatabase()) return null;
+        const claimed = await saveUser(
+          {
+            id: crypto.randomUUID(),
+            nameAr: parsed.data.nameAr,
+            nameEn: parsed.data.nameEn,
+            email: parsed.data.email,
+            phone: null,
+            password: claimPasswords.get(c.req.raw) ?? `pw-${crypto.randomUUID()}`,
+            pin: parsed.data.pin,
+            roleId: null,
+            isCompanyAdmin: true,
+            employeeId: null,
+            branchScope: ALL_SCOPE,
+            warehouseScope: ALL_SCOPE,
+            status: UserStatusCode.Active,
+            createdAt: new Date().toISOString(),
+          },
+          tx,
+          deps.hasher,
+        );
+        await recordTenantClaim(new Date().toISOString(), parsed.data.companyName);
+        await retireSeedAdmin(tx);
+        // REQUIRED ORDERING: recorded INSIDE the transaction that makes the
+        // claim, and not through `security()`, which never fails its caller.
+        // The single highest-authority write in the product either leaves its
+        // own record or does not happen.
+        if (deps.audit) {
+          await recordSecurityEvent(deps.audit, {
+            module: "auth",
+            entityType: "AUTH_USER",
+            entityId: claimed.id,
+            action: "TENANT_CLAIMED",
+            actor: claimed.id,
+            severity: "CRITICAL",
+            details: { userId: claimed.id, email: claimed.email, seedAdminRetired: true, origin: requestOrigin(c) ?? "host" },
+          });
+        }
+        return claimed;
       });
+      if (!user) return alreadyClaimed(c, parsed.data.email);
       return c.json(await toSession(user, deps, requestOrigin(c)), 201);
     } catch (err) {
       // This used to hand back the EXISTING admin's session for wizard
@@ -466,5 +677,5 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     }
   });
 
-  return app;
+  return { routes: app, beforeTheTurn: { "/auth/login": verifyPinBeforeTheTurn, "/bootstrap/admin": hashClaimSecretsBeforeTheTurn } };
 }

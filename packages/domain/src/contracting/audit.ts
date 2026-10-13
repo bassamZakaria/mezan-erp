@@ -1,4 +1,4 @@
-import { recordSensitiveEvent, type AuditSink } from "../audit/index.js";
+import { AuditRecordingError, recordSensitiveEvent, type AuditSink } from "../audit/index.js";
 
 /**
  * سجل العمليات الحساسة للمقاولات — one shape for every contracting transition.
@@ -22,9 +22,11 @@ export interface ContractingTransitionAudit {
 }
 
 /**
- * Record one transition. A forensic write must never turn a legitimate
- * approval into a 500, so an absent sink is a no-op and a failing sink is
- * swallowed — the same rule the admin trail already follows.
+ * Record one transition. An absent sink is a no-op. A sink that fails INSIDE
+ * the transaction the transition is being written in fails the transition with
+ * it — the approval rolls back and the request is refused, so no approval
+ * commits with no row saying who made it. Only where nothing ties the two
+ * together is a failing sink still swallowed.
  */
 export async function recordTransition(
   audit: AuditSink | undefined,
@@ -41,7 +43,7 @@ export async function recordTransition(
       severity: event.severity ?? "INFO",
       details: event.details ?? null,
     });
-  } catch {
-    // Deliberately swallowed — see above.
+  } catch (err) {
+    if (audit.insideTransaction?.() === true) throw new AuditRecordingError(err);
   }
 }

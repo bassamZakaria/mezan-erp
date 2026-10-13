@@ -122,6 +122,7 @@ export {
   AllocationCurrencyMismatchError,
   VoucherTreasuryCurrencyMismatchError,
   AllocationExceedsError,
+  AllocationIdTakenError,
   AllocationAlreadyReversedError,
   HeldAllocationRefusal,
   HeldAllocationRefusedError,

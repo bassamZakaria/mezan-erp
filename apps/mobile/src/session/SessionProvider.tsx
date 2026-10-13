@@ -1,4 +1,6 @@
 import { DEFAULT_BASE_URL } from "@/config";
+import { StepUpOverlay } from "@/components/step-up-overlay";
+import { withStepUp } from "./step-up";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
 import { loginResponseSchema, type SessionDTO } from "@mezan/contracts";
@@ -15,14 +17,33 @@ export interface SignInInput {
   readonly pin: string;
 }
 
+export interface UnlockAccountInput {
+  readonly baseUrl: string;
+  readonly tenantCode: string | null;
+  readonly email: string;
+  readonly code: string;
+}
+
+export enum SessionEnded {
+  Displaced = "displaced",
+  Expired = "expired",
+}
+
+const SESSION_DISPLACED_CODE = "SESSION_DISPLACED";
+
 export interface SessionState {
   readonly ready: boolean;
   readonly session: SessionDTO | null;
+  // Why the server ended the last session, kept for the sign-in screen to say;
+  // null after a sign-out the person asked for.
+  readonly sessionEnded: SessionEnded | null;
+  readonly acknowledgeSessionEnded: () => void;
   /** A stored session is present but the device owner has not confirmed it yet — the screens stay covered. */
   readonly locked: boolean;
   readonly unlock: (promptMessage: string, cancelLabel: string) => Promise<boolean>;
   readonly connection: Connection;
   readonly signIn: (input: SignInInput) => Promise<void>;
+  readonly unlockAccount: (input: UnlockAccountInput) => Promise<void>;
   readonly signOut: () => Promise<void>;
   readonly request: <T>(path: string, options?: RequestOptions<T>) => Promise<T>;
   readonly can: (permission: string) => boolean;
@@ -34,10 +55,15 @@ function scopeHeader(scope: SessionDTO["branchScope"]): string {
   return scope === ScopeAll.Every ? ScopeAll.Every : scope.join(",");
 }
 
+const STEP_UP_PATH = "/auth/step-up";
+const STEP_UP_FAILED = "رمز PIN غير صحيح.";
+
 export function SessionProvider({ children }: { children: ReactNode }): ReactNode {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<SessionDTO | null>(null);
   const [locked, setLocked] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState<SessionEnded | null>(null);
+  const acknowledgeSessionEnded = useCallback(() => setSessionEnded(null), []);
   const sessionRef = useRef<SessionDTO | null>(null);
   sessionRef.current = session;
   const [connection, setConnection] = useState<Connection>({
@@ -87,6 +113,8 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     return () => subscription.remove();
   }, []);
 
+  const [stepUp, setStepUp] = useState<{ message: string; cancel: () => void; confirm: (pin: string) => Promise<string | null> } | null>(null);
+
   const unlock = useCallback(async (promptMessage: string, cancelLabel: string) => {
     const confirmed = await confirmDeviceOwner(promptMessage, cancelLabel);
     if (confirmed) setLocked(false);
@@ -98,6 +126,7 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
       baseUrl: connection.baseUrl,
       tenantCode: connection.tenantCode,
       token: session?.token ?? null,
+      deviceSecret: session?.deviceSecret ?? null,
       branchScope: session ? scopeHeader(session.branchScope) : ScopeAll.Every,
       warehouseScope: session ? scopeHeader(session.warehouseScope) : ScopeAll.Every,
     }),
@@ -114,10 +143,31 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
   const request = useCallback(
     async <T,>(path: string, options?: RequestOptions<T>): Promise<T> => {
       try {
-        return await apiRequest<T>(credentials, path, options);
+        return await withStepUp(
+          () => apiRequest<T>(credentials, path, options),
+          (message) =>
+            new Promise<boolean>((resolve) => {
+              setStepUp({
+                message,
+                cancel: () => resolve(false),
+                confirm: async (pin) => {
+                  try {
+                    await apiRequest(credentials, STEP_UP_PATH, { method: HttpMethod.Post, body: { pin } });
+                    resolve(true);
+                    return null;
+                  } catch (failure) {
+                    return failure instanceof ApiError && failure.serverMessage ? failure.serverMessage : STEP_UP_FAILED;
+                  }
+                },
+              });
+            }).finally(() => setStepUp(null)),
+        );
       } catch (error) {
         // A dead token must end the session here, or every screen renders its own sign-in prompt.
-        if (error instanceof ApiError && error.failure === ApiFailure.Unauthorized && session) await signOut();
+        if (error instanceof ApiError && error.failure === ApiFailure.Unauthorized && session) {
+          setSessionEnded(error.code === SESSION_DISPLACED_CODE ? SessionEnded.Displaced : SessionEnded.Expired);
+          await signOut();
+        }
         throw error;
       }
     },
@@ -133,6 +183,7 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
         baseUrl: next.baseUrl,
         tenantCode: next.tenantCode,
         token: null,
+        bindDevice: true,
         branchScope: ScopeAll.Every,
         warehouseScope: ScopeAll.Every,
       },
@@ -142,8 +193,17 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     await saveConnection(next);
     await saveSession(signedIn);
     setConnection(next);
+    setSessionEnded(null);
     setSession(signedIn);
     setLocked(false);
+  }, []);
+
+  const unlockAccount = useCallback(async (input: UnlockAccountInput) => {
+    await apiRequest(
+      { baseUrl: input.baseUrl, tenantCode: input.tenantCode, token: null, branchScope: ScopeAll.Every, warehouseScope: ScopeAll.Every },
+      "/auth/unlock",
+      { method: HttpMethod.Post, body: { username: input.email, code: input.code } },
+    );
   }, []);
 
   const can = useCallback(
@@ -155,11 +215,16 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
   );
 
   const value = useMemo<SessionState>(
-    () => ({ ready, session, locked, unlock, connection, signIn, signOut, request, can }),
-    [ready, session, locked, unlock, connection, signIn, signOut, request, can],
+    () => ({ ready, session, locked, unlock, connection, signIn, unlockAccount, signOut, request, can, sessionEnded, acknowledgeSessionEnded }),
+    [ready, session, locked, unlock, connection, signIn, unlockAccount, signOut, request, can, sessionEnded, acknowledgeSessionEnded],
   );
 
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={value}>
+      {children}
+      {stepUp ? <StepUpOverlay message={stepUp.message} onCancel={stepUp.cancel} onConfirm={stepUp.confirm} /> : null}
+    </SessionContext.Provider>
+  );
 }
 
 export function useSession(): SessionState {

@@ -241,6 +241,42 @@ describe("JournalsScreen — create: decimals and dimensions", () => {
 
   // guards C-5 (first half): glJournalLineSchema already carries costCenterId;
   // the screen sent none, so the cost-centre P&L never saw a manual accrual.
+  it("opens the entry already posted, with a notice, when its id was used with other contents", async () => {
+    let sends = 0;
+    let saved = sampleEntries;
+    const transport = stubTransport({
+      "GET /gl/journal-entries": () => ({ body: saved }),
+      "GET /gl/journal-entries/counts": () => ({ body: countsOf(saved) }),
+      "GET /gl/journal-entries/stats": () => ({ body: statsOf(saved) }),
+      "GET /accounts": () => ({ body: sampleAccounts }),
+      "GET /cost-centers": () => ({ body: [] }),
+      "POST /gl/journal-entries": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        sends += 1;
+        saved = [...sampleEntries, entry({ id: body.id, entryNo: "JE-000009" })];
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(
+      <TestNavigation>
+        <JournalsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("JE-000001");
+    fireEvent.click(screen.getByRole("button", { name: "قيد جديد" }));
+    fireEvent.change(screen.getByPlaceholderText("وصف القيد..."), { target: { value: "مصروف" } });
+    chooseAccount("الحساب للسطر 1", "1300-1");
+    fireEvent.change(screen.getByLabelText("مدين للسطر 1"), { target: { value: "50" } });
+    chooseAccount("الحساب للسطر 2", "4100");
+    fireEvent.change(screen.getByLabelText("دائن للسطر 2"), { target: { value: "50" } });
+    fireEvent.click(screen.getByRole("button", { name: "ترحيل القيد" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");
+    expect(screen.queryByRole("button", { name: "ترحيل القيد" })).not.toBeInTheDocument();
+    expect(sends).toBe(1);
+  });
+
   it("sends the line's cost centre with the posted entry", async () => {
     const posted: unknown[] = [];
     const transport = stubTransport({

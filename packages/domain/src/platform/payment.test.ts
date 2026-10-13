@@ -2,19 +2,36 @@ import { describe, it, expect } from "vitest";
 import { Money } from "../money/money.js";
 import { recordPayment, type Payment, type PaymentRepository } from "./payment.js";
 import type { Subscription, SubscriptionRepository } from "./subscription.js";
-import { InvalidPaymentError, InvalidSubscriptionTransitionError, SubscriptionNotFoundError } from "./errors.js";
+import {
+  InvalidPaymentError,
+  InvalidSubscriptionTransitionError,
+  PaymentIdempotencyConflictError,
+  PaymentReferenceAlreadyRecordedError,
+  SubscriptionNotFoundError,
+} from "./errors.js";
 
 function memoryPayments(): PaymentRepository & { rows: Map<string, Payment> } {
   const rows = new Map<string, Payment>();
+  const keys = new Map<string, string>();
   return {
     rows,
+    async findByIdempotencyKey(tenantId, key) {
+      const id = keys.get(`${tenantId}|${key}`);
+      return id ? (rows.get(id) ?? null) : null;
+    },
     async findById(id) { return rows.get(id) ?? null; },
+    async findByReference(tenantId, reference) {
+      return [...rows.values()].find((p) => p.tenantId === tenantId && p.reference === reference) ?? null;
+    },
     async listByTenant(tenantId) {
       return [...rows.values()]
         .filter((p) => p.tenantId === tenantId)
         .sort((a, b) => (a.paidAt < b.paidAt ? 1 : a.paidAt > b.paidAt ? -1 : 0));
     },
-    async save(p) { rows.set(p.id, p); },
+    async save(p, idempotencyKey) {
+      rows.set(p.id, p);
+      if (idempotencyKey) keys.set(`${p.tenantId}|${idempotencyKey}`, p.id);
+    },
   };
 }
 
@@ -44,7 +61,7 @@ const sub: Subscription = {
 
 const cmd = {
   id: "PAY1", tenantId: "T1", subscriptionId: "S1", amount: Money.fromMajor("490.50"),
-  reference: "TRX-001", paidAt: "2026-09-14T09:00:00.000Z", recordedBy: "U1", now: NOW,
+  reference: "TRX-001", paidAt: "2026-09-14T09:00:00.000Z", recordedBy: "U1", now: NOW, idempotencyKey: "KEY-1",
 };
 
 describe("recordPayment", () => {
@@ -142,6 +159,7 @@ describe("a manual payment renews and records as one act", () => {
     paidAt: NOW,
     recordedBy: "admin",
     now: NOW,
+    idempotencyKey: "KEY-PMT-1",
   };
 
   it("leaves the subscription un-renewed when the payment row cannot be written", async () => {
@@ -164,5 +182,105 @@ describe("a manual payment renews and records as one act", () => {
     expect(store.rows.get("PMT-1")!.reference).toBe("TRF-9001");
     expect(subscriptions.rows.get("S1")!.currentPeriodEnd).toBe(result.subscription.currentPeriodEnd);
     expect(result.subscription.currentPeriodEnd).not.toBe(sub.currentPeriodEnd);
+  });
+});
+
+describe("recordPayment is idempotent on the caller's key, not on the reference", () => {
+  const LATER = "2026-09-14T10:05:00.000Z";
+
+  it("answers a repeated key with the payment already recorded and renews only once", async () => {
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub]);
+    const first = await recordPayment(cmd, payments, subscriptions);
+    const second = await recordPayment({ ...cmd, id: "PAY2", now: LATER }, payments, subscriptions);
+
+    expect(first.replayed).toBe(false);
+    expect(second.replayed).toBe(true);
+    expect(second.payment.id).toBe("PAY1");
+    expect(payments.rows.size).toBe(1);
+    expect(second.subscription.currentPeriodEnd).toBe(first.subscription.currentPeriodEnd);
+    expect(subscriptions.rows.get("S1")!.currentPeriodEnd).toBe("2026-10-14T10:00:00.000Z");
+  });
+
+  it("refuses a repeated key that carries a different payment, and changes nothing", async () => {
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub]);
+    const first = await recordPayment(cmd, payments, subscriptions);
+
+    for (const changed of [{ amount: Money.fromMajor("500.00") }, { reference: "TRX-002" }]) {
+      await expect(recordPayment({ ...cmd, id: "PAY2", ...changed }, payments, subscriptions)).rejects.toBeInstanceOf(PaymentIdempotencyConflictError);
+    }
+    expect(payments.rows.size).toBe(1);
+    expect(subscriptions.rows.get("S1")!.currentPeriodEnd).toBe(first.subscription.currentPeriodEnd);
+  });
+
+  it("refuses a second, separately submitted payment under a reference already recorded, saying when it was", async () => {
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub]);
+    const first = await recordPayment(cmd, payments, subscriptions);
+
+    const refusal = await recordPayment({ ...cmd, id: "PAY2", idempotencyKey: "KEY-2", now: LATER }, payments, subscriptions).catch((err: unknown) => err);
+
+    expect(refusal).toBeInstanceOf(PaymentReferenceAlreadyRecordedError);
+    expect(refusal).toMatchObject({ code: "PAYMENT_REFERENCE_ALREADY_RECORDED", reference: "TRX-001", recorded: { id: "PAY1" } });
+    expect((refusal as Error).message).toContain("بتاريخ 2026-09-14 بمبلغ 490.50 ج.م");
+    expect(payments.rows.size).toBe(1);
+    expect(subscriptions.rows.get("S1")!.currentPeriodEnd).toBe(first.subscription.currentPeriodEnd);
+  });
+
+  it("treats surrounding whitespace as the same reference", async () => {
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub]);
+    await recordPayment(cmd, payments, subscriptions);
+    await expect(
+      recordPayment({ ...cmd, id: "PAY2", idempotencyKey: "KEY-2", reference: "  TRX-001 " }, payments, subscriptions),
+    ).rejects.toBeInstanceOf(PaymentReferenceAlreadyRecordedError);
+  });
+
+  it("records a second genuine payment under the same reference once the duplicate is confirmed, and renews again", async () => {
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub]);
+    const first = await recordPayment(cmd, payments, subscriptions);
+
+    const second = await recordPayment(
+      { ...cmd, id: "PAY2", idempotencyKey: "KEY-2", now: LATER, confirmDuplicateReference: true },
+      payments,
+      subscriptions,
+    );
+
+    expect(second.replayed).toBe(false);
+    expect(second.duplicateOfPaymentId).toBe("PAY1");
+    expect(first.duplicateOfPaymentId).toBeNull();
+    expect(payments.rows.size).toBe(2);
+    expect(second.subscription.currentPeriodEnd).not.toBe(first.subscription.currentPeriodEnd);
+  });
+
+  it("answers a retry of the confirmed duplicate with that same second payment", async () => {
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub]);
+    await recordPayment(cmd, payments, subscriptions);
+    const confirmed = { ...cmd, id: "PAY2", idempotencyKey: "KEY-2", now: LATER, confirmDuplicateReference: true };
+    await recordPayment(confirmed, payments, subscriptions);
+
+    const retried = await recordPayment({ ...confirmed, id: "PAY3" }, payments, subscriptions);
+
+    expect(retried.replayed).toBe(true);
+    expect(retried.payment.id).toBe("PAY2");
+    expect(payments.rows.size).toBe(2);
+  });
+
+  it("refuses an empty key", async () => {
+    await expect(recordPayment({ ...cmd, idempotencyKey: "  " }, memoryPayments(), memorySubscriptions([sub]))).rejects.toBeInstanceOf(InvalidPaymentError);
+  });
+
+  it("lets two tenants use the same reference and the same key", async () => {
+    const other: Subscription = { ...sub, id: "S2", tenantId: "T2" };
+    const payments = memoryPayments();
+    const subscriptions = memorySubscriptions([sub, other]);
+    await recordPayment(cmd, payments, subscriptions);
+    const second = await recordPayment({ ...cmd, id: "PAY2", tenantId: "T2", subscriptionId: "S2" }, payments, subscriptions);
+
+    expect(second.replayed).toBe(false);
+    expect(payments.rows.size).toBe(2);
   });
 });

@@ -1,0 +1,11 @@
+{
+  "documentedAt": null,
+  "note": "A recognised sentence inside a body that says more than the recognised shape does.",
+  "status": 404,
+  "body": {
+    "detail": "Not found.",
+    "order": 690898,
+    "success": true
+  },
+  "expect": "unreadable"
+}

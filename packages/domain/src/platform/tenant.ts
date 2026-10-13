@@ -72,6 +72,10 @@ export interface TenantRepository {
   findByCode(code: string): Promise<Tenant | null>;
   list(): Promise<Tenant[]>;
   save(tenant: Tenant): Promise<void>;
+  // REQUIRED: removes the registration ONLY while it is still `provisioning`,
+  // and says whether it did. A tenant that has ever been active has books,
+  // payments and audit rows that point at it; it is archived, never removed.
+  discardProvisioning(id: string): Promise<boolean>;
   /**
    * CONTRACT: writes `after`'s owner fields only while the stored row still carries
    * `before`'s, then runs `sideEffect` in the SAME transaction. False when

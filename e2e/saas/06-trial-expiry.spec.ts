@@ -1,5 +1,6 @@
 import { rmSync } from "node:fs";
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { type APIRequestContext } from "@playwright/test";
+import { test, expect, directApi } from "./support/test";
 import {
   ApiError,
   BillingCycle,
@@ -103,7 +104,7 @@ test.describe("The clock moves — a trial lands on Free, the Free quota holds, 
   test.beforeAll(async ({ playwright }) => {
     test.setTimeout(300_000);
     platformDir = newRunDir(RunDir.Clock);
-    const request = await playwright.request.newContext();
+    const request = await directApi(playwright);
 
     api = await startApiServer({ port: CLOCK_API_PORT, platformDir, seedDemo: false });
     const start = await request.post(`${CLOCK_API_URL}/api/signup`, {
@@ -288,7 +289,7 @@ test.describe("The clock moves — a trial lands on Free, the Free quota holds, 
     const operator = await platformToken(request, CLOCK_API_URL);
     const payment = await request.post(`${CLOCK_API_URL}/api/platform/tenants/${paidTenant.id}/payments`, {
       headers: { authorization: `Bearer ${operator}` },
-      data: { amount: "490", reference: `LAPSE-${paidTenant.code}`, paidAt: new Date().toISOString() },
+      data: { amount: "490", reference: `LAPSE-${paidTenant.code}`, paidAt: new Date().toISOString(), idempotencyKey: `LAPSE-KEY-${paidTenant.code}` },
     });
     expect(payment.status(), await payment.text()).toBe(201);
     expect((await paidSubscription(request)).status).toBe(SubscriptionStatus.Active);

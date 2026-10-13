@@ -1,3 +1,4 @@
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useMemo, useState } from "react";
 import {
   RowActionOutcome,
@@ -518,6 +519,11 @@ export function PurchaseInvoicesScreen() {
   const itemsQuery = useItems();
   const projectsQuery = useProjects();
   const createInvoice = useCreatePurchaseInvoice();
+  const savedNotice = useAlreadySavedNotice();
+  const invoiceId = useDocumentId((savedId) => {
+    savedNotice.show(savedId);
+    subPage.open(savedId);
+  });
   const confirmInvoice = useConfirmPurchaseInvoice();
 
   const receipts = receiptsQuery.data ?? [];
@@ -795,7 +801,7 @@ export function PurchaseInvoicesScreen() {
         const partial = quantities.some((q) => q.qty.compare(q.remaining) !== 0);
         await createInvoice.mutateAsync({
           ...(partial ? { receiptQuantities: quantities.filter((q) => !q.qty.isZero()).map((q) => ({ lineIndex: q.lineIndex, qty: q.typed })) } : {}),
-          id: crypto.randomUUID(),
+          id: invoiceId.current(),
           supplierId: receipt.supplierId,
           date,
           branchId: workingLocation.branchId ?? "",
@@ -810,7 +816,7 @@ export function PurchaseInvoicesScreen() {
         const usable = lines.filter((l) => isPositive(l.qty) && (l.kind !== "inventory" || l.itemId !== ""));
         if (usable.length === 0) return;
         await createInvoice.mutateAsync({
-          id: crypto.randomUUID(),
+          id: invoiceId.current(),
           supplierId: supplier.id,
           date,
           branchId: workingLocation.branchId ?? "",
@@ -829,8 +835,10 @@ export function PurchaseInvoicesScreen() {
           })),
         });
       }
+      invoiceId.renew();
       subPage.close();
     } catch (err) {
+      if (invoiceId.recover(err)) return;
       setFormError(err instanceof Error ? err.message : t("purchaseInvoices.error.saveFailed"));
     }
   }
@@ -1055,6 +1063,7 @@ export function PurchaseInvoicesScreen() {
   if (selected) {
     return (
       <>
+        <AlreadySavedNotice notice={savedNotice} openId={selectedId} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
         <InvoiceDetail
           invoice={selected}
           supplierName={supplierName}

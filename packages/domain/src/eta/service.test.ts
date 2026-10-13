@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { DEFAULT_ETA_CONFIG, computeEtaReadiness, type EtaConfig, type EtaConfigRepository } from "./config.js";
 import type { EtaSubmission, EtaSubmissionRepository, EtaSubmissionStatus } from "./submission.js";
-import { EtaService, stubOnlineTransmitPort, type EtaTransmitPort, type EtaEnqueueInput } from "./service.js";
+import { ETA_UNRECORDED_SUBMISSION_CODE, EtaService, stubOnlineTransmitPort, type EtaTransmitPort, type EtaEnqueueInput } from "./service.js";
+import { ConnectionTurnLostError } from "../audit/audit-event.js";
 import type { EtaSignerPort } from "./signer.js";
 import { EtaPrevalidationSeverity, type EtaPrevalidationFinding } from "./prevalidate.js";
 import {
@@ -281,5 +282,193 @@ describe("computeEtaReadiness", () => {
       hasClientSecret: true,
     };
     expect(computeEtaReadiness(full).percent).toBe(100);
+  });
+});
+
+describe("EtaService — one sender per document", () => {
+  function slowPort() {
+    let answer!: (result: { ok: true; etaUuid: string }) => void;
+    let calls = 0;
+    const port: EtaTransmitPort = {
+      transmit: () =>
+        new Promise((resolve) => {
+          calls += 1;
+          answer = resolve;
+        }),
+    };
+    return { port, answer: () => answer({ ok: true, etaUuid: "UUID-1" }), calls: () => calls };
+  }
+
+  it("refuses a second submit while the first is with the authority, and transmits once", async () => {
+    const slow = slowPort();
+    const { svc } = service({}, slow.port);
+    const queued = await svc.enqueue(doc);
+    const first = svc.submit(queued.id);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await expect(svc.submit(queued.id)).rejects.toMatchObject({ code: "ETA_SUBMISSION_IN_PROGRESS" });
+
+    slow.answer();
+    expect((await first).status).toBe("submitted");
+    expect(slow.calls()).toBe(1);
+  });
+
+  it("refuses to exclude a document in flight, so the outcome about to be written cannot overwrite the exclusion", async () => {
+    const slow = slowPort();
+    const { svc } = service({}, slow.port);
+    const queued = await svc.enqueue(doc);
+    const first = svc.submit(queued.id);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    await expect(svc.exclude(queued.id, "أُدخل بالخطأ")).rejects.toMatchObject({ code: "ETA_SUBMISSION_IN_PROGRESS" });
+
+    slow.answer();
+    expect((await first).status).toBe("submitted");
+  });
+
+  it("leaves a document in flight queued in a batch run rather than failing the run", async () => {
+    const slow = slowPort();
+    const { svc } = service({}, slow.port);
+    const queued = await svc.enqueue(doc);
+    const first = svc.submit(queued.id);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(await svc.submitAllReady()).toEqual({ submitted: [], queued: [queued.id], blocked: [] });
+
+    slow.answer();
+    await first;
+  });
+
+  it("frees the document once the attempt fails, so the next press is answered rather than told it is still being sent", async () => {
+    let attempts = 0;
+    const port: EtaTransmitPort = {
+      async transmit() {
+        attempts += 1;
+        throw new Error("socket hang up");
+      },
+    };
+    const { svc } = service({}, port);
+    const queued = await svc.enqueue(doc);
+    await expect(svc.submit(queued.id)).rejects.toThrow("socket hang up");
+
+    const next = await svc.submit(queued.id);
+    expect(next.status).toBe("error");
+    expect(next.rejectionCodes).toEqual([ETA_UNRECORDED_SUBMISSION_CODE]);
+    expect(attempts).toBe(1);
+  });
+});
+
+describe("EtaService — a document handed to the authority whose answer was never recorded", () => {
+  const lostTurn = () => new ConnectionTurnLostError(10_000, { completed: { value: { status: 200, body: "{}" } } });
+
+  function lossyPort(overrides: Partial<EtaTransmitPort> = {}) {
+    const calls = { transmit: 0, fetchStatus: 0 };
+    let lose = true;
+    const port: EtaTransmitPort = {
+      async transmit() {
+        calls.transmit += 1;
+        if (lose) throw lostTurn();
+        return { ok: true, etaUuid: "UUID-AFTER" };
+      },
+      ...overrides,
+    };
+    return { port, calls, stopLosing: () => (lose = false) };
+  }
+
+  it("is marked as sent before the call, so a lost turn leaves a trace and the next drive does not send it again", async () => {
+    const { port, calls } = lossyPort();
+    const { svc, submissions } = service({}, port);
+    const queued = await svc.enqueue(doc);
+
+    await expect(svc.submit(queued.id)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    const afterLoss = submissions.rows.get(queued.id)!;
+    expect(afterLoss.status).toBe("ready");
+    expect(afterLoss.transmitStartedAt).toBe("2026-08-22T10:00:00.000Z");
+
+    const second = await svc.submit(queued.id);
+    expect(calls.transmit).toBe(1);
+    expect(second.status).toBe("error");
+    expect(second.rejectionCodes).toEqual([ETA_UNRECORDED_SUBMISSION_CODE]);
+    expect(second.errors[0]).toContain("لم يُسجَّل ردّها");
+
+    await svc.processQueue();
+    expect(calls.transmit).toBe(1);
+  });
+
+  it("asks the authority what it holds when the document's UUID is known, and records that instead of sending again", async () => {
+    const { port, calls } = lossyPort({
+      async fetchStatus() {
+        calls.fetchStatus += 1;
+        return { state: "accepted", errors: [] };
+      },
+    });
+    const { svc, submissions } = service({}, port);
+    const queued = await svc.enqueue(doc);
+    await expect(svc.submit(queued.id)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    submissions.rows.set(queued.id, { ...submissions.rows.get(queued.id)!, etaUuid: "UUID-KNOWN" });
+
+    const reconciled = await svc.submit(queued.id);
+
+    expect(calls).toEqual({ transmit: 1, fetchStatus: 1 });
+    expect(reconciled.status).toBe("accepted");
+    expect(reconciled.transmitStartedAt).toBeNull();
+  });
+
+  it("sends again only when the authority says it has never seen the document", async () => {
+    const { port, calls, stopLosing } = lossyPort({
+      async fetchStatus() {
+        calls.fetchStatus += 1;
+        return {
+          state: "unknown",
+          errors: ["404"],
+          log: [{ at: "t", attempt: 1, method: "GET", url: "u", requestBody: null, status: 404, responseBody: "", error: null }],
+        };
+      },
+    });
+    const { svc, submissions } = service({}, port);
+    const queued = await svc.enqueue(doc);
+    await expect(svc.submit(queued.id)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    submissions.rows.set(queued.id, { ...submissions.rows.get(queued.id)!, etaUuid: "UUID-KNOWN" });
+    stopLosing();
+
+    const resent = await svc.submit(queued.id);
+
+    expect(calls.transmit).toBe(2);
+    expect(resent.status).toBe("submitted");
+    expect(resent.transmitStartedAt).toBeNull();
+  });
+
+  it("clears the mark when the answer is recorded, and when the authority was never reached", async () => {
+    const accepted = service({}, acceptingPort);
+    const a = await accepted.svc.enqueue(doc);
+    expect((await accepted.svc.submit(a.id)).transmitStartedAt).toBeNull();
+
+    const offline = service({}, { async transmit() { throw new EtaOfflineError(); } });
+    const b = await offline.svc.enqueue(doc);
+    await expect(offline.svc.submit(b.id)).rejects.toBeInstanceOf(EtaOfflineError);
+    expect(offline.submissions.rows.get(b.id)!.transmitStartedAt).toBeNull();
+    expect(offline.submissions.rows.get(b.id)!.status).toBe("ready");
+  });
+
+  it("lets a person settle it: record the authority's UUID, or queue it again to send", async () => {
+    const first = lossyPort();
+    const one = service({}, first.port);
+    const a = await one.svc.enqueue(doc);
+    await expect(one.svc.submit(a.id)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    await one.svc.submit(a.id);
+    const marked = await one.svc.markAccepted(a.id, "UUID-FROM-PORTAL");
+    expect(marked.status).toBe("accepted");
+    expect(marked.transmitStartedAt).toBeNull();
+
+    const second = lossyPort();
+    const two = service({}, second.port);
+    const b = await two.svc.enqueue(doc);
+    await expect(two.svc.submit(b.id)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    await two.svc.submit(b.id);
+    const requeued = await two.svc.requeue(b.id, { payload: b.payload, prevalidation: [] });
+    expect(requeued.transmitStartedAt).toBeNull();
+    second.stopLosing();
+    expect((await two.svc.submit(b.id)).status).toBe("submitted");
+    expect(second.calls.transmit).toBe(2);
   });
 });

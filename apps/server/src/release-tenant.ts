@@ -49,7 +49,7 @@ export async function releaseProvisioningTenant(deps: ReleaseTenantDeps, input: 
     },
     "BEGIN IMMEDIATE",
   );
-  await deps.router.evict(released.id);
+  await platform.outsideTheTurn(() => deps.router.evict(released.id));
   deps.router.invalidate(before.code);
   return released;
 }

@@ -74,6 +74,82 @@ have no `MEZAN_DEMO_PASSWORD`. Fix both by hand:
 
    A `200` on `/` without credentials means the old build is still serving.
 
+### What `render.yaml` sets
+
+The values the blueprint commits. `apps/server/src/env-docs.test.ts` reads
+`render.yaml` itself and this table, and starts the server's configuration
+from each; a variable marked `sync: false` in the blueprint is asked for in the
+dashboard and is not listed here.
+
+<!-- env-table: render -->
+
+| Variable | Value | Notes |
+|---|---|---|
+| `MEZAN_PLATFORM_DIR` | `/tmp/platform` | wiped on every restart of the free plan |
+| `MEZAN_SEED_DEMO` | `1` | needs `MEZAN_DEMO_PASSWORD` (dashboard) |
+| `MEZAN_TRUST_PROXY` | `1` | |
+| `MEZAN_TRUSTED_PROXY_HOPS` | `1` | required with the line above; see "Whose address the demo counts" |
+| `MEZAN_PUBLIC_URL` | `https://mezan-demo.onrender.com` | every mailed link is built on it; change it with the service's address |
+| `NODE_OPTIONS` | `--max-old-space-size=400` | |
+
+<!-- /env-table -->
+
+On AWS the same two proxy variables are set by `cyag-devops`, not by this file:
+see "Owner must do before deploy" in [DEPLOY-AWS.md](DEPLOY-AWS.md).
+
+### Whose address the demo counts
+
+`render.yaml` sets `MEZAN_TRUST_PROXY=1` and `MEZAN_TRUSTED_PROXY_HOPS=1`. The
+server refuses to start with the first and no count, and without either it
+counts every caller as the one proxy address in front of it, so one visitor's
+wrong PINs hold the sign-in for everybody.
+
+Render says public traffic reaches a web service "through Cloudflare and
+Render's load balancer", that Cloudflare "appends to `X-Forwarded-For` rather
+than replacing it", and that a caller who sends their own copy "controls the
+leftmost entry"
+(<https://render.com/articles/host-pocketbase-on-render>). Render's
+documentation does not say whether its own load balancer appends an entry as
+well, so the count ships at `1`: the rightmost entry is always written by
+Render's side and never by the caller. If the load balancer does append, that
+entry is a Cloudflare address and the count must be `2`.
+
+`MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER=cf-connecting-ip` is supported by the
+server and is **not** set in `render.yaml`. It may be set only where the
+platform's own documentation says the header is written by its edge and
+cannot be supplied by the client, and that could not be confirmed (checked
+2026-10-12): Render's web-service documentation
+(<https://render.com/docs/web-services>) does not mention `CF-Connecting-IP`,
+`True-Client-IP` or how to read a client's address at all, and Cloudflare's
+header reference
+(<https://developers.cloudflare.com/fundamentals/reference/http-headers/>)
+says the header "provides the client IP address connecting to Cloudflare to
+the origin web server" and recommends it over `X-Forwarded-For`, but does not
+say that a `CF-Connecting-IP` the client sent is replaced. So the demo keeps
+counting the hop its last proxy appended. If Render publishes that guarantee,
+add the variable to `render.yaml` and the dashboard and run the check below
+with `-H 'cf-connecting-ip: 203.0.113.99'` added: `origin` must still be your
+own address.
+
+Check it once after a deploy, from a machine whose public address you know:
+
+```sh
+curl -s https://api.ipify.org; echo
+curl -s -u "demo:$MEZAN_DEMO_PASSWORD" -X POST https://mezan-demo.onrender.com/api/platform/auth/login \
+  -H 'content-type: application/json' -H 'x-forwarded-for: 203.0.113.99' \
+  -d '{"email":"nobody@example.com","password":"wrong-on-purpose"}'
+```
+
+Then sign in to the platform console and open the audit log: the newest
+`PLATFORM_LOGIN_FAILED` event carries `origin`.
+
+- `origin` is your own address: the count is right.
+- `origin` is some other public address (Cloudflare's): set
+  `MEZAN_TRUSTED_PROXY_HOPS` to `2` in `render.yaml` and the dashboard, redeploy,
+  and run the check again.
+- `origin` is `203.0.113.99`: the count is too high. Lower it by one at once —
+  a caller is choosing the address it is counted under.
+
 ### Free-plan behaviour
 
 - The instance sleeps after 15 minutes with no traffic; the next request takes

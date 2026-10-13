@@ -68,7 +68,7 @@ export function createBackendCache<H extends CachedHandle>(options: BackendCache
       if (!entry) return;
       entries.delete(code);
       options.onEvict?.(code);
-      await entry.handle.then((h) => h.close()).catch(() => undefined);
+      await entry.handle.then((handle) => handle.close()).catch(() => undefined);
     },
     async close() {
       closed = true;

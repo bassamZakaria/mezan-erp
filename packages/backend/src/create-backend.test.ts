@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
 import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, createSupplier as buildSupplier, createEntitlements, toTenantDay } from "@mezan/domain";
 import { createSqliteCustomerRepository, createSqliteLedgerStore, createSqliteSupplierRepository, openSqliteConnection } from "@mezan/persistence";
@@ -4415,6 +4415,8 @@ describe("createBackend — GET /gl/balances-by-currency reads real open receiva
   });
 });
 
+const DEMO_SEED_BUDGET_MS = 180_000;
+
 describe("createBackend — seedDemoData wires a real session and seeds through the real API", () => {
   // The demo seed's ~15-user tenant exceeds the default resolver's 10 seats
   // (A3's SEAT_LIMIT_REACHED), so every demo-seeded backend here supplies its
@@ -4422,15 +4424,19 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
   const demoEntitlements = () =>
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
 
+  let seeded: BackendHandle;
+  beforeAll(async () => {
+    seeded = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
+    registries.set(seeded.app, seeded.sessions);
+  }, DEMO_SEED_BUDGET_MS);
+  afterAll(() => seeded.close());
+
   it("seeds more than zero customers, reachable over the real HTTP surface", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
-    handles.push(handle);
-    registries.set(handle.app, handle.sessions);
-    const res = await handle.app.fetch(new Request("http://local/customers", { headers: admin(handle.app) }));
+    const res = await seeded.app.fetch(new Request("http://local/customers", { headers: admin(seeded.app) }));
     expect(res.status).toBe(200);
     const customersList = (await res.json()) as unknown[];
     expect(customersList.length).toBeGreaterThan(0);
-  }, 60000);
+  }, DEMO_SEED_BUDGET_MS);
 
   it("keeps the demo company's own name, and leaves its first-run claim closed", async () => {
     const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
@@ -4448,7 +4454,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
 
     const settings = await handle.app.fetch(new Request("http://local/settings", { headers: admin(handle.app) }));
     expect(((await settings.json()) as { companyName: string }).companyName).toBe(SEED_TENANT_NAME);
-  }, 60000);
+  }, DEMO_SEED_BUDGET_MS);
 
   /**
    * D5 — the certificate BILLS through the ordinary sales-invoice engine, so
@@ -4457,10 +4463,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
    * confirms a live invoice the authority never hears about.
    */
   it("an approved progress certificate's invoice reaches the ETA queue exactly once", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
-    handles.push(handle);
-    registries.set(handle.app, handle.sessions);
-    const app = handle.app;
+    const app = seeded.app;
 
     const certRes = await app.fetch(new Request("http://local/contracting/certificates", { headers: admin(app) }));
     expect(certRes.status).toBe(200);
@@ -4478,7 +4481,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
       const rows = queued.filter((r) => r.internalId === docNo);
       expect(rows.map((r) => r.documentType), `certificate invoice ${docNo} in the queue`).toEqual(["invoice"]);
     }
-  }, 60000);
+  }, DEMO_SEED_BUDGET_MS);
 });
 
 describe("resolveEntitlements", () => {

@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { IdempotencyRefusal } from "@mezan/contracts";
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../data/ApiContext";
 import { sessionHolds } from "../data/session";
 import { useQueryClient } from "@tanstack/react-query";
@@ -72,6 +74,7 @@ import {
   useCancelVoucher,
   type VoucherDetailDTO,
   type VoucherRowDTO,
+  ApiError,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { TreasuryCurrencyNotice, type TreasuryCurrencyRate } from "./TreasuryCurrencyNotice";
@@ -221,6 +224,7 @@ export function TreasuryVouchersScreen() {
   // shell's breadcrumb (and the «رجوع» that sits beside it) can lead out of it.
   const subPage = useSubPage();
   const [selectedId] = subPage.segments;
+  const savedNotice = useAlreadySavedNotice();
   // Arriving from «تحصيل» on an invoice row: the customer is known, so the
   // create form opens as a collection already pointed at them (R3.5).
   const [prefillParty, setPrefillParty] = useState<{ customerId?: string; supplierId?: string } | null>(null);
@@ -425,6 +429,10 @@ export function TreasuryVouchersScreen() {
         initialSupplierId={prefillParty?.supplierId ?? null}
         initialVoucherType={prefillType}
         onDone={subPage.close}
+        onAlreadyCreated={(voucherId) => {
+          savedNotice.show(voucherId);
+          subPage.open(voucherId);
+        }}
       />
     );
   }
@@ -439,7 +447,12 @@ export function TreasuryVouchersScreen() {
   }
 
   if (selectedId) {
-    return <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={subPage.close} onOpenVoucher={(voucherId) => subPage.open(voucherId)} />;
+    return (
+      <>
+        <AlreadySavedNotice notice={savedNotice} openId={selectedId} message={t("vouchers.alreadyCreated")} dismissLabel={t("documents.alreadySaved.dismiss")} />
+        <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={subPage.close} onOpenVoucher={(voucherId) => subPage.open(voucherId)} />
+      </>
+    );
   }
 
   return (
@@ -694,6 +707,12 @@ function VoucherDetailView({
   const [allocAmount, setAllocAmount] = useState("");
   const [allocDate, setAllocDate] = useState("");
   const [allocatedOn, setAllocatedOn] = useState<string | null>(null);
+  const [allocationAlreadySaved, setAllocationAlreadySaved] = useState(false);
+  const allocationId = useDocumentId(() => {
+    setAllocationAlreadySaved(true);
+    setInvoiceId("");
+    setAllocAmount("");
+  });
 
   const doc = query.data;
   const def = doc ? getVoucherTypeDefinition(doc.voucherType) : null;
@@ -719,12 +738,15 @@ function VoucherDetailView({
     setAllocatedOn(null);
     try {
       const chosen = allocDate !== "" && allocDate !== defaultAllocDate ? { date: allocDate } : {};
-      const made = await createAllocation.mutateAsync({ voucherId: doc.id, body: { invoiceId, amount: allocAmount, ...chosen } });
+      const made = await createAllocation.mutateAsync({ voucherId: doc.id, body: { allocationId: allocationId.current(), invoiceId, amount: allocAmount, ...chosen } });
+      allocationId.renew();
+      setAllocationAlreadySaved(false);
       setAllocatedOn(made.date ?? null);
       setInvoiceId("");
       setAllocAmount("");
       setAllocDate("");
     } catch (err) {
+      if (allocationId.recover(err)) return;
       setError(err instanceof Error ? err.message : t("vouchers.theAmountCouldNotBe"));
     } finally {
       setBusy(false);
@@ -877,6 +899,11 @@ function VoucherDetailView({
         {doc.status === "confirmed" && doc.allocatable && summary.needsAllocation ? (
           <Card className="flex flex-col gap-[12px] p-[16px_18px]">
             <h3 className="font-display text-[13.5px] font-bold text-ink">{t("vouchers.allocateAnAmountToAn")}</h3>
+            {allocationAlreadySaved ? (
+              <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+                {t("vouchers.allocationAlreadySaved")}
+              </div>
+            ) : null}
             {openInvoices.length === 0 ? (
               <div className="text-[12.5px] text-ink-muted">{t("vouchers.thisPartyHasNoOpen")}</div>
             ) : (
@@ -1060,6 +1087,7 @@ function CreateVoucherView({
   initialSupplierId = null,
   initialVoucherType = null,
   onDone,
+  onAlreadyCreated,
 }: {
   customers: CustomerDTO[];
   suppliers: SupplierDTO[];
@@ -1070,6 +1098,7 @@ function CreateVoucherView({
   /** Opens the form on this type instead of the grid. Overridden by a named party. */
   initialVoucherType?: VoucherType | null;
   onDone: () => void;
+  onAlreadyCreated: (voucherId: string) => void;
 }) {
   const effectText = useDocumentEffectText();
   const nameOf = useEntityName();
@@ -1078,6 +1107,7 @@ function CreateVoucherView({
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
   const createCollection = useCreateCollection();
+  const voucherId = useDocumentId(onAlreadyCreated);
   const { session } = useApi();
   const mayConfirm = VOUCHER_CONFIRM_PERMISSIONS.some((permission) => sessionHolds(session, permission));
   const [draftSaved, setDraftSaved] = useState(false);
@@ -1215,6 +1245,7 @@ function CreateVoucherView({
     try {
       if (mayConfirm && line.voucherType === "customer_collection" && line.customerId) {
         const collected = await createCollection.mutateAsync({
+          id: voucherId.current(),
           date: draft.date,
           memo: draft.memo || voucherLabel(def),
           customerId: line.customerId,
@@ -1232,6 +1263,7 @@ function CreateVoucherView({
           withholdingGlAccountId: line.withholdingGlAccountId ?? null,
           allocations: [],
         });
+        voucherId.renew();
         if (collected.held) {
           setHeldVoucher({ docNo: collected.voucher.docNo ?? "" });
           return;
@@ -1240,6 +1272,7 @@ function CreateVoucherView({
         return;
       }
       const created = await createVoucher.mutateAsync({
+        id: voucherId.current(),
         date: draft.date,
         memo: draft.memo || voucherLabel(def),
         voucherType: line.voucherType,
@@ -1265,6 +1298,7 @@ function CreateVoucherView({
         return;
       }
       const confirmed = await confirmVoucher.mutateAsync({ id: created.id });
+      voucherId.renew();
       // An approval gate holds the confirm: the voucher exists, nothing was
       // posted, and closing the wizard here reported plain success for money
       // that has not moved (D83).
@@ -1274,6 +1308,7 @@ function CreateVoucherView({
       }
       onDone();
     } catch (err) {
+      if (voucherId.recover(err)) return;
       setError(err instanceof Error ? err.message : t("vouchers.theVoucherCouldNotBe3"));
     } finally {
       setBusy(false);

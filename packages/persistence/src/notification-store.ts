@@ -1,13 +1,15 @@
+import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import type {
-  Notification,
-  NotificationChannel,
-  NotificationChannelStatus,
-  NotificationListFilter,
-  NotificationPriority,
-  NotificationReadStatus,
-  NotificationRepository,
+import {
+  NotificationChannelState,
+  type Notification,
+  type NotificationChannel,
+  type NotificationChannelStatus,
+  type NotificationListFilter,
+  type NotificationPriority,
+  type NotificationReadStatus,
+  type NotificationRepository,
 } from "@mezan/domain";
 
 /**
@@ -89,6 +91,8 @@ function fromRow(row: NotificationRow): Notification {
   };
 }
 
+const channelPath = (channel: string): string => `$."${channel.replace(/["\\]/g, "")}"`;
+
 class SqliteNotificationRepository implements NotificationRepository {
   private readonly insertStmt: Database.Statement;
   private readonly selectByIdStmt: Database.Statement;
@@ -96,6 +100,10 @@ class SqliteNotificationRepository implements NotificationRepository {
   private readonly markAllReadStmt: Database.Statement;
   private readonly countUnreadStmt: Database.Statement;
   private readonly listQueuedStmt: Database.Statement;
+  private readonly claimStmt: Database.Statement;
+  private readonly settleStmt: Database.Statement;
+  private readonly listSendingStmt: Database.Statement;
+  private readonly requeueStmt: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
     this.insertStmt = sqlite.prepare(`
@@ -109,6 +117,33 @@ class SqliteNotificationRepository implements NotificationRepository {
     this.listQueuedStmt = sqlite.prepare(
       `SELECT * FROM notification WHERE channel_status_json LIKE '%"queued"%' ORDER BY created_at ASC LIMIT ?`,
     );
+    // ONE STATEMENT, so the check and the claim cannot be separated: of two
+    // drains reaching the same channel, exactly one changes a row.
+    this.claimStmt = sqlite.prepare(`
+      UPDATE notification
+         SET channel_status_json = json_set(channel_status_json, @path, '${NotificationChannelState.Sending}'),
+             channel_claims_json = json_set(COALESCE(channel_claims_json, '{}'), @path, json_object('at', @at, 'token', @token))
+       WHERE id = @id AND json_extract(channel_status_json, @path) = '${NotificationChannelState.Queued}'
+    `);
+    // SECURITY OF THE QUEUE: the claim is checked in the same statement that
+    // settles, so a drain whose claim was taken over writes nothing.
+    this.settleStmt = sqlite.prepare(`
+      UPDATE notification
+         SET channel_status_json = json_set(channel_status_json, @path, @status),
+             channel_claims_json = json_remove(COALESCE(channel_claims_json, '{}'), @path)
+       WHERE id = @id
+         AND json_extract(channel_status_json, @path) = '${NotificationChannelState.Sending}'
+         AND json_extract(channel_claims_json, @tokenPath) = @token
+    `);
+    this.listSendingStmt = sqlite.prepare(
+      `SELECT id, channel_status_json, channel_claims_json FROM notification WHERE channel_status_json LIKE '%"${NotificationChannelState.Sending}"%'`,
+    );
+    this.requeueStmt = sqlite.prepare(`
+      UPDATE notification
+         SET channel_status_json = json_set(channel_status_json, @path, '${NotificationChannelState.Queued}'),
+             channel_claims_json = json_remove(COALESCE(channel_claims_json, '{}'), @path)
+       WHERE id = @id AND json_extract(channel_status_json, @path) = '${NotificationChannelState.Sending}'
+    `);
     this.selectByIdStmt = sqlite.prepare(`SELECT * FROM notification WHERE id = ?`);
     this.markReadStmt = sqlite.prepare(
       `UPDATE notification SET status = 'read', read_at = ? WHERE id = ? AND recipient_user_id = ? AND status = 'unread'`,
@@ -139,6 +174,31 @@ class SqliteNotificationRepository implements NotificationRepository {
   async listQueued(limit: number): Promise<readonly Notification[]> {
     const rows = this.listQueuedStmt.all(limit) as NotificationRow[];
     return rows.map(fromRow);
+  }
+
+  async claimChannel(id: string, channel: string, at: string): Promise<string | null> {
+    const token = randomUUID();
+    return this.claimStmt.run({ id, path: channelPath(channel), at, token }).changes === 1 ? token : null;
+  }
+
+  async settleChannel(id: string, channel: string, status: NotificationChannelStatus, claim: string): Promise<boolean> {
+    const path = channelPath(channel);
+    return this.settleStmt.run({ id, path, tokenPath: `${path}.token`, status, token: claim }).changes === 1;
+  }
+
+  async requeueStaleSending(before: string): Promise<number> {
+    let requeued = 0;
+    for (const row of this.listSendingStmt.all() as { id: string; channel_status_json: string; channel_claims_json: string | null }[]) {
+      const statuses = JSON.parse(row.channel_status_json) as Record<string, string>;
+      const claims = JSON.parse(row.channel_claims_json ?? "{}") as Record<string, { at?: string } | undefined>;
+      for (const [channel, status] of Object.entries(statuses)) {
+        if (status !== NotificationChannelState.Sending) continue;
+        const claimedAt = claims[channel]?.at;
+        if (claimedAt !== undefined && claimedAt >= before) continue;
+        requeued += this.requeueStmt.run({ id: row.id, path: channelPath(channel) }).changes;
+      }
+    }
+    return requeued;
   }
 
   async findById(id: string): Promise<Notification | null> {
@@ -177,6 +237,9 @@ class SqliteNotificationRepository implements NotificationRepository {
 export interface SqliteNotificationStoreHandle extends NotificationRepository {
   /** Every notification with a channel still queued — the dispatcher's input (ROADMAP §3.3). */
   listQueued(limit: number): Promise<readonly Notification[]>;
+  claimChannel(id: string, channel: string, at: string): Promise<string | null>;
+  settleChannel(id: string, channel: string, status: NotificationChannelStatus, claim: string): Promise<boolean>;
+  requeueStaleSending(before: string): Promise<number>;
   close(): void;
 }
 
@@ -184,10 +247,22 @@ export interface SqliteNotificationStoreHandle extends NotificationRepository {
 export function createSqliteNotificationStore(path: SqliteConnectionInput = ":memory:"): SqliteNotificationStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
+  const columns = sqlite.prepare("PRAGMA table_info(notification)").all() as { name: string }[];
+  if (!columns.some((column) => column.name === "channel_claims_json")) sqlite.exec("ALTER TABLE notification ADD COLUMN channel_claims_json TEXT");
   const repo = new SqliteNotificationRepository(sqlite);
   return Object.assign(repo, {
     close: () => {
       if (owned) sqlite.close();
     },
   }) as SqliteNotificationStoreHandle;
+}
+
+export function removeNotificationLinesMatching(input: SqliteConnectionInput, eventCode: string, pattern: RegExp): void {
+  const { sqlite } = openSqliteConnection(input);
+  const rows = sqlite.prepare(`SELECT id, body FROM notification WHERE event_code = ?`).all(eventCode) as { id: string; body: string }[];
+  const rewrite = sqlite.prepare(`UPDATE notification SET body = ? WHERE id = ?`);
+  for (const row of rows) {
+    const kept = row.body.split("\n").filter((line) => !pattern.test(line)).join("\n");
+    if (kept !== row.body) rewrite.run(kept, row.id);
+  }
 }

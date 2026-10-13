@@ -580,6 +580,66 @@ describe("POST /auth/logout — revoking a session needs to be the machine that 
   });
 });
 
+describe("POST /auth/login — an address that names a different account each time is held too", () => {
+  const fromAddress = (address: string) => ({ incoming: { socket: { remoteAddress: address } } });
+  const attempt = (app: App, username: string, address: string, pin = "000000") =>
+    app.fetch(
+      new Request("http://local/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username, pin }),
+      }),
+      fromAddress(address),
+    );
+
+  it("answers 429 once thirty accounts have been tried from one address, and still serves another address", async () => {
+    const app = await newBackend();
+    for (let i = 0; i < 30; i += 1) expect((await attempt(app, `ghost${i}@shop.test`, "192.168.1.66")).status).toBe(401);
+
+    const held = await attempt(app, "ghost30@shop.test", "192.168.1.66");
+    const next = await attempt(app, "ghost31@shop.test", "192.168.1.66");
+    const owner = await attempt(app, SEED_ADMIN_EMAIL, "192.168.1.40", SEED_ADMIN_PIN);
+
+    expect(held.status).toBe(429);
+    expect(next.status).toBe(429);
+    expect(await next.json()).toMatchObject({ error: "TOO_MANY_ATTEMPTS", retryAfterSeconds: expect.any(Number) });
+    expect(owner.status).toBe(200);
+  }, 60_000);
+
+  it("refuses the right PIN from a held address, so the hold cannot be guessed through", async () => {
+    const app = await newBackend();
+    for (let i = 0; i < 31; i += 1) await attempt(app, `ghost${i}@shop.test`, "192.168.1.66");
+
+    expect((await attempt(app, SEED_ADMIN_EMAIL, "192.168.1.66", SEED_ADMIN_PIN)).status).toBe(429);
+  }, 60_000);
+});
+
+describe("a sign-in whose event the audit log refuses", () => {
+  it("is kept in the tenant's fallback and counted on the security exception report, without the PIN, and the sign-in still answers", async () => {
+    const handle = await createBackend({ dbPath: ":memory:" });
+    handles.push(handle);
+    const app = handle.app;
+    const headers = await adminHeaders(app);
+    const append = handle.audit.append.bind(handle.audit);
+    handle.audit.append = async () => {
+      throw new Error("database is locked");
+    };
+
+    const wrong = await post(app, "/auth/login", { username: SEED_ADMIN_EMAIL, pin: "000000" });
+    const right = await post(app, "/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN });
+    handle.audit.append = append;
+
+    expect([wrong.status, right.status]).toEqual([401, 200]);
+    const report = (await (await get(app, "/security-reports/exceptions", headers)).json()) as {
+      unrecorded: { count: number; recent: { action: string; reason: string }[] };
+    };
+    expect(report.unrecorded.count).toBe(2);
+    expect(report.unrecorded.recent.map((entry) => entry.action)).toEqual(["LOGIN_SUCCEEDED", "LOGIN_FAILED"]);
+    expect(report.unrecorded.recent[0]?.reason).toBe("database is locked");
+    expect(JSON.stringify(report.unrecorded)).not.toContain(SEED_ADMIN_PIN);
+  });
+});
+
 /* ================================================================== */
 /* D-SAAS-02 / D-SAAS-07 — the company's own name, and who may read it */
 /* ================================================================== */

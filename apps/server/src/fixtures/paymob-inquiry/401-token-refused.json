@@ -1,0 +1,9 @@
+{
+  "documentedAt": null,
+  "note": "",
+  "status": 401,
+  "body": {
+    "detail": "Authentication credentials were not provided."
+  },
+  "expect": "unavailable"
+}

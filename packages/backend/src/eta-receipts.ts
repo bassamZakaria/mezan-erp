@@ -73,7 +73,12 @@ export interface IssueEtaReceiptOptions {
   readonly paymentMethod?: EtaReceiptPaymentMethod;
 }
 
+export type TenantTurn = <T>(work: () => Promise<T>) => Promise<T>;
+
+const straightThrough: TenantTurn = (work) => work();
+
 export interface EtaReceiptIssuerDeps {
+  readonly turn?: TenantTurn;
   readonly eta: EtaService;
   readonly invoices: Pick<SalesInvoiceRepository, "findById">;
   readonly returns: Pick<DocumentRepository<SalesReturnLine>, "findById">;
@@ -313,14 +318,20 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
     draining = true;
     let queued = 0;
     try {
+      // REQUIRED ORDERING: a run is scheduled from inside the confirm that
+      // issued the receipt. Taking the turn there would join that request's
+      // turn and keep the till waiting on the authority's answer; stepping off
+      // the request first makes the run queue for a turn of its own.
+      await new Promise<void>((resolve) => setImmediate(resolve));
       do {
+        if (stopped) return;
         again = false;
         const config = await deps.eta.getConfig();
         // INVARIANT: re-checked after every await. `submitReadyReceipts` reads
         // the store, and this run outlives whatever scheduled it, so resuming
         // past `stop()` reads a closed connection.
         if (stopped || !config.autoSubmitOnConfirm) return;
-        queued = (await deps.eta.submitReadyReceipts()).queued.length;
+        queued = (await (deps.turn ?? straightThrough)(() => deps.eta.submitReadyReceipts())).queued.length;
       } while (again);
     } finally {
       draining = false;
@@ -561,7 +572,9 @@ export function createEtaEnqueueBridge(deps: {
   readonly taxRates: Pick<TaxRateRepository, "list">;
   readonly branchCodes: EtaBranchCodeRepository;
   readonly unitMappings: EtaUnitMappingRepository;
+  readonly turn?: TenantTurn;
 }): EtaEnqueueBridge {
+  const inTurn = deps.turn ?? straightThrough;
   const inFlight = new Set<Promise<void>>();
   let stopped = false;
   return {
@@ -583,12 +596,13 @@ export function createEtaEnqueueBridge(deps: {
           // past it touched a closed handle and lost the receipt behind a
           // swallowed "database connection is not open".
           if (stopped) return;
-          if (await deps.issuer.issueInvoiceReceipt(invoice.id)) deps.issuer.scheduleSubmission();
+          if (await inTurn(() => deps.issuer.issueInvoiceReceipt(invoice.id))) deps.issuer.scheduleSubmission();
           return;
         }
         const config = await deps.eta.getConfig();
         if (!config.autoSubmitOnConfirm || stopped) return;
-        await enqueueInvoice(deps, invoice, customer.taxNumber, event.occurredAt);
+        const taxNumber = customer.taxNumber;
+        await inTurn(() => enqueueInvoice(deps, invoice, taxNumber, event.occurredAt));
       })().catch((error: unknown) => {
         if (error instanceof DuplicateEtaSubmissionError) return;
         console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);

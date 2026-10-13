@@ -1,5 +1,25 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseEnv, PaymobMode } from "./env.js";
+
+function renderBlueprintVariables(): Record<string, string> {
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "render.yaml");
+  const variables: Record<string, string> = {};
+  const pair = /- key: (\S+)\n\s+value: "?([^"\n]+)"?/g;
+  for (const [, key, value] of readFileSync(file, "utf8").matchAll(pair)) variables[key!] = value!;
+  return variables;
+}
+
+describe("the Render blueprint", () => {
+  it("sets a proxy configuration the server starts with, counting the entry the last proxy wrote", () => {
+    const variables = renderBlueprintVariables();
+
+    expect(variables).toMatchObject({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" });
+    expect(parseEnv(variables).clientSource).toEqual({ trustedProxyHops: 1, trustViewerAddress: false, compareViewerAddress: false });
+  });
+});
 
 describe("parseEnv", () => {
   it("defaults every field when nothing is set", () => {
@@ -125,6 +145,7 @@ describe("parseEnv", () => {
         hmacSecret: "hmac-live",
         integrationIds: [101, 102],
         publicUrl: "https://pay.mezan.test",
+        notFoundShapeConfirmed: false,
       },
       platformSmtp: {
         smtpEnabled: true,
@@ -163,6 +184,51 @@ describe("parseEnv", () => {
   it("throws on a non-positive PORT", () => {
     expect(() => parseEnv({ PORT: "0" })).toThrow(/PORT/);
     expect(() => parseEnv({ PORT: "abc" })).toThrow(/PORT/);
+  });
+
+  const livePaymob = {
+    MEZAN_PAYMOB_SECRET_KEY: "sk-live",
+    MEZAN_PAYMOB_PUBLIC_KEY: "pk-live",
+    MEZAN_PAYMOB_HMAC_SECRET: "hmac-live",
+    MEZAN_PAYMOB_INTEGRATION_ID: "101",
+    MEZAN_PAYMOB_PUBLIC_URL: "https://pay.mezan.test",
+  };
+
+  it("reads the optional Paymob inquiry API key alongside the live keys", () => {
+    expect(parseEnv({ ...livePaymob, MEZAN_PAYMOB_API_KEY: " dashboard-key " }).paymob).toMatchObject({ mode: "live", apiKey: "dashboard-key" });
+    expect(parseEnv(livePaymob).paymob).not.toHaveProperty("apiKey");
+  });
+
+  it("refuses a Paymob inquiry API key with no live keys to go with it", () => {
+    expect(() => parseEnv({ MEZAN_PAYMOB_API_KEY: "dashboard-key" })).toThrow(/MEZAN_PAYMOB_API_KEY/);
+  });
+});
+
+describe("MEZAN_PAYMOB_NOT_FOUND_CONFIRMED", () => {
+  const live = {
+    MEZAN_PAYMOB_SECRET_KEY: "sk", MEZAN_PAYMOB_PUBLIC_KEY: "pk", MEZAN_PAYMOB_HMAC_SECRET: "hm", MEZAN_PAYMOB_INTEGRATION_ID: "4242",
+    MEZAN_PAYMOB_PUBLIC_URL: "https://app.mezan.test",
+  };
+
+  it("is off unless set to 1, so an unconfirmed not-found answer cannot expire a checkout", () => {
+    expect(parseEnv(live).paymob).toMatchObject({ mode: "live", notFoundShapeConfirmed: false });
+    expect(parseEnv({ ...live, MEZAN_PAYMOB_NOT_FOUND_CONFIRMED: "true" }).paymob).toMatchObject({ notFoundShapeConfirmed: false });
+    expect(parseEnv({ ...live, MEZAN_PAYMOB_NOT_FOUND_CONFIRMED: "1" }).paymob).toMatchObject({ notFoundShapeConfirmed: true });
+  });
+});
+
+describe("MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER", () => {
+  it("names the one header the caller's address is read from, lower-cased, and only with a trusted proxy", () => {
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1", MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: " CF-Connecting-IP " }).clientSource)
+      .toEqual({ trustedProxyHops: 1, trustViewerAddress: false, compareViewerAddress: false, trustedAddressHeader: "cf-connecting-ip" });
+    expect(parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1" }).clientSource).not.toHaveProperty("trustedAddressHeader");
+    expect(() => parseEnv({ MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: "cf-connecting-ip" })).toThrow(/MEZAN_TRUST_PROXY=1/);
+  });
+
+  it("refuses a value that is not a header name, and the forwarded chain itself", () => {
+    for (const bad of ["cf connecting ip", "x-real-ip: 1.2.3.4", "x-forwarded-for", "forwarded"]) {
+      expect(() => parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "1", MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER: bad }), bad).toThrow(/MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER/);
+    }
   });
 });
 

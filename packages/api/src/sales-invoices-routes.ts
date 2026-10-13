@@ -701,6 +701,7 @@ export function createSalesInvoicesRoutes(
     const d = parsed.data;
     const currencyRefusal = await deps.currencyCheck?.(d.currency);
     if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);
+    const ownEmployeeId = !d.salespersonId && ownVisibilityOnly(c) ? await ownSalespersonIdOf(c) : NO_SUCH_ACTOR;
     const customerTax = await customerTaxProfileOf(deps.customerTax, d.customerId);
     const cmd: CreateSalesInvoiceCommand = {
       id: d.id ?? idGen(),
@@ -712,7 +713,7 @@ export function createSalesInvoicesRoutes(
       customerTaxExemptionRateId: customerTax.taxExemptionRateId,
       warehouseId: d.warehouseId,
       branchId: d.branchId,
-      salespersonId: d.salespersonId ?? (await ownSalespersonForUnnamed(c)),
+      salespersonId: d.salespersonId ?? (ownEmployeeId === NO_SUCH_ACTOR ? null : ownEmployeeId),
       salespersonNameAr: d.salespersonNameAr ?? null,
       projectId: d.projectId ?? null,
       couponCode: d.couponCode ?? null,

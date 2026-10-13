@@ -10,8 +10,12 @@ export {
 } from "./schema-sync.js";
 export {
   openSqliteConnection,
+  sqliteTransactionsSettled,
   withSqliteRead,
   withSqliteTransaction,
+  withSqliteTurn,
+  outsideSqliteTurn,
+  COMPLETED_RETAKE_TIMEOUT_MS,
   type SqliteConnectionInput,
   type OpenedSqliteConnection,
   type SqliteDriver,
@@ -84,7 +88,7 @@ export {
   type SqliteNotificationRuleStoreHandle,
 } from "./notification-rule-store.js";
 export {
-  createSqliteNotificationStore,
+  createSqliteNotificationStore, removeNotificationLinesMatching,
   type SqliteNotificationStoreHandle,
 } from "./notification-store.js";
 export { createScryptHasher } from "./secret-hasher.js";
@@ -372,6 +376,14 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export {
+  createSqliteIdempotentRequestStore,
+  type IdempotentAnswer,
+  type IdempotentRequestStore,
+} from "./idempotent-request-store.js";
+export { createSqliteAccountLockStore, type SqliteAccountLockStore, type StoredAccountLock } from "./account-lock-store.js";
+export { drainForeignWrites, drainUntransactedAudits, keepRecent } from "./untransacted-audits.js";
+export { createFileSecurityEventFallback, securityFallbackFor, type FileSecurityEventFallbackOptions } from "./security-fallback-file.js";
 export { createSqliteUpgradeLedger, UpgradeStepId, type UpgradeLedger } from "./upgrade-ledger.js";
 export { markApprovalsNeedingReapproval } from "./approval-request-store.js";
 export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";

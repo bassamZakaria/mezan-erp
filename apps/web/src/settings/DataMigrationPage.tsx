@@ -28,6 +28,7 @@ import {
 
 import { STEPS, resolveStepSpec, type HistoricalStepDef, type MasterStepDef, type StepDef } from "./data-migration-steps";
 import { useAppTranslation } from "../i18n";
+import { importLimitSentence, oversizeImportRefusal } from "../lib/import-limit";
 
 function StepShell({
   title,
@@ -41,6 +42,7 @@ function StepShell({
   isPreviewing,
   isCommitting,
   previewSummary,
+  refusal,
   errors,
   canCommit,
   onCommit,
@@ -56,11 +58,12 @@ function StepShell({
   isPreviewing: boolean;
   isCommitting: boolean;
   previewSummary: string | null;
+  refusal: string | null;
   errors: readonly { rowNumber: number; reasons: readonly string[] }[];
   canCommit: boolean;
   onCommit: () => void;
 }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const done = (registeredCount ?? 0) > 0;
   return (
     <Card className="p-[16px_18px]">
@@ -77,6 +80,7 @@ function StepShell({
       {open ? (
         <div className="mt-[14px] flex flex-col gap-[12px] border-t border-border pt-[14px]">
           <p className="max-w-[70ch] text-[12px] text-ink-muted">{help}</p>
+          <p className="max-w-[70ch] text-[12px] font-semibold text-ink-muted">{importLimitSentence(locale)}</p>
           <div className="flex flex-wrap items-center gap-[9px]">
             <Button variant="default" onClick={onDownloadTemplate}>
               {t("dataMigration.downloadTemplate")}
@@ -99,6 +103,11 @@ function StepShell({
               {isCommitting ? t("dataMigration.committing") : t("dataMigration.commit")}
             </Button>
           </div>
+          {refusal ? (
+            <p role="alert" className="text-[12.5px] font-semibold text-danger-ink">
+              {refusal}
+            </p>
+          ) : null}
           {previewSummary ? <p className="text-[12.5px] font-semibold text-ink">{previewSummary}</p> : null}
           {errors.length > 0 ? (
             <div className="overflow-auto rounded-md border border-border">
@@ -126,8 +135,27 @@ function StepShell({
   );
 }
 
+type ParsedWorkbook = Awaited<ReturnType<typeof parseDataMigrationFile>>;
+
+async function readWorkbook(file: File, spec: Parameters<typeof parseDataMigrationFile>[1], t: Parameters<typeof parseDataMigrationFile>[2]): Promise<ParsedWorkbook | null> {
+  try {
+    return await parseDataMigrationFile(await file.arrayBuffer(), spec, t);
+  } catch {
+    return null;
+  }
+}
+
+async function answered<T>(ask: () => Promise<T>, onAnswer: (answer: T) => void, onRefusal: (message: string) => void, fallback: string): Promise<void> {
+  try {
+    onAnswer(await ask());
+  } catch (err) {
+    onRefusal(err instanceof Error && err.message !== "" ? err.message : fallback);
+  }
+}
+
 function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterStepDef; open: boolean; onToggle: () => void; registeredCount: number | undefined }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
+  const [refusal, setRefusal] = useState<string | null>(null);
   const preview = useDataMigrationPreview(def.id);
   const commit = useDataMigrationCommit(def.id);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -136,17 +164,25 @@ function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterS
 
   async function handleFile(file: File) {
     setResult(null);
-    const buffer = await file.arrayBuffer();
-    const parsed = await parseDataMigrationFile(buffer, def.spec, t);
+    const parsed = await readWorkbook(file, def.spec, t);
+    if (parsed === null) {
+      setRows(null);
+      setRefusal(t("dataMigration.unreadableFile"));
+      return;
+    }
+    const tooLarge = oversizeImportRefusal(parsed.rows.length, locale);
+    setRefusal(tooLarge);
+    if (tooLarge !== null) {
+      setRows(null);
+      return;
+    }
     setRows([...parsed.rows]);
-    const previewResult = await preview.mutateAsync(parsed.rows);
-    setResult(previewResult);
+    await answered(() => preview.mutateAsync(parsed.rows), setResult, setRefusal, t("dataMigration.previewFailed"));
   }
 
   async function handleCommit() {
     if (!rows) return;
-    const commitResult = await commit.mutateAsync(rows);
-    setResult(commitResult);
+    await answered(() => commit.mutateAsync(rows), setResult, setRefusal, t("dataMigration.commitFailed"));
   }
 
   return (
@@ -161,6 +197,7 @@ function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterS
       onFileChosen={handleFile}
       isPreviewing={preview.isPending}
       isCommitting={commit.isPending}
+      refusal={refusal}
       previewSummary={
         result
           ? result.createdIds
@@ -176,7 +213,8 @@ function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterS
 }
 
 function HistoricalStepCard({ def, open, onToggle, registeredCount }: { def: HistoricalStepDef; open: boolean; onToggle: () => void; registeredCount: number | undefined }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
+  const [refusal, setRefusal] = useState<string | null>(null);
   const preview = useHistoricalImportPreview(def.importKind);
   const commit = useHistoricalImportCommit(def.importKind);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -201,18 +239,26 @@ function HistoricalStepCard({ def, open, onToggle, registeredCount }: { def: His
 
   async function handleFile(file: File) {
     setResult(null);
-    const buffer = await file.arrayBuffer();
-    const parsed = await parseDataMigrationFile(buffer, def.spec, t);
+    const parsed = await readWorkbook(file, def.spec, t);
+    if (parsed === null) {
+      setRows(null);
+      setRefusal(t("dataMigration.unreadableFile"));
+      return;
+    }
+    const tooLarge = oversizeImportRefusal(parsed.rows.length, locale);
+    setRefusal(tooLarge);
+    if (tooLarge !== null) {
+      setRows(null);
+      return;
+    }
     const built = toRows(parsed.rows);
     setRows(built);
-    const previewResult = await preview.mutateAsync(built);
-    setResult(previewResult);
+    await answered(() => preview.mutateAsync(built), setResult, setRefusal, t("dataMigration.previewFailed"));
   }
 
   async function handleCommit() {
     if (!rows) return;
-    const commitResult = await commit.mutateAsync(rows);
-    setResult(commitResult);
+    await answered(() => commit.mutateAsync(rows), setResult, setRefusal, t("dataMigration.commitFailed"));
   }
 
   return (
@@ -227,6 +273,7 @@ function HistoricalStepCard({ def, open, onToggle, registeredCount }: { def: His
       onFileChosen={handleFile}
       isPreviewing={preview.isPending}
       isCommitting={commit.isPending}
+      refusal={refusal}
       previewSummary={
         result
           ? result.archivedIds

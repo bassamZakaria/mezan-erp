@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { BranchDTO, CustomerDTO, ItemDTO, WarehouseDTO } from "@mezan/contracts";
@@ -26,6 +26,7 @@ import { DEFAULT_GL_ACCOUNTS } from "@/domain/accounts";
 import { addDaysIso, todayIso } from "@/domain/dates";
 import { DocumentKind, ItemType } from "@/domain/enums";
 import { makeLocalId } from "@/domain/local-id";
+import { useDocumentId } from "@/hooks/use-document-id";
 import { resolveDefaultBranch, resolveDefaultWarehouse } from "@/domain/working-location";
 import { useSession } from "@/session/SessionProvider";
 import { RADIUS, SPACE, TYPE, useTheme } from "@/theme";
@@ -114,6 +115,11 @@ export function Sell() {
   }, [customer, date, dueDateTouched]);
 
   const createInvoice = useCreateSalesInvoice();
+  const invoiceId = useDocumentId((savedId) => {
+    setNotice(`${strings.common.alreadySaved} — ${savedId}`);
+    setLines([blankLine()]);
+    setNotes("");
+  });
   const confirmInvoice = useConfirmSalesInvoice();
   const createQuote = useCreateSalesQuote();
   const rerate = useRerateAcknowledgement((input) => confirmInvoice.mutateAsync(input));
@@ -178,6 +184,7 @@ export function Sell() {
           return;
         }
         const created = await createInvoice.mutateAsync({
+          id: invoiceId.current(),
           date,
           dueDate,
           customerId: customer.id,
@@ -213,6 +220,7 @@ export function Sell() {
       setLines([blankLine()]);
       setNotes("");
     } catch (err) {
+      if (invoiceId.recover(err)) return;
       setError(describeWriteError(err, strings));
     } finally {
       setBusy(false);
@@ -220,6 +228,7 @@ export function Sell() {
   }
 
   function announceConfirmed(confirmed: { readonly id: string; readonly docNo?: string | null; readonly totals?: { readonly grandTotal: string } }) {
+    invoiceId.renew();
     const total = confirmed.totals?.grandTotal;
     setNotice(`${strings.sell.invoiceCreated} — ${confirmed.docNo ?? confirmed.id}` + (total ? ` — ${formatAmountWithCurrency(total)}` : ""));
   }

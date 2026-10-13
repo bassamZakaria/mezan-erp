@@ -254,6 +254,26 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     expect(lines[0]!.kind).toBe("inventory");
   });
 
+  it("opens the invoice already saved, with a notice, when its id was used with other contents", async () => {
+    let sends = 0;
+    renderScreen([], {
+      "POST /purchases/invoices": () => {
+        sends += 1;
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "حفظ مسودة" })).not.toBeInTheDocument());
+    expect(sends).toBe(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("a quantity, a cost and a line total reach the wire and the screen as the decimals that were typed, where a binary number would not hold them", async () => {
     const { getCreateBody } = renderScreen([]);
     fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { bodyLimit } from "hono/body-limit";
 import path from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type MiddlewareHandler } from "hono";
@@ -10,15 +11,16 @@ import {
   createPlatformRoutes,
   type OwnerPinResetAccount,
   type PlatformHandle,
+  type RecordedActivation,
 } from "@mezan/backend";
-import { createSessionRegistry } from "@mezan/api";
+import { BodyLimitRefusal, createSessionRegistry } from "@mezan/api";
 import { SubscriptionStatusKind, TenantNotFoundError, type Tenant } from "@mezan/domain";
 import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
 import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
 import { releaseProvisioningTenant } from "./release-tenant.js";
-import { createSourceReporter } from "./client-source.js";
+import { callerSource, createSourceReporter, requireCloudSource } from "./client-source.js";
 import { createSignupRoutes, SIGNUP_BASE_PATH } from "./signup-routes.js";
 import { provisionDemoTenant } from "./demo-tenant.js";
 import { provisionReviewTenant } from "./review-tenant.js";
@@ -26,6 +28,7 @@ import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
 import { startDunningTimer } from "./dunning.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
 import { createCardCheckoutService, type CardCheckoutService } from "./card-checkout.js";
+import { startCardCheckoutSweepTimer } from "./card-checkout-sweep.js";
 import { createPaymobProvider, createPaymobTestProvider, type PaymobTestProvider } from "./paymob-provider.js";
 import {
   PAYMOB_WEBHOOK_PATH,
@@ -37,7 +40,11 @@ import {
 } from "./billing-routes.js";
 import { PaymobMode, type CloudEnv } from "./env.js";
 import { MailOutcome, pendingHandOverEmail, smtpMailer, type PlatformMailer } from "./platform-mail.js";
-import { servedTenantLookup, tenantPublicOrigin } from "./public-origin.js";
+import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH } from "./public-origin.js";
+
+const OPERATOR_SWEEP_BUDGET_MS = 20_000;
+
+const PLATFORM_BODY_BYTES = 256 * 1024;
 
 export interface CreateCloudAppOptions {
   readonly now?: () => Date;
@@ -96,8 +103,9 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }
 
   const sessions = createSessionRegistry();
-  const auth = createPlatformAuth({ platform, sessions, now });
+  const auth = createPlatformAuth({ platform, sessions, now, sourceOf: callerSource });
   const sourceReporter = createSourceReporter();
+  const sourceGate = requireCloudSource(env.clientSource, sourceReporter);
 
   const mailer = env.platformSmtp ? (options.mailer ?? smtpMailer(env.platformSmtp)) : undefined;
 
@@ -109,12 +117,17 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
           const origin = tenantPublicOrigin(env, tenant.code);
           if (origin === null) throw new Error("no public origin is configured (set MEZAN_PUBLIC_URL or MEZAN_TENANT_DOMAIN)");
           const link = `${origin}/signup/owner-handover?token=${encodeURIComponent(token)}`;
-          const sent = await mailer.send(to, pendingHandOverEmail({ link, companyName: tenant.nameAr, successorEmail }));
+          const mail = pendingHandOverEmail({ link, companyName: tenant.nameAr, successorEmail });
+          const sent = await platform.outsideTheTurn(() => mailer.send(to, mail));
           if (sent.outcome !== MailOutcome.Sent) throw new Error(`the hand-over mail was not delivered (${sent.outcome})`);
         }
       : undefined,
     tenantDomain: env.tenantDomain,
+    unlockLinkFor: (tenantCode) => tenantUnlockLink(env, tenantCode),
     trustForwardedHost: env.trustProxy,
+    clientSource: env.clientSource,
+    sourceReporter,
+    securityMail: env.platformSmtp,
     allowTenantHeader: true,
     now,
     connection: { exclusive: env.sqliteExclusive },
@@ -129,10 +142,10 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     if (created) console.log(`[cloud] reviewer tenant "${env.reviewTenant.code}" seeded; every login uses MEZAN_REVIEW_PIN.`);
   }
 
-  const provisionTenantForRoutes = async (cmd: CreateTenantRequestDTO & { actorId: string }): Promise<ProvisionResultDTO> =>
-    provisionResultDTOOf(await provisionTenant(cmd, { platform, router, now }));
+  const provisionTenantForRoutes = async (cmd: CreateTenantRequestDTO & { actorId: string }, activation: RecordedActivation): Promise<ProvisionResultDTO> =>
+    provisionResultDTOOf(await provisionTenant(cmd, { platform, router, now, activation }));
 
-  const provisionRetryForRoutes = async (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO): Promise<ProvisionResultDTO> => {
+  const provisionRetryForRoutes = async (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation): Promise<ProvisionResultDTO> => {
     const tenant = await platform.stores.tenants.findById(input.tenantId);
     if (!tenant) throw new TenantNotFoundError(input.tenantId);
     const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
@@ -151,7 +164,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
         trial: live ? live.status === SubscriptionStatusKind.Trialing : (input.trial ?? false),
         actorId: input.actorId,
       },
-      { platform, router, now },
+      { platform, router, now, activation },
     );
     return provisionResultDTOOf(provisioned);
   };
@@ -181,6 +194,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     provisionRetry: provisionRetryForRoutes,
     resetOwnerPin: resetOwnerPinForRoutes,
     releaseTenant: (input) => releaseProvisioningTenant({ platform, router, dataDir: env.platformDir, now }, input),
+    lockedAccounts: (tenant) => router.lockedAccountsOf(tenant.id),
+    unlockAccount: ({ tenant, account, actorId }) => router.unlockAccountOf({ tenantId: tenant.id, account, actor: platformActor(actorId) }),
     ownerCandidates: (tenant) => router.ownerCandidates(tenant.id),
     assignOwner: ({ tenant, userId, actorId }) => router.assignOwner({ tenantId: tenant.id, userId, actor: platformActor(actorId) }),
     confirmPendingOwner: ({ tenant, actorId }) => router.confirmPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
@@ -202,6 +217,10 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
             });
           },
           list: (tenantId) => checkoutService.listByTenant(tenantId),
+          sweep: async () =>
+            checkoutService.sweepRunning() ? null : checkoutService.sweepPending({ budgetMs: OPERATOR_SWEEP_BUDGET_MS }),
+          applyUnapplied: async (input) => (await checkoutService.applyUnapplied(input)).checkout,
+          resolveFlagged: (input) => checkoutService.resolveFlagged(input),
         }
       : undefined,
   });
@@ -210,6 +229,12 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     now,
     onError: (err) => console.error("[cloud] dunning sweep failed", err),
   });
+
+  const checkoutSweepTimer = checkoutService
+    ? startCardCheckoutSweepTimer(checkoutService, {
+        onError: (err) => console.error("[cloud] card checkout sweep failed", err),
+      })
+    : null;
 
   const backups = options.backups ?? createBackupScheduler({
     platform,
@@ -245,6 +270,11 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }
 
   // Above the demo basic-auth: a store reviewer opens these signed out.
+  // SECURITY / REQUIRED ORDERING: the pages are public, but the one POST is
+  // throttled per caller address, and a forwarded hop is only the caller's
+  // once the origin secret has proved the request crossed the edge. So the
+  // POST passes the origin-secret gate BEFORE its address is read.
+  root.on("POST", `${LEGAL_BASE_PATH}/*`, requireOriginSecret(env.originSecret));
   root.route(
     LEGAL_BASE_PATH,
     createLegalRoutes({ platform, supportEmail: env.supportEmail, platformSmtp: env.platformSmtp, clientSource: env.clientSource, sourceReporter, now }),
@@ -255,11 +285,18 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   }
 
   root.use("/api/*", requireOriginSecret(env.originSecret));
+  root.use("/api/*", sourceGate);
 
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.
+  const platformBody = bodyLimit({
+    maxSize: PLATFORM_BODY_BYTES,
+    onError: (c) =>
+      c.json({ error: BodyLimitRefusal.PayloadTooLarge, message: "حجم البيانات المرسلة أكبر من المسموح به.", messageEn: "The request is larger than this route accepts." }, 413),
+  });
+  for (const mount of ["/api/platform/*", "/api/billing/*", "/api/signup/*"]) root.use(mount, platformBody);
   root.route("/api/platform", platformApp);
-  root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now }));
+  root.route("/api/billing", createTenantBillingRoutes({ platform, router, env, service: checkoutService, now, sourceReporter }));
   root.route(SIGNUP_BASE_PATH, createSignupRoutes({ platform, router, env, now, sourceReporter, mailer }));
   root.route("/api", router.app);
 
@@ -277,6 +314,17 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     const indexHtml = options.transformIndexHtml ? options.transformIndexHtml(rawIndexHtml) : rawIndexHtml;
     root.get("/", (c) => c.html(indexHtml));
     root.get("/index.html", (c) => c.html(indexHtml));
+    // SECURITY: the page a mailed unlock link opens. The link's token is in the
+    // fragment and never reaches here; these headers keep the page out of every
+    // cache and stop the browser naming it to any site it goes on to. It is
+    // served WITHOUT the index transform: that is where a deployment injects
+    // its analytics beacon, and no third-party script may load on a page whose
+    // address carries a credential.
+    root.get(UNLOCK_PATH, (c) => {
+      c.header("Referrer-Policy", "no-referrer");
+      c.header("Cache-Control", "no-store");
+      return c.html(rawIndexHtml);
+    });
     root.use("/*", serveStatic({ root: env.webDist }));
     root.notFound((c) => c.html(indexHtml));
   } else {
@@ -291,6 +339,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       closed = true;
       stopBackups?.();
       dunningTimer.stop();
+      checkoutSweepTimer?.stop();
       await router.close();
       platform.close();
     },

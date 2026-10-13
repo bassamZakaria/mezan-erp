@@ -1,6 +1,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import Database from "better-sqlite3";
+import { ConnectionTurnLostError, ForeignWriteError } from "@mezan/domain";
 import { installSchemaSync } from "./schema-sync.js";
+import { reportForeignWrite } from "./untransacted-audits.js";
 
 /**
  * What a `createSqliteXStore(...)` factory accepts in place of a bare path:
@@ -122,6 +124,7 @@ export function openSqliteConnection(
 ): OpenedSqliteConnection {
   if (typeof input !== "string") {
     installSchemaSync(input);
+    watchForForeignWrites(input);
     return { sqlite: input, owned: false };
   }
   const sqlite = new (options.driver ?? Database)(input, { fileMustExist: options.fileMustExist === true });
@@ -136,8 +139,65 @@ export function openSqliteConnection(
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("busy_timeout = 5000");
   installSchemaSync(sqlite);
+  watchForForeignWrites(sqlite);
   return { sqlite, owned: true };
 }
+
+const watched = new WeakSet<Database.Database>();
+
+// A WRITE THAT LANDS INSIDE ANOTHER CHAIN'S OPEN TRANSACTION IS LOST IF THAT
+// TRANSACTION ROLLS BACK, and nothing says so: the statement succeeds. Every
+// writer is meant to be unable to get there — a request holds the turn, a
+// background task takes it, and no transaction is left open across a wait —
+// so one that does is REFUSED before it runs and reported by its statement.
+// The suites and the seed drives assert none ever is.
+function refuseForeignWrite(statement: string): never {
+  reportForeignWrite(statement);
+  throw new ForeignWriteError(statement);
+}
+
+function watchForForeignWrites(sqlite: Database.Database): void {
+  if (watched.has(sqlite)) return;
+  watched.add(sqlite);
+  const foreign = (): boolean => {
+    const state = connectionStates.get(sqlite);
+    return state !== undefined && state.transaction !== null && !state.nesting.getStore();
+  };
+  const named = (source: string): string => source.trim().replace(/\s+/g, " ").slice(0, 80);
+
+  const prepare = sqlite.prepare.bind(sqlite);
+  sqlite.prepare = ((source: string) => {
+    const statement = prepare(source);
+    if (statement.readonly) return statement;
+    for (const method of WRITING_STATEMENT_METHODS) {
+      const original = statement[method].bind(statement) as (...params: unknown[]) => unknown;
+      (statement as unknown as Record<string, unknown>)[method] = (...params: unknown[]) => {
+        if (foreign()) refuseForeignWrite(named(source));
+        return original(...params);
+      };
+    }
+    return statement;
+  }) as typeof sqlite.prepare;
+
+  const exec = sqlite.exec.bind(sqlite);
+  sqlite.exec = ((source: string) => {
+    if (foreign() && !READ_ONLY_EXEC.test(source)) refuseForeignWrite(named(source));
+    return exec(source);
+  }) as typeof sqlite.exec;
+
+  // The driver's own `transaction()` opens a SAVEPOINT when a transaction is
+  // already open, so its whole body would land inside another chain's.
+  const transaction = sqlite.transaction.bind(sqlite) as (fn: (...args: unknown[]) => unknown) => unknown;
+  sqlite.transaction = ((fn: (...args: unknown[]) => unknown) =>
+    transaction((...args: unknown[]) => {
+      if (foreign()) refuseForeignWrite(DRIVER_TRANSACTION);
+      return fn(...args);
+    })) as typeof sqlite.transaction;
+}
+
+const WRITING_STATEMENT_METHODS = ["run", "get", "all", "iterate"] as const;
+const READ_ONLY_EXEC = /^\s*(PRAGMA|SELECT)\b/i;
+const DRIVER_TRANSACTION = "db.transaction";
 
 let savepointCounter = 0;
 
@@ -157,14 +217,70 @@ interface ConnectionState {
   readonly nesting: AsyncLocalStorage<true>;
   /** Tail of the serialization queue — see `withSqliteTransaction` below. */
   queue: Promise<void>;
+  readonly turn: AsyncLocalStorage<TurnScope>;
+  // REQUIRED: marks a chain that is already inside a handed-back section of
+  // this scope. A second section on the same chain must run straight through:
+  // it would otherwise wait for the turn its own outer section returns only
+  // after it finishes.
+  readonly handedBack: AsyncLocalStorage<TurnScope>;
+  transaction: Promise<void> | null;
+}
+
+interface Lane {
+  queue: Promise<void>;
+}
+
+export interface SqliteTurnObserver {
+  onYield?(): void;
+  onSuspend?(): void;
+  onResume?(): void;
+  readonly retakeTimeoutMs?: number;
+  readonly completedRetakeTimeoutMs?: number;
+}
+
+const RETAKE_TIMEOUT_MS = 10_000;
+// REQUIRED: longer than the deadline of every call made with the turn handed
+// back (OUTSIDE_WORK_DEADLINES_MS), so work that completed is never abandoned
+// while a neighbour's own outside call is still inside its deadline.
+export const COMPLETED_RETAKE_TIMEOUT_MS = 120_000;
+
+type OutsideOutcome<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown };
+
+interface TurnScope extends Lane {
+  active: boolean;
+  ended: boolean;
+  abandoned: boolean;
+  outside: number;
+  steps: Promise<void>;
+  retaken: Promise<void>;
+  announceRetaken: () => void;
+  release: () => void;
+  readonly leftRunning: Set<Promise<unknown>>;
+  probe: ReturnType<typeof setImmediate> | undefined;
+  readonly observer: SqliteTurnObserver;
 }
 
 const connectionStates = new WeakMap<Database.Database, ConnectionState>();
 
+function heldTurn(state: ConnectionState): TurnScope | undefined {
+  const scope = state.turn.getStore();
+  return scope?.active ? scope : undefined;
+}
+
+async function enter(lane: Lane): Promise<() => void> {
+  const previous = lane.queue;
+  let release!: () => void;
+  lane.queue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  return release;
+}
+
 function stateFor(sqlite: Database.Database): ConnectionState {
   let state = connectionStates.get(sqlite);
   if (!state) {
-    state = { nesting: new AsyncLocalStorage<true>(), queue: Promise.resolve() };
+    state = { nesting: new AsyncLocalStorage<true>(), queue: Promise.resolve(), turn: new AsyncLocalStorage<TurnScope>(), handedBack: new AsyncLocalStorage<TurnScope>(), transaction: null };
     connectionStates.set(sqlite, state);
   }
   return state;
@@ -198,11 +314,15 @@ function stateFor(sqlite: Database.Database): ConnectionState {
  * connection its own uncommitted rows. A read issued on this connection while
  * a transaction is open therefore observes rows that may still roll back.
  *
- * It is safe TODAY for one reason only: `better-sqlite3` is fully synchronous,
- * so a `fn` that only touches the database never yields the event loop, and no
- * other request can interleave a read between the BEGIN and the COMMIT. That
- * safety is a property of what the transaction bodies happen to contain, not
- * of this function. ONE `await fetch()`, one attachment write, one `await` on
+ * It is safe ONLY for a `fn` that never yields the event loop: `better-sqlite3`
+ * is fully synchronous, so a body that only touches the database lets no other
+ * request interleave between the BEGIN and the COMMIT. That is a property of
+ * what each transaction body contains, not of this function, and it has been
+ * broken before — a password hashed with scrypt inside `uow.transaction` gave
+ * the loop away for the length of the hash. The same gap also takes WRITES: a
+ * store that writes by plain autocommit, or through better-sqlite3's own
+ * `transaction()`, lands inside the open transaction and is lost if it rolls
+ * back. ONE `await fetch()`, one attachment write, one `await` on
  * a timer inside a confirm — e.g. sales-invoices/service.ts's confirm path —
  * opens the window, and every till on the LAN can then read a half-posted
  * invoice.
@@ -237,17 +357,15 @@ export async function withSqliteTransaction<T>(
   }
 
   // Outermost call: claim this connection's mutex — wait for whatever
-  // outermost transaction (if any) is currently running to finish first.
-  const previous = state.queue;
-  let release!: () => void;
-  state.queue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await previous;
+  const release = await enter(heldTurn(state) ?? state);
+  let ended!: () => void;
 
   try {
     return await state.nesting.run(true, async () => {
       sqlite.exec(beginStatement);
+      state.transaction = new Promise<void>((resolve) => {
+        ended = resolve;
+      });
       try {
         const result = await fn();
         sqlite.exec("COMMIT");
@@ -255,11 +373,18 @@ export async function withSqliteTransaction<T>(
       } catch (err) {
         sqlite.exec("ROLLBACK");
         throw err;
+      } finally {
+        state.transaction = null;
+        ended();
       }
     });
   } finally {
     release();
   }
+}
+
+export function insideSqliteTransaction(sqlite: Database.Database): boolean {
+  return stateFor(sqlite).nesting.getStore() === true;
 }
 
 /**
@@ -275,15 +400,178 @@ export async function withSqliteRead<T>(sqlite: Database.Database, fn: () => T |
   const state = stateFor(sqlite);
   if (state.nesting.getStore()) return fn();
 
-  const previous = state.queue;
-  let release!: () => void;
-  state.queue = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await previous;
+  const release = await enter(heldTurn(state) ?? state);
   try {
     return await fn();
   } finally {
     release();
   }
+}
+
+// THE DATABASE WORK OF A MUTATING REQUEST RUNS UNDER ONE TURN. Every store
+// shares this connection and most of them write by plain autocommit, so a write
+// issued while another chain's BEGIN is open lands inside that transaction and
+// is lost if it rolls back. Waiting only at the door does not close that: a
+// request that got in before the BEGIN and then awaited would still write into
+// it. Holding the queue from the first statement to the last does.
+// The scope goes inactive BEFORE the queue is released, and the lane is drained
+// first: a task the request left running keeps this async context, and must
+// neither skip the shared queue once the turn is over nor still be mid-
+// transaction when the next holder issues its BEGIN.
+function arm(scope: TurnScope): void {
+  scope.probe = setImmediate(() => {
+    scope.probe = undefined;
+    scope.observer.onYield?.();
+  });
+}
+
+function handBack(scope: TurnScope): Promise<void> {
+  scope.active = false;
+  if (scope.probe) clearImmediate(scope.probe);
+  scope.probe = undefined;
+  scope.retaken = new Promise<void>((resolve) => {
+    scope.announceRetaken = resolve;
+  });
+  return drained(scope).then(scope.release);
+}
+
+async function drained(scope: TurnScope): Promise<void> {
+  let seen: Promise<void> | undefined;
+  while (seen !== scope.queue) {
+    seen = scope.queue;
+    await seen;
+  }
+}
+
+function inOrder(scope: TurnScope, step: () => Promise<void>): Promise<void> {
+  const done = scope.steps.then(step);
+  scope.steps = done.catch(() => undefined);
+  return done;
+}
+
+export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Promise<T>, observer: SqliteTurnObserver = {}): Promise<T> {
+  const state = stateFor(sqlite);
+  if (state.nesting.getStore()) return fn();
+  const holder = heldTurn(state);
+  if (holder) return within(holder, fn);
+
+  const scope: TurnScope = {
+    queue: Promise.resolve(),
+    active: true,
+    ended: false,
+    abandoned: false,
+    outside: 0,
+    steps: Promise.resolve(),
+    retaken: Promise.resolve(),
+    announceRetaken: () => undefined,
+    release: await enter(state),
+    leftRunning: new Set(),
+    probe: undefined,
+    observer,
+  };
+  arm(scope);
+  try {
+    return await state.turn.run(scope, fn);
+  } finally {
+    while (scope.leftRunning.size > 0) await Promise.allSettled([...scope.leftRunning]);
+    scope.ended = true;
+    const closed = inOrder(scope, async () => {
+      if (scope.active) await handBack(scope);
+      scope.announceRetaken();
+    });
+    if (scope.abandoned) void closed.catch(() => undefined);
+    else await closed;
+  }
+}
+
+// THE WAIT TO TAKE THE TURN AGAIN IS BOUNDED. A holder that never finishes
+// would otherwise keep every chain that handed the turn back waiting for good —
+// and with it whatever that chain holds for the length of its request. Work
+// that COMPLETED outside waits the longer bound: its effect has happened and
+// has still to be recorded, and when even that passes its answer travels on
+// the error so the caller can record it under a turn of its own.
+async function retakenInTime<T>(scope: TurnScope, outcome: OutsideOutcome<T>): Promise<void> {
+  const waitMs = outcome.ok
+    ? (scope.observer.completedRetakeTimeoutMs ?? COMPLETED_RETAKE_TIMEOUT_MS)
+    : (scope.observer.retakeTimeoutMs ?? RETAKE_TIMEOUT_MS);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const gaveUp = new Promise<true>((resolve) => {
+    timer = setTimeout(() => resolve(true), waitMs);
+    timer.unref?.();
+  });
+  const lost = await Promise.race([scope.retaken.then(() => false as const), gaveUp]);
+  clearTimeout(timer);
+  if (!lost || scope.active) return;
+  scope.abandoned = true;
+  scope.ended = true;
+  throw new ConnectionTurnLostError(waitMs, outcome.ok ? { completed: { value: outcome.value } } : { cause: outcome.error });
+}
+
+// Database work a holder starts and does not wait for — an event subscriber, a
+// bridge — asks for the turn too. It already has it, and the turn is not
+// handed on until that work is done: otherwise it would still be writing when
+// the next holder opens its BEGIN.
+function within<T>(holder: TurnScope, fn: () => Promise<T>): Promise<T> {
+  const running = fn();
+  holder.leftRunning.add(running);
+  const done = (): void => void holder.leftRunning.delete(running);
+  running.then(done, done);
+  return running;
+}
+
+// WORK THAT IS NOT THE DATABASE IS DONE WITH THE TURN HANDED BACK. A hash on the
+// thread pool, a child process, a socket: awaited under the turn, each keeps
+// every other write of the tenant queued for as long as the outside world takes
+// to answer. The turn is taken again before `fn`'s caller continues, so what it
+// writes next is still the only write on the connection. Sections that overlap
+// all continue together, once the last of them is back.
+// Inside a transaction the turn cannot be handed back — the BEGIN is open on the
+// shared connection — so `fn` runs as it is and the turn's probe reports it.
+export async function outsideSqliteTurn<T>(sqlite: Database.Database, fn: () => Promise<T>): Promise<T> {
+  const state = stateFor(sqlite);
+  const scope = state.turn.getStore();
+  if (!scope || scope.ended || state.nesting.getStore() || state.handedBack.getStore() === scope) return fn();
+
+  scope.outside += 1;
+  await inOrder(scope, async () => {
+    if (!scope.active || scope.ended) return;
+    await handBack(scope);
+    scope.observer.onSuspend?.();
+  });
+  let outcome: OutsideOutcome<T>;
+  try {
+    outcome = { ok: true, value: await state.handedBack.run(scope, fn) };
+  } catch (error) {
+    outcome = { ok: false, error };
+  }
+  {
+    scope.outside -= 1;
+    void inOrder(scope, async () => {
+      if (scope.outside > 0 || scope.active || scope.ended) return;
+      const release = await enter(state);
+      if (scope.outside > 0 || scope.ended) {
+        release();
+        return;
+      }
+      scope.release = release;
+      scope.queue = Promise.resolve();
+      scope.active = true;
+      arm(scope);
+      scope.observer.onResume?.();
+      scope.announceRetaken();
+    });
+    await retakenInTime(scope, outcome);
+  }
+  if (!outcome.ok) throw outcome.error;
+  return outcome.value;
+}
+
+export function holdsSqliteTurn(sqlite: Database.Database): boolean {
+  return heldTurn(stateFor(sqlite)) !== undefined;
+}
+
+export async function sqliteTransactionsSettled(sqlite: Database.Database): Promise<void> {
+  const state = stateFor(sqlite);
+  if (state.nesting.getStore()) return;
+  while (state.transaction) await state.transaction;
 }

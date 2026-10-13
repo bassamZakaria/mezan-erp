@@ -237,6 +237,26 @@ describe("EmployeesScreen", () => {
     expect(await screen.findByText(/سُجّل أجر 18 يوماً مدفوعة حتى 2026-06-30 سلفة على الموظف برقم ADV-000009/)).toBeInTheDocument();
   });
 
+  it.each([
+    { payableReduced: "1250.500000", says: true },
+    { payableReduced: "0.000001", says: true },
+    { payableReduced: "0.000000", says: false },
+  ])("names what came off unpaid net pay only when something did ($payableReduced)", async ({ payableReduced, says }) => {
+    renderScreen([sampleEmployees[0]!], {
+      onTerminate: () => ({
+        body: { ...sampleEmployees[0]!, status: "terminated", terminatedAt: "2026-06-12", payRecovery: { advanceId: null, advanceNumber: null, days: 18, amount: "0.000000", payableReduced, journalEntryId: "JE", paidThrough: "2026-06-30" } },
+      }),
+    });
+    fireEvent.click(await screen.findByText("أحمد محمود"));
+    fireEvent.click(screen.getByRole("button", { name: "إنهاء الخدمة" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "تأكيد إنهاء الخدمة" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const said = screen.queryByText(/خُصم أجر 18 يوماً مدفوعة حتى 2026-06-30/);
+    if (says) expect(said).toHaveTextContent(`بمبلغ ${payableReduced.slice(0, payableReduced.indexOf(".") + 3)} من صافي الراتب`);
+    else expect(said).toBeNull();
+  });
+
   it("blocks rehiring with no date entered — the rehire request is never sent", async () => {
     const rehireRequests: Array<{ id: string; hireDate: string }> = [];
     renderScreen([terminatedEmployee], {

@@ -2,6 +2,7 @@ import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   Chip,
   cn,
+  DecimalStringInput,
   Field as UiField,
   Select,
   Switch,
@@ -86,6 +87,25 @@ export function NumberField({ label, value, onChange, hint, min, max, step, disa
         disabled={disabled}
         onChange={(e) => onChange(e.target.valueAsNumber)}
       />
+    </Field>
+  );
+}
+
+export interface DecimalFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  hint?: string;
+  suffix?: string;
+  minimumFractionDigits?: number;
+  disabled?: boolean;
+}
+
+export function DecimalField({ label, value, onChange, hint, suffix, minimumFractionDigits, disabled }: DecimalFieldProps) {
+  const id = useId();
+  return (
+    <Field label={label} hint={hint} htmlFor={id}>
+      <DecimalStringInput id={id} value={value} onChange={onChange} suffix={suffix} minimumFractionDigits={minimumFractionDigits} disabled={disabled} />
     </Field>
   );
 }

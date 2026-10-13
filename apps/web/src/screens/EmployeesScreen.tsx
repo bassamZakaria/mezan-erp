@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Money } from "@mezan/domain";
 import {
   Button,
   Card,
@@ -583,7 +584,7 @@ export function EmployeesScreen() {
       const twoPlaces = (amount: string) => amount.replace(/(\.\d{2})\d*$/, "$1");
       const parts = payRecovery
         ? [
-            Number(payRecovery.payableReduced) > 0
+            payRecovery.payableReduced && Money.fromMajor(payRecovery.payableReduced).scaled > 0n
               ? t("employees.payRecoveryOffPayable", { days: payRecovery.days, paidThrough: payRecovery.paidThrough, amount: twoPlaces(payRecovery.payableReduced) })
               : null,
             payRecovery.advanceNumber

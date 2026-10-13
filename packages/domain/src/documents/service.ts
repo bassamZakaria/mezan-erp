@@ -60,6 +60,8 @@ export interface DocumentServiceDeps<Line> {
   /** Default acting user for audit/workflow; per-call opts override this. */
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
+  /** What the approvals inbox calls a held document that has no number yet: its type, amount and party. */
+  readonly approvalLabel?: (doc: FrameworkDocument<Line>) => Promise<string | null> | string | null;
   /** INVARIANT: runs before the workflow gate and again as the first act of the confirm's transaction. */
   readonly confirmGuard?: (doc: FrameworkDocument<Line>) => Promise<void>;
   /** INVARIANT: runs inside the reversal's transaction, on the row read there, before anything is mirrored. */
@@ -160,7 +162,7 @@ export class DocumentService<Line> {
         requestId: opts.requestId ?? this.requestIdOf(existing),
         submittedBy: opts.actor ?? this.deps.actor ?? "system",
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
-        entityLabel: existing.docNo ?? existing.id,
+        entityLabel: await this.approvalLabelOf(existing),
       });
       if (!decision.granted) {
         // Confirming an already-held document is a no-op, not an illegal
@@ -314,7 +316,7 @@ export class DocumentService<Line> {
         requestId,
         submittedBy: actor,
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
-        entityLabel: fresh.docNo ?? fresh.id,
+        entityLabel: await this.approvalLabelOf(fresh),
       });
       const next: FrameworkDocument<Line> = { ...fresh, status: "pending", workflowRequestId: decision.requestId };
       await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], fresh.status);
@@ -332,6 +334,10 @@ export class DocumentService<Line> {
     const requestIds = new Map(docs.map((doc) => [this.requestIdOf(doc), doc.id]));
     const views = await standing.call(this.deps.workflow, [...requestIds.keys()]);
     return new Map([...views].map(([requestId, view]) => [requestIds.get(requestId) as string, view]));
+  }
+
+  private async approvalLabelOf(doc: FrameworkDocument<Line>): Promise<string> {
+    return doc.docNo ?? (await this.deps.approvalLabel?.(doc)) ?? this.def.labelAr;
   }
 
   private requestIdOf(doc: FrameworkDocument<Line>): string {

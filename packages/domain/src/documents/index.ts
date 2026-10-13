@@ -112,3 +112,5 @@ export {
 } from "./return-availability.js";
 
 export { ledgerPresenceAsOf, reversalChainPresenceAsOf, type LedgerPresenceInput } from "./as-of.js";
+
+export { approvalLabel, displayAmount as displayApprovalAmount, type ApprovalSubject } from "./approval-label.js";

@@ -28,6 +28,7 @@ import {
   type FrameworkDocument,
 } from "../documents/index.js";
 import { createDocumentWorkflowGate } from "../documents/journal-document.js";
+import { approvalLabel } from "../documents/approval-label.js";
 import {
   voucherBaseAmount,
   voucherNetPaid,
@@ -173,6 +174,8 @@ export interface VoucherServiceDeps {
   readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly numbering: NextNumberService;
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
+  /** The customer or supplier a voucher is for, by name, for the approvals inbox; absent, the inbox names the treasury account. */
+  readonly partyName?: (line: VoucherLine) => Promise<string | null>;
   readonly allocations: AllocationRepository;
   readonly invoices: AllocatableInvoiceRepository;
   /**
@@ -309,6 +312,11 @@ export class VoucherService {
       numbering: { next: (opts) => deps.numbering.next("CASH_VOUCHER", { branchId: opts?.branchId }) },
       gl: createVoucherGlHook(glDeps),
       workflow: createDocumentWorkflowGate(deps.resolveGateConfig ?? (() => null), deps.approvalRequests),
+      approvalLabel: async (doc) => {
+        const line = voucherLine(doc);
+        const party = (await deps.partyName?.(line)) ?? (await deps.treasuryAccounts.findById(line.treasuryAccountId))?.name ?? null;
+        return approvalLabel({ type: getVoucherTypeDefinition(line.voucherType).labelAr, amount: line.amount, party });
+      },
       audit: deps.audit,
       events: deps.events,
       auditModule: "treasury",

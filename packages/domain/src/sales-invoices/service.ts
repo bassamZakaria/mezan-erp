@@ -71,6 +71,7 @@ import type {
 } from "./sales-invoice.js";
 import { assertTransition } from "./status.js";
 import { DocumentChangedError } from "../documents/errors.js";
+import { displayAmount } from "../documents/approval-label.js";
 import { SalesInvoiceField } from "./ports.js";
 import { salesInvoiceTotals, salesInvoiceBaseGrandTotal, type SalesInvoiceTotals } from "./totals.js";
 import { describeSalesInvoiceEffects } from "./effects.js";
@@ -1277,13 +1278,6 @@ export class SalesInvoiceService {
       },
     });
   }
-}
-
-/** A money figure as a refusal states it: two decimals, by string surgery, never through a float. */
-function displayAmount(amount: Money): string {
-  const text = amount.toString();
-  const point = text.indexOf(".");
-  return point === -1 ? `${text}.00` : text.slice(0, point + 3).padEnd(point + 3, "0");
 }
 
 /** unitCost = cost / qty, at Money scale (used only for display capture). */

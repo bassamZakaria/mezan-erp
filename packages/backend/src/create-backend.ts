@@ -169,6 +169,7 @@ import {
   replay,
   type StockMovement,
   Qty,
+  approvalLabel,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
   SalesReturnNotRefundableError,
@@ -2070,8 +2071,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
   const etaVoid = createEtaVoidPort(etaService);
   const salesReturnVoid = createSalesReturnVoidGuards({ refundsOf: standingSalesReturnRefunds, eta: etaVoid });
+  const customerNameOf = async (id: string | null | undefined) => (id ? ((await customers.findById(id))?.nameAr ?? null) : null);
+  const supplierNameOf = async (id: string | null | undefined) => (id ? ((await suppliers.findById(id))?.nameAr ?? null) : null);
+  const warehouseNameOf = async (id: string | null | undefined) => (id ? ((await warehouses.findById(id))?.name ?? null) : null);
+  const voucherPartyNameOf = async (line: VoucherLine) => (await customerNameOf(line.customerId)) ?? (await supplierNameOf(line.supplierId));
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
+    approvalLabel: async (doc) => approvalLabel({ type: "مرتجع مبيعات", amount: salesReturnGrandTotal(doc), party: await customerNameOf(doc.lines[0]?.customerId) }),
     numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
     gl: returnReliefGl("sales", salesReturnStore, salesReturnLineCredit),
     stock: createInventoryStockHook(stockService),
@@ -2095,6 +2101,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
+    approvalLabel: async (doc) => approvalLabel({ type: "مرتجع مشتريات", amount: purchaseReturnGrandTotal(doc), party: await supplierNameOf(doc.lines[0]?.supplierId) }),
     numbering: { next: (opts) => ledger.numbering.next("PURCHASE_RETURN", { branchId: opts?.branchId }) },
     gl: returnReliefGl("purchase", purchaseReturnStore, purchaseReturnLineCredit),
     stock: createInventoryStockHook(stockService),
@@ -2229,6 +2236,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const landedCostGlAccounts = { ...LANDED_COST_GL_ACCOUNTS };
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(landedCostGlAccounts), {
     repo: landedCostStore,
+    approvalLabel: async (doc) => {
+      const costItems = doc.lines[0]?.costItems ?? [];
+      const supplierId = costItems.find((item) => item.supplierId)?.supplierId;
+      return approvalLabel({ type: "تكلفة إضافية", amount: Money.sum(costItems.map((item) => item.amount)), party: (await supplierNameOf(supplierId)) ?? (await warehouseNameOf(doc.lines[0]?.warehouseId)) });
+    },
     numbering: { next: (opts) => ledger.numbering.next("LANDED_COST", { branchId: opts?.branchId }) },
     gl: documentGl,
     workflow: documentWorkflowGate,
@@ -2309,6 +2321,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   );
   const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: inventoryOps.stockAdjustments,
+    approvalLabel: async (doc) => {
+      const stated = doc.lines.every((line) => line.unitCost) ? Money.sum(doc.lines.map((line) => extendQtyByPrice(line.qty, line.unitCost as Money))) : null;
+      return approvalLabel({ type: "تسوية مخزون", amount: stated, party: await warehouseNameOf(doc.lines[0]?.warehouseId) });
+    },
     numbering: { next: (opts) => ledger.numbering.next("STOCK_ADJUSTMENT", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
     workflow: documentWorkflowGate,
@@ -2317,6 +2333,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const stockTransfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
     repo: inventoryOps.stockTransfers,
+    approvalLabel: async (doc) => {
+      const line = doc.lines[0];
+      const from = (await warehouseNameOf(line?.fromWarehouseId)) ?? line?.fromWarehouseId ?? "";
+      const to = (await warehouseNameOf(line?.toWarehouseId)) ?? line?.toWarehouseId ?? "";
+      return `تحويل مخزون من ${from} إلى ${to}`;
+    },
     numbering: { next: (opts) => ledger.numbering.next("STOCK_TRANSFER", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
     workflow: documentWorkflowGate,
@@ -3173,6 +3195,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     invoices: vouchers.invoices,
     settings,
     resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    partyName: voucherPartyNameOf,
     audit: auditSink,
   });
 
@@ -3920,6 +3943,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // outright: without these two the gate resolved every config to null and
       // held requests were never persisted for the inbox.
       resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    partyName: voucherPartyNameOf,
       approvalRequests,
       documents: vouchers.documents,
       vatFilings,
@@ -4212,6 +4236,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         exchangeRates,
         baseCurrency: "EGP",
         resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    partyName: voucherPartyNameOf,
         approvalRequests,
         audit: auditSink,
         events: voucherEventBridge,

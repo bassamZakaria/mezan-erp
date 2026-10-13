@@ -54,6 +54,9 @@ describe.each(FAMILIES)("resubmitting a rejected $mount document", (family) => {
     const submitted = await kit.call("POST", `${family.mount}/${id}/confirm`, {}, family.submitter);
     expect([submitted.status, submitted.body.held, family.documentOf(submitted).status], JSON.stringify(submitted.body)).toEqual([200, true, "pending"]);
     expect((await read(family.reader)).approval).toMatchObject({ status: "pending", rejectionReason: null });
+    const inbox = await requestOf(id);
+    expect(inbox.entityLabel).toMatch(family.inboxLabel);
+    expect(inbox.entityLabel).not.toContain(id);
 
     const refusedWhilePending = await resubmit(family.submitter);
     expect([refusedWhilePending.status, refusedWhilePending.body.error], JSON.stringify(refusedWhilePending.body)).toEqual([409, "DOCUMENT_RESUBMIT_REFUSED"]);

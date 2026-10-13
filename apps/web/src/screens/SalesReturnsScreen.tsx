@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -473,6 +474,7 @@ export function SalesReturnsScreen() {
               <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
               {selected.awaitingRefund ? <StatusPill label={t("salesReturns.awaitingRefund")} tone="warning" /> : null}
             </div>
+            <HeldDocumentReapproval document={selected} pending={confirmReturn.isPending} confirm={(id) => confirmReturn.mutateAsync(id)} />
             <div className="flex flex-wrap items-center gap-[10px] text-[12.5px] text-ink-muted">
               <span>{t("salesReturns.sourceInvoice", { number: sourceInvoiceNo(selected.lines[0]) ?? "—" })}</span>
               {selected.lines[0] ? (

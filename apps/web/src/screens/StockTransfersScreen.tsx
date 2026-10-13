@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -226,6 +227,7 @@ export function StockTransfersScreen() {
     const effects = stockTransferDocumentType.describeEffects(toDomainDoc(selected));
     return (
       <div className="w-full">
+        <HeldDocumentReapproval document={selected} pending={listConfirm.isPending} confirm={(id) => listConfirm.mutateAsync(id)} />
         <DocumentDetail
           title={selected.docNo ?? t("stockXfer.stockTransfer")}
           statusLabel={documentStatusLabel(selected.status, t)}

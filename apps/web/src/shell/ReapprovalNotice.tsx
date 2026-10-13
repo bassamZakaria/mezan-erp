@@ -1,4 +1,5 @@
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { ApprovalStatusCode, type ApprovalStandingDTO } from "@mezan/contracts";
 import { Button } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
@@ -38,5 +39,50 @@ export function ReapprovalNotice({
         {t("approvals.reapproval.requestAgain")}
       </Button>
     </div>
+  );
+}
+
+const HELD_STATUS = "pending";
+
+export interface HeldDocument {
+  readonly id: string;
+  readonly status: string;
+  readonly workflowRequestId?: string | null;
+}
+
+/** The notice for any document the approval gate holds: asking again is the document's own confirm. */
+export function HeldDocumentReapproval({
+  document,
+  pending,
+  confirm,
+}: {
+  readonly document: HeldDocument;
+  readonly pending: boolean;
+  readonly confirm: (id: string) => Promise<unknown>;
+}) {
+  const { t } = useAppTranslation();
+  const queryClient = useQueryClient();
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const requestId = document.status === HELD_STATUS ? (document.workflowRequestId ?? null) : null;
+
+  async function requestAgain() {
+    setRefusal(null);
+    try {
+      await confirm(document.id);
+      await queryClient.invalidateQueries({ queryKey: [APPROVAL_STANDING_KEY] });
+    } catch (err) {
+      setRefusal(err instanceof Error && err.message !== "" ? err.message : t("common.failed"));
+    }
+  }
+
+  return (
+    <>
+      <ReapprovalNotice requestId={requestId} pending={pending} onRequestAgain={requestAgain} />
+      {refusal ? (
+        <span role="alert" className="mt-[6px] block text-start text-[12.5px] font-semibold text-danger-ink">
+          {refusal}
+        </span>
+      ) : null}
+    </>
   );
 }

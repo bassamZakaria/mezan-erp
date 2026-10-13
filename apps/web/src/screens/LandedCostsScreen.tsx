@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -650,6 +651,7 @@ export function LandedCostsScreen() {
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+            <HeldDocumentReapproval document={selected} pending={confirmLandedCost.isPending} confirm={(id) => confirmLandedCost.mutateAsync(id)} />
             <div className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[12.5px]">
               <span className="text-ink-muted">{t("landedCosts.field.method")}</span>
               <span className="font-semibold text-ink">{t(METHOD_KEY[selected.lines[0]?.distributionMethod ?? "BY_VALUE"])}</span>

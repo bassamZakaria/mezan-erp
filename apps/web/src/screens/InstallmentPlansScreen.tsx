@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -410,6 +411,7 @@ export function InstallmentPlansScreen() {
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
+            <HeldDocumentReapproval document={selected} pending={confirmPlan.isPending} confirm={(id) => confirmPlan.mutateAsync(id)} />
             <div className="flex flex-col gap-1.5">
               {selected.lines.map((l) => (
                 <div key={l.no} className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[13px]">

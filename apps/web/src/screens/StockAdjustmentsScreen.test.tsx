@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState, type ReactNode } from "react";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { AccountDTO, ItemDTO, StockAdjustmentDocumentDTO, WarehouseDTO } from "@mezan/contracts";
 import { StockAdjustmentsScreen } from "./StockAdjustmentsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
@@ -277,5 +277,30 @@ describe("StockAdjustmentsScreen — themes", () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "تسويات المخزون" })).toBeInTheDocument();
     await screen.findByText("ADJ-000001");
+  });
+});
+
+describe("StockAdjustmentsScreen — a held document whose approval no longer stands", () => {
+  it("says why in Arabic and asks for approval again through the document's own confirm", async () => {
+    let standing = "reapproval_required";
+    let confirms = 0;
+    const held = { ...adj1, id: "held-1", docNo: "HELD-0001", status: "pending" as const, workflowRequestId: "held-1:confirm" };
+    const transport = stubTransport({
+      ...baseHandlers(() => []),
+      "GET /inventory/stock-adjustments": () => ({ body: [held] }),
+      "GET /workflow/requests/*/standing": () => ({ body: { id: "held-1:confirm", status: standing, reason: standing === "reapproval_required" ? "الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد." : null, reasonEn: null } }),
+      "POST /inventory/stock-adjustments/held-1/confirm": () => {
+        confirms += 1;
+        standing = "pending";
+        return { body: held };
+      },
+    });
+    renderWithProviders(<TestNavigation><StockAdjustmentsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("HELD-0001"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent("الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد.");
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirms).toBe(1));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
   });
 });

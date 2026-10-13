@@ -41,12 +41,21 @@ contract lives with the code that reads it (`apps/server/src/env.ts`).
 | `MEZAN_SQLITE_EXCLUSIVE` | `1` | one writer per tenant file |
 | `MEZAN_TENANT_DOMAIN` | the review domain | |
 | `MEZAN_TRUST_PROXY` | `1` | behind CloudFront and API Gateway |
+| `MEZAN_TRUSTED_PROXY_HOPS` | `2` | CloudFront appends the viewer, API Gateway appends the CloudFront edge; the server refuses to start with `MEZAN_TRUST_PROXY=1` and no count |
 | `MEZAN_ORIGIN_SECRET` | SSM, generated | CloudFront adds it; a direct hit on API Gateway gets 403 on `/api/*` |
-| `MEZAN_PLATFORM_OWNER_EMAIL` / `_PASSWORD` | SSM | the platform console owner |
+| `MEZAN_PLATFORM_OWNER_EMAIL` | SSM | the platform console owner |
+| `MEZAN_PLATFORM_OWNER_PASSWORD` | SSM | |
 | `MEZAN_REVIEW_TENANT_CODE` | `review` | 2–40 of `a-z0-9-`, never `demo` |
 | `MEZAN_REVIEW_PIN` | SSM `/mezan/review/review-pin`, generated | six digits; the server refuses `123456` |
 | `MEZAN_SUPPORT_EMAIL` | the owner's support mailbox | required with a reviewer tenant; printed on both legal pages |
-| `MEZAN_SMTP_HOST` … `MEZAN_SMTP_FROM_EMAIL` | optional | only with these does the deletion page show a form; without them it shows the support address |
+| `MEZAN_SMTP_HOST` | optional | only with platform mail does the deletion page show a form; without it the page shows the support address |
+| `MEZAN_SMTP_FROM_EMAIL` | optional; required with `MEZAN_SMTP_HOST` | the sender address |
+| `MEZAN_PUBLIC_URL` | optional; `https://<review domain>`, required with `MEZAN_SMTP_HOST` | every mailed link (signup verification, owner hand-over) is built on it; the server refuses to start with platform mail and no public origin |
+
+Each row names one variable, and a value in backticks is the literal value:
+`apps/server/src/documented-env.test.ts` reads this table, starts the server's
+own parser on exactly these rows, and fails when the stack as written here
+could not start or could not build a signup link with mail on.
 
 Must **not** be set: `MEZAN_SEED_DEMO` (the server refuses it next to a
 reviewer tenant — its basic auth would block the app), `MEZAN_SEED_ADMIN_PIN`,

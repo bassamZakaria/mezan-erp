@@ -166,6 +166,36 @@ describe("parseEnv", () => {
   });
 });
 
+describe("platform mail and the origin its links are built on", () => {
+  const MAIL = { MEZAN_SMTP_HOST: "smtp.mezan.test", MEZAN_SMTP_FROM_EMAIL: "no-reply@mezan.test" };
+  const LIVE_PAYMOB = {
+    MEZAN_PAYMOB_SECRET_KEY: "sk-live", MEZAN_PAYMOB_PUBLIC_KEY: "pk-live", MEZAN_PAYMOB_HMAC_SECRET: "hmac-live",
+    MEZAN_PAYMOB_INTEGRATION_ID: "101", MEZAN_PAYMOB_PUBLIC_URL: "https://pay.mezan.test",
+  };
+
+  it.each([
+    ["nothing else", {}],
+    ["a tenant domain, which names no address the signup page itself is served on", { MEZAN_TENANT_DOMAIN: "mezan.test" }],
+    ["the card test double, which has no public address of its own", { MEZAN_PAYMOB_TEST_MODE: "1" }],
+  ])("refuses to start with mail configured and %s, and names the variable to set", (_label, vars) => {
+    expect(() => parseEnv({ ...MAIL, ...vars })).toThrow(
+      "MEZAN_PUBLIC_URL is required once MEZAN_SMTP_HOST is set: every mailed link (signup verification, owner hand-over) is built on it, and without it no signup can be completed",
+    );
+  });
+
+  it.each([
+    ["MEZAN_PUBLIC_URL", { MEZAN_PUBLIC_URL: "https://mezan.test" }],
+    ["live card checkout's public address", LIVE_PAYMOB],
+    ["the card test double's public address", { MEZAN_PAYMOB_TEST_MODE: "1", MEZAN_PAYMOB_PUBLIC_URL: "https://pay.mezan.test" }],
+  ])("starts with mail configured and %s", (_label, vars) => {
+    expect(parseEnv({ ...MAIL, ...vars }).platformSmtp?.smtpHost).toBe("smtp.mezan.test");
+  });
+
+  it("starts with no mail and no public origin: the link is shown on screen instead of mailed", () => {
+    expect(parseEnv({ MEZAN_TENANT_DOMAIN: "mezan.test" }).platformSmtp).toBeUndefined();
+  });
+});
+
 describe("MEZAN_TENANT_DOMAIN", () => {
   it.each([
     ["a trailing dot", "mezan.app."],

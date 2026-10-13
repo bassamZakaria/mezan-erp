@@ -44,7 +44,7 @@ wrong machine:
 | Deployment | Chain | `MEZAN_TRUSTED_PROXY_HOPS` |
 | --- | --- | --- |
 | dev, testing, staging on localhost | none | unset (`MEZAN_TRUST_PROXY=0`) |
-| Render demo | Render's proxy | `1` |
+| Render demo | Render's proxy | `1`, but `render.yaml` on this branch sets neither `MEZAN_TRUST_PROXY` nor this, so the server has no address to read there and `/api/signup/*` answers `503 SOURCE_UNRESOLVED`. `fix/w1d-audit-atomicity-billing` adds both to the blueprint; `apps/server/src/cloud-boot-source.test.ts` turns red when they arrive |
 | AWS (CloudFront → API Gateway → VPC link → task) | CloudFront appends the viewer, API Gateway appends the CloudFront edge | `2` |
 | `pnpm test:saas` | the test writes the client, the Vite dev proxy appends its own hop | `2` |
 
@@ -126,7 +126,7 @@ carries query parameters too; they are never read as proof of payment.
 | `MEZAN_PAYMOB_HMAC_SECRET` | HMAC secret; verifies every transaction callback (SHA-512 over Paymob's fixed 20-field order). |
 | `MEZAN_PAYMOB_INTEGRATION_ID` | Card integration id(s), comma-separated. Test ids with test keys, live with live. |
 | `MEZAN_PAYMOB_PUBLIC_URL` | Public `https://` origin of this deployment. Required with live keys: the callback goes to `<url>/api/billing/paymob/webhook` and the customer returns to `<url>/…` (or to the tenant's own subdomain under `MEZAN_TENANT_DOMAIN`). |
-| `MEZAN_PUBLIC_URL` | Public `https://` origin every MAILED link is built on (signup verification, owner hand-over confirmation). Never read from a request header. A request that arrived on a tenant's own subdomain gets that subdomain only when a tenant is served under it and its name is not one the platform reserves (`www`, `api`, `admin`, `app`, `platform`, `signup`, `tenants`, `demo`, `released-…`); every other host gets this origin. When platform mail (`MEZAN_SMTP_HOST`) is configured and neither this, `MEZAN_PAYMOB_PUBLIC_URL` nor `MEZAN_TENANT_DOMAIN` gives a trusted origin, signup answers 503 and sends no mail. |
+| `MEZAN_PUBLIC_URL` | Public `https://` origin every MAILED link is built on (signup verification, owner hand-over confirmation). Never read from a request header. A request that arrived on a tenant's own subdomain gets that subdomain only when a tenant is served under it and its name is not one the platform reserves (`www`, `api`, `admin`, `app`, `platform`, `signup`, `tenants`, `demo`, `released-…`); every other host gets this origin. **Required once platform mail (`MEZAN_SMTP_HOST`) is configured**, unless `MEZAN_PAYMOB_PUBLIC_URL` is set: the server refuses to start with mail on and neither. `MEZAN_TENANT_DOMAIN` alone is not enough: the signup page is served on the apex and on `www.`, `signup.` and `demo.`, none of which is a tenant's subdomain. |
 | `MEZAN_PAYMOB_BASE_URL` | Optional; default `https://accept.paymob.com` (Egypt). |
 | `MEZAN_PAYMOB_TEST_MODE` | `1` runs the local test double when no keys are set; `0` turns card checkout off in dev. |
 

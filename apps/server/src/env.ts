@@ -231,8 +231,24 @@ function publicOriginOf(env: Record<string, string | undefined>): { readonly pub
   return value ? { publicOrigin: parseOrigin(value, "MEZAN_PUBLIC_URL") } : {};
 }
 
+// SECURITY: a mailed link is built only on an origin this deployment was
+// given, never on the host a request claimed. With mail on and no such origin
+// every signup would be refused at the first request; it is refused here.
+export function configuredPublicOrigin(env: Pick<CloudEnv, "publicOrigin" | "paymob">): string | undefined {
+  return env.publicOrigin ?? (env.paymob.mode === PaymobMode.Off ? undefined : env.paymob.publicUrl);
+}
+
+function requireOriginForMailedLinks(parsed: CloudEnv): CloudEnv {
+  if (parsed.platformSmtp !== undefined && configuredPublicOrigin(parsed) === undefined) {
+    throw new Error(
+      "MEZAN_PUBLIC_URL is required once MEZAN_SMTP_HOST is set: every mailed link (signup verification, owner hand-over) is built on it, and without it no signup can be completed",
+    );
+  }
+  return parsed;
+}
+
 export function parseEnv(env: Record<string, string | undefined> = process.env, options: ParseEnvOptions = {}): CloudEnv {
-  return {
+  return requireOriginForMailedLinks({
     platformDir: env["MEZAN_PLATFORM_DIR"] ?? ".data/platform",
     ...publicOriginOf(env),
     tenantDomain: parseTenantDomain(env["MEZAN_TENANT_DOMAIN"]),
@@ -253,5 +269,5 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     platformSmtp: parsePlatformSmtp(env),
     supportEmail: parseSupportEmail(env["MEZAN_SUPPORT_EMAIL"]),
     reviewTenant: parseReviewTenant(env),
-  };
+  });
 }

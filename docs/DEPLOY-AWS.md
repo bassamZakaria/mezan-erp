@@ -29,6 +29,19 @@ and maximum 100 percent healthy, so the old task stops before the new one
 starts. Every tenant database is a single SQLite file opened in exclusive
 locking mode, and a second task would be a second writer.
 
+## Server environment
+
+The task's environment is set in `cyag-devops/apps/mezan/compute.tf`, for the
+demo stack and the reviewer stack alike; this repository lists the reviewer
+stack's in `docs/DEPLOY-REVIEW.md`. Two variables the server refuses to start
+without, on either stack:
+
+- `MEZAN_TRUSTED_PROXY_HOPS=2` beside `MEZAN_TRUST_PROXY=1` (CloudFront, then
+  API Gateway).
+- `MEZAN_PUBLIC_URL=https://<the stack's domain>` once `MEZAN_SMTP_HOST` is set.
+
+Every variable is described in `docs/ENVIRONMENTS.md`.
+
 ## Repository secrets
 
 | Secret | What it is |

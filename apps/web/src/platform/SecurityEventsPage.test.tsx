@@ -78,6 +78,14 @@ describe("the console's page of security events the audit log could not record",
     expect(await screen.findByRole("heading", { level: 1, name: "أحداث أمنية لم تُسجَّل" })).toBeInTheDocument();
   });
 
+  it("marks its own entry, and no other, as the current page in the navigation", async () => {
+    mount("/platform/security", () => ({ body: TWO }));
+
+    const link = await screen.findByRole("link", { name: /أحداث لم تُسجَّل/ });
+    expect(link).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "المنشآت" })).not.toHaveAttribute("aria-current");
+  });
+
   it("says plainly that nothing went unrecorded, and shows no badge and no table", async () => {
     mount("/platform/security", () => ({ body: { count: 0, recent: [] } }));
 

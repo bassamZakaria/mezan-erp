@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { openSqliteConnection } from "@mezan/persistence";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { createPaymobWebhookRoutes, PAYMOB_WEBHOOK_PATH, trustedReturnOrigin } from "./billing-routes.js";
 import type { CardCheckoutService, WebhookResult } from "./card-checkout.js";
@@ -16,6 +17,7 @@ const T = "2026-01-15T00:00:00.000Z";
 const apps: CloudApp[] = [];
 const dirs: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const app of apps.splice(0)) await app.close();
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
@@ -258,4 +260,42 @@ describe("trustedReturnOrigin", () => {
     expect(trustedReturnOrigin(from("acme.mezan.test.evil.example"), live)).toBe("https://app.mezan.test");
     expect(trustedReturnOrigin(from("a.b.mezan.test"), live)).toBe("https://app.mezan.test");
   });
+});
+
+describe("card events the platform's audit log cannot record", () => {
+  it("are read back by the console's owner: the checkout that was opened and the summary of the sweep that followed, each with what it carried", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const env = testEnv();
+    const app = await createCloudApp(env, { now: () => new Date(T) });
+    apps.push(app);
+    reachable(app.root, PROXY_HOPS);
+    const owner = await platformToken(app);
+    const acme = await provisionAndLogin(app, owner, "acme");
+    const before = (await (await send(app, "/api/platform/security/unrecorded", { token: owner })).json()) as { count: number };
+    expect(before.count).toBe(0);
+
+    const { sqlite: platformDb } = openSqliteConnection(path.join(env.platformDir, "platform.db"));
+    platformDb.exec("CREATE TRIGGER audit_down BEFORE INSERT ON audit_event BEGIN SELECT RAISE(ABORT, 'audit sink down'); END;");
+    try {
+      const opened = await send(app, "/api/billing/checkout", {
+        method: "POST", token: acme.token, tenant: "acme", body: JSON.stringify({ returnPath: "/settings/billing" }),
+      });
+      expect(opened.status).toBe(201);
+      const checkoutId = ((await opened.json()) as { id: string }).id;
+      const swept = await send(app, "/api/platform/card-checkouts/sweep", { method: "POST", token: owner });
+      expect(swept.status).toBe(200);
+
+      const unrecorded = (await (await send(app, "/api/platform/security/unrecorded", { token: owner })).json()) as {
+        count: number;
+        recent: { action: string; entityId: string | null; reason: string; details: Record<string, unknown> | null }[];
+      };
+      expect(unrecorded.count).toBe(2);
+      expect(unrecorded.recent.map((event) => event.action)).toEqual(["CARD_CHECKOUT_SWEEP_RUN", "CARD_CHECKOUT_OPENED"]);
+      expect(unrecorded.recent[0]!.details).toMatchObject({ examined: expect.any(Number), paid: expect.any(Number), stillPending: expect.any(Number) });
+      expect(unrecorded.recent[1]).toMatchObject({ entityId: acme.id, reason: expect.stringContaining("audit sink down"), details: { checkoutId } });
+    } finally {
+      platformDb.exec("DROP TRIGGER audit_down;");
+      platformDb.close();
+    }
+  }, 60_000);
 });

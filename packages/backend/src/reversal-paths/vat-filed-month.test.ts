@@ -55,6 +55,11 @@ const STANDING: Record<ReversalDocumentType, () => Promise<Record<string, string
   [ReversalDocumentType.EquipmentLog]: async () => ({ id: one<{ id: string }>(`SELECT id FROM equipment_log WHERE status = 'confirmed' AND date >= '2026-08-01' ORDER BY id LIMIT 1`).id }),
   [ReversalDocumentType.MaterialConsumption]: async () => ({ id: "CON-DEMO-SUB-1" }),
   [ReversalDocumentType.LandedCost]: async () => ({ id: "LC-DEMO-1" }),
+  [ReversalDocumentType.Voucher]: async () => {
+    await ok("POST", "/vouchers", { id: "VATR-CV", date: "2026-08-18", voucherType: "other_expense", amount: "250", branchId: "BR-MAIN", paymentMethod: "bank", treasuryAccountId: "TR-DEMO-BANK", treasuryGlAccountId: "1310", counterpartyGlAccountId: "5900" });
+    await ok("POST", "/vouchers/VATR-CV/confirm", {});
+    return { id: "VATR-CV" };
+  },
   [ReversalDocumentType.DepreciationRun]: async () => ({ id: one<{ id: string }>(`SELECT id FROM depreciation_run WHERE status = 'posted' ORDER BY period DESC LIMIT 1`).id }),
   [ReversalDocumentType.RecurringJournalTemplate]: async () => ({ id: one<{ id: string }>(`SELECT r.id FROM recurring_journal_run r JOIN journal_entry e ON e.id = r.journal_entry_id WHERE e.status = 'posted' AND r.reversal_journal_entry_id IS NULL ORDER BY r.period DESC LIMIT 1`).id }),
 };

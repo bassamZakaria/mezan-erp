@@ -1,6 +1,23 @@
 import { sessionSchema, type SessionDTO } from "@mezan/contracts";
+import { ALL_SCOPE, SHELL_REQUESTS, can, createAuthContext, type AuthContext, type ShellRequest } from "@mezan/domain";
 
 export type Session = SessionDTO;
+
+const grants = new WeakMap<Session, AuthContext>();
+
+export function sessionHolds(session: Session | null, permission: string): boolean {
+  if (!session) return false;
+  let grant = grants.get(session);
+  if (!grant) {
+    grant = createAuthContext({ userId: session.userId, permissions: session.permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    grants.set(session, grant);
+  }
+  return can(grant, permission);
+}
+
+export function sessionMayAsk(session: Session | null, request: ShellRequest): boolean {
+  return sessionHolds(session, SHELL_REQUESTS[request].permission);
+}
 
 const SESSION_STORAGE_KEY = "mezan.session";
 
@@ -125,10 +142,24 @@ const TENANT_CODE_STORAGE_KEY = "mezan.tenantCode";
  * it. Stripping to the header-safe slug alphabet here is what keeps that
  * failure from ever reaching `authHeaders`.
  */
+const tenantCodeListeners = new Set<() => void>();
+
+export function subscribeTenantCode(listener: () => void): () => void {
+  tenantCodeListeners.add(listener);
+  return () => {
+    tenantCodeListeners.delete(listener);
+  };
+}
+
+function tenantCodeChanged(): void {
+  for (const listener of [...tenantCodeListeners]) listener();
+}
+
 export function persistTenantCode(code: string): void {
   const storage = getSessionStorage();
   if (!storage) return;
   storage.setItem(TENANT_CODE_STORAGE_KEY, code.trim().toLowerCase().replace(/[^a-z0-9-]/g, ""));
+  tenantCodeChanged();
 }
 
 export function loadTenantCode(): string | null {
@@ -141,6 +172,7 @@ export function clearTenantCode(): void {
   const storage = getSessionStorage();
   if (!storage) return;
   storage.removeItem(TENANT_CODE_STORAGE_KEY);
+  tenantCodeChanged();
 }
 
 const TENANT_CODE_BY_EMAIL_STORAGE_KEY = "mezan.tenantCodeByEmail";

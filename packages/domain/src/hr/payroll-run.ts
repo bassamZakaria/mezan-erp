@@ -21,7 +21,15 @@ import type { PayBasis } from "./contract.js";
  * every net figure so a net is never read as if it were final.
  */
 
-export type PayrollRunStatus = "draft" | "calculated" | "approved" | "disbursed" | "cancelled";
+export enum PayrollRunStatusCode {
+  Draft = "draft",
+  Calculated = "calculated",
+  Approved = "approved",
+  Disbursed = "disbursed",
+  Cancelled = "cancelled",
+}
+
+export type PayrollRunStatus = `${PayrollRunStatusCode}`;
 
 export interface PayrollRunStatusDefinition {
   readonly code: PayrollRunStatus;
@@ -48,6 +56,8 @@ export const ALLOWED_PAYROLL_RUN_TRANSITIONS: Record<PayrollRunStatus, readonly 
   disbursed: [],
   cancelled: [],
 };
+
+export const PAYROLL_RUN_FINAL_STATUSES: ReadonlySet<PayrollRunStatus> = new Set<PayrollRunStatus>(["approved", "disbursed"]);
 
 export function canTransitionPayrollRun(from: PayrollRunStatus, to: PayrollRunStatus): boolean {
   return ALLOWED_PAYROLL_RUN_TRANSITIONS[from].includes(to);
@@ -142,26 +152,47 @@ export const PAYROLL_UNIMPLEMENTED_RULES_STATUTORY: readonly PayrollUnimplemente
 ] as const;
 
 /** The gaps behind a run's nets: the statutory list only when the run was computed with statutory rules. */
+export const PART_MONTH_TAX_NOTICE = {
+  ar: "ضريبة كسب العمل على هذا الكشف احتُسبت على أجر جزء من الشهر محوَّلاً إلى سنة كاملة، فقد تقل عن المستحق أو تكون صفراً. الفرق يُسوّى في التسوية الضريبية السنوية، والنظام لا يجريها.",
+  en: "Income tax on this payslip was computed on part of a month's pay annualised to a full year, so it may be lower than due or zero. The difference is settled in the annual tax settlement, which the system does not run.",
+} as const;
+
+export function isPartMonthTaxedPayslip(payslip: Pick<Payslip, "paidDays" | "periodDays" | "insurableWage" | "lines">): boolean {
+  if (payslip.paidDays >= payslip.periodDays) return false;
+  return payslip.insurableWage.scaled > 0n || payslip.lines.some((line) => line.source === "income_tax" || line.source === "social_insurance_employee");
+}
+
 export function payrollUnimplementedRulesFor(run: Pick<PayrollRun, "statutoryTableCodes">): readonly PayrollUnimplementedRule[] {
   return run.statutoryTableCodes.length > 0 ? PAYROLL_UNIMPLEMENTED_RULES_STATUTORY : PAYROLL_UNIMPLEMENTED_RULES;
 }
 
 /** What a payslip line does to the net: adds to it, takes from it, or is an employer-side cost that never touches it. */
-export type PayslipLineKind = "earning" | "deduction" | "employer_contribution";
+export enum PayslipLineKindCode {
+  Earning = "earning",
+  Deduction = "deduction",
+  EmployerContribution = "employer_contribution",
+  TerminationAdjustment = "termination_adjustment",
+}
+
+export type PayslipLineKind = `${PayslipLineKindCode}`;
 
 /** Where a line came from — the audit trail for "why is my net this number?". */
-export type PayslipLineSource =
-  | "contract_basic"
-  | "contract_allowance"
-  | "contract_deduction"
-  | "unpaid_leave"
-  | "advance_recovery"
-  | "garnishment"
-  | "overtime"
-  | "income_tax"
-  | "social_insurance_employee"
-  | "social_insurance_employer"
-  | "statutory_levy";
+export enum PayslipLineSourceCode {
+  ContractBasic = "contract_basic",
+  ContractAllowance = "contract_allowance",
+  ContractDeduction = "contract_deduction",
+  UnpaidLeave = "unpaid_leave",
+  AdvanceRecovery = "advance_recovery",
+  Garnishment = "garnishment",
+  Overtime = "overtime",
+  IncomeTax = "income_tax",
+  SocialInsuranceEmployee = "social_insurance_employee",
+  SocialInsuranceEmployer = "social_insurance_employer",
+  StatutoryLevy = "statutory_levy",
+  TerminationAdjustment = "termination_adjustment",
+}
+
+export type PayslipLineSource = `${PayslipLineSourceCode}`;
 
 export interface PayslipLineSourceDefinition {
   readonly code: PayslipLineSource;
@@ -180,6 +211,7 @@ export const PAYSLIP_LINE_SOURCE_DEFINITIONS: readonly PayslipLineSourceDefiniti
   { code: "social_insurance_employee", labelAr: "التأمينات — حصة الموظف" },
   { code: "social_insurance_employer", labelAr: "التأمينات — حصة صاحب العمل" },
   { code: "statutory_levy", labelAr: "رسوم قانونية" },
+  { code: "termination_adjustment", labelAr: "تسوية إنهاء الخدمة" },
 ] as const;
 
 export function getPayslipLineSourceLabel(source: PayslipLineSource): string {

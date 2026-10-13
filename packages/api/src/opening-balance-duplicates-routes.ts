@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   createOpeningBalanceDuplicatesReport,
@@ -50,6 +51,8 @@ function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Respo
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof NoFiscalPeriodForDateError || err instanceof PeriodNotOpenForPostingError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }

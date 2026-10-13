@@ -181,12 +181,22 @@ A user action must pass all four, and they are distinct:
 Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
 
 - **Currency and rate.** `glJournalLineSchema` carries `currency` and `fxRate`, and
-  the FX revaluation engine (`fx-revaluation/revaluation.ts`) is correct end to end:
-  it derives the open foreign balance from base ÷ rate, restates at the closing rate,
-  posts gain/loss against 4900/5900 only, and auto-reverses next day. But **no
-  document route ever sets those fields** — a `currency: "USD"` purchase invoice
-  posts its foreign numbers as EGP (D24). `findRate` correctly refuses a pending
-  rate, so an unapproved rate is genuinely unspendable.
+  the FX revaluation engine (`fx-revaluation/revaluation.ts`) derives each open
+  foreign balance from base ÷ rate, restates it at the closing rate, posts the
+  difference to the routed unrealised accounts (4940/5940 by default) and
+  auto-reverses next day. Documents stamp those fields at confirm from the
+  approved rate of their own date (`findRate` refuses a pending rate, and a date
+  with no approved rate refuses the posting). The party line of a foreign invoice
+  or voucher carries them — and so does the **treasury line** when the treasury
+  account itself is kept in a foreign currency: a voucher, a transfer leg or a
+  cheque collection on a USD bank posts the base amount with `USD` and the rate,
+  and the voucher records the foreign amount (`treasuryFx`). The GL still holds
+  base on every account. A voucher and a treasury account may differ in currency
+  only when one of the two is the base currency; two different foreign currencies
+  on one line are refused. A line posted on a foreign treasury account before
+  this existed has no currency: readers derive it at the approved rate of the
+  line's own date (`withDerivedTreasuryFx`), report it as derived, and never
+  rewrite it.
 - **Tax rate.** Per-line rates are charged correctly, and nothing records *which*
   rate a posted line carried, so the VAT return re-derives one blended rate per
   entry (D28). A 14% / 5% / zero-rated invoice files at ~6.3%. A tax rate also cannot

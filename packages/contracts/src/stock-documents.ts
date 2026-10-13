@@ -58,6 +58,8 @@ export const stockAdjustmentDocumentSchema = z.object({
   createdAt: z.string(),
   confirmedAt: z.string().nullable(),
   journalEntryId: z.string().nullable(),
+  reversesDocId: z.string().nullish(),
+  reversedByDocId: z.string().nullish(),
   projectId: z.string().nullish(),
   costCategory: costCategorySchema.nullish(),
 });

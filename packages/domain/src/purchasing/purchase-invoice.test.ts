@@ -37,6 +37,10 @@ import {
   makeStockService,
 } from "./test-helpers.js";
 
+import { InvalidStockMovementError } from "../inventory/errors.js";
+import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
+import { PurchaseItemsAlreadyConsumedError } from "./errors.js";
+
 const now = () => "2026-08-21T09:00:00.000Z";
 const WH = "MAIN-WH";
 const ACCOUNTS: PurchaseGlAccounts = {
@@ -666,6 +670,66 @@ describe("createPurchaseInvoice — projectId / costCategory validation", () => 
         { invoices, numbering },
       ),
     ).rejects.toThrow(InvalidPurchaseDocumentError);
+  });
+});
+
+describe("cancelPurchaseInvoice — goods that have already left", () => {
+  async function soldOut(trackSoldPurchaseItems: boolean) {
+    const invoices = new InMemoryPurchaseInvoices();
+    const numbering = makeNumbering();
+    const { InMemoryCostLayers, InMemorySnapshots, InMemoryStockLedger } = await import("../inventory/test-helpers/in-memory-stores.js");
+    const { StockLedgerService } = await import("../inventory/stock-ledger-service.js");
+    const layers = new InMemoryCostLayers();
+    const stock = new StockLedgerService({ ledger: new InMemoryStockLedger(), layers, snapshots: new InMemorySnapshots(), policy: { allowNegativeStock: false } });
+    await createPurchaseInvoice(
+      { id: "pi-sold", supplierId: "sup-2", date: "2026-06-04", branchId: "MAIN", warehouseId: WH, lines: [{ itemId: "item-S", kind: "inventory", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("10.00") }] },
+      { invoices, numbering },
+    );
+    await confirmPurchaseInvoice("pi-sold", { invoices, stock, gl: new RecordingGlPort(), accounts: ACCOUNTS, now });
+    await stock.postIssue({ issueId: "sale-1", sourceDocType: "SALES_INVOICE", sourceDocId: "sale-1", warehouseId: WH, occurredAt: "2026-06-20T00:00:00.000Z", lines: [{ itemId: "item-S", qty: Qty.fromMajor("2") }] });
+    const glReverse = { calls: [] as unknown[], async reverse(id: string, opts: unknown) { this.calls.push({ id, opts }); } };
+    const cancel = cancelPurchaseInvoice("pi-sold", {
+      invoices,
+      stock,
+      glReverse: glReverse as never,
+      layers,
+      policy: { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: false, trackSoldPurchaseItems },
+    });
+    return { cancel, glReverse, invoices };
+  }
+
+  it("refuses when every unit has been issued — the layer is gone, which is consumed, not untouched", async () => {
+    const { cancel, glReverse, invoices } = await soldOut(true);
+    await expect(cancel).rejects.toThrow(PurchaseItemsAlreadyConsumedError);
+    expect(glReverse.calls).toEqual([]);
+    expect((await invoices.findById("pi-sold"))?.status).toBe("confirmed");
+  });
+
+  it("with the policy off the stock ledger still refuses, before anything reaches the GL", async () => {
+    const { cancel, glReverse, invoices } = await soldOut(false);
+    await expect(cancel).rejects.toThrow(InvalidStockMovementError);
+    expect(glReverse.calls).toEqual([]);
+    expect((await invoices.findById("pi-sold"))?.status).toBe("confirmed");
+  });
+
+  it("dates the GL reversal and the stock reversal on the same day — the cancel's, not the invoice's", async () => {
+    const invoices = new InMemoryPurchaseInvoices();
+    const numbering = makeNumbering();
+    const stock = makeStockService();
+    await createPurchaseInvoice(
+      { id: "pi-d", supplierId: "sup-2", date: "2026-06-04", branchId: "MAIN", warehouseId: WH, lines: [{ itemId: "item-D", kind: "inventory", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("10.00") }] },
+      { invoices, numbering },
+    );
+    await confirmPurchaseInvoice("pi-d", { invoices, stock, gl: new RecordingGlPort(), accounts: ACCOUNTS, now });
+    const glReverse = { calls: [] as { id: string; opts: { date: string } }[], async reverse(id: string, opts: { date: string }) { this.calls.push({ id, opts }); } };
+    const { InMemoryCostLayers } = await import("../inventory/test-helpers/in-memory-stores.js");
+    const deps = { invoices, stock, glReverse: glReverse as never, layers: new InMemoryCostLayers(), policy: { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: false, trackSoldPurchaseItems: false } };
+
+    await expect(cancelPurchaseInvoice("pi-d", deps, { date: "2026-06-03" })).rejects.toThrow(ReversalDateBeforeOriginalError);
+    await cancelPurchaseInvoice("pi-d", deps, { date: "2026-07-10" });
+
+    expect(glReverse.calls.map((c) => c.opts.date)).toEqual(["2026-07-10"]);
+    expect((await stock.getMovementsOfDocument("pi-d:cancel")).map((m) => m.occurredAt)).toEqual(["2026-07-10T00:00:00.000Z"]);
   });
 });
 

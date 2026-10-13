@@ -28,7 +28,7 @@ describe("employeeAdvanceStatusSchema", () => {
   });
 
   it("rejects a status outside the enum", () => {
-    expect(employeeAdvanceStatusSchema.safeParse("cancelled").success).toBe(false);
+    expect(employeeAdvanceStatusSchema.safeParse("voided").success).toBe(false);
   });
 });
 
@@ -89,7 +89,7 @@ describe("employeeAdvanceSchema", () => {
   });
 
   it("rejects an out-of-enum status", () => {
-    const result = employeeAdvanceSchema.safeParse({ ...advance, status: "cancelled" });
+    const result = employeeAdvanceSchema.safeParse({ ...advance, status: "voided" });
     expect(result.success).toBe(false);
   });
 
@@ -167,8 +167,8 @@ describe("payrollRunStatusSchema", () => {
 });
 
 describe("payslipLineKindSchema", () => {
-  it("accepts earning, deduction and employer_contribution", () => {
-    for (const k of ["earning", "deduction", "employer_contribution"]) {
+  it("accepts earning, deduction, employer_contribution and the termination adjustment", () => {
+    for (const k of ["earning", "deduction", "employer_contribution", "termination_adjustment"]) {
       expect(payslipLineKindSchema.safeParse(k).success).toBe(true);
     }
   });
@@ -191,9 +191,10 @@ describe("payslipLineSourceSchema", () => {
 });
 
 describe("payrollComponentKindSchema", () => {
-  it("is an alias of payslipLineKindSchema and accepts the same values", () => {
+  it("accepts what a component can be, and not the termination adjustment a payslip line alone can be", () => {
     expect(payrollComponentKindSchema.safeParse("earning").success).toBe(true);
     expect(payrollComponentKindSchema.safeParse("bonus").success).toBe(false);
+    expect(payrollComponentKindSchema.safeParse("termination_adjustment").success).toBe(false);
   });
 });
 

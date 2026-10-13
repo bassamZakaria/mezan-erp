@@ -1,3 +1,4 @@
+import { reversalRefusalResponse } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -9,6 +10,7 @@ import {
   DuplicateChequeNumberError,
   InvalidChequeCommandError,
   InvalidChequeTransitionError,
+  ChequeBankRateMissingError,
   ReplacementAmountMismatchError,
   UnbalancedEntryError,
   AccountNotFoundError,
@@ -24,8 +26,10 @@ import {
   type VoucherAllocation,
   type Cheque,
   type ChequeServiceDeps,
+  type TreasuryAccountRepository,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createChequeSchema,
   depositChequeSchema,
   collectChequeSchema,
@@ -39,6 +43,7 @@ import { createPermissionGate, getAuthContext, type AuthContextResolver, branchS
 import { recordAdminEvent } from "./admin-audit.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { treasuryLedgerAccount } from "./treasury-ledger-account.js";
 
 export type ChequeRoutesDeps = ChequeServiceDeps & {
   /** Generates ids (cheque id, journal-entry id) when the request omits them. Defaults to a UUID. */
@@ -52,6 +57,7 @@ export type ChequeRoutesDeps = ChequeServiceDeps & {
   readonly audit?: AuditSink;
   /** Refuses a cheque naming a branch no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
+  readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
 };
 
 function serialize(cheque: Cheque, asOfDate: string, allocations: readonly VoucherAllocation[] = []) {
@@ -95,6 +101,8 @@ function serialize(cheque: Cheque, asOfDate: string, allocations: readonly Vouch
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const postingRefusal = reversalRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof ChequeNotFoundError || err instanceof InvoiceNotFoundError) {
@@ -105,6 +113,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (
     err instanceof InvalidChequeCommandError ||
+    err instanceof ChequeBankRateMissingError ||
     err instanceof ReplacementAmountMismatchError ||
     err instanceof AllocationExceedsError ||
     err instanceof AllocationMismatchError ||
@@ -147,6 +156,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
   const idGen = deps.idGen ?? (() => randomUUID());
   const service = new ChequeService(deps);
   const asOf = () => (deps.now ? deps.now() : new Date().toISOString()).slice(0, 10);
+  const postingDay = (c: Context, date: string | undefined): Promise<string> => tenantDay(c, date ?? (deps.now ? deps.now() : new Date().toISOString()));
   /**
    * WHO. Read off the resolved session, never `x-user-id` — an actor the
    * caller named would make the register's attribution fiction (D80).
@@ -375,11 +385,16 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const deposited = await service.findById(c.req.param("id"));
+    const bank = deposited?.bankTreasuryAccountId
+      ? await treasuryLedgerAccount(c, deps.treasuryAccounts, deposited.bankTreasuryAccountId, parsed.data.bankGlAccountId)
+      : null;
+    if (bank instanceof Response) return bank;
     try {
       const cheque = await service.collect({
         chequeId: c.req.param("id"),
-        bankGlAccountId: parsed.data.bankGlAccountId,
-        date: await tenantDay(c, parsed.data.date),
+        bankGlAccountId: bank?.glAccountId ?? "",
+        date: await postingDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });
@@ -404,11 +419,31 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
     try {
       const cheque = await service.bounce({
         chequeId: c.req.param("id"),
-        date: await tenantDay(c, parsed.data.date),
+        date: await postingDay(c, parsed.data.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });
       await auditTransition(c, "BOUNCE", cheque);
+      return c.json(await present(cheque, asOf()));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/return", gate(ReversalPermission.Cheque), async (c) => {
+    const parsed = bounceChequeSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const cheque = await service.returnCollected({
+        chequeId: c.req.param("id"),
+        date: await postingDay(c, parsed.data.date),
+        journalEntryId: idGen(),
+        collectionReversalId: idGen(),
+        actor: actorOf(c),
+      });
+      await auditTransition(c, "RETURN", cheque);
       return c.json(await present(cheque, asOf()));
     } catch (err) {
       return handleDomainError(c, err);
@@ -439,7 +474,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
           branchId: d.newCheque.branchId,
           notes: d.newCheque.notes ?? null,
         },
-        date: d.date,
+        date: await postingDay(c, d.date),
         journalEntryId: idGen(),
         actor: actorOf(c),
       });

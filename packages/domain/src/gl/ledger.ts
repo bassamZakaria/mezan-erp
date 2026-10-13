@@ -41,6 +41,7 @@ export interface LedgerRepository {
   deleteDraft(entryId: string): Promise<void>;
   findById(id: string): Promise<JournalEntry | null>;
   findByEntryNo(entryNo: string): Promise<JournalEntry | null>;
+  entryDates?(ids: readonly string[]): Promise<ReadonlyMap<string, string>>;
   list(filter?: JournalListFilter): Promise<readonly JournalEntry[]>;
   /** How many entries the same filter matches, ignoring `limit`/`offset`. Optional on the port. */
   count?(filter?: JournalListFilter): Promise<number>;

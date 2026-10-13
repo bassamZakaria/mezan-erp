@@ -1,3 +1,6 @@
+import { PayBasis } from "@mezan/domain";
+import { EmployeeRefStatus } from "@mezan/domain";
+import { ContractStatus } from "@mezan/domain";
 import { describe, it, expect, afterEach } from "vitest";
 import { Money } from "@mezan/domain";
 import {
@@ -83,7 +86,7 @@ describe("SqliteEmployeeRepository", () => {
       requireBiometricAtClockIn: false, deviceBadgeId: null, hasPensionEntitlement: null, taxDisabilityExemption: false,
       address: { street: "شارع النصر", city: "القاهرة", governorate: "القاهرة", postalCode: null },
       emergencyContact: { name: "سارة", relationship: "زوجة", phone: "0100000000", altPhone: null },
-      status: "active",
+      status: EmployeeRefStatus.Active,
       terminatedAt: null,
       createdAt: "2026-01-01T00:00:00.000Z",
     });
@@ -104,7 +107,7 @@ describe("SqliteContractRepository", () => {
       number: "CTR-0001",
       employeeId: "e1",
       type: "indefinite",
-      payBasis: "monthly",
+      payBasis: PayBasis.Monthly,
       payFrequency: "monthly",
       startDate: "2026-01-01",
       endDate: null,
@@ -113,7 +116,7 @@ describe("SqliteContractRepository", () => {
       leaveEntitlement: { annualLeaveDays: 21, sickLeaveDays: null, personalLeaveDays: null },
       allowances: [{ id: "a1", name: "بدل مواصلات", amount: Money.fromMajor("500.00"), componentId: null }],
       deductions: [],
-      status: "active",
+      status: ContractStatus.Active,
       terminatedAt: null,
       createdAt: "2026-01-01T00:00:00.000Z",
     });

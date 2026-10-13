@@ -40,6 +40,7 @@ const baseSettings = {
   maxLineDiscountPercent: 20,
   contractingCbeCreditDiscountRatePercent: null,
   contractingSingleOperatorMode: false,
+  periodCloseSingleOperatorMode: false,
   allowCrossWarehouseSales: false,
   showOtherWarehouseStock: true,
   allowBackorder: false,

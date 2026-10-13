@@ -31,6 +31,7 @@ export {
   assertBalanced,
   assertLinesPostable,
   assertPeriodOpen,
+  assertVatNotFiled,
   assertEntryDate,
   assertMemorandumPartition,
   assertProjectRequired,
@@ -52,6 +53,9 @@ export {
   PartyRequiredOnControlAccountError,
   InvalidJournalPartyError,
   ReversalDateBeforeOriginalError,
+  JournalEntryOwnedByDocumentError,
+  JournalReversalNotReversibleError,
+  assertReversibleFromJournal,
   type PartyControlKind,
 } from "./errors.js";
 
@@ -66,3 +70,6 @@ export {
   type YearEndClosePlan,
   type YearEndClosePlanLine,
 } from "./year-end-close.js";
+
+export { nextEntryGenerationId, standingEntryGeneration } from "./entry-generations.js";
+export { reopenFiscalYear, standingYearClose, YearNotClosedError, FollowingYearClosedError, type ReopenYearOptions, type ReopenYearResult } from "./year-end-close.js";

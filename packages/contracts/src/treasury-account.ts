@@ -20,6 +20,9 @@ export const treasuryAccountSchema = z.object({
   bankAccountNumber: z.string().nullable(),
   branchId: z.string().min(1),
   glAccountId: z.string().nullable(),
+  foreignBalance: z.string().nullable().optional(),
+  foreignBalanceBase: z.string().nullable().optional(),
+  foreignBalanceDerivedLines: z.number().int().nullable().optional(),
   openingBalance: moneyString,
   openingBalanceDate: z.string().nullable(),
   /** حد تسهيلات خطابات الضمان — null when the bank has no facility configured. */

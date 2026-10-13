@@ -11,7 +11,10 @@ import {
   InvalidGuaranteeFacilityLimitError,
   InvalidOpeningBalanceError,
   NegativeCashBalanceError,
+  TreasuryAccountFixedField,
+  TreasuryAccountHasMovementsError,
   TreasuryAccountNotFoundError,
+  assertGlAccountHoldsOneCurrency,
 } from "./errors.js";
 
 export interface UpdateTreasuryAccountCommand {
@@ -62,13 +65,29 @@ function assertOpeningBalanceBound(accountId: string, openingBalance: Money): vo
  * (add/adjust opening balance) menu action the catalog documents on the
  * account statement page. Re-validates the cash-can't-go-negative rule.
  */
+export interface TreasuryAccountMovementProbe {
+  hasPostedLines(glAccountId: string): Promise<boolean>;
+}
+
 export async function updateTreasuryAccount(
   accountId: string,
   command: UpdateTreasuryAccountCommand,
   repo: TreasuryAccountRepository,
+  movements?: TreasuryAccountMovementProbe,
 ): Promise<TreasuryAccount> {
   const current = await repo.findById(accountId);
   if (!current) throw new TreasuryAccountNotFoundError(accountId);
+
+  const changed: TreasuryAccountFixedField[] = [];
+  if (command.currency !== undefined && command.currency !== current.currency) changed.push(TreasuryAccountFixedField.Currency);
+  if (command.glAccountId !== undefined && command.glAccountId !== current.glAccountId) changed.push(TreasuryAccountFixedField.GlAccount);
+  if (changed.length > 0) {
+    if (current.glAccountId && (await movements?.hasPostedLines(current.glAccountId))) throw new TreasuryAccountHasMovementsError(accountId, changed);
+    assertGlAccountHoldsOneCurrency(
+      { id: accountId, glAccountId: command.glAccountId !== undefined ? command.glAccountId : current.glAccountId, currency: command.currency ?? current.currency },
+      await repo.list(),
+    );
+  }
 
   const nextType = command.type ?? current.type;
   const nextOpeningBalance = command.openingBalance ? Money.fromMajor(command.openingBalance) : current.openingBalance;

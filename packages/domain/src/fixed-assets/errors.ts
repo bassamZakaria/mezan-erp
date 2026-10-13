@@ -92,15 +92,22 @@ export class DepreciationRunNotFoundError extends Error {
 }
 
 /** Raised when trying to post a depreciation run that is not in the draft state. */
+export enum DepreciationRunDraftAction {
+  Post = "post",
+  Discard = "discard",
+}
+
 export class DepreciationRunNotDraftError extends Error {
   readonly code = "DEPRECIATION_RUN_NOT_DRAFT";
   readonly messageEn: string;
   constructor(
     readonly runId: string,
     readonly status: string,
+    readonly action: DepreciationRunDraftAction = DepreciationRunDraftAction.Post,
   ) {
-    super(`لا يمكن ترحيل تشغيل الإهلاك "${runId}" لأن حالته «${runStatusAr(status)}» وليست مسودة.`);
-    this.messageEn = `Depreciation run "${runId}" is "${status}", not a draft, and cannot be posted.`;
+    const discard = action === DepreciationRunDraftAction.Discard;
+    super(`لا يمكن ${discard ? "استبعاد" : "ترحيل"} تشغيل الإهلاك "${runId}" لأن حالته «${runStatusAr(status)}» وليست مسودة.`);
+    this.messageEn = `Depreciation run "${runId}" is "${status}", not a draft, and cannot be ${discard ? "discarded" : "posted"}.`;
     this.name = "DepreciationRunNotDraftError";
   }
 }
@@ -119,7 +126,6 @@ export class DepreciationRunNotPostedError extends Error {
   }
 }
 
-/** Raised when a depreciation run already exists for a given period + branch (and isn't cancelled). */
 export class DuplicateDepreciationPeriodError extends Error {
   readonly code = "DUPLICATE_DEPRECIATION_PERIOD";
   readonly messageEn: string;
@@ -127,13 +133,28 @@ export class DuplicateDepreciationPeriodError extends Error {
     readonly period: string,
     readonly branchId: string | null,
   ) {
-    super(`يوجد تشغيل إهلاك للفترة "${period}"${branchId ? ` للفرع "${branchId}"` : ""} من قبل.`);
-    this.messageEn = `A depreciation run for period "${period}"${branchId ? ` / branch "${branchId}"` : ""} already exists.`;
+    super(`يوجد تشغيل إهلاك مسودة للفترة "${period}"${branchId ? ` للفرع "${branchId}"` : ""}. رحِّله أو استبعده قبل إنشاء تشغيل آخر.`);
+    this.messageEn = `A draft depreciation run for period "${period}"${branchId ? ` / branch "${branchId}"` : ""} is still open. Post it or discard it before drafting another.`;
     this.name = "DuplicateDepreciationPeriodError";
   }
 }
 
-/** Raised when a new depreciation run would contain zero lines (no eligible asset has anything due for the period). */
+export class AssetAlreadyDepreciatedError extends Error {
+  readonly code = "ASSET_ALREADY_DEPRECIATED";
+  readonly messageEn: string;
+  constructor(
+    readonly period: string,
+    readonly assetCodes: readonly string[],
+  ) {
+    const one = assetCodes.length === 1;
+    super(
+      `${one ? "الأصل" : "الأصول"} ${assetCodes.join("، ")} ${one ? "حُمِّل" : "حُمِّلت"} إهلاك الفترة "${period}" في تشغيل مرحَّل آخر، ولم يبقَ في هذه المسودة ما يُرحَّل. استبعد المسودة من قائمة تشغيلات الإهلاك.`,
+    );
+    this.messageEn = `${one ? "Asset" : "Assets"} ${assetCodes.join(", ")} ${one ? "was" : "were"} already charged depreciation for period "${period}" by another posted run, and nothing is left on this draft to post. Discard the draft from the depreciation runs list.`;
+    this.name = "AssetAlreadyDepreciatedError";
+  }
+}
+
 export class NoDepreciableAssetsError extends Error {
   readonly code = "NO_DEPRECIABLE_ASSETS";
   readonly messageEn: string;

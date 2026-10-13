@@ -104,6 +104,7 @@ export function StatementWorkspace({
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingLineId, setPendingLineId] = useState<string | null>(null);
   const [overrideOpen, setOverrideOpen] = useState(false);
+  const [finalizeAsked, setFinalizeAsked] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
 
   const statement = detail.data ?? null;
@@ -175,34 +176,36 @@ export function StatementWorkspace({
           {notice ? <div role="status" className="rounded-[8px] bg-info-soft px-3 py-2 text-[12.5px] text-info-ink">{notice}</div> : null}
 
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              disabled={locked || suggest.isPending}
-              onClick={() =>
-                runStatement(async () => {
-                  const result = await suggest.mutateAsync(statement.id);
-                  return t("bankRecX.suggestDone", { matched: String(result.matchedCount), suggested: String(result.suggestedCount) });
-                })
-              }
-            >
-              {t("bankRecX.suggest")}
-            </Button>
-            <Button onClick={() => setRulesOpen(true)}>{t("bankRecX.rules")}</Button>
-            <Button
-              disabled={locked || finalize.isPending || position === null}
-              onClick={() => {
-                if (needsOverride) {
-                  setOverrideReason("");
-                  setOverrideOpen(true);
-                  return;
+            {locked ? null : (
+              <Button
+                variant="primary"
+                disabled={suggest.isPending}
+                onClick={() =>
+                  runStatement(async () => {
+                    const result = await suggest.mutateAsync(statement.id);
+                    return t("bankRecX.suggestDone", { matched: String(result.matchedCount), suggested: String(result.suggestedCount) });
+                  })
                 }
-                void runStatement(async () => {
-                  await finalize.mutateAsync({ statementId: statement.id });
-                });
-              }}
-            >
-              {t("bankRec.finishReconciliation")}
-            </Button>
+              >
+                {t("bankRecX.suggest")}
+              </Button>
+            )}
+            <Button onClick={() => setRulesOpen(true)}>{t("bankRecX.rules")}</Button>
+            {locked ? null : (
+              <Button
+                disabled={finalize.isPending || position === null}
+                onClick={() => {
+                  if (needsOverride) {
+                    setOverrideReason("");
+                    setOverrideOpen(true);
+                    return;
+                  }
+                  setFinalizeAsked(true);
+                }}
+              >
+                {t("bankRec.finishReconciliation")}
+              </Button>
+            )}
           </div>
 
           <div role="tablist" className="flex gap-2 border-b border-border">
@@ -287,6 +290,23 @@ export function StatementWorkspace({
           setOverrideOpen(false);
           void runStatement(async () => {
             await finalize.mutateAsync({ statementId: statement.id, force: true, reason: overrideReason.trim() });
+          });
+        }}
+      />
+
+      <ConfirmDialog
+        open={finalizeAsked}
+        title={t("bankRecX.finalizeConfirmTitle")}
+        tone="danger"
+        consequence={<p>{t("bankRecX.finalizeConfirmBody")}</p>}
+        confirmLabel={t("bankRecX.finalizeConfirm")}
+        confirmDisabled={finalize.isPending}
+        onCancel={() => setFinalizeAsked(false)}
+        onConfirm={() => {
+          if (!statement) return;
+          setFinalizeAsked(false);
+          void runStatement(async () => {
+            await finalize.mutateAsync({ statementId: statement.id });
           });
         }}
       />

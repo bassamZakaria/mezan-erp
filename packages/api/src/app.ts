@@ -108,6 +108,7 @@ import {
 } from "./license-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
 import { tenantTimeZoneMiddleware } from "./tenant-day.js";
+import { fiscalPeriodsMiddleware } from "./posting-refusal.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
@@ -135,12 +136,14 @@ import { createTaxGroupsRoutes } from "./tax-groups-routes.js";
 import { createCostCentersRoutes } from "./cost-centers-routes.js";
 import { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
+import { NO_PERIOD_CLOSE_GUARD, type PeriodCloseGuardSource } from "./period-close-routes.js";
 import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 import { createSalesInvoiceQuota } from "./plan-quota-wiring.js";
 import { createPlanUsageRoutes } from "./plan-usage-routes.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { planLocationsBinding } from "./plan-locations.js";
 import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
 import { createPurchaseReturnsRoutes } from "./purchase-returns-routes.js";
@@ -390,6 +393,7 @@ export interface CreateAppOptions {
   readonly treasuryAccountRepo?: TreasuryAccountRepository;
   /** Mounts `/fiscal-periods` (docs/archive/catalog/04 "الفترات المالية") when present — omit it for no `/fiscal-periods` route. */
   readonly fiscalPeriodRepo?: FiscalPeriodRepository;
+  readonly periodCloseGuard?: PeriodCloseGuardSource;
   /**
    * Mounts `/inventory` (docs/archive/catalog/03 — the costing + stock-ledger engine)
    * when present. The caller builds the `StockLedgerService` (wiring the SQLite
@@ -410,6 +414,7 @@ export interface CreateAppOptions {
    */
   readonly stockAdjustments?: {
     readonly service: DocumentService<StockAdjustmentDocLine>;
+    readonly audit?: AuditSink;
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /** Mounts `/inventory/stock-transfers` (docs/archive/catalog/03 §"تحويلات المخزون") when present. */
@@ -653,6 +658,8 @@ export interface CreateAppOptions {
      * Omit and those two endpoints are not mounted.
      */
     readonly layers?: CostLayerRepository;
+    readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
+    readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
     readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
     readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
     readonly currencyCheck?: CurrencyCheck;
@@ -925,6 +932,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   // narrow an instant on the wire to the tenant's own calendar day before the
   // command is built (tenant-day.ts). Registered before every route.
   app.use("*", tenantTimeZoneMiddleware(options.settingsStore));
+  app.use("*", fiscalPeriodsMiddleware(options.fiscalPeriodRepo));
 
   // Bound per app, not per process: two backends in one process must not share
   // — or silently steal — each other's forensic trail. Registered before every
@@ -1047,11 +1055,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.treasuryAccountRepo) {
     app.route(
       "/treasury-accounts",
-      createTreasuryAccountsRoutes(options.treasuryAccountRepo, resolveAuth, options.gl?.ledger, options.auditSink),
+      createTreasuryAccountsRoutes(options.treasuryAccountRepo, resolveAuth, options.gl?.ledger, options.auditSink, options.gl?.treasuryCurrencyBalances),
     );
   }
   if (options.fiscalPeriodRepo) {
-    app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, resolveAuth, options.auditSink));
+    app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, resolveAuth, options.auditSink, options.periodCloseGuard ?? NO_PERIOD_CLOSE_GUARD));
   }
   if (options.gl) {
     app.route("/gl", createGlRoutes(options.gl, resolveAuth));
@@ -1376,6 +1384,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         options.inventory.reservations,
         options.accountRouting?.repo,
         options.settingsStore,
+        { documents: options.stockAdjustments?.service, audit: options.stockAdjustments?.audit },
       ),
     );
   }
@@ -1401,7 +1410,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       post: async (posting: PurchaseGlPosting) => {
         await postJournalEntry(
           {
-            id: `PI-JE:${posting.sourceDocId}`,
+            id: `PI-JE:${posting.sourceDocId}${posting.entrySuffix ?? ""}`,
             date: posting.date,
             memo: posting.memo,
             source: "system",
@@ -1469,6 +1478,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // the audit row and the writes it describes commit together.
           transactor: { transaction: (fn) => purchases.gl.ledger.transaction(fn) },
           glReverse: purchases.layers ? glReversePort : undefined,
+          landedCostsStandingOn: purchases.landedCostsStandingOn,
+          releaseRevaluationShare: purchases.releaseRevaluationShare,
           accounts: purchases.accounts,
           allocatable: purchases.allocatable,
           returns: options.purchaseReturns?.service,
@@ -1575,7 +1586,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.stockAdjustments) {
     app.route(
       "/inventory/stock-adjustments",
-      createStockAdjustmentsRoutes(options.stockAdjustments.service, (options.stockAdjustments.resolveAuthContext ?? resolveAuth)),
+      createStockAdjustmentsRoutes(options.stockAdjustments.service, (options.stockAdjustments.resolveAuthContext ?? resolveAuth), options.stockAdjustments.audit),
     );
   }
   if (options.stockTransfers) {
@@ -1735,6 +1746,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
    * JSON body in the shape every client already parses.
    */
   app.onError((err, c) => {
+    const refusal = postingRefusalResponse(c, err);
+    if (refusal) return refusal;
     try {
       console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
     } catch {

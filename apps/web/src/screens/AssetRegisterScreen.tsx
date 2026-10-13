@@ -1,3 +1,5 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   DocumentList,
@@ -111,6 +113,7 @@ function validateDraft(draft: AssetDraft, existing: AssetDTO[]): { key: AppTrans
 }
 
 export function AssetRegisterScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.AssetDisposal);
   const { t } = useAppTranslation();
   const categoriesQuery = useAssetCategories();
   const branchesQuery = useBranches();
@@ -334,7 +337,7 @@ export function AssetRegisterScreen() {
                     },
                   },
                 ]
-              : []),
+              : reversal.menuItems({ id: a.id, params: { id: a.id }, subject: a.nameAr })),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.nameAr })} />;
         }}
@@ -360,6 +363,7 @@ export function AssetRegisterScreen() {
           />
         }
       />
+      {reversal.dialog}
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("asset.panelTitle", { name: selected.nameAr }) : ""}>
         {selected ? (

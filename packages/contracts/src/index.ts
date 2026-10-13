@@ -549,6 +549,8 @@ export {
   type PurchaseInvoiceLineFulfilmentDTO,
   type PurchaseInvoiceFulfilmentDTO,
   type PurchaseInvoicePaymentDTO,
+  GoodsReceiptInvoicingStatusDTO,
+  goodsReceiptInvoicingStatusSchema,
   purchaseRfqStatusSchema,
   purchaseRfqLineSchema,
   purchaseRfqSchema,
@@ -1717,6 +1719,8 @@ export {
   type PartyCurrencyBalanceDTO,
   type CurrencyBalanceGroupDTO,
   type PartyCurrencyBalanceReportDTO,
+  type TreasuryCurrencyBalanceDTO,
+  treasuryCurrencyBalanceSchema,
 } from "./gl.js";
 
 export {
@@ -1847,3 +1851,4 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, ReversalPermission, reversalPermissionSuccessors, reversalRoute, withReversalPermissions, type DocumentReversalPath } from "./document-reversal.js";

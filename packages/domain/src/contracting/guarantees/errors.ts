@@ -75,3 +75,26 @@ export class GuaranteeChargeAccountNotFoundError extends Error {
     this.name = "GuaranteeChargeAccountNotFoundError";
   }
 }
+
+export class GuaranteeNothingToReverseError extends Error {
+  readonly code = "GUARANTEE_NOTHING_TO_REVERSE";
+  readonly messageEn: string;
+  constructor(readonly guaranteeId: string) {
+    super("لا يوجد على خطاب الضمان قيد قائم يُعكس.");
+    this.messageEn = "The letter of guarantee has no standing posting to reverse.";
+    this.name = "GuaranteeNothingToReverseError";
+  }
+}
+
+export class GuaranteePostingFromDocumentError extends Error {
+  readonly code = "GUARANTEE_POSTING_FROM_DOCUMENT";
+  readonly messageEn: string;
+  constructor(
+    readonly guaranteeId: string,
+    readonly sourceRef: string,
+  ) {
+    super(`آخر حركة على خطاب الضمان سجّلها المستند ${sourceRef} ولا تُعكس من هنا. ألغِ ذلك المستند من شاشته لتُعكس الحركة معه.`);
+    this.messageEn = `The latest movement on this letter of guarantee was made by document ${sourceRef} and is not reversed here. Void that document on its own screen so the movement is reversed with it.`;
+    this.name = "GuaranteePostingFromDocumentError";
+  }
+}

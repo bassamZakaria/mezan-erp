@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateFiscalYear, closeFiscalPeriod, lockFiscalPeriod } from "@mezan/domain";
+import { generateFiscalYear, closePeriod, lockPeriod } from "@mezan/domain";
 import { createSqliteFiscalPeriodRepository } from "./fiscal-period-repository.js";
 
 describe("SqliteFiscalPeriodRepository", () => {
@@ -34,9 +34,9 @@ describe("SqliteFiscalPeriodRepository", () => {
     const repo = createSqliteFiscalPeriodRepository();
     try {
       await generateFiscalYear(2026, repo, (y, p) => `fp-${y}-${p}`);
-      await closeFiscalPeriod("fp-2026-1", repo);
+      await repo.update(closePeriod((await repo.findById("fp-2026-1"))!));
       expect((await repo.findById("fp-2026-1"))?.status).toBe("closed");
-      await lockFiscalPeriod("fp-2026-1", repo);
+      await repo.update(lockPeriod((await repo.findById("fp-2026-1"))!));
       expect((await repo.findById("fp-2026-1"))?.status).toBe("locked");
     } finally {
       repo.close();

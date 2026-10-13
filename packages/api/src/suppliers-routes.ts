@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import { createSupplier, updateSupplier, InvalidSupplierError, Money, AuditChangeAction, type AuditSink, type Supplier, type SupplierRepository, matchesSearch } from "@mezan/domain";
 import { nextMasterCode } from "./master-code.js";
@@ -70,6 +71,8 @@ export const AUDITED_SUPPLIER_FIELDS = [
 ] as const;
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof InvalidSupplierError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
   }

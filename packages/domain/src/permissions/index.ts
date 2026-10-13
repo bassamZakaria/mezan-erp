@@ -69,3 +69,5 @@ export {
   type PermissionLabel,
   type PermissionLabelTranslations,
 } from "./labels.js";
+
+export { ShellRequest, SHELL_REQUESTS, holdsShellRequest, type ShellRequestGate } from "./shell-requests.js";

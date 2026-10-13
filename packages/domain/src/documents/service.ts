@@ -35,6 +35,7 @@ import {
   DuplicateDocumentError,
   InvalidDocumentError,
   MissingHookError,
+  ReversalNotReversibleError,
 } from "./errors.js";
 
 export interface DocumentServiceDeps<Line> {
@@ -238,6 +239,14 @@ export class DocumentService<Line> {
     return returned;
   }
 
+  async amendDraftLines(id: string, lines: readonly Line[]): Promise<FrameworkDocument<Line>> {
+    const existing = await this.require(id);
+    if (existing.status !== "draft") assertTransition(this.def.code, id, existing.status, "draft");
+    const amended: FrameworkDocument<Line> = { ...existing, lines };
+    await this.deps.repo.update(amended);
+    return amended;
+  }
+
   /** Cancel a draft/pending document (never a live one — those are reversed). */
   async cancel(id: string): Promise<FrameworkDocument<Line>> {
     const existing = await this.require(id);
@@ -268,6 +277,7 @@ export class DocumentService<Line> {
       // assertTransition gives the precise error (only active → reversed is legal).
       assertTransition(this.def.code, id, existing.status, "reversed");
     }
+    if (existing.reversesDocId) throw new ReversalNotReversibleError(this.def.code, id);
     const resolvedDate = opts.date ?? existing.date;
     // A reversal dated before the document it reverses would restate a day
     // already reported (D270, voucher reversal). This is scoped to THIS
@@ -291,6 +301,9 @@ export class DocumentService<Line> {
         });
         reversalJournalEntryId = result.journalEntryId;
         reversalDocNo = result.journalEntryNo;
+      }
+      if (this.def.numberingSequence && !this.def.numberFromGl && this.deps.numbering) {
+        reversalDocNo = (await this.deps.numbering.next({ branchId: this.def.branchOf?.(existing) ?? null })).formatted;
       }
 
       const reversal: FrameworkDocument<Line> = {

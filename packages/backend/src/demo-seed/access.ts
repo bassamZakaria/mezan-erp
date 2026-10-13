@@ -1,3 +1,4 @@
+import { withReversalPermissions } from "@mezan/contracts";
 import type { App } from "@mezan/api";
 import { loadSeededUsers, step } from "./shared.js";
 import type { SeedPerson } from "./fragments.js";
@@ -610,6 +611,7 @@ export async function seedAccess(app: App): Promise<void> {
     // wildcard admin is subject to فصل المهام exactly like they are. A demo
     // that waived it could not show the rule refusing anything.
     contractingSingleOperatorMode: false,
+    periodCloseSingleOperatorMode: false,
   });
 
   // --- الأدوار ---
@@ -621,7 +623,7 @@ export async function seedAccess(app: App): Promise<void> {
       code: role.code,
       name: role.name,
       description: role.description,
-      permissions: [...new Set([...role.permissions, ...fragmentGrantsFor(role.code, licensing)])],
+      permissions: withReversalPermissions([...new Set([...role.permissions, ...fragmentGrantsFor(role.code, licensing)])]),
       // ENH-051: a small shop's own roles genuinely overlap (FINANCE_MANAGER
       // both posts journals and closes the period; TREASURY_CASHIER both
       // writes and confirms a voucher) — that overlap is the realistic finding

@@ -44,6 +44,8 @@ export {
   GuaranteeChargeAccountNotFoundError,
   GuaranteeNotDraftError,
   GuaranteeNotFoundError,
+  GuaranteeNothingToReverseError,
+  GuaranteePostingFromDocumentError,
   InvalidGuaranteeError,
   InvalidGuaranteeTransitionError,
 } from "./errors.js";

@@ -51,6 +51,7 @@ export const tenantSettingsSchema = z.object({
   contractingCbeCreditDiscountRatePercent: z.number().min(0).max(100).nullable().default(null),
   /** المقاولات — waives فصل المهام for a one-person install. Default false: the wildcard admin is bound like anyone. */
   contractingSingleOperatorMode: z.boolean().default(false),
+  periodCloseSingleOperatorMode: z.boolean().default(false),
 
   allowCrossWarehouseSales: z.boolean(),
   showOtherWarehouseStock: z.boolean(),

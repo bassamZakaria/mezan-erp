@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -22,6 +23,8 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  ReversalDateBeforeOriginalError,
+  salesInvoiceVoidEntryId,
   DuplicateJournalEntryError,
   ExpiredStockError,
   NegativeStockError,
@@ -78,6 +81,9 @@ import {
   documentVersionOf,
   documentVersionsOf,
   expectedVersionOf,
+  readOptionalBody,
+  requestedReversalDate,
+  INVALID_REVERSAL_DATE,
   refuseStaleDocument,
   stampDocumentModifier,
   type DocumentVersionGuard,
@@ -163,6 +169,7 @@ export interface SalesInvoiceRoutesDeps {
     invoiceId: string,
     options: { readonly paymentMethod?: EtaReceiptPaymentMethod },
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
+  readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
   /** Whether the invoice has an e-receipt; a receipted sale is refused a void. */
   readonly hasEtaReceipt?: (invoiceId: string) => Promise<boolean>;
   /**
@@ -384,6 +391,8 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof InvalidSalesInvoiceError) {
     return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
   }
@@ -419,6 +428,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InactiveAccountError ||
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
+    err instanceof ReversalDateBeforeOriginalError ||
     err instanceof NegativeStockError ||
     err instanceof UncostedDeficitIssueError ||
     err instanceof ExpiredStockError
@@ -1156,7 +1166,8 @@ export function createSalesInvoicesRoutes(
         409,
       );
     }
-    if (!invoice.journalEntryId) {
+    const journalEntryId = invoice.journalEntryId;
+    if (!journalEntryId) {
       return c.json(
         { error: "INVOICE_NOT_POSTED", message: "الفاتورة ليس لها قيد يومية لعكسه." },
         409,
@@ -1185,44 +1196,50 @@ export function createSalesInvoicesRoutes(
       );
     }
 
-    const date = (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
+    const requested = requestedReversalDate(await readOptionalBody(c));
+    if (!requested.ok) return c.json(INVALID_REVERSAL_DATE, 400);
+    const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
+    const date = requested.date ?? (today < invoice.date ? invoice.date : today);
     try {
-      const reversal = await deps.gl.reverse(invoice.journalEntryId, {
-        reversalId: `${invoice.id}:void`,
-        date,
-        memo: `عكس فاتورة مبيعات ${invoice.docNo ?? invoice.id}`,
-      });
-      if (stockLines.length > 0) {
-        await deps.stockRestore!.apply({
-          sourceDocType: "SALES_INVOICE",
-          // A separate source id from the issue, whose movement ids are
-          // `${invoice.id}:${index}` — reusing it would collide in the ledger.
-          sourceDocId: `${invoice.id}:void`,
-          sourceDocNumber: invoice.docNo,
-          warehouseId: invoice.warehouseId,
+      if (date < invoice.date) throw new ReversalDateBeforeOriginalError(invoice.id, date, invoice.date);
+      const { voided, reversal } = await deps.repo.transaction(async () => {
+        const reversal = await deps.gl.reverse(journalEntryId, {
+          reversalId: salesInvoiceVoidEntryId(invoice.id),
           date,
-          lines: stockLines.map((l) => ({
-            itemId: l.itemId,
-            direction: "IN" as const,
-            qty: l.qty,
-            unitCost: l.unitCost as Money,
-          })),
+          memo: `عكس فاتورة مبيعات ${invoice.docNo ?? invoice.id}`,
         });
-      }
-      const voided: SalesInvoice = { ...invoice, status: "reversed" };
-      await deps.repo.update(voided);
-      await recordAdminEvent(deps.audit, c, {
-        module: "sales",
-        entityType: "SALES_INVOICE",
-        entityId: voided.id,
-        action: "VOID",
-        details: {
-          docNo: voided.docNo,
-          customerId: voided.customerId,
-          previousStatus: invoice.status,
-          grandTotal: totalsFor(svc, voided).grandTotal.toString(),
-          reversalJournalEntryId: reversal.journalEntryId,
-        },
+        if (stockLines.length > 0) {
+          await deps.stockRestore!.apply({
+            sourceDocType: "SALES_INVOICE",
+            sourceDocId: salesInvoiceVoidEntryId(invoice.id),
+            sourceDocNumber: invoice.docNo,
+            warehouseId: invoice.warehouseId,
+            date,
+            lines: stockLines.map((l) => ({
+              itemId: l.itemId,
+              direction: "IN" as const,
+              qty: l.qty,
+              unitCost: l.unitCost as Money,
+            })),
+          });
+        }
+        const voided: SalesInvoice = { ...invoice, status: "reversed" };
+        await deps.repo.update(voided);
+        await deps.releaseRevaluationShare?.(invoice.id, date);
+        await recordAdminEvent(deps.audit, c, {
+          module: "sales",
+          entityType: "SALES_INVOICE",
+          entityId: voided.id,
+          action: "VOID",
+          details: {
+            docNo: voided.docNo,
+            customerId: voided.customerId,
+            previousStatus: invoice.status,
+            grandTotal: totalsFor(svc, voided).grandTotal.toString(),
+            reversalJournalEntryId: reversal.journalEntryId,
+          },
+        });
+        return { voided, reversal };
       });
       return c.json({
         ...serialize(voided, totalsFor(svc, voided), Money.zero(), maySeeCost(c)),

@@ -391,6 +391,15 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                 />
               </SectionCard>
 
+              <SectionCard title={t("settingsGeneral.periodClosePolicy")}>
+                <ToggleField
+                  label={t("settingsGeneral.periodCloseSingleOperatorMode")}
+                  checked={draft.periodCloseSingleOperatorMode}
+                  onChange={(v) => patch({ periodCloseSingleOperatorMode: v })}
+                  hint={t("settingsGeneral.periodCloseSingleOperatorModeHint")}
+                />
+              </SectionCard>
+
               <SectionCard title={t("settingsGeneral.treasuryPolicy")}>
                 <ToggleField
                   label={t("settingsGeneral.blockANegativeBalanceOn")}

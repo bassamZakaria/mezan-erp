@@ -155,9 +155,12 @@ describe("collectChequeSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects a payload missing bankGlAccountId", () => {
-    const result = collectChequeSchema.safeParse({});
-    expect(result.success).toBe(false);
+  it("accepts a payload that names no ledger account — it is read from the bank the cheque was deposited at", () => {
+    expect(collectChequeSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("rejects an empty ledger account", () => {
+    expect(collectChequeSchema.safeParse({ bankGlAccountId: "" }).success).toBe(false);
   });
 });
 

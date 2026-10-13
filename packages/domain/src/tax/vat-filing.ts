@@ -46,11 +46,13 @@ export interface VatFilingRepository {
 
 export class VatPeriodAlreadyFiledError extends Error {
   readonly code = "VAT_PERIOD_ALREADY_FILED";
+  readonly messageEn: string;
   constructor(readonly filingId: string, readonly date: string) {
     super(
       `لا يمكن الترحيل بتاريخ ${date}: إقرار ضريبة القيمة المضافة عن هذه الفترة (${filingId}) قد قُدّم بالفعل. ` +
         `عدّل الإقرار أولاً إن كان لا بد من التغيير.`,
     );
+    this.messageEn = `Nothing can be posted on ${date}: the VAT return for this period (${filingId}) has already been filed. Amend the return first if the change is unavoidable.`;
     this.name = "VatPeriodAlreadyFiledError";
   }
 }

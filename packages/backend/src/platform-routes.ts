@@ -217,6 +217,8 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
 /** Codes for the `apps/server`-only error classes (`provision-tenant.ts`'s `TenantProvisioningError` and `PlanRequiredError`) that map to 422 here. `@mezan/backend` cannot import an `apps/*` class, so each is recognised by shape (`.code` plus, for a provisioning failure, the tenant id it left in `provisioning`) instead of `instanceof`. */
 const SERVER_DOMAIN_ERROR_CODES = new Set(["TENANT_PROVISIONING_FAILED", "PLAN_REQUIRED"]);
 const SERVER_OWNER_CONFLICT_CODES = new Set(["TENANT_OWNER_CANDIDATE_NOT_FOUND", "TENANT_NO_PENDING_OWNER", "TENANT_PENDING_OWNER_EXPIRED"]);
+const SERVER_OWNER_RETRY_CODE = "TENANT_OWNER_RECORD_DUE";
+const OWNER_RETRY_AFTER_SECONDS = 5;
 
 function asServerDomainFailure(err: unknown): { readonly code: string; readonly message: string; readonly tenantId?: string } | null {
   if (!(err instanceof Error)) return null;
@@ -251,6 +253,11 @@ function domainErrorResponse(c: Context, err: unknown): Response {
   const serverFailure = asServerDomainFailure(err);
   if (serverFailure) {
     return c.json({ error: serverFailure.code, message: serverFailure.message, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
+  }
+  if (err instanceof Error && (err as { code?: unknown }).code === SERVER_OWNER_RETRY_CODE) {
+    console.error(err);
+    c.header("Retry-After", String(OWNER_RETRY_AFTER_SECONDS));
+    return c.json({ error: SERVER_OWNER_RETRY_CODE, message: err.message }, 503);
   }
   if (err instanceof Error && SERVER_OWNER_CONFLICT_CODES.has(String((err as { code?: unknown }).code))) {
     return c.json({ error: (err as unknown as { code: string }).code, message: err.message }, 409);

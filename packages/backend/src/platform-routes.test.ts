@@ -29,7 +29,7 @@ interface Rig {
   readonly provisioned: Array<CreateTenantRequestDTO & { actorId: string }>;
 }
 
-async function buildRig(): Promise<Rig> {
+async function buildRig(overrides: Partial<Parameters<typeof createPlatformRoutes>[0]> = {}): Promise<Rig> {
   const platform = await createPlatform({ dbPath: ":memory:", now: FIXED_NOW });
   platforms.push(platform);
 
@@ -117,6 +117,7 @@ async function buildRig(): Promise<Rig> {
     },
     invalidateEntitlements: (code: string) => { invalidated.push(code); },
     idOf,
+    ...overrides,
   });
 
   return { reconciled, released, platform, auth, app, ownerToken: await login("owner@mezan.app"), supportToken: await login("support@mezan.app"), invalidated, provisioned };
@@ -325,6 +326,21 @@ describe("createPlatformRoutes", () => {
       ["TENANT_NOT_LIVE", "PU-OWNER", body.tenant.id, "CRITICAL"],
       ["TENANT_OWNER_ACCOUNT_NOT_FOUND", "PU-OWNER", gone.body.tenant.id, "CRITICAL"],
     ]);
+  });
+
+  it.each([
+    ["assigning an owner", "/owner", JSON.stringify({ userId: "U-1" })],
+    ["confirming a pending owner", "/owner/confirm", undefined],
+  ])("answers a retryable 503 in Arabic when %s must wait for the tenant's own record of the previous owner", async (_label, route, body) => {
+    const due = Object.assign(new Error("سجل المالك السابق لم يُكتب بعد في بيانات المنشأة. أعد المحاولة بعد لحظات."), { code: "TENANT_OWNER_RECORD_DUE", retryable: true });
+    const rig = await buildRig({ assignOwner: async () => { throw due; }, confirmPendingOwner: async () => { throw due; } });
+    const { body: provisioned } = await provisionOne(rig);
+
+    const res = await rig.app.fetch(req(`/tenants/${provisioned.tenant.id}${route}`, rig.ownerToken, { method: "POST", ...(body ? { body } : {}) }));
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("5");
+    expect(await json(res)).toEqual({ error: "TENANT_OWNER_RECORD_DUE", message: "سجل المالك السابق لم يُكتب بعد في بيانات المنشأة. أعد المحاولة بعد لحظات." });
   });
 
   it("refuses a transition that is not legal with 409", async () => {

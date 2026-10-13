@@ -13,6 +13,7 @@ import {
   OwnerCandidateNotFoundError,
   OwnerConfirmation,
   OwnerContactAudit,
+  OwnerRecordDueError,
   PendingOwnerExpiredError,
   PREVIOUS_OWNER_ACTOR,
   type OwnerContact,
@@ -1107,5 +1108,57 @@ describe("an owner change racing another one", () => {
 
     expect(await d.nominate("U-X", "x@x.example")).toBe("pending");
     expect(d.mails).toHaveLength(1);
+  });
+
+  it("refuses a second console assignment, retryably, while the tenant's own record of the first is still unwritten, and writes both in order once it can", async () => {
+    const d = await desk();
+    const written: string[] = [];
+    const tenantDb = { down: true };
+    const backend = {
+      companyAdmins: async () => ADMINS,
+      recordOwnerAssigned: async (due: { userId: string }) => {
+        if (tenantDb.down) throw new Error("tenant db busy");
+        written.push(due.userId);
+      },
+    };
+    await d.contact.assign(d.id, "U-X", PLATFORM_ACTOR, backend);
+
+    const refused = await d.contact.assign(d.id, "U-Y", PLATFORM_ACTOR, backend).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(OwnerRecordDueError);
+    expect(refused).toMatchObject({ code: "TENANT_OWNER_RECORD_DUE", retryable: true, message: "سجل المالك السابق لم يُكتب بعد في بيانات المنشأة. أعد المحاولة بعد لحظات." });
+    expect(await d.stored()).toMatchObject({ ownerUserId: "U-X", ownerRecordDue: { userId: "U-X" } });
+
+    tenantDb.down = false;
+    await d.contact.assign(d.id, "U-Y", PLATFORM_ACTOR, backend);
+
+    expect(written).toEqual(["U-X", "U-Y"]);
+    expect(await d.stored()).toMatchObject({ ownerUserId: "U-Y" });
+    expect((await d.stored()).ownerRecordDue ?? null).toBeNull();
+  });
+
+  it("refuses to confirm a pending hand-over while the tenant's own record of an earlier assignment is still unwritten", async () => {
+    const d = await desk();
+    const tenantDb = { down: true };
+    const written: string[] = [];
+    const backend = {
+      companyAdmins: async () => ADMINS,
+      recordOwnerAssigned: async (due: { userId: string }) => {
+        if (tenantDb.down) throw new Error("tenant db busy");
+        written.push(due.userId);
+      },
+    };
+    await d.contact.assign(d.id, "U-X", PLATFORM_ACTOR, backend);
+    await d.contact.handOver(d.id, { fromUserId: "U-X", toUserId: "U-Y", toEmail: "y@x.example", actorId: "U-OWNER" });
+
+    const refused = await d.contact.confirmPending(d.id, PLATFORM_ACTOR, OwnerConfirmation.PlatformConsole, backend).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(OwnerRecordDueError);
+    expect(await d.stored()).toMatchObject({ ownerUserId: "U-X", pendingOwner: { userId: "U-Y" }, ownerRecordDue: { userId: "U-X" } });
+
+    tenantDb.down = false;
+    await d.contact.confirmPending(d.id, PLATFORM_ACTOR, OwnerConfirmation.PlatformConsole, backend);
+
+    expect(written).toEqual(["U-X", "U-Y"]);
   });
 });

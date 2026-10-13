@@ -97,6 +97,16 @@ export class PendingOwnerExpiredError extends Error {
   }
 }
 
+export class OwnerRecordDueError extends Error {
+  readonly code = "TENANT_OWNER_RECORD_DUE";
+  readonly retryable = true;
+
+  constructor(readonly cause?: unknown) {
+    super("سجل المالك السابق لم يُكتب بعد في بيانات المنشأة. أعد المحاولة بعد لحظات.");
+    this.name = "OwnerRecordDueError";
+  }
+}
+
 export interface OwnerContact {
   // SECURITY: never moves the recorded address. Only the owner's own act does.
   reconcile(tenantId: string, backend: OwnerBackend & RecordingBackend): Promise<void>;
@@ -193,6 +203,21 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
     return flushOwnerRecord(tenantId, backend).catch((err: unknown) =>
       console.error(`[cloud] the owner of tenant "${tenantId}" is recorded on the platform; the tenant's own audit row is still due and is retried on the next open`, err),
     );
+  }
+
+  // REQUIRED ORDERING: the tenant's own record of the previous owner change is
+  // written before another change is accepted. The platform row holds one due
+  // record, and a second change written over it would never reach the tenant.
+  async function flushOwnerRecordOrRefuse(tenantId: string, backend: RecordingBackend): Promise<void> {
+    await flushOwnerRecord(tenantId, backend).catch((cause: unknown) => {
+      if (cause instanceof PlatformAuditUnavailableError) throw cause;
+      throw new OwnerRecordDueError(cause);
+    });
+  }
+
+  function withNextOwnerRecordDue(tenant: Tenant, due: OwnerRecordDue): Tenant {
+    if (tenant.ownerRecordDue) throw new OwnerRecordDueError();
+    return tenantWithOwnerRecordDue(tenant, due);
   }
 
   function recordDue(userId: string, previousUserId: string | null, actor: string, confirmedBy: OwnerConfirmation): OwnerRecordDue {
@@ -304,11 +329,12 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
     async assign(tenantId, userId, actor, backend) {
       const account = (await backend.companyAdmins()).find((admin) => admin.id === userId);
       if (!account) throw new OwnerCandidateNotFoundError();
+      await flushOwnerRecordOrRefuse(tenantId, backend);
       const before = await tenants.findById(tenantId);
       const due = recordDue(account.id, before?.ownerUserId ?? null, actor, OwnerConfirmation.PlatformConsole);
       const assigned = await settleOwner(
         tenantId,
-        (tenant, at) => tenantWithOwnerRecordDue(tenantHandedTo(tenant, account, at), due),
+        (tenant, at) => withNextOwnerRecordDue(tenantHandedTo(tenant, account, at), due),
         { action: OwnerContactAudit.Assigned, severity: AuditSeverityCode.Critical },
         actor,
         { fromUserId: due.previousUserId, toUserId: account.id, confirmedBy: OwnerConfirmation.PlatformConsole, eventId: due.eventId },
@@ -323,6 +349,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
       if (!before || !pending || (link && pending.tokenHash !== link.tokenHash)) throw new NoPendingOwnerError();
       if (pendingOwnerExpired(pending, deps.now().toISOString())) throw new PendingOwnerExpiredError();
       if (!(await backend.companyAdmins()).some((admin) => admin.id === pending.userId)) throw new OwnerCandidateNotFoundError();
+      await flushOwnerRecordOrRefuse(tenantId, backend);
       const due = recordDue(pending.userId, before.ownerUserId, actor, by);
       const confirmed = await settleOwner(
         tenantId,
@@ -333,7 +360,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
           const current = tenant.pendingOwner;
           if (!current || current.userId !== pending.userId || (link && current.tokenHash !== link.tokenHash)) throw new NoPendingOwnerError();
           if (pendingOwnerExpired(current, at)) throw new PendingOwnerExpiredError();
-          return tenantWithOwnerRecordDue(tenantWithPendingOwnerConfirmed(tenant, at), due);
+          return withNextOwnerRecordDue(tenantWithPendingOwnerConfirmed(tenant, at), due);
         },
         { action: OwnerContactAudit.HandedOver, severity: AuditSeverityCode.Critical },
         actor,

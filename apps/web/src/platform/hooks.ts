@@ -8,6 +8,7 @@ import type {
   PlanDTO,
   OwnerCandidateDTO,
   OwnerPinResetResultDTO,
+  TenantBooksDTO,
   ProvisionResultDTO,
   ProvisionRetryRequestDTO,
   RecordPaymentRequestDTO,
@@ -219,6 +220,32 @@ export function useDeclinePendingOwnerMutation() {
 
 export function useResendPendingOwnerMutation() {
   return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/owner/resend`, () => undefined, "platform.tenantDetail.owner.resendFailed");
+}
+
+export function useTenantBooksQuery(tenantId: string, enabled: boolean) {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  return useQuery<TenantBooksDTO, PlatformApiError>({
+    queryKey: ["platform", "tenants", tenantId, "books"],
+    enabled,
+    queryFn: async () => {
+      const res = await request(`/tenants/${tenantId}/books`);
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.books.confirm.loadFailed"));
+      return res.json<TenantBooksDTO>();
+    },
+  });
+}
+
+export function useConfirmTenantBooksMutation() {
+  return useSummaryMutation<{ tenantId: string; userId: string }>(({ tenantId }) => `/tenants/${tenantId}/books/confirm`, ({ userId }) => ({ userId }), "platform.books.confirm.failed");
+}
+
+export function useDisownTenantBooksMutation() {
+  return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/books/disown`, () => undefined, "platform.books.disown.failed");
+}
+
+export function useUnbindTenantBooksMutation() {
+  return useSummaryMutation<{ tenantId: string; code: string }>(({ tenantId }) => `/tenants/${tenantId}/books/unbind`, ({ code }) => ({ code }), "platform.books.unbind.failed");
 }
 
 export function useSetBillingAnchorDayMutation() {

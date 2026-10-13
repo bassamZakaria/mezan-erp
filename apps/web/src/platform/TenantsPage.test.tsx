@@ -164,6 +164,17 @@ describe("TenantsPage", () => {
       expect(screen.getAllByText("نقل ملكية بانتظار التأكيد")).toHaveLength(1);
     });
 
+    it("marks on its own card the tenant whose books await confirmation, and no other", async () => {
+      const unconfirmed: TenantSummaryDTO = { ...tenantSummary, tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "unconfirmed-co" }, books: TenantBooksStanding.Unconfirmed };
+      renderWithPlatformProviders(<TenantsPage />, {
+        transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [tenantSummary, unconfirmed] }) }),
+        initialSession: testPlatformSession,
+      });
+
+      expect(within((await screen.findByText("unconfirmed-co")).closest("li") as HTMLElement).getByText("دفاتر بانتظار التأكيد")).toBeInTheDocument();
+      expect(screen.getAllByText("دفاتر بانتظار التأكيد")).toHaveLength(1);
+    });
+
     it("lists each tenant as a card that carries its status, licence and its own «عرض» action, with no table to scroll sideways", async () => {
       const unverified: TenantSummaryDTO = {
         ...tenantSummary,
@@ -217,6 +228,30 @@ describe("TenantsPage", () => {
 
     expect((await screen.findByText("unsettled")).closest("tr")).toHaveTextContent("يوم الفوترة يحتاج مراجعة");
     expect(screen.getByText("acme").closest("tr")).not.toHaveTextContent("يوم الفوترة يحتاج مراجعة");
+  });
+
+  it("marks each tenant whose books need somebody, and says nothing on one whose books are bound", async () => {
+    const withBooks = (id: string, code: string, books: TenantBooksStanding): TenantSummaryDTO => ({ ...tenantSummary, tenant: { ...tenantSummary.tenant, id, code }, books });
+    renderWithPlatformProviders(<TenantsPage />, {
+      transport: stubPlatformTransport({
+        ...baseHandlers(),
+        "GET /tenants": () => ({
+          body: [
+            withBooks("t-1", "bound-co", TenantBooksStanding.Bound),
+            withBooks("t-2", "unconfirmed-co", TenantBooksStanding.Unconfirmed),
+            withBooks("t-3", "disowned-co", TenantBooksStanding.Disowned),
+            withBooks("t-4", "missing-co", TenantBooksStanding.Missing),
+          ],
+        }),
+      }),
+      initialSession: testPlatformSession,
+    });
+
+    const rowOf = async (code: string) => (await screen.findByText(code)).closest("tr") as HTMLElement;
+    expect(within(await rowOf("unconfirmed-co")).getByText("دفاتر بانتظار التأكيد")).toBeInTheDocument();
+    expect(within(await rowOf("disowned-co")).getByText("دفاتر موقوفة")).toBeInTheDocument();
+    expect(within(await rowOf("missing-co")).getByText("ملف الدفاتر مفقود")).toBeInTheDocument();
+    expect(within(await rowOf("bound-co")).queryByText(/دفاتر/)).not.toBeInTheDocument();
   });
 
   it("marks only the tenant whose owner address has not been confirmed by the owner", async () => {

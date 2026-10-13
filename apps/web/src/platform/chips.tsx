@@ -1,5 +1,5 @@
 import { StatusPill, type PillTone } from "@mezan/ui";
-import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type LicenseStateNameDTO, type SubscriptionStatusDTO, type TenantDTO, type TenantStatusDTO } from "@mezan/contracts";
+import { LicenseStateCode, SubscriptionStatusCode, TenantBooksStanding, TenantWireStatus, type LicenseStateNameDTO, type SubscriptionStatusDTO, type TenantDTO, type TenantStatusDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const TENANT_STATUS_TONE: Record<TenantStatusDTO, PillTone> = {
@@ -54,6 +54,36 @@ export function OwnerContactChip({ tenant }: { tenant: Pick<TenantDTO, "ownerCon
       {tenant.ownerContactVerified ? null : <StatusPill label={t("platform.tenants.ownerUnverified")} tone="warning" />}
     </>
   );
+}
+
+export const TENANT_BOOKS_NEEDING_NO_WORD: readonly TenantBooksStanding[] = [TenantBooksStanding.Bound, TenantBooksStanding.NotCreated];
+
+const TENANT_BOOKS_TONE: Record<TenantBooksStanding, PillTone> = {
+  [TenantBooksStanding.Bound]: "success",
+  [TenantBooksStanding.NotCreated]: "neutral",
+  [TenantBooksStanding.WillBind]: "info",
+  [TenantBooksStanding.Unconfirmed]: "warning",
+  [TenantBooksStanding.Disowned]: "danger",
+  [TenantBooksStanding.Missing]: "danger",
+  [TenantBooksStanding.Foreign]: "danger",
+  [TenantBooksStanding.Unreadable]: "danger",
+};
+
+const TENANT_BOOKS_LABEL: Record<TenantBooksStanding, AppTranslationKey | null> = {
+  [TenantBooksStanding.Bound]: null,
+  [TenantBooksStanding.NotCreated]: null,
+  [TenantBooksStanding.WillBind]: "platform.books.chip.willBind",
+  [TenantBooksStanding.Unconfirmed]: "platform.books.chip.unconfirmed",
+  [TenantBooksStanding.Disowned]: "platform.books.chip.disowned",
+  [TenantBooksStanding.Missing]: "platform.books.chip.missing",
+  [TenantBooksStanding.Foreign]: "platform.books.chip.foreign",
+  [TenantBooksStanding.Unreadable]: "platform.books.chip.unreadable",
+};
+
+export function TenantBooksChip({ standing }: { standing: TenantBooksStanding | null }) {
+  const { t } = useAppTranslation();
+  const label = standing === null ? null : TENANT_BOOKS_LABEL[standing];
+  return label === null || standing === null ? null : <StatusPill label={t(label)} tone={TENANT_BOOKS_TONE[standing]} />;
 }
 
 export function BillingDayReviewChip({ needsReview }: { needsReview: boolean }) {

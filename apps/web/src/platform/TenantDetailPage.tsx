@@ -16,6 +16,7 @@ import { moduleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { TenantOwnerCard } from "./TenantOwnerCard";
+import { TenantBooksCard } from "./TenantBooksCard";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { CardCheckoutChip, CheckoutOutcomeNotice, TestModeChip, absoluteCheckoutUrl } from "../billing/CardCheckoutStatus";
@@ -214,7 +215,8 @@ export function TenantDetailPage() {
           <TenantStatusChip status={tenant.status} />
           <LicenseStateChip state={licenseState.state} />
         </div>
-        <TenantOwnerCard tenant={tenant} isOwner={isOwner} onError={onMutationError} />
+        <TenantOwnerCard tenant={tenant} isOwner={isOwner} handOverMailConfigured={summary.handOverMailConfigured} onError={onMutationError} />
+        <TenantBooksCard tenant={tenant} standing={summary.books} isOwner={isOwner} onError={onMutationError} />
       </div>
 
       {mutationError ? (

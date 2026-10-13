@@ -99,6 +99,16 @@ export class PendingOwnerExpiredError extends Error {
   }
 }
 
+export class PlatformMailNotConfiguredError extends Error {
+  readonly code = "PLATFORM_MAIL_NOT_CONFIGURED";
+  readonly messageEn = "Mail is not configured on the platform, so no link is sent. Confirm the hand-over here or assign the owner directly.";
+
+  constructor() {
+    super("البريد غير مفعّل على المنصة، فلا يُرسل رابط. أكّد نقل الملكية من هنا أو عيّن المالك مباشرة.");
+    this.name = "PlatformMailNotConfiguredError";
+  }
+}
+
 export class OwnerRecordDueError extends Error {
   readonly code = "TENANT_OWNER_RECORD_DUE";
   readonly retryable = true;
@@ -384,13 +394,14 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
     },
 
     async resendPending(tenantId, actor) {
+      if (!deps.mailPendingHandOver) throw new PlatformMailNotConfiguredError();
       const before = await tenants.findById(tenantId);
       const pending = before?.pendingOwner;
       if (!before || !pending) throw new NoPendingOwnerError();
-      const token = deps.mailPendingHandOver ? tokenOf() : null;
+      const token = tokenOf();
       const reissued = await settleOwner(
         tenantId,
-        (tenant, at) => tenantWithPendingOwnerLink(tenant, PendingOwnerLink.Reissued, token === null ? null : hashHandOverToken(token), at),
+        (tenant, at) => tenantWithPendingOwnerLink(tenant, PendingOwnerLink.Reissued, hashHandOverToken(token), at),
         { action: OwnerContactAudit.HandOverLinkResent, severity: AuditSeverityCode.Warning },
         actor,
         { toUserId: pending.userId },

@@ -1,4 +1,6 @@
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { openSqliteConnection } from "@mezan/persistence";
 import type { SmtpConfig } from "@mezan/api";
 import { bootCloudHarness, type CloudHarness, type SendInit } from "./cloud-harness.js";
 import { MailOutcome, type PlatformMail } from "./platform-mail.js";
@@ -32,13 +34,14 @@ interface World {
 interface Setup {
   readonly clock?: { at: Date };
   readonly mailFails?: { on: boolean };
+  readonly noMail?: boolean;
 }
 
 async function world(vars: Record<string, string> = { MEZAN_PUBLIC_URL: "https://app.mezan.example" }, setup: Setup = {}): Promise<World> {
   const sent: Sent[] = [];
   const cloud = await bootCloudHarness({
     vars,
-    env: { platformSmtp: SMTP },
+    env: { platformSmtp: setup.noMail ? undefined : SMTP },
     options: {
       ...(setup.clock ? { now: () => setup.clock!.at } : {}),
       mailer: {
@@ -308,6 +311,41 @@ describe("a pending hand-over that is not confirmed", () => {
     const resent = await w.platformCall("POST", `/tenants/${w.tenantId}/owner/resend`);
     expect(tenantOf(resent.json)["pendingOwner"]).toMatchObject({ linkMailed: true });
     expect(w.sent).toHaveLength(1);
+  });
+
+  it("refuses to send the link again while the platform has no mail configured: nothing moves, nothing is recorded, and the console is told mail is off", async () => {
+    const { w } = await pendingWorld({ noMail: true });
+    const before = await pendingOf(w);
+    const auditRows = (): unknown[] => {
+      const { sqlite } = openSqliteConnection(path.join(w.cloud.env.platformDir, "platform.db"));
+      try {
+        return sqlite.prepare("SELECT action FROM audit_event WHERE action = 'TENANT_OWNER_HAND_OVER_LINK_RESENT'").all();
+      } finally {
+        sqlite.close();
+      }
+    };
+
+    const resent = await w.platformCall("POST", `/tenants/${w.tenantId}/owner/resend`);
+    const detail = await w.platformCall("GET", `/tenants/${w.tenantId}`);
+
+    expect(resent).toEqual({
+      status: 409,
+      json: {
+        error: "PLATFORM_MAIL_NOT_CONFIGURED",
+        message: "البريد غير مفعّل على المنصة، فلا يُرسل رابط. أكّد نقل الملكية من هنا أو عيّن المالك مباشرة.",
+        messageEn: "Mail is not configured on the platform, so no link is sent. Confirm the hand-over here or assign the owner directly.",
+      },
+    });
+    expect(before).toMatchObject({ linkMailed: false });
+    expect(await pendingOf(w)).toEqual(before);
+    expect(auditRows()).toEqual([]);
+    expect(detail.json["handOverMailConfigured"]).toBe(false);
+  });
+
+  it("tells the console mail is on when it is", async () => {
+    const { w } = await pendingWorld();
+
+    expect((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json["handOverMailConfigured"]).toBe(true);
   });
 
   it("says a link was mailed when one was", async () => {

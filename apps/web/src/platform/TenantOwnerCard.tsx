@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button, ConfirmDialog } from "@mezan/ui";
 import { TenantWireStatus, type OwnerCandidateDTO, type TenantDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
@@ -20,8 +20,19 @@ function pendingHintKey(pending: NonNullable<TenantDTO["pendingOwner"]>, expired
   return pending.linkMailed ? ("platform.tenantDetail.owner.pendingHint" as const) : ("platform.tenantDetail.owner.pendingUnmailedHint" as const);
 }
 
-export function TenantOwnerCard({ tenant, isOwner, onError }: { tenant: TenantDTO; isOwner: boolean; onError: (err: unknown) => void }) {
+export function TenantOwnerCard({
+  tenant,
+  isOwner,
+  handOverMailConfigured,
+  onError,
+}: {
+  tenant: TenantDTO;
+  isOwner: boolean;
+  handOverMailConfigured: boolean;
+  onError: (err: unknown) => void;
+}) {
   const { t } = useAppTranslation();
+  const noMailHintId = useId();
   const [picking, setPicking] = useState(false);
   const [chosen, setChosen] = useState<OwnerCandidateDTO | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -74,7 +85,13 @@ export function TenantOwnerCard({ tenant, isOwner, onError }: { tenant: TenantDT
             </Button>
           ) : null}
           {actionable ? (
-            <Button variant="default" size="sm" disabled={acting !== null} onClick={() => actOnPending(PendingOwnerAct.Resend)}>
+            <Button
+              variant="default"
+              size="sm"
+              disabled={acting !== null || !handOverMailConfigured}
+              aria-describedby={handOverMailConfigured ? undefined : noMailHintId}
+              onClick={() => actOnPending(PendingOwnerAct.Resend)}
+            >
               {t("platform.tenantDetail.owner.resendPending")}
             </Button>
           ) : null}
@@ -83,6 +100,11 @@ export function TenantOwnerCard({ tenant, isOwner, onError }: { tenant: TenantDT
               {t("platform.tenantDetail.owner.declinePending")}
             </Button>
           ) : null}
+        </p>
+      ) : null}
+      {pending && actionable && !handOverMailConfigured ? (
+        <p id={noMailHintId} className="mt-[2px] text-[12px] text-ink-muted">
+          {t("platform.tenantDetail.owner.resendNoMail")}
         </p>
       ) : null}
       {actionable && picking ? (

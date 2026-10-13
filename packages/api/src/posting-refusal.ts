@@ -1,7 +1,7 @@
 import type { Context, MiddlewareHandler } from "hono";
-import { earliestOpenDayFrom, type FiscalPeriodRepository, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, StockMovementBeforeRevaluationError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
+import { earliestOpenDayFrom, type FiscalPeriodRepository, type FiscalPeriodStatus, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, PostingBeforeRevaluationError, StockMovementBeforeRevaluationError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
 
-type ReversalDayEnv = { Variables: { listFiscalPeriods?: () => Promise<readonly { status: "open" | "closed" | "locked"; startDate: string; endDate: string }[]>; reversalEarliestOpenDay?: string | null } };
+type ReversalDayEnv = { Variables: { listFiscalPeriods?: () => Promise<readonly { status: FiscalPeriodStatus; startDate: string; endDate: string }[]>; reversalEarliestOpenDay?: string | null } };
 
 export function fiscalPeriodsMiddleware(periods?: Pick<FiscalPeriodRepository, "list">): MiddlewareHandler {
   return async (c, next) => {
@@ -33,6 +33,9 @@ export function postingRefusalResponse(c: Context, err: unknown): Response | nul
   }
   if (err instanceof StockMovementBeforeRevaluationError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, earliestAllowedDate: err.earliestAllowedDate }, 422);
+  }
+  if (err instanceof PostingBeforeRevaluationError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, laterRun: err.runNo, earliestAllowedDate: err.earliestAllowedDate }, 422);
   }
   if (err instanceof StockPlanDateRequiredError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);

@@ -16,6 +16,7 @@
 
 import { Money } from "../money/index.js";
 import { postJournalEntry, reverseJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
+import { FX_SHARE_RELEASE_ENTRY_PREFIX } from "../gl/revaluation-lock.js";
 import { laterDay, type AllocatableInvoice, type SettlementRates, type SettlementSplit, type VoucherAllocation } from "./allocation.js";
 import type { AllocationInvoiceKind } from "./voucher-types.js";
 
@@ -267,7 +268,7 @@ export async function allocationUndoDay(
 }
 
 /** Mirrors the settlement entry of an allocation being undone, on the day from {@link allocationUndoDay}. */
-export const FX_SHARE_RELEASE_ENTRY_PREFIX = "FXR:release:";
+export { FX_SHARE_RELEASE_ENTRY_PREFIX };
 
 export function fxLateReleaseEntryId(itemId: string, allocationId: string, generation: number): string {
   return `${FX_SHARE_RELEASE_ENTRY_PREFIX}${itemId}:late:${allocationId}:${generation}`;

@@ -148,14 +148,16 @@ describe("whatever takes foreign money off an open item relieves it at what it i
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 
-  it.each(SIDES)("%s: a return dated before the revaluation gives its share up on the revaluation's own day, never before the restatement exists", async (side) => {
+  it.each(SIDES)("%s: a return dated before the revaluation is refused in Arabic naming the run, and takes nothing off the restated item", async (side) => {
     await restated(side);
     await books.ok("POST", side === FxSide.Receivable ? "/sales-returns/from-invoice" : "/purchase-returns", await backdatedReturn(side));
-    await books.ok("POST", `/${side === FxSide.Receivable ? "sales-returns" : "purchase-returns"}/ret-early/confirm`, {}, 200);
 
-    const account = side === FxSide.Receivable ? "1105" : "2100";
-    expect(major(books.world.balance(account, "2026-08-30"))).toBe(carried(side, 28_800n * SCALE));
-    expect(major(books.world.balance(account, "2026-08-31"))).toBe(carried(side, 29_070n * SCALE));
+    const refused = await books.world.request("POST", `/${side === FxSide.Receivable ? "sales-returns" : "purchase-returns"}/ret-early/confirm`, {});
+
+    expect(`${refused.status} ${String(refused.body.error)}`).toBe("422 FX_POSTING_BEFORE_REVALUATION");
+    expect(String(refused.body.message)).toMatch(/[\u0600-\u06FF]/);
+    expect(refused.body.earliestAllowedDate).toBe("2026-09-01");
+    expect(books.fx(side)).toEqual({ control: carried(side, 48_450n * SCALE), unrealised: pnl(side, RESTATED), realised: major(0n) });
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 

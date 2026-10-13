@@ -72,4 +72,5 @@ export {
 } from "./year-end-close.js";
 
 export { nextEntryGenerationId, standingEntryGeneration } from "./entry-generations.js";
+export { PostingBeforeRevaluationError, earliestDayAfterRevaluation } from "./revaluation-lock.js";
 export { reopenFiscalYear, standingYearClose, YearNotClosedError, FollowingYearClosedError, type ReopenYearOptions, type ReopenYearResult } from "./year-end-close.js";

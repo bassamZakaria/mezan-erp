@@ -18,6 +18,7 @@ import {
   InvalidJournalEntryError,
 } from "../post-journal-entry.js";
 import type { LedgerRepository } from "./ledger.js";
+import { assertNotBeforeStandingRevaluation } from "./revaluation-lock.js";
 import { isCostCategory } from "../contracting/cost-category.js";
 import type { ProjectRepository } from "../projects/project.js";
 import { ProjectNotFoundError } from "../projects/errors.js";
@@ -418,6 +419,7 @@ export async function postJournalEntry(
   await assertPartyLines(cmd.lines, deps);
   await assertPeriodOpen(cmd.date, deps.periods);
   await assertVatNotFiled(cmd.date, deps.vatFilings);
+  await assertNotBeforeStandingRevaluation(cmd, deps.ledger);
 
   const entry = await deps.ledger.transaction(async () => {
     if (await deps.ledger.findById(cmd.id)) {
@@ -473,6 +475,7 @@ export async function postDraftJournalEntry(
   await assertPartyLines(existing.lines, deps);
   await assertPeriodOpen(existing.date, deps.periods);
   await assertVatNotFiled(existing.date, deps.vatFilings);
+  await assertNotBeforeStandingRevaluation(existing, deps.ledger);
 
   const entry = await deps.ledger.transaction(async () => {
     const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);

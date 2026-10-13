@@ -5,6 +5,7 @@ import type { PostedLine } from "../gl/ledger.js";
 import type { JournalLineInput, JournalPostingDeps } from "../gl/post.js";
 import { postJournalEntry } from "../gl/post.js";
 import { reverseJournalEntry } from "../gl/reverse.js";
+import { FX_REVALUATION_DOC_TYPE, nextDay } from "../gl/revaluation-lock.js";
 import { convertToBase, convertFromBase, isBaseCurrency, FxRateMissingError } from "../exchange-rates/convert.js";
 import { FX_REALISED_LINE_MEMO } from "../vouchers/realised-fx.js";
 import { FxOpenItemType } from "../vouchers/allocation.js";
@@ -368,7 +369,7 @@ export const FX_REVALUATION_LINE_MEMO = "إعادة تقييم عملات أجن
 const BASE_ONLY_MEMOS: ReadonlySet<string> = new Set([FX_REVALUATION_LINE_MEMO, FX_REALISED_LINE_MEMO]);
 
 /** `sourceDocType` of a revaluation entry and, through the mirror, of its reversal. */
-export const FX_REVALUATION_DOC_TYPE = "FX_REVALUATION";
+export { FX_REVALUATION_DOC_TYPE };
 
 export function fxRevaluationNet(
   lines: readonly Pick<PostedLine, "accountId" | "source" | "memo" | "debit" | "credit" | "partyId">[],
@@ -402,12 +403,7 @@ export interface PostFxRevaluationResult {
   readonly reversal: JournalEntry | null;
 }
 
-/** ISO date (YYYY-MM-DD) one day after `date`, computed in UTC (no float, no TZ drift). */
-export function nextDay(date: string): string {
-  const d = new Date(`${date}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
+export { nextDay };
 
 /**
  * Compute + post the FX revaluation entry through the GL engine, then (by

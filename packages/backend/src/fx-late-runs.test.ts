@@ -163,3 +163,87 @@ describe("runs that do not reverse themselves come off latest first, and nothing
     expect(books.world.count("journal_entry")).toBe(entries);
   });
 });
+
+describe("nothing in a currency is dated on or before a run that still stands for it", () => {
+  enum BackDated {
+    Invoice = "an invoice",
+    Settlement = "a settlement",
+    Return = "a return",
+    MoneyOnAccount = "money on account",
+  }
+
+  async function post(side: FxSide, what: BackDated, date: string): Promise<{ status: number; body: Record<string, unknown> }> {
+    const sales = side === FxSide.Receivable;
+    if (what === BackDated.Invoice) {
+      const id = `late-${date}`;
+      if (sales) {
+        await books.ok("POST", "/sales-invoices", { id, date, dueDate: "2026-10-21", customerId: "cust-usd", customerNameAr: "عميل بالدولار", warehouseId: "WH-MAIN", branchId: "BR-MAIN", arAccountId: "1105", taxAccountId: "2200", currency: "USD", lines: [{ lineId: "L1", itemId: "SVC-1", itemNameAr: "خدمة", isStock: false, qty: "1", unitPrice: "100", taxRatePercent: 0, revenueAccountId: "4100" }] });
+        return books.world.request("POST", `/sales-invoices/${id}/confirm`, {});
+      }
+      await books.ok("POST", "/purchases/invoices", { id, supplierId: "sup-usd", date, dueDate: "2026-10-21", branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "USD", lines: [{ itemId: "STK-1", description: "صنف بالدولار", kind: "inventory", qty: "1", unitCost: "100", taxRatePercent: 0 }] });
+      return books.world.request("POST", `/purchases/invoices/${id}/confirm`, {});
+    }
+    if (what === BackDated.Settlement) return books.world.request("POST", `${sales ? "/sales-invoices" : "/purchases/invoices"}/${FX_INVOICE_ID[side]}/payments`, { amount: "9600", treasuryAccountId: "ta-cash", date });
+    if (what === BackDated.Return) {
+      const id = `ret-${date}`;
+      if (sales) {
+        await books.ok("POST", "/sales-returns/from-invoice", { id, date, memo: "", warehouseId: "WH-MAIN", sourceInvoiceId: FX_INVOICE_ID[side], reason: "OTHER", requested: [{ itemId: "SVC-1", qty: "2" }] });
+        return books.world.request("POST", `/sales-returns/${id}/confirm`, {});
+      }
+      const bill = (await books.world.request("GET", `/purchases/invoices/${FX_INVOICE_ID[side]}`)).body;
+      await books.ok("POST", "/purchase-returns", { id, date, memo: "", lines: [{ itemId: "STK-1", warehouseId: "WH-MAIN", supplierId: "sup-usd", sourceInvoiceId: FX_INVOICE_ID[side], sourceInvoiceNumber: String(bill.number), reason: "DEFECTIVE", availableQty: "10", qty: "2", unitCost: "100", taxAmount: "0" }] });
+      return books.world.request("POST", `/purchase-returns/${id}/confirm`, {});
+    }
+    const id = `held-${date}`;
+    const party = sales ? { voucherType: "customer_collection", customerId: "cust-usd" } : { voucherType: "supplier_payment", supplierId: "sup-usd" };
+    await books.ok("POST", "/vouchers", { id, date, amount: "100", currency: "USD", branchId: "BR-MAIN", paymentMethod: "cash", treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: FX_CONTROL[side], ...party });
+    return books.world.request("POST", `/vouchers/${id}/confirm`, {});
+  }
+
+  const cases = SIDES.flatMap((side) => Object.values(BackDated).map((what) => ({ side, what })));
+
+  it.each(cases)("$side: $what dated on the August run's day or before it is refused in Arabic naming the run; the day after is taken", async ({ side, what }) => {
+    await opened(side);
+    await books.rate("fx-sep-1", "48.50", "2026-09-01");
+    const runId = String((await books.ok("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: false })).entryId);
+    const runNo = String(((await books.world.request("GET", "/revaluation/runs")).body.runs as { entryId: string; entryNo: string }[]).find((run) => run.entryId === runId)?.entryNo);
+    const held = books.fx(side);
+    const entries = books.world.count("journal_entry");
+
+    for (const date of ["2026-08-25", "2026-08-31"]) {
+      const refused = await post(side, what, date);
+
+      expect(`${refused.status} ${String(refused.body.error)}`, date).toBe("422 FX_POSTING_BEFORE_REVALUATION");
+      expect(String(refused.body.message)).toContain(runNo);
+      expect(String(refused.body.message)).toMatch(/[؀-ۿ]/);
+      expect(refused.body.earliestAllowedDate).toBe("2026-09-01");
+    }
+    expect(books.fx(side)).toEqual(held);
+    expect(books.world.count("journal_entry")).toBe(entries);
+
+    expect((await post(side, what, "2026-09-01")).status).toBe(200);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it("a document in another currency, and one in the base currency, are not held by a USD run", async () => {
+    await opened(FxSide.Receivable);
+    await books.rate("fx-eur", "53.00", "2026-08-01", "EUR");
+    await take(FxSide.Receivable, Step.AugustRun);
+
+    await books.ok("POST", "/vouchers", { id: "eur-held", date: "2026-08-25", amount: "100", currency: "EUR", branchId: "BR-MAIN", paymentMethod: "cash", treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", voucherType: "customer_collection", customerId: "cust-usd" });
+    await books.ok("POST", "/vouchers/eur-held/confirm", {}, 200);
+    await books.ok("POST", "/vouchers", { id: "egp-held", date: "2026-08-25", amount: "100", branchId: "BR-MAIN", paymentMethod: "cash", treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "1105", voucherType: "customer_collection", customerId: "cust-usd" });
+    await books.ok("POST", "/vouchers/egp-held/confirm", {}, 200);
+
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it("once the run is reversed the back-dated document is taken again", async () => {
+    await opened(FxSide.Receivable);
+    const runId = String((await books.ok("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: false })).entryId);
+    await books.ok("POST", `/revaluation/runs/${runId}/reverse`, { memo: "سبب العكس", date: "2026-08-31" });
+
+    expect((await post(FxSide.Receivable, BackDated.Settlement, "2026-08-25")).status).toBe(200);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});

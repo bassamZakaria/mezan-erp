@@ -53,6 +53,20 @@ describe("the residue sweep, for a restatement left on a document that has close
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 
+  it("a sweep dated before the restatement it clears posts on the restatement's own day, never before it exists", async () => {
+    books = await openFxBooks();
+    await books.invoice(FxSide.Receivable);
+    await books.settle(FxSide.Receivable, "v-all", "48000");
+    await settledInvoiceWithRestatementLeft("Z-RES", "0.000003");
+
+    await books.ok("POST", "/revaluation/residue/sweep", { date: "2026-09-01" });
+
+    const release = books.world.sqlite.prepare("SELECT substr(date, 1, 10) AS day FROM journal_entry WHERE id LIKE 'FXR:release:inv-usd:%'").all() as { day: string }[];
+    expect(release).toEqual([{ day: "2026-09-10" }]);
+    expect(await residue()).toEqual({ total: "0.000000", rows: [] });
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
   it("one left on money that has been applied in full is swept the same way, by the money's own reference", async () => {
     books = await openFxBooks();
     await books.invoice(FxSide.Receivable);

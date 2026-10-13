@@ -3227,6 +3227,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       }
     }
   }
+  async function allocationsOnReversedVouchers() {
+    const out: { allocationId: string; voucherId: string; voucherNo: string; invoiceId: string }[] = [];
+    for (const doc of await vouchers.documents.list()) {
+      if (!doc.reversesDocId && doc.status !== "reversed") continue;
+      for (const allocation of [...(await vouchers.allocations.listByVoucher(doc.id)), ...(await vouchers.allocations.listByInvoice(doc.id))]) {
+        if (allocation.status === "active") out.push({ allocationId: allocation.id, voucherId: doc.id, voucherNo: doc.docNo ?? doc.id, invoiceId: allocation.invoiceId });
+      }
+    }
+    return out;
+  }
   async function invoiceStands(invoiceId: string, kind: AllocationInvoiceKind): Promise<boolean> {
     if (kind === "sales") {
       const invoice = await salesInvoices.findById(invoiceId);
@@ -3950,7 +3960,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return issued;
       },
     },
-    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite) },
+    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite), allocationsOnReversedVouchers },
     openingBalanceDuplicates: {
       resolveContext: resolveOpeningBalanceDuplicatesContext,
       repair: repairOpeningBalanceDuplicate,

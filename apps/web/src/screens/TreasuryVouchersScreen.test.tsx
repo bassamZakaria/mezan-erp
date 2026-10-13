@@ -180,6 +180,10 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations, 
       const doc = current.find((v) => v.id === "cv-1")!;
       return { body: { ...doc, allocations: allocationsByVoucher["cv-1"] ?? [] } satisfies VoucherDetailDTO };
     },
+    "GET /vouchers/cv-1-rev": () => {
+      const doc = current.find((v) => v.id === "cv-1-rev")!;
+      return { body: { ...doc, allocations: [] } satisfies VoucherDetailDTO };
+    },
     "GET /customers": () => ({ body: customers }),
     "GET /suppliers": () => ({ body: suppliers }),
     "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
@@ -466,6 +470,36 @@ describe("TreasuryVouchersScreen — a reversed voucher and the voucher that rev
 
     expect(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "CV-000001" })).toBeInTheDocument();
+  });
+});
+
+describe("TreasuryVouchersScreen — the page of a reversal's mirror", () => {
+  const settled = { voucherAmount: "1000.000000", allocated: "0", unallocated: "1000.000000", fullyAllocated: false, needsAllocation: false };
+  const [first, ...rest] = seededVouchers;
+  const original: VoucherRowDTO = { ...first!, status: "reversed", allocatable: false, allocationSummary: settled };
+  const mirror: VoucherRowDTO = { ...first!, id: "cv-1-rev", docNo: "CV-000009", date: "2026-08-20", reversesDocId: "cv-1", allocatable: false, allocationSummary: settled };
+
+  it("offers no allocation — no tab, no badge, no form — and no reversal", async () => {
+    renderScreen({ vouchers: [original, mirror, ...rest] });
+    fireEvent.click(await screen.findByText("CV-000009"));
+
+    expect(await screen.findByRole("heading", { name: "CV-000009" })).toBeInTheDocument();
+    await screen.findByRole("tab", { name: "القيود المحاسبية" });
+    expect(screen.queryByRole("tab", { name: /تخصيص على الفواتير/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("بحاجة لتخصيص")).not.toBeInTheDocument();
+    expect(screen.queryByText("مخصّص بالكامل")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "تخصيص" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
+  });
+
+  it("the reversed original keeps its allocation history but claims neither «بحاجة لتخصيص» nor «مخصّص بالكامل»", async () => {
+    renderScreen({ vouchers: [original, mirror, ...rest] });
+    fireEvent.click(await screen.findByText("CV-000001"));
+
+    expect(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ })).toBeInTheDocument();
+    expect(screen.queryByText("بحاجة لتخصيص")).not.toBeInTheDocument();
+    expect(screen.queryByText("مخصّص بالكامل")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
   });
 });
 

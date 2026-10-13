@@ -27,6 +27,14 @@ export interface ReconciliationRoutesDeps {
   readonly resolveControls: () => Promise<readonly ReconciliationControl[]>;
   readonly foreignResidues?: () => Promise<readonly ForeignResidue[]>;
   readonly stockLedgerDates?: () => Promise<readonly StockLedgerDateMismatch[]>;
+  readonly allocationsOnReversedVouchers?: () => Promise<readonly AllocationOnReversedVoucher[]>;
+}
+
+export interface AllocationOnReversedVoucher {
+  readonly allocationId: string;
+  readonly voucherId: string;
+  readonly voucherNo: string;
+  readonly invoiceId: string;
 }
 
 export async function reconcileControls(
@@ -72,6 +80,7 @@ export function createReconciliationRoutes(
     const unlinked = findUnlinkedControlLines(lines, controlIds);
     const residues = (await deps.foreignResidues?.()) ?? [];
     const misdated = (await deps.stockLedgerDates?.()) ?? [];
+    const onReversed = (await deps.allocationsOnReversedVouchers?.()) ?? [];
     const residueTotal = residues.reduce((sum, row) => sum + (row.base.scaled < 0n ? -row.base.scaled : row.base.scaled), 0n);
 
     return c.json({
@@ -93,6 +102,7 @@ export function createReconciliationRoutes(
         count: misdated.length,
         rows: misdated.map((row) => ({ docType: row.docType, docId: row.docId, docNo: row.docNo, movedOn: row.movedOn, postedOn: [...row.postedOn] })),
       },
+      allocationsOnReversedVouchers: { count: onReversed.length, rows: onReversed },
       unlinked: unlinked.map((u) => ({
         entryId: u.entryId,
         entryNo: u.entryNo,

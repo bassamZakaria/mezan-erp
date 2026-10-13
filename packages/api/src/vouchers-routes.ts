@@ -24,6 +24,8 @@ import {
   CashBalanceWouldGoNegativeError,
   VoucherNotAllocatableError,
   VoucherNotConfirmedError,
+  VoucherReversedError,
+  voucherTakesAllocations,
   InvoiceNotFoundError,
   AllocationNotFoundError,
   AllocationMismatchError,
@@ -221,6 +223,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof AllocationMismatchError ||
     err instanceof AllocationExceedsError ||
+    err instanceof VoucherReversedError ||
     err instanceof SettlementRateMissingError
   ) {
     return refuse(err, 422);
@@ -415,7 +418,7 @@ export function createVouchersRoutes(
         const def = getVoucherTypeDefinition(line.voucherType);
         return {
           ...serialize(doc),
-          allocatable: def.allocatable,
+          allocatable: voucherTakesAllocations(doc),
           allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
           direction: def.direction,
         };
@@ -426,7 +429,6 @@ export function createVouchersRoutes(
       rows = rows.filter(
         (row) =>
           row.status === "confirmed" &&
-          !row.reversesDocId &&
           row.allocatable &&
           row.allocationSummary.needsAllocation &&
           (filter.needsAllocation === "any" || row.direction === filter.needsAllocation),
@@ -475,7 +477,7 @@ export function createVouchersRoutes(
     };
     for (const row of statusAxisRows) {
       counts[row.status] = (counts[row.status] ?? 0) + 1;
-      if (row.status === "confirmed" && !row.reversesDocId && row.allocatable && row.allocationSummary.needsAllocation) {
+      if (row.status === "confirmed" && row.allocatable && row.allocationSummary.needsAllocation) {
         counts.needs_allocation! += 1;
         if (row.direction === "receipt") counts.needs_allocation_receipt! += 1;
         if (row.direction === "payment") counts.needs_allocation_payment! += 1;
@@ -515,8 +517,7 @@ export function createVouchersRoutes(
       if (row.status === "draft") draft += 1;
       if (row.status !== "confirmed") continue;
       confirmed += 1;
-      if (row.reversesDocId) continue;
-      const amount = Money.fromMajor(row.amount);
+      const amount = row.reversesDocId ? Money.zero() : Money.fromMajor(row.amount);
       if (row.direction === "receipt") receipts = receipts.add(amount);
       if (row.direction === "payment") payments = payments.add(amount);
       if (row.allocatable && row.allocationSummary.needsAllocation) {
@@ -554,7 +555,7 @@ export function createVouchersRoutes(
     const doc = await findInScope(c, svc, c.req.param("id"));
     if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
     const line = voucherLine(doc);
-    const allocatable = getVoucherTypeDefinition(line.voucherType).allocatable;
+    const allocatable = voucherTakesAllocations(doc);
     const summary = await svc.allocationSummary(doc);
     const allocations = await svc.listAllocations(doc.id);
     return c.json({

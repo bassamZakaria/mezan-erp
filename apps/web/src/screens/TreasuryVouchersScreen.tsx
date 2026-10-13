@@ -720,7 +720,7 @@ function VoucherDetailView({
     ...(doc.costCategory
       ? [{ label: t("common.costCategory"), value: t(`costCategory.${doc.costCategory}` as AppTranslationKey) }]
       : []),
-    ...(def.allocatable
+    ...(doc.allocatable
       ? [
           {
             label: t("vouchers.allocation"),
@@ -736,15 +736,17 @@ function VoucherDetailView({
     label: t("vouchers.tab.allocations", { count: activeAllocations.length }),
     content: (
       <div className="flex flex-col gap-[16px]">
-        <div className="flex flex-wrap items-center gap-[10px]">
-          <StatusPill
-            label={summary.needsAllocation ? t("vouchers.needsAllocation") : t("vouchers.fullyAllocated")}
-            tone={summary.needsAllocation ? "warning" : "success"}
-          />
-          <span className="text-[12.5px] text-ink-muted">
-            {t("vouchers.unallocatedRemainder")} <MoneyDisplay value={toMajor(summary.unallocated)} />
-          </span>
-        </div>
+        {doc.allocatable ? (
+          <div className="flex flex-wrap items-center gap-[10px]">
+            <StatusPill
+              label={summary.needsAllocation ? t("vouchers.needsAllocation") : t("vouchers.fullyAllocated")}
+              tone={summary.needsAllocation ? "warning" : "success"}
+            />
+            <span className="text-[12.5px] text-ink-muted">
+              {t("vouchers.unallocatedRemainder")} <MoneyDisplay value={toMajor(summary.unallocated)} />
+            </span>
+          </div>
+        ) : null}
 
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
@@ -814,7 +816,7 @@ function VoucherDetailView({
             {t("vouchers.allocationDatedOn", { date: allocatedOn })}
           </div>
         ) : null}
-        {doc.status === "confirmed" && summary.needsAllocation ? (
+        {doc.status === "confirmed" && doc.allocatable && summary.needsAllocation ? (
           <Card className="flex flex-col gap-[12px] p-[16px_18px]">
             <h3 className="font-display text-[13.5px] font-bold text-ink">{t("vouchers.allocateAnAmountToAn")}</h3>
             {openInvoices.length === 0 ? (
@@ -855,7 +857,7 @@ function VoucherDetailView({
   };
 
   const tabs = [
-    ...(def.allocatable ? [allocationTab] : []),
+    ...(def.allocatable && !doc.reversesDocId ? [allocationTab] : []),
     {
       key: "gl",
       label: t("vouchers.journalEntries"),
@@ -892,7 +894,7 @@ function VoucherDetailView({
         subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={doc.status} tone={doc.status === "reversed" ? "danger" : "brand"} />}
         actions={
           <>
-            {doc.status === "confirmed" && reversal.allowed ? (
+            {doc.status === "confirmed" && !doc.reversesDocId && reversal.allowed ? (
               <Button variant="danger-outline" disabled={busy || reversal.pendingId === doc.id} onClick={() => void reversal.ask({ id: doc.id, params: { id: doc.id }, subject: doc.docNo ?? t("vouchers.cashVoucher") })}>
                 {t("vouchers.reverseVoucher")}
               </Button>

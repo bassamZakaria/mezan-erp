@@ -31,6 +31,8 @@ import {
 import { createDocumentWorkflowGate } from "../documents/journal-document.js";
 import {
   voucherBaseAmount,
+  isStandingVoucher,
+  voucherTakesAllocations,
   voucherNetPaid,
   type TreasuryLegFx,
   voucherDocumentType,
@@ -72,6 +74,7 @@ import {
   InvoiceNotFoundError,
   VoucherNotAllocatableError,
   VoucherNotConfirmedError,
+  VoucherReversedError,
   VoucherTreasuryCurrencyMismatchError,
 } from "./errors.js";
 import { allocationUndoDay, postRealisedFx, reverseRealisedFx, settlementRatesFor, type RealisedFxPort, type SettlingMoney } from "./realised-fx.js";
@@ -432,7 +435,7 @@ export class VoucherService {
     const held = (await this.service.list({ status: "confirmed", toDate: refund.date }))
       .filter((doc) => {
         const money = voucherLine(doc);
-        return money.voucherType === heldAs && (money.customerId ?? money.supplierId) === partyId && money.currency === line.currency && Boolean(money.fxRate);
+        return isStandingVoucher(doc) && money.voucherType === heldAs && (money.customerId ?? money.supplierId) === partyId && money.currency === line.currency && Boolean(money.fxRate);
       })
       .sort((a, b) => (a.date === b.date ? a.id.localeCompare(b.id) : a.date < b.date ? -1 : 1));
     let applied = 0;
@@ -847,9 +850,8 @@ export class VoucherService {
 
   async allocationSummary(doc: VoucherDocument): Promise<AllocationSummary> {
     const line = voucherLine(doc);
-    const def = getVoucherTypeDefinition(line.voucherType);
     const allocations = await this.deps.allocations.listByVoucher(doc.id);
-    return summarize(voucherBaseAmount(line), allocations, def.allocatable);
+    return summarize(voucherBaseAmount(line), allocations, voucherTakesAllocations(doc));
   }
 
   async findById(id: string): Promise<VoucherDocument | null> {
@@ -871,6 +873,7 @@ export class VoucherService {
   private async requireConfirmedAllocatable(voucherId: string): Promise<VoucherDocument> {
     const doc = await this.service.findById(voucherId);
     if (!doc) throw new VoucherNotConfirmedError(voucherId, "missing");
+    if (doc.reversesDocId || doc.status === "reversed") throw new VoucherReversedError(doc.id, doc.docNo ?? doc.id, Boolean(doc.reversesDocId));
     if (doc.status !== "confirmed") throw new VoucherNotConfirmedError(voucherId, doc.status);
     const line = voucherLine(doc);
     if (!getVoucherTypeDefinition(line.voucherType).allocatable) {

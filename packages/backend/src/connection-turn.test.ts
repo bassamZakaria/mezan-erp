@@ -94,11 +94,13 @@ describe("a tenant's connection under a sign-in flood", () => {
 });
 
 describe("a tenant's connection while the signing program is slow", () => {
-  async function withQueuedInvoice(run: CreateBackendOptions["etaSigningRunner"]) {
+  async function withQueuedInvoice(run: CreateBackendOptions["etaSigningRunner"], given: { extra?: Partial<CreateBackendOptions>; buyer?: Record<string, unknown>; httpDelayMs?: number } = {}) {
     const filed: string[] = [];
     const t = await open({
+      ...given.extra,
       etaSigningRunner: run,
       etaHttpClient: async (request) => {
+        if (given.httpDelayMs) await new Promise((resolve) => setTimeout(resolve, given.httpDelayMs));
         if (request.url.endsWith("/connect/token")) return { status: 200, body: JSON.stringify({ access_token: "token", expires_in: 3600 }) };
         const sent = JSON.parse(request.body ?? "{}") as { documents?: { internalID?: string }[] };
         for (const doc of sent.documents ?? []) filed.push(doc.internalID ?? "");
@@ -122,7 +124,7 @@ describe("a tenant's connection while the signing program is slow", () => {
       200,
     );
     ok(await t.call("POST", "/items", { id: "SVC-1", code: "SVC-1", nameAr: "خدمة", type: "service", baseUnitCode: "PCS" }), 201);
-    ok(await t.call("PUT", "/eta/branch-codes/BR-MAIN", { etaBranchCode: "0" }), 200);
+    ok(await t.call("PUT", "/eta/branch-codes/BR-MAIN", { etaBranchCode: "0", deviceSerialNumber: "POS-0001" }), 200);
     ok(await t.call("PUT", "/eta/item-mappings/SVC-1", { etaCodeType: "EGS", etaItemCode: "EG-123456789-1" }), 200);
     ok(await t.call("PUT", "/eta/unit-mappings/PCS", { etaUnitCode: "EA" }), 200);
     ok(
@@ -138,6 +140,7 @@ describe("a tenant's connection while the signing program is slow", () => {
         taxExempt: false,
         etaBuyerType: "auto",
         taxNumber: "987654321",
+        ...given.buyer,
       }),
       201,
     );
@@ -161,10 +164,46 @@ describe("a tenant's connection while the signing program is slow", () => {
     ok(await t.call("POST", "/sales-invoices/INV-B2B/confirm", {}), 200);
     await t.handle.drain();
     const queued = (await t.call("GET", "/eta/submissions")).body as { id: string; documentType: string; status: string }[];
-    const invoice = queued.find((submission) => submission.documentType === "invoice");
-    if (!invoice) throw new Error(`no e-invoice was queued: ${JSON.stringify(queued)}`);
-    return { ...t, submissionId: invoice.id, filed };
+    const invoice = queued.find((submission) => submission.documentType === (given.buyer ? "receipt" : "invoice"));
+    if (!invoice) throw new Error(`no e-document was queued: ${JSON.stringify(queued)}`);
+    return { ...t, submissionId: invoice.id, filed, queued };
   }
+
+  describe("and the watchdog that reports a connection held too long", () => {
+    const WARN_MS = 5;
+    const signedAtOnce = async (): Promise<EtaCommandResult> => ({ code: 0, stdout: "CADES-SIGNATURE", stderr: "" });
+    function watching() {
+      const reports: string[] = [];
+      const extra: Partial<CreateBackendOptions> = {
+        connectionTurn: { heldWarningMs: WARN_MS, onHeldTooLong: (c, heldMs) => reports.push(`${c.req.method} ${c.req.path} ${heldMs}`) },
+      };
+      return { reports, extra };
+    }
+    async function silentOnceEverythingFinished(reports: string[]) {
+      const finishedWith = reports.length;
+      await new Promise((resolve) => setTimeout(resolve, WARN_MS * 10));
+      expect(reports.slice(finishedWith)).toEqual([]);
+    }
+
+    it("is silent once a confirm's e-invoice queueing and its notification rules have finished", async () => {
+      const { reports, extra } = watching();
+      const t = await withQueuedInvoice(signedAtOnce, { extra, httpDelayMs: 3 });
+      await t.call("POST", `/eta/submissions/${t.submissionId}/submit`, {});
+      await t.handle.drain();
+
+      await silentOnceEverythingFinished(reports);
+    });
+
+    it("is silent once a confirm's e-receipt submission has finished", async () => {
+      const { reports, extra } = watching();
+      const t = await withQueuedInvoice(signedAtOnce, { extra, httpDelayMs: 3, buyer: { taxNumber: null, etaBuyerType: "individual" } });
+      expect(t.queued.map((submission) => submission.documentType)).toContain("receipt");
+      await t.call("POST", "/eta/submissions/submit-all", {});
+      await t.handle.drain();
+
+      await silentOnceEverythingFinished(reports);
+    });
+  });
 
   it("files the document once when three senders press submit together", async () => {
     let asked = 0;

@@ -84,13 +84,15 @@ export {
   STEP_UP_REQUIRED,
   DEVICE_SECRET_HEADER,
   DEVICE_BINDING_HEADER,
+  DEVICE_MISMATCH_LIMIT,
+  DEVICE_MISMATCH_WINDOW_MS,
+  MAX_SESSION_MS,
   SessionRefusalKind,
   type DeviceBoundSession,
   type SessionGrant,
   type SessionRegistry,
   type SessionLookup,
   type SessionRefusal,
-  type SessionRefusalReason,
 } from "./session-auth.js";
 export {
   createLoginThrottle,

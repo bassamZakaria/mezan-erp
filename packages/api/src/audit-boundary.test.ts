@@ -1078,3 +1078,63 @@ describe("connectionTurn", () => {
     expect(await res.json()).toEqual([{ inner: true }, { inner: true }]);
   });
 });
+
+describe("the held-connection watchdog once a request and everything it started have finished", () => {
+  const WARN_MS = 5;
+  const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  function watched(handler: (sink: SqliteAuditSinkHandle) => Promise<void> | void) {
+    const sink = openSink();
+    const reported: number[] = [];
+    const app = new Hono();
+    app.use("*", connectionTurn(sink, { onYield: () => undefined, heldWarningMs: WARN_MS, onHeldTooLong: (_c, heldMs) => reported.push(heldMs) }));
+    app.post("/work", async (c) => {
+      await handler(sink);
+      return c.json({});
+    });
+    return { app, reported };
+  }
+
+  it("says nothing after a handler fired and forgot work that handed the connection back", async () => {
+    const leftRunning: Promise<unknown>[] = [];
+    const { app, reported } = watched((sink) => {
+      leftRunning.push(sink.turn(() => sink.outsideTurn(() => pause(1))));
+    });
+
+    expect((await app.fetch(new Request("http://x/work", { method: "POST" }))).status).toBe(200);
+    await Promise.all(leftRunning);
+    await pause(WARN_MS * 8);
+
+    expect(reported).toEqual([]);
+  });
+
+  it("says nothing after a handler that itself handed the connection back and took it again", async () => {
+    const { app, reported } = watched((sink) => sink.outsideTurn(() => pause(1)));
+
+    expect((await app.fetch(new Request("http://x/work", { method: "POST" }))).status).toBe(200);
+    await pause(WARN_MS * 8);
+
+    expect(reported).toEqual([]);
+  });
+
+  it("still reports left-running work that keeps the connection after the handler answered, and stops when that work ends", async () => {
+    const leftRunning: Promise<unknown>[] = [];
+    const { app, reported } = watched((sink) => {
+      leftRunning.push(
+        sink.turn(async () => {
+          await sink.outsideTurn(() => pause(1));
+          const until = Date.now() + WARN_MS * 4;
+          while (Date.now() < until);
+        }),
+      );
+    });
+
+    await app.fetch(new Request("http://x/work", { method: "POST" }));
+    await Promise.all(leftRunning);
+    const whileHeld = reported.length;
+    await pause(WARN_MS * 8);
+
+    expect(whileHeld).toBeGreaterThan(0);
+    expect(reported.length).toBe(whileHeld);
+  });
+});

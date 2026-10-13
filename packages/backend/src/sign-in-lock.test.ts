@@ -371,6 +371,31 @@ describe("a locked account can always be recovered", () => {
     return { h, sent, logged, advance: (ms: number) => void (now += ms) };
   }
 
+  it("leaves the held-connection watchdog silent once the lock mail has gone out", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const WARN_MS = 5;
+    const reports: string[] = [];
+    const sent: string[] = [];
+    const h = await open({
+      securityMail: PLATFORM_SMTP,
+      connectionTurn: { heldWarningMs: WARN_MS, onHeldTooLong: (c, heldMs) => reports.push(`${c.req.method} ${c.req.path} ${heldMs}`) },
+      sendMail: async (_smtp, to) => {
+        await new Promise((resolve) => setTimeout(resolve, 3));
+        sent.push(to);
+        return { outcome: "sent", detail: "250" };
+      },
+    });
+    await claim(h);
+    await twentyWrongPins(h);
+    await h.drain();
+    expect(sent).toEqual([OWNER.email]);
+
+    const finishedWith = reports.length;
+    await new Promise((resolve) => setTimeout(resolve, WARN_MS * 10));
+
+    expect(reports.slice(finishedWith)).toEqual([]);
+  }, 120_000);
+
   it("keeps the mailed code alive through wrong codes from many addresses", async () => {
     const { h, sent } = await lockedWithMail();
     const code = codeIn(sent[0]!.body)!;
@@ -598,18 +623,33 @@ describe("a session bound to the device that signed in rather than to its addres
     expect(await auditText(h, "SESSION_ADDRESS_CHANGED")).toContain("INFO");
   }, 120_000);
 
-  it("refuses the token without its device secret, records it as critical, and ends the session", async () => {
+  it("refuses the token without its device secret and records it as critical, and the holder's own session goes on", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open();
     await claim(h);
     const { token, secret } = await deviceSession(h, "41.33.10.10");
 
-    expect((await call(h, "GET", "/profile", "41.33.10.10", { authorization: `Bearer ${token}` })).status).toBe(401);
-    expect((await call(h, "GET", "/profile", "41.33.10.10", { authorization: `Bearer ${token}`, "x-mezan-device": secret })).status).toBe(401);
+    expect((await call(h, "GET", "/profile", "196.221.5.5", { authorization: `Bearer ${token}` })).status).toBe(401);
+    expect((await call(h, "GET", "/profile", "41.33.10.10", { authorization: `Bearer ${token}`, "x-mezan-device": secret })).status).toBe(200);
 
     const audit = await auditText(h, "SESSION_DEVICE_REJECTED");
-    expect(audit).toContain("SESSION_DEVICE_REJECTED");
+    expect(audit.match(/SESSION_DEVICE_REJECTED/g)).toHaveLength(1);
     expect(audit).toContain("CRITICAL");
+    expect(audit).toContain('"sessionEnded":false');
+  }, 120_000);
+
+  it("ends the session once the token has been presented without its secret five times in ten minutes, and records that it did", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const h = await open();
+    await claim(h);
+    const { token, secret } = await deviceSession(h, "41.33.10.10");
+
+    for (let i = 0; i < 5; i += 1) expect((await call(h, "GET", "/profile", "196.221.5.5", { authorization: `Bearer ${token}` })).status).toBe(401);
+
+    expect((await call(h, "GET", "/profile", "41.33.10.10", { authorization: `Bearer ${token}`, "x-mezan-device": secret })).status).toBe(401);
+    const audit = await auditText(h, "SESSION_DEVICE_REJECTED");
+    expect(audit.match(/SESSION_DEVICE_REJECTED/g)).toHaveLength(5);
+    expect(audit.match(/"sessionEnded":true/g)).toHaveLength(1);
   }, 120_000);
 
   it("asks for the PIN again before an administrative change made after the address moved, and accepts it", async () => {

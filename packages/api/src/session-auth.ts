@@ -57,7 +57,14 @@ const IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
  * deactivated user's sessions immediately. This bounds the token nobody knows
  * to revoke.
  */
-const MAX_SESSION_MS = 16 * 60 * 60 * 1000;
+export const MAX_SESSION_MS = 16 * 60 * 60 * 1000;
+
+// SECURITY: a bearer token presented without its device secret is refused every
+// time, but the session it names ends only on the fifth such refusal inside ten
+// minutes. Ending it on the first would let anyone holding a leaked token — and
+// nothing else — sign the real holder out at will.
+export const DEVICE_MISMATCH_LIMIT = 5;
+export const DEVICE_MISMATCH_WINDOW_MS = 10 * 60 * 1000;
 
 export interface SessionGrant {
   readonly userId: string;
@@ -77,6 +84,7 @@ interface StoredSession extends SessionGrant {
   lastOrigin: string | null;
   movedSincePin: boolean;
   lastSeenAt: number;
+  deviceMismatches: number[];
 }
 
 export enum SessionRefusalKind {
@@ -95,9 +103,6 @@ interface DisplacedSession {
   readonly at: number;
 }
 
-/** Why a token that exists was nonetheless refused. */
-export type SessionRefusalReason = `${SessionRefusalKind}`;
-
 export interface SessionAddressChange {
   readonly userId: string;
   readonly from: string;
@@ -112,7 +117,10 @@ export interface DeviceBoundSession {
 export { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER };
 
 export interface SessionRefusal {
-  readonly reason: SessionRefusalReason;
+  readonly reason: SessionRefusalKind;
+  // False only for a device-secret mismatch that has not yet reached the limit:
+  // the request was refused and the session is still its holder's.
+  readonly sessionEnded: boolean;
   readonly userId: string;
   /** `"host"` for the in-process mount — a fact, not a missing value. */
   readonly issuedFrom: string;
@@ -298,13 +306,13 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
     sweep(at);
     const token = randomBytes(32).toString("base64url");
     const from = canonicalOrigin(origin);
-    byHash.set(hashToken(token), { ...grant, issuedAt: at, issuedFrom: from, deviceHash, lastOrigin: from, movedSincePin: false, lastSeenAt: at });
+    byHash.set(hashToken(token), { ...grant, issuedAt: at, issuedFrom: from, deviceHash, lastOrigin: from, movedSincePin: false, lastSeenAt: at, deviceMismatches: [] });
     return token;
   }
 
-  function expired(session: StoredSession, at: number): SessionRefusalReason | null {
-    if (at - session.lastSeenAt > IDLE_TIMEOUT_MS) return "idle";
-    if (at - session.issuedAt > MAX_SESSION_MS) return "aged";
+  function expired(session: StoredSession, at: number): SessionRefusalKind | null {
+    if (at - session.lastSeenAt > IDLE_TIMEOUT_MS) return SessionRefusalKind.Idle;
+    if (at - session.issuedAt > MAX_SESSION_MS) return SessionRefusalKind.Aged;
     return null;
   }
 
@@ -358,20 +366,24 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
         if (!ended || at - ended.at > IDLE_TIMEOUT_MS) return { grant: null, refusal: null };
         return {
           grant: null,
-          refusal: { reason: SessionRefusalKind.Displaced, userId: ended.userId, issuedFrom: originLabel(ended.issuedFrom), presentedFrom: originLabel(canonicalOrigin(origin)) },
+          refusal: { reason: SessionRefusalKind.Displaced, sessionEnded: true, userId: ended.userId, issuedFrom: originLabel(ended.issuedFrom), presentedFrom: originLabel(canonicalOrigin(origin)) },
         };
       }
 
       const presented = canonicalOrigin(origin);
       if (session.deviceHash !== null) {
         const held = device !== null && device !== "" && tokensMatch(hashToken(device), session.deviceHash);
-        const reason: SessionRefusalReason | null = held ? expired(session, at) : SessionRefusalKind.Device;
+        const from = { userId: session.userId, issuedFrom: originLabel(session.issuedFrom), presentedFrom: originLabel(presented) };
+        if (!held) {
+          session.deviceMismatches = [...session.deviceMismatches.filter((refusedAt) => at - refusedAt < DEVICE_MISMATCH_WINDOW_MS), at];
+          const sessionEnded = session.deviceMismatches.length >= DEVICE_MISMATCH_LIMIT;
+          if (sessionEnded) byHash.delete(key);
+          return { grant: null, refusal: { reason: SessionRefusalKind.Device, sessionEnded, ...from } };
+        }
+        const reason = expired(session, at);
         if (reason) {
           byHash.delete(key);
-          return {
-            grant: null,
-            refusal: { reason, userId: session.userId, issuedFrom: originLabel(session.issuedFrom), presentedFrom: originLabel(presented) },
-          };
+          return { grant: null, refusal: { reason, sessionEnded: true, ...from } };
         }
         session.lastSeenAt = at;
         if (presented === session.lastOrigin) return { grant: session, refusal: null };
@@ -383,14 +395,14 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
       // ORIGIN BEFORE EXPIRY, deliberately. A token presented from a second
       // address is the signal an auditor wants whether or not it had also aged
       // out, and reporting "idle" for it would file a theft as housekeeping.
-      const reason: SessionRefusalReason | null =
-        presented !== session.issuedFrom ? "moved" : expired(session, at);
+      const reason: SessionRefusalKind | null = presented !== session.issuedFrom ? SessionRefusalKind.Moved : expired(session, at);
       if (reason) {
         byHash.delete(key);
         return {
           grant: null,
           refusal: {
             reason,
+            sessionEnded: true,
             userId: session.userId,
             issuedFrom: originLabel(session.issuedFrom),
             presentedFrom: originLabel(presented),
@@ -570,10 +582,10 @@ export function sessionOriginReporting(sessions: SessionRegistry, audit: AuditSi
           action: "SESSION_DEVICE_REJECTED",
           actor: refusal.userId,
           severity: "CRITICAL",
-          details: { issuedFrom: refusal.issuedFrom, presentedFrom: refusal.presentedFrom, method: c.req.method, path: new URL(c.req.url).pathname },
+          details: { issuedFrom: refusal.issuedFrom, presentedFrom: refusal.presentedFrom, sessionEnded: refusal.sessionEnded, method: c.req.method, path: new URL(c.req.url).pathname },
         });
       }
-      if (refusal?.reason === "moved") {
+      if (refusal?.reason === SessionRefusalKind.Moved) {
         await recordSecurityEventOrFallback(audit, {
           module: "auth",
           entityType: "AUTH_USER",

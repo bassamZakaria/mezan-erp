@@ -1,8 +1,13 @@
 import { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER } from "@mezan/contracts";
+import { MAX_SESSION_MS } from "@mezan/api";
 
 const COOKIE = "mezan_device";
 const COOKIE_PATH = "/api";
-const COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
+// REQUIRED: the cookie outlives nothing and is outlived by nothing — it lasts
+// exactly as long as a session may. Shorter, and a browser drops the secret
+// while its session is still served: the next request is refused as a stolen
+// token and the user is signed out mid-shift.
+const COOKIE_MAX_AGE_SECONDS = MAX_SESSION_MS / 1000;
 export const COOKIE_BINDING = "cookie";
 const HEADER_BINDING = "1";
 

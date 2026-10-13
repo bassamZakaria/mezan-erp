@@ -376,7 +376,22 @@ export function connectionTurn(audit: AuditSink | undefined, options: Connection
     let watchdog: ReturnType<typeof setInterval> | undefined;
     let heldSince: number | null = null;
     let warned = false;
+    let turnOver = false;
+    const unwatch = (): void => {
+      clearInterval(watchdog);
+      watchdog = undefined;
+      if (heldSince === null) return;
+      const heldMs = Date.now() - heldSince;
+      heldSince = null;
+      if (!warned && heldMs >= heldWarningMs) onHeldTooLong(c, heldMs);
+    };
+    // REQUIRED: the watch belongs to the TURN, not to the handler. Work a
+    // handler leaves running takes the connection again after the handler has
+    // answered; a watch started then must still be stopped, so it is stopped
+    // when the turn settles and can never start once it has.
     const watch = (): void => {
+      if (turnOver) return;
+      unwatch();
       const since = Date.now();
       heldSince = since;
       warned = false;
@@ -386,25 +401,19 @@ export function connectionTurn(audit: AuditSink | undefined, options: Connection
       }, heldWarningMs);
       watchdog.unref?.();
     };
-    const unwatch = (): void => {
-      clearInterval(watchdog);
-      if (heldSince === null) return;
-      const heldMs = Date.now() - heldSince;
-      heldSince = null;
-      if (!warned && heldMs >= heldWarningMs) onHeldTooLong(c, heldMs);
-    };
     const held = turn(
       async () => {
         if (!leaveTheQueue(Wait.Arrived)) return;
         watch();
-        try {
-          await next();
-        } finally {
-          unwatch();
-        }
+        await next();
       },
       { onYield: () => onYield(c), onSuspend: unwatch, onResume: watch, retakeTimeoutMs: options.retakeTimeoutMs, completedRetakeTimeoutMs: options.completedRetakeTimeoutMs },
     );
+    const turnSettled = (): void => {
+      turnOver = true;
+      unwatch();
+    };
+    held.then(turnSettled, turnSettled);
     const reason = await Promise.race([held.then(() => undefined), gaveUp]);
     if (reason === undefined) {
       if (!(c.error instanceof ConnectionTurnLostError)) return;

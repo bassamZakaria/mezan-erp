@@ -49,6 +49,7 @@ export interface JournalLineInput {
   readonly fxRate?: string | null;
   /** VAT rate this line was charged at, so the VAT return can report the rates actually charged (D28). */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
   /** بُعد المشروع (D-01). Validated against `deps.projects` when that port is supplied. */
   readonly projectId?: string | null;
   /** فئة التكلفة — rejected without a `projectId`, because a category with no project is a figure nothing can roll up. */
@@ -140,6 +141,7 @@ function toLine(input: JournalLineInput): JournalLine {
     currency: input.currency ?? null,
     fxRate: input.fxRate ?? null,
     taxRatePercent: input.taxRatePercent ?? null,
+    taxRateId: input.taxRateId ?? null,
     projectId: input.projectId ?? null,
     costCategory: input.costCategory ?? null,
     branchId: input.branchId ?? null,
@@ -154,16 +156,17 @@ function toLine(input: JournalLineInput): JournalLine {
  */
 export function assertEntryStructure(lines: readonly JournalLineInput[]): void {
   if (lines.length < 2) {
-    throw new InvalidJournalEntryError("A journal entry requires at least two lines.");
+    throw new InvalidJournalEntryError("قيد اليومية يحتاج سطرين على الأقل.", "A journal entry requires at least two lines.");
   }
   for (const line of lines) {
     if (line.accountId.trim() === "") {
-      throw new InvalidJournalEntryError("Every journal line must target an account.");
+      throw new InvalidJournalEntryError("كل سطر في القيد يجب أن يحدد حساباً.", "Every journal line must target an account.");
     }
     const debitNeg = line.debit.scaled < 0n;
     const creditNeg = line.credit.scaled < 0n;
     if (debitNeg || creditNeg) {
       throw new InvalidJournalEntryError(
+        `سطر القيد على الحساب "${line.accountId}" يحمل مبلغاً سالباً؛ سجّله في الطرف المقابل.`,
         `Journal line for account "${line.accountId}" has a negative amount; use the opposite side instead.`,
       );
     }
@@ -171,21 +174,25 @@ export function assertEntryStructure(lines: readonly JournalLineInput[]): void {
     const hasCredit = line.credit.scaled !== 0n;
     if (hasDebit && hasCredit) {
       throw new InvalidJournalEntryError(
+        `سطر القيد على الحساب "${line.accountId}" لا يكون مديناً ودائناً معاً.`,
         `Journal line for account "${line.accountId}" cannot be both a debit and a credit.`,
       );
     }
     if (!hasDebit && !hasCredit) {
       throw new InvalidJournalEntryError(
+        `سطر القيد على الحساب "${line.accountId}" يجب أن يحمل مبلغاً مديناً أو دائناً غير صفري.`,
         `Journal line for account "${line.accountId}" must have a non-zero debit or credit.`,
       );
     }
     if (line.costCategory != null && !isCostCategory(line.costCategory)) {
       throw new InvalidJournalEntryError(
+        `سطر القيد على الحساب "${line.accountId}" يذكر بند تكلفة غير معروف "${String(line.costCategory)}".`,
         `Journal line for account "${line.accountId}" names an unknown cost category "${String(line.costCategory)}".`,
       );
     }
     if (line.costCategory != null && (line.projectId == null || line.projectId.trim() === "")) {
       throw new InvalidJournalEntryError(
+        `سطر القيد على الحساب "${line.accountId}" يحمل بند تكلفة بلا مشروع.`,
         `Journal line for account "${line.accountId}" carries a cost category without a project.`,
       );
     }

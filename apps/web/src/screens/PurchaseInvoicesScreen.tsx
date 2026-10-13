@@ -30,6 +30,7 @@ import type {
   PurchaseInvoiceListQueryDTO,
   PurchaseInvoicePaymentDTO,
   PurchaseInvoiceStatusDTO,
+  TaxRateDTO,
 } from "@mezan/contracts";
 import {
   useConfirmPurchaseInvoice,
@@ -44,11 +45,13 @@ import {
   usePurchaseInvoiceStats,
   useProjects,
   useSuppliers,
+  useTaxRates,
   useTreasuryAccounts,
   useUsers,
   useBranches,
   useWarehouses,
   useAllowedCurrencies,
+  ClassifiableDocument,
 } from "../data/hooks";
 import { Money, Qty, purchaseInvoiceLineBase, purchaseInvoiceLineTax } from "@mezan/domain";
 import { useDebounced } from "../lib/use-debounced";
@@ -58,7 +61,13 @@ import { PurchaseInvoicePrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { DERIVED_TAX, TaxRateField, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { useEntityName } from "../lib/entity-names";
+import { ClassifyLineTaxAction, type ClassifiableLine } from "./ClassifyLineTaxAction";
+import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
+import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
+import { purchaseInvoiceLineTotal } from "./exact-line-totals";
+import { PurchaseInvoiceStatusCode } from "@mezan/domain";
 import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
 import { todayIso } from "../lib/dates";
@@ -124,11 +133,14 @@ interface DraftLine {
   qty: string;
   unitCost: string;
   taxRatePercent: number;
+  tax: TaxChoice;
   description: string;
   costCategory: CostCategoryDTO | null;
 }
 
-const blankLine = (): DraftLine => ({ itemId: "", kind: "inventory", qty: "1", unitCost: "0", taxRatePercent: 14, description: "", costCategory: null });
+const NO_TAX_RATES: readonly TaxRateDTO[] = [];
+
+const blankLine = (): DraftLine => ({ itemId: "", kind: "inventory", qty: "1", unitCost: "0", taxRatePercent: 14, tax: DERIVED_TAX, description: "", costCategory: null });
 
 interface PreviewLine {
   itemId: string | null;
@@ -157,6 +169,7 @@ function InvoiceDetail({
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const fulfilmentQuery = usePurchaseInvoiceFulfilment(invoice.id);
+  const detailTaxRates = useTaxRates().data ?? NO_TAX_RATES;
   const landedCostsQuery = useLandedCosts();
   const treasuryAccounts = useTreasuryAccounts().data ?? [];
   const payInvoice = usePayPurchaseInvoice();
@@ -173,6 +186,18 @@ function InvoiceDetail({
   const settledInBase = Boolean(invoice.fxRate);
   const docCurrencyLabel = settledInBase ? invoice.currency : undefined;
   const settlementTotal = invoice.baseTotal ?? invoice.total;
+
+  // EXTERNAL CONTRACT: a purchase invoice line has no id; the server names it by its position.
+  const classifiableLines = useMemo<ClassifiableLine[]>(
+    () =>
+      invoice.lines.map((line, index) => ({
+        lineId: String(index),
+        label: line.itemId ? itemName(line.itemId) : (line.description ?? String(index + 1)),
+        taxRatePercent: line.taxRatePercent,
+        taxRateId: line.taxRateId ?? null,
+      })),
+    [invoice.lines, itemName],
+  );
 
   const fulfilment = useMemo(() => {
     const map = new Map<number, PurchaseInvoiceLineFulfilmentDTO>();
@@ -269,6 +294,21 @@ function InvoiceDetail({
           label: t("purchaseInvoices.tab.lines", { count: invoice.lines.length }),
           content: (
             <div className="overflow-x-auto">
+              <UnnamedTaxNotice
+                document={ClassifiableDocument.PurchaseInvoice}
+                posted={invoice.status === PurchaseInvoiceStatusCode.Confirmed}
+                documentKind={invoice.documentKind}
+                lines={classifiableLines}
+              />
+              <NameJournalLineTaxAction
+                document={ClassifiableDocument.PurchaseInvoice}
+                documentId={invoice.id}
+                journalEntryId={`PI-JE:${invoice.id}`}
+                posted={invoice.status === PurchaseInvoiceStatusCode.Confirmed}
+                lines={classifiableLines}
+                taxRates={detailTaxRates}
+                accountLabel={(accountId) => accountId}
+              />
               <table className="w-full min-w-[860px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
@@ -298,7 +338,18 @@ function InvoiceDetail({
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.consumedQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.remainingQty} /> : "—"}</td>
                         <td className="px-[12px] py-[10px] text-end"><MoneyValue value={l.unitCost} showUnit={false} storedPrecision /></td>
-                        <td className="mz-num px-[12px] py-[10px] text-end">{l.taxRatePercent}</td>
+                        <td className="px-[12px] py-[10px] text-end">
+                          {postedTaxRateLabel(detailTaxRates, l, t)}
+                          <ClassifyLineTaxAction
+                            document={ClassifiableDocument.PurchaseInvoice}
+                            documentId={invoice.id}
+                            posted={invoice.status === PurchaseInvoiceStatusCode.Confirmed}
+                            documentKind={invoice.documentKind}
+                            line={classifiableLines[i]!}
+                            lines={classifiableLines}
+                            taxRates={detailTaxRates}
+                          />
+                        </td>
                         <td className="px-[12px] py-[10px] text-end"><MoneyValue value={lineGross(l).toString()} showUnit={false} /></td>
                       </tr>
                     );
@@ -602,6 +653,7 @@ export function PurchaseInvoicesScreen() {
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
   const [project, setProject] = useState<EntityPickerOption | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const taxRates = useTaxRates().data ?? NO_TAX_RATES;
 
   const selected = selectedId === null ? null : (invoices.find((inv) => inv.id === selectedId || inv.number === selectedId) ?? null);
 
@@ -776,7 +828,7 @@ export function PurchaseInvoicesScreen() {
             kind: l.kind,
             qty: l.qty,
             unitCost: l.unitCost === "" ? "0" : l.unitCost,
-            taxRatePercent: l.taxRatePercent,
+            ...lineTaxPayload(l.tax, taxRates, l.taxRatePercent),
             costCategory: l.kind === "inventory" ? null : l.costCategory,
           })),
         });
@@ -893,7 +945,7 @@ export function PurchaseInvoicesScreen() {
                         setLines((prev) =>
                           prev.map((l, j) =>
                             j === i
-                              ? { ...l, kind, ...(kind === "inventory" ? { itemId: l.itemId, costCategory: null } : { itemId: "", taxRatePercent: 0 }) }
+                              ? { ...l, kind, ...(kind === "inventory" ? { itemId: l.itemId, costCategory: null } : { itemId: "", taxRatePercent: 0, tax: DERIVED_TAX }) }
                               : l,
                           ),
                         )
@@ -917,6 +969,7 @@ export function PurchaseInvoicesScreen() {
                                 itemId: opt?.id ?? "",
                                 unitCost: item?.costPrice ?? l.unitCost,
                                 taxRatePercent: item?.taxRatePercent ?? l.taxRatePercent,
+                                tax: DERIVED_TAX,
                               }
                             : l,
                         ),
@@ -936,7 +989,13 @@ export function PurchaseInvoicesScreen() {
                 <div className="mt-[10px] grid grid-cols-3 gap-[8px]">
                   <DecimalField label={t("common.qty")} value={line.qty} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, qty: v } : l)))} />
                   <DecimalField label={t("purchaseInvoices.field.cost")} value={line.unitCost} minimumFractionDigits={2} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, unitCost: v } : l)))} />
-                  <NumberField label={t("purchaseInvoices.col.taxPct")} value={line.taxRatePercent} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, taxRatePercent: v } : l)))} />
+                  <TaxRateField
+                    label={t("taxRateField.label")}
+                    choice={line.tax}
+                    onChange={(tax) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, tax } : l)))}
+                    taxRates={taxRates}
+                    fallbackPercent={line.taxRatePercent}
+                  />
                 </div>
                 {line.kind !== "inventory" ? (
                   <div className="mt-[10px]">

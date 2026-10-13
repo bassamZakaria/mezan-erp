@@ -11,6 +11,7 @@ export {
   type PurchaseOrderStatus,
   type GoodsReceiptStatus,
   type PurchaseInvoiceStatus,
+  PurchaseInvoiceStatusCode,
   type PurchaseGlPosting,
   type PurchaseGlPostingLine,
   type PurchaseGlPostingPort,
@@ -92,6 +93,7 @@ export {
   type GoodsReceipt,
   type GoodsReceiptLine,
   type GoodsReceiptRepository,
+  GoodsReceiptField,
   type GoodsReceiptLineInput,
   type CreateGoodsReceiptCommand,
   type CreateGoodsReceiptDeps,
@@ -121,6 +123,7 @@ export {
   type PurchaseInvoiceLine,
   type PurchaseInvoiceLineKind,
   type PurchaseInvoiceRepository,
+  PurchaseInvoiceField,
   type PurchaseInvoiceListFilter,
   type PurchaseInvoiceLineInput,
   type CreatePurchaseInvoiceCommand,
@@ -173,3 +176,12 @@ export {
   type ImportHistoricalPurchaseDocumentsDeps,
   type ImportHistoricalPurchaseDocumentsResult,
 } from "./historical-import.js";
+
+export {
+  classifyPurchaseInvoiceLineTax,
+  namePurchaseInvoiceJournalLineTax,
+  PURCHASE_INVOICE_STATUS_LABELS_AR,
+  type PurchaseInvoiceTaxTagPort,
+  type ClassifyPurchaseInvoiceLineTaxDeps,
+  type ClassifyPurchaseInvoiceLineTaxResult,
+} from "./classify-line-tax.js";

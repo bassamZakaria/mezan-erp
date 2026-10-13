@@ -1,7 +1,13 @@
 import { Hono } from "hono";
-import { DEFAULT_PRINT_TEMPLATE_CONFIG, type PrintTemplateConfig, type PrintTemplateConfigRepository } from "@mezan/domain";
+import {
+  createDefaultSettings,
+  DEFAULT_PRINT_TEMPLATE_CONFIG,
+  type PrintTemplateConfig,
+  type PrintTemplateConfigRepository,
+  type SettingsRepository,
+} from "@mezan/domain";
 import { LOGO_MAX_CHARS, printTemplateConfigSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createAnyPermissionGate, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Print Template Config routes (docs/archive/catalog/09 §"قوالب الطباعة"): a single
@@ -53,7 +59,44 @@ function keepStoredOversizeLogos(
 
 export interface PrintTemplateConfigRoutesDeps {
   readonly repo: PrintTemplateConfigRepository;
+  readonly settings?: Pick<SettingsRepository, "get">;
 }
+
+export enum PrintableDocumentFamily {
+  SalesInvoice = "sales_invoice",
+  SalesQuote = "sales_quote",
+  SalesReturn = "sales_return",
+  PurchaseOrder = "purchase_order",
+  GoodsReceipt = "goods_receipt",
+  PurchaseInvoice = "purchase_invoice",
+  PurchaseReturn = "purchase_return",
+  JournalEntry = "journal_entry",
+  TreasuryVoucher = "treasury_voucher",
+  PartyStatement = "party_statement",
+  Payslip = "payslip",
+}
+
+// SECURITY: the template is what a PRINTED DOCUMENT
+// carries, so it is read by whoever may view one of the documents that
+// prints — the families below, each with the view permissions its own routes
+// accept — and by nobody else. The list is explicit on purpose: "any view
+// permission" let a caller who may only see the item catalogue read it.
+// Editing the template stays behind `admin.settings.edit`.
+export const PRINTABLE_DOCUMENT_VIEW_PERMISSIONS: Readonly<Record<PrintableDocumentFamily, readonly string[]>> = {
+  [PrintableDocumentFamily.SalesInvoice]: ["sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"],
+  [PrintableDocumentFamily.SalesQuote]: ["sales.quote.view", "sales.quote.view_own"],
+  [PrintableDocumentFamily.SalesReturn]: ["sales.return.view", "sales.return.view_own"],
+  [PrintableDocumentFamily.PurchaseOrder]: ["purchases.order.view"],
+  [PrintableDocumentFamily.GoodsReceipt]: ["purchases.receipt.view"],
+  [PrintableDocumentFamily.PurchaseInvoice]: ["purchases.invoice.view", "purchases.invoice.view_own"],
+  [PrintableDocumentFamily.PurchaseReturn]: ["purchases.return.view"],
+  [PrintableDocumentFamily.JournalEntry]: ["accounting.journal.view"],
+  [PrintableDocumentFamily.TreasuryVoucher]: ["treasury.cash_voucher.view"],
+  [PrintableDocumentFamily.PartyStatement]: ["sales.customer.view", "purchases.supplier.view"],
+  [PrintableDocumentFamily.Payslip]: ["hr.payroll.view"],
+};
+
+export const DOCUMENT_VIEW_PERMISSIONS: readonly string[] = [...new Set(Object.values(PRINTABLE_DOCUMENT_VIEW_PERMISSIONS).flat())];
 
 export function createPrintTemplateConfigRoutes(
   deps: PrintTemplateConfigRoutesDeps,
@@ -61,8 +104,9 @@ export function createPrintTemplateConfigRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAnyDocumentView = createAnyPermissionGate(resolveAuthContext)(...DOCUMENT_VIEW_PERMISSIONS, "admin.settings.view");
 
-  app.get("/", gate("admin.settings.view"), async (c) => {
+  app.get("/", gateAnyDocumentView, async (c) => {
     const existing = await deps.repo.get();
     return c.json(existing ?? DEFAULT_PRINT_TEMPLATE_CONFIG);
   });

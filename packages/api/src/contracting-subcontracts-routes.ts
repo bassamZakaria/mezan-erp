@@ -17,7 +17,6 @@ import {
   SubcontractRetentionError,
   SubcontractService,
   SubcontractorNotPayableError,
-  VatPeriodAlreadyFiledError,
   type CertificateComputation,
   type SubCertificatePreview,
   type SubCertificateServiceDeps,
@@ -328,8 +327,7 @@ function handleDomainError(c: Context, err: unknown) {
   // fault: the caller has to reopen the period or change the date.
   if (
     err instanceof PeriodNotOpenForPostingError ||
-    err instanceof NoFiscalPeriodForDateError ||
-    err instanceof VatPeriodAlreadyFiledError
+    err instanceof NoFiscalPeriodForDateError
   ) {
     return c.json({ error: err.code, message: err.message }, 409);
   }

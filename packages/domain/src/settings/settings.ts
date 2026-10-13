@@ -11,7 +11,11 @@
  * an invalid patch can never reach persistence.
  */
 
-export type TaxCalculationMode = "EXCLUSIVE" | "INCLUSIVE";
+export enum TaxCalculationModeCode {
+  Exclusive = "EXCLUSIVE",
+  Inclusive = "INCLUSIVE",
+}
+export type TaxCalculationMode = `${TaxCalculationModeCode}`;
 export type CreditControlMode = "WARNING" | "BLOCK";
 export type FxRateMissingPolicy = "STRICT" | "ALLOW_MISSING";
 export type DepreciationProrateMode = "DAILY" | "FULL_MONTH";
@@ -168,7 +172,7 @@ export class InvalidSettingsError extends Error {
   }
 }
 
-const TAX_CALCULATION_MODES: readonly TaxCalculationMode[] = ["EXCLUSIVE", "INCLUSIVE"];
+const TAX_CALCULATION_MODES: readonly TaxCalculationMode[] = Object.values(TaxCalculationModeCode);
 const CREDIT_CONTROL_MODES: readonly CreditControlMode[] = ["WARNING", "BLOCK"];
 const FX_RATE_MISSING_POLICIES: readonly FxRateMissingPolicy[] = ["STRICT", "ALLOW_MISSING"];
 const DEPRECIATION_PRORATE_MODES: readonly DepreciationProrateMode[] = ["DAILY", "FULL_MONTH"];

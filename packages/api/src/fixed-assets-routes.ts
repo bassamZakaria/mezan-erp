@@ -29,7 +29,6 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   type FiscalPeriodRepository,
-  VatPeriodAlreadyFiledError,
   DuplicateDepreciationPeriodError,
   AssetAlreadyDepreciatedError,
   NoDepreciableAssetsError,
@@ -202,8 +201,7 @@ function handleDomainError(c: Context, err: unknown) {
   // dated into a closed period or a filed VAT month is a business answer.
   if (
     err instanceof NoFiscalPeriodForDateError ||
-    err instanceof PeriodNotOpenForPostingError ||
-    err instanceof VatPeriodAlreadyFiledError
+    err instanceof PeriodNotOpenForPostingError
   ) {
     return refuse(err, 422);
   }

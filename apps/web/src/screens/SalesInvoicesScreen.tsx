@@ -26,6 +26,7 @@ import {
   StatusPill,
   TextInput,
   useFormat,
+  ConfirmDialog,
 } from "@mezan/ui";
 import {
   Money,
@@ -39,20 +40,22 @@ import {
   type SalesInvoiceLine,
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
-  type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend,} from "@mezan/domain";
+  type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES,} from "@mezan/domain";
 import { IdempotencyRefusal } from "@mezan/contracts";
-import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
+import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
 import {
   useAccounts,
   useBranches,
   useConfirmSalesInvoice,
+  SalesTaxRecalculationPendingError,
   useCreateSalesInvoice,
   useCustomers,
   useEmployees,
   useItems,
   useProjects,
   useSettings,
+  useTaxRates,
   useItemAvailability,
   useConvertSalesQuoteToInvoice,
   useEtaSubmissions,
@@ -72,6 +75,7 @@ import {
   useTreasuryAccounts,
   useAllowedCurrencies,
   ApiError,
+  ClassifiableDocument,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
@@ -85,9 +89,22 @@ import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { ClassifyLineTaxAction } from "./ClassifyLineTaxAction";
+import { NameJournalLineTaxAction } from "./NameJournalLineTaxAction";
+import { DraftLineEditAction } from "./DraftLineEditAction";
+import { ConfirmRecalculationNotice, confirmAcknowledgementOf, twoDecimals } from "./ConfirmRecalculationNotice";
+import { VoidReasonNotice, VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
+import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
+import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+
+interface RowRerate {
+  readonly row: Pick<SalesInvoiceDTO, "id" | "docNo" | "version" | "totals">;
+  readonly message: string;
+  readonly recalculated: string;
+}
 
 /** فواتير المبيعات (Sales Invoices) — docs/archive/catalog/01-sales.md. List + detail (with the
  * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm sub-page form with live
@@ -171,7 +188,10 @@ interface InvoiceLineDraft {
   discountType: SalesInvoiceLineDiscountType;
   discountPercent: number;
   discountAmount: number;
+  tax: TaxChoice;
 }
+
+const NO_TAX_RATES: readonly TaxRateDTO[] = [];
 
 let lineSeq = 0;
 function blankLine(): InvoiceLineDraft {
@@ -185,6 +205,7 @@ function blankLine(): InvoiceLineDraft {
     discountType: "percent",
     discountPercent: 0,
     discountAmount: 0,
+    tax: DERIVED_TAX,
   };
 }
 
@@ -573,6 +594,7 @@ function CreateInvoicePage({
   );
 
   const tenantSettings = useSettings();
+  const taxRates = useTaxRates().data ?? NO_TAX_RATES;
   const customerData = customer ? (customers.find((c) => c.id === customer.id) ?? null) : null;
   // A customer with no tax registration number is a consumer sale — an
   // e-receipt, not an e-invoice — and confirming it here has no till to name
@@ -601,7 +623,8 @@ function CreateInvoicePage({
         discountType: l.discountType,
         discountPercent: l.discountType === "percent" ? l.discountPercent || 0 : 0,
         discountAmount: Money.fromMajor(String(l.discountType === "amount" ? l.discountAmount || 0 : 0)),
-        taxRatePercent: item.taxRatePercent,
+        taxRatePercent: appliedTaxPercent(l.tax, taxRates, item.taxRatePercent),
+        taxRateId: chosenTaxRateId(l.tax, taxRates, item.taxRatePercent),
         revenueAccountId: item.revenueAccountId ?? REVENUE_ACCOUNT_ID,
         cogsAccountId: isStock ? (item.cogsAccountId ?? COGS_ACCOUNT_ID) : null,
         inventoryAccountId: isStock ? (item.inventoryAccountId ?? INVENTORY_ACCOUNT_ID) : null,
@@ -610,7 +633,7 @@ function CreateInvoicePage({
       });
     }
     return out;
-  }, [lines, items]);
+  }, [lines, items, taxRates]);
 
   const discount: SalesInvoiceDiscount = useMemo(
     () =>
@@ -686,6 +709,7 @@ function CreateInvoicePage({
         arAccountId: AR_ACCOUNT_ID,
         taxAccountId: TAX_ACCOUNT_ID,
         lines: domainLines.map((l) => ({
+          ...lineTaxPayload(lines.find((draft) => draft.key === l.lineId)?.tax ?? DERIVED_TAX, taxRates, l.taxRatePercent),
           lineId: l.lineId,
           itemId: l.itemId,
           itemNameAr: l.itemNameAr,
@@ -697,7 +721,6 @@ function CreateInvoicePage({
           discountType: l.discountType,
           discountPercent: l.discountPercent,
           discountAmount: l.discountAmount.toString(),
-          taxRatePercent: l.taxRatePercent,
           revenueAccountId: l.revenueAccountId,
           cogsAccountId: l.cogsAccountId,
           inventoryAccountId: l.inventoryAccountId,
@@ -922,6 +945,7 @@ function CreateInvoicePage({
                           itemId: opt?.id ?? "",
                           unitCode: picked?.baseUnitCode ?? "",
                           unitPrice: picked ? priceFor(picked) : null,
+                          tax: DERIVED_TAX,
                         });
                       }}
                       options={itemOptions}
@@ -981,7 +1005,14 @@ function CreateInvoicePage({
                         {item.type === "stock" ? ` · ${t("salesInvoices.line.movesStock")}` : ""}
                       </div>
                     ) : null}
-                    <div className="grid gap-[10px] sm:grid-cols-2">
+                    <div className="grid gap-[10px] sm:grid-cols-3">
+                      <TaxRateField
+                        label={t("taxRateField.label")}
+                        choice={line.tax}
+                        onChange={(tax) => updateLine(i, { tax })}
+                        taxRates={taxRates}
+                        fallbackPercent={item.taxRatePercent}
+                      />
                       <SelectField
                         label={t("salesInvoices.field.lineDiscountType")}
                         value={line.discountType}
@@ -1258,9 +1289,11 @@ function InvoiceDetailView({
   const { t, locale } = useAppTranslation();
   const detailConfirm = useConfirmSalesInvoice();
   const [detailConfirmError, setDetailConfirmError] = useState<string | null>(null);
+  const [taxRecalculatedNotice, setTaxRecalculatedNotice] = useState<string | null>(null);
   /** B3 — stated only for a consumer sale confirmed with no till; "" leaves the backend's own derivation. */
   const [detailReceiptPaymentMethod, setDetailReceiptPaymentMethod] = useState<EtaReceiptPaymentMethod | "">("");
   const detailCustomersQuery = useCustomers();
+  const detailTaxRates = useTaxRates().data ?? NO_TAX_RATES;
   const detailCustomer = (detailCustomersQuery.data ?? []).find((c) => c.id === invoice.customerId) ?? null;
   const isConsumerReceiptSale = detailCustomer !== null && !detailCustomer.taxNumber;
   const format = useFormat();
@@ -1351,6 +1384,7 @@ function InvoiceDetailView({
       discountPercent: l.discountPercent,
       discountAmount: Money.fromMajor(l.discountAmount ?? "0"),
       taxRatePercent: l.taxRatePercent,
+      taxRateId: l.taxRateId ?? null,
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
       inventoryAccountId: l.inventoryAccountId,
@@ -1456,6 +1490,12 @@ function InvoiceDetailView({
               {detailConfirmError}
             </span>
           ) : null}
+          <ConfirmRecalculationNotice invoice={invoice} />
+          {taxRecalculatedNotice ? (
+            <span role="status" className="block text-[12.5px] font-semibold text-warning-ink">
+              {taxRecalculatedNotice}
+            </span>
+          ) : null}
         </>
       }
       /**
@@ -1476,13 +1516,15 @@ function InvoiceDetailView({
                 try {
                   // N-9: the version this screen was served. A second till that
                   // already moved this invoice gets the 409 refusal here.
-                  await detailConfirm.mutateAsync({
+                  const confirmed = await detailConfirm.mutateAsync({
                     id: invoice.id,
                     expectedVersion: invoice.version,
+                    ...confirmAcknowledgementOf(invoice),
                     ...(isConsumerReceiptSale && detailReceiptPaymentMethod !== ""
                       ? { receiptPaymentMethod: detailReceiptPaymentMethod }
                       : {}),
                   });
+                  setTaxRecalculatedNotice(confirmed.taxRecalculated?.message ?? null);
                 } catch (err) {
                   setDetailConfirmError(errorMessage(err, t("common.failed")));
                 }
@@ -1491,6 +1533,7 @@ function InvoiceDetailView({
               {t("salesInvoices.confirm")}
             </Button>
           ) : null}
+          <VoidSalesInvoiceAction invoice={invoice} />
           <Button onClick={onPrint}>{t("salesInvoices.share.print")}</Button>
         </>
       }
@@ -1550,6 +1593,13 @@ function InvoiceDetailView({
               taxableTotal={toMajor(invoice.totals.taxableTotal ?? invoice.totals.subtotal)}
               taxTotal={toMajor(invoice.totals.taxTotal)}
             />
+            <VoidReasonNotice invoice={invoice} />
+            <UnnamedTaxNotice
+              document={ClassifiableDocument.SalesInvoice}
+              posted={SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)}
+              documentKind={invoice.documentKind}
+              lines={invoice.lines.map((l) => ({ lineId: l.lineId, label: l.itemNameAr, taxRatePercent: l.taxRatePercent, taxRateId: l.taxRateId ?? null }))}
+            />
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] border-collapse text-[13px]">
@@ -1588,7 +1638,20 @@ function InvoiceDetailView({
                           <td className="px-[15px] py-[11px] text-end">
                             {lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.lineDiscount.toString())} /> : "—"}
                           </td>
-                          <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.tax.toString())} /> : "—"}</td>
+                          <td className="px-[15px] py-[11px] text-end">
+                            {lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.tax.toString())} /> : "—"}
+                            <span className="block text-[11px] text-ink-faint">{postedTaxRateLabel(detailTaxRates, l, t)}</span>
+                            <DraftLineEditAction invoice={invoice} line={l} taxRates={detailTaxRates} />
+                            <ClassifyLineTaxAction
+                              document={ClassifiableDocument.SalesInvoice}
+                              documentId={invoice.id}
+                              posted={SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)}
+                              documentKind={invoice.documentKind}
+                              line={{ lineId: l.lineId, label: l.itemNameAr, taxRatePercent: l.taxRatePercent, taxRateId: l.taxRateId ?? null }}
+                              lines={invoice.lines.map((other) => ({ lineId: other.lineId, label: other.itemNameAr, taxRatePercent: other.taxRatePercent, taxRateId: other.taxRateId ?? null }))}
+                              taxRates={detailTaxRates}
+                            />
+                          </td>
                           <td className="px-[15px] py-[11px] text-end">
                             {cost ? <MoneyDisplay currencyLabel={baseLabel} value={toMajor(cost.toString())} /> : "—"}
                           </td>
@@ -1660,6 +1723,15 @@ function InvoiceDetailView({
               {invoice.journalEntryId ? (
                 journalEntryQuery.data ? (
                   <>
+                    <NameJournalLineTaxAction
+                      document={ClassifiableDocument.SalesInvoice}
+                      documentId={invoice.id}
+                      journalEntryId={invoice.journalEntryId}
+                      posted={SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)}
+                      lines={invoice.lines.map((l) => ({ lineId: l.lineId, label: l.itemNameAr, taxRatePercent: l.taxRatePercent, taxRateId: l.taxRateId ?? null }))}
+                      taxRates={detailTaxRates}
+                      accountLabel={accountLabel}
+                    />
                     <div className="mb-[12px] text-[13px] text-ink-muted">
                       {t("salesInvoices.journal.entryNo")} <span className="mz-num font-semibold text-ink">{journalEntryQuery.data.entryNo ?? invoice.docNo}</span>
                     </div>
@@ -1947,17 +2019,27 @@ export function SalesInvoicesScreen() {
   const listConfirm = useConfirmSalesInvoice();
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
+  const [rowNotice, setRowNotice] = useState<string | null>(null);
 
-  async function confirmRow(id: string, expectedVersion?: number): Promise<void> {
+  const [rowRerate, setRowRerate] = useState<RowRerate | null>(null);
+
+  async function confirmRow(row: Pick<SalesInvoiceDTO, "id" | "docNo" | "version" | "totals">, acknowledgeTaxRecalculation = false): Promise<void> {
     if (confirmingId) return;
     setRowError(null);
-    setConfirmingId(id);
+    setRowNotice(null);
+    setConfirmingId(row.id);
     try {
       // N-9: the version the LIST row was served. Without it a second till that
       // already moved this invoice wins silently.
-      await listConfirm.mutateAsync({ id, expectedVersion });
+      const confirmed = await listConfirm.mutateAsync({ id: row.id, expectedVersion: row.version, ...(acknowledgeTaxRecalculation ? { acknowledgeTaxRecalculation } : {}) });
+      setRowRerate(null);
+      setRowNotice(confirmed.taxRecalculated?.message ?? null);
     } catch (err) {
-      setRowError(errorMessage(err, t("common.failed")));
+      if (err instanceof SalesTaxRecalculationPendingError) setRowRerate({ row, message: err.message, recalculated: err.recalculatedGrandTotal });
+      else {
+        setRowRerate(null);
+        setRowError(errorMessage(err, t("common.failed")));
+      }
     } finally {
       setConfirmingId(null);
     }
@@ -2101,9 +2183,32 @@ export function SalesInvoicesScreen() {
         <InvoiceDetailView invoice={selected} today={today} onPrint={() => subPage.open(selected.docNo ?? selected.id, "print")} />
       ) : (
         <div className="w-full">
+          <ConfirmDialog
+            open={rowRerate !== null}
+            title={t("confirmPreview.rowTitle", { number: rowRerate?.row.docNo ?? t("docStatus.draft") })}
+            consequence={
+              rowRerate ? (
+                <div role="status" className="flex flex-col gap-[6px]">
+                  <p className="font-semibold">{rowRerate.message}</p>
+                  <p>{t("confirmPreview.totals", { recalculated: twoDecimals(rowRerate.recalculated), shown: twoDecimals(rowRerate.row.totals.grandTotal) })}</p>
+                </div>
+              ) : null
+            }
+            confirmLabel={t("salesInvoices.confirm")}
+            confirmDisabled={confirmingId !== null}
+            onConfirm={() => {
+              if (rowRerate) void confirmRow(rowRerate.row, true);
+            }}
+            onCancel={() => setRowRerate(null)}
+          />
           {rowError ? (
             <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
               {rowError}
+            </div>
+          ) : null}
+          {rowNotice ? (
+            <div role="status" className="mb-[18px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+              {rowNotice}
             </div>
           ) : null}
           {query.isError ? (
@@ -2230,7 +2335,7 @@ export function SalesInvoicesScreen() {
                         key: "confirm",
                         label: t("salesInvoices.confirm"),
                         disabled: confirmingId === inv.id,
-                        onSelect: () => void confirmRow(inv.id, inv.version),
+                        onSelect: () => void confirmRow(inv),
                       },
                     ]
                   : []),

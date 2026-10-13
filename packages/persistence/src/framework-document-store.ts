@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
-import type { DocumentListFilter, DocumentRepository, DocumentStatus, FrameworkDocument } from "@mezan/domain";
+import type { DocumentField, DocumentListFilter, DocumentRepository, DocumentStatus, DocumentWritePrecondition, FrameworkDocument } from "@mezan/domain";
+import { columnsOf, FRAMEWORK_DOCUMENT_COLUMNS, writeRowColumnsWhere } from "./document-field-write.js";
 import { withSqliteTransaction } from "./sqlite-connection.js";
 
 /**
@@ -133,6 +134,16 @@ class SqliteFrameworkDocumentStore<Line> implements DocumentRepository<Line> {
     this.upsert.run(this.toRow(doc));
   }
 
+  async writeFields(next: FrameworkDocument<Line>, fields: readonly DocumentField[], expected: DocumentWritePrecondition): Promise<boolean> {
+    return writeRowColumnsWhere(this.sqlite, {
+      table: this.opts.tableName,
+      row: this.toRow(next),
+      columns: columnsOf(FRAMEWORK_DOCUMENT_COLUMNS, fields),
+      id: next.id,
+      expectedStatuses: [expected.status],
+    });
+  }
+
   async findById(id: string): Promise<FrameworkDocument<Line> | null> {
     const row = this.selectById.get(id) as DocumentRow | undefined;
     return row ? this.fromRow(row) : null;
@@ -183,6 +194,7 @@ export function createSqliteFrameworkDocumentStore<Line>(
   return {
     save: (d) => store.save(d),
     update: (d) => store.update(d),
+    writeFields: (next, fields, expected) => store.writeFields(next, fields, expected),
     findById: (id) => store.findById(id),
     list: (f) => store.list(f),
     transaction: (fn) => store.transaction(fn),

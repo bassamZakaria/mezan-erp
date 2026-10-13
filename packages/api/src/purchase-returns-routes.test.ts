@@ -107,6 +107,32 @@ const payload = {
   ],
 };
 
+describe("purchase-returns router — an edition with no invoices module to read the figures from (D79 round 3)", () => {
+  const post = (app: ReturnType<typeof createPurchaseReturnsRoutes>, body: unknown) =>
+    app.fetch(req("/", { method: "POST", permissions: "purchases.return.create,purchases.invoice.view", body: JSON.stringify(body) }));
+
+  it("refuses a line that states no cost, tax or returnable quantity — 422 RETURN_FIGURES_REQUIRED, in Arabic, nothing written", async () => {
+    const { service } = await buildRig();
+    const app = createPurchaseReturnsRoutes(service, insecureHeaderAuthContextResolver);
+    const { unitCost: _unitCost, taxAmount: _taxAmount, availableQty: _availableQty, ...bare } = payload.lines[0]!;
+    const res = await post(app, { ...payload, lines: [bare] });
+    expect(res.status).toBe(422);
+    const body = (await json(res)) as { error: string; message: string };
+    expect(body.error).toBe("RETURN_FIGURES_REQUIRED");
+    expect(body.message).toMatch(/[\u0600-\u06FF]/);
+    expect(await service.findById("PRT1")).toBeNull();
+  });
+
+  it("still drafts a line that states all three, at the figures it stated", async () => {
+    const { service } = await buildRig();
+    const app = createPurchaseReturnsRoutes(service, insecureHeaderAuthContextResolver);
+    const res = await post(app, payload);
+    expect(res.status).toBe(201);
+    const line = (await service.findById("PRT1"))?.lines[0];
+    expect([line?.unitCost.toString(), line?.taxAmount.toString(), line?.availableQty.toString()]).toEqual(["60.000000", "0.000000", "5.000000"]);
+  });
+});
+
 describe("purchase-returns router — permission gates", () => {
   it("rejects listing with no permissions", async () => {
     const { service } = await buildRig();
@@ -125,8 +151,8 @@ describe("purchase-returns router — permission gates", () => {
   it("holding CREATE only is not enough to CONFIRM, and the draft stays a draft", async () => {
     const { service } = await buildRig();
     const app = createPurchaseReturnsRoutes(service, insecureHeaderAuthContextResolver);
-    await app.fetch(req("/", { method: "POST", permissions: "purchases.return.create", body: JSON.stringify(payload) }));
-    const res = await app.fetch(req("/PRT1/confirm", { method: "POST", permissions: "purchases.return.create" }));
+    await app.fetch(req("/", { method: "POST", permissions: "purchases.return.create,purchases.invoice.view", body: JSON.stringify(payload) }));
+    const res = await app.fetch(req("/PRT1/confirm", { method: "POST", permissions: "purchases.return.create,purchases.invoice.view" }));
     expect(res.status).toBe(403);
     expect((await service.findById("PRT1"))?.status).toBe("draft");
   });
@@ -134,7 +160,7 @@ describe("purchase-returns router — permission gates", () => {
   it("holding CONFIRM only is not enough to CANCEL a draft", async () => {
     const { service } = await buildRig();
     const app = createPurchaseReturnsRoutes(service, insecureHeaderAuthContextResolver);
-    await app.fetch(req("/", { method: "POST", permissions: "purchases.return.create", body: JSON.stringify(payload) }));
+    await app.fetch(req("/", { method: "POST", permissions: "purchases.return.create,purchases.invoice.view", body: JSON.stringify(payload) }));
     const res = await app.fetch(req("/PRT1/cancel", { method: "POST", permissions: "purchases.return.confirm" }));
     expect(res.status).toBe(403);
     expect((await service.findById("PRT1"))?.status).toBe("draft");
@@ -155,7 +181,7 @@ describe("purchase-returns router — create + confirm happy path", () => {
     const { service, ledger } = await buildRig();
     const app = createPurchaseReturnsRoutes(service, insecureHeaderAuthContextResolver);
 
-    const createRes = await app.fetch(req("/", { method: "POST", permissions: "purchases.return.create", body: JSON.stringify(payload) }));
+    const createRes = await app.fetch(req("/", { method: "POST", permissions: "purchases.return.create,purchases.invoice.view", body: JSON.stringify(payload) }));
     expect(createRes.status).toBe(201);
     const created = (await createRes.json()) as { status: string; lines: { unitCost: string; qty: string }[] };
     expect(created.status).toBe("draft");
@@ -209,7 +235,7 @@ describe("purchase-returns router — cannot return more than was received", () 
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "purchases.return.create",
+        permissions: "purchases.return.create,purchases.invoice.view",
         body: JSON.stringify({ ...payload, id: "PRT-OVER", lines: [{ ...payload.lines[0], availableQty: "5", qty: "3" }] }),
       }),
     );
@@ -222,7 +248,7 @@ describe("purchase-returns router — cannot return more than was received", () 
     const exact = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "purchases.return.create",
+        permissions: "purchases.return.create,purchases.invoice.view",
         body: JSON.stringify({ ...payload, id: "PRT-EXACT", lines: [{ ...payload.lines[0], availableQty: "999", qty: "2" }] }),
       }),
     );
@@ -232,7 +258,7 @@ describe("purchase-returns router — cannot return more than was received", () 
     const overByOne = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "purchases.return.create",
+        permissions: "purchases.return.create,purchases.invoice.view",
         body: JSON.stringify({ ...payload, id: "PRT-OVER-1", lines: [{ ...payload.lines[0], availableQty: "999", qty: "2.000001" }] }),
       }),
     );
@@ -245,7 +271,7 @@ describe("purchase-returns router — cannot return more than was received", () 
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "purchases.return.create",
+        permissions: "purchases.return.create,purchases.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "PRT-PRICE",
@@ -271,7 +297,7 @@ describe("purchase-returns router — cannot return more than was received", () 
       const res = await app.fetch(
         req("/", {
           method: "POST",
-          permissions: "purchases.return.create",
+          permissions: "purchases.return.create,purchases.invoice.view",
           body: JSON.stringify({ ...payload, id, lines: [{ ...payload.lines[0], availableQty: "2", qty: "1", ...override }] }),
         }),
       );
@@ -287,7 +313,7 @@ describe("purchase-returns router — cannot return more than was received", () 
     const res = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "purchases.return.create",
+        permissions: "purchases.return.create,purchases.invoice.view",
         body: JSON.stringify({ ...payload, id: "PRT-TRUSTED", lines: [{ ...payload.lines[0], availableQty: "9999", qty: "500" }] }),
       }),
     );
@@ -323,7 +349,7 @@ describe("purchase-returns router — stock leaves at the cost it actually came 
     const createRes = await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "purchases.return.create",
+        permissions: "purchases.return.create,purchases.invoice.view",
         body: JSON.stringify({ ...payload, id: "PRT-WAC", lines: [{ ...payload.lines[0], qty: "5", unitCost: "80" }] }),
       }),
     );
@@ -372,7 +398,7 @@ describe("purchase-returns router — stock leaves at the cost it actually came 
     await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "purchases.return.create",
+        permissions: "purchases.return.create,purchases.invoice.view",
         body: JSON.stringify({ ...payload, id: "PRT-TAX", lines: [{ ...payload.lines[0], qty: "5", unitCost: "60", taxAmount: "42" }] }),
       }),
     );
@@ -398,7 +424,7 @@ describe("purchase-returns router — cancel", () => {
   it("cancels a draft", async () => {
     const { service } = await buildRig();
     const app = createPurchaseReturnsRoutes(service, insecureHeaderAuthContextResolver);
-    await app.fetch(req("/", { method: "POST", permissions: "purchases.return.create", body: JSON.stringify(payload) }));
+    await app.fetch(req("/", { method: "POST", permissions: "purchases.return.create,purchases.invoice.view", body: JSON.stringify(payload) }));
     const res = await app.fetch(req("/PRT1/cancel", { method: "POST", permissions: "purchases.return.void" }));
     expect(res.status).toBe(200);
     expect((await service.findById("PRT1"))?.status).toBe("cancelled");
@@ -413,7 +439,7 @@ describe("purchase-returns router — cancel", () => {
       lines: [{ itemId: "ITEM1", qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("60") }],
       occurredAt: "2026-08-01T00:00:00.000Z",
     });
-    await app.fetch(req("/", { method: "POST", permissions: "purchases.return.create", body: JSON.stringify(payload) }));
+    await app.fetch(req("/", { method: "POST", permissions: "purchases.return.create,purchases.invoice.view", body: JSON.stringify(payload) }));
     await app.fetch(req("/PRT1/confirm", { method: "POST", permissions: "purchases.return.confirm" }));
     expect((await service.findById("PRT1"))?.status).toBe("confirmed");
 
@@ -442,14 +468,14 @@ describe("purchase-returns router — list, counts, stats and warehouse scope", 
     await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "purchases.return.create",
+        permissions: "purchases.return.create,purchases.invoice.view",
         body: JSON.stringify({ ...payload, id: "PRT-WH1", lines: [{ ...payload.lines[0], warehouseId: "WH1", qty: "2", unitCost: "60" }] }),
       }),
     );
     await app.fetch(
       req("/", {
         method: "POST",
-        permissions: "purchases.return.create",
+        permissions: "purchases.return.create,purchases.invoice.view",
         body: JSON.stringify({
           ...payload,
           id: "PRT-WH2",

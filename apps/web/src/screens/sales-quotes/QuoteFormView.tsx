@@ -9,7 +9,7 @@ import {
   useFormat,
   type EntityPickerOption,
 } from "@mezan/ui";
-import type { ItemDTO } from "@mezan/contracts";
+import type { ItemDTO, TaxRateDTO } from "@mezan/contracts";
 import { Money } from "@mezan/domain";
 import { NumberField, SectionCard, SelectField, TextAreaField, TextField } from "../../settings/form-controls";
 import {
@@ -19,7 +19,9 @@ import {
   useItems,
   usePriceLists,
   useStockBalance,
+  useTaxRates,
 } from "../../data/hooks";
+import { DERIVED_TAX, TaxRateField, appliedTaxPercent, lineTaxPayload } from "../tax-rate-field";
 import { useCustomerAging } from "../../data/partner-detail-hooks";
 import { useWorkingLocation } from "../../data/hub-hooks";
 import { useAppTranslation } from "../../i18n";
@@ -34,6 +36,8 @@ import {
   type LineDraft,
 } from "./quote-model";
 import { EMPTY } from "../../lib/empty";
+
+const NO_TAX_RATES: readonly TaxRateDTO[] = [];
 
 /**
  * عرض سعر جديد — the create form, one card per section with a sticky summary
@@ -115,7 +119,8 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
     [items, priceFor, format],
   );
 
-  const domainLines = useMemo(() => toDomainLines(lines, items), [lines, items]);
+  const taxRates = useTaxRates().data ?? NO_TAX_RATES;
+  const domainLines = useMemo(() => toDomainLines(lines, items, taxRates), [lines, items, taxRates]);
   const discount = useMemo(() => toDomainDiscount(discountKind, discountValue), [discountKind, discountValue]);
   // Local preview only — the server recomputes and is authoritative on create.
   const totals = useMemo(
@@ -147,6 +152,11 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
       setError(t("quotes.error.needLine"));
       return;
     }
+    const quotedKeys = new Set(quoteLines.map((l) => l.lineId));
+    if (lines.some((l) => quotedKeys.has(l.key) && l.unitPrice !== null && !Number.isFinite(l.unitPrice))) {
+      setError(t("quotes.error.needUnitPrice"));
+      return;
+    }
     try {
       await create.mutateAsync({
         date,
@@ -164,13 +174,13 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
             : { type: "amount", amount: discount.amount.toString() },
         priceListId: priceList?.id ?? null,
         lines: quoteLines.map((l) => ({
+          ...lineTaxPayload(lines.find((draft) => draft.key === l.lineId)?.tax ?? DERIVED_TAX, taxRates, l.taxRatePercent),
           lineId: l.lineId,
           itemId: l.itemId,
           itemNameAr: l.itemNameAr,
           qty: l.qty.toString(),
           unitPrice: l.unitPrice.toString(),
           discountPercent: l.discountPercent,
-          taxRatePercent: l.taxRatePercent,
         })),
       });
       onClose();
@@ -264,7 +274,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
                             updateLine(line.key, {
                               itemId: picked?.id ?? "",
                               unitPrice: picked ? priceFor(picked) : null,
-                              taxRatePercent: picked ? picked.taxRatePercent : null,
+                              tax: DERIVED_TAX,
                             });
                           }}
                           options={itemOptions}
@@ -289,7 +299,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
                         </div>
                         {item ? (
                           <div className="text-[11px] text-ink-muted">
-                            {t("quotes.field.taxPercent")} {format.number(line.taxRatePercent ?? item.taxRatePercent)}%
+                            {t("quotes.field.taxPercent")} {format.number(appliedTaxPercent(line.tax, taxRates, item.taxRatePercent))}%
                           </div>
                         ) : null}
                       </div>
@@ -329,12 +339,12 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
                           min={0}
                           max={100}
                         />
-                        <NumberField
-                          label={t("quotes.field.taxPercentField")}
-                          value={line.taxRatePercent ?? item.taxRatePercent}
-                          onChange={(v) => updateLine(line.key, { taxRatePercent: v })}
-                          min={0}
-                          max={100}
+                        <TaxRateField
+                          label={t("taxRateField.label")}
+                          choice={line.tax}
+                          onChange={(tax) => updateLine(line.key, { tax })}
+                          taxRates={taxRates}
+                          fallbackPercent={item.taxRatePercent}
                         />
                       </div>
                     ) : null}

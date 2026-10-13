@@ -43,3 +43,7 @@ export function sumMajor(values: Iterable<string | null | undefined>): number {
 export function majorOf(value: string | null | undefined): number {
   return toMajorNumber(scaledOf(value));
 }
+
+export function finiteOrZero(value: number): number {
+  return Number.isFinite(value) ? value : 0;
+}

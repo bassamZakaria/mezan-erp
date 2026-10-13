@@ -64,6 +64,7 @@ function invoice(id: string) {
         cogsAccountId: null,
         inventoryAccountId: null,
         unitCost: null,
+        taxRateId: null,
         costCenterId: null,
       },
     ],

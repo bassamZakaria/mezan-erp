@@ -10,6 +10,7 @@ import {
   startApproval,
   decide as gateDecide,
   resubmit as gateResubmit,
+  reopenForModification,
   type ApprovalRequest,
   type DecisionInput,
   type GateConfig,
@@ -99,14 +100,28 @@ export async function decideApproval(
 /** Re-submits a request bounced back as `modification_requested`, restarting the chain from step 0. */
 export async function resubmitApproval(
   id: string,
-  input: { submittedBy?: string; at?: number } = {},
+  input: { submittedBy?: string; at?: number; entityLabel?: string | null } = {},
   repo: ApprovalRequestRepository,
   now: () => string = () => new Date().toISOString(),
 ): Promise<ApprovalRequestRecord> {
   const existing = await repo.findById(id);
   if (!existing) throw new ApprovalRequestNotFoundError(id);
-  const { request } = gateResubmit(existing, input);
-  const record: ApprovalRequestRecord = { ...request, entityLabel: existing.entityLabel, createdAt: existing.createdAt, updatedAt: now() };
+  const { request } = gateResubmit(existing, { submittedBy: input.submittedBy, at: input.at });
+  const record: ApprovalRequestRecord = { ...request, entityLabel: input.entityLabel ?? existing.entityLabel, createdAt: existing.createdAt, updatedAt: now() };
+  await repo.save(record);
+  return record;
+}
+
+export async function reopenApprovalForModification(
+  id: string,
+  repo: ApprovalRequestRepository,
+  now: () => string = () => new Date().toISOString(),
+): Promise<ApprovalRequestRecord | null> {
+  const existing = await repo.findById(id);
+  if (!existing) return null;
+  const reopened = reopenForModification(existing);
+  if (!reopened) return null;
+  const record: ApprovalRequestRecord = { ...existing, ...reopened, updatedAt: now() };
   await repo.save(record);
   return record;
 }

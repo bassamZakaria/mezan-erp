@@ -18,7 +18,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, matchesSearch } from "@mezan/domain";
+import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, TaxRateStatusCode, matchesSearch } from "@mezan/domain";
 import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useCreateCustomer,
@@ -27,6 +27,7 @@ import {
   useCustomerStats,
   type CustomerListFilter,
   usePriceLists,
+  useTaxRates,
   useSalesInvoices,
   useSalesReturns,
   useInstallmentPlans,
@@ -300,6 +301,7 @@ interface CustomerDraft {
   creditLimit: number;
   priceListId: string;
   taxExempt: boolean;
+  taxExemptionRateId: string;
   etaBuyerType: EtaBuyerTypeDTO;
   commercialRegistrationNumber: string;
   address: string;
@@ -323,6 +325,7 @@ const BLANK_DRAFT: CustomerDraft = {
   creditLimit: 0,
   priceListId: "",
   taxExempt: false,
+  taxExemptionRateId: "",
   etaBuyerType: "auto",
   commercialRegistrationNumber: "",
   address: "",
@@ -347,6 +350,7 @@ function draftFromCustomer(customer: CustomerDTO): CustomerDraft {
     creditLimit: num(customer.creditLimit),
     priceListId: customer.priceListId ?? "",
     taxExempt: customer.taxExempt,
+    taxExemptionRateId: customer.taxExemptionRateId ?? "",
     etaBuyerType: customer.etaBuyerType,
     commercialRegistrationNumber: customer.commercialRegistrationNumber ?? "",
     address: customer.address ?? "",
@@ -402,6 +406,7 @@ function CustomerLogoField({
 }
 
 function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; onBack: () => void; onEdit: () => void }) {
+  const taxRates = useTaxRates().data ?? EMPTY;
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   // Credit left is the limit minus what the customer owes TODAY. Measuring it
@@ -460,6 +465,12 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
                 { label: t("customers.detail.nationalId"), value: customer.nationalId ?? t("common.none") },
                 { label: t("customers.detail.currency"), value: customer.currency },
                 { label: t("customers.detail.taxExempt"), value: customer.taxExempt ? t("customers.detail.yes") : t("customers.detail.no") },
+                ...(customer.taxExempt
+                  ? [{
+                      label: t("customers.detail.taxExemptionRate"),
+                      value: taxRates.find((rate) => rate.id === customer.taxExemptionRateId)?.name ?? t("customers.field.taxExemptionRateNone"),
+                    }]
+                  : []),
                 { label: t("customers.detail.priceList"), value: customer.priceListId ?? t("customers.detail.noPriceList") },
               ].map((row) => (
                 <div key={row.label} className="rounded-lg border border-border bg-surface p-[13px_15px]">
@@ -520,6 +531,16 @@ export function CustomersScreen() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const priceLists = usePriceLists().data ?? EMPTY;
+  const taxRates = useTaxRates().data ?? EMPTY;
+  const exemptionRateOptions = useMemo(
+    () => [
+      { value: "", label: t("customers.field.taxExemptionRateNone") },
+      ...taxRates
+        .filter((rate) => rate.rate === 0 && rate.isSystem !== true && (rate.status === TaxRateStatusCode.Active || rate.id === draft.taxExemptionRateId))
+        .map((rate) => ({ value: rate.id, label: rate.name })),
+    ],
+    [taxRates, draft.taxExemptionRateId, t],
+  );
   const priceListOptions = useMemo<EntityPickerOption[]>(
     () => priceLists.map((pl) => ({ id: pl.id, label: pl.nameAr, sublabel: pl.code })),
     [priceLists],
@@ -629,6 +650,7 @@ export function CustomersScreen() {
       creditLimit: String(draft.creditLimit || 0),
       priceListId: draft.priceListId.trim() === "" ? null : draft.priceListId.trim(),
       taxExempt: draft.taxExempt,
+      taxExemptionRateId: draft.taxExempt && draft.taxExemptionRateId !== "" ? draft.taxExemptionRateId : null,
       etaBuyerType: draft.etaBuyerType,
       commercialRegistrationNumber:
         draft.commercialRegistrationNumber.trim() === "" ? null : draft.commercialRegistrationNumber.trim(),
@@ -638,7 +660,13 @@ export function CustomersScreen() {
     };
     try {
       if (editingId) {
-        await updateCustomer.mutateAsync({ id: editingId, patch: { ...fields, active: draft.active } });
+        const stored = customers.find((customer) => customer.id === editingId);
+        const { taxExemptionRateId, ...unchangedFields } = fields;
+        const exemptionRateChanged = !stored || (stored.taxExemptionRateId ?? null) !== taxExemptionRateId;
+        await updateCustomer.mutateAsync({
+          id: editingId,
+          patch: { ...unchangedFields, ...(exemptionRateChanged ? { taxExemptionRateId } : {}), active: draft.active },
+        });
       } else {
         const code = draft.code.trim();
         await createCustomer.mutateAsync({ id: crypto.randomUUID(), ...(code === "" ? {} : { code }), ...fields });
@@ -724,9 +752,18 @@ export function CustomersScreen() {
               <ToggleField
                 label={t("customers.field.taxExempt")}
                 checked={draft.taxExempt}
-                onChange={(v) => setDraft((d) => ({ ...d, taxExempt: v }))}
+                onChange={(v) => setDraft((d) => ({ ...d, taxExempt: v, taxExemptionRateId: v ? d.taxExemptionRateId : "" }))}
                 hint={t("customers.field.taxExemptHint")}
               />
+              {draft.taxExempt ? (
+                <SelectField
+                  label={t("customers.field.taxExemptionRate")}
+                  value={draft.taxExemptionRateId}
+                  onChange={(v) => setDraft((d) => ({ ...d, taxExemptionRateId: v }))}
+                  options={exemptionRateOptions}
+                  hint={t("customers.field.taxExemptionRateHint")}
+                />
+              ) : null}
               <SelectField
                 label={t("customers.field.etaBuyerType")}
                 value={draft.etaBuyerType}

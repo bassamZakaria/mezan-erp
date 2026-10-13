@@ -33,6 +33,7 @@ import {
   isRevaluation,
 } from "./movement.js";
 import { STOCK_ADJUSTMENT_MIRROR_ENTRY_SUFFIX } from "./stock-ledger-dates.js";
+import { UnbookedStockVarianceError } from "../documents/errors.js";
 import { LandedCostDateBeforeStockMovementError, StockMovementBeforeRevaluationError, StockRevaluationSource, type StandingStockRevaluation } from "../landed-costs/errors.js";
 import {
   foldPostedAdjustments,
@@ -108,6 +109,11 @@ export interface StockLedgerServiceDeps {
   readonly policy: StockLedgerPolicySource;
   readonly events?: InventoryEventPublisher;
   readonly gl?: InventoryGlPostingPort;
+  /**
+   * INVARIANT: a transfer posts no entry of its own, so when its goods level a shortfall
+   * at the destination the engine books the difference itself, here.
+   */
+  readonly transferCoverAccounts?: { readonly inventoryAccountId: string; readonly costAccountId: string };
   /** Wraps a compound operation in one atomic transaction. Defaults to direct execution. */
   readonly transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
   /** Clock for `occurredAt` defaults. Defaults to `Date.now`-based ISO. */
@@ -320,6 +326,13 @@ export interface IssueLineCost {
   readonly cost: Money;
 }
 
+export const TRANSFER_COVER_ENTRY_SUFFIX = ":cover";
+
+export interface PostReceiptResult {
+  /** INVARIANT: signed, positive when the receipt stated MORE than stock took — the opposite sense to `unmirroredValue`. The receiving document books it. */
+  readonly coverVariance: Money;
+}
+
 export interface PostIssueResult {
   readonly totalCost: Money;
   readonly lines: readonly IssueLineCost[];
@@ -336,6 +349,54 @@ export interface PostIssueResult {
  */
 export interface DocumentStockPlanResult {
   readonly valueMoved: Money;
+  /** INVARIANT: signed, positive when stock holds MORE than the document stated: what mirrored issues were asked to take and did not, less what receipts into a shortfall stated and did not add. */
+  readonly unmirroredValue: Money;
+}
+
+// INVARIANT: a receipt into a position that is short does not average its
+// cost into the shortfall. The quantity that levels the shortfall takes exactly
+// the share of value the shortfall carries (all of it when it levels it), so a
+// levelled position holds nothing; only the quantity beyond it enters at the
+// receipt's own cost, as the only layer. What the receipt stated for the
+// covering quantity beyond what it took is `variance`, and the receiving
+// document books it — the control account moved by what the receipt stated.
+// `wac.ts` replays a movement's stored value and layers the same excess.
+export interface DeficitCover {
+  readonly excess: Qty;
+  readonly value: Money;
+  readonly variance: Money;
+}
+
+export function coverDeficit(position: { readonly onHand: Qty; readonly totalValue: Money }, qty: Qty, unitCost: Money, stated: Money): DeficitCover {
+  if (!position.onHand.isNegative()) return { excess: qty, value: stated, variance: Money.zero() };
+  const short = position.onHand.negate();
+  const levels = qty.compare(short) >= 0;
+  const covered = levels ? short : qty;
+  const excess = qty.subtract(covered);
+  const carried = position.totalValue.negate();
+  const coverValue = levels ? carried : (allocate(carried, [covered.scaled, short.scaled - covered.scaled])[0] as Money);
+  const excessValue = excess.isZero() ? Money.zero() : extend(excess, unitCost);
+  return { excess, value: coverValue.add(excessValue), variance: stated.add(excessValue.negate()).add(coverValue.negate()) };
+}
+
+function excessSlices(slices: readonly ConsumedSlice[], excess: Qty): ConsumedSlice[] {
+  const total = Qty.sum(slices.map((slice) => slice.qty));
+  let skip = total.subtract(excess);
+  const kept: ConsumedSlice[] = [];
+  for (const slice of slices) {
+    if (skip.compare(slice.qty) >= 0) {
+      skip = skip.subtract(slice.qty);
+      continue;
+    }
+    kept.push({ ...slice, qty: slice.qty.subtract(skip) });
+    skip = Qty.zero();
+  }
+  return kept;
+}
+
+function issueValue(held: Money, remaining: Qty, qty: Qty, unitCost: Money): Money {
+  const atAverage = extend(qty, unitCost);
+  return !remaining.isNegative() && held.scaled >= 0n && atAverage.scaled > held.scaled ? held : atAverage;
 }
 
 export class StockLedgerService {
@@ -422,6 +483,13 @@ export class StockLedgerService {
     qty: Qty;
     /** For IN: the receipt cost. For OUT: ignored (moving average used). */
     unitCost?: Money;
+    /**
+     * INVARIANT: set ONLY by a reversal mirroring a recorded movement — the
+     * exact value that movement moved. It replaces quantity × cost on an IN and
+     * the moving average on an OUT, so the position returns to the value the
+     * mirrored journal entry returns the control account to.
+     */
+    value?: Money;
     sourceDocType: StockSourceDocType;
     sourceDocId: string;
     sourceDocNumber: string | null;
@@ -436,7 +504,7 @@ export class StockLedgerService {
      * layer's, so the leg stays valuation-neutral.
      */
     layerSlices?: readonly ConsumedSlice[];
-  }): Promise<{ signedValue: Money; unitCost: Money; consumed: readonly ConsumedSlice[] }> {
+  }): Promise<{ signedValue: Money; unmirrored: Money; coverVariance: Money; unitCost: Money; consumed: readonly ConsumedSlice[] }> {
     if (input.qty.isNegative() || input.qty.isZero()) {
       throw new InvalidStockMovementError(["الكمية يجب أن تكون رقماً موجباً"]);
     }
@@ -447,17 +515,22 @@ export class StockLedgerService {
     let newOnHand: Qty;
     let newTotalValue: Money;
     let signed: Money;
+    let unmirrored = Money.zero();
     let deficit: { shortQty: Qty; costBasis: DeficitCostBasis } | null = null;
+    let coverVariance = Money.zero();
+    let layeredQty = input.qty;
 
     if (input.direction === "IN") {
       if (!input.unitCost) {
         throw new InvalidStockMovementError(["حركة الإدخال تتطلب تكلفة الوحدة"]);
       }
       unitCost = input.unitCost;
-      const value = extend(input.qty, unitCost);
+      const cover = coverDeficit(snap, input.qty, unitCost, input.value ?? extend(input.qty, unitCost));
+      layeredQty = cover.excess;
+      coverVariance = cover.variance;
       newOnHand = snap.onHand.add(input.qty);
-      newTotalValue = snap.totalValue.add(value);
-      signed = value;
+      newTotalValue = snap.totalValue.add(cover.value);
+      signed = cover.value;
     } else {
       const projected = snap.onHand.subtract(input.qty);
       if (projected.isNegative() && !(await this.negativeAllowedFor(input.sourceDocType))) {
@@ -507,7 +580,15 @@ export class StockLedgerService {
       // and the control account move together by construction, so there is no
       // window in which they disagree. `wac.ts`'s replay applies the identical
       // rule, or `cacheDrift` would report this fix as corruption.
-      const cogs = projected.isZero() ? snap.totalValue : extend(input.qty, unitCost);
+      // INVARIANT: a movement that leaves quantity 0 leaves value 0, and one
+      // that leaves quantity above 0 never leaves value below 0. A mirrored
+      // issue leaves at the moving average like any other — never at the value
+      // its original moved, which the position may no longer hold. What it was
+      // asked to take and did not is returned as `unmirrored`, and the caller
+      // books it with the reversal, so the control account follows the stock.
+      const drained = projected.isZero();
+      const cogs = drained ? snap.totalValue : issueValue(snap.totalValue, projected, input.qty, unitCost);
+      if (input.value) unmirrored = input.value.add(cogs.negate());
       newOnHand = projected;
       newTotalValue = snap.totalValue.add(cogs.negate());
       signed = cogs.negate();
@@ -520,6 +601,7 @@ export class StockLedgerService {
       direction: input.direction,
       qty: input.qty,
       unitCost,
+      value: input.direction === "IN" ? signed : signed.negate(),
       sourceDocType: input.sourceDocType,
       sourceDocId: input.sourceDocId,
       sourceDocNumber: input.sourceDocNumber,
@@ -533,14 +615,15 @@ export class StockLedgerService {
 
     let consumed: readonly ConsumedSlice[] = [];
     if (input.direction === "IN") {
-      const slices =
+      const offered =
         input.layerSlices && input.layerSlices.length > 0
           ? input.layerSlices
-          : [{ qty: input.qty, batchNo: movement.batchNo, expiryDate: movement.expiryDate }];
+          : [{ qty: input.qty, batchNo: movement.batchNo ?? null, expiryDate: movement.expiryDate ?? null }];
+      const slices = layeredQty.compare(input.qty) === 0 ? offered : excessSlices(offered, layeredQty);
       let index = 0;
       for (const slice of slices) {
         const layer: CostLayer = {
-          id: slices.length === 1 ? input.movementId : `${input.movementId}:layer:${index}`,
+          id: offered.length === 1 ? input.movementId : `${input.movementId}:layer:${index}`,
           itemId: input.itemId,
           warehouseId: input.warehouseId,
           unitCost,
@@ -587,7 +670,7 @@ export class StockLedgerService {
       });
     }
 
-    return { signedValue: signed, unitCost, consumed };
+    return { signedValue: signed, unmirrored, coverVariance, unitCost, consumed };
   }
 
   /**
@@ -856,6 +939,7 @@ export class StockLedgerService {
       const movementIds: string[] = [];
       const lineCosts: TransferLineCost[] = [];
       let totalCost = Money.zero();
+      let coverVariance = Money.zero();
 
       for (let i = 0; i < command.lines.length; i++) {
         const line = command.lines[i] as TransferLine;
@@ -875,7 +959,7 @@ export class StockLedgerService {
           occurredAt,
         });
 
-        await this.applyMovement({
+        const arrived = await this.applyMovement({
           movementId: inId,
           itemId: line.itemId,
           warehouseId: command.toWarehouseId,
@@ -892,11 +976,31 @@ export class StockLedgerService {
           occurredAt,
         });
 
+        coverVariance = coverVariance.add(arrived.coverVariance);
         movementIds.push(outId, inId);
         // OUT signedValue is negative; the value that left the source is its magnitude.
         const cost = signedValue.negate();
         totalCost = totalCost.add(cost);
         lineCosts.push({ itemId: line.itemId, qty: line.qty, unitCost, cost });
+      }
+
+      if (coverVariance.scaled !== 0n) {
+        const accounts = this.deps.transferCoverAccounts;
+        if (!this.deps.gl || !accounts) throw new UnbookedStockVarianceError(coverVariance.negate());
+        const dearer = coverVariance.scaled > 0n;
+        const magnitude = dearer ? coverVariance : coverVariance.negate();
+        const [debited, credited] = dearer ? [accounts.costAccountId, accounts.inventoryAccountId] : [accounts.inventoryAccountId, accounts.costAccountId];
+        await this.deps.gl.post({
+          sourceDocType,
+          sourceDocId: `${sourceDocId}${TRANSFER_COVER_ENTRY_SUFFIX}`,
+          sourceDocNumber: command.transferNumber ?? null,
+          date: occurredAt.slice(0, 10),
+          memo: `فرق تكلفة: تحويل غطّى كمية بيعت قبل وصوله ${command.transferNumber ?? command.transferId}`,
+          lines: [
+            { accountId: debited, debit: magnitude, credit: Money.zero() },
+            { accountId: credited, debit: Money.zero(), credit: magnitude },
+          ],
+        });
       }
 
       this.deps.events?.publish({
@@ -917,7 +1021,7 @@ export class StockLedgerService {
    * an immutable cost layer at its receipt cost and updates the moving average.
    * Stock-only: NO GL posting (the invoice books inventory + payable + tax).
    */
-  async postReceipt(command: PostReceiptCommand): Promise<void> {
+  async postReceipt(command: PostReceiptCommand): Promise<PostReceiptResult> {
     if (command.lines.length === 0) {
       throw new InvalidStockMovementError(["إذن الاستلام يحتاج سطراً واحداً على الأقل"]);
     }
@@ -933,10 +1037,11 @@ export class StockLedgerService {
     const occurredAt = command.occurredAt ?? this.now();
     await this.assertPeriodOpen(occurredAt);
 
-    await this.runInTransaction(async () => {
+    return this.runInTransaction(async () => {
+      let coverVariance = Money.zero();
       for (let i = 0; i < command.lines.length; i++) {
         const line = command.lines[i] as ReceiptLine;
-        await this.applyMovement({
+        const moved = await this.applyMovement({
           movementId: `${command.receiptId}:${i}`,
           itemId: line.itemId,
           warehouseId: command.warehouseId,
@@ -951,7 +1056,9 @@ export class StockLedgerService {
           batchNo: line.batchNo ?? null,
           expiryDate: line.expiryDate ?? null,
         });
+        coverVariance = coverVariance.add(moved.coverVariance);
       }
+      return { coverVariance };
     });
   }
 
@@ -975,6 +1082,16 @@ export class StockLedgerService {
         if (mine.length === 0) {
           throw new InvalidStockMovementError([
             `بضاعة المستند "${command.sourceDocId}" من الصنف "${pos.itemId}" صُرفت بالكامل، فلا يمكن عكس استلامها`,
+          ]);
+        }
+        const received = Qty.sum(
+          (await this.getMovementsOfDocument(command.sourceDocId))
+            .filter((m) => m.direction === "IN" && m.itemId === pos.itemId && m.warehouseId === pos.warehouseId && !isRevaluation(m))
+            .map((m) => m.qty),
+        );
+        if (!received.isZero() && Qty.sum(mine.map((layer) => layer.originalQty)).compare(received) < 0) {
+          throw new InvalidStockMovementError([
+            `بضاعة المستند "${command.sourceDocId}" من الصنف "${pos.itemId}" غطّت كمية بيعت قبل وصولها، فلا يمكن عكس استلامها. صحّحها بمرتجع مشتريات.`,
           ]);
         }
         for (const layer of mine) {
@@ -1047,24 +1164,28 @@ export class StockLedgerService {
       readonly direction: StockMovementDirection;
       readonly qty: Qty;
       readonly unitCost?: Money;
+      readonly value?: Money;
+      readonly warehouseId?: string;
     }[];
     readonly occurredAt?: string;
   }): Promise<DocumentStockPlanResult> {
-    if (plan.lines.length === 0) return { valueMoved: Money.zero() };
+    if (plan.lines.length === 0) return { valueMoved: Money.zero(), unmirroredValue: Money.zero() };
     const occurredAt = plan.occurredAt ?? this.now();
     await this.assertPeriodOpen(occurredAt);
 
     let valueMoved = Money.zero();
+    let unmirroredValue = Money.zero();
     await this.runInTransaction(async () => {
       for (let i = 0; i < plan.lines.length; i++) {
         const line = plan.lines[i] as (typeof plan.lines)[number];
-        const { signedValue } = await this.applyMovement({
+        const { signedValue, unmirrored, coverVariance } = await this.applyMovement({
           movementId: `${plan.sourceDocId}:${i}`,
           itemId: line.itemId,
-          warehouseId: plan.warehouseId,
+          warehouseId: line.warehouseId ?? plan.warehouseId,
           direction: line.direction,
           qty: line.qty,
           unitCost: line.unitCost,
+          value: line.value,
           sourceDocType: plan.sourceDocType,
           sourceDocId: plan.sourceDocId,
           sourceDocNumber: plan.sourceDocNumber,
@@ -1072,9 +1193,10 @@ export class StockLedgerService {
           occurredAt,
         });
         valueMoved = valueMoved.add(signedValue);
+        unmirroredValue = unmirroredValue.add(unmirrored).add(coverVariance.negate());
       }
     });
-    return { valueMoved };
+    return { valueMoved, unmirroredValue };
   }
 
   /**

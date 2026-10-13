@@ -453,6 +453,10 @@ export function TaxesScreen() {
         loading={query.isLoading}
         rowKey={(tax) => tax.id}
         rowAction={(tax) => {
+          if (tax.isSystem) {
+            const locked: RowMenuItem[] = [{ key: "system", label: t("taxes.systemDefined"), disabled: true, onSelect: () => undefined }];
+            return <RowMenu items={locked} label={t("common.rowActionsFor", { name: tax.name })} />;
+          }
           const items: RowMenuItem[] = [{ key: "edit", label: t("common.edit"), onSelect: () => openEditForm(tax) }];
           if (tax.status === "active") {
             items.push({

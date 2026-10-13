@@ -116,7 +116,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidChequeCommandError ||
     err instanceof ChequeBankRateMissingError ||
     err instanceof ReplacementAmountMismatchError ||
-    err instanceof AllocationExceedsError ||
     err instanceof AllocationMismatchError ||
     err instanceof SettlementRateMissingError ||
     err instanceof UnbalancedEntryError ||

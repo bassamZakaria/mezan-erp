@@ -12,6 +12,7 @@ import type {
   LandedCostDocumentDTO,
   PurchaseInvoiceDTO,
   SupplierDTO,
+  TaxRateDTO,
   TreasuryAccountDTO,
   UserDTO,
   WarehouseDTO,
@@ -118,7 +119,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
     notes: null,
     receiptId: null,
     projectId: null,
-    lines: [{ itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, batchNo: null, expiryDate: null }],
+    lines: [{ itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, taxRateId: null, batchNo: null, expiryDate: null }],
     status: "confirmed",
     subtotal: "100.000000",
     tax: "0.000000",
@@ -557,5 +558,72 @@ describe("PurchaseInvoicesScreen (filters, stats, entity ids, payments)", () => 
     // …and — this is the defect — the server's refusal message never reaches the screen anywhere.
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByText("الفترة المحاسبية مقفلة.")).not.toBeInTheDocument();
+  });
+});
+
+describe("PurchaseInvoicesScreen — the line's tax is a picked tax rate (D79)", () => {
+  const taxRate = (id: string, name: string, rate: number, etaSubType: TaxRateDTO["etaSubType"]): TaxRateDTO => ({
+    id, code: id, name, rate, calculationType: "exclusive", isDefault: id === "VAT14",
+    outputTaxAccountId: null, inputTaxAccountId: null, etaSubType, status: "active",
+  });
+  const taxRates: TaxRateDTO[] = [
+    taxRate("VAT14", "ضريبة القيمة المضافة", 14, "auto"),
+    taxRate("VAT-EXEMPT", "معفى", 0, "V003"),
+    taxRate("VAT-EXPORT", "تصدير", 0, "V001"),
+  ];
+
+  async function openManualLine() {
+    const rendered = renderScreen([], { "GET /tax-rates": () => ({ body: taxRates }) });
+    fireEvent.click((await screen.findAllByRole("button", { name: "فاتورة مشتريات جديدة" }))[0]!);
+    fireEvent.click(screen.getByText("إنشاء فاتورة جديدة"));
+    fireEvent.click(screen.getByRole("button", { name: "متابعة" }));
+    pickFromCombobox(document.body, "المورد *", "شركة النيل للتوريدات");
+    pickFromCombobox(document.body, "الصنف", "أسمنت بورتلاندي");
+    return async () => {
+      fireEvent.click(screen.getByRole("button", { name: "حفظ مسودة" }));
+      await waitFor(() => expect(rendered.getCreateBody()).not.toBeNull());
+      return ((rendered.getCreateBody() as Record<string, unknown>).lines as Array<Record<string, unknown>>)[0]!;
+    };
+  }
+
+  it("the tax is a picker over the tenant's rates, not a typed percent, and an untouched line names the one rate at its percent", async () => {
+    const save = await openManualLine();
+    expect(screen.queryByText("ضريبة %")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("ضريبة القيمة المضافة · 14٪"));
+    const line = await save();
+    expect(line.taxRateId).toBe("VAT14");
+    expect(line).not.toHaveProperty("taxRatePercent");
+  });
+
+  it("picking معفى sends the exempt rate's id — never تصدير, though both are 0%", async () => {
+    const save = await openManualLine();
+    fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: "معفى · 0٪" }));
+    const line = await save();
+    expect(line.taxRateId).toBe("VAT-EXEMPT");
+  });
+
+  it("a posted invoice's line shows the rate it stored by name, and a line with no rate its percent alone — never the raw id", async () => {
+    const posted = purchaseInvoice({
+      lines: [
+        { itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, taxRateId: "VAT-EXEMPT", batchNo: null, expiryDate: null },
+        { itemId: "item-cement", description: null, kind: "inventory", qty: "1.000000", unitCost: "100.000000", taxRatePercent: 0, taxRateId: null, batchNo: null, expiryDate: null },
+      ],
+    });
+    renderScreen([posted], { "GET /tax-rates": () => ({ body: taxRates }) });
+    fireEvent.click(await screen.findByText("PI-000001"));
+    expect(await screen.findByText("معفى · 0٪")).toBeInTheDocument();
+    expect(screen.getAllByText("0٪")).toHaveLength(1);
+    expect(screen.queryByText("VAT-EXEMPT")).not.toBeInTheDocument();
+  });
+
+  it("an expense line falls to 0% with no rate preselected when two 0% rates exist, and sends the percent alone", async () => {
+    const save = await openManualLine();
+    fireEvent.click(screen.getByText("مصروف"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "الضريبة" })).toHaveTextContent("بدون ضريبة مسماة (0٪)"));
+    fireEvent.change(screen.getByText("وصف المصروف").parentElement!.querySelector("input")!, { target: { value: "نقل" } });
+    const line = await save();
+    expect(line.taxRatePercent).toBe(0);
+    expect(line).not.toHaveProperty("taxRateId");
   });
 });

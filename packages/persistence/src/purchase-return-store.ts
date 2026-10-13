@@ -16,6 +16,7 @@ interface WireLine {
   supplierId: string;
   sourceInvoiceId: string;
   sourceInvoiceNumber: string | null;
+  sourceLineId?: string | null;
   reason: string;
   availableQty: string;
   qty: string;
@@ -23,6 +24,7 @@ interface WireLine {
   taxAmount: string;
   /** The rate the source invoice line charged. Dropped here, the per-rate VAT split the posting computes cannot survive a reload (D76). */
   taxRatePercent?: number | null;
+  taxRateId?: string | null;
   /** بُعد المشروع — every line of a confirmed return carries the same document-wide value (D-01). */
   projectId?: string | null;
   costCategory?: PurchaseReturnLine["costCategory"];
@@ -38,12 +40,14 @@ function serializeLine(line: PurchaseReturnLine): WireLine {
     supplierId: line.supplierId,
     sourceInvoiceId: line.sourceInvoiceId,
     sourceInvoiceNumber: line.sourceInvoiceNumber,
+    sourceLineId: line.sourceLineId ?? null,
     reason: line.reason,
     availableQty: line.availableQty.toString(),
     qty: line.qty.toString(),
     unitCost: line.unitCost.toString(),
     taxAmount: line.taxAmount.toString(),
     taxRatePercent: line.taxRatePercent ?? null,
+    taxRateId: line.taxRateId ?? null,
     projectId: line.projectId ?? null,
     costCategory: line.costCategory ?? null,
     ...(line.fxRate ? { currency: line.currency ?? null, fxRate: line.fxRate } : {}),
@@ -58,12 +62,14 @@ function deserializeLine(wire: unknown): PurchaseReturnLine {
     supplierId: w.supplierId,
     sourceInvoiceId: w.sourceInvoiceId,
     sourceInvoiceNumber: w.sourceInvoiceNumber,
+    sourceLineId: w.sourceLineId ?? null,
     reason: w.reason as PurchaseReturnLine["reason"],
     availableQty: Qty.fromMajor(w.availableQty),
     qty: Qty.fromMajor(w.qty),
     unitCost: Money.fromMajor(w.unitCost),
     taxAmount: Money.fromMajor(w.taxAmount),
     taxRatePercent: w.taxRatePercent ?? null,
+    taxRateId: w.taxRateId ?? null,
     projectId: w.projectId ?? null,
     costCategory: w.costCategory ?? null,
     ...(w.fxRate ? { currency: w.currency ?? null, fxRate: w.fxRate } : {}),

@@ -2,7 +2,7 @@ import type { App } from "@mezan/api";
 import { Money } from "@mezan/domain";
 import type { SeedFragment, SeedFragmentContext } from "./fragments.js";
 import { HISTORY_CUSTOMERS, HISTORY_ITEMS, type HistoryItem } from "./history-data.js";
-import { ACCOUNTS, BRANCH_ID, VAT_PERCENT, WAREHOUSE_ID, seedToday, step } from "./shared.js";
+import { ACCOUNTS, BRANCH_ID, VAT_RATE_ID, WAREHOUSE_ID, seedToday, step } from "./shared.js";
 
 const DAYS_BACK = 13;
 const CASH_TREASURY_ID = "TR-DEMO-CASH";
@@ -73,7 +73,7 @@ async function run(app: App, ctx: SeedFragmentContext): Promise<void> {
           isStock: true,
           qty: String(line.qty),
           unitPrice: priceOf(line.item),
-          taxRatePercent: VAT_PERCENT,
+          taxRateId: VAT_RATE_ID,
           revenueAccountId: ACCOUNTS.revenue,
           cogsAccountId: ACCOUNTS.cogs,
           inventoryAccountId: ACCOUNTS.inventory,

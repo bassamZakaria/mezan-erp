@@ -4,6 +4,7 @@ import {
   Qty,
   assertRefundable,
   can,
+  isStandingReturn,
   buildSalesReturnLinesFromInvoice,
   isAwaitingRefund,
   refundDue,
@@ -22,13 +23,28 @@ import {
   buildSalesReturnFromInvoiceSchema,
   createSalesReturnSchema,
   refundSalesReturnSchema,
+  returnSourceLinesSchema,
 } from "@mezan/contracts";
 import type { z } from "zod";
-import { type AuthContextResolver, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { type AuthContextResolver, callerRoleCodes, callerUserId, createAnyPermissionGate, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
+import type { DocumentApprovalDTO } from "@mezan/contracts";
+import { salesSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
+import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
+import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReasonsOf, voidReturn } from "./return-void.js";
+import { DOCUMENT_NOT_FOUND, MirrorAccess, createVisibleDocumentResolver } from "./document-visibility.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
+
+function lineNotOnInvoice(unmatched: readonly { readonly itemId: string; readonly sourceLineId?: string | null }[]) {
+  return {
+    error: "RETURN_LINE_NOT_ON_INVOICE" as const,
+    message: "أحد بنود المرتجع غير موجود في الفاتورة المصدر.",
+    unmatched: unmatched.map((u) => ({ itemId: u.itemId, sourceLineId: u.sourceLineId ?? null })),
+  };
+}
 
 function serializeLine(l: SalesReturnLine) {
   return {
@@ -37,6 +53,7 @@ function serializeLine(l: SalesReturnLine) {
     customerId: l.customerId,
     sourceInvoiceId: l.sourceInvoiceId,
     sourceInvoiceNumber: l.sourceInvoiceNumber,
+    sourceLineId: l.sourceLineId ?? null,
     reason: l.reason,
     availableQty: l.availableQty.toString(),
     qty: l.qty.toString(),
@@ -44,6 +61,7 @@ function serializeLine(l: SalesReturnLine) {
     unitCost: l.unitCost.toString(),
     taxAmount: l.taxAmount.toString(),
     taxRatePercent: l.taxRatePercent ?? null,
+    taxRateId: l.taxRateId ?? null,
     projectId: l.projectId ?? null,
     currency: l.currency ?? null,
     fxRate: l.fxRate ?? null,
@@ -51,8 +69,15 @@ function serializeLine(l: SalesReturnLine) {
   };
 }
 
-function serialize(doc: FrameworkDocument<SalesReturnLine>, refunds: readonly SalesReturnRefund[] = []) {
+function serialize(
+  doc: FrameworkDocument<SalesReturnLine>,
+  refunds: readonly SalesReturnRefund[] = [],
+  voidReason: string | null = null,
+  approval: DocumentApprovalDTO | null = null,
+) {
   return {
+    voidReason,
+    approval,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -101,6 +126,8 @@ export function createSalesReturnsRoutes(
    * answers 503 rather than flipping a state flag that moves no money.
    */
   refunds?: SalesReturnRefundPort,
+  ownSalespersonId?: (userId: string) => Promise<string | null>,
+  journalTax?: ReturnJournalTaxPort<SalesReturnLine>,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -132,6 +159,17 @@ export function createSalesReturnsRoutes(
     return refunds ? refunds.list(id) : [];
   }
 
+  const visibleReturn = createVisibleDocumentResolver(service, (c, doc) => {
+    const scope = warehouseScopeOf(c);
+    if (!scope) return !ownVisibilityOnly(c);
+    return doc.lines.some((line) => scope.includes(line.warehouseId));
+  });
+
+  const SOURCE_INVOICE_NOT_FOUND = {
+    error: "SOURCE_INVOICE_NOT_FOUND",
+    message: "الفاتورة المصدر غير موجودة أو غير مؤكدة.",
+  } as const;
+
   /**
    * Every figure a caller stated on a `POST /` line, checked against the
    * invoice it names (D89, D102).
@@ -148,17 +186,29 @@ export function createSalesReturnsRoutes(
    * returns without an invoices module have no invoice to check against, and
    * refusing there would break them rather than protect them.
    */
+  type SourceInvoice = Awaited<ReturnType<SalesInvoiceLookupPort["findConfirmedInvoice"]>>;
+  // INVARIANT: scoped to ONE request — `alreadyReturnedQty` moves every time a return
+  // confirms, and a cache that outlives the request would keep serving the
+  // cap from before it did.
+  async function lookupInvoice(c: Context, cache: Map<string, SourceInvoice>, sourceInvoiceId: string): Promise<SourceInvoice> {
+    if (!invoices) return null;
+    if (!cache.has(sourceInvoiceId)) {
+      const found = await invoices.findConfirmedInvoice(sourceInvoiceId);
+      const ctx = getAuthContext(c);
+      const own = ctx && ownSalespersonId ? await ownSalespersonId(ctx.userId) : null;
+      cache.set(sourceInvoiceId, found && !salesSourceInvoiceHidden(ctx, found, own) ? found : null);
+    }
+    return cache.get(sourceInvoiceId) ?? null;
+  }
+
   async function refuseInconsistentLine(
+    c: Context,
     line: { sourceInvoiceId: string; customerId: string; itemId: string; unitCost?: string },
+    requestInvoices: Map<string, SourceInvoice>,
   ): Promise<{ error: string; message: string } | null> {
     if (!invoices) return null;
-    const invoice = await invoices.findConfirmedInvoice(line.sourceInvoiceId);
-    if (!invoice) {
-      return {
-        error: "SOURCE_INVOICE_NOT_FOUND",
-        message: "الفاتورة المصدر غير موجودة أو غير مؤكدة.",
-      };
-    }
+    const invoice = await lookupInvoice(c, requestInvoices, line.sourceInvoiceId);
+    if (!invoice) return SOURCE_INVOICE_NOT_FOUND;
     if (invoice.customerId !== line.customerId) {
       return {
         error: "RETURN_CUSTOMER_MISMATCH",
@@ -174,23 +224,20 @@ export function createSalesReturnsRoutes(
     return null;
   }
 
-  /**
-   * Every figure of a `POST /` line read off the invoice it names, never off
-   * the request (D102, D214): price, cost, the line's share of the VAT it was
-   * actually charged, its rate, the returnable quantity, the project and the
-   * currency and rate it confirmed at (D203). Only the quantity, the reason
-   * and the warehouse the goods come back into are the caller's. Stating a
-   * price is stating the credit note; stating a cost is stating the margin.
-   *
-   * With no invoices module wired the caller's figures are all there is.
-   */
-  async function deriveLine(l: CreateSalesReturnLineInput): Promise<SalesReturnLine> {
-    const claimed: SalesReturnLine = {
+  // INVARIANT: a request's lines against one invoice are derived in ONE call;
+  // derived one at a time, each is offered the whole of the line it names.
+  async function deriveLines(
+    c: Context,
+    requested: readonly CreateSalesReturnLineInput[],
+    requestInvoices: Map<string, SourceInvoice>,
+  ): Promise<{ lines: SalesReturnLine[] } | { refusal: ReturnType<typeof lineNotOnInvoice> | typeof SOURCE_INVOICE_NOT_FOUND }> {
+    const claimedOf = (l: CreateSalesReturnLineInput): SalesReturnLine => ({
       itemId: l.itemId,
       warehouseId: l.warehouseId,
       customerId: l.customerId,
       sourceInvoiceId: l.sourceInvoiceId,
       sourceInvoiceNumber: l.sourceInvoiceNumber,
+      sourceLineId: l.sourceLineId ?? null,
       reason: l.reason,
       availableQty: Qty.fromMajor(l.availableQty),
       qty: Qty.fromMajor(l.qty),
@@ -199,12 +246,24 @@ export function createSalesReturnsRoutes(
       taxAmount: Money.fromMajor(l.taxAmount),
       taxRatePercent: l.taxRatePercent ?? null,
       projectId: l.projectId ?? null,
-    };
-    if (!invoices) return claimed;
-    const invoice = await invoices.findConfirmedInvoice(l.sourceInvoiceId);
-    if (!invoice) return claimed;
-    const [derived] = buildSalesReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, qty: claimed.qty }]);
-    return derived ?? { ...claimed, availableQty: Qty.zero() };
+    });
+    if (!invoices) return { lines: requested.map(claimedOf) };
+    const lines: SalesReturnLine[] = [];
+    for (const sourceInvoiceId of new Set(requested.map((l) => l.sourceInvoiceId))) {
+      const ofInvoice = requested.filter((l) => l.sourceInvoiceId === sourceInvoiceId);
+      const invoice = await lookupInvoice(c, requestInvoices, sourceInvoiceId);
+      if (!invoice) return { refusal: SOURCE_INVOICE_NOT_FOUND };
+      const first = ofInvoice[0] as CreateSalesReturnLineInput;
+      const built = buildSalesReturnLinesFromInvoice(
+        invoice,
+        first.warehouseId,
+        first.reason,
+        ofInvoice.map((l) => ({ itemId: l.itemId, sourceLineId: l.sourceLineId ?? null, qty: Qty.fromMajor(l.qty), reason: l.reason, warehouseId: l.warehouseId })),
+      );
+      if (built.unmatched.length > 0) return { refusal: lineNotOnInvoice(built.unmatched) };
+      lines.push(...built.lines);
+    }
+    return { lines };
   }
 
   interface SalesReturnListFilter {
@@ -256,7 +315,8 @@ export function createSalesReturnsRoutes(
     // routes already apply.
     const scope = warehouseScopeOf(c);
     if (!scope && ownVisibilityOnly(c)) return { rows: [], refunds: new Map() };
-    let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    const returns = list.filter((doc) => !isReturnMirror(doc));
+    let rows = !scope ? returns : returns.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
     if (filter.customerId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.customerId === filter.customerId));
     }
@@ -283,7 +343,9 @@ export function createSalesReturnsRoutes(
 
   app.get("/", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
     const { rows, refunds } = await listFilteredReturns(c, parseListQuery(c));
-    return c.json(rows.map((doc) => serialize(doc, refunds.get(doc.id) ?? [])));
+    const approval = await approvalReader(service, rows);
+    const voidReasons = await voidReasonsOf(service, rows);
+    return c.json(rows.map((doc) => serialize(doc, refunds.get(doc.id) ?? [], voidReasons.get(doc.id) ?? null, approval(doc))));
   });
 
   /**
@@ -325,7 +387,7 @@ export function createSalesReturnsRoutes(
     let refundDueTotal = Money.zero();
     for (const doc of rows) {
       const paid = refunds.get(doc.id) ?? [];
-      if (doc.status === "confirmed") {
+      if (isStandingReturn(doc)) {
         confirmed += 1;
         returnedTotal = returnedTotal.add(salesReturnGrandTotal(doc));
       }
@@ -346,18 +408,28 @@ export function createSalesReturnsRoutes(
     });
   });
 
-  app.get("/:id", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
-    const doc = await service.findById(c.req.param("id"));
-    if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
-    // A `view_own` holder gets 404, not 403: whether a return they may not see
-    // exists at all is itself information, and the list already hides it.
-    if (ownVisibilityOnly(c)) {
-      const scope = warehouseScopeOf(c);
-      if (!scope || !doc.lines.some((line) => scope.includes(line.warehouseId))) {
-        return c.json({ error: "NOT_FOUND" }, 404);
-      }
+  app.get("/source-lines/:invoiceId", gate("sales.return.create"), async (c) => {
+    if (!invoices) {
+      return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "قراءة بنود الفاتورة المصدر تتطلب وحدة فواتير المبيعات." }, 503);
     }
-    return c.json(serialize(doc, await refundsOf(doc.id)));
+    const invoice = await lookupInvoice(c, new Map(), c.req.param("invoiceId"));
+    if (!invoice) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
+    return c.json(
+      returnSourceLinesSchema.parse({
+        sourceInvoiceId: invoice.id,
+        lines: invoice.lines.flatMap((line) =>
+          line.sourceLineId
+            ? [{ sourceLineId: line.sourceLineId, itemId: line.itemId, soldQty: line.qty.toString(), returnedQty: line.alreadyReturnedQty.toString() }]
+            : [],
+        ),
+      }),
+    );
+  });
+
+  app.get("/:id", gateAny("sales.return.view", "sales.return.view_own"), async (c) => {
+    const doc = await visibleReturn(c, MirrorAccess.Reachable);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
+    return c.json(serialize(doc, await refundsOf(doc.id), await voidReasonOf(service, doc), await approvalOf(service, doc)));
   });
 
   app.post("/", gate("sales.return.create"), async (c) => {
@@ -365,16 +437,19 @@ export function createSalesReturnsRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const requestInvoices = new Map<string, SourceInvoice>();
     for (const line of parsed.data.lines) {
-      const refusal = await refuseInconsistentLine(line);
+      const refusal = await refuseInconsistentLine(c, line, requestInvoices);
       if (refusal) return c.json(refusal, 422);
     }
+    const derived = await deriveLines(c, parsed.data.lines, requestInvoices);
+    if ("refusal" in derived) return c.json(derived.refusal, 422);
     try {
       const doc = await service.createDraft({
         id: parsed.data.id,
         date: await tenantDay(c, parsed.data.date),
         memo: parsed.data.memo,
-        lines: await Promise.all(parsed.data.lines.map(deriveLine)),
+        lines: derived.lines,
       });
       return c.json(serialize(doc), 201);
     } catch (err) {
@@ -397,16 +472,15 @@ export function createSalesReturnsRoutes(
     if (!invoices) {
       return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "إنشاء مرتجع من فاتورة يتطلب وحدة فواتير المبيعات." }, 503);
     }
-    const invoice = await invoices.findConfirmedInvoice(parsed.data.sourceInvoiceId);
-    if (!invoice) {
-      return c.json({ error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة." }, 404);
-    }
-    const lines = buildSalesReturnLinesFromInvoice(
+    const invoice = await lookupInvoice(c, new Map(), parsed.data.sourceInvoiceId);
+    if (!invoice) return c.json(SOURCE_INVOICE_NOT_FOUND, 404);
+    const { lines, unmatched } = buildSalesReturnLinesFromInvoice(
       invoice,
       parsed.data.warehouseId,
       parsed.data.reason,
-      parsed.data.requested.map((r) => ({ itemId: r.itemId, qty: Qty.fromMajor(r.qty), reason: r.reason })),
+      parsed.data.requested.map((r) => ({ itemId: r.itemId, sourceLineId: r.sourceLineId ?? null, qty: Qty.fromMajor(r.qty), reason: r.reason })),
     );
+    if (unmatched.length > 0) return c.json(lineNotOnInvoice(unmatched), 422);
     if (lines.length === 0) {
       return c.json({ error: "NO_RETURNABLE_LINES", message: "لا توجد بنود قابلة للإرجاع بالكميات المطلوبة." }, 422);
     }
@@ -424,12 +498,15 @@ export function createSalesReturnsRoutes(
   });
 
   app.post("/:id/confirm", gate("sales.return.confirm"), async (c) => {
+    const visible = await visibleReturn(c);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const result = await service.confirm(c.req.param("id"), {
+      const result = await service.confirm(visible.id, {
         actor: callerUserId(c),
+        actorRoles: callerRoleCodes(c),
       });
       return c.json({
-        document: serialize(result.document, await refundsOf(result.document.id)),
+        document: serialize(result.document, await refundsOf(result.document.id), null, await approvalOf(service, result.document)),
         held: result.held,
       });
     } catch (err) {
@@ -437,10 +514,42 @@ export function createSalesReturnsRoutes(
     }
   });
 
+  mountResubmitRoute(app, {
+    permission: gate("sales.return.confirm"),
+    refuse: async (c) => ((await visibleReturn(c)) ? undefined : c.json(DOCUMENT_NOT_FOUND, 404)),
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
+    serialize: async (_c, doc) => serialize(doc, await refundsOf(doc.id), null, await approvalOf(service, doc)),
+    onError: handleDocumentError,
+  });
+
   app.post("/:id/cancel", gate("sales.return.void"), async (c) => {
+    const visible = await visibleReturn(c);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const doc = await service.cancel(c.req.param("id"));
+      const doc = await service.cancel(visible.id, { actor: callerUserId(c) });
       return c.json(serialize(doc, await refundsOf(doc.id)));
+    } catch (err) {
+      return handleDocumentError(c, err);
+    }
+  });
+
+  app.post("/:id/lines/:lineId/journal-tax", gate("sales.invoice.classify_tax"), async (c) => {
+    const doc = await visibleReturn(c);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
+    return handleReturnJournalTax(c, doc, ["sales.return.view", "sales.return.view_own"], journalTax);
+  });
+
+  app.post("/:id/void", gate("sales.return.void"), async (c) => {
+    const visible = await visibleReturn(c, MirrorAccess.Reachable);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
+    const id = visible.id;
+    try {
+      const voided = await voidReturn(c, service, id);
+      if (!voided) return c.json(VOID_REASON_REQUIRED, 400);
+      return c.json({
+        ...serialize(voided.original, await refundsOf(id), voided.reason),
+        reversalJournalEntryId: voided.reversal.journalEntryId,
+      });
     } catch (err) {
       return handleDocumentError(c, err);
     }
@@ -463,27 +572,30 @@ export function createSalesReturnsRoutes(
     if (!refunds) {
       return c.json({ error: "REFUND_UNAVAILABLE", message: "الاسترداد يتطلب سند صرف؛ وحدة الخزينة غير مفعّلة." }, 503);
     }
-    const id = c.req.param("id");
-    const doc = await service.findById(id);
-    if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
+    const doc = await visibleReturn(c);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
+    const id = doc.id;
     const customerId = doc.lines[0]?.customerId;
     if (!customerId) return c.json({ error: "NO_CUSTOMER", message: "المرتجع بلا عميل." }, 422);
 
     const amount = Money.fromMajor(parsed.data.amount);
     try {
-      assertRefundable(doc, await refundsOf(id), amount);
-      const posted = await refunds.post({
-        returnId: id,
-        customerId,
-        amount,
-        treasuryAccountId: parsed.data.treasuryAccountId,
-        paymentMethod: parsed.data.paymentMethod ?? "cash",
-        // A refund is paid on the day it is paid, not on the return's date —
-        // the same rule as the collection it mirrors.
-        date: (await tenantDay(c, parsed.data.date)) ?? (await tenantToday(c)),
-        memo: parsed.data.notes ?? `استرداد على المرتجع ${doc.docNo ?? doc.id}`,
-        referenceNo: parsed.data.referenceNo ?? null,
-        actor: callerUserId(c),
+      const date = (await tenantDay(c, parsed.data.date)) ?? (await tenantToday(c));
+      const posted = await service.withDocument(id, async (current) => {
+        assertRefundable(current, await refundsOf(id), amount);
+        return refunds.post({
+          returnId: id,
+          customerId,
+          amount,
+          treasuryAccountId: parsed.data.treasuryAccountId,
+          paymentMethod: parsed.data.paymentMethod ?? "cash",
+          // A refund is paid on the day it is paid, not on the return's date —
+          // the same rule as the collection it mirrors.
+          date,
+          memo: parsed.data.notes ?? `استرداد على المرتجع ${doc.docNo ?? doc.id}`,
+          referenceNo: parsed.data.referenceNo ?? null,
+          actor: callerUserId(c),
+        });
       });
       const settled = (await service.findById(id)) ?? doc;
       return c.json({

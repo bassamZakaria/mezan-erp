@@ -1151,10 +1151,11 @@ describe("eta router — receipts", () => {
     const { app } = await receiptApp(countingUuidPort(), null);
     const res = await app.fetch(issue());
     expect(res.status).toBe(409);
-    const body = (await res.json()) as { error: string; message: string };
+    const body = (await res.json()) as { error: string; message: string; messageEn: string };
     expect(body.error).toBe("ETA_DEVICE_SERIAL_NOT_REGISTERED");
     expect(body.message).toContain("جهاز نقطة البيع");
-    expect(body.message).toContain("POS device serial number");
+    expect(body.message).not.toContain("POS device serial number");
+    expect(body.messageEn).toContain("POS device serial number");
 
     const listed = (await (await app.fetch(req("/submissions", { permissions: "accounting.eta.view" }))).json()) as unknown[];
     expect(listed).toHaveLength(0);

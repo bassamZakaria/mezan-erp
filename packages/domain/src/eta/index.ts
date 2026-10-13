@@ -54,6 +54,8 @@ export {
   createInMemoryEtaReceiptGaps,
   createKeyedSerializer,
   EtaReceiptChainConflictError,
+  EtaReceiptSourceKind,
+  parseEtaReceiptSourceKind,
   type EtaReceiptChainAppend,
   type EtaReceiptChainHead,
   type EtaReceiptChainRepository,
@@ -72,7 +74,10 @@ export {
 } from "./receipt-from-invoice.js";
 export {
   ETA_SUBMISSION_STATUSES,
-  EtaSubmissionState,
+  ETA_REQUEUE_MODE,
+  EtaRequeueMode,
+  EtaSubmissionStatusCode,
+  EtaDocumentTypeCode,
   getEtaStatusLabel,
   getEtaDocumentTypeLabel,
   type EtaDocumentType,
@@ -144,8 +149,8 @@ export {
   EtaReceiptNotReadyError,
   EtaBuyerIdentityRequiredError,
   EtaRefundTooLateError,
-  EtaReceiptedSaleVoidRefusedError,
   EtaReissueNotRejectedError,
+  EtaReceiptNotASupplyError,
   EtaReissueWindowExpiredError,
   EtaReissueSameInternalIdError,
 } from "./errors.js";
@@ -174,7 +179,14 @@ export {
   type EtaSignatureResult,
   type EtaSigningPort,
 } from "./signing.js";
-export { resolveEtaVatSubType, findLineTaxRate, ZERO_RATED_SUBTYPES } from "./tax-subtype.js";
+export {
+  resolveEtaVatSubType,
+  findLineTaxRate,
+  resolveLineTaxRate,
+  isZeroRatedLineUnclassified,
+  ZERO_RATED_SUBTYPES,
+  type LineTaxIdentity,
+} from "./tax-subtype.js";
 export {
   EtaPrevalidationFailedError,
   EtaPrevalidationFixScreen,
@@ -188,3 +200,5 @@ export {
   type EtaPrevalidationReceiverInput,
 } from "./prevalidate.js";
 export { summarizeEtaRejections, type EtaRejectionReasonGroup, type EtaRejectionsReport } from "./rejections-report.js";
+
+export { EtaVoidVerdict, etaVoidVerdictOf } from "./void-verdict.js";

@@ -3,6 +3,8 @@ import {
   Money,
   Qty,
   buildPurchaseReturnLinesFromInvoice,
+  can,
+  isStandingReturn,
   purchaseReturnGrandTotal,
   purchaseReturnLineCredit,
   type DocumentService,
@@ -10,10 +12,16 @@ import {
   type PurchaseInvoiceLookupPort,
   type PurchaseReturnLine,
 } from "@mezan/domain";
-import { createPurchaseReturnSchema } from "@mezan/contracts";
-import { type AuthContextResolver, callerUserId, createPermissionGate, warehouseScopeOf, withinScope } from "./permission-gate.js";
+import { createPurchaseReturnSchema, returnSourceLinesSchema } from "@mezan/contracts";
+import { type AuthContextResolver, callerRoleCodes, callerUserId, createPermissionGate, getAuthContext, warehouseScopeOf, withinScope } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
+import type { DocumentApprovalDTO } from "@mezan/contracts";
+import { purchaseSourceInvoiceHidden } from "./source-invoice-visibility.js";
 import { tenantDay } from "./tenant-day.js";
+import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
+import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReasonsOf, voidReturn } from "./return-void.js";
+import { DOCUMENT_NOT_FOUND, MirrorAccess, anyLineInWarehouseScope, createVisibleDocumentResolver } from "./document-visibility.js";
 
 function serializeLine(l: PurchaseReturnLine) {
   return {
@@ -22,12 +30,14 @@ function serializeLine(l: PurchaseReturnLine) {
     supplierId: l.supplierId,
     sourceInvoiceId: l.sourceInvoiceId,
     sourceInvoiceNumber: l.sourceInvoiceNumber,
+    sourceLineId: l.sourceLineId ?? null,
     reason: l.reason,
     availableQty: l.availableQty.toString(),
     qty: l.qty.toString(),
     unitCost: l.unitCost.toString(),
     taxAmount: l.taxAmount.toString(),
     taxRatePercent: l.taxRatePercent ?? null,
+    taxRateId: l.taxRateId ?? null,
     projectId: l.projectId ?? null,
     costCategory: l.costCategory ?? null,
     currency: l.currency ?? null,
@@ -36,8 +46,10 @@ function serializeLine(l: PurchaseReturnLine) {
   };
 }
 
-function serialize(doc: FrameworkDocument<PurchaseReturnLine>) {
+function serialize(doc: FrameworkDocument<PurchaseReturnLine>, voidReason: string | null = null, approval: DocumentApprovalDTO | null = null) {
   return {
+    voidReason,
+    approval,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -65,18 +77,21 @@ export function createPurchaseReturnsRoutes(
    * so the same goods could be returned repeatedly. Mirrors sales-returns.
    */
   invoices?: PurchaseInvoiceLookupPort,
+  journalTax?: ReturnJournalTaxPort<PurchaseReturnLine>,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const visibleReturn = createVisibleDocumentResolver(service, (c, doc) => anyLineInWarehouseScope(c, doc.lines.map((line) => line.warehouseId)));
 
   type SourceInvoice = Awaited<ReturnType<PurchaseInvoiceLookupPort["findConfirmedInvoice"]>>;
   // Scoped to ONE request: `alreadyReturnedQty` moves every time a return
   // confirms, and a cache that outlives the request would keep serving the
   // cap from before it did.
-  async function lookupInvoice(cache: Map<string, SourceInvoice>, sourceInvoiceId: string) {
+  async function lookupInvoice(c: Context, cache: Map<string, SourceInvoice>, sourceInvoiceId: string) {
     if (!invoices) return undefined;
     if (!cache.has(sourceInvoiceId)) {
-      cache.set(sourceInvoiceId, await invoices.findConfirmedInvoice(sourceInvoiceId));
+      const found = await invoices.findConfirmedInvoice(sourceInvoiceId);
+      cache.set(sourceInvoiceId, found && !purchaseSourceInvoiceHidden(getAuthContext(c), found, warehouseScopeOf(c)) ? found : null);
     }
     return cache.get(sourceInvoiceId) ?? null;
   }
@@ -145,7 +160,8 @@ export function createPurchaseReturnsRoutes(
     // scope when any of its lines is — the same rule the stock-document
     // routes already apply.
     const scope = warehouseScopeOf(c);
-    let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    const returns = list.filter((doc) => !isReturnMirror(doc));
+    let rows = !scope ? returns : returns.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
     if (filter.supplierId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.supplierId === filter.supplierId));
     }
@@ -165,7 +181,10 @@ export function createPurchaseReturnsRoutes(
   }
 
   app.get("/", gate("purchases.return.view"), async (c) => {
-    return c.json((await listFilteredReturns(c, parseListQuery(c))).map(serialize));
+    const rows = await listFilteredReturns(c, parseListQuery(c));
+    const approval = await approvalReader(service, rows);
+    const voidReasons = await voidReasonsOf(service, rows);
+    return c.json(rows.map((doc) => serialize(doc, voidReasons.get(doc.id) ?? null, approval(doc))));
   });
 
   /**
@@ -198,17 +217,35 @@ export function createPurchaseReturnsRoutes(
     let confirmed = 0;
     let returnedTotal = Money.zero();
     for (const doc of rows) {
-      if (doc.status !== "confirmed") continue;
+      if (!isStandingReturn(doc)) continue;
       confirmed += 1;
       returnedTotal = returnedTotal.add(purchaseReturnGrandTotal(doc));
     }
     return c.json({ count: rows.length, confirmed, returnedTotal: returnedTotal.toString() });
   });
 
+  app.get("/source-lines/:invoiceId", gate("purchases.return.create"), async (c) => {
+    if (!invoices) {
+      return c.json({ error: "INVOICE_LOOKUP_UNAVAILABLE", message: "قراءة بنود الفاتورة المصدر تتطلب وحدة فواتير المشتريات." }, 503);
+    }
+    const invoice = await lookupInvoice(c, new Map(), c.req.param("invoiceId"));
+    if (!invoice) return c.json({ error: "SOURCE_INVOICE_NOT_FOUND", message: "الفاتورة المصدر غير موجودة أو غير مؤكدة." }, 404);
+    return c.json(
+      returnSourceLinesSchema.parse({
+        sourceInvoiceId: invoice.id,
+        lines: invoice.lines.flatMap((line) =>
+          line.sourceLineId
+            ? [{ sourceLineId: line.sourceLineId, itemId: line.itemId, soldQty: line.qty.toString(), returnedQty: line.alreadyReturnedQty.toString() }]
+            : [],
+        ),
+      }),
+    );
+  });
+
   app.get("/:id", gate("purchases.return.view"), async (c) => {
-    const doc = await service.findById(c.req.param("id"));
-    if (!doc) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(doc));
+    const doc = await visibleReturn(c, MirrorAccess.Reachable);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
+    return c.json(serialize(doc, await voidReasonOf(service, doc), await approvalOf(service, doc)));
   });
 
   app.post("/", gate("purchases.return.create"), async (c) => {
@@ -218,42 +255,75 @@ export function createPurchaseReturnsRoutes(
     }
     const requestInvoices = new Map<string, SourceInvoice>();
     for (const line of parsed.data.lines) {
-      const refusal = refuseInconsistentLine(line, await lookupInvoice(requestInvoices, line.sourceInvoiceId));
+      const refusal = refuseInconsistentLine(line, await lookupInvoice(c, requestInvoices, line.sourceInvoiceId));
       if (refusal) return c.json(refusal, 422);
     }
-    try {
-      // Every figure is read off the invoice (D214): cost, the line's share of
-      // the VAT it actually carried, its rate, what is still returnable and the
-      // currency and rate it confirmed at (D203). The inventory credit comes
-      // from what the stock ledger removes at confirm (D47). The project and
-      // cost category are the caller's to state, and inherit the invoice's
-      // when they are not (D-01).
-      const lines = await Promise.all(parsed.data.lines.map(async (l) => {
-        const invoice = await lookupInvoice(requestInvoices, l.sourceInvoiceId);
-        const claimed: PurchaseReturnLine = {
+    // INVARIANT: a request's lines against one invoice are derived in ONE
+    // call; derived one at a time, each is offered the whole of the line.
+    type RequestLine = (typeof parsed.data.lines)[number];
+    type StatedLine = RequestLine & { availableQty: string; unitCost: string; taxAmount: string };
+    const statesItsFigures = (l: RequestLine): l is StatedLine =>
+      l.availableQty !== undefined && l.unitCost !== undefined && l.taxAmount !== undefined;
+    const claimedOf = (l: StatedLine): PurchaseReturnLine => ({
+      itemId: l.itemId,
+      warehouseId: l.warehouseId,
+      supplierId: l.supplierId,
+      sourceInvoiceId: l.sourceInvoiceId,
+      sourceInvoiceNumber: l.sourceInvoiceNumber,
+      sourceLineId: l.sourceLineId ?? null,
+      reason: l.reason,
+      availableQty: Qty.fromMajor(l.availableQty),
+      qty: Qty.fromMajor(l.qty),
+      unitCost: Money.fromMajor(l.unitCost),
+      taxAmount: Money.fromMajor(l.taxAmount),
+      taxRatePercent: l.taxRatePercent ?? null,
+      projectId: parsed.data.projectId ?? null,
+      costCategory: l.costCategory ?? null,
+    });
+    const lines: PurchaseReturnLine[] = [];
+    for (const sourceInvoiceId of new Set(parsed.data.lines.map((l) => l.sourceInvoiceId))) {
+      const ofInvoice = parsed.data.lines.filter((l) => l.sourceInvoiceId === sourceInvoiceId);
+      const invoice = await lookupInvoice(c, requestInvoices, sourceInvoiceId);
+      if (!invoice) {
+        if (!ofInvoice.every(statesItsFigures)) {
+          return c.json(
+            {
+              error: "RETURN_FIGURES_REQUIRED",
+              message: "تعذّر قراءة الفاتورة المصدر؛ يجب إرسال تكلفة البند وضريبته والكمية المتاحة للإرجاع.",
+            },
+            422,
+          );
+        }
+        lines.push(...ofInvoice.filter(statesItsFigures).map(claimedOf));
+        continue;
+      }
+      const first = ofInvoice[0] as RequestLine;
+      const built = buildPurchaseReturnLinesFromInvoice(
+        invoice,
+        first.warehouseId,
+        first.reason,
+        ofInvoice.map((l) => ({
           itemId: l.itemId,
-          warehouseId: l.warehouseId,
-          supplierId: l.supplierId,
-          sourceInvoiceId: l.sourceInvoiceId,
-          sourceInvoiceNumber: l.sourceInvoiceNumber,
-          reason: l.reason,
-          availableQty: Qty.fromMajor(l.availableQty),
+          sourceLineId: l.sourceLineId ?? null,
           qty: Qty.fromMajor(l.qty),
-          unitCost: Money.fromMajor(l.unitCost),
-          taxAmount: Money.fromMajor(l.taxAmount),
-          taxRatePercent: l.taxRatePercent ?? null,
-          projectId: parsed.data.projectId ?? null,
-          costCategory: l.costCategory ?? null,
-        };
-        if (!invoice) return claimed;
-        const [derived] = buildPurchaseReturnLinesFromInvoice(invoice, l.warehouseId, l.reason, [{ itemId: l.itemId, qty: claimed.qty }]);
-        if (!derived) return { ...claimed, availableQty: Qty.zero() };
-        return {
-          ...derived,
-          projectId: parsed.data.projectId ?? derived.projectId ?? null,
-          costCategory: l.costCategory ?? derived.costCategory ?? null,
-        };
-      }));
+          reason: l.reason,
+          warehouseId: l.warehouseId,
+          costCategory: l.costCategory ?? undefined,
+        })),
+      );
+      if (built.unmatched.length > 0) {
+        return c.json(
+          {
+            error: "RETURN_LINE_NOT_ON_INVOICE",
+            message: "أحد بنود المرتجع غير موجود في الفاتورة المصدر.",
+            unmatched: built.unmatched.map((u) => ({ itemId: u.itemId, sourceLineId: u.sourceLineId ?? null })),
+          },
+          422,
+        );
+      }
+      lines.push(...built.lines.map((line) => ({ ...line, projectId: parsed.data.projectId ?? line.projectId ?? null })));
+    }
+    try {
       const doc = await service.createDraft({
         id: parsed.data.id,
         date: await tenantDay(c, parsed.data.date),
@@ -267,18 +337,49 @@ export function createPurchaseReturnsRoutes(
   });
 
   app.post("/:id/confirm", gate("purchases.return.confirm"), async (c) => {
+    const visible = await visibleReturn(c);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const result = await service.confirm(c.req.param("id"), { actor: callerUserId(c) });
-      return c.json({ document: serialize(result.document), held: result.held });
+      const result = await service.confirm(visible.id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) });
+      return c.json({ document: serialize(result.document, null, await approvalOf(service, result.document)), held: result.held });
     } catch (err) {
       return handleDocumentError(c, err);
     }
   });
 
+  mountResubmitRoute(app, {
+    permission: gate("purchases.return.confirm"),
+    refuse: async (c) => ((await visibleReturn(c)) ? undefined : c.json(DOCUMENT_NOT_FOUND, 404)),
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
+    serialize: async (_c, doc) => serialize(doc, null, await approvalOf(service, doc)),
+    onError: handleDocumentError,
+  });
+
   app.post("/:id/cancel", gate("purchases.return.void"), async (c) => {
+    const visible = await visibleReturn(c);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
     try {
-      const doc = await service.cancel(c.req.param("id"));
+      const doc = await service.cancel(visible.id, { actor: callerUserId(c) });
       return c.json(serialize(doc));
+    } catch (err) {
+      return handleDocumentError(c, err);
+    }
+  });
+
+  app.post("/:id/lines/:lineId/journal-tax", gate("purchases.invoice.classify_tax"), async (c) => {
+    const doc = await visibleReturn(c);
+    if (!doc) return c.json(DOCUMENT_NOT_FOUND, 404);
+    return handleReturnJournalTax(c, doc, ["purchases.return.view"], journalTax);
+  });
+
+  app.post("/:id/void", gate("purchases.return.void"), async (c) => {
+    const visible = await visibleReturn(c, MirrorAccess.Reachable);
+    if (!visible) return c.json(DOCUMENT_NOT_FOUND, 404);
+    const id = visible.id;
+    try {
+      const voided = await voidReturn(c, service, id);
+      if (!voided) return c.json(VOID_REASON_REQUIRED, 400);
+      return c.json({ ...serialize(voided.original, voided.reason), reversalJournalEntryId: voided.reversal.journalEntryId });
     } catch (err) {
       return handleDocumentError(c, err);
     }

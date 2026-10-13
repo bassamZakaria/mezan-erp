@@ -54,6 +54,7 @@ export interface JournalLine {
    * existed — the report falls back to the old derivation for those.
    */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
   /**
    * بُعد المشروع — the contracting project this line belongs to. Immutable with
    * the posted line: a dimension added after go-live leaves every historic entry
@@ -151,18 +152,20 @@ export interface UnitOfWork {
  * `unknown` is honest about an entry whose document type predates this field
  * rather than guessing a module.
  */
-export type JournalSourceModule =
-  | "sales"
-  | "purchases"
-  | "inventory"
-  | "treasury"
-  | "manufacturing"
-  | "payroll"
-  | "assets"
-  | "contracting"
-  | "accounting"
-  | "manual"
-  | "unknown";
+export enum JournalSourceModuleCode {
+  Sales = "sales",
+  Purchases = "purchases",
+  Inventory = "inventory",
+  Treasury = "treasury",
+  Manufacturing = "manufacturing",
+  Payroll = "payroll",
+  Assets = "assets",
+  Contracting = "contracting",
+  Accounting = "accounting",
+  Manual = "manual",
+  Unknown = "unknown",
+}
+export type JournalSourceModule = `${JournalSourceModuleCode}`;
 
 const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
   SALES_INVOICE: "sales",

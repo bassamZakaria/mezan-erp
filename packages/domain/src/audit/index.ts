@@ -4,6 +4,7 @@ export {
   ConnectionTurnLostError,
   ForeignWriteError,
   AUDIT_SEVERITIES,
+  AuditSeverityCode,
   AUDIT_STREAMS,
   createAuditEvent,
   recordSecurityEvent,
@@ -28,4 +29,3 @@ export {
   UNRECORDED_RECENT_LIMIT,
 } from "./security-fallback.js";
 export type { SecurityEventFallback, UnrecordedSecurityEvent, UnrecordedSecurityEvents } from "./security-fallback.js";
-export { AuditSeverityCode } from "./severity.js";

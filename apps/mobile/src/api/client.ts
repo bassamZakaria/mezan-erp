@@ -1,4 +1,4 @@
-import type { ZodType } from "zod";
+import type { ZodType, ZodTypeDef } from "zod";
 import { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER } from "@mezan/contracts";
 import { ApiError, ApiFailure } from "./errors";
 
@@ -26,7 +26,7 @@ export interface ApiCredentials {
 export interface RequestOptions<T> {
   readonly method?: HttpMethod;
   readonly body?: unknown;
-  readonly schema?: ZodType<T>;
+  readonly schema?: ZodType<T, ZodTypeDef, unknown>;
   readonly signal?: AbortSignal;
 }
 
@@ -63,6 +63,13 @@ interface Refusal {
   readonly code: string | null;
   readonly retryAfterSeconds: number | null;
   readonly unlockByCode: boolean;
+  readonly recalculatedGrandTotal: string | null;
+}
+
+function recalculatedGrandTotalOf(record: Record<string, unknown>): string | null {
+  if (record.taxRecalculated !== true || !record.totals || typeof record.totals !== "object") return null;
+  const grandTotal = (record.totals as Record<string, unknown>).grandTotal;
+  return typeof grandTotal === "string" ? grandTotal : null;
 }
 
 async function readRefusal(response: Response): Promise<Refusal> {
@@ -77,12 +84,13 @@ async function readRefusal(response: Response): Promise<Refusal> {
         code: typeof record.error === "string" ? record.error : null,
         retryAfterSeconds: wholeSeconds(record.retryAfterSeconds) ?? waitInHeader,
         unlockByCode: record.unlockByCode === true,
+        recalculatedGrandTotal: recalculatedGrandTotalOf(record),
       };
     }
   } catch {
     // A refusal with no JSON body is still a refusal; the caller falls back to a named reason.
   }
-  return { message: null, messageEn: null, code: null, retryAfterSeconds: waitInHeader, unlockByCode: false };
+  return { message: null, messageEn: null, code: null, retryAfterSeconds: waitInHeader, unlockByCode: false, recalculatedGrandTotal: null };
 }
 
 export function joinUrl(baseUrl: string, path: string): string {
@@ -112,6 +120,7 @@ export async function apiRequest<T>(
     throw new ApiError(failure, response.status, refusal.message, refusal.messageEn, refusal.code, {
       retryAfterSeconds: refusal.retryAfterSeconds,
       unlockByCode: refusal.unlockByCode,
+      recalculatedGrandTotal: refusal.recalculatedGrandTotal,
     });
   }
 

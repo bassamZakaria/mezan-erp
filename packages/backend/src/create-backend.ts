@@ -25,6 +25,9 @@ import {
   sendNotificationEmail,
   createPrecomputingHasher,
   reportTurnYield,
+  customerTaxProfileFrom,
+  salesTaxRerating,
+  type SalesItemTaxSource,
 } from "@mezan/api";
 import {
   withDerivedTreasuryFx,
@@ -35,6 +38,12 @@ import {
   SiteService,
   StockLedgerService,
   applyAllocatedSettlement,
+  EtaSubmissionStatusCode,
+  EtaReceiptSourceKind,
+  SalesQuoteService,
+  SalesPricingMode,
+  SalesInvoiceField,
+  DocumentChangedError,
   InvalidSalesInvoicePaymentError,
   InvalidPurchaseDocumentError,
   assertPeriodOpen,
@@ -44,6 +53,16 @@ import {
   reverseJournalEntry,
   resolvePrice,
   createSalesInvoiceGlHook,
+  createJournalTaxTagPort,
+  returnedQtyBySourceLine,
+  createReturnConfirmGuard,
+  stockPositionFaults,
+  ensureSystemTaxRates,
+  SALES_RETURN_DOC_TYPE,
+  PURCHASE_RETURN_DOC_TYPE,
+  type SalesInvoiceLookupPort,
+  type PurchaseInvoiceLookupPort,
+  type PurchaseReturnLine,
   createSalesInvoiceStockHook,
   SalesInvoiceService,
   CertificateService,
@@ -61,6 +80,11 @@ import {
   type SubcontractRetentionInvoicingPort,
   CERTIFICATE_WORKS_ITEM_ID,
   RETENTION_RELEASE_ITEM_ID,
+  createReturnTaxCarry,
+  expectedReturnTaxJournalLines,
+  nameReturnJournalLineTax,
+  salesTaxPolicySource,
+  InvoiceDocumentKind,
   GuaranteeService,
   type CertificateInvoicingPort,
   type RetentionReleaseInvoicingPort,
@@ -96,6 +120,7 @@ import {
   createInventoryGlPostingHook,
   PAYROLL_GL_ACCOUNTS,
   PhysicalCountService,
+  SalesInvoiceStatusCode,
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
   purchaseInvoiceLineTax,
@@ -108,6 +133,7 @@ import {
   ledgerPresenceAsOf,
   reversalChainPresenceAsOf,
   isActive,
+  DocumentStatusCode,
   type DocumentStatus,
   purchaseInvoiceCancelEntryId,
   FX_REVALUATION_LINE_MEMO,
@@ -152,6 +178,7 @@ import {
   replay,
   type StockMovement,
   Qty,
+  approvalLabel,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
   SalesReturnNotRefundableError,
@@ -220,6 +247,7 @@ import {
   createSqlitePriceListStore,
   createSqlitePromotionStore,
   createSqliteSalesQuoteStore,
+  createSqliteTaxRateUsage,
   createSqliteExchangeRateRepository,
   createSqliteEtaStore,
   createScryptHasher,
@@ -328,11 +356,16 @@ import {
   unitCostOf,
 } from "@mezan/domain";
 import { runExternalSigningCommand } from "./eta-signing-command.js";
+import { createEtaVoidPort, createSalesReturnVoidGuards } from "./eta-void.js";
 import {
   createEtaEnqueueBridge,
+  createSalesInvoiceTaxFiling,
+  createSalesReturnTaxFiling,
+  createEtaReturnCreditNoteRebuilder,
   createEtaInvoiceRequeueRebuilder,
   createEtaReceiptIssuer,
   createReturnEtaEnqueueBridge,
+  createAfterTaxClassified,
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
 import { createAuth, type AccountLockedEvent } from "./auth-routes.js";
@@ -373,6 +406,7 @@ const PURCHASE_GL_ACCOUNTS = {
   // 2120 rather than debiting inventory a second time.
   goodsReceivedNotInvoicedAccountId: "2120",
   priceVarianceAccountId: "5080",
+  backOrderCostAccountId: "5100",
 };
 
 /**
@@ -424,6 +458,7 @@ const MANUFACTURING_GL_ACCOUNTS = {
   // of what the product cost to make (EAS/IAS 2), so it gets its own leaf
   // rather than sharing 5070 with damaged stock in a warehouse.
   abnormalScrapAccountId: "5220",
+  backOrderCostAccountId: "5100",
   wipAccountId: "1250",
 };
 
@@ -499,6 +534,11 @@ const LANDED_COST_GL_ACCOUNTS = {
   accruedLandedCostPayableId: "2130",
   unabsorbedCostAccountId: "5100",
   clearingAccountId: "1240",
+};
+
+const STOCK_VARIANCE_ACCOUNTS = {
+  inventoryAccountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
+  costVarianceAccountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
 };
 
 /**
@@ -885,12 +925,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const customers = createSqliteCustomerRepository(sqlite);
   const suppliers = createSqliteSupplierRepository(sqlite);
   const items = createSqliteItemStore(sqlite);
+  const salesItemTax: SalesItemTaxSource = async (itemId) => {
+    const item = await items.findById(itemId);
+    return item ? { taxRatePercent: item.taxRatePercent } : null;
+  };
+  const salesInvoiceTaxRerating = salesTaxRerating(customerTaxProfileFrom(customers), salesItemTax);
   const itemCatalog = createSqliteItemCatalogStores(sqlite);
   const accountRouting = createSqliteAccountRoutingStore(sqlite);
   const taxGroups = createSqliteTaxGroupStore(sqlite);
   const itemSpecifications = createSqliteItemSpecificationRepository(sqlite);
   const attachments = createSqliteAttachmentRepository(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
+  await ensureSystemTaxRates(taxRates);
   const costCenters = createSqliteCostCenterRepository(sqlite);
   const masterDataChecks: MasterDataChecks = {
     [MasterDataKind.Customer]: customers,
@@ -1251,6 +1297,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
     // through a separate path and never passes `command.gl`, so this is additive.
     gl: createInventoryGlPostingHook(salesInvoiceGl),
+    transferCoverAccounts: { inventoryAccountId: STOCK_VARIANCE_ACCOUNTS.inventoryAccountId, costAccountId: STOCK_VARIANCE_ACCOUNTS.costVarianceAccountId },
     // The last-resort cost for an issue out of a position that holds nothing
     // and was never received anywhere. Without it such an issue was written at
     // zero and COGS was understated by the whole deficit (D101).
@@ -1395,6 +1442,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     unitMappings: etaStore.unitMappings,
   });
   const salesInvoiceEvents = fanOutDocumentEvents(salesInvoiceEventBridge, etaEnqueueBridge);
+  const rebuildEtaInvoiceSubmission = createEtaInvoiceRequeueRebuilder({
+    eta: etaService,
+    items,
+    taxRates,
+    branchCodes: etaStore.branchCodes,
+    unitMappings: etaStore.unitMappings,
+    invoices: salesInvoices,
+    customers,
+  });
 
   /**
    * D-03's billing arrow, enforced on EVERY sales invoice and not just the ones
@@ -1454,8 +1510,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const service = new SalesInvoiceService({
         repo: salesInvoices,
         numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
-        gl: createSalesInvoiceGlHook(salesInvoiceGl),
+        gl: createSalesInvoiceGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS),
         stock: createSalesInvoiceStockHook(stockService),
+        taxRates,
+        taxRerating: salesInvoiceTaxRerating,
         allocatable: vouchers.invoices,
         audit: auditSink,
         // INVARIANT: the SAME publisher the /sales/invoices routes use. A
@@ -1463,6 +1521,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         // never hears about (D5) — the authority sees the tenant's certificate
         // billing simply missing.
         events: salesInvoiceEvents,
+        taxPolicy: salesTaxPolicySource(settings),
         // The REAL actor, not "system": this invoice is a live receivable, and
         // its audit row named nobody.
         actor: cmd.actor ?? "system",
@@ -1480,6 +1539,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         notes: cmd.memoAr,
         arAccountId: CERTIFICATE_AR_ACCOUNT_ID,
         taxAccountId: routedAccountId(routing, "tax.output_vat") ?? "2200",
+        sourcePricing: SalesPricingMode.TaxExclusive,
         lines: [
           {
             lineId: `${invoiceId}-L1`,
@@ -1546,7 +1606,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           memo: `عكس فاتورة مستخلص ${invoice.docNo ?? invoice.id} — ${reasonAr}`,
         });
       }
-      await salesInvoices.update({ ...invoice, status: "reversed" });
+      const written = await salesInvoices.writeFields({ ...invoice, status: "reversed" }, [SalesInvoiceField.Status], { status: [invoice.status] });
+      if (!written) throw new DocumentChangedError("SALES_INVOICE", invoice.id);
       const sub = await vouchers.invoices.findById(invoiceId);
       if (sub) await vouchers.invoices.save({ ...sub, total: Money.zero(), allocated: Money.zero() });
     },
@@ -1658,18 +1719,24 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const service = new SalesInvoiceService({
         repo: salesInvoices,
         numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
-        gl: createSalesInvoiceGlHook(salesInvoiceGl),
+        gl: createSalesInvoiceGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS),
         stock: createSalesInvoiceStockHook(stockService),
+        taxRates,
+        taxRerating: salesInvoiceTaxRerating,
         allocatable: vouchers.invoices,
         audit: auditSink,
-        // INVARIANT: the same publisher the /sales/invoices routes use — see the certificate's port above.
-        events: salesInvoiceEvents,
+        // INVARIANT: NOT `salesInvoiceEvents`. A retention release is a
+        // receivable reclass (Dr AR / Cr retention), not a supply: it must
+        // never reach the ETA queue or the e-receipt issuer.
+        events: salesInvoiceEventBridge,
+        taxPolicy: salesTaxPolicySource(settings),
         // The REAL actor, not "system": this invoice is a live receivable, and
         // its audit row named nobody.
         actor: cmd.actor ?? "system",
       });
       await service.createDraft({
         id: invoiceId,
+        documentKind: InvoiceDocumentKind.RetentionRelease,
         date: cmd.date,
         dueDate: cmd.dueDate,
         customerId: cmd.customerId,
@@ -1681,6 +1748,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         notes: cmd.memoAr,
         arAccountId: CERTIFICATE_AR_ACCOUNT_ID,
         taxAccountId: routedAccountId(routing, "tax.output_vat") ?? "2200",
+        sourcePricing: SalesPricingMode.TaxExclusive,
         lines: [
           {
             lineId: `${invoiceId}-L1`,
@@ -1692,6 +1760,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             // No VAT: the works were taxed on the certificate that withheld
             // this money. Taxing the release again would charge it twice.
             taxRatePercent: 0,
+            taxRateId: null,
             revenueAccountId: cmd.retentionAccountId,
           },
         ],
@@ -1780,6 +1849,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
             taxRatePercent: l.taxRatePercent ?? null,
+            taxRateId: l.taxRateId ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
           })),
@@ -1845,7 +1915,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             },
           ],
         },
-        { invoices: purchaseInvoices, numbering: ledger.numbering },
+        { invoices: purchaseInvoices, numbering: ledger.numbering, taxRates },
       );
       const { invoice } = await confirmPurchaseInvoice(invoiceId, {
         invoices: purchaseInvoices,
@@ -1905,6 +1975,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       await createPurchaseInvoice(
         {
           id: invoiceId,
+          documentKind: InvoiceDocumentKind.RetentionRelease,
           supplierId: cmd.supplierId,
           date: cmd.date,
           dueDate: cmd.dueDate,
@@ -1923,10 +1994,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               qty: Qty.fromMajor("1"),
               unitCost: cmd.amount,
               taxRatePercent: 0,
+              taxRateId: null,
             },
           ],
         },
-        { invoices: purchaseInvoices, numbering: ledger.numbering },
+        { invoices: purchaseInvoices, numbering: ledger.numbering, taxRates },
       );
       const { invoice } = await confirmPurchaseInvoice(invoiceId, {
         invoices: purchaseInvoices,
@@ -2031,7 +2103,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
 
 
-  const documentGl = createJournalGlHook(salesInvoiceGl);
+  const documentGl = createJournalGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS);
   const documentWorkflowGate = createDocumentWorkflowGate(
     (actionType) => workflowConfigs.resolveSync(actionType),
     approvalRequests,
@@ -2086,13 +2158,46 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       unitMappings: etaStore.unitMappings,
     }),
   );
+  const salesReturnTaxFiling = createSalesReturnTaxFiling({
+    eta: etaService,
+    taxRates,
+    rebuildCreditNote: createEtaReturnCreditNoteRebuilder({
+      eta: etaService,
+      customers,
+      items,
+      taxRates,
+      branchCodes: etaStore.branchCodes,
+      unitMappings: etaStore.unitMappings,
+    }),
+  });
+  const standingSalesReturnRefunds = async (returnId: string) => {
+    const prefix = `REFUND:${returnId}:`;
+    return (await vouchers.documents.list())
+      .filter((doc) => doc.id.startsWith(prefix) && doc.status === DocumentStatusCode.Confirmed && doc.reversesDocId === null)
+      .map((doc) => ({
+        voucherId: doc.id,
+        voucherNo: doc.docNo,
+        date: doc.date,
+        amount: doc.lines[0]?.amount ?? Money.zero(),
+      }));
+  };
+  const etaVoid = createEtaVoidPort(etaService);
+  const salesReturnVoid = createSalesReturnVoidGuards({ refundsOf: standingSalesReturnRefunds, eta: etaVoid });
+  const customerNameOf = async (id: string | null | undefined) => (id ? ((await customers.findById(id))?.nameAr ?? null) : null);
+  const supplierNameOf = async (id: string | null | undefined) => (id ? ((await suppliers.findById(id))?.nameAr ?? null) : null);
+  const warehouseNameOf = async (id: string | null | undefined) => (id ? ((await warehouses.findById(id))?.name ?? null) : null);
+  const voucherPartyNameOf = async (line: VoucherLine) => (await customerNameOf(line.customerId)) ?? (await supplierNameOf(line.supplierId));
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
+    approvalLabel: async (doc) => approvalLabel({ type: "مرتجع مبيعات", amount: salesReturnGrandTotal(doc), party: await customerNameOf(doc.lines[0]?.customerId) }),
     numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
     gl: returnReliefGl("sales", salesReturnStore, salesReturnLineCredit),
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: salesReturnEvents,
+    confirmGuard: createReturnConfirmGuard(SALES_RETURN_DOC_TYPE, (id) => salesReturnInvoices.findConfirmedInvoice(id)),
+    reverseGuard: salesReturnVoid.guard,
+    afterReverse: salesReturnVoid.withdraw,
     /*
      * WITHOUT THIS the document's confirm and cancel write nothing to the
      * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
@@ -2108,11 +2213,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
+    approvalLabel: async (doc) => approvalLabel({ type: "مرتجع مشتريات", amount: purchaseReturnGrandTotal(doc), party: await supplierNameOf(doc.lines[0]?.supplierId) }),
     numbering: { next: (opts) => ledger.numbering.next("PURCHASE_RETURN", { branchId: opts?.branchId }) },
     gl: returnReliefGl("purchase", purchaseReturnStore, purchaseReturnLineCredit),
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: returnsEventBridge,
+    confirmGuard: createReturnConfirmGuard(PURCHASE_RETURN_DOC_TYPE, (id) => purchaseReturnInvoices.findConfirmedInvoice(id)),
     /*
      * WITHOUT THIS the document's confirm and cancel write nothing to the
      * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
@@ -2126,9 +2233,126 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: auditSink,
     auditModule: "purchases",
   });
+  /**
+   * Derives the returnable quantity from the invoice minus what confirmed
+   * returns have already taken. Before this the server validated against a
+   * figure the CLIENT supplied, so the same goods could be returned
+   * repeatedly by claiming the full invoiced quantity each time.
+   */
+  const salesReturnInvoices: SalesInvoiceLookupPort = {
+    async findConfirmedInvoice(id: string) {
+      const invoice = await salesInvoices.findById(id);
+      if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
+      const priorReturns = await salesReturns.list();
+      const returned = priorReturns
+        .filter((doc) => doc.status === "confirmed" && !doc.reversesDocId)
+        .flatMap((doc) => doc.lines.filter((line) => line.sourceInvoiceId === id));
+      const alreadyReturned = returnedQtyBySourceLine(
+        invoice.lines.map((l) => ({ sourceLineId: l.lineId, itemId: l.itemId, qty: l.baseQty })),
+        returned,
+      );
+      // The tax the line was ACTUALLY charged — after line, promotion and
+      // header discounts, and zero when the customer is tax-exempt. Handing
+      // the return a zero here credited no VAT at all and left it no rate
+      // to group the posting by (D76).
+      const chargedTax = new Map<string, { tax: Money; rate: number; taxRateId: string | null }>();
+      const invoiceTotals = salesInvoiceTotals(invoice);
+      for (const [i, line] of invoice.lines.entries()) {
+        chargedTax.set(line.lineId, {
+          tax: invoiceTotals.lines[i]?.tax ?? Money.zero(),
+          rate: line.taxRatePercent,
+          taxRateId: line.taxRateId,
+        });
+      }
+      return {
+        id: invoice.id,
+        number: invoice.docNo ?? invoice.id,
+        salespersonId: invoice.salespersonId,
+        customerId: invoice.customerId,
+        warehouseId: invoice.warehouseId,
+        projectId: invoice.projectId,
+        currency: invoice.currency,
+        fxRate: invoice.fxRate ?? null,
+        date: invoice.date,
+        status: "confirmed" as const,
+        // A return is quoted in BASE units, because that is what it puts
+        // back into the stock ledger. A line sold as 5 cartons of 12 is
+        // returnable as up to 60 pieces at the per-piece price, so the
+        // credit still reconciles to the line and the ledger to the count.
+        lines: invoice.lines.map((l, lineIndex) => ({
+          sourceLineId: l.lineId,
+          itemId: l.itemId,
+          itemName: l.itemNameAr,
+          qty: l.baseQty,
+          alreadyReturnedQty: alreadyReturned[lineIndex] ?? Qty.zero(),
+          unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
+          // The line's captured moving-average COST, not its price. This
+          // read `l.unitPrice` — the same expression as the line above —
+          // so «مرتجع من فاتورة», the route the screen uses, restocked
+          // every return at the SELLING price: inventory overstated and
+          // the COGS reversal wrong by the whole margin (D145).
+          unitCost:
+            l.unitCost === null
+              ? Money.zero()
+              : unitCostOf(extendQtyByPrice(l.qty, l.unitCost), l.baseQty),
+          taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
+          taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
+          taxRateId: chargedTax.get(l.lineId)?.taxRateId ?? null,
+        })),
+      };
+    },
+  };
+  const purchaseReturnInvoices: PurchaseInvoiceLookupPort = {
+    async findConfirmedInvoice(id: string) {
+      const invoice = await purchaseInvoices.findById(id);
+      if (!invoice || invoice.status !== "confirmed") return null;
+      const priorReturns = await purchaseReturns.list();
+      const returned = priorReturns
+        .filter((doc) => doc.status === "confirmed" && !doc.reversesDocId)
+        .flatMap((doc) => doc.lines.filter((line) => line.sourceInvoiceId === id));
+      const returnable = invoice.lines
+        .map((l, index) => ({ ...l, sourceLineId: String(index) }))
+        .flatMap((l) => (l.itemId === null ? [] : [{ ...l, itemId: l.itemId }]));
+      const alreadyReturned = returnedQtyBySourceLine(returnable, returned);
+      return {
+        id: invoice.id,
+        number: invoice.number ?? invoice.id,
+        createdBy: invoice.createdBy,
+        supplierId: invoice.supplierId,
+        warehouseId: invoice.warehouseId,
+        // A return inherits the invoice's project and each line's cost
+        // category (D-01); leaving them off here dropped both (D215).
+        projectId: invoice.projectId ?? null,
+        currency: invoice.currency,
+        fxRate: invoice.fxRate ?? null,
+        date: invoice.date,
+        status: "confirmed" as const,
+        lines: returnable.map((l, lineIndex) => ({
+            sourceLineId: l.sourceLineId,
+            itemId: l.itemId,
+            itemName: l.description ?? l.itemId,
+            qty: l.qty,
+            alreadyReturnedQty: alreadyReturned[lineIndex] ?? Qty.zero(),
+            unitCost: l.unitCost,
+            // The input VAT the line actually carried, and the rate that
+            // produced it — a return with neither credits no VAT back and
+            // gives the VAT return nothing to group by (D76).
+            taxAmount: purchaseInvoiceLineTax(l),
+            taxRatePercent: l.taxRatePercent,
+            taxRateId: l.taxRateId ?? null,
+            costCategory: l.costCategory ?? null,
+          })),
+      };
+    },
+  };
   const landedCostGlAccounts = { ...LANDED_COST_GL_ACCOUNTS };
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(landedCostGlAccounts), {
     repo: landedCostStore,
+    approvalLabel: async (doc) => {
+      const costItems = doc.lines[0]?.costItems ?? [];
+      const supplierId = costItems.find((item) => item.supplierId)?.supplierId;
+      return approvalLabel({ type: "تكلفة إضافية", amount: Money.sum(costItems.map((item) => item.amount)), party: (await supplierNameOf(supplierId)) ?? (await warehouseNameOf(doc.lines[0]?.warehouseId)) });
+    },
     numbering: { next: (opts) => ledger.numbering.next("LANDED_COST", { branchId: opts?.branchId }) },
     gl: documentGl,
     workflow: documentWorkflowGate,
@@ -2209,15 +2433,29 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   );
   const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: inventoryOps.stockAdjustments,
+    approvalLabel: async (doc) => {
+      const stated = doc.lines.every((line) => line.unitCost) ? Money.sum(doc.lines.map((line) => extendQtyByPrice(line.qty, line.unitCost as Money))) : null;
+      return approvalLabel({ type: "تسوية مخزون", amount: stated, party: await warehouseNameOf(doc.lines[0]?.warehouseId) });
+    },
     numbering: { next: (opts) => ledger.numbering.next("STOCK_ADJUSTMENT", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
     workflow: documentWorkflowGate,
+    audit: auditSink,
+    auditModule: "inventory",
   });
   const stockTransfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
     repo: inventoryOps.stockTransfers,
+    approvalLabel: async (doc) => {
+      const line = doc.lines[0];
+      const from = (await warehouseNameOf(line?.fromWarehouseId)) ?? line?.fromWarehouseId ?? "";
+      const to = (await warehouseNameOf(line?.toWarehouseId)) ?? line?.toWarehouseId ?? "";
+      return `تحويل مخزون من ${from} إلى ${to}`;
+    },
     numbering: { next: (opts) => ledger.numbering.next("STOCK_TRANSFER", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
     workflow: documentWorkflowGate,
+    audit: auditSink,
+    auditModule: "inventory",
   });
   const physicalCounts = new PhysicalCountService({
     repo: inventoryOps.physicalCounts,
@@ -3069,6 +3307,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     invoices: vouchers.invoices,
     settings,
     resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    partyName: voucherPartyNameOf,
     audit: auditSink,
   });
 
@@ -3911,6 +4150,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     auditSink,
     barcodeConfigStore: barcodeConfig,
     taxRateRepo: taxRates,
+    taxRateUsage: createSqliteTaxRateUsage(sqlite),
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
     fiscalPeriodRepo: fiscalPeriods,
@@ -3934,7 +4174,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           for (const invoice of invoices) {
             for (const line of invoice.lines) {
               if (!line.isStock) continue;
-              lines.push({ itemId: line.itemId, warehouseId: invoice.warehouseId, qty: line.qty });
+              lines.push({ itemId: line.itemId, warehouseId: invoice.warehouseId, qty: line.baseQty });
             }
           }
           for (const transfer of transfers) {
@@ -3974,6 +4214,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // outright: without these two the gate resolved every config to null and
       // held requests were never persisted for the inbox.
       resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    partyName: voucherPartyNameOf,
       approvalRequests,
       documents: vouchers.documents,
       vatFilings,
@@ -4034,6 +4275,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // «من إيصال استلام» omits lines, so the route builds them from the receipt
       // — and without this port every one of those lines was taxed at 0% (D50).
       resolveTaxRate: async (itemId) => (await items.findById(itemId))?.taxRatePercent ?? 0,
+      taxDependents: createReturnTaxCarry({
+        returns: purchaseReturnStore,
+        tags: createJournalTaxTagPort({ ledger, vatFilings }),
+        expected: expectedReturnTaxJournalLines(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS)),
+      }),
       /**
        * سداد للمورد from the invoice itself (R4.4) — the purchase-side mirror of
        * the sales `collect` adapter below. It creates, confirms and allocates a
@@ -4105,7 +4351,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       itemCheck: items,
       masterData: masterDataChecks,
       numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
-      gl: createSalesInvoiceGlHook(salesInvoiceGl),
+      gl: createSalesInvoiceGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS),
       // "السماح بالبيع من مستودع آخر": only when the document's warehouse holds
       // NONE of the item, and only when one other warehouse can cover the whole
       // line — a line split across two warehouses would have two costs, and an
@@ -4140,8 +4386,56 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },
-      hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
       stockRestore: createInventoryStockHook(stockService),
+      printContext: async (invoice) => {
+        const docNo = invoice.docNo ?? invoice.id;
+        const [branch, warehouse, customer, submission, receipt] = await Promise.all([
+          branches.findById(invoice.branchId),
+          warehouses.findById(invoice.warehouseId),
+          customers.findById(invoice.customerId),
+          etaService.findByInternalId(docNo),
+          etaService.receiptForPrint(docNo),
+        ]);
+        return {
+          branchName: branch?.name ?? null,
+          warehouseName: warehouse?.name ?? null,
+          customer: customer ? { code: customer.code, taxNumber: customer.taxNumber ?? null, address: customer.address ?? null, phone: customer.phone ?? null } : null,
+          etaUuid: (submission?.status === EtaSubmissionStatusCode.Accepted ? submission.etaUuid : null) ?? receipt?.uuid ?? null,
+          etaQrValue: receipt?.qrValue ?? null,
+        };
+      },
+      itemTax: salesItemTax,
+      sourceDocumentOf: async (invoiceId) => {
+        const quote = (await salesQuotes.list({ status: "converted" })).find((candidate) => candidate.convertedInvoiceId === invoiceId);
+        return quote
+          ? { id: quote.id, number: quote.docNo ?? quote.id, lines: quote.lines.map((line) => ({ lineId: line.lineId, qty: line.qty, unitPrice: line.unitPrice, taxRateId: line.taxRateId ?? null, taxRatePercent: line.taxRatePercent })) }
+          : null;
+      },
+      onDraftCancelled: async (invoice) => {
+        await new SalesQuoteService({
+          repo: salesQuotes,
+          numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
+          taxRates,
+          taxPolicy: salesTaxPolicySource(settings),
+        }).reopenConvertedBy(invoice.id, async (quoteId) =>
+          (await salesInvoices.list({ sourceQuoteId: quoteId })).filter((other) => other.status !== SalesInvoiceStatusCode.Cancelled).map((other) => other.id),
+        );
+      },
+      etaDocumentOf: (invoice) => etaVoid.documentOf(invoice.docNo ?? invoice.id),
+      withdrawUnsentEtaSubmission: (invoice) =>
+        etaVoid.withdraw(invoice.docNo ?? invoice.id, `أُلغيت الفاتورة ${invoice.docNo ?? invoice.id} قبل إرسالها إلى المصلحة.`),
+      taxTags: createJournalTaxTagPort({ ledger, vatFilings }),
+      taxDependents: createReturnTaxCarry({
+        returns: salesReturnStore,
+        tags: createJournalTaxTagPort({ ledger, vatFilings }),
+        expected: expectedReturnTaxJournalLines(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS)),
+        filing: salesReturnTaxFiling,
+      }),
+      taxFiling: createSalesInvoiceTaxFiling({ eta: etaService, taxRates, rebuild: rebuildEtaInvoiceSubmission }),
+      afterTaxClassified: createAfterTaxClassified({
+        receipts: etaReceipts,
+        returnsOf: async (invoiceId) => (await salesReturnStore.listByLineRef?.("sourceInvoiceId", [invoiceId], { status: "confirmed" })) ?? [],
+      }),
       settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
@@ -4209,6 +4503,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         exchangeRates,
         baseCurrency: "EGP",
         resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    partyName: voucherPartyNameOf,
         approvalRequests,
         audit: auditSink,
         events: voucherEventBridge,
@@ -4259,18 +4554,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // ENH-011b "Fix & Requeue" (WF-04 step 4): rebuilds the payload and the
       // pre-validation from the CURRENT masters, so a fixed item code or
       // customer TIN actually clears the finding that blocked submit.
-      rebuildSubmission: createEtaInvoiceRequeueRebuilder({
-        eta: etaService,
-        items,
-        taxRates,
-        branchCodes: etaStore.branchCodes,
-        unitMappings: etaStore.unitMappings,
-        invoices: salesInvoices,
-        customers,
-      }),
+      rebuildSubmission: rebuildEtaInvoiceSubmission,
       issueDocumentReceipt: async (kind, docId) => {
         const issued =
-          kind === "invoice" ? await etaReceipts.issueInvoiceReceipt(docId) : await etaReceipts.issueReturnReceipt(docId);
+          kind === EtaReceiptSourceKind.Invoice ? await etaReceipts.issueInvoiceReceipt(docId) : await etaReceipts.issueReturnReceipt(docId);
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },
@@ -4278,14 +4565,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // 96-hour window, referencing the rejected one via header.referenceOldUUID.
       reissueDocumentReceipt: async (kind, docId) => {
         const issued =
-          kind === "invoice"
+          kind === EtaReceiptSourceKind.Invoice
             ? await etaReceipts.reissueInvoiceReceipt(docId)
             : await etaReceipts.reissueReturnReceipt(docId);
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },
     },
-    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite) },
+    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite), stockPositionFaults: async () => stockPositionFaults((await stockService.getValuation()).positions) },
     openingBalanceDuplicates: {
       resolveContext: resolveOpeningBalanceDuplicatesContext,
       repair: repairOpeningBalanceDuplicate,
@@ -4673,72 +4960,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     salesReturns: {
       service: salesReturns,
-      /**
-       * Derives the returnable quantity from the invoice minus what confirmed
-       * returns have already taken. Before this the server validated against a
-       * figure the CLIENT supplied, so the same goods could be returned
-       * repeatedly by claiming the full invoiced quantity each time.
-       */
-      invoices: {
-        async findConfirmedInvoice(id: string) {
-          const invoice = await salesInvoices.findById(id);
-          if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
-          const priorReturns = await salesReturns.list();
-          const returnedByItem = new Map<string, Qty>();
-          for (const doc of priorReturns) {
-            if (doc.status !== "confirmed") continue;
-            for (const line of doc.lines) {
-              if (line.sourceInvoiceId !== id) continue;
-              returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
-            }
-          }
-          // The tax the line was ACTUALLY charged — after line, promotion and
-          // header discounts, and zero when the customer is tax-exempt. Handing
-          // the return a zero here credited no VAT at all and left it no rate
-          // to group the posting by (D76).
-          const chargedTax = new Map<string, { tax: Money; rate: number }>();
-          const invoiceTotals = salesInvoiceTotals(invoice);
-          for (const [i, line] of invoice.lines.entries()) {
-            chargedTax.set(line.lineId, {
-              tax: invoiceTotals.lines[i]?.tax ?? Money.zero(),
-              rate: line.taxRatePercent,
-            });
-          }
-          return {
-            id: invoice.id,
-            number: invoice.docNo ?? invoice.id,
-            customerId: invoice.customerId,
-            warehouseId: invoice.warehouseId,
-            projectId: invoice.projectId,
-            currency: invoice.currency,
-            fxRate: invoice.fxRate ?? null,
-            date: invoice.date,
-            status: "confirmed" as const,
-            // A return is quoted in BASE units, because that is what it puts
-            // back into the stock ledger. A line sold as 5 cartons of 12 is
-            // returnable as up to 60 pieces at the per-piece price, so the
-            // credit still reconciles to the line and the ledger to the count.
-            lines: invoice.lines.map((l) => ({
-              itemId: l.itemId,
-              itemName: l.itemNameAr,
-              qty: l.baseQty,
-              alreadyReturnedQty: returnedByItem.get(l.itemId) ?? Qty.zero(),
-              unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
-              // The line's captured moving-average COST, not its price. This
-              // read `l.unitPrice` — the same expression as the line above —
-              // so «مرتجع من فاتورة», the route the screen uses, restocked
-              // every return at the SELLING price: inventory overstated and
-              // the COGS reversal wrong by the whole margin (D145).
-              unitCost:
-                l.unitCost === null
-                  ? Money.zero()
-                  : unitCostOf(extendQtyByPrice(l.qty, l.unitCost), l.baseQty),
-              taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
-              taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
-            })),
-          };
-        },
-      },
+      invoices: salesReturnInvoices,
+      journalTax: (id, request) =>
+        nameReturnJournalLineTax(id, request, {
+          returns: salesReturnStore,
+          tags: createJournalTaxTagPort({ ledger, vatFilings }),
+          taxRates,
+          expected: expectedReturnTaxJournalLines(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS)),
+          sourceRateOf: async (line) => {
+            const invoice = await salesInvoices.findById(line.sourceInvoiceId);
+            const source = invoice?.lines.find((candidate) => candidate.lineId === line.sourceLineId);
+            return source ? (source.taxRateId ?? null) : undefined;
+          },
+          filing: salesReturnTaxFiling,
+          audit: auditSink,
+          auditModule: "sales",
+        }),
       /**
        * «استرداد للعميل» (R3.9). A confirmed return credits AR and moves no
        * money; this pays the credit note out as a REAL رد مبلغ لعميل voucher —
@@ -4751,18 +4988,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
        * that prefix is the only link between the two, so it must not change.
        */
       refunds: {
-        async list(returnId: string) {
-          const prefix = `REFUND:${returnId}:`;
-          const all = await vouchers.documents.list();
-          return all
-            .filter((doc) => doc.id.startsWith(prefix) && doc.status === "confirmed" && doc.reversesDocId === null)
-            .map((doc) => ({
-              voucherId: doc.id,
-              voucherNo: doc.docNo,
-              date: doc.date,
-              amount: doc.lines[0]?.amount ?? Money.zero(),
-            }));
-        },
+        list: standingSalesReturnRefunds,
         async post(command) {
           const treasury = await treasuryAccounts.findById(command.treasuryAccountId);
           if (!treasury?.glAccountId) {
@@ -4808,50 +5034,31 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     purchaseReturns: {
       service: purchaseReturns,
-      /** See salesReturns.invoices — same defect, same fix. */
-      invoices: {
-        async findConfirmedInvoice(id: string) {
-          const invoice = await purchaseInvoices.findById(id);
-          if (!invoice || invoice.status !== "confirmed") return null;
-          const priorReturns = await purchaseReturns.list();
-          const returnedByItem = new Map<string, Qty>();
-          for (const doc of priorReturns) {
-            if (doc.status !== "confirmed") continue;
-            for (const line of doc.lines) {
-              if (line.sourceInvoiceId !== id) continue;
-              returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
-            }
-          }
-          return {
-            id: invoice.id,
-            number: invoice.number ?? invoice.id,
-            supplierId: invoice.supplierId,
-            warehouseId: invoice.warehouseId,
-            // A return inherits the invoice's project and each line's cost
-            // category (D-01); leaving them off here dropped both (D215).
-            projectId: invoice.projectId ?? null,
-            currency: invoice.currency,
-            fxRate: invoice.fxRate ?? null,
-            date: invoice.date,
-            status: "confirmed" as const,
-            lines: invoice.lines
-              .filter((l) => l.itemId !== null)
-              .map((l) => ({
-                itemId: l.itemId as string,
-                itemName: l.description ?? (l.itemId as string),
-                qty: l.qty,
-                alreadyReturnedQty: returnedByItem.get(l.itemId as string) ?? Qty.zero(),
-                unitCost: l.unitCost,
-                // The input VAT the line actually carried, and the rate that
-                // produced it — a return with neither credits no VAT back and
-                // gives the VAT return nothing to group by (D76).
-                taxAmount: purchaseInvoiceLineTax(l),
-                taxRatePercent: l.taxRatePercent,
-                costCategory: l.costCategory ?? null,
-              })),
-          };
-        },
-      },
+      invoices: purchaseReturnInvoices,
+      journalTax: (id, request) =>
+        nameReturnJournalLineTax(id, request, {
+          returns: purchaseReturnStore,
+          tags: createJournalTaxTagPort({ ledger, vatFilings }),
+          taxRates,
+          // INVARIANT: inventory left at the moving average, so the entry —
+          // not the return's lines — says what its inventory lines carry.
+          expected: async (doc, taxRatePercent, sourceInvoiceId, taxRateId) => {
+            const entry = doc.journalEntryId ? await ledger.findById(doc.journalEntryId) : null;
+            const removed = Money.sum(
+              (entry?.lines ?? []).filter((line) => line.accountId === PURCHASE_RETURN_GL_ACCOUNTS.inventoryAccountId).map((line) => line.credit),
+            );
+            const definition = createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS);
+            return expectedReturnTaxJournalLines<PurchaseReturnLine>({
+              buildGlPosting: (scoped) => definition.buildGlPosting?.(scoped, { valueMoved: removed.negate() }) ?? null,
+            })(doc, taxRatePercent, sourceInvoiceId, taxRateId);
+          },
+          sourceRateOf: async (line) => {
+            const invoice = await purchaseInvoices.findById(line.sourceInvoiceId);
+            return invoice && line.sourceLineId ? (invoice.lines[Number(line.sourceLineId)]?.taxRateId ?? null) : undefined;
+          },
+          audit: auditSink,
+          auditModule: "purchases",
+        }),
     },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
     installments: {
@@ -4910,7 +5117,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     financialReports: {
       ledger,
       accounts,
-      vatAccounts: { outputVatAccountId: "2200", inputVatAccountId: "1400" },
+      vatAccounts: {
+        outputVatAccountId: "2200",
+        inputVatAccountId: "1400",
+        inputBaseAccountIds: PURCHASE_GL_ACCOUNTS.goodsReceivedNotInvoicedAccountId
+          ? [PURCHASE_GL_ACCOUNTS.goodsReceivedNotInvoicedAccountId]
+          : [],
+        outputBaseAccountIds: async () => [routedAccountId(await accountRouting.get(), "contracting.billings") ?? "2165"],
+      },
+      taxRates,
       cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
       otherIncomeExpenseAccountIds,
       branchOfEntry: resolveEntryBranches,

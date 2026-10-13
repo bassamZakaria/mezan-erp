@@ -15,6 +15,7 @@ import {
   type JournalEntry,
   type LedgerRepository,
   type RunReportOutcome,
+  type TaxRateRepository,
   type VatReturnContext,
 } from "@mezan/domain";
 import { branchScopeOf, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
@@ -54,7 +55,10 @@ export interface FinancialReportsRoutesDeps {
   readonly vatAccounts?: {
     readonly outputVatAccountId: string;
     readonly inputVatAccountId: string;
+    readonly inputBaseAccountIds?: readonly string[];
+    readonly outputBaseAccountIds?: () => Promise<readonly string[]>;
   };
+  readonly taxRates?: Pick<TaxRateRepository, "list">;
   /**
    * The tenant's cash/bank GL accounts, used by the balance sheet and cash
    * flow. Omit only when the chart of accounts follows the 11xx-is-cash code
@@ -238,7 +242,15 @@ export function createFinancialReportsRoutes(
       fromDate: isoDateOrUndefined(params.periodFrom),
       toDate: isoDateOrUndefined(params.periodTo),
     });
-    const ctx: VatReturnContext = { ...base, outputVatAccountId, inputVatAccountId };
+    const taxRates = deps.taxRates ? await deps.taxRates.list() : undefined;
+    const ctx: VatReturnContext = {
+      ...base,
+      outputVatAccountId,
+      inputVatAccountId,
+      taxRates,
+      inputBaseAccountIds: deps.vatAccounts?.inputBaseAccountIds,
+      outputBaseAccountIds: await deps.vatAccounts?.outputBaseAccountIds?.(),
+    };
     return respond(c, runReport(definition, params, ctx));
   });
 

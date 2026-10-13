@@ -78,7 +78,7 @@ const MIGRATION_AUDIT_DETAILS = { source: "data-migration" } as const;
 export interface DataMigrationTransactor {
   run<T>(fn: () => Promise<T>): Promise<T>;
 }
-import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { callerUserId, createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * نقل البيانات (Data Migration wizard) — docs/archive/catalog/09 §"نقل البيانات":
@@ -1189,7 +1189,7 @@ export function createDataMigrationRoutes(
             unitCost: l.unitCost,
           })),
         });
-        const { document } = await openingBalanceAdjustments!.confirm(draft.id);
+        const { document } = await openingBalanceAdjustments!.confirm(draft.id, { actor: callerUserId(c) });
         return c.json({ validCount: resolved.lines.length, total, errors: [], createdIds: [document.id] }, 201);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

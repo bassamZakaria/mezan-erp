@@ -22,7 +22,9 @@ import {
   type EtaSigningPort,
 } from "./signing.js";
 import {
-  EtaSubmissionState,
+  ETA_REQUEUE_MODE,
+  EtaRequeueMode,
+  EtaSubmissionStatusCode,
   type EtaSubmission,
   type EtaSubmissionRepository,
   type EtaSubmissionStatus,
@@ -241,6 +243,14 @@ function esealPortFromExternalSigner(signer: EtaSignerPort, now: () => string): 
  * drive the جاهز→بانتظار التوقيع→مرسل→مقبول lifecycle, and route the online
  * transmit through a (stubbed) port. All queue state is real and offline.
  */
+// INVARIANT: a document's blocking findings are stored with it and change only
+// when it is rebuilt (a requeue, a classification). A queue pass therefore
+// reads them and moves on — it attempts nothing for a document that has not
+// changed since it was held back.
+function isBlockedBeforeTransmit(submission: EtaSubmission): boolean {
+  return submission.prevalidation !== undefined && hasBlockingEtaFindings(submission.prevalidation);
+}
+
 export class EtaService {
   private readonly transmitPort: EtaTransmitPort;
   private readonly signerPort: EtaSignerPort;
@@ -338,7 +348,7 @@ export class EtaService {
     rebuilt: { readonly payload: unknown; readonly prevalidation: readonly EtaPrevalidationFinding[] },
   ): Promise<EtaSubmission> {
     const submission = await this.require(id);
-    if (!["ready", "pending_signature", "error", "excluded"].includes(submission.status)) {
+    if (ETA_REQUEUE_MODE[submission.status] === EtaRequeueMode.Never) {
       throw new InvalidEtaTransitionError(submission.status, "requeue");
     }
     return this.persist({
@@ -603,7 +613,7 @@ export class EtaService {
     if (!this.transmitPort.fetchStatus || !submission.etaUuid) {
       return this.persist({
         ...submission,
-        status: EtaSubmissionState.Error,
+        status: EtaSubmissionStatusCode.Error,
         errors: [ETA_UNRECORDED_SUBMISSION_MESSAGE],
         rejectionCodes: [ETA_UNRECORDED_SUBMISSION_CODE],
       });
@@ -611,12 +621,12 @@ export class EtaService {
     const result = await this.transmitPort.fetchStatus(submission, config);
     const withLog = this.appendLog(submission, result.log);
     if (result.state === "accepted") {
-      return this.persist({ ...withLog, status: EtaSubmissionState.Accepted, errors: [], rejectionCodes: [], transmitStartedAt: null });
+      return this.persist({ ...withLog, status: EtaSubmissionStatusCode.Accepted, errors: [], rejectionCodes: [], transmitStartedAt: null });
     }
     if (result.state === "rejected") {
       return this.persist({
         ...withLog,
-        status: EtaSubmissionState.Error,
+        status: EtaSubmissionStatusCode.Error,
         errors: result.errors,
         rejectionCodes: result.errorCodes ?? [],
         transmitStartedAt: null,
@@ -625,14 +635,14 @@ export class EtaService {
     if (result.state === "pending") {
       return this.persist({
         ...withLog,
-        status: EtaSubmissionState.Submitted,
+        status: EtaSubmissionStatusCode.Submitted,
         errors: [],
         submittedAt: submission.transmitStartedAt ?? this.now(),
         transmitStartedAt: null,
       });
     }
     if (result.log?.at(-1)?.status !== HTTP_NOT_FOUND) return this.persist(withLog);
-    await this.persist({ ...withLog, status: EtaSubmissionState.Ready, errors: [], rejectionCodes: [], transmitStartedAt: null });
+    await this.persist({ ...withLog, status: EtaSubmissionStatusCode.Ready, errors: [], rejectionCodes: [], transmitStartedAt: null });
     return null;
   }
 
@@ -675,12 +685,14 @@ export class EtaService {
     rejected: EtaSubmission[];
     queued: string[];
     unsigned: string[];
+    blocked: string[];
   }> {
     const submitted: EtaSubmission[] = [];
     const accepted: EtaSubmission[] = [];
     const rejected: EtaSubmission[] = [];
     const queued: string[] = [];
     const unsigned: string[] = [];
+    const blocked: string[] = [];
 
     // Oldest first, and a device's receipts in chain order: a link reported
     // before its predecessor names a previousUUID the authority has not seen.
@@ -689,6 +701,10 @@ export class EtaService {
       ...(await this.deps.submissions.list("pending_signature")),
     ].sort(queueOrder);
     for (const s of pending) {
+      if (isBlockedBeforeTransmit(s)) {
+        blocked.push(s.id);
+        continue;
+      }
       try {
         const next = await this.submit(s.id);
         if (next.status === "submitted") submitted.push(next);
@@ -697,6 +713,7 @@ export class EtaService {
       } catch (err) {
         if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
         else if (err instanceof EtaSignerNotConfiguredError || err instanceof EtaSigningFailedError) unsigned.push(s.id);
+        else if (err instanceof EtaPrevalidationFailedError) blocked.push(s.id);
         else if (!(err instanceof InvalidEtaTransitionError)) throw err;
       }
     }
@@ -714,7 +731,7 @@ export class EtaService {
       }
     }
 
-    return { submitted, accepted, rejected, queued, unsigned };
+    return { submitted, accepted, rejected, queued, unsigned, blocked };
   }
 
   /**
@@ -845,13 +862,13 @@ export class EtaService {
         const still: EtaSubmission[] = [];
         for (const listed of chunk) {
           let now = await this.found(listed.id);
-          if (now.status === EtaSubmissionState.Ready && now.transmitStartedAt) {
+          if (now.status === EtaSubmissionStatusCode.Ready && now.transmitStartedAt) {
             const settled = await this.settleUnrecorded(now, config);
             if (settled) out.push(settled);
             now = settled ?? (await this.found(listed.id));
           }
-          if (now.status === EtaSubmissionState.Error || now.transmitStartedAt) break;
-          if (now.status === EtaSubmissionState.Ready) still.push(now);
+          if (now.status === EtaSubmissionStatusCode.Error || now.transmitStartedAt) break;
+          if (now.status === EtaSubmissionStatusCode.Ready) still.push(now);
         }
         if (still.length === 0) return out;
         const startedAt = this.now();
@@ -941,11 +958,11 @@ export class EtaService {
   /** Authority acceptance callback: مرسل → مقبول with the assigned UUID. */
   async markAccepted(id: string, etaUuid: string): Promise<EtaSubmission> {
     const submission = await this.require(id);
-    const unrecorded = submission.status === EtaSubmissionState.Error && Boolean(submission.transmitStartedAt);
-    if (submission.status !== EtaSubmissionState.Submitted && !unrecorded) {
+    const unrecorded = submission.status === EtaSubmissionStatusCode.Error && Boolean(submission.transmitStartedAt);
+    if (submission.status !== EtaSubmissionStatusCode.Submitted && !unrecorded) {
       throw new InvalidEtaTransitionError(submission.status, "accept");
     }
-    return this.persist({ ...submission, status: EtaSubmissionState.Accepted, etaUuid, errors: [], rejectionCodes: [], transmitStartedAt: null });
+    return this.persist({ ...submission, status: EtaSubmissionStatusCode.Accepted, etaUuid, errors: [], rejectionCodes: [], transmitStartedAt: null });
   }
 
   /** Authority rejection callback: مرسل → أخطاء with error messages. */
@@ -972,19 +989,25 @@ export class EtaService {
    * failures leave the document queued and are collected rather than thrown, so
    * one unreachable document doesn't abort the batch.
    */
-  async submitAllReady(): Promise<{ submitted: EtaSubmission[]; queued: string[] }> {
+  async submitAllReady(): Promise<{ submitted: EtaSubmission[]; queued: string[]; blocked: string[] }> {
     const ready = (await this.deps.submissions.list("ready")).sort(queueOrder);
     const submitted: EtaSubmission[] = [];
     const queued: string[] = [];
+    const blocked: string[] = [];
     for (const s of ready) {
+      if (isBlockedBeforeTransmit(s)) {
+        blocked.push(s.id);
+        continue;
+      }
       try {
         submitted.push(await this.submit(s.id));
       } catch (err) {
         if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) queued.push(s.id);
+        else if (err instanceof EtaPrevalidationFailedError) blocked.push(s.id);
         else if (!(err instanceof InvalidEtaTransitionError)) throw err;
       }
     }
-    return { submitted, queued };
+    return { submitted, queued, blocked };
   }
 
   /**

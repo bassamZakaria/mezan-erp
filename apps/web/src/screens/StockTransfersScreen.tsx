@@ -41,6 +41,7 @@ import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** تحويلات المخزون (Stock Transfers) — docs/archive/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
@@ -127,6 +128,7 @@ export function StockTransfersScreen() {
   const savedNotice = useAlreadySavedNotice();
   const [rowError, setRowError] = useState<string | null>(null);
   const listConfirm = useConfirmStockTransfer();
+  const resubmit = useResubmitForApproval(ResubmitFamily.StockTransfers);
 
   /**
    * One filter for the rows, the chips and the KPI strip (R1.1) — the chips
@@ -287,6 +289,9 @@ export function StockTransfersScreen() {
             },
           ]}
         />
+        <div className="mt-[16px]">
+          <ResubmitForApprovalAction family={ResubmitFamily.StockTransfers} document={selected} />
+        </div>
         {selected.status === "confirmed" ? (
           <div className="mt-[16px] rounded-md border border-border bg-surface-2 px-[14px] py-[11px] text-[12px] text-ink-muted">
             {t("stockXfer.aConfirmedTransferCannotBe")}
@@ -314,6 +319,7 @@ export function StockTransfersScreen() {
           {rowError}
         </div>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<StockTransferDocumentDTO>
         title={t("stockXfer.stockTransfers")}
         description={t("stockXfer.draftConfirmedMovingQuantityBetween")}
@@ -357,6 +363,7 @@ export function StockTransfersScreen() {
             ...(d.status === "draft"
               ? [{ key: "confirm", label: t("stockXfer.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
               : []),
+            ...resubmitRowMenuItems(resubmit, d),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
         }}

@@ -309,6 +309,18 @@ export {
   type TaxRateDTO,
   type CreateTaxRateDTO,
   type UpdateTaxRateDTO,
+  classifyLineTaxSchema,
+  nameJournalLineTaxSchema,
+  type NameJournalLineTaxDTO,
+  lineTaxClassificationSchema,
+  etaReceiptRetrySchema,
+  type EtaReceiptRetryDTO,
+  TaxClassificationFilingOutcomeCode,
+  TaxCalculationTypeCode,
+  TaxRateStatusCode,
+  EtaVatSubTypeCode,
+  type ClassifyLineTaxDTO,
+  type LineTaxClassificationDTO,
 } from "./tax-rate.js";
 
 export {
@@ -687,6 +699,10 @@ export {
   createSalesInvoiceSchema,
   confirmSalesInvoiceSchema,
   salesInvoicePaymentSchema,
+  voidSalesInvoiceSchema,
+  type VoidSalesInvoiceDTO,
+  editSalesInvoiceDraftLineSchema,
+  type EditSalesInvoiceDraftLineDTO,
   salesInvoiceListQuerySchema,
   salesInvoiceStatsSchema,
   salesInvoiceFilterKeySchema,
@@ -829,17 +845,24 @@ export {
   buildSalesReturnFromInvoiceSchema,
   salesReturnDocumentSchema,
   refundSalesReturnSchema,
+  voidReturnSchema,
+  type VoidReturnDTO,
   type SalesReturnReasonDTO,
   type SalesReturnLineDTO,
   type CreateSalesReturnDTO,
   type BuildSalesReturnFromInvoiceDTO,
   type SalesReturnDocumentDTO,
   type RefundSalesReturnDTO,
+  returnSourceLineSchema,
+  returnSourceLinesSchema,
+  type ReturnSourceLineDTO,
+  type ReturnSourceLinesDTO,
 } from "./sales-returns.js";
 
 export {
   purchaseReturnReasonSchema,
   purchaseReturnLineSchema,
+  createPurchaseReturnLineSchema,
   createPurchaseReturnSchema,
   purchaseReturnRequestedQtySchema,
   buildPurchaseReturnFromInvoiceSchema,
@@ -966,6 +989,7 @@ export {
   reconciliationRowSchema,
   unlinkedEntryLineSchema,
   reconciliationReportSchema,
+  StockPositionFaultCode,
   type ReconciliationRowDTO,
   type UnlinkedEntryLineDTO,
   type ReconciliationReportDTO,
@@ -1666,6 +1690,8 @@ export {
   createWorkflowConfigSchema,
   updateWorkflowConfigSchema,
   approvalStatusSchema,
+  documentApprovalSchema,
+  DocumentApprovalStatus,
   decisionKindSchema,
   decisionRecordSchema,
   approvalRequestSchema,
@@ -1676,6 +1702,7 @@ export {
   type CreateWorkflowConfigDTO,
   type UpdateWorkflowConfigDTO,
   type ApprovalStatusDTO,
+  type DocumentApprovalDTO,
   type DecisionKindDTO,
   type DecisionRecordDTO,
   type ApprovalRequestDTO,
@@ -1908,4 +1935,5 @@ export * from "./enh/index.js";
 
 export { IdempotencyRefusal, IDEMPOTENT_REPLAY_HEADER } from "./idempotency.js";
 export { IMPORT_ROW_LIMIT, ImportRefusal, importLimitNotice, importTooLargeMessage, linesOfCsvImport, type BilingualSentence } from "./import-limit.js";
+export { InvoiceDocumentKind } from "./invoice-document-kind.js";
 export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, ReversalPermission, reversalPermissionSuccessors, reversalRoute, withReversalPermissions, type DocumentReversalPath } from "./document-reversal.js";

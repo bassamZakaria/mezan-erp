@@ -46,6 +46,7 @@ export interface SalesInvoicePrintContext {
   readonly statusLabel?: string;
   readonly customerRoleLabel: string;
   readonly vatLabel: string;
+  readonly taxRates?: readonly { readonly id: string; readonly name: string }[];
 }
 
 function lineGrossScaled(line: SalesInvoiceLineRowDTO): bigint {
@@ -74,21 +75,23 @@ export function salesInvoicePrintModel(ctx: SalesInvoicePrintContext): PrintDocu
       unitPrice: majorOf(line.unitPrice),
       discount: toMajorNumber(lineDiscountScaled(line)),
       taxPercent: line.taxRatePercent,
+      taxName: (line.taxRateId ? ctx.taxRates?.find((r) => r.id === line.taxRateId)?.name : undefined) ?? undefined,
       taxAmount: toMajorNumber(tax),
       lineTotal: toMajorNumber(net + tax),
     };
   });
 
-  // Grouped by the rate the line carries, so a 14% line and a 0% line print
-  // as two rows rather than one blended figure.
-  const byRate = new Map<number, bigint>();
+  const byRate = new Map<string, { label: string; rate: number; tax: bigint }>();
   for (const line of invoice.lines) {
     const net = lineGrossScaled(line) - lineDiscountScaled(line);
     const rate = line.taxRatePercent ?? 0;
     const scaledRate = BigInt(Math.round(rate * 1_000_000));
     const tax = (net * scaledRate) / 100_000_000n;
-    if (tax === 0n) continue;
-    byRate.set(rate, (byRate.get(rate) ?? 0n) + tax);
+    const name = line.taxRateId ? ctx.taxRates?.find((r) => r.id === line.taxRateId)?.name : undefined;
+    if (tax === 0n && name === undefined) continue;
+    const key = `${name === undefined ? "" : line.taxRateId}|${rate}`;
+    const row = byRate.get(key) ?? { label: name ?? ctx.vatLabel, rate, tax: 0n };
+    byRate.set(key, { ...row, tax: row.tax + tax });
   }
 
   const grandTotal = majorOf(invoice.totals.grandTotal);
@@ -129,8 +132,8 @@ export function salesInvoicePrintModel(ctx: SalesInvoicePrintContext): PrintDocu
         majorOf(invoice.totals.invoiceDiscountTotal) +
         majorOf(invoice.totals.promotionDiscountTotal),
       taxBreakdown: [...byRate.entries()]
-        .sort((a, b) => a[0] - b[0])
-        .map(([rate, tax]) => ({ label: ctx.vatLabel, rate, amount: toMajorNumber(tax) })),
+        .sort(([, a], [, b]) => a.rate - b.rate)
+        .map(([key, row]) => ({ key, label: row.label, rate: row.rate, amount: toMajorNumber(row.tax) })),
       grandTotal,
       currencyLabel: ctx.currencyLabel,
       // A negative total would be a credit note, which is a different document

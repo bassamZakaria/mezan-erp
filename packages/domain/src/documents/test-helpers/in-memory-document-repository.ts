@@ -1,6 +1,8 @@
 import type {
+  DocumentField,
   DocumentListFilter,
   DocumentRepository,
+  DocumentWritePrecondition,
   FrameworkDocument,
 } from "../document.js";
 import type { DocumentDomainEvent, DocumentEventPublisher } from "../hooks.js";
@@ -17,6 +19,14 @@ export class InMemoryDocumentRepository<Line> implements DocumentRepository<Line
     this.rows.set(doc.id, doc);
   }
 
+  async writeFields(next: FrameworkDocument<Line>, fields: readonly DocumentField[], expected: DocumentWritePrecondition): Promise<boolean> {
+    const stored = this.rows.get(next.id);
+    if (!stored || stored.status !== expected.status) return false;
+    const patch = Object.fromEntries(fields.map((field) => [field, next[field]]));
+    this.rows.set(next.id, { ...stored, ...patch });
+    return true;
+  }
+
   async findById(id: string): Promise<FrameworkDocument<Line> | null> {
     return this.rows.get(id) ?? null;
   }
@@ -27,6 +37,20 @@ export class InMemoryDocumentRepository<Line> implements DocumentRepository<Line
       .filter((d) => (filter.fromDate ? d.date >= filter.fromDate : true))
       .filter((d) => (filter.toDate ? d.date <= filter.toDate : true))
       .sort((a, b) => (a.date === b.date ? a.createdAt.localeCompare(b.createdAt) : a.date.localeCompare(b.date)));
+  }
+
+  async nameSourcedLineTaxRate(docId: string, sourceInvoiceId: string, taxRatePercent: number, taxRateId: string): Promise<number> {
+    const doc = this.rows.get(docId);
+    if (!doc) return 0;
+    let named = 0;
+    const lines = doc.lines.map((line) => {
+      const sourced = line as { sourceInvoiceId?: string; taxRatePercent?: number | null; taxRateId?: string | null };
+      if (sourced.sourceInvoiceId !== sourceInvoiceId || (sourced.taxRateId ?? null) !== null || sourced.taxRatePercent !== taxRatePercent) return line;
+      named += 1;
+      return { ...line, taxRateId };
+    });
+    this.rows.set(docId, { ...doc, lines });
+    return named;
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {

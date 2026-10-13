@@ -1,5 +1,5 @@
 import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
   Button,
@@ -28,6 +28,8 @@ import {
   useRefundSalesReturn,
   useSalesInvoices,
   useSalesReturns,
+  useReturnSourceLines,
+  ReturnKind,
   useSalesReturnCounts,
   useSalesReturnStats,
   useTreasuryAccounts,
@@ -39,11 +41,16 @@ import { SalesReturnPrintPage } from "../print/documents";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { nextReturnSourceLine, sourceLineOptions } from "./return-source-lines";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
+import { returnLinesTotal } from "./exact-line-totals";
 import { EMPTY } from "../lib/empty";
+import { ReturnJournalCard } from "./ReturnJournalCard";
+import { ReturnFamily, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/archive/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
 
@@ -56,20 +63,18 @@ const REASON_KEY: Record<SalesReturnReasonDTO, AppTranslationKey> = {
 };
 
 
-const num = (v: string) => Number(v);
-const lineTotal = (l: SalesReturnLineDTO) => num(l.unitPrice) * num(l.qty) + num(l.taxAmount);
 
 interface LineDraft {
   key: string;
-  itemId: string;
+  sourceLineId: string;
   qty: number;
   /** سبب الإرجاع per line (R3.9) — one item can come back broken and another as the wrong pick. */
   reason: SalesReturnReasonDTO;
 }
 let lineSeq = 0;
-function blankLine(defaultItemId: string, reason: SalesReturnReasonDTO): LineDraft {
+function blankLine(sourceLineId: string, reason: SalesReturnReasonDTO): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: defaultItemId, qty: 1, reason };
+  return { key: `l${lineSeq}`, sourceLineId, qty: 1, reason };
 }
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
@@ -89,7 +94,10 @@ export function SalesReturnsScreen() {
   });
   const refundReturn = useRefundSalesReturn();
   const confirmReturn = useConfirmSalesReturn();
+  const resubmit = useResubmitForApproval(ResubmitFamily.SalesReturns);
   const cancelReturn = useCancelSalesReturn();
+  const mayVoid = useMayVoidReturn(ReturnFamily.Sales);
+  const [voidTarget, setVoidTarget] = useState<VoidableReturn | null>(null);
 
   const invoices = useMemo(
     () => (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled"),
@@ -184,26 +192,6 @@ export function SalesReturnsScreen() {
     if (firstOpen) setRefundTreasuryId(firstOpen.id);
   }, [treasuryAccounts, refundTreasuryId]);
 
-  /**
-   * Seeds the line grid once the chosen invoice resolves. It does NOT choose an
-   * invoice: this used to default to `invoices[0]`, so opening «مرتجع جديد»
-   * silently pointed the return at whichever invoice happened to sort first —
-   * a user who did not notice returned goods against the wrong document. A
-   * return has no meaning without its source, so the picker starts empty
-   * unless the caller supplied one (R2.2).
-   */
-  useEffect(() => {
-    if (firstSegment !== "new" || invoiceId === "" || lines.length > 0) return;
-    const invoice = invoices.find((i) => i.id === invoiceId);
-    if (!invoice) return;
-    const firstLine = invoice.lines.find((l) => l.isStock && l.unitCost !== null);
-    // Bail instead of `setLines([])`: the grid is already empty here, and a fresh
-    // `[]` is never `Object.is`-equal to the current state, so React would re-render
-    // and re-run this effect forever on an invoice with nothing returnable.
-    if (!firstLine) return;
-    setLines([blankLine(firstLine.itemId, reason)]);
-  }, [firstSegment, invoices, invoiceId, lines.length, reason]);
-
   useEffect(() => {
     if (firstSegment !== "new" || warehouseId !== "") return;
     const next = invoices.find((i) => i.id === invoiceId)?.warehouseId ?? warehouses[0]?.id;
@@ -211,10 +199,26 @@ export function SalesReturnsScreen() {
   }, [firstSegment, warehouses, warehouseId, invoices, invoiceId]);
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
+  const sourceLinesQuery = useReturnSourceLines(ReturnKind.Sales, firstSegment === "new" ? invoiceId : "");
+  const sourceLines = sourceLinesQuery.data?.lines ?? EMPTY;
+  const sourceLinesReady = invoiceId === "" || sourceLinesQuery.isSuccess;
   const returnableLines = useMemo(
     () => (selectedInvoice?.lines ?? []).filter((l) => l.isStock && l.unitCost !== null),
     [selectedInvoice],
   );
+
+  // INVARIANT: the first row is offered only once the SERVER has said what is
+  // left to return, and it names a line that still has room. Seeded from the
+  // invoice alone it could name a line already returned in full.
+  const seededFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (firstSegment !== "new" || invoiceId === "" || !sourceLinesQuery.isSuccess || seededFor.current === invoiceId) return;
+    seededFor.current = invoiceId;
+    if (lines.length > 0) return;
+    const returnable = new Set(returnableLines.map((line) => line.lineId));
+    const first = nextReturnSourceLine(sourceLines.filter((line) => returnable.has(line.sourceLineId)), [], "");
+    if (first !== "") setLines([blankLine(first, reason)]);
+  }, [firstSegment, invoiceId, sourceLinesQuery.isSuccess, sourceLines, returnableLines, lines.length, reason]);
 
   const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
   const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
@@ -237,7 +241,7 @@ export function SalesReturnsScreen() {
     setWarehouseId(firstInvoice?.warehouseId ?? warehouses[0]?.id ?? "");
     setReason("DEFECTIVE");
     const firstLine = firstInvoice?.lines.find((l) => l.isStock && l.unitCost !== null);
-    setLines(firstLine ? [blankLine(firstLine.itemId, "DEFECTIVE")] : []);
+    setLines(firstLine ? [blankLine(firstLine.lineId, "DEFECTIVE")] : []);
     subPage.open("new");
   }
 
@@ -246,7 +250,13 @@ export function SalesReturnsScreen() {
     const invoice = invoices.find((i) => i.id === id) ?? null;
     if (invoice) setWarehouseId(invoice.warehouseId);
     const firstLine = invoice?.lines.find((l) => l.isStock && l.unitCost !== null);
-    setLines(firstLine ? [blankLine(firstLine.itemId, reason)] : []);
+    setLines(firstLine ? [blankLine(firstLine.lineId, reason)] : []);
+  }
+
+  function nextSourceLineId(rows: readonly LineDraft[]): string {
+    const returnable = new Set(returnableLines.map((l) => l.lineId));
+    const known = sourceLines.filter((line) => returnable.has(line.sourceLineId));
+    return nextReturnSourceLine(known, rows, returnableLines[0]?.lineId ?? "");
   }
 
   async function submit(confirmAfter: boolean) {
@@ -260,9 +270,10 @@ export function SalesReturnsScreen() {
     // tax share and what is still returnable are all read off the source
     // invoice server-side — a screen that computed them would be a second
     // opinion the books never asked for.
-    const requested = lines
-      .filter((l) => l.qty > 0 && l.itemId !== "")
-      .map((l) => ({ itemId: l.itemId, qty: String(l.qty), reason: l.reason }));
+    const requested = lines.flatMap((l) => {
+      const source = returnableLines.find((sl) => sl.lineId === l.sourceLineId);
+      return source && l.qty > 0 ? [{ itemId: source.itemId, sourceLineId: source.lineId, qty: String(l.qty), reason: l.reason }] : [];
+    });
     if (requested.length === 0) {
       setError(t("salesReturns.error.needLine"));
       return;
@@ -356,12 +367,12 @@ export function SalesReturnsScreen() {
         </div>
       ),
     },
-    { key: "total", header: t("salesReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.grandTotal !== undefined ? num(d.grandTotal) : d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
+    { key: "total", header: t("salesReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.grandTotal !== undefined ? majorOf(d.grandTotal) : returnLinesTotal(d.lines)} /> },
     {
       key: "refundDue",
       header: t("salesReturns.col.refundDue"),
       align: "end",
-      render: (d) => (num(d.refundDue) > 0 ? <MoneyDisplay value={num(d.refundDue)} /> : "—"),
+      render: (d) => (majorOf(d.refundDue) > 0 ? <MoneyDisplay value={majorOf(d.refundDue)} /> : "—"),
     },
     {
       key: "status",
@@ -416,9 +427,9 @@ export function SalesReturnsScreen() {
                 <div className="flex-1">
                   <SelectField
                     label={t("common.item")}
-                    value={line.itemId}
-                    onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, itemId: v } : l)))}
-                    options={returnableLines.map((sl) => ({ value: sl.itemId, label: sl.itemNameAr }))}
+                    value={line.sourceLineId}
+                    onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, sourceLineId: v } : l)))}
+                    options={sourceLineOptions(returnableLines.map((sl) => ({ sourceLineId: sl.lineId, itemId: sl.itemId, label: sl.itemNameAr })))}
                   />
                 </div>
                 <div className="w-[90px]">
@@ -444,18 +455,27 @@ export function SalesReturnsScreen() {
                 </Button>
               </div>
             ))}
-            <Button variant="default" disabled={returnableLines.length === 0} onClick={() => setLines((prev) => [...prev, blankLine(returnableLines[0]?.itemId ?? "", reason)])}>
+            <Button variant="default" disabled={returnableLines.length === 0 || !sourceLinesReady} onClick={() => setLines((prev) => [...prev, blankLine(nextSourceLineId(prev), reason)])}>
               {t("salesReturns.addLine")}
             </Button>
           </div>
 
+          {sourceLinesQuery.isError ? (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">
+              <span>{t("returns.sourceLinesFailed")}</span>
+              <Button size="sm" onClick={() => void sourceLinesQuery.refetch()}>
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : null}
+
           {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
 
           <div className="flex gap-2 pt-2">
-            <Button variant="default" onClick={() => submit(false)}>
+            <Button variant="default" disabled={!sourceLinesReady} onClick={() => submit(false)}>
               {t("salesReturns.saveDraft")}
             </Button>
-            <Button variant="primary" onClick={() => submit(true)}>
+            <Button variant="primary" disabled={!sourceLinesReady} onClick={() => submit(true)}>
               {t("salesReturns.saveConfirm")}
             </Button>
           </div>
@@ -500,13 +520,14 @@ export function SalesReturnsScreen() {
                     <StatusPill label={t(REASON_KEY[l.reason])} tone="neutral" />
                   </span>
                   <span className="mz-num text-ink-muted">
-                    {l.qty} × <MoneyDisplay value={num(l.unitPrice)} />
+                    {l.qty} × <MoneyDisplay value={majorOf(l.unitPrice)} />
                   </span>
                 </div>
               ))}
             </div>
             {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
             {refundNotice ? <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-success-ink">{refundNotice}</div> : null}
+            <ResubmitForApprovalAction family={ResubmitFamily.SalesReturns} document={selected} />
             {selected.status === "draft" ? (
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => confirmExisting(selected.id)}>
@@ -545,7 +566,7 @@ export function SalesReturnsScreen() {
                   </div>
                   <div className="text-[12.5px] text-ink">
                     <div className="text-[11px] font-semibold text-ink-faint">{t("salesReturns.refund.due")}</div>
-                    <MoneyDisplay value={num(selected.refundDue)} className="text-[14px] font-bold" />
+                    <MoneyDisplay value={majorOf(selected.refundDue)} className="text-[14px] font-bold" />
                   </div>
                   <Button variant="primary" disabled={refundReturn.isPending} onClick={() => refundExisting(selected.id)}>
                     {t("salesReturns.refund.submit")}
@@ -571,7 +592,7 @@ export function SalesReturnsScreen() {
                         <td className="mz-num p-[6px] text-ink">{r.voucherNo ?? r.voucherId}</td>
                         <td className="mz-num p-[6px] text-ink-muted">{r.date}</td>
                         <td className="p-[6px] text-end">
-                          <MoneyDisplay value={num(r.amount)} />
+                          <MoneyDisplay value={majorOf(r.amount)} />
                         </td>
                       </tr>
                     ))}
@@ -585,11 +606,9 @@ export function SalesReturnsScreen() {
               <AttachmentsTab entityType="sales-return" entityId={selected.id} />
             </Card>
 
-            {selected.status === "confirmed" ? (
-              <Button variant="default" onClick={() => cancelExisting(selected.id)}>
-                {t("salesReturns.void")}
-              </Button>
-            ) : null}
+            <ReturnJournalCard family={ReturnFamily.Sales} document={selected} lineLabel={itemName} />
+            <VoidReturnReasonNotice document={selected} />
+            <VoidReturnAction family={ReturnFamily.Sales} document={selected} />
           </div>
         ) : null}
     </div>
@@ -611,6 +630,7 @@ export function SalesReturnsScreen() {
           </Button>
         </Card>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<(typeof documents)[number]>
         title={t("salesReturns.title")}
         description={t("salesReturns.description")}
@@ -687,12 +707,11 @@ export function SalesReturnsScreen() {
                   { key: "cancel", label: t("common.cancel"), tone: "danger" as const, onSelect: () => void cancelExisting(d.id) },
                 ]
               : []),
+              ...resubmitRowMenuItems(resubmit, d),
             ...(d.awaitingRefund
               ? [{ key: "refund", label: t("salesReturns.refund.submit"), onSelect: () => subPage.open(d.docNo ?? d.id) }]
               : []),
-            ...(d.status === "confirmed"
-              ? [{ key: "void", label: t("salesReturns.void"), tone: "danger" as const, onSelect: () => void cancelExisting(d.id) }]
-              : []),
+            ...(mayVoid(d) ? [{ key: "void", label: t("salesReturns.void"), tone: "danger" as const, onSelect: () => setVoidTarget(d) }] : []),
           ];
           return <RowMenu items={menuItems} label={t("salesReturns.row.actionsFor", { doc: d.docNo ?? d.id })} />;
         }}
@@ -718,8 +737,7 @@ export function SalesReturnsScreen() {
           />
         }
       />
-
-
+      <VoidReturnDialog family={ReturnFamily.Sales} document={voidTarget} onClose={() => setVoidTarget(null)} />
     </div>
   );
 }

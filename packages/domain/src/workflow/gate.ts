@@ -28,11 +28,14 @@ export interface GateConfig {
   readonly steps: readonly GateStep[];
 }
 
-export type ApprovalStatus =
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "modification_requested";
+export enum ApprovalStatusCode {
+  Pending = "pending",
+  Approved = "approved",
+  Rejected = "rejected",
+  ModificationRequested = "modification_requested",
+}
+
+export type ApprovalStatus = `${ApprovalStatusCode}`;
 
 export type DecisionKind = "approve" | "reject" | "request_modification";
 
@@ -363,6 +366,11 @@ export function resubmit(
       }),
     ],
   };
+}
+
+export function reopenForModification(request: ApprovalRequest): ApprovalRequest | null {
+  if (request.status !== "rejected" && request.status !== "approved") return null;
+  return { ...request, status: "modification_requested" };
 }
 
 function appendDecision(

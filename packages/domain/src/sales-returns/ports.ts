@@ -13,6 +13,7 @@
 import type { Money, Qty } from "../money/index.js";
 
 export interface SourceSalesInvoiceLine {
+  readonly sourceLineId?: string | null;
   readonly itemId: string;
   readonly itemName: string;
   readonly qty: Qty;
@@ -23,11 +24,13 @@ export interface SourceSalesInvoiceLine {
   readonly taxAmount: Money;
   /** The VAT rate this line was charged at, carried onto the return line (D76). */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
 }
 
 export interface SourceSalesInvoice {
   readonly id: string;
   readonly number: string;
+  readonly salespersonId?: string | null;
   readonly customerId: string;
   readonly warehouseId: string;
   readonly date: string;

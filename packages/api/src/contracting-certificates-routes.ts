@@ -11,7 +11,6 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   ProgressCertificateNotFoundError,
-  VatPeriodAlreadyFiledError,
   type CertificateComputation,
   type CertificateMaterialLine,
   type CertificateServiceDeps,
@@ -258,8 +257,7 @@ function handleDomainError(c: Context, err: unknown) {
    */
   if (
     err instanceof PeriodNotOpenForPostingError ||
-    err instanceof NoFiscalPeriodForDateError ||
-    err instanceof VatPeriodAlreadyFiledError
+    err instanceof NoFiscalPeriodForDateError
   ) {
     return c.json({ error: (err as { code?: string }).code ?? "PERIOD_REFUSED", message: err.message }, 409);
   }

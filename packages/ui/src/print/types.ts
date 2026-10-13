@@ -211,11 +211,14 @@ export interface PrintDocumentLine {
   unitPrice: number;
   discount?: number;
   taxPercent?: number;
+  taxName?: string;
   taxAmount?: number;
   lineTotal: number;
 }
 
 export interface PrintTaxBreakdownRow {
+  /** INVARIANT: unique per row. Two rates may share a label and a percent, so neither identifies a row. */
+  key?: string;
   label: string;
   rate?: number;
   amount: number;

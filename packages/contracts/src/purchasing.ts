@@ -3,6 +3,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { InvoiceDocumentKind } from "./invoice-document-kind.js";
 
 /**
  * Wire contracts for the purchase chain (docs/archive/catalog/02): أوامر الشراء →
@@ -152,6 +153,7 @@ export const purchaseInvoiceLineSchema = z.object({
   qty: decimalString,
   unitCost: decimalString,
   taxRatePercent: z.number(),
+  taxRateId: z.string().nullable(),
   batchNo: z.string().nullable(),
   expiryDate: z.string().nullable(),
   /** فئة التكلفة — only meaningful with the header's `projectId` (D-01). */
@@ -160,6 +162,7 @@ export const purchaseInvoiceLineSchema = z.object({
 
 export const purchaseInvoiceSchema = z.object({
   id: z.string().min(1),
+  documentKind: z.nativeEnum(InvoiceDocumentKind).optional(),
   number: z.string().min(1),
   supplierId: z.string().min(1),
   date: isoDate,
@@ -204,6 +207,7 @@ export const createPurchaseInvoiceLineSchema = z.object({
   qty: positiveDecimalString,
   unitCost: positiveDecimalString,
   taxRatePercent: z.number().min(0).optional(),
+  taxRateId: z.string().min(1).nullish(),
   batchNo: z.string().min(1).nullable().optional(),
   expiryDate: isoDate.nullable().optional(),
   costCategory: costCategorySchema.nullish(),

@@ -14,9 +14,15 @@
  */
 import type { EtaPrevalidationFinding } from "./prevalidate.js";
 
-export type EtaDocumentType = "invoice" | "credit_note" | "debit_note" | "receipt";
+export enum EtaDocumentTypeCode {
+  Invoice = "invoice",
+  CreditNote = "credit_note",
+  DebitNote = "debit_note",
+  Receipt = "receipt",
+}
+export type EtaDocumentType = `${EtaDocumentTypeCode}`;
 
-export enum EtaSubmissionState {
+export enum EtaSubmissionStatusCode {
   Ready = "ready",
   PendingSignature = "pending_signature",
   Submitted = "submitted",
@@ -24,8 +30,26 @@ export enum EtaSubmissionState {
   Error = "error",
   Excluded = "excluded",
 }
+export type EtaSubmissionStatus = `${EtaSubmissionStatusCode}`;
 
-export type EtaSubmissionStatus = `${EtaSubmissionState}`;
+export enum EtaRequeueMode {
+  Never = "never",
+  OnRequest = "on_request",
+  Automatic = "automatic",
+}
+
+// INVARIANT: the ONE list of which queued documents may be rebuilt. A sent or
+// accepted document is evidence of what was filed and is never rebuilt. An
+// excluded one is rebuilt only when a user asks for it by name — nothing that
+// happens to its source document may put it back in the queue.
+export const ETA_REQUEUE_MODE: Readonly<Record<EtaSubmissionStatusCode, EtaRequeueMode>> = {
+  [EtaSubmissionStatusCode.Ready]: EtaRequeueMode.Automatic,
+  [EtaSubmissionStatusCode.PendingSignature]: EtaRequeueMode.Automatic,
+  [EtaSubmissionStatusCode.Error]: EtaRequeueMode.Automatic,
+  [EtaSubmissionStatusCode.Excluded]: EtaRequeueMode.OnRequest,
+  [EtaSubmissionStatusCode.Submitted]: EtaRequeueMode.Never,
+  [EtaSubmissionStatusCode.Accepted]: EtaRequeueMode.Never,
+};
 
 export interface EtaSubmissionStatusDefinition {
   readonly code: EtaSubmissionStatus;

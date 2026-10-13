@@ -1,3 +1,4 @@
+import { customerTaxProfileFrom } from "./customer-tax-profile.js";
 import { Hono, type Context } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
@@ -32,6 +33,8 @@ import {
   type LabelLayoutRepository,
   type Entitlements,
   type TaxRateRepository,
+  type TaxRateUsage,
+  ASSUME_TAX_RATE_REFERENCED,
   type CostCenterRepository,
   type TreasuryAccountRepository,
   type FiscalPeriodRepository,
@@ -68,7 +71,10 @@ import {
   type HistoricalSalesImportGlAccounts,
   type TenantSettings,
   createDefaultSettings,
+  salesTaxPolicySource,
+  type SalesTaxPolicySource,
   reverseJournalEntry,
+  createJournalTaxTagPort,
   type DocumentService,
   type LandedCostService,
   type PurchaseInvoiceLookupPort,
@@ -92,7 +98,6 @@ import {
   type AssetCategoryRepository,
   type AssetRepository,
   VoucherService,
-  SalesInvoiceService,
   type ApprovalRequestRecord,
   type GateableActionType,
   MODULE_CATALOG,
@@ -115,6 +120,7 @@ import { createSettingsRoutes } from "./settings-routes.js";
 import { tenantTimeZoneMiddleware } from "./tenant-day.js";
 import { fiscalPeriodsMiddleware } from "./posting-refusal.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
+import { journalRefusalResponse, postingRefusalResponse } from "./posting-refusal.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
 import {
@@ -146,11 +152,12 @@ import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
+import { buildSalesInvoiceService } from "./sales-invoice-service.js";
 import { createSalesInvoiceQuota } from "./plan-quota-wiring.js";
 import { createPlanUsageRoutes } from "./plan-usage-routes.js";
-import { postingRefusalResponse } from "./posting-refusal.js";
 import { planLocationsBinding } from "./plan-locations.js";
 import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
+import type { ReturnJournalTaxPort } from "./return-journal-tax.js";
 import { createPurchaseReturnsRoutes } from "./purchase-returns-routes.js";
 import { createLandedCostsRoutes } from "./landed-costs-routes.js";
 import { createInstallmentsRoutes, type InstallmentsRoutesDeps } from "./installments-routes.js";
@@ -402,6 +409,7 @@ export interface CreateAppOptions {
   readonly taxGroupRepo?: TaxGroupRepository;
   /** Mounts `/tax-rates` (docs/archive/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
   readonly taxRateRepo?: TaxRateRepository;
+  readonly taxRateUsage?: TaxRateUsage;
   /** Mounts `/cost-centers` (docs/archive/catalog/04 "مراكز التكلفة") when present — omit it for no `/cost-centers` route. */
   readonly costCenterRepo?: CostCenterRepository;
   /** Mounts `/treasury-accounts` (docs/archive/catalog/04 "حسابات الخزينة") when present — omit it for no `/treasury-accounts` route. */
@@ -474,7 +482,7 @@ export interface CreateAppOptions {
    * exposure via `createSalesInvoiceCustomerExposureHook`) — omit either
    * store to get exactly today's behaviour (no credit check at all).
    */
-  readonly salesInvoices?: SalesInvoiceRoutesDeps;
+  readonly salesInvoices?: SalesInvoiceAppDeps;
   /**
    * Mounts the historical sales-document import (docs/archive/catalog/01 §"استيراد
    * فواتير سابقة" / §"استيراد مرتجعات سابقة") under `/sales/historical-import`
@@ -676,6 +684,8 @@ export interface CreateAppOptions {
     readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
     readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
     readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
+    readonly taxDependents?: PurchasesRoutesDeps["taxDependents"];
+    readonly taxRates?: PurchasesRoutesDeps["taxRates"];
     readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
     readonly currencyCheck?: CurrencyCheck;
     /** Backs `POST /purchases/invoices/:id/payments`; omit it and that route answers 503. */
@@ -782,6 +792,7 @@ export interface CreateAppOptions {
     readonly invoices?: SalesInvoiceLookupPort;
     /** Treasury seam behind «استرداد للعميل» — without it the refund route 503s instead of faking a state change (R3.9). */
     readonly refunds?: SalesReturnRefundPort;
+    readonly journalTax?: ReturnJournalTaxPort<SalesReturnLine>;
   };
   /** Mounts `/purchase-returns` (docs/archive/catalog/02 §"مرتجعات المشتريات") when present — mirrors `salesReturns`. */
   readonly purchaseReturns?: {
@@ -789,6 +800,7 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
     /** Lets the server derive the returnable quantity rather than trusting the client's. */
     readonly invoices?: PurchaseInvoiceLookupPort;
+    readonly journalTax?: ReturnJournalTaxPort<PurchaseReturnLine>;
   };
   /**
    * Mounts `/landed-costs` (docs/archive/catalog/02 §"التكاليف الإضافية") when
@@ -1108,6 +1120,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         // (B-2, D241) — a second, screen-only posting path is exactly the bug
         // this defect was.
         options.customerOpeningBalances,
+        options.taxRateRepo,
       ),
     );
   }
@@ -1125,7 +1138,14 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.taxRateRepo) {
-    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, resolveAuth, options.auditSink));
+    app.route("/tax-rates", createTaxRatesRoutes(
+        options.taxRateRepo,
+        resolveAuth,
+        options.taxRateUsage ?? ASSUME_TAX_RATE_REFERENCED,
+        options.auditSink,
+        options.settingsStore ? salesTaxPolicySource(options.settingsStore) : undefined,
+      ),
+    );
     if (options.taxGroupRepo) {
       app.route("/tax-groups", createTaxGroupsRoutes(options.taxGroupRepo, options.taxRateRepo, resolveAuth));
     }
@@ -1220,92 +1240,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       app.route("/field/vans", createVansRoutes(options.fieldSales.vans, resolveAuth, options.fieldSales.masterData));
     }
   }
-  if (options.salesInvoices) {
-    const salesInvoices = options.salesInvoices;
-    // Auto-wire credit control (docs/archive/catalog/01/09 §"الرقابة الائتمانية") when
-    // the caller supplied the tenant-settings + customer stores but didn't
-    // already hand-wire `creditControl` themselves.
-    const creditControl =
-      salesInvoices.creditControl ??
-      (options.settingsStore && options.customerStore
-        ? {
-            exposure: createSalesInvoiceCustomerExposureHook(salesInvoices.repo),
-            getCreditLimit: async (customerId: string) => {
-              const customer = await options.customerStore?.findById(customerId);
-              return customer?.creditLimit ?? Money.zero();
-            },
-            getPolicy: async () => {
-              const settings = await options.settingsStore?.get();
-              return {
-                enabled: settings?.creditControlEnabled ?? false,
-                mode: settings?.creditControlMode ?? "WARNING",
-              };
-            },
-          }
-        : undefined);
-    // Auto-wire promotion evaluation on confirm when the composition has a
-    // promotion store but didn't hand-wire the hook itself — otherwise a
-    // tenant with promotions configured would silently never apply one.
-    const promotions =
-      salesInvoices.promotions ??
-      (options.promotionRepo
-        ? createSalesInvoicePromotionHook(options.promotionRepo, {
-            categoryOfItem: async (itemId: string) => (await options.items?.repo.findById(itemId))?.categoryId ?? null,
-          })
-        : undefined);
-    app.route(
-      "/sales-invoices",
-      createSalesInvoicesRoutes(
-        {
-          ...salesInvoices,
-          creditControl,
-          promotions,
-          // DEC-31 rule 6 — the monthly invoice quota, counted from the stored
-          // rows of the tenant's own calendar month and re-counted inside the
-          // write transaction. Auto-wired so a composition cannot mount the
-          // create route with the limit quietly missing.
-          quota:
-            salesInvoices.quota ??
-            createSalesInvoiceQuota(salesInvoices.repo, (fn) => uow.transaction(fn)),
-          // `view_own` narrows on `salespersonId`, which holds an Employee id.
-          // Without this port it would be compared against a user id and match
-          // nothing, so a real rep would see no invoices at all (D147).
-          users: salesInvoices.users ?? uow.users,
-          returns: salesInvoices.returns ?? options.salesReturns?.service,
-          // Auto-wire the tenant's VAT rules (§"الضريبة") the same way credit
-          // control is: a draft is stamped with the mode in force when it was
-          // raised, so changing the setting never restates a posted invoice.
-          currencyCheck:
-            salesInvoices.currencyCheck ??
-            (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),
-          // Without this a permitted foreign currency still posts at par: the
-          // currency check only decides whether the code is allowed, never what
-          // it is worth (D24).
-          exchangeRates: salesInvoices.exchangeRates ?? options.exchangeRateRepo,
-          taxPolicy:
-            salesInvoices.taxPolicy ??
-            (options.settingsStore
-              ? async () => {
-                  const settings = (await options.settingsStore!.get()) ?? createDefaultSettings();
-                  return {
-                    enabled: settings.taxEnabled,
-                    defaultRatePercent: settings.defaultTaxRate,
-                    inclusive: settings.taxCalculation === "INCLUSIVE",
-                  };
-                }
-              : undefined),
-          discountPolicy:
-            salesInvoices.discountPolicy ??
-            (options.settingsStore
-              ? async () => {
-                  const settings = (await options.settingsStore!.get()) ?? createDefaultSettings();
-                  return { maxLineDiscountPercent: settings.maxLineDiscountPercent };
-                }
-              : undefined),
-        },
-        resolveAuth,
-      ),
-    );
+  const salesTaxPolicy = salesTaxPolicyOf(options);
+  const salesInvoiceWiring = wireSalesInvoices(options, uow);
+  if (salesInvoiceWiring) {
+    app.route("/sales-invoices", createSalesInvoicesRoutes(salesInvoiceWiring, resolveAuth));
   }
   if (options.salesHistoricalImport) {
     app.route(
@@ -1344,20 +1282,17 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     const salesQuotes = options.salesQuotes;
     // Auto-wire "إنشاء من عرض سعر" (convert to invoice) from the salesInvoices
     // deps when both are supplied and the caller didn't already set it.
-    const invoice =
-      salesQuotes.invoice ??
-      (options.salesInvoices
-        ? {
-            repo: options.salesInvoices.repo,
-            numbering: options.salesInvoices.numbering,
-            gl: options.salesInvoices.gl,
-            stock: options.salesInvoices.stock,
-            quota:
-              options.salesInvoices.quota ??
-              createSalesInvoiceQuota(options.salesInvoices.repo, (fn) => uow.transaction(fn)),
-          }
-        : undefined);
-    app.route("/sales-quotes", createSalesQuotesRoutes({ ...salesQuotes, invoice }, resolveAuth));
+    const invoice = salesQuotes.invoice ?? salesInvoiceWiring;
+    app.route("/sales-quotes", createSalesQuotesRoutes(
+        {
+          ...salesQuotes,
+          taxRates: salesQuotes.taxRates ?? options.taxRateRepo,
+          customerTax: salesQuotes.customerTax ?? (options.customerStore ? customerTaxProfileFrom(options.customerStore) : undefined),
+          taxPolicy: salesQuotes.taxPolicy ?? salesTaxPolicy,
+          invoice,
+        },
+        resolveAuth,
+      ));
   }
   if (options.salesReturns) {
     app.route(
@@ -1367,13 +1302,15 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         (options.salesReturns.resolveAuthContext ?? resolveAuth),
         options.salesReturns.invoices,
         options.salesReturns.refunds,
+        async (userId) => (await uow.users.findById(userId))?.employeeId ?? null,
+        options.salesReturns.journalTax,
       ),
     );
   }
   if (options.purchaseReturns) {
     app.route(
       "/purchase-returns",
-      createPurchaseReturnsRoutes(options.purchaseReturns.service, (options.purchaseReturns.resolveAuthContext ?? resolveAuth), options.purchaseReturns.invoices),
+      createPurchaseReturnsRoutes(options.purchaseReturns.service, (options.purchaseReturns.resolveAuthContext ?? resolveAuth), options.purchaseReturns.invoices, options.purchaseReturns.journalTax),
     );
   }
   if (options.landedCosts) {
@@ -1511,6 +1448,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               currency: l.currency ?? null,
               fxRate: l.fxRate ?? null,
               taxRatePercent: l.taxRatePercent ?? null,
+              taxRateId: l.taxRateId ?? null,
               projectId: l.projectId ?? null,
               costCategory: l.costCategory ?? null,
               branchId: l.branchId ?? null,
@@ -1561,6 +1499,23 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // The same boundary the confirm uses, for every other purchase action:
           // the audit row and the writes it describes commit together.
           transactor: { transaction: (fn) => purchases.gl.ledger.transaction(fn) },
+          // INVARIANT: the SAME deterministic entry ids the posting adapters
+          // above and the historical import use.
+          taxTags: {
+            retagUnnamedTaxRate: async (invoiceId, taxRatePercent, taxRateId, expected) => {
+              const tags = createJournalTaxTagPort({ ledger: purchases.gl.ledger, vatFilings: purchases.gl.vatFilings });
+              const posted = await tags.retagUnnamedTaxRate(`PI-JE:${invoiceId}`, taxRatePercent, taxRateId, expected);
+              const imported = await tags.retagUnnamedTaxRate(`HIST-PI-JE:${invoiceId}`, taxRatePercent, taxRateId, expected);
+              return posted + imported;
+            },
+            nameChosenLines: async (invoiceId, lineIndexes, taxRatePercent, taxRateId, expected) => {
+              const tags = createJournalTaxTagPort({ ledger: purchases.gl.ledger, vatFilings: purchases.gl.vatFilings });
+              const entryId = (await purchases.gl.ledger.findById(`PI-JE:${invoiceId}`)) ? `PI-JE:${invoiceId}` : `HIST-PI-JE:${invoiceId}`;
+              return tags.nameChosenLines(entryId, lineIndexes, taxRatePercent, taxRateId, expected);
+            },
+          },
+          postedJournalLines: async (invoiceId) =>
+            ((await purchases.gl.ledger.findById(`PI-JE:${invoiceId}`)) ?? (await purchases.gl.ledger.findById(`HIST-PI-JE:${invoiceId}`)))?.lines ?? null,
           glReverse: purchases.layers ? glReversePort : undefined,
           landedCostsStandingOn: purchases.landedCostsStandingOn,
           releaseRevaluationShare: purchases.releaseRevaluationShare,
@@ -1574,6 +1529,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           pay: purchases.pay,
           settlementPreview: purchases.settlementPreview,
           resolveTaxRate: purchases.resolveTaxRate,
+          taxDependents: purchases.taxDependents,
+          taxRates: purchases.taxRates ?? options.taxRateRepo,
           currencyCheck:
             purchases.currencyCheck ?? (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),
           autoBatchNo:
@@ -1670,7 +1627,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.stockAdjustments) {
     app.route(
       "/inventory/stock-adjustments",
-      createStockAdjustmentsRoutes(options.stockAdjustments.service, (options.stockAdjustments.resolveAuthContext ?? resolveAuth), options.stockAdjustments.audit),
+      createStockAdjustmentsRoutes(options.stockAdjustments.service, (options.stockAdjustments.resolveAuthContext ?? resolveAuth)),
     );
   }
   if (options.stockTransfers) {
@@ -1772,7 +1729,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.printTemplateConfig) {
     app.route(
       "/print-template-config",
-      createPrintTemplateConfigRoutes(options.printTemplateConfig, (options.printTemplateConfig.resolveAuthContext ?? resolveAuth) ?? resolveAuth),
+      createPrintTemplateConfigRoutes(
+        { repo: options.printTemplateConfig.repo, settings: options.settingsStore },
+        (options.printTemplateConfig.resolveAuthContext ?? resolveAuth) ?? resolveAuth,
+      ),
     );
   }
   if (options.dataMigration) {
@@ -1804,7 +1764,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createWorkflowRoutes(
         {
           ...options.workflow,
-          heldDocuments: options.workflow.heldDocuments ?? buildHeldDocumentResolver(options),
+          heldDocuments: options.workflow.heldDocuments ?? buildHeldDocumentResolver(options, salesInvoiceWiring),
           audit: options.workflow.audit ?? options.auditSink,
           // An approval step may only name a role that exists, so the code an
           // approval is matched on can never be freed and re-taken.
@@ -1833,7 +1793,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
    * JSON body in the shape every client already parses.
    */
   app.onError((err, c) => {
-    const refusal = postingRefusalResponse(c, err);
+    const refusal = postingRefusalResponse(c, err) ?? journalRefusalResponse(c, err);
     if (refusal) return refusal;
     try {
       console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
@@ -1865,21 +1825,94 @@ export type App = ReturnType<typeof createApp>;
  * draft. Only the action types whose documents this app actually mounts are
  * resolvable; anything else decides the request alone.
  */
-function buildHeldDocumentResolver(options: CreateAppOptions) {
+// INVARIANT: the ONE place the app resolves the tenant's VAT switch for a
+// sale. The invoice routes, the quote routes (and their conversion) and the
+// approval of a held invoice all read it from here.
+function salesTaxPolicyOf(options: CreateAppOptions): SalesTaxPolicySource {
+  return options.salesInvoices?.taxPolicy ?? salesTaxPolicySource(options.settingsStore ?? DEFAULT_SETTINGS_SOURCE);
+}
+
+const DEFAULT_SETTINGS_SOURCE = { get: async () => null };
+const NO_TAX_RATES = { list: async () => [] };
+
+export type SalesInvoiceAppDeps = Omit<SalesInvoiceRoutesDeps, "taxPolicy" | "taxRates"> & Partial<Pick<SalesInvoiceRoutesDeps, "taxPolicy" | "taxRates">>;
+
+// INVARIANT: the sales-invoice wiring is completed ONCE. The invoice routes, a
+// quote's conversion and the approval of a held invoice are all handed this
+// same object, so a dependency auto-wired for one of them is wired for all.
+function wireSalesInvoices(options: CreateAppOptions, uow: UnitOfWork): SalesInvoiceRoutesDeps | undefined {
+  const salesInvoices = options.salesInvoices;
+  if (!salesInvoices) return undefined;
+  const settingsStore = options.settingsStore;
+  const customerStore = options.customerStore;
+  const creditControl =
+    salesInvoices.creditControl ??
+    (settingsStore && customerStore
+      ? {
+          exposure: createSalesInvoiceCustomerExposureHook(salesInvoices.repo),
+          getCreditLimit: async (customerId: string) => (await customerStore.findById(customerId))?.creditLimit ?? Money.zero(),
+          getPolicy: async () => {
+            const settings = await settingsStore.get();
+            return { enabled: settings?.creditControlEnabled ?? false, mode: settings?.creditControlMode ?? "WARNING" };
+          },
+        }
+      : undefined);
+  const promotions =
+    salesInvoices.promotions ??
+    (options.promotionRepo
+      ? createSalesInvoicePromotionHook(options.promotionRepo, {
+          categoryOfItem: async (itemId: string) => (await options.items?.repo.findById(itemId))?.categoryId ?? null,
+        })
+      : undefined);
+  return {
+    ...salesInvoices,
+    creditControl,
+    promotions,
+    quota: salesInvoices.quota ?? createSalesInvoiceQuota(salesInvoices.repo, (fn) => uow.transaction(fn)),
+    users: salesInvoices.users ?? uow.users,
+    returns: salesInvoices.returns ?? options.salesReturns?.service,
+    currencyCheck: salesInvoices.currencyCheck ?? (settingsStore ? createCurrencyCheck(settingsStore) : undefined),
+    exchangeRates: salesInvoices.exchangeRates ?? options.exchangeRateRepo,
+    taxRates: salesInvoices.taxRates ?? options.taxRateRepo ?? NO_TAX_RATES,
+    customerTax: salesInvoices.customerTax ?? (customerStore ? customerTaxProfileFrom(customerStore) : undefined),
+    taxPolicy: salesTaxPolicyOf(options),
+    discountPolicy:
+      salesInvoices.discountPolicy ??
+      (settingsStore
+        ? async () => ({ maxLineDiscountPercent: ((await settingsStore.get()) ?? createDefaultSettings()).maxLineDiscountPercent })
+        : undefined),
+  };
+}
+
+const HELD_DOCUMENT_SYSTEM_ACTOR = "system";
+
+function buildHeldDocumentResolver(options: CreateAppOptions, salesInvoices: SalesInvoiceRoutesDeps | undefined) {
   const fromDocumentService = <L>(svc: DocumentService<L>): HeldDocumentActions => ({
     heldRequestId: async (docId) => (await svc.findById(docId))?.workflowRequestId ?? null,
     confirm: async (docId, actor) => {
       await svc.confirm(docId, { actor });
     },
-    returnToDraft: async (docId) => {
-      await svc.returnToDraft(docId);
+    returnToDraft: async (docId, actor) => {
+      await svc.returnToDraft(docId, { actor });
     },
   });
 
   const actions: Partial<Record<GateableActionType, HeldDocumentActions>> = {};
   if (options.salesReturns) actions.SALES_RETURN_CONFIRM = fromDocumentService(options.salesReturns.service);
   if (options.purchaseReturns) actions.PURCHASE_RETURN_CONFIRM = fromDocumentService(options.purchaseReturns.service);
-  if (options.landedCosts) actions.PURCHASE_LANDED_COST_CONFIRM = fromDocumentService(options.landedCosts.documents);
+  if (options.landedCosts) {
+    const landedCosts = options.landedCosts;
+    actions.PURCHASE_LANDED_COST_CONFIRM = {
+      ...fromDocumentService(landedCosts.documents),
+      // INVARIANT: a landed cost posts through LandedCostService — the plain
+      // document confirm books the entry and leaves the cost layers where they were.
+      confirm: async (docId, actor) => {
+        await landedCosts.service.confirm(docId, { actor });
+      },
+    };
+  }
+  if (options.stockAdjustments) actions.INVENTORY_ADJUSTMENT_CONFIRM = fromDocumentService(options.stockAdjustments.service);
+  if (options.stockTransfers) actions.INVENTORY_TRANSFER_CONFIRM = fromDocumentService(options.stockTransfers.service);
   if (options.vouchers) {
     const vouchers = options.vouchers;
     actions.TREASURY_VOUCHER_CONFIRM = {
@@ -1887,20 +1920,19 @@ function buildHeldDocumentResolver(options: CreateAppOptions) {
       confirm: async (docId, actor) => {
         await new VoucherService({ ...vouchers, actor }).confirmVoucher(docId);
       },
-      returnToDraft: async (docId) => {
-        await new VoucherService(vouchers).returnVoucherToDraft(docId);
+      returnToDraft: async (docId, actor) => {
+        await new VoucherService(vouchers).returnVoucherToDraft(docId, { actor });
       },
     };
   }
-  if (options.salesInvoices) {
-    const invoices = options.salesInvoices;
+  if (salesInvoices) {
     actions.SALES_INVOICE_CONFIRM = {
-      heldRequestId: async (docId) => (await new SalesInvoiceService(invoices).findById(docId))?.workflowRequestId ?? null,
+      heldRequestId: async (docId) => (await salesInvoices.repo.findById(docId))?.workflowRequestId ?? null,
       confirm: async (docId, actor) => {
-        await new SalesInvoiceService({ ...invoices, actor }).confirm(docId);
+        await buildSalesInvoiceService(salesInvoices, actor).confirm(docId);
       },
       returnToDraft: async (docId) => {
-        await new SalesInvoiceService(invoices).returnToDraft(docId);
+        await buildSalesInvoiceService(salesInvoices, HELD_DOCUMENT_SYSTEM_ACTOR).returnToDraft(docId);
       },
     };
   }

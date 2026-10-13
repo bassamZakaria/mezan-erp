@@ -1,21 +1,37 @@
 import {
+  isStandingReturn,
   buildEtaPayload,
   buildPosReceiptInput,
   buildRefundReceiptInput,
   convertToBase,
   DuplicateEtaSubmissionError,
+  ETA_REQUEUE_MODE,
+  EtaDocumentTypeCode,
+  EtaRequeueMode,
+  EtaSubmissionStatusCode,
   EtaDeviceSerialNotRegisteredError,
   EtaDeviceSerialUnknownError,
+  EtaReceiptNotASupplyError,
+  isRetentionRelease,
   EtaOfflineError,
   EtaOriginalReceiptNotFoundError,
   etaReceiptIssuedAt,
   extend as extendQtyByPrice,
-  findLineTaxRate,
+  resolveLineTaxRate,
+  isZeroRatedLineUnclassified,
   Money,
   prevalidateEtaInvoice,
   resolveEtaVatSubType,
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
+  TaxClassificationAlreadyFiledError,
+  TaxClassificationFiledUnreadableError,
+  TaxClassificationFilingOutcome,
+  EtaReissueWindowExpiredError,
+  EtaReceiptSourceKind,
+  type EtaSubmission,
+  type FrameworkDocument,
+  type ReturnTaxFilingPort,
   type CustomerRepository,
   type DocumentEventPublisher,
   type DocumentRepository,
@@ -34,6 +50,7 @@ import {
   type SalesInvoice,
   type SalesInvoiceLine,
   type SalesInvoiceRepository,
+  type SalesInvoiceTaxFilingPort,
   type SalesReturnLine,
   type TaxRateRepository,
   type VoucherPaymentMethod,
@@ -83,6 +100,73 @@ export interface EtaReceiptIssuerDeps {
   readonly retryMs?: number;
 }
 
+export interface EtaReceiptCorrection {
+  readonly outcome: TaxClassificationFilingOutcome;
+  readonly message?: string;
+}
+
+const ARABIC_TEXT = /[\u0600-\u06FF]/;
+const RECEIPT_FAILURE_FALLBACK = "راجع تسجيل جهاز الإيصالات واتصاله بالمنظومة ثم أعد المحاولة.";
+
+function receiptFailureReason(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  return ARABIC_TEXT.test(message) ? message : RECEIPT_FAILURE_FALLBACK;
+}
+
+// INVARIANT: the classification has already committed when this runs, so a
+// failure here never undoes it — but it is REPORTED. Swallowing it told the
+// accountant the receipt was handled while the authority still held nothing.
+export function createAfterTaxClassified(deps: {
+  readonly receipts: Pick<EtaReceiptIssuer, "correctInvoiceReceiptAfterClassification" | "reissueReturnReceipt" | "issueReturnReceipt" | "scheduleSubmission">;
+  readonly returnsOf: (invoiceId: string) => Promise<readonly { readonly id: string; readonly docNo: string | null; readonly status: string; readonly reversesDocId: string | null }[]>;
+  readonly log?: (message: string, error: unknown) => void;
+}): (invoiceId: string) => Promise<EtaReceiptCorrection | null> {
+  const log = deps.log ?? ((message: string, error: unknown) => console.error(message, error));
+  return async (invoiceId) => {
+    const failures: string[] = [];
+    let correction: EtaReceiptCorrection | null = null;
+    try {
+      correction = await deps.receipts.correctInvoiceReceiptAfterClassification(invoiceId);
+    } catch (error) {
+      log(`[eta] could not issue the receipt of ${invoiceId} after its tax was classified`, error);
+      failures.push(receiptFailureReason(error));
+    }
+    for (const returned of await deps.returnsOf(invoiceId)) {
+      if (!isStandingReturn(returned)) continue;
+      try {
+        const refund = (await deps.receipts.reissueReturnReceipt(returned.id)) ?? (await deps.receipts.issueReturnReceipt(returned.id));
+        if (refund) deps.receipts.scheduleSubmission();
+      } catch (error) {
+        log(`[eta] could not issue the refund receipt of ${returned.id} after its tax was classified`, error);
+        failures.push(`تعذّر إصدار إيصال المرتجع ${returned.docNo ?? returned.id}: ${receiptFailureReason(error)}`);
+      }
+    }
+    if (failures.length === 0) return correction;
+    return { outcome: TaxClassificationFilingOutcome.ReissueFailed, message: [correction?.message, ...failures].filter(Boolean).join(" ") };
+  };
+}
+
+const PENDING_WITH_AUTHORITY: ReadonlySet<string> = new Set([
+  EtaSubmissionStatusCode.Ready,
+  EtaSubmissionStatusCode.PendingSignature,
+  EtaSubmissionStatusCode.Submitted,
+]);
+
+// INVARIANT: a receipt and its corrections are ONE chain — `N`, `N-R2`,
+// `N-R3`… — and only its LAST link says where the sale stands with the
+// authority. A rejection is corrected once: while the correction is the last
+// link, the rejected receipt before it is history, not something to reissue.
+export async function latestReceiptOf(eta: Pick<EtaService, "findByInternalId">, baseNumber: string): Promise<EtaSubmission | null> {
+  let latest = await eta.findByInternalId(baseNumber);
+  if (!latest) return null;
+  for (let n = 2; ; n += 1) {
+    const candidate = `${baseNumber}-R${n}`;
+    const next = await eta.findByInternalId(candidate);
+    if (!next || next.internalId !== candidate) return latest;
+    latest = next;
+  }
+}
+
 export interface EtaReceiptIssuer {
   /** إصدار إيصال لفاتورة بيع مستهلك. Null for a B2B sale (that is an e-invoice) or a document that is not live. */
   issueInvoiceReceipt(invoiceId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
@@ -98,6 +182,7 @@ export interface EtaReceiptIssuer {
   reissueInvoiceReceipt(invoiceId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
   /** The refund-receipt mirror of {@link reissueInvoiceReceipt}, for a confirmed consumer return's rejected receipt. */
   reissueReturnReceipt(returnId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
+  correctInvoiceReceiptAfterClassification(invoiceId: string): Promise<EtaReceiptCorrection | null>;
   /**
    * Reports queued receipts when الإرسال التلقائي is on; one run at a time.
    * While a device is offline the run repeats every `retryMs`, so the queue
@@ -111,8 +196,6 @@ export interface EtaReceiptIssuer {
   settle(): Promise<void>;
   /** Whether a submission run is in flight right now. */
   pending(): boolean;
-  /** Whether an e-receipt exists for this invoice — a receipted sale cannot be voided, only returned. */
-  hasInvoiceReceipt(invoiceId: string): Promise<boolean>;
   /** Cancels a pending retry; the backend's close() calls it. */
   stop(): void;
 }
@@ -191,7 +274,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
    * the confirm that produced it has already posted and will not be undone.
    */
   async function withGap<T>(
-    gap: { readonly internalId: string; readonly docType: "invoice" | "return"; readonly docId: string; readonly issuedAt: string },
+    gap: { readonly internalId: string; readonly docType: EtaReceiptSourceKind; readonly docId: string; readonly issuedAt: string },
     issue: () => Promise<T>,
   ): Promise<T> {
     try {
@@ -282,13 +365,14 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
     async issueInvoiceReceipt(invoiceId, options = {}) {
       const invoice = await deps.invoices.findById(invoiceId);
       if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
+      if (isRetentionRelease(invoice)) throw new EtaReceiptNotASupplyError(invoice.docNo ?? invoice.id);
       const { b2b, buyer } = await buyerOf(invoice.customerId);
       if (b2b) return null;
       const receiptNo = invoice.docNo ?? invoice.id;
       const reprint = await deps.eta.receiptForPrint(receiptNo);
       if (reprint) return { receiptNo: reprint.receiptNo, uuid: reprint.uuid, qrValue: reprint.qrValue };
       const issuedAt = invoice.confirmedAt ?? now();
-      return withGap({ internalId: receiptNo, docType: "invoice", docId: invoice.id, issuedAt }, async () => {
+      return withGap({ internalId: receiptNo, docType: EtaReceiptSourceKind.Invoice, docId: invoice.id, issuedAt }, async () => {
         const printed = await deps.eta.enqueueReceipt(
           buildPosReceiptInput({
             invoice,
@@ -315,7 +399,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
       const reprint = await deps.eta.receiptForPrint(receiptNo);
       if (reprint) return { receiptNo: reprint.receiptNo, uuid: reprint.uuid, qrValue: reprint.qrValue };
       const issuedAt = doc.confirmedAt ?? now();
-      return withGap({ internalId: receiptNo, docType: "return", docId: doc.id, issuedAt }, async () => {
+      return withGap({ internalId: receiptNo, docType: EtaReceiptSourceKind.Return, docId: doc.id, issuedAt }, async () => {
         const original = await deps.eta.findByInternalId(invoice.docNo ?? invoice.id);
         if (!original || original.documentType !== "receipt" || !original.etaUuid) {
           throw new EtaOriginalReceiptNotFoundError(invoice.docNo ?? invoice.id);
@@ -341,10 +425,11 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
     async reissueInvoiceReceipt(invoiceId, options = {}) {
       const invoice = await deps.invoices.findById(invoiceId);
       if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
+      if (isRetentionRelease(invoice)) throw new EtaReceiptNotASupplyError(invoice.docNo ?? invoice.id);
       const { b2b, buyer } = await buyerOf(invoice.customerId);
       if (b2b) return null;
       const receiptNo = invoice.docNo ?? invoice.id;
-      const rejected = await deps.eta.findByInternalId(receiptNo);
+      const rejected = await latestReceiptOf(deps.eta, receiptNo);
       // Nothing to correct unless the authority actually rejected this sale's
       // receipt — `EtaService.reissueReceipt` refuses anything else anyway,
       // but resolving it here lets the route answer 404-shaped null cleanly.
@@ -359,8 +444,31 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
         buyer,
         lookups: await lookups(invoice.lines.map((l) => l.itemId)),
       });
-      const printed = await deps.eta.reissueReceipt(receiptNo, corrected);
+      const printed = await deps.eta.reissueReceipt(rejected.internalId, corrected);
       return { receiptNo: printed.receiptNo, uuid: printed.uuid, qrValue: printed.qrValue };
+    },
+
+    async correctInvoiceReceiptAfterClassification(invoiceId) {
+      try {
+        if (await this.reissueInvoiceReceipt(invoiceId)) {
+          schedule();
+          return { outcome: TaxClassificationFilingOutcome.Reissued };
+        }
+      } catch (error) {
+        if (error instanceof EtaReissueWindowExpiredError) return { outcome: TaxClassificationFilingOutcome.ReissueRefused, message: error.message };
+        throw error;
+      }
+      const invoice = await deps.invoices.findById(invoiceId);
+      if (!invoice) return null;
+      const receiptNo = invoice.docNo ?? invoice.id;
+      const latest = await latestReceiptOf(deps.eta, receiptNo);
+      if (!latest) {
+        if (!(await this.issueInvoiceReceipt(invoiceId))) return null;
+        schedule();
+        return { outcome: TaxClassificationFilingOutcome.Issued };
+      }
+      const awaitingReissue = latest.documentType === EtaDocumentTypeCode.Receipt && latest.internalId !== receiptNo && PENDING_WITH_AUTHORITY.has(latest.status);
+      return awaitingReissue ? { outcome: TaxClassificationFilingOutcome.ReissuePending } : null;
     },
 
     async reissueReturnReceipt(returnId, options = {}) {
@@ -372,7 +480,7 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
       const { b2b, buyer } = await buyerOf(first.customerId);
       if (b2b) return null;
       const receiptNo = doc.docNo ?? doc.id;
-      const rejected = await deps.eta.findByInternalId(receiptNo);
+      const rejected = await latestReceiptOf(deps.eta, receiptNo);
       if (!rejected || rejected.documentType !== "receipt" || rejected.status !== "error") return null;
       const original = await deps.eta.findByInternalId(invoice.docNo ?? invoice.id);
       if (!original || original.documentType !== "receipt" || !original.etaUuid) {
@@ -391,14 +499,8 @@ export function createEtaReceiptIssuer(deps: EtaReceiptIssuerDeps): EtaReceiptIs
         buyer,
         lookups: await lookups(doc.lines.map((l) => l.itemId)),
       });
-      const printed = await deps.eta.reissueReceipt(receiptNo, corrected);
+      const printed = await deps.eta.reissueReceipt(rejected.internalId, corrected);
       return { receiptNo: printed.receiptNo, uuid: printed.uuid, qrValue: printed.qrValue };
-    },
-
-    async hasInvoiceReceipt(invoiceId) {
-      const invoice = await deps.invoices.findById(invoiceId);
-      if (!invoice) return false;
-      return (await deps.eta.receiptForPrint(invoice.docNo ?? invoice.id)) !== null;
     },
 
     scheduleSubmission: schedule,
@@ -480,7 +582,7 @@ export function createEtaEnqueueBridge(deps: {
       if (stopped) return;
       const task = (async () => {
         const invoice = await deps.invoices.findById(event.docId);
-        if (!invoice) return;
+        if (!invoice || isRetentionRelease(invoice)) return;
         const customer = await deps.customers.findById(invoice.customerId);
         if (!customer?.taxNumber) {
           // The confirm route issues this receipt itself, with the tender the
@@ -560,10 +662,11 @@ async function buildInvoiceEtaInputs(
     // quantity and unit price below are both per entered unit, so
     // filing the base unit code would misstate the quantity sold.
     const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
-    const taxRate = findLineTaxRate(taxRates, line.taxRatePercent);
+    const taxRate = resolveLineTaxRate(taxRates, line);
     const netTotal = (lt?.taxableBase ?? Money.zero()).toString();
     const taxAmount = (lt?.tax ?? Money.zero()).toString();
     prevalidationLines.push({
+      lineRef: line.lineId,
       itemId: line.itemId,
       itemLabel: line.itemNameAr,
       itemCode: item?.etaItemCode ?? null,
@@ -572,6 +675,7 @@ async function buildInvoiceEtaInputs(
       etaUnitCode: unitByCode.get(unitCode) ?? null,
       taxRatePercent: line.taxRatePercent,
       etaTaxSubType: taxRate?.etaSubType ?? null,
+      taxClassificationMissing: isZeroRatedLineUnclassified(taxRates, line),
       netTotal,
       taxAmount,
     });
@@ -658,7 +762,7 @@ export function createEtaInvoiceRequeueRebuilder(
   return async (submission) => {
     if (submission.documentType !== "invoice") return null;
     const invoice = await deps.invoices.findByDocNo(submission.internalId);
-    if (!invoice) return null;
+    if (!invoice || isRetentionRelease(invoice)) return null;
     const customer = await deps.customers.findById(invoice.customerId);
     if (!customer?.taxNumber) return null;
     const { enqueueInput, prevalidation } = await buildInvoiceEtaInputs(
@@ -669,6 +773,109 @@ export function createEtaInvoiceRequeueRebuilder(
     );
     const config = await deps.eta.getConfig();
     return { payload: buildEtaPayload(enqueueInput, config), prevalidation };
+  };
+}
+
+interface ReturnCreditNoteDeps {
+  readonly eta: EtaService;
+  readonly customers: Pick<CustomerRepository, "findById">;
+  readonly items: Pick<ItemRepository, "findById">;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
+  readonly branchCodes: EtaBranchCodeRepository;
+  readonly unitMappings: EtaUnitMappingRepository;
+}
+
+async function buildReturnCreditNoteInputs(
+  deps: ReturnCreditNoteDeps,
+  doc: FrameworkDocument<SalesReturnLine>,
+  issuedAt: string,
+): Promise<{ readonly enqueueInput: EtaEnqueueInput; readonly prevalidation: readonly EtaPrevalidationFinding[] } | null> {
+  const first = doc.lines[0];
+  if (!first) return null;
+  const customer = await deps.customers.findById(first.customerId);
+  if (!customer?.taxNumber) return null;
+  const config = await deps.eta.getConfig();
+  const [taxRates, branchCodes, unitMappings] = await Promise.all([deps.taxRates.list(), deps.branchCodes.list(), deps.unitMappings.list()]);
+  const unitByCode = new Map(unitMappings.map((m) => [m.unitCode, m.etaUnitCode]));
+  const lineItems = await Promise.all(doc.lines.map((line) => deps.items.findById(line.itemId)));
+
+  let totalNet = Money.zero();
+  let totalTax = Money.zero();
+  const branchCode = branchCodes[0]?.etaBranchCode ?? null;
+  const prevalidationLines: EtaPrevalidationLineInput[] = [];
+  const lines = doc.lines.map((line, index) => {
+    const item = lineItems[index] ?? null;
+    const net = extendQtyByPrice(line.qty, line.unitPrice);
+    const rate = line.taxRatePercent ?? 0;
+    const taxRate = resolveLineTaxRate(taxRates, { taxRateId: line.taxRateId, taxRatePercent: rate });
+    const unitCode = item?.baseUnitCode ?? "";
+    totalNet = totalNet.add(net);
+    totalTax = totalTax.add(line.taxAmount);
+    prevalidationLines.push({
+      itemId: line.itemId,
+      itemLabel: item?.nameAr ?? line.itemId,
+      itemCode: item?.etaItemCode ?? null,
+      itemCodeType: item?.etaCodeType ?? null,
+      unitCode,
+      etaUnitCode: unitByCode.get(unitCode) ?? null,
+      taxRatePercent: rate,
+      etaTaxSubType: taxRate?.etaSubType ?? null,
+      taxClassificationMissing: isZeroRatedLineUnclassified(taxRates, { taxRateId: line.taxRateId, taxRatePercent: rate }),
+      netTotal: net.toString(),
+      taxAmount: line.taxAmount.toString(),
+    });
+    return {
+      description: item?.nameAr ?? line.itemId,
+      itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
+      quantity: line.qty.toString(),
+      unitType: unitByCode.get(unitCode) ?? unitCode,
+      unitPrice: line.unitPrice.toString(),
+      netTotal: net.toString(),
+      taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, rate),
+      taxRate: String(rate),
+      taxAmount: line.taxAmount.toString(),
+    };
+  });
+
+  // Every line of a return belongs to one invoice (the document type
+  // enforces it), so the note references exactly that one.
+  const referenced = [...new Set(doc.lines.map((l) => l.sourceInvoiceNumber ?? l.sourceInvoiceId))];
+  const totalAmount = totalNet.add(totalTax);
+  const prevalidation = prevalidateEtaInvoice(
+    {
+      branchCode,
+      receiver: { type: "B", registrationNumber: customer.taxNumber, customerId: first.customerId },
+      lines: prevalidationLines,
+      totalNet: totalNet.toString(),
+      totalTax: totalTax.toString(),
+      totalAmount: totalAmount.toString(),
+    },
+    config,
+  );
+  return {
+    enqueueInput: {
+      internalId: doc.docNo ?? doc.id,
+      documentType: EtaDocumentTypeCode.CreditNote,
+      issueDateTime: issuedAt,
+      branchCode,
+      receiver: { registrationNumber: customer.taxNumber, name: customer.nameAr, type: "B" },
+      referencedDocumentIds: referenced,
+      lines,
+      totalNet: totalNet.toString(),
+      totalTax: totalTax.toString(),
+      totalAmount: totalAmount.toString(),
+    },
+    prevalidation,
+  };
+}
+
+export function createEtaReturnCreditNoteRebuilder(
+  deps: ReturnCreditNoteDeps,
+): (doc: FrameworkDocument<SalesReturnLine>) => Promise<{ readonly payload: unknown; readonly prevalidation: readonly EtaPrevalidationFinding[] } | null> {
+  return async (doc) => {
+    const built = await buildReturnCreditNoteInputs(deps, doc, doc.confirmedAt ?? new Date().toISOString());
+    if (!built) return null;
+    return { payload: buildEtaPayload(built.enqueueInput, await deps.eta.getConfig()), prevalidation: built.prevalidation };
   };
 }
 
@@ -684,15 +891,9 @@ export function createEtaInvoiceRequeueRebuilder(
  * ONLY sales returns. A purchase return is a credit note the SUPPLIER issues to
  * us — their filing obligation, not ours.
  */
-export function createReturnEtaEnqueueBridge(deps: {
-  readonly eta: EtaService;
+export function createReturnEtaEnqueueBridge(deps: ReturnCreditNoteDeps & {
   readonly issuer: EtaReceiptIssuer;
   readonly returns: Pick<DocumentRepository<SalesReturnLine>, "findById">;
-  readonly customers: Pick<CustomerRepository, "findById">;
-  readonly items: Pick<ItemRepository, "findById">;
-  readonly taxRates: Pick<TaxRateRepository, "list">;
-  readonly branchCodes: EtaBranchCodeRepository;
-  readonly unitMappings: EtaUnitMappingRepository;
 }): DocumentEventPublisher {
   return {
     publish(event) {
@@ -700,7 +901,7 @@ export function createReturnEtaEnqueueBridge(deps: {
       void (async () => {
         const doc = await deps.returns.findById(event.docId);
         const first = doc?.lines[0];
-        if (!doc || !first) return;
+        if (!doc || !first || !isStandingReturn(doc)) return;
         const customer = await deps.customers.findById(first.customerId);
         if (!customer?.taxNumber) {
           if (await deps.issuer.issueReturnReceipt(doc.id)) deps.issuer.scheduleSubmission();
@@ -708,87 +909,121 @@ export function createReturnEtaEnqueueBridge(deps: {
         }
         const config = await deps.eta.getConfig();
         if (!config.autoSubmitOnConfirm) return;
-
-        const [taxRates, branchCodes, unitMappings] = await Promise.all([
-          deps.taxRates.list(),
-          deps.branchCodes.list(),
-          deps.unitMappings.list(),
-        ]);
-        const unitByCode = new Map(unitMappings.map((m) => [m.unitCode, m.etaUnitCode]));
-        const lineItems = await Promise.all(doc.lines.map((line) => deps.items.findById(line.itemId)));
-
-        let totalNet = Money.zero();
-        let totalTax = Money.zero();
-        const branchCode = branchCodes[0]?.etaBranchCode ?? null;
-        const prevalidationLines: EtaPrevalidationLineInput[] = [];
-        const lines = doc.lines.map((line, index) => {
-          const item = lineItems[index] ?? null;
-          const net = extendQtyByPrice(line.qty, line.unitPrice);
-          const rate = line.taxRatePercent ?? 0;
-          const taxRate = findLineTaxRate(taxRates, rate);
-          const unitCode = item?.baseUnitCode ?? "";
-          totalNet = totalNet.add(net);
-          totalTax = totalTax.add(line.taxAmount);
-          prevalidationLines.push({
-            itemId: line.itemId,
-            itemLabel: item?.nameAr ?? line.itemId,
-            itemCode: item?.etaItemCode ?? null,
-            itemCodeType: item?.etaCodeType ?? null,
-            unitCode,
-            etaUnitCode: unitByCode.get(unitCode) ?? null,
-            taxRatePercent: rate,
-            etaTaxSubType: taxRate?.etaSubType ?? null,
-            netTotal: net.toString(),
-            taxAmount: line.taxAmount.toString(),
-          });
-          return {
-            description: item?.nameAr ?? line.itemId,
-            itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
-            quantity: line.qty.toString(),
-            unitType: unitByCode.get(unitCode) ?? unitCode,
-            unitPrice: line.unitPrice.toString(),
-            netTotal: net.toString(),
-            taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, rate),
-            taxRate: String(rate),
-            taxAmount: line.taxAmount.toString(),
-          };
-        });
-
-        // Every line of a return belongs to one invoice (the document type
-        // enforces it), so the note references exactly that one.
-        const referenced = [...new Set(doc.lines.map((l) => l.sourceInvoiceNumber ?? l.sourceInvoiceId))];
-        const totalAmount = totalNet.add(totalTax);
-        const prevalidation = prevalidateEtaInvoice(
-          {
-            branchCode,
-            receiver: { type: "B", registrationNumber: customer.taxNumber, customerId: first.customerId },
-            lines: prevalidationLines,
-            totalNet: totalNet.toString(),
-            totalTax: totalTax.toString(),
-            totalAmount: totalAmount.toString(),
-          },
-          config,
-        );
-
-        await deps.eta.enqueue(
-          {
-            internalId: doc.docNo ?? doc.id,
-            documentType: "credit_note",
-            issueDateTime: event.occurredAt,
-            branchCode,
-            receiver: { registrationNumber: customer.taxNumber, name: customer.nameAr, type: "B" },
-            referencedDocumentIds: referenced,
-            lines,
-            totalNet: totalNet.toString(),
-            totalTax: totalTax.toString(),
-            totalAmount: totalAmount.toString(),
-          },
-          prevalidation,
-        );
+        const built = await buildReturnCreditNoteInputs(deps, doc, event.occurredAt);
+        if (built) await deps.eta.enqueue(built.enqueueInput, built.prevalidation);
       })().catch((error: unknown) => {
         if (error instanceof DuplicateEtaSubmissionError) return;
         console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);
       });
+    },
+  };
+}
+
+interface FiledTaxableItem {
+  readonly subType?: unknown;
+}
+interface FiledLine {
+  readonly taxableItems?: readonly FiledTaxableItem[];
+}
+
+function filedSubTypesOf(payload: unknown, lineCount: number): readonly string[] | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const body = payload as { readonly invoiceLines?: unknown; readonly itemData?: unknown };
+  const lines = Array.isArray(body.invoiceLines) ? body.invoiceLines : Array.isArray(body.itemData) ? body.itemData : null;
+  if (!lines || lines.length !== lineCount) return null;
+  const subTypes: string[] = [];
+  for (const line of lines as readonly FiledLine[]) {
+    const subType = line.taxableItems?.[0]?.subType;
+    if (typeof subType !== "string") return null;
+    subTypes.push(subType);
+  }
+  return subTypes;
+}
+
+/**
+ * What a tax classification does to the e-document of the invoice it touched.
+ *
+ * INVARIANT: a document the authority holds — a sent or accepted e-invoice or
+ * e-receipt — keeps the classification it was filed under: the classification
+ * is allowed only when every line still declares the sub-type its FILED
+ * PAYLOAD declares, never what today's rate table would derive for it. A
+ * queued e-invoice is rebuilt from the classified invoice, which clears its
+ * finding. A REJECTED document is not filed: its classification may change the
+ * sub-type, and it is rebuilt (an e-invoice) or reissued (an e-receipt). An
+ * EXCLUDED document stays excluded.
+ */
+interface TaxedLine {
+  readonly taxRateId?: string | null;
+  readonly taxRatePercent?: number | null;
+}
+
+// INVARIANT: a document the authority holds is judged by its FILED payload. If
+// that payload cannot be read line for line, the classification is refused —
+// today's rate table is never taken as a stand-in for what was filed.
+async function assertFiledConsistent(
+  deps: { readonly taxRates: Pick<TaxRateRepository, "list"> },
+  submission: EtaSubmission,
+  documentNumber: string,
+  after: readonly TaxedLine[],
+): Promise<void> {
+  const filed = filedSubTypesOf(submission.payload, after.length);
+  if (!filed) throw new TaxClassificationFiledUnreadableError(documentNumber);
+  const taxRates = await deps.taxRates.list();
+  const declared = after.map((line) => {
+    const percent = line.taxRatePercent ?? 0;
+    return resolveEtaVatSubType(resolveLineTaxRate(taxRates, { taxRateId: line.taxRateId, taxRatePercent: percent })?.etaSubType, percent);
+  });
+  if (declared.some((subType, index) => subType !== filed[index])) throw new TaxClassificationAlreadyFiledError(documentNumber);
+}
+
+export function createSalesInvoiceTaxFiling(deps: {
+  readonly eta: EtaService;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
+  readonly rebuild: ReturnType<typeof createEtaInvoiceRequeueRebuilder>;
+}): SalesInvoiceTaxFilingPort {
+  return {
+    async reconcile({ after }) {
+      const docNo = after.docNo;
+      if (!docNo) return TaxClassificationFilingOutcome.NotQueued;
+      const submission = await latestReceiptOf(deps.eta, docNo);
+      if (!submission) return TaxClassificationFilingOutcome.NotQueued;
+      const mode = ETA_REQUEUE_MODE[submission.status];
+      if (mode === EtaRequeueMode.OnRequest) return TaxClassificationFilingOutcome.NotQueued;
+      if (mode === EtaRequeueMode.Automatic && submission.documentType === EtaDocumentTypeCode.Invoice) {
+        const rebuilt = await deps.rebuild(submission);
+        if (!rebuilt) return TaxClassificationFilingOutcome.NotQueued;
+        await deps.eta.requeue(submission.id, rebuilt);
+        return TaxClassificationFilingOutcome.Requeued;
+      }
+      if (submission.status === EtaSubmissionStatusCode.Error && submission.documentType === EtaDocumentTypeCode.Receipt) {
+        return TaxClassificationFilingOutcome.Requeued;
+      }
+      await assertFiledConsistent(deps, submission, docNo, after.lines);
+      return TaxClassificationFilingOutcome.FiledConsistent;
+    },
+  };
+}
+
+export function createSalesReturnTaxFiling(deps: {
+  readonly eta: EtaService;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
+  readonly rebuildCreditNote: (doc: FrameworkDocument<SalesReturnLine>) => Promise<{ readonly payload: unknown; readonly prevalidation: readonly EtaPrevalidationFinding[] } | null>;
+}): ReturnTaxFilingPort<SalesReturnLine> {
+  return {
+    async reconcile({ after }) {
+      const docNo = after.docNo;
+      if (!docNo) return;
+      const submission = await latestReceiptOf(deps.eta, docNo);
+      if (!submission) return;
+      const mode = ETA_REQUEUE_MODE[submission.status];
+      if (mode === EtaRequeueMode.OnRequest) return;
+      if (mode === EtaRequeueMode.Automatic && submission.documentType === EtaDocumentTypeCode.CreditNote) {
+        const rebuilt = await deps.rebuildCreditNote(after);
+        if (rebuilt) await deps.eta.requeue(submission.id, rebuilt);
+        return;
+      }
+      if (submission.status === EtaSubmissionStatusCode.Error && submission.documentType === EtaDocumentTypeCode.Receipt) return;
+      await assertFiledConsistent(deps, submission, docNo, after.lines);
     },
   };
 }

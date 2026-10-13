@@ -1,5 +1,7 @@
-import type { SalesInvoice } from "../sales-invoice.js";
-import type { SalesInvoiceListFilter, SalesInvoiceRepository } from "../ports.js";
+import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoice.js";
+import type { SalesInvoiceField, SalesInvoiceListFilter, SalesInvoiceRepository, SalesInvoiceWritePrecondition } from "../ports.js";
+
+const UNPOSTED_STATUSES: readonly SalesInvoice["status"][] = ["draft", "pending"];
 
 /** Trivial in-memory {@link SalesInvoiceRepository} for domain-layer + UI tests. */
 export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
@@ -11,6 +13,33 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
 
   async update(invoice: SalesInvoice): Promise<void> {
     this.rows.set(invoice.id, invoice);
+  }
+
+  async writeFields(next: SalesInvoice, fields: readonly SalesInvoiceField[], expected: SalesInvoiceWritePrecondition): Promise<boolean> {
+    const stored = this.rows.get(next.id);
+    if (!stored || !expected.status.includes(stored.status)) return false;
+    this.rows.set(next.id, { ...stored, ...Object.fromEntries(fields.map((field) => [field, next[field]])) });
+    return true;
+  }
+
+  async replaceUnposted(next: SalesInvoice, expected: SalesInvoiceWritePrecondition): Promise<boolean> {
+    const stored = this.rows.get(next.id);
+    if (!stored || !expected.status.includes(stored.status) || !UNPOSTED_STATUSES.includes(stored.status)) return false;
+    this.rows.set(next.id, next);
+    return true;
+  }
+
+  async nameLineTaxRate(invoiceId: string, lineIds: readonly string[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    const invoice = this.rows.get(invoiceId);
+    if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return 0;
+    let named = 0;
+    const lines = invoice.lines.map((line) => {
+      if (!lineIds.includes(line.lineId) || (line.taxRateId ?? null) !== null || line.taxRatePercent !== taxRatePercent) return line;
+      named += 1;
+      return { ...line, taxRateId };
+    });
+    this.rows.set(invoiceId, { ...invoice, lines });
+    return named;
   }
 
   async findById(id: string): Promise<SalesInvoice | null> {
@@ -27,6 +56,7 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
       .filter((inv) => (filter.status ? inv.status === filter.status : true))
       .filter((inv) => (filter.statusIn ? filter.statusIn.includes(inv.status) : true))
       .filter((inv) => (filter.customerId ? inv.customerId === filter.customerId : true))
+      .filter((inv) => (filter.sourceQuoteId ? inv.sourceQuoteId === filter.sourceQuoteId : true))
       .filter((inv) => (filter.fromDate ? inv.date >= filter.fromDate : true))
       .filter((inv) => (filter.toDate ? inv.date <= filter.toDate : true))
       .filter((inv) => (filter.branchScope ? inv.branchId == null || filter.branchScope.includes(inv.branchId) : true))

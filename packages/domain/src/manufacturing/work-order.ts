@@ -32,6 +32,7 @@
 import { Money, Qty, allocate } from "../money/index.js";
 import { extend, occurredAtFromDocumentDate, unitCostOf } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
+import { UnbookedStockVarianceError } from "../documents/errors.js";
 import { type Bom, type BomRepository, bomLineEffectiveQty, wasteAllowanceOf } from "./bom.js";
 import {
   type ManufacturingGlPosting,
@@ -600,12 +601,14 @@ export async function returnWorkOrderMaterials(
   if (lines.length === 0) throw new InvalidManufacturingDocumentError(["لا توجد مواد لإرجاعها"]);
 
   const byItem = new Map(order.materials.map((m) => [m.itemId, m]));
-  for (const l of lines) {
-    const mat = byItem.get(l.itemId);
+  const requestedByItem = new Map<string, Qty>();
+  for (const l of lines) requestedByItem.set(l.itemId, (requestedByItem.get(l.itemId) ?? Qty.zero()).add(l.qty));
+  for (const [itemId, requested] of requestedByItem) {
+    const mat = byItem.get(itemId);
     const outstanding = mat ? workOrderWipQty(order, mat) : Qty.zero();
-    if (!mat || l.qty.compare(outstanding) > 0) {
+    if (!mat || requested.compare(outstanding) > 0) {
       throw new InvalidManufacturingDocumentError([
-        `لا يمكن إرجاع ${l.qty.toString()} من "${l.itemId}"؛ القائم فقط ${outstanding.toString()}`,
+        `لا يمكن إرجاع ${requested.toString()} من "${itemId}"؛ القائم فقط ${outstanding.toString()}`,
       ]);
     }
   }
@@ -623,12 +626,8 @@ export async function returnWorkOrderMaterials(
     occurredAt: stockMomentOf(deps, occurredAt),
   });
 
-  const returnedQtyByItem = new Map<string, Qty>();
-  for (const l of lines) {
-    returnedQtyByItem.set(l.itemId, (returnedQtyByItem.get(l.itemId) ?? Qty.zero()).add(l.qty));
-  }
   const materials = order.materials.map<WorkOrderMaterial>((m) => {
-    const ret = returnedQtyByItem.get(m.itemId);
+    const ret = requestedByItem.get(m.itemId);
     return ret ? { ...m, returnedQty: m.returnedQty.add(ret) } : m;
   });
 
@@ -867,7 +866,7 @@ export async function logWorkOrderCost(
  */
 export interface WorkOrderReceiveDeps extends WorkOrderStockDeps {
   readonly gl: ManufacturingGlPostingPort;
-  readonly accounts: Pick<WorkOrderWasteAccounts, "rawInventoryAccountId" | "wipAccountId">;
+  readonly accounts: Pick<WorkOrderWasteAccounts, "rawInventoryAccountId" | "wipAccountId"> & { readonly backOrderCostAccountId?: string };
 }
 
 export async function receiveWorkOrderProduct(
@@ -917,7 +916,7 @@ export async function receiveWorkOrderProduct(
   const materialCost = consumedCost.add(workOrderNormalWasteCost(order));
   const wip = workOrderWipTotal({ ...order, materialCost });
   const unitCost = unitCostFloor(wip, producedQty);
-  await deps.stock.postReceipt({
+  const received = await deps.stock.postReceipt({
     receiptId,
     sourceDocId: order.id,
     receiptNumber: order.number,
@@ -926,6 +925,27 @@ export async function receiveWorkOrderProduct(
     lines: finishedGoodsReceiptLines(order.productItemId, producedQty, wip, unitCost),
     occurredAt: stockMomentOf(deps, occurredAt),
   });
+  const cover = received.coverVariance;
+  if (cover.scaled !== 0n) {
+    if (!deps.accounts.backOrderCostAccountId) throw new UnbookedStockVarianceError(cover.negate());
+    const dearer = cover.scaled > 0n;
+    const magnitude = dearer ? cover : cover.negate();
+    const [debited, credited] = dearer
+      ? [deps.accounts.backOrderCostAccountId, deps.accounts.rawInventoryAccountId]
+      : [deps.accounts.rawInventoryAccountId, deps.accounts.backOrderCostAccountId];
+    await deps.gl.post({
+      sourceDocType: "WORK_ORDER",
+      sourceDocId: order.id,
+      sourceDocNumber: order.number,
+      date: postingDayOf(deps, occurredAt),
+      memo: `فرق تكلفة منتج غطّى كمية بيعت قبل استلامه — أمر التصنيع ${order.number}`,
+      entryRef: `WO-RECEIVE-COVER-JE:${order.id}`,
+      lines: [
+        { accountId: debited, debit: magnitude, credit: Money.zero() },
+        { accountId: credited, debit: Money.zero(), credit: magnitude },
+      ],
+    });
+  }
 
   // The normal scrap parked in إنتاج تحت التشغيل is now inside the finished
   // goods the stock ledger just valued at `unitCost`, so it comes back to the

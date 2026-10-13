@@ -165,6 +165,7 @@ export interface GenerateAdjustmentCommand {
   readonly countId: string;
   /** Id for the generated stock-adjustment document. */
   readonly adjustmentId: string;
+  readonly actor?: string;
 }
 
 export interface GenerateAdjustmentResult {
@@ -312,7 +313,7 @@ export class PhysicalCountService {
       memo: `تسوية جرد ${count.countNo ?? count.id}`,
       lines,
     });
-    const { document } = await this.deps.adjustments.confirm(cmd.adjustmentId);
+    const { document } = await this.deps.adjustments.confirm(cmd.adjustmentId, { actor: cmd.actor });
 
     const next: PhysicalCount = {
       ...count,

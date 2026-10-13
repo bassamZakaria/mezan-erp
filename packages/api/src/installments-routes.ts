@@ -377,7 +377,7 @@ export function createInstallmentsRoutes(
 
   plans.post("/:id/cancel", gate("installments.plan.cancel"), async (c) => {
     try {
-      const doc = await deps.plans.cancel(c.req.param("id"));
+      const doc = await deps.plans.cancel(c.req.param("id"), { actor: callerUserId(c) });
       return c.json(serializePlan(doc));
     } catch (err) {
       return handleDocumentError(c, err);

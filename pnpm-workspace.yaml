@@ -11,10 +11,9 @@ hoistPattern:
   - "*"
   - "!@types/react"
   - "!@types/react-dom"
-  # jest-expo (apps/mobile) brings @types/jsdom. Hoisted, vitest's optional
-  # `jsdom` types resolve to it everywhere and pull lib.dom into the root
-  # program, where the server and desktop code must typecheck against Node's
-  # own fetch types.
+  # jest-expo (apps/mobile) brings @types/jsdom. Hoisted, vitest's optional types
+  # resolve it and pull lib.dom into every Node-only program that imports vitest:
+  # `fetch`'s body type becomes the DOM's and apps/desktop stops typechecking.
   - "!@types/jsdom"
 allowBuilds:
   better-sqlite3: true

@@ -19,16 +19,20 @@ import { Money } from "../money/index.js";
 import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import {
   ApprovalRequestRejectedError,
+  reopenApprovalForModification,
   resubmitApproval,
   startApproval,
   submitApproval,
+  type ApprovalRequestRecord,
   type ApprovalRequestRepository,
   type GateConfig,
   type GateableActionType,
 } from "../workflow/index.js";
+import type { JournalLine } from "../journal.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "./document.js";
+import { UnbookedStockVarianceError } from "./errors.js";
 import { buildEffects } from "./effects.js";
-import type { DocumentGlHook, DocumentGlPosting, DocumentWorkflowGate } from "./hooks.js";
+import type { DocumentApprovalView, DocumentGlHook, DocumentGlPosting, DocumentWorkflowGate } from "./hooks.js";
 import { InvalidDocumentError } from "./errors.js";
 
 /** A single debit/credit line of a journal document. */
@@ -142,7 +146,12 @@ export const journalDocumentType: DocumentTypeDefinition<JournalDocLine> = {
  * entry id equals the document id (`posting.sourceDocId`), so the ledger entry
  * and the document share one identity and one JE- number.
  */
-export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
+export interface StockReversalVarianceAccounts {
+  readonly inventoryAccountId: string;
+  readonly costVarianceAccountId: string;
+}
+
+export function createJournalGlHook(deps: JournalPostingDeps, stockVariance?: StockReversalVarianceAccounts): DocumentGlHook {
   return {
     async post(posting) {
       const entry = await postJournalEntry(
@@ -154,7 +163,7 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
           sourceDocType: posting.sourceDocType,
           sourceDocId: posting.sourceDocId,
           sourceDocNumber: posting.sourceDocNumber,
-          lines: posting.lines.map((l) => ({
+          lines: [...posting.lines, ...stockVarianceLines(posting.stockVariance, stockVariance, BACK_ORDER_COVER_MEMO)].map((l) => ({
             accountId: l.accountId,
             debit: l.debit,
             credit: l.credit,
@@ -165,6 +174,7 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
             // posted line and can never recover them afterwards (D24, D26).
             costCenterId: l.costCenterId ?? null,
             taxRatePercent: l.taxRatePercent ?? null,
+            taxRateId: l.taxRateId ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
             branchId: l.branchId ?? null,
@@ -177,14 +187,35 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
       return { journalEntryId: entry.id, journalEntryNo: entry.entryNo ?? null };
     },
     async reverse(journalEntryId, opts) {
+      const stock = opts.stock;
       const { reversal } = await reverseJournalEntry(journalEntryId, deps, {
         reversalId: opts.reversalId,
         date: opts.date,
         memo: opts.memo,
+        appendLines: stock
+          ? async (entry) => stockVarianceLines((await stock({ journalEntryId: entry.id, journalEntryNo: entry.entryNo }))?.unmirroredValue, stockVariance)
+          : undefined,
       });
       return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
     },
   };
+}
+
+const STOCK_VARIANCE_MEMO = "فرق تكلفة: عكس حركة مخزنية بمتوسط تكلفة الرصيد";
+const BACK_ORDER_COVER_MEMO = "فرق تكلفة: بضاعة غطّت كمية بيعت قبل وصولها";
+
+export function stockVarianceLines(unmirrored: Money | undefined, accounts: StockReversalVarianceAccounts | undefined, memo: string = STOCK_VARIANCE_MEMO): JournalLine[] {
+  if (!unmirrored || unmirrored.scaled === 0n) return [];
+  if (!accounts) throw new UnbookedStockVarianceError(unmirrored);
+  const heldMore = unmirrored.scaled < 0n;
+  const magnitude = heldMore ? unmirrored.negate() : unmirrored;
+  const [debited, credited] = heldMore
+    ? [accounts.costVarianceAccountId, accounts.inventoryAccountId]
+    : [accounts.inventoryAccountId, accounts.costVarianceAccountId];
+  return [
+    { accountId: debited, debit: magnitude, credit: Money.zero(), memo },
+    { accountId: credited, debit: Money.zero(), credit: magnitude, memo },
+  ];
 }
 
 /**
@@ -217,7 +248,7 @@ export function createDocumentWorkflowGate(
           if (existing.status === "approved") return { granted: true, requestId: existing.id };
           if (existing.status === "pending") return { granted: false, requestId: existing.id };
           if (existing.status === "rejected") throw new ApprovalRequestRejectedError(existing.id);
-          const resumed = await resubmitApproval(existing.id, { submittedBy: input.submittedBy }, requests);
+          const resumed = await resubmitApproval(existing.id, { submittedBy: input.submittedBy, entityLabel: input.entityLabel }, requests);
           return { granted: resumed.status === "approved", requestId: resumed.id };
         }
         const record = await submitApproval(
@@ -240,5 +271,26 @@ export function createDocumentWorkflowGate(
       });
       return { granted: request.status === "approved", requestId: request.id };
     },
+    async standing(requestIds) {
+      if (!requests || requestIds.length === 0) return new Map();
+      const wanted = new Set(requestIds);
+      const records =
+        requestIds.length === 1
+          ? [await requests.findById(requestIds[0] as string)]
+          : (await requests.list()).filter((record) => wanted.has(record.id));
+      return new Map(records.filter((record): record is ApprovalRequestRecord => record !== null).map((record) => [record.id, approvalViewOf(record)]));
+    },
+    async reopen(requestId) {
+      if (requests) await reopenApprovalForModification(requestId, requests);
+    },
+  };
+}
+
+function approvalViewOf(record: ApprovalRequestRecord): DocumentApprovalView {
+  const rejection = [...record.decisions].reverse().find((decision) => decision.kind === "reject") ?? null;
+  return {
+    status: record.status,
+    rejectionReason: rejection?.comment?.trim() || null,
+    rejectedBy: rejection?.actorId ?? null,
   };
 }

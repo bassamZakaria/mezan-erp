@@ -657,6 +657,54 @@ describe("EtaScreen — الإرسالات (submissions)", () => {
     expect(calls).toContain("POST /eta/submissions/submit-all");
   });
 
+  it.each([
+    ["إرسال كل الجاهز", "POST /eta/submissions/submit-all", { submitted: [], queued: [], blocked: ["s2"] }],
+    ["معالجة القائمة", "POST /eta/submissions/process", { submitted: [], accepted: [], rejected: [], queued: [], unsigned: [], blocked: ["s2"] }],
+  ])("«%s» says how many documents were held back by their own data, instead of failing the whole pass", async (button, route, body) => {
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({ body: [submission(), submission({ id: "s2", internalId: "INV-000015" })] }),
+      [route]: () => ({ body }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+    await screen.findByText("INV-000014");
+    fireEvent.click(screen.getByRole("button", { name: button }));
+
+    expect(await screen.findByText(/موقوفة لنقص في بياناتها: 1/)).toBeInTheDocument();
+  });
+
+  it("names each document a pass held back, with the reason in Arabic and where to fix it — in the notice and on its row", async () => {
+    const blockedBy = {
+      code: "BUYER_TIN_MISSING" as const,
+      severity: "blocking" as const,
+      messageAr: "الرقم الضريبي للعميل «شركة الأمل» ناقص أو غير صحيح",
+      messageEn: "The buyer's tax registration number is missing or invalid",
+      fixHintAr: "سجّل الرقم الضريبي على بطاقة العميل",
+      fixHintEn: "Record it on the customer card",
+      fixScreen: "customer" as const,
+      fixRefId: "CUST-DEMO-1",
+    };
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({ body: [submission(), submission({ id: "s2", internalId: "INV-000015", prevalidation: [blockedBy] })] }),
+      "POST /eta/submissions/process": () => ({ body: { submitted: [], accepted: [], rejected: [], queued: [], unsigned: [], blocked: ["s2"] } }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+    const row = (await screen.findByText("INV-000015")).closest("tr") as HTMLElement;
+    expect(within(row).getByText(blockedBy.messageAr)).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: /إصلاح|افتح/ })).toHaveAttribute("href", expect.stringContaining("CUST-DEMO-1"));
+
+    fireEvent.click(screen.getByRole("button", { name: "معالجة القائمة" }));
+    const held = await screen.findByRole("list", { name: "مستندات موقوفة" });
+    expect(within(held).getByText("INV-000015")).toBeInTheDocument();
+    expect(within(held).getByText(blockedBy.messageAr)).toBeInTheDocument();
+    expect(within(held).getByRole("link")).toHaveAttribute("href", expect.stringContaining("CUST-DEMO-1"));
+  });
+
   it("filters the visible rows by status without a new request (already-loaded submissions)", async () => {
     const { transport, calls } = trackedTransport({
       "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),

@@ -633,6 +633,47 @@ describe("every console route that opens a company's books, when the books canno
   });
 });
 
+describe("a company whose books the console disowned", () => {
+  it("is shown on its detail page without its books being opened, so nothing is logged as failing", async () => {
+    const env = harnessEnv({}, {}, harnessDirs);
+    const first = await boot(env);
+    const nile = await provisioned(first, "nile");
+    await first.app.close();
+    inDatabase(platformDb(env), (sqlite) => sqlite.prepare("UPDATE tenant SET books_review = 'disowned' WHERE id = ?").run(nile.tenantId));
+    const second = await boot(env);
+    const failures = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const detail = await second.console("GET", `/tenants/${nile.tenantId}`);
+    await second.app.close();
+
+    expect(detail.status).toBe(200);
+    expect(detail.json?.["books"]).toBe(TenantBooksStanding.Disowned);
+    expect(failures).not.toHaveBeenCalled();
+  });
+});
+
+describe("books found bound to the company while its row still says they await confirmation", () => {
+  it("lose the mark on their next open, with a record of it, and the console's owner actions work again", async () => {
+    const env = harnessEnv({}, {}, harnessDirs);
+    const first = await boot(env);
+    const nile = await provisioned(first, "nile");
+    await first.app.close();
+    inDatabase(platformDb(env), (sqlite) => sqlite.prepare("UPDATE tenant SET books_review = 'unconfirmed' WHERE id = ?").run(nile.tenantId));
+
+    const second = await boot(env);
+    const blocked = await second.console("POST", `/tenants/${nile.tenantId}/owner-pin/reset`);
+    const login = await signIn(second, nile);
+    const reset = await second.console("POST", `/tenants/${nile.tenantId}/owner-pin/reset`);
+    await second.app.close();
+
+    expect(blocked.status).toBe(409);
+    expect(login.status).toBe(200);
+    expect(reset.status).toBe(200);
+    expect(rowOf(env, nile).books_review).toBeNull();
+    expect(auditedOn(env, nile, "TENANT_BOOKS_CONFIRMED")).toEqual([{ actor: "platform:books-check", severity: "WARNING" }]);
+  });
+});
+
 describe("a tenant request that arrives while the console is acting on the company's books", () => {
   async function servedUnconfirmed(env: CloudEnv): Promise<{ on: Booted; nile: Company }> {
     const [nile] = await legacy(env, [["nile"]], WITH_A_SECOND_ADMIN);

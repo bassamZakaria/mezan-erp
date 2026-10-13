@@ -226,6 +226,16 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
           console.error(`[cloud] the books of "${code}" are served unconfirmed, and marking them for confirmation failed; it is tried again on the next open`, err),
         );
       }
+      // A confirmation whose platform write was lost after the binding reached
+      // the file leaves the mark behind; the binding is the fact, so the mark goes.
+      if (verdict.standing === TenantBooksStanding.Bound && tenant.booksReview === TenantBooksReview.Unconfirmed) {
+        await reviewed(tenantId, (before, at) => tenantWithBooksReview(before, null, at), {
+          action: TenantBooksAudit.Confirmed,
+          severity: AuditSeverityCode.Warning,
+          actor: BOOKS_CHECK_ACTOR,
+          details: { foundBound: true },
+        }).catch((err: unknown) => console.error(`[cloud] the books of "${code}" are bound to it, and clearing their confirmation mark failed; it is tried again on the next open`, err));
+      }
       const backend = await openBackend(code, dbPath, resolversFor(code), hooksFor(tenantId, code), connection, { tenantId, provisioning, bind }).catch((err: unknown) => {
         throw isUnreadableSqliteError(err) ? new TenantDbFileUnreadableError(tenantId, tenant.dbFile, err) : err;
       });
@@ -302,7 +312,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
 
   async function reconcileOwnerOf(tenantId: string): Promise<void> {
     const tenant = await options.platform.stores.tenants.findById(tenantId);
-    if (!tenant || tenant.status === TenantStatusCode.Archived) return;
+    if (!tenant || tenant.status === TenantStatusCode.Archived || tenant.booksReview) return;
     await ownerContact.reconcile(tenant.id, await cache.get(tenant.id));
   }
 

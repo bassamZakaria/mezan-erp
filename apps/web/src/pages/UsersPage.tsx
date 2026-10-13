@@ -166,8 +166,9 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
       .map((u) => ({ value: u.id, label: `${u.nameAr} — ${u.email}` }));
 
   function announceHandOver(outcome: OwnerHandOverOutcome | undefined) {
-    const key = outcome === undefined ? undefined : HAND_OVER_NOTICE_KEYS[outcome];
-    if (key) setEraseNotice(t(key));
+    if (outcome === undefined) return;
+    const key = HAND_OVER_NOTICE_KEYS[outcome];
+    setEraseNotice(key ? t(key) : null);
   }
 
   async function toggleStatus(row: UserDTO, status: UserStatusCode, newOwnerUserId?: string): Promise<boolean> {

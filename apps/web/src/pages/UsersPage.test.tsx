@@ -424,6 +424,28 @@ describe("UsersPage — the company's owner", () => {
     expect(screen.queryByText(/نقل ملكية المنشأة بانتظار/)).not.toBeInTheDocument();
   });
 
+  it("stops saying a confirmation link is waiting once a later hand-over needed none", async () => {
+    const onToggleStatus = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, value: { ...owner, status: "inactive", ownerHandOver: "pending" } })
+      .mockResolvedValueOnce({ ok: true, value: { ...owner, status: "inactive", ownerHandOver: "verified" } });
+    renderPage({ users: [owner, peer], onToggleStatus });
+    const stepDown = async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "تعطيل" })[0]!);
+      const dialog = await screen.findByRole("dialog", { name: "تعطيل حساب مالك المنشأة" });
+      fireEvent.click(within(dialog).getByRole("combobox", { name: "المالك الجديد للمنشأة" }));
+      fireEvent.mouseDown((await screen.findAllByRole("option"))[0]!);
+      fireEvent.click(within(dialog).getByRole("button", { name: "تعطيل الحساب" }));
+    };
+
+    await stepDown();
+    expect(await screen.findByText(/أُرسل رابط التأكيد إلى بريد المالك السابق/)).toBeInTheDocument();
+    await stepDown();
+
+    await waitFor(() => expect(onToggleStatus).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByText(/نقل ملكية المنشأة بانتظار/)).not.toBeInTheDocument());
+  });
+
   it("disables any other account without asking for a new owner", () => {
     const onToggleStatus = vi.fn().mockResolvedValue({ ok: true });
     renderPage({ users: [owner, peer], onToggleStatus });

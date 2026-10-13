@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openSqliteConnection } from "@mezan/persistence";
 import { createPlatform, PlatformAuditUnavailableError, type PlatformHandle } from "@mezan/backend";
-import { activateTenant, createTenant, type Tenant } from "@mezan/domain";
+import { activateTenant, createTenant, pendingOwnerExpiresAt, type Tenant } from "@mezan/domain";
 import { createCardCheckoutService } from "./card-checkout.js";
 import {
   createOwnerContact,
@@ -1082,5 +1082,30 @@ describe("an owner change racing another one", () => {
 
     expect(refused).toBeInstanceOf(PendingOwnerExpiredError);
     expect(await d.stored()).toMatchObject({ ownerUserId: "U-OWNER", pendingOwner: { userId: "U-X" } });
+  });
+
+  it("takes a nomination again once the first one lapsed: a new link is mailed and the seven days restart", async () => {
+    const d = await desk();
+    expect(await d.nominate("U-X", "x@x.example")).toBe("pending");
+    const lapsedAt = (await d.stored()).pendingOwner?.expiresAt;
+    d.clock.at = new Date(START.getTime() + 8 * DAY_MS);
+
+    const again = await d.nominate("U-X", "x@x.example");
+
+    expect(again).toBe("pending");
+    expect(d.mails.map((mail) => mail.token)).toEqual(["tok-1", "tok-2"]);
+    expect(lapsedAt).toBe(pendingOwnerExpiresAt(START.toISOString()));
+    expect((await d.stored()).pendingOwner).toMatchObject({ userId: "U-X", expiresAt: pendingOwnerExpiresAt(d.clock.at.toISOString()), tokenHash: hashHandOverToken("tok-2") });
+    expect(await d.contact.pendingByToken("tok-1")).toBeNull();
+    expect((await d.contact.pendingByToken("tok-2"))?.id).toBe(d.id);
+  });
+
+  it("answers a nomination repeated inside the seven days with the outcome it already has, and mails nothing more", async () => {
+    const d = await desk();
+    await d.nominate("U-X", "x@x.example");
+    d.clock.at = new Date(START.getTime() + 6 * DAY_MS);
+
+    expect(await d.nominate("U-X", "x@x.example")).toBe("pending");
+    expect(d.mails).toHaveLength(1);
   });
 });

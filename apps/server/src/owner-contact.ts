@@ -238,8 +238,9 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
     return (await mailLink(tenant, pending, token, actor)) ? OwnerHandOverOutcome.Pending : OwnerHandOverOutcome.PendingUnmailed;
   }
 
-  function alreadyHandedOver(tenant: Tenant, input: OwnerHandOver): OwnerHandOverOutcome | null {
-    if (tenant.pendingOwner?.userId === input.toUserId) return tenant.pendingOwner.tokenHash === null ? OwnerHandOverOutcome.PendingUnmailed : OwnerHandOverOutcome.Pending;
+  function alreadyHandedOver(tenant: Tenant, input: OwnerHandOver, at: string): OwnerHandOverOutcome | null {
+    const pending = tenant.pendingOwner;
+    if (pending && pending.userId === input.toUserId && !pendingOwnerExpired(pending, at)) return pending.tokenHash === null ? OwnerHandOverOutcome.PendingUnmailed : OwnerHandOverOutcome.Pending;
     if (tenant.ownerUserId === input.toUserId) return OwnerHandOverOutcome.Verified;
     return null;
   }
@@ -293,7 +294,8 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
       for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
         const tenant = await tenants.findById(tenantId);
         if (!tenant) throw new Error("TENANT_NOT_FOUND");
-        const done = alreadyHandedOver(tenant, input) ?? (await handOverOnce(tenant, input, deps.now().toISOString()));
+        const at = deps.now().toISOString();
+        const done = alreadyHandedOver(tenant, input, at) ?? (await handOverOnce(tenant, input, at));
         if (done) return done;
       }
       throw new Error("the tenant's owner changed while it was being handed over");

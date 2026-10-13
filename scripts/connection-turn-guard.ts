@@ -7,12 +7,6 @@ function tally(reports: readonly string[]): string[] {
   return [...counts].sort().map(([report, count]) => `${report} ×${count}`);
 }
 
-/**
- * What a seed drive saw go wrong on the tenant's connection, as lines to
- * print: a handler that awaited the outside world while holding the turn, and
- * a change-log event appended outside any transaction, and a write that landed
- * inside another operation's open transaction. Empty when none did.
- */
 export function connectionTurnFindings(): string[] {
   return [
     ...tally(drainTurnYields()).map((line) => `held the connection across outside work: ${line}`),

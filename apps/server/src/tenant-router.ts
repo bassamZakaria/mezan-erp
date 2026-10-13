@@ -17,13 +17,10 @@ export interface TenantRouterOptions {
   readonly platform: PlatformHandle;
   readonly dataDir: string;
   readonly tenantDomain?: string;
-  /** The origin the deployment configured for itself. Without it no unlock link is mailed. */
   readonly publicOrigin?: string;
   readonly trustForwardedHost?: boolean;
-  /** How the caller's address is read. Defaults to the socket's peer with no proxy trusted. */
   readonly clientSource?: ClientSourceOptions;
   readonly sourceReporter?: SourceReporter;
-  /** The platform's mail server, for a tenant that has configured none: an account-lock notice still reaches its administrators. */
   readonly securityMail?: SmtpConfig;
   readonly allowTenantHeader?: boolean;
   readonly idleMs?: number;
@@ -31,7 +28,6 @@ export interface TenantRouterOptions {
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
   readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, mail: TenantMail) => Promise<BackendHandle>;
-  /** Failed tenant sign-ins per client address ACROSS tenants. Defaults to a fresh one. */
   readonly signInSources?: SourceThrottle;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
@@ -89,12 +85,8 @@ function isHttps(request: Request, trustForwarded: boolean): boolean {
   return (forwarded ?? new URL(request.url).protocol.replace(":", "")) === "https";
 }
 const COUNTED_AS_FAILED: ReadonlySet<number> = new Set([401, 423]);
-// A tenant backend holds an address after thirty failures against ITS
-// accounts (login-throttle.ts). This is the one count no tenant can keep: the
-// same address spread across many tenants, under each one's own limit.
 const CROSS_TENANT_FREE_ATTEMPTS = 90;
 
-/** A tenant backend as a cloud CALLER reaches it: every read names the address the caller is counted and bound against. */
 export interface TenantDoor {
   fetch(request: Request, source: CloudSource): Promise<Response>;
   findSession(token: string, source: CloudSource, deviceSecret: string | null): SessionGrant | null;

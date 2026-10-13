@@ -164,8 +164,6 @@ function watchForForeignWrites(sqlite: Database.Database): void {
   };
   const named = (source: string): string => source.trim().replace(/\s+/g, " ").slice(0, 80);
 
-  // Every way a statement that writes can be run: `run`, and `get`/`all`/
-  // `iterate` for one that also answers rows (INSERT … RETURNING).
   const prepare = sqlite.prepare.bind(sqlite);
   sqlite.prepare = ((source: string) => {
     const statement = prepare(source);
@@ -218,9 +216,7 @@ interface ConnectionState {
   readonly nesting: AsyncLocalStorage<true>;
   /** Tail of the serialization queue — see `withSqliteTransaction` below. */
   queue: Promise<void>;
-  /** The request-long hold on that queue an async chain is running under — see `withSqliteTurn`. */
   readonly turn: AsyncLocalStorage<TurnScope>;
-  /** Resolves when the outermost transaction now open ends; null while none is. */
   transaction: Promise<void> | null;
 }
 
@@ -355,9 +351,6 @@ export async function withSqliteTransaction<T>(
   }
 
   // Outermost call: claim this connection's mutex — wait for whatever
-  // outermost transaction (if any) is currently running to finish first. A
-  // chain already holding the connection's turn queues on its own lane instead:
-  // the shared queue is the one it is holding, and waiting on it would deadlock.
   const release = await enter(heldTurn(state) ?? state);
   let ended!: () => void;
 
@@ -384,7 +377,6 @@ export async function withSqliteTransaction<T>(
   }
 }
 
-/** True when the caller's own async chain is inside a `withSqliteTransaction` on this connection — not merely "some transaction is open". */
 export function insideSqliteTransaction(sqlite: Database.Database): boolean {
   return stateFor(sqlite).nesting.getStore() === true;
 }
@@ -571,12 +563,10 @@ export async function outsideSqliteTurn<T>(sqlite: Database.Database, fn: () => 
   return outcome.value;
 }
 
-/** True while the caller's own async chain holds this connection's turn — it is a mutating request, or work one started. */
 export function holdsSqliteTurn(sqlite: Database.Database): boolean {
   return heldTurn(stateFor(sqlite)) !== undefined;
 }
 
-/** Resolves once no transaction is open on this connection; at once for the chain that owns the open one. */
 export async function sqliteTransactionsSettled(sqlite: Database.Database): Promise<void> {
   const state = stateFor(sqlite);
   if (state.nesting.getStore()) return;

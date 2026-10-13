@@ -273,7 +273,6 @@ export const cardCheckoutSchema = z.object({
   providerRef: z.string().nullable(),
   paymentId: z.string().nullable(),
   failureReason: z.string().nullable(),
-  /** What the provider reported collecting, when the payment could not be applied automatically. */
   capturedAmount: z.string().nullable(),
   requestedBy: z.string().min(1),
   attentionCause: cardCheckoutAttentionCauseSchema.nullable(),
@@ -296,7 +295,6 @@ export const platformCardCheckoutsSchema = z.object({
   checkouts: z.array(cardCheckoutSchema),
 });
 
-/** What one reconciliation pass over stuck card checkouts did; every figure is a count of checkouts. */
 export const cardCheckoutSweepResultSchema = z.object({
   examined: z.number().int().nonnegative(),
   paid: z.number().int().nonnegative(),

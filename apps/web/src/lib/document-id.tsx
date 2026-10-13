@@ -5,11 +5,6 @@ import { IdempotencyRefusal } from "@mezan/contracts";
 export interface DocumentId {
   readonly current: () => string;
   readonly renew: () => void;
-  /**
-   * True when `err` is the server saying this id already holds a document with
-   * other contents. The saved document's id is handed to the form's handler
-   * and a new id is minted, so the form never dead-ends on an id it cannot use.
-   */
   readonly recover: (err: unknown) => boolean;
 }
 
@@ -36,8 +31,6 @@ export function useDocumentId(onAlreadySaved: (savedId: string) => void): Docume
       if (!isKeyReused(err)) return false;
       const saved = id.current;
       id.current = crypto.randomUUID();
-      // The saved document was created by a request whose answer never
-      // arrived, so no list this screen holds has it yet.
       void queryClient.invalidateQueries();
       handler.current(saved);
       return true;
@@ -56,7 +49,6 @@ export function useAlreadySavedNotice(): AlreadySavedNoticeState {
   return { savedId, show: setSavedId, clear: () => setSavedId(null) };
 }
 
-/** Says the open document is one that was already saved. It belongs to that document: opening anything else ends it. */
 export function AlreadySavedNotice({
   notice,
   openId,

@@ -56,7 +56,6 @@ export interface IssueEtaReceiptOptions {
   readonly paymentMethod?: EtaReceiptPaymentMethod;
 }
 
-/** Runs database work as the only writer on the tenant's connection (AuditSink.turn). */
 export type TenantTurn = <T>(work: () => Promise<T>) => Promise<T>;
 
 const straightThrough: TenantTurn = (work) => work();

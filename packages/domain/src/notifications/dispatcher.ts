@@ -59,7 +59,6 @@ export interface DispatchPolicy {
   readonly maxAgeHours: number;
   /** Messages to attempt in one drain, so a month offline does not become one enormous send. */
   readonly batchSize: number;
-  /** How long a channel may sit claimed before the drain that claimed it is taken for dead and the message is queued again. */
   readonly sendingTimeoutMinutes: number;
 }
 
@@ -68,8 +67,6 @@ export const DEFAULT_DISPATCH_POLICY: DispatchPolicy = {
   // enough that nothing arrives describing a week-old event.
   maxAgeHours: 72,
   batchSize: 50,
-  // Far longer than one send waits on a mail server, far shorter than the
-  // three days a message stays worth sending.
   sendingTimeoutMinutes: 10,
 };
 
@@ -77,11 +74,8 @@ export interface NotificationDispatcherDeps {
   readonly notifications: NotificationRepository & {
     /** Every notification with at least one channel still `"queued"`. */
     listQueued(limit: number): Promise<readonly Notification[]>;
-    /** Moves one channel from queued to sending and returns the claim. Null when it is no longer queued: another drain has it, or has finished it. */
     claimChannel(id: string, channel: string, at: string): Promise<string | null>;
-    /** Writes one channel's status and nothing else on the row — only while `claim` still holds the channel. False when it does not. */
     settleChannel(id: string, channel: string, status: NotificationChannelStatus, claim: string): Promise<boolean>;
-    /** Queues again every channel whose own claim was made before `before` and never settled. */
     requeueStaleSending(before: string): Promise<number>;
   };
   readonly transports: readonly NotificationTransport[];
@@ -104,7 +98,6 @@ export interface DrainResult {
 
 const ONLY_SCAN_LIMIT = 10_000;
 
-/** Offline goes back to queued, so the next drain picks it up unchanged. */
 export const SETTLED_AS: Readonly<Record<DispatchOutcome["kind"], NotificationChannelState>> = {
   sent: NotificationChannelState.Sent,
   rejected: NotificationChannelState.Failed,

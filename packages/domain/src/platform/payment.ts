@@ -18,9 +18,7 @@ export interface Payment {
 
 export interface PaymentRepository {
   findById(id: string): Promise<Payment | null>;
-  /** The earliest payment the tenant holds under this reference. A reference is what the bank or the customer wrote, so it can legitimately repeat. */
   findByReference(tenantId: string, reference: string): Promise<Payment | null>;
-  /** The payment one submission produced. The key is minted by the client per intended payment, so one tenant never holds two payments under it. */
   findByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<Payment | null>;
   listByTenant(tenantId: string): Promise<Payment[]>;
   save(payment: Payment, idempotencyKey?: string): Promise<void>;
@@ -46,16 +44,13 @@ export interface RecordPaymentCommand {
   readonly note?: string | null;
   readonly now: string;
   readonly idempotencyKey: string;
-  /** The caller has been told the reference is already recorded and says this is another payment. */
   readonly confirmDuplicateReference?: boolean;
 }
 
 export interface RecordPaymentResult {
   readonly payment: Payment;
   readonly subscription: Subscription;
-  /** True when this very submission was already recorded: nothing was renewed or written this time. */
   readonly replayed: boolean;
-  /** The earlier payment under the same reference that the caller confirmed this one is not. */
   readonly duplicateOfPaymentId: string | null;
 }
 

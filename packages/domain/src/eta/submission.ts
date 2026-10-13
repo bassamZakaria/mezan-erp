@@ -17,17 +17,11 @@ import type { EtaPrevalidationFinding } from "./prevalidate.js";
 export type EtaDocumentType = "invoice" | "credit_note" | "debit_note" | "receipt";
 
 export enum EtaSubmissionState {
-  /** جاهز — in the queue, not yet sent */
   Ready = "ready",
-  /** بانتظار التوقيع — awaiting e-seal (v1.0) */
   PendingSignature = "pending_signature",
-  /** مرسل — transmitted, awaiting authority acceptance */
   Submitted = "submitted",
-  /** مقبول — accepted by the authority (has a UUID) */
   Accepted = "accepted",
-  /** أخطاء — rejected / transmission error */
   Error = "error",
-  /** مستبعد — deliberately not submitted (reason required) */
   Excluded = "excluded",
 }
 

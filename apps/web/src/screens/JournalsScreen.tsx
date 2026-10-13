@@ -790,7 +790,6 @@ function CreateJournalView({
   /** "edit" only for a DRAFT entry (D226) — a posted/reversed entry is corrected by reversal, never edited. */
   mode?: "create" | "edit";
   initial?: JournalDoc;
-  /** Resolves false when the entry turned out to be saved already and the screen has opened it. */
   onPost: (body: JournalFormPayload) => Promise<unknown>;
   accountOptions: { value: string; label: string }[];
   costCenterOptions: { value: string; label: string }[];

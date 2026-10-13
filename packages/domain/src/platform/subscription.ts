@@ -20,7 +20,6 @@ export enum SubscriptionState {
 
 export type SubscriptionStatus = `${SubscriptionState}`;
 
-/** The only states a payment can renew from. Read by the checkout service and the console, so the button and the server agree. */
 export const RENEWABLE_SUBSCRIPTION_STATES: readonly SubscriptionStatus[] = [
   SubscriptionState.Trialing,
   SubscriptionState.Active,

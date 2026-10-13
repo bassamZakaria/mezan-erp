@@ -8,11 +8,8 @@ const KIB = 1024;
 const MIB = 1024 * KIB;
 
 export enum BodyLimitBytes {
-  /** A caller nobody has identified: a sign-in, a first-run claim, a probe. */
   Anonymous = 64 * KIB,
-  /** A signed-in caller's document: the longest invoice is a fraction of this. */
   Document = 2 * MIB,
-  /** A signed-in caller sending a file: the 5 MiB attachment ceiling, base64-encoded inside JSON, with room. */
   Upload = 16 * MIB,
 }
 
@@ -20,9 +17,6 @@ export enum BodyLimitRefusal {
   PayloadTooLarge = "PAYLOAD_TOO_LARGE",
 }
 
-// Only routes that take a FILE. A photo, a logo and a layout are capped far
-// below a document's size by their own schemas, so the routes that carry them
-// are not here. A preview and its commit read the same file: both are.
 const UPLOAD_PATH = /\/(attachments|data-migration|historical-import|import|import-file|commit|clock|boq)(\/|$)/;
 
 const OPEN_TO_ANONYMOUS = /^\/(auth|bootstrap)\//;

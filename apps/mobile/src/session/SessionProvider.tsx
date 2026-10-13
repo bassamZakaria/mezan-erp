@@ -32,7 +32,6 @@ export interface SessionState {
   readonly unlock: (promptMessage: string, cancelLabel: string) => Promise<boolean>;
   readonly connection: Connection;
   readonly signIn: (input: SignInInput) => Promise<void>;
-  /** Opens a locked account with the one-time code mailed to its administrators. Signs nobody in. */
   readonly unlockAccount: (input: UnlockAccountInput) => Promise<void>;
   readonly signOut: () => Promise<void>;
   readonly request: <T>(path: string, options?: RequestOptions<T>) => Promise<T>;

@@ -31,7 +31,6 @@ export enum CardCheckoutFailureReason {
   ProviderError = "PROVIDER_ERROR",
   Declined = "DECLINED",
   Expired = "EXPIRED",
-  /** Still `pending`: the provider's answer about it could not be read past the expiry threshold, so a person has to look. */
   NeedsAttention = "NEEDS_ATTENTION",
   AmountMismatch = "AMOUNT_MISMATCH",
   PriceChanged = "PRICE_CHANGED",
@@ -66,7 +65,6 @@ export interface CardCheckout {
   readonly providerRef: string | null;
   readonly paymentId: string | null;
   readonly failureReason: CardCheckoutFailureReason | null;
-  /** What the provider actually collected, kept when the payment could not be applied so a later manual application has the real figure. */
   readonly capturedAmount: Money | null;
   readonly requestedBy: string;
   readonly attentionCause: CardCheckoutAttentionCause | null;
@@ -92,12 +90,6 @@ export interface CardCheckoutRepository {
   findById(id: string): Promise<CardCheckout | null>;
   findByProviderOrder(provider: PaymentProviderId, providerOrderRef: string): Promise<CardCheckout | null>;
   listByTenant(tenantId: string): Promise<CardCheckout[]>;
-  /**
-   * What a reconciliation pass must ask the provider about, oldest first:
-   * every `pending` checkout opened at or before `openedAtOrBefore`, plus the
-   * declined ones opened after `declinedOpenedAfter` — a customer can retry a
-   * declined order and succeed, and that callback can be lost too.
-   */
   listSweepable(openedAtOrBefore: string, declinedOpenedAfter: string, limit: number): Promise<CardCheckout[]>;
   markSwept(checkoutId: string, now: string): Promise<void>;
   flagNeedsAttention(checkoutId: string, cause: CardCheckoutAttentionCause, now: string): Promise<boolean>;

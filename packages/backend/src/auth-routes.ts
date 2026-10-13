@@ -55,25 +55,11 @@ export interface AuthRoutesDeps {
   readonly sessions: SessionRegistry;
   /** Failed-attempt lockout. Defaults to a fresh in-memory throttle per app. */
   readonly loginThrottle?: LoginThrottle;
-  /** Failed sign-ins per source address, whichever accounts they named. Defaults to a fresh one per app. */
   readonly sourceThrottle?: SourceThrottle;
-  /** How many PIN checks run and wait at once. Defaults to a fresh one per app. */
   readonly signInGate?: SignInGate;
-  /** Failed sign-ins per account and the lock they end in. Defaults to one kept in memory; the backend keeps it in the tenant's database. */
   readonly accountLocks?: AccountLocks;
-  /**
-   * Called once when an account locks, inside the request that locked it.
-   * Returns true when the one-time code was handed to a mail server for at
-   * least one administrator.
-   */
   readonly onAccountLocked?: (event: AccountLockedEvent) => Promise<void>;
-  /** Whether a locked account's administrators can be mailed a code at all. */
   readonly canMailUnlockCode?: () => Promise<boolean>;
-  /**
-   * The hasher `hasher` came from, so a sign-in's PIN is verified before the
-   * request takes the tenant's connection. Without it the verification still
-   * runs with the connection handed back, when `hasher` does that itself.
-   */
   readonly secrets?: PrecomputingHasher;
   /**
    * The forensic trail for the credential boundary.
@@ -95,9 +81,7 @@ export interface AuthRoutesDeps {
 
 export interface AccountLockedEvent {
   readonly user: User;
-  /** Null when no code could be issued. */
   readonly unlockCode: string | null;
-  /** Null when no link could be issued. The token alone: the caller builds the address from an origin it was configured with. */
   readonly unlockLinkToken: string | null;
   readonly source: string;
 }
@@ -157,7 +141,6 @@ function issueSession(sessions: SessionRegistry, grant: SessionGrant, origin: st
   return device ? sessions.issueDeviceBound(grant, origin, device.heldSecret) : { token: sessions.issue(grant, origin) };
 }
 
-/** A client that keeps a secret in the device's own secure storage asks for a session bound to it instead of to its address. */
 function deviceBindingOf(c: Context): DeviceBinding | null {
   return c.req.header(DEVICE_BINDING_HEADER) === "1" ? { heldSecret: c.req.header(DEVICE_SECRET_HEADER) ?? null } : null;
 }
@@ -179,7 +162,6 @@ function deviceBindingOf(c: Context): DeviceBinding | null {
  */
 export interface AuthMount {
   readonly routes: Hono;
-  /** Registered ahead of the connection's turn, keyed by the path each prepares. */
   readonly beforeTheTurn: Readonly<Record<string, BoundaryPreparation>>;
 }
 

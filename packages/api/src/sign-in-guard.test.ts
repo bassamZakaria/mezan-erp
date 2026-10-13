@@ -21,7 +21,6 @@ interface Rig {
   readonly known: AccountLockStore;
   advance(ms: number): void;
   at(): number;
-  /** One attempt as the route makes it: asked first, and counted as a GUESS only when a PIN would actually be checked. */
   guess(account: string, source: string | null, exists?: boolean): SignInVerdict;
   readonly guessedAt: number[];
 }

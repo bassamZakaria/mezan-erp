@@ -20,11 +20,9 @@ export interface IdempotentAnswer {
   readonly body: string;
 }
 
-/** The answer a create was given, kept so the same create sent again is answered with it instead of being run again. */
 export interface IdempotentRequestStore {
   find(scope: string, key: string): IdempotentAnswer | null;
   record(scope: string, key: string, answer: IdempotentAnswer, recordedAt: string): void;
-  /** Drops every answer recorded before `before`: a retry never arrives a week late. */
   forget(before: string): number;
 }
 

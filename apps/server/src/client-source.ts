@@ -4,7 +4,6 @@ import { canonicalOrigin, requestOrigin } from "@mezan/api";
 
 declare const cloudSourceBrand: unique symbol;
 
-/** The address a cloud request is counted and bound against. Never null: null is the desktop's own console and nothing on the cloud path may read as it. */
 export type CloudSource = string & { readonly [cloudSourceBrand]: true };
 
 // SECURITY: what a request is counted as when its address cannot be read from
@@ -26,10 +25,8 @@ export interface ViewerMismatch {
 export interface ClientSourceOptions {
   readonly trustedProxyHops: number;
   readonly trustViewerAddress: boolean;
-  /** True where an origin secret proves every request crossed CloudFront, so its viewer address can check the hop count. */
   readonly compareViewerAddress: boolean;
   readonly onViewerMismatch?: (mismatch: ViewerMismatch) => void;
-  /** The one header this deployment's edge writes the caller's address in, lower-cased. Read only when a proxy is trusted. */
   readonly trustedAddressHeader?: string;
 }
 
@@ -93,7 +90,6 @@ export interface OriginEnv {
   readonly incoming: { readonly socket: { readonly remoteAddress: string } };
 }
 
-/** The environment a tenant backend reads its caller's address from (`requestOrigin`): set by this process, never by a header. */
 export function originEnv(source: CloudSource): OriginEnv {
   return { incoming: { socket: { remoteAddress: source } } };
 }
@@ -114,7 +110,6 @@ export interface SourceReporter {
   viewerMismatch(mismatch: ViewerMismatch): void;
 }
 
-/** Logs the first of each fault at once, then one line a minute with how many it held back: a flood must not be able to fill the log. */
 export function createSourceReporter(log: (line: string) => void = (line) => console.error(line), now: () => number = Date.now): SourceReporter {
   const last = new Map<string, { at: number; held: number }>();
   function report(kind: string, line: () => string) {

@@ -238,9 +238,6 @@ function insideABoundary(routePath: string): boolean {
 const CONFIG_TRANSACTOR = "write and event run in atomically(deps.transactor), which the backend backs with withSqliteTransaction on the shared connection";
 const PREVIEW_OF_A_SHARED_STEP = "shares its step function with the audited /commit route; the preview branch writes and records nothing";
 
-// A mutating route that reaches an audit writer and is deliberately NOT under
-// AUDITED_MOUNTS. Every entry has to say what keeps its write and its event
-// together instead, or why it records nothing.
 const OUTSIDE_THE_BOUNDARY: Readonly<Record<string, string>> = {
   "PATCH /sequences/:code": CONFIG_TRANSACTOR,
   "POST /sequences/:code/counter": CONFIG_TRANSACTOR,
@@ -257,7 +254,6 @@ const OUTSIDE_THE_BOUNDARY: Readonly<Record<string, string>> = {
   "POST /data-migration/chart-of-accounts/preview": PREVIEW_OF_A_SHARED_STEP,
 };
 
-// A call site no route reaches by a static call. Every entry has to say why.
 const NOT_ROUTE_REACHED: Readonly<Record<string, string>> = {
   "packages/backend/src/pos/master.ts:36": "injected into the POS settings routes as deps.ensureWalkInCustomer; it writes inside its own withSqliteTransaction",
 };

@@ -17,9 +17,7 @@ export interface ApiCredentials {
   readonly baseUrl: string;
   readonly tenantCode: string | null;
   readonly token: string | null;
-  /** The secret this device was given at sign-in; sent with the token on every request. */
   readonly deviceSecret?: string | null;
-  /** Set on the sign-in request alone: asks for a session bound to this device rather than to its address. */
   readonly bindDevice?: boolean;
   readonly branchScope: string;
   readonly warehouseScope: string;

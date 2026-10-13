@@ -12,11 +12,6 @@ import type { EtaCommandResult, EtaCommandRunner } from "@mezan/domain";
 const SIGNING_TIMEOUT_MS = 60_000;
 const TIMED_OUT_EXIT_CODE = -1;
 
-/**
- * A signing program that never exits — a token waiting for a PIN nobody is
- * there to type, a hung driver — is killed at the timeout and reported as a
- * failed signature, which parks the document in بانتظار التوقيع to be retried.
- */
 export function createSigningCommandRunner(timeoutMs: number = SIGNING_TIMEOUT_MS): EtaCommandRunner {
   return (command, args, stdin) =>
     new Promise<EtaCommandResult>((resolve, reject) => {

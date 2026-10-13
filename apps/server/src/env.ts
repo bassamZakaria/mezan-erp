@@ -12,7 +12,6 @@ export type PaymobEnv =
       readonly hmacSecret: string;
       readonly integrationIds: readonly number[];
       readonly publicUrl: string;
-      /** The dashboard API key the transaction-inquiry API authenticates with. Without it, stuck checkouts cannot be reconciled. */
       readonly apiKey?: string;
       readonly notFoundShapeConfirmed: boolean;
     }
@@ -22,10 +21,8 @@ export type PaymobEnv =
 export interface CloudEnv {
   readonly platformDir: string;
   readonly tenantDomain?: string;
-  /** The origin this deployment is reached at. Every address the server mails is built from it. */
   readonly publicOrigin?: string;
   readonly trustProxy: boolean;
-  /** Which address a request is counted and bound against (client-source.ts). */
   readonly clientSource: ClientSourceOptions;
   readonly originSecret?: string;
   readonly sqliteExclusive: boolean;

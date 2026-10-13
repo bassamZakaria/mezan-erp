@@ -73,10 +73,8 @@ interface StoredSession extends SessionGrant {
   readonly issuedAt: number;
   /** Canonical form of where `issue()` was called from; null is the in-process mount. */
   readonly issuedFrom: string | null;
-  /** Set for a session bound to its device rather than its address: the hash of the secret only that device holds. */
   readonly deviceHash: string | null;
   lastOrigin: string | null;
-  /** The address changed since the PIN was last entered: an administrative act waits for it to be entered again. */
   movedSincePin: boolean;
   lastSeenAt: number;
 }
@@ -108,7 +106,6 @@ export interface SessionAddressChange {
 
 export interface DeviceBoundSession {
   readonly token: string;
-  /** Shown to the client once, at sign-in, and never stored here: only its hash is kept. */
   readonly deviceSecret: string;
 }
 
@@ -126,7 +123,6 @@ export interface SessionLookup {
   readonly grant: SessionGrant | null;
   /** Null when the token was simply never issued, or was already revoked. */
   readonly refusal: SessionRefusal | null;
-  /** A device-bound session seen from a new address: information, not a refusal. */
   readonly addressChange?: SessionAddressChange | null;
 }
 
@@ -485,7 +481,6 @@ const ANONYMOUS: AuthContext = createAuthContext({
 });
 
 const existenceReads = new WeakSet<Request>();
-/** Read only where no session registry is mounted (route-level tests): a session resolver never looks at these. */
 const HEADER_MODE_READER = { "x-user-id": "system", "x-permissions": "*", "x-branch-scope": "*", "x-warehouse-scope": "*" };
 
 // SECURITY: marks a GET this process builds for itself, to learn only whether

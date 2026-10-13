@@ -8,7 +8,6 @@ import { isPositiveAmount, toPiasters, westernDigits } from "./card-amount";
 import { useApplyCardCheckoutMutation } from "./hooks";
 
 export interface ApplyCardPaymentDialogProps {
-  /** The unapplied checkout being applied; `null` keeps the panel closed. Mount with `key={checkout?.id}` so each checkout starts from its own blank form. */
   readonly checkout: CardCheckoutDTO | null;
   readonly onClose: () => void;
   readonly tenantId: string;

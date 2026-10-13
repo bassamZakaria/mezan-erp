@@ -9,7 +9,6 @@ import { z } from "zod";
  */
 
 export const printPageSizeSchema = z.enum(["A4", "A5"]);
-/** A link, or a small image as a `data:` URL (~180KB of base64): it is stored in the template row and sent with every print. */
 export const LOGO_MAX_CHARS = 250_000;
 
 export const logoPositionSchema = z.enum(["start", "end", "center"]);

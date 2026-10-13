@@ -101,7 +101,6 @@ import { createScryptHasher } from "@mezan/persistence";
 import { createLanRoutes } from "./lan/routes.js";
 import { existenceRead, sessionOriginReporting, stepUpGate, type SessionRegistry } from "./session-auth.js";
 
-/** Who may do what, and how the tenant is configured: changed only on a PIN entered since the session last moved. */
 const STEP_UP_MOUNTS: readonly string[] = ["/users", "/users/*", "/roles", "/roles/*", "/settings", "/settings/*", "/fiscal-periods/*"];
 import type { LoginThrottle } from "./login-throttle.js";
 import { applyModuleGates, entitlementsBinding, type EntitlementsResolver } from "./module-gate.js";
@@ -823,12 +822,9 @@ export interface CreateAppOptions {
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
   readonly hasher?: ReturnType<typeof createScryptHasher>;
-  /** That hasher already wrapped, when the composition shares it with routes it mounts itself. Wins over `hasher`. */
   readonly secrets?: PrecomputingHasher;
-  /** Where a create's answer is kept, so the same create sent again is answered with it (idempotent-create.ts). */
   readonly idempotentRequests?: IdempotentRequests;
   readonly connectionTurn?: ConnectionTurnOptions;
-  /** Work other mounts do ahead of the connection's turn, keyed by path (audit-boundary.ts `beforeTheTurn`). */
   readonly beforeTheTurn?: Readonly<Record<string, BoundaryPreparation>>;
   /**
    * Mounts `/workflow` (docs/archive/catalog/09 §سير العمل — إعدادات الموافقات
@@ -942,9 +938,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   // AN APP WITH NO SINK RECORDS NOTHING, AND SAYS SO AT BOOT.
   //
-  // `recordAdminEvent` returns early when the sink is absent, so that dev and
-  // route-level tests can mount without one. The cost of that is a composition
-  // which omits the sink and writes no trail at all, quietly and forever — the same failure shape as the header resolver
   // that defaulted to trusting the client. Dev and tests may mount without one;
   // a real build may not, and finds out at construction rather than during the
   // incident the trail was for.

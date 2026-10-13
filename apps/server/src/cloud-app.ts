@@ -31,8 +31,6 @@ import {
 } from "./billing-routes.js";
 import type { CloudEnv } from "./env.js";
 
-// An owner pressing the button waits on this request; whatever the pass has
-// not reached by then is reported as deferred and left to the timer.
 const OPERATOR_SWEEP_BUDGET_MS = 20_000;
 
 const PLATFORM_BODY_BYTES = 256 * 1024;
@@ -241,8 +239,6 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.
-  // The platform's own forms are a few fields each. A tenant's request is
-  // limited by the tenant app, which knows who is asking (api body-limit.ts).
   const platformBody = bodyLimit({
     maxSize: PLATFORM_BODY_BYTES,
     onError: (c) => c.json({ error: BodyLimitRefusal.PayloadTooLarge, message: "حجم البيانات المرسلة أكبر من المسموح به." }, 413),

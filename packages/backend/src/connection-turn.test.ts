@@ -49,7 +49,6 @@ async function open(options: Partial<CreateBackendOptions> = {}) {
 
 const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
 const SIGN_INS_ONE_ADDRESS_MAY_HOLD = 6;
-/** A 503 from the connection's queue, as opposed to the sign-in queue saying it has no place. */
 const databaseBusy = (answer: { status: number; body: unknown }): boolean =>
   answer.status === 503 && (answer.body as { error?: string } | null)?.error !== "SIGN_IN_BUSY";
 

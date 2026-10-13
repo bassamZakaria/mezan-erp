@@ -424,7 +424,6 @@ export enum SignInRefusalCode {
   AccountLocked = "ACCOUNT_LOCKED",
 }
 
-/** The account is locked until an administrator or a mailed one-time code opens it; `unlockByCode` says a code was mailed. */
 export class AccountLockedError extends ApiError {
   constructor(status: number, message: string, readonly unlockByCode: boolean) {
     super(status, message, undefined, undefined, SignInRefusalCode.AccountLocked);
@@ -609,7 +608,6 @@ export async function readError(
   return withSupportCode(fallback, res.status, t);
 }
 
-/** {@link readError}, keeping the server's machine-readable code beside its sentence, for a form that acts on which refusal it was. */
 export async function codedError(
   res: { readonly status: number; json<T>(): Promise<T> },
   fallback: string,

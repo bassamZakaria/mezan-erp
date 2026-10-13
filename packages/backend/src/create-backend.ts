@@ -581,7 +581,6 @@ export interface CreateBackendOptions {
   readonly seedAdminPin?: string;
   /** Outbound HTTP for the ETA gateway. Tests inject a fake server; nothing else should. */
   readonly etaHttpClient?: EtaHttpClient;
-  /** The mail server an account-lock notice goes through when the tenant has configured none of its own: the platform's, on the cloud. */
   readonly securityMail?: SmtpConfig;
   // SECURITY: the address a mailed unlock link opens. It is built here from an
   // origin the DEPLOYMENT configured and never from anything a request carried
@@ -589,7 +588,6 @@ export interface CreateBackendOptions {
   // attacker's own, and a link built from it would mail the administrators a
   // working token pointed at the attacker's server.
   readonly unlockLink?: (token: string) => string;
-  /** Sends one mail. Tests inject a recorder; nothing else should. */
   readonly sendMail?: typeof sendNotificationEmail;
   /** Runs the operator's external CAdES-BES signing program. Tests inject a fake. */
   readonly etaSigningRunner?: EtaCommandRunner;
@@ -2833,8 +2831,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     channel: "email",
     async send(notification, recipientEmail, claim) {
       if (smtp === null) return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
-      // No address on the user is terminal: the next drain would find the same
-      // missing address and try forever.
       if (!recipientEmail) return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
       try {
         const sent = await outsideTheTurn(() =>

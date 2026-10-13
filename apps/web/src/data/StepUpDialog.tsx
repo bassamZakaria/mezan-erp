@@ -6,7 +6,6 @@ const PIN_LENGTH = 6;
 
 export interface StepUpPrompt {
   readonly message: string;
-  /** Resolves with null when the PIN was accepted, or with the server's refusal to show. */
   confirm(pin: string): Promise<string | null>;
   cancel(): void;
 }

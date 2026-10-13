@@ -1,16 +1,11 @@
 export interface SignInGateOptions {
-  /** PIN checks hashing at once. */
   readonly running?: number;
-  /** Checks that may wait for one of those places. */
   readonly waiting?: number;
-  /** Places, running or waiting, one address may hold. */
   readonly perSource?: number;
-  /** Places only an address holding none may take. */
   readonly reserved?: number;
 }
 
 export interface SignInGate {
-  /** Runs `check` when a place is free. Null when there is none: the caller is refused now and nothing is hashed. */
   admit<T>(source: string | null, check: () => Promise<T>): Promise<T> | null;
 }
 

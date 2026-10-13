@@ -21,7 +21,6 @@ const SIGN_IN_PATH = "/auth/login";
 const STEP_UP_PATH = "/auth/step-up";
 const STEP_UP_STATUS = 403;
 const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
-/** Asks the cloud edge to keep the device secret in an httpOnly cookie this script never sees. Ignored by a desktop or LAN host, whose sessions stay bound to the address. */
 const COOKIE_KEPT_DEVICE_SECRET = "cookie";
 
 function parsed(text: string): { error?: string; message?: string } | null {
@@ -106,9 +105,6 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
 
   const [stepUp, setStepUp] = useState<StepUpPrompt | null>(null);
 
-  // The server asks for the PIN again before an administrative change made
-  // after the session's address moved. The person is asked once, here, and the
-  // request they made is sent once more — so no screen has to know about it.
   const afterStepUp = useCallback(
     async (refused: TransportResponse, resend: () => Promise<TransportResponse>, headers: Headers): Promise<TransportResponse> => {
       const text = await refused.text();

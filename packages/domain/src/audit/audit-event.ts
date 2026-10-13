@@ -87,28 +87,11 @@ export interface AuditEventInput {
 export interface AuditSink {
   append(event: AuditEvent): Promise<void>;
   query(stream: AuditStream, limit?: number): Promise<readonly AuditEvent[]>;
-  /**
-   * Runs `fn` in the transaction this sink's appends join, so a write and the
-   * event recording it commit or roll back together. A sink that cannot share a
-   * transaction with the writes it records leaves this out.
-   */
   atomic?<T>(fn: () => Promise<T>): Promise<T>;
-  /** True when the caller is already inside a transaction this sink's appends would join. */
   insideTransaction?(): boolean;
-  /** Resolves once no transaction is open on the connection this sink writes to. */
   settled?(): Promise<void>;
-  /**
-   * Runs `fn` as the only writer on the connection this sink writes to, from its
-   * first statement to its last. Called from inside a turn or a transaction the
-   * caller already holds, it runs `fn` straight through.
-   */
   turn?<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T>;
-  /**
-   * Runs `fn` with that turn handed back, and takes it again before returning.
-   * For work that is not the database — a hash, a child process, a socket.
-   */
   outsideTurn?<T>(fn: () => Promise<T>): Promise<T>;
-  /** Where a security event that accompanies no write goes when `append` refuses it. */
   unrecorded?: SecurityEventFallback;
 }
 
@@ -150,9 +133,7 @@ export class ForeignWriteError extends Error {
 }
 
 export interface LostTurnOutcome {
-  /** What the outside work answered, when it finished: an effect that happened and has not been recorded. */
   readonly completed?: { readonly value: unknown };
-  /** Why the outside work failed, when it did. */
   readonly cause?: unknown;
 }
 
@@ -175,7 +156,6 @@ export interface TurnObserver {
   onSuspend?(): void;
   onResume?(): void;
   readonly retakeTimeoutMs?: number;
-  /** The longer wait given to a holder whose outside work completed: what it answered has still to be recorded. */
   readonly completedRetakeTimeoutMs?: number;
 }
 

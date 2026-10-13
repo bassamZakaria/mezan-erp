@@ -14,9 +14,7 @@ const HARNESS_HOPS = "2";
 export interface SendInit extends RequestInit {
   readonly token?: string;
   readonly tenant?: string;
-  /** The address the outer proxy saw. Defaults to one fixed client. */
   readonly client?: string;
-  /** The whole `x-forwarded-for` value, for a test about a malformed chain. `null` sends none. */
   readonly chain?: string | null;
 }
 
@@ -28,7 +26,6 @@ export interface CloudHarness {
   close(): Promise<void>;
 }
 
-/** A request as the deployed stack delivers it: no socket under it, the caller's address in a two-hop forwarded chain. */
 export function proxiedRequest(pathname: string, init: SendInit = {}): Request {
   const { token, tenant, client, chain, ...rest } = init;
   const headers = new Headers(rest.headers);
@@ -87,12 +84,6 @@ interface Fetchable {
   fetch(request: Request, env?: unknown, ctx?: never): Response | Promise<Response>;
 }
 
-/**
- * Gives every request to `app` a caller address unless the test names one: a
- * full forwarded chain where `hops` proxies are trusted, a socket peer where
- * none is. A test that forgets its address would otherwise be testing the
- * refusal, not its subject.
- */
 export function reachable<T extends Fetchable>(app: T, hops = 0): T {
   const raw = app.fetch.bind(app);
   app.fetch = (request, env, ctx) => {

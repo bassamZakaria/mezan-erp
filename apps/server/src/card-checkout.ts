@@ -108,7 +108,6 @@ class SettlementUnrecorded extends Error {
   }
 }
 
-/** How a provider transaction reached the settlement: pushed by the provider, or fetched by the sweep. */
 export enum SettlementSource {
   Webhook = "webhook",
   Sweep = "sweep",
@@ -138,9 +137,7 @@ const SWEEP_GIVE_UP_AFTER_UNAVAILABLE = 3;
 export interface CardCheckoutSweepOptions {
   readonly pendingAfterMs?: number;
   readonly expireAfterMs?: number;
-  /** Wall-clock budget: once spent, the rest of the batch is reported as `deferred` and left for the next pass. */
   readonly budgetMs?: number;
-  /** Checkouts one pass examines. The least recently examined go first, so those beyond it are reached on the next pass. */
   readonly batchSize?: number;
 }
 

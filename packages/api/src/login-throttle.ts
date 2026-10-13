@@ -43,11 +43,6 @@ const FREE_ATTEMPTS = 5;
 const BASE_LOCK_MS = 60_000;
 /** Ceiling, so a locked-out shop is never locked out for a whole shift. */
 const MAX_LOCK_MS = 15 * 60_000;
-/**
- * How long one failure counts. A SLIDING window, not a quiet period: a streak
- * that only a quiet hour could forget never forgot anything in a shop that is
- * open all day, so one typo every twenty-five minutes climbed to a lock.
- */
 const DECAY_MS = 60 * 60_000;
 /**
  * How many attempt records are kept.
@@ -61,7 +56,6 @@ const DECAY_MS = 60 * 60_000;
 const MAX_RECORDS = 10_000;
 
 interface AttemptRecord {
-  /** When each failure still inside the window happened, oldest first. */
   failures: number[];
   lockedUntil: number;
 }
@@ -71,9 +65,7 @@ export interface LoginThrottle {
   retryAfter(key: string): number;
   /** Records a failure and returns the seconds the account is now locked for. */
   fail(key: string): number;
-  /** Clears the streak of the one key a credential was just verified on. */
   succeed(key: string): void;
-  /** Clears an account everywhere it was counted — what an admin unlock calls. */
   unlock(account: string): void;
   /** How many records are held. For the exception report and for tests. */
   size(): number;
@@ -87,7 +79,6 @@ export enum SignInRefusal {
   InvalidUnlockLink = "INVALID_UNLOCK_LINK",
 }
 
-/** The tenant is checking as many PINs as it will at once. Nothing was counted against the caller. */
 export function signInBusy(seconds: number) {
   return {
     error: SignInRefusal.Busy,
@@ -96,7 +87,6 @@ export function signInBusy(seconds: number) {
   };
 }
 
-/** `unlockByCode` says whether a one-time code was mailed to the administrators, so the client offers a place to type it. */
 export function accountLocked(unlockByCode: boolean) {
   return {
     error: SignInRefusal.AccountLocked,
@@ -107,11 +97,6 @@ export function accountLocked(unlockByCode: boolean) {
   };
 }
 
-/**
- * "900 ثانية" is not a wait a person can act on. Past two minutes the honest
- * unit is minutes; the exact second count still travels as `retryAfterSeconds`
- * so the client can run a countdown against it.
- */
 export function waitPhrase(seconds: number): string {
   if (seconds < 120) return `${seconds} ثانية`;
   const minutes = Math.ceil(seconds / 60);
@@ -266,9 +251,7 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
 const SOURCE_FREE_ATTEMPTS = 30;
 
 export interface SourceThrottle {
-  /** Seconds this source must wait, or 0 when its attempt may proceed. */
   retryAfter(source: string): number;
-  /** Records a failed sign-in from this source and returns the seconds it is now held for. */
   fail(source: string): number;
   size(): number;
 }

@@ -27,11 +27,8 @@ export class ApiError extends Error {
   /** The server's own Arabic refusal, when it sent one. Shown in preference to anything this client invents. */
   readonly serverMessage: string | null;
   readonly serverMessageEn: string | null;
-  /** The server's machine-readable refusal code, when it sent one. */
   readonly code: string | null;
-  /** The whole seconds the server asked the caller to wait, from the body or from `Retry-After`. */
   readonly retryAfterSeconds: number | null;
-  /** A locked account whose administrators were mailed a one-time code. */
   readonly unlockByCode: boolean;
 
   constructor(

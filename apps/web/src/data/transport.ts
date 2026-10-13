@@ -9,9 +9,7 @@
 export interface TransportResponse {
   readonly status: number;
   readonly ok: boolean;
-  /** The whole seconds a refusal's `Retry-After` header names; null when it names none. */
   readonly retryAfterSeconds?: number | null;
-  /** Why the server says this session ended, when it says ({@link SessionEndedReason}). */
   readonly sessionEnded?: string | null;
   json<T = unknown>(): Promise<T>;
   text(): Promise<string>;

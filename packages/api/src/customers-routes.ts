@@ -150,14 +150,6 @@ function handleDomainError(c: Context, err: unknown) {
   throw err;
 }
 
-/**
- * A customer's own trail. The credit limit is the reason this matters: it is
- * the one master-data field that decides how much a salesperson may sell on
- * credit, and raising it quietly is the cheapest way to push a bad debt
- * through. `details` records the before and after so the change is readable
- * without replaying anything. Every writer of a customer goes through this one
- * function, so the history panel misses none of them.
- */
 export function recordCustomerChange(
   audit: AuditSink | undefined,
   c: Context,

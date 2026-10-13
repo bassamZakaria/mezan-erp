@@ -113,7 +113,6 @@ export function assertAuditIsTransactional(audit: AuditSink, c: Context): void {
   throw new AuditOutsideTransactionError(c.req.method, c.req.path);
 }
 
-/** What `prepare` hands back runs once the request is over; a Response refuses the request before it queues for the connection. */
 export type BoundaryPreparation = (c: Context) => Promise<(() => void) | Response | void>;
 
 export interface AuditBoundaryOptions {
@@ -250,9 +249,6 @@ export function beforeTheTurn(prepare: BoundaryPreparation): MiddlewareHandler {
   };
 }
 
-// Both sit well inside what a client waits: a LAN till gives a data request 30s
-// and a sign-in 5s (apps/desktop lan-client.ts), and a browser shows a spinner
-// for as long. A request refused here is told so in words, with time to spare.
 const CONNECTION_TURN_TIMEOUT_MS = 10_000;
 const SIGN_IN_TURN_TIMEOUT_MS = 2_500;
 const CONNECTION_TURN_MAX_WAITING = 64;
@@ -265,9 +261,7 @@ export interface ConnectionTurnOptions {
   readonly heldWarningMs?: number;
   readonly onHeldTooLong?: (c: Context, heldMs: number) => void;
   readonly onYield?: (c: Context) => void;
-  /** How long a request that handed the connection back waits to take it again before it is refused. */
   readonly retakeTimeoutMs?: number;
-  /** How long one whose outside work completed waits: longer, because what the outside world answered has still to be recorded. */
   readonly completedRetakeTimeoutMs?: number;
 }
 

@@ -27,9 +27,7 @@ export enum IdempotencyKeyField {
 export interface IdempotentCreate {
   readonly path: string;
   readonly key?: IdempotencyKeyField;
-  /** Where the document a create made is read back from. */
   readonly read: (key: string, requestPath: string) => string;
-  /** How what was read fits into the first answer, when the create answers with more than the document. */
   readonly merge?: (first: unknown, current: unknown) => unknown;
 }
 
@@ -41,7 +39,6 @@ const byId =
 const underTheRequest = (key: string, requestPath: string): string => `${requestPath}/${encodeURIComponent(key)}`;
 const parentOfTheRequest = (_key: string, requestPath: string): string => requestPath.slice(0, requestPath.lastIndexOf("/"));
 
-/** Creates that post money or stock on one request, or open a document a second copy of which would be confirmed too. */
 export const IDEMPOTENT_CREATES: readonly IdempotentCreate[] = [
   { path: "/sales-invoices", read: byId("/sales-invoices") },
   { path: "/vouchers", read: byId("/vouchers") },
@@ -81,7 +78,6 @@ export interface IdempotentCreateOptions {
   readonly audit?: AuditSink;
   readonly now?: () => Date;
   readonly creates?: readonly IdempotentCreate[];
-  /** Reads a document back as the caller, through the app's own routes. */
   readonly readCurrent: (c: Context, path: string) => Response | Promise<Response>;
   /**
    * Whether the document is still there at all, whoever may read it. A caller

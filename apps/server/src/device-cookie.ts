@@ -3,7 +3,6 @@ import { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER } from "@mezan/contracts";
 const COOKIE = "mezan_device";
 const COOKIE_PATH = "/api";
 const COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60;
-/** What a browser sends on sign-in to have its device secret kept in a cookie its own script cannot read. */
 export const COOKIE_BINDING = "cookie";
 const HEADER_BINDING = "1";
 
@@ -34,7 +33,6 @@ function setCookie(value: string, maxAgeSeconds: number, secure: boolean): strin
   return `${COOKIE}=${value}; Path=${COOKIE_PATH}; Max-Age=${maxAgeSeconds}; HttpOnly; SameSite=Strict${secure ? "; Secure" : ""}`;
 }
 
-/** The request as the tenant backend reads it: the secret in its header, wherever the client kept it. */
 export function withDeviceSecretHeader(request: Request): Request {
   const secret = deviceSecretOf(request);
   if (secret !== null) request.headers.set(DEVICE_SECRET_HEADER, secret);
@@ -42,7 +40,6 @@ export function withDeviceSecretHeader(request: Request): Request {
   return request;
 }
 
-/** Moves the secret a sign-in answered with out of the body the page's script reads and into the cookie. */
 export async function secretIntoCookie(answer: Response, secure: boolean): Promise<Response> {
   if (!answer.ok) return answer;
   const body = (await answer.json()) as { deviceSecret?: unknown } & Record<string, unknown>;

@@ -12,7 +12,6 @@ export interface BackendCacheOptions<H extends CachedHandle> {
 export interface BackendCache<H> {
   get(code: string): Promise<H>;
   sweep(): Promise<void>;
-  /** Closes one code's handle now and forgets it. Resolves once the handle has finished closing. */
   evict(code: string): Promise<void>;
   close(): Promise<void>;
   readonly size: number;

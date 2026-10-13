@@ -19,7 +19,6 @@ export interface AccountLockRecord {
   readonly unlockLinkHash?: string | null;
 }
 
-/** Where an account's failed sign-ins and its lock are kept. The tenant's database for a real account, so a restart forgets nothing. */
 export interface AccountLockStore {
   get(account: string): AccountLockRecord | null;
   put(account: string, record: AccountLockRecord): void;
@@ -66,7 +65,6 @@ export interface AccountLocks {
 export interface AccountLocksOptions {
   /** Accounts that exist. SECURITY: nothing a caller sends may add a row here or remove one — only a failure against a real account writes, and only an unlock deletes. */
   readonly known: AccountLockStore;
-  /** Names nobody holds, locked the same way so a lock does not say which accounts exist. Bounded: it guards nothing but that silence. */
   readonly unknown?: AccountLockStore;
   readonly now?: () => number;
 }

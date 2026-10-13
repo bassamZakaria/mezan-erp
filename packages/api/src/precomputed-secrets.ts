@@ -6,9 +6,7 @@ export interface SecretsToPrecompute {
 }
 
 export interface PrecomputingHasher {
-  /** Hands out a precomputed answer when one is waiting, and otherwise hashes as the wrapped hasher does. */
   readonly hasher: SecretHasher;
-  /** Resolves once every answer is ready. The returned function drops whatever the request did not use. */
   precompute(secrets: SecretsToPrecompute): Promise<() => void>;
 }
 

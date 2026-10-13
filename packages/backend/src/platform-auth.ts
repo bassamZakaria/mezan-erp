@@ -28,7 +28,6 @@ export interface PlatformAuthDeps {
   readonly sessions: SessionRegistry;
   readonly now: () => Date;
   readonly loginThrottle?: LoginThrottle;
-  /** Where a request came from. Defaults to the socket's peer; the cloud passes the address its trusted proxy saw. */
   readonly sourceOf?: (c: Context) => string | null;
 }
 

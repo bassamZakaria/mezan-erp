@@ -9,7 +9,6 @@ const PIN_LENGTH = 6;
 
 interface StepUpOverlayProps {
   readonly message: string;
-  /** Resolves null when the PIN was accepted, or the server's refusal to show. */
   readonly onConfirm: (pin: string) => Promise<string | null>;
   readonly onCancel: () => void;
 }

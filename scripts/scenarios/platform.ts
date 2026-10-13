@@ -281,7 +281,10 @@ export async function run(ctx: Ctx): Promise<void> {
   const returnLine = invoice.lines[0];
 
   function submitterHeaders(): Record<string, string> {
-    return nonAdmin(submitterUserId, "sales.return.view_own,sales.return.create,sales.return.confirm,workflow.view", "SCN_SUBMITTER_ROLE");
+    return {
+      ...nonAdmin(submitterUserId, "sales.return.view_own,sales.return.create,sales.return.confirm,workflow.view", "SCN_SUBMITTER_ROLE"),
+      "x-warehouse-scope": invoice.warehouseId,
+    };
   }
   function approverHeaders(): Record<string, string> {
     return nonAdmin(approverUserId, "workflow.view,workflow.approve,workflow.reject", "SCN_APPROVER");

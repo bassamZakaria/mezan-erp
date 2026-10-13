@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { PlatformAuditUnavailableError, type BackendHandle, type PlatformHandle, type SignedInUser } from "@mezan/backend";
 import { OwnerHandOverOutcome, type UserEmailChange } from "@mezan/api";
+import { PlatformRefusalCode } from "@mezan/contracts";
 import {
   AuditSeverityCode,
   normalizeEmail,
@@ -73,7 +74,7 @@ type RecordingBackend = Pick<BackendHandle, "recordOwnerAssigned">;
 type AssigningBackend = Pick<BackendHandle, "companyAdmins" | "recordOwnerAssigned">;
 
 export class OwnerCandidateNotFoundError extends Error {
-  readonly code = "TENANT_OWNER_CANDIDATE_NOT_FOUND";
+  readonly code = PlatformRefusalCode.OwnerCandidateNotFound;
 
   constructor() {
     super("الحساب المختار ليس مديرًا نشطًا في هذه المنشأة");
@@ -82,7 +83,7 @@ export class OwnerCandidateNotFoundError extends Error {
 }
 
 export class NoPendingOwnerError extends Error {
-  readonly code = "TENANT_NO_PENDING_OWNER";
+  readonly code = PlatformRefusalCode.NoPendingOwner;
 
   constructor() {
     super("لا يوجد مالك بانتظار التأكيد لهذه المنشأة");
@@ -91,7 +92,7 @@ export class NoPendingOwnerError extends Error {
 }
 
 export class PendingOwnerExpiredError extends Error {
-  readonly code = "TENANT_PENDING_OWNER_EXPIRED";
+  readonly code = PlatformRefusalCode.PendingOwnerExpired;
 
   constructor() {
     super("انتهت مهلة تأكيد نقل الملكية. أرسل رابط التأكيد من جديد أو ألغِ الطلب.");
@@ -100,7 +101,7 @@ export class PendingOwnerExpiredError extends Error {
 }
 
 export class PlatformMailNotConfiguredError extends Error {
-  readonly code = "PLATFORM_MAIL_NOT_CONFIGURED";
+  readonly code = PlatformRefusalCode.MailNotConfigured;
   readonly messageEn = "Mail is not configured on the platform, so no link is sent. Confirm the hand-over here or assign the owner directly.";
 
   constructor() {

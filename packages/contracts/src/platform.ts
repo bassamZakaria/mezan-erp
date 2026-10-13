@@ -95,6 +95,17 @@ export const assignOwnerRequestSchema = z.object({
   userId: z.string().trim().min(1),
 });
 
+export enum PlatformRefusalCode {
+  OwnerCandidateNotFound = "TENANT_OWNER_CANDIDATE_NOT_FOUND",
+  NoPendingOwner = "TENANT_NO_PENDING_OWNER",
+  PendingOwnerExpired = "TENANT_PENDING_OWNER_EXPIRED",
+  BooksBound = "TENANT_BOOKS_BOUND",
+  BooksNotBound = "TENANT_BOOKS_NOT_BOUND",
+  MailNotConfigured = "PLATFORM_MAIL_NOT_CONFIGURED",
+  TenantNotLive = "TENANT_NOT_LIVE",
+  TenantCodeMismatch = "TENANT_CODE_MISMATCH",
+}
+
 export enum TenantBooksStanding {
   Bound = "bound",
   WillBind = "will-bind",

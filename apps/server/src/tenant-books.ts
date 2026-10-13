@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { PlatformAuditUnavailableError, SEED_ADMIN_USER_ID, type PlatformHandle } from "@mezan/backend";
-import { TenantBooksStanding } from "@mezan/contracts";
+import { PlatformRefusalCode, TenantBooksStanding } from "@mezan/contracts";
 import { AuditSeverityCode, recordSecurityEvent, TenantBooksReview, TenantStatusCode, UserStatusCode, type Tenant } from "@mezan/domain";
 import { NotASqliteDatabaseError, readTenantBooksIdentity, type SqliteOpenOptions, type TenantBooksIdentity, type TenantBooksUser } from "@mezan/persistence";
 import {
@@ -32,7 +32,7 @@ export class TenantBooksUnconfirmedError extends Error {
 }
 
 export class TenantBooksBoundError extends Error {
-  readonly code = "TENANT_BOOKS_BOUND";
+  readonly code = PlatformRefusalCode.BooksBound;
   readonly messageEn = "These books are bound to this company. Unbind them instead.";
 
   constructor() {
@@ -42,7 +42,7 @@ export class TenantBooksBoundError extends Error {
 }
 
 export class TenantBooksNotBoundError extends Error {
-  readonly code = "TENANT_BOOKS_NOT_BOUND";
+  readonly code = PlatformRefusalCode.BooksNotBound;
   readonly messageEn = "These books are not bound to this company.";
 
   constructor() {

@@ -75,6 +75,7 @@ import {
   type ProvisionResultDTO,
   type OwnerPinResetResultDTO,
   type OwnerCandidateDTO,
+  PlatformRefusalCode,
   type TenantBooksDTO,
   type TenantBooksStanding,
   type TenantSummaryDTO,
@@ -241,14 +242,14 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
 
 /** Codes for the `apps/server`-only error classes (`provision-tenant.ts`'s `TenantProvisioningError` and `PlanRequiredError`) that map to 422 here. `@mezan/backend` cannot import an `apps/*` class, so each is recognised by shape (`.code` plus, for a provisioning failure, the tenant id it left in `provisioning`) instead of `instanceof`. */
 const SERVER_DOMAIN_ERROR_CODES = new Set(["TENANT_PROVISIONING_FAILED", "PLAN_REQUIRED"]);
-const SERVER_OWNER_CONFLICT_CODES = new Set([
-  "TENANT_OWNER_CANDIDATE_NOT_FOUND",
-  "TENANT_NO_PENDING_OWNER",
-  "TENANT_PENDING_OWNER_EXPIRED",
+const SERVER_OWNER_CONFLICT_CODES: ReadonlySet<string> = new Set([
+  PlatformRefusalCode.OwnerCandidateNotFound,
+  PlatformRefusalCode.NoPendingOwner,
+  PlatformRefusalCode.PendingOwnerExpired,
   "TENANT_BOOKS_UNCONFIRMED",
-  "TENANT_BOOKS_BOUND",
-  "TENANT_BOOKS_NOT_BOUND",
-  "PLATFORM_MAIL_NOT_CONFIGURED",
+  PlatformRefusalCode.BooksBound,
+  PlatformRefusalCode.BooksNotBound,
+  PlatformRefusalCode.MailNotConfigured,
 ]);
 const DB_FILE_RETRY_AFTER_SECONDS = 5;
 const SERVER_OWNER_RETRY_CODE = "TENANT_OWNER_RECORD_DUE";
@@ -481,7 +482,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   });
 
   const isLive = (tenant: Tenant): boolean => tenant.status === TenantStatusCode.Active || tenant.status === TenantStatusCode.Suspended;
-  const TENANT_NOT_LIVE_FOR_OWNER = { error: "TENANT_NOT_LIVE", message: "لا يُعيَّن مالك إلا لمنشأة نشطة أو موقوفة" } as const;
+  const TENANT_NOT_LIVE_FOR_OWNER = { error: PlatformRefusalCode.TenantNotLive, message: "لا يُعيَّن مالك إلا لمنشأة نشطة أو موقوفة" } as const;
 
   app.get("/tenants/:id/owner/candidates", requireOwner, async (c) => {
     try {
@@ -547,7 +548,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     }
   });
 
-  const TENANT_NOT_LIVE_FOR_BOOKS = { error: "TENANT_NOT_LIVE", message: "لا تُراجَع إلا دفاتر منشأة نشطة أو موقوفة", messageEn: "Only an active or suspended company's books are reviewed" } as const;
+  const TENANT_NOT_LIVE_FOR_BOOKS = { error: PlatformRefusalCode.TenantNotLive, message: "لا تُراجَع إلا دفاتر منشأة نشطة أو موقوفة", messageEn: "Only an active or suspended company's books are reviewed" } as const;
 
   async function onLiveTenantBooks(c: Context, act: (books: PlatformTenantBooksPort, tenant: Tenant) => Promise<Response>): Promise<Response> {
     try {
@@ -583,7 +584,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     return onLiveTenantBooks(c, async (books, tenant) => {
       if (parsed.data.code !== tenant.code) {
-        return c.json({ error: "TENANT_CODE_MISMATCH", message: "الرمز المكتوب لا يطابق رمز هذه المنشأة", messageEn: "The typed code is not this company's code" }, 422);
+        return c.json({ error: PlatformRefusalCode.TenantCodeMismatch, message: "الرمز المكتوب لا يطابق رمز هذه المنشأة", messageEn: "The typed code is not this company's code" }, 422);
       }
       return c.json(await summaryOf(await books.unbind({ tenant, actorId: c.get("platformUser")!.id })));
     });
@@ -602,8 +603,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     try {
       const tenant = await requireTenant(tenantId);
       if (tenant.status !== TenantStatusCode.Active && tenant.status !== TenantStatusCode.Suspended) {
-        await ownerPinResetRefused(c, tenant.id, "TENANT_NOT_LIVE");
-        return c.json({ error: "TENANT_NOT_LIVE", message: "لا يُعاد تعيين رمز المالك إلا لمنشأة نشطة أو موقوفة" }, 409);
+        await ownerPinResetRefused(c, tenant.id, PlatformRefusalCode.TenantNotLive);
+        return c.json({ error: PlatformRefusalCode.TenantNotLive, message: "لا يُعاد تعيين رمز المالك إلا لمنشأة نشطة أو موقوفة" }, 409);
       }
       if (!resetOwnerPin) throw new Error("resetOwnerPin dependency is not configured");
       const intent: { account: OwnerPinResetAccount | null } = { account: null };

@@ -1763,6 +1763,7 @@ export {
   assignOwnerRequestSchema,
   pendingOwnerSchema,
   type OwnerCandidateDTO,
+  PlatformRefusalCode,
   TenantBooksStanding,
   tenantBooksStandingSchema,
   tenantBooksSchema,

@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { BranchDTO, CustomerDTO, ItemDTO } from "@mezan/contracts";
+import type { BranchDTO, CustomerDTO, ItemDTO, TaxRateDTO } from "@mezan/contracts";
 import { QuoteFormView } from "./QuoteFormView";
 import { renderWithProviders, stubTransport, testAdminSession } from "../../data/test-support";
 
@@ -42,10 +42,26 @@ const branches: BranchDTO[] = [
 const customers: CustomerDTO[] = [
   {
     id: "cust-1", code: "C1", nameAr: "متجر الأمل", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null, category: null,
-    notes: null, paymentTermsDays: 0, currency: "EGP", openingBalance: "0", active: true, priceListId: null, creditLimit: "0", taxExempt: false,
+    notes: null, paymentTermsDays: 0, currency: "EGP", openingBalance: "0", active: true, priceListId: null, creditLimit: "0", taxExempt: false, taxExemptionRateId: null,
     etaBuyerType: "business", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
   },
 ];
+const taxRate = (id: string, name: string, rate: number, etaSubType: TaxRateDTO["etaSubType"]): TaxRateDTO => ({
+  id, code: id, name, rate, calculationType: "exclusive", isDefault: id === "VAT14",
+  outputTaxAccountId: null, inputTaxAccountId: null, etaSubType, status: "active",
+});
+const taxRates: TaxRateDTO[] = [
+  taxRate("VAT14", "ضريبة القيمة المضافة", 14, "auto"),
+  taxRate("TABLE5", "ضريبة الجدول", 5, "auto"),
+  taxRate("VAT-EXEMPT", "معفى", 0, "V003"),
+  taxRate("VAT-EXPORT", "تصدير", 0, "V001"),
+];
+
+function chooseTaxRate(optionLabel: string): void {
+  fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
+  fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
+}
+
 const items: ItemDTO[] = [
   {
     id: "item-1", code: "ITM-1", nameAr: "صنف تجريبي", nameEn: null, type: "stock", baseUnitCode: "PCS", alternateUnits: [], barcodes: [],
@@ -63,6 +79,7 @@ function renderForm(extra: Record<string, (init: RequestInit | undefined, path: 
     "GET /branches": () => ({ body: branches }),
     "GET /customers": () => ({ body: customers }),
     "GET /items": () => ({ body: items }),
+    "GET /tax-rates": () => ({ body: taxRates }),
     "GET /price-lists": () => ({ body: [] }),
     "GET /inventory/stock-balance": () => ({ body: { rows: [] } }),
     "GET /reports/aging/customers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
@@ -107,6 +124,25 @@ describe("QuoteFormView", () => {
     const lines = body.lines as Array<Record<string, unknown>>;
     expect(lines[0]!.itemId).toBe("item-1");
     expect(lines[0]!.unitPrice).toBe("200.000000");
+    expect(lines[0]!.taxRateId).toBe("VAT14");
+    expect(lines[0]).not.toHaveProperty("taxRatePercent");
+  });
+
+  it("refuses, in Arabic and without a request, a line whose unit price was cleared — it is never saved at zero", async () => {
+    const { getCreateBody } = renderForm();
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    await flushData();
+    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    fireEvent.change(screen.getByLabelText("سعر الوحدة"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    expect(await screen.findByText("أدخل سعر الوحدة لكل بند.")).toBeInTheDocument();
+    expect(getCreateBody()).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("سعر الوحدة"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    expect(((getCreateBody() as { lines: { unitPrice: string }[] }).lines[0]!).unitPrice).toBe("0.000000");
   });
 
   it("the pricing summary renders formatted Money and reacts to a percent discount, never a raw scaled-decimal string", async () => {
@@ -193,7 +229,7 @@ describe("QuoteFormView", () => {
     expect(screen.getByRole("button", { name: "حذف البند 1" })).toBeDisabled();
   });
 
-  it("expanding a line and editing its own discount % and tax % recomputes only that line's total, and reaches the request", async () => {
+  it("expanding a line and picking its discount % and its tax RATE recomputes only that line's total, and the rate's id reaches the request", async () => {
     const { getCreateBody } = renderForm();
     await screen.findByRole("heading", { name: "عرض سعر جديد" });
     await flushData();
@@ -205,8 +241,8 @@ describe("QuoteFormView", () => {
     fireEvent.click(screen.getByRole("button", { name: "تفاصيل البند 1" }));
     const discountInput = screen.getByText("خصم %").parentElement!.querySelector("input")!;
     fireEvent.change(discountInput, { target: { value: "25" } });
-    const taxInput = screen.getByText("نسبة الضريبة %").parentElement!.querySelector("input")!;
-    fireEvent.change(taxInput, { target: { value: "5" } });
+    expect(screen.queryByText("نسبة الضريبة %")).not.toBeInTheDocument();
+    chooseTaxRate("ضريبة الجدول · 5٪");
 
     // gross 2*200=400, line discount 25% = 100, net/base 300, tax 5% of 300 = 15, total 315.
     // With a single line the line total and grand total coincide.
@@ -216,8 +252,44 @@ describe("QuoteFormView", () => {
     await waitFor(() => expect(getCreateBody()).not.toBeNull());
     const lines = (getCreateBody() as Record<string, unknown>).lines as Array<Record<string, unknown>>;
     expect(lines[0]!.discountPercent).toBe(25);
-    expect(lines[0]!.taxRatePercent).toBe(5);
+    expect(lines[0]!.taxRateId).toBe("TABLE5");
+    expect(lines[0]).not.toHaveProperty("taxRatePercent");
     expect(lines[0]!.qty).toBe("2.000000");
+  });
+
+  it("D79: معفى and تصدير are both 0% and are picked apart — the request carries the one the user chose", async () => {
+    const { getCreateBody } = renderForm();
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    await flushData();
+    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    fireEvent.click(screen.getByRole("button", { name: "تفاصيل البند 1" }));
+    chooseTaxRate("تصدير · 0٪");
+    await waitFor(() => expect(grandTotalText()).toBe("200.00"));
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const lines = (getCreateBody() as Record<string, unknown>).lines as Array<Record<string, unknown>>;
+    expect(lines[0]!.taxRateId).toBe("VAT-EXPORT");
+  });
+
+  it("D79: a 14% line offers no «بدون ضريبة مسماة» — tax is never charged under no rate; picking another rate and coming back sends the 14% rate's id", async () => {
+    const { getCreateBody } = renderForm();
+    await screen.findByRole("heading", { name: "عرض سعر جديد" });
+    await flushData();
+    pickFromCombobox(document.body, "العميل *", "متجر الأمل");
+    pickFromCombobox(document.body, "الصنف — بند 1", "صنف تجريبي");
+    fireEvent.click(screen.getByRole("button", { name: "تفاصيل البند 1" }));
+    chooseTaxRate("معفى · 0٪");
+    fireEvent.click(screen.getByRole("combobox", { name: "الضريبة" }));
+    expect(screen.queryByRole("option", { name: /بدون ضريبة مسماة/ })).not.toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByRole("option", { name: "ضريبة القيمة المضافة · 14٪" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "حفظ كمسودة" }));
+    await waitFor(() => expect(getCreateBody()).not.toBeNull());
+    const lines = (getCreateBody() as Record<string, unknown>).lines as Array<Record<string, unknown>>;
+    expect(lines[0]!.taxRateId).toBe("VAT14");
+    expect(lines[0]).not.toHaveProperty("taxRatePercent");
   });
 
   it("the header discount percent reduces the taxable base and grand total by the exact rounded amount, and is carried as a percent discount", async () => {

@@ -14,6 +14,7 @@
  */
 
 import { Money } from "../money/index.js";
+import { isStandingReturn } from "../documents/return-availability.js";
 import { salesReturnGrandTotal, type SalesReturnDocument } from "./sales-return-document.js";
 
 export class SalesReturnNotRefundableError extends Error {
@@ -21,6 +22,21 @@ export class SalesReturnNotRefundableError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "SalesReturnNotRefundableError";
+  }
+}
+
+/**
+ * LEDGER INVARIANT: a refund settles a return, so it is paid from a drawer of
+ * the return's own branch or from an account the company holds. Paying it from
+ * another branch's drawer would book one branch's refund against another's cash.
+ */
+export class SalesReturnRefundTreasuryBranchError extends Error {
+  readonly code = "SALES_RETURN_REFUND_TREASURY_BRANCH";
+  readonly messageEn =
+    "This return belongs to another branch than the cash or bank account chosen. Pay the refund from a drawer of the return's branch or from a company-level account, or move the cash with an inter-branch transfer first.";
+  constructor() {
+    super("المرتجع يتبع فرعًا غير فرع الخزينة المختارة. اصرف الاسترداد من خزينة فرع المرتجع أو من حساب على مستوى الشركة، أو حوّل النقدية بين الفرعين أولًا.");
+    this.name = "SalesReturnRefundTreasuryBranchError";
   }
 }
 
@@ -60,7 +76,7 @@ export function sumRefunds(refunds: readonly SalesReturnRefund[]): Money {
 
 /** What the return still owes the customer: its grand total minus what confirmed vouchers already paid out. */
 export function refundDue(doc: SalesReturnDocument, refunds: readonly SalesReturnRefund[]): Money {
-  if (doc.status !== "confirmed") return Money.zero();
+  if (!isStandingReturn(doc)) return Money.zero();
   const remaining = salesReturnGrandTotal(doc).scaled - sumRefunds(refunds).scaled;
   return Money.fromScaled(remaining > 0n ? remaining : 0n);
 }
@@ -84,7 +100,7 @@ export function assertRefundable(
   refunds: readonly SalesReturnRefund[],
   amount: Money,
 ): void {
-  if (doc.status !== "confirmed") {
+  if (!isStandingReturn(doc)) {
     throw new SalesReturnNotRefundableError("لا يمكن رد مبلغ إلا على مرتجع مؤكد.");
   }
   if (amount.scaled <= 0n) {

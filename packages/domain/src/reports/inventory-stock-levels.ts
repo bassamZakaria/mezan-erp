@@ -7,6 +7,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows, countRows } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * مستويات المخزون — Stock Levels (docs/archive/catalog/08-reports.md): point-in-time
@@ -76,8 +77,8 @@ export function createInventoryStockLevelsReport(): ReportDefinition<
     paramsSchema,
     defaultParams: { warehouseId: "", search: "", branchId: "" },
     paramFields: [
-      { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع (اتركه فارغاً لكل المستودعات)" },
-      { kind: "text", key: "search", label: "الصنف", placeholder: "ابحث بالاسم أو الكود" },
+      { kind: ReportParamKind.Text, key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع (اتركه فارغاً لكل المستودعات)" },
+      { kind: ReportParamKind.Text, key: "search", label: "الصنف", placeholder: "ابحث بالاسم أو الكود" },
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.itemId,

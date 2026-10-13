@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { READ_ONLY_CLOSE } from "../shell/ReadOnlyForm";
 import { Button, Card, Chip, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { HolidayDTO } from "@mezan/contracts";
 import { TextField, ToggleField } from "../settings/form-controls";
@@ -152,7 +153,7 @@ export function HolidaysScreen() {
           <IconButton aria-label={t("holidays.editLabel", { name: h.nameAr ?? h.nameEn })} onClick={() => openEdit(h)}>
             <EditIcon />
           </IconButton>
-          <IconButton
+          <IconButton {...READ_ONLY_CLOSE}
             aria-label={t("holidays.deleteLabel", { name: h.nameAr ?? h.nameEn })}
             disabled={deletingId === h.id}
             onClick={() =>

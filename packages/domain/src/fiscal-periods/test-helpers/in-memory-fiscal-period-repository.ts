@@ -1,3 +1,4 @@
+import { insertOnly } from "../../records/test-helpers/insert-only.js";
 import type { FiscalPeriod, FiscalPeriodRepository } from "../fiscal-period.js";
 import { calendarDay } from "../../dates.js";
 
@@ -36,7 +37,7 @@ export class InMemoryFiscalPeriodRepository implements FiscalPeriodRepository {
   }
 
   async create(period: FiscalPeriod): Promise<void> {
-    this.rows.set(period.id, period);
+    insertOnly(this.rows, period.id, period);
   }
 
   async update(period: FiscalPeriod): Promise<void> {

@@ -11,6 +11,7 @@
  */
 
 export {
+  DocumentStatusCode,
   type DocumentStatus,
   DOCUMENT_TRANSITIONS,
   ACTIVE_STATUSES,
@@ -40,23 +41,29 @@ export type {
   DocumentWorkflowInput,
   DocumentWorkflowDecision,
   DocumentWorkflowGate,
+  DocumentApprovalView,
   DocumentEventType,
   DocumentDomainEvent,
   DocumentEventPublisher,
+  GatedDocument,
 } from "./hooks.js";
+export { confirmRequestIdOf, documentIdOfConfirmRequest } from "./hooks.js";
 
 export type {
   FrameworkDocument,
   DocumentTypeDefinition,
   DocumentRepository,
   DocumentListFilter,
+  DocumentWritePrecondition,
 } from "./document.js";
+export { DocumentField } from "./document.js";
 
 export {
   DocumentService,
   type DocumentServiceDeps,
   type CreateDraftCommand,
   type ConfirmOptions,
+  type CancelOptions,
   type ConfirmResult,
   type ReverseOptions,
 } from "./service.js";
@@ -64,11 +71,15 @@ export {
 export {
   InvalidDocumentTransitionError,
   DocumentNotFoundError,
-  DuplicateDocumentError,
   MissingHookError,
   StockPlanDateRequiredError,
   ReversalNotReversibleError,
   InvalidDocumentError,
+  DocumentChangedError,
+  DocumentReversalRefusedError,
+  DocumentResubmitRefusedError,
+  UnbookedStockVarianceError,
+  assertDocumentWritten,
 } from "./errors.js";
 
 export {
@@ -81,4 +92,27 @@ export {
 
 export { createInventoryStockHook } from "./inventory-stock-hook.js";
 
+export {
+  matchSourceLines,
+  overdrawnSourceLines,
+  returnedQtyBySourceLine,
+  type SourceLineKey,
+  type MatchedSourceLine,
+  type ReturnableSourceLine,
+  type SourceLineRequest,
+  type SourceLineMatch,
+  type OverdrawnSourceLine,
+} from "./match-source-lines.js";
+
+export {
+  assertReturnTotalsWithinAvailable,
+  createReturnConfirmGuard,
+  isStandingReturn,
+  type ReturnConfirmGuard,
+  type ReturnDocumentLine,
+  type ReturnSourceInvoice,
+} from "./return-availability.js";
+
 export { ledgerPresenceAsOf, reversalChainPresenceAsOf, type LedgerPresenceInput } from "./as-of.js";
+
+export { approvalLabel, displayAmount as displayApprovalAmount, type ApprovalLabelSubject } from "./approval-label.js";

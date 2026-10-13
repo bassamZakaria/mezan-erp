@@ -623,3 +623,152 @@ describe("BankReconciliationScreen — matching", () => {
     expect(await within(panel).findByRole("alert")).toHaveTextContent("السطر مطابَق بالفعل.");
   });
 });
+
+describe("BankReconciliationScreen — the branch of a company-level statement and of its charges (D111)", () => {
+  const COMPANY_ACCOUNT: TreasuryAccountDTO = { ...BANK_ACCOUNT, id: "ta-company", code: "BANK-HQ", name: "حساب الشركة الجاري", branchId: null };
+  const BRANCHES = [
+    { id: "BR1", code: "BR1", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
+    { id: "BR2", code: "BR2", name: "فرع الإسكندرية", parentBranchId: null, phone: null, email: null, address: null, isMain: false, active: true },
+  ];
+  const CHARGE = line({ amount: "-25.000000", description: "مصاريف بنكية" });
+  const EXPENSE = { id: "5910", code: "5910", nameAr: "مصروفات بنكية", nameEn: null, type: "expense", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" };
+
+  async function openCharge(statementBranchId: string | null, handlers: Record<string, (init?: RequestInit) => StubResult> = {}) {
+    const user = userEvent.setup();
+    const overrides = { statement: { branchId: statementBranchId, treasuryAccountId: statementBranchId === null ? "ta-company" : "ta-bank1" }, lines: [CHARGE] };
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        "GET /bank-statements": () => ({ body: [listItem(statement(overrides.statement), [CHARGE])] }),
+        "GET /treasury-accounts": () => ({ body: [BANK_ACCOUNT, COMPANY_ACCOUNT] }),
+        "GET /bank-statements/rules": () => ({ body: [] }),
+        "GET /accounts": () => ({ body: [EXPENSE] }),
+        "GET /cost-centers": () => ({ body: [] }),
+        "GET /branches": () => ({ body: BRANCHES }),
+        "GET /bank-statements/stmt-1": () => ({ body: detail(overrides) }),
+        "GET /bank-statements/stmt-1/review": () => ({ body: reviewOf(overrides) }),
+        "GET /bank-statements/stmt-1/candidates": () => ({ body: [] }),
+        ...handlers,
+      }),
+    });
+    const row = (await screen.findByText("ST-001")).closest("tr") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "إجراءات ST-001" }));
+    await user.click(within(row).getByRole("menuitem", { name: "فتح التسوية" }));
+    const panel = await screen.findByRole("dialog", { name: /تسوية/ });
+    await within(panel).findByText("مصاريف بنكية");
+    await user.click(within(panel).getByRole("button", { name: "إنشاء قيد" }));
+    return { user, panel };
+  }
+
+  it("a charge on a company-level statement is booked to a branch picked from the branches the session holds", async () => {
+    let posted: Record<string, unknown> | null = null;
+    const { user, panel } = await openCharge(null, {
+      "POST /bank-statements/stmt-1/lines/stmt-1:L0/create-entry": (init) => {
+        posted = JSON.parse(String(init?.body));
+        return { status: 201, body: { held: false, voucherNo: "VCH-1", voucherId: "v-1" } };
+      },
+    });
+    await user.type(within(panel).getByPlaceholderText("اختر حساب مصروف أو إيراد"), "مصروفات");
+    await user.click(await within(panel).findByText("5910 — مصروفات بنكية"));
+    const branch = within(panel).getByPlaceholderText("بدون فرع — على مستوى الشركة");
+    await user.type(branch, "الإسكندرية");
+    expect(within(panel).queryByText("الفرع الرئيسي")).not.toBeInTheDocument();
+    await user.click(await within(panel).findByText("فرع الإسكندرية"));
+    await user.click(within(panel).getByRole("button", { name: "ترحيل ومطابقة" }));
+    await waitFor(() => expect(posted).not.toBeNull());
+    expect(posted).toMatchObject({ accountId: "5910", branchId: "BR2" });
+  });
+
+  it("left unpicked, the charge is sent with no branch", async () => {
+    let posted: Record<string, unknown> | null = null;
+    const { user, panel } = await openCharge(null, {
+      "POST /bank-statements/stmt-1/lines/stmt-1:L0/create-entry": (init) => {
+        posted = JSON.parse(String(init?.body));
+        return { status: 201, body: { held: false, voucherNo: "VCH-1", voucherId: "v-1" } };
+      },
+    });
+    await user.type(within(panel).getByPlaceholderText("اختر حساب مصروف أو إيراد"), "مصروفات");
+    await user.click(await within(panel).findByText("5910 — مصروفات بنكية"));
+    await user.click(within(panel).getByRole("button", { name: "ترحيل ومطابقة" }));
+    await waitFor(() => expect(posted).not.toBeNull());
+    expect(posted!["branchId"]).toBeNull();
+  });
+
+  it("a statement on a branch's own account offers no branch to pick — the charge follows the account", async () => {
+    const { panel } = await openCharge("BR1");
+    expect(within(panel).getByPlaceholderText("اختر حساب مصروف أو إيراد")).toBeInTheDocument();
+    expect(within(panel).queryByPlaceholderText("بدون فرع — على مستوى الشركة")).not.toBeInTheDocument();
+  });
+
+  async function openImport(branches: typeof BRANCHES, handlers: Record<string, (init?: RequestInit) => StubResult> = {}) {
+    const user = userEvent.setup();
+    renderWithProviders(<BankReconciliationScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        "GET /treasury-accounts": () => ({ body: [BANK_ACCOUNT, COMPANY_ACCOUNT] }),
+        "GET /bank-statements": () => ({ body: [] }),
+        "GET /bank-statements/column-mapping/*": () => ({ status: 404, body: {} }),
+        "GET /branches": () => ({ body: branches }),
+        ...handlers,
+      }),
+    });
+    await screen.findByText("لا توجد كشوف بنك بعد");
+    await user.click(screen.getAllByRole("button", { name: "استيراد كشف بنك" })[0]!);
+    const dialog = await screen.findByRole("dialog", { name: "استيراد كشف بنك" });
+    const chooseAccount = async (label: string) => {
+      const input = within(dialog).getByPlaceholderText("اختر حسابا بنكيا");
+      await user.clear(input);
+      await user.type(input, label.slice(0, 4));
+      await user.click(await within(dialog).findByText(label));
+    };
+    return { user, dialog, chooseAccount };
+  }
+
+  it("a user who holds several branches picks the statement's branch for a company-level account, and it is sent", async () => {
+    let imported: Record<string, unknown> | null = null;
+    const { user, dialog, chooseAccount } = await openImport(BRANCHES, {
+      "POST /bank-statements/import-file": (init) => {
+        imported = JSON.parse(String(init?.body));
+        return { status: 201, body: statement({ branchId: "BR2", treasuryAccountId: "ta-company" }) };
+      },
+      "GET /bank-statements/stmt-1": () => ({ body: detail() }),
+    });
+    expect(within(dialog).queryByPlaceholderText("اختر فرع الكشف")).not.toBeInTheDocument();
+    await chooseAccount("حساب الشركة الجاري (BANK-HQ)");
+    const branch = await within(dialog).findByPlaceholderText("اختر فرع الكشف");
+    await user.click(within(dialog).getByRole("combobox", { name: "المصدر *" }));
+    fireEvent.mouseDown(await screen.findByRole("option", { name: "ملف OFX" }));
+    await user.upload(within(dialog).getByLabelText("ملف الكشف"), new File(["OFXHEADER:100"], "statement.ofx", { type: "application/x-ofx" }));
+    await user.type(branch, "الإسكندرية");
+    await user.click(await within(dialog).findByText("فرع الإسكندرية"));
+    await user.click(within(dialog).getByRole("button", { name: "استيراد" }));
+    await waitFor(() => expect(imported).not.toBeNull());
+    expect(imported).toMatchObject({ treasuryAccountId: "ta-company", branchId: "BR2" });
+  });
+
+  it("the server's BRANCH_REQUIRED refusal is shown in Arabic and the panel stays open", async () => {
+    const refusal = "حدد الفرع: حسابك مصرح له بأكثر من فرع، ولا يُسجَّل كشف على حساب الشركة بلا فرع.";
+    const { user, dialog, chooseAccount } = await openImport(BRANCHES, {
+      "POST /bank-statements/import-file": () => ({ status: 400, body: { error: "BRANCH_REQUIRED", message: refusal } }),
+    });
+    await chooseAccount("حساب الشركة الجاري (BANK-HQ)");
+    await user.click(within(dialog).getByRole("combobox", { name: "المصدر *" }));
+    fireEvent.mouseDown(await screen.findByRole("option", { name: "ملف OFX" }));
+    await user.upload(within(dialog).getByLabelText("ملف الكشف"), new File(["OFXHEADER:100"], "statement.ofx", { type: "application/x-ofx" }));
+    await user.click(within(dialog).getByRole("button", { name: "استيراد" }));
+    expect(await within(dialog).findByText(refusal)).toBeInTheDocument();
+    expect(within(dialog).getByPlaceholderText("اختر فرع الكشف")).toBeInTheDocument();
+  });
+
+  it("no picker for a branch's own account, nor for a user who holds one branch", async () => {
+    const several = await openImport(BRANCHES);
+    await several.chooseAccount("بنك مصر — الحساب الجاري (BANK-001)");
+    expect(within(several.dialog).queryByPlaceholderText("اختر فرع الكشف")).not.toBeInTheDocument();
+  });
+
+  it("a user who holds one branch is not asked for it", async () => {
+    const one = await openImport([BRANCHES[0]!]);
+    await one.chooseAccount("حساب الشركة الجاري (BANK-HQ)");
+    expect(within(one.dialog).queryByPlaceholderText("اختر فرع الكشف")).not.toBeInTheDocument();
+  });
+});

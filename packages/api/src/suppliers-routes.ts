@@ -1,3 +1,4 @@
+import { sharedFieldRefusal } from "./branch-policy.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import { createSupplier, updateSupplier, InvalidSupplierError, Money, AuditChangeAction, type AuditSink, type Supplier, type SupplierRepository, matchesSearch } from "@mezan/domain";
@@ -7,6 +8,9 @@ import { createPermissionGate, type AuthContextResolver } from "./permission-gat
 import { recordFieldChanges } from "./admin-audit.js";
 import type { PartyOpeningBalancePoster } from "./customers-routes.js";
 import { tenantToday } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * What is still owed to each supplier — the supplier aging ladder's row, which
@@ -23,10 +27,12 @@ import { tenantToday } from "./tenant-day.js";
  */
 export interface SupplierPayablesSource {
   /** `today` is the TENANT's calendar day, resolved at the route (D288). */
-  outstandingBySupplier(today: string): Promise<ReadonlyMap<string, Money>>;
+  outstandingBySupplier(today: string, c: Context): Promise<ReadonlyMap<string, Money>>;
 }
 
 /** Wire representation of a supplier — a plain JSON-safe projection with Money as decimal strings. */
+const SUPPLIERS_PREFIX = "/suppliers";
+
 function serialize(supplier: Supplier) {
   return {
     id: supplier.id,
@@ -71,6 +77,7 @@ export const AUDITED_SUPPLIER_FIELDS = [
 ] as const;
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof InvalidSupplierError) {
@@ -97,6 +104,8 @@ export function createSuppliersRouter(
   audit?: AuditSink,
   /** Posts the supplier's رصيد افتتاحي into the ledger (Dr 3210 / Cr 2100) — see customers-routes.ts (B-2). */
   openingBalances?: PartyOpeningBalancePoster,
+  /** SECURITY: makes a refused create — a taken id included — leave no opening-balance entry behind. */
+  transactor?: ConfigTransactor,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -146,7 +155,7 @@ export function createSuppliersRouter(
    * cheques — so the screen never derives a second figure (D201).
    */
   async function withOwed(c: Context, rows: readonly Supplier[]) {
-    const outstanding = payables ? await payables.outstandingBySupplier(await tenantToday(c)) : null;
+    const outstanding = payables ? await payables.outstandingBySupplier(await tenantToday(c), c) : null;
     return rows.map((supplier) => ({
       ...serialize(supplier),
       owed: outstanding ? (outstanding.get(supplier.id) ?? Money.zero()).toString() : null,
@@ -178,7 +187,7 @@ export function createSuppliersRouter(
    */
   app.get("/stats", gate("purchases.supplier.view"), async (c) => {
     const suppliers = await listFilteredSuppliers(parseSupplierListQuery(c));
-    const outstanding = (await payables?.outstandingBySupplier(await tenantToday(c))) ?? new Map<string, Money>();
+    const outstanding = (await payables?.outstandingBySupplier(await tenantToday(c), c)) ?? new Map<string, Money>();
     let active = 0;
     let payable = Money.zero();
     for (const supplier of suppliers) {
@@ -204,9 +213,8 @@ export function createSuppliersRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    if (await repo.findById(parsed.data.id)) {
-      return c.json({ error: "ALREADY_EXISTS" }, 409);
-    }
+    const restrictedOnCreate = sharedFieldRefusal(c, SUPPLIERS_PREFIX, null, parsed.data);
+    if (restrictedOnCreate) return restrictedOnCreate;
     const code = parsed.data.code ?? nextMasterCode((await repo.findAll()).map((row) => row.code), "S");
     if (await repo.findByCode(code)) {
       return c.json({ error: "DUPLICATE_SUPPLIER_CODE", message: `كود المورد «${code}» مستخدم بالفعل.` }, 409);
@@ -221,9 +229,11 @@ export function createSuppliersRouter(
       // The GL post goes FIRST (matches customers-routes.ts): a refused
       // period must leave behind no supplier carrying a balance the control
       // account never heard about.
-      await openingBalances?.post(supplier);
-      await repo.save(supplier);
-      await auditSupplier(c, supplier, AuditChangeAction.Create);
+      await atomically(transactor, async () => {
+        await openingBalances?.post(supplier);
+        await repo.insert(supplier);
+        await auditSupplier(c, supplier, AuditChangeAction.Create);
+      });
       return c.json(serialize(supplier), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -239,6 +249,8 @@ export function createSuppliersRouter(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const restricted = sharedFieldRefusal(c, SUPPLIERS_PREFIX, serialize(current), parsed.data);
+    if (restricted) return restricted;
     if (parsed.data.code !== undefined && parsed.data.code !== current.code) {
       const clash = await repo.findByCode(parsed.data.code);
       if (clash) {

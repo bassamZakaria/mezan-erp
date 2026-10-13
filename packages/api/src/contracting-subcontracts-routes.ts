@@ -17,7 +17,6 @@ import {
   SubcontractRetentionError,
   SubcontractService,
   SubcontractorNotPayableError,
-  VatPeriodAlreadyFiledError,
   type CertificateComputation,
   type SubCertificatePreview,
   type SubCertificateServiceDeps,
@@ -48,6 +47,8 @@ import {
   updateSubcontractSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * عقود الباطن ومستخلصاتها — the mirror of the client contract and its
@@ -313,6 +314,7 @@ function serializePreview(preview: SubCertificatePreview) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof SubcontractNotFoundError || err instanceof SubCertificateNotFoundError) {
@@ -328,8 +330,7 @@ function handleDomainError(c: Context, err: unknown) {
   // fault: the caller has to reopen the period or change the date.
   if (
     err instanceof PeriodNotOpenForPostingError ||
-    err instanceof NoFiscalPeriodForDateError ||
-    err instanceof VatPeriodAlreadyFiledError
+    err instanceof NoFiscalPeriodForDateError
   ) {
     return c.json({ error: err.code, message: err.message }, 409);
   }

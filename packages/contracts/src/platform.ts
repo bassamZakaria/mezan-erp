@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { entitlementsSchema } from "./entitlements.js";
-import { nonNegativeMoneyString } from "./money-string.js";
+import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { companyNameSchema } from "./company-name.js";
 
 /**
  * Wire contracts for the platform console
@@ -59,7 +60,40 @@ export const createPlatformUserRequestSchema = z.object({
   role: platformRoleSchema,
 });
 
-export const tenantStatusSchema = z.enum(["provisioning", "active", "suspended", "archived"]);
+// INVARIANT: mirrors `TenantStatusCode` in @mezan/domain by hand, because this package cannot import it;
+// `apps/server/src/company-name-parity.test.ts` fails when the two disagree.
+export enum TenantWireStatus {
+  Provisioning = "provisioning",
+  Active = "active",
+  Suspended = "suspended",
+  Archived = "archived",
+  Unknown = "unknown",
+}
+
+export const tenantStatusSchema = z.nativeEnum(TenantWireStatus);
+
+export function tenantStatusOf(stored: string): TenantWireStatus {
+  const parsed = tenantStatusSchema.safeParse(stored);
+  return parsed.success ? parsed.data : TenantWireStatus.Unknown;
+}
+
+export const pendingOwnerSchema = z.object({
+  userId: z.string().min(1),
+  email: z.string().min(1),
+  requestedAt: isoLikeSchema,
+  expiresAt: isoLikeSchema,
+  linkMailed: z.boolean(),
+});
+
+export const ownerCandidateSchema = z.object({
+  id: z.string().min(1),
+  nameAr: z.string(),
+  email: z.string().min(1),
+});
+
+export const assignOwnerRequestSchema = z.object({
+  userId: z.string().trim().min(1),
+});
 
 export const tenantSchema = z.object({
   id: z.string().min(1),
@@ -67,17 +101,50 @@ export const tenantSchema = z.object({
   nameAr: z.string().min(1),
   nameEn: z.string().nullable(),
   ownerEmail: z.string().min(1),
+  ownerContactVerified: z.boolean(),
+  ownerNeeded: z.boolean(),
+  pendingOwner: pendingOwnerSchema.nullable(),
   status: tenantStatusSchema,
   dbFile: z.string().min(1),
   createdAt: isoLikeSchema,
   updatedAt: isoLikeSchema,
 });
 
+export function tenantDTOOf(
+  stored: Omit<z.infer<typeof tenantSchema>, "status" | "ownerNeeded" | "pendingOwner"> & {
+    readonly status: string;
+    readonly ownerNeeded?: boolean;
+    readonly pendingOwner?: { readonly userId: string; readonly email: string; readonly requestedAt: string; readonly expiresAt: string; readonly tokenHash: string | null } | null;
+  },
+): z.infer<typeof tenantSchema> {
+  const pending = stored.pendingOwner ?? null;
+  return {
+    id: stored.id, code: stored.code, nameAr: stored.nameAr, nameEn: stored.nameEn, ownerEmail: stored.ownerEmail,
+    ownerContactVerified: stored.ownerContactVerified, ownerNeeded: stored.ownerNeeded === true,
+    // SECURITY: the confirmation token's hash never leaves the server.
+    pendingOwner: pending
+      ? { userId: pending.userId, email: pending.email, requestedAt: pending.requestedAt, expiresAt: pending.expiresAt, linkMailed: pending.tokenHash !== null }
+      : null,
+    status: tenantStatusOf(stored.status), dbFile: stored.dbFile, createdAt: stored.createdAt, updatedAt: stored.updatedAt,
+  };
+}
+
+export enum TenantResolveMode {
+  Subdomain = "subdomain",
+  Code = "code",
+}
+
+// SECURITY: name-free on purpose. Anyone who guesses a tenant code can ask, so it answers only whether that tenant is usable.
+export interface PlatformResolveDTO {
+  readonly mode: TenantResolveMode;
+  readonly exists: boolean;
+}
+
 export const billingCycleSchema = z.enum(["monthly", "yearly"]);
 
 export const createTenantRequestSchema = z.object({
   code: slugSchema,
-  nameAr: z.string().min(1),
+  nameAr: companyNameSchema,
   nameEn: z.string().min(1).nullable().optional(),
   ownerEmail: emailRequestSchema,
   ownerNameAr: z.string().min(1),
@@ -131,7 +198,29 @@ export const recordPaymentRequestSchema = z.object({
   note: z.string().min(1).nullable().optional(),
 });
 
-export const subscriptionStatusSchema = z.enum(["trialing", "active", "past_due", "suspended", "cancelled"]);
+export const ownerPinResetResultSchema = z.object({
+  adminEmail: z.string().min(1),
+  signInEmail: z.string().min(1),
+  adminPin: z.string().regex(/^\d{6}$/, "must be exactly 6 digits"),
+});
+
+export enum SubscriptionStatusCode {
+  Trialing = "trialing",
+  Active = "active",
+  PastDue = "past_due",
+  Suspended = "suspended",
+  Cancelled = "cancelled",
+  Unknown = "unknown",
+}
+
+export const subscriptionStatusSchema = z.nativeEnum(SubscriptionStatusCode);
+
+export function subscriptionStatusOf(stored: string): SubscriptionStatusCode {
+  const parsed = subscriptionStatusSchema.safeParse(stored);
+  return parsed.success ? parsed.data : SubscriptionStatusCode.Unknown;
+}
+
+export const billingAnchorDaySchema = z.number().int().min(1).max(31);
 
 export const subscriptionSchema = z.object({
   id: z.string().min(1),
@@ -145,12 +234,16 @@ export const subscriptionSchema = z.object({
   extraWarehouses: z.number().int().nonnegative(),
   currentPeriodStart: isoLikeSchema,
   currentPeriodEnd: isoLikeSchema,
+  billingAnchorDay: billingAnchorDaySchema,
+  billingAnchorNeedsReview: z.boolean(),
   trialEndsAt: isoLikeSchema.nullable(),
   graceDays: z.number().int().nonnegative(),
   cancelledAt: isoLikeSchema.nullable(),
   createdAt: isoLikeSchema,
   updatedAt: isoLikeSchema,
 });
+
+export const setBillingAnchorDayRequestSchema = z.object({ day: billingAnchorDaySchema });
 
 /** Mirrors the domain's `PlanKind`; `@mezan/contracts` may not import `@mezan/domain`. */
 export const planKindSchema = z.enum(["paid", "free"]);
@@ -214,7 +307,15 @@ export const paymentSchema = z.object({
   createdAt: isoLikeSchema,
 });
 
-export const licenseStateNameSchema = z.enum(["ACTIVE", "GRACE", "READ_ONLY", "INVALID", "UNLICENSED"]);
+export enum LicenseStateCode {
+  Active = "ACTIVE",
+  Grace = "GRACE",
+  ReadOnly = "READ_ONLY",
+  Invalid = "INVALID",
+  Unlicensed = "UNLICENSED",
+}
+
+export const licenseStateNameSchema = z.nativeEnum(LicenseStateCode);
 
 export const licenseStateReasonSchema = z.enum([
   "TENANT_ARCHIVED",
@@ -226,6 +327,7 @@ export const licenseStateReasonSchema = z.enum([
   "GRACE_ENDED",
   "INVALID_CLOCK",
   "TENANT_NOT_FOUND",
+  "STATUS_UNKNOWN",
 ]);
 
 export const licenseStateViewSchema = z.object({
@@ -324,7 +426,7 @@ export const tenantBillingSchema = z.object({
       currentPeriodEnd: z.string(),
       planNameAr: z.string(),
       planNameEn: z.string(),
-      amountDue: z.string(),
+      amountDue: moneyString,
       planKind: planKindSchema,
     })
     .nullable(),
@@ -356,12 +458,17 @@ export type BillingCycleDTO = z.infer<typeof billingCycleSchema>;
 export type CreateTenantRequestDTO = z.infer<typeof createTenantRequestSchema>;
 export type ProvisionRetryRequestDTO = z.infer<typeof provisionRetryRequestSchema>;
 export type ProvisionResultDTO = z.infer<typeof provisionResultSchema>;
+export type OwnerPinResetResultDTO = z.infer<typeof ownerPinResetResultSchema>;
+export type OwnerCandidateDTO = z.infer<typeof ownerCandidateSchema>;
+export type AssignOwnerRequestDTO = z.infer<typeof assignOwnerRequestSchema>;
+export type PendingOwnerDTO = z.infer<typeof pendingOwnerSchema>;
 export type StartSubscriptionRequestDTO = z.infer<typeof startSubscriptionRequestSchema>;
 export type ChangePlanRequestDTO = z.infer<typeof changePlanRequestSchema>;
 export type SubscriptionSuspendRequestDTO = z.infer<typeof subscriptionSuspendRequestSchema>;
 export type SubscriptionResumeRequestDTO = z.infer<typeof subscriptionResumeRequestSchema>;
 export type RecordPaymentRequestDTO = z.infer<typeof recordPaymentRequestSchema>;
 export type SubscriptionStatusDTO = z.infer<typeof subscriptionStatusSchema>;
+export type SetBillingAnchorDayRequestDTO = z.infer<typeof setBillingAnchorDayRequestSchema>;
 export type SubscriptionDTO = z.infer<typeof subscriptionSchema>;
 export type PlanStatusDTO = z.infer<typeof planStatusSchema>;
 export type PlanKindDTO = z.infer<typeof planKindSchema>;

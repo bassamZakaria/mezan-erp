@@ -147,6 +147,7 @@ export interface InventoryGlPosting {
   readonly memo: string;
   readonly lines: readonly InventoryGlPostingLine[];
   readonly mintedBySystem?: boolean;
+  readonly warehouseId?: string | null;
 }
 
 export interface InventoryGlPostingPort {

@@ -1,5 +1,7 @@
 import { z } from "zod";
+import { Money } from "../money/index.js";
 import type { ReportParamField } from "./types.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * الفرع — the branch dimension every branch-aware report declares (D111).
@@ -12,15 +14,17 @@ import type { ReportParamField } from "./types.js";
  * ONLY reports whose source rows actually carry a branch declare it. A stock
  * report reaches the branch through the warehouse holding the goods
  * ({@link branchOfWarehouse}); the financial statements read the posted journal
- * line, which carries a branch of its own since DEC-20 — filled path by path,
- * so a great deal of it is still null and every statement that narrows on it
- * must say so out loud ({@link UNATTRIBUTED_BRANCH_LABEL}).
+ * line, which carries a branch of its own since DEC-20. Every posting path whose
+ * source document has an unambiguous branch fills it (D111); company-level
+ * entries and lines posted before a path was filled stay null, so every
+ * statement that narrows on it must say so out loud
+ * ({@link UNATTRIBUTED_BRANCH_LABEL}).
  */
 export const BRANCH_PARAM_FIELD: ReportParamField = {
-  kind: "text",
+  kind: ReportParamKind.Branch,
   key: "branchId",
   label: "الفرع",
-  placeholder: "معرف الفرع (اتركه فارغاً لكل الفروع)",
+  allowUnattributed: false,
 };
 
 /**
@@ -48,10 +52,11 @@ export function matchesBranch(rowBranchId: string | null | undefined, branchId: 
  * The bucket a posted line with no branch on it falls into (DEC-20), as a
  * selectable value of the branch parameter.
  *
- * `branchId` is nullable and filled path by path — sales invoices, purchase
- * invoices and treasury vouchers carry one; manual journals only when the
- * poster picks a branch; payroll, depreciation and the year-end close carry
- * none at all. Branch columns therefore do NOT sum to the entity on their own,
+ * `branchId` is nullable. Documents raised in a branch, or moving stock held
+ * in one, carry it; a manual journal only when the poster picks a branch; and
+ * company-level entries — opening balances, unrealised FX revaluation, HR
+ * provisions, contracting certificates, a company-wide asset's depreciation —
+ * carry none at all. Branch columns therefore do NOT sum to the entity on their own,
  * and the only honest statement is one that names what is left over. The
  * bucket is always reachable and is never defaulted away.
  */
@@ -63,10 +68,10 @@ export const UNATTRIBUTED_BRANCH_LABEL = "غير مخصص";
  * branch, or the «غير مخصص» bucket on its own.
  */
 export const BRANCH_STATEMENT_PARAM_FIELD: ReportParamField = {
-  kind: "text",
+  kind: ReportParamKind.Branch,
   key: "branchId",
   label: "الفرع",
-  placeholder: `معرف الفرع، أو ${UNATTRIBUTED_BRANCH_ID} لغير المخصص (اتركه فارغاً لكل الفروع)`,
+  allowUnattributed: true,
 };
 
 /**
@@ -108,10 +113,10 @@ export function matchesStatementBranch(rowBranchId: string | null | undefined, b
 export function withinBranchScope(
   rowBranchId: string | null | undefined,
   scope: readonly string[] | undefined,
+  includeUnattributed = true,
 ): boolean {
-  if (!scope) return true;
-  if (rowBranchId == null || rowBranchId === "") return true;
-  return scope.includes(rowBranchId);
+  if (rowBranchId == null || rowBranchId === "") return includeUnattributed;
+  return !scope || scope.includes(rowBranchId);
 }
 
 /**
@@ -124,4 +129,43 @@ export function branchOfWarehouse(
 ): (warehouseId: string) => string | null {
   const index = new Map((warehouses ?? []).map((warehouse) => [warehouse.id, warehouse.branchId]));
   return (warehouseId) => index.get(warehouseId) ?? null;
+}
+
+export enum BranchCaveatCode {
+  IncludesUnattributed = "INCLUDES_UNATTRIBUTED",
+  LimitedToBranches = "LIMITED_TO_BRANCHES",
+}
+
+/**
+ * What a branch-filtered statement owes its reader when its balance is not the
+ * branches' alone: opening balances and company-level entries post with no
+ * branch (DEC-20), stay inside a scoped view, and are otherwise
+ * indistinguishable from the branch's own movement.
+ */
+export interface BranchCaveat {
+  readonly code: BranchCaveatCode;
+  readonly message: string;
+  readonly messageEn: string;
+  /** Net of the unattributed postings inside the balance shown, as an exact decimal. */
+  readonly unattributedNet: string;
+}
+
+export function includesUnattributedCaveat(unattributedNet: Money): BranchCaveat {
+  return {
+    code: BranchCaveatCode.IncludesUnattributed,
+    message: `العرض مقيَّد بفروعك، لكن الرصيد يشمل حركات «${UNATTRIBUTED_BRANCH_LABEL}» لفرع — أرصدة افتتاحية وقيود على مستوى المنشأة — فهو ليس رصيد فروعك وحدها.`,
+    messageEn:
+      "This view is limited to your branches, but the balance includes postings assigned to no branch — opening balances and company-level entries — so it is not your branches' balance alone.",
+    unattributedNet: unattributedNet.toString(),
+  };
+}
+
+export function limitedToBranchesCaveat(): BranchCaveat {
+  return {
+    code: BranchCaveatCode.LimitedToBranches,
+    message: "الكشف مقيَّد بفروعك: الرصيد هو مجموع الحركات المعروضة فقط، ولا يشمل ما قُيِّد على الطرف في فروع أخرى أو بلا فرع.",
+    messageEn:
+      "This statement is limited to your branches: the balance is the sum of the lines shown and excludes what was booked for this party in other branches or with no branch.",
+    unattributedNet: Money.zero().toString(),
+  };
 }

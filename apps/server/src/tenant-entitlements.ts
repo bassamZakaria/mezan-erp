@@ -1,5 +1,5 @@
 import {
-  createEntitlements, deriveEntitlements, subscriptionLicenseState, UNLICENSED_ENTITLEMENTS,
+  createEntitlements, deriveEntitlements, subscriptionLicenseState, SubscriptionStatusKind, UNLICENSED_ENTITLEMENTS,
   type Entitlements,
 } from "@mezan/domain";
 import { resolveTenantPlan, type PlatformHandle } from "@mezan/backend";
@@ -47,7 +47,7 @@ export function createTenantResolvers(
     // The cache must not outlive the trial it is caching: a snapshot taken a
     // minute before the boundary would otherwise keep serving the top plan
     // after it, and a second process reading fresh would disagree.
-    const trialEnds = subscription?.status === "trialing" && subscription.trialEndsAt
+    const trialEnds = subscription?.status === SubscriptionStatusKind.Trialing && subscription.trialEndsAt
       ? Date.parse(subscription.trialEndsAt)
       : Number.POSITIVE_INFINITY;
     return { entitlements, license, at: at.getTime(), until: Math.min(at.getTime() + ttl, trialEnds) };

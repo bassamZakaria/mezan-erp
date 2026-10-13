@@ -256,6 +256,8 @@ export interface ProgressCertificateStore {
   list(filter?: ProgressCertificateListFilter): Promise<ProgressCertificate[]>;
   /** Every certificate of one contract, ordered by serial ascending. */
   listByContract(contractId: string): Promise<ProgressCertificate[]>;
+  /** Insert-only: a taken id is refused with DuplicateRecordIdError, never replaced. */
+  insert(certificate: ProgressCertificate): Promise<void>;
   save(certificate: ProgressCertificate): Promise<void>;
   transaction<T>(fn: () => Promise<T>): Promise<T>;
 }

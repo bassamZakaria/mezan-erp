@@ -1,3 +1,4 @@
+export { branchGrantCoversEvent, COMPANY_LEVEL_EVENT_PERMISSION, EVENT_BRANCH_IDS_KEY, eventBranchIdsOf } from "./branch-audience.js";
 export {
   NOTIFICATION_PRIORITIES,
   NOTIFICATION_CHANNELS,

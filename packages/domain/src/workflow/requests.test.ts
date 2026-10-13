@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 import { WorkflowError, type GateConfig } from "./gate.js";
 import {
   submitApproval,
@@ -18,6 +19,10 @@ function fakeRepo(): ApprovalRequestRepository & { readonly rows: Map<string, Ap
     },
     async findById(id) {
       return rows.get(id) ?? null;
+    },
+    async insert(record) {
+      if (rows.has(record.id)) throw new DuplicateRecordIdError(record.id);
+      rows.set(record.id, record);
     },
     async save(record) {
       rows.set(record.id, record);
@@ -130,5 +135,17 @@ describe("resubmitApproval", () => {
     const record = await resubmitApproval("req-1", {}, repo);
     expect(record.status).toBe("pending");
     expect(record.currentStep).toBe(0);
+  });
+});
+
+describe("submitApproval never replaces a standing request", () => {
+  it("refuses a second submission under an id already held and leaves the first as it was", async () => {
+    const repo = fakeRepo();
+    await submitApproval({ requestId: "r-held", actionType: "SALES_INVOICE_CONFIRM", submittedBy: "clerk" }, twoStep, repo);
+    const before = await repo.findById("r-held");
+    await expect(
+      submitApproval({ requestId: "r-held", actionType: "TREASURY_VOUCHER_CONFIRM", submittedBy: "clerk" }, { actionType: "TREASURY_VOUCHER_CONFIRM", steps: [] }, repo),
+    ).rejects.toBeInstanceOf(DuplicateRecordIdError);
+    expect(await repo.findById("r-held")).toEqual(before);
   });
 });

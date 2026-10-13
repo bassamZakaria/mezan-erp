@@ -363,7 +363,9 @@ export function createSessionAuthContextResolver(sessions: SessionRegistry): Aut
       permissions: [...grant.permissions],
       roleCodes: grant.roleCode ? [grant.roleCode] : [],
       branchScope: narrowScope(grant.branchScope, c.req.header("x-branch-scope")),
+      branchGrant: grant.branchScope,
       warehouseScope: narrowScope(grant.warehouseScope, c.req.header("x-warehouse-scope")),
+      warehouseGrant: grant.warehouseScope,
     });
   };
 }

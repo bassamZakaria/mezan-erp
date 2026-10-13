@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useReadOnlyReason } from "../../../shell/ReadOnlyForm";
 import { Button, Card, EmptyState, IconButton, TextInput } from "@mezan/ui";
 import { can, createAuthContext } from "@mezan/domain";
 import type { PosSettingsDTO } from "@mezan/contracts";
@@ -55,7 +56,8 @@ export function PosSettingsScreen() {
     warehouseScope: "*",
   });
   const mayView = can(auth, "pos.terminal.view");
-  const mayEdit = can(auth, "pos.settings.edit");
+  const sharedWithEveryBranch = useReadOnlyReason() !== null;
+  const mayEdit = can(auth, "pos.settings.edit") && !sharedWithEveryBranch;
   const query = usePosSettings();
 
   if (!mayView) return <EmptyState title={t("pos.common.noAccessTitle")} description={t("pos.common.noAccessBody")} />;

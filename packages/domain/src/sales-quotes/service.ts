@@ -11,13 +11,14 @@
 
 import { Money, Qty } from "../money/index.js";
 import type { DocumentNumberingHook } from "../documents/hooks.js";
+import { resolveDocumentLineTax, ZeroRatingCause, type TaxRate, type TaxRateRepository, type ZeroRating } from "../tax-rates/index.js";
 import type { SalesQuote, SalesQuoteDiscount, SalesQuoteLine } from "./sales-quote.js";
 import { assertTransition } from "./status.js";
 import { computeQuoteTotals, type SalesQuoteTotals } from "./totals.js";
 import { describeQuoteEffects } from "./effects.js";
 import type { SalesQuoteListFilter, SalesQuoteRepository } from "./ports.js";
+import type { SalesTaxPolicySource } from "../sales-invoices/tax-policy.js";
 import {
-  DuplicateSalesQuoteError,
   InvalidSalesQuoteError,
   SalesQuoteNotFoundError,
 } from "./errors.js";
@@ -25,6 +26,8 @@ import {
 export interface SalesQuoteServiceDeps {
   readonly repo: SalesQuoteRepository;
   readonly numbering: DocumentNumberingHook;
+  readonly taxRates?: Pick<TaxRateRepository, "list">;
+  readonly taxPolicy?: SalesTaxPolicySource;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
   readonly now?: () => string;
   readonly actor?: string;
@@ -39,6 +42,7 @@ export interface CreateSalesQuoteLine {
   readonly unitPrice: Money;
   readonly discountPercent?: number;
   readonly taxRatePercent?: number;
+  readonly taxRateId?: string | null;
 }
 
 export interface CreateSalesQuoteCommand {
@@ -47,7 +51,10 @@ export interface CreateSalesQuoteCommand {
   readonly expiryDate: string;
   readonly customerId: string;
   readonly customerNameAr: string;
+  /** SECURITY: server-derived from the customer record; never map it from a request body. */
   readonly customerTaxExempt?: boolean;
+  /** SECURITY: server-derived — the 0% rate on the exempt customer's card; never map it from a request body. */
+  readonly customerTaxExemptionRateId?: string | null;
   readonly branchId: string;
   readonly currency?: string;
   readonly notes?: string | null;
@@ -87,10 +94,8 @@ export class SalesQuoteService {
 
   /** Open a new مسودة (draft): validated and persisted, not numbered. */
   async createDraft(cmd: CreateSalesQuoteCommand): Promise<SalesQuote> {
-    if (await this.deps.repo.findById(cmd.id)) {
-      throw new DuplicateSalesQuoteError(cmd.id);
-    }
-    const quote = this.buildDraft(cmd);
+    const vatOff = this.deps.taxPolicy ? !(await this.deps.taxPolicy()).enabled : false;
+    const quote = this.buildDraft(cmd, this.deps.taxRates ? await this.deps.taxRates.list() : null, vatOff);
     this.validate(quote);
     await this.deps.repo.save(quote);
     return quote;
@@ -98,53 +103,55 @@ export class SalesQuoteService {
 
   /** Send a draft quote to the customer: allocates its doc number and marks مرسل. */
   async send(id: string): Promise<SalesQuote> {
-    const existing = await this.require(id);
-    this.validate(existing);
+    return this.change(id, async (existing) => {
+      this.validate(existing);
 
-    const effects = this.effectsOf(existing);
-    if (effects.blocked) {
-      throw new InvalidSalesQuoteError([
-        effects.blockedReason ?? "العرض غير قابل للإرسال في حالته الحالية.",
-      ]);
-    }
+      const effects = this.effectsOf(existing);
+      if (effects.blocked) {
+        throw new InvalidSalesQuoteError([
+          effects.blockedReason ?? "العرض غير قابل للإرسال في حالته الحالية.",
+        ]);
+      }
 
-    assertTransition(id, existing.status, "sent");
-    const number = await this.deps.numbering.next();
-    const sent: SalesQuote = {
-      ...existing,
-      docNo: number.formatted,
-      status: "sent",
-      sentAt: this.now(),
-    };
-    await this.deps.repo.update(sent);
-    return sent;
+      assertTransition(id, existing.status, "sent");
+      const number = await this.deps.numbering.next();
+      return { ...existing, docNo: number.formatted, status: "sent", sentAt: this.now() };
+    });
   }
 
   /** Record the customer's acceptance مقبول. */
   async accept(id: string): Promise<SalesQuote> {
-    const existing = await this.require(id);
-    assertTransition(id, existing.status, "accepted");
-    const accepted: SalesQuote = { ...existing, status: "accepted", respondedAt: this.now() };
-    await this.deps.repo.update(accepted);
-    return accepted;
+    return this.change(id, async (existing) => {
+      assertTransition(id, existing.status, "accepted");
+      return { ...existing, status: "accepted", respondedAt: this.now() };
+    });
   }
 
   /** Record the customer's rejection مرفوض. */
   async reject(id: string): Promise<SalesQuote> {
-    const existing = await this.require(id);
-    assertTransition(id, existing.status, "rejected");
-    const rejected: SalesQuote = { ...existing, status: "rejected", respondedAt: this.now() };
-    await this.deps.repo.update(rejected);
-    return rejected;
+    return this.change(id, async (existing) => {
+      assertTransition(id, existing.status, "rejected");
+      return { ...existing, status: "rejected", respondedAt: this.now() };
+    });
   }
 
   /** Cancel a draft/sent/accepted quote. */
   async cancel(id: string): Promise<SalesQuote> {
-    const existing = await this.require(id);
-    assertTransition(id, existing.status, "cancelled");
-    const cancelled: SalesQuote = { ...existing, status: "cancelled" };
-    await this.deps.repo.update(cancelled);
-    return cancelled;
+    return this.change(id, async (existing) => {
+      assertTransition(id, existing.status, "cancelled");
+      return { ...existing, status: "cancelled" };
+    });
+  }
+
+  // INVARIANT: a quote's status is read and written inside ONE transaction,
+  // so of two transitions racing each other the second judges what the first
+  // left — an accepted quote is never also cancelled, nor numbered twice.
+  private async change(id: string, next: (existing: SalesQuote) => Promise<SalesQuote>): Promise<SalesQuote> {
+    return this.deps.repo.transaction(async () => {
+      const changed = await next(await this.require(id));
+      await this.deps.repo.update(changed);
+      return changed;
+    });
   }
 
   /**
@@ -153,30 +160,60 @@ export class SalesQuoteService {
    * quote and sales invoice modules — not exposed as its own HTTP route here.
    */
   async markConverted(id: string, invoiceId: string): Promise<SalesQuote> {
-    const existing = await this.require(id);
-    assertTransition(id, existing.status, "converted");
-    const converted: SalesQuote = {
-      ...existing,
-      status: "converted",
-      convertedAt: this.now(),
-      convertedInvoiceId: invoiceId,
-    };
-    await this.deps.repo.update(converted);
-    return converted;
+    // INVARIANT: the status is read and written inside ONE transaction, so of
+    // two conversions of the same quote the second reads `converted` and is
+    // refused — a quote never stands behind two invoices.
+    return this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      assertTransition(id, existing.status, "converted");
+      const converted: SalesQuote = {
+        ...existing,
+        status: "converted",
+        convertedAt: this.now(),
+        convertedInvoiceId: invoiceId,
+      };
+      await this.deps.repo.update(converted);
+      return converted;
+    });
+  }
+
+  /**
+   * INVARIANT: a quote is `converted` only while the draft it became still
+   * exists. Cancelling that draft hands the quote back as accepted, so the
+   * customer's agreed quote can be raised again instead of being stranded.
+   */
+  async reopenConvertedBy(invoiceId: string, otherLiveInvoicesOf?: (quoteId: string) => Promise<readonly string[]>): Promise<SalesQuote | null> {
+    return this.deps.repo.transaction(async () => {
+      const quote = (await this.deps.repo.list({ status: "converted" })).find((candidate) => candidate.convertedInvoiceId === invoiceId);
+      if (!quote) return null;
+      if (((await otherLiveInvoicesOf?.(quote.id)) ?? []).some((id) => id !== invoiceId)) return null;
+      const reopened: SalesQuote = { ...quote, status: "accepted", convertedAt: null, convertedInvoiceId: null };
+      await this.deps.repo.update(reopened);
+      return reopened;
+    });
   }
 
   // --- internals ---
 
-  private buildDraft(cmd: CreateSalesQuoteCommand): SalesQuote {
-    const lines: SalesQuoteLine[] = cmd.lines.map((l) => ({
-      lineId: l.lineId,
-      itemId: l.itemId,
-      itemNameAr: l.itemNameAr,
-      qty: l.qty,
-      unitPrice: l.unitPrice,
-      discountPercent: l.discountPercent ?? 0,
-      taxRatePercent: cmd.customerTaxExempt ? 0 : (l.taxRatePercent ?? 0),
-    }));
+  private buildDraft(cmd: CreateSalesQuoteCommand, taxRates: readonly TaxRate[] | null, vatOff: boolean): SalesQuote {
+    const zeroRating: ZeroRating | null = vatOff
+      ? { cause: ZeroRatingCause.VatOff }
+      : cmd.customerTaxExempt === true
+        ? { cause: ZeroRatingCause.ExemptCustomer, exemptionTaxRateId: cmd.customerTaxExemptionRateId ?? null }
+        : null;
+    const lines: SalesQuoteLine[] = cmd.lines.map((l) => {
+      const tax = resolveDocumentLineTax(taxRates, l, { defaultPercent: 0, zeroRating });
+      return {
+        lineId: l.lineId,
+        itemId: l.itemId,
+        itemNameAr: l.itemNameAr,
+        qty: l.qty,
+        unitPrice: l.unitPrice,
+        discountPercent: l.discountPercent ?? 0,
+        taxRatePercent: tax.taxRatePercent,
+        taxRateId: tax.taxRateId,
+      };
+    });
     return {
       id: cmd.id,
       docType: "SALES_QUOTE",

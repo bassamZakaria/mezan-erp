@@ -44,7 +44,7 @@ async function newApp(masterData?: MasterDataChecks) {
     treasuryAccounts: {
       findById: async (id) =>
         bankAccounts[id]
-          ? { id, code: id, name: id, nameEn: null, type: "bank", currency: "EGP", bankAccountNumber: null, branchId: "BR-MAIN", glAccountId: bankAccounts[id]!, openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" }
+          ? { id, code: id, name: id, nameEn: null, type: "bank", currency: "EGP", bankAccountNumber: null, branchId: null, glAccountId: bankAccounts[id]!, openingBalance: Money.zero(), openingBalanceDate: null, guaranteeFacilityLimit: null, status: "active" }
           : null,
     },
     cheques,

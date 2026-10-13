@@ -25,7 +25,6 @@ import type { ConfigInstanceStatus } from "./types.js";
 import {
   ConfigInstanceNotFoundError,
   ConfigurableProductNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
 } from "./errors.js";
 
@@ -124,9 +123,6 @@ export async function createConfigInstance(
 ): Promise<CreateConfigInstanceResult> {
   if (command.qty.isZero() || command.qty.isNegative()) {
     throw new InvalidManufacturingDocumentError(["الكمية يجب أن تكون أكبر من صفر"]);
-  }
-  if (await deps.instances.findById(command.id)) {
-    throw new DuplicateManufacturingDocumentError(command.id);
   }
   const product = await deps.products.findById(command.configurableProductId);
   if (!product) throw new ConfigurableProductNotFoundError(command.configurableProductId);

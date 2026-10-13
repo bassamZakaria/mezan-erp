@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle } from "./create-backend.js";
-import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN, resolveSeedAdminSecrets } from "./seed.js";
+import { UNDISCLOSED_TENANT_NAME } from "./auth-routes.js";
+import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN, SEED_TENANT_NAME, resolveSeedAdminSecrets } from "./seed.js";
 
 type App = BackendHandle["app"];
 
@@ -52,7 +53,7 @@ describe("POST /bootstrap/admin — claiming an install, and only an unclaimed o
       const res = await post(app, "/bootstrap/admin", {
         nameAr: "بسام زكريا",
         email: "owner@shop.test",
-        pin: "246813",
+        pin: "246813", companyName: "متجر الاختبار",
       });
 
       expect(res.status).toBe(201);
@@ -68,12 +69,12 @@ describe("POST /bootstrap/admin — claiming an install, and only an unclaimed o
     // that then read customers, users and the trial balance. On the LAN mount
     // that was the whole business, from the shop wifi, with no credential.
     const app = await newBackend();
-    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813" });
+    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813", companyName: "متجر الاختبار" });
 
     const second = await post(app, "/bootstrap/admin", {
       nameAr: "attacker",
       email: "attacker@evil.test",
-      pin: "999999",
+      pin: "999999", companyName: "متجر الاختبار",
     });
 
     expect(second.status).toBe(409);
@@ -85,12 +86,12 @@ describe("POST /bootstrap/admin — claiming an install, and only an unclaimed o
     // carried a token would be the same takeover with a different number on
     // it, and a test that only checked the status would have missed it.
     const app = await newBackend();
-    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813" });
+    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813", companyName: "متجر الاختبار" });
 
     const second = await post(app, "/bootstrap/admin", {
       nameAr: "attacker",
       email: "attacker@evil.test",
-      pin: "999999",
+      pin: "999999", companyName: "متجر الاختبار",
     });
     const body = (await second.json()) as Record<string, unknown>;
 
@@ -102,11 +103,28 @@ describe("POST /bootstrap/admin — claiming an install, and only an unclaimed o
 
   it("creates no account when it refuses — the attacker is not left with a dormant login", async () => {
     const app = await newBackend();
-    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813" });
-    await post(app, "/bootstrap/admin", { nameAr: "attacker", email: "attacker@evil.test", pin: "999999" });
+    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813", companyName: "متجر الاختبار" });
+    await post(app, "/bootstrap/admin", { nameAr: "attacker", email: "attacker@evil.test", pin: "999999", companyName: "متجر الاختبار" });
 
     const login = await post(app, "/auth/login", { username: "attacker@evil.test", pin: "999999" });
     expect(login.status).toBe(401);
+  });
+
+  it.each([
+    ["without a company", { nameAr: "attacker", email: "attacker@evil.test", pin: "999999" }, "attacker@evil.test"],
+    ["with no usable field at all", { email: 7 }, null],
+  ])("answers a claim %s on a claimed install as already provisioned, and records the refusal", async (_what, body, recordedEmail) => {
+    const app = await newBackend();
+    const claimed = await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813", companyName: "متجر الاختبار" });
+    const owner = { authorization: `Bearer ${((await claimed.json()) as { token: string }).token}` };
+
+    const refused = await post(app, "/bootstrap/admin", body);
+
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error: string }).error).toBe("TENANT_ALREADY_PROVISIONED");
+    const audit = await get(app, "/audit?stream=security&action=BOOTSTRAP_REFUSED", owner);
+    const { events } = (await audit.json()) as { events: { severity: string; details: { email: string | null } }[] };
+    expect(events.map((event) => [event.severity, event.details.email])).toEqual([["CRITICAL", recordedEmail]]);
   });
 
   it("re-running the wizard with an EXISTING admin's address returns 409 and no session (S1's second door)", async () => {
@@ -116,12 +134,12 @@ describe("POST /bootstrap/admin — claiming an install, and only an unclaimed o
     // sends the person to the login screen, which is where they belong once
     // the account exists.
     const app = await newBackend();
-    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813" });
+    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813", companyName: "متجر الاختبار" });
 
     const replay = await post(app, "/bootstrap/admin", {
       nameAr: "بسام زكريا",
       email: "owner@shop.test",
-      pin: "111111",
+      pin: "111111", companyName: "متجر الاختبار",
     });
 
     expect(replay.status).toBe(409);
@@ -133,8 +151,8 @@ describe("POST /bootstrap/admin — claiming an install, and only an unclaimed o
     // a session. If the replay reset the PIN, an attacker would lock the
     // owner out and know the new one.
     const app = await newBackend();
-    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813" });
-    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "111111" });
+    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813", companyName: "متجر الاختبار" });
+    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "111111", companyName: "متجر الاختبار" });
 
     expect((await post(app, "/auth/login", { username: "owner@shop.test", pin: "111111" })).status).toBe(401);
     expect((await post(app, "/auth/login", { username: "owner@shop.test", pin: "246813" })).status).toBe(200);
@@ -184,7 +202,7 @@ describe("POST /auth/login — the brute force has to cost something (S6)", () =
     // A throttle that locked globally would hand an attacker a denial of
     // service against the till, which is a worse bug than the one being fixed.
     const app = await newBackend();
-    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813" });
+    await post(app, "/bootstrap/admin", { nameAr: "بسام زكريا", email: "owner@shop.test", pin: "246813", companyName: "متجر الاختبار" });
 
     for (let i = 0; i < 8; i++) await post(app, "/auth/login", { username: SEED_ADMIN_EMAIL, pin: "000000" });
 
@@ -396,7 +414,7 @@ describe("the seeded fallback admin is retired when the tenant is claimed (S35)"
       nameAr: "المالك",
       nameEn: "Owner",
       email: "owner@claimed.example",
-      pin: "246813",
+      pin: "246813", companyName: "متجر الاختبار",
     });
     expect(claim.status).toBe(201);
 
@@ -415,7 +433,7 @@ describe("the seeded fallback admin is retired when the tenant is claimed (S35)"
       nameAr: "المالك",
       nameEn: "Owner",
       email: "owner2@claimed.example",
-      pin: "246814",
+      pin: "246814", companyName: "متجر الاختبار",
     });
 
     const owner = await post(app, "/auth/login", { username: "owner2@claimed.example", pin: "246814" });
@@ -440,7 +458,7 @@ describe("the seeded fallback admin is retired when the tenant is claimed (S35)"
       nameAr: "المالك",
       nameEn: "Owner",
       email: "owner3@claimed.example",
-      pin: "246815",
+      pin: "246815", companyName: "متجر الاختبار",
     });
 
     const owner = await post(app, "/auth/login", { username: "owner3@claimed.example", pin: "246815" });
@@ -559,5 +577,130 @@ describe("POST /auth/logout — revoking a session needs to be the machine that 
       fromAddress("192.168.1.40"),
     );
     expect(after.status).toBe(401);
+  });
+});
+
+/* ================================================================== */
+/* D-SAAS-02 / D-SAAS-07 — the company's own name, and who may read it */
+/* ================================================================== */
+
+describe("POST /bootstrap/admin — the claim carries the company's name (D-SAAS-02)", () => {
+  const COMPANY = "متجر الياسمين";
+  const owner = { nameAr: "سارة الياسمين", email: "owner@shop.test", pin: "246813" };
+
+  async function tenantNameAfterLogin(app: App): Promise<string> {
+    const login = await post(app, "/auth/login", { username: owner.email, pin: owner.pin });
+    expect(login.status).toBe(200);
+    return ((await login.json()) as SessionDTO).tenantName;
+  }
+
+  it("names the tenant what the claim says, in the session it returns and in every later one", async () => {
+    const app = await newBackend();
+
+    const claimed = await post(app, "/bootstrap/admin", { ...owner, companyName: COMPANY });
+
+    expect(claimed.status).toBe(201);
+    expect(((await claimed.json()) as SessionDTO).tenantName).toBe(COMPANY);
+    expect(await tenantNameAfterLogin(app)).toBe(COMPANY);
+  });
+
+  it("writes the name into the settings a printed document header reads", async () => {
+    const app = await newBackend();
+    const claimed = await post(app, "/bootstrap/admin", { ...owner, companyName: COMPANY });
+    const { token } = (await claimed.json()) as SessionDTO & { token: string };
+
+    const settings = await get(app, "/settings", { authorization: `Bearer ${token}` });
+
+    expect(settings.status).toBe(200);
+    expect(((await settings.json()) as { companyName: string }).companyName).toBe(COMPANY);
+  });
+
+  it("refuses a claim that names no company, so no install is left printing the seeded name", async () => {
+    const app = await newBackend();
+
+    const refused = await post(app, "/bootstrap/admin", owner);
+
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: string }).error).toBe("VALIDATION_ERROR");
+    expect((await post(app, "/auth/login", { username: owner.email, pin: owner.pin })).status).toBe(401);
+    expect(((await (await get(app, "/bootstrap/status")).json()) as { claimed: boolean }).claimed).toBe(false);
+  });
+
+  it.each([
+    ["longer than a document header holds", "ش".repeat(201)],
+    ["carrying a right-to-left override", "متجر \u202Eevil"],
+    ["carrying a line break", "متجر\nالياسمين"],
+  ])("refuses a claim whose company name is %s", async (_what, companyName) => {
+    const app = await newBackend();
+
+    const refused = await post(app, "/bootstrap/admin", { ...owner, companyName });
+
+    expect(refused.status).toBe(400);
+    expect((await post(app, "/auth/login", { username: owner.email, pin: owner.pin })).status).toBe(401);
+  });
+
+  it("refuses a blank company name instead of naming the tenant nothing", async () => {
+    const app = await newBackend();
+
+    const refused = await post(app, "/bootstrap/admin", { ...owner, companyName: "   " });
+
+    expect(refused.status).toBe(400);
+    expect((await post(app, "/auth/login", { username: owner.email, pin: owner.pin })).status).toBe(401);
+  });
+
+  it("does not let a refused replay rename a tenant somebody already claimed", async () => {
+    const app = await newBackend();
+    await post(app, "/bootstrap/admin", { ...owner, companyName: COMPANY });
+
+    const replay = await post(app, "/bootstrap/admin", { nameAr: "attacker", email: "attacker@evil.test", pin: "999999", companyName: "شركة المهاجم" });
+
+    expect(replay.status).toBe(409);
+    expect(await tenantNameAfterLogin(app)).toBe(COMPANY);
+  });
+
+  it("does not rename the tenant when creating the admin fails", async () => {
+    const app = await newBackend();
+
+    const refused = await post(app, "/bootstrap/admin", { ...owner, email: SEED_ADMIN_EMAIL, companyName: COMPANY });
+
+    expect(refused.status).toBe(409);
+    const seedLogin = await post(app, "/auth/login", { username: SEED_ADMIN_EMAIL, pin: SEED_ADMIN_PIN });
+    expect(((await seedLogin.json()) as SessionDTO).tenantName).toBe(SEED_TENANT_NAME);
+  });
+});
+
+describe("GET /tenant — an anonymous caller never learns a claimed tenant's name (D-SAAS-07)", () => {
+  it("answers the neutral placeholder once claimed, whatever the company is called", async () => {
+    const app = await newBackend();
+    await post(app, "/bootstrap/admin", { nameAr: "سارة", email: "owner@shop.test", pin: "246813", companyName: "متجر الياسمين" });
+
+    const anonymous = await get(app, "/tenant");
+
+    expect(anonymous.status).toBe(200);
+    expect(await anonymous.json()).toEqual({ name: UNDISCLOSED_TENANT_NAME });
+  });
+
+  it("keeps answering the placeholder after the owner renames the company in Settings", async () => {
+    const app = await newBackend();
+    const claimed = await post(app, "/bootstrap/admin", { nameAr: "سارة", email: "owner@shop.test", pin: "246813", companyName: "متجر الياسمين" });
+    const { token } = (await claimed.json()) as SessionDTO & { token: string };
+    const auth = { authorization: `Bearer ${token}` };
+    const current = (await (await get(app, "/settings", auth)).json()) as Record<string, unknown>;
+    const renamed = await app.fetch(
+      new Request("http://local/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...auth },
+        body: JSON.stringify({ ...current, companyName: "الاسم التجاري السري" }),
+      }),
+    );
+    expect(renamed.status).toBe(200);
+
+    const anonymous = await get(app, "/tenant");
+
+    expect(await anonymous.json()).toEqual({ name: UNDISCLOSED_TENANT_NAME });
+  });
+
+  it("the placeholder is not the vendor's own name", () => {
+    expect(UNDISCLOSED_TENANT_NAME).not.toBe(SEED_TENANT_NAME);
   });
 });

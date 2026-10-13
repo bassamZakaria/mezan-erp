@@ -152,6 +152,18 @@ describe("branches routes", () => {
     await app.fetch(new Request("http://x/branches", { method: "POST", headers: { "content-type": "application/json" }, body }));
     const res = await app.fetch(new Request("http://x/branches", { method: "POST", headers: { "content-type": "application/json" }, body }));
     expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("DUPLICATE_ID");
+  });
+
+  it("409s a branch code another branch already uses, in Arabic", async () => {
+    const { app } = adminApp();
+    const post = (body: unknown) => app.fetch(new Request("http://x/branches", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+    await post({ id: "b1", code: "MAIN", name: "الفرع الرئيسي" });
+    const res = await post({ id: "b2", code: "MAIN", name: "فرع آخر" });
+    expect(res.status).toBe(409);
+    const refusal = (await res.json()) as { error: string; message: string };
+    expect(refusal.error).toBe("DUPLICATE_BRANCH_CODE");
+    expect(refusal.message).toMatch(/[\u0600-\u06FF]/);
   });
 
   it("updates a branch via PUT", async () => {

@@ -33,9 +33,25 @@ export const partyStatementLineSchema = z.object({
   allocations: z.array(z.object({ invoiceRef: z.string(), amount: moneyString })),
 });
 
+/**
+ * Set when the caller's view is branch-filtered and the balance still carries
+ * postings no branch owns (opening balances, company-level entries).
+ */
+export enum BranchCaveatCodeDTO {
+  IncludesUnattributed = "INCLUDES_UNATTRIBUTED",
+}
+
+export const branchCaveatSchema = z.object({
+  code: z.nativeEnum(BranchCaveatCodeDTO),
+  message: z.string(),
+  messageEn: z.string(),
+  unattributedNet: moneyString,
+});
+
 export const partyStatementSchema = z.object({
   partyId: z.string(),
   asOfDate: z.string(),
+  branchCaveat: branchCaveatSchema.nullable(),
   lines: z.array(partyStatementLineSchema),
   totalIncrease: moneyString,
   totalDecrease: moneyString,
@@ -46,3 +62,4 @@ export const partyStatementSchema = z.object({
 export type PartyStatementEntryKindDTO = z.infer<typeof partyStatementEntryKindSchema>;
 export type PartyStatementLineDTO = z.infer<typeof partyStatementLineSchema>;
 export type PartyStatementDTO = z.infer<typeof partyStatementSchema>;
+export type BranchCaveatDTO = z.infer<typeof branchCaveatSchema>;

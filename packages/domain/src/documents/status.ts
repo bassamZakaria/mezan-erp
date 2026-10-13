@@ -20,13 +20,16 @@ import { InvalidDocumentTransitionError } from "./errors.js";
  * (journal entries) — see {@link DocumentTypeDefinition.confirmedStatus} — but
  * the transition graph below covers both uniformly.
  */
-export type DocumentStatus =
-  | "draft"
-  | "pending"
-  | "confirmed"
-  | "posted"
-  | "cancelled"
-  | "reversed";
+export enum DocumentStatusCode {
+  Draft = "draft",
+  Pending = "pending",
+  Confirmed = "confirmed",
+  Posted = "posted",
+  Cancelled = "cancelled",
+  Reversed = "reversed",
+}
+
+export type DocumentStatus = `${DocumentStatusCode}`;
 
 /** Arabic label per status, for messages the user actually reads. */
 export const DOCUMENT_STATUS_LABELS_AR: Readonly<Record<DocumentStatus, string>> = {

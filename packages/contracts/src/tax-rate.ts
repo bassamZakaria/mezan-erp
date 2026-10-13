@@ -1,21 +1,44 @@
 import { z } from "zod";
 import { clientSuppliedId } from "./client-supplied-id.js";
 
+// INVARIANT: the ONE listing of these closed sets. `@mezan/domain` imports
+// the enums from here — this package is the leaf every client depends on, so
+// the wire schema and the domain cannot drift apart.
+export enum TaxCalculationTypeCode {
+  Exclusive = "exclusive",
+  Inclusive = "inclusive",
+}
+
+export enum TaxRateStatusCode {
+  Active = "active",
+  Inactive = "inactive",
+}
+
+export enum EtaVatSubTypeCode {
+  Auto = "auto",
+  ExportGoods = "V001",
+  ExportServices = "V002",
+  Exempt = "V003",
+  NotSubject = "V004",
+  V005 = "V005",
+  V006 = "V006",
+  V007 = "V007",
+  V008 = "V008",
+  BasicSales = "V009",
+}
+
+// EXTERNAL CONTRACT: the wire carries these as plain strings, so each schema
+// infers the enum's own VALUES — derived from it, never listed a second time.
+function valuesOf<Value extends string>(members: Readonly<Record<string, Value>>): [`${Value}`, ...`${Value}`[]] {
+  const [first, ...rest] = Object.values(members) as `${Value}`[];
+  if (first === undefined) throw new RangeError("an enum with no members has no wire values");
+  return [first, ...rest];
+}
+
 /** Wire contract for tax rates (docs/archive/catalog/04 "الضرائب"). */
-export const taxCalculationTypeSchema = z.enum(["exclusive", "inclusive"]);
-export const taxRateStatusSchema = z.enum(["active", "inactive"]);
-export const etaVatSubTypeSchema = z.enum([
-  "auto",
-  "V001",
-  "V002",
-  "V003",
-  "V004",
-  "V005",
-  "V006",
-  "V007",
-  "V008",
-  "V009",
-]);
+export const taxCalculationTypeSchema = z.enum(valuesOf(TaxCalculationTypeCode));
+export const taxRateStatusSchema = z.enum(valuesOf(TaxRateStatusCode));
+export const etaVatSubTypeSchema = z.enum(valuesOf(EtaVatSubTypeCode));
 
 export const taxRateSchema = z.object({
   id: z.string().min(1),
@@ -31,6 +54,7 @@ export const taxRateSchema = z.object({
   inputTaxAccountId: z.string().nullable(),
   etaSubType: etaVatSubTypeSchema,
   status: taxRateStatusSchema,
+  isSystem: z.boolean().optional(),
 });
 
 export const createTaxRateSchema = z.object({
@@ -104,3 +128,48 @@ export type TaxGroupMemberDTO = z.infer<typeof taxGroupMemberSchema>;
 export type UpsertTaxGroupDTO = z.infer<typeof upsertTaxGroupSchema>;
 export type TaxGroupComponentDTO = z.infer<typeof taxGroupComponentSchema>;
 export type TaxGroupDTO = z.infer<typeof taxGroupSchema>;
+
+export const classifyLineTaxSchema = z.object({
+  taxRateId: z.string().min(1),
+  withLineIds: z.array(z.string().min(1)).max(500).optional(),
+});
+
+export const nameJournalLineTaxSchema = z.object({
+  journalLineIndexes: z.array(z.number().int().nonnegative()).min(1).max(500),
+  taxRateId: z.string().min(1).optional(),
+  withLineIds: z.array(z.string().min(1)).max(500).optional(),
+});
+export type NameJournalLineTaxDTO = z.infer<typeof nameJournalLineTaxSchema>;
+
+export enum TaxClassificationFilingOutcomeCode {
+  NotQueued = "not_queued",
+  Requeued = "requeued",
+  FiledConsistent = "filed_consistent",
+  Issued = "issued",
+  Reissued = "reissued",
+  ReissuePending = "reissue_pending",
+  ReissueRefused = "reissue_refused",
+  ReissueFailed = "reissue_failed",
+}
+
+export const lineTaxClassificationSchema = z.object({
+  documentId: z.string().min(1),
+  documentNumber: z.string().nullable(),
+  lineIds: z.array(z.string()),
+  taxRateId: z.string().min(1),
+  taxRateName: z.string(),
+  taxRatePercent: z.number(),
+  journalLinesNamed: z.number().int().nonnegative(),
+  filing: z.nativeEnum(TaxClassificationFilingOutcomeCode),
+  filingMessage: z.string().optional(),
+});
+
+export const etaReceiptRetrySchema = z.object({
+  documentId: z.string().min(1),
+  filing: z.nativeEnum(TaxClassificationFilingOutcomeCode).nullable(),
+  filingMessage: z.string().optional(),
+});
+export type EtaReceiptRetryDTO = z.infer<typeof etaReceiptRetrySchema>;
+
+export type ClassifyLineTaxDTO = z.infer<typeof classifyLineTaxSchema>;
+export type LineTaxClassificationDTO = z.infer<typeof lineTaxClassificationSchema>;

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   DEFAULT_ETA_CONFIG,
   ETA_DEFAULT_ENDPOINTS,
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS eta_submission (
   rejection_codes  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_eta_submission_status ON eta_submission(status);
+CREATE INDEX IF NOT EXISTS idx_eta_submission_uuid ON eta_submission(eta_uuid);
 CREATE TABLE IF NOT EXISTS eta_branch_code (
   branch_id      TEXT PRIMARY KEY,
   eta_branch_code TEXT NOT NULL,
@@ -297,10 +299,12 @@ function toSubmission(row: SubmissionRow): EtaSubmission {
 
 class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByInternal: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByStatus: Database.Statement;
+  private readonly selectReceiptStatusByUuid: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
@@ -324,10 +328,12 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
         prevalidation = excluded.prevalidation,
         rejection_codes = excluded.rejection_codes
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM eta_submission WHERE id = ?`);
     this.selectByInternal = sqlite.prepare(`SELECT * FROM eta_submission WHERE internal_id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM eta_submission ORDER BY created_at DESC`);
     this.selectByStatus = sqlite.prepare(`SELECT * FROM eta_submission WHERE status = ? ORDER BY created_at DESC`);
+    this.selectReceiptStatusByUuid = sqlite.prepare(`SELECT status FROM eta_submission WHERE eta_uuid = ? AND document_type = 'receipt'`);
   }
 
   async findById(id: string): Promise<EtaSubmission | null> {
@@ -345,8 +351,13 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
     return rows.map(toSubmission);
   }
 
+  async statusByEtaUuid(etaUuid: string): Promise<EtaSubmissionStatus | null> {
+    const row = this.selectReceiptStatusByUuid.get(etaUuid) as { status: EtaSubmissionStatus } | undefined;
+    return row?.status ?? null;
+  }
+
   async create(submission: EtaSubmission): Promise<void> {
-    this.write(submission);
+    insertingNew(submission.id, () => this.write(submission, this.insertOnly));
   }
 
   async update(submission: EtaSubmission): Promise<void> {
@@ -354,8 +365,8 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   }
 
   /** Exposed for the chain's transaction; everything else goes through `create`/`update`. */
-  write(s: EtaSubmission): void {
-    this.upsert.run({
+  write(s: EtaSubmission, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: s.id,
       internal_id: s.internalId,
       document_type: s.documentType,

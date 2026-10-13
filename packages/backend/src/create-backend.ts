@@ -1,5 +1,6 @@
 import { ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
 import { createHash, randomUUID } from "node:crypto";
+import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import {
   createApp,
   createPeriodCloseGuardSlot,
@@ -16,6 +17,9 @@ import {
   type InstallmentCollectPort,
   type SessionRegistry,
   sendNotificationEmail,
+  customerTaxProfileFrom,
+  salesTaxRerating,
+  type SalesItemTaxSource,
 } from "@mezan/api";
 import {
   withDerivedTreasuryFx,
@@ -26,6 +30,12 @@ import {
   SiteService,
   StockLedgerService,
   applyAllocatedSettlement,
+  EtaSubmissionStatusCode,
+  EtaReceiptSourceKind,
+  SalesQuoteService,
+  SalesPricingMode,
+  SalesInvoiceField,
+  DocumentChangedError,
   InvalidSalesInvoicePaymentError,
   InvalidPurchaseDocumentError,
   assertPeriodOpen,
@@ -35,6 +45,16 @@ import {
   reverseJournalEntry,
   resolvePrice,
   createSalesInvoiceGlHook,
+  createJournalTaxTagPort,
+  returnedQtyBySourceLine,
+  createReturnConfirmGuard,
+  stockPositionFaults,
+  ensureSystemTaxRates,
+  SALES_RETURN_DOC_TYPE,
+  PURCHASE_RETURN_DOC_TYPE,
+  type SalesInvoiceLookupPort,
+  type PurchaseInvoiceLookupPort,
+  type PurchaseReturnLine,
   createSalesInvoiceStockHook,
   SalesInvoiceService,
   CertificateService,
@@ -52,6 +72,11 @@ import {
   type SubcontractRetentionInvoicingPort,
   CERTIFICATE_WORKS_ITEM_ID,
   RETENTION_RELEASE_ITEM_ID,
+  createReturnTaxCarry,
+  expectedReturnTaxJournalLines,
+  nameReturnJournalLineTax,
+  salesTaxPolicySource,
+  InvoiceDocumentKind,
   GuaranteeService,
   type CertificateInvoicingPort,
   type RetentionReleaseInvoicingPort,
@@ -62,6 +87,7 @@ import {
   createTreasuryLedgerReader,
   createVoucherBankEntryPoster,
   VoucherService,
+  COMPANY_LEVEL_VOUCHER_BRANCH,
   voucherLine,
   ChequeService,
   type ChequeRaisingDocumentPort,
@@ -87,6 +113,7 @@ import {
   createInventoryGlPostingHook,
   PAYROLL_GL_ACCOUNTS,
   PhysicalCountService,
+  SalesInvoiceStatusCode,
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
   purchaseInvoiceLineTax,
@@ -99,6 +126,7 @@ import {
   ledgerPresenceAsOf,
   reversalChainPresenceAsOf,
   isActive,
+  DocumentStatusCode,
   type DocumentStatus,
   purchaseInvoiceCancelEntryId,
   goodsReceiptCancelEntryId,
@@ -151,9 +179,11 @@ import {
   replay,
   type StockMovement,
   Qty,
+  approvalLabel,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
   SalesReturnNotRefundableError,
+  SalesReturnRefundTreasuryBranchError,
   totalLandedCost,
   Money,
   getAdjustmentReasonDefinition,
@@ -187,10 +217,30 @@ import {
   type OpeningBalanceEntryRef,
   tenantTodayIso,
   BASE_CURRENCY,
+  EVENT_BRANCH_IDS_KEY,
+  correctedSeededRolePermissions,
+  costOfSalesLedgerAccountIds,
+  inventoryLedgerAccountIds,
+  SeededRoleSplit,
+  seededRoleDutyChange,
+  seededRoleDutyNotice,
+  SEEDED_ROLE_DUTIES_SEPARATED_EVENT,
+  type SeededRoleDutyChange,
+  CASH_AND_BANK_ROUTING_KEY,
+  RESTRICTED_CASH_ROUTING_KEY,
+  cashAndBankLedgerAccountIds,
+  disposalProceedsAccounts,
+  UserStatusCode,
+  isErasedUser,
+  AuditSeverityCode,
+  type OwnerRecordDue,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
   withSqliteTransaction,
+  createSqliteUpgradeLedger,
+  markApprovalsNeedingReapproval,
+  UpgradeStepId,
   type SqliteOpenOptions,
   createSqliteUnitOfWork,
   grantSuccessorPermissionsOnce,
@@ -213,6 +263,7 @@ import {
   createSqlitePriceListStore,
   createSqlitePromotionStore,
   createSqliteSalesQuoteStore,
+  createSqliteTaxRateUsage,
   createSqliteExchangeRateRepository,
   createSqliteEtaStore,
   createScryptHasher,
@@ -283,6 +334,8 @@ import {
   createDataMigrationTransactor,
   createSqliteBarcodeConfigStore,
   createSqliteUserPreferencesStore,
+  createSqliteOwnerPinFence,
+  createSqliteCredentialResetMarks,
   createSqliteAuditSink,
   createSqlitePeriodCloseStore,
   deriveAuditChainKey,
@@ -311,14 +364,22 @@ import {
   unitCostOf,
 } from "@mezan/domain";
 import { runExternalSigningCommand } from "./eta-signing-command.js";
+import { createEtaVoidPort, createSalesReturnVoidGuards } from "./eta-void.js";
 import {
   createEtaEnqueueBridge,
+  createSalesInvoiceTaxFiling,
+  createSalesReturnTaxFiling,
+  createEtaReturnCreditNoteRebuilder,
   createEtaInvoiceRequeueRebuilder,
   createEtaReceiptIssuer,
   createReturnEtaEnqueueBridge,
+  createAfterTaxClassified,
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
 import { createAuthRoutes } from "./auth-routes.js";
+import { BranchAccess, BranchRecordKind, type BranchDirectory } from "@mezan/api";
+import { createSqliteBranchDirectory } from "./branch-directory.js";
+import { createWarehouseUse } from "./warehouse-use.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { createPreferencesRoutes } from "./preferences-routes.js";
 import { SEED_ADMIN_USER_ID, seedIfEmpty, type SeedStores } from "./seed.js";
@@ -355,6 +416,7 @@ const PURCHASE_GL_ACCOUNTS = {
   // 2120 rather than debiting inventory a second time.
   goodsReceivedNotInvoicedAccountId: "2120",
   priceVarianceAccountId: "5080",
+  backOrderCostAccountId: "5100",
 };
 
 /**
@@ -406,6 +468,7 @@ const MANUFACTURING_GL_ACCOUNTS = {
   // of what the product cost to make (EAS/IAS 2), so it gets its own leaf
   // rather than sharing 5070 with damaged stock in a warehouse.
   abnormalScrapAccountId: "5220",
+  backOrderCostAccountId: "5100",
   wipAccountId: "1250",
 };
 
@@ -483,6 +546,11 @@ const LANDED_COST_GL_ACCOUNTS = {
   clearingAccountId: "1240",
 };
 
+const STOCK_VARIANCE_ACCOUNTS = {
+  inventoryAccountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
+  costVarianceAccountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
+};
+
 /**
  * Bridges the document framework's generic `DocumentEventPublisher` port
  * (`DOCUMENT_CONFIRMED`/`DOCUMENT_CANCELLED`/…, keyed by `docType` — see
@@ -514,8 +582,31 @@ function emittedEventCodesOf(...mappings: readonly DocumentEventMapping[]): Even
   return [...codes];
 }
 
+const BRIDGED_DOCUMENT_KINDS: Readonly<Record<string, BranchRecordKind>> = {
+  SALES_INVOICE: BranchRecordKind.SalesInvoice,
+  SALES_RETURN: BranchRecordKind.SalesReturn,
+  PURCHASE_RETURN: BranchRecordKind.PurchaseReturn,
+  PURCHASE_ORDER: BranchRecordKind.PurchaseOrder,
+  GOODS_RECEIPT: BranchRecordKind.GoodsReceipt,
+  PURCHASE_INVOICE: BranchRecordKind.PurchaseInvoice,
+  [VOUCHER_DOC_TYPE]: BranchRecordKind.Voucher,
+};
+
+/**
+ * SECURITY: the branches a bridged document belongs to, read from its stored
+ * row. A document type with no declared kind states none, which the engine
+ * reads as company-level — it reaches fewer people, never more.
+ */
+async function bridgedDocumentBranchIds(directory: BranchDirectory, docType: string, docId: string): Promise<string[]> {
+  const kind = BRIDGED_DOCUMENT_KINDS[docType];
+  if (!kind) return [];
+  const branches = (await directory.branchesOf(kind, docId, BranchAccess.Read)) ?? [];
+  return [...new Set(branches.filter((id): id is string => typeof id === "string" && id !== ""))];
+}
+
 function createDocumentEventBridge(
   eventBus: EventBus,
+  directory: BranchDirectory,
   mapping: DocumentEventMapping,
   enrich?: (docId: string) => Promise<Record<string, unknown>>,
 ): DocumentEventPublisher {
@@ -524,19 +615,15 @@ function createDocumentEventBridge(
       const code = mapping[event.docType]?.[event.type];
       if (!code) return;
       const basePayload: Record<string, unknown> = { documentNumber: event.docNo ?? event.docId };
-      if (!enrich) {
-        eventBus.publish(code, basePayload, event.occurredAt);
-        return;
-      }
       // DocumentEventPublisher.publish is synchronous; the notification
       // engine's own dispatch is independently async, so a fire-and-forget
-      // enrichment lookup here just widens the payload before that dispatch
-      // runs — a failed lookup logs and drops the event rather than ever
-      // throwing back into the document's own confirm/cancel transaction.
-      void enrich(event.docId)
-        .then((extra) => eventBus.publish(code, { ...basePayload, ...extra }, event.occurredAt))
+      // lookup here just widens the payload before that dispatch runs — a
+      // failed lookup logs and drops the event rather than ever throwing back
+      // into the document's own confirm/cancel transaction.
+      void Promise.all([bridgedDocumentBranchIds(directory, event.docType, event.docId), enrich ? enrich(event.docId) : {}])
+        .then(([branchIds, extra]) => eventBus.publish(code, { ...basePayload, ...extra, [EVENT_BRANCH_IDS_KEY]: branchIds }, event.occurredAt))
         .catch((error: unknown) => {
-          console.error(`[notifications] event bridge enrichment failed for ${event.docType}/${event.type}`, error);
+          console.error(`[notifications] event bridge lookup failed for ${event.docType}/${event.type}`, error);
         });
     },
   };
@@ -551,8 +638,58 @@ function fanOutDocumentEvents(...publishers: readonly DocumentEventPublisher[]):
   };
 }
 
+export enum SecurityEventOrigin {
+  Platform = "platform",
+}
+
+export { OwnerPinResetOutcome };
+
+export const COMPANY_OWNER_ASSIGNED_AUDIT = "COMPANY_OWNER_ASSIGNED";
+
+export type OwnerAssignedRecord = OwnerRecordDue;
+const OWNER_ASSIGNED_LOOKBACK = 500;
+
+export interface ResetOwnerPinCommand {
+  readonly userId?: string | null;
+  readonly email: string;
+  readonly pin: string;
+  readonly onlyIfNeverSignedIn: boolean;
+  readonly actor: string;
+  readonly fence?: number;
+}
+
+export interface OwnerAccount {
+  readonly id: string;
+  readonly email: string;
+  readonly canAdminister: boolean;
+}
+
+export type OwnerAccountQuery = { readonly userId: string } | { readonly email: string };
+
+export interface SignedInUser {
+  readonly userId: string;
+  readonly email: string;
+  readonly canAdminister: boolean;
+  readonly credentialIsOwn: boolean;
+}
+
+export interface CompanyAdminAccount {
+  readonly id: string;
+  readonly nameAr: string;
+  readonly email: string;
+}
+
 export interface BackendHandle {
   readonly app: App;
+  ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null>;
+  companyAdmins(): Promise<CompanyAdminAccount[]>;
+  recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void>;
+  /**
+   * SECURITY: deliberately NOT an HTTP route. A route would be reachable through
+   * the tenant router and the desktop LAN mount; this is callable only by code
+   * that already holds the handle (platform provisioning and the platform console).
+   */
+  resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome>;
   /**
    * الإيصال الإلكتروني — issues a consumer sale's (or return's) e-receipt
    * synchronously, on the chain of the device serial given. The POS till calls
@@ -642,6 +779,10 @@ export interface CreateBackendOptions {
    * writable.
    */
   readonly resolveLicenseState?: CreateAppOptions["resolveLicenseState"];
+  readonly onUserEmailChanged?: CreateAppOptions["onUserEmailChanged"];
+  readonly companyOwner?: CreateAppOptions["companyOwner"];
+  readonly onUserSignedIn?: (user: SignedInUser) => Promise<void>;
+  readonly claimedElsewhere?: () => Promise<boolean>;
   /**
    * The VERIFIED capability set every module-gated route group is checked
    * against, and that `GET /entitlements` and `/roles` report.
@@ -732,6 +873,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
   const userPreferences = createSqliteUserPreferencesStore(sqlite);
+  const ownerPinFence = createSqliteOwnerPinFence(sqlite);
+  const credentialResets = createSqliteCredentialResetMarks(sqlite);
   const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
   // The boundary a route-level config write shares with its audit row (D298).
   // Same shared connection the audit sink writes on, so the append nests as a
@@ -752,12 +895,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const customers = createSqliteCustomerRepository(sqlite);
   const suppliers = createSqliteSupplierRepository(sqlite);
   const items = createSqliteItemStore(sqlite);
+  const salesItemTax: SalesItemTaxSource = async (itemId) => {
+    const item = await items.findById(itemId);
+    return item ? { taxRatePercent: item.taxRatePercent } : null;
+  };
+  const salesInvoiceTaxRerating = salesTaxRerating(customerTaxProfileFrom(customers), salesItemTax);
   const itemCatalog = createSqliteItemCatalogStores(sqlite);
   const accountRouting = createSqliteAccountRoutingStore(sqlite);
   const taxGroups = createSqliteTaxGroupStore(sqlite);
   const itemSpecifications = createSqliteItemSpecificationRepository(sqlite);
   const attachments = createSqliteAttachmentRepository(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
+  await ensureSystemTaxRates(taxRates);
   const costCenters = createSqliteCostCenterRepository(sqlite);
   const masterDataChecks: MasterDataChecks = {
     [MasterDataKind.Customer]: customers,
@@ -982,6 +1131,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       console.error(`[notifications] a subscriber failed handling "${event.code}"`, error);
     },
   });
+  // The directory reads tables that stores mounted further down create, so it
+  // is built once they all exist — and BEFORE the first request, so a
+  // statement that cannot be prepared stops the boot instead of a refusal.
+  let branchDirectory: BranchDirectory | undefined;
+  const startedDirectory = (): BranchDirectory => {
+    if (!branchDirectory) throw new Error("createBackend: the branch directory was read before the backend finished starting");
+    return branchDirectory;
+  };
+  const deferredBranchDirectory: BranchDirectory = {
+    branchesOf: (kind, id, access) => startedDirectory().branchesOf(kind, id, access),
+    warehousesOf: (kind, id) => startedDirectory().warehousesOf(kind, id),
+    actingWarehousesOf: (kind, id) => startedDirectory().actingWarehousesOf(kind, id),
+  };
   const notificationEngine = new NotificationRulesEngine({
     rules: notificationRules,
     notifications,
@@ -1089,7 +1251,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // reason (createInventoryOpsStockHook below); every other stock
     // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
     // through a separate path and never passes `command.gl`, so this is additive.
-    gl: createInventoryGlPostingHook(salesInvoiceGl),
+    gl: createInventoryGlPostingHook(salesInvoiceGl, warehouses),
+    transferCoverAccounts: { inventoryAccountId: STOCK_VARIANCE_ACCOUNTS.inventoryAccountId, costAccountId: STOCK_VARIANCE_ACCOUNTS.costVarianceAccountId },
     // The last-resort cost for an issue out of a position that holds nothing
     // and was never received anywhere. Without it such an issue was written at
     // zero and COGS was understated by the whole deficit (D101).
@@ -1158,6 +1321,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     assetRateHistory,
     stockLedger: stockService,
     gl: salesInvoiceGl,
+    stockVariance: STOCK_VARIANCE_ACCOUNTS,
     audit: auditSink,
     numbering: ledger.numbering,
     accountRouting,
@@ -1189,6 +1353,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   } satisfies DocumentEventMapping;
   const salesInvoiceEventBridge = createDocumentEventBridge(
     eventBus,
+    deferredBranchDirectory,
     salesInvoiceEventMapping,
     async (docId) => {
       const invoice = await salesInvoices.findById(docId);
@@ -1232,6 +1397,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     unitMappings: etaStore.unitMappings,
   });
   const salesInvoiceEvents = fanOutDocumentEvents(salesInvoiceEventBridge, etaEnqueueBridge);
+  const rebuildEtaInvoiceSubmission = createEtaInvoiceRequeueRebuilder({
+    eta: etaService,
+    items,
+    taxRates,
+    branchCodes: etaStore.branchCodes,
+    unitMappings: etaStore.unitMappings,
+    invoices: salesInvoices,
+    customers,
+  });
 
   /**
    * D-03's billing arrow, enforced on EVERY sales invoice and not just the ones
@@ -1291,8 +1465,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const service = new SalesInvoiceService({
         repo: salesInvoices,
         numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
-        gl: createSalesInvoiceGlHook(salesInvoiceGl),
+        gl: createSalesInvoiceGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS),
         stock: createSalesInvoiceStockHook(stockService),
+        taxRates,
+        taxRerating: salesInvoiceTaxRerating,
         allocatable: vouchers.invoices,
         audit: auditSink,
         // INVARIANT: the SAME publisher the /sales/invoices routes use. A
@@ -1300,6 +1476,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         // never hears about (D5) — the authority sees the tenant's certificate
         // billing simply missing.
         events: salesInvoiceEvents,
+        taxPolicy: salesTaxPolicySource(settings),
         // The REAL actor, not "system": this invoice is a live receivable, and
         // its audit row named nobody.
         actor: cmd.actor ?? "system",
@@ -1317,6 +1494,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         notes: cmd.memoAr,
         arAccountId: CERTIFICATE_AR_ACCOUNT_ID,
         taxAccountId: routedAccountId(routing, "tax.output_vat") ?? "2200",
+        sourcePricing: SalesPricingMode.TaxExclusive,
         lines: [
           {
             lineId: `${invoiceId}-L1`,
@@ -1383,7 +1561,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           memo: `عكس فاتورة مستخلص ${invoice.docNo ?? invoice.id} — ${reasonAr}`,
         }, { mintedBySystem: true });
       }
-      await salesInvoices.update({ ...invoice, status: "reversed" });
+      const written = await salesInvoices.writeFields({ ...invoice, status: "reversed" }, [SalesInvoiceField.Status], { status: [invoice.status] });
+      if (!written) throw new DocumentChangedError("SALES_INVOICE", invoice.id);
       const sub = await vouchers.invoices.findById(invoiceId);
       if (sub) await vouchers.invoices.save({ ...sub, total: Money.zero(), allocated: Money.zero() });
     },
@@ -1495,18 +1674,24 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const service = new SalesInvoiceService({
         repo: salesInvoices,
         numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
-        gl: createSalesInvoiceGlHook(salesInvoiceGl),
+        gl: createSalesInvoiceGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS),
         stock: createSalesInvoiceStockHook(stockService),
+        taxRates,
+        taxRerating: salesInvoiceTaxRerating,
         allocatable: vouchers.invoices,
         audit: auditSink,
-        // INVARIANT: the same publisher the /sales/invoices routes use — see the certificate's port above.
-        events: salesInvoiceEvents,
+        // INVARIANT: NOT `salesInvoiceEvents`. A retention release is a
+        // receivable reclass (Dr AR / Cr retention), not a supply: it must
+        // never reach the ETA queue or the e-receipt issuer.
+        events: salesInvoiceEventBridge,
+        taxPolicy: salesTaxPolicySource(settings),
         // The REAL actor, not "system": this invoice is a live receivable, and
         // its audit row named nobody.
         actor: cmd.actor ?? "system",
       });
       await service.createDraft({
         id: invoiceId,
+        documentKind: InvoiceDocumentKind.RetentionRelease,
         date: cmd.date,
         dueDate: cmd.dueDate,
         customerId: cmd.customerId,
@@ -1518,6 +1703,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         notes: cmd.memoAr,
         arAccountId: CERTIFICATE_AR_ACCOUNT_ID,
         taxAccountId: routedAccountId(routing, "tax.output_vat") ?? "2200",
+        sourcePricing: SalesPricingMode.TaxExclusive,
         lines: [
           {
             lineId: `${invoiceId}-L1`,
@@ -1529,6 +1715,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             // No VAT: the works were taxed on the certificate that withheld
             // this money. Taxing the release again would charge it twice.
             taxRatePercent: 0,
+            taxRateId: null,
             revenueAccountId: cmd.retentionAccountId,
           },
         ],
@@ -1617,8 +1804,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
             taxRatePercent: l.taxRatePercent ?? null,
+            taxRateId: l.taxRateId ?? null,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
+            branchId: l.branchId ?? null,
           })),
         },
         salesInvoiceGl,
@@ -1683,7 +1872,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             },
           ],
         },
-        { invoices: purchaseInvoices, numbering: ledger.numbering },
+        { invoices: purchaseInvoices, numbering: ledger.numbering, taxRates },
       );
       const { invoice } = await confirmPurchaseInvoice(invoiceId, {
         invoices: purchaseInvoices,
@@ -1743,6 +1932,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       await createPurchaseInvoice(
         {
           id: invoiceId,
+          documentKind: InvoiceDocumentKind.RetentionRelease,
           supplierId: cmd.supplierId,
           date: cmd.date,
           dueDate: cmd.dueDate,
@@ -1761,10 +1951,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               qty: Qty.fromMajor("1"),
               unitCost: cmd.amount,
               taxRatePercent: 0,
+              taxRateId: null,
             },
           ],
         },
-        { invoices: purchaseInvoices, numbering: ledger.numbering },
+        { invoices: purchaseInvoices, numbering: ledger.numbering, taxRates },
       );
       const { invoice } = await confirmPurchaseInvoice(invoiceId, {
         invoices: purchaseInvoices,
@@ -1869,7 +2060,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
 
 
-  const documentGl = createJournalGlHook(salesInvoiceGl);
+  const documentGl = createJournalGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS);
   const documentWorkflowGate = createDocumentWorkflowGate(
     (actionType) => workflowConfigs.resolveSync(actionType),
     approvalRequests,
@@ -1883,7 +2074,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     SALES_RETURN: { DOCUMENT_CONFIRMED: "SALES_RETURN_CONFIRMED" },
     PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
   } satisfies DocumentEventMapping;
-  const returnsEventBridge = createDocumentEventBridge(eventBus, returnsEventMapping);
+  const returnsEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, returnsEventMapping);
 
   /*
    * The purchase chain is not a `DocumentService`, so it never had a publisher
@@ -1899,7 +2090,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     GOODS_RECEIPT: { DOCUMENT_CONFIRMED: "PURCHASE_RECEIPT_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RECEIPT_VOIDED" },
     PURCHASE_INVOICE: { DOCUMENT_CONFIRMED: "PURCHASE_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_INVOICE_VOIDED" },
   } satisfies DocumentEventMapping;
-  const purchasesEventBridge = createDocumentEventBridge(eventBus, purchasesEventMapping);
+  const purchasesEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, purchasesEventMapping);
 
   /*
    * `VoucherService` has declared an `events` port since it was written and
@@ -1909,7 +2100,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const voucherEventMapping = {
     [VOUCHER_DOC_TYPE]: { DOCUMENT_CONFIRMED: "CASH_VOUCHER_CONFIRMED" },
   } satisfies DocumentEventMapping;
-  const voucherEventBridge = createDocumentEventBridge(eventBus, voucherEventMapping);
+  const voucherEventBridge = createDocumentEventBridge(eventBus, deferredBranchDirectory, voucherEventMapping);
 
   const salesReturnEvents = fanOutDocumentEvents(
     returnsEventBridge,
@@ -1924,13 +2115,50 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       unitMappings: etaStore.unitMappings,
     }),
   );
+  const salesReturnTaxFiling = createSalesReturnTaxFiling({
+    eta: etaService,
+    taxRates,
+    rebuildCreditNote: createEtaReturnCreditNoteRebuilder({
+      eta: etaService,
+      customers,
+      items,
+      taxRates,
+      branchCodes: etaStore.branchCodes,
+      unitMappings: etaStore.unitMappings,
+    }),
+  });
+  const standingSalesReturnRefunds = async (returnId: string) => {
+    const prefix = `REFUND:${returnId}:`;
+    return (await vouchers.documents.list())
+      .filter((doc) => doc.id.startsWith(prefix) && doc.status === DocumentStatusCode.Confirmed && doc.reversesDocId === null)
+      .map((doc) => ({
+        voucherId: doc.id,
+        voucherNo: doc.docNo,
+        date: doc.date,
+        amount: doc.lines[0]?.amount ?? Money.zero(),
+      }));
+  };
+  const etaVoid = createEtaVoidPort(etaService);
+  const salesReturnVoid = createSalesReturnVoidGuards({ refundsOf: standingSalesReturnRefunds, eta: etaVoid });
+  const customerNameOf = async (id: string | null | undefined) => (id ? ((await customers.findById(id))?.nameAr ?? null) : null);
+  const supplierNameOf = async (id: string | null | undefined) => (id ? ((await suppliers.findById(id))?.nameAr ?? null) : null);
+  const warehouseNameOf = async (id: string | null | undefined) => (id ? ((await warehouses.findById(id))?.name ?? null) : null);
+  const salesInvoiceNoOf = async (line: { sourceInvoiceId: string; sourceInvoiceNumber: string | null } | undefined) =>
+    line ? (line.sourceInvoiceNumber ?? (await salesInvoices.findById(line.sourceInvoiceId))?.docNo ?? null) : null;
+  const purchaseInvoiceNoOf = async (line: { sourceInvoiceId: string; sourceInvoiceNumber: string | null } | undefined) =>
+    line ? (line.sourceInvoiceNumber ?? (await purchaseInvoices.findById(line.sourceInvoiceId))?.number ?? null) : null;
+  const voucherPartyNameOf = async (line: VoucherLine) => (await customerNameOf(line.customerId)) ?? (await supplierNameOf(line.supplierId));
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
+    approvalLabel: async (doc) => approvalLabel({ type: "مرتجع مبيعات", reference: await salesInvoiceNoOf(doc.lines[0]), amount: salesReturnGrandTotal(doc), party: await customerNameOf(doc.lines[0]?.customerId) }),
     numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
     gl: returnReliefGl("sales", salesReturnStore, salesReturnLineCredit),
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: salesReturnEvents,
+    confirmGuard: createReturnConfirmGuard(SALES_RETURN_DOC_TYPE, (id) => salesReturnInvoices.findConfirmedInvoice(id)),
+    reverseGuard: salesReturnVoid.guard,
+    afterReverse: salesReturnVoid.withdraw,
     /*
      * WITHOUT THIS the document's confirm and cancel write nothing to the
      * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
@@ -1946,11 +2174,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
+    approvalLabel: async (doc) => approvalLabel({ type: "مرتجع مشتريات", reference: await purchaseInvoiceNoOf(doc.lines[0]), amount: purchaseReturnGrandTotal(doc), party: await supplierNameOf(doc.lines[0]?.supplierId) }),
     numbering: { next: (opts) => ledger.numbering.next("PURCHASE_RETURN", { branchId: opts?.branchId }) },
     gl: returnReliefGl("purchase", purchaseReturnStore, purchaseReturnLineCredit),
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
     events: returnsEventBridge,
+    confirmGuard: createReturnConfirmGuard(PURCHASE_RETURN_DOC_TYPE, (id) => purchaseReturnInvoices.findConfirmedInvoice(id)),
     /*
      * WITHOUT THIS the document's confirm and cancel write nothing to the
      * audit trail. `DocumentService.recordAudit` is guarded on `deps.audit`,
@@ -1964,9 +2194,128 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: auditSink,
     auditModule: "purchases",
   });
+  /**
+   * Derives the returnable quantity from the invoice minus what confirmed
+   * returns have already taken. Before this the server validated against a
+   * figure the CLIENT supplied, so the same goods could be returned
+   * repeatedly by claiming the full invoiced quantity each time.
+   */
+  const salesReturnInvoices: SalesInvoiceLookupPort = {
+    async findConfirmedInvoice(id: string) {
+      const invoice = await salesInvoices.findById(id);
+      if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
+      const priorReturns = await salesReturns.list();
+      const returned = priorReturns
+        .filter((doc) => doc.status === "confirmed" && !doc.reversesDocId)
+        .flatMap((doc) => doc.lines.filter((line) => line.sourceInvoiceId === id));
+      const alreadyReturned = returnedQtyBySourceLine(
+        invoice.lines.map((l) => ({ sourceLineId: l.lineId, itemId: l.itemId, qty: l.baseQty })),
+        returned,
+      );
+      // The tax the line was ACTUALLY charged — after line, promotion and
+      // header discounts, and zero when the customer is tax-exempt. Handing
+      // the return a zero here credited no VAT at all and left it no rate
+      // to group the posting by (D76).
+      const chargedTax = new Map<string, { tax: Money; rate: number; taxRateId: string | null }>();
+      const invoiceTotals = salesInvoiceTotals(invoice);
+      for (const [i, line] of invoice.lines.entries()) {
+        chargedTax.set(line.lineId, {
+          tax: invoiceTotals.lines[i]?.tax ?? Money.zero(),
+          rate: line.taxRatePercent,
+          taxRateId: line.taxRateId,
+        });
+      }
+      return {
+        id: invoice.id,
+        number: invoice.docNo ?? invoice.id,
+        salespersonId: invoice.salespersonId,
+        customerId: invoice.customerId,
+        warehouseId: invoice.warehouseId,
+        branchId: invoice.branchId,
+        projectId: invoice.projectId,
+        currency: invoice.currency,
+        fxRate: invoice.fxRate ?? null,
+        date: invoice.date,
+        status: "confirmed" as const,
+        // A return is quoted in BASE units, because that is what it puts
+        // back into the stock ledger. A line sold as 5 cartons of 12 is
+        // returnable as up to 60 pieces at the per-piece price, so the
+        // credit still reconciles to the line and the ledger to the count.
+        lines: invoice.lines.map((l, lineIndex) => ({
+          sourceLineId: l.lineId,
+          itemId: l.itemId,
+          itemName: l.itemNameAr,
+          qty: l.baseQty,
+          alreadyReturnedQty: alreadyReturned[lineIndex] ?? Qty.zero(),
+          unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
+          // The line's captured moving-average COST, not its price. This
+          // read `l.unitPrice` — the same expression as the line above —
+          // so «مرتجع من فاتورة», the route the screen uses, restocked
+          // every return at the SELLING price: inventory overstated and
+          // the COGS reversal wrong by the whole margin (D145).
+          unitCost:
+            l.unitCost === null
+              ? Money.zero()
+              : unitCostOf(extendQtyByPrice(l.qty, l.unitCost), l.baseQty),
+          taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
+          taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
+          taxRateId: chargedTax.get(l.lineId)?.taxRateId ?? null,
+        })),
+      };
+    },
+  };
+  const purchaseReturnInvoices: PurchaseInvoiceLookupPort = {
+    async findConfirmedInvoice(id: string) {
+      const invoice = await purchaseInvoices.findById(id);
+      if (!invoice || invoice.status !== "confirmed") return null;
+      const priorReturns = await purchaseReturns.list();
+      const returned = priorReturns
+        .filter((doc) => doc.status === "confirmed" && !doc.reversesDocId)
+        .flatMap((doc) => doc.lines.filter((line) => line.sourceInvoiceId === id));
+      const returnable = invoice.lines
+        .map((l, index) => ({ ...l, sourceLineId: String(index) }))
+        .flatMap((l) => (l.itemId === null ? [] : [{ ...l, itemId: l.itemId }]));
+      const alreadyReturned = returnedQtyBySourceLine(returnable, returned);
+      return {
+        id: invoice.id,
+        number: invoice.number ?? invoice.id,
+        createdBy: invoice.createdBy,
+        supplierId: invoice.supplierId,
+        warehouseId: invoice.warehouseId,
+        branchId: invoice.branchId,
+        // A return inherits the invoice's project and each line's cost
+        // category (D-01); leaving them off here dropped both (D215).
+        projectId: invoice.projectId ?? null,
+        currency: invoice.currency,
+        fxRate: invoice.fxRate ?? null,
+        date: invoice.date,
+        status: "confirmed" as const,
+        lines: returnable.map((l, lineIndex) => ({
+            sourceLineId: l.sourceLineId,
+            itemId: l.itemId,
+            itemName: l.description ?? l.itemId,
+            qty: l.qty,
+            alreadyReturnedQty: alreadyReturned[lineIndex] ?? Qty.zero(),
+            unitCost: l.unitCost,
+            // The input VAT the line actually carried, and the rate that
+            // produced it — a return with neither credits no VAT back and
+            // gives the VAT return nothing to group by (D76).
+            taxAmount: purchaseInvoiceLineTax(l),
+            taxRatePercent: l.taxRatePercent,
+            taxRateId: l.taxRateId ?? null,
+            costCategory: l.costCategory ?? null,
+          })),
+      };
+    },
+  };
   const landedCostGlAccounts = { ...LANDED_COST_GL_ACCOUNTS };
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(landedCostGlAccounts), {
     repo: landedCostStore,
+    approvalLabel: async (doc) => {
+      const costItems = doc.lines[0]?.costItems ?? [];
+      const supplierId = costItems.find((item) => item.supplierId)?.supplierId;
+      return approvalLabel({ type: "تكلفة إضافية", amount: Money.sum(costItems.map((item) => item.amount)), party: (await supplierNameOf(supplierId)) ?? (await warehouseNameOf(doc.lines[0]?.warehouseId)) });
+    },
     numbering: { next: (opts) => ledger.numbering.next("LANDED_COST", { branchId: opts?.branchId }) },
     gl: documentGl,
     workflow: documentWorkflowGate,
@@ -1994,8 +2343,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         sourceDocId: posting.sourceDocId,
         sourceDocNumber: posting.sourceDocNumber,
         lines: [
-          { accountId: debitAccountId, debit: posting.amount, credit: Money.zero() },
-          { accountId: creditAccountId, debit: Money.zero(), credit: posting.amount },
+          { accountId: debitAccountId, debit: posting.amount, credit: Money.zero(), branchId: posting.branchId },
+          { accountId: creditAccountId, debit: Money.zero(), credit: posting.amount, branchId: posting.branchId },
         ],
       },
       salesInvoiceGl,
@@ -2048,15 +2397,29 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   );
   const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: inventoryOps.stockAdjustments,
+    approvalLabel: async (doc) => {
+      const stated = doc.lines.every((line) => line.unitCost) ? Money.sum(doc.lines.map((line) => extendQtyByPrice(line.qty, line.unitCost as Money))) : null;
+      return approvalLabel({ type: "تسوية مخزون", amount: stated, party: await warehouseNameOf(doc.lines[0]?.warehouseId) });
+    },
     numbering: { next: (opts) => ledger.numbering.next("STOCK_ADJUSTMENT", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
     workflow: documentWorkflowGate,
+    audit: auditSink,
+    auditModule: "inventory",
   });
   const stockTransfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
     repo: inventoryOps.stockTransfers,
+    approvalLabel: async (doc) => {
+      const line = doc.lines[0];
+      const from = (await warehouseNameOf(line?.fromWarehouseId)) ?? line?.fromWarehouseId ?? "";
+      const to = (await warehouseNameOf(line?.toWarehouseId)) ?? line?.toWarehouseId ?? "";
+      return `تحويل مخزون من ${from} إلى ${to}`;
+    },
     numbering: { next: (opts) => ledger.numbering.next("STOCK_TRANSFER", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
     workflow: documentWorkflowGate,
+    audit: auditSink,
+    auditModule: "inventory",
   });
   const physicalCounts = new PhysicalCountService({
     repo: inventoryOps.physicalCounts,
@@ -2831,6 +3194,54 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
   await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
 
+  const upgradeLedger = createSqliteUpgradeLedger(sqlite);
+  const sequenceCountersRead = sqlite.prepare("SELECT code, period, value FROM sequence_counter ORDER BY code, period");
+  // REQUIRED ORDERING: runs after `grantSuccessorPermissionsOnce` above, so a reversal right granted for an older one is moved with the duty it belongs to.
+  const separateSeededDuties = async (split: SeededRoleSplit): Promise<void> => {
+    const reversalSuccessors = reversalPermissionSuccessors();
+    const corrected: string[] = [];
+    const dutyChanges: SeededRoleDutyChange[] = [];
+    for (const role of await uow.roles.list()) {
+      const permissions = correctedSeededRolePermissions(role.code, role.permissions, reversalSuccessors, split);
+      if (!permissions) continue;
+      const change = seededRoleDutyChange(role, reversalSuccessors, split);
+      if (change) dutyChanges.push(change);
+      await uow.roles.save({ ...role, permissions });
+      corrected.push(role.code);
+    }
+    if (corrected.length > 0) console.info(`[roles] separated duties (${split}) on seeded role(s) ${corrected.join(", ")}`);
+    if (dutyChanges.length > 0) {
+      const { title, body } = seededRoleDutyNotice(dutyChanges);
+      const roles = await uow.roles.list();
+      const holdsEverything = new Set(roles.filter((role) => role.permissions.includes("*")).map((role) => role.id));
+      const createdAt = new Date().toISOString();
+      for (const user of await uow.users.list()) {
+        if (user.status !== "active" || !(user.isCompanyAdmin || (user.roleId !== null && holdsEverything.has(user.roleId)))) continue;
+        await notifications.save({
+          id: randomUUID(),
+          ruleId: null,
+          recipientUserId: user.id,
+          eventCode: SEEDED_ROLE_DUTIES_SEPARATED_EVENT,
+          title,
+          body,
+          priority: "high",
+          channels: ["in_app"],
+          channelStatus: { in_app: "delivered" },
+          status: "unread",
+          payload: { roles: dutyChanges.map((change) => ({ code: change.roleCode, revoked: change.revoked, granted: change.granted })), link: "/settings/roles" },
+          createdAt,
+          readAt: null,
+        });
+      }
+    }
+  };
+  await upgradeLedger.runOnce(UpgradeStepId.SeededRoleDutySplit, () => separateSeededDuties(SeededRoleSplit.Duties));
+  await upgradeLedger.runOnce(UpgradeStepId.SeededRoleReconciliationSplit, () => separateSeededDuties(SeededRoleSplit.BankReconciliation));
+  await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
+    const marked = markApprovalsNeedingReapproval(sqlite);
+    if (marked.length > 0) console.info(`[workflow] ${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);
+  });
+
   /**
    * Books seeded before a template account existed get it now (D229: the
    * exchange-difference accounts). Idempotent; it adds, and never renames or
@@ -2910,6 +3321,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     invoices: vouchers.invoices,
     settings,
     resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    partyName: voucherPartyNameOf,
     audit: auditSink,
   });
 
@@ -3586,9 +3998,32 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return { voucherId };
   };
 
+  const resolveCashAndBankParentAccountId = async () => routedAccountId(await accountRouting.get(), CASH_AND_BANK_ROUTING_KEY);
+  const resolveCashAndBankAccountIds = async (): Promise<readonly string[]> => {
+    const [routing, chart, treasury] = await Promise.all([accountRouting.get(), accounts.list(), treasuryAccounts.list()]);
+    return cashAndBankLedgerAccountIds(chart, {
+      parentAccountId: routedAccountId(routing, CASH_AND_BANK_ROUTING_KEY),
+      restrictedAccountIds: [routedAccountId(routing, RESTRICTED_CASH_ROUTING_KEY)],
+      treasuryLedgerAccountIds: treasury.map((account) => account.glAccountId),
+    });
+  };
+
   const app = createApp(uow, {
+    cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
     resolveAuthContext,
     security: { sessions, loginThrottle },
+    ...(options.onUserEmailChanged
+      ? { onUserEmailChanged: (change) => options.onUserEmailChanged!({ ...change, actorCredentialIsOwn: !credentialResets.has(change.actorId) }) }
+      : {}),
+    ...(options.companyOwner
+      ? {
+          companyOwner: {
+            currentOwnerUserId: () => options.companyOwner!.currentOwnerUserId(),
+            handOver: (input) => options.companyOwner!.handOver({ ...input, actorCredentialIsOwn: !credentialResets.has(input.actorId) }),
+          },
+        }
+      : {}),
+    onUserCredentialSetByOther: (userId, actorId) => credentialResets.mark(userId, new Date().toISOString(), actorId),
     onPermissionRefused,
     // The LAN routes need the SAME session registry the auth routes issue
     // into, or a disconnect revokes a token nobody is holding.
@@ -3601,11 +4036,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         : {}),
     settingsStore: settings,
     branchStore: branches,
+    branchDirectory: deferredBranchDirectory,
     warehouseStore: warehouses,
+    warehouseUse: createWarehouseUse(sqlite),
     customerStore: customers,
     supplierStore: suppliers,
     customerOpeningBalances,
     supplierOpeningBalances,
+    createTransactor: configTransactor,
+    numbersDrawn: () => JSON.stringify(sequenceCountersRead.all()),
     accounts: { repo: accounts },
     items: { repo: items, snapshots: stockLedger.snapshots },
     accountRouting: { repo: accountRouting },
@@ -3627,6 +4066,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     auditSink,
     barcodeConfigStore: barcodeConfig,
     taxRateRepo: taxRates,
+    taxRateUsage: createSqliteTaxRateUsage(sqlite),
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
     fiscalPeriodRepo: fiscalPeriods,
@@ -3650,7 +4090,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           for (const invoice of invoices) {
             for (const line of invoice.lines) {
               if (!line.isStock) continue;
-              lines.push({ itemId: line.itemId, warehouseId: invoice.warehouseId, qty: line.qty });
+              lines.push({ itemId: line.itemId, warehouseId: invoice.warehouseId, qty: line.baseQty });
             }
           }
           for (const transfer of transfers) {
@@ -3667,6 +4107,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: {
       ledger,
       accounts,
+      masterData: masterDataChecks,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
       projects,
@@ -3690,6 +4131,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // outright: without these two the gate resolved every config to null and
       // held requests were never persisted for the inbox.
       resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    partyName: voucherPartyNameOf,
       approvalRequests,
       documents: vouchers.documents,
       vatFilings,
@@ -3750,6 +4192,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // «من إيصال استلام» omits lines, so the route builds them from the receipt
       // — and without this port every one of those lines was taxed at 0% (D50).
       resolveTaxRate: async (itemId) => (await items.findById(itemId))?.taxRatePercent ?? 0,
+      taxDependents: createReturnTaxCarry({
+        returns: purchaseReturnStore,
+        tags: createJournalTaxTagPort({ ledger, vatFilings }),
+        expected: expectedReturnTaxJournalLines(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS)),
+      }),
       /**
        * سداد للمورد from the invoice itself (R4.4) — the purchase-side mirror of
        * the sales `collect` adapter below. It creates, confirms and allocates a
@@ -3822,7 +4269,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       itemCheck: items,
       masterData: masterDataChecks,
       numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
-      gl: createSalesInvoiceGlHook(salesInvoiceGl),
+      gl: createSalesInvoiceGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS),
       // "السماح بالبيع من مستودع آخر": only when the document's warehouse holds
       // NONE of the item, and only when one other warehouse can cover the whole
       // line — a line split across two warehouses would have two costs, and an
@@ -3857,8 +4304,56 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },
-      hasEtaReceipt: (invoiceId) => etaReceipts.hasInvoiceReceipt(invoiceId),
       stockRestore: createInventoryStockHook(stockService),
+      printContext: async (invoice) => {
+        const docNo = invoice.docNo ?? invoice.id;
+        const [branch, warehouse, customer, submission, receipt] = await Promise.all([
+          branches.findById(invoice.branchId),
+          warehouses.findById(invoice.warehouseId),
+          customers.findById(invoice.customerId),
+          etaService.findByInternalId(docNo),
+          etaService.receiptForPrint(docNo),
+        ]);
+        return {
+          branchName: branch?.name ?? null,
+          warehouseName: warehouse?.name ?? null,
+          customer: customer ? { code: customer.code, taxNumber: customer.taxNumber ?? null, address: customer.address ?? null, phone: customer.phone ?? null } : null,
+          etaUuid: (submission?.status === EtaSubmissionStatusCode.Accepted ? submission.etaUuid : null) ?? receipt?.uuid ?? null,
+          etaQrValue: receipt?.qrValue ?? null,
+        };
+      },
+      itemTax: salesItemTax,
+      sourceDocumentOf: async (invoiceId) => {
+        const quote = (await salesQuotes.list({ status: "converted" })).find((candidate) => candidate.convertedInvoiceId === invoiceId);
+        return quote
+          ? { id: quote.id, number: quote.docNo ?? quote.id, lines: quote.lines.map((line) => ({ lineId: line.lineId, qty: line.qty, unitPrice: line.unitPrice, taxRateId: line.taxRateId ?? null, taxRatePercent: line.taxRatePercent })) }
+          : null;
+      },
+      onDraftCancelled: async (invoice) => {
+        await new SalesQuoteService({
+          repo: salesQuotes,
+          numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
+          taxRates,
+          taxPolicy: salesTaxPolicySource(settings),
+        }).reopenConvertedBy(invoice.id, async (quoteId) =>
+          (await salesInvoices.list({ sourceQuoteId: quoteId })).filter((other) => other.status !== SalesInvoiceStatusCode.Cancelled).map((other) => other.id),
+        );
+      },
+      etaDocumentOf: (invoice) => etaVoid.documentOf(invoice.docNo ?? invoice.id),
+      withdrawUnsentEtaSubmission: (invoice) =>
+        etaVoid.withdraw(invoice.docNo ?? invoice.id, `أُلغيت الفاتورة ${invoice.docNo ?? invoice.id} قبل إرسالها إلى المصلحة.`),
+      taxTags: createJournalTaxTagPort({ ledger, vatFilings }),
+      taxDependents: createReturnTaxCarry({
+        returns: salesReturnStore,
+        tags: createJournalTaxTagPort({ ledger, vatFilings }),
+        expected: expectedReturnTaxJournalLines(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS)),
+        filing: salesReturnTaxFiling,
+      }),
+      taxFiling: createSalesInvoiceTaxFiling({ eta: etaService, taxRates, rebuild: rebuildEtaInvoiceSubmission }),
+      afterTaxClassified: createAfterTaxClassified({
+        receipts: etaReceipts,
+        returnsOf: async (invoiceId) => (await salesReturnStore.listByLineRef?.("sourceInvoiceId", [invoiceId], { status: "confirmed" })) ?? [],
+      }),
       settlementPreview: previewSettlement((message) => new InvalidSalesInvoicePaymentError(message)),
       pricing: {
         listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
@@ -3926,6 +4421,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         exchangeRates,
         baseCurrency: "EGP",
         resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    partyName: voucherPartyNameOf,
         approvalRequests,
         audit: auditSink,
         events: voucherEventBridge,
@@ -3976,18 +4472,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // ENH-011b "Fix & Requeue" (WF-04 step 4): rebuilds the payload and the
       // pre-validation from the CURRENT masters, so a fixed item code or
       // customer TIN actually clears the finding that blocked submit.
-      rebuildSubmission: createEtaInvoiceRequeueRebuilder({
-        eta: etaService,
-        items,
-        taxRates,
-        branchCodes: etaStore.branchCodes,
-        unitMappings: etaStore.unitMappings,
-        invoices: salesInvoices,
-        customers,
-      }),
+      rebuildSubmission: rebuildEtaInvoiceSubmission,
       issueDocumentReceipt: async (kind, docId) => {
         const issued =
-          kind === "invoice" ? await etaReceipts.issueInvoiceReceipt(docId) : await etaReceipts.issueReturnReceipt(docId);
+          kind === EtaReceiptSourceKind.Invoice ? await etaReceipts.issueInvoiceReceipt(docId) : await etaReceipts.issueReturnReceipt(docId);
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },
@@ -3995,14 +4483,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // 96-hour window, referencing the rejected one via header.referenceOldUUID.
       reissueDocumentReceipt: async (kind, docId) => {
         const issued =
-          kind === "invoice"
+          kind === EtaReceiptSourceKind.Invoice
             ? await etaReceipts.reissueInvoiceReceipt(docId)
             : await etaReceipts.reissueReturnReceipt(docId);
         if (issued) etaReceipts.scheduleSubmission();
         return issued;
       },
     },
-    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite), allocationsOnReversedVouchers },
+    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite), stockPositionFaults: async () => stockPositionFaults((await stockService.getValuation()).positions) , allocationsOnReversedVouchers },
     openingBalanceDuplicates: {
       resolveContext: resolveOpeningBalanceDuplicatesContext,
       repair: repairOpeningBalanceDuplicate,
@@ -4024,6 +4512,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     // --- hr/master-data ---
     hr: {
+      transactor: configTransactor,
       departments: hrDepartments,
       jobTitles: hrJobTitles,
       employees: hrEmployees,
@@ -4137,6 +4626,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       contracts: { exists: async (id) => (await worksContracts.findContractById(id)) !== null },
     },
     fixedAssets: {
+      disposalProceedsAccounts: async () => {
+        const [routing, chart, cashAccountIds, partyControls] = await Promise.all([accountRouting.get(), accounts.list(), resolveCashAndBankAccountIds(), resolvePartyControlAccounts()]);
+        return disposalProceedsAccounts(chart, { cashAccountIds, receivableControlAccountId: routedAccountId(routing, "control.receivable"), partyControlAccountIds: [...partyControls.keys()] });
+      },
       masterData: masterDataChecks,
       categories: assetCategories,
       assets,
@@ -4144,6 +4637,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       runs: depreciationRuns,
       periods: fiscalPeriods,
       gl: salesInvoiceGl,
+      warehouses,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
       settings,
       audit: auditSink,
@@ -4154,6 +4648,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       wacSnapshots: stockLedger.snapshots,
       stockLedger: stockLedger.ledger,
       gl: salesInvoiceGl,
+      warehouses,
       accounts: INVENTORY_WRITEDOWN_GL_ACCOUNTS,
       settings,
     },
@@ -4395,72 +4890,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     salesReturns: {
       service: salesReturns,
-      /**
-       * Derives the returnable quantity from the invoice minus what confirmed
-       * returns have already taken. Before this the server validated against a
-       * figure the CLIENT supplied, so the same goods could be returned
-       * repeatedly by claiming the full invoiced quantity each time.
-       */
-      invoices: {
-        async findConfirmedInvoice(id: string) {
-          const invoice = await salesInvoices.findById(id);
-          if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
-          const priorReturns = await salesReturns.list();
-          const returnedByItem = new Map<string, Qty>();
-          for (const doc of priorReturns) {
-            if (doc.status !== "confirmed") continue;
-            for (const line of doc.lines) {
-              if (line.sourceInvoiceId !== id) continue;
-              returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
-            }
-          }
-          // The tax the line was ACTUALLY charged — after line, promotion and
-          // header discounts, and zero when the customer is tax-exempt. Handing
-          // the return a zero here credited no VAT at all and left it no rate
-          // to group the posting by (D76).
-          const chargedTax = new Map<string, { tax: Money; rate: number }>();
-          const invoiceTotals = salesInvoiceTotals(invoice);
-          for (const [i, line] of invoice.lines.entries()) {
-            chargedTax.set(line.lineId, {
-              tax: invoiceTotals.lines[i]?.tax ?? Money.zero(),
-              rate: line.taxRatePercent,
-            });
-          }
-          return {
-            id: invoice.id,
-            number: invoice.docNo ?? invoice.id,
-            customerId: invoice.customerId,
-            warehouseId: invoice.warehouseId,
-            projectId: invoice.projectId,
-            currency: invoice.currency,
-            fxRate: invoice.fxRate ?? null,
-            date: invoice.date,
-            status: "confirmed" as const,
-            // A return is quoted in BASE units, because that is what it puts
-            // back into the stock ledger. A line sold as 5 cartons of 12 is
-            // returnable as up to 60 pieces at the per-piece price, so the
-            // credit still reconciles to the line and the ledger to the count.
-            lines: invoice.lines.map((l) => ({
-              itemId: l.itemId,
-              itemName: l.itemNameAr,
-              qty: l.baseQty,
-              alreadyReturnedQty: returnedByItem.get(l.itemId) ?? Qty.zero(),
-              unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
-              // The line's captured moving-average COST, not its price. This
-              // read `l.unitPrice` — the same expression as the line above —
-              // so «مرتجع من فاتورة», the route the screen uses, restocked
-              // every return at the SELLING price: inventory overstated and
-              // the COGS reversal wrong by the whole margin (D145).
-              unitCost:
-                l.unitCost === null
-                  ? Money.zero()
-                  : unitCostOf(extendQtyByPrice(l.qty, l.unitCost), l.baseQty),
-              taxAmount: chargedTax.get(l.lineId)?.tax ?? Money.zero(),
-              taxRatePercent: chargedTax.get(l.lineId)?.rate ?? null,
-            })),
-          };
-        },
-      },
+      invoices: salesReturnInvoices,
+      journalTax: (id, request) =>
+        nameReturnJournalLineTax(id, request, {
+          returns: salesReturnStore,
+          tags: createJournalTaxTagPort({ ledger, vatFilings }),
+          taxRates,
+          expected: expectedReturnTaxJournalLines(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS)),
+          sourceRateOf: async (line) => {
+            const invoice = await salesInvoices.findById(line.sourceInvoiceId);
+            const source = invoice?.lines.find((candidate) => candidate.lineId === line.sourceLineId);
+            return source ? (source.taxRateId ?? null) : undefined;
+          },
+          filing: salesReturnTaxFiling,
+          audit: auditSink,
+          auditModule: "sales",
+        }),
       /**
        * «استرداد للعميل» (R3.9). A confirmed return credits AR and moves no
        * money; this pays the credit note out as a REAL رد مبلغ لعميل voucher —
@@ -4473,23 +4918,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
        * that prefix is the only link between the two, so it must not change.
        */
       refunds: {
-        async list(returnId: string) {
-          const prefix = `REFUND:${returnId}:`;
-          const all = await vouchers.documents.list();
-          return all
-            .filter((doc) => doc.id.startsWith(prefix) && doc.status === "confirmed" && doc.reversesDocId === null)
-            .map((doc) => ({
-              voucherId: doc.id,
-              voucherNo: doc.docNo,
-              date: doc.date,
-              amount: doc.lines[0]?.amount ?? Money.zero(),
-            }));
-        },
+        list: standingSalesReturnRefunds,
         async post(command) {
           const treasury = await treasuryAccounts.findById(command.treasuryAccountId);
           if (!treasury?.glAccountId) {
             throw new SalesReturnNotRefundableError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
           }
+          // A return's lines land in one branch's stores, so its branch is a
+          // single one: the header's.
+          const returnBranchId = (await bridgedDocumentBranchIds(deferredBranchDirectory, "SALES_RETURN", command.returnId))[0] ?? null;
+          if (returnBranchId !== null && treasury.branchId !== null && treasury.branchId !== returnBranchId) throw new SalesReturnRefundTreasuryBranchError();
           const customer = await customers.findById(command.customerId);
           const voucherId = `REFUND:${command.returnId}:${randomUUID()}`;
           const service = new VoucherService({
@@ -4514,7 +4952,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             memo: command.memo ?? undefined,
             voucherType: "customer_refund",
             amount: command.amount,
-            branchId: treasury.branchId,
+            // LEDGER INVARIANT: the refund settles the return, so it is booked
+            // to the return's branch — the account's own only when the return
+            // has none. Booking it to a company-level account's "no branch"
+            // left a branch's refund outside that branch's books.
+            branchId: returnBranchId ?? treasury.branchId ?? COMPANY_LEVEL_VOUCHER_BRANCH,
             paymentMethod: command.paymentMethod,
             treasuryAccountId: command.treasuryAccountId,
             treasuryGlAccountId: treasury.glAccountId,
@@ -4531,50 +4973,31 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     purchaseReturns: {
       service: purchaseReturns,
-      /** See salesReturns.invoices — same defect, same fix. */
-      invoices: {
-        async findConfirmedInvoice(id: string) {
-          const invoice = await purchaseInvoices.findById(id);
-          if (!invoice || invoice.status !== "confirmed") return null;
-          const priorReturns = await purchaseReturns.list();
-          const returnedByItem = new Map<string, Qty>();
-          for (const doc of priorReturns) {
-            if (doc.status !== "confirmed") continue;
-            for (const line of doc.lines) {
-              if (line.sourceInvoiceId !== id) continue;
-              returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
-            }
-          }
-          return {
-            id: invoice.id,
-            number: invoice.number ?? invoice.id,
-            supplierId: invoice.supplierId,
-            warehouseId: invoice.warehouseId,
-            // A return inherits the invoice's project and each line's cost
-            // category (D-01); leaving them off here dropped both (D215).
-            projectId: invoice.projectId ?? null,
-            currency: invoice.currency,
-            fxRate: invoice.fxRate ?? null,
-            date: invoice.date,
-            status: "confirmed" as const,
-            lines: invoice.lines
-              .filter((l) => l.itemId !== null)
-              .map((l) => ({
-                itemId: l.itemId as string,
-                itemName: l.description ?? (l.itemId as string),
-                qty: l.qty,
-                alreadyReturnedQty: returnedByItem.get(l.itemId as string) ?? Qty.zero(),
-                unitCost: l.unitCost,
-                // The input VAT the line actually carried, and the rate that
-                // produced it — a return with neither credits no VAT back and
-                // gives the VAT return nothing to group by (D76).
-                taxAmount: purchaseInvoiceLineTax(l),
-                taxRatePercent: l.taxRatePercent,
-                costCategory: l.costCategory ?? null,
-              })),
-          };
-        },
-      },
+      invoices: purchaseReturnInvoices,
+      journalTax: (id, request) =>
+        nameReturnJournalLineTax(id, request, {
+          returns: purchaseReturnStore,
+          tags: createJournalTaxTagPort({ ledger, vatFilings }),
+          taxRates,
+          // INVARIANT: inventory left at the moving average, so the entry —
+          // not the return's lines — says what its inventory lines carry.
+          expected: async (doc, taxRatePercent, sourceInvoiceId, taxRateId) => {
+            const entry = doc.journalEntryId ? await ledger.findById(doc.journalEntryId) : null;
+            const removed = Money.sum(
+              (entry?.lines ?? []).filter((line) => line.accountId === PURCHASE_RETURN_GL_ACCOUNTS.inventoryAccountId).map((line) => line.credit),
+            );
+            const definition = createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS);
+            return expectedReturnTaxJournalLines<PurchaseReturnLine>({
+              buildGlPosting: (scoped) => definition.buildGlPosting?.(scoped, { valueMoved: removed.negate() }) ?? null,
+            })(doc, taxRatePercent, sourceInvoiceId, taxRateId);
+          },
+          sourceRateOf: async (line) => {
+            const invoice = await purchaseInvoices.findById(line.sourceInvoiceId);
+            return invoice && line.sourceLineId ? (invoice.lines[Number(line.sourceLineId)]?.taxRateId ?? null) : undefined;
+          },
+          audit: auditSink,
+          auditModule: "purchases",
+        }),
     },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
     installments: {
@@ -4633,8 +5056,20 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     financialReports: {
       ledger,
       accounts,
-      vatAccounts: { outputVatAccountId: "2200", inputVatAccountId: "1400" },
-      cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
+      vatAccounts: {
+        outputVatAccountId: "2200",
+        inputVatAccountId: "1400",
+        inputBaseAccountIds: PURCHASE_GL_ACCOUNTS.goodsReceivedNotInvoicedAccountId
+          ? [PURCHASE_GL_ACCOUNTS.goodsReceivedNotInvoicedAccountId]
+          : [],
+        outputBaseAccountIds: async () => [routedAccountId(await accountRouting.get(), "contracting.billings") ?? "2165"],
+      },
+      taxRates,
+      cashAccountIds: resolveCashAndBankAccountIds,
+      costOfSalesAccountIds: async () => {
+        const [routing, chart, catalogue] = await Promise.all([accountRouting.get(), accounts.list(), items.list()]);
+        return costOfSalesLedgerAccountIds(chart, routing, catalogue);
+      },
       otherIncomeExpenseAccountIds,
       branchOfEntry: resolveEntryBranches,
     },
@@ -4702,7 +5137,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       schemaVersion: CURRENT_SCHEMA_VERSION,
     }),
   );
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements }));
+  const announceSignIn = options.onUserSignedIn
+    ? async ({ userId, email }: { readonly userId: string; readonly email: string }): Promise<void> => {
+        const user = await uow.users.findById(userId);
+        await options.onUserSignedIn?.({
+          userId,
+          email,
+          canAdminister: user !== null && user.isCompanyAdmin && user.status === UserStatusCode.Active,
+          credentialIsOwn: !credentialResets.has(userId),
+        });
+      }
+    : undefined;
+  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: announceSignIn, demoSeeded: options.seedDemoData === true, claimedElsewhere: options.claimedElsewhere }));
   app.route(
     "/",
     createDashboardRoutes({
@@ -4713,6 +5159,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       countItems: async () => (await items.list()).length,
       uow,
       otherIncomeExpenseAccountIds,
+      cashAccountIds: resolveCashAndBankAccountIds,
+      inventoryAccountIds: async () => {
+        const [routing, chart, catalogue] = await Promise.all([accountRouting.get(), accounts.list(), items.list()]);
+        return { held: inventoryLedgerAccountIds(chart, routing, catalogue), allowance: [INVENTORY_WRITEDOWN_GL_ACCOUNTS.provisionAccountId] };
+      },
     }, resolveAuthContext),
   );
   // Unconditional: a route mounted only when an optional dep happens to be
@@ -4741,6 +5192,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     audit: auditSink,
     eventBus,
     etaReceipts,
+    cashAndBankAccountIds: resolveCashAndBankAccountIds,
     stores: {
       settings,
       branches,
@@ -4848,6 +5300,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     labelLayouts,
   ];
 
+  branchDirectory = createSqliteBranchDirectory(sqlite);
+
   if (options.seedDemoData) {
     await seedDemoTenant(app, {
       token: sessions.issue({
@@ -4857,15 +5311,84 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         branchScope: ALL_SCOPE,
         warehouseScope: ALL_SCOPE,
       }),
-      mint: ({ userId, permissions, roleCode }) =>
-        sessions.issue({ userId, permissions, roleCode, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }),
+      mint: ({ userId, permissions, roleCode, branchScope }) =>
+        sessions.issue({ userId, permissions, roleCode, branchScope: branchScope ? [...branchScope] : ALL_SCOPE, warehouseScope: ALL_SCOPE }),
       audit: auditSink,
     });
+  }
+
+  async function companyAdmins(): Promise<CompanyAdminAccount[]> {
+    return (await uow.users.list())
+      .filter((user) => user.isCompanyAdmin && user.status === UserStatusCode.Active && !isErasedUser(user))
+      .map((user) => ({ id: user.id, nameAr: user.nameAr, email: user.email }));
+  }
+
+  // CONTRACT: idempotent on `eventId`. The platform asks again after a crash
+  // until it has seen this succeed, so the same event must leave one row.
+  async function recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void> {
+    credentialResets.clear(input.userId);
+    const { events } = await auditSink.queryEvents({ stream: "security", action: COMPANY_OWNER_ASSIGNED_AUDIT, entityId: input.userId, limit: OWNER_ASSIGNED_LOOKBACK });
+    if (events.some((row) => (row.details as Record<string, unknown> | undefined)?.["eventId"] === input.eventId)) return;
+    await recordSecurityEvent(auditSink, {
+      module: "admin",
+      entityType: "USER",
+      entityId: input.userId,
+      action: COMPANY_OWNER_ASSIGNED_AUDIT,
+      actor: input.actor,
+      severity: AuditSeverityCode.Critical,
+      details: { previousUserId: input.previousUserId, confirmedBy: input.confirmedBy, eventId: input.eventId, origin: SecurityEventOrigin.Platform },
+    });
+  }
+
+  async function ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null> {
+    const user = "userId" in query ? await uow.users.findById(query.userId) : await uow.users.findByEmail(query.email.trim().toLowerCase());
+    if (!user || isErasedUser(user)) return null;
+    return { id: user.id, email: user.email, canAdminister: user.isCompanyAdmin && user.status === UserStatusCode.Active };
+  }
+
+  async function resetOwnerPin(cmd: ResetOwnerPinCommand): Promise<OwnerPinResetOutcome> {
+    const owner = cmd.userId ? await uow.users.findById(cmd.userId) : await uow.users.findByEmail(cmd.email.trim().toLowerCase());
+    if (!owner || !owner.isCompanyAdmin || owner.status !== UserStatusCode.Active) return OwnerPinResetOutcome.OwnerNotFound;
+    if (cmd.onlyIfNeverSignedIn && owner.lastLoginAt !== null) return OwnerPinResetOutcome.AlreadySignedIn;
+    const pinHash = await hasher.hash(cmd.pin);
+    // SECURITY: the fence is compared and raised in the same transaction as the
+    // PIN write. A holder that lost its claim while it was paused arrives here
+    // with an older generation and writes nothing, so the PIN the newer holder
+    // handed out is the one that still signs in.
+    const written = await uow.transaction(async (tx) => {
+      if (cmd.fence !== undefined) {
+        if (cmd.fence < ownerPinFence.current()) return false;
+        ownerPinFence.raiseTo(cmd.fence);
+      }
+      const current = await tx.users.findById(owner.id);
+      if (!current) return OwnerPinResetOutcome.OwnerVanished;
+      await tx.users.save({ ...current, pinHash });
+      return true;
+    });
+    if (written === OwnerPinResetOutcome.OwnerVanished) return written;
+    if (!written) return OwnerPinResetOutcome.Superseded;
+    if (!cmd.onlyIfNeverSignedIn) credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
+    sessions.revokeUser(owner.id);
+    loginThrottle.succeed(owner.email.trim().toLowerCase());
+    await recordSecurityEvent(auditSink, {
+      module: "auth",
+      entityType: "USER",
+      entityId: owner.id,
+      action: "OWNER_PIN_RESET",
+      actor: cmd.actor,
+      severity: "CRITICAL",
+      details: { email: owner.email, onlyIfNeverSignedIn: cmd.onlyIfNeverSignedIn, origin: SecurityEventOrigin.Platform },
+    });
+    return OwnerPinResetOutcome.Reset;
   }
 
   return {
     app,
     sessions,
+    ownerAccount,
+    companyAdmins,
+    recordOwnerAssigned,
+    resetOwnerPin,
     etaReceipts,
     backupTo: (destination) => sqlite.backup(destination).then(() => undefined),
     async drain() {

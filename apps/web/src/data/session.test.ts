@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
+import { SHELL_REQUESTS, ShellRequest, resolvePermissions } from "@mezan/domain";
 import {
   authHeaders,
   clearSessionExpired,
@@ -12,6 +13,7 @@ import {
   persistScopeSelection,
   persistSession,
   persistTenantCode,
+  sessionMayAsk,
   rememberTenantCodeForEmail,
   sessionExpiredPending,
   tenantCodeForEmail,
@@ -250,5 +252,30 @@ describe("authHeaders", () => {
     expect(headers).not.toHaveProperty("x-permissions");
     expect(headers).not.toHaveProperty("x-user-id");
     expect(headers).not.toHaveProperty("x-role-code");
+  });
+});
+
+describe("sessionMayAsk — a permission held only by implication is held", () => {
+  const holding = (...permissions: string[]): Session => ({ ...validSession, permissions });
+
+  it("answers for a permission the session names", () => {
+    expect(sessionMayAsk(holding("admin.users.view"), ShellRequest.Users)).toBe(true);
+    expect(sessionMayAsk(holding("sales.invoice.view"), ShellRequest.Users)).toBe(false);
+    expect(sessionMayAsk(null, ShellRequest.Users)).toBe(false);
+  });
+
+  it("answers for a read the server grants through a dependency, as the server's own table resolves it", () => {
+    expect(sessionMayAsk(holding("admin.users.unlock"), ShellRequest.Users)).toBe(true);
+    expect(sessionMayAsk(holding("hr.employee.terminate"), ShellRequest.Employees)).toBe(true);
+    expect(sessionMayAsk(holding("hr.contract.view"), ShellRequest.Employees)).toBe(true);
+    for (const granted of ["admin.users.unlock", "hr.employee.terminate", "hr.contract.view"]) {
+      for (const request of Object.values(ShellRequest)) {
+        expect(sessionMayAsk(holding(granted), request), `${granted} → ${request}`).toBe(resolvePermissions([granted]).has(SHELL_REQUESTS[request].permission));
+      }
+    }
+  });
+
+  it("the tenant admin holds every read", () => {
+    for (const request of Object.values(ShellRequest)) expect(sessionMayAsk(holding("*"), request)).toBe(true);
   });
 });

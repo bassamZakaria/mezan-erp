@@ -301,7 +301,7 @@ describe("the sub-ledgers are read as of the month end, like the ledger they are
     const stockJune = controlBalanceAt("1200", "2026-06-30");
     await expectTiedEverywhere(["06", "07"]);
 
-    const voided = await ok("POST", "/sales-invoices/ASOF-INV-1/void", { date: "2026-07-15" }, 200);
+    const voided = await ok("POST", "/sales-invoices/ASOF-INV-1/void", { date: "2026-07-15", reason: "خطأ في الإدخال" }, 200);
 
     expect(voided.status).toBe("reversed");
     expect(controlBalanceAt("1105", "2026-06-30")).toBe(arJune);

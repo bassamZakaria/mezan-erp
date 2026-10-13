@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import type { Attachment, AttachmentContent, AttachmentEntityType, AttachmentRepository } from "@mezan/domain";
 
 /**
@@ -97,7 +98,7 @@ class SqliteAttachmentRepository implements AttachmentRepository {
   }
 
   async create(attachment: Attachment, bytes: Uint8Array): Promise<void> {
-    this.insert.run({
+    insertingNew(attachment.id, () => this.insert.run({
       id: attachment.id,
       entity_type: attachment.entityType,
       entity_id: attachment.entityId,
@@ -108,7 +109,7 @@ class SqliteAttachmentRepository implements AttachmentRepository {
       uploaded_at: attachment.uploadedAt,
       notes: attachment.notes,
       content: Buffer.from(bytes),
-    });
+    }));
   }
 
   async delete(id: string): Promise<void> {

@@ -1,4 +1,5 @@
 import type { App } from "@mezan/api";
+import { registerAuthorityCode } from "./eta-codes.js";
 import { BRANCH_ID, CORE, SeedPerson, hasHappened, seedActorHeaders, seededUserId, step } from "./shared.js";
 
 /**
@@ -92,6 +93,9 @@ export async function seedContractingCertificates(app: App): Promise<void> {
     cogsAccountId: "5100",
     inventoryAccountId: "1200",
   });
+  // ORDER MATTERS: registered before the first certificate invoice confirms —
+  // an e-invoice keeps the findings it was queued with.
+  await registerAuthorityCode(app, "SRV-CONTRACTING-WORKS", "SRV-MST-01");
 
   const boq = await boqLineIds(app);
   const line = (code: string): string => {

@@ -1,5 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 
+const SEED_ADMIN_EMAIL = "admin@cyag.example";
+
 /**
  * Login screen + first-run wizard (apps/web/src/login/LoginScreen.tsx,
  * apps/web/src/login/FirstRunWizard.tsx, App.tsx's `mode` state machine:
@@ -67,6 +69,7 @@ test.describe("Login screen", () => {
     const loginButton = page.getByRole("button", { name: "دخول" });
     await expect(loginButton).toBeDisabled();
 
+    await page.getByRole("textbox", { name: "البريد الإلكتروني" }).fill(SEED_ADMIN_EMAIL);
     await fillPin(page, "123456");
     // The 6th digit auto-submits (LoginScreen.tsx) — the button flips straight
     // from disabled (incomplete PIN) to disabled-while-pending, so "enabled" is
@@ -79,6 +82,7 @@ test.describe("Login screen", () => {
 
   test("shows a validation error for an incorrect PIN and stays on the login screen", async ({ page }) => {
     await selectDemoTenant(page);
+    await page.getByRole("textbox", { name: "البريد الإلكتروني" }).fill(SEED_ADMIN_EMAIL);
     await fillPin(page, "000000");
 
     await expect(page.getByRole("alert")).toHaveText("اسم المستخدم أو رمز PIN غير صحيح.");
@@ -152,6 +156,10 @@ test.describe("First-run wizard", () => {
 
     const adminStep = wizardStep(page, "إنشاء حساب المسؤول");
     await expect(adminStep).toBeVisible();
+
+    await page.getByRole("button", { name: "التالي" }).click();
+    await expect(adminStep.getByRole("alert")).toHaveText("اسم المنشأة مطلوب.");
+    await adminStep.getByLabel("اسم المنشأة").fill("متجر سارة");
 
     // Missing name/email.
     await page.getByRole("button", { name: "التالي" }).click();

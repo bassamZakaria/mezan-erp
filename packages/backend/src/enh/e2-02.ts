@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { createRecurringJournalRoutes } from "@mezan/api";
+import { createRecurringJournalRoutes, MasterDataKind } from "@mezan/api";
 import { DEPRECIABLE_ASSET_STATUSES, createRecurringJournalCommitmentSource, depreciationRunsCoverPeriod, routedAccountId, type PartyControlKind, type CommitmentSource } from "@mezan/domain";
 import {
   createSqliteAccountRoutingStore,
@@ -53,6 +53,7 @@ export const area: BackendArea = {
       "/gl/recurring",
       createRecurringJournalRoutes(
         {
+          masterData: { [MasterDataKind.Branch]: ctx.stores.branches },
           templates,
           runs,
           skips,
@@ -77,16 +78,7 @@ export const area: BackendArea = {
       templates,
       runs,
       skips,
-      // The GL accounts the treasury posts through — the same set the cash
-      // forecast reads its opening balance from (`cash-forecast-routes.ts`
-      // `openingCash`), so a commitment and the balance it moves are measured
-      // against the same accounts.
-      cashAccountIds: async () =>
-        new Set(
-          (await ctx.stores.treasuryAccounts.list())
-            .map((account) => account.glAccountId)
-            .filter((id): id is string => typeof id === "string" && id !== ""),
-        ),
+      cashAccountIds: async () => new Set(await ctx.cashAndBankAccountIds()),
       partyControlAccountIds: async () => new Set((await resolvePartyControlAccounts()).keys()),
     });
     commitmentSourceRegistry.set(ctx.sqlite, commitmentSource);

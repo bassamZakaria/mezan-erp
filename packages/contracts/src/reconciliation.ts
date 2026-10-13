@@ -22,6 +22,11 @@ export const unlinkedEntryLineSchema = z.object({
   credit: moneyString,
 });
 
+export enum StockPositionFaultCode {
+  ValueWithoutQuantity = "value_without_quantity",
+  NegativeValue = "negative_value",
+}
+
 export const reconciliationReportSchema = z.object({
   rows: z.array(reconciliationRowSchema),
   allMatched: z.boolean(),
@@ -36,6 +41,12 @@ export const reconciliationReportSchema = z.object({
     .object({
       count: z.number().int().nonnegative(),
       rows: z.array(z.object({ allocationId: z.string(), voucherId: z.string(), voucherNo: z.string(), invoiceId: z.string() })),
+    })
+    .optional(),
+  stockPositions: z
+    .object({
+      count: z.number().int().nonnegative(),
+      rows: z.array(z.object({ itemId: z.string(), warehouseId: z.string(), onHand: z.string(), totalValue: z.string(), fault: z.nativeEnum(StockPositionFaultCode) })),
     })
     .optional(),
 });

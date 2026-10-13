@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   DocumentList,
   EmptyState,
   RowMenu,
@@ -298,6 +299,7 @@ export function TaxesScreen() {
       await updateTaxRate.mutateAsync({ id: tax.id, patch: { status: "inactive" } });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("taxes.theTaxCouldNotBe"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -453,6 +455,10 @@ export function TaxesScreen() {
         loading={query.isLoading}
         rowKey={(tax) => tax.id}
         rowAction={(tax) => {
+          if (tax.isSystem) {
+            const locked: RowMenuItem[] = [{ key: "system", label: t("taxes.systemDefined"), disabled: true, onSelect: () => undefined }];
+            return <RowMenu items={locked} label={t("common.rowActionsFor", { name: tax.name })} />;
+          }
           const items: RowMenuItem[] = [{ key: "edit", label: t("common.edit"), onSelect: () => openEditForm(tax) }];
           if (tax.status === "active") {
             items.push({
@@ -460,7 +466,7 @@ export function TaxesScreen() {
               label: t("taxes.deactivate"),
               tone: "danger",
               disabled: pendingId === tax.id,
-              onSelect: () => void deactivateTax(tax),
+              onSelect: () => deactivateTax(tax),
             });
           }
           return <RowMenu items={items} label={t("common.rowActionsFor", { name: tax.name })} />;

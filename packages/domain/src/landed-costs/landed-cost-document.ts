@@ -52,6 +52,17 @@ export function landedCostAbsorptionDate(doc: Pick<LandedCostDocument, "date" | 
   return doc.lines[0]?.absorptionDate ?? doc.date;
 }
 
+/**
+ * The one branch every target line's warehouse belongs to, or null when the
+ * lines genuinely span branches: the entry is ONE inventory debit against one
+ * accrual, and splitting an allocation between branches is not this
+ * document's to decide.
+ */
+export function landedCostBranchId(lines: readonly LandedCostLine[]): string | null {
+  const first = lines[0]?.branchId ?? null;
+  return first !== null && lines.every((line) => line.branchId === first) ? first : null;
+}
+
 function totalAllocated(lines: readonly LandedCostLine[]): Money {
   return Money.sum(lines.map((l) => l.allocatedAmount));
 }
@@ -102,6 +113,7 @@ export function createLandedCostDocumentType(
       // per-category split (it is one aggregate absorption), so the debit
       // takes the first line's explicit category or "materials" (D-01).
       const costCategory: CostCategory = doc.lines.find((l) => l.costCategory)?.costCategory ?? "materials";
+      const branchId = landedCostBranchId(doc.lines);
       if (landedCostAbsorptionDate(doc) !== doc.date && accounts.clearingAccountId) {
         return {
           sourceDocType: DOC_TYPE,
@@ -110,8 +122,8 @@ export function createLandedCostDocumentType(
           date: doc.date,
           memo: doc.memo || `تكلفة إضافية ${doc.docNo ?? doc.id}`,
           lines: [
-            { accountId: accounts.clearingAccountId, debit: total, credit: Money.zero(), projectId, ...(projectId ? { costCategory } : {}) },
-            { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total, projectId },
+            { accountId: accounts.clearingAccountId, debit: total, credit: Money.zero(), projectId, ...(projectId ? { costCategory } : {}), branchId },
+            { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total, projectId, branchId },
           ],
         };
       }
@@ -128,8 +140,9 @@ export function createLandedCostDocumentType(
             credit: Money.zero(),
             projectId,
             ...(projectId ? { costCategory } : {}),
+            branchId,
           },
-          { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total, projectId },
+          { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total, projectId, branchId },
         ],
       };
     },

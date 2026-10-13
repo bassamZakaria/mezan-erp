@@ -5,6 +5,8 @@ import {
   sendTestEmailSchema,
   testEmailResultSchema,
   allowedCurrenciesSchema,
+  tenantSettingsLookupSchema,
+  TENANT_SETTINGS_LOOKUP_KEYS,
 } from "./settings.js";
 
 const baseSettings = {
@@ -179,5 +181,28 @@ describe("allowedCurrenciesSchema", () => {
   it("rejects a base currency that is not exactly 3 characters", () => {
     const result = allowedCurrenciesSchema.safeParse({ ...currencies, base: "EG" });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("the settings lookup is an allowlist", () => {
+  const SECRET_LOOKING = /secret|password|token|key|smtp|template/i;
+
+  it("lists only settings that exist, and none that could carry a secret", () => {
+    const known = Object.keys(tenantSettingsSchema.shape);
+    expect(TENANT_SETTINGS_LOOKUP_KEYS.filter((key) => !known.includes(key))).toEqual([]);
+    expect(TENANT_SETTINGS_LOOKUP_KEYS.filter((key) => SECRET_LOOKING.test(key))).toEqual([]);
+  });
+
+  it("serves exactly the listed keys, so a setting added later is not exposed by being added", () => {
+    expect(Object.keys(tenantSettingsLookupSchema.shape).sort()).toEqual([...TENANT_SETTINGS_LOOKUP_KEYS].sort());
+    const extended = tenantSettingsSchema.extend({ paymentGatewaySecret: tenantSettingsSchema.shape.companyName });
+    expect(Object.keys(extended.shape)).toContain("paymentGatewaySecret");
+    expect(Object.keys(tenantSettingsLookupSchema.shape)).not.toContain("paymentGatewaySecret");
+  });
+
+  it("leaves out the mail configuration and the mail templates", () => {
+    for (const key of ["smtpHost", "smtpPassword", "smtpUsername", "allowedEmailDomains", "emailTemplateSubject", "emailTemplateBody"]) {
+      expect(TENANT_SETTINGS_LOOKUP_KEYS as readonly string[]).not.toContain(key);
+    }
   });
 });

@@ -132,7 +132,7 @@ export const subcontractSchema = z.object({
   advanceRecoveryPercent: z.string(),
   withholdingTaxPercent: z.string(),
   deemedWagePercent: z.string(),
-  socialInsuranceRatePercent: z.string(),
+  socialInsuranceRatePercent: moneyString,
   withholdSocialInsurance: z.boolean(),
   socialInsuranceNote: z.string().nullable(),
   penaltyCapPercent: z.string(),

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyString } from "./money-string.js";
+import { moneyString, quantityString } from "./money-string.js";
 import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
@@ -19,7 +19,7 @@ export const promotionScopeSchema = z.object({
 
 export const promotionBundleComponentSchema = z.object({
   itemId: z.string().min(1),
-  qty: z.string(),
+  qty: quantityString,
 });
 
 export const promotionDayHourRestrictionSchema = z.object({
@@ -37,10 +37,10 @@ export const promotionSchema = z.object({
   description: z.string().nullable(),
   type: promotionTypeSchema,
   percentValue: z.number().nullable(),
-  amountValue: z.string().nullable(),
-  minInvoiceValue: z.string().nullable(),
-  minQty: z.string().nullable(),
-  maxDiscountAmount: z.string().nullable(),
+  amountValue: moneyString.nullable(),
+  minInvoiceValue: moneyString.nullable(),
+  minQty: quantityString.nullable(),
+  maxDiscountAmount: moneyString.nullable(),
   buyQty: z.number().int().nullable(),
   getQty: z.number().int().nullable(),
   bundleComponents: z.array(promotionBundleComponentSchema),
@@ -62,10 +62,10 @@ export const createPromotionSchema = z.object({
   description: z.string().nullish(),
   type: promotionTypeSchema,
   percentValue: z.number().nullish(),
-  amountValue: z.string().nullish(),
-  minInvoiceValue: z.string().nullish(),
-  minQty: z.string().nullish(),
-  maxDiscountAmount: z.string().nullish(),
+  amountValue: moneyString.nullish(),
+  minInvoiceValue: moneyString.nullish(),
+  minQty: quantityString.nullish(),
+  maxDiscountAmount: moneyString.nullish(),
   buyQty: z.number().int().nullish(),
   getQty: z.number().int().nullish(),
   bundleComponents: z.array(promotionBundleComponentSchema).optional(),
@@ -86,10 +86,10 @@ export const updatePromotionSchema = z.object({
   description: z.string().nullish(),
   type: promotionTypeSchema.optional(),
   percentValue: z.number().nullish(),
-  amountValue: z.string().nullish(),
-  minInvoiceValue: z.string().nullish(),
-  minQty: z.string().nullish(),
-  maxDiscountAmount: z.string().nullish(),
+  amountValue: moneyString.nullish(),
+  minInvoiceValue: moneyString.nullish(),
+  minQty: quantityString.nullish(),
+  maxDiscountAmount: moneyString.nullish(),
   buyQty: z.number().int().nullish(),
   getQty: z.number().int().nullish(),
   bundleComponents: z.array(promotionBundleComponentSchema).optional(),
@@ -108,7 +108,7 @@ export const evaluatePromotionsQuerySchema = z.object({
       lineId: z.string().min(1),
       itemId: z.string().min(1),
       categoryId: z.string().nullish(),
-      qty: z.string(),
+      qty: quantityString,
       unitPrice: moneyString,
     }),
   ),

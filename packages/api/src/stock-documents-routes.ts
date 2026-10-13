@@ -5,7 +5,6 @@ import {
   Qty,
   type DocumentStatus,
   DocumentNotFoundError,
-  DuplicateDocumentError,
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   NegativeStockError,
@@ -13,7 +12,6 @@ import {
   InvalidStockMovementError,
   SameWarehouseTransferError,
   PhysicalCountNotFoundError,
-  DuplicatePhysicalCountError,
   InvalidPhysicalCountError,
   InvalidPhysicalCountStatusError,
   revealsSystemQty,
@@ -37,10 +35,15 @@ import {
   recordPhysicalCountEntriesSchema,
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
-import { readReversalRequest, recordDocumentReversal, requireReversalReason, reversalRefusalResponse } from "./document-reversal.js";
-import type { AuditSink } from "@mezan/domain";
+import type { DocumentApprovalDTO } from "@mezan/contracts";
+import { callerRoleCodes, callerUserId, createPermissionGate, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { branchesOfWarehouses, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
+import { approvalOf, approvalReader, mountResubmitRoute } from "./document-resubmit.js";
+import { readReversalRequest, requireReversalReason, reversalRefusalResponse } from "./document-reversal.js";
 import { tenantDay } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
+import { handleDocumentError as handleFrameworkDocumentError } from "./document-error-handling.js";
 
 /**
  * Document-layer routes for the phase4/inventory-ops document types, built on
@@ -52,8 +55,10 @@ import { tenantDay } from "./tenant-day.js";
  * layers never collide.
  */
 
-function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>) {
+function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>, approval: DocumentApprovalDTO | null = null) {
   return {
+    approval,
+    workflowRequestId: doc.workflowRequestId,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -80,8 +85,10 @@ function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>) {
   };
 }
 
-function serializeTransfer(doc: FrameworkDocument<StockTransferDocLine>) {
+function serializeTransfer(doc: FrameworkDocument<StockTransferDocLine>, approval: DocumentApprovalDTO | null = null) {
   return {
+    approval,
+    workflowRequestId: doc.workflowRequestId,
     id: doc.id,
     docType: doc.docType,
     docNo: doc.docNo,
@@ -193,7 +200,7 @@ function storedStatus(status: string | undefined): DocumentStatus | undefined {
  * every named warehouse is inside scope — an unscoped caller passes everything.
  */
 function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Response | undefined {
-  const scope = warehouseScopeOf(c);
+  const scope = sessionWarehouseScopeOf(c);
   if (!scope) return undefined;
   const offending = warehouseIds.find((id) => !scope.includes(id));
   if (offending === undefined) return undefined;
@@ -208,13 +215,11 @@ function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Res
 }
 
 function handleDocumentError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
-  }
-  if (err instanceof DuplicateDocumentError || err instanceof DuplicatePhysicalCountError) {
-    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (err instanceof InvalidDocumentTransitionError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
@@ -241,17 +246,21 @@ function handleDocumentError(c: Context, err: unknown): Response {
   if (err instanceof SameWarehouseTransferError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
-  throw err;
+  return handleFrameworkDocumentError(c, err);
 }
 
 /** `/inventory/stock-adjustments` — draft/confirm CRUD over `stockAdjustmentDocumentType`. */
 export function createStockAdjustmentsRoutes(
   service: DocumentService<StockAdjustmentDocLine>,
   resolveAuthContext: AuthContextResolver,
-  audit?: AuditSink,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById(
+      (id) => service.findById(id),
+      (doc, c) => branchesOfWarehouses(c, doc.lines.map((line) => line.warehouseId)),
+    ),
+  });
 
   app.post("/draft", gate("inventory.adjustment.create"), async (c) => {
     const parsed = createStockAdjustmentSchema.safeParse(await c.req.json());
@@ -289,11 +298,22 @@ export function createStockAdjustmentsRoutes(
         const refusal = warehouseScopeRefusal(c, existing.lines.map((l) => l.warehouseId));
         if (refusal) return refusal;
       }
-      const { document, held } = await service.confirm(c.req.param("id"));
-      return c.json({ document: serializeAdjustment(document), held });
+      const { document, held } = await service.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c) });
+      return c.json({ document: serializeAdjustment(document, await approvalOf(service, document)), held });
     } catch (err) {
       return handleDocumentError(c, err);
     }
+  });
+
+  mountResubmitRoute(app, {
+    permission: gate("inventory.adjustment.confirm"),
+    refuse: async (c, id) => {
+      const doc = await service.findById(id);
+      return doc ? warehouseScopeRefusal(c, doc.lines.map((l) => l.warehouseId)) : undefined;
+    },
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
+    serialize: async (_c, doc) => serializeAdjustment(doc, await approvalOf(service, doc)),
+    onError: handleDocumentError,
   });
 
   app.post("/:id/reverse", gate(ReversalPermission.StockAdjustment), requireReversalReason, async (c) => {
@@ -306,14 +326,7 @@ export function createStockAdjustmentsRoutes(
       }
       const { date, memo } = await readReversalRequest(c);
       await noteReversalOriginalDay(c, existing?.date);
-      const { original, reversal } = await service.reverse(id, { reversalId: `${id}:REVERSAL`, date, memo, mintedBySystem: true });
-      await recordDocumentReversal(audit, {
-        module: "inventory",
-        entityType: "STOCK_ADJUSTMENT",
-        entityId: id,
-        actor: getAuthContext(c)?.userId ?? "system",
-        details: { docNo: original.docNo, reversalDocId: reversal.id, date: reversal.date },
-      });
+      const { original, reversal } = await service.reverse(id, { reversalId: `${id}:REVERSAL`, date, memo, reason: memo, actor: callerUserId(c), mintedBySystem: true });
       return c.json({ original: serializeAdjustment(original), reversal: serializeAdjustment(reversal) }, 201);
     } catch (err) {
       return handleDocumentError(c, err);
@@ -347,7 +360,11 @@ export function createStockAdjustmentsRoutes(
     // transfers screens actually call — the raw-engine routes were scoped
     // first and these were missed, so the selector still did nothing here.
     const scope = warehouseScopeOf(c);
-    let visible = !scope ? docs : docs.filter((d) => d.lines.some((l) => scope.includes(l.warehouseId)));
+    let visible = await withinBranchGrant(
+      c,
+      !scope ? docs : docs.filter((d) => d.lines.some((l) => scope.includes(l.warehouseId))),
+      (d) => branchesOfWarehouses(c, d.lines.map((l) => l.warehouseId)),
+    );
 
     // The reason lives on the lines too, and every line of one adjustment
     // carries the same one — the reason is picked before the form opens
@@ -361,7 +378,8 @@ export function createStockAdjustmentsRoutes(
 
   app.get("/", gate("inventory.adjustment.view"), async (c) => {
     const docs = await listFilteredAdjustments(c, parseAdjustmentQuery(c));
-    return c.json(docs.map(serializeAdjustment));
+    const approval = await approvalReader(service, docs);
+    return c.json(docs.map((doc) => serializeAdjustment(doc, approval(doc))));
   });
 
   /**
@@ -393,7 +411,7 @@ export function createStockAdjustmentsRoutes(
   app.get("/:id", gate("inventory.adjustment.view"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
     if (!doc) return c.json({ error: "DOCUMENT_NOT_FOUND" }, 404);
-    return c.json(serializeAdjustment(doc));
+    return c.json(serializeAdjustment(doc, await approvalOf(service, doc)));
   });
 
   return app;
@@ -405,7 +423,23 @@ export function createStockTransfersRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  /**
+   * SECURITY: a write is judged by the warehouses stock LEAVES — sending to
+   * another branch is a branch user's own act, drawing from one is not. A read
+   * sees both ends, as the list does.
+   */
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById(
+      (id) => service.findById(id),
+      (doc, c) =>
+        branchesOfWarehouses(
+          c,
+          doc.lines.flatMap((line) =>
+            c.req.method === "GET" || c.req.method === "HEAD" ? [line.fromWarehouseId, line.toWarehouseId] : [line.fromWarehouseId],
+          ),
+        ),
+    ),
+  });
 
   app.post("/draft", gate("inventory.transfer.create"), async (c) => {
     const parsed = createStockTransferSchema.safeParse(await c.req.json());
@@ -447,11 +481,22 @@ export function createStockTransfersRoutes(
         );
         if (refusal) return refusal;
       }
-      const { document, held } = await service.confirm(c.req.param("id"));
-      return c.json({ document: serializeTransfer(document), held });
+      const { document, held } = await service.confirm(c.req.param("id"), { actor: callerUserId(c), actorRoles: callerRoleCodes(c) });
+      return c.json({ document: serializeTransfer(document, await approvalOf(service, document)), held });
     } catch (err) {
       return handleDocumentError(c, err);
     }
+  });
+
+  mountResubmitRoute(app, {
+    permission: gate("inventory.transfer.confirm"),
+    refuse: async (c, id) => {
+      const doc = await service.findById(id);
+      return doc ? warehouseScopeRefusal(c, doc.lines.flatMap((l) => [l.fromWarehouseId, l.toWarehouseId])) : undefined;
+    },
+    resubmit: (c, id) => service.resubmit(id, { actor: callerUserId(c), actorRoles: callerRoleCodes(c) }),
+    serialize: async (_c, doc) => serializeTransfer(doc, await approvalOf(service, doc)),
+    onError: handleDocumentError,
   });
 
   /**
@@ -470,9 +515,11 @@ export function createStockTransfersRoutes(
       toDate: filter.toDate,
     });
     const scope = warehouseScopeOf(c);
-    let visible = !scope
-      ? docs
-      : docs.filter((d) => d.lines.some((l) => scope.includes(l.fromWarehouseId) || scope.includes(l.toWarehouseId)));
+    let visible = await withinBranchGrant(
+      c,
+      !scope ? docs : docs.filter((d) => d.lines.some((l) => scope.includes(l.fromWarehouseId) || scope.includes(l.toWarehouseId))),
+      (d) => branchesOfWarehouses(c, d.lines.flatMap((l) => [l.fromWarehouseId, l.toWarehouseId])),
+    );
     if (filter.warehouseId) {
       visible = visible.filter((d) =>
         d.lines.some((l) => l.fromWarehouseId === filter.warehouseId || l.toWarehouseId === filter.warehouseId),
@@ -484,7 +531,8 @@ export function createStockTransfersRoutes(
 
   app.get("/", gate("inventory.transfer.view"), async (c) => {
     const docs = await listFilteredTransfers(c, parseStockDocQuery(c));
-    return c.json(docs.map(serializeTransfer));
+    const approval = await approvalReader(service, docs);
+    return c.json(docs.map((doc) => serializeTransfer(doc, approval(doc))));
   });
 
   /**
@@ -514,7 +562,7 @@ export function createStockTransfersRoutes(
   app.get("/:id", gate("inventory.transfer.view"), async (c) => {
     const doc = await service.findById(c.req.param("id"));
     if (!doc) return c.json({ error: "DOCUMENT_NOT_FOUND" }, 404);
-    return c.json(serializeTransfer(doc));
+    return c.json(serializeTransfer(doc, await approvalOf(service, doc)));
   });
 
   return app;
@@ -526,7 +574,9 @@ export function createPhysicalCountsRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
+  const gate = createPermissionGate(resolveAuthContext, {
+    storedBranches: storedBranchesById((id) => service.findById(id), (count, c) => branchesOfWarehouses(c, [count.warehouseId])),
+  });
 
   app.post("/", gate("inventory.count.create"), async (c) => {
     const parsed = startPhysicalCountSchema.safeParse(await c.req.json());
@@ -596,6 +646,7 @@ export function createPhysicalCountsRoutes(
       const result = await service.generateAdjustment({
         countId: c.req.param("id"),
         adjustmentId: parsed.data.adjustmentId,
+        actor: callerUserId(c),
       });
       return c.json({
         count: serializeCount(result.count),
@@ -627,10 +678,10 @@ export function createPhysicalCountsRoutes(
    */
   async function listFilteredCounts(c: Context, filter: CountListFilter): Promise<readonly PhysicalCount[]> {
     const status = filter.status && filter.status !== "all" ? (filter.status as PhysicalCountStatus) : undefined;
-    const rows = withinScope(
-      await service.list({ status, warehouseId: filter.warehouseId }),
-      warehouseScopeOf(c),
-      (count) => count.warehouseId,
+    const rows = await withinBranchGrant(
+      c,
+      withinScope(await service.list({ status, warehouseId: filter.warehouseId }), warehouseScopeOf(c), (count) => count.warehouseId),
+      (count) => branchesOfWarehouses(c, [count.warehouseId]),
     );
     if (!filter.search) return rows;
     return rows.filter((count) => matchesSearch(filter.search, count.countNo, count.memo));

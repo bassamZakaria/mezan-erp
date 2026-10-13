@@ -153,7 +153,7 @@ describe("a foreign invoice settled after a revaluation that does not reverse it
     await revalue("48.45");
     expect(fx()).toEqual({ control1105: "48450.000000", control2100: "-48450.000000", unrealised: "0.000000", realised: "0.000000" });
 
-    await ok("POST", "/sales-invoices/inv-usd/void", {}, 200);
+    await ok("POST", "/sales-invoices/inv-usd/void", { reason: "خطأ في الإدخال" }, 200);
     await ok("POST", "/purchases/invoices/pi-usd/cancel", {}, 200);
 
     expect(fx()).toEqual({ control1105: "0.000000", control2100: "0.000000", unrealised: "0.000000", realised: "0.000000" });

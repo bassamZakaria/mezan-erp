@@ -29,6 +29,7 @@ import {
   type FrameworkDocument,
 } from "../documents/index.js";
 import { createDocumentWorkflowGate } from "../documents/journal-document.js";
+import { approvalLabel } from "../documents/approval-label.js";
 import {
   voucherBaseAmount,
   isStandingVoucher,
@@ -41,7 +42,9 @@ import {
   type VoucherDocument,
   type VoucherLine,
 } from "./voucher-document.js";
-import { InvalidDocumentError } from "../documents/errors.js";
+import { InvalidDocumentError, assertDocumentWritten } from "../documents/errors.js";
+import { DocumentField } from "../documents/document.js";
+import type { DocumentApprovalView } from "../documents/hooks.js";
 import { BASE_CURRENCY } from "../exchange-rates/exchange-rate.js";
 import { carryingBaseOf, convertFromBase, shareOfBase } from "../exchange-rates/convert.js";
 import {
@@ -108,6 +111,7 @@ export function createVoucherGlHook(deps: JournalPostingDeps, internal: { readon
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
             branchId: l.branchId ?? null,
+            treasuryAccountId: l.treasuryAccountId ?? null,
           })),
         },
         deps,
@@ -179,6 +183,7 @@ export interface VoucherServiceDeps {
   readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly numbering: NextNumberService;
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
+  readonly partyName?: (line: VoucherLine) => Promise<string | null>;
   readonly allocations: AllocationRepository;
   readonly invoices: AllocatableInvoiceRepository;
   /**
@@ -280,6 +285,10 @@ export interface CollectionAllocationRequest {
   readonly amount?: import("../money/money.js").Money;
 }
 
+function heldRequestsOf(allocations: readonly CollectionAllocationRequest[]): HeldAllocationRequest[] {
+  return allocations.map((a) => ({ allocationId: a.allocationId, invoiceId: a.invoiceId, amount: a.amount ?? null }));
+}
+
 export interface CollectionResult {
   readonly document: VoucherDocument;
   readonly held: boolean;
@@ -290,7 +299,6 @@ export interface CollectionResult {
 export interface ConfirmVoucherOptions {
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
-  readonly requestId?: string;
 }
 
 export class VoucherService {
@@ -315,6 +323,11 @@ export class VoucherService {
       numbering: { next: (opts) => deps.numbering.next("CASH_VOUCHER", { branchId: opts?.branchId }) },
       gl: createVoucherGlHook(glDeps, { documentIdsMintedBySystem: deps.documentIdsMintedBySystem }),
       workflow: createDocumentWorkflowGate(deps.resolveGateConfig ?? (() => null), deps.approvalRequests),
+      approvalLabel: async (doc) => {
+        const line = voucherLine(doc);
+        const party = (await deps.partyName?.(line)) ?? (await deps.treasuryAccounts.findById(line.treasuryAccountId))?.name ?? null;
+        return approvalLabel({ type: getVoucherTypeDefinition(line.voucherType).labelAr, amount: line.amount, currency: line.currency, party });
+      },
       audit: deps.audit,
       events: deps.events,
       auditModule: "treasury",
@@ -390,6 +403,23 @@ export class VoucherService {
   }
 
   /**
+   * A draft that names the invoices it is for. Nothing settles here: the draft
+   * carries the request and the confirm applies it with the posting (D344).
+   */
+  async createVoucherCarrying(cmd: CreateVoucherCommand, allocations: readonly CollectionAllocationRequest[]): Promise<VoucherDocument> {
+    if (allocations.length === 0) return this.createVoucher(cmd);
+    const requests = heldRequestsOf(allocations);
+    return this.deps.documents.transaction(async () => {
+      const created = await this.createVoucher(cmd);
+      const standing = (await this.service.findById(cmd.id)) ?? created;
+      await this.assertAllocationsFit(standing, requests, false);
+      const carrying: VoucherDocument = { ...standing, lines: [{ ...voucherLine(standing), heldAllocations: requests }] };
+      await this.writeLine(carrying, standing.status);
+      return carrying;
+    });
+  }
+
+  /**
    * Confirm a voucher: runs the cash-negative guard (against the live ledger)
    * BEFORE the framework posts its GL entry, then delegates to the generic
    * confirm — numbering (CV-), workflow gate, GL posting, audit, events.
@@ -401,7 +431,7 @@ export class VoucherService {
       // The rate is resolved and STAMPED before anything is posted, exactly as
       // `confirmPurchaseInvoice` does it, so the GL amount, the treasury guard
       // and every allocation all read one base figure (B-4).
-      const stamped = await this.stampFxRate(existing);
+      const stamped = await this.deps.documents.transaction(async () => this.stampFxRate((await this.service.findById(id)) ?? existing));
       await assertCashBalanceAllows(voucherLine(stamped), {
         treasuryAccounts: this.deps.treasuryAccounts,
         ledger: this.deps.ledger,
@@ -425,9 +455,13 @@ export class VoucherService {
       await this.applyAllocations(id, carried, result.document);
       const current = (await this.service.findById(id)) ?? result.document;
       const cleared: VoucherDocument = { ...current, lines: [{ ...voucherLine(current), heldAllocations: null }] };
-      await this.deps.documents.update(cleared);
+      await this.writeLine(cleared, current.status);
       return { ...result, document: cleared };
     });
+  }
+
+  private async writeLine(next: VoucherDocument, expectedStatus: VoucherDocument["status"]): Promise<void> {
+    assertDocumentWritten(await this.deps.documents.writeFields(next, [DocumentField.Lines], { status: expectedStatus }), next.docType, next.id);
   }
 
   private async applyRefundToMoneyOnAccount(refund: VoucherDocument): Promise<void> {
@@ -534,8 +568,16 @@ export class VoucherService {
 
     if (line === original) return doc;
     const stamped: VoucherDocument = { ...doc, lines: [line] };
-    await this.deps.documents.update(stamped);
+    await this.writeLine(stamped, doc.status);
     return stamped;
+  }
+
+  async resubmitVoucher(id: string, opts: ConfirmVoucherOptions = {}): Promise<VoucherDocument> {
+    return this.service.resubmit(id, opts);
+  }
+
+  async approvalsOf(docs: readonly VoucherDocument[]): Promise<ReadonlyMap<string, DocumentApprovalView>> {
+    return this.service.approvalsOf(docs);
   }
 
   private async atCarrying(treasuryAccountId: string, leg: TreasuryLegFx, baseMoved: Money, date: string): Promise<TreasuryLegFx> {
@@ -554,8 +596,8 @@ export class VoucherService {
   }
 
   /** Hand a voucher held بانتظار الموافقة back to its submitter as a draft. */
-  async returnVoucherToDraft(id: string): Promise<VoucherDocument> {
-    return this.service.returnToDraft(id);
+  async returnVoucherToDraft(id: string, opts: { readonly actor?: string } = {}): Promise<VoucherDocument> {
+    return this.service.returnToDraft(id, opts);
   }
 
   /** Cancel a draft/pending voucher (a live one is reversed instead). */
@@ -697,9 +739,7 @@ export class VoucherService {
       await this.projectSettlement(result.invoice);
       return { allocation: result.allocation };
     };
-    // The realised-FX entry and the allocation are one act: a posted
-    // difference with no allocation behind it would sit on the party forever.
-    return realisedFx ? this.deps.documents.transaction(run) : run();
+    return this.deps.documents.transaction(run);
   }
 
   /**
@@ -713,22 +753,19 @@ export class VoucherService {
     allocations: readonly CollectionAllocationRequest[],
     opts: ConfirmVoucherOptions = {},
   ): Promise<CollectionResult> {
-    const requests: HeldAllocationRequest[] = allocations.map((a) => ({
-      allocationId: a.allocationId,
-      invoiceId: a.invoiceId,
-      amount: a.amount ?? null,
-    }));
+    const requests = heldRequestsOf(allocations);
     return this.deps.documents.transaction(async () => {
       await this.createVoucher(cmd);
       const confirmed = await this.confirmVoucher(cmd.id, opts);
       if (confirmed.held) {
         if (requests.length === 0) return { document: confirmed.document, held: true, allocations: [], heldAllocations: [] };
-        await this.assertAllocationsFit(confirmed.document, requests, false);
+        const standing = (await this.service.findById(cmd.id)) ?? confirmed.document;
+        await this.assertAllocationsFit(standing, requests, false);
         const carrying: VoucherDocument = {
-          ...confirmed.document,
-          lines: [{ ...voucherLine(confirmed.document), heldAllocations: requests }],
+          ...standing,
+          lines: [{ ...voucherLine(standing), heldAllocations: requests }],
         };
-        await this.deps.documents.update(carrying);
+        await this.writeLine(carrying, standing.status);
         return { document: carrying, held: true, allocations: [], heldAllocations: requests };
       }
       const made = await this.applyAllocations(cmd.id, requests, confirmed.document, cmd.date);

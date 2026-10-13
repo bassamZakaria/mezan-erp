@@ -1,7 +1,9 @@
 import { Money, Qty, allocate } from "../../money/index.js";
 import { routedAccountId, type AccountRoutingRepository } from "../../accounts/account-routing.js";
 import { postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, type JournalPostingDeps } from "../../gl/index.js";
+import { UnbookedStockVarianceError } from "../../documents/errors.js";
 import { mirrorStockPlan } from "../../documents/hooks.js";
+import { stockVarianceLines, type StockReversalVarianceAccounts } from "../../documents/journal-document.js";
 import { extend } from "../../inventory/wac-math.js";
 import { occurredAtFromDocumentDate } from "../../inventory/movement.js";
 import type { StockLedgerService } from "../../inventory/stock-ledger-service.js";
@@ -68,6 +70,8 @@ export interface SiteServiceDeps {
   readonly stockLedger: StockLedgerService;
   /** The REAL GL posting engine's ports — consumption and plant hours post through it, nothing else. */
   readonly gl: JournalPostingDeps;
+  /** INVARIANT: where a reversed consumption books what its mirrored movement could not put back at the original value; absent, such a reversal is refused. */
+  readonly stockVariance?: StockReversalVarianceAccounts;
   readonly numbering: NextNumberService;
   readonly accountRouting?: Pick<AccountRoutingRepository, "get">;
   readonly boqLines?: BoqLineExistencePort;
@@ -229,9 +233,6 @@ export class SiteService {
       throw new InvalidSiteDocumentError(["الصرف للموقع يكون من مستودع رئيسي وليس من مستودع موقع أو مواد في الطريق"]);
     }
     if (source.id === destination.id) throw new InvalidSiteDocumentError(["المستودع المصدر والمستودع المستلم واحد"]);
-    if (await this.deps.issues.findById(command.id)) {
-      throw new InvalidSiteDocumentError([`إذن الصرف "${command.id}" موجود بالفعل`]);
-    }
 
     const issue: SiteIssue = {
       id: command.id,
@@ -248,7 +249,7 @@ export class SiteService {
       createdAt: this.now(),
       issuedAt: null,
     };
-    await this.deps.issues.save(issue);
+    await this.deps.issues.insert(issue);
     return issue;
   }
 
@@ -363,9 +364,6 @@ export class SiteService {
       }
     });
     if (reasons.length > 0) throw new InvalidSiteDocumentError(reasons);
-    if (await this.deps.receipts.findById(command.id)) {
-      throw new InvalidSiteDocumentError([`مستند الاستلام "${command.id}" موجود بالفعل`]);
-    }
 
     const receipt: SiteReceipt = {
       id: command.id,
@@ -380,7 +378,7 @@ export class SiteService {
       createdAt: this.now(),
       confirmedAt: null,
     };
-    await this.deps.receipts.save(receipt);
+    await this.deps.receipts.insert(receipt);
     return receipt;
   }
 
@@ -462,9 +460,6 @@ export class SiteService {
         "بند جدول الكميات مطلوب — المشروع يعمل تحت عقد سارٍ، والاستهلاك بلا بند لا يظهر في تقرير انحراف الاستهلاك",
       ]);
     }
-    if (await this.deps.consumptions.findById(command.id)) {
-      throw new InvalidSiteDocumentError([`مستند الاستهلاك "${command.id}" موجود بالفعل`]);
-    }
 
     const consumption: MaterialConsumption = {
       id: command.id,
@@ -482,7 +477,7 @@ export class SiteService {
       createdAt: this.now(),
       confirmedAt: null,
     };
-    await this.deps.consumptions.save(consumption);
+    await this.deps.consumptions.insert(consumption);
     return consumption;
   }
 
@@ -522,6 +517,7 @@ export class SiteService {
       // stock sub-ledger permanently (D47).
       let journalEntryId: string | null = null;
       if (result.totalCost.scaled !== 0n) {
+        const branchId = (await this.deps.warehouses.findById(consumption.warehouseId))?.branchId ?? null;
         const entry = await postJournalEntry(
           {
             id: consumption.id,
@@ -538,12 +534,14 @@ export class SiteService {
                 credit: Money.zero(),
                 projectId: consumption.projectId,
                 costCategory: "materials",
+                branchId,
               },
               {
                 accountId: inventoryAccountId,
                 debit: Money.zero(),
                 credit: result.totalCost,
                 projectId: consumption.projectId,
+                branchId,
               },
             ],
           },
@@ -594,18 +592,27 @@ export class SiteService {
         { sourceDocType: "MATERIAL_CONSUMPTION", sourceDocId: opts.reversalId, sourceDocNumber: consumption.docNo, warehouseId: consumption.warehouseId, date, lines: [] },
         await this.deps.stockLedger.getMovementsOfDocument(consumption.id),
       );
-      if (mirrored) {
-        await this.deps.stockLedger.applyDocumentStockPlan({
-          sourceDocType: "MATERIAL_CONSUMPTION",
-          sourceDocId: mirrored.sourceDocId,
-          sourceDocNumber: mirrored.sourceDocNumber,
-          warehouseId: mirrored.warehouseId,
-          lines: mirrored.lines,
-          occurredAt: occurredAtFromDocumentDate(date),
-        });
-      }
+      const returned = mirrored
+        ? await this.deps.stockLedger.applyDocumentStockPlan({
+            sourceDocType: "MATERIAL_CONSUMPTION",
+            sourceDocId: mirrored.sourceDocId,
+            sourceDocNumber: mirrored.sourceDocNumber,
+            warehouseId: mirrored.warehouseId,
+            lines: mirrored.lines,
+            occurredAt: occurredAtFromDocumentDate(date),
+          })
+        : null;
+      const stockLines = stockVarianceLines(returned?.unmirroredValue, this.deps.stockVariance);
+      if (stockLines.length > 0 && !consumption.journalEntryId) throw new UnbookedStockVarianceError(returned?.unmirroredValue ?? Money.zero());
       const reversal = consumption.journalEntryId
-        ? (await reverseJournalEntry(consumption.journalEntryId, gl, { reversalId: opts.reversalId, date, memo: opts.memo ?? `عكس استهلاك مواد ${consumption.docNo ?? consumption.id}` })).reversal
+        ? (
+            await reverseJournalEntry(consumption.journalEntryId, gl, {
+              reversalId: opts.reversalId,
+              date,
+              memo: opts.memo ?? `عكس استهلاك مواد ${consumption.docNo ?? consumption.id}`,
+              appendLines: stockLines.length > 0 ? async () => stockLines : undefined,
+            })
+          ).reversal
         : null;
       const reversed: MaterialConsumption = { ...consumption, status: MaterialConsumptionStatus.Reversed };
       await this.deps.consumptions.save(reversed);
@@ -659,9 +666,6 @@ export class SiteService {
     if (reasons.length > 0) throw new InvalidSiteDocumentError(reasons);
 
     const warehouse = await this.requireSiteWarehouse(command.warehouseId, "مستودع الموقع");
-    if (await this.deps.custody.findById(command.id)) {
-      throw new InvalidSiteDocumentError([`سجل العهدة "${command.id}" موجود بالفعل`]);
-    }
 
     const item: CustodyItem = {
       id: command.id,
@@ -675,7 +679,7 @@ export class SiteService {
       expectedReturnDate: command.expectedReturnDate ?? null,
       notes: command.notes ?? null,
     };
-    await this.deps.custody.save(item);
+    await this.deps.custody.insert(item);
     return item;
   }
 
@@ -734,9 +738,6 @@ export class SiteService {
     if (boqLineId && this.deps.boqLines && !(await this.deps.boqLines.exists(boqLineId))) {
       throw new InvalidSiteDocumentError([`بند جدول الكميات "${boqLineId}" غير موجود`]);
     }
-    if (await this.deps.equipmentLogs.findById(command.id)) {
-      throw new InvalidSiteDocumentError([`سجل التشغيل "${command.id}" موجود بالفعل`]);
-    }
 
     const log: EquipmentLog = {
       id: command.id,
@@ -754,7 +755,7 @@ export class SiteService {
       createdAt: this.now(),
       confirmedAt: null,
     };
-    await this.deps.equipmentLogs.save(log);
+    await this.deps.equipmentLogs.insert(log);
     return log;
   }
 

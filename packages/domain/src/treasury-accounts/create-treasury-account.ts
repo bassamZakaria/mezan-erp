@@ -13,6 +13,7 @@ import {
   NegativeCashBalanceError,
   assertGlAccountHoldsOneCurrency,
 } from "./errors.js";
+import { assertTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
 
 export interface CreateTreasuryAccountCommand {
   readonly nameEn?: string | null;
@@ -23,7 +24,7 @@ export interface CreateTreasuryAccountCommand {
   readonly currency?: string;
   /** رقم الحساب البنكي / IBAN as the bank states it; trimmed, and empty is stored as null. */
   readonly bankAccountNumber?: string | null;
-  readonly branchId: string;
+  readonly branchId: string | null;
   readonly glAccountId?: string | null;
   /** Exact decimal string (e.g. "0.00", "338.00") — parsed via `Money.fromMajor`. */
   readonly openingBalance?: string;
@@ -92,6 +93,7 @@ export function validateNewTreasuryAccount(
 export async function createTreasuryAccount(
   command: CreateTreasuryAccountCommand,
   repo: TreasuryAccountRepository,
+  ledgerAccounts?: TreasuryLedgerAccountDeps,
 ): Promise<TreasuryAccount> {
   const existing = await repo.list();
   validateNewTreasuryAccount(command, existing);
@@ -117,6 +119,7 @@ export async function createTreasuryAccount(
     guaranteeFacilityLimit,
     status: "active",
   };
+  if (ledgerAccounts) await assertTreasuryLedgerAccount(account, ledgerAccounts);
 
   await repo.create(account);
   return account;

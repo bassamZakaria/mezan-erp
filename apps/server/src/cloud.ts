@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
-import { parseEnv } from "./env.js";
+import { parseEnv, PaymobMode } from "./env.js";
 import { createCloudApp } from "./cloud-app.js";
 
 /**
@@ -31,7 +31,7 @@ if (env.seedAdminPin) {
  * double's fake checkout renews a subscription for free by design; it is only
  * acceptable where every tenant is seeded demo data.
  */
-if (env.paymob.mode === "test" && !env.seedDemo) {
+if (env.paymob.mode === PaymobMode.Test && !env.seedDemo) {
   console.error("[cloud] REFUSING TO START: MEZAN_PAYMOB_TEST_MODE=1 is only allowed with MEZAN_SEED_DEMO=1.");
   console.error("[cloud] Set the four MEZAN_PAYMOB_* keys for real card checkout, or leave it off.");
   process.exit(1);

@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Account, AccountRepository, AccountStatus, AccountType, NaturalBalance } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /**
  * SQLite-backed AccountRepository (docs/archive/catalog/04 "دليل الحسابات"). Standalone,
@@ -53,6 +54,7 @@ function toAccount(row: AccountRow): Account {
 
 class SqliteAccountRepository implements AccountRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
   private readonly selectAll: Database.Statement;
@@ -71,6 +73,7 @@ class SqliteAccountRepository implements AccountRepository {
         is_header = excluded.is_header,
         status = excluded.status
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM account WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM account WHERE code = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM account`);
@@ -92,15 +95,15 @@ class SqliteAccountRepository implements AccountRepository {
   }
 
   async create(account: Account): Promise<void> {
-    this.write(account);
+    insertingNew(account.id, () => this.write(account, this.insertOnly));
   }
 
   async update(account: Account): Promise<void> {
     this.write(account);
   }
 
-  private write(account: Account): void {
-    this.upsert.run({
+  private write(account: Account, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: account.id,
       code: account.code,
       name_ar: account.nameAr,

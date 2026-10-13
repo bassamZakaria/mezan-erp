@@ -1,4 +1,5 @@
 import type { App } from "@mezan/api";
+import { registerAuthorityCode } from "./eta-codes.js";
 import { CORE, SeedPerson, seedActorHeaders, seededUserId, step } from "./shared.js";
 
 /**
@@ -73,6 +74,7 @@ export async function seedContractingControls(app: App): Promise<void> {
     cogsAccountId: "5100",
     inventoryAccountId: "1200",
   });
+  await registerAuthorityCode(app, "SRV-CONTRACTING-RETENTION", "SRV-RET-01");
 
   // --- التسليم الابتدائي والنهائي: recorded when they happen, not at signature ---
   await step(app, "POST", `/contracting/retention/contracts/${TOWER_CONTRACT}/handover`, {

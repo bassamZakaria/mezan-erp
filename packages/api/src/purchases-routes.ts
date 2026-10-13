@@ -28,7 +28,6 @@ import {
   PurchaseOrderNotFoundError,
   GoodsReceiptNotFoundError,
   PurchaseInvoiceNotFoundError,
-  DuplicatePurchaseDocumentError,
   InvalidPurchaseDocumentError,
   PurchaseDocumentNotDraftError,
   PurchaseOrderNotReceivableError,
@@ -37,6 +36,8 @@ import {
   PurchaseOrderRequiredError,
   PurchaseItemsAlreadyConsumedError,
   GoodsReceiptAlreadyInvoicedError,
+  GoodsReceiptAccrualAccountMissingError,
+  UnbookedStockVarianceError,
   GoodsReceiptInvoicedRefusal,
   InvoiceDoesNotMatchReceiptError,
   InvoiceExceedsReceiptError,
@@ -59,18 +60,22 @@ import {
   CashBalanceWouldGoNegativeError,
   InvalidDocumentError,
   AllocationMismatchError,
-  AllocationExceedsError,
   DEFAULT_PURCHASE_POLICY,
+  type ClassifyPurchaseInvoiceLineTaxDeps,
   type PurchaseOrder,
   type PurchaseOrderRepository,
   type GoodsReceipt,
   type GoodsReceiptRepository,
   type PurchaseInvoice,
   type PurchaseInvoiceLine,
+  type PurchaseInvoiceLineInput,
   type PurchaseInvoiceRepository,
   type PurchaseGlAccounts,
   type PurchaseGlPostingPort,
   type PurchaseTransactor,
+  type PurchaseInvoiceTaxTagPort,
+  classifyPurchaseInvoiceLineTax,
+  namePurchaseInvoiceJournalLineTax,
   type PurchaseGlReversalPort,
   type PurchasePolicy,
   type PurchaseStockPostingPort,
@@ -78,7 +83,11 @@ import {
   auditBranchFromScope,
   branchScopedAuditSink,
   type AuditSink,
+  type TaxRateRepository,
   can,
+  InvoiceDocumentKind,
+  type TaxClassificationDependentsPort,
+  atomically,
 } from "@mezan/domain";
 import {
   createPurchaseOrderSchema,
@@ -86,10 +95,15 @@ import {
   createPurchaseInvoiceSchema,
   purchaseInvoiceListQuerySchema,
   purchaseInvoicePaymentSchema,
+  classifyLineTaxSchema,
+  nameJournalLineTaxSchema,
+  lineTaxClassificationSchema,
+  TaxClassificationFilingOutcomeCode,
   type PurchaseInvoiceListQueryDTO,
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { taxClassificationRefusal, taxRateRefusal } from "./tax-rate-refusal.js";
 import {
   documentVersionOf,
   documentVersionsOf,
@@ -110,7 +124,12 @@ import {
   type AuthContextResolver,
   branchScopeOf,
   warehouseScopeOf,
-  withinScope,} from "./permission-gate.js";
+  withinScope,
+  type StoredBranchesResolver,
+} from "./permission-gate.js";
+import { branchesOfWarehouses, documentBranches, withinBranchGrant, withinBranchView } from "./stored-branches.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * Permission-gated routes for the purchase chain (docs/archive/catalog/02), mounted
@@ -152,6 +171,9 @@ export interface PurchasesRoutesDeps {
    * describes commit together. Omitted, every flow behaves exactly as before.
    */
   readonly transactor?: PurchaseTransactor;
+  readonly taxTags?: PurchaseInvoiceTaxTagPort;
+  readonly postedJournalLines?: ClassifyPurchaseInvoiceLineTaxDeps["postedLines"];
+  readonly taxDependents?: TaxClassificationDependentsPort;
   readonly accounts: PurchaseGlAccounts;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -179,6 +201,7 @@ export interface PurchasesRoutesDeps {
    * every «من إيصال استلام» invoice records no input VAT at all (D50).
    */
   readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
+  readonly taxRates?: Pick<TaxRateRepository, "list">;
   /**
    * Settings §"سياسة المخزون" → `autoGenerateBatchNumbers`: hands a batch
    * number to a receipt line the receiver left blank. Omit and a blank batch
@@ -309,6 +332,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(),
   const remaining = Money.fromScaled(baseTotal.scaled - allocated.scaled - returned.scaled);
   return {
     id: inv.id,
+    documentKind: inv.documentKind ?? InvoiceDocumentKind.Standard,
     number: inv.number,
     supplierId: inv.supplierId,
     date: inv.date,
@@ -328,6 +352,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(),
       qty: l.qty.toString(),
       unitCost: l.unitCost.toString(),
       taxRatePercent: l.taxRatePercent,
+      taxRateId: l.taxRateId ?? null,
       batchNo: l.batchNo ?? null,
       expiryDate: l.expiryDate ?? null,
       costCategory: l.costCategory ?? null,
@@ -346,6 +371,9 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(),
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const taxRefusal = taxRateRefusal(c, err);
+  if (taxRefusal) return taxRefusal;
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (
@@ -354,9 +382,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof PurchaseInvoiceNotFoundError
   ) {
     return c.json({ error: err.code, message: err.message }, 404);
-  }
-  if (err instanceof DuplicatePurchaseDocumentError) {
-    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (
     err instanceof PurchaseDocumentNotDraftError ||
@@ -371,6 +396,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof PurchaseOrderRequiredError ||
     err instanceof PurchaseItemsAlreadyConsumedError ||
     err instanceof GoodsReceiptAlreadyInvoicedError ||
+    err instanceof GoodsReceiptAccrualAccountMissingError ||
+    err instanceof UnbookedStockVarianceError ||
     err instanceof InvoiceDoesNotMatchReceiptError ||
     err instanceof InvoiceExceedsReceiptError ||
     err instanceof LandedCostStandsOnDocumentError
@@ -388,8 +415,10 @@ function handleDomainError(c: Context, err: unknown): Response {
   // Thrown by the GL port inside the confirm, not by the purchase domain — the
   // sales, voucher and journal routes all map these; leaving them out here made
   // a closed period answer 500 on this one module alone (D20).
+  if (err instanceof InvalidJournalEntryError) {
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 422);
+  }
   if (
-    err instanceof InvalidJournalEntryError ||
     err instanceof AccountNotFoundError ||
     err instanceof HeaderAccountNotPostableError ||
     err instanceof InactiveAccountError ||
@@ -403,12 +432,28 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof ReversalDateBeforeOriginalError ||
     err instanceof InvalidStockMovementError ||
     err instanceof InvalidDocumentError ||
-    err instanceof AllocationMismatchError ||
-    err instanceof AllocationExceedsError
+    err instanceof AllocationMismatchError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   throw err;
+}
+
+enum PurchaseInvoiceRefusalCode {
+  HasPayments = "INVOICE_HAS_PAYMENTS",
+  HasReturns = "INVOICE_HAS_RETURNS",
+  NotPayable = "INVOICE_NOT_PAYABLE",
+  PaymentExceedsBalance = "PAYMENT_EXCEEDS_BALANCE",
+}
+
+class PurchaseInvoiceRouteRefusal extends Error {
+  constructor(
+    readonly status: 409 | 422,
+    readonly body: { readonly error: PurchaseInvoiceRefusalCode; readonly message: string; readonly messageEn: string },
+  ) {
+    super(body.message);
+    this.name = "PurchaseInvoiceRouteRefusal";
+  }
 }
 
 export function createPurchasesRoutes(
@@ -416,8 +461,31 @@ export function createPurchasesRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  /**
+   * One gate serves three stored documents, so the ROUTE says which one `:id`
+   * addresses — the registered pattern, never the request path, whose id
+   * segment is the caller's to spell.
+   */
+  const storedBranches: StoredBranchesResolver = async (c) => {
+    const id = c.req.param("id");
+    if (!id) return null;
+    const path = c.req.routePath;
+    if (path.includes("/orders/:id")) {
+      const order = await deps.orders.findById(id);
+      return order ? documentBranches(c, [order.branchId], [order.warehouseId]) : null;
+    }
+    if (path.includes("/receipts/:id")) {
+      const receipt = await deps.receipts.findById(id);
+      return receipt ? branchesOfWarehouses(c, [receipt.warehouseId]) : null;
+    }
+    if (path.includes("/invoices/:id")) {
+      const invoice = await deps.invoices.findById(id);
+      return invoice ? documentBranches(c, [invoice.branchId], [invoice.warehouseId]) : null;
+    }
+    return null;
+  };
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
   /**
    * D70 — the `purchases.invoice.view_own` tier, enforced.
    *
@@ -679,7 +747,9 @@ export function createPurchasesRoutes(
    * selector must reach here as a `warehouseId`.
    */
   async function listFilteredReceipts(c: Context, filter: ReceiptListFilter): Promise<readonly GoodsReceipt[]> {
-    let rows = withinScope(await deps.receipts.list(), warehouseScopeOf(c), (r) => r.warehouseId);
+    let rows = await withinBranchGrant(c, withinScope(await deps.receipts.list(), warehouseScopeOf(c), (r) => r.warehouseId), (r) =>
+      branchesOfWarehouses(c, [r.warehouseId]),
+    );
     if (filter.status) rows = rows.filter((r) => r.status === filter.status);
     if (filter.supplierId) rows = rows.filter((r) => r.supplierId === filter.supplierId);
     if (filter.fromDate) rows = rows.filter((r) => r.date >= filter.fromDate!);
@@ -827,6 +897,7 @@ export function createPurchasesRoutes(
           stock: deps.stock,
           layers,
           glReverse: deps.glReverse,
+          accounts: deps.accounts,
           landedCostsStandingOn: deps.landedCostsStandingOn,
           policy: await resolvePolicy(),
           transactor: deps.transactor,
@@ -926,7 +997,8 @@ export function createPurchasesRoutes(
     // predicate below is re-applied so a repository that cannot express one
     // still answers the same rows.
     let rows = withinScope(
-      withinScope(
+      await withinBranchView(
+        c,
         await deps.invoices.list({
           supplierId,
           fromDate,
@@ -936,8 +1008,7 @@ export function createPurchasesRoutes(
           search,
           status: storedInvoiceStatus(status),
         }),
-        branchScopeOf(c),
-        (i) => i.branchId,
+        (i) => documentBranches(c, [i.branchId], [i.warehouseId]),
       ),
       warehouseScopeOf(c),
       (i) => i.warehouseId,
@@ -1074,10 +1145,18 @@ export function createPurchasesRoutes(
    */
   const hiddenFromOwn = (c: Context, invoice: PurchaseInvoice) =>
     ownInvoiceVisibilityOnly(c) && invoice.createdBy !== getAuthContext(c)?.userId;
+  const NOT_FOUND_BODY = { error: "NOT_FOUND" } as const;
+  // SECURITY: the ONE place a route under `/invoices/:id` resolves its
+  // invoice — reads and actions alike, before the body is looked at
+  // (`invoice-sub-route-visibility.test.ts` walks every mounted sub-route).
+  const visibleInvoice = async (c: Context): Promise<PurchaseInvoice | null> => {
+    const invoice = await deps.invoices.findById(c.req.param("id") ?? "");
+    return invoice && !hiddenFromOwn(c, invoice) ? invoice : null;
+  };
 
   app.get("/invoices/:id", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
-    const invoice = await deps.invoices.findById(c.req.param("id"));
-    if (!invoice || hiddenFromOwn(c, invoice)) return c.json({ error: "NOT_FOUND" }, 404);
+    const invoice = await visibleInvoice(c);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
     return c.json({
       ...serializeInvoice(
         invoice,
@@ -1099,8 +1178,8 @@ export function createPurchasesRoutes(
    * surviving layers.
    */
   app.get("/invoices/:id/fulfilment", gateAny("purchases.invoice.view", "purchases.invoice.view_own"), async (c) => {
-    const invoice = await deps.invoices.findById(c.req.param("id"));
-    if (!invoice || hiddenFromOwn(c, invoice)) return c.json({ error: "NOT_FOUND" }, 404);
+    const invoice = await visibleInvoice(c);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
 
     const receipt = invoice.receiptId ? await deps.receipts.findById(invoice.receiptId) : null;
     const sourceDocId = receipt ? receipt.id : invoice.status === "confirmed" ? invoice.id : null;
@@ -1171,7 +1250,9 @@ export function createPurchasesRoutes(
    * allocation sub-ledger all move together.
    */
   app.post("/invoices/:id/payments", gate("purchases.invoice.edit"), async (c) => {
-    const parsed = purchaseInvoicePaymentSchema.safeParse(await c.req.json());
+    const invoice = await visibleInvoice(c);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
+    const parsed = purchaseInvoicePaymentSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
@@ -1181,54 +1262,59 @@ export function createPurchasesRoutes(
         503,
       );
     }
-    const invoice = await deps.invoices.findById(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    if (invoice.status !== "confirmed") {
-      return c.json(
-        { error: "INVOICE_NOT_PAYABLE", message: "لا يمكن السداد إلا على فاتورة مؤكدة." },
-        422,
-      );
-    }
     const amount = Money.fromMajor(parsed.data.amount);
     if (amount.scaled <= 0n) {
-      return c.json({ error: "INVALID_PAYMENT", message: "قيمة السداد يجب أن تكون أكبر من صفر." }, 422);
+      return c.json({ error: "INVALID_PAYMENT", message: "قيمة السداد يجب أن تكون أكبر من صفر.", messageEn: "The payment must be greater than zero." }, 422);
     }
-    const allocated = (await allocatedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
-    const returned = (await returnedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
     // A payment happens when it happens — dating it back to the invoice
     // would measure the treasury's balance on the wrong day.
     const date = (await tenantDay(c, parsed.data.date)) ?? (await tenantDay(c, deps.now?.() ?? new Date().toISOString()));
-    let capacity = purchaseInvoiceBaseTotal(invoice).scaled - allocated.scaled - returned.scaled;
-    if (invoice.fxRate && deps.settlementPreview) {
-      try {
-        capacity = (await deps.settlementPreview(invoice.id, amount, date)).capacity.scaled;
-      } catch (err) {
-        return handleDomainError(c, err);
-      }
-    }
-    if (amount.scaled > capacity) {
-      return c.json(
-        { error: "PAYMENT_EXCEEDS_BALANCE", message: "قيمة السداد أكبر من المتبقي على الفاتورة." },
-        422,
-      );
-    }
+    const pay = deps.pay;
     try {
-      const { voucherId, voucherNo } = await deps.pay({
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.number,
-        supplierId: invoice.supplierId,
-        branchId: invoice.branchId,
-        amount,
-        treasuryAccountId: parsed.data.treasuryAccountId,
-        paymentMethod: parsed.data.paymentMethod ?? "cash",
-        date,
-        referenceNo: parsed.data.referenceNo ?? null,
-        memo: parsed.data.notes ?? `سداد على الفاتورة ${invoice.number}`,
-        actor: actor(c),
+      // INVARIANT: the invoice is re-read and every guard run inside the
+      // transaction that creates, confirms and allocates the voucher. A
+      // cancel that landed since the request began is seen here and refuses
+      // the payment; one that lands after finds the allocation and refuses
+      // itself.
+      const paid = await atomically({ transactor: deps.transactor }, async () => {
+        const current = await deps.invoices.findById(invoice.id);
+        if (!current || current.status !== "confirmed") {
+          throw new PurchaseInvoiceRouteRefusal(422, {
+            error: PurchaseInvoiceRefusalCode.NotPayable,
+            message: "لا يمكن السداد إلا على فاتورة مؤكدة.",
+            messageEn: "Only a confirmed invoice can be paid.",
+          });
+        }
+        const allocated = (await allocatedByInvoice([current.id])).get(current.id) ?? Money.zero();
+        const returned = (await returnedByInvoice([current.id])).get(current.id) ?? Money.zero();
+        let capacity = purchaseInvoiceBaseTotal(current).scaled - allocated.scaled - returned.scaled;
+        if (current.fxRate && deps.settlementPreview) capacity = (await deps.settlementPreview(current.id, amount, date)).capacity.scaled;
+        if (amount.scaled > capacity) {
+          throw new PurchaseInvoiceRouteRefusal(422, {
+            error: PurchaseInvoiceRefusalCode.PaymentExceedsBalance,
+            message: "قيمة السداد أكبر من المتبقي على الفاتورة.",
+            messageEn: "The payment is more than what is left on the invoice.",
+          });
+        }
+        const voucher = await pay({
+          invoiceId: current.id,
+          invoiceNumber: current.number,
+          supplierId: current.supplierId,
+          branchId: current.branchId,
+          amount,
+          treasuryAccountId: parsed.data.treasuryAccountId,
+          paymentMethod: parsed.data.paymentMethod ?? "cash",
+          date,
+          referenceNo: parsed.data.referenceNo ?? null,
+          memo: parsed.data.notes ?? `سداد على الفاتورة ${current.number}`,
+          actor: actor(c),
+        });
+        return { current, returned, voucher };
       });
-      const settled = (await allocatedByInvoice([invoice.id])).get(invoice.id);
-      return c.json({ ...serializeInvoice(invoice, settled, returned), voucherId, voucherNo });
+      const settled = (await allocatedByInvoice([paid.current.id])).get(paid.current.id);
+      return c.json({ ...serializeInvoice(paid.current, settled, paid.returned), voucherId: paid.voucher.voucherId, voucherNo: paid.voucher.voucherNo });
     } catch (err) {
+      if (err instanceof PurchaseInvoiceRouteRefusal) return c.json(err.body, err.status);
       return handleDomainError(c, err);
     }
   });
@@ -1256,7 +1342,7 @@ export function createPurchasesRoutes(
     if (invoicePartyRefusal) return invoicePartyRefusal;
     try {
       // create-from-receipt: auto-fill lines from a confirmed receipt when omitted.
-      let lines: PurchaseInvoiceLine[] | undefined;
+      let lines: PurchaseInvoiceLineInput[] | undefined;
       if (parsed.data.lines && parsed.data.receiptId) {
         /*
          * An invoice that NAMES a receipt and then states its own costs was
@@ -1298,7 +1384,8 @@ export function createPurchasesRoutes(
           kind: l.kind ?? "inventory",
           qty: Qty.fromMajor(l.qty),
           unitCost: Money.fromMajor(l.unitCost),
-          taxRatePercent: l.taxRatePercent ?? 0,
+          taxRatePercent: l.taxRatePercent,
+          taxRateId: l.taxRateId,
           batchNo: l.batchNo ?? null,
           expiryDate: l.expiryDate ?? null,
           costCategory: l.costCategory ?? null,
@@ -1338,6 +1425,7 @@ export function createPurchasesRoutes(
           invoices: deps.invoices,
           receipts: deps.receipts,
           numbering: deps.numbering,
+          taxRates: deps.taxRates,
           policy: await resolvePolicy(),
           now: deps.now,
         },
@@ -1348,7 +1436,80 @@ export function createPurchasesRoutes(
     }
   });
 
+  app.post("/invoices/:id/lines/:lineId/classify-tax", gate("purchases.invoice.classify_tax"), async (c) => {
+    if (!deps.taxTags || !deps.taxRates) {
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+    }
+    const existing = await visibleInvoice(c);
+    if (!existing) return c.json(NOT_FOUND_BODY, 404);
+    const parsed = classifyLineTaxSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const result = await classifyPurchaseInvoiceLineTax(
+        existing.id,
+        { lineRef: c.req.param("lineId"), withLineRefs: parsed.data.withLineIds, taxRateId: parsed.data.taxRateId },
+        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, taxDependents: deps.taxDependents, accounts: deps.accounts, postedLines: deps.postedJournalLines, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
+      );
+      await stampDocumentModifier(deps.invoiceVersions, result.invoice.id, actor(c));
+      return c.json(
+        lineTaxClassificationSchema.parse({
+          documentId: result.invoice.id,
+          documentNumber: result.invoice.number,
+          lineIds: result.plan.lineRefs,
+          taxRateId: parsed.data.taxRateId,
+          taxRateName: result.plan.taxRateName,
+          taxRatePercent: result.plan.after.taxRatePercent,
+          journalLinesNamed: result.journalLinesNamed,
+          filing: TaxClassificationFilingOutcomeCode.NotQueued,
+        }),
+      );
+    } catch (err) {
+      return taxClassificationRefusal(c, err) ?? handleDomainError(c, err);
+    }
+  });
+
+  app.post("/invoices/:id/lines/:lineId/journal-tax", gate("purchases.invoice.classify_tax"), async (c) => {
+    const ctx = getAuthContext(c);
+    if (!ctx || !can(ctx, "accounting.journal.view")) {
+      return c.json({ error: "FORBIDDEN", message: "تسمية ضريبة سطر القيد تتطلب صلاحية عرض قيود اليومية." }, 403);
+    }
+    if (!deps.taxTags || !deps.taxRates) {
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+    }
+    const existing = await visibleInvoice(c);
+    if (!existing) return c.json(NOT_FOUND_BODY, 404);
+    const parsed = nameJournalLineTaxSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const result = await namePurchaseInvoiceJournalLineTax(
+        existing.id,
+        { lineRef: c.req.param("lineId"), withLineRefs: parsed.data.withLineIds, taxRateId: parsed.data.taxRateId, journalLineIndexes: parsed.data.journalLineIndexes },
+        { invoices: deps.invoices, taxRates: deps.taxRates, taxTags: deps.taxTags, taxDependents: deps.taxDependents, accounts: deps.accounts, postedLines: deps.postedJournalLines, transactor: deps.transactor, audit: audit(c), actor: actor(c) },
+      );
+      await stampDocumentModifier(deps.invoiceVersions, result.invoice.id, actor(c));
+      return c.json(
+        lineTaxClassificationSchema.parse({
+          documentId: result.invoice.id,
+          documentNumber: result.invoice.number,
+          lineIds: result.plan.lineRefs,
+          taxRateId: result.plan.after.taxRateId,
+          taxRateName: result.plan.taxRateName,
+          taxRatePercent: result.plan.after.taxRatePercent,
+          journalLinesNamed: result.journalLinesNamed,
+          filing: TaxClassificationFilingOutcomeCode.NotQueued,
+        }),
+      );
+    } catch (err) {
+      return taxClassificationRefusal(c, err) ?? handleDomainError(c, err);
+    }
+  });
+
   app.post("/invoices/:id/confirm", gate("purchases.invoice.confirm"), async (c) => {
+    if (!(await visibleInvoice(c))) return c.json(NOT_FOUND_BODY, 404);
     const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
     if (stale) return stale;
     try {
@@ -1377,6 +1538,7 @@ export function createPurchasesRoutes(
     const layers = deps.layers;
     const glReverse = deps.glReverse;
     app.post("/invoices/:id/cancel", gate("purchases.invoice.void"), async (c) => {
+      if (!(await visibleInvoice(c))) return c.json(NOT_FOUND_BODY, 404);
       const body = await readOptionalBody(c);
       const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(body));
       if (stale) return stale;
@@ -1384,33 +1546,14 @@ export function createPurchasesRoutes(
       if (!requested.ok) return c.json(INVALID_REVERSAL_DATE, 400);
       const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
       const target = await deps.invoices.findById(c.req.param("id"));
-      if (target?.status === "confirmed") {
-        if (((await allocatedByInvoice([target.id])).get(target.id) ?? Money.zero()).scaled !== 0n) {
-          return c.json(
-            {
-              error: "INVOICE_HAS_PAYMENTS",
-              message: "لا يمكن إلغاء فاتورة سُدّدت مبالغ عليها — اعكس السداد أولاً.",
-              messageEn: "This invoice has payments applied to it — reverse the payment first.",
-            },
-            409,
-          );
-        }
-        if (((await returnedByInvoice([target.id])).get(target.id) ?? Money.zero()).scaled !== 0n) {
-          return c.json(
-            {
-              error: "INVOICE_HAS_RETURNS",
-              message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد.",
-              messageEn: "This invoice has a confirmed purchase return against it.",
-            },
-            409,
-          );
-        }
-      }
+      const cancelDate = requested.date ?? (target && today < target.date ? target.date : today);
+      let cancelledWhileConfirmed = false;
       try {
         const invoice = await cancelPurchaseInvoice(c.req.param("id"), {
           invoices: deps.invoices,
           stock: deps.stock,
           glReverse,
+          accounts: deps.accounts,
           layers,
           landedCostsStandingOn: deps.landedCostsStandingOn,
           receipts: deps.receipts,
@@ -1419,12 +1562,33 @@ export function createPurchasesRoutes(
           audit: audit(c),
           actor: actor(c),
           now: deps.now,
-        }, { date: requested.date ?? (target && today < target.date ? target.date : today) });
-        if (target?.status === "confirmed") await deps.releaseRevaluationShare?.(invoice.id, requested.date ?? (today < target.date ? target.date : today));
+          // INVARIANT: both guards read inside the cancel's transaction. Read
+          // before it, a payment allocated in between left a cancelled invoice
+          // holding a confirmed voucher.
+          cancelGuard: async (confirmed) => {
+            cancelledWhileConfirmed = true;
+            if (((await allocatedByInvoice([confirmed.id])).get(confirmed.id) ?? Money.zero()).scaled !== 0n) {
+              throw new PurchaseInvoiceRouteRefusal(409, {
+                error: PurchaseInvoiceRefusalCode.HasPayments,
+                message: "لا يمكن إلغاء فاتورة سُدّدت مبالغ عليها — اعكس السداد أولاً.",
+                messageEn: "This invoice has payments applied to it — reverse the payment first.",
+              });
+            }
+            if (((await returnedByInvoice([confirmed.id])).get(confirmed.id) ?? Money.zero()).scaled !== 0n) {
+              throw new PurchaseInvoiceRouteRefusal(409, {
+                error: PurchaseInvoiceRefusalCode.HasReturns,
+                message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد. ألغِ المرتجع أولاً من صفحته («إلغاء المرتجع» مع ذكر السبب) ثم ألغِ الفاتورة.",
+                messageEn: "This invoice has a confirmed purchase return against it. Void the return first from its own page, with a reason, then cancel the invoice.",
+              });
+            }
+          },
+        }, { date: cancelDate });
+        if (cancelledWhileConfirmed) await deps.releaseRevaluationShare?.(invoice.id, cancelDate);
         await stampDocumentModifier(deps.invoiceVersions, invoice.id, actor(c));
         emit("DOCUMENT_CANCELLED", "PURCHASE_INVOICE", invoice.id, invoice.number);
         return c.json(serializeInvoice(invoice));
       } catch (err) {
+        if (err instanceof PurchaseInvoiceRouteRefusal) return c.json(err.body, err.status);
         return handleDomainError(c, err);
       }
     });

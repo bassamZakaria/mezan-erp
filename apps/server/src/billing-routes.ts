@@ -22,10 +22,13 @@ import {
   type ModuleTrial,
   type Plan,
   type Tenant,
+  TenantStatusCode,
+  SubscriptionStatusKind,
 } from "@mezan/domain";
 import {
   createCardCheckoutRequestSchema,
   startModuleTrialRequestSchema,
+  subscriptionStatusOf,
   type BillingLimitDTO,
   type BillingModuleDTO,
   type BillingQuotaDTO,
@@ -35,9 +38,10 @@ import { readSessionToken, type SessionGrant } from "@mezan/api";
 import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
 import type { CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
-import type { CloudEnv } from "./env.js";
+import { PaymobMode, type CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
 import { resolveTenantCode } from "./tenant-resolver.js";
+import { servedTenantLookup, trustedPublicOrigin, type ServedTenantLookup } from "./public-origin.js";
 
 export const PAYMOB_WEBHOOK_PATH = "/api/billing/paymob/webhook";
 const MAX_WEBHOOK_BYTES = 256 * 1024;
@@ -51,26 +55,12 @@ export function forwardedOrigin(request: Request, trustProxy: boolean): string {
   return `${proto === "https" || proto === "http" ? proto : url.protocol.replace(":", "")}://${host}`;
 }
 
-/**
- * The origin a browser is sent back to after the hosted checkout. Only the
- * configured public URL or one of this deployment's own tenant subdomains —
- * never a host the caller merely claims.
- */
-export function trustedReturnOrigin(request: Request, env: CloudEnv): string {
-  const publicUrl = env.paymob.mode === "off" ? undefined : env.paymob.publicUrl;
-  if (env.tenantDomain && publicUrl) {
-    const raw = (env.trustProxy ? request.headers.get("x-forwarded-host") : null) ?? request.headers.get("host") ?? "";
-    const host = raw.split(",")[0]!.trim().toLowerCase().replace(/:\d+$/, "");
-    const domain = env.tenantDomain.toLowerCase();
-    if (host.endsWith(`.${domain}`) && !host.slice(0, -(domain.length + 1)).includes(".")) {
-      return `${new URL(publicUrl).protocol}//${host}`;
-    }
-  }
-  return publicUrl ?? forwardedOrigin(request, env.trustProxy);
+export async function trustedReturnOrigin(request: Request, env: CloudEnv, servesTenant: ServedTenantLookup): Promise<string> {
+  return (await trustedPublicOrigin(request, env, servesTenant)) ?? forwardedOrigin(request, env.trustProxy);
 }
 
 export function notificationUrl(request: Request, env: CloudEnv): string {
-  const publicUrl = env.paymob.mode === "off" ? undefined : env.paymob.publicUrl;
+  const publicUrl = env.paymob.mode === PaymobMode.Off ? undefined : env.paymob.publicUrl;
   return `${publicUrl ?? forwardedOrigin(request, env.trustProxy)}${PAYMOB_WEBHOOK_PATH}`;
 }
 
@@ -196,7 +186,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     const code = resolveTenantCode(c.req.raw, { tenantDomain: env.tenantDomain, trustForwardedHost: env.trustProxy, allowTenantHeader: true });
     if (!code) return c.json({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" }, 400);
     const tenant = await platform.stores.tenants.findByCode(code);
-    if (!tenant || tenant.status === "archived" || tenant.status === "provisioning") {
+    if (!tenant || tenant.status === TenantStatusCode.Archived || tenant.status === TenantStatusCode.Provisioning) {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
     const token = readSessionToken(c);
@@ -251,7 +241,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
       subscription:
         subscription && plan && amountDue !== null
           ? {
-              status: subscription.status,
+              status: subscriptionStatusOf(subscription.status),
               billingCycle: subscription.billingCycle,
               currentPeriodEnd: subscription.currentPeriodEnd,
               planNameAr: plan.nameAr,
@@ -262,8 +252,8 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
           : null,
       today: usage.today,
       month: usage.month,
-      trialEndsAt: subscription?.status === "trialing" ? subscription.trialEndsAt : null,
-      trialDaysLeft: trialDaysLeft(subscription?.status === "trialing" ? subscription.trialEndsAt : null, usage.today),
+      trialEndsAt: subscription?.status === SubscriptionStatusKind.Trialing ? subscription.trialEndsAt : null,
+      trialDaysLeft: trialDaysLeft(subscription?.status === SubscriptionStatusKind.Trialing ? subscription.trialEndsAt : null, usage.today),
       moduleTrialDays: MODULE_TRIAL_DAYS,
       quotas: usage.quotas as BillingQuotaDTO[],
       limits: usage.limits as BillingLimitDTO[],
@@ -347,7 +337,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     }
     const parsed = createCardCheckoutRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    const origin = trustedReturnOrigin(c.req.raw, env);
+    const origin = await trustedReturnOrigin(c.req.raw, env, servedTenantLookup(platform));
     try {
       const checkout = await service.open({
         tenantId: caller.tenant.id,
@@ -434,6 +424,8 @@ function testCheckoutPage(checkout: CardCheckout, tenantCode: string): string {
  * buttons do not mark anything paid themselves: they sign a Paymob-shaped
  * callback with the test secret and run it through the same webhook handler.
  */
+const TEST_CHECKOUT_NOT_FOUND = "صفحة الدفع التجريبية غير موجودة";
+
 export function createTestCheckoutRoutes(options: {
   readonly platform: PlatformHandle;
   readonly service: CardCheckoutService;
@@ -444,14 +436,14 @@ export function createTestCheckoutRoutes(options: {
 
   app.get("/:id", async (c) => {
     const checkout = await service.find(c.req.param("id"));
-    if (!checkout || checkout.provider !== provider.id) return c.text("Not found", 404);
+    if (!checkout || checkout.provider !== provider.id) return c.text(TEST_CHECKOUT_NOT_FOUND, 404);
     const tenant = await platform.stores.tenants.findById(checkout.tenantId);
     return c.html(testCheckoutPage(checkout, tenant?.code ?? ""));
   });
 
   app.post("/:id/complete", async (c) => {
     const checkout = await service.find(c.req.param("id"));
-    if (!checkout || checkout.provider !== provider.id) return c.text("Not found", 404);
+    if (!checkout || checkout.provider !== provider.id) return c.text(TEST_CHECKOUT_NOT_FOUND, 404);
     const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
     const outcome = form["outcome"] === "success" ? "success" : "failure";
     if (checkout.status === "pending" || checkout.status === "failed") {

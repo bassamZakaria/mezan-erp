@@ -30,6 +30,7 @@ import {
 } from "@mezan/domain";
 import { recordSimplifiedRegimeSchema } from "@mezan/contracts";
 import { branchScopeOf, createPermissionGate, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 import { tenantDay } from "./tenant-day.js";
 
 /**
@@ -204,6 +205,8 @@ export function createSimplifiedRegimeRoutes(
   });
 
   app.get("/comparison", gate("admin.settings.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const today = await todayIso(c, deps);
     const window = windowOf(c, today);
     const definition = createSimplifiedRegimeComparisonReport(window.periodFrom, window.periodTo, scheduleOn);

@@ -42,7 +42,7 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
     fxRate: null,
     lines: [
       {
-        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
+        unitCode: "", unitFactor: 1, discountType: "percent", discountAmount: "0.000000", costCenterId: null, taxRateId: null, baseQty: "10.000000", lineId: "l1", itemId: "item-cement", itemNameAr: "أسمنت بورتلاندي", isStock: true, qty: "10.000000",
         unitPrice: "60.000000", discountPercent: 0, taxRatePercent: 0, revenueAccountId: "acc-rev",
         cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "50.000000",
       },
@@ -160,5 +160,30 @@ describe("InstallmentPlansScreen", () => {
     await waitFor(() => expect(within(screen.getByRole("table")).getByText("ملغي")).toBeInTheDocument());
     // And an already-cancelled plan cannot be cancelled again.
     expect(within(dialog).queryByRole("button", { name: "إلغاء الخطة" })).toBeNull();
+  });
+});
+
+describe("InstallmentPlansScreen — a held document whose approval no longer stands", () => {
+  it("says why in Arabic and asks for approval again through the document's own confirm", async () => {
+    let standing = "reapproval_required";
+    let confirms = 0;
+    const held = installmentPlan({ id: "held-1", docNo: "HELD-0001", status: "pending", workflowRequestId: "held-1:confirm" });
+    const transport = stubTransport({
+      ...baseHandlers([]),
+      "GET /installments/plans": () => ({ body: [held] }),
+      "GET /workflow/requests/*/standing": () => ({ body: { id: "held-1:confirm", status: standing, reason: standing === "reapproval_required" ? "الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد." : null, reasonEn: null } }),
+      "POST /installments/plans/held-1/confirm": () => {
+        confirms += 1;
+        standing = "pending";
+        return { body: held };
+      },
+    });
+    renderWithProviders(<InstallmentPlansScreen />, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("HELD-0001"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent("الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد.");
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirms).toBe(1));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
   });
 });

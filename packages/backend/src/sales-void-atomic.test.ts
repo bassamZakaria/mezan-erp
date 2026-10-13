@@ -41,14 +41,14 @@ describe("voiding a sales invoice is one write", () => {
     const before = state();
     world.sqlite.exec(`CREATE TRIGGER sv_fail BEFORE INSERT ON stock_movement WHEN NEW.source_doc_id = 'SV-INV:void' BEGIN SELECT RAISE(ABORT, 'disk failure'); END`);
 
-    const failed = await world.request("POST", "/sales-invoices/SV-INV/void", {});
+    const failed = await world.request("POST", "/sales-invoices/SV-INV/void", { reason: "خطأ في الإدخال" });
     world.sqlite.exec(`DROP TRIGGER sv_fail`);
 
     expect(failed.status).toBe(500);
     expect(state()).toEqual(before);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
 
-    const voided = await world.request("POST", "/sales-invoices/SV-INV/void", {});
+    const voided = await world.request("POST", "/sales-invoices/SV-INV/void", { reason: "خطأ في الإدخال" });
     expect(`${voided.status} ${voided.body.status}`).toBe("200 reversed");
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });

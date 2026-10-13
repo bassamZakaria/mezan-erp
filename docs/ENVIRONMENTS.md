@@ -24,6 +24,45 @@ into `<platform dir>/backups/` (`MEZAN_BACKUP_INTERVAL_MINUTES`, default 15).
 On the demo host that directory sits under `/tmp` and is lost on restart; on
 AWS a sidecar syncs it to S3 — see the `apps/mezan` README in `cyag-devops`.
 
+## Behind a proxy: which address a request is counted against
+
+The signup and deletion-form rate limits need the caller's real address. Behind
+a proxy the socket's peer is the proxy, and `x-forwarded-for` is a list the
+caller can start with anything: each proxy only **appends** the address it saw.
+The server therefore never reads the leftmost entry. It counts from the right
+(`apps/server/src/client-source.ts`).
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `MEZAN_TRUST_PROXY` | `0` | `1` trusts `x-forwarded-host` and lets the two settings below apply; the socket is then never read. `0`: the socket's peer is the address, whatever the headers say. |
+| `MEZAN_TRUSTED_PROXY_HOPS` | none — **required** with `MEZAN_TRUST_PROXY=1` | How many proxies in front of the server append to `x-forwarded-for` (1 or more). The client is the entry that many places from the right. The server **refuses to start** with `MEZAN_TRUST_PROXY=1` and no count, and with a count but no `MEZAN_TRUST_PROXY=1`. |
+| `MEZAN_TRUST_VIEWER_ADDRESS` | `0` | `1` reads the client from `CloudFront-Viewer-Address` when present (falling back to the hop count). Refused without `MEZAN_TRUST_PROXY=1` **and** `MEZAN_ORIGIN_SECRET`: the header is only CloudFront's word when nothing reaches the origin except through CloudFront. |
+
+Set the hop count to the deployment's real chain, or the limits key on the
+wrong machine:
+
+| Deployment | Chain | `MEZAN_TRUSTED_PROXY_HOPS` |
+| --- | --- | --- |
+| dev, testing, staging on localhost | none | unset (`MEZAN_TRUST_PROXY=0`) |
+| Render demo | Render's proxy | `1` |
+| AWS (CloudFront → API Gateway → VPC link → task) | CloudFront appends the viewer, API Gateway appends the CloudFront edge | `2` |
+| `pnpm test:saas` | the test writes the client, the Vite dev proxy appends its own hop | `2` |
+
+Too low a count keys every client behind one proxy address (one office's typos
+hold everybody); too high a count reads an entry the caller wrote.
+
+There is no fallback. With a proxy trusted, a request whose chain is shorter
+than the count, or whose entry at that place is not an address (`unknown`, an
+obfuscated token, empty), has **no** address: it is answered `503
+SOURCE_UNRESOLVED` in Arabic and the server logs `CLIENT ADDRESS UNRESOLVED`
+(at most one line a minute). It is never counted as the host's own console and
+never as the socket's peer. An entry carrying a port (`1.2.3.4:5678`,
+`[2001:db8::1]:5678`) is read without it, and one IPv6 address is one key
+however it is spelled.
+
+Today this address is read by `/api/signup/*` and by `POST
+/legal/account-deletion` only; every other route still reads the socket.
+
 ## Running testing and staging locally
 
 ```sh
@@ -87,6 +126,7 @@ carries query parameters too; they are never read as proof of payment.
 | `MEZAN_PAYMOB_HMAC_SECRET` | HMAC secret; verifies every transaction callback (SHA-512 over Paymob's fixed 20-field order). |
 | `MEZAN_PAYMOB_INTEGRATION_ID` | Card integration id(s), comma-separated. Test ids with test keys, live with live. |
 | `MEZAN_PAYMOB_PUBLIC_URL` | Public `https://` origin of this deployment. Required with live keys: the callback goes to `<url>/api/billing/paymob/webhook` and the customer returns to `<url>/…` (or to the tenant's own subdomain under `MEZAN_TENANT_DOMAIN`). |
+| `MEZAN_PUBLIC_URL` | Public `https://` origin every MAILED link is built on (signup verification, owner hand-over confirmation). Never read from a request header. A request that arrived on a tenant's own subdomain gets that subdomain only when a tenant is served under it and its name is not one the platform reserves (`www`, `api`, `admin`, `app`, `platform`, `signup`, `tenants`, `demo`, `released-…`); every other host gets this origin. When platform mail (`MEZAN_SMTP_HOST`) is configured and neither this, `MEZAN_PAYMOB_PUBLIC_URL` nor `MEZAN_TENANT_DOMAIN` gives a trusted origin, signup answers 503 and sends no mail. |
 | `MEZAN_PAYMOB_BASE_URL` | Optional; default `https://accept.paymob.com` (Egypt). |
 | `MEZAN_PAYMOB_TEST_MODE` | `1` runs the local test double when no keys are set; `0` turns card checkout off in dev. |
 

@@ -452,6 +452,7 @@ describe("AssetRegisterScreen — disposal", () => {
       "GET /assets/categories": () => ({ body: categories }),
       "GET /branches": () => ({ body: branches }),
       "GET /accounts": () => ({ body: [account, receivableAccount] }),
+      "GET /assets/disposal-proceeds-accounts": () => ({ body: [{ id: account.id, code: account.code, nameAr: account.nameAr, nameEn: null, kind: "cash" }] }),
       "POST /assets/asset-1/dispose": (init) => {
         disposedBody = JSON.parse(String(init?.body));
         return { body: asset({ id: "asset-1", code: "VEH-001", nameAr: "سيارة النقل", status: "disposed" }) };
@@ -464,7 +465,9 @@ describe("AssetRegisterScreen — disposal", () => {
 
     typeMoney(within(detail).getByRole("textbox", { name: "قيمة البيع" }), "5000");
     fireEvent.click(within(detail).getByRole("combobox", { name: "حساب التحصيل" }));
-    fireEvent.mouseDown(await screen.findByRole("option", { name: "1301 — نقدية بالخزينة" }));
+    const offered = await screen.findByRole("option", { name: "1301 — نقدية بالخزينة" });
+    expect(screen.queryByRole("option", { name: /1105/ })).not.toBeInTheDocument();
+    fireEvent.mouseDown(offered);
 
     fireEvent.click(within(detail).getByRole("button", { name: "تأكيد التخلص" }));
 

@@ -1,7 +1,7 @@
 /**
  * Mezan permission catalog — a versioned TS data manifest.
  *
- * Single source of truth for the 248 permissions across 19 modules the product
+ * Single source of truth for the 250 permissions across 19 modules the product
  * actually enforces, descended from the matrix in
  * `docs/archive/catalog/09-settings-dashboard-ux.md` §permission matrix and mandated as
  * "data (a versioned TS manifest)" by `docs/archive/plan.md` §5.2. The role editor, the
@@ -58,11 +58,11 @@ export interface ModuleDef {
 export const CATALOG_VERSION = 3 as const;
 
 const CORE_MODULES: readonly ModuleDef[] = [
-  { id: "sales", labelAr: "المبيعات", count: 28 },
-  { id: "purchases", labelAr: "المشتريات", count: 32 },
+  { id: "sales", labelAr: "المبيعات", count: 29 },
+  { id: "purchases", labelAr: "المشتريات", count: 33 },
   { id: "inventory", labelAr: "المخزون", count: 22 },
   { id: "field", labelAr: "المبيعات الميدانية", count: 4 },
-  { id: "accounting", labelAr: "المحاسبة", count: 18 },
+  { id: "accounting", labelAr: "المحاسبة", count: 19 },
   { id: "treasury", labelAr: "الخزينة", count: 20 },
   { id: "workflow", labelAr: "سير العمل", count: 5 },
   { id: "hr", labelAr: "الموارد البشرية", count: 40 },
@@ -82,6 +82,7 @@ const CORE_MODULES: readonly ModuleDef[] = [
   // one": the certificate's preparer, certifier, approver and collector are four
   // different people, and one `manage` right cannot express that.
   { id: "contracting", labelAr: "المقاولات", count: 15 },
+  { id: "dashboard", labelAr: "لوحة التحكم", count: 1 },
 ];
 
 /**
@@ -93,27 +94,27 @@ const CORE_MODULES: readonly ModuleDef[] = [
 type Row = PermissionRow;
 
 const ROWS: readonly Row[] = [
-  // 1. sales — 27
   ["sales.invoice.view"],
   ["sales.invoice.view_own"],
   ["sales.invoice.view_all", "sales.invoice.view"],
   ["sales.invoice.view_cost", "sales.invoice.view", "s"],
-  ["sales.invoice.create", "sales.invoice.view_own"],
+  ["sales.invoice.create", "sales.invoice.view_own,accounting.tax.view"],
   ["sales.invoice.edit", "sales.invoice.view_own"],
   ["sales.invoice.confirm", "sales.invoice.view_own"],
   ["sales.invoice.void", "sales.invoice.view_own"],
+  ["sales.invoice.classify_tax", "sales.invoice.view_own,accounting.tax.view"],
   ["sales.invoice.delete_draft", "sales.invoice.view_own"],
   ["sales.customer.view"],
   ["sales.customer.create", "sales.customer.view"],
   ["sales.customer.edit", "sales.customer.view"],
   ["sales.quote.view"],
   ["sales.quote.view_own"],
-  ["sales.quote.create", "sales.quote.view_own"],
+  ["sales.quote.create", "sales.quote.view_own,accounting.tax.view"],
   ["sales.quote.edit", "sales.quote.view_own"],
   ["sales.quote.send", "sales.quote.view_own"],
   ["sales.return.view"],
   ["sales.return.view_own"],
-  ["sales.return.create", "sales.return.view_own"],
+  ["sales.return.create", "sales.return.view_own,sales.invoice.view_own"],
   ["sales.return.confirm", "sales.return.view_own"],
   ["sales.return.void", "sales.return.view_own"],
   ["sales.price_list.view"],
@@ -132,7 +133,6 @@ const ROWS: readonly Row[] = [
   ["sales.promotion.view"],
   ["sales.promotion.manage", "sales.promotion.view"],
 
-  // 2. purchases — 31
   ["purchases.supplier.view"],
   ["purchases.supplier.create", "purchases.supplier.view"],
   ["purchases.supplier.edit", "purchases.supplier.view"],
@@ -151,12 +151,13 @@ const ROWS: readonly Row[] = [
   ["purchases.receipt.void", "purchases.receipt.view"],
   ["purchases.invoice.view"],
   ["purchases.invoice.view_own"],
-  ["purchases.invoice.create", "purchases.invoice.view_own"],
+  ["purchases.invoice.create", "purchases.invoice.view_own,accounting.tax.view"],
   ["purchases.invoice.confirm", "purchases.invoice.view_own"],
   ["purchases.invoice.void", "purchases.invoice.view_own"],
+  ["purchases.invoice.classify_tax", "purchases.invoice.view_own,accounting.tax.view"],
   ["purchases.invoice.edit", "purchases.invoice.view_own"],
   ["purchases.return.view"],
-  ["purchases.return.create", "purchases.return.view"],
+  ["purchases.return.create", "purchases.return.view,purchases.invoice.view_own"],
   ["purchases.return.confirm", "purchases.return.view"],
   ["purchases.return.void", "purchases.return.view"],
   ["purchases.landed_cost.view"],
@@ -209,6 +210,7 @@ const ROWS: readonly Row[] = [
   ["accounting.year_end_close.reverse", "accounting.period.view", "s"],
   ["accounting.revaluation.reverse", "accounting.journal.view", "s"],
   ["accounting.reports.view"],
+  ["accounting.reports.view_unattributed", "accounting.reports.view", "s"],
   ["accounting.exchange_rate.manage"],
   ["accounting.exchange_rate.approve", "accounting.exchange_rate.manage"],
   ["accounting.tax.view"],
@@ -419,6 +421,8 @@ const ROWS: readonly Row[] = [
   ["contracting.guarantee.reverse", "contracting.guarantee.view", "s"],
   ["contracting.equipment_log.reverse", "projects.project.view", "s"],
   ["contracting.consumption.reverse", "projects.project.view", "s"],
+
+  ["dashboard.view"],
 ];
 
 function expand(row: Row): PermissionDef {

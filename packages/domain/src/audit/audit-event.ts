@@ -16,13 +16,19 @@
  * (account lockout = CRITICAL, HR contract creation = WARNING); `INFO`/`ERROR`
  * complete the set per docs/archive/plan.md §5.7.
  */
+export enum AuditSeverityCode {
+  Critical = "CRITICAL",
+  Error = "ERROR",
+  Warning = "WARNING",
+  Info = "INFO",
+}
 export const AUDIT_SEVERITIES = [
-  "CRITICAL",
-  "ERROR",
-  "WARNING",
-  "INFO",
+  AuditSeverityCode.Critical,
+  AuditSeverityCode.Error,
+  AuditSeverityCode.Warning,
+  AuditSeverityCode.Info,
 ] as const;
-export type AuditSeverity = (typeof AUDIT_SEVERITIES)[number];
+export type AuditSeverity = `${AuditSeverityCode}`;
 
 /**
  * The two audit streams from the catalog: security events (أحداث الأمان) and
@@ -100,6 +106,12 @@ export interface AuditSink {
 export interface AuditQueryFilter {
   readonly stream?: AuditStream;
   readonly branchId?: string;
+  /**
+   * Only rows stamped with one of these branches — what a branch-granted
+   * reader is held to. A row with no branch never matches, and an empty list
+   * matches nothing: an unknown branch is not the reader's branch.
+   */
+  readonly branchIds?: readonly string[];
   readonly module?: string;
   readonly action?: string;
   readonly actor?: string;

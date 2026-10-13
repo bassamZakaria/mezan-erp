@@ -1,3 +1,4 @@
+import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -163,14 +164,15 @@ export function createInstallmentsRoutes(
    * through (R1.1). Nothing else computes plan rows, so the three can never
    * disagree.
    */
-  async function listFilteredPlans(status: string | undefined): Promise<readonly InstallmentPlanDocument[]> {
+  async function listFilteredPlans(c: Context, status: string | undefined): Promise<readonly InstallmentPlanDocument[]> {
     const stored = status && !DERIVED_PLAN_FILTERS.has(status) ? status : undefined;
-    const rows = (await deps.plans.list(stored ? { status: stored as never } : undefined)) as readonly InstallmentPlanDocument[];
+    const everyPlan = (await deps.plans.list(stored ? { status: stored as never } : undefined)) as readonly InstallmentPlanDocument[];
+    const rows = await recordsInBranchGrant(c, BranchRecordKind.InstallmentPlan, everyPlan, (plan) => plan.id);
     return status === "overdue" ? rows.filter(isPlanOverdue) : rows;
   }
 
   plans.get("/", gate("installments.plan.view"), async (c) => {
-    const list = await listFilteredPlans(c.req.query("status") || undefined);
+    const list = await listFilteredPlans(c, c.req.query("status") || undefined);
     return c.json(list.map(serializePlan));
   });
 
@@ -180,7 +182,7 @@ export function createInstallmentsRoutes(
    * status-filtered set would render every chip but the active one as zero.
    */
   plans.get("/counts", gate("installments.plan.view"), async (c) => {
-    const rows = await listFilteredPlans(undefined);
+    const rows = await listFilteredPlans(c, undefined);
     const counts: Record<string, number> = {
       all: rows.length,
       draft: 0,
@@ -204,7 +206,7 @@ export function createInstallmentsRoutes(
    * no longer scheduled money, so it enters none of the three totals.
    */
   plans.get("/stats", gate("installments.plan.view"), async (c) => {
-    const rows = await listFilteredPlans(c.req.query("status") || undefined);
+    const rows = await listFilteredPlans(c, c.req.query("status") || undefined);
     let active = 0;
     let overdue = 0;
     let scheduled = Money.zero();
@@ -377,7 +379,7 @@ export function createInstallmentsRoutes(
 
   plans.post("/:id/cancel", gate("installments.plan.cancel"), async (c) => {
     try {
-      const doc = await deps.plans.cancel(c.req.param("id"));
+      const doc = await deps.plans.cancel(c.req.param("id"), { actor: callerUserId(c) });
       return c.json(serializePlan(doc));
     } catch (err) {
       return handleDocumentError(c, err);
@@ -396,11 +398,12 @@ export function createInstallmentsRoutes(
    * The single filter the rows, the chip counts and the KPI strip all go
    * through (R1.1).
    */
-  async function listFilteredFollowUps(filter: FollowUpListFilter): Promise<readonly CollectionFollowUp[]> {
-    return deps.followUps.list({
+  async function listFilteredFollowUps(c: Context, filter: FollowUpListFilter): Promise<readonly CollectionFollowUp[]> {
+    const everyFollowUp = await deps.followUps.list({
       status: (filter.status === "all" ? undefined : filter.status) as never,
       customerId: filter.customerId,
     });
+    return recordsInBranchGrant(c, BranchRecordKind.CollectionFollowUp, everyFollowUp, (followUp) => followUp.id);
   }
 
   function parseFollowUpQuery(c: Context): FollowUpListFilter {
@@ -411,7 +414,7 @@ export function createInstallmentsRoutes(
   }
 
   followUps.get("/", gate("installments.follow_up.view"), async (c) => {
-    const list = await listFilteredFollowUps(parseFollowUpQuery(c));
+    const list = await listFilteredFollowUps(c, parseFollowUpQuery(c));
     return c.json(list.map(serializeFollowUp));
   });
 
@@ -422,7 +425,7 @@ export function createInstallmentsRoutes(
    */
   followUps.get("/counts", gate("installments.follow_up.view"), async (c) => {
     const { status: _ignored, ...withoutStatus } = parseFollowUpQuery(c);
-    const rows = await listFilteredFollowUps(withoutStatus);
+    const rows = await listFilteredFollowUps(c, withoutStatus);
     const counts: Record<string, number> = { all: rows.length };
     for (const status of FOLLOW_UP_STATUSES) counts[status] = 0;
     for (const followUp of rows) counts[followUp.status] = (counts[followUp.status] ?? 0) + 1;
@@ -435,7 +438,7 @@ export function createInstallmentsRoutes(
    * resource to report.
    */
   followUps.get("/stats", gate("installments.follow_up.view"), async (c) => {
-    const rows = await listFilteredFollowUps(parseFollowUpQuery(c));
+    const rows = await listFilteredFollowUps(c, parseFollowUpQuery(c));
     let pending = 0;
     let completed = 0;
     let cancelled = 0;
@@ -453,7 +456,7 @@ export function createInstallmentsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const followUp = createFollowUp({ ...parsed.data, createdAt: new Date().toISOString() });
-    await deps.followUps.save(followUp);
+    await deps.followUps.insert(followUp);
     return c.json(serializeFollowUp(followUp), 201);
   });
 

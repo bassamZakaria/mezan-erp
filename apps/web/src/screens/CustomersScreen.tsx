@@ -18,7 +18,7 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, matchesSearch } from "@mezan/domain";
+import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, TaxRateStatusCode, matchesSearch } from "@mezan/domain";
 import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useCreateCustomer,
@@ -27,6 +27,7 @@ import {
   useCustomerStats,
   type CustomerListFilter,
   usePriceLists,
+  useTaxRates,
   useSalesInvoices,
   useSalesReturns,
   useInstallmentPlans,
@@ -43,6 +44,9 @@ import {
   sumMoney,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
+import { useLockedFields } from "../shell/useLockedFields";
+
+const CUSTOMERS_API = "/customers";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlFlag, useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { customerFilterFromUrl } from "../data/list-queries";
@@ -300,6 +304,7 @@ interface CustomerDraft {
   creditLimit: number;
   priceListId: string;
   taxExempt: boolean;
+  taxExemptionRateId: string;
   etaBuyerType: EtaBuyerTypeDTO;
   commercialRegistrationNumber: string;
   address: string;
@@ -323,6 +328,7 @@ const BLANK_DRAFT: CustomerDraft = {
   creditLimit: 0,
   priceListId: "",
   taxExempt: false,
+  taxExemptionRateId: "",
   etaBuyerType: "auto",
   commercialRegistrationNumber: "",
   address: "",
@@ -347,6 +353,7 @@ function draftFromCustomer(customer: CustomerDTO): CustomerDraft {
     creditLimit: num(customer.creditLimit),
     priceListId: customer.priceListId ?? "",
     taxExempt: customer.taxExempt,
+    taxExemptionRateId: customer.taxExemptionRateId ?? "",
     etaBuyerType: customer.etaBuyerType,
     commercialRegistrationNumber: customer.commercialRegistrationNumber ?? "",
     address: customer.address ?? "",
@@ -402,6 +409,7 @@ function CustomerLogoField({
 }
 
 function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; onBack: () => void; onEdit: () => void }) {
+  const taxRates = useTaxRates().data ?? EMPTY;
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   // Credit left is the limit minus what the customer owes TODAY. Measuring it
@@ -460,6 +468,12 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
                 { label: t("customers.detail.nationalId"), value: customer.nationalId ?? t("common.none") },
                 { label: t("customers.detail.currency"), value: customer.currency },
                 { label: t("customers.detail.taxExempt"), value: customer.taxExempt ? t("customers.detail.yes") : t("customers.detail.no") },
+                ...(customer.taxExempt
+                  ? [{
+                      label: t("customers.detail.taxExemptionRate"),
+                      value: taxRates.find((rate) => rate.id === customer.taxExemptionRateId)?.name ?? t("customers.field.taxExemptionRateNone"),
+                    }]
+                  : []),
                 { label: t("customers.detail.priceList"), value: customer.priceListId ?? t("customers.detail.noPriceList") },
               ].map((row) => (
                 <div key={row.label} className="rounded-lg border border-border bg-surface p-[13px_15px]">
@@ -491,6 +505,7 @@ export function CustomersScreen() {
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const createCustomer = useCreateCustomer();
+  const locked = useLockedFields(CUSTOMERS_API);
   const updateCustomer = useUpdateCustomer();
 
   /*
@@ -520,6 +535,16 @@ export function CustomersScreen() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const priceLists = usePriceLists().data ?? EMPTY;
+  const taxRates = useTaxRates().data ?? EMPTY;
+  const exemptionRateOptions = useMemo(
+    () => [
+      { value: "", label: t("customers.field.taxExemptionRateNone") },
+      ...taxRates
+        .filter((rate) => rate.rate === 0 && rate.isSystem !== true && (rate.status === TaxRateStatusCode.Active || rate.id === draft.taxExemptionRateId))
+        .map((rate) => ({ value: rate.id, label: rate.name })),
+    ],
+    [taxRates, draft.taxExemptionRateId, t],
+  );
   const priceListOptions = useMemo<EntityPickerOption[]>(
     () => priceLists.map((pl) => ({ id: pl.id, label: pl.nameAr, sublabel: pl.code })),
     [priceLists],
@@ -629,6 +654,7 @@ export function CustomersScreen() {
       creditLimit: String(draft.creditLimit || 0),
       priceListId: draft.priceListId.trim() === "" ? null : draft.priceListId.trim(),
       taxExempt: draft.taxExempt,
+      taxExemptionRateId: draft.taxExempt && draft.taxExemptionRateId !== "" ? draft.taxExemptionRateId : null,
       etaBuyerType: draft.etaBuyerType,
       commercialRegistrationNumber:
         draft.commercialRegistrationNumber.trim() === "" ? null : draft.commercialRegistrationNumber.trim(),
@@ -638,10 +664,16 @@ export function CustomersScreen() {
     };
     try {
       if (editingId) {
-        await updateCustomer.mutateAsync({ id: editingId, patch: { ...fields, active: draft.active } });
+        const stored = customers.find((customer) => customer.id === editingId);
+        const { taxExemptionRateId, ...unchangedFields } = fields;
+        const exemptionRateChanged = !stored || (stored.taxExemptionRateId ?? null) !== taxExemptionRateId;
+        await updateCustomer.mutateAsync({
+          id: editingId,
+          patch: locked.withoutLocked({ ...unchangedFields, ...(exemptionRateChanged ? { taxExemptionRateId } : {}), active: draft.active }),
+        });
       } else {
         const code = draft.code.trim();
-        await createCustomer.mutateAsync({ id: crypto.randomUUID(), ...(code === "" ? {} : { code }), ...fields });
+        await createCustomer.mutateAsync({ id: crypto.randomUUID(), nameAr: fields.nameAr, ...(code === "" ? {} : { code }), ...locked.withoutLocked(fields) });
       }
       setPanelOpen(false);
     } catch (err) {
@@ -670,16 +702,17 @@ export function CustomersScreen() {
           value={draft.paymentTermsDays}
           onChange={(v) => setDraft((d) => ({ ...d, paymentTermsDays: v }))}
           min={0}
+          {...locked.props("paymentTermsDays")}
         />
-        <TextField label={t("customers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" />
+        <TextField label={t("customers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" {...locked.props("currency")} />
         <NumberField
           label={t("customers.field.creditLimit")}
           value={draft.creditLimit}
           onChange={(v) => setDraft((d) => ({ ...d, creditLimit: v }))}
           min={0}
-          hint={t("customers.field.creditLimitHint")}
+          {...locked.props("creditLimit", t("customers.field.creditLimitHint"))}
         />
-        <TextField label={t("customers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} />
+        <TextField label={t("customers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} {...locked.props("category")} />
         {/* An entity reference, so a picker over the real endpoint — typing a
             list name here would have stored a string no price list answers to. */}
         <div>
@@ -690,7 +723,9 @@ export function CustomersScreen() {
             options={priceListOptions}
             placeholder={t("customers.detail.noPriceList")}
             aria-label={t("customers.field.priceList")}
+            disabled={locked.isLocked("priceListId")}
           />
+          {locked.isLocked("priceListId") ? <p className="mt-[5px] text-[11.5px] text-ink-faint">{t("branchRestriction.fieldLocked")}</p> : null}
         </div>
         <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} placeholder="01xxxxxxxx" />
         <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
@@ -709,32 +744,44 @@ export function CustomersScreen() {
           </button>
           {advancedOpen ? (
             <div className="flex flex-col gap-[14px] border-t border-border p-[14px]">
-              <CustomerLogoField
-                customerId={editingId}
-                value={draft.logoAttachmentId}
-                onChange={(id) => setDraft((d) => ({ ...d, logoAttachmentId: id }))}
-              />
-              <TextField label={t("customers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" />
+              {locked.isLocked("logoAttachmentId") ? null : (
+                <CustomerLogoField
+                  customerId={editingId}
+                  value={draft.logoAttachmentId}
+                  onChange={(id) => setDraft((d) => ({ ...d, logoAttachmentId: id }))}
+                />
+              )}
+              <TextField label={t("customers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" {...locked.props("taxNumber")} />
               <TextField
                 label={t("customers.field.commercialRegistration")}
                 value={draft.commercialRegistrationNumber}
                 onChange={(v) => setDraft((d) => ({ ...d, commercialRegistrationNumber: v }))}
                 placeholder="CR-000000"
+                {...locked.props("commercialRegistrationNumber")}
               />
               <ToggleField
                 label={t("customers.field.taxExempt")}
                 checked={draft.taxExempt}
-                onChange={(v) => setDraft((d) => ({ ...d, taxExempt: v }))}
-                hint={t("customers.field.taxExemptHint")}
+                onChange={(v) => setDraft((d) => ({ ...d, taxExempt: v, taxExemptionRateId: v ? d.taxExemptionRateId : "" }))}
+                {...locked.props("taxExempt", t("customers.field.taxExemptHint"))}
               />
+              {draft.taxExempt ? (
+                <SelectField
+                  label={t("customers.field.taxExemptionRate")}
+                  value={draft.taxExemptionRateId}
+                  onChange={(v) => setDraft((d) => ({ ...d, taxExemptionRateId: v }))}
+                  options={exemptionRateOptions}
+                  hint={t("customers.field.taxExemptionRateHint")}
+                />
+              ) : null}
               <SelectField
                 label={t("customers.field.etaBuyerType")}
                 value={draft.etaBuyerType}
                 onChange={(v) => setDraft((d) => ({ ...d, etaBuyerType: v as EtaBuyerTypeDTO }))}
                 options={ETA_BUYER_TYPES.map((kind) => ({ value: kind, label: t(ETA_BUYER_TYPE_KEY[kind]) }))}
-                hint={t("customers.field.etaBuyerTypeHint")}
+                {...locked.props("etaBuyerType", t("customers.field.etaBuyerTypeHint"))}
               />
-              <TextField label={t("customers.field.nationalId")} value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} />
+              <TextField label={t("customers.field.nationalId")} value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} {...locked.props("nationalId")} />
               <TextField label={t("customers.field.contactPerson")} value={draft.contactPerson} onChange={(v) => setDraft((d) => ({ ...d, contactPerson: v }))} />
               <TextField label={t("customers.field.address")} value={draft.address} onChange={(v) => setDraft((d) => ({ ...d, address: v }))} />
               <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
@@ -742,7 +789,7 @@ export function CustomersScreen() {
           ) : null}
         </div>
 
-        {editingId ? <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} /> : null}
+        {editingId ? <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} {...locked.props("active")} /> : null}
         <div className="flex justify-end gap-[9px]">
           <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={submit}>

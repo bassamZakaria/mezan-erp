@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 import { costingMethodSchema, settableCostingMethodSchema } from "./items.js";
 
 /**
@@ -27,7 +28,7 @@ export const productTemplateSchema = z.object({
   categoryId: z.string().nullable(),
   brandId: z.string().nullable(),
   costingMethod: costingMethodSchema,
-  defaultSalePrice: z.string().nullable(),
+  defaultSalePrice: moneyString.nullable(),
   defaultCost: z.string().nullable(),
   taxRatePercent: z.number(),
   attributes: z.array(productTemplateAttributeSchema),
@@ -42,7 +43,7 @@ export const createProductTemplateSchema = z.object({
   categoryId: z.string().nullable().optional(),
   brandId: z.string().nullable().optional(),
   costingMethod: settableCostingMethodSchema.optional(),
-  defaultSalePrice: z.string().nullable().optional(),
+  defaultSalePrice: moneyString.nullable().optional(),
   defaultCost: z.string().nullable().optional(),
   taxRatePercent: z.number().optional(),
 });

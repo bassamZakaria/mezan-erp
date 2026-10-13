@@ -1,3 +1,4 @@
+import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AuditQueryDTO,
@@ -121,7 +122,7 @@ export function useAuditLog(filter: AuditQueryDTO = {}): UseQueryResult<AuditQue
   const { request, session } = useApi();
   return useQuery<AuditQueryResponseDTO, ApiError>({
     queryKey: ["audit", filter],
-    enabled: session !== null,
+    enabled: sessionMayRead(session, DocumentReadPermission.AuditLog),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filter.stream) params.set("stream", filter.stream);

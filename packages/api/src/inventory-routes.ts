@@ -36,7 +36,9 @@ import {
   postedTransferListQuerySchema,
   itemStockSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, sessionWarehouseScopeOf, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { StockAdjustmentAlreadyReversedError, StockAdjustmentNotFoundError, type AuditSink } from "@mezan/domain";
 
@@ -144,6 +146,7 @@ function serializePostedTransfer(t: PostedTransfer) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof StockAdjustmentNotFoundError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
@@ -183,7 +186,7 @@ function handleDomainError(c: Context, err: unknown) {
  * caller passes everything.
  */
 function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Response | undefined {
-  const scope = warehouseScopeOf(c);
+  const scope = sessionWarehouseScopeOf(c);
   if (!scope) return undefined;
   const offending = warehouseIds.find((id) => !scope.includes(id));
   if (offending === undefined) return undefined;

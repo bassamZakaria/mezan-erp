@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import type { ItemDTO, LandedCostDocumentDTO, PurchaseInvoiceDTO, WarehouseDTO } from "@mezan/contracts";
 import { LandedCostsScreen } from "./LandedCostsScreen";
-import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { TestNavigation, renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
 const warehouses: WarehouseDTO[] = [{ id: "MAIN-WH", code: "MAIN-WH", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true, projectId: null, custodianUserId: null }];
 
@@ -31,7 +31,7 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
     notes: null,
     receiptId: null,
     projectId: null,
-    lines: [{ itemId: "item-cement", description: null, kind: "inventory", qty: "20.000000", unitCost: "85.000000", taxRatePercent: 14, batchNo: null, expiryDate: null }],
+    lines: [{ itemId: "item-cement", description: null, kind: "inventory", qty: "20.000000", unitCost: "85.000000", taxRatePercent: 14, taxRateId: null, batchNo: null, expiryDate: null }],
     status: "confirmed",
     subtotal: "1700.000000",
     tax: "238.000000",
@@ -82,14 +82,14 @@ function baseHandlers(docs: LandedCostDocumentDTO[]) {
 describe("LandedCostsScreen", () => {
   it("shows the empty state when there are no landed cost documents", async () => {
     const transport = stubTransport(baseHandlers([]));
-    renderWithProviders(<LandedCostsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><LandedCostsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     expect(screen.getByRole("heading", { name: "التكاليف الإضافية" })).toBeInTheDocument();
     expect(await screen.findByText("أنشئ مستند تكلفة لتوزيع التكاليف الإضافية على المشتريات")).toBeInTheDocument();
   });
 
   it("lists landed cost documents from the real API", async () => {
     const transport = stubTransport(baseHandlers([landedCost()]));
-    renderWithProviders(<LandedCostsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><LandedCostsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     expect(await screen.findByText("LC-000001")).toBeInTheDocument();
     // "حسب القيمة" also labels an option in the (always-mounted, closed) create panel's select, so assert presence via getAllByText rather than a single unique match.
     expect((await screen.findAllByText("حسب القيمة")).length).toBeGreaterThan(0);
@@ -107,7 +107,7 @@ describe("LandedCostsScreen", () => {
         return { status: 201, body: created };
       },
     });
-    renderWithProviders(<LandedCostsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><LandedCostsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     await screen.findByText("أنشئ مستند تكلفة لتوزيع التكاليف الإضافية على المشتريات");
     fireEvent.click(screen.getAllByRole("button", { name: "مستند تكلفة جديد" })[0]!);
     const dialog = screen.getByRole("dialog", { name: "مستند تكلفة إضافية جديد" });
@@ -135,7 +135,7 @@ describe("LandedCostsScreen", () => {
         return { status: 201, body: { original: current[0], reversal: { ...current[0], id: "lc-1-rev", reversesDocId: "lc-1" } } };
       },
     });
-    renderWithProviders(<LandedCostsScreen />, { transport, initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><LandedCostsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
     fireEvent.click(await screen.findByText("LC-000001"));
     const dialog = screen.getByRole("dialog", { name: "LC-000001" });
     fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد التوزيع" }));
@@ -149,16 +149,64 @@ describe("LandedCostsScreen", () => {
   });
 });
 
+const VOID_LABEL = "إلغاء المستند";
+const rowMenuOf = (docNo: string) => new RegExp(`^(?!.*(عُكس|يعكس)).*${docNo}`);
+
 describe("LandedCostsScreen — a reversed landed cost and its reversal point at each other", () => {
   it("names the other document by its number on both rows and opens it from the link", async () => {
     const original = landedCost({ id: "lc-1", docNo: "LC-000001", status: "reversed", reversedByDocId: "lc-1-rev" });
     const mirror = landedCost({ id: "lc-1-rev", docNo: "LC-000002", status: "confirmed", reversesDocId: "lc-1" });
-    renderWithProviders(<LandedCostsScreen />, { transport: stubTransport(baseHandlers([original, mirror])), initialSession: testAdminSession });
+    renderWithProviders(<TestNavigation><LandedCostsScreen /></TestNavigation>, { transport: stubTransport(baseHandlers([original, mirror])), initialSession: testAdminSession });
 
     fireEvent.click(await screen.findByRole("button", { name: "عُكس بالمستند LC-000002" }));
     const panel = await screen.findByRole("dialog", { name: "LC-000002" });
     fireEvent.click(within(panel).getByRole("button", { name: "يعكس المستند LC-000001" }));
     const back = await screen.findByRole("dialog", { name: "LC-000001" });
     expect(within(back).getByRole("button", { name: "عُكس بالمستند LC-000002" })).toBeInTheDocument();
+  });
+
+  it("offers no reversal on the document that is itself a reversal — neither in its row menu nor on its panel", async () => {
+    const original = landedCost({ id: "lc-1", docNo: "LC-000001", status: "reversed", reversedByDocId: "lc-1-rev" });
+    const mirror = landedCost({ id: "lc-1-rev", docNo: "LC-000002", status: "confirmed", reversesDocId: "lc-1" });
+    const live = landedCost({ id: "lc-2", docNo: "LC-000003", status: "confirmed" });
+    renderWithProviders(<TestNavigation><LandedCostsScreen /></TestNavigation>, { transport: stubTransport(baseHandlers([original, mirror, live])), initialSession: testAdminSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: rowMenuOf("LC-000003") }));
+    expect(await screen.findByRole("menuitem", { name: VOID_LABEL })).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    fireEvent.click(screen.getByRole("button", { name: rowMenuOf("LC-000002") }));
+    await screen.findByRole("menuitem", { name: "عرض" });
+    expect(screen.queryByRole("menuitem", { name: VOID_LABEL })).not.toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+
+    fireEvent.click(screen.getByRole("button", { name: "عُكس بالمستند LC-000002" }));
+    const panel = await screen.findByRole("dialog", { name: "LC-000002" });
+    expect(within(panel).queryByRole("button", { name: VOID_LABEL })).not.toBeInTheDocument();
+  });
+});
+
+describe("LandedCostsScreen — a held document whose approval no longer stands", () => {
+  it("says why in Arabic and asks for approval again through the document's own confirm", async () => {
+    let standing = "reapproval_required";
+    let confirms = 0;
+    const held = landedCost({ id: "held-1", docNo: "HELD-0001", status: "pending", workflowRequestId: "held-1:confirm" });
+    const transport = stubTransport({
+      ...baseHandlers([]),
+      "GET /landed-costs": () => ({ body: [held] }),
+      "GET /workflow/requests/*/standing": () => ({ body: { id: "held-1:confirm", status: standing, reason: standing === "reapproval_required" ? "الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد." : null, reasonEn: null } }),
+      "POST /landed-costs/held-1/confirm": () => {
+        confirms += 1;
+        standing = "pending";
+        return { body: held };
+      },
+    });
+    renderWithProviders(<TestNavigation><LandedCostsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    fireEvent.click(await screen.findByText("HELD-0001"));
+    const notice = await screen.findByTestId("reapproval-notice");
+    expect(notice).toHaveTextContent("الموافقة السابقة لم تعد صالحة للترحيل. اطلب الموافقة من جديد.");
+    fireEvent.click(within(notice).getByRole("button", { name: "طلب الموافقة من جديد" }));
+    await waitFor(() => expect(confirms).toBe(1));
+    await waitFor(() => expect(screen.queryByTestId("reapproval-notice")).not.toBeInTheDocument());
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { clientSuppliedId } from "@mezan/contracts";
-import { DuplicateJournalEntryError, isReservedJournalEntryId } from "@mezan/domain";
+import { DuplicateRecordIdError, isReservedJournalEntryId } from "@mezan/domain";
 import { FxSide, openFxBooks, type FxBooks } from "./test-helpers/fx-books.js";
 import { INVARIANTS_ZERO } from "./test-helpers/seeded-world.js";
 
@@ -71,7 +71,6 @@ describe("a stock adjustment's id cannot name another document's system entry", 
 
   it.each([
     ["/inventory/transfers", { transferId: "TR:1", fromWarehouseId: "WH-MAIN", toWarehouseId: "WH-MAIN", occurredAt: "2026-09-06", lines: [{ itemId: "STK-1", qty: "1" }] }],
-    ["/landed-costs/lc-none/reverse", { reversalId: "lc-none:UNABSORBED", date: "2026-09-06" }],
   ])("%s refuses an id in the system's namespace", async (url, body) => {
     books = await openFxBooks();
     const res = await books.world.request("POST", url, body);
@@ -85,11 +84,11 @@ describe("an entry id that is already taken is an Arabic conflict, never a 500",
     await books.invoice(FxSide.Receivable);
     books.world.sqlite.prepare("INSERT INTO journal_entry (id, entry_no, date, memo, status, source, created_at) VALUES ('inv-usd:void', NULL, '2026-09-05', 'قيد قديم', 'draft', 'system', '2026-09-05T00:00:00.000Z')").run();
 
-    const res = await books.world.request("POST", "/sales-invoices/inv-usd/void", {});
+    const res = await books.world.request("POST", "/sales-invoices/inv-usd/void", { reason: "خطأ في الفاتورة" });
 
-    expect(`${res.status} ${String(res.body.error)}`).toBe(`409 ${new DuplicateJournalEntryError("x").code}`);
+    expect(`${res.status} ${String(res.body.error)}`).toBe(`409 ${new DuplicateRecordIdError("x").code}`);
     expect(String(res.body.message)).toMatch(ARABIC);
-    expect(String(res.body.messageEn)).toMatch(/already exists/i);
+    expect(String(res.body.messageEn)).toMatch(/already belongs to an existing record/i);
     expect((await books.world.request("GET", "/sales-invoices/inv-usd")).body.status).toBe("confirmed");
   });
 });

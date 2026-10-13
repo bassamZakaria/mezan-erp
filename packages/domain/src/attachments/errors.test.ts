@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { AttachmentNotFoundError, DuplicateAttachmentIdError, InvalidAttachmentError } from "./errors.js";
+import { AttachmentNotFoundError, InvalidAttachmentError } from "./errors.js";
 
 describe("AttachmentNotFoundError", () => {
   it("carries the id in its message", () => {
@@ -8,15 +8,6 @@ describe("AttachmentNotFoundError", () => {
     expect(err.name).toBe("AttachmentNotFoundError");
     expect(err.message).toBe("المرفق 'att-1' غير موجود.");
     expect(err.messageEn).toBe("Attachment 'att-1' was not found.");
-  });
-});
-
-describe("DuplicateAttachmentIdError", () => {
-  it("carries the id in its message", () => {
-    const err = new DuplicateAttachmentIdError("att-1");
-    expect(err.code).toBe("DUPLICATE_ATTACHMENT_ID");
-    expect(err.message).toBe("المرفق 'att-1' موجود بالفعل.");
-    expect(err.messageEn).toBe("Attachment 'att-1' already exists.");
   });
 });
 

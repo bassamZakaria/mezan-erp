@@ -1,12 +1,12 @@
 import type { Entitlements } from "../entitlements/entitlements.js";
 import { dedupeModules, isFreePlan, type Plan } from "./plan.js";
 import { liveTrialModules, type ModuleTrial } from "./module-trial.js";
-import { addDays, type Subscription } from "./subscription.js";
-import type { Tenant } from "./tenant.js";
+import { addDays, SubscriptionStatusKind, type Subscription } from "./subscription.js";
+import { TenantStatusCode, type Tenant } from "./tenant.js";
 import { isoTimestamp } from "./validation.js";
 
 export function subscriptionExpiresAt(s: Subscription): string {
-  return s.status === "trialing" && s.trialEndsAt ? s.trialEndsAt : s.currentPeriodEnd;
+  return s.status === SubscriptionStatusKind.Trialing && s.trialEndsAt ? s.trialEndsAt : s.currentPeriodEnd;
 }
 
 export interface DeriveEntitlementsContext {
@@ -28,7 +28,7 @@ export function deriveEntitlements(plan: Plan, subscription: Subscription, conte
     planNameAr: plan.nameAr,
     planNameEn: plan.nameEn,
     planKind: plan.kind,
-    trialEndsAt: subscription.status === "trialing" ? subscription.trialEndsAt : null,
+    trialEndsAt: subscription.status === SubscriptionStatusKind.Trialing ? subscription.trialEndsAt : null,
     activeModules,
     readOnlyModules,
     features: { ...plan.features },
@@ -43,17 +43,29 @@ export function deriveEntitlements(plan: Plan, subscription: Subscription, conte
   };
 }
 
-export type SubscriptionLicenseStateName = "ACTIVE" | "GRACE" | "READ_ONLY" | "INVALID" | "UNLICENSED";
+export enum LicenseStateName {
+  Active = "ACTIVE",
+  Grace = "GRACE",
+  ReadOnly = "READ_ONLY",
+  Invalid = "INVALID",
+  Unlicensed = "UNLICENSED",
+}
+export type SubscriptionLicenseStateName = `${LicenseStateName}`;
 
-export type SubscriptionLicenseReason =
-  | "TENANT_ARCHIVED"
-  | "NO_SUBSCRIPTION"
-  | "TENANT_SUSPENDED"
-  | "SUBSCRIPTION_CANCELLED"
-  | "SUBSCRIPTION_SUSPENDED"
-  | "TRIAL_ENDED"
-  | "GRACE_ENDED"
-  | "INVALID_CLOCK";
+export enum LicenseReasonCode {
+  TenantArchived = "TENANT_ARCHIVED",
+  NoSubscription = "NO_SUBSCRIPTION",
+  TenantSuspended = "TENANT_SUSPENDED",
+  SubscriptionCancelled = "SUBSCRIPTION_CANCELLED",
+  SubscriptionSuspended = "SUBSCRIPTION_SUSPENDED",
+  TrialEnded = "TRIAL_ENDED",
+  GraceEnded = "GRACE_ENDED",
+  InvalidClock = "INVALID_CLOCK",
+  StatusUnknown = "STATUS_UNKNOWN",
+}
+export type SubscriptionLicenseReason = `${LicenseReasonCode}`;
+
+export const STATUS_UNKNOWN_MESSAGE_AR = "حالة الاشتراك غير معروفة — تواصل مع الدعم";
 
 export interface SubscriptionLicenseState {
   readonly state: SubscriptionLicenseStateName;
@@ -63,6 +75,20 @@ export interface SubscriptionLicenseState {
   readonly expiresAt?: string;
   readonly graceEndsAt?: string;
   readonly reason?: SubscriptionLicenseReason;
+  readonly messageAr?: string;
+}
+
+const TENANT_STATUSES: readonly string[] = Object.values(TenantStatusCode);
+const SUBSCRIPTION_STATUSES: readonly string[] = Object.values(SubscriptionStatusKind);
+const WRITABLE_TENANT_STATUSES: readonly string[] = [TenantStatusCode.Active];
+const WRITABLE_SUBSCRIPTION_STATUSES: readonly string[] = [
+  SubscriptionStatusKind.Trialing,
+  SubscriptionStatusKind.Active,
+  SubscriptionStatusKind.PastDue,
+];
+
+export function tenantIsServed(tenant: Pick<Tenant, "status"> | null): boolean {
+  return tenant !== null && tenant.status !== TenantStatusCode.Archived && tenant.status !== TenantStatusCode.Provisioning;
 }
 
 export function subscriptionLicenseState(
@@ -72,45 +98,56 @@ export function subscriptionLicenseState(
   plan?: Pick<Plan, "kind"> | null,
 ): SubscriptionLicenseState {
   const licensee = tenant.nameAr;
+  const readOnly = (reason: LicenseReasonCode, expiresAt?: string): SubscriptionLicenseState => ({
+    state: LicenseStateName.ReadOnly,
+    canWrite: false,
+    usable: true,
+    licensee,
+    ...(expiresAt === undefined ? {} : { expiresAt }),
+    reason,
+    ...(reason === LicenseReasonCode.StatusUnknown ? { messageAr: STATUS_UNKNOWN_MESSAGE_AR } : {}),
+  });
   const at = isoTimestamp(now);
   if (at === null) {
-    return { state: "INVALID", canWrite: false, usable: true, licensee, reason: "INVALID_CLOCK" };
+    return { state: LicenseStateName.Invalid, canWrite: false, usable: true, licensee, reason: LicenseReasonCode.InvalidClock };
   }
-  if (tenant.status === "archived") {
-    return { state: "INVALID", canWrite: false, usable: false, licensee, reason: "TENANT_ARCHIVED" };
+  if (tenant.status === TenantStatusCode.Archived) {
+    return { state: LicenseStateName.Invalid, canWrite: false, usable: false, licensee, reason: LicenseReasonCode.TenantArchived };
   }
-  if (tenant.status === "provisioning" || !subscription) {
-    return { state: "UNLICENSED", canWrite: false, usable: true, licensee, reason: "NO_SUBSCRIPTION" };
+  if (!TENANT_STATUSES.includes(tenant.status)) return readOnly(LicenseReasonCode.StatusUnknown);
+  if (tenant.status === TenantStatusCode.Provisioning || !subscription) {
+    return { state: LicenseStateName.Unlicensed, canWrite: false, usable: true, licensee, reason: LicenseReasonCode.NoSubscription };
   }
+  if (!SUBSCRIPTION_STATUSES.includes(subscription.status)) return readOnly(LicenseReasonCode.StatusUnknown);
   const expiresAt = subscriptionExpiresAt(subscription);
-  if (tenant.status === "suspended") {
-    return { state: "READ_ONLY", canWrite: false, usable: true, licensee, expiresAt, reason: "TENANT_SUSPENDED" };
-  }
-  if (subscription.status === "cancelled") {
-    return { state: "READ_ONLY", canWrite: false, usable: true, licensee, expiresAt, reason: "SUBSCRIPTION_CANCELLED" };
-  }
-  if (subscription.status === "suspended") {
-    return { state: "READ_ONLY", canWrite: false, usable: true, licensee, expiresAt, reason: "SUBSCRIPTION_SUSPENDED" };
+  if (tenant.status === TenantStatusCode.Suspended) return readOnly(LicenseReasonCode.TenantSuspended, expiresAt);
+  if (subscription.status === SubscriptionStatusKind.Cancelled) return readOnly(LicenseReasonCode.SubscriptionCancelled, expiresAt);
+  if (subscription.status === SubscriptionStatusKind.Suspended) return readOnly(LicenseReasonCode.SubscriptionSuspended, expiresAt);
+  // SECURITY: writing is granted only from here on, and only to the statuses
+  // named in the two WRITABLE lists. A status added to either enum later is
+  // read-only until it is added to its list on purpose.
+  if (!WRITABLE_TENANT_STATUSES.includes(tenant.status) || !WRITABLE_SUBSCRIPTION_STATUSES.includes(subscription.status)) {
+    return readOnly(LicenseReasonCode.StatusUnknown, expiresAt);
   }
   // A free plan never lapses: no period end, no grace, no read-only. Checked
   // before every date comparison below, which is the whole point of DEC-31 —
   // the tenant's own books must never be held behind a renewal.
   if (plan && isFreePlan(plan)) {
-    return { state: "ACTIVE", canWrite: true, usable: true, licensee };
+    return { state: LicenseStateName.Active, canWrite: true, usable: true, licensee };
   }
-  if (subscription.status === "trialing") {
+  if (subscription.status === SubscriptionStatusKind.Trialing) {
     // Reached only when the deployment has no active free plan to land on;
     // `effectiveSubscription` has already moved every other lapsed trial.
     return at < expiresAt
-      ? { state: "ACTIVE", canWrite: true, usable: true, licensee, expiresAt }
-      : { state: "READ_ONLY", canWrite: false, usable: true, licensee, expiresAt, reason: "TRIAL_ENDED" };
+      ? { state: LicenseStateName.Active, canWrite: true, usable: true, licensee, expiresAt }
+      : readOnly(LicenseReasonCode.TrialEnded, expiresAt);
   }
   if (at < subscription.currentPeriodEnd) {
-    return { state: "ACTIVE", canWrite: true, usable: true, licensee, expiresAt };
+    return { state: LicenseStateName.Active, canWrite: true, usable: true, licensee, expiresAt };
   }
   const graceEndsAt = addDays(subscription.currentPeriodEnd, subscription.graceDays);
   if (at < graceEndsAt) {
-    return { state: "GRACE", canWrite: true, usable: true, licensee, expiresAt, graceEndsAt };
+    return { state: LicenseStateName.Grace, canWrite: true, usable: true, licensee, expiresAt, graceEndsAt };
   }
-  return { state: "READ_ONLY", canWrite: false, usable: true, licensee, expiresAt, reason: "GRACE_ENDED" };
+  return readOnly(LicenseReasonCode.GraceEnded, expiresAt);
 }

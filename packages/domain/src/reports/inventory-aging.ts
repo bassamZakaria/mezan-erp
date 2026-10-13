@@ -7,6 +7,7 @@ import { layerRemainingValue } from "../inventory/cost-layer.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows, maxOf, percentOf } from "./kpi.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * أعمار المخزون — Inventory Aging (docs/archive/catalog/08-reports.md): the age of
@@ -80,7 +81,7 @@ export function createInventoryAgingReport(today: string): ReportDefinition<
     defaultParams: { bucket: "", search: "", warehouseId: "", branchId: "" },
     paramFields: [
       {
-        kind: "select",
+        kind: ReportParamKind.Select,
         key: "bucket",
         label: "الشريحة العمرية",
         options: [
@@ -92,8 +93,8 @@ export function createInventoryAgingReport(today: string): ReportDefinition<
           { value: "over365", label: AGE_BUCKET_LABELS.over365 },
         ],
       },
-      { kind: "text", key: "search", label: "بحث", placeholder: "اسم الصنف أو الكود" },
-      { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      { kind: ReportParamKind.Text, key: "search", label: "بحث", placeholder: "اسم الصنف أو الكود" },
+      { kind: ReportParamKind.Text, key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.key,

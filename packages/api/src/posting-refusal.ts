@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { CLIENT_SUPPLIED_ID_REFUSAL_CODE, CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE, CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE_EN } from "@mezan/contracts";
-import { DuplicateJournalEntryError, earliestOpenDayFrom, type FiscalPeriodRepository, type FiscalPeriodStatus, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, PostingBeforeRevaluationError, ReservedJournalEntryIdError, StockMovementBeforeRevaluationError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
+import { AllocationExceedsError, DocumentChangedError, InvalidJournalEntryError, UnbalancedEntryError, earliestOpenDayFrom, type FiscalPeriodRepository, type FiscalPeriodStatus, NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, PostingBeforeRevaluationError, ReservedJournalEntryIdError, StockMovementBeforeRevaluationError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
 
 type ReversalDayEnv = { Variables: { listFiscalPeriods?: () => Promise<readonly { status: FiscalPeriodStatus; startDate: string; endDate: string }[]>; reversalEarliestOpenDay?: string | null } };
 
@@ -38,6 +38,9 @@ export function clientSuppliedIdRefusalMiddleware(): MiddlewareHandler {
 }
 
 
+const ALLOCATION_EXCEEDS_EN = "The amount is more than what is still open on the invoice or unallocated on the voucher.";
+
+/** INVARIANT: the ONE mapping of the refusals any posting route can meet; no route maps a filed VAT month, a moved document or an over-allocation for itself, and the app's last net asks here too (`posting-refusal.structure.test.ts`). */
 export function postingRefusalResponse(c: Context, err: unknown): Response | null {
   if ((err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) && err.earliestOpenDate === null) {
     err.earliestOpenDate = (c as unknown as Context<ReversalDayEnv>).get("reversalEarliestOpenDay") ?? null;
@@ -51,6 +54,12 @@ export function postingRefusalResponse(c: Context, err: unknown): Response | nul
   if (err instanceof VatPeriodAlreadyFiledError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, filingId: err.filingId, date: err.date }, 422);
   }
+  if (err instanceof DocumentChangedError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  }
+  if (err instanceof AllocationExceedsError) {
+    return c.json({ error: err.code, message: err.message, messageEn: ALLOCATION_EXCEEDS_EN }, 422);
+  }
   if (err instanceof StockMovementBeforeRevaluationError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, earliestAllowedDate: err.earliestAllowedDate }, 422);
   }
@@ -60,11 +69,19 @@ export function postingRefusalResponse(c: Context, err: unknown): Response | nul
   if (err instanceof ReservedJournalEntryIdError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
-  if (err instanceof DuplicateJournalEntryError) {
-    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
-  }
   if (err instanceof StockPlanDateRequiredError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  }
+  return null;
+}
+
+/** INVARIANT: asked only by the app's last net. A route that maps a journal refusal keeps its own status; one that maps none still answers the user in Arabic rather than a 500. */
+export function journalRefusalResponse(c: Context, err: unknown): Response | null {
+  if (err instanceof InvalidJournalEntryError) {
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 422);
+  }
+  if (err instanceof UnbalancedEntryError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, totalDebit: err.totalDebit.toString(), totalCredit: err.totalCredit.toString() }, 422);
   }
   return null;
 }

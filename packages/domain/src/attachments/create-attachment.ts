@@ -1,5 +1,5 @@
 import { isAttachmentEntityType, type Attachment, type AttachmentEntityType, type AttachmentRepository } from "./attachment.js";
-import { DuplicateAttachmentIdError, InvalidAttachmentError } from "./errors.js";
+import { InvalidAttachmentError } from "./errors.js";
 
 /** 5 MiB. The store keeps bytes in the SQLite file, which the desktop backup copies whole. */
 export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024;
@@ -55,7 +55,6 @@ export async function createAttachment(
   if (reasons.length > 0) throw new InvalidAttachmentError(reasons);
 
   const id = command.id?.trim() || `ATT-${now().getTime().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-  if (await repo.findById(id)) throw new DuplicateAttachmentIdError(id);
 
   const attachment: Attachment = {
     id,

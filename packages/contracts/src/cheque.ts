@@ -90,7 +90,10 @@ export const depositChequeSchema = z.object({
 });
 
 export const collectChequeSchema = z.object({
+  /** Derived from the bank the cheque was deposited at; a request that states it must state that bank's own. */
   bankGlAccountId: z.string().min(1).optional(),
+  /** Only when the cheque has no usable bank account on record: the active bank account it is collected into. */
+  bankTreasuryAccountId: z.string().min(1).optional(),
   date: isoDateOrInstant.optional(),
 });
 

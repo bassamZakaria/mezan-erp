@@ -39,6 +39,22 @@ export interface LedgerRepository {
    * lines as fact. Callers MUST verify `status === "draft"` first (D226).
    */
   deleteDraft(entryId: string): Promise<void>;
+  /**
+   * INVARIANT: the ONE write a posted line ever takes, and it is not a
+   * correction of the books — no account, amount, date or status moves. It
+   * names the tax rate on the lines of `entryId` that carry `taxRatePercent`
+   * and NO rate id, and returns how many it named. A line that already names
+   * a rate is never touched, so a rate cannot be swapped for another.
+   */
+  retagUnnamedTaxRate?(entryId: string, taxRatePercent: number, taxRateId: string): Promise<number>;
+  /**
+   * INVARIANT: the same write, addressed by position, for lines that carry NO
+   * rate id and either no percent or this one — an entry posted before lines
+   * carried a tax tag. It sets percent and rate on exactly the lines at
+   * `lineIndexes` (their order in the entry) and returns how many it named; a
+   * line already naming a rate is left alone.
+   */
+  tagJournalLines?(entryId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number>;
   findById(id: string): Promise<JournalEntry | null>;
   findByEntryNo(entryNo: string): Promise<JournalEntry | null>;
   entryDates?(ids: readonly string[]): Promise<ReadonlyMap<string, string>>;
@@ -47,6 +63,12 @@ export interface LedgerRepository {
   count?(filter?: JournalListFilter): Promise<number>;
   /** Net debit/credit for one account, counting posted+reversed lines dated on/before `asOfDate` (inclusive). */
   accountBalance(accountId: string, asOfDate?: string): Promise<AccountBalance>;
+  /**
+   * LEDGER INVARIANT: what one treasury account holds on a ledger account —
+   * the lines stamped with it, plus (`withUnattributed`) the lines on that
+   * account no treasury account is stamped on. Optional on the port.
+   */
+  treasuryAccountBalance?(query: TreasuryBalanceQuery): Promise<Money>;
   /** The individual posted movements for one account, oldest-first, dated on/before `asOfDate`. */
   accountLedger(accountId: string, asOfDate?: string): Promise<readonly AccountLedgerLine[]>;
   /**
@@ -75,6 +97,13 @@ export interface LedgerRepository {
   sumLines?(filter?: LedgerAggregateFilter): Promise<{ readonly debit: Money; readonly credit: Money }>;
   /** Run `fn` inside one atomic transaction (BEGIN IMMEDIATE on SQLite). */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+export interface TreasuryBalanceQuery {
+  readonly accountId: string;
+  readonly treasuryAccountId: string;
+  readonly withUnattributed: boolean;
+  readonly asOfDate?: string;
 }
 
 /** Filter for the SQL-side aggregates {@link LedgerRepository.accountBalances} / {@link LedgerRepository.sumLines}. */

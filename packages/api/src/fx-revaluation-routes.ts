@@ -39,6 +39,8 @@ import {
 import { ReversalPermission, fxRevaluationRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { tenantDay } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 import { readReversalRequest, recordDocumentReversal, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 
 export interface FxRevaluationRoutesDeps {
@@ -97,6 +99,7 @@ function serializeResult(computed: FxRevaluationResult, date: string, autoRevers
 }
 
 function handleError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const reversalRefusal = reversalRefusalResponse(c, err);
   if (reversalRefusal) return reversalRefusal;
   if (err instanceof FxRateMissingError) {

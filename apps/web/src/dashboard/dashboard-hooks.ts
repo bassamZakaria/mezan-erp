@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useMemo } from "react";
 import { entityName } from "../lib/entity-names";
 import { useAppTranslation } from "../i18n";
@@ -9,10 +11,10 @@ import type {
   TopProductsRow,
   VatReturnRow,
 } from "@mezan/domain";
-import { Money, vatNetPayable } from "@mezan/domain";
+import { DashboardRequest, Money, vatNetPayable } from "@mezan/domain";
 import { useFinancialReport, type FinancialReportResult } from "../data/financial-reports-hooks";
 import { useReport, type ReportResult } from "../data/reports-hooks";
-import { useSalesInvoices } from "../data/hooks";
+import { useDashboardGate, useSalesInvoices } from "../data/hooks";
 import type { ApiError, SalesInvoiceDTO } from "../data/hooks";
 import type { UseQueryResult } from "@tanstack/react-query";
 
@@ -63,39 +65,49 @@ export function previousReportWindow(range: DashboardRangeValue, now = new Date(
 export function useIncomeStatement(
   window: ReportWindow | null,
 ): UseQueryResult<FinancialReportResult<IncomeStatementRow>, ApiError> {
+  const mayAsk = useDashboardGate();
   return useFinancialReport<IncomeStatementRow>(
     "dashboard-income-statement",
     "/income-statement",
     { periodFrom: window?.from ?? "", periodTo: window?.to ?? "" },
-    { enabled: window !== null },
+    { enabled: window !== null && mayAsk(DashboardRequest.IncomeStatement) },
   );
 }
 
 export function useVatReturn(window: ReportWindow): UseQueryResult<FinancialReportResult<VatReturnRow>, ApiError> {
-  return useFinancialReport<VatReturnRow>("dashboard-vat-return", "/vat-return", {
-    periodFrom: window.from,
-    periodTo: window.to,
-  });
+  const gate = useBranchGate();
+  const mayAsk = useDashboardGate();
+  return useFinancialReport<VatReturnRow>(
+    "dashboard-vat-return",
+    "/vat-return",
+    { periodFrom: window.from, periodTo: window.to },
+    { enabled: gate.allows(BranchGatedAction.VatReturn) && mayAsk(DashboardRequest.VatReturn) },
+  );
 }
 
 export function useCustomerAging(): UseQueryResult<ReportResult<AgingCustomersRow>, ApiError> {
-  return useReport<AgingCustomersRow>("dashboard-aging-customers", "/aging/customers", {});
+  const mayAsk = useDashboardGate();
+  return useReport<AgingCustomersRow>("dashboard-aging-customers", "/aging/customers", {}, { enabled: mayAsk(DashboardRequest.CustomerAging) });
 }
 
 export function useSupplierAging(): UseQueryResult<ReportResult<AgingSuppliersRow>, ApiError> {
-  return useReport<AgingSuppliersRow>("dashboard-aging-suppliers", "/aging/suppliers", {});
+  const mayAsk = useDashboardGate();
+  return useReport<AgingSuppliersRow>("dashboard-aging-suppliers", "/aging/suppliers", {}, { enabled: mayAsk(DashboardRequest.SupplierAging) });
 }
 
 export function useStockLevels(): UseQueryResult<ReportResult<InventoryStockLevelsRow>, ApiError> {
-  return useReport<InventoryStockLevelsRow>("dashboard-stock-levels", "/inventory/stock-levels", {});
+  const mayAsk = useDashboardGate();
+  return useReport<InventoryStockLevelsRow>("dashboard-stock-levels", "/inventory/stock-levels", {}, { enabled: mayAsk(DashboardRequest.StockLevels) });
 }
 
 export function useTopProducts(window: ReportWindow): UseQueryResult<ReportResult<TopProductsRow>, ApiError> {
-  return useReport<TopProductsRow>("dashboard-top-products", "/sales/top-products", {
-    dateFrom: window.from,
-    dateTo: window.to,
-    limit: "5",
-  });
+  const mayAsk = useDashboardGate();
+  return useReport<TopProductsRow>(
+    "dashboard-top-products",
+    "/sales/top-products",
+    { dateFrom: window.from, dateTo: window.to, limit: "5" },
+    { enabled: mayAsk(DashboardRequest.TopProducts) },
+  );
 }
 
 export interface ExpenseSlice {
@@ -179,7 +191,8 @@ function outstanding(invoice: SalesInvoiceDTO): number {
  */
 export function useAttentionData(window: ReportWindow, today = new Date()): AttentionData {
   const { locale } = useAppTranslation();
-  const invoices = useSalesInvoices();
+  const mayAsk = useDashboardGate();
+  const invoices = useSalesInvoices({}, { enabled: mayAsk(DashboardRequest.SalesInvoices) });
   const vat = useVatReturn(window);
   const stock = useStockLevels();
   const suppliers = useSupplierAging();

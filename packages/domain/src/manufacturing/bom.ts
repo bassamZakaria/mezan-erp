@@ -14,7 +14,6 @@ import { NextNumberService } from "../numbering/index.js";
 import type { ActivationStatus } from "./types.js";
 import {
   BomNotFoundError,
-  DuplicateManufacturingDocumentError,
   InvalidManufacturingDocumentError,
 } from "./errors.js";
 
@@ -185,9 +184,6 @@ function validateLines(command: CreateBomCommand): BomLine[] {
 
 async function insertBom(command: CreateBomCommand, deps: BomDeps): Promise<Bom> {
   const lines = validateLines(command);
-  if (await deps.boms.findById(command.id)) {
-    throw new DuplicateManufacturingDocumentError(command.id);
-  }
 
   // Supersede any active version for this product, and compute the next version.
   const existing = await deps.boms.listByProduct(command.productItemId);

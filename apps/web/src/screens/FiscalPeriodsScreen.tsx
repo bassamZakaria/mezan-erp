@@ -1,6 +1,9 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import {
+  RowActionOutcome,
   Button,
   Card,
   Chip,
@@ -59,6 +62,7 @@ function blockedByCloseChecks(error: unknown): boolean {
 }
 
 export function FiscalPeriodsScreen() {
+  const branchGate = useBranchGate();
   const { t } = useAppTranslation();
   const query = useFiscalPeriods();
   const nav = useNavigation();
@@ -115,8 +119,12 @@ export function FiscalPeriodsScreen() {
     try {
       await closePeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      if (blockedByCloseChecks(err)) return openCloseWorkspace(period.id);
+      if (blockedByCloseChecks(err)) {
+        openCloseWorkspace(period.id);
+        return RowActionOutcome.Refused;
+      }
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.closeFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -129,8 +137,12 @@ export function FiscalPeriodsScreen() {
     try {
       await lockPeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      if (blockedByCloseChecks(err)) return openCloseWorkspace(period.id);
+      if (blockedByCloseChecks(err)) {
+        openCloseWorkspace(period.id);
+        return RowActionOutcome.Refused;
+      }
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.lockFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -144,6 +156,7 @@ export function FiscalPeriodsScreen() {
       await reopenPeriodMutation.mutateAsync(period.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.reopenFailed", { period: `${fiscalMonthLabel(period.periodNumber, t)} ${period.year}` }));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -232,7 +245,7 @@ export function FiscalPeriodsScreen() {
         </div>
       ) : null}
 
-      <YearEndCloseCard year={selectedYear} periodsInYear={periodsInYear} />
+      {branchGate.allows(BranchGatedAction.YearEndClose) ? <YearEndCloseCard year={selectedYear} periodsInYear={periodsInYear} /> : null}
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-surface p-[14px_16px]">
@@ -287,11 +300,11 @@ export function FiscalPeriodsScreen() {
         rowAction={(p) => {
           const menuItems: RowMenuItem[] =
             p.status === "open"
-              ? [{ key: "close", label: t("fiscalPeriods.close"), disabled: pendingId === p.id, onSelect: () => void closePeriod(p) }]
+              ? [{ key: "close", label: t("fiscalPeriods.close"), disabled: pendingId === p.id, onSelect: () => closePeriod(p) }]
               : p.status === "closed"
                 ? [
-                    { key: "reopen", label: t("fiscalPeriods.reopen"), disabled: pendingId === p.id, onSelect: () => void reopenPeriod(p) },
-                    { key: "lock", label: t("fiscalPeriods.lock"), disabled: pendingId === p.id, onSelect: () => void lockPeriod(p) },
+                    { key: "reopen", label: t("fiscalPeriods.reopen"), disabled: pendingId === p.id, onSelect: () => reopenPeriod(p) },
+                    { key: "lock", label: t("fiscalPeriods.lock"), disabled: pendingId === p.id, onSelect: () => lockPeriod(p) },
                   ]
                 : [];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: `${fiscalMonthLabel(p.periodNumber, t)} ${p.year}` })} />;

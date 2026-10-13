@@ -6,6 +6,7 @@ import type { Warehouse } from "../settings/warehouse.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * بضاعة قيد التحويل — Goods in Transit (DEC-19). Stock standing in a
@@ -66,8 +67,8 @@ export function createGoodsInTransitReport(): ReportDefinition<GoodsInTransitPar
     paramsSchema,
     defaultParams: { warehouseId: "", search: "", branchId: "" },
     paramFields: [
-      { kind: "text", key: "warehouseId", label: "المستودع الوسيط", placeholder: "معرف المستودع (اتركه فارغاً لكل المستودعات الوسيطة)" },
-      { kind: "text", key: "search", label: "الصنف", placeholder: "ابحث بالاسم أو الكود" },
+      { kind: ReportParamKind.Text, key: "warehouseId", label: "المستودع الوسيط", placeholder: "معرف المستودع (اتركه فارغاً لكل المستودعات الوسيطة)" },
+      { kind: ReportParamKind.Text, key: "search", label: "الصنف", placeholder: "ابحث بالاسم أو الكود" },
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.key,

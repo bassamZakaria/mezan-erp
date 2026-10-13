@@ -418,14 +418,7 @@ async function seedCollectionFollowUps(app: App): Promise<void> {
   await step(app, "POST", "/installments/follow-ups/FUP-DEMO-3/cancel", {});
 }
 
-/**
- * One settled trip (small cash + stock variance found at settlement) and one
- * still open. `POST /field/van-trips` requires `id` in its body per
- * `openVanTripSchema` but `field-sales-routes.ts` discards it and assigns a
- * random uuid instead — a real bug in that file, out of this module's scope
- * (treasury.ts owns no other file) — so this seeder reads the real id back
- * off the response instead of assuming the id it sent.
- */
+/** One settled trip (small cash + stock variance found at settlement) and one still open. */
 async function seedFieldSales(app: App): Promise<void> {
   // The van registry (R3.13): the vehicle owns its warehouse and its till, so
   // a trip names the van and the server derives both.

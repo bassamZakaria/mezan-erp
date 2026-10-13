@@ -7,6 +7,7 @@ import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * المشتريات حسب المورد — Purchases by Supplier (docs/archive/catalog/08-reports.md):
@@ -100,7 +101,7 @@ export function createPurchasesBySupplierReport(
     descriptionAr: "على من نعتمد أكثر في مشترياتنا وما هي المستحقات المتبقية بعد السداد والمرتجعات.",
     paramsSchema,
     defaultParams: { dateFrom: defaultDateFrom, dateTo: defaultDateTo, branchId: "" },
-    paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }, BRANCH_PARAM_FIELD],
     rowKey: (row) => row.supplierId,
     columns: [
       { key: "supplierNameAr", header: "اسم المورد", format: "text", value: (row) => row.supplierNameAr, entity: { kind: "supplier", id: (row) => row.supplierId } },

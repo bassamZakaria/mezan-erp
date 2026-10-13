@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { scopeSelectionSchema } from "./roles.js";
+import { companyNameSchema } from "./company-name.js";
 
 /**
  * Real desktop login (docs/archive/plan.md — username + PIN). `POST /auth/login`
@@ -18,6 +19,8 @@ export const loginRequestSchema = z.object({
   username: z.string().min(1),
   pin: z.string().regex(/^\d{6}$/),
 });
+
+export const UNDISCLOSED_TENANT_NAME = "Mezan";
 
 /** The authenticated session — identity + effective authority. */
 export const sessionSchema = z.object({
@@ -59,6 +62,7 @@ export const bootstrapAdminRequestSchema = z.object({
   /** The first admin's email — and, from this moment on, their login. */
   email: z.string().trim().toLowerCase().email(),
   pin: z.string().regex(/^\d{6}$/),
+  companyName: companyNameSchema,
 });
 
 /** Result of the idempotent `POST /bootstrap/seed` — what the empty-DB seed created (or found). */
@@ -81,6 +85,7 @@ export const bootstrapSeedResultSchema = z.object({
    * out of a brand-new install inside ninety seconds.
    */
   claimed: z.boolean().optional(),
+  demoSeeded: z.boolean().optional(),
 });
 
 export type LoginRequestDTO = z.infer<typeof loginRequestSchema>;

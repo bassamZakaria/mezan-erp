@@ -24,7 +24,7 @@
  * the product was therefore optional for anyone holding `admin.users.edit`.
  */
 
-import { ALL_SCOPE, isTenantAdmin, type AuthContext, type ScopeSelection } from "./auth-context.js";
+import { ALL_SCOPE, isScopeRestricted, isTenantAdmin, type AuthContext, type ScopeSelection } from "./auth-context.js";
 import { resolvePermissions } from "./resolve.js";
 
 /**
@@ -78,10 +78,20 @@ export interface AccountAuthority {
  * that is the job the permission exists for.
  */
 export function targetOutranksCaller(ctx: AuthContext, target: AccountAuthority): boolean {
-  if (isTenantAdmin(ctx)) return false;
-  if (target.isCompanyAdmin) return true;
-  if (target.roleUnresolved) return true;
-  if (ungrantablePermissions(ctx, target.permissions).length > 0) return true;
+  if (!isTenantAdmin(ctx)) {
+    if (target.isCompanyAdmin) return true;
+    if (target.roleUnresolved) return true;
+    if (ungrantablePermissions(ctx, target.permissions).length > 0) return true;
+  }
+  return reachExceedsCaller(ctx, target);
+}
+
+function reachExceedsCaller(ctx: AuthContext, target: AccountAuthority): boolean {
+  if (!isScopeRestricted(ctx)) return false;
+  // SECURITY: a restricted caller is refused an account whose reach it was
+  // not told — an unknown scope is not a narrow one.
+  if (ctx.branchGrant !== ALL_SCOPE && target.branchScope === undefined) return true;
+  if (ctx.warehouseGrant !== ALL_SCOPE && target.warehouseScope === undefined) return true;
   return ungrantableScopes(ctx, target).length > 0;
 }
 
@@ -92,23 +102,21 @@ export function targetOutranksCaller(ctx: AuthContext, target: AccountAuthority)
  * WHERE is authority just as much as WHAT. Every read-narrowing in the app
  * consults `branchScope`/`warehouseScope`, so a caller who can write a wider
  * scope onto an account — their own most of all — defeats all of them at once
- * without ever touching a permission code. A caller already holding `"*"` on a
- * dimension can grant anything on it; anyone else may grant only ids they hold,
- * and may never grant `"*"`.
+ * without ever touching a permission code. A caller whose GRANT on a dimension
+ * is every id can grant anything on it; anyone else — a `"*"` administrator
+ * included — may grant only ids they hold, and may never grant `"*"`.
  */
 export function ungrantableScopes(
   ctx: AuthContext,
   requested: { readonly branchScope?: ScopeSelection; readonly warehouseScope?: ScopeSelection },
 ): string[] {
-  // A tenant admin is unscoped by definition — `can()` bypasses both scope
-  // dimensions for them — so refusing them a scope they can already act in
-  // would be a rule the rest of the system does not enforce. Without this a
-  // company admin whose own row happens to carry a narrow branch list could
-  // not grant what they themselves may already do.
-  if (isTenantAdmin(ctx)) return [];
+  // SECURITY: no bypass for `"*"`. An administrator granted one branch who
+  // could write a wider scope onto any account, its own first, would hold
+  // every branch one request later. Reads the session's GRANT, so narrowing a
+  // request with the shell's branch selector takes nothing away.
   return [
-    ...ungrantableScope("branch", ctx.branchScope, requested.branchScope),
-    ...ungrantableScope("warehouse", ctx.warehouseScope, requested.warehouseScope),
+    ...ungrantableScope("branch", ctx.branchGrant, requested.branchScope),
+    ...ungrantableScope("warehouse", ctx.warehouseGrant, requested.warehouseScope),
   ];
 }
 

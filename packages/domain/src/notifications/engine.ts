@@ -3,6 +3,7 @@ import type { DomainEvent } from "../events/event-bus.js";
 import { resolvePermissions } from "../permissions/resolve.js";
 import type { Role, RoleRepository } from "../roles/role.js";
 import type { User, UserRepository } from "../users/user.js";
+import { branchGrantCoversEvent, COMPANY_LEVEL_EVENT_PERMISSION, eventBranchIdsOf } from "./branch-audience.js";
 import { evaluateCondition } from "./condition.js";
 import { defaultNotificationBody, defaultNotificationTitle, renderTemplate } from "./template.js";
 import type {
@@ -46,12 +47,13 @@ export class NotificationRulesEngine {
 
     const payload = isPlainObject(event.payload) ? event.payload : {};
     const def = getEventDefinition(event.code);
+    const roleCache = new Map<string, Role | null>();
 
     for (const rule of rules) {
       try {
         if (!evaluateCondition(rule.condition, payload)) continue;
 
-        const recipientIds = await this.resolveRecipients(rule);
+        const recipientIds = await this.recipientsWithinBranchGrant(await this.resolveRecipients(rule), eventBranchIdsOf(payload), roleCache);
         if (recipientIds.length === 0) continue;
 
         const title = rule.titleAr ? renderTemplate(rule.titleAr, payload) : defaultNotificationTitle(def);
@@ -88,26 +90,40 @@ export class NotificationRulesEngine {
   }
 
   /** WHO a rule notifies: one explicit user, every active user in one role, or every active user (or admin) holding one permission. */
-  private async resolveRecipients(rule: NotificationRule): Promise<readonly string[]> {
+  private async resolveRecipients(rule: NotificationRule): Promise<readonly User[]> {
     if (rule.recipientType === "user") {
       const user = await this.deps.users.findById(rule.recipientValue);
-      return user && user.status === "active" ? [user.id] : [];
+      return user && user.status === "active" ? [user] : [];
     }
 
     const users = await this.deps.users.list();
     const activeUsers = users.filter((u) => u.status === "active");
 
     if (rule.recipientType === "role") {
-      return activeUsers.filter((u) => u.roleId === rule.recipientValue).map((u) => u.id);
+      return activeUsers.filter((u) => u.roleId === rule.recipientValue);
     }
 
     // recipientType === "permission"
     const roleCache = new Map<string, Role | null>();
-    const result: string[] = [];
+    const result: User[] = [];
     for (const user of activeUsers) {
-      if (await this.userHoldsPermission(user, rule.recipientValue, roleCache)) result.push(user.id);
+      if (await this.userHoldsPermission(user, rule.recipientValue, roleCache)) result.push(user);
     }
     return result;
+  }
+
+  /**
+   * SECURITY: a rule names who is told, the event names whose document it is.
+   * A recipient restricted to other branches is dropped here, whatever the
+   * rule says — including a rule that names that one user.
+   */
+  private async recipientsWithinBranchGrant(recipients: readonly User[], eventBranchIds: readonly string[], roleCache: Map<string, Role | null>): Promise<readonly string[]> {
+    const covered: string[] = [];
+    for (const user of recipients) {
+      const holdsCompanyLevel = await this.userHoldsPermission(user, COMPANY_LEVEL_EVENT_PERMISSION, roleCache);
+      if (branchGrantCoversEvent(user.branchScope, holdsCompanyLevel, eventBranchIds)) covered.push(user.id);
+    }
+    return covered;
   }
 
   private async userHoldsPermission(

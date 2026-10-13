@@ -10,10 +10,15 @@ import {
   type SalesReturnDocument,
   Qty,
   SalesInvoiceService,
+  SalesInvoiceField,
+  type TaxClassificationFilingOutcome,
+  SalesInvoiceNotDraftError,
+  SalesInvoiceLineNotFoundError,
+  SALES_TAX_RECALCULATED_NOTICE_AR,
+  DocumentChangedError,
   computeInvoiceTotals,
   InvalidSalesInvoiceError,
   SalesInvoiceNotFoundError,
-  DuplicateSalesInvoiceError,
   InvalidSalesInvoiceTransitionError,
   InvalidSalesInvoicePaymentError,
   UnbalancedEntryError,
@@ -25,7 +30,6 @@ import {
   PeriodNotOpenForPostingError,
   ReversalDateBeforeOriginalError,
   salesInvoiceVoidEntryId,
-  DuplicateJournalEntryError,
   ExpiredStockError,
   NegativeStockError,
   UncostedDeficitIssueError,
@@ -56,17 +60,30 @@ import {
   can,
   type SalesInvoicePricingDeps,
   type ContractBillingRoutingPort,
-  type SalesInvoiceTaxPolicy,
+  type SalesTaxPolicySource,
+  type TaxRateRepository,
   type UserRepository,
-  EtaReceiptedSaleVoidRefusedError,
   type EtaReceiptPaymentMethod,
+  SalesTaxRecalculationUnacknowledgedError,
+  type EtaSubmissionStatus,
+  type EtaDocumentType,
+  EtaDocumentTypeCode,
+  EtaVoidVerdict,
+  etaVoidVerdictOf,
+  InvoiceDocumentKind,
 } from "@mezan/domain";
 import {
   createSalesInvoiceSchema,
   confirmSalesInvoiceSchema,
   salesInvoicePaymentSchema,
+  voidSalesInvoiceSchema,
+  etaReceiptRetrySchema,
+  editSalesInvoiceDraftLineSchema,
   salesInvoiceListQuerySchema,
   salesInvoiceSchema,
+  classifyLineTaxSchema,
+  nameJournalLineTaxSchema,
+  lineTaxClassificationSchema,
   type SalesInvoiceListQueryDTO,
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
@@ -74,7 +91,11 @@ import type { CurrencyCheck } from "./currency-policy.js";
 import { recordAdminEvent } from "./admin-audit.js";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { taxClassificationRefusal, taxRateRefusal } from "./tax-rate-refusal.js";
+import { customerTaxProfileOf, type CustomerTaxProfileSource } from "./customer-tax-profile.js";
+import { buildSalesInvoiceService, type SalesItemTaxSource } from "./sales-invoice-service.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, moduleRefusalFor, warehouseScopeOf } from "./permission-gate.js";
+import { documentBranches, storedBranchesById, warehousesOfBranchScope } from "./stored-branches.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
 import {
@@ -88,6 +109,8 @@ import {
   stampDocumentModifier,
   type DocumentVersionGuard,
 } from "./document-version.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -124,7 +147,13 @@ export interface SalesInvoiceRoutesDeps {
   /** Refuses an invoice naming a customer, warehouse, branch or cost centre no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
   /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
-  readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
+  readonly taxPolicy: SalesTaxPolicySource;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
+  readonly customerTax?: CustomerTaxProfileSource;
+  readonly taxTags?: SalesInvoiceServiceDeps["taxTags"];
+  readonly taxFiling?: SalesInvoiceServiceDeps["taxFiling"];
+  readonly taxDependents?: SalesInvoiceServiceDeps["taxDependents"];
+  readonly afterTaxClassified?: (invoiceId: string) => Promise<{ readonly outcome: TaxClassificationFilingOutcome; readonly message?: string } | null>;
   /**
    * The tenant's discount ceiling (settings §"الرقابة الائتمانية"). Optional
    * for the same reason every cross-aggregate check here is: a caller that does
@@ -170,8 +199,6 @@ export interface SalesInvoiceRoutesDeps {
     options: { readonly paymentMethod?: EtaReceiptPaymentMethod },
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
   readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
-  /** Whether the invoice has an e-receipt; a receipted sale is refused a void. */
-  readonly hasEtaReceipt?: (invoiceId: string) => Promise<boolean>;
   /**
    * Turns a collection recorded on the invoice into a real confirmed collection
    * voucher, allocated to that invoice. Without it the route refuses rather
@@ -203,6 +230,19 @@ export interface SalesInvoiceRoutesDeps {
    * rather than reversing the GL and leaving the warehouse permanently short.
    */
   readonly stockRestore?: DocumentStockHook;
+  readonly withdrawUnsentEtaSubmission?: (invoice: SalesInvoice) => Promise<void>;
+  readonly etaDocumentOf?: (invoice: SalesInvoice) => Promise<{ readonly status: EtaSubmissionStatus; readonly documentType: EtaDocumentType } | null>;
+  /**
+   * SECURITY: what the print page needs beyond the invoice itself — the names
+   * of its own branch and warehouse, its own customer's printed details and
+   * its own e-document identifiers. Served under the invoice's visibility
+   * rule, so printing never needs the right to read every customer, branch,
+   * warehouse or the e-invoice queue.
+   */
+  readonly printContext?: (invoice: SalesInvoice) => Promise<SalesInvoicePrintContext>;
+  readonly onDraftCancelled?: (invoice: SalesInvoice) => Promise<void>;
+  readonly sourceDocumentOf?: (invoiceId: string) => Promise<SalesInvoiceSourceDocument | null>;
+  readonly itemTax?: SalesItemTaxSource;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -231,6 +271,14 @@ export interface SalesInvoiceRoutesDeps {
   readonly now?: () => string;
   /** Generates an invoice id when the request omits one. Defaults to a UUID. */
   readonly idGen?: () => string;
+}
+
+export interface SalesInvoicePrintContext {
+  readonly branchName: string | null;
+  readonly warehouseName: string | null;
+  readonly customer: { readonly code: string; readonly taxNumber: string | null; readonly address: string | null; readonly phone: string | null } | null;
+  readonly etaUuid: string | null;
+  readonly etaQrValue: string | null;
 }
 
 function discountToDomain(dto: SalesInvoiceDiscountDTO | undefined): SalesInvoiceDiscount | undefined {
@@ -335,6 +383,8 @@ function serialize(
     dueDate: invoice.dueDate,
     customerId: invoice.customerId,
     customerNameAr: invoice.customerNameAr,
+    documentKind: invoice.documentKind ?? InvoiceDocumentKind.Standard,
+    voidReason: invoice.voidReason ?? null,
     customerTaxExempt: invoice.customerTaxExempt,
     taxInclusive: invoice.taxInclusive,
     warehouseId: invoice.warehouseId,
@@ -373,6 +423,7 @@ function serialize(
       discountPercent: l.discountPercent,
       discountAmount: l.discountAmount.toString(),
       taxRatePercent: l.taxRatePercent,
+      taxRateId: l.taxRateId ?? null,
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
       inventoryAccountId: l.inventoryAccountId,
@@ -390,9 +441,64 @@ function withMessageEn(err: { code: string; message: string }) {
   return { error: err.code, message: err.message, ...(messageEn ? { messageEn } : {}) };
 }
 
+export interface SalesInvoiceSourceDocument {
+  readonly id: string;
+  readonly number: string;
+  readonly lines: readonly { readonly lineId: string; readonly qty: Qty; readonly unitPrice: Money; readonly taxRateId: string | null; readonly taxRatePercent: number }[];
+}
+
+const PRICE_OVERRIDE_PERMISSION = "sales.price.override";
+
+function confirmPreviewBody(preview: { readonly invoice: SalesInvoice; readonly totals: SalesInvoiceTotals }) {
+  return {
+    taxRecalculated: true as const,
+    message: SALES_TAX_RECALCULATED_NOTICE_AR,
+    lines: preview.invoice.lines.map((line) => ({ lineId: line.lineId, taxRatePercent: line.taxRatePercent, taxRateId: line.taxRateId ?? null })),
+    totals: {
+      taxableTotal: preview.totals.taxableTotal.toString(),
+      taxTotal: preview.totals.taxTotal.toString(),
+      grandTotal: preview.totals.grandTotal.toString(),
+    },
+  };
+}
+
+const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
+const JOURNAL_VIEW_PERMISSION = "accounting.journal.view";
+const REVERSED_STATUS: SalesInvoice["status"] = "reversed";
+
+enum SalesInvoiceAuditAction {
+  Void = "VOID",
+  EditDraftBeyondSource = "EDIT_DRAFT_BEYOND_SOURCE",
+}
+
+enum SalesInvoiceVoidRefusalCode {
+  HasCollections = "INVOICE_HAS_COLLECTIONS",
+  HasReturns = "INVOICE_HAS_RETURNS",
+  NotPosted = "INVOICE_NOT_POSTED",
+  StockRestoreUnavailable = "STOCK_RESTORE_UNAVAILABLE",
+  EtaAwaitingVerdict = "ETA_INVOICE_AWAITING_VERDICT",
+  EtaAccepted = "ETA_INVOICE_ACCEPTED",
+  EtaReceiptAwaitingVerdict = "ETA_RECEIPT_AWAITING_VERDICT",
+  EtaReceiptAccepted = "ETA_RECEIPT_ACCEPTED",
+  IssueMovementMissing = "ISSUE_MOVEMENT_MISSING",
+}
+
+class SalesInvoiceVoidRefusal extends Error {
+  constructor(
+    readonly status: 404 | 409 | 503,
+    readonly body: { readonly error: string; readonly message: string; readonly messageEn?: string },
+  ) {
+    super(body.message);
+    this.name = "SalesInvoiceVoidRefusal";
+  }
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
+  const taxRefusal = taxRateRefusal(c, err);
+  if (taxRefusal) return taxRefusal;
   if (err instanceof InvalidSalesInvoiceError) {
     return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
   }
@@ -400,10 +506,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     return c.json(withMessageEn(err), 404);
   }
   if (
-    err instanceof DuplicateSalesInvoiceError ||
     err instanceof InvalidSalesInvoiceTransitionError ||
     err instanceof ApprovalRequestRejectedError ||
-    err instanceof DuplicateJournalEntryError ||
     err instanceof JournalEntryAlreadyReversedError ||
     err instanceof JournalEntryNotPostedError
   ) {
@@ -421,8 +525,10 @@ function handleDomainError(c: Context, err: unknown): Response {
       422,
     );
   }
+  if (err instanceof InvalidJournalEntryError) {
+    return c.json({ error: err.code, message: err.message, ...(err.messageEn ? { messageEn: err.messageEn } : {}) }, 422);
+  }
   if (
-    err instanceof InvalidJournalEntryError ||
     err instanceof AccountNotFoundError ||
     err instanceof HeaderAccountNotPostableError ||
     err instanceof InactiveAccountError ||
@@ -461,8 +567,12 @@ export function createSalesInvoicesRoutes(
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  const storedBranches = storedBranchesById(
+    async (id) => (await deps.repo.findById(id)) ?? (await deps.repo.findByDocNo(id)),
+    (invoice, c) => documentBranches(c, [invoice.branchId], [invoice.warehouseId]),
+  );
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
   const idGen = deps.idGen ?? (() => randomUUID());
 
   /**
@@ -490,6 +600,24 @@ export function createSalesInvoicesRoutes(
     const ctx = getAuthContext(c);
     if (!ctx) return false;
     return !can(ctx, "sales.invoice.view") && !can(ctx, "sales.invoice.view_all");
+  };
+  const ownSalespersonForUnnamed = async (c: Context): Promise<string | null> => {
+    if (!ownVisibilityOnly(c)) return null;
+    const own = await ownSalespersonIdOf(c);
+    return own === NO_SUCH_ACTOR ? null : own;
+  };
+  const NOT_FOUND_BODY = { error: "NOT_FOUND" } as const;
+  // SECURITY: the ONE place a route under `/:id` resolves its invoice. A
+  // caller whose only grant is the own-records tier is answered as if a
+  // colleague's invoice did not exist — on a read and on every action alike,
+  // and before the request body is looked at, so nothing about the invoice can
+  // be probed through a validation error
+  // (`invoice-sub-route-visibility.test.ts` walks every mounted sub-route).
+  const visibleInvoice = async (c: Context, svc: SalesInvoiceService): Promise<SalesInvoice | null> => {
+    const invoice = await svc.findByIdOrDocNo(c.req.param("id") ?? "");
+    if (!invoice) return null;
+    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) return null;
+    return invoice;
   };
   const maySeeCost = (c: Context) => {
     const ctx = getAuthContext(c);
@@ -529,26 +657,7 @@ export function createSalesInvoicesRoutes(
   }
 
   function service(c: Context): SalesInvoiceService {
-    const svcDeps: SalesInvoiceServiceDeps = {
-      repo: deps.repo,
-      numbering: deps.numbering,
-      gl: deps.gl,
-      stock: deps.stock,
-      workflow: deps.workflow,
-      creditControl: deps.creditControl,
-      promotions: deps.promotions,
-      pricing: deps.pricing,
-      taxPolicy: deps.taxPolicy,
-      exchangeRates: deps.exchangeRates,
-      baseCurrency: deps.baseCurrency,
-      contractBilling: deps.contractBilling,
-      audit: deps.audit,
-      events: deps.events,
-      allocatable: deps.allocatable,
-      now: deps.now,
-      actor: getAuthContext(c)?.userId ?? "system",
-    };
-    return new SalesInvoiceService(svcDeps);
+    return buildSalesInvoiceService(deps, getAuthContext(c)?.userId ?? "system");
   }
 
   function totalsFor(svc: SalesInvoiceService, invoice: SalesInvoice): SalesInvoiceTotals {
@@ -592,16 +701,18 @@ export function createSalesInvoicesRoutes(
     const d = parsed.data;
     const currencyRefusal = await deps.currencyCheck?.(d.currency);
     if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);
+    const customerTax = await customerTaxProfileOf(deps.customerTax, d.customerId);
     const cmd: CreateSalesInvoiceCommand = {
       id: d.id ?? idGen(),
       date: d.date,
       dueDate: d.dueDate,
       customerId: d.customerId,
       customerNameAr: d.customerNameAr,
-      customerTaxExempt: d.customerTaxExempt,
+      customerTaxExempt: customerTax.taxExempt,
+      customerTaxExemptionRateId: customerTax.taxExemptionRateId,
       warehouseId: d.warehouseId,
       branchId: d.branchId,
-      salespersonId: d.salespersonId ?? null,
+      salespersonId: d.salespersonId ?? (await ownSalespersonForUnnamed(c)),
       salespersonNameAr: d.salespersonNameAr ?? null,
       projectId: d.projectId ?? null,
       couponCode: d.couponCode ?? null,
@@ -624,6 +735,7 @@ export function createSalesInvoicesRoutes(
         discountPercent: l.discountPercent,
         discountAmount: l.discountAmount === undefined ? undefined : Money.fromMajor(l.discountAmount),
         taxRatePercent: l.taxRatePercent,
+        taxRateId: l.taxRateId,
         revenueAccountId: l.revenueAccountId,
         cogsAccountId: l.cogsAccountId ?? null,
         inventoryAccountId: l.inventoryAccountId ?? null,
@@ -691,6 +803,25 @@ export function createSalesInvoicesRoutes(
    *
    * An admin (`"*"`) satisfies both, as it does every other permission.
    */
+  // INVARIANT: the guards a NEW invoice meets are run over the WHOLE invoice
+  // as an edit would leave it, through this same function — an edit is never a
+  // way to reach figures the create route would have refused.
+  function guardInputOf(invoice: SalesInvoice): { readonly lines: readonly LineInput[]; readonly discount: DiscountInput } {
+    return {
+      lines: invoice.lines.map((line) => ({
+        qty: line.qty.toString(),
+        unitPrice: line.unitPrice.toString(),
+        discountType: line.discountType,
+        discountPercent: line.discountPercent,
+        discountAmount: line.discountAmount.toString(),
+      })),
+      discount:
+        invoice.discount.type === "percent"
+          ? { type: "percent", percent: invoice.discount.percent }
+          : { type: "amount", amount: invoice.discount.amount.toString() },
+    };
+  }
+
   async function refuseUnapprovedDiscount(
     c: Context,
     body: { readonly lines: readonly LineInput[]; readonly discount?: DiscountInput },
@@ -855,6 +986,7 @@ export function createSalesInvoicesRoutes(
       // instead of hydrating every draft, paid and cancelled row to discard it.
       ...(status === "open" || status === "overdue" ? { statusIn: UNSETTLED_STATUSES } : {}),
       branchScope: branchScopeOf(c),
+      branchScopeWarehouses: await warehousesOfBranchScope(c),
       warehouseScope: warehouseScopeOf(c),
       branchId,
       warehouseId,
@@ -1019,22 +1151,122 @@ export function createSalesInvoicesRoutes(
     // By id OR by document number: a deep link carries the number, and now
     // that the list is a page the screen can no longer resolve one from the
     // rows it happens to hold.
-    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    // A `view_own` holder gets 404, not 403: whether an invoice they may not
-    // see exists at all is itself information.
-    if (ownVisibilityOnly(c) && invoice.salespersonId !== (await ownSalespersonIdOf(c))) {
-      return c.json({ error: "NOT_FOUND" }, 404);
-    }
+    const invoice = await visibleInvoice(c, svc);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
+    const preview = await svc.confirmPreview(invoice);
     return c.json({
       ...serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), maySeeCost(c)),
+      ...(preview ? { confirmPreview: confirmPreviewBody(preview) } : {}),
       // N-9: the screen keeps this and sends it back, so a second till acting on
       // a document that has already moved is refused rather than winning.
       version: await documentVersionOf(deps.versionGuard, invoice.id),
     });
   });
 
+  app.post("/:id/lines/:lineId/classify-tax", gate("sales.invoice.classify_tax"), async (c) => {
+    if (!deps.taxTags || !deps.taxRates) {
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+    }
+    const svc = service(c);
+    const invoice = await visibleInvoice(c, svc);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
+    const parsed = classifyLineTaxSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const result = await svc.classifyLineTax(invoice.id, {
+        lineRef: c.req.param("lineId"),
+        withLineRefs: parsed.data.withLineIds,
+        taxRateId: parsed.data.taxRateId,
+      });
+      await stampDocumentModifier(deps.versionGuard, invoice.id, getAuthContext(c)?.userId);
+      const correction = (await deps.afterTaxClassified?.(invoice.id)) ?? null;
+      return c.json(
+        lineTaxClassificationSchema.parse({
+          documentId: result.invoice.id,
+          documentNumber: result.invoice.docNo,
+          lineIds: result.plan.lineRefs,
+          taxRateId: parsed.data.taxRateId,
+          taxRateName: result.plan.taxRateName,
+          taxRatePercent: result.plan.after.taxRatePercent,
+          journalLinesNamed: result.journalLinesNamed,
+          filing: correction?.outcome ?? result.filing,
+          ...(correction?.message ? { filingMessage: correction.message } : {}),
+        }),
+      );
+    } catch (err) {
+      return taxClassificationRefusal(c, err) ?? handleDomainError(c, err);
+    }
+  });
+
+  /**
+   * تسمية ضريبة سطر القيد — the accountant names the entry's lines by hand,
+   * for a posted invoice whose entry the automatic match could not name.
+   *
+   * SECURITY: the tax-classification permission AND the right to read the
+   * journal. The request chooses journal lines, so a caller who may not see
+   * the entry is never asked to point into it.
+   */
+  app.post("/:id/lines/:lineId/journal-tax", gate("sales.invoice.classify_tax"), async (c) => {
+    const ctx = getAuthContext(c);
+    if (!ctx || !can(ctx, JOURNAL_VIEW_PERMISSION)) {
+      return c.json({ error: "FORBIDDEN", message: "تسمية ضريبة سطر القيد تتطلب صلاحية عرض قيود اليومية." }, 403);
+    }
+    if (!deps.taxTags || !deps.taxRates) {
+      return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);
+    }
+    const svc = service(c);
+    const invoice = await visibleInvoice(c, svc);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
+    const parsed = nameJournalLineTaxSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const result = await svc.nameJournalLineTax(invoice.id, {
+        lineRef: c.req.param("lineId"),
+        withLineRefs: parsed.data.withLineIds,
+        taxRateId: parsed.data.taxRateId,
+        journalLineIndexes: parsed.data.journalLineIndexes,
+      });
+      await stampDocumentModifier(deps.versionGuard, invoice.id, ctx.userId);
+      const correction = parsed.data.taxRateId ? ((await deps.afterTaxClassified?.(invoice.id)) ?? null) : null;
+      return c.json(
+        lineTaxClassificationSchema.parse({
+          documentId: result.invoice.id,
+          documentNumber: result.invoice.docNo,
+          lineIds: result.plan.lineRefs,
+          taxRateId: result.plan.after.taxRateId,
+          taxRateName: result.plan.taxRateName,
+          taxRatePercent: result.plan.after.taxRatePercent,
+          journalLinesNamed: result.journalLinesNamed,
+          filing: correction?.outcome ?? result.filing,
+          ...(correction?.message ? { filingMessage: correction.message } : {}),
+        }),
+      );
+    } catch (err) {
+      return taxClassificationRefusal(c, err) ?? handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/eta-receipt/retry", gate("sales.invoice.classify_tax"), async (c) => {
+    const invoice = await visibleInvoice(c, service(c));
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
+    const correction = (await deps.afterTaxClassified?.(invoice.id)) ?? null;
+    return c.json(
+      etaReceiptRetrySchema.parse({
+        documentId: invoice.id,
+        filing: correction?.outcome ?? null,
+        ...(correction?.message ? { filingMessage: correction.message } : {}),
+      }),
+    );
+  });
+
   app.post("/:id/confirm", gate("sales.invoice.confirm"), async (c) => {
+    const svc = service(c);
+    const target = await visibleInvoice(c, svc);
+    if (!target) return c.json(NOT_FOUND_BODY, 404);
     let body: unknown = {};
     try {
       body = await c.req.json();
@@ -1045,13 +1277,12 @@ export function createSalesInvoicesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const stale = await refuseStaleDocument(c, deps.versionGuard, c.req.param("id"), expectedVersionOf(body));
+    const stale = await refuseStaleDocument(c, deps.versionGuard, target.id, expectedVersionOf(body));
     if (stale) return stale;
-    const svc = service(c);
     const ctx = getAuthContext(c);
     try {
-      const result = await svc.confirm(c.req.param("id"), {
-        requestId: parsed.data.requestId,
+      const result = await svc.confirm(target.id, {
+        acknowledgeTaxRecalculation: parsed.data.acknowledgeTaxRecalculation === true,
         actor: ctx?.userId,
         actorRoles: gateActorRoles(c),
       });
@@ -1076,6 +1307,7 @@ export function createSalesInvoicesRoutes(
         etaReceipt,
         ...(etaReceiptError ? { etaReceiptError } : {}),
         held: result.held,
+        ...(result.taxRecalculated ? { taxRecalculated: { message: SALES_TAX_RECALCULATED_NOTICE_AR } } : {}),
         creditWarning: serializeCreditWarning(result.creditWarning),
         // Lines charged under the customer's own price list (D35). Empty when
         // no list applies, so a tenant that prices freely sees nothing new.
@@ -1087,25 +1319,134 @@ export function createSalesInvoicesRoutes(
         })),
       });
     } catch (err) {
+      if (err instanceof SalesTaxRecalculationUnacknowledgedError) {
+        const preview = await svc.confirmPreview(target);
+        return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, ...(preview ? confirmPreviewBody(preview) : {}) }, 409);
+      }
       return handleDomainError(c, err);
     }
   });
 
   app.post("/:id/cancel", gate("sales.invoice.delete_draft"), async (c) => {
+    const svc = service(c);
+    const target = await visibleInvoice(c, svc);
+    if (!target) return c.json(NOT_FOUND_BODY, 404);
     let body: unknown = {};
     try {
       body = await c.req.json();
     } catch {
       body = {};
     }
-    const stale = await refuseStaleDocument(c, deps.versionGuard, c.req.param("id"), expectedVersionOf(body));
+    const stale = await refuseStaleDocument(c, deps.versionGuard, target.id, expectedVersionOf(body));
     if (stale) return stale;
-    const svc = service(c);
     try {
-      const invoice = await svc.cancel(c.req.param("id"));
+      const invoice = await deps.repo.transaction(async () => {
+        const cancelled = await svc.cancel(target.id);
+        await deps.onDraftCancelled?.(cancelled);
+        return cancelled;
+      });
       await stampDocumentModifier(deps.versionGuard, invoice.id, getAuthContext(c)?.userId);
       return c.json(serialize(invoice, totalsFor(svc, invoice)));
     } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.get("/:id/print-context", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
+    const invoice = await visibleInvoice(c, service(c));
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
+    if (!deps.printContext) return c.json({ error: "PRINT_CONTEXT_UNAVAILABLE", message: "بيانات الطباعة غير متاحة على هذا الخادم." }, 501);
+    return c.json(await deps.printContext(invoice));
+  });
+
+  app.patch("/:id/lines/:lineId", gate("sales.invoice.edit"), async (c) => {
+    const svc = service(c);
+    const invoice = await visibleInvoice(c, svc);
+    if (!invoice) return c.json(NOT_FOUND_BODY, 404);
+    const body: unknown = await c.req.json().catch(() => null);
+    const parsed = editSalesInvoiceDraftLineSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const stale = await refuseStaleDocument(c, deps.versionGuard, invoice.id, expectedVersionOf(body));
+    if (stale) return stale;
+    const lineId = c.req.param("lineId");
+    const change = {
+      ...(parsed.data.qty !== undefined ? { qty: Qty.fromMajor(parsed.data.qty) } : {}),
+      ...(parsed.data.unitPrice !== undefined ? { unitPrice: Money.fromMajor(parsed.data.unitPrice) } : {}),
+      ...(parsed.data.taxRateId !== undefined ? { taxRateId: parsed.data.taxRateId } : {}),
+    };
+    const storedLine = invoice.lines.find((line) => line.lineId === lineId);
+    if (storedLine) {
+      const asEdited: SalesInvoice = {
+        ...invoice,
+        lines: invoice.lines.map((line) => (line.lineId === lineId ? { ...line, qty: change.qty ?? line.qty, unitPrice: change.unitPrice ?? line.unitPrice } : line)),
+      };
+      const guardRefusal = await refuseUnapprovedDiscount(c, guardInputOf(asEdited));
+      if (guardRefusal) return guardRefusal;
+    }
+    const source = (await deps.sourceDocumentOf?.(invoice.id)) ?? null;
+    const sourceLine = source?.lines.find((line) => line.lineId === lineId) ?? null;
+    const departs =
+      source !== null &&
+      storedLine !== undefined &&
+      (sourceLine === null ||
+        (change.qty ?? storedLine.qty).scaled !== sourceLine.qty.scaled ||
+        (change.unitPrice ?? storedLine.unitPrice).scaled !== sourceLine.unitPrice.scaled ||
+        (change.taxRateId !== undefined && change.taxRateId !== sourceLine.taxRateId));
+    if (source && departs) {
+      const ctx = getAuthContext(c);
+      if (!(ctx && can(ctx, PRICE_OVERRIDE_PERMISSION))) {
+        return c.json(
+          {
+            error: "DRAFT_DEPARTS_FROM_SOURCE",
+            permission: PRICE_OVERRIDE_PERMISSION,
+            message: `هذه المسودة صادرة عن عرض السعر ${source.number}، وتعديل كميتها أو سعرها أو ضريبتها بما يخالف العرض يحتاج صلاحية تعديل السعر.`,
+            messageEn: `This draft was raised from quote ${source.number}; changing its quantity, price or tax away from the quote needs the price-override permission.`,
+          },
+          403,
+        );
+      }
+    }
+    try {
+      const edited = await deps.repo.transaction(async () => {
+        const written = await svc.editDraftLine(invoice.id, lineId, change);
+        if (source && departs && storedLine) {
+          const after = written.lines.find((line) => line.lineId === lineId) ?? storedLine;
+          const figures = (line: { readonly qty: Qty; readonly unitPrice: Money; readonly taxRateId?: string | null; readonly taxRatePercent: number }) => ({
+            qty: line.qty.toString(),
+            unitPrice: line.unitPrice.toString(),
+            taxRateId: line.taxRateId ?? null,
+            taxRatePercent: line.taxRatePercent,
+          });
+          await recordAdminEvent(deps.audit, c, {
+            module: "sales",
+            entityType: SALES_INVOICE_DOC_TYPE,
+            entityId: invoice.id,
+            action: SalesInvoiceAuditAction.EditDraftBeyondSource,
+            severity: "WARNING",
+            details: {
+              lineId,
+              sourceDocumentId: source.id,
+              sourceDocumentNumber: source.number,
+              source: sourceLine ? figures(sourceLine) : null,
+              before: figures(storedLine),
+              after: figures(after),
+              grandTotalBefore: totalsFor(svc, invoice).grandTotal.toString(),
+              grandTotalAfter: totalsFor(svc, written).grandTotal.toString(),
+            },
+          });
+        }
+        return written;
+      });
+      await stampDocumentModifier(deps.versionGuard, edited.id, getAuthContext(c)?.userId);
+      return c.json({
+        ...serialize(edited, totalsFor(svc, edited), Money.zero(), maySeeCost(c)),
+        version: await documentVersionOf(deps.versionGuard, edited.id),
+      });
+    } catch (err) {
+      if (err instanceof SalesInvoiceNotDraftError) return c.json({ error: err.code, message: err.message }, 409);
+      if (err instanceof SalesInvoiceLineNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
       return handleDomainError(c, err);
     }
   });
@@ -1125,128 +1466,175 @@ export function createSalesInvoicesRoutes(
    */
   app.post("/:id/void", gate("sales.invoice.void"), async (c) => {
     const svc = service(c);
-    const invoice = await svc.findByIdOrDocNo(c.req.param("id"));
-    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-
-    try {
-      assertSalesInvoiceTransition(invoice.id, invoice.status, "reversed");
-    } catch (err) {
-      return handleDomainError(c, err);
-    }
-    // A receipted consumer sale is corrected by a return (a refund receipt);
-    // the authority has no cancellation for a receipt, so a void would drop
-    // the VAT from the books while the authority keeps it.
-    if (deps.hasEtaReceipt && (await deps.hasEtaReceipt(invoice.id))) {
-      const refusal = new EtaReceiptedSaleVoidRefusedError(invoice.docNo ?? invoice.id);
-      return c.json({ error: refusal.code, message: refusal.message }, 409);
-    }
-
-    // The purchase side refuses when the received goods have already been
-    // consumed; the sales side's equivalents are a collection that has moved
-    // real cash and a return that has already given part of the goods back.
-    // Either one has to be undone on its own document first, or the void would
-    // silently strand a voucher or a credit note against a document that no
-    // longer exists.
-    if (invoice.amountPaid.scaled !== 0n) {
+    const requested = await visibleInvoice(c, svc);
+    if (!requested) return c.json(NOT_FOUND_BODY, 404);
+    const body: unknown = await c.req.json().catch(() => null);
+    const parsed = voidSalesInvoiceSchema.safeParse(body);
+    if (!parsed.success) {
       return c.json(
         {
-          error: "INVOICE_HAS_COLLECTIONS",
-          message: "لا يمكن إلغاء فاتورة حُصّلت مبالغ عليها — اعكس التحصيل أولاً.",
+          error: "VOID_REASON_REQUIRED",
+          message: "سبب الإلغاء مطلوب: اكتب لماذا تُلغى هذه الفاتورة، ويُحفظ السبب عليها وفي سجل المراجعة.",
+          messageEn: "A reason is required: say why this invoice is being voided. It is kept on the invoice and in the audit trail.",
         },
-        409,
+        400,
       );
     }
-    const returnedCredit = await creditFor(invoice.id);
-    if (returnedCredit.scaled !== 0n) {
-      return c.json(
-        {
-          error: "INVOICE_HAS_RETURNS",
-          message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع — ألغِ المرتجع أولاً.",
-        },
-        409,
-      );
-    }
-    const journalEntryId = invoice.journalEntryId;
-    if (!journalEntryId) {
-      return c.json(
-        { error: "INVOICE_NOT_POSTED", message: "الفاتورة ليس لها قيد يومية لعكسه." },
-        409,
-      );
-    }
+    const stale = await refuseStaleDocument(c, deps.versionGuard, requested.id, expectedVersionOf(body));
+    if (stale) return stale;
+    const reason = parsed.data.reason;
 
-    const stockLines = invoice.lines.filter((l) => l.isStock && !l.qty.isZero());
-    if (stockLines.length > 0 && !deps.stockRestore) {
-      return c.json(
-        {
-          error: "STOCK_RESTORE_UNAVAILABLE",
-          message: "إلغاء الفاتورة يتطلب إرجاع المخزون؛ وحدة المخزون غير مفعّلة.",
-        },
-        503,
-      );
-    }
-    // Restoring at a cost the document does not carry would put stock back at
-    // zero value and leave GL 1200 permanently above the valuation report.
-    if (stockLines.some((l) => l.unitCost === null)) {
-      return c.json(
-        {
-          error: "ISSUE_COST_UNKNOWN",
-          message: "لا يمكن إرجاع المخزون: تكلفة الصرف غير مسجّلة على الفاتورة.",
-        },
-        409,
-      );
-    }
-
-    const requested = requestedReversalDate(await readOptionalBody(c));
-    if (!requested.ok) return c.json(INVALID_REVERSAL_DATE, 400);
+    const reversalDate = requestedReversalDate(body);
+    if (!reversalDate.ok) return c.json(INVALID_REVERSAL_DATE, 400);
     const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
-    const date = requested.date ?? (today < invoice.date ? invoice.date : today);
+    const date = reversalDate.date ?? (today < requested.date ? requested.date : today);
     try {
-      if (date < invoice.date) throw new ReversalDateBeforeOriginalError(invoice.id, date, invoice.date);
+      // INVARIANT: the invoice is re-read inside the transaction and EVERY
+      // guard below runs on that read. A collection, a return, a receipt or a
+      // classification that landed since the request began is either seen
+      // here and refuses the void, or finds the invoice reversed and refuses
+      // itself — the two can never both stand.
       const { voided, reversal } = await deps.repo.transaction(async () => {
-        const reversal = await deps.gl.reverse(journalEntryId, {
-          reversalId: salesInvoiceVoidEntryId(invoice.id),
-          mintedBySystem: true,
-          date,
-          memo: `عكس فاتورة مبيعات ${invoice.docNo ?? invoice.id}`,
-        });
-        if (stockLines.length > 0) {
-          await deps.stockRestore!.apply({
-            sourceDocType: "SALES_INVOICE",
-            sourceDocId: salesInvoiceVoidEntryId(invoice.id),
-            sourceDocNumber: invoice.docNo,
-            warehouseId: invoice.warehouseId,
-            date,
-            lines: stockLines.map((l) => ({
-              itemId: l.itemId,
-              direction: "IN" as const,
-              qty: l.qty,
-              unitCost: l.unitCost as Money,
-            })),
+        const current = await deps.repo.findById(requested.id);
+        if (!current) throw new SalesInvoiceVoidRefusal(404, { error: "NOT_FOUND", message: "الفاتورة غير موجودة." });
+        assertSalesInvoiceTransition(current.id, current.status, "reversed");
+        if (date < current.date) throw new ReversalDateBeforeOriginalError(current.id, date, current.date);
+        // INVARIANT: an e-invoice or e-receipt the authority is judging or has
+        // accepted carries VAT the authority keeps. Voiding the sale would
+        // drop that VAT from the books alone, so it is refused here with the
+        // real way forward; an unsent, rejected or excluded one is withdrawn
+        // below. ONE rule for both documents (`etaVoidVerdictOf`).
+        const filed = (await deps.etaDocumentOf?.(current)) ?? null;
+        const verdict = etaVoidVerdictOf(filed?.status ?? null);
+        const number = current.docNo ?? current.id;
+        const receipt = filed?.documentType === EtaDocumentTypeCode.Receipt;
+        if (verdict === EtaVoidVerdict.AwaitingVerdict) {
+          throw new SalesInvoiceVoidRefusal(409, receipt
+            ? {
+                error: SalesInvoiceVoidRefusalCode.EtaReceiptAwaitingVerdict,
+                message: `الإيصال الإلكتروني للفاتورة ${number} أُرسل إلى مصلحة الضرائب وما زال قيد المراجعة. انتظر رد المصلحة: إن رُفض أمكن إلغاء الفاتورة، وإن قُبل فتُصحَّح بمرتجع مبيعات يصدر به إيصال مرتجع.`,
+                messageEn: `The e-receipt of invoice ${number} has been sent to the tax authority and is awaiting its verdict. Wait for it: a rejected receipt can be voided, an accepted one is corrected by a sales return (a refund receipt).`,
+              }
+            : {
+                error: SalesInvoiceVoidRefusalCode.EtaAwaitingVerdict,
+                message: `الفاتورة الإلكترونية ${number} أُرسلت إلى مصلحة الضرائب وما زالت قيد المراجعة. انتظر رد المصلحة: إن رُفضت أمكن إلغاء الفاتورة، وإن قُبلت فتُصحَّح بمرتجع مبيعات (إشعار دائن).`,
+                messageEn: `E-invoice ${number} has been sent to the tax authority and is awaiting its verdict. Wait for it: a rejected document can be voided, an accepted one is corrected by a sales return (credit note).`,
+              });
+        }
+        if (verdict === EtaVoidVerdict.Accepted) {
+          throw new SalesInvoiceVoidRefusal(409, receipt
+            ? {
+                error: SalesInvoiceVoidRefusalCode.EtaReceiptAccepted,
+                message: `الإيصال الإلكتروني للفاتورة ${number} مقبول لدى مصلحة الضرائب، والإيصال لا يُلغى لدى المصلحة. صحّح البيع بمرتجع مبيعات يصدر به إيصال مرتجع.`,
+                messageEn: `The e-receipt of invoice ${number} is accepted by the tax authority, which cannot cancel a receipt. Correct the sale with a sales return, which issues a refund receipt.`,
+              }
+            : {
+                error: SalesInvoiceVoidRefusalCode.EtaAccepted,
+                message: `الفاتورة الإلكترونية ${number} مقبولة لدى مصلحة الضرائب ولا تُلغى من الدفاتر وحدها. صحّحها بمرتجع مبيعات يصدر به إشعار دائن.`,
+                messageEn: `E-invoice ${number} is accepted by the tax authority and cannot be voided in the books alone. Correct it with a sales return, which files a credit note.`,
+              });
+        }
+        // The purchase side refuses when the received goods have already been
+        // consumed; the sales side's equivalents are a collection that has moved
+        // real cash and a return that has already given part of the goods back.
+        // Either one has to be undone on its own document first, or the void would
+        // silently strand a voucher or a credit note against a document that no
+        // longer exists.
+        if (current.amountPaid.scaled !== 0n) {
+          throw new SalesInvoiceVoidRefusal(409, {
+            error: SalesInvoiceVoidRefusalCode.HasCollections,
+            message: "لا يمكن إلغاء فاتورة حُصّلت مبالغ عليها — اعكس التحصيل أولاً.",
           });
         }
-        const voided: SalesInvoice = { ...invoice, status: "reversed" };
-        await deps.repo.update(voided);
-        await deps.releaseRevaluationShare?.(invoice.id, date);
+        if ((await creditFor(current.id)).scaled !== 0n) {
+          throw new SalesInvoiceVoidRefusal(409, {
+            error: SalesInvoiceVoidRefusalCode.HasReturns,
+            message: "لا يمكن إلغاء فاتورة صدر عليها مرتجع مؤكد. ألغِ المرتجع أولاً من صفحته («إلغاء المرتجع» مع ذكر السبب) ثم ألغِ الفاتورة، أو صحّح الفاتورة بمرتجع عن باقي كمياتها.",
+          });
+        }
+        const journalEntryId = current.journalEntryId;
+        if (!journalEntryId) {
+          throw new SalesInvoiceVoidRefusal(409, {
+            error: SalesInvoiceVoidRefusalCode.NotPosted,
+            message: "الفاتورة ليس لها قيد يومية لعكسه.",
+          });
+        }
+        const stockLines = current.lines.filter((l) => l.isStock && !l.baseQty.isZero());
+        const stockRestore = deps.stockRestore;
+        if (stockLines.length > 0 && !stockRestore?.reverse) {
+          throw new SalesInvoiceVoidRefusal(503, {
+            error: SalesInvoiceVoidRefusalCode.StockRestoreUnavailable,
+            message: "إلغاء الفاتورة يتطلب إرجاع المخزون؛ وحدة المخزون غير مفعّلة.",
+          });
+        }
+
+        // INVARIANT: the goods go back as the ledger recorded them leaving —
+        // base units, the warehouse each was drawn from and the average each
+        // left at — never as the invoice line states them. A line sold by
+        // the carton names 1 where the ledger issued 12.
+        // ORDER MATTERS: they go back while the reversing entry is being
+        // built, so what a back-ordered position took differently from what
+        // the sale gave up is booked in that same entry.
+        const restoreStock =
+          stockLines.length > 0 && stockRestore?.reverse
+            ? async () => {
+                const restored = await stockRestore.reverse!(
+                  {
+                    sourceDocType: SALES_INVOICE_DOC_TYPE,
+                    sourceDocId: salesInvoiceVoidEntryId(current.id),
+                    sourceDocNumber: current.docNo,
+                    warehouseId: current.warehouseId,
+                    date,
+                    lines: [],
+                  },
+                  current.id,
+                );
+                const issuedAtCost = stockLines.some((l) => l.unitCost !== null && l.unitCost.scaled !== 0n);
+                if (issuedAtCost && restored.valueMoved.scaled === 0n) {
+                  throw new SalesInvoiceVoidRefusal(409, {
+                    error: SalesInvoiceVoidRefusalCode.IssueMovementMissing,
+                    message: "لا يمكن إرجاع المخزون: حركة صرف هذه الفاتورة غير موجودة في دفتر المخزون.",
+                    messageEn: "The stock cannot be put back: this invoice's issue movement is not in the stock ledger.",
+                  });
+                }
+                return restored;
+              }
+            : undefined;
+        const posted = await deps.gl.reverse(journalEntryId, {
+          reversalId: salesInvoiceVoidEntryId(current.id),
+          mintedBySystem: true,
+          date,
+          memo: `عكس فاتورة مبيعات ${current.docNo ?? current.id}`,
+          stock: restoreStock,
+        });
+        const next: SalesInvoice = { ...current, status: REVERSED_STATUS, voidReason: reason };
+        if (!(await deps.repo.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.VoidReason], { status: [current.status] }))) {
+          throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, current.id);
+        }
+        await deps.withdrawUnsentEtaSubmission?.(next);
+        await deps.releaseRevaluationShare?.(next.id, date);
         await recordAdminEvent(deps.audit, c, {
           module: "sales",
-          entityType: "SALES_INVOICE",
-          entityId: voided.id,
-          action: "VOID",
+          entityType: SALES_INVOICE_DOC_TYPE,
+          entityId: next.id,
+          action: SalesInvoiceAuditAction.Void,
           details: {
-            docNo: voided.docNo,
-            customerId: voided.customerId,
-            previousStatus: invoice.status,
-            grandTotal: totalsFor(svc, voided).grandTotal.toString(),
-            reversalJournalEntryId: reversal.journalEntryId,
+            docNo: next.docNo,
+            customerId: next.customerId,
+            previousStatus: current.status,
+            reason,
+            grandTotal: totalsFor(svc, next).grandTotal.toString(),
+            reversalJournalEntryId: posted.journalEntryId,
           },
         });
-        return { voided, reversal };
+        return { voided: next, reversal: posted };
       });
       return c.json({
         ...serialize(voided, totalsFor(svc, voided), Money.zero(), maySeeCost(c)),
         reversalJournalEntryId: reversal.journalEntryId,
       });
     } catch (err) {
+      if (err instanceof SalesInvoiceVoidRefusal) return c.json(err.body, err.status);
       return handleDomainError(c, err);
     }
   });
@@ -1259,7 +1647,10 @@ export function createSalesInvoicesRoutes(
    * about the same payment forever (D1).
    */
   app.post("/:id/payments", gate("sales.invoice.edit"), async (c) => {
-    const parsed = salesInvoicePaymentSchema.safeParse(await c.req.json());
+    const svc = service(c);
+    const target = await visibleInvoice(c, svc);
+    if (!target) return c.json(NOT_FOUND_BODY, 404);
+    const parsed = salesInvoicePaymentSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
@@ -1269,10 +1660,9 @@ export function createSalesInvoicesRoutes(
         503,
       );
     }
-    const svc = service(c);
     const amount = Money.fromMajor(parsed.data.amount);
     try {
-      const id = c.req.param("id");
+      const id = target.id;
       const existing = await svc.findById(id);
       // A collection happens when it happens. Defaulting to the INVOICE's
       // date backdated every receipt to the day the invoice was raised — it

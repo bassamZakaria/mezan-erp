@@ -13,7 +13,7 @@ import type { CostCategory } from "../contracting/cost-category.js";
  */
 
 import type { Money } from "../money/index.js";
-import type { PostReceiptCommand, ReverseReceiptCommand } from "../inventory/index.js";
+import type { PostReceiptCommand, PostReceiptResult, ReverseReceiptCommand, ReverseReceiptResult } from "../inventory/index.js";
 
 /** أمر الشراء lifecycle (docs/archive/catalog/02 §Purchase Orders §Workflows/statuses). */
 export type PurchaseOrderStatus =
@@ -27,7 +27,12 @@ export type PurchaseOrderStatus =
 export type GoodsReceiptStatus = "draft" | "confirmed" | "cancelled";
 
 /** فاتورة المشتريات lifecycle (docs/archive/catalog/02 §Purchase Invoices). */
-export type PurchaseInvoiceStatus = "draft" | "confirmed" | "cancelled";
+export enum PurchaseInvoiceStatusCode {
+  Draft = "draft",
+  Confirmed = "confirmed",
+  Cancelled = "cancelled",
+}
+export type PurchaseInvoiceStatus = `${PurchaseInvoiceStatusCode}`;
 
 /**
  * The purchase-strictness gates (docs/archive/catalog/09 §"التحكم في المشتريات"): a
@@ -91,6 +96,7 @@ export interface PurchaseGlPostingLine {
    * dividing tax by base per entry (D28).
    */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
 }
 
 /**
@@ -105,6 +111,7 @@ export interface PurchaseGlPosting {
   readonly date: string;
   readonly memo: string;
   readonly lines: readonly PurchaseGlPostingLine[];
+  readonly warehouseId?: string | null;
   readonly entrySuffix?: string;
 }
 
@@ -113,7 +120,7 @@ export interface PurchaseGlPostingPort {
   /**
    * Run the whole confirm inside one atomic boundary. Without it the GL entry
    * posted first with a deterministic id and any later failure left the invoice
-   * `draft` with a live entry, so every retry threw DuplicateJournalEntryError
+   * `draft` with a live entry, so every retry threw a duplicate-id refusal
    * and the invoice was permanently unconfirmable (B-7). Optional so a caller
    * that has no transactor still works, unatomically, as before.
    */
@@ -134,12 +141,11 @@ export interface PurchaseGlAccounts {
   readonly expenseAccountId?: string;
   /**
    * بضاعة واردة لم تُفوتر — credited when goods are RECEIVED and cleared when
-   * they are invoiced (D53). Optional: without it a receipt posts nothing, which
-   * is the behaviour that predates this and is still what an installation with
-   * no such account configured must fall back to.
+   * they are invoiced (D53). A goods receipt is refused without it.
    */
   readonly goodsReceivedNotInvoicedAccountId?: string;
   readonly priceVarianceAccountId?: string;
+  readonly backOrderCostAccountId?: string;
 }
 
 /**
@@ -148,9 +154,9 @@ export interface PurchaseGlAccounts {
  * `postReceipt` method (the costing/stock-ledger engine).
  */
 export interface PurchaseStockPostingPort {
-  postReceipt(command: PostReceiptCommand): Promise<void>;
-  /** Undo a prior `postReceipt` (cancellation). `StockLedgerService.reverseReceipt` satisfies this structurally. */
-  reverseReceipt(command: ReverseReceiptCommand): Promise<void>;
+  postReceipt(command: PostReceiptCommand): Promise<PostReceiptResult>;
+  /** INVARIANT: the result is never discarded — the goods leave at the moving average, and the cancelling entry books what the reversed entry moves beyond that. */
+  reverseReceipt(command: ReverseReceiptCommand): Promise<ReverseReceiptResult>;
   applyReceiptCostVariance?(command: ReceiptCostVarianceCommand): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money; readonly occurredAt?: string }>;
   reverseReceiptCostVariance?(command: { readonly varianceDocId: string; readonly reversalId: string; readonly positions: readonly { itemId: string; warehouseId: string }[]; readonly occurredAt: string }): Promise<{ readonly takenBack: boolean; readonly occurredOn: string | null }>;
 }
@@ -175,6 +181,6 @@ export interface ReceiptCostVarianceCommand {
 export interface PurchaseGlReversalPort {
   reverse(
     sourceDocId: string,
-    opts: { readonly reversalId: string; readonly date?: string; readonly memo?: string },
+    opts: { readonly reversalId: string; readonly date?: string; readonly memo?: string; readonly appendLines?: readonly PurchaseGlPostingLine[] },
   ): Promise<void>;
 }

@@ -38,6 +38,7 @@ export type SeedSessionMinter = (grant: {
   userId: string;
   permissions: readonly string[];
   roleCode: string | null;
+  branchScope?: readonly string[];
 }) => string;
 
 let mintSeedSession: SeedSessionMinter | null = null;
@@ -58,6 +59,15 @@ export function seedActorHeaders(userId: string, permissions: readonly string[] 
   };
 }
 
+/** Headers that act as `userId` granted only `branchScope` — what a branch's own clerk holds. */
+export function seedBranchActorHeaders(userId: string, permissions: readonly string[], branchScope: readonly string[]): Record<string, string> {
+  if (!mintSeedSession) throw new Error("[demo-seed] no session minter — setSeedSessionToken was never called");
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${mintSeedSession({ userId, permissions, roleCode: null, branchScope })}`,
+  };
+}
+
 export const SEED_TENANT_DOMAIN = "cyag.example";
 
 /** The seeded people another module acts as, by the email local part `seedAccess` gives them. */
@@ -71,6 +81,7 @@ export enum SeedPerson {
   ConsultantQs = "manar.abdelaziz",
   ContractingFinance = "nourhan.samir",
   TreasuryCashier = "youssef.badr",
+  WarehouseKeeper = "sayed.gamal",
 }
 
 const seededUserIds = new Map<string, string>();
@@ -91,6 +102,7 @@ export function seededUserId(person: SeedPerson): string {
 export const BRANCH_ID = "BR-MAIN";
 export const WAREHOUSE_ID = "WH-MAIN";
 export const VAT_PERCENT = 14;
+export const VAT_RATE_ID = "VAT14";
 
 /** Standard chart-of-accounts ids from `packages/domain/src/accounts/coa-template.ts`. */
 export const ACCOUNTS = {

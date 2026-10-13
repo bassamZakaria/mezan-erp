@@ -1,3 +1,4 @@
+import { useBranchGate } from "../../shell/useBranchGate";
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
 import { useCrmActivities, useLeads, useOpportunities } from "../../data/hooks";
@@ -38,6 +39,9 @@ const quickActions: HubAction[] = [
   { label: "crmHub.newActivity", screen: "crm-activities" },
 ];
 
+const LEADS_API = "/crm/leads";
+const LEADS_SCREEN = "leads";
+
 export function CrmHubScreen() {
   const { t } = useAppTranslation();
   const leadsQuery = useLeads();
@@ -59,6 +63,8 @@ export function CrmHubScreen() {
 
   const isLoading = leadsQuery.isLoading || opportunitiesQuery.isLoading || activitiesQuery.isLoading;
   const isError = leadsQuery.isError || opportunitiesQuery.isError || activitiesQuery.isError;
+  const branchGate = useBranchGate();
+  const leadsOpen = branchGate.allowsApi(LEADS_API);
 
   return (
     <WorkspaceHub
@@ -66,9 +72,9 @@ export function CrmHubScreen() {
       description={t("crmHub.leadsOpportunitiesAndActivities")}
       loading={isLoading}
       error={isError ? t("crmHub.crmDataCouldNotBe") : null}
-      actions={<HubActions actions={quickActions} />}
+      actions={<HubActions actions={leadsOpen ? quickActions : quickActions.filter((action) => action.screen !== LEADS_SCREEN)} />}
       stats={[
-        { key: "leads", label: t("crmHub.newLeads"), value: newLeads, sub: t("crmHub.ofLeads", { count: leads.length }) },
+        ...(leadsOpen ? [{ key: "leads", label: t("crmHub.newLeads"), value: newLeads, sub: t("crmHub.ofLeads", { count: leads.length }) }] : []),
         { key: "open", label: t("crmHub.openOpportunities"), value: openOpportunities.length, sub: t("crmHub.beingFollowedUp") },
         { key: "pipeline", label: t("crmHub.expectedValueOfOpenOpportunities"), value: <Money value={openPipelineValue} />, sub: t("crmHub.allOpenOpportunities") },
         { key: "activities", label: t("crmHub.activitiesPending"), value: pendingActivities, sub: t("crmHub.callsMeetingsAndTasks") },

@@ -55,7 +55,7 @@ export function aggregateItemSales(
       const existing = byItem.get(line.itemId) ?? { itemNameAr: line.itemNameAr, qty: Qty.zero(), revenue: Money.zero() };
       byItem.set(line.itemId, {
         itemNameAr: line.itemNameAr,
-        qty: existing.qty.add(line.qty),
+        qty: existing.qty.add(line.baseQty),
         revenue: existing.revenue.add(revenue),
       });
     });

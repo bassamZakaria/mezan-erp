@@ -1,7 +1,7 @@
 import type { Money } from "../money/money.js";
 import type { PaymentProviderId } from "./payment-provider.js";
 import type { Plan } from "./plan.js";
-import type { Subscription } from "./subscription.js";
+import { SubscriptionStatusKind, type Subscription } from "./subscription.js";
 import type { Payment } from "./payment.js";
 import { moneyToPaymobCents } from "./paymob.js";
 
@@ -79,7 +79,7 @@ export class CardCheckoutUnavailableError extends Error {
   }
 }
 
-const RENEWABLE: readonly Subscription["status"][] = ["trialing", "active", "past_due"];
+const RENEWABLE: readonly Subscription["status"][] = [SubscriptionStatusKind.Trialing, SubscriptionStatusKind.Active, SubscriptionStatusKind.PastDue];
 
 /**
  * What one card checkout charges: the plan's price for the subscription's own

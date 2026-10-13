@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { PLAIN_SALES_TAX_DEPS } from "./test-support.js";
 import { Money, Qty } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import { InMemoryAccountRepository } from "../accounts/test-helpers/in-memory-account-repository.js";
@@ -97,6 +98,7 @@ async function harness(opts: { periodStatus?: "open" | "closed" | "locked" } = {
 
   const repo = new InMemorySalesInvoiceRepository();
   const svc = new SalesInvoiceService({
+    ...PLAIN_SALES_TAX_DEPS,
     repo,
     numbering: { next: () => numbering.next("SALES_INVOICE") },
     gl: glHook,
@@ -134,6 +136,7 @@ function line(overrides: Partial<SalesInvoiceLine> & { lineId: string; itemId: s
     revenueAccountId: REVENUE,
     cogsAccountId: COGS,
     inventoryAccountId: INVENTORY,
+    taxRateId: null,
     costCenterId: null,
     unitCost: null,
     unitCode: "", unitFactor: 1, discountType: "percent" as const, discountAmount: Money.zero(),

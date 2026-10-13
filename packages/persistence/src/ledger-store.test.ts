@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import {
   Money,
-  DuplicateJournalEntryError,
+  DuplicateRecordIdError,
   postJournalEntry,
   reverseJournalEntry,
   netBalancesByAccount,
@@ -121,8 +121,8 @@ describe("SqliteLedgerStore — an id that is already an entry", () => {
       deps,
     );
     const again = ledger.save({ ...posted, entryNo: null, memo: "نسخة" });
-    await expect(again).rejects.toBeInstanceOf(DuplicateJournalEntryError);
-    await expect(again).rejects.toMatchObject({ entryId: "je-dup" });
+    await expect(again).rejects.toBeInstanceOf(DuplicateRecordIdError);
+    await expect(again).rejects.toMatchObject({ recordId: "je-dup" });
     expect((await ledger.findById("je-dup"))?.memo).toBe("قيد");
   });
 });

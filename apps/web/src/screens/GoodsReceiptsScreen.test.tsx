@@ -162,6 +162,15 @@ describe("GoodsReceiptsScreen", () => {
     expect(screen.queryByText("85.000000")).not.toBeInTheDocument();
   });
 
+  it("names the warehouse on the receipt's page instead of printing its id", async () => {
+    renderScreen(stubTransport({ ...baseHandlers, "GET /purchases/receipts": () => ({ body: [goodsReceipt()] }) }));
+
+    fireEvent.click(await screen.findByText("GR-000010"));
+
+    expect(await screen.findByText("المخزن الرئيسي")).toBeInTheDocument();
+    expect(screen.queryByText("MAIN-WH")).not.toBeInTheDocument();
+  });
+
   it("shows an honest empty state when the server returns no receipts", async () => {
     const transport = stubTransport({
       ...baseHandlers,
@@ -223,7 +232,7 @@ describe("GoodsReceiptsScreen", () => {
     const transport = stubTransport({
       ...baseHandlers,
       "GET /purchases/receipts": () => ({ body: [] }),
-      "GET /settings": () => ({ body: { requirePoForGrn: false } }),
+      "GET /settings/lookup": () => ({ body: { requirePoForGrn: false } }),
       "POST /purchases/receipts": (init) => {
         posted = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
         return { body: goodsReceipt({ id: "gr-new", number: "GR-000099", purchaseOrderId: null, invoiced: false }) };

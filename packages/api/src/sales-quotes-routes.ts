@@ -6,12 +6,10 @@ import {
   Qty,
   can,
   type DocumentNumberingHook,
-  type DocumentGlHook,
   SalesQuoteService,
   isQuoteExpired,
   InvalidSalesQuoteError,
   SalesQuoteNotFoundError,
-  DuplicateSalesQuoteError,
   InvalidSalesQuoteTransitionError,
   type SalesQuote,
   type SalesQuoteDiscount,
@@ -19,13 +17,13 @@ import {
   type SalesQuoteRepository,
   type SalesQuoteServiceDeps,
   type CreateSalesQuoteCommand,
-  SalesInvoiceService,
+  SalesPricingMode,
   InvalidSalesInvoiceError,
-  DuplicateSalesInvoiceError,
   type SalesInvoiceRepository,
-  type SalesInvoiceStockHook,
   type CreateSalesInvoiceCommand,
+  type TaxRateRepository,
   QuotaKind,
+  type SalesTaxPolicySource,
 } from "@mezan/domain";
 import { withQuota, quotaRefusalResponse, type QuotaEnforcement } from "./plan-quota.js";
 import {
@@ -37,6 +35,9 @@ import {
 } from "@mezan/contracts";
 import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
+import { taxRateRefusal } from "./tax-rate-refusal.js";
+import { customerTaxProfileOf, type CustomerTaxProfileSource } from "./customer-tax-profile.js";
+import { buildSalesInvoiceService, type SalesInvoiceServiceWiring } from "./sales-invoice-service.js";
 import {
   documentVersionOf,
   documentVersionsOf,
@@ -53,7 +54,10 @@ import {
   type AuthContextResolver,
   branchScopeOf,
   withinScope,} from "./permission-gate.js";
+import { storedBranchesById } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * External dependencies the sales-quote routes bind the domain service to.
@@ -74,6 +78,9 @@ export interface SalesQuoteRoutesDeps {
   readonly itemCheck?: ItemCatalogCheck;
   /** Refuses a quote naming a customer, warehouse or branch no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
+  readonly taxRates?: Pick<TaxRateRepository, "list">;
+  readonly customerTax?: CustomerTaxProfileSource;
+  readonly taxPolicy?: SalesTaxPolicySource;
   readonly numbering: DocumentNumberingHook;
   readonly now?: () => string;
   /** Generates a quote id when the request omits one. Defaults to a UUID. */
@@ -87,11 +94,7 @@ export interface SalesQuoteRoutesDeps {
    * and the convert route responds 501 — this module never depends on
    * sales-invoices being mounted.
    */
-  readonly invoice?: {
-    readonly repo: SalesInvoiceRepository;
-    readonly numbering: DocumentNumberingHook;
-    readonly gl: DocumentGlHook;
-    readonly stock: SalesInvoiceStockHook;
+  readonly invoice?: SalesInvoiceServiceWiring & {
     /**
      * The same monthly invoice quota `POST /sales-invoices` applies. Converting
      * a quote raises a NEW sale, so it counts; without this the limit is one
@@ -157,6 +160,7 @@ function serialize(quote: SalesQuote, totals: SalesQuoteTotals) {
       unitPrice: l.unitPrice.toString(),
       discountPercent: l.discountPercent,
       taxRatePercent: l.taxRatePercent,
+      taxRateId: l.taxRateId ?? null,
     })),
     totals: serializeTotals(totals),
   };
@@ -168,15 +172,18 @@ function withMessageEn(err: { code: string; message: string }) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
+  const taxRefusal = taxRateRefusal(c, err);
+  if (taxRefusal) return taxRefusal;
   if (err instanceof InvalidSalesQuoteError) {
     return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
   }
   if (err instanceof SalesQuoteNotFoundError) {
     return c.json(withMessageEn(err), 404);
   }
-  if (err instanceof DuplicateSalesQuoteError || err instanceof InvalidSalesQuoteTransitionError) {
+  if (err instanceof InvalidSalesQuoteTransitionError) {
     return c.json(withMessageEn(err), 409);
   }
   throw err;
@@ -197,13 +204,17 @@ function handleDomainError(c: Context, err: unknown): Response {
  * implemented by the coordinator outside this file (the domain service's
  * `markConverted` is ready for it).
  */
+const ACCEPTED_QUOTE_STATUS: SalesQuote["status"] = "accepted";
+const CONVERTED_QUOTE_STATUS: SalesQuote["status"] = "converted";
+
 export function createSalesQuotesRoutes(
   deps: SalesQuoteRoutesDeps,
   resolveAuthContext: AuthContextResolver,
 ) {
   const app = new Hono();
-  const gate = createPermissionGate(resolveAuthContext);
-  const gateAny = createAnyPermissionGate(resolveAuthContext);
+  const storedBranches = storedBranchesById((id) => deps.repo.findById(id), (quote) => [quote.branchId]);
+  const gate = createPermissionGate(resolveAuthContext, { storedBranches });
+  const gateAny = createAnyPermissionGate(resolveAuthContext, { storedBranches });
 
   /*
    * A quote records no author, so `sales.quote.view_own` cannot be evaluated by
@@ -229,6 +240,8 @@ export function createSalesQuotesRoutes(
     const svcDeps: SalesQuoteServiceDeps = {
       repo: deps.repo,
       numbering: deps.numbering,
+      taxRates: deps.taxRates,
+      taxPolicy: deps.taxPolicy,
       now: deps.now,
       actor: getAuthContext(c)?.userId ?? "system",
     };
@@ -245,13 +258,15 @@ export function createSalesQuotesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    const customerTax = await customerTaxProfileOf(deps.customerTax, d.customerId);
     const cmd: CreateSalesQuoteCommand = {
       id: d.id ?? idGen(),
       date: d.date,
       expiryDate: d.expiryDate,
       customerId: d.customerId,
       customerNameAr: d.customerNameAr,
-      customerTaxExempt: d.customerTaxExempt,
+      customerTaxExempt: customerTax.taxExempt,
+      customerTaxExemptionRateId: customerTax.taxExemptionRateId,
       branchId: d.branchId,
       currency: d.currency,
       notes: d.notes ?? null,
@@ -267,6 +282,7 @@ export function createSalesQuotesRoutes(
         unitPrice: Money.fromMajor(l.unitPrice),
         discountPercent: l.discountPercent,
         taxRatePercent: l.taxRatePercent,
+        taxRateId: l.taxRateId,
       })),
     };
     const refusal = await refuseUnknownItems(c, deps.itemCheck, cmd.lines.map((l) => l.itemId));
@@ -515,12 +531,6 @@ export function createSalesQuotesRoutes(
     const quoteSvc = service(c);
     const quote = await quoteSvc.findById(c.req.param("id"));
     if (!quote) return c.json({ error: "NOT_FOUND" }, 404);
-    if (quote.status !== "accepted") {
-      return c.json(
-        { error: "INVALID_QUOTE_STATUS", message: "لا يمكن تحويل عرض السعر إلا بعد قبوله من العميل." },
-        409,
-      );
-    }
     const convertWarehouseRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Warehouse, ids: [d.warehouseId] },
     ]);
@@ -538,14 +548,8 @@ export function createSalesQuotesRoutes(
     }
 
     const ctx = getAuthContext(c);
-    const invoiceSvc = new SalesInvoiceService({
-      repo: deps.invoice.repo,
-      numbering: deps.invoice.numbering,
-      gl: deps.invoice.gl,
-      stock: deps.invoice.stock,
-      now: deps.now,
-      actor: ctx?.userId ?? "system",
-    });
+    const invoiceSvc = buildSalesInvoiceService(deps.invoice, ctx?.userId ?? "system");
+    const customerTax = await customerTaxProfileOf(deps.customerTax, quote.customerId);
     const cmd: CreateSalesInvoiceCommand = {
       id: d.id ?? idGen(),
       date: d.date ?? quote.date,
@@ -553,6 +557,7 @@ export function createSalesQuotesRoutes(
       customerId: quote.customerId,
       customerNameAr: quote.customerNameAr,
       customerTaxExempt: quote.customerTaxExempt,
+      customerTaxExemptionRateId: customerTax.taxExempt ? customerTax.taxExemptionRateId : null,
       warehouseId: d.warehouseId,
       branchId: quote.branchId,
       currency: quote.currency,
@@ -561,6 +566,8 @@ export function createSalesQuotesRoutes(
       discount: quote.discount,
       arAccountId: d.arAccountId,
       taxAccountId: d.taxAccountId,
+      sourcePricing: SalesPricingMode.TaxExclusive,
+      sourceQuoteId: quote.id,
       lines: quote.lines.map((l) => {
         const acc = byLineId.get(l.lineId);
         if (!acc) throw new Error(`unreachable: line ${l.lineId} validated above`);
@@ -572,7 +579,8 @@ export function createSalesQuotesRoutes(
           qty: l.qty,
           unitPrice: l.unitPrice,
           discountPercent: l.discountPercent,
-          taxRatePercent: l.taxRatePercent,
+          inheritedTax: { taxRateId: l.taxRateId, taxRatePercent: l.taxRatePercent },
+          inheritedTaxRateId: acc.taxRateId ?? null,
           revenueAccountId: acc.revenueAccountId,
           cogsAccountId: acc.cogsAccountId ?? null,
           inventoryAccountId: acc.inventoryAccountId ?? null,
@@ -581,12 +589,26 @@ export function createSalesQuotesRoutes(
     };
 
     try {
-      const { refusal, value } = await withQuota(c, deps.invoice?.quota, QuotaKind.SalesInvoicesPerMonth, () =>
-        invoiceSvc.createDraft(cmd),
-      );
-      if (refusal) return quotaRefusalResponse(c, refusal);
-      const invoice = value!;
-      const converted = await quoteSvc.markConverted(quote.id, invoice.id);
+      // INVARIANT: the draft and the quote's move to «محوَّل» are ONE
+      // transaction. The conversion that reaches the quote second finds it
+      // converted and is refused, and the draft it had raised is rolled back
+      // with it — never left standing beside the winner's.
+      const outcome = await deps.repo.transaction(async () => {
+        const standing = await quoteSvc.findById(quote.id);
+        if (standing?.status !== ACCEPTED_QUOTE_STATUS) return { refusal: null, notAccepted: true, alreadyConverted: standing?.status === CONVERTED_QUOTE_STATUS } as const;
+        const quota = await withQuota(c, deps.invoice?.quota, QuotaKind.SalesInvoicesPerMonth, () => invoiceSvc.createDraft(cmd));
+        if (quota.refusal) return { refusal: quota.refusal, notAccepted: false } as const;
+        const raised = quota.value!;
+        return { refusal: null, notAccepted: false, invoice: raised, converted: await quoteSvc.markConverted(quote.id, raised.id) } as const;
+      });
+      if (outcome.notAccepted) {
+        const message = outcome.alreadyConverted
+          ? "عرض السعر حُوِّل بالفعل إلى فاتورة مبيعات؛ افتح فاتورته من صفحة العرض بدلاً من تحويله مرة أخرى."
+          : "لا يمكن تحويل عرض السعر إلا بعد قبوله من العميل.";
+        return c.json({ error: "INVALID_QUOTE_STATUS", message }, 409);
+      }
+      if (outcome.refusal) return quotaRefusalResponse(c, outcome.refusal);
+      const { invoice, converted } = outcome;
       return c.json(
         {
           quote: serialize(converted, totalsFor(quoteSvc, converted)),
@@ -598,9 +620,6 @@ export function createSalesQuotesRoutes(
     } catch (err) {
       if (err instanceof InvalidSalesInvoiceError) {
         return c.json({ ...withMessageEn(err), reasons: err.reasons }, 422);
-      }
-      if (err instanceof DuplicateSalesInvoiceError) {
-        return c.json(withMessageEn(err), 409);
       }
       return handleDomainError(c, err);
     }

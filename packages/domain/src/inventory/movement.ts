@@ -44,6 +44,14 @@ export interface StockMovement {
    * the movement so the ledger is self-describing when replayed.
    */
   readonly unitCost: Money;
+  /**
+   * INVARIANT: the exact value this movement moved, as a positive magnitude.
+   * `unitCost` is rounded to 1e-6, so quantity × unit cost is NOT this figure
+   * for an issue that drained its position, and a reversal that mirrors the
+   * movement mirrors THIS. Absent on a row written before it was stored, which
+   * reads as quantity × unit cost (`movementValue`).
+   */
+  readonly value?: Money | null;
   readonly sourceDocType: StockSourceDocType;
   readonly sourceDocId: string;
   readonly sourceDocNumber: string | null;
@@ -69,6 +77,11 @@ export interface StockMovement {
    * absorb the cost.
    */
   readonly valueDelta?: Money | null;
+  /**
+   * INVARIANT: on a revaluation, the receipt whose layers absorb it. On a
+   * quantity OUT, the cancelled receipt whose own layers the movement takes
+   * back — the live engine and the replay both draw those layers first.
+   */
   readonly revaluesSourceDocId?: string | null;
 }
 
@@ -104,6 +117,10 @@ export function signedValue(movement: StockMovement): Money {
     const delta = movement.valueDelta as Money;
     return movement.direction === "IN" ? delta : delta.negate();
   }
-  const value = extend(movement.qty, movement.unitCost);
+  const value = movementValue(movement);
   return movement.direction === "IN" ? value : value.negate();
+}
+
+export function movementValue(movement: Pick<StockMovement, "qty" | "unitCost" | "value">): Money {
+  return movement.value ?? extend(movement.qty, movement.unitCost);
 }

@@ -417,9 +417,6 @@ export class RecognitionService {
     const accounts = await this.accountIds();
     const lines = this.entryLines(preview, accounts, contract.projectId);
     const runId = command.id ?? `${RECOGNITION_DOC_TYPE}-${contract.id}-${command.periodEnd}`;
-    if (await this.deps.runs.findById(runId)) {
-      throw new InvalidRecognitionRunError([`تشغيل الاعتراف بالإيراد "${runId}" موجود بالفعل.`]);
-    }
 
     const posted = await this.deps.runs.transaction(async () => {
       const number = await this.deps.gl.numbering.next(RECOGNITION_SEQUENCE);
@@ -458,7 +455,7 @@ export class RecognitionService {
         reversedAt: null,
         reversedBy: null,
       };
-      await this.deps.runs.save(run);
+      await this.deps.runs.insert(run);
       return run;
     });
     await recordTransition(this.deps.audit, {

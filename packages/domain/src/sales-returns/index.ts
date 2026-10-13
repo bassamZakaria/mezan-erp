@@ -35,6 +35,7 @@ export {
   sumRefunds,
   assertRefundable,
   SalesReturnNotRefundableError,
+  SalesReturnRefundTreasuryBranchError,
   type SalesReturnRefund,
   type SalesReturnRefundPort,
   type SalesReturnRefundCommand,

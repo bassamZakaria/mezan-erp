@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { refusingTakenId } from "./insert-new.js";
 import {
   Money,
   Qty,
@@ -822,6 +823,11 @@ class SqliteSubcontractStore implements SubcontractStore {
       .map((r) => this.hydrate(r));
   }
 
+  async insert(subcontract: Subcontract): Promise<void> {
+    refusingTakenId(this.sqlite, "subcontract", subcontract.id);
+    return this.save(subcontract);
+  }
+
   async save(subcontract: Subcontract): Promise<void> {
     const write = this.sqlite.transaction(() => {
       this.upsertSubcontract.run({
@@ -943,6 +949,11 @@ class SqliteSubcontractStore implements SubcontractStore {
       .prepare(`SELECT * FROM subcontract_certificate WHERE subcontract_id = ? ORDER BY serial`)
       .all(subcontractId) as CertificateRow[];
     return rows.map((r) => this.hydrateCertificate(r));
+  }
+
+  async insertCertificate(certificate: SubCertificate): Promise<void> {
+    refusingTakenId(this.sqlite, "subcontract_certificate", certificate.id);
+    return this.saveCertificate(certificate);
   }
 
   async saveCertificate(certificate: SubCertificate): Promise<void> {

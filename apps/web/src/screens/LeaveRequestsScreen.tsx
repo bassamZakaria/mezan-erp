@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -100,6 +101,7 @@ export function LeaveRequestsScreen() {
       }
     } catch (err) {
       setRowError(err instanceof ApiError ? err.message : t("leaveRequests.theDecisionOnThisLeave"));
+      return RowActionOutcome.Refused;
     } finally {
       setDecidingId(null);
     }
@@ -265,8 +267,8 @@ export function LeaveRequestsScreen() {
           const menuItems: RowMenuItem[] =
             r.status === "pending"
               ? [
-                  { key: "approve", label: t("leaveRequests.approve"), disabled: decidingId === r.id, onSelect: () => void decide(r, "approved") },
-                  { key: "reject", label: t("leaveRequests.reject"), tone: "danger", disabled: decidingId === r.id, onSelect: () => void decide(r, "rejected") },
+                  { key: "approve", label: t("leaveRequests.approve"), disabled: decidingId === r.id, onSelect: () => decide(r, "approved") },
+                  { key: "reject", label: t("leaveRequests.reject"), tone: "danger", disabled: decidingId === r.id, onSelect: () => decide(r, "rejected") },
                 ]
               : [];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.number })} />;

@@ -17,6 +17,7 @@ import type {
   PostIssueCommand,
   PostIssueResult,
   PostReceiptCommand,
+  PostReceiptResult,
   PostTransferCommand,
   PostTransferResult,
 } from "../inventory/index.js";
@@ -75,7 +76,7 @@ export type ItemPolicy = "per_order" | "per_spec";
  */
 export interface ManufacturingStockPort {
   postIssue(command: PostIssueCommand): Promise<PostIssueResult>;
-  postReceipt(command: PostReceiptCommand): Promise<void>;
+  postReceipt(command: PostReceiptCommand): Promise<PostReceiptResult>;
   postTransfer(command: PostTransferCommand): Promise<PostTransferResult>;
 }
 
@@ -108,6 +109,7 @@ export interface ManufacturingGlPosting {
   readonly date: string;
   readonly memo: string;
   readonly lines: readonly ManufacturingGlPostingLine[];
+  readonly warehouseId?: string | null;
   /**
    * The journal entry's own id — what makes the posting idempotent.
    *
@@ -134,6 +136,7 @@ export interface WorkOrderGlAccounts {
   readonly overheadAppliedAccountId: string;
   /** Debited for scrap beyond the BOM's waste allowance, at the moment it is logged. */
   readonly abnormalScrapAccountId: string;
+  readonly backOrderCostAccountId?: string;
   /**
    * إنتاج تحت التشغيل — parks the value of NORMAL scrap between the moment it
    * is destroyed and the moment the product that absorbs it is received.

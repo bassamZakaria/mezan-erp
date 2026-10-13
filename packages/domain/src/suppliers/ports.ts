@@ -6,4 +6,5 @@ export interface SupplierRepository {
   findById(id: string): Promise<Supplier | null>;
   findByCode(code: string): Promise<Supplier | null>;
   save(supplier: Supplier): Promise<void>;
+  insert(supplier: Supplier): Promise<void>;
 }

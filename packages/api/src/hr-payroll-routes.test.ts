@@ -62,7 +62,7 @@ async function newApp() {
     [PAYROLL_GL_ACCOUNTS.employerContributionExpenseAccountId, "expense", "debit"],
     [PAYROLL_GL_ACCOUNTS.employerContributionLiabilityAccountId, "liability", "credit"],
   ] as const) {
-    await accounts.create(account(id, { type, naturalBalance: natural }));
+    if (!(await accounts.findById(id))) await accounts.create(account(id, { type, naturalBalance: natural }));
   }
   await periods.create({
     id: "fp-2026-03",

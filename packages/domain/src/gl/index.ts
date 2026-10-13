@@ -12,6 +12,7 @@ export type {
   AccountBalance,
   AccountLedgerLine,
   LedgerAggregateFilter,
+  TreasuryBalanceQuery,
   PostedLineFilter,
   PostedLine,
 } from "./ledger.js";
@@ -37,6 +38,10 @@ export {
   assertProjectRequired,
   assertPartyLines,
 } from "./post.js";
+export { branchOfPostingWarehouse, type WarehouseBranchLookup } from "./warehouse-branch.js";
+export { inBranchOf } from "./line-branch.js";
+export { createJournalTaxTagPort, JournalTaxTagUnsupportedError } from "./tax-tag.js";
+
 export {
   reverseJournalEntry,
   type ReverseJournalEntryOptions,
@@ -49,7 +54,6 @@ export {
   JournalEntryNotPostedError,
   JournalEntryAlreadyReversedError,
   InactiveAccountError,
-  DuplicateJournalEntryError,
   PartyRequiredOnControlAccountError,
   InvalidJournalPartyError,
   ReversalDateBeforeOriginalError,

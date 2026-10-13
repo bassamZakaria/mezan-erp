@@ -238,9 +238,6 @@ export class GuaranteeService {
   }
 
   async createDraft(command: CreateGuaranteeCommand): Promise<LetterOfGuarantee> {
-    if (await this.deps.guarantees.findById(command.id)) {
-      throw new InvalidGuaranteeError([`خطاب ضمان بالمعرّف "${command.id}" موجود بالفعل.`]);
-    }
     const cashMarginPercent = command.cashMarginPercent ?? "20";
     const cashMarginAmount = command.cashMarginAmount ?? guaranteeMarginOf(command.faceValue, cashMarginPercent);
     const shape = {

@@ -386,6 +386,20 @@ describe("work order — return refuses more than is outstanding", () => {
     expect((await stock.getBalance("m1", RAW)).toString()).toBe("80.000000");
   });
 
+  it("refuses two lines for one item that together exceed what is outstanding, though each alone fits", async () => {
+    const { workOrders, stock, now, wo } = await setup();
+    const deps = { workOrders, stock, now };
+    await startWorkOrder(wo.id, deps);
+    await issueWorkOrderMaterials(wo.id, deps);
+    const twelve = { itemId: "m1", qty: Qty.fromMajor("12") };
+    await expect(returnWorkOrderMaterials(wo.id, [twelve, twelve], deps)).rejects.toThrow(/إرجاع 24\.000000.*القائم فقط 20\.000000/);
+
+    const unchanged = await workOrders.findById(wo.id);
+    expect(unchanged?.materialCost.toString()).toBe("250.000000");
+    expect((await stock.getBalance("m1", WIP)).toString()).toBe("20.000000");
+    expect((await stock.getBalance("m1", RAW)).toString()).toBe("80.000000");
+  });
+
   it("rejects returning an item never issued, and an empty line list", async () => {
     const { workOrders, stock, now, wo } = await setup();
     const deps = { workOrders, stock, now };

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import {
   Button,
   Card,
@@ -251,7 +252,7 @@ export function PayrollComponentsScreen() {
         onClose={() => setFormOpen(false)}
         title={editingId ? t("payrollComponents.editComponent") : t("payrollComponents.newComponent")}
       >
-        <form onSubmit={submit} className="flex flex-col gap-[14px]">
+        <ReadOnlyFields><form onSubmit={submit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
               {formError}
@@ -276,14 +277,14 @@ export function PayrollComponentsScreen() {
           />
           <ToggleField label={t("payrollComponents.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />
           <div className="mt-[6px] flex justify-end gap-[9px]">
-            <Button type="button" onClick={() => setFormOpen(false)}>
+            <Button type="button" {...READ_ONLY_KEEP} onClick={() => setFormOpen(false)}>
               {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary" disabled={createComponent.isPending || updateComponent.isPending}>
               {t("common.save")}
             </Button>
           </div>
-        </form>
+        </form></ReadOnlyFields>
       </SidePanel>
     </div>
   );

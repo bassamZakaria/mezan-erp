@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { moneyString, nonNegativeMoneyString, quantityString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { clientSuppliedId } from "./client-supplied-id.js";
 
@@ -163,7 +163,7 @@ export const worksContractSchema = z.object({
   advanceRecoveryPercent: z.string(),
   materialsOnSitePercent: z.string(),
   deemedWagePercent: z.string(),
-  socialInsuranceRatePercent: z.string(),
+  socialInsuranceRatePercent: moneyString,
   socialInsuranceNote: z.string().nullable(),
   withholdingTaxPercent: z.string(),
   vatBasis: vatBasisSchema,
@@ -237,8 +237,8 @@ export const boqImportRowSchema = z.object({
   descriptionAr: z.string().nullish(),
   descriptionEn: z.string().nullish(),
   unit: z.string().nullish(),
-  qty: z.string().nullish(),
-  unitRate: z.string().nullish(),
+  qty: quantityString.nullish(),
+  unitRate: moneyString.nullish(),
   estimatedUnitCost: z.string().nullish(),
   section: z.string().nullish(),
   costCategory: z.string().nullish(),
@@ -255,8 +255,8 @@ export const boqImportReviewRowSchema = z.object({
   code: z.string(),
   descriptionAr: z.string(),
   unit: z.string(),
-  qty: z.string(),
-  unitRate: z.string(),
+  qty: quantityString,
+  unitRate: moneyString,
 });
 export type BoqImportReviewRowDTO = z.infer<typeof boqImportReviewRowSchema>;
 

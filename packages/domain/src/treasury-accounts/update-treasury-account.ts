@@ -1,3 +1,4 @@
+import { assertTreasuryLedgerAccount, type TreasuryLedgerAccountDeps } from "./ledger-account.js";
 import { Money } from "../money/index.js";
 import {
   MAX_GUARANTEE_FACILITY_LIMIT_SCALED,
@@ -24,7 +25,7 @@ export interface UpdateTreasuryAccountCommand {
   readonly currency?: string;
   /** رقم الحساب البنكي / IBAN; null clears it. */
   readonly bankAccountNumber?: string | null;
-  readonly branchId?: string;
+  readonly branchId?: string | null;
   readonly glAccountId?: string | null;
   /** Exact decimal string — parsed via `Money.fromMajor`. Use "إضافة رصيد افتتاحي" semantics: this replaces the stored opening balance. */
   readonly openingBalance?: string;
@@ -73,6 +74,7 @@ export async function updateTreasuryAccount(
   accountId: string,
   command: UpdateTreasuryAccountCommand,
   repo: TreasuryAccountRepository,
+  ledgerAccounts?: TreasuryLedgerAccountDeps,
   movements?: TreasuryAccountMovementProbe,
 ): Promise<TreasuryAccount> {
   const current = await repo.findById(accountId);
@@ -110,13 +112,15 @@ export async function updateTreasuryAccount(
     currency: command.currency ?? current.currency,
     bankAccountNumber:
       command.bankAccountNumber !== undefined ? (command.bankAccountNumber?.trim() || null) : current.bankAccountNumber,
-    branchId: command.branchId ?? current.branchId,
+    branchId: command.branchId === undefined ? current.branchId : command.branchId,
     glAccountId: command.glAccountId !== undefined ? command.glAccountId : current.glAccountId,
     openingBalance: nextOpeningBalance,
     openingBalanceDate: command.openingBalanceDate !== undefined ? command.openingBalanceDate : current.openingBalanceDate,
     guaranteeFacilityLimit: nextFacilityLimit,
     status: command.status ?? current.status,
   };
+
+  if (ledgerAccounts) await assertTreasuryLedgerAccount(updated, ledgerAccounts);
 
   await repo.update(updated);
   return updated;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyString } from "./money-string.js";
+import { moneyString, nonNegativeQuantityString, quantityString } from "./money-string.js";
 import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
@@ -12,7 +12,7 @@ export const priceListLineSchema = z.object({
   itemId: z.string().min(1),
   unitCode: z.string().nullish(),
   /** Volume threshold this tier's price applies from. Omitted means the base tier ("0"). */
-  minQty: z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string").optional(),
+  minQty: nonNegativeQuantityString.optional(),
   price: moneyString,
 });
 
@@ -20,7 +20,7 @@ export const priceListLineSchema = z.object({
 export const priceListLineViewSchema = z.object({
   itemId: z.string().min(1),
   unitCode: z.string().nullable(),
-  minQty: z.string(),
+  minQty: quantityString,
   price: moneyString,
 });
 
@@ -66,7 +66,7 @@ export const resolvePriceListPriceSchema = z.object({
   priceListId: z.string().min(1).nullish(),
   customerId: z.string().min(1).nullish(),
   itemId: z.string().min(1),
-  qty: z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string").optional(),
+  qty: nonNegativeQuantityString.optional(),
   fallback: z.string(),
 });
 

@@ -1,3 +1,4 @@
+import { insertOnly } from "../records/test-helpers/insert-only.js";
 /** In-memory fakes for the purchase-chain use-case tests. Test-only. */
 
 import { NextNumberService, type SequenceStore } from "../numbering/index.js";
@@ -8,9 +9,9 @@ import {
   InMemorySnapshots,
 } from "../inventory/test-helpers/in-memory-stores.js";
 import type { PurchaseOrder, PurchaseOrderRepository } from "./purchase-order.js";
-import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
-import type { PurchaseInvoice, PurchaseInvoiceRepository } from "./purchase-invoice.js";
-import type { PurchaseGlPosting, PurchaseGlPostingPort } from "./types.js";
+import { GoodsReceiptField, type GoodsReceipt, type GoodsReceiptRepository } from "./goods-receipt.js";
+import type { PurchaseInvoice, PurchaseInvoiceField, PurchaseInvoiceRepository } from "./purchase-invoice.js";
+import { PurchaseInvoiceStatusCode, type PurchaseGlPosting, type PurchaseGlPostingPort } from "./types.js";
 
 /** Gap-free counter store; one row per (code, period). */
 export class InMemorySequenceStore implements SequenceStore {
@@ -36,7 +37,7 @@ export class InMemoryPurchaseOrders implements PurchaseOrderRepository {
     return [...this.rows.values()];
   }
   async create(order: PurchaseOrder): Promise<void> {
-    this.rows.set(order.id, order);
+    insertOnly(this.rows, order.id, order);
   }
   async update(order: PurchaseOrder): Promise<void> {
     this.rows.set(order.id, order);
@@ -55,12 +56,23 @@ export class InMemoryGoodsReceipts implements GoodsReceiptRepository {
     return [...this.rows.values()].filter((r) => r.purchaseOrderId === purchaseOrderId);
   }
   async create(receipt: GoodsReceipt): Promise<void> {
-    this.rows.set(receipt.id, receipt);
+    insertOnly(this.rows, receipt.id, receipt);
   }
   async update(receipt: GoodsReceipt): Promise<void> {
     this.rows.set(receipt.id, receipt);
   }
+  async writeFields(next: GoodsReceipt, fields: readonly GoodsReceiptField[], expected: { readonly status: GoodsReceipt["status"] }): Promise<boolean> {
+    const stored = this.rows.get(next.id);
+    if (!stored || stored.status !== expected.status) return false;
+    this.rows.set(next.id, { ...stored, ...Object.fromEntries(fields.flatMap((field) => GOODS_RECEIPT_PROPERTIES[field].map((property) => [property, next[property]]))) });
+    return true;
+  }
 }
+
+const GOODS_RECEIPT_PROPERTIES: Readonly<Record<GoodsReceiptField, readonly (keyof GoodsReceipt)[]>> = {
+  [GoodsReceiptField.Status]: ["status"],
+  [GoodsReceiptField.Billing]: ["invoiced", "lines"],
+};
 
 export class InMemoryPurchaseInvoices implements PurchaseInvoiceRepository {
   readonly rows = new Map<string, PurchaseInvoice>();
@@ -71,10 +83,28 @@ export class InMemoryPurchaseInvoices implements PurchaseInvoiceRepository {
     return [...this.rows.values()];
   }
   async create(invoice: PurchaseInvoice): Promise<void> {
-    this.rows.set(invoice.id, invoice);
+    insertOnly(this.rows, invoice.id, invoice);
   }
   async update(invoice: PurchaseInvoice): Promise<void> {
     this.rows.set(invoice.id, invoice);
+  }
+  async writeFields(next: PurchaseInvoice, fields: readonly PurchaseInvoiceField[], expected: { readonly status: PurchaseInvoice["status"] }): Promise<boolean> {
+    const stored = this.rows.get(next.id);
+    if (!stored || stored.status !== expected.status) return false;
+    this.rows.set(next.id, { ...stored, ...Object.fromEntries(fields.map((field) => [field, next[field]])) });
+    return true;
+  }
+  async nameLineTaxRate(invoiceId: string, lineIndexes: readonly number[], taxRatePercent: number, taxRateId: string): Promise<number> {
+    const invoice = this.rows.get(invoiceId);
+    if (!invoice || invoice.status !== PurchaseInvoiceStatusCode.Confirmed) return 0;
+    let named = 0;
+    const lines = invoice.lines.map((line, index) => {
+      if (!lineIndexes.includes(index) || (line.taxRateId ?? null) !== null || line.taxRatePercent !== taxRatePercent) return line;
+      named += 1;
+      return { ...line, taxRateId };
+    });
+    this.rows.set(invoiceId, { ...invoice, lines });
+    return named;
   }
 }
 

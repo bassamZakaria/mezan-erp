@@ -16,7 +16,6 @@ import { buildEffects } from "./effects.js";
 import { canTransition, assertTransition } from "./status.js";
 import {
   InvalidDocumentTransitionError,
-  DuplicateDocumentError,
   InvalidDocumentError,
   MissingHookError,
   ReversalNotReversibleError,
@@ -31,6 +30,7 @@ import {
   createDocumentWorkflowGate,
   type JournalDocLine,
 } from "./journal-document.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 
 /* -------------------------------------------------------------------- */
 /* 1. Lifecycle state machine + guards                                   */
@@ -93,9 +93,7 @@ describe("DocumentService — generic lifecycle with hooks", () => {
     const repo = new InMemoryDocumentRepository<FakeLine>();
     const svc = new DocumentService(fakeType(), { repo });
     await svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [] });
-    await expect(svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [] })).rejects.toBeInstanceOf(
-      DuplicateDocumentError,
-    );
+    await expect(svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [] })).rejects.toBeInstanceOf(DuplicateRecordIdError);
   });
 
   it("confirm fires numbering → stock → GL in order and persists the active document", async () => {
@@ -131,6 +129,34 @@ describe("DocumentService — generic lifecycle with hooks", () => {
     expect(events.events.map((e) => e.type)).toEqual(["DOCUMENT_DRAFTED", "DOCUMENT_CONFIRMED"]);
     expect(audit.events).toHaveLength(1);
     expect(audit.events[0]?.action).toBe("CONFIRM");
+  });
+
+  it("confirming an already-confirmed document is an illegal transition, answered before the guard or the validator can call it something else (D79)", async () => {
+    const repo = new InMemoryDocumentRepository<FakeLine>();
+    let guarded = 0;
+    let validated = 0;
+    const numbering = { next: async () => ({ value: 1, formatted: "SO-000001" }) };
+    const svc = new DocumentService(
+      fakeType({
+        validate: () => {
+          validated += 1;
+        },
+      }),
+      {
+        repo,
+        numbering,
+        confirmGuard: async (doc) => {
+          guarded += 1;
+          if (doc.status !== "draft") throw new InvalidDocumentError("FAKE_DOC", doc.id, "exceeds available (0)");
+        },
+      },
+    );
+    await svc.createDraft({ id: "d1", date: "2026-08-22", memo: "m", lines: [{ note: "a" }] });
+    await svc.confirm("d1");
+    const before = { guarded, validated };
+
+    await expect(svc.confirm("d1")).rejects.toBeInstanceOf(InvalidDocumentTransitionError);
+    expect({ guarded, validated }).toEqual(before);
   });
 
   // guards B-10: reverse mirrored the GL entry and left the goods on hand, so

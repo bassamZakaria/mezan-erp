@@ -13,7 +13,8 @@ import type { CostCategory } from "../contracting/cost-category.js";
  */
 
 import type { Money, Qty } from "../money/index.js";
-import type { GateableActionType } from "../workflow/index.js";
+import { extend } from "../inventory/wac-math.js";
+import type { ApprovalStatus, GateableActionType } from "../workflow/index.js";
 
 /* --- Numbering hook (via the numbering engine) ---------------------------- */
 
@@ -61,6 +62,7 @@ export interface DocumentGlPostingLine {
    * existed — the report falls back to the old derivation for those.
    */
   readonly taxRatePercent?: number | null;
+  readonly taxRateId?: string | null;
   /** بُعد المشروع — the contracting project the line belongs to (D-01). Dropped here, it is gone for good. */
   readonly projectId?: string | null;
   /** فئة التكلفة — only meaningful with `projectId`. */
@@ -68,11 +70,13 @@ export interface DocumentGlPostingLine {
   /**
    * بُعد الفرع (DEC-20) — the branch the document belongs to. Dropped here it
    * is gone for good, the same way the cost centre and the project are. Null on
-   * every path that has no document branch (manual journals, payroll,
-   * depreciation, year-end close); those land in the statements' «غير مخصص»
+   * every path that has no document branch (a manual journal whose poster
+   * picked none, company-level entries); those land in the statements' «غير مخصص»
    * bucket rather than being derived from a join that would silently drop them.
    */
   readonly branchId?: string | null;
+  /** The treasury account whose money the line moved; see `JournalLine.treasuryAccountId`. */
+  readonly treasuryAccountId?: string | null;
 }
 
 /**
@@ -87,6 +91,12 @@ export interface DocumentGlPosting {
   readonly date: string;
   readonly memo: string;
   readonly lines: readonly DocumentGlPostingLine[];
+  /**
+   * INVARIANT: set by the framework, never by a document type — what the stock ledger
+   * moved beyond (positive) or short of (negative) what the document's own
+   * lines state. The GL hook books it in this same entry.
+   */
+  readonly stockVariance?: Money;
 }
 
 /**
@@ -99,10 +109,23 @@ export interface DocumentGlPostingResult {
   readonly journalEntryNo: string | null;
 }
 
+export interface DocumentGlReversalOptions {
+  readonly reversalId: string;
+  readonly date?: string;
+  readonly memo?: string;
+  readonly mintedBySystem?: boolean;
+  /**
+   * ORDER MATTERS: runs once the reversing entry has its number and before it
+   * is saved, so the stock moves under that number and whatever it could not
+   * mirror is booked in that same entry.
+   */
+  readonly stock?: (reversal: DocumentGlPostingResult) => Promise<DocumentStockResult | undefined>;
+}
+
 export interface DocumentGlHook {
   post(posting: DocumentGlPosting): Promise<DocumentGlPostingResult>;
   /** Reverse a previously posted entry (drives document reversal). */
-  reverse(journalEntryId: string, opts: { reversalId: string; date?: string; memo?: string; mintedBySystem?: boolean }): Promise<DocumentGlPostingResult>;
+  reverse(journalEntryId: string, opts: DocumentGlReversalOptions): Promise<DocumentGlPostingResult>;
 }
 
 /* --- Stock-movement hook (via the stock-ledger engine) ------------------- */
@@ -113,6 +136,8 @@ export interface DocumentStockLine {
   readonly qty: Qty;
   /** Required for an IN line (receipt cost); ignored for OUT (moving average used). */
   readonly unitCost?: Money;
+  readonly value?: Money;
+  readonly warehouseId?: string;
 }
 
 export interface DocumentStockPlan {
@@ -162,6 +187,13 @@ export interface DocumentStockPlan {
 export interface DocumentStockResult {
   /** Signed: positive when value entered stock, negative when it left. */
   readonly valueMoved: Money;
+  /**
+   * INVARIANT: signed, positive when stock holds more than the document's lines state —
+   * what mirrored issues were asked to take and did not, less what receipts
+   * into a back-ordered position stated and did not add. The document's entry
+   * books it, or the control account and the stock ledger part by this figure.
+   */
+  readonly unmirroredValue?: Money;
 }
 
 export interface DocumentStockHook {
@@ -188,14 +220,16 @@ export interface MirrorableStockMovement {
   readonly qty: Qty;
   /** The cost the movement actually recorded — a receipt cost on an IN, the moving average on an OUT. */
   readonly unitCost: Money;
+  readonly value?: Money | null;
 }
 
 /**
  * Build the plan that undoes `movements`, keyed to the reversing document.
  *
- * Every line comes back at the cost it left at — read off the movement, never
- * re-derived from the document — so the reversal is valuation-neutral and the
- * position returns to exactly where it stood. Value-only movements (a landed
+ * Every line moves back the VALUE its movement moved — read off the movement,
+ * never re-derived from the document, a rounded unit cost or today's moving
+ * average — so the position returns to exactly where it stood and to what the
+ * mirrored journal entry returns the control account to. Value-only movements (a landed
  * cost) carry no quantity and are not reversed here.
  */
 export function mirrorStockPlan(
@@ -205,18 +239,22 @@ export function mirrorStockPlan(
   const moved = movements.filter((m) => !m.qty.isZero());
   if (moved.length === 0) return null;
   const warehouses = [...new Set(moved.map((m) => m.warehouseId))];
-  if (warehouses.length > 1) {
+  const directions = new Set(moved.map((m) => m.direction));
+  if (warehouses.length > 1 && directions.size > 1) {
     throw new Error("لا يمكن عكس حركة مخزنية موزّعة على أكثر من مستودع");
   }
+  const planWarehouse = warehouses[0] as string;
   return {
     ...plan,
-    warehouseId: warehouses[0] as string,
+    warehouseId: planWarehouse,
     toWarehouseId: undefined,
     lines: moved.map((m) => ({
       itemId: m.itemId,
       direction: m.direction === "IN" ? ("OUT" as const) : ("IN" as const),
       qty: m.qty,
       unitCost: m.unitCost,
+      value: m.value ?? extend(m.qty, m.unitCost),
+      ...(m.warehouseId === planWarehouse ? {} : { warehouseId: m.warehouseId }),
     })),
   };
 }
@@ -230,6 +268,40 @@ export interface DocumentWorkflowInput {
   readonly submitterRoles?: readonly string[];
   /** Human-readable identifier shown in the approvals inbox — usually the document number. */
   readonly entityLabel?: string | null;
+  /**
+   * SECURITY: the stored document being confirmed, read by the service and
+   * never from a request. An approval is honoured only for this document, in
+   * this branch, with this content, and only when the document is itself held
+   * under that request.
+   */
+  readonly document: GatedDocument;
+}
+
+const CONFIRM_REQUEST_SUFFIX = ":confirm";
+
+/**
+ * SECURITY: the id of a document's confirm request is derived here from the
+ * stored document's id and from nothing a caller sends, so no request can be
+ * raised or read under an id of the caller's choosing.
+ */
+export function confirmRequestIdOf(documentId: string): string {
+  return `${documentId}${CONFIRM_REQUEST_SUFFIX}`;
+}
+
+export function documentIdOfConfirmRequest(requestId: string): string | null {
+  return requestId.endsWith(CONFIRM_REQUEST_SUFFIX) ? requestId.slice(0, -CONFIRM_REQUEST_SUFFIX.length) : null;
+}
+
+export function statedBranchOf(document: object): string | null {
+  const branchId = (document as { branchId?: unknown }).branchId;
+  return typeof branchId === "string" && branchId !== "" ? branchId : null;
+}
+
+export interface GatedDocument {
+  readonly id: string;
+  readonly branchId: string | null;
+  readonly content: object;
+  readonly heldRequestId: string | null;
 }
 
 /**
@@ -242,8 +314,16 @@ export interface DocumentWorkflowDecision {
   readonly requestId: string;
 }
 
+export interface DocumentApprovalView {
+  readonly status: ApprovalStatus;
+  readonly rejectionReason: string | null;
+  readonly rejectedBy: string | null;
+}
+
 export interface DocumentWorkflowGate {
   evaluate(input: DocumentWorkflowInput): Promise<DocumentWorkflowDecision>;
+  standing?(requestIds: readonly string[]): Promise<ReadonlyMap<string, DocumentApprovalView>>;
+  reopen?(requestId: string): Promise<void>;
 }
 
 /* --- Domain events (decoupled from the notification catalog) ------------- */

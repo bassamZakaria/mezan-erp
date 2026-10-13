@@ -24,6 +24,7 @@ import type {
 import type { ItemCostLayerRecord, ItemStockPositionRecord, StockMovementRowDTO } from "../data/hooks";
 import { ItemsScreen } from "./ItemsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import type { Session } from "../data/session";
 import { NavigationProvider } from "../navigation";
 import type { ScreenKey } from "../router/screens";
 
@@ -239,6 +240,7 @@ function renderScreen(
     auditEventsByItem?: Record<string, AuditEventDTO[]>;
     onOpenScreenAt?: (screen: ScreenKey, segments: readonly string[]) => void;
     onNavigate?: (screen: ScreenKey) => void;
+    session?: Session;
   } = {},
 ) {
   let current = [...items];
@@ -256,7 +258,7 @@ function renderScreen(
       const seasonId = params.get("seasonId");
       const unitCode = params.get("unitCode");
       let rows = current;
-      if (status === "active" || status === "inactive") rows = rows.filter((i) => i.status === status);
+      if (status === "active" || status === "inactive" || status === "pending_pricing") rows = rows.filter((i) => i.status === status);
       if (search) rows = rows.filter((i) => [i.nameAr, i.nameEn, i.code].some((v) => v?.toLowerCase().includes(search.toLowerCase())));
       if (categoryId) rows = rows.filter((i) => i.categoryId === categoryId);
       if (brandId) rows = rows.filter((i) => i.brandId === brandId);
@@ -280,7 +282,8 @@ function renderScreen(
     },
     "GET /items/counts": () => {
       const active = current.filter((i) => i.status === "active").length;
-      return { body: { all: current.length, active, inactive: current.length - active } };
+      const pending = current.filter((i) => i.status === "pending_pricing").length;
+      return { body: { all: current.length, active, inactive: current.length - active - pending, pending_pricing: pending } };
     },
     "GET /items/stats": () => {
       const active = current.filter((i) => i.status === "active").length;
@@ -330,9 +333,55 @@ function renderScreen(
     <TestNavigation onOpenScreenAt={opts.onOpenScreenAt} onNavigate={opts.onNavigate}>
       <ItemsScreen />
     </TestNavigation>,
-    { transport, initialSession: testAdminSession },
+    { transport, initialSession: opts.session ?? testAdminSession },
   );
 }
+
+const branchSession: Session = { ...testAdminSession, isCompanyAdmin: false, permissions: ["inventory.item.view", "inventory.item.create", "inventory.item.edit"], branchScope: ["b1"] };
+const pendingItem = item({ id: "itm-9", code: "ITM-000009", nameAr: "شاي أخضر فرع الإسكندرية", nameEn: null, salePrice: null, costPrice: null, status: "pending_pricing" });
+
+describe("ItemsScreen — an item waiting for head office to price it", () => {
+  it("head office sees the to-price chip with its count, and the chip lists exactly those items", async () => {
+    const itemsRequests: string[] = [];
+    renderScreen([...sampleItems, pendingItem], { itemsRequests });
+    const chip = await screen.findByRole("tab", { name: /بانتظار التسعير/ });
+    await waitFor(() => expect(chip).toHaveTextContent("1"));
+    fireEvent.click(chip);
+    await waitFor(() => expect(itemsRequests.some((path) => path.includes("status=pending_pricing"))).toBe(true));
+    expect(await screen.findByText("شاي أخضر فرع الإسكندرية")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("زيت عباد الشمس 1 لتر")).not.toBeInTheDocument());
+  });
+
+  it("head office is told how many items wait and that they cannot be sold until priced", async () => {
+    renderScreen([...sampleItems, pendingItem]);
+    expect(await screen.findByText("1 صنف بانتظار التسعير — لا يُباع ولا يدخل مستنداً قبل أن تحدّد سعره.")).toBeInTheDocument();
+  });
+
+  it("the row says «بانتظار التسعير», not «نشط»", async () => {
+    renderScreen([pendingItem]);
+    const row = (await screen.findByText("شاي أخضر فرع الإسكندرية")).closest("tr")!;
+    expect(within(row).getByText("بانتظار التسعير")).toBeInTheDocument();
+    expect(within(row).queryByText("نشط")).not.toBeInTheDocument();
+  });
+
+  it("the branch is told its item waits for head office", async () => {
+    renderScreen([...sampleItems, pendingItem], { session: branchSession });
+    expect(await screen.findByText("1 صنف أنشأه الفرع بانتظار تسعير الإدارة — لا يُباع ولا يدخل مستنداً قبل ذلك.")).toBeInTheDocument();
+  });
+
+  it("the branch's create form says the new item will wait for pricing", async () => {
+    renderScreen(sampleItems, { session: branchSession });
+    fireEvent.click(await screen.findByRole("button", { name: "إضافة صنف" }));
+    expect(await screen.findByText("سيُنشأ الصنف بانتظار تسعير الإدارة، ولا يمكن بيعه أو إدراجه في مستند قبل أن تسعّره.")).toBeInTheDocument();
+  });
+
+  it("head office's create form carries no such notice", async () => {
+    renderScreen(sampleItems);
+    fireEvent.click(await screen.findByRole("button", { name: "إضافة صنف" }));
+    await screen.findByRole("heading", { name: /إضافة صنف|صنف جديد/ });
+    expect(screen.queryByText(/سيُنشأ الصنف بانتظار تسعير الإدارة/)).not.toBeInTheDocument();
+  });
+});
 
 describe("ItemsScreen", () => {
   it("renders the page title and stat totals matching the real catalog", async () => {

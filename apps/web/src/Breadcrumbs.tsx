@@ -35,7 +35,7 @@ const SEGMENT_LABEL_KEY: Record<string, AppTranslationKey> = {
 
 export const NAMED_SUB_PAGE_SEGMENTS: ReadonlySet<string> = new Set(Object.keys(SEGMENT_LABEL_KEY));
 
-const NAMED_BY_ITS_SCREEN: ReadonlySet<ScreenKey> = new Set<ScreenKey>(["treasury-vouchers", "journals", "physical-counts", "price-lists", "site-issues"]);
+const NAMED_BY_ITS_SCREEN: ReadonlySet<ScreenKey> = new Set<ScreenKey>(["treasury-vouchers", "journals", "physical-counts", "price-lists", "site-issues", "sales-returns", "purchase-returns", "landed-costs"]);
 const UNNAMED_YET = "…";
 
 const SUB_PAGE_LABEL_KEY: Partial<Record<ScreenKey, AppTranslationKey>> = { "bank-reconciliation": "bankRec.reconcileABankStatement" };

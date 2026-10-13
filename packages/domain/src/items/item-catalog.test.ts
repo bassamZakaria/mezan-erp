@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
+import { insertOnly } from "../records/test-helpers/insert-only.js";
 import {
   createItemUnit,
   updateItemUnit,
@@ -6,7 +8,6 @@ import {
   updateItemCategory,
   DuplicateItemUnitCodeError,
   ItemUnitNotFoundError,
-  DuplicateItemCategoryError,
   ItemCategoryNotFoundError,
   InvalidItemCategoryError,
   type ItemUnit,
@@ -40,7 +41,7 @@ class InMemoryItemCategories implements ItemCategoryRepository {
     return [...this.rows.values()];
   }
   async create(category: ItemCategory): Promise<void> {
-    this.rows.set(category.id, category);
+    insertOnly(this.rows, category.id, category);
   }
   async update(category: ItemCategory): Promise<void> {
     this.rows.set(category.id, category);
@@ -101,7 +102,7 @@ describe("item categories", () => {
   it("rejects a duplicate category id", async () => {
     const repo = new InMemoryItemCategories();
     await createItemCategory({ id: "cat-1", nameAr: "مشروبات" }, repo);
-    await expect(createItemCategory({ id: "cat-1", nameAr: "نسخة" }, repo)).rejects.toThrow(DuplicateItemCategoryError);
+    await expect(createItemCategory({ id: "cat-1", nameAr: "نسخة" }, repo)).rejects.toThrow(DuplicateRecordIdError);
   });
 
   it("404s a parentId that does not resolve", async () => {

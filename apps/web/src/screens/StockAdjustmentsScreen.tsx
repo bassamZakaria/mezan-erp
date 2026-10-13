@@ -1,8 +1,10 @@
 import { ReversalDocumentType } from "@mezan/contracts";
 import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
+import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -27,6 +29,7 @@ import {
   Money,
   Qty,
   ADJUSTMENT_REASON_DEFINITIONS,
+  DocumentStatusCode,
   getAdjustmentReasonDefinition,
   isAdjustmentReason,
   stockAdjustmentDocumentType,
@@ -58,6 +61,7 @@ import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** تسويات المخزون (Stock Adjustments) — docs/archive/catalog/03. List + detail + create, on the real document-framework API. */
 
@@ -214,6 +218,7 @@ export function StockAdjustmentsScreen() {
   const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const listConfirm = useConfirmStockAdjustment();
+  const resubmit = useResubmitForApproval(ResubmitFamily.StockAdjustments);
 
   const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
   const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
@@ -287,7 +292,7 @@ export function StockAdjustmentsScreen() {
     subPage.open(doc?.docNo ?? id);
   }
 
-  async function confirmRow(id: string): Promise<void> {
+  async function confirmRow(id: string): Promise<RowActionOutcome | void> {
     if (rowPendingId) return;
     setRowError(null);
     setRowPendingId(id);
@@ -295,6 +300,7 @@ export function StockAdjustmentsScreen() {
       await listConfirm.mutateAsync(id);
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -363,6 +369,7 @@ export function StockAdjustmentsScreen() {
     const effects = stockAdjustmentDocumentType.describeEffects(toDomainDoc(selected));
     return (
       <div className="w-full">
+        <HeldDocumentReapproval document={selected} pending={listConfirm.isPending} confirm={(id) => listConfirm.mutateAsync(id)} />
         <DocumentDetail
           title={selected.docNo ?? t("stockAdj.stockAdjustment")}
           statusLabel={documentStatusLabel(selected.status, t)}
@@ -401,6 +408,9 @@ export function StockAdjustmentsScreen() {
             },
           ]}
         />
+        <div className="mt-[16px]">
+          <ResubmitForApprovalAction family={ResubmitFamily.StockAdjustments} document={selected} />
+        </div>
       </div>
     );
   }
@@ -423,6 +433,7 @@ export function StockAdjustmentsScreen() {
           {rowError}
         </div>
       ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<StockAdjustmentDocumentDTO>
         title={t("stockAdj.stockAdjustments")}
         description={t("stockAdj.draftConfirmedAdjustmentsThatChange")}
@@ -494,9 +505,10 @@ export function StockAdjustmentsScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => openDetail(d.id) },
             ...(d.status === "draft"
-              ? [{ key: "confirm", label: t("stockAdj.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
+              ? [{ key: "confirm", label: t("stockAdj.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => confirmRow(d.id) }]
               : []),
-            ...(d.status === "confirmed" ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
+            ...resubmitRowMenuItems(resubmit, d),
+            ...(d.status === DocumentStatusCode.Confirmed && !d.reversesDocId ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
         }}

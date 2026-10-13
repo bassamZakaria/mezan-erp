@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { Money, type Customer, type CustomerRepository, type EtaBuyerType } from "@mezan/domain";
+import { Money, SYSTEM_NOT_SUBJECT_TAX_RATE_ID, type Customer, type CustomerRepository, type EtaBuyerType } from "@mezan/domain";
+import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 
 /**
  * SQLite-backed CustomerRepository (docs/archive/catalog/01 "العملاء"). Standalone —
@@ -40,6 +41,7 @@ const ADDED_COLUMNS: readonly [string, string][] = [
   ["address", "TEXT"],
   ["logo_attachment_id", "TEXT"],
   ["branch_id", "TEXT"],
+  ["tax_exemption_rate_id", "TEXT"],
 ];
 
 function addMissingColumns(sqlite: Database.Database): void {
@@ -70,6 +72,7 @@ interface CustomerRow {
   price_list_id: string | null;
   credit_limit: number;
   tax_exempt: number;
+  tax_exemption_rate_id: string | null;
   eta_buyer_type: string;
   commercial_registration_number: string | null;
   address: string | null;
@@ -97,6 +100,7 @@ function toCustomer(row: CustomerRow): Customer {
     priceListId: row.price_list_id,
     creditLimit: Money.fromScaled(row.credit_limit),
     taxExempt: row.tax_exempt === 1,
+    taxExemptionRateId: row.tax_exemption_rate_id ?? null,
     etaBuyerType: row.eta_buyer_type as EtaBuyerType,
     commercialRegistrationNumber: row.commercial_registration_number ?? null,
     address: row.address ?? null,
@@ -107,6 +111,7 @@ function toCustomer(row: CustomerRow): Customer {
 
 class SqliteCustomerRepository implements CustomerRepository {
   private readonly upsert: Database.Statement;
+  private readonly insertOnly: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
@@ -115,11 +120,11 @@ class SqliteCustomerRepository implements CustomerRepository {
     this.upsert = sqlite.prepare(`
       INSERT INTO customer (
         id, code, name_ar, name_en, phone, email, contact_person, tax_number, category, notes,
-        payment_terms_days, currency, opening_balance, active, branch_id, price_list_id, credit_limit, tax_exempt, eta_buyer_type,
+        payment_terms_days, currency, opening_balance, active, branch_id, price_list_id, credit_limit, tax_exempt, tax_exemption_rate_id, eta_buyer_type,
         commercial_registration_number, address, logo_attachment_id, national_id
       ) VALUES (
         @id, @code, @nameAr, @nameEn, @phone, @email, @contactPerson, @taxNumber, @category, @notes,
-        @paymentTermsDays, @currency, @openingBalance, @active, @branchId, @priceListId, @creditLimit, @taxExempt, @etaBuyerType,
+        @paymentTermsDays, @currency, @openingBalance, @active, @branchId, @priceListId, @creditLimit, @taxExempt, @taxExemptionRateId, @etaBuyerType,
         @commercialRegistrationNumber, @address, @logoAttachmentId, @nationalId
       )
       ON CONFLICT(id) DO UPDATE SET
@@ -127,10 +132,11 @@ class SqliteCustomerRepository implements CustomerRepository {
         contact_person = @contactPerson, tax_number = @taxNumber, category = @category, notes = @notes,
         payment_terms_days = @paymentTermsDays, currency = @currency, opening_balance = @openingBalance,
         active = @active, branch_id = @branchId, price_list_id = @priceListId, credit_limit = @creditLimit,
-        tax_exempt = @taxExempt, eta_buyer_type = @etaBuyerType,
+        tax_exempt = @taxExempt, tax_exemption_rate_id = @taxExemptionRateId, eta_buyer_type = @etaBuyerType,
         commercial_registration_number = @commercialRegistrationNumber, address = @address,
         logo_attachment_id = @logoAttachmentId, national_id = @nationalId
     `);
+    this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectAll = sqlite.prepare(`SELECT * FROM customer ORDER BY code ASC`);
     this.selectById = sqlite.prepare(`SELECT * FROM customer WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM customer WHERE code = ?`);
@@ -151,7 +157,15 @@ class SqliteCustomerRepository implements CustomerRepository {
   }
 
   async save(customer: Customer): Promise<void> {
-    this.upsert.run({
+    this.write(customer);
+  }
+
+  async insert(customer: Customer): Promise<void> {
+    insertingNew(customer.id, () => this.write(customer, this.insertOnly));
+  }
+
+  private write(customer: Customer, statement: Database.Statement = this.upsert): void {
+    statement.run({
       id: customer.id,
       code: customer.code,
       nameAr: customer.nameAr,
@@ -170,6 +184,7 @@ class SqliteCustomerRepository implements CustomerRepository {
       priceListId: customer.priceListId,
       creditLimit: customer.creditLimit.toScaledNumber(),
       taxExempt: customer.taxExempt ? 1 : 0,
+      taxExemptionRateId: customer.taxExemptionRateId,
       etaBuyerType: customer.etaBuyerType,
       commercialRegistrationNumber: customer.commercialRegistrationNumber,
       address: customer.address,
@@ -188,6 +203,10 @@ export function createSqliteCustomerRepository(path: SqliteConnectionInput = ":m
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   addMissingColumns(sqlite);
+  // INVARIANT: the system's not-subject rate is never a customer's exemption —
+  // it says the TENANT is outside VAT. A card left holding it is cleared, and
+  // the customer's sales wait to be classified under a rate of the tenant's own.
+  sqlite.prepare(`UPDATE customer SET tax_exemption_rate_id = NULL WHERE tax_exemption_rate_id = ?`).run(SYSTEM_NOT_SUBJECT_TAX_RATE_ID);
   const repo = new SqliteCustomerRepository(sqlite);
   return Object.assign(repo, {
     close: () => { if (owned) sqlite.close(); },

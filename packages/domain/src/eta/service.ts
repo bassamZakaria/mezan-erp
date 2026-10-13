@@ -21,11 +21,13 @@ import {
   type EtaSignatureResult,
   type EtaSigningPort,
 } from "./signing.js";
-import type {
-  EtaSubmission,
-  EtaSubmissionRepository,
-  EtaSubmissionStatus,
-  EtaTransmitLogEntry,
+import {
+  ETA_REQUEUE_MODE,
+  EtaRequeueMode,
+  type EtaSubmission,
+  type EtaSubmissionRepository,
+  type EtaSubmissionStatus,
+  type EtaTransmitLogEntry,
 } from "./submission.js";
 import { canonicalEtaJson, unconfiguredEtaSigner, type EtaSignerPort } from "./signer.js";
 import { summarizeEtaRejections, type EtaRejectionsReport } from "./rejections-report.js";
@@ -234,6 +236,14 @@ function esealPortFromExternalSigner(signer: EtaSignerPort, now: () => string): 
  * drive the جاهز→بانتظار التوقيع→مرسل→مقبول lifecycle, and route the online
  * transmit through a (stubbed) port. All queue state is real and offline.
  */
+// INVARIANT: a document's blocking findings are stored with it and change only
+// when it is rebuilt (a requeue, a classification). A queue pass therefore
+// reads them and moves on — it attempts nothing for a document that has not
+// changed since it was held back.
+function isBlockedBeforeTransmit(submission: EtaSubmission): boolean {
+  return submission.prevalidation !== undefined && hasBlockingEtaFindings(submission.prevalidation);
+}
+
 export class EtaService {
   private readonly transmitPort: EtaTransmitPort;
   private readonly signerPort: EtaSignerPort;
@@ -325,7 +335,7 @@ export class EtaService {
     rebuilt: { readonly payload: unknown; readonly prevalidation: readonly EtaPrevalidationFinding[] },
   ): Promise<EtaSubmission> {
     const submission = await this.require(id);
-    if (!["ready", "pending_signature", "error", "excluded"].includes(submission.status)) {
+    if (ETA_REQUEUE_MODE[submission.status] === EtaRequeueMode.Never) {
       throw new InvalidEtaTransitionError(submission.status, "requeue");
     }
     return this.persist({
@@ -597,12 +607,14 @@ export class EtaService {
     rejected: EtaSubmission[];
     queued: string[];
     unsigned: string[];
+    blocked: string[];
   }> {
     const submitted: EtaSubmission[] = [];
     const accepted: EtaSubmission[] = [];
     const rejected: EtaSubmission[] = [];
     const queued: string[] = [];
     const unsigned: string[] = [];
+    const blocked: string[] = [];
 
     // Oldest first, and a device's receipts in chain order: a link reported
     // before its predecessor names a previousUUID the authority has not seen.
@@ -611,6 +623,10 @@ export class EtaService {
       ...(await this.deps.submissions.list("pending_signature")),
     ].sort(queueOrder);
     for (const s of pending) {
+      if (isBlockedBeforeTransmit(s)) {
+        blocked.push(s.id);
+        continue;
+      }
       try {
         const next = await this.submit(s.id);
         if (next.status === "submitted") submitted.push(next);
@@ -619,6 +635,7 @@ export class EtaService {
       } catch (err) {
         if (err instanceof EtaOfflineError) queued.push(s.id);
         else if (err instanceof EtaSignerNotConfiguredError || err instanceof EtaSigningFailedError) unsigned.push(s.id);
+        else if (err instanceof EtaPrevalidationFailedError) blocked.push(s.id);
         else throw err;
       }
     }
@@ -636,7 +653,7 @@ export class EtaService {
       }
     }
 
-    return { submitted, accepted, rejected, queued, unsigned };
+    return { submitted, accepted, rejected, queued, unsigned, blocked };
   }
 
   /**
@@ -649,16 +666,22 @@ export class EtaService {
    * a partially rejected batch never loses the accepted half.
    */
   async submitReadyReceipts(): Promise<{ submitted: EtaSubmission[]; queued: string[]; rejected: EtaSubmission[] }> {
-    const all = await this.deps.submissions.list();
-    const receipts = all.filter((s) => s.documentType === "receipt");
-    const statusByUuid = new Map(receipts.filter((s) => s.etaUuid).map((s) => [s.etaUuid!, s.status]));
-    const ready = receipts
-      .filter((s) => s.status === "ready")
+    const ready = (await this.deps.submissions.list("ready"))
+      .filter((s) => s.documentType === "receipt")
       .sort((a, b) =>
         (a.receiptSerial ?? "") !== (b.receiptSerial ?? "")
           ? (a.receiptSerial ?? "") < (b.receiptSerial ?? "") ? -1 : 1
           : (a.receiptSeq ?? 0) - (b.receiptSeq ?? 0) || queueOrder(a, b),
       );
+    const referenceOf = (s: EtaSubmission): string | null => {
+      const reference = (s.payload as { header?: { referenceUUID?: unknown } } | null)?.header?.referenceUUID;
+      return typeof reference === "string" ? reference : null;
+    };
+    const statusByUuid = new Map<string, EtaSubmissionStatus>();
+    for (const reference of new Set(ready.map(referenceOf))) {
+      const status = reference === null ? null : await this.deps.submissions.statusByEtaUuid(reference);
+      if (reference !== null && status !== null) statusByUuid.set(reference, status);
+    }
     const submitted: EtaSubmission[] = [];
     const queued: string[] = [];
     const rejected: EtaSubmission[] = [];
@@ -666,8 +689,8 @@ export class EtaService {
     const referenceStatusOf = (s: EtaSubmission): string | undefined => {
       // A refund names its sale receipt, which must already be with the
       // authority — a refund on another till could otherwise overtake it.
-      const reference = (s.payload as { header?: { referenceUUID?: unknown } } | null)?.header?.referenceUUID;
-      return typeof reference === "string" ? statusByUuid.get(reference) : undefined;
+      const reference = referenceOf(s);
+      return reference === null ? undefined : statusByUuid.get(reference);
     };
     const referenceReady = (s: EtaSubmission): boolean => {
       const status = referenceStatusOf(s);
@@ -850,19 +873,25 @@ export class EtaService {
    * failures leave the document queued and are collected rather than thrown, so
    * one unreachable document doesn't abort the batch.
    */
-  async submitAllReady(): Promise<{ submitted: EtaSubmission[]; queued: string[] }> {
+  async submitAllReady(): Promise<{ submitted: EtaSubmission[]; queued: string[]; blocked: string[] }> {
     const ready = (await this.deps.submissions.list("ready")).sort(queueOrder);
     const submitted: EtaSubmission[] = [];
     const queued: string[] = [];
+    const blocked: string[] = [];
     for (const s of ready) {
+      if (isBlockedBeforeTransmit(s)) {
+        blocked.push(s.id);
+        continue;
+      }
       try {
         submitted.push(await this.submit(s.id));
       } catch (err) {
         if (err instanceof EtaOfflineError) queued.push(s.id);
+        else if (err instanceof EtaPrevalidationFailedError) blocked.push(s.id);
         else throw err;
       }
     }
-    return { submitted, queued };
+    return { submitted, queued, blocked };
   }
 
   /**

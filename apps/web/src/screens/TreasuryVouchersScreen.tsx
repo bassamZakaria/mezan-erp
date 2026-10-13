@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useApi } from "../data/ApiContext";
+import { sessionHolds } from "../data/session";
+import { useQueryClient } from "@tanstack/react-query";
+import { IntendedAllocationsNote } from "./IntendedAllocationsNote";
+import { APPROVAL_STANDING_KEY, ReapprovalNotice } from "../shell/ReapprovalNotice";
 import { useDocumentEffectText } from "../lib/document-effects";
 import {
   DocumentList,
@@ -16,6 +21,7 @@ import {
   type DocumentStatusStep,
   type PillTone,
   type EntityPickerOption,
+  RowActionOutcome,
   RowMenu,
 } from "@mezan/ui";
 import {
@@ -81,8 +87,13 @@ import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
+import { VoucherReversalNotice } from "./VoucherReversalNotice";
+import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
 /** السندات النقدية (Treasury Vouchers) — docs/archive/catalog/04, on the real `/vouchers` API. */
+
+const VOUCHER_CREATE_PERMISSIONS: readonly string[] = ["treasury.cash_voucher.create", "treasury.customer_refund.create", "treasury.transfer.create", "contracting.certificate.collect"];
+const VOUCHER_CONFIRM_PERMISSIONS: readonly string[] = ["treasury.cash_voucher.confirm", "treasury.customer_refund.confirm", "treasury.transfer.confirm", "contracting.certificate.collect"];
 
 const STATUS_KEY: Record<VoucherStatusDTO, AppTranslationKey> = {
   draft: "vouchers.status.draft",
@@ -281,6 +292,7 @@ export function TreasuryVouchersScreen() {
   const voucherStats = useVoucherStats(listFilter).data ?? {};
   const branches = useBranches().data ?? [];
   const cancelVoucher = useCancelVoucher();
+  const resubmit = useResubmitForApproval(ResubmitFamily.Vouchers);
   /**
    * WHICH voucher is being cancelled, not merely that one is.
    *
@@ -290,6 +302,12 @@ export function TreasuryVouchersScreen() {
    * next one until the first came back.
    */
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const confirmRow = useConfirmVoucher();
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const { session } = useApi();
+  const mayCreate = VOUCHER_CREATE_PERMISSIONS.some((permission) => sessionHolds(session, permission));
+  const mayConfirm = VOUCHER_CONFIRM_PERMISSIONS.some((permission) => sessionHolds(session, permission));
 
   const documents = query.data ?? [];
   const customers = customersQuery.data ?? EMPTY;
@@ -421,7 +439,7 @@ export function TreasuryVouchersScreen() {
   }
 
   if (selectedId) {
-    return <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={subPage.close} />;
+    return <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={subPage.close} onOpenVoucher={(voucherId) => subPage.open(voucherId)} />;
   }
 
   return (
@@ -434,13 +452,21 @@ export function TreasuryVouchersScreen() {
           </Button>
         </Card>
       ) : null}
+      {confirmError ? (
+        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {confirmError}
+        </div>
+      ) : null}
+      <ResubmitErrorNotice controller={resubmit} />
       <DocumentList<VoucherRowDTO>
         title={t("vouchers.cashVouchers")}
         description={t("vouchers.receiptsDisbursementsAndTransfersOne")}
         actions={
-          <Button variant="primary" onClick={() => subPage.open("new")}>
-            {t("vouchers.newVoucher")}
-          </Button>
+          mayCreate ? (
+            <Button variant="primary" onClick={() => subPage.open("new")}>
+              {t("vouchers.newVoucher")}
+            </Button>
+          ) : null
         }
         listKey="treasury-vouchers"
         statsCollapsible
@@ -556,6 +582,29 @@ export function TreasuryVouchersScreen() {
               { key: "print", label: t("vouchers.action.print"), onSelect: () => subPage.open(d.docNo ?? d.id, "print") },
               // A confirmed voucher is REVERSED, never cancelled — the entry
               // it posted is immutable. Only a draft can be voided outright.
+              ...(d.status === "draft" && mayConfirm
+                ? [
+                    {
+                      key: "confirm",
+                      label: t("vouchers.action.confirm"),
+                      disabled: confirmingId === d.id,
+                      onSelect: async () => {
+                        if (confirmingId !== null) return RowActionOutcome.Refused;
+                        setConfirmingId(d.id);
+                        setConfirmError(null);
+                        try {
+                          await confirmRow.mutateAsync({ id: d.id });
+                          return undefined;
+                        } catch (err) {
+                          setConfirmError(err instanceof Error ? err.message : t("common.failed"));
+                          return RowActionOutcome.Refused;
+                        } finally {
+                          setConfirmingId(null);
+                        }
+                      },
+                    },
+                  ]
+                : []),
               ...(d.status === "draft"
                 ? [
                     {
@@ -563,18 +612,23 @@ export function TreasuryVouchersScreen() {
                       label: t("vouchers.action.cancel"),
                       tone: "danger" as const,
                       disabled: cancellingId === d.id,
-                      onSelect: () => {
+                      onSelect: async () => {
                         // The concurrency guard stays an early return rather
                         // than a disabled attribute on every sibling row.
-                        if (cancellingId !== null) return;
+                        if (cancellingId !== null) return RowActionOutcome.Refused;
                         setCancellingId(d.id);
-                        // onSettled, not onSuccess: a failed cancel that never
-                        // cleared this left the row disabled for good.
-                        cancelVoucher.mutate(d.id, { onSettled: () => setCancellingId(null) });
+                        try {
+                          await cancelVoucher.mutateAsync(d.id);
+                          return undefined;
+                        } finally {
+                          // finally, not only on success: a failed cancel that never cleared this left the row disabled for good.
+                          setCancellingId(null);
+                        }
                       },
                     },
                   ]
                 : []),
+              ...resubmitRowMenuItems(resubmit, d),
             ]}
           />
         )}
@@ -596,7 +650,7 @@ export function TreasuryVouchersScreen() {
           <EmptyState
             title={t("vouchers.noMatchingVouchers")}
             description={t("vouchers.emptyBody")}
-            action={{ label: t("vouchers.newVoucher"), onClick: () => subPage.open("new") }}
+            action={mayCreate ? { label: t("vouchers.newVoucher"), onClick: () => subPage.open("new") } : undefined}
           />
         }
       />
@@ -613,11 +667,13 @@ function VoucherDetailView({
   partyName,
   treasuryName,
   onBack,
+  onOpenVoucher,
 }: {
   id: string;
   partyName: (id: string | null) => string;
   treasuryName: (id: string) => string;
   onBack: () => void;
+  onOpenVoucher: (voucherId: string) => void;
 }) {
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
@@ -626,6 +682,8 @@ function VoucherDetailView({
   const query = useVoucherDetail(id);
   const projectsQuery = useProjects();
   const reversal = useReverseDocumentAction(ReversalDocumentType.Voucher);
+  const requestAgain = useConfirmVoucher();
+  const queryClient = useQueryClient();
   const createAllocation = useCreateAllocation();
   const reverseAllocation = useReverseAllocation();
 
@@ -887,6 +945,20 @@ function VoucherDetailView({
           {error}
         </div>
       ) : null}
+      <IntendedAllocationsNote voucher={doc} invoices={openInvoices} />
+      <ReapprovalNotice
+        requestId={doc.status === "pending" ? (doc.workflowRequestId ?? null) : null}
+        pending={requestAgain.isPending}
+        onRequestAgain={async () => {
+          setError(null);
+          try {
+            await requestAgain.mutateAsync({ id: doc.id });
+            await queryClient.invalidateQueries({ queryKey: [APPROVAL_STANDING_KEY] });
+          } catch (err) {
+            setError(err instanceof Error ? err.message : t("common.failed"));
+          }
+        }}
+      />
       <DocumentDetail
         title={doc.docNo ?? t("vouchers.cashVoucher")}
         statusLabel={t(STATUS_KEY[doc.status])}
@@ -907,17 +979,21 @@ function VoucherDetailView({
         tabs={tabs}
       />
       {reversal.dialog}
+      <div className="mt-[16px] flex flex-col gap-[12px]">
+        <VoucherReversalNotice document={doc} onOpen={onOpenVoucher} />
+        <ResubmitForApprovalAction family={ResubmitFamily.Vouchers} document={doc} />
+      </div>
     </div>
   );
 }
 
 function VoucherReversalLink({ voucher, pageRows, onOpen }: { voucher: VoucherRowDTO; pageRows: readonly VoucherRowDTO[]; onOpen: (voucherId: string) => void }) {
   const { t } = useAppTranslation();
-  const reversedBy = voucher.status === "reversed" ? pageRows.find((row) => row.reversesDocId === voucher.id) : undefined;
-  const reversesId = voucher.reversesDocId ?? null;
-  const reversesOnPage = reversesId ? pageRows.find((row) => row.id === reversesId) : undefined;
-  const fetched = useVoucherDetail(reversesId !== null && !reversesOnPage ? reversesId : null).data;
-  const other = reversedBy ?? reversesOnPage ?? fetched;
+  const reversedById = voucher.reversedByDocId ?? null;
+  const linkedId = reversedById ?? voucher.reversesDocId ?? null;
+  const onPage = linkedId ? pageRows.find((row) => row.id === linkedId) : undefined;
+  const fetched = useVoucherDetail(linkedId !== null && !onPage ? linkedId : null).data;
+  const other = onPage ?? fetched;
   if (!other?.docNo) return null;
   return (
     <button
@@ -928,7 +1004,7 @@ function VoucherReversalLink({ voucher, pageRows, onOpen }: { voucher: VoucherRo
         onOpen(other.id);
       }}
     >
-      {t(reversedBy ? "vouchers.reversedByVoucher" : "vouchers.reversesVoucher", { number: other.docNo })}
+      {t(reversedById ? "vouchers.reversedByVoucher" : "vouchers.reversesVoucher", { number: other.docNo })}
     </button>
   );
 }
@@ -1002,6 +1078,9 @@ function CreateVoucherView({
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
   const createCollection = useCreateCollection();
+  const { session } = useApi();
+  const mayConfirm = VOUCHER_CONFIRM_PERMISSIONS.some((permission) => sessionHolds(session, permission));
+  const [draftSaved, setDraftSaved] = useState(false);
   const branchesQuery = useBranches();
   const exchangeRatesQuery = useExchangeRates();
   const costCentersQuery = useCostCenters();
@@ -1134,7 +1213,7 @@ function CreateVoucherView({
     setBusy(true);
     setError(null);
     try {
-      if (line.voucherType === "customer_collection" && line.customerId) {
+      if (mayConfirm && line.voucherType === "customer_collection" && line.customerId) {
         const collected = await createCollection.mutateAsync({
           date: draft.date,
           memo: draft.memo || voucherLabel(def),
@@ -1181,6 +1260,10 @@ function CreateVoucherView({
         withholdingRatePercent: line.withholdingRatePercent ?? null,
         withholdingGlAccountId: line.withholdingGlAccountId ?? null,
       });
+      if (!mayConfirm) {
+        setDraftSaved(true);
+        return;
+      }
       const confirmed = await confirmVoucher.mutateAsync({ id: created.id });
       // An approval gate holds the confirm: the voucher exists, nothing was
       // posted, and closing the wizard here reported plain success for money
@@ -1219,6 +1302,24 @@ function CreateVoucherView({
             </button>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (draftSaved) {
+    return (
+      <div className="w-full max-w-[560px]">
+        <h1 className="mb-[16px] mt-[5px] font-display text-2xl font-bold text-ink">{t("vouchers.draftSavedTitle")}</h1>
+        <Card className="flex flex-col gap-[12px] p-[18px]">
+          <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
+            {t("vouchers.draftSavedBody")}
+          </div>
+          <div className="flex items-center justify-end">
+            <Button variant="primary" onClick={onDone}>
+              {t("vouchers.heldBackToList")}
+            </Button>
+          </div>
+        </Card>
       </div>
     );
   }
@@ -1262,7 +1363,7 @@ function CreateVoucherView({
         <div className="flex items-center gap-[9px]">
           <Button onClick={onDone}>{t("common.cancel")}</Button>
           <Button variant="primary" disabled={!canSubmit} onClick={submitVoucher}>
-            {t("vouchers.createAndConfirm")}
+            {t(mayConfirm ? "vouchers.createAndConfirm" : "vouchers.saveDraftForConfirmation")}
           </Button>
         </div>
       </div>

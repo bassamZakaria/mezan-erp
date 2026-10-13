@@ -1,3 +1,4 @@
+import { InvalidDecimalLiteralError } from "./invalid-decimal-literal.js";
 /**
  * Qty value object.
  *
@@ -40,15 +41,13 @@ export class Qty {
     const trimmed = value.trim();
     const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(trimmed);
     if (!match) {
-      throw new RangeError(`Invalid quantity literal: "${value}"`);
+      throw new InvalidDecimalLiteralError(`Invalid quantity literal: "${value}"`, value);
     }
     const sign = match[1] ?? "";
     const intPart = match[2] ?? "0";
     const fracPartRaw = match[3] ?? "";
     if (fracPartRaw.length > QTY_SCALE_DECIMALS) {
-      throw new RangeError(
-        `Qty supports at most ${QTY_SCALE_DECIMALS} decimal places: "${value}"`,
-      );
+      throw new InvalidDecimalLiteralError(`Qty supports at most ${QTY_SCALE_DECIMALS} decimal places: "${value}"`, value);
     }
     const frac = (fracPartRaw + "000000").slice(0, QTY_SCALE_DECIMALS);
     const scaled = BigInt(intPart) * SCALE + BigInt(frac);

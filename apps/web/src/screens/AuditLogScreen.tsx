@@ -1,3 +1,5 @@
+import { BranchGatedAction } from "../branch-restriction";
+import { useBranchGate } from "../shell/useBranchGate";
 import { useMemo, useState } from "react";
 import { DocumentList, EmptyState, StatusPill, Button, Card, SidePanel, formatDateTime, type DocumentListColumn, type Locale, type PillTone } from "@mezan/ui";
 import type { AuditEventDTO, AuditSeverityDTO, AuditStreamDTO } from "@mezan/contracts";
@@ -91,6 +93,7 @@ export function AuditLogScreen() {
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [selected, setSelected] = useState<AuditEventDTO | null>(null);
   const verify = useVerifyAuditChain();
+  const branchGate = useBranchGate();
   const labels = useAuditLabels();
   const exporter = useAuditExport(branches);
   const fieldOptions = useMemo(
@@ -250,9 +253,11 @@ export function AuditLogScreen() {
             <Button onClick={() => exporter.run("xlsx", queryFilter)} disabled={exporter.busy !== null || total === 0}>
               {exporter.busy === "xlsx" ? t("auditLedger.exporting") : t("auditLedger.exportExcel")}
             </Button>
-            <Button onClick={() => verify.mutate()} disabled={verify.isPending}>
-              {verify.isPending ? t("audit.verifyChecking") : t("audit.verify")}
-            </Button>
+            {branchGate.allows(BranchGatedAction.AuditVerify) ? (
+              <Button onClick={() => verify.mutate()} disabled={verify.isPending}>
+                {verify.isPending ? t("audit.verifyChecking") : t("audit.verify")}
+              </Button>
+            ) : null}
           </div>
         }
         statsCollapsible

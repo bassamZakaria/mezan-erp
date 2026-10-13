@@ -8,8 +8,10 @@ import {
   type ReconciliationSummary,
   type ForeignResidue,
   type StockLedgerDateMismatch,
+  type StockPositionFaultRow,
 } from "@mezan/domain";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 
 /** One sub-ledger↔GL control-account pairing to reconcile. */
 export interface ReconciliationControl {
@@ -28,6 +30,7 @@ export interface ReconciliationRoutesDeps {
   readonly foreignResidues?: () => Promise<readonly ForeignResidue[]>;
   readonly stockLedgerDates?: () => Promise<readonly StockLedgerDateMismatch[]>;
   readonly allocationsOnReversedVouchers?: () => Promise<readonly AllocationOnReversedVoucher[]>;
+  readonly stockPositionFaults?: () => Promise<readonly StockPositionFaultRow[]>;
 }
 
 export interface AllocationOnReversedVoucher {
@@ -72,6 +75,8 @@ export function createReconciliationRoutes(
   const gate = createPermissionGate(resolveAuthContext);
 
   app.get("/", gate("accounting.reports.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const controls = await deps.resolveControls();
     const summary = await reconcileControls(deps.ledger, controls);
 
@@ -81,6 +86,7 @@ export function createReconciliationRoutes(
     const residues = (await deps.foreignResidues?.()) ?? [];
     const misdated = (await deps.stockLedgerDates?.()) ?? [];
     const onReversed = (await deps.allocationsOnReversedVouchers?.()) ?? [];
+    const faultyPositions = (await deps.stockPositionFaults?.()) ?? [];
     const residueTotal = residues.reduce((sum, row) => sum + (row.base.scaled < 0n ? -row.base.scaled : row.base.scaled), 0n);
 
     return c.json({
@@ -103,6 +109,10 @@ export function createReconciliationRoutes(
         rows: misdated.map((row) => ({ docType: row.docType, docId: row.docId, docNo: row.docNo, movedOn: row.movedOn, postedOn: [...row.postedOn] })),
       },
       allocationsOnReversedVouchers: { count: onReversed.length, rows: onReversed },
+      stockPositions: {
+        count: faultyPositions.length,
+        rows: faultyPositions.map((row) => ({ itemId: row.itemId, warehouseId: row.warehouseId, onHand: row.onHand.toString(), totalValue: row.totalValue.toString(), fault: row.fault })),
+      },
       unlinked: unlinked.map((u) => ({
         entryId: u.entryId,
         entryNo: u.entryNo,

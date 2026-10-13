@@ -154,6 +154,35 @@ describe("TaxesScreen", () => {
   });
 });
 
+describe("TaxesScreen — the system «غير خاضع» rate is locked", () => {
+  const notSubject: TaxRateDTO = {
+    id: "SYS-NOT-SUBJECT",
+    code: "SYS-NOT-SUBJECT",
+    name: "غير خاضع",
+    rate: 0,
+    calculationType: "exclusive",
+    isDefault: false,
+    outputTaxAccountId: null,
+    inputTaxAccountId: null,
+    etaSubType: "V004",
+    status: "active",
+    isSystem: true,
+  };
+
+  it("offers neither edit nor deactivate on it, and says why — while the tenant's own rate keeps both", async () => {
+    renderScreen([taxRate(), notSubject]);
+    const systemRow = (await screen.findByText("غير خاضع")).closest("tr") as HTMLElement;
+    fireEvent.click(within(systemRow).getByRole("button", { name: /^إجراءات/ }));
+    expect(within(systemRow).queryByRole("menuitem", { name: "تعديل" })).toBeNull();
+    expect(within(systemRow).queryByRole("menuitem", { name: "تعطيل النسبة" })).toBeNull();
+    expect(within(systemRow).getByRole("menuitem", { name: "معرّفة من النظام — لا تُعدَّل" })).toBeDisabled();
+
+    const ownRow = screen.getByText("ضريبة القيمة المضافة 14%").closest("tr") as HTMLElement;
+    fireEvent.click(within(ownRow).getByRole("button", { name: /^إجراءات/ }));
+    expect(within(ownRow).getByRole("menuitem", { name: "تعديل" })).toBeEnabled();
+  });
+});
+
 /** guards §4.5 #13 — the error card shows the SERVER's reason, not the screen's fixed sentence. */
 describe("TaxesScreen — a 502 body reaches the error card", () => {
   it("renders the server's own Arabic reason", async () => {

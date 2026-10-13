@@ -105,6 +105,8 @@ export interface CollectChequeCommand {
   readonly chequeId: string;
   /** The bank treasury account's GL account (resolved by the caller from `TreasuryAccountRepository`). */
   readonly bankGlAccountId: string;
+  /** The bank account the money lands in, when it is not the one the cheque was deposited at. */
+  readonly bankTreasuryAccountId?: string;
   readonly journalEntryId: string;
   readonly date?: string;
   readonly actor?: string;
@@ -217,7 +219,13 @@ export class ChequeService {
   async createCheque(cmd: CreateChequeCommand): Promise<Cheque> {
     const existing = await this.deps.cheques.findByChequeNumber(cmd.direction, cmd.chequeNumber);
     if (existing) throw new DuplicateChequeNumberError(cmd.direction, cmd.chequeNumber);
+    // LEDGER INVARIANT: the receipt entry and the cheque row commit together.
+    // Posting first and storing second left the entry on the books whenever
+    // the row was refused, with no cheque behind it.
+    return this.deps.cheques.transaction(() => this.postAndStore(cmd));
+  }
 
+  private async postAndStore(cmd: CreateChequeCommand): Promise<Cheque> {
     const currency = cmd.currency ?? "EGP";
     const entry = await this.postCreation(cmd);
 
@@ -278,7 +286,7 @@ export class ChequeService {
         sourceDocType: "CHEQUE",
         sourceDocId: cmd.id,
         sourceDocNumber: cmd.chequeNumber,
-        lines,
+        lines: lines.map((line) => ({ ...line, branchId: cmd.branchId })),
       },
       this.deps.gl,
       { mintedBySystem: cmd.journalEntryIdMintedBySystem },
@@ -300,9 +308,15 @@ export class ChequeService {
     return updated;
   }
 
-  private async realisedOnClearing(cheque: Cheque, bankGlAccountId: string, leg: { currency: string; fxRate: string }, date: string): Promise<JournalLineInput[]> {
+  private async realisedOnClearing(
+    cheque: Cheque,
+    bankGlAccountId: string,
+    leg: { currency: string; fxRate: string },
+    date: string,
+    treasuryAccountId: string | null,
+  ): Promise<JournalLineInput[]> {
     const port = this.deps.realisedFx;
-    const position = cheque.bankTreasuryAccountId ? ((await port?.treasuryPosition?.(cheque.bankTreasuryAccountId, date)) ?? null) : null;
+    const position = treasuryAccountId ? ((await port?.treasuryPosition?.(treasuryAccountId, date)) ?? null) : null;
     if (!port || !position) return [];
     const foreignOut = convertFromBase(cheque.amount, leg.fxRate);
     const carried = carryingBaseOf(position, foreignOut);
@@ -311,7 +325,7 @@ export class ChequeService {
     if (realised === 0n) return [];
     const accounts = await port.differenceAccounts();
     const amount = Money.fromScaled(realised > 0n ? realised : -realised);
-    const onBank = { accountId: bankGlAccountId, memo: FX_REALISED_LINE_MEMO, currency: leg.currency, fxRate: leg.fxRate };
+    const onBank = { accountId: bankGlAccountId, memo: FX_REALISED_LINE_MEMO, treasuryAccountId, currency: leg.currency, fxRate: leg.fxRate };
     return realised > 0n
       ? [{ ...onBank, debit: amount, credit: Money.zero() }, { accountId: accounts.gainAccountId, memo: FX_REALISED_LINE_MEMO, debit: Money.zero(), credit: amount }]
       : [{ accountId: accounts.lossAccountId, memo: FX_REALISED_LINE_MEMO, debit: amount, credit: Money.zero() }, { ...onBank, debit: Money.zero(), credit: amount }];
@@ -321,6 +335,7 @@ export class ChequeService {
   async collect(cmd: CollectChequeCommand): Promise<Cheque> {
     const cheque = await this.require(cmd.chequeId);
     assertChequeTransition(cheque, ChequeAction.Collect);
+    const treasuryAccountId = cmd.bankTreasuryAccountId ?? cheque.bankTreasuryAccountId ?? null;
 
     const collectionDate = cmd.date ?? this.now().slice(0, 10);
     const bankLeg = (await this.deps.bankLegFx?.(cmd.bankGlAccountId, collectionDate)) ?? null;
@@ -329,13 +344,13 @@ export class ChequeService {
     const lines: JournalLineInput[] =
       cheque.direction === "incoming"
         ? [
-            { accountId: cmd.bankGlAccountId, debit: cheque.amount, credit: Money.zero(), ...bankFx },
+            { accountId: cmd.bankGlAccountId, debit: cheque.amount, credit: Money.zero(), treasuryAccountId, ...bankFx },
             { accountId: cheque.controlAccounts.underCollectionAccountId, debit: Money.zero(), credit: cheque.amount },
           ]
         : [
             { accountId: cheque.controlAccounts.underCollectionAccountId, debit: cheque.amount, credit: Money.zero() },
-            { accountId: cmd.bankGlAccountId, debit: Money.zero(), credit: cheque.amount, ...bankFx },
-            ...(bankLeg?.fxRate ? await this.realisedOnClearing(cheque, cmd.bankGlAccountId, { currency: bankLeg.currency, fxRate: bankLeg.fxRate }, collectionDate) : []),
+            { accountId: cmd.bankGlAccountId, debit: Money.zero(), credit: cheque.amount, treasuryAccountId, ...bankFx },
+            ...(bankLeg?.fxRate ? await this.realisedOnClearing(cheque, cmd.bankGlAccountId, { currency: bankLeg.currency, fxRate: bankLeg.fxRate }, collectionDate, treasuryAccountId) : []),
           ];
     const entry = await postJournalEntry(
       {
@@ -346,7 +361,7 @@ export class ChequeService {
         sourceDocType: "CHEQUE",
         sourceDocId: cheque.id,
         sourceDocNumber: cheque.chequeNumber,
-        lines,
+        lines: lines.map((line) => ({ ...line, branchId: cheque.branchId })),
       },
       this.deps.gl,
     );
@@ -354,6 +369,7 @@ export class ChequeService {
     const updated: Cheque = {
       ...cheque,
       status: "collected",
+      bankTreasuryAccountId: treasuryAccountId,
       collectedAt: this.now(),
       collectedBy: this.actorOf(cmd),
       collectionJournalEntryId: entry.id,
@@ -434,7 +450,7 @@ export class ChequeService {
           sourceDocType: "CHEQUE",
           sourceDocId: cheque.id,
           sourceDocNumber: cheque.chequeNumber,
-          lines,
+          lines: lines.map((line) => ({ ...line, branchId: cheque.branchId })),
         },
         this.deps.gl,
       );
@@ -599,69 +615,72 @@ export class ChequeService {
     const clash = await this.deps.cheques.findByChequeNumber("incoming", cmd.newCheque.chequeNumber);
     if (clash) throw new DuplicateChequeNumberError("incoming", cmd.newCheque.chequeNumber);
 
-    // A replacement is a fresh receipt from the customer, so it credits their
-    // control account even when the bounced cheque had been raised by a
-    // voucher and only reclassified that voucher's treasury leg.
-    const counterpartyGlAccountId = (await this.deps.raisedBy?.partyControlAccountOf(original)) ?? original.counterpartyGlAccountId;
-    const entry = await postJournalEntry(
-      {
-        id: cmd.journalEntryId,
-        date: cmd.date ?? this.now().slice(0, 10),
-        memo: `استبدال شيك مرتد رقم ${original.chequeNumber} بشيك رقم ${cmd.newCheque.chequeNumber}`,
-        source: "system",
-        sourceDocType: "CHEQUE",
-        lines: [
-          { accountId: original.controlAccounts.underCollectionAccountId, debit: amount, credit: Money.zero() },
-          { accountId: counterpartyGlAccountId, debit: Money.zero(), credit: amount },
-        ],
-      },
-      this.deps.gl,
-    );
 
-    const replacement: Cheque = {
-      id: cmd.newCheque.id,
-      direction: "incoming",
-      status: "pending",
-      chequeNumber: cmd.newCheque.chequeNumber,
-      bankName: cmd.newCheque.bankName,
-      bankBranchName: cmd.newCheque.bankBranchName ?? null,
-      bankAccountNumber: cmd.newCheque.bankAccountNumber ?? null,
-      amount,
-      currency: original.currency,
-      issueDate: cmd.newCheque.issueDate,
-      dueDate: cmd.newCheque.dueDate,
-      branchId: cmd.newCheque.branchId,
-      notes: cmd.newCheque.notes ?? null,
-      partyId: original.partyId,
-      counterpartyGlAccountId,
-      controlAccounts: original.controlAccounts,
-      bankTreasuryAccountId: null,
-      createdAt: this.now(),
-      depositedAt: null,
-      collectedAt: null,
-      bouncedAt: null,
-      replacesChequeId: original.id,
-      replacedByChequeId: null,
-      creationJournalEntryId: entry.id,
-      collectionJournalEntryId: null,
-      bounceJournalEntryId: null,
-      createdBy: this.actorOf(cmd),
-      depositedBy: null,
-      collectedBy: null,
-      bouncedBy: null,
-      replacedBy: null,
-    };
-    await this.deps.cheques.save(replacement);
+    return this.deps.cheques.transaction(async () => {
+      // A replacement is a fresh receipt from the customer, so it credits their
+      // control account even when the bounced cheque had been raised by a
+      // voucher and only reclassified that voucher's treasury leg.
+      const counterpartyGlAccountId = (await this.deps.raisedBy?.partyControlAccountOf(original)) ?? original.counterpartyGlAccountId;
+      const entry = await postJournalEntry(
+        {
+          id: cmd.journalEntryId,
+          date: cmd.date ?? this.now().slice(0, 10),
+          memo: `استبدال شيك مرتد رقم ${original.chequeNumber} بشيك رقم ${cmd.newCheque.chequeNumber}`,
+          source: "system",
+          sourceDocType: "CHEQUE",
+          lines: [
+            { accountId: original.controlAccounts.underCollectionAccountId, debit: amount, credit: Money.zero(), branchId: cmd.newCheque.branchId },
+            { accountId: counterpartyGlAccountId, debit: Money.zero(), credit: amount, branchId: cmd.newCheque.branchId },
+          ],
+        },
+        this.deps.gl,
+      );
 
-    const updatedOriginal: Cheque = {
-      ...original,
-      status: "replaced",
-      replacedByChequeId: replacement.id,
-      replacedBy: this.actorOf(cmd),
-    };
-    await this.deps.cheques.update(updatedOriginal);
+      const replacement: Cheque = {
+        id: cmd.newCheque.id,
+        direction: "incoming",
+        status: "pending",
+        chequeNumber: cmd.newCheque.chequeNumber,
+        bankName: cmd.newCheque.bankName,
+        bankBranchName: cmd.newCheque.bankBranchName ?? null,
+        bankAccountNumber: cmd.newCheque.bankAccountNumber ?? null,
+        amount,
+        currency: original.currency,
+        issueDate: cmd.newCheque.issueDate,
+        dueDate: cmd.newCheque.dueDate,
+        branchId: cmd.newCheque.branchId,
+        notes: cmd.newCheque.notes ?? null,
+        partyId: original.partyId,
+        counterpartyGlAccountId,
+        controlAccounts: original.controlAccounts,
+        bankTreasuryAccountId: null,
+        createdAt: this.now(),
+        depositedAt: null,
+        collectedAt: null,
+        bouncedAt: null,
+        replacesChequeId: original.id,
+        replacedByChequeId: null,
+        creationJournalEntryId: entry.id,
+        collectionJournalEntryId: null,
+        bounceJournalEntryId: null,
+        createdBy: this.actorOf(cmd),
+        depositedBy: null,
+        collectedBy: null,
+        bouncedBy: null,
+        replacedBy: null,
+      };
+      await this.deps.cheques.save(replacement);
 
-    return { original: updatedOriginal, replacement };
+      const updatedOriginal: Cheque = {
+        ...original,
+        status: "replaced",
+        replacedByChequeId: replacement.id,
+        replacedBy: this.actorOf(cmd),
+      };
+      await this.deps.cheques.update(updatedOriginal);
+
+      return { original: updatedOriginal, replacement };
+    });
   }
 
   async findById(id: string): Promise<Cheque | null> {

@@ -7,6 +7,7 @@ import { sumRows, countDistinct } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 import { STOCK_SOURCE_DOC_TYPE_LABELS_AR } from "./inventory-source-doc-labels.js";
 import { BRANCH_PARAM_FIELD, branchIdParamSchema, branchOfWarehouse, matchesBranch } from "./branch-filter.js";
+import { ReportParamKind } from "./types.js";
 
 /**
  * سجل المخزون — Stock Ledger (docs/archive/catalog/08-reports.md): the full
@@ -62,9 +63,9 @@ export function createInventoryLedgerReport(): ReportDefinition<
     paramsSchema,
     defaultParams: { dateFrom: "", dateTo: "", itemId: "", warehouseId: "", branchId: "" },
     paramFields: [
-      { kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
-      { kind: "text", key: "itemId", label: "الصنف", placeholder: "معرف الصنف" },
-      { kind: "text", key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
+      { kind: ReportParamKind.DateRange, fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" },
+      { kind: ReportParamKind.Text, key: "itemId", label: "الصنف", placeholder: "معرف الصنف" },
+      { kind: ReportParamKind.Text, key: "warehouseId", label: "المستودع", placeholder: "معرف المستودع" },
       BRANCH_PARAM_FIELD,
     ],
     rowKey: (row) => row.movementId,

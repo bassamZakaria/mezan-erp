@@ -17,6 +17,7 @@ export {
   type SqliteDriver,
   type SqliteOpenOptions,
 } from "./sqlite-connection.js";
+export { holdSqliteFile, SqliteFileBusyError, type HeldSqliteFile } from "./sqlite-file-hold.js";
 export {
   schema,
   journalEntry,
@@ -91,6 +92,7 @@ export {
   createSqliteTaxRateRepository,
   type SqliteTaxRateRepositoryHandle,
 } from "./tax-rate-repository.js";
+export { createSqliteTaxRateUsage } from "./tax-rate-usage.js";
 export {
   createSqliteCostCenterRepository,
   type SqliteCostCenterRepositoryHandle,
@@ -370,3 +372,7 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { createSqliteUpgradeLedger, UpgradeStepId, type UpgradeLedger } from "./upgrade-ledger.js";
+export { markApprovalsNeedingReapproval } from "./approval-request-store.js";
+export { createSqliteOwnerPinFence, type OwnerPinFence } from "./owner-pin-fence.js";
+export { createSqliteCredentialResetMarks, type CredentialResetMarks } from "./credential-reset-marks.js";

@@ -23,6 +23,7 @@ import { type GlReportContext, classifyAccount, netBalancesByAccount, moneyToNum
 import { sumRows } from "../reports/kpi.js";
 import { simplifiedRegimeScheduleOn, type SimplifiedRegimeSchedule } from "./simplified-regime-schedule.js";
 import { computeSimplifiedRegimeLiability, taxOnBase } from "./simplified-regime.js";
+import { ReportParamKind } from "../reports/types.js";
 
 export interface SimplifiedRegimeComparisonContext extends SalesByPeriodContext, GlReportContext {}
 
@@ -124,7 +125,7 @@ export function createSimplifiedRegimeComparisonReport(
       "تقدير استرشادي لما تدفعه المنشأة عن نفس الفترة تحت النظام المبسط مقابل النظام العادي. ليس إقراراً ولا رقماً نهائياً — راجعه مع محاسبك القانوني.",
     paramsSchema,
     defaultParams: { periodFrom: defaultPeriodFrom, periodTo: defaultPeriodTo },
-    paramFields: [{ kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "السنة الضريبية" }],
+    paramFields: [{ kind: ReportParamKind.DateRange, fromKey: "periodFrom", toKey: "periodTo", label: "السنة الضريبية" }],
     rowKey: (row) => row.key,
     columns: [
       { key: "item", header: "البند", format: "text", value: (row) => row.item },

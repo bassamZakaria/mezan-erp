@@ -14,6 +14,7 @@ export {
   type SalesInvoiceLineDiscountType,
   type AppliedSalesInvoicePromotion,
   type AppliedPromotionLineDiscount,
+  SalesInvoiceStatusCode,
   SALES_INVOICE_ACTIVE_STATUSES,
   SALES_INVOICE_TERMINAL_STATUSES,
   SALES_INVOICE_STATUS_LABELS_AR,
@@ -59,12 +60,20 @@ export type {
   SalesInvoiceCustomerExposureHook,
   SalesInvoicePromotionHook,
   SalesInvoicePromotionRequest,
+  SalesInvoiceWritePrecondition,
 } from "./ports.js";
+export { SalesInvoiceField } from "./ports.js";
+
+export { salesTaxPolicyFromSettings, salesTaxPolicySource, SalesPricingMode, SALES_TAX_RECALCULATED_NOTICE_AR, type SalesTaxPolicySource } from "./tax-policy.js";
 
 export {
   SalesInvoiceService,
   applyAllocatedSettlement,
   type SalesInvoiceServiceDeps,
+  type SalesTaxReratingPort,
+  type EditSalesInvoiceDraftLineCommand,
+  SalesInvoiceDraftAuditAction,
+  SalesInvoiceLifecycleAuditAction,
   type SalesInvoicePricingDeps,
   type ContractBillingRouting,
   type ContractBillingRoutingPort,
@@ -75,6 +84,8 @@ export {
   type CreateSalesInvoiceLine,
   type ConfirmSalesInvoiceOptions,
   type ConfirmSalesInvoiceResult,
+  type ClassifySalesInvoiceLineTaxResult,
+  type SalesInvoiceTaxFilingPort,
 } from "./service.js";
 
 export {
@@ -90,11 +101,14 @@ export {
 } from "./promotion-adapter.js";
 
 export {
+  ApprovedSalesInvoiceReratedError,
+  SalesTaxRecalculationUnacknowledgedError,
   InvalidSalesInvoiceError,
   SalesInvoiceNotFoundError,
-  DuplicateSalesInvoiceError,
   InvalidSalesInvoiceTransitionError,
   InvalidSalesInvoicePaymentError,
+  SalesInvoiceNotDraftError,
+  SalesInvoiceLineNotFoundError,
 } from "./errors.js";
 
 export {

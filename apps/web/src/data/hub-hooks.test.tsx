@@ -101,6 +101,8 @@ function scopeTransport() {
   return stubTransport({
     "GET /branches": () => ({ body: branches }),
     "GET /warehouses": () => ({ body: warehouses }),
+    "GET /branches/lookup": () => ({ body: { branches: branches.filter((branch) => branch.id === "B-ALEX"), restricted: true, unattributed: false } }),
+    "GET /warehouses/lookup": () => ({ body: warehouses.filter((warehouse) => warehouse.branchId === "B-ALEX") }),
   });
 }
 

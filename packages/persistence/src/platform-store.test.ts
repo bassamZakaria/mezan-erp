@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { Money, PlanKind, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
+import { Money, OwnerConfirmation, PlanKind, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
 import { createSqlitePlatformStores } from "./platform-store.js";
 
 const NOW = "2026-09-13T10:00:00.000Z";
 
 const tenant: Tenant = {
   id: "T1", code: "cyag", nameAr: "سياج", nameEn: null, ownerEmail: "o@cyag.eg", status: "provisioning",
-  dbFile: "tenants/cyag.db", createdAt: NOW, updatedAt: NOW,
+  ownerUserId: null, ownerContactVerified: true, dbFile: "tenants/cyag.db", createdAt: NOW, updatedAt: NOW,
 };
 const plan: Plan = {
   id: "P1", code: "core", nameAr: "الأساسية", nameEn: "Core", kind: PlanKind.Paid, quotas: {}, modules: ["accounting", "sales"],
@@ -112,6 +112,299 @@ describe("createSqlitePlatformStores", () => {
     db.close();
   });
 
+  it("moves the owner only while the stored owner is the one the caller read, and undoes the move when its side effect fails", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.tenants.save(tenant);
+    const linked = { ...tenant, ownerUserId: "U1", updatedAt: "2026-09-14T00:00:00.000Z" };
+    const effects: string[] = [];
+
+    expect(await stores.tenants.compareAndSetOwner(tenant, linked, async () => { effects.push("linked"); })).toBe(true);
+    expect(await stores.tenants.findById("T1")).toEqual(linked);
+
+    const stale = { ...tenant, ownerEmail: "late@cyag.eg" };
+    expect(await stores.tenants.compareAndSetOwner(tenant, stale, async () => { effects.push("stale"); })).toBe(false);
+    expect(await stores.tenants.findById("T1")).toEqual(linked);
+    expect(effects).toEqual(["linked"]);
+
+    const moved = { ...linked, ownerEmail: "new@cyag.eg", ownerContactVerified: false };
+    await expect(stores.tenants.compareAndSetOwner(linked, moved, async () => { throw new Error("audit refused"); })).rejects.toThrow("audit refused");
+    expect(await stores.tenants.findById("T1")).toEqual(linked);
+    stores.close();
+  });
+
+  it("writes an owner change only while the tenant's own record that is still due is the one the writer read", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    const first = { eventId: "E1", userId: "U1", previousUserId: null, actor: "platform:P", confirmedBy: OwnerConfirmation.PlatformConsole };
+    const second = { ...first, eventId: "E2", userId: "U2", previousUserId: "U1" };
+    const due: Tenant = { ...tenant, ownerUserId: "U1", ownerRecordDue: first };
+    await stores.tenants.save(due);
+    const effects: string[] = [];
+
+    const overAnUnseenRecord = await stores.tenants.compareAndSetOwner({ ...due, ownerRecordDue: null }, { ...due, ownerUserId: "U2", ownerRecordDue: second }, async () => void effects.push("over an unseen record"));
+    const overAnotherRecord = await stores.tenants.compareAndSetOwner({ ...due, ownerRecordDue: second }, { ...due, ownerRecordDue: null }, async () => void effects.push("over another record"));
+
+    expect(overAnUnseenRecord).toBe(false);
+    expect(overAnotherRecord).toBe(false);
+    expect(await stores.tenants.findById("T1")).toEqual(due);
+
+    expect(await stores.tenants.compareAndSetOwner(due, { ...due, ownerRecordDue: null }, async () => void effects.push("cleared"))).toBe(true);
+    expect((await stores.tenants.findById("T1"))?.ownerRecordDue).toBeUndefined();
+    expect(effects).toEqual(["cleared"]);
+    stores.close();
+  });
+
+  it("adds the owner columns to a platform database created before them, with every contact verified", async () => {
+    const db = new Database(":memory:");
+    db.exec(`CREATE TABLE tenant (id TEXT PRIMARY KEY, code TEXT NOT NULL, name_ar TEXT NOT NULL, name_en TEXT, owner_email TEXT NOT NULL,
+      status TEXT NOT NULL, db_file TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    db.prepare(`INSERT INTO tenant VALUES ('T0', 'old', 'قديمة', NULL, 'owner@old.eg', 'active', 'tenants/old.db', ?, ?)`).run(NOW, NOW);
+    const stores = createSqlitePlatformStores(db);
+    expect(await stores.tenants.findById("T0")).toMatchObject({ ownerEmail: "owner@old.eg", ownerUserId: null, ownerContactVerified: true });
+    db.close();
+  });
+
+  describe("the one-time anchor-day backfill", () => {
+    const legacy = (over: Partial<Subscription>): Subscription => ({
+      ...sub, createdAt: "2026-01-31T10:00:00.000Z", currentPeriodStart: "2026-01-31T10:00:00.000Z", currentPeriodEnd: "2026-02-28T10:00:00.000Z", ...over,
+    });
+
+    async function storedBeforeAnchorsExisted(db: InstanceType<typeof Database>) {
+      const before = createSqlitePlatformStores(db);
+      await before.subscriptions.save(legacy({ id: "S-ON-TIME", tenantId: "T-ON-TIME", currentPeriodStart: "2026-03-28T10:00:00.000Z", currentPeriodEnd: "2026-04-28T10:00:00.000Z" }));
+      await before.payments.save({ ...payment, id: "P1", tenantId: "T-ON-TIME", subscriptionId: "S-ON-TIME", createdAt: "2026-02-20T09:00:00.000Z" });
+      await before.payments.save({ ...payment, id: "P2", tenantId: "T-ON-TIME", subscriptionId: "S-ON-TIME", createdAt: "2026-03-20T09:00:00.000Z" });
+      await before.subscriptions.save(legacy({ id: "S-LATE", tenantId: "T-LATE", currentPeriodStart: "2026-03-10T09:00:00.000Z", currentPeriodEnd: "2026-04-10T09:00:00.000Z" }));
+      await before.payments.save({ ...payment, id: "P3", tenantId: "T-LATE", subscriptionId: "S-LATE", createdAt: "2026-03-10T09:00:00.000Z" });
+      await before.subscriptions.save(legacy({ id: "S-NIGHT", tenantId: "T-NIGHT", createdAt: "2026-01-14T23:00:00.000Z", currentPeriodStart: "2026-01-14T23:00:00.000Z", currentPeriodEnd: "2026-02-14T23:00:00.000Z" }));
+      await before.subscriptions.save(legacy({ id: "S-GONE", tenantId: "T-GONE", status: "cancelled", cancelledAt: NOW }));
+      await before.subscriptions.save(legacy({ id: "S-SET", tenantId: "T-SET", billingAnchorDay: 12 }));
+      db.exec("DELETE FROM platform_migration");
+    }
+
+    it("restores the day a subscription was created on when its renewals were all on time, marks the ones its history does not settle, and leaves set and cancelled ones alone", async () => {
+      const db = new Database(":memory:");
+      await storedBeforeAnchorsExisted(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect(await subscriptions.findById("S-ON-TIME")).toMatchObject({ billingAnchorDay: 31, currentPeriodEnd: "2026-04-28T10:00:00.000Z" });
+      expect((await subscriptions.findById("S-ON-TIME"))?.billingAnchorNeedsReview).toBeUndefined();
+      expect((await subscriptions.findById("S-NIGHT"))?.billingAnchorDay).toBe(15);
+      const late = await subscriptions.findById("S-LATE");
+      expect(late?.billingAnchorDay).toBeUndefined();
+      expect(late?.billingAnchorNeedsReview).toBe(true);
+      expect(await subscriptions.findById("S-GONE")).not.toHaveProperty("billingAnchorDay");
+      expect(await subscriptions.findById("S-GONE")).not.toHaveProperty("billingAnchorNeedsReview");
+      expect((await subscriptions.findById("S-SET"))?.billingAnchorDay).toBe(12);
+      db.close();
+    });
+
+    it("runs once: what the platform owner set afterwards is not looked at again", async () => {
+      const db = new Database(":memory:");
+      await storedBeforeAnchorsExisted(db);
+      const first = createSqlitePlatformStores(db);
+      const late = await first.subscriptions.findById("S-LATE");
+      if (!late) throw new Error("the late subscription is missing");
+      await first.subscriptions.save({ ...late, billingAnchorDay: 10, billingAnchorNeedsReview: false });
+      db.exec("UPDATE subscription SET billing_anchor_day = NULL WHERE id = 'S-ON-TIME'");
+
+      const again = createSqlitePlatformStores(db);
+
+      expect(await again.subscriptions.findById("S-LATE")).toMatchObject({ billingAnchorDay: 10 });
+      expect((await again.subscriptions.findById("S-LATE"))?.billingAnchorNeedsReview).toBeUndefined();
+      expect((await again.subscriptions.findById("S-ON-TIME"))?.billingAnchorDay).toBeUndefined();
+      db.close();
+    });
+  });
+
+  describe("period ends an earlier build computed in UTC", () => {
+    async function storedBefore(db: InstanceType<typeof Database>) {
+      const before = createSqlitePlatformStores(db);
+      await before.subscriptions.save({
+        ...sub, id: "S-SPILLED", tenantId: "T-SPILLED", createdAt: "2026-01-30T22:30:00.000Z",
+        currentPeriodStart: "2026-01-30T22:30:00.000Z", currentPeriodEnd: "2026-02-28T22:30:00.000Z",
+      });
+      await before.subscriptions.save({
+        ...sub, id: "S-MIDMONTH", tenantId: "T-MIDMONTH", createdAt: "2026-01-14T23:00:00.000Z",
+        currentPeriodStart: "2026-01-14T23:00:00.000Z", currentPeriodEnd: "2026-02-14T23:00:00.000Z",
+      });
+      await before.subscriptions.save({
+        ...sub, id: "S-ENDED", tenantId: "T-ENDED", status: "cancelled", cancelledAt: NOW, createdAt: "2026-01-30T22:30:00.000Z",
+        currentPeriodStart: "2026-01-30T22:30:00.000Z", currentPeriodEnd: "2026-02-28T22:30:00.000Z",
+      });
+      db.exec("DELETE FROM platform_migration WHERE name LIKE '%period-end%'");
+    }
+
+    it("moves a month-end period end that spilled into the 1st in Cairo back to the last day of its month, once", async () => {
+      const db = new Database(":memory:");
+      await storedBefore(db);
+
+      const first = createSqlitePlatformStores(db);
+      const repaired = await first.subscriptions.findById("S-SPILLED");
+      await first.subscriptions.save({ ...repaired!, currentPeriodEnd: "2026-02-28T22:30:00.000Z" });
+      const second = createSqlitePlatformStores(db);
+
+      expect(repaired?.currentPeriodEnd).toBe("2026-02-27T22:30:00.000Z");
+      expect((await second.subscriptions.findById("S-SPILLED"))?.currentPeriodEnd).toBe("2026-02-28T22:30:00.000Z");
+      db.close();
+    });
+
+    it("touches neither a mid-month period nor a cancelled subscription", async () => {
+      const db = new Database(":memory:");
+      await storedBefore(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect((await subscriptions.findById("S-MIDMONTH"))?.currentPeriodEnd).toBe("2026-02-14T23:00:00.000Z");
+      expect((await subscriptions.findById("S-ENDED"))?.currentPeriodEnd).toBe("2026-02-28T22:30:00.000Z");
+      db.close();
+    });
+  });
+
+  describe("period ends an earlier build computed in UTC for a subscription that started on the 1st in Cairo", () => {
+    const SHORT = { createdAt: "2024-02-29T22:30:00.000Z", currentPeriodStart: "2024-02-29T22:30:00.000Z", currentPeriodEnd: "2024-03-29T22:30:00.000Z" };
+
+    async function storedBeforeTheSecondRepair(db: InstanceType<typeof Database>) {
+      const before = createSqlitePlatformStores(db);
+      await before.subscriptions.save({ ...sub, id: "S-SHORT", tenantId: "T-SHORT", ...SHORT });
+      await before.subscriptions.save({ ...sub, id: "S-SHORT-ON-1", tenantId: "T-SHORT-ON-1", ...SHORT, billingAnchorDay: 1 });
+      await before.subscriptions.save({ ...sub, id: "S-SHORT-ON-29", tenantId: "T-SHORT-ON-29", ...SHORT, billingAnchorDay: 29 });
+      await before.subscriptions.save({ ...sub, id: "S-SHORT-ENDED", tenantId: "T-SHORT-ENDED", status: "cancelled", cancelledAt: NOW, ...SHORT });
+      await before.subscriptions.save({
+        ...sub, id: "S-CURRENT", tenantId: "T-CURRENT", createdAt: "2024-02-29T22:30:00.000Z",
+        currentPeriodStart: "2024-02-29T22:30:00.000Z", currentPeriodEnd: "2024-03-31T22:30:00.000Z", billingAnchorDay: 1,
+      });
+      db.exec("DELETE FROM platform_migration WHERE name = '2026-10-period-end-utc-short-repair'");
+    }
+
+    it("are moved to the next 1st on a store the first period-end repair already ran on, once", async () => {
+      const db = new Database(":memory:");
+      await storedBeforeTheSecondRepair(db);
+      const markersBefore = (db.prepare("SELECT name FROM platform_migration ORDER BY name").all() as { name: string }[]).map((row) => row.name);
+
+      const first = createSqlitePlatformStores(db);
+      const repaired = await first.subscriptions.findById("S-SHORT");
+      const repairedOnTheFirst = await first.subscriptions.findById("S-SHORT-ON-1");
+      await first.subscriptions.save({ ...repaired!, currentPeriodEnd: SHORT.currentPeriodEnd });
+      const second = createSqlitePlatformStores(db);
+
+      expect(markersBefore).toContain("2026-10-period-end-cairo-repair");
+      expect(markersBefore).not.toContain("2026-10-period-end-utc-short-repair");
+      expect(repaired?.currentPeriodEnd).toBe("2024-03-31T22:30:00.000Z");
+      expect(repairedOnTheFirst?.currentPeriodEnd).toBe("2024-03-31T22:30:00.000Z");
+      expect((await second.subscriptions.findById("S-SHORT"))?.currentPeriodEnd).toBe(SHORT.currentPeriodEnd);
+      db.close();
+    });
+
+    it("touch neither a period anchored on another day, nor a cancelled subscription, nor a period the current build wrote", async () => {
+      const db = new Database(":memory:");
+      await storedBeforeTheSecondRepair(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect((await subscriptions.findById("S-SHORT-ON-29"))?.currentPeriodEnd).toBe(SHORT.currentPeriodEnd);
+      expect((await subscriptions.findById("S-SHORT-ENDED"))?.currentPeriodEnd).toBe(SHORT.currentPeriodEnd);
+      expect((await subscriptions.findById("S-CURRENT"))?.currentPeriodEnd).toBe("2024-03-31T22:30:00.000Z");
+      db.close();
+    });
+  });
+
+  describe("anchor days stored as the UTC day by an earlier build", () => {
+    const stored = (over: Partial<Subscription>): Subscription => ({ ...sub, ...over });
+
+    async function storedWithUtcAnchors(db: InstanceType<typeof Database>) {
+      const before = createSqlitePlatformStores(db);
+      await before.subscriptions.save(stored({
+        id: "S-MIDNIGHT", tenantId: "T-MIDNIGHT", createdAt: "2026-01-31T22:30:00.000Z",
+        currentPeriodStart: "2026-03-31T22:30:00.000Z", currentPeriodEnd: "2026-04-30T22:30:00.000Z", billingAnchorDay: 31,
+      }));
+      await before.payments.save({ ...payment, id: "P1", tenantId: "T-MIDNIGHT", subscriptionId: "S-MIDNIGHT", createdAt: "2026-02-20T10:00:00.000Z" });
+      await before.payments.save({ ...payment, id: "P2", tenantId: "T-MIDNIGHT", subscriptionId: "S-MIDNIGHT", createdAt: "2026-03-20T10:00:00.000Z" });
+      await before.subscriptions.save(stored({
+        id: "S-LATE-NIGHT", tenantId: "T-LATE-NIGHT", createdAt: "2026-01-14T23:00:00.000Z",
+        currentPeriodStart: "2026-03-14T23:00:00.000Z", currentPeriodEnd: "2026-04-14T23:00:00.000Z", billingAnchorDay: 14,
+      }));
+      await before.payments.save({ ...payment, id: "P3", tenantId: "T-LATE-NIGHT", subscriptionId: "S-LATE-NIGHT", createdAt: "2026-02-10T10:00:00.000Z" });
+      await before.payments.save({ ...payment, id: "P4", tenantId: "T-LATE-NIGHT", subscriptionId: "S-LATE-NIGHT", createdAt: "2026-03-10T10:00:00.000Z" });
+      await before.subscriptions.save(stored({
+        id: "S-UNSETTLED", tenantId: "T-UNSETTLED", createdAt: "2026-01-14T23:00:00.000Z",
+        currentPeriodStart: "2026-03-20T09:00:00.000Z", currentPeriodEnd: "2026-04-20T09:00:00.000Z", billingAnchorDay: 14,
+      }));
+      await before.payments.save({ ...payment, id: "P5", tenantId: "T-UNSETTLED", subscriptionId: "S-UNSETTLED", createdAt: "2026-03-20T09:00:00.000Z" });
+      await before.subscriptions.save(stored({
+        id: "S-DAYTIME", tenantId: "T-DAYTIME", createdAt: "2026-01-12T10:00:00.000Z",
+        currentPeriodStart: "2026-01-12T10:00:00.000Z", currentPeriodEnd: "2026-02-12T10:00:00.000Z", billingAnchorDay: 12,
+      }));
+      await before.subscriptions.save(stored({
+        id: "S-CHOSEN", tenantId: "T-CHOSEN", createdAt: "2026-01-14T23:00:00.000Z",
+        currentPeriodStart: "2026-01-14T23:00:00.000Z", currentPeriodEnd: "2026-02-14T23:00:00.000Z", billingAnchorDay: 20,
+      }));
+      db.exec("DELETE FROM platform_migration WHERE name LIKE '%utc%'");
+    }
+
+    it("moves an anchor that was the UTC day of a subscription created after midnight in Cairo to the Cairo day its history proves", async () => {
+      const db = new Database(":memory:");
+      await storedWithUtcAnchors(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect(await subscriptions.findById("S-MIDNIGHT")).toMatchObject({ billingAnchorDay: 1, currentPeriodEnd: "2026-04-30T22:30:00.000Z" });
+      expect((await subscriptions.findById("S-MIDNIGHT"))?.billingAnchorNeedsReview).toBeUndefined();
+      expect((await subscriptions.findById("S-LATE-NIGHT"))?.billingAnchorDay).toBe(15);
+      db.close();
+    });
+
+    it("marks for review, and leaves the stored day, where the history does not settle the Cairo day", async () => {
+      const db = new Database(":memory:");
+      await storedWithUtcAnchors(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect(await subscriptions.findById("S-UNSETTLED")).toMatchObject({ billingAnchorDay: 14, billingAnchorNeedsReview: true });
+      db.close();
+    });
+
+    it("touches no anchor that is already the Cairo day, nor one somebody chose", async () => {
+      const db = new Database(":memory:");
+      await storedWithUtcAnchors(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect(await subscriptions.findById("S-DAYTIME")).toMatchObject({ billingAnchorDay: 12 });
+      expect((await subscriptions.findById("S-DAYTIME"))?.billingAnchorNeedsReview).toBeUndefined();
+      expect(await subscriptions.findById("S-CHOSEN")).toMatchObject({ billingAnchorDay: 20 });
+      expect((await subscriptions.findById("S-CHOSEN"))?.billingAnchorNeedsReview).toBeUndefined();
+      db.close();
+    });
+
+    it("runs once: a day the platform owner sets afterwards is not moved back", async () => {
+      const db = new Database(":memory:");
+      await storedWithUtcAnchors(db);
+      const first = createSqlitePlatformStores(db);
+      const repaired = await first.subscriptions.findById("S-MIDNIGHT");
+      if (!repaired) throw new Error("the subscription is missing");
+      await first.subscriptions.save({ ...repaired, billingAnchorDay: 31 });
+
+      const again = createSqlitePlatformStores(db);
+
+      expect((await again.subscriptions.findById("S-MIDNIGHT"))?.billingAnchorDay).toBe(31);
+      db.close();
+    });
+  });
+
+  it("stores a review mark a renewal cleared, through the conditional write a renewal uses", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    const marked: Subscription = { ...sub, id: "S-MARKED", tenantId: "T-MARKED", billingAnchorNeedsReview: true };
+    await stores.subscriptions.save(marked);
+    const cleared: Subscription = { ...marked, billingAnchorDay: 9, billingAnchorNeedsReview: false, updatedAt: "2026-09-20T10:00:00.000Z" };
+
+    expect(await stores.subscriptions.compareAndSet(marked, cleared, async () => undefined)).toBe(true);
+
+    expect(await stores.subscriptions.findById("S-MARKED")).toMatchObject({ billingAnchorDay: 9 });
+    expect((await stores.subscriptions.findById("S-MARKED"))?.billingAnchorNeedsReview).toBeUndefined();
+    stores.close();
+  });
+
   it("refuses a second live subscription for one tenant at the database", async () => {
     const stores = createSqlitePlatformStores(":memory:");
     await stores.subscriptions.save(sub);
@@ -124,7 +417,7 @@ describe("createSqlitePlatformStores", () => {
   it("refuses duplicate tenant codes, plan codes and platform emails", async () => {
     const stores = createSqlitePlatformStores(":memory:");
     await stores.tenants.save(tenant);
-    await expect(stores.tenants.save({ ...tenant, id: "T2" })).rejects.toThrow(/UNIQUE/);
+    await expect(stores.tenants.save({ ...tenant, id: "T2", dbFile: "tenants/T2.db" })).rejects.toThrow(/UNIQUE/);
     await stores.plans.save(plan);
     await expect(stores.plans.save({ ...plan, id: "P2" })).rejects.toThrow(/UNIQUE/);
     await stores.platformUsers.save(user);
@@ -137,5 +430,102 @@ describe("createSqlitePlatformStores", () => {
     await stores.payments.save(payment);
     await expect(stores.payments.save({ ...payment, note: "second write" })).rejects.toThrow(/UNIQUE/);
     stores.close();
+  });
+});
+
+describe("a subscription's billing day", () => {
+  it("is kept with the subscription, and a row stored before it existed reads back without one", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.subscriptions.save({ ...sub, billingAnchorDay: 31 });
+    await stores.subscriptions.save({ ...sub, id: "S-OLD", tenantId: "T-OLD" });
+
+    expect((await stores.subscriptions.findById("S1"))?.billingAnchorDay).toBe(31);
+    expect(await stores.subscriptions.findById("S-OLD")).toEqual({ ...sub, id: "S-OLD", tenantId: "T-OLD" });
+    stores.close();
+  });
+
+  it("is added to a platform database created before the column existed", () => {
+    const raw = new Database(":memory:");
+    raw.exec(`CREATE TABLE subscription (
+      id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, plan_id TEXT NOT NULL, status TEXT NOT NULL, billing_cycle TEXT NOT NULL,
+      add_on_modules TEXT NOT NULL, extra_seats INTEGER NOT NULL, extra_branches INTEGER NOT NULL, extra_warehouses INTEGER NOT NULL,
+      current_period_start TEXT NOT NULL, current_period_end TEXT NOT NULL, trial_ends_at TEXT, previous_plan_id TEXT,
+      grace_days INTEGER NOT NULL, cancelled_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+
+    createSqlitePlatformStores(raw);
+
+    expect((raw.prepare(`PRAGMA table_info(subscription)`).all() as { name: string }[]).map((column) => column.name)).toContain("billing_anchor_day");
+    raw.close();
+  });
+});
+
+describe("signup provisioning claim", () => {
+  const TOKEN = "token-hash";
+  const AT = "2026-01-15T10:00:00.000Z";
+  const STALE_BEFORE = "2026-01-15T09:58:00.000Z";
+
+  it("is held by one claimant at a time and passes on only once released", async () => {
+    const { signupRequests, close } = createSqlitePlatformStores(":memory:");
+
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "first", AT, STALE_BEFORE)).toBe(true);
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "second", AT, STALE_BEFORE)).toBe(false);
+    expect(await signupRequests.tryClaimProvisioning("another-token", "second", AT, STALE_BEFORE)).toBe(true);
+
+    await signupRequests.releaseProvisioning(TOKEN, "second");
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "second", AT, STALE_BEFORE)).toBe(false);
+
+    await signupRequests.releaseProvisioning(TOKEN, "first");
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "second", AT, STALE_BEFORE)).toBe(true);
+    close();
+  });
+
+  it("gives each claim a generation higher than every claim before it, on any token, and none to a caller that does not hold the claim", async () => {
+    const { signupRequests, close } = createSqlitePlatformStores(":memory:");
+
+    await signupRequests.tryClaimProvisioning(TOKEN, "first", AT, STALE_BEFORE);
+    const first = await signupRequests.provisioningFence(TOKEN, "first");
+    expect(await signupRequests.provisioningFence(TOKEN, "second")).toBeNull();
+    await signupRequests.tryClaimProvisioning("another-token", "other", AT, STALE_BEFORE);
+    const other = await signupRequests.provisioningFence("another-token", "other");
+    await signupRequests.releaseProvisioning(TOKEN, "first");
+    await signupRequests.releaseProvisioning("another-token", "other");
+    await signupRequests.tryClaimProvisioning(TOKEN, "second", AT, STALE_BEFORE);
+    const second = await signupRequests.provisioningFence(TOKEN, "second");
+
+    expect(first).toBeGreaterThan(0);
+    expect(other).toBeGreaterThan(first ?? 0);
+    expect(second).toBeGreaterThan(other ?? 0);
+    expect(await signupRequests.provisioningFence(TOKEN, "first")).toBeNull();
+    close();
+  });
+
+  it("is taken over once its holder has been gone longer than the stale window, and not a moment before", async () => {
+    const { signupRequests, close } = createSqlitePlatformStores(":memory:");
+    await signupRequests.tryClaimProvisioning(TOKEN, "dead", "2026-01-15T09:58:00.000Z", "2026-01-15T09:56:00.000Z");
+
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "live", AT, STALE_BEFORE)).toBe(false);
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "live", "2026-01-15T10:00:01.000Z", "2026-01-15T09:58:01.000Z")).toBe(true);
+
+    await signupRequests.releaseProvisioning(TOKEN, "dead");
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "other", "2026-01-15T10:00:02.000Z", "2026-01-15T09:58:02.000Z")).toBe(false);
+    close();
+  });
+
+  it("stays with a holder that keeps renewing it, and tells a holder that lost it so", async () => {
+    const { signupRequests, close } = createSqlitePlatformStores(":memory:");
+    await signupRequests.tryClaimProvisioning(TOKEN, "slow", "2026-01-15T09:58:00.000Z", "2026-01-15T09:56:00.000Z");
+    expect(await signupRequests.provisioningClaimedAt(TOKEN)).toBe("2026-01-15T09:58:00.000Z");
+
+    expect(await signupRequests.renewProvisioning(TOKEN, "slow", "2026-01-15T10:00:00.000Z")).toBe(true);
+    expect(await signupRequests.provisioningClaimedAt(TOKEN)).toBe("2026-01-15T10:00:00.000Z");
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "eager", "2026-01-15T10:00:01.000Z", "2026-01-15T09:58:01.000Z")).toBe(false);
+
+    expect(await signupRequests.tryClaimProvisioning(TOKEN, "eager", "2026-01-15T10:03:00.000Z", "2026-01-15T10:01:00.000Z")).toBe(true);
+    expect(await signupRequests.renewProvisioning(TOKEN, "slow", "2026-01-15T10:03:01.000Z")).toBe(false);
+    expect(await signupRequests.provisioningClaimedAt(TOKEN)).toBe("2026-01-15T10:03:00.000Z");
+
+    await signupRequests.releaseProvisioning(TOKEN, "eager");
+    expect(await signupRequests.provisioningClaimedAt(TOKEN)).toBeNull();
+    close();
   });
 });

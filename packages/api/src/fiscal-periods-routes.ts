@@ -27,6 +27,8 @@ import {
   type PeriodCloseGuardSource,
   periodCloseScopeOf,
 } from "./period-close-routes.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 enum PeriodAudit {
   Module = "accounting",
@@ -70,6 +72,7 @@ function serialize(period: FiscalPeriod) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof FiscalPeriodNotFoundError) {

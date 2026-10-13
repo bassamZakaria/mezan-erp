@@ -20,6 +20,7 @@ export {
   signedQty,
   occurredAtFromDocumentDate,
   signedValue,
+  movementValue,
   type StockMovement,
   type StockMovementDirection,
   type StockSourceDocType,
@@ -32,6 +33,7 @@ export {
 } from "./cost-layer.js";
 
 export { extend, unitCostOf } from "./wac-math.js";
+export { StockChangeKind, changeStockPosition, type StockChange, type StockChangeResult, type StockHolding } from "./position-change.js";
 
 export {
   emptyPosition,
@@ -93,6 +95,7 @@ export {
   type PostTransferResult,
   type ReceiptLine,
   type PostReceiptCommand,
+  type PostReceiptResult,
   type IssueLine,
   type PostIssueCommand,
   type IssueLineCost,
@@ -100,6 +103,7 @@ export {
   type PostIssueResult,
   type ReverseReceiptPosition,
   type ReverseReceiptCommand,
+  type ReverseReceiptResult,
   type DocumentStockPlanResult,
 } from "./stock-ledger-service.js";
 
@@ -144,7 +148,6 @@ export {
   type PhysicalCountNumberingHook,
   type StockBalanceReader,
   PhysicalCountNotFoundError,
-  DuplicatePhysicalCountError,
   InvalidPhysicalCountError,
   InvalidPhysicalCountStatusError,
   type PhysicalCountServiceDeps,
@@ -284,3 +287,4 @@ export {
   type StockReservations,
   type StockReservationSource,
 } from "./reservations.js";
+export { StockPositionFault, stockPositionFaults, type StockPositionFaultRow } from "./stock-position-faults.js";

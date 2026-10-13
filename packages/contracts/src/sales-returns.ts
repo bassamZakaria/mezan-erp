@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { decimalRateString, moneyString, nonNegativeMoneyString, nonNegativeQuantityString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { isoDateOrInstant } from "./iso-date.js";
 import { clientSuppliedId } from "./client-supplied-id.js";
+import { documentApprovalSchema } from "./workflow.js";
 
 /**
  * Wire contracts for Sales Returns (مرتجعات المبيعات، docs/archive/catalog/01), a
@@ -27,6 +28,7 @@ export const salesReturnLineSchema = z.object({
   customerId: z.string().min(1),
   sourceInvoiceId: z.string().min(1),
   sourceInvoiceNumber: z.string().nullable(),
+  sourceLineId: z.string().min(1).nullish(),
   reason: salesReturnReasonSchema,
   availableQty: positiveDecimalString,
   qty: positiveDecimalString,
@@ -49,6 +51,7 @@ export const createSalesReturnSchema = z.object({
 /** Convenience request: derive return lines from a resolved source-invoice snapshot + requested qty per item. */
 export const salesReturnRequestedQtySchema = z.object({
   itemId: z.string().min(1),
+  sourceLineId: z.string().min(1).nullish(),
   qty: positiveDecimalString,
   /** Per-line سبب الإرجاع (R3.9); omitted lines fall back to the document's reason. */
   reason: salesReturnReasonSchema.optional(),
@@ -74,9 +77,10 @@ export const salesReturnDocumentSchema = z.object({
   status: documentStatusSchema,
   lines: z.array(
     salesReturnLineSchema.extend({
+      taxRateId: z.string().nullable().optional(),
       /** The source invoice's currency and confirm rate, stamped by the server (D203). */
       currency: z.string().nullable().optional(),
-      fxRate: z.string().nullable().optional(),
+      fxRate: decimalRateString.nullable().optional(),
       /** What this line credits, in base currency at `fxRate`. */
       baseCredit: z.string().optional(),
     }),
@@ -87,7 +91,9 @@ export const salesReturnDocumentSchema = z.object({
   confirmedAt: z.string().nullable(),
   reversesDocId: z.string().nullable(),
   reversedByDocId: z.string().nullable(),
+  voidReason: z.string().nullable().optional(),
   workflowRequestId: z.string().nullable(),
+  approval: documentApprovalSchema.nullable().optional(),
   journalEntryId: z.string().nullable(),
   /** بانتظار دفع المبلغ — derived from the refund vouchers posted, never a stored flag. */
   awaitingRefund: z.boolean(),
@@ -113,9 +119,30 @@ export const refundSalesReturnSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
+export const voidReturnSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+  date: isoDateOrInstant.optional(),
+});
+export type VoidReturnDTO = z.infer<typeof voidReturnSchema>;
+
 export type SalesReturnReasonDTO = z.infer<typeof salesReturnReasonSchema>;
 export type SalesReturnLineDTO = z.infer<typeof salesReturnLineSchema>;
 export type CreateSalesReturnDTO = z.infer<typeof createSalesReturnSchema>;
 export type BuildSalesReturnFromInvoiceDTO = z.infer<typeof buildSalesReturnFromInvoiceSchema>;
 export type SalesReturnDocumentDTO = z.infer<typeof salesReturnDocumentSchema>;
 export type RefundSalesReturnDTO = z.infer<typeof refundSalesReturnSchema>;
+
+export const returnSourceLineSchema = z.object({
+  sourceLineId: z.string().min(1),
+  itemId: z.string().min(1),
+  soldQty: nonNegativeQuantityString,
+  returnedQty: nonNegativeQuantityString,
+});
+
+export const returnSourceLinesSchema = z.object({
+  sourceInvoiceId: z.string().min(1),
+  lines: z.array(returnSourceLineSchema),
+});
+
+export type ReturnSourceLineDTO = z.infer<typeof returnSourceLineSchema>;
+export type ReturnSourceLinesDTO = z.infer<typeof returnSourceLinesSchema>;

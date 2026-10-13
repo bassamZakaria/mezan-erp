@@ -6,7 +6,6 @@ import {
   recordSensitiveEvent,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
-  VatPeriodAlreadyFiledError,
   JournalEntryAlreadyReversedError,
   JournalEntryNotFoundError,
   JournalEntryNotPostedError,
@@ -15,7 +14,10 @@ import {
   type RunReportOutcome,
 } from "@mezan/domain";
 import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 import { atomically, type ConfigTransactor } from "./config-transactor.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 export interface OpeningBalanceDuplicatesRoutesDeps {
   readonly resolveContext: () => Promise<OpeningBalanceDuplicatesContext>;
@@ -51,12 +53,10 @@ function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Respo
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof NoFiscalPeriodForDateError || err instanceof PeriodNotOpenForPostingError) {
-    return c.json({ error: err.code, message: err.message }, 422);
-  }
-  if (err instanceof VatPeriodAlreadyFiledError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof JournalEntryNotFoundError) {
@@ -93,12 +93,16 @@ export function createOpeningBalanceDuplicatesRoutes(
   const gate = createPermissionGate(resolveAuthContext);
 
   app.get("/", gate("accounting.reports.view"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const definition = createOpeningBalanceDuplicatesReport();
     const ctx = await deps.resolveContext();
     return respond(c, runReport(definition, {}, ctx));
   });
 
   app.post("/:kind/:partyId/repair", gate("accounting.journal.post"), async (c) => {
+    const refusal = refuseBranchScopedCaller(c);
+    if (refusal) return refusal;
     const kind = c.req.param("kind");
     if (kind !== "customer" && kind !== "supplier") {
       return c.json({ error: "INVALID_PARTY_KIND", message: "النوع يجب أن يكون عميل أو مورد." }, 400);

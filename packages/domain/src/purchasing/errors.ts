@@ -25,14 +25,6 @@ export class PurchaseInvoiceNotFoundError extends Error {
   }
 }
 
-export class DuplicatePurchaseDocumentError extends Error {
-  readonly code = "DUPLICATE_PURCHASE_DOCUMENT";
-  constructor(readonly id: string) {
-    super(`يوجد مستند مشتريات بالمعرّف "${id}" بالفعل.`);
-    this.name = "DuplicatePurchaseDocumentError";
-  }
-}
-
 export class InvalidPurchaseDocumentError extends Error {
   readonly code = "INVALID_PURCHASE_DOCUMENT";
   constructor(readonly reasons: readonly string[]) {
@@ -129,6 +121,16 @@ export class GoodsReceiptAlreadyInvoicedError extends Error {
         ? `Goods receipt "${id}" has been invoiced and cannot be cancelled.`
         : `Goods receipt "${id}" is already fully billed by confirmed purchase invoices; another one cannot be confirmed against it. Cancel the standing invoice first if this is the right one.`;
     this.name = "GoodsReceiptAlreadyInvoicedError";
+  }
+}
+
+export class GoodsReceiptAccrualAccountMissingError extends Error {
+  readonly code = "GOODS_RECEIPT_ACCRUAL_ACCOUNT_MISSING";
+  readonly messageEn: string;
+  constructor(readonly id: string) {
+    super(`لا يمكن تأكيد إذن الاستلام "${id}": حساب «بضاعة واردة لم تُفوتر» غير مُعرَّف، والبضاعة لا تدخل المخزون بلا قيد محاسبي. عرّف الحساب في إعدادات حسابات المشتريات ثم أعد التأكيد.`);
+    this.messageEn = `Goods receipt "${id}" cannot be confirmed: no received-not-invoiced account is configured, and goods do not enter stock without a journal entry. Configure the account in the purchasing account settings, then confirm again.`;
+    this.name = "GoodsReceiptAccrualAccountMissingError";
   }
 }
 

@@ -36,7 +36,7 @@ export const GATEABLE_ACTION_TYPES = [
   // Sales (3)
   { code: "SALES_INVOICE_CONFIRM", labelAr: "تأكيد فاتورة المبيعات", labelEn: "Confirm sales invoice", category: "sales" },
   { code: "SALES_RETURN_CONFIRM", labelAr: "تأكيد مردودات المبيعات", labelEn: "Confirm sales return", category: "sales" },
-  { code: "SALES_QUOTE_SEND", labelAr: "إرسال عرض سعر", labelEn: "Send quotation", category: "sales" },
+  { code: "SALES_QUOTE_SEND", labelAr: "إرسال عرض سعر", labelEn: "Send quotation", category: "sales", enforced: false },
 
   // Purchases (5)
   { code: "PURCHASE_ORDER_CONFIRM", labelAr: "تأكيد أمر الشراء", labelEn: "Confirm purchase order", category: "purchases", enforced: false },
@@ -47,19 +47,19 @@ export const GATEABLE_ACTION_TYPES = [
 
   // Treasury (3)
   { code: "TREASURY_VOUCHER_CONFIRM", labelAr: "تأكيد سند صرف/قبض", labelEn: "Confirm cash voucher", category: "treasury" },
-  { code: "TREASURY_CAPITAL_WITHDRAWAL_CONFIRM", labelAr: "تأكيد سحب من رأس المال", labelEn: "Confirm capital withdrawal", category: "treasury" },
-  { code: "TREASURY_TAX_PAYMENT_CONFIRM", labelAr: "تأكيد سداد ضريبي", labelEn: "Confirm tax payment", category: "treasury" },
+  { code: "TREASURY_CAPITAL_WITHDRAWAL_CONFIRM", labelAr: "تأكيد سحب من رأس المال", labelEn: "Confirm capital withdrawal", category: "treasury", enforced: false },
+  { code: "TREASURY_TAX_PAYMENT_CONFIRM", labelAr: "تأكيد سداد ضريبي", labelEn: "Confirm tax payment", category: "treasury", enforced: false },
 
   // Inventory (2)
   { code: "INVENTORY_TRANSFER_CONFIRM", labelAr: "تأكيد تحويل مخزون", labelEn: "Confirm stock transfer", category: "inventory" },
   { code: "INVENTORY_ADJUSTMENT_CONFIRM", labelAr: "تأكيد تعديل مخزون", labelEn: "Confirm stock adjustment", category: "inventory" },
 
   // Accounting (2)
-  { code: "ACCOUNTING_JOURNAL_POST", labelAr: "ترحيل قيد يومية", labelEn: "Post journal entry", category: "accounting" },
-  { code: "ACCOUNTING_JOURNAL_VOID", labelAr: "إلغاء قيد يومية", labelEn: "Void journal entry", category: "accounting" },
+  { code: "ACCOUNTING_JOURNAL_POST", labelAr: "ترحيل قيد يومية", labelEn: "Post journal entry", category: "accounting", enforced: false },
+  { code: "ACCOUNTING_JOURNAL_VOID", labelAr: "إلغاء قيد يومية", labelEn: "Void journal entry", category: "accounting", enforced: false },
 
   // HR / Payroll (1)
-  { code: "HR_PAYROLL_APPROVE", labelAr: "اعتماد مسير الرواتب", labelEn: "Approve payroll run", category: "hr_payroll" },
+  { code: "HR_PAYROLL_APPROVE", labelAr: "اعتماد مسير الرواتب", labelEn: "Approve payroll run", category: "hr_payroll", enforced: false },
 
   // HR / Leave (9 granular leave-type gates)
   { code: "HR_LEAVE_APPROVE_ALL", labelAr: "الموافقة على طلب الإجازة (كل الأنواع)", labelEn: "Approve leave request (all types)", category: "hr_leave" },
@@ -73,7 +73,7 @@ export const GATEABLE_ACTION_TYPES = [
   { code: "HR_LEAVE_APPROVE_EMERGENCY", labelAr: "الموافقة على إجازة طارئة", labelEn: "Approve emergency leave", category: "hr_leave" },
 
   // Manufacturing (1)
-  { code: "MANUFACTURING_WORK_ORDER_START", labelAr: "بدء أمر التصنيع", labelEn: "Start work order", category: "manufacturing" },
+  { code: "MANUFACTURING_WORK_ORDER_START", labelAr: "بدء أمر التصنيع", labelEn: "Start work order", category: "manufacturing", enforced: false },
 ] as const satisfies readonly GateableActionTypeDef[];
 
 /** Union of the 26 gateable action-type codes. */

@@ -6,14 +6,22 @@ import {
   DuplicateTaxCodeError,
   InvalidTaxRateError,
   TaxRateNotFoundError,
+  TaxRateInUseError,
+  TaxRateOnCustomerCardsError,
+  SystemTaxRateLockedError,
+  ReservedTaxRateError,
+  isSystemTaxRate,
   AuditChangeAction,
   type AuditSink,
   type TaxRate,
   type TaxRateRepository,
+  type TaxRateUsage,
 } from "@mezan/domain";
 import { createTaxRateSchema, updateTaxRateSchema } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { recordFieldChanges } from "./admin-audit.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 const AUDITED_TAX_RATE_FIELDS = [
   "code",
@@ -39,10 +47,12 @@ function serialize(taxRate: TaxRate) {
     inputTaxAccountId: taxRate.inputTaxAccountId,
     etaSubType: taxRate.etaSubType,
     status: taxRate.status,
+    isSystem: isSystemTaxRate(taxRate.id),
   };
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
@@ -50,7 +60,10 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof TaxRateNotFoundError) {
     return refuse(err, 404);
   }
-  if (err instanceof DuplicateTaxCodeError) {
+  if (err instanceof TaxRateOnCustomerCardsError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, customerCount: err.customerCount }, 409);
+  }
+  if (err instanceof DuplicateTaxCodeError || err instanceof TaxRateInUseError || err instanceof SystemTaxRateLockedError || err instanceof ReservedTaxRateError) {
     return refuse(err, 409);
   }
   if (err instanceof InvalidTaxRateError) {
@@ -67,10 +80,17 @@ function handleDomainError(c: Context, err: unknown) {
 export function createTaxRatesRoutes(
   repo: TaxRateRepository,
   resolveAuthContext: AuthContextResolver,
+  usage: TaxRateUsage,
   audit?: AuditSink,
+  vatPolicy?: () => Promise<{ readonly enabled: boolean }> | { readonly enabled: boolean },
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  // ORDER MATTERS: registered before `/:id`, which would otherwise read `policy` as an id.
+  app.get("/policy", gate("accounting.tax.view"), async (c) => {
+    return c.json({ vatEnabled: vatPolicy ? (await vatPolicy()).enabled : true });
+  });
 
   app.get("/", gate("accounting.tax.view"), async (c) => {
     const taxRates = await repo.list();
@@ -110,14 +130,14 @@ export function createTaxRatesRoutes(
     }
     try {
       const before = await repo.findById(c.req.param("id"));
-      const taxRate = await updateTaxRate(c.req.param("id"), parsed.data, repo);
+      const taxRate = await updateTaxRate(c.req.param("id"), parsed.data, repo, usage);
       await recordFieldChanges(audit, c, {
         entity: { module: "accounting", entityType: "TAX_RATE", entityId: taxRate.id },
         action: AuditChangeAction.Update,
         before: before ? serialize(before) : null,
         after: serialize(taxRate),
         fields: AUDITED_TAX_RATE_FIELDS,
-        warnOn: ["rate", "calculationType", "isDefault", "outputTaxAccountId", "inputTaxAccountId", "status"],
+        warnOn: ["rate", "calculationType", "isDefault", "outputTaxAccountId", "inputTaxAccountId", "etaSubType", "status"],
       });
       return c.json(serialize(taxRate));
     } catch (err) {

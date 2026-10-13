@@ -130,6 +130,8 @@ export const importBankStatementSchema = z.object({
   openingBalance: moneyString,
   closingBalance: z.string(),
   statementNumber: z.string().nullish(),
+  /** The branch a statement on a company-level account is for; required of a user who holds several branches. */
+  branchId: z.string().min(1).nullish(),
   /** An Excel statement is converted to CSV text in the browser; this records the file it came from. */
   source: z.enum([StatementSourceCode.Csv, StatementSourceCode.Excel]).optional(),
 });
@@ -145,6 +147,7 @@ export const importStatementFileSchema = z.object({
   openingBalance: moneyString.nullish(),
   closingBalance: moneyString.nullish(),
   statementNumber: z.string().nullish(),
+  branchId: z.string().min(1).nullish(),
 });
 
 export const matchManyEntriesSchema = z.object({
@@ -157,6 +160,8 @@ export const createEntryFromLineSchema = z.object({
   ruleId: z.string().min(1).nullish(),
   memo: z.string().max(500).nullish(),
   date: isoDate.nullish(),
+  /** The branch a charge on a company-level statement is booked to; unattributed when omitted. */
+  branchId: z.string().min(1).nullish(),
 });
 
 export const finalizeStatementSchema = z.object({

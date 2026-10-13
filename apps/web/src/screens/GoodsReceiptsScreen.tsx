@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -18,7 +19,7 @@ import {
   Qty as QtyDisplay,
 } from "@mezan/ui";
 import { GoodsReceiptInvoicingStatusDTO, type CostCategoryDTO, type GoodsReceiptDTO, type GoodsReceiptStatusDTO, type PurchaseOrderDTO } from "@mezan/contracts";
-import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, useProjects, usePurchaseOrders, useSettings, useSuppliers,
+import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, useProjects, usePurchaseOrders, useTenantSettings, useSuppliers,
   useUsers,
   useBranches,
   useWarehouses,
@@ -120,6 +121,7 @@ function ReceiptDetail({
   receipt,
   order,
   supplierName,
+  warehouseName,
   itemName,
   projectName,
   onBack,
@@ -129,6 +131,7 @@ function ReceiptDetail({
   receipt: GoodsReceiptDTO;
   order: { number: string } | undefined;
   supplierName: (id: string) => string;
+  warehouseName: (id: string) => string;
   itemName: (id: string) => string;
   projectName: (id: string | null) => string;
   onBack: () => void;
@@ -156,7 +159,7 @@ function ReceiptDetail({
         { label: t("common.supplier"), value: supplierName(receipt.supplierId) },
         { label: t("goodsReceipts.detail.order"), value: order?.number ?? receipt.purchaseOrderId },
         { label: t("common.date"), value: receipt.date.split("-").reverse().join("/") },
-        { label: t("common.warehouse"), value: receipt.warehouseId },
+        { label: t("common.warehouse"), value: warehouseName(receipt.warehouseId) },
         { label: t("common.project"), value: projectName(receipt.projectId) },
         { label: t("goodsReceipts.detail.totalCost"), value: <MoneyValue value={num(receipt.totalCost)} /> },
         { label: t("goodsReceipts.detail.invoiceStatus"), value: t(INVOICING_KEY[receipt.invoicingStatus]), valueTone: receipt.invoiced ? "success" : undefined },
@@ -320,7 +323,7 @@ export function GoodsReceiptsScreen() {
    * form offers only what the tenant allows instead of letting the user fill a
    * whole receipt the server will then reject.
    */
-  const settingsQuery = useSettings();
+  const settingsQuery = useTenantSettings();
   const requirePoForGrn = settingsQuery.data?.requirePoForGrn ?? true;
   const policyKnown = settingsQuery.data !== undefined;
 
@@ -416,6 +419,7 @@ export function GoodsReceiptsScreen() {
       await confirmReceipt.mutateAsync(id);
     } catch {
       // failure surfaces via the mutation's own error state on retry; nothing further to do here.
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -708,6 +712,7 @@ export function GoodsReceiptsScreen() {
           receipt={selected}
           order={selected.purchaseOrderId ? orderById.get(selected.purchaseOrderId) : undefined}
           supplierName={supplierName}
+          warehouseName={(id) => filterWarehouses.find((warehouse) => warehouse.id === id)?.name ?? id}
           itemName={itemName}
           projectName={projectName}
           onBack={() => subPage.close()}
@@ -788,7 +793,7 @@ export function GoodsReceiptsScreen() {
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(r.number ?? r.id) },
             { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(r.number ?? r.id, "print") },
             ...(r.status === "draft"
-              ? [{ key: "confirm", label: t("goodsReceipts.confirm"), onSelect: () => void confirmSelected(r.id) }]
+              ? [{ key: "confirm", label: t("goodsReceipts.confirm"), onSelect: () => confirmSelected(r.id) }]
               : []),
             ...(r.status === "confirmed" && !r.invoiced
               ? [

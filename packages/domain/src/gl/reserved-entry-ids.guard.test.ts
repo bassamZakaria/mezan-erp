@@ -4,7 +4,7 @@ import type { Account } from "../accounts/account.js";
 import { InMemoryAccountRepository } from "../accounts/test-helpers/in-memory-account-repository.js";
 import { InMemoryFiscalPeriodRepository } from "../fiscal-periods/test-helpers/in-memory-fiscal-period-repository.js";
 import { NextNumberService } from "../numbering/index.js";
-import { DuplicateJournalEntryError } from "./errors.js";
+import { DuplicateRecordIdError } from "../records/duplicate-record-id.js";
 import { createJournalEntry, postJournalEntry, type CreateJournalEntryCommand, type JournalPostingDeps } from "./post.js";
 import { reverseJournalEntry } from "./reverse.js";
 import { ReservedJournalEntryIdError } from "./reserved-entry-ids.js";
@@ -65,11 +65,11 @@ describe("a caller that reaches the journal without the wire contract is still r
 });
 
 describe("a reversal whose id is already an entry is a named refusal, not a storage failure", () => {
-  it("reverseJournalEntry answers DuplicateJournalEntryError and leaves the original posted", async () => {
+  it("reverseJournalEntry answers the duplicate-id refusal and leaves the original posted", async () => {
     const { deps, ledger } = await books();
     await postJournalEntry(entry("je-1"), deps);
     await postJournalEntry(entry("je-2"), deps);
-    await expect(reverseJournalEntry("je-1", deps, { reversalId: "je-2" })).rejects.toBeInstanceOf(DuplicateJournalEntryError);
+    await expect(reverseJournalEntry("je-1", deps, { reversalId: "je-2" })).rejects.toBeInstanceOf(DuplicateRecordIdError);
     expect((await ledger.findById("je-1"))?.status).toBe("posted");
     expect((await ledger.findById("je-2"))?.reversesEntryId ?? null).toBeNull();
   });

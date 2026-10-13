@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   Chip,
@@ -323,6 +324,7 @@ export function JournalsScreen() {
       await reverseJournalEntry.mutateAsync({ id: doc.id, body: { date } });
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -370,6 +372,7 @@ export function JournalsScreen() {
       if (selectedId) subPage.close();
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -691,7 +694,7 @@ export function JournalsScreen() {
             // since embedding a live date field in the row menu's frozen
             // `pending` snapshot would not stay editable.
             ...(d.status === "posted" && d.reversibleFromJournal !== false
-              ? [{ key: "reverse", label: t("journals.reverseEntry"), tone: "danger" as const, disabled: pendingId === d.id, onSelect: () => void reverseEntry(d, todayIso()) }]
+              ? [{ key: "reverse", label: t("journals.reverseEntry"), tone: "danger" as const, disabled: pendingId === d.id, onSelect: () => reverseEntry(d, todayIso()) }]
               : []),
             ...(d.status === "draft"
               ? [

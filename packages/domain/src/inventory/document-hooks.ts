@@ -14,7 +14,13 @@
  * document) cannot know it ahead of posting).
  */
 
-import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import {
+  branchOfPostingWarehouse,
+  postJournalEntry,
+  reverseJournalEntry,
+  type JournalPostingDeps,
+  type WarehouseBranchLookup,
+} from "../gl/index.js";
 import { mirrorStockPlan } from "../documents/hooks.js";
 import type { DocumentStockHook, DocumentStockPlan, DocumentStockResult } from "../documents/hooks.js";
 import type { InventoryGlPosting, InventoryGlPostingPort } from "./ports.js";
@@ -114,9 +120,13 @@ export function createInventoryOpsStockHook(
  * directly via `GET /gl/journal-entries/:adjustmentId` with no extra linkage
  * to persist.
  */
-export function createInventoryGlPostingHook(deps: JournalPostingDeps): InventoryGlPostingPort {
+export function createInventoryGlPostingHook(
+  deps: JournalPostingDeps,
+  warehouses?: WarehouseBranchLookup,
+): InventoryGlPostingPort {
   return {
     async post(posting: InventoryGlPosting): Promise<void> {
+      const branchId = await branchOfPostingWarehouse(warehouses, posting.warehouseId);
       await postJournalEntry(
         {
           id: posting.sourceDocId,
@@ -132,6 +142,7 @@ export function createInventoryGlPostingHook(deps: JournalPostingDeps): Inventor
             credit: l.credit,
             projectId: l.projectId ?? null,
             costCategory: l.costCategory ?? null,
+            branchId,
           })),
         },
         deps,

@@ -12,7 +12,6 @@ import {
   PeriodNotOpenForPostingError,
   ProjectNotFoundError,
   Qty,
-  VatPeriodAlreadyFiledError,
   SameWarehouseTransferError,
   SiteDocumentNotFoundError,
   SiteDocumentStatusError,
@@ -39,6 +38,8 @@ import {
   returnCustodySchema,
 } from "@mezan/contracts";
 import { callerUserId, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { duplicateIdRefusal } from "./duplicate-id.js";
+import { DuplicateRecordIdError } from "@mezan/domain";
 
 /**
  * مستودعات المواقع والصرف والاستهلاك — slice 4A's routes, mounted under
@@ -169,6 +170,7 @@ function serializeEquipmentHours(row: EquipmentHoursRow) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
   const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof SiteDocumentStatusError && err.messageEn) {
@@ -201,9 +203,6 @@ function handleDomainError(c: Context, err: unknown) {
   // A closed month is a refusal the storekeeper has to read, never a 500.
   if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
     return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
-  }
-  if (err instanceof VatPeriodAlreadyFiledError) {
-    return c.json({ error: "VAT_PERIOD_FILED", message: err.message }, 409);
   }
   throw err;
 }

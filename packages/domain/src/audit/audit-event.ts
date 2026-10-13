@@ -34,7 +34,11 @@ export type AuditSeverity = `${AuditSeverityCode}`;
  * The two audit streams from the catalog: security events (أحداث الأمان) and
  * sensitive operations (العمليات الحساسة). Each has its own tab/count in the UI.
  */
-export const AUDIT_STREAMS = ["security", "sensitive"] as const;
+export enum AuditStreamName {
+  Security = "security",
+  Sensitive = "sensitive",
+}
+export const AUDIT_STREAMS = ["security", "sensitive"] as const satisfies readonly `${AuditStreamName}`[];
 export type AuditStream = (typeof AUDIT_STREAMS)[number];
 
 /**
@@ -95,6 +99,76 @@ export interface AuditSink {
    */
   appendSync?(event: AuditEvent): void;
   query(stream: AuditStream, limit?: number): Promise<readonly AuditEvent[]>;
+  atomic?<T>(fn: () => Promise<T>): Promise<T>;
+  insideTransaction?(): boolean;
+  settled?(): Promise<void>;
+  turn?<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T>;
+  outsideTurn?<T>(fn: () => Promise<T>): Promise<T>;
+  unrecorded?: SecurityEventFallback;
+}
+
+export interface UnrecordedSecurityEvent {
+  readonly at: string;
+  readonly module: string;
+  readonly action: string;
+  readonly severity: string;
+  readonly actor: string;
+  readonly entityId: string | null;
+  readonly details: Record<string, unknown> | null;
+  readonly reason: string;
+}
+
+export interface UnrecordedSecurityEvents {
+  readonly count: number;
+  readonly recent: readonly UnrecordedSecurityEvent[];
+  readonly dropped: number;
+  readonly corrupted: number;
+}
+
+export interface SecurityEventFallback {
+  record(entry: UnrecordedSecurityEvent): void;
+  summary(limit?: number): UnrecordedSecurityEvents;
+}
+
+export class AuditRecordingError extends Error {
+  constructor(cause: unknown) {
+    super("the audit log could not record this action", { cause });
+    this.name = "AuditRecordingError";
+  }
+}
+
+export class ForeignWriteError extends Error {
+  constructor(readonly statement: string) {
+    super(`a write was issued inside another operation's open transaction and was refused: ${statement}`);
+    this.name = "ForeignWriteError";
+  }
+}
+
+export interface LostTurnOutcome {
+  readonly completed?: { readonly value: unknown };
+  readonly cause?: unknown;
+}
+
+// REQUIRED: whoever catches this must rethrow it. The holder no longer has the
+// connection's turn, so it must stop having written nothing since — a handler
+// that reads it as an ordinary failure and records one writes without the turn,
+// and one that retries the outside call repeats an effect that already happened.
+export class ConnectionTurnLostError extends Error {
+  readonly completed?: { readonly value: unknown };
+
+  constructor(waitedMs: number, outcome: LostTurnOutcome = {}) {
+    super(`the connection's turn was not taken again within ${waitedMs}ms`, outcome.cause === undefined ? undefined : { cause: outcome.cause });
+    this.name = "ConnectionTurnLostError";
+    this.completed = outcome.completed;
+  }
+}
+
+export interface TurnObserver {
+  onYield?(): void;
+  onSuspend?(): void;
+  onResume?(): void;
+  readonly retakeTimeoutMs?: number;
+  readonly completedRetakeTimeoutMs?: number;
 }
 
 /**

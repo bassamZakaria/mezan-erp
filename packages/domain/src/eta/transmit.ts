@@ -21,6 +21,7 @@
  * unconfigured install refuses with {@link EtaOfflineError} and leaves the
  * document queued, exactly as the offline queue always did.
  */
+import { ConnectionTurnLostError } from "../audit/audit-event.js";
 import { EtaOfflineError } from "./errors.js";
 import { resolveEtaEndpoints, type EtaConfig } from "./config.js";
 import { ETA_RECEIPT_BATCH_MAX, serializeEtaReceiptSubmission } from "./receipt.js";
@@ -163,6 +164,14 @@ function flattenErrorEntries(
 }
 
 
+// REQUIRED at the top of every catch in this file: each call here is made with
+// the connection's turn handed back, and a caller that lost the turn must stop.
+// Read as a transport failure it would be recorded without the turn; retried,
+// a document the authority already has would be sent again.
+function stopOnLostTurn(err: unknown): void {
+  if (err instanceof ConnectionTurnLostError) throw err;
+}
+
 /** Retry only what a retry can fix: a transport failure, a rate limit, or the authority's own 5xx. */
 function retryable(status: number | null): boolean {
   if (status === null) return true;
@@ -195,6 +204,7 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
         });
         if (!retryable(response.status) || attempt === retry.attempts) return response;
       } catch (err) {
+        stopOnLostTurn(err);
         lastError = err;
         log.push({
           at: now(),
@@ -342,6 +352,7 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
       try {
         accessToken = await posToken(credentials, config, log);
       } catch (err) {
+        stopOnLostTurn(err);
         // Unreachable is offline, not rejected: the batch stays queued for the
         // next run instead of turning into an error. A real rejection from the
         // identity server (wrong device credentials) is not offline — every
@@ -366,7 +377,8 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
           log,
           body.slice(0, 8000),
         );
-      } catch {
+      } catch (err) {
+        stopOnLostTurn(err);
         throw new EtaOfflineError();
       }
       if (response.status !== 401) break;
@@ -471,6 +483,7 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
         await token(config, log);
         return { ok: true, reason: "connected", detail: null, identityUrl, checkedAt: now() };
       } catch (err) {
+        stopOnLostTurn(err);
         if (err instanceof EtaOfflineError) {
           return {
             ok: false,
@@ -500,6 +513,7 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
       try {
         accessToken = await token(config, log);
       } catch (err) {
+        stopOnLostTurn(err);
         if (err instanceof EtaOfflineError) throw err;
         return { ok: false, errors: [err instanceof Error ? err.message : String(err)], log };
       }
@@ -518,6 +532,7 @@ export function createEtaHttpTransmitPort(deps: EtaHttpTransmitDeps): EtaTransmi
           body.slice(0, 8000),
         );
       } catch (err) {
+        stopOnLostTurn(err);
         return { ok: false, errors: [err instanceof Error ? err.message : String(err)], log };
       }
 

@@ -56,6 +56,10 @@ export type {
 
 // audit/ — append-only audit trail (security + sensitive streams)
 export {
+  AuditRecordingError,
+  AuditStreamName,
+  ConnectionTurnLostError,
+  ForeignWriteError,
   AUDIT_SEVERITIES,
   AuditSeverityCode,
   AUDIT_STREAMS,
@@ -64,13 +68,19 @@ export {
   recordSensitiveEvent,
   auditBranchFromScope,
   branchScopedAuditSink,
+  createMemorySecurityEventFallback,
+  recordSecurityEventOrFallback,
+  withoutSecrets,
+  UNRECORDED_RECENT_LIMIT,
 } from "./audit/index.js";
+export type { SecurityEventFallback, UnrecordedSecurityEvent, UnrecordedSecurityEvents } from "./audit/index.js";
 export type {
   AuditSeverity,
   AuditStream,
   AuditEvent,
   AuditEventInput,
   AuditSink,
+  TurnObserver,
   AuditQueryFilter,
   AuditQueryResult,
   AuditQueryPort,

@@ -1,0 +1,9 @@
+{
+  "documentedAt": null,
+  "note": "NOT in Paymob's public docs, which document no answer for an order without a transaction. This is the framework's own not-found body, kept as the one recognised shape until the sandbox contract test confirms or replaces it.",
+  "status": 404,
+  "body": {
+    "detail": "Not found."
+  },
+  "expect": "none"
+}

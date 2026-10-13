@@ -13,6 +13,7 @@ import {
 } from "@mezan/domain";
 import { BRANCH_REFUSALS, BranchRecordKind, BranchRefusalCode, grantedWarehouseIdsOf, referencesNamedIn, type BranchRefusalBody } from "./branch-policy.js";
 import { moduleRefusal, readOnlyModuleOutcome } from "./module-gate.js";
+import { SESSION_ENDED_HEADER, SessionEnded, sessionWasDisplaced } from "./session-ended.js";
 
 /** Resolves the calling {@link AuthContext} for one request. */
 export type AuthContextResolver = (c: Context) => AuthContext | Promise<AuthContext>;
@@ -168,7 +169,18 @@ export function moduleRefusalFor(c: Context, permission: string): Response | nul
  * signed in and this particular thing is not yours". A screen that guesses
  * shows an empty list instead, which reads as data.
  */
-function unauthenticated(c: Parameters<MiddlewareHandler>[0]) {
+export function displacedSessionRefusal(c: Parameters<MiddlewareHandler>[0]): Response | null {
+  if (!sessionWasDisplaced(c)) return null;
+  c.header(SESSION_ENDED_HEADER, SessionEnded.Displaced);
+  return c.json(
+    { error: "SESSION_DISPLACED", message: "سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة." },
+    401,
+  );
+}
+
+export function unauthenticated(c: Parameters<MiddlewareHandler>[0]) {
+  const displaced = displacedSessionRefusal(c);
+  if (displaced) return displaced;
   return c.json(
     { error: "SESSION_EXPIRED", message: "انتهت الجلسة. سجّل الدخول من جديد." },
     401,

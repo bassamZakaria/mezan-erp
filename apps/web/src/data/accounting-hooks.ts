@@ -12,7 +12,8 @@ import type {
   FxRevaluationRequestDTO,
   ReconciliationReportDTO,
 } from "@mezan/contracts";
-import { ApiError, readError } from "./hooks";
+import { ScreenRequest } from "@mezan/domain";
+import { ApiError, readError, useMayAskScreen } from "./hooks";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
@@ -28,10 +29,11 @@ async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Pr
 
 export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.ExchangeRates);
   return useQuery<ExchangeRateDTO[], ApiError>({
     queryKey: ["exchange-rates"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/exchange-rates");
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("fxRates.exchangeRatesCouldNotBe"), t));

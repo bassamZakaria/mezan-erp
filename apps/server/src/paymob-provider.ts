@@ -4,13 +4,17 @@ import {
   moneyToPaymobCents,
   parsePaymobTransaction,
   paymobTransactionHmacMessage,
+  ProviderInquiryStatus,
   type CardCheckout,
   type CheckoutRequest,
   type CheckoutSession,
   type PaymentProvider,
+  type ProviderInquiry,
+  type ProviderInquiryRequest,
   type PaymobTransactionObject,
   type VerifiedProviderTransaction,
 } from "@mezan/domain";
+import { readPaymobInquiryAnswer, readPaymobTransaction } from "./paymob-inquiry.js";
 
 export interface PaymobLiveConfig {
   readonly baseUrl: string;
@@ -18,6 +22,8 @@ export interface PaymobLiveConfig {
   readonly publicKey: string;
   readonly hmacSecret: string;
   readonly integrationIds: readonly number[];
+  readonly apiKey?: string;
+  readonly notFoundShapeConfirmed?: boolean;
 }
 
 export class PaymentProviderError extends Error {
@@ -26,6 +32,66 @@ export class PaymentProviderError extends Error {
     super(`Paymob intention request failed${status === null ? "" : ` (HTTP ${status})`}: ${detail}`);
     this.name = "PaymentProviderError";
   }
+}
+
+const REQUEST_TIMEOUT_MS = 15_000;
+const AUTH_TOKEN_TTL_MS = 50 * 60_000;
+
+function unavailable(reason: string): ProviderInquiry {
+  return { status: ProviderInquiryStatus.Unavailable, reason };
+}
+
+interface PaymobInquiryClient {
+  inquire(request: ProviderInquiryRequest): Promise<ProviderInquiry>;
+}
+
+function createPaymobInquiryClient(config: PaymobLiveConfig, base: string, fetchImpl: typeof fetch, now: () => number): PaymobInquiryClient {
+  let cached: { readonly token: string; readonly expiresAt: number } | null = null;
+
+  async function authToken(apiKey: string): Promise<string | null> {
+    if (cached && cached.expiresAt > now()) return cached.token;
+    const response = await fetchImpl(`${base}/api/auth/tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ api_key: apiKey }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json().catch(() => null)) as { token?: unknown } | null;
+    if (typeof body?.token !== "string" || body.token === "") return null;
+    cached = { token: body.token, expiresAt: now() + AUTH_TOKEN_TTL_MS };
+    return cached.token;
+  }
+
+  function ask(token: string, request: ProviderInquiryRequest): Promise<Response> {
+    return fetchImpl(`${base}/api/ecommerce/orders/transaction_inquiry`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ auth_token: token, order_id: request.providerOrderRef }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  }
+
+  async function inquire(request: ProviderInquiryRequest): Promise<ProviderInquiry> {
+    if (!config.apiKey) return unavailable("MEZAN_PAYMOB_API_KEY is not set");
+    try {
+      let token = await authToken(config.apiKey);
+      if (!token) return unavailable("Paymob refused the API key");
+      let response = await ask(token, request);
+      if (response.status === 401) {
+        cached = null;
+        token = await authToken(config.apiKey);
+        if (!token) return unavailable("Paymob refused the API key");
+        response = await ask(token, request);
+      }
+      const body: unknown = await response.json().catch(() => undefined);
+      return readPaymobInquiryAnswer(response.status, body, config.integrationIds, request, { notFoundShapeConfirmed: config.notFoundShapeConfirmed === true });
+    } catch (err) {
+      return unavailable(err instanceof Error ? err.name : "network error");
+    }
+  }
+
+  return { inquire };
 }
 
 const HEX_SHA512 = /^[0-9a-f]{128}$/;
@@ -76,8 +142,13 @@ function centsOf(request: CheckoutRequest): number {
   return cents;
 }
 
-export function createPaymobProvider(config: PaymobLiveConfig, fetchImpl: typeof fetch = fetch): PaymentProvider {
+export function createPaymobProvider(
+  config: PaymobLiveConfig,
+  fetchImpl: typeof fetch = fetch,
+  now: () => number = Date.now,
+): PaymentProvider {
   const base = config.baseUrl.replace(/\/+$/, "");
+  const inquiry = createPaymobInquiryClient(config, base, fetchImpl, now);
   return {
     id: "paymob",
     testMode: false,
@@ -112,7 +183,7 @@ export function createPaymobProvider(config: PaymobLiveConfig, fetchImpl: typeof
             redirection_url: request.returnUrl,
             extras: { tenant_id: request.tenantId, subscription_id: request.subscriptionId, checkout_id: request.checkoutId },
           }),
-          signal: AbortSignal.timeout(15_000),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
       } catch (err) {
         throw new PaymentProviderError(null, err instanceof Error ? err.name : "network error");
@@ -133,6 +204,7 @@ export function createPaymobProvider(config: PaymobLiveConfig, fetchImpl: typeof
     async verifyWebhook(rawBody, signature) {
       return verifyPaymobCallback(config.hmacSecret, config.integrationIds, rawBody, signature);
     },
+    inquireTransaction: (request) => inquiry.inquire(request),
   };
 }
 
@@ -154,6 +226,7 @@ export function createPaymobTestProvider(): PaymobTestProvider {
   const hmacSecret = randomBytes(32).toString("hex");
   let nextTransaction = randomInt(100_000_000, 900_000_000);
   const returnUrls = new Map<string, string>();
+  const latestByOrder = new Map<string, PaymobTransactionObject>();
   return {
     id: "paymob-test",
     testMode: true,
@@ -167,6 +240,11 @@ export function createPaymobTestProvider(): PaymobTestProvider {
     },
     async verifyWebhook(rawBody, signature) {
       return verifyPaymobCallback(hmacSecret, [TEST_INTEGRATION_ID], rawBody, signature);
+    },
+    async inquireTransaction(request) {
+      const latest = latestByOrder.get(request.providerOrderRef);
+      if (!latest) return { status: ProviderInquiryStatus.None };
+      return readPaymobTransaction(latest, [TEST_INTEGRATION_ID], request);
     },
     returnUrlFor(checkoutId) {
       return returnUrls.get(checkoutId) ?? null;
@@ -195,6 +273,7 @@ export function createPaymobTestProvider(): PaymobTestProvider {
         owner: 1,
         source_data: { pan: success ? "2346" : "0002", type: "card", sub_type: "MasterCard" },
       };
+      latestByOrder.set(checkout.providerOrderRef, obj);
       return { rawBody: JSON.stringify({ type: "TRANSACTION", obj }), signature: paymobSignature(hmacSecret, obj) };
     },
   };

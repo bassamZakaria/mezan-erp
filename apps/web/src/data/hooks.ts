@@ -424,7 +424,7 @@ export function useLogin() {
     mutationFn: async (body) => {
       const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number };
+        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number; unlockByCode?: boolean };
         const err = await res.json<LoginError>().catch((): LoginError => ({}));
         const message =
           err.error === "TENANT_REQUIRED"
@@ -432,11 +432,46 @@ export function useLogin() {
             : err.error === "TENANT_NOT_FOUND"
               ? t("login.tenantNotFound")
               : (err.message ?? t("api.signInFailed"));
-        throw new ApiError(res.status, message, undefined, err.retryAfterSeconds, err.error);
+        if (err.error === SignInRefusalCode.AccountLocked) throw new AccountLockedError(res.status, message, err.unlockByCode === true);
+        throw new ApiError(res.status, message, undefined, err.retryAfterSeconds ?? res.retryAfterSeconds ?? undefined, err.error);
       }
       return res.json<SessionDTO>();
     },
     onSuccess: (session) => setSession(session),
+  });
+}
+
+export enum SignInRefusalCode {
+  AccountLocked = "ACCOUNT_LOCKED",
+  TooManyAttempts = "TOO_MANY_ATTEMPTS",
+}
+
+export class AccountLockedError extends ApiError {
+  constructor(status: number, message: string, readonly unlockByCode: boolean) {
+    super(status, message, undefined, undefined, SignInRefusalCode.AccountLocked);
+    this.name = "AccountLockedError";
+  }
+}
+
+export function useUnlockAccount() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<void, ApiError, { username: string; code: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/auth/unlock", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
+    },
+  });
+}
+
+export function useUnlockAccountByLink() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<void, ApiError, { token: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/auth/unlock-link", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
+    },
   });
 }
 
@@ -675,6 +710,16 @@ export async function readError(
   const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
   if (body.message !== undefined && body.message !== "") return body.message;
   return withSupportCode(fallback, res.status, t);
+}
+
+export async function codedError(
+  res: { readonly status: number; json<T>(): Promise<T> },
+  fallback: string,
+  t?: AppTranslate,
+): Promise<ApiError> {
+  const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
+  const message = body.message !== undefined && body.message !== "" ? body.message : withSupportCode(fallback, res.status, t);
+  return new ApiError(res.status, message, undefined, undefined, body.error);
 }
 
 /** `t`, narrowed to what {@link readError} needs, so data files need no i18n types of their own. */
@@ -1051,10 +1096,11 @@ function supplierParams(filter: SupplierListFilter): URLSearchParams {
 
 export function useSuppliers(filter: SupplierListFilter = {}): UseQueryResult<SupplierDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Suppliers);
   return useQuery<SupplierDTO[], ApiError>({
     queryKey: ["suppliers", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = supplierParams(filter).toString();
       const res = await request(`/suppliers${qs ? `?${qs}` : ""}`);
@@ -1230,10 +1276,11 @@ export function useUpdateTreasuryAccount() {
 /** قوائم الأسعار (docs/archive/catalog/01) — real list off `/price-lists`. */
 export function usePriceLists(): UseQueryResult<PriceListDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.PriceLists);
   return useQuery<PriceListDTO[], ApiError>({
     queryKey: ["price-lists"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/price-lists");
       if (!res.ok) throw await loaderError(res, t("api.priceListsCouldNotBe"), t);
@@ -1335,10 +1382,11 @@ function salesQuoteParams(filter: SalesQuoteListFilter): URLSearchParams {
 /** عروض الأسعار / sales quotes (docs/archive/catalog/01) — real list off `/sales-quotes`. */
 export function useSalesQuotes(filter: SalesQuoteListFilter = {}): UseQueryResult<SalesQuoteRecord[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.SalesQuotes);
   return useQuery<SalesQuoteRecord[], ApiError>({
     queryKey: ["sales-quotes", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = salesQuoteParams(filter).toString();
       const res = await request(`/sales-quotes${qs ? `?${qs}` : ""}`);
@@ -1623,7 +1671,7 @@ export function useCreateJournalEntry() {
   return useMutation<JournalEntryDTO, ApiError, CreateGlJournalEntryDTO>({
     mutationFn: async (body) => {
       const res = await request("/gl/journal-entries", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theEntryCouldNotBe"), t);
       return res.json<JournalEntryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
@@ -2252,10 +2300,11 @@ function chequeParams(filters: ChequeListFilters): URLSearchParams {
  */
 export function useCheques(filters: ChequeListFilters = {}): UseQueryResult<ChequeDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Cheques);
   return useQuery<ChequeDTO[], ApiError>({
     queryKey: ["cheques", filters],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = chequeParams(filters).toString();
       const res = await request(`/cheques${qs ? `?${qs}` : ""}`);
@@ -2305,7 +2354,7 @@ export function useCreateCheque() {
   return useMutation<ChequeDTO, ApiError, CreateChequeDTO>({
     mutationFn: async (body) => {
       const res = await request("/cheques", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChequeCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theChequeCouldNotBe"), t);
       return res.json<ChequeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
@@ -2706,7 +2755,7 @@ export function useCreateVoucher() {
   return useMutation<VoucherDTO, ApiError, CreateVoucherDTO>({
     mutationFn: async (body) => {
       const res = await request("/vouchers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2"), t));
+      if (!res.ok) throw await codedError(res, t("api.theVoucherCouldNotBe2"), t);
       return res.json<VoucherDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2720,7 +2769,7 @@ export function useCreateCollection() {
   return useMutation<CollectionResultDTO, ApiError, CreateCollectionDTO>({
     mutationFn: async (body) => {
       const res = await request("/vouchers/collections", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2"), t));
+      if (!res.ok) throw await codedError(res, t("api.theVoucherCouldNotBe2"), t);
       return res.json<CollectionResultDTO>();
     },
     onSuccess: () => {
@@ -2781,7 +2830,7 @@ export function useCreateAllocation() {
   return useMutation<VoucherAllocationDTO, ApiError, { voucherId: string; body: CreateAllocationDTO }>({
     mutationFn: async ({ voucherId, body }) => {
       const res = await request(`/vouchers/${voucherId}/allocations`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAmountCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theAmountCouldNotBe"), t);
       return res.json<VoucherAllocationDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2850,10 +2899,11 @@ function purchaseOrderParams(filter: PurchaseOrderListFilter): URLSearchParams {
 /** أوامر الشراء (docs/archive/catalog/02) — list, create, confirm (draft → sent). */
 export function usePurchaseOrders(filter: PurchaseOrderListFilter = {}): UseQueryResult<PurchaseOrderDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.PurchaseOrders);
   return useQuery<PurchaseOrderDTO[], ApiError>({
     queryKey: ["purchase-orders", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = purchaseOrderParams(filter).toString();
       const res = await request(`/purchases/orders${qs ? `?${qs}` : ""}`);
@@ -2956,10 +3006,11 @@ function goodsReceiptParams(filter: GoodsReceiptListFilter): URLSearchParams {
 /** إيصالات الاستلام (docs/archive/catalog/02) — list, create (from a sent/partially-received PO), confirm. */
 export function useGoodsReceipts(filter: GoodsReceiptListFilter = {}): UseQueryResult<GoodsReceiptDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.GoodsReceipts);
   return useQuery<GoodsReceiptDTO[], ApiError>({
     queryKey: ["goods-receipts", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = goodsReceiptParams(filter).toString();
       const res = await request(`/purchases/receipts${qs ? `?${qs}` : ""}`);
@@ -3111,7 +3162,7 @@ export function useCreatePurchaseInvoice() {
   return useMutation<PurchaseInvoiceDTO, ApiError, CreatePurchaseInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchases/invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseInvoiceCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.thePurchaseInvoiceCouldNot"), t);
       return res.json<PurchaseInvoiceDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] }),
@@ -3252,7 +3303,7 @@ export function useCreateSalesInvoice() {
   return useMutation<SalesInvoiceDTO, ApiError, CreateSalesInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theInvoiceCouldNotBe"), t);
       return res.json<SalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
@@ -3780,10 +3831,11 @@ function assetParams(filter: AssetListFilter): URLSearchParams {
 
 export function useAssets(filter: AssetListFilter = {}): UseQueryResult<AssetDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Assets);
   return useQuery<AssetDTO[], ApiError>({
     queryKey: ["assets", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = assetParams(filter).toString();
       const res = await request(`/assets${qs ? `?${qs}` : ""}`);
@@ -4008,10 +4060,11 @@ export function usePostWritedownRun() {
 
 export function useProductTemplates(): UseQueryResult<ProductTemplateDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.ProductTemplates);
   return useQuery<ProductTemplateDTO[], ApiError>({
     queryKey: ["product-templates"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/inventory/product-templates");
       if (!res.ok) throw await loaderError(res, t("api.productTemplatesCouldNotBe"), t);
@@ -4227,10 +4280,11 @@ export interface BomRecord {
 /** قوائم المواد (docs/archive/catalog/07) — the manufacturing recipe a work order is built from. */
 export function useBoms(): UseQueryResult<BomRecord[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Boms);
   return useQuery<BomRecord[], ApiError>({
     queryKey: ["boms"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/manufacturing/boms");
       if (!res.ok) throw await loaderError(res, t("api.billsOfMaterialsCouldNot"), t);
@@ -4686,10 +4740,11 @@ export interface ConfigurableProductRecord {
 /** المنتجات القابلة للتهيئة (docs/archive/catalog/07) — formula-driven master data consumed by التصنيع المخصص orders. */
 export function useConfigurableProducts(): UseQueryResult<ConfigurableProductRecord[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.ConfigurableProducts);
   return useQuery<ConfigurableProductRecord[], ApiError>({
     queryKey: ["configurable-products"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/manufacturing/configurable-products");
       if (!res.ok) throw await loaderError(res, t("api.configurableProductsCouldNotBe"), t);
@@ -4853,10 +4908,11 @@ export function usePreviewConfigInstance() {
 /** مراكز التكلفة (docs/archive/catalog/04) — list, create, edit. */
 export function useCostCenters(): UseQueryResult<CostCenterDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.CostCenters);
   return useQuery<CostCenterDTO[], ApiError>({
     queryKey: ["cost-centers"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/cost-centers");
       if (!res.ok) throw await loaderError(res, t("api.costCentresCouldNotBe"), t);
@@ -4896,10 +4952,11 @@ export function useUpdateCostCenter() {
 /** الفترات المالية (docs/archive/catalog/04) — list, generate a fiscal year, and the three-tier close/reopen/lock lifecycle. */
 export function useFiscalPeriods(): UseQueryResult<FiscalPeriodDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.FiscalPeriods);
   return useQuery<FiscalPeriodDTO[], ApiError>({
     queryKey: ["fiscal-periods"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/fiscal-periods");
       if (!res.ok) throw await loaderError(res, t("api.financialPeriodsCouldNotBe"), t);
@@ -4973,10 +5030,11 @@ export function useYearEndClosePreview(
   enabled = true,
 ): UseQueryResult<YearEndClosePreviewDTO | null, ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.YearEndClosePreview);
   return useQuery<YearEndClosePreviewDTO | null, ApiError>({
     queryKey: ["gl", "year-end-close", year],
-    enabled: session !== null && year !== null && enabled,
+    enabled: mayAsk && year !== null && enabled,
     queryFn: async () => {
       const res = await request(`/gl/year-end-close/${year}/preview`);
       if (res.status === 409 || res.status === 422) return null;
@@ -5096,10 +5154,11 @@ export function useUpdateTaxRate() {
 
 export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.ExchangeRates);
   return useQuery<ExchangeRateDTO[], ApiError>({
     queryKey: ["exchange-rates"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/exchange-rates");
       if (!res.ok) throw await loaderError(res, t("api.exchangeRatesCouldNotBe"), t);
@@ -5346,6 +5405,20 @@ export function useRequeueEtaSubmission() {
     mutationFn: async (id) => {
       const res = await request(`/eta/submissions/${id}/requeue`, { method: "POST" });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDocumentCouldNotBe"), t));
+      return res.json<EtaSubmissionDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
+export function useRecordEtaSubmissionUuid() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaSubmissionDTO, ApiError, { id: string; etaUuid: string }>({
+    mutationFn: async ({ id, etaUuid }) => {
+      const res = await request(`/eta/submissions/${id}/accept`, { method: "POST", body: JSON.stringify({ etaUuid }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thatActionCouldNotBe"), t));
       return res.json<EtaSubmissionDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
@@ -5672,7 +5745,7 @@ export function useCreateStockAdjustment() {
   return useMutation<StockAdjustmentDocumentDTO, ApiError, CreateStockAdjustmentDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-adjustments/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockAdjustmentCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theStockAdjustmentCouldNot"), t);
       return res.json<StockAdjustmentDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] }),
@@ -5767,7 +5840,7 @@ export function useCreateStockTransfer() {
   return useMutation<StockTransferDocumentDTO, ApiError, CreateStockTransferDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-transfers/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockTransferCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theStockTransferCouldNot"), t);
       return res.json<StockTransferDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-transfers"] }),
@@ -6337,7 +6410,7 @@ export function useCreateSalesReturn() {
   return useMutation<SalesReturnDocumentDTO, ApiError, CreateSalesReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theSalesReturnCouldNot"), t);
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -6492,7 +6565,7 @@ export function useCreatePurchaseReturn() {
   return useMutation<PurchaseReturnDocumentDTO, ApiError, CreatePurchaseReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchase-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.thePurchaseReturnCouldNot"), t);
       return res.json<PurchaseReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
@@ -6550,7 +6623,7 @@ export function useCreateLandedCost() {
   return useMutation<LandedCostDocumentDTO, ApiError, CreateLandedCostDTO>({
     mutationFn: async (body) => {
       const res = await request("/landed-costs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould"), t));
+      if (!res.ok) throw await codedError(res, t("api.theLandedCostDocumentCould"), t);
       return res.json<LandedCostDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-costs"] }),
@@ -6839,10 +6912,11 @@ export function useCancelFollowUp() {
 
 export function useDepartments(): UseQueryResult<DepartmentDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Departments);
   return useQuery<DepartmentDTO[], ApiError>({
     queryKey: ["hr-departments"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/hr/departments");
       if (!res.ok) throw await loaderError(res, t("api.departmentsCouldNotBeLoaded"), t);
@@ -7059,10 +7133,11 @@ export function useRehireEmployee() {
 
 export function useContracts(): UseQueryResult<ContractDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.EmploymentContracts);
   return useQuery<ContractDTO[], ApiError>({
     queryKey: ["hr-contracts"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/hr/contracts");
       if (!res.ok) throw await loaderError(res, t("api.contractsCouldNotBeLoaded"), t);
@@ -8186,10 +8261,11 @@ function attendanceQueryString(filters: AttendanceFilters): string {
 
 export function useAttendance(filters: AttendanceFilters): UseQueryResult<AttendanceEntryDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.Attendance);
   return useQuery<AttendanceEntryDTO[], ApiError>({
     queryKey: ["hr-attendance", filters],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request(`/hr/attendance${attendanceQueryString(filters)}`);
       if (!res.ok) throw await loaderError(res, t("api.theAttendanceRecordCouldNot"), t);
@@ -8363,10 +8439,11 @@ export function useApplyLeavePolicyPreset() {
 
 export function useLeaveBalances(employeeId: string | null, year: number): UseQueryResult<LeaveBalanceDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.LeaveBalances);
   return useQuery<LeaveBalanceDTO[], ApiError>({
     queryKey: ["hr-leave-balances", employeeId, year],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const params = new URLSearchParams({ year: String(year) });
       if (employeeId) params.set("employeeId", employeeId);
@@ -8437,10 +8514,11 @@ export interface LeaveRequestFilters {
 
 export function useLeaveRequests(filters: LeaveRequestFilters): UseQueryResult<LeaveRequestDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.LeaveRequests);
   return useQuery<LeaveRequestDTO[], ApiError>({
     queryKey: ["hr-leave-requests", filters],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filters.employeeId) params.set("employeeId", filters.employeeId);
@@ -8847,7 +8925,7 @@ export function useCreateSalesReturnFromInvoice() {
   return useMutation<SalesReturnDocumentDTO, ApiError, BuildSalesReturnFromInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns/from-invoice", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theSalesReturnCouldNot"), t);
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),

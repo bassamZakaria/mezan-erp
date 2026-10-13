@@ -11,6 +11,10 @@ export interface DunningSweepResult {
 }
 
 export async function runDunningSweep(platform: PlatformHandle, now: () => Date): Promise<DunningSweepResult> {
+  return platform.inTheTurn("dunning sweep", () => sweepSubscriptions(platform, now));
+}
+
+async function sweepSubscriptions(platform: PlatformHandle, now: () => Date): Promise<DunningSweepResult> {
   const nowIso = now().toISOString();
   const tenants = await platform.stores.tenants.list();
   const plans = await platform.stores.plans.list();

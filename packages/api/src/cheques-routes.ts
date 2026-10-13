@@ -18,6 +18,8 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  AllocationExceedsError,
+  AllocationIdTakenError,
   SettlementRateMissingError,
   AllocationMismatchError,
   InvoiceNotFoundError,
@@ -118,7 +120,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof ChequeNotFoundError || err instanceof InvoiceNotFoundError) {
     return refuse(err, 404);
   }
-  if (err instanceof DuplicateChequeNumberError || err instanceof InvalidChequeTransitionError) {
+  if (err instanceof DuplicateChequeNumberError || err instanceof InvalidChequeTransitionError || err instanceof AllocationIdTakenError) {
     return refuse(err, 409);
   }
   if (

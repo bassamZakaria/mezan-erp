@@ -14,6 +14,7 @@ import { sampleOf } from "./test-helpers/zod-sample.js";
 const BOOT_TIMEOUT_MS = 240_000;
 const ARABIC = /[؀-ۿ]/;
 const TODAY = new Date().toISOString().slice(0, 10);
+const SAME_CALLER_OTHER_CONTENTS = contracts.IdempotencyRefusal.KeyReused;
 
 interface Res {
   readonly status: number;
@@ -123,6 +124,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createBomSchema: { route: "/manufacturing/boms", table: "bom" },
   createBranchSchema: { route: "/branches", table: "branch" },
   createChequeSchema: {
+    refusedAs: SAME_CALLER_OTHER_CONTENTS,
     route: "/cheques",
     table: "cheque",
     body: (sampled) => ({ ...sampled, issueDate: TODAY, dueDate: TODAY, chequeNumber: "DUP-0099", bankName: "بنك مصر", branchId: "BR-MAIN", partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" } }),
@@ -160,7 +162,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createItemSchema: { route: "/items", table: "item" },
   createJobTitleSchema: { route: "/hr/job-titles", table: "hr_job_title" },
   createLabelLayoutSchema: { route: "/label-layouts", table: "label_layout", body: (sampled) => ({ ...sampled, pageSize: "A4", columns: 3, rows: 8, labelWidthMm: 50, labelHeightMm: 25, columnGapMm: 2, rowGapMm: 2, marginBlockMm: 5, marginInlineMm: 5, barcodeHeightMm: 10 }) },
-  createLandedCostSchema: { route: "/landed-costs", table: "framework_document", existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'LANDED_COST' ORDER BY id LIMIT 1" },
+  createLandedCostSchema: { route: "/landed-costs", table: "framework_document", existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'LANDED_COST' ORDER BY id LIMIT 1", refusedAs: SAME_CALLER_OTHER_CONTENTS },
   createLeadSchema: { route: "/crm/leads", table: "crm_lead" },
   createLeavePolicySchema: {
     route: "/hr/leave-policies",
@@ -187,9 +189,10 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createProgressCertificateSchema: { route: "/contracting/certificates", table: "contracting_certificate", body: (sampled) => ({ ...sampled, periodFrom: "2026-11-01", periodTo: "2026-11-30" }) },
   createProjectSchema: { route: "/projects", table: "project", body: (sampled) => ({ ...sampled, costCenterId: "CC-NO-SUCH-CENTER" }) },
   createPromotionSchema: { route: "/promotions", table: "promotion", body: (sampled) => ({ ...sampled, code: "DUP-ID-PROMO", nameAr: "عرض اختبار", percentValue: 10 }) },
-  createPurchaseInvoiceSchema: { route: "/purchases/invoices", table: "purchase_invoice", body: (_e, id) => purchaseDocument(id) },
+  createPurchaseInvoiceSchema: { route: "/purchases/invoices", table: "purchase_invoice", body: (_e, id) => purchaseDocument(id), refusedAs: SAME_CALLER_OTHER_CONTENTS },
   createPurchaseOrderSchema: { route: "/purchases/orders", table: "purchase_order" },
   createPurchaseReturnSchema: {
+    refusedAs: SAME_CALLER_OTHER_CONTENTS,
     route: "/purchase-returns",
     table: "framework_document",
     existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'PURCHASE_RETURN' ORDER BY id LIMIT 1",
@@ -219,9 +222,10 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
     }),
   },
   createRetentionReleaseSchema: { route: "/contracting/retention/releases", table: "contracting_retention_release", body: (sampled) => ({ ...sampled, contractId: "CTR-DEMO-1", date: TODAY, amount: "1.00" }) },
-  createSalesInvoiceSchema: { route: "/sales-invoices", table: "sales_invoice", body: (_e, id) => salesDocument(id) },
+  createSalesInvoiceSchema: { route: "/sales-invoices", table: "sales_invoice", body: (_e, id) => salesDocument(id), refusedAs: SAME_CALLER_OTHER_CONTENTS },
   createSalesQuoteSchema: { route: "/sales-quotes", table: "sales_quote", body: (_e, id) => salesDocument(id) },
   createSalesReturnSchema: {
+    refusedAs: SAME_CALLER_OTHER_CONTENTS,
     route: "/sales-returns",
     table: "framework_document",
     existingIdSql: "SELECT * FROM framework_document WHERE doc_type = 'SALES_RETURN' ORDER BY id LIMIT 1",
@@ -258,6 +262,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
     body: (sampled) => ({ ...sampled, date: TODAY, branchId: "BR-MAIN", lines: [{ itemId: "ITEM-DEMO-1", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "1", unitCost: "140" }] }),
   },
   createStockTransferSchema: {
+    refusedAs: SAME_CALLER_OTHER_CONTENTS,
     route: "/inventory/stock-transfers/draft",
     table: "stock_transfer_document",
     body: (sampled) => ({ ...sampled, date: TODAY, branchId: "BR-MAIN", lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId: "WH-MAIN", toWarehouseId: "WH-DEMO-2", qty: "1" }] }),

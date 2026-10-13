@@ -11,7 +11,7 @@ describe("createHttpTransport", () => {
   it("prefixes the path with the base URL and forwards init", async () => {
     const fetchSpy = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       expect(input).toBe("/api/items?status=active");
-      expect(init).toEqual({ method: "POST" });
+      expect(init).toEqual({ method: "POST", credentials: "same-origin" });
       return new Response(JSON.stringify({ ok: true }), { status: 201 });
     });
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
@@ -43,6 +43,42 @@ describe("createHttpTransport", () => {
     const res = await transport("/missing");
     expect(res.status).toBe(404);
     expect(res.ok).toBe(false);
+  });
+});
+
+describe("the wait a refusal names in its Retry-After header", () => {
+  it("is read by the HTTP transport as whole seconds, and is absent when the header is missing or is not a count", async () => {
+    const answer = (header?: string) => new Response("{}", { status: 429, headers: header === undefined ? {} : { "retry-after": header } });
+    const wait = async (header?: string) => {
+      globalThis.fetch = vi.fn(async () => answer(header)) as unknown as typeof fetch;
+      return (await createHttpTransport()("/auth/login")).retryAfterSeconds;
+    };
+
+    expect(await wait("60")).toBe(60);
+    expect(await wait("2.2")).toBe(3);
+    expect(await wait()).toBeNull();
+    expect(await wait("Wed, 21 Oct 2026 07:28:00 GMT")).toBeNull();
+    expect(await wait("0")).toBeNull();
+    expect(await wait("-5")).toBeNull();
+  });
+
+  it("carries the reason a session ended, when the server names one, through both transports", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("{}", { status: 401, headers: { "x-mezan-session-ended": "displaced" } })) as unknown as typeof fetch;
+    expect((await createHttpTransport()("/items")).sessionEnded).toBe("displaced");
+    globalThis.fetch = vi.fn(async () => new Response("{}", { status: 401 })) as unknown as typeof fetch;
+    expect((await createHttpTransport()("/items")).sessionEnded).toBeNull();
+
+    const bridged = createElectronTransport({ fetch: vi.fn(async () => ({ status: 401, headers: { "X-Mezan-Session-Ended": "displaced" }, body: "{}" })) });
+    expect((await bridged("/items")).sessionEnded).toBe("displaced");
+  });
+
+  it("is read by the desktop bridge transport whatever case the header arrived in", async () => {
+    const through = async (headers: Record<string, string>) =>
+      (await createElectronTransport({ fetch: vi.fn(async () => ({ status: 503, headers, body: "{}" })) })("/auth/login")).retryAfterSeconds;
+
+    expect(await through({ "retry-after": "5" })).toBe(5);
+    expect(await through({ "Retry-After": "7" })).toBe(7);
+    expect(await through({})).toBeNull();
   });
 });
 

@@ -22,7 +22,7 @@ afterEach(() => {
   for (const h of handles.splice(0)) h.close();
 });
 
-function inMemoryCustomers(): Pick<CustomerRepository, "save" | "findAll"> & { list(): Customer[] } {
+function inMemoryCustomers(): Pick<CustomerRepository, "save" | "findAll" | "findById"> & { list(): Customer[] } {
   const customers = new Map<string, Customer>();
   return {
     async save(customer) {
@@ -30,6 +30,9 @@ function inMemoryCustomers(): Pick<CustomerRepository, "save" | "findAll"> & { l
     },
     async findAll() {
       return Array.from(customers.values());
+    },
+    async findById(id) {
+      return customers.get(id) ?? null;
     },
     list: () => Array.from(customers.values()),
   };
@@ -246,8 +249,12 @@ describe("converting a lead leaves a record of the customer it minted", () => {
     );
     expect(res.status).toBe(200);
 
-    expect(audit.events).toHaveLength(1);
-    const event = audit.events[0]!;
+    expect(audit.events.map((e) => `${e.entityType}:${e.action}`)).toEqual(["CUSTOMER:CREATE", "LEAD:CONVERT"]);
+    const onCustomer = audit.events[0]!;
+    expect(onCustomer.entityId).toBe("cust9");
+    expect(onCustomer.details).toMatchObject({ code: "C-0009" });
+    expect((onCustomer.details as { changes: { field: string }[] }).changes.map((change) => change.field)).toContain("code");
+    const event = audit.events[1]!;
     expect(event.stream).toBe("sensitive");
     expect(event.entityType).toBe("LEAD");
     expect(event.entityId).toBe("lead9");

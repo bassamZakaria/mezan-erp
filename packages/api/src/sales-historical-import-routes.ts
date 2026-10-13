@@ -1,4 +1,6 @@
 import { Hono, type Context } from "hono";
+import { NoFiscalPeriodForDateError, PeriodNotOpenForPostingError } from "@mezan/domain";
+import { importRowLimit } from "./import-limit.js";
 import {
   Money,
   Qty,
@@ -36,6 +38,7 @@ export interface SalesHistoricalImportRoutesDeps {
   readonly gl?: HistoricalSalesImportGlPostingPort;
   readonly accounts?: HistoricalSalesImportGlAccounts;
   readonly now?: () => string;
+  readonly atomic?: <T>(work: () => Promise<T>) => Promise<T>;
 }
 
 /** Rows land on the tenant's calendar day before the importer sees them. */
@@ -96,6 +99,8 @@ export function createSalesHistoricalImportRoutes(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const actor = (c: Context) => getAuthContext(c)?.userId ?? "system";
+  const allOrNothing = <T>(work: () => Promise<T>): Promise<T> => (deps.atomic ? deps.atomic(work) : work());
+  app.use("*", importRowLimit());
 
   app.post("/preview", gate("sales.invoice.create"), async (c) => {
     const parsed = historicalSalesImportBatchSchema.safeParse(await c.req.json());
@@ -122,14 +127,15 @@ export function createSalesHistoricalImportRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const result = await importHistoricalSalesDocuments(
+      const rows = toRowInputs(await toTenantDayRows(c, parsed.data.rows));
+      const result = await allOrNothing(() => importHistoricalSalesDocuments(
         {
           importBatchId: `HSI-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          rows: toRowInputs(await toTenantDayRows(c, parsed.data.rows)),
+          rows,
           createdBy: actor(c),
         },
         { archives: deps.archives, gl: deps.gl, accounts: deps.accounts, now: deps.now },
-      );
+      ));
       return c.json(
         {
           groups: [],
@@ -143,6 +149,9 @@ export function createSalesHistoricalImportRoutes(
       if (refusal) return refusal;
       if (err instanceof InvalidSalesInvoiceError) {
         return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+      }
+      if (err instanceof NoFiscalPeriodForDateError || err instanceof PeriodNotOpenForPostingError) {
+        return c.json({ error: err.code, message: `${err.message} لم يُستورد أي مستند من الملف.` }, 422);
       }
       throw err;
     }

@@ -174,4 +174,28 @@ describe("createBackendCache", () => {
     expect(b.close).toHaveBeenCalledTimes(1);
     await expect(cache.get("a")).rejects.toThrow("CACHE_CLOSED");
   });
+
+  it("closes one code's handle when it is evicted, has finished closing before it answers, and opens a new one on the next get", async () => {
+    const closed: string[] = [];
+    const evicted: string[] = [];
+    const open = vi.fn(async (code: string) => ({
+      code,
+      close: async () => {
+        await Promise.resolve();
+        closed.push(code);
+      },
+    }));
+    const cache = createBackendCache({ open, sweepEveryMs: 0, onEvict: (code) => evicted.push(code) });
+    const first = await cache.get("a");
+    await cache.get("b");
+
+    await cache.evict("a");
+
+    expect(closed).toEqual(["a"]);
+    expect(evicted).toEqual(["a"]);
+    expect(cache.openCodes()).toEqual(["b"]);
+    expect(await cache.get("a")).not.toBe(first);
+    await cache.evict("never-opened");
+    expect(closed).toEqual(["a"]);
+  });
 });

@@ -3,6 +3,18 @@ export enum Locale {
   En = "en",
 }
 
+export enum WaitUnit {
+  Seconds = "seconds",
+  Minutes = "minutes",
+}
+
+export interface WaitForms {
+  readonly one: string;
+  readonly two: string;
+  readonly few: string;
+  readonly many: string;
+}
+
 export interface Strings {
   readonly appName: string;
   readonly signIn: {
@@ -16,6 +28,15 @@ export interface Strings {
     readonly pinLabel: string;
     readonly submit: string;
     readonly submitting: string;
+    readonly throttledFor: string;
+    readonly busyFor: string;
+    readonly tooManyAttempts: string;
+    readonly wait: Readonly<Record<WaitUnit, WaitForms>>;
+    readonly sessionDisplaced: string;
+    readonly sessionExpired: string;
+    readonly unlockCodeLabel: string;
+    readonly unlockSubmit: string;
+    readonly unlockDone: string;
     readonly unlockWithBiometrics: string;
     readonly unlockPrompt: string;
     readonly unlockTitle: string;
@@ -189,6 +210,11 @@ export interface Strings {
     readonly approvals: string;
     readonly approvalsSubtitle: string;
   };
+  readonly stepUp: {
+    readonly title: string;
+    readonly pin: string;
+    readonly confirm: string;
+  };
   readonly common: {
     readonly retry: string;
     readonly signOut: string;
@@ -196,6 +222,7 @@ export interface Strings {
     readonly loading: string;
     readonly offline: string;
     readonly offlineWrite: string;
+    readonly alreadySaved: string;
     readonly search: string;
     readonly cancel: string;
     readonly selectCustomerToView: string;
@@ -207,6 +234,10 @@ export interface Strings {
     readonly forbidden: string;
     readonly server: string;
     readonly unexpectedShape: string;
+    readonly accountLocked: string;
+    readonly tooManyAttempts: string;
+    readonly auditUnavailable: string;
+    readonly serverBusy: string;
   };
 }
 
@@ -223,6 +254,18 @@ const AR: Strings = {
     pinLabel: "الرقم السري (٦ أرقام)",
     submit: "دخول",
     submitting: "جارٍ الدخول…",
+    throttledFor: "حاول بعد",
+    busyFor: "الخادم مشغول — أعد المحاولة بعد",
+    tooManyAttempts: "محاولات دخول كثيرة.",
+    wait: {
+      [WaitUnit.Seconds]: { one: "ثانية واحدة", two: "ثانيتين", few: "{count} ثوانٍ", many: "{count} ثانية" },
+      [WaitUnit.Minutes]: { one: "دقيقة واحدة", two: "دقيقتين", few: "{count} دقائق", many: "{count} دقيقة" },
+    },
+    sessionDisplaced: "سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.",
+    sessionExpired: "انتهت الجلسة. سجّل الدخول من جديد.",
+    unlockCodeLabel: "رمز فكّ القفل",
+    unlockSubmit: "فكّ القفل",
+    unlockDone: "تم فكّ قفل الحساب. أدخل الرقم السري للدخول.",
     unlockWithBiometrics: "الدخول ببصمة الجهاز",
     unlockPrompt: "أكّد هويتك لفتح ميزان",
     unlockTitle: "ميزان مقفل",
@@ -398,6 +441,7 @@ const AR: Strings = {
     approvals: "الموافقات",
     approvalsSubtitle: "الطلبات بانتظار اعتمادك",
   },
+  stepUp: { title: "تأكيد رمز PIN", pin: "رمز PIN", confirm: "تأكيد" },
   common: {
     retry: "إعادة المحاولة",
     signOut: "تسجيل الخروج",
@@ -405,6 +449,7 @@ const AR: Strings = {
     loading: "جارٍ التحميل…",
     offline: "لا يوجد اتصال — هذه آخر أرقام وصلت",
     offlineWrite: "لا يوجد اتصال. لا يمكن حفظ مستند بدون اتصال بالخادم.",
+    alreadySaved: "سبق حفظ هذا المستند ببيانات مختلفة، فلم يُسجَّل مرة ثانية. راجع المستند المحفوظ قبل إنشاء غيره",
     search: "بحث",
     cancel: "إلغاء",
     selectCustomerToView: "اختر عميلًا من القائمة لعرض ملفه",
@@ -416,6 +461,10 @@ const AR: Strings = {
     forbidden: "لا تملك صلاحية هذا الإجراء.",
     server: "حدث خطأ في الخادم.",
     unexpectedShape: "رد الخادم بشكل غير متوقّع. حدّث التطبيق أو راجع إصدار الخادم.",
+    accountLocked: "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة. اطلب من مدير النظام فكّ القفل من شاشة المستخدمين.",
+    tooManyAttempts: "محاولات دخول كثيرة. انتظر قليلاً ثم حاول مرة أخرى.",
+    auditUnavailable: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى.",
+    serverBusy: "الخادم مشغول الآن، ولم تُحتسب هذه المحاولة. أعد المحاولة بعد قليل.",
   },
 };
 
@@ -432,6 +481,18 @@ const EN: Strings = {
     pinLabel: "PIN (6 digits)",
     submit: "Sign in",
     submitting: "Signing in…",
+    throttledFor: "Try again in",
+    busyFor: "Server busy — retry in",
+    tooManyAttempts: "Too many sign-in attempts.",
+    wait: {
+      [WaitUnit.Seconds]: { one: "1 second", two: "2 seconds", few: "{count} seconds", many: "{count} seconds" },
+      [WaitUnit.Minutes]: { one: "1 minute", two: "2 minutes", few: "{count} minutes", many: "{count} minutes" },
+    },
+    sessionDisplaced: "Another user signed in on this device, so your session here ended. Sign in again to continue.",
+    sessionExpired: "The session ended. Sign in again.",
+    unlockCodeLabel: "Unlock code",
+    unlockSubmit: "Unlock",
+    unlockDone: "The account is unlocked. Enter your PIN to sign in.",
     unlockWithBiometrics: "Unlock with the device",
     unlockPrompt: "Confirm it is you to open Mezan",
     unlockTitle: "Mezan is locked",
@@ -607,6 +668,7 @@ const EN: Strings = {
     approvals: "Approvals",
     approvalsSubtitle: "The requests waiting on you",
   },
+  stepUp: { title: "Confirm your PIN", pin: "PIN", confirm: "Confirm" },
   common: {
     retry: "Try again",
     signOut: "Sign out",
@@ -614,6 +676,7 @@ const EN: Strings = {
     loading: "Loading…",
     offline: "Offline — these are the last figures received",
     offlineWrite: "Offline. A document cannot be saved without a connection.",
+    alreadySaved: "This document was already saved with different contents, so it was not recorded again. Check the saved document before creating another",
     search: "Search",
     cancel: "Cancel",
     selectCustomerToView: "Pick a customer from the list to see their file",
@@ -625,6 +688,10 @@ const EN: Strings = {
     forbidden: "You do not hold the right for this action.",
     server: "The server failed.",
     unexpectedShape: "The server answered in an unexpected shape. Update the app or check the server version.",
+    accountLocked: "This account was locked after repeated failed sign-ins. Ask your administrator to unlock it from the Users screen.",
+    tooManyAttempts: "Too many sign-in attempts. Wait a little, then try again.",
+    auditUnavailable: "The audit log could not record this action, so nothing was saved. Try again.",
+    serverBusy: "The server is busy right now and this attempt was not counted. Try again shortly.",
   },
 };
 

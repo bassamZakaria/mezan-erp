@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
-import { useCheques, useDashboardSummary, useTreasuryAccounts, useVouchers } from "../../data/hooks";
+import { ScreenRequest } from "@mezan/domain";
+import { useCheques, useDashboardSummary, useMayAskScreen, useTreasuryAccounts, useVouchers } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
@@ -32,6 +33,7 @@ export function TreasuryHubScreen() {
   const accountsQuery = useTreasuryAccounts();
   const vouchersQuery = useVouchers();
   const chequesQuery = useCheques();
+  const readsCheques = useMayAskScreen(ScreenRequest.Cheques);
   const summaryQuery = useDashboardSummary({});
 
   const accounts = accountsQuery.data ?? EMPTY;
@@ -56,7 +58,7 @@ export function TreasuryHubScreen() {
         { key: "accounts", label: t("treasuryHub.activeTreasuryAccounts"), value: activeAccounts, sub: t("treasuryHub.ofAccounts", { count: accounts.length }) },
         { key: "cash", label: t("treasuryHub.cashOnHand"), value: <Money value={cash} />, sub: t("treasuryHub.cashBoxAndBankBalances") },
         { key: "vouchers", label: t("treasuryHub.vouchersRecorded"), value: vouchers.length, sub: t("treasuryHub.allVouchers") },
-        { key: "cheques", label: t("treasuryHub.chequesInCollection"), value: pendingCheques, sub: t("treasuryHub.awaitingDepositOrCollection") },
+        ...(readsCheques ? [{ key: "cheques", label: t("treasuryHub.chequesInCollection"), value: pendingCheques, sub: t("treasuryHub.awaitingDepositOrCollection") }] : []),
       ]}
       list={{
         title: t("treasuryHub.latestVouchers"),

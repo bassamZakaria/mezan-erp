@@ -136,7 +136,8 @@ export function createSettingsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const settings = (await store.get()) ?? createDefaultSettings();
-    const result = await sendTestEmail(settings, parsed.data.to);
+    const send = () => sendTestEmail(settings, parsed.data.to);
+    const result = await (audit?.outsideTurn ? audit.outsideTurn(send) : send());
     return c.json(result, result.ok ? 200 : 422);
   });
 

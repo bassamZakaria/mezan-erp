@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
-import { useAccounts, useDashboardSummary, useFiscalPeriods } from "../../data/hooks";
+import { ScreenRequest } from "@mezan/domain";
+import { useAccounts, useDashboardSummary, useFiscalPeriods, useMayAskScreen } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
@@ -30,6 +31,8 @@ export function AccountingHubScreen() {
   const summaryQuery = useDashboardSummary({});
   const accountsQuery = useAccounts();
   const periodsQuery = useFiscalPeriods();
+  const readsAccounts = useMayAskScreen(ScreenRequest.Accounts);
+  const readsPeriods = useMayAskScreen(ScreenRequest.FiscalPeriods);
 
   const summary = summaryQuery.data;
   const accounts = accountsQuery.data ?? [];
@@ -48,17 +51,21 @@ export function AccountingHubScreen() {
       error={isError ? t("accountingHub.accountingDataCouldNotBe") : null}
       actions={<HubActions actions={quickActions} />}
       stats={[
-        { key: "accounts", label: t("accountingHub.accounts"), value: accounts.length, sub: t("accountingHub.chartOfAccounts") },
-        { key: "entries", label: t("accountingHub.journalEntries"), value: summary?.counts.journalEntries ?? 0, sub: t("accountingHub.allEntriesOnRecord") },
-        {
-          key: "profit",
-          label: t("accountingHub.netProfit"),
-          value: <Money value={netProfit} />,
-          sub: t("accountingHub.revenueExpenses"),
-          subTone: netProfit < 0 ? "down" : "up",
-          valueTone: netProfit < 0 ? "danger" : "default",
-        },
-        { key: "periods", label: t("accountingHub.openFinancialPeriods"), value: openPeriods, sub: t("accountingHub.ofPeriods", { count: periods.length }) },
+        ...(readsAccounts ? [{ key: "accounts", label: t("accountingHub.accounts"), value: accounts.length, sub: t("accountingHub.chartOfAccounts") }] : []),
+        ...(summary
+          ? [
+              { key: "entries", label: t("accountingHub.journalEntries"), value: summary.counts.journalEntries, sub: t("accountingHub.allEntriesOnRecord") },
+              {
+                key: "profit",
+                label: t("accountingHub.netProfit"),
+                value: <Money value={netProfit} />,
+                sub: t("accountingHub.revenueExpenses"),
+                subTone: netProfit < 0 ? ("down" as const) : ("up" as const),
+                valueTone: netProfit < 0 ? ("danger" as const) : ("default" as const),
+              },
+            ]
+          : []),
+        ...(readsPeriods ? [{ key: "periods", label: t("accountingHub.openFinancialPeriods"), value: openPeriods, sub: t("accountingHub.ofPeriods", { count: periods.length }) }] : []),
       ]}
       list={{
         title: t("accountingHub.latestPostedEntries"),

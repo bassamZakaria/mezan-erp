@@ -2,7 +2,7 @@ import { z } from "zod";
 import { notificationChannelSchema, notificationPrioritySchema } from "./notification-rule.js";
 
 /** Wire contract for a generated in-app notification instance (the top-bar bell panel's data). */
-export const notificationChannelStatusSchema = z.enum(["delivered", "queued"]);
+export const notificationChannelStatusSchema = z.enum(["delivered", "queued", "sending", "sent", "failed"]);
 
 export const notificationSchema = z.object({
   id: z.string().min(1),

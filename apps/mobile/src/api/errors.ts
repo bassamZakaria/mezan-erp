@@ -5,8 +5,21 @@ export enum ApiFailure {
   Unauthorized = "unauthorized",
   Forbidden = "forbidden",
   Refused = "refused",
+  Locked = "locked",
+  Throttled = "throttled",
+  Unavailable = "unavailable",
   Server = "server",
   Shape = "shape",
+}
+
+export enum RefusalCode {
+  AuditUnavailable = "AUDIT_UNAVAILABLE",
+}
+
+export interface RefusalDetail {
+  readonly retryAfterSeconds?: number | null;
+  readonly unlockByCode?: boolean;
+  readonly recalculatedGrandTotal?: string | null;
 }
 
 export class ApiError extends Error {
@@ -15,17 +28,30 @@ export class ApiError extends Error {
   /** The server's own Arabic refusal, when it sent one. Shown in preference to anything this client invents. */
   readonly serverMessage: string | null;
   readonly serverMessageEn: string | null;
+  readonly code: string | null;
+  readonly retryAfterSeconds: number | null;
+  readonly unlockByCode: boolean;
 
   readonly recalculatedGrandTotal: string | null;
 
-  constructor(failure: ApiFailure, status: number | null, serverMessage: string | null, serverMessageEn: string | null, recalculatedGrandTotal: string | null = null) {
+  constructor(
+    failure: ApiFailure,
+    status: number | null,
+    serverMessage: string | null,
+    serverMessageEn: string | null,
+    code: string | null = null,
+    detail: RefusalDetail = {},
+  ) {
     super(serverMessage ?? serverMessageEn ?? failure);
     this.name = "ApiError";
     this.failure = failure;
     this.status = status;
     this.serverMessage = serverMessage;
     this.serverMessageEn = serverMessageEn;
-    this.recalculatedGrandTotal = recalculatedGrandTotal;
+    this.code = code;
+    this.retryAfterSeconds = detail.retryAfterSeconds ?? null;
+    this.unlockByCode = detail.unlockByCode === true;
+    this.recalculatedGrandTotal = detail.recalculatedGrandTotal ?? null;
   }
 }
 
@@ -52,6 +78,12 @@ export function describeApiError(error: unknown, strings: Strings): string {
       return strings.errors.forbidden;
     case ApiFailure.Shape:
       return strings.errors.unexpectedShape;
+    case ApiFailure.Locked:
+      return strings.errors.accountLocked;
+    case ApiFailure.Throttled:
+      return strings.errors.tooManyAttempts;
+    case ApiFailure.Unavailable:
+      return error.code === RefusalCode.AuditUnavailable ? strings.errors.auditUnavailable : strings.errors.serverBusy;
     case ApiFailure.Refused:
     case ApiFailure.Server:
       return error.serverMessageEn ?? strings.errors.server;

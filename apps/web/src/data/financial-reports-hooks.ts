@@ -1,7 +1,8 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { ReportGroupResult, ReportReconciliationResult } from "@mezan/domain";
+import { ScreenRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
-import { ApiError, withSupportCode } from "./hooks";
+import { ApiError, withSupportCode, useMayAskScreen } from "./hooks";
 import { readReportFieldErrors } from "./report-errors";
 import { useAppTranslation } from "../i18n";
 
@@ -39,10 +40,11 @@ export function useFinancialReport<Row>(
   options: { readonly enabled?: boolean } = {},
 ): UseQueryResult<FinancialReportResult<Row>, ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.FinancialReports);
   return useQuery<FinancialReportResult<Row>, ApiError>({
     queryKey: ["financial-reports", reportId, params],
-    enabled: session !== null && (options.enabled ?? true),
+    enabled: mayAsk && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request(`/financial-reports${apiPath}${toQueryString(params)}`);
       if (!res.ok) {

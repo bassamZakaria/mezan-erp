@@ -1,3 +1,4 @@
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { ReversalDocumentType } from "@mezan/contracts";
 import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
@@ -193,6 +194,7 @@ export function StockAdjustmentsScreen() {
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
   const [reasonChoice, setReasonChoice] = useState<AdjustmentReasonDefinition | null>(null);
+  const savedNotice = useAlreadySavedNotice();
   /**
    * `#/…/stock-adjustments/new/<REASON>/<itemId?>` — the reason (and optionally
    * the item) can arrive in the URL, which is how "set opening balance" on a
@@ -346,6 +348,11 @@ export function StockAdjustmentsScreen() {
           setSelectedReason(null);
           subPage.close();
         }}
+        onAlreadySaved={(savedId) => {
+          savedNotice.show(savedId);
+          setSelectedReason(null);
+          subPage.open(savedId);
+        }}
         onBack={() => setSelectedReason(null)}
       />
     );
@@ -369,6 +376,7 @@ export function StockAdjustmentsScreen() {
     const effects = stockAdjustmentDocumentType.describeEffects(toDomainDoc(selected));
     return (
       <div className="w-full">
+        <AlreadySavedNotice notice={savedNotice} openId={selected.id} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
         <HeldDocumentReapproval document={selected} pending={listConfirm.isPending} confirm={(id) => listConfirm.mutateAsync(id)} />
         <DocumentDetail
           title={selected.docNo ?? t("stockAdj.stockAdjustment")}
@@ -642,8 +650,10 @@ function CreateAdjustmentView({
   warehouses,
   items,
   onDone,
+  onAlreadySaved,
   onBack,
 }: {
+  onAlreadySaved: (savedId: string) => void;
   /** Prefills the first line, for "set opening balance" on an item row (R5.3). */
   initialItemId?: string | null;
   reason: AdjustmentReasonDefinition;
@@ -658,6 +668,7 @@ function CreateAdjustmentView({
   const reasonLabel = reasonLabelOf(reason);
   const createAdjustment = useCreateStockAdjustment();
   const confirmAdjustment = useConfirmStockAdjustment();
+  const adjustmentId = useDocumentId(onAlreadySaved);
   const projectsQuery = useProjects();
   const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
@@ -711,7 +722,7 @@ function CreateAdjustmentView({
     setError(null);
     try {
       const draft = await createAdjustment.mutateAsync({
-        id: crypto.randomUUID(),
+        id: adjustmentId.current(),
         date,
         memo: memo.trim() || `${reason.labelAr} — ${warehouseLabel(warehouseId)}`,
         lines: lines.map((l) => ({
@@ -725,9 +736,11 @@ function CreateAdjustmentView({
         projectId: projectId || null,
         costCategory: projectId && costCategory ? costCategory : null,
       });
-      await confirmAdjustment.mutateAsync(draft.id);
+      if (draft.status === "draft") await confirmAdjustment.mutateAsync(draft.id);
+      adjustmentId.renew();
       onDone();
     } catch (err) {
+      if (adjustmentId.recover(err)) return;
       setError(err instanceof Error ? err.message : t("stockAdj.theAdjustmentCouldNotBe"));
     }
   }

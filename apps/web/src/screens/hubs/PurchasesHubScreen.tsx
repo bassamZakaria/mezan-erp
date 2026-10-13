@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
-import { useGoodsReceipts, usePurchaseInvoices, usePurchaseOrders, useSuppliers } from "../../data/hooks";
+import { ScreenRequest } from "@mezan/domain";
+import { useGoodsReceipts, useMayAskScreen, usePurchaseInvoices, usePurchaseOrders, useSuppliers } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
@@ -34,6 +35,9 @@ export function PurchasesHubScreen() {
   const receiptsQuery = useGoodsReceipts();
   const invoicesQuery = usePurchaseInvoices();
   const suppliersQuery = useSuppliers();
+  const readsOrders = useMayAskScreen(ScreenRequest.PurchaseOrders);
+  const readsReceipts = useMayAskScreen(ScreenRequest.GoodsReceipts);
+  const readsSuppliers = useMayAskScreen(ScreenRequest.Suppliers);
 
   const orders = ordersQuery.data ?? EMPTY;
   const receipts = receiptsQuery.data ?? EMPTY;
@@ -63,10 +67,10 @@ export function PurchasesHubScreen() {
       error={isError ? t("purchasesHub.loadFailed") : null}
       actions={<HubActions actions={quickActions} />}
       stats={[
-        { key: "orders", label: t("purchasesHub.stat.openOrders"), value: openOrders, sub: t("purchasesHub.stat.openOrdersSub") },
-        { key: "uninvoiced", label: t("purchasesHub.stat.uninvoiced"), value: uninvoicedReceipts, sub: t("purchasesHub.stat.uninvoicedSub") },
+        ...(readsOrders ? [{ key: "orders", label: t("purchasesHub.stat.openOrders"), value: openOrders, sub: t("purchasesHub.stat.openOrdersSub") }] : []),
+        ...(readsReceipts ? [{ key: "uninvoiced", label: t("purchasesHub.stat.uninvoiced"), value: uninvoicedReceipts, sub: t("purchasesHub.stat.uninvoicedSub") }] : []),
         { key: "invoices", label: t("purchasesHub.stat.invoices"), value: invoices.length, sub: t("purchasesHub.stat.invoicesSub") },
-        { key: "suppliers", label: t("purchasesHub.stat.suppliers"), value: suppliers.length, sub: t("purchasesHub.stat.suppliersSub") },
+        ...(readsSuppliers ? [{ key: "suppliers", label: t("purchasesHub.stat.suppliers"), value: suppliers.length, sub: t("purchasesHub.stat.suppliersSub") }] : []),
       ]}
       list={{
         title: t("purchasesHub.recent"),

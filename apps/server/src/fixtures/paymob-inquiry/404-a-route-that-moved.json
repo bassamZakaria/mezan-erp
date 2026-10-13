@@ -1,0 +1,9 @@
+{
+  "documentedAt": null,
+  "note": "",
+  "status": 404,
+  "body": {
+    "detail": "The requested URL was not found on this server."
+  },
+  "expect": "unreadable"
+}

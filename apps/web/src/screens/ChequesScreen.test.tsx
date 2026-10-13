@@ -407,6 +407,40 @@ describe("ChequesScreen — a collected cheque the bank returns", () => {
 });
 
 describe("ChequesScreen — create form", () => {
+  it("opens the cheque already saved, with a notice, when its id was used with other contents", async () => {
+    const user = userEvent.setup();
+    let saved: ReturnType<typeof cheque>[] = [];
+    let sends = 0;
+    renderWithProviders(<ChequesScreen />, {
+      initialSession: testAdminSession,
+      transport: stubTransport({
+        ...baseHandlers([]),
+        "GET /cheques": () => ({ body: saved }),
+        "POST /cheques": (init) => {
+          const body = JSON.parse(String(init?.body)) as { id: string };
+          sends += 1;
+          saved = [cheque({ id: body.id })];
+          return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+        },
+      }),
+    });
+    await screen.findByText("لا توجد شيكات");
+    await user.click(screen.getAllByRole("button", { name: "شيك جديد" })[0]!);
+    await user.click(screen.getByRole("button", { name: /صادرة/ }));
+    await user.type(await screen.findByPlaceholderText("اختر المورد..."), "الدلتا");
+    await user.click(await screen.findByText("مورد الدلتا"));
+    await user.type(inputNextToLabel("رقم الشيك *"), "CHQ-9001");
+    await user.type(inputNextToLabel("اسم البنك *"), "البنك الأهلي");
+    await user.type(screen.getByLabelText("المبلغ"), "500");
+    await user.type(screen.getByPlaceholderText("اختر الفرع..."), "الرئيسي");
+    await user.click(await screen.findByText("الفرع الرئيسي"));
+    await user.click(screen.getByRole("button", { name: "حفظ الشيك" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");
+    expect(screen.queryByRole("button", { name: "حفظ الشيك" })).not.toBeInTheDocument();
+    expect(sends).toBe(1);
+  });
+
   it("swaps the party typeahead by direction and posts the real create body", async () => {
     const user = userEvent.setup();
     let created: Record<string, unknown> | null = null;

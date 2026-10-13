@@ -8,8 +8,9 @@ import type {
   ReleaseGuaranteeDTO,
   UpdateGuaranteeDTO,
 } from "@mezan/contracts";
+import { ScreenRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
-import { ApiError, loaderError } from "./hooks";
+import { ApiError, loaderError, useMayAskScreen } from "./hooks";
 import { useAppTranslation } from "../i18n";
 
 /**
@@ -165,10 +166,11 @@ export interface ContractOption {
  * then hidden rather than shown empty — `available` says which.
  */
 export function useGuaranteeContractOptions(): { options: ContractOption[]; available: boolean; isLoading: boolean } {
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskScreen(ScreenRequest.WorksContracts);
   const query = useQuery<{ available: boolean; rows: ContractOption[] }, ApiError>({
     queryKey: [...KEY, "contract-options"],
-    enabled: session !== null,
+    enabled: mayAsk,
     retry: false,
     queryFn: async () => {
       const res = await request("/contracting/contracts");

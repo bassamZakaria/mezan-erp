@@ -1,5 +1,6 @@
 import { rmSync } from "node:fs";
-import { test, expect, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import { type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, directApi } from "./support/test";
 import {
   ApiError,
   CodePrefix,
@@ -92,7 +93,7 @@ test.describe("A populated tenant — the seeded demo beside a freshly provision
     api = await startApiServer({ port: DEMO_API_PORT, platformDir, seedDemo: true, fakeToday: DEMO_SERVER_TODAY, bootTimeoutMs: DEMO_BOOT_TIMEOUT_MS });
     web = await startWebServer({ port: DEMO_WEB_PORT, apiUrl: DEMO_API_URL });
 
-    const request = await playwright.request.newContext();
+    const request = await directApi(playwright);
     const listed = await platformTenant(request, (row) => row.tenant.code === DEMO_TENANT.code);
     demo = { id: listed.tenant.id, ...DEMO_TENANT };
     beside = await provisionTenant(

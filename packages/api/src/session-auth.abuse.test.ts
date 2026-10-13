@@ -6,6 +6,11 @@ import {
   createSessionRegistry,
   readSessionToken,
   tokensMatch,
+  DEVICE_MISMATCH_LIMIT,
+  DEVICE_MISMATCH_WINDOW_MS,
+  DISPLACED_SESSIONS_REMEMBERED,
+  MAX_SESSION_MS,
+  SessionRefusalKind,
 } from "./session-auth.js";
 import { createPermissionGate } from "./permission-gate.js";
 
@@ -286,5 +291,150 @@ describe("token reader and comparison", () => {
     expect(tokensMatch("abc", "abcd")).toBe(false);
     expect(tokensMatch("", "")).toBe(true);
     expect(tokensMatch("abc", "")).toBe(false);
+  });
+});
+
+describe("a second sign-in from a device that already holds a session's secret", () => {
+  const grantOf = (userId: string) => ({ userId, permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+
+  it("keeps the same user's first session alive, bound to the secret the device already holds", () => {
+    const sessions = createSessionRegistry();
+    const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    const second = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10", first.deviceSecret);
+
+    expect(second.deviceSecret).toBe(first.deviceSecret);
+    expect(second.token).not.toBe(first.token);
+    expect(sessions.inspect(first.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-1");
+    expect(sessions.inspect(second.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-1");
+  });
+
+  it("ends another user's session on that device and says why — displaced by a sign-in, never a stolen device or a moved address", () => {
+    const sessions = createSessionRegistry();
+    const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    const second = sessions.issueDeviceBound(grantOf("u-2"), "41.33.10.10", first.deviceSecret);
+
+    expect(second.deviceSecret).not.toBe(first.deviceSecret);
+    const ended = sessions.inspect(first.token, "41.33.10.10", second.deviceSecret);
+    expect(ended.grant).toBeNull();
+    expect(ended.refusal).toMatchObject({ reason: SessionRefusalKind.Displaced, userId: "u-1" });
+    expect(ended.addressChange ?? null).toBeNull();
+    expect(sessions.inspect(first.token, "41.33.10.10", second.deviceSecret).refusal?.reason).toBe(SessionRefusalKind.Displaced);
+    expect(sessions.inspect(second.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-2");
+  });
+
+  it("forgets that a session was displaced once the session would have idled out anyway, and never remembers more than a bounded number", () => {
+    let now = 1_700_000_000_000;
+    const sessions = createSessionRegistry(() => now);
+    const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    sessions.issueDeviceBound(grantOf("u-2"), "41.33.10.10", first.deviceSecret);
+    now += 12 * 60 * 60 * 1000 + 1;
+    expect(sessions.inspect(first.token, "41.33.10.10", null)).toEqual({ grant: null, refusal: null });
+
+    const crowded = createSessionRegistry(() => now);
+    const tokens: string[] = [];
+    let held = crowded.issueDeviceBound(grantOf("u-0"), "41.33.10.10");
+    for (let i = 1; i <= DISPLACED_SESSIONS_REMEMBERED + 5; i += 1) {
+      tokens.push(held.token);
+      held = crowded.issueDeviceBound(grantOf(`u-${i}`), "41.33.10.10", held.deviceSecret);
+    }
+    expect(crowded.inspect(tokens[0]!, "41.33.10.10", null)).toEqual({ grant: null, refusal: null });
+    expect(crowded.inspect(tokens.at(-1)!, "41.33.10.10", null).refusal?.reason).toBe(SessionRefusalKind.Displaced);
+  });
+
+  it("does not call a signed-out or revoked session displaced", () => {
+    const sessions = createSessionRegistry();
+    const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    sessions.revoke(first.token);
+    expect(sessions.inspect(first.token, "41.33.10.10", first.deviceSecret)).toEqual({ grant: null, refusal: null });
+  });
+
+  it("never adopts a secret no live session was issued with", () => {
+    const sessions = createSessionRegistry();
+    const planted = "attacker-chosen-secret";
+    const issued = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10", planted);
+
+    expect(issued.deviceSecret).not.toBe(planted);
+    expect(sessions.inspect(issued.token, "41.33.10.10", planted).grant).toBeNull();
+  });
+});
+
+describe("a bearer token presented without the secret of the device it was issued to", () => {
+  const grantOf = (userId: string) => ({ userId, permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const MINUTE = 60_000;
+
+  function bound() {
+    let now = 1_700_000_000_000;
+    const sessions = createSessionRegistry(() => now);
+    const session = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    return { sessions, session, advance: (ms: number) => void (now += ms) };
+  }
+
+  it("is refused, and the holder's session is still there for the device that has the secret", () => {
+    const { sessions, session } = bound();
+
+    const stolen = sessions.inspect(session.token, "196.221.5.5", null);
+    const wrong = sessions.inspect(session.token, "196.221.5.5", "not-the-secret");
+
+    expect(stolen.grant).toBeNull();
+    expect(stolen.refusal).toMatchObject({ reason: SessionRefusalKind.Device, userId: "u-1", sessionEnded: false });
+    expect(wrong.refusal).toMatchObject({ reason: SessionRefusalKind.Device, sessionEnded: false });
+    expect(sessions.inspect(session.token, "41.33.10.10", session.deviceSecret).grant?.userId).toBe("u-1");
+  });
+
+  it(`ends the session on the ${DEVICE_MISMATCH_LIMIT}th refusal inside ${DEVICE_MISMATCH_WINDOW_MS / MINUTE} minutes, and says so on that refusal`, () => {
+    const { sessions, session } = bound();
+    const refusals = Array.from({ length: DEVICE_MISMATCH_LIMIT }, () => sessions.inspect(session.token, "196.221.5.5", null).refusal);
+
+    expect(refusals.map((refusal) => refusal?.sessionEnded)).toEqual([...Array<boolean>(DEVICE_MISMATCH_LIMIT - 1).fill(false), true]);
+    expect(sessions.inspect(session.token, "41.33.10.10", session.deviceSecret)).toEqual({ grant: null, refusal: null });
+  });
+
+  it("does not end it for refusals spread wider than the window, however many there are", () => {
+    const { sessions, session, advance } = bound();
+    for (let i = 0; i < DEVICE_MISMATCH_LIMIT * 3; i += 1) {
+      expect(sessions.inspect(session.token, "196.221.5.5", null).refusal?.sessionEnded).toBe(false);
+      advance(DEVICE_MISMATCH_WINDOW_MS / (DEVICE_MISMATCH_LIMIT - 1) + 1);
+      expect(sessions.inspect(session.token, "41.33.10.10", session.deviceSecret).grant?.userId).toBe("u-1");
+    }
+  });
+
+  it("is not forgiven by the holder's own requests in between: the count belongs to the refusals", () => {
+    const { sessions, session } = bound();
+    for (let i = 0; i < DEVICE_MISMATCH_LIMIT - 1; i += 1) {
+      sessions.inspect(session.token, "196.221.5.5", null);
+      sessions.inspect(session.token, "41.33.10.10", session.deviceSecret);
+    }
+    expect(sessions.inspect(session.token, "196.221.5.5", null).refusal?.sessionEnded).toBe(true);
+  });
+});
+
+describe("how long a device-bound session and its secret live", () => {
+  const grantOf = (userId: string) => ({ userId, permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+  const HOUR = 60 * 60_000;
+
+  it("serves a session in steady use right up to its cap, so the secret a browser holds must be kept that long", () => {
+    let now = 1_700_000_000_000;
+    const sessions = createSessionRegistry(() => now);
+    const session = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    for (let hour = 1; hour <= 15; hour += 1) {
+      now += HOUR;
+      expect(sessions.inspect(session.token, "41.33.10.10", session.deviceSecret).grant?.userId).toBe("u-1");
+    }
+    expect(MAX_SESSION_MS).toBe(16 * HOUR);
+    now += HOUR + 1;
+    expect(sessions.inspect(session.token, "41.33.10.10", session.deviceSecret).refusal?.reason).toBe(SessionRefusalKind.Aged);
+  });
+
+  it("does not adopt the secret of the same user's session once that session has expired", () => {
+    let now = 1_700_000_000_000;
+    const sessions = createSessionRegistry(() => now);
+    const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    now += IDLE_TIMEOUT_MS + 1;
+
+    const second = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10", first.deviceSecret);
+
+    expect(second.deviceSecret).not.toBe(first.deviceSecret);
+    expect(sessions.inspect(second.token, "41.33.10.10", first.deviceSecret).grant).toBeNull();
+    expect(sessions.inspect(second.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-1");
   });
 });

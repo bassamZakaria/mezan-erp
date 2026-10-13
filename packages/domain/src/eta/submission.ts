@@ -137,6 +137,13 @@ export interface EtaSubmission {
    * report's grouping; `errors` alone is prose, not a stable key.
    */
   readonly rejectionCodes?: readonly (string | null)[];
+  /**
+   * When this document was handed to the authority with no answer recorded
+   * yet; null once the answer is. REQUIRED ORDERING: written BEFORE the call,
+   * so a crash or a lost turn after the authority received it leaves this set
+   * and the next drive asks what the authority holds instead of sending again.
+   */
+  readonly transmitStartedAt?: string | null;
 }
 
 /** Persistence port for the submission queue. */

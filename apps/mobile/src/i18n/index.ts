@@ -1,8 +1,8 @@
 import { getLocales } from "expo-localization";
 import { Locale, STRINGS, type Strings } from "./strings";
 
-export { Locale } from "./strings";
-export type { Strings } from "./strings";
+export { Locale, WaitUnit } from "./strings";
+export type { Strings, WaitForms } from "./strings";
 
 /** Arabic is the default and the fallback: this is an Arabic-first product, not an English one with a translation. */
 export function activeLocale(): Locale {

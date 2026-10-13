@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Money, WorkspaceHub } from "@mezan/ui";
-import { useCustomers, useSalesInvoices, useSalesQuotes } from "../../data/hooks";
+import { ScreenRequest } from "@mezan/domain";
+import { useCustomers, useMayAskScreen, useSalesInvoices, useSalesQuotes } from "../../data/hooks";
 import { useAppTranslation } from "../../i18n";
 import { DateAndDoc, HubActions, type HubAction } from "./hub-parts";
 import { EMPTY } from "../../lib/empty";
@@ -32,6 +33,7 @@ export function SalesHubScreen() {
   const { t } = useAppTranslation();
   const invoicesQuery = useSalesInvoices();
   const quotesQuery = useSalesQuotes();
+  const readsQuotes = useMayAskScreen(ScreenRequest.SalesQuotes);
   const customersQuery = useCustomers();
 
   const invoices = invoicesQuery.data ?? EMPTY;
@@ -61,7 +63,7 @@ export function SalesHubScreen() {
       stats={[
         { key: "invoices", label: t("salesHub.stat.invoices"), value: invoices.length, sub: t("salesHub.stat.invoicesSub") },
         { key: "receivable", label: t("salesHub.stat.receivable"), value: <Money value={outstandingReceivable} />, sub: t("salesHub.stat.receivableSub") },
-        { key: "quotes", label: t("salesHub.stat.pendingQuotes"), value: pendingQuotes, sub: t("salesHub.stat.pendingQuotesSub") },
+        ...(readsQuotes ? [{ key: "quotes", label: t("salesHub.stat.pendingQuotes"), value: pendingQuotes, sub: t("salesHub.stat.pendingQuotesSub") }] : []),
         { key: "customers", label: t("salesHub.stat.customers"), value: customers.length, sub: t("salesHub.stat.customersSub") },
       ]}
       list={{

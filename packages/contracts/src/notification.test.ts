@@ -8,13 +8,13 @@ import {
 
 describe("notificationChannelStatusSchema", () => {
   it("accepts each known channel status", () => {
-    for (const status of ["delivered", "queued"]) {
+    for (const status of ["delivered", "queued", "sending", "sent", "failed"]) {
       expect(notificationChannelStatusSchema.safeParse(status).success).toBe(true);
     }
   });
 
   it("rejects a status outside the enum", () => {
-    expect(notificationChannelStatusSchema.safeParse("failed").success).toBe(false);
+    expect(notificationChannelStatusSchema.safeParse("bounced").success).toBe(false);
   });
 });
 

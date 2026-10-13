@@ -51,6 +51,7 @@ import { useAppTranslation, type AppTranslationKey } from "../../../i18n";
 import { majorOf, sumMajor } from "../../../lib/money";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
+import { importLimitSentence, oversizeImportRefusal } from "../../../lib/import-limit";
 import { BOQ_UNITS, unitLabel } from "../../../lib/boq-unit-label";
 
 /**
@@ -810,7 +811,7 @@ function FinalSecurityRows({
 /* ------------------------------------------------------------------ */
 
 function BoqTab({ contract, mayManage }: { contract: WorksContractDTO; mayManage: boolean }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const boqQuery = useContractBoq(contract.id);
   const put = usePutContractBoq();
   const review = useReviewBoqImport();
@@ -850,6 +851,12 @@ function BoqTab({ contract, mayManage }: { contract: WorksContractDTO; mayManage
     setError(null);
     try {
       const parsed = await parseDataMigrationFile(await file.arrayBuffer(), IMPORT_SPEC);
+      const tooLarge = oversizeImportRefusal(parsed.rows.length, locale);
+      if (tooLarge !== null) {
+        setImportRows(null);
+        setError(tooLarge);
+        return;
+      }
       const rows: BoqImportRowDTO[] = parsed.rows.map((r) => ({
         code: r.code ?? "",
         descriptionAr: r.descriptionAr ?? "",
@@ -883,7 +890,11 @@ function BoqTab({ contract, mayManage }: { contract: WorksContractDTO; mayManage
 
   return (
     <div className="w-full">
-      {error ? <p className="mb-[10px] text-[12.5px] font-semibold text-danger-ink">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="mb-[10px] text-[12.5px] font-semibold text-danger-ink">
+          {error}
+        </p>
+      ) : null}
 
       {editable ? (
         <div className="mb-[12px] flex flex-wrap items-center gap-[9px]">
@@ -896,6 +907,7 @@ function BoqTab({ contract, mayManage }: { contract: WorksContractDTO; mayManage
             {t("boq.importExcel")}
             <input type="file" accept=".xlsx,.xls,.csv" className="sr-only" onChange={(e) => void onFile(e)} />
           </label>
+          <p className="w-full text-[11.5px] text-ink-muted">{importLimitSentence(locale)}</p>
         </div>
       ) : null}
 

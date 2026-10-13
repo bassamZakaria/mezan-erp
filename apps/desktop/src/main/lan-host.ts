@@ -179,6 +179,7 @@ interface LanRoute {
 const LAN_PUBLIC_ROUTES: readonly LanRoute[] = [
   { method: "POST", path: "/auth/login" },
   { method: "POST", path: "/auth/logout" },
+  { method: "POST", path: "/auth/unlock" },
   { method: "GET", path: "/tenant" },
   { method: "GET", path: "/health" },
   { method: null, path: "/lan", subtree: true },

@@ -1,5 +1,5 @@
 import { useMutation, useMutationState, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { ownerPinResetResultSchema } from "@mezan/contracts";
+import { ownerPinResetResultSchema, REFUSED_TENANT_BOOKS } from "@mezan/contracts";
 import type {
   ApplyCardCheckoutRequestDTO,
   CardCheckoutDTO,
@@ -85,6 +85,8 @@ export function usePlansQuery(): UseQueryResult<PlanDTO[], PlatformApiError> {
 }
 
 /** Every tenant/subscription mutation below returns the refreshed `TenantSummaryDTO`, so the same handler both invalidates the list and seeds the detail page's cache — the detail screen never shows a stale state after its own write. */
+const lockedAccountsKey = (tenantId: string) => ["platform", "tenants", tenantId, "lockedAccounts"] as const;
+
 function useSummaryMutation<TVars>(
   buildPath: (vars: TVars) => string,
   buildBody: (vars: TVars) => unknown,
@@ -104,7 +106,9 @@ function useSummaryMutation<TVars>(
       return res.json<TenantSummaryDTO>();
     },
     onSuccess: (summary) => {
-      queryClient.invalidateQueries({ queryKey: ["platform", "tenants"] });
+      const booksRefused = summary.books !== null && REFUSED_TENANT_BOOKS.includes(summary.books);
+      const lockedAccounts = lockedAccountsKey(summary.tenant.id).join("/");
+      queryClient.invalidateQueries({ queryKey: ["platform", "tenants"], predicate: (query) => !booksRefused || query.queryKey.join("/") !== lockedAccounts });
       queryClient.setQueryData(["platform", "tenants", summary.tenant.id], summary);
     },
   });
@@ -226,8 +230,6 @@ export function useOwnerCandidates(tenantId: string, enabled: boolean) {
     },
   });
 }
-
-const lockedAccountsKey = (tenantId: string) => ["platform", "tenants", tenantId, "lockedAccounts"] as const;
 
 export function useLockedAccounts(tenantId: string, enabled: boolean) {
   const { t } = useAppTranslation();

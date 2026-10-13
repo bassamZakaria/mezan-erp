@@ -1587,7 +1587,8 @@ describe("TenantDetailPage", () => {
     );
 
     it("takes the locked accounts off the page once the books are disowned: an unlock would be refused", async () => {
-      renderDetail({ transport: booksTransport(TenantBooksStanding.Unbound), session: testPlatformSession });
+      const lockedAsked: string[] = [];
+      renderDetail({ transport: booksTransport(TenantBooksStanding.Unbound, [], lockedAsked), session: testPlatformSession });
       expect(await screen.findByText("cashier@acme.test")).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: "ليست دفاتر هذه المنشأة" }));
@@ -1596,6 +1597,8 @@ describe("TenantDetailPage", () => {
 
       expect(await screen.findByText(REASON)).toBeVisible();
       expect(screen.queryByText("cashier@acme.test")).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.getByText("دفاتر موقوفة")).toBeInTheDocument());
+      expect(lockedAsked).toEqual([TenantBooksStanding.Unbound]);
     });
 
     it("asks for the accounts locked out of sign-in while the books are served", async () => {

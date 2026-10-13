@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { test, expect } from "@playwright/test";
+import { test, expect, directApi } from "./support/test";
 import {
   ApiError,
   CodePrefix,
@@ -46,7 +46,7 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () => {
   test.beforeAll(async ({ playwright }) => {
-    const request = await playwright.request.newContext();
+    const request = await directApi(playwright);
     tenantA = await provisionTenant(request, { code: uniqueCode(CodePrefix.IsolatedA), nameAr: "شركة ألفا", ownerNameAr: "علي ألفا", planId: PlanId.Business, trial: true });
     tenantB = await provisionTenant(request, { code: uniqueCode(CodePrefix.IsolatedB), nameAr: "شركة النيل", ownerNameAr: "نهى النيل", planId: PlanId.Core, trial: false });
     await request.dispose();
@@ -223,7 +223,13 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
   test("an invalidated session mid-work lands on sign-in with the reason, not on stale data", async ({ page, request }) => {
     await tenantSignIn(page, tenantA);
     const token = (await storedSession(page))?.token ?? "";
-    const logout = await request.post(`${SAAS_API_URL}/api/auth/logout`, { headers: { authorization: `Bearer ${token}`, [TENANT_HEADER]: tenantA.code } });
+    const headers = { authorization: `Bearer ${token}`, [TENANT_HEADER]: tenantA.code };
+    const tokenAlone = await request.post(`${SAAS_API_URL}/api/auth/logout`, { headers });
+    expect(tokenAlone.status()).toBe(200);
+    await page.goto("/sell/customers");
+    await expect(page.getByRole("cell", { name: CUSTOMER_OF_A }).first()).toBeVisible();
+
+    const logout = await page.request.post("/api/auth/logout", { headers });
     expect(logout.status()).toBe(200);
     await page.goto("/sell/customers");
     await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();

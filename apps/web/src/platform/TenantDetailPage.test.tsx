@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Link, Route, Routes } from "react-router";
 import type { Transport, TransportResponse } from "../data/transport";
@@ -117,6 +117,19 @@ describe("TenantDetailPage", () => {
     expect(screen.getByText("شهرية")).toBeInTheDocument();
     expect(screen.getByText("01/09/2026")).toBeInTheDocument();
     expect(screen.getByText("01/10/2026")).toBeInTheDocument();
+  });
+
+  it("gives every dialog on the page its own key, so the browser console stays free of duplicate-key warnings", async () => {
+    const complaints = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const transport = stubPlatformTransport({
+      "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+      "GET /plans": () => ({ body: [plan, plan2] }),
+    });
+    renderDetail({ transport, session: testPlatformSession });
+    await screen.findByText("باقة النمو — growth");
+
+    expect(complaints.mock.calls.filter((call) => String(call[0]).includes("same key"))).toEqual([]);
+    complaints.mockRestore();
   });
 
   it("shows an honest «لا توجد استحقاقات» when entitlements is null", async () => {

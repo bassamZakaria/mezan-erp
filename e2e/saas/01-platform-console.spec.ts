@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { type APIRequestContext, type Page } from "@playwright/test";
+import { test, expect, directApi } from "./support/test";
 import {
   ApiError,
   CodePrefix,
@@ -80,7 +81,7 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("PLT-SAAS-01..06 — the platform console and the tenant it creates", () => {
   test.beforeAll(async ({ playwright }) => {
-    const request = await playwright.request.newContext();
+    const request = await directApi(playwright);
     paying = await provisionTenant(request, { code: uniqueCode(CodePrefix.Paying), nameAr: "شركة مدفوعة", ownerNameAr: "هالة المدفوعة", planId: PlanId.Enterprise, trial: false });
     await request.dispose();
   });

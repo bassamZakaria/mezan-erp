@@ -653,14 +653,14 @@ export function TenantDetailPage() {
 
       <RecordPaymentDialog open={paymentDialogOpen} onClose={() => setPaymentDialogOpen(false)} tenantId={tenant.id} />
       <ApplyCardPaymentDialog
-        key={applyTarget?.id ?? "closed"}
+        key={`apply:${applyTarget?.id ?? "closed"}`}
         checkout={applyTarget}
         onClose={() => setApplyTarget(null)}
         tenantId={tenant.id}
       />
 
       <ResolveCardCheckoutDialog
-        key={resolveTarget?.id ?? "closed"}
+        key={`resolve:${resolveTarget?.id ?? "closed"}`}
         checkout={resolveTarget}
         canApply={canRenewSubscription(subscription?.status)}
         saving={resolvingId !== null}

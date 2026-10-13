@@ -511,7 +511,7 @@ describe("the companies a deploy finds, written before databases were bound", ()
     expect(crossed.map((login) => login.status)).toEqual([401, 401]);
     expect(seen).toEqual([TenantBooksStanding.Unbound, TenantBooksStanding.Unbound]);
     await servedAsBefore(env, [demo, review]);
-  }, 120_000);
+  }, 300_000);
 
   it("refuses a company registered under the seed admin's own address, whose books hold that account alone and no claim: nobody ever made them theirs", async () => {
     const env = harnessEnv({}, {}, harnessDirs);

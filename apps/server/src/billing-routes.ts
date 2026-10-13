@@ -424,6 +424,8 @@ function testCheckoutPage(checkout: CardCheckout, tenantCode: string): string {
  * buttons do not mark anything paid themselves: they sign a Paymob-shaped
  * callback with the test secret and run it through the same webhook handler.
  */
+const TEST_CHECKOUT_NOT_FOUND = "صفحة الدفع التجريبية غير موجودة";
+
 export function createTestCheckoutRoutes(options: {
   readonly platform: PlatformHandle;
   readonly service: CardCheckoutService;
@@ -434,14 +436,14 @@ export function createTestCheckoutRoutes(options: {
 
   app.get("/:id", async (c) => {
     const checkout = await service.find(c.req.param("id"));
-    if (!checkout || checkout.provider !== provider.id) return c.text("Not found", 404);
+    if (!checkout || checkout.provider !== provider.id) return c.text(TEST_CHECKOUT_NOT_FOUND, 404);
     const tenant = await platform.stores.tenants.findById(checkout.tenantId);
     return c.html(testCheckoutPage(checkout, tenant?.code ?? ""));
   });
 
   app.post("/:id/complete", async (c) => {
     const checkout = await service.find(c.req.param("id"));
-    if (!checkout || checkout.provider !== provider.id) return c.text("Not found", 404);
+    if (!checkout || checkout.provider !== provider.id) return c.text(TEST_CHECKOUT_NOT_FOUND, 404);
     const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
     const outcome = form["outcome"] === "success" ? "success" : "failure";
     if (checkout.status === "pending" || checkout.status === "failed") {

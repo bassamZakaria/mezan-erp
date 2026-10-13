@@ -471,3 +471,18 @@ describe("a company code the platform keeps for itself", () => {
     expect(((await listed.json()) as { tenant: { code: string } }[]).map((row) => row.tenant.code)).toEqual(["nile"]);
   });
 });
+
+describe("the local test checkout page", () => {
+  it.each([
+    ["opened", "GET", "/billing/test-checkout/no-such-checkout"],
+    ["completed", "POST", "/billing/test-checkout/no-such-checkout/complete"],
+  ])("answers in Arabic, never in English, when a checkout that does not exist is %s", async (_label, method, route) => {
+    const cloud = await bootCloudHarness({ vars: { MEZAN_PAYMOB_TEST_MODE: "1" } });
+    harnesses.push(cloud);
+
+    const res = await cloud.send(route, { method });
+
+    expect(res.status).toBe(404);
+    expect(await res.text()).toBe("صفحة الدفع التجريبية غير موجودة");
+  });
+});

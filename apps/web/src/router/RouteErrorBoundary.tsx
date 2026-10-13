@@ -1,6 +1,21 @@
 import { isRouteErrorResponse, useLocation, useNavigate, useRouteError } from "react-router";
 import { Button } from "@mezan/ui";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
+
+const HTTP_UNAUTHENTICATED = 401;
+const HTTP_FORBIDDEN = 403;
+const HTTP_NOT_FOUND = 404;
+const HTTP_SERVER_ERRORS_FROM = 500;
+
+// SECURITY: a response's own body and status text are never printed. They are
+// whatever a server wrote, in whatever language; the line is chosen by status.
+function refusalDetailKey(status: number): AppTranslationKey {
+  if (status === HTTP_NOT_FOUND) return "routeError.detail.notFound";
+  if (status === HTTP_UNAUTHENTICATED) return "routeError.detail.unauthenticated";
+  if (status === HTTP_FORBIDDEN) return "routeError.detail.forbidden";
+  if (status >= HTTP_SERVER_ERRORS_FROM) return "routeError.detail.server";
+  return "routeError.detail.other";
+}
 
 /**
  * What a screen renders instead of disappearing when it throws.
@@ -22,12 +37,8 @@ export function RouteErrorBoundary() {
   const { t } = useAppTranslation();
 
   const status = isRouteErrorResponse(error) ? error.status : null;
-  const detail =
-    isRouteErrorResponse(error)
-      ? (error.data as string | undefined) ?? error.statusText
-      : error instanceof Error
-        ? error.message
-        : String(error);
+  const thrownMessage = status === null ? (error instanceof Error ? error.message : String(error)) : null;
+  const refusal = status === null ? null : t(refusalDetailKey(status), { status, path: location.pathname });
 
   return (
     <div
@@ -35,24 +46,25 @@ export function RouteErrorBoundary() {
       className="flex flex-col items-start gap-[12px] rounded-lg border border-danger/40 bg-danger/5 p-[20px]"
     >
       <h2 className="text-lg font-semibold text-ink">
-        {status === 404 ? t("routeError.notFoundTitle") : t("routeError.title")}
+        {status === HTTP_NOT_FOUND ? t("routeError.notFoundTitle") : t("routeError.title")}
       </h2>
       <p className="text-sm text-ink-muted">
-        {status === 404
+        {status === HTTP_NOT_FOUND
           ? t("routeError.notFoundBody")
           : /* The path is the screen's support code: «تعذّر عرض هذه الشاشة» is
                the same sentence on all 118 of them, so a ticket that quotes it
                names no screen at all. */
             t("routeError.body", { screen: location.pathname })}
       </p>
+      {refusal ? <p className="text-xs text-ink-muted">{refusal}</p> : null}
       {/*
-        The raw message is shown, not swallowed. A support call that can quote
-        the failure is worth more than a tidy panel, and this is a desktop app
-        with no server-side log the operator can be asked to send.
+        A thrown error's own message is shown, not swallowed. A support call
+        that can quote the failure is worth more than a tidy panel, and this is
+        a desktop app with no server-side log the operator can be asked to send.
       */}
-      {detail ? (
+      {thrownMessage ? (
         <pre className="max-w-full overflow-x-auto rounded border border-border bg-surface p-[10px] text-xs text-ink-muted" dir="ltr">
-          {detail}
+          {thrownMessage}
         </pre>
       ) : null}
       <div className="flex gap-[8px]">

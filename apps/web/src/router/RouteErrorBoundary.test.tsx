@@ -23,6 +23,13 @@ function renderRouter(initialEntries: string[]) {
         },
         ErrorBoundary: RouteErrorBoundary,
       },
+      ...[401, 403, 500, 503, 418].map((status) => ({
+        path: `/refused/${status}`,
+        loader: () => {
+          throw new Response(`Server said ${status}`, { status, statusText: "Raw Server Text" });
+        },
+        ErrorBoundary: RouteErrorBoundary,
+      })),
     ],
     { initialEntries },
   );
@@ -72,5 +79,30 @@ describe("RouteErrorBoundary", () => {
   it("renders a retry button labelled with the Arabic retry copy", () => {
     renderRouter(["/boom"]);
     expect(screen.getByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+  });
+
+  it("says which address was not found in Arabic, and never prints the server's own words for it", async () => {
+    renderRouter(["/missing"]);
+
+    const alert = await screen.findByRole("alert");
+
+    expect(alert).toHaveTextContent("العنوان المطلوب: /missing");
+    expect(alert).not.toHaveTextContent(/not found/i);
+  });
+
+  it.each([
+    [401, "انتهت الجلسة أو لم يُسجَّل الدخول (401)."],
+    [403, "لا تملك صلاحية عرض هذه الشاشة (403)."],
+    [500, "الخادم لم يُجب كما يجب (500). حاول بعد قليل."],
+    [503, "الخادم لم يُجب كما يجب (503). حاول بعد قليل."],
+    [418, "رمز الخطأ: 418"],
+  ])("explains a refusal with status %i in Arabic, and never prints the response's own text", async (status, line) => {
+    renderRouter([`/refused/${status}`]);
+
+    const alert = await screen.findByRole("alert");
+
+    expect(alert).toHaveTextContent(line);
+    expect(alert).not.toHaveTextContent("Server said");
+    expect(alert).not.toHaveTextContent("Raw Server Text");
   });
 });

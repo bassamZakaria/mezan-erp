@@ -120,6 +120,7 @@ function ReceiptDetail({
   receipt,
   order,
   supplierName,
+  warehouseName,
   itemName,
   projectName,
   onBack,
@@ -129,6 +130,7 @@ function ReceiptDetail({
   receipt: GoodsReceiptDTO;
   order: { number: string } | undefined;
   supplierName: (id: string) => string;
+  warehouseName: (id: string) => string;
   itemName: (id: string) => string;
   projectName: (id: string | null) => string;
   onBack: () => void;
@@ -156,7 +158,7 @@ function ReceiptDetail({
         { label: t("common.supplier"), value: supplierName(receipt.supplierId) },
         { label: t("goodsReceipts.detail.order"), value: order?.number ?? receipt.purchaseOrderId },
         { label: t("common.date"), value: receipt.date.split("-").reverse().join("/") },
-        { label: t("common.warehouse"), value: receipt.warehouseId },
+        { label: t("common.warehouse"), value: warehouseName(receipt.warehouseId) },
         { label: t("common.project"), value: projectName(receipt.projectId) },
         { label: t("goodsReceipts.detail.totalCost"), value: <MoneyValue value={num(receipt.totalCost)} /> },
         { label: t("goodsReceipts.detail.invoiceStatus"), value: t(INVOICING_KEY[receipt.invoicingStatus]), valueTone: receipt.invoiced ? "success" : undefined },
@@ -708,6 +710,7 @@ export function GoodsReceiptsScreen() {
           receipt={selected}
           order={selected.purchaseOrderId ? orderById.get(selected.purchaseOrderId) : undefined}
           supplierName={supplierName}
+          warehouseName={(id) => filterWarehouses.find((warehouse) => warehouse.id === id)?.name ?? id}
           itemName={itemName}
           projectName={projectName}
           onBack={() => subPage.close()}

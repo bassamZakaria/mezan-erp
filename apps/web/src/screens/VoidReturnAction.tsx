@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DocumentStatusCode } from "@mezan/domain";
 import { Button, ConfirmDialog } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
 import { DocumentReadPermission, sessionMayRead } from "../data/document-read-permissions";
@@ -13,6 +14,8 @@ export interface VoidableReturn {
   readonly docNo: string | null;
   readonly status: string;
   readonly voidReason?: string | null;
+  readonly reversesDocId?: string | null;
+  readonly reversedByDocId?: string | null;
 }
 
 const VOID_PERMISSION: Record<ReturnFamily, DocumentReadPermission> = {
@@ -20,12 +23,11 @@ const VOID_PERMISSION: Record<ReturnFamily, DocumentReadPermission> = {
   [ReturnFamily.Purchases]: DocumentReadPermission.PurchaseReturnVoid,
 };
 
-const VOIDABLE_STATUS = "confirmed";
 
 export function useMayVoidReturn(family: ReturnFamily): (document: VoidableReturn) => boolean {
   const { session } = useApi();
   const permitted = sessionMayRead(session, VOID_PERMISSION[family]);
-  return (document) => permitted && document.status === VOIDABLE_STATUS;
+  return (document) => permitted && document.status === DocumentStatusCode.Confirmed && !document.reversesDocId;
 }
 
 export function VoidReturnDialog({ family, document, onClose }: { family: ReturnFamily; document: VoidableReturn | null; onClose: () => void }) {
@@ -95,5 +97,24 @@ export function VoidReturnReasonNotice({ document }: { document: VoidableReturn 
     <p role="note" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
       {t("voidReturn.reasonShown", { reason: document.voidReason })}
     </p>
+  );
+}
+
+export function returnDocumentLabel(document: VoidableReturn, originalNo: string | null | undefined, untitled: string, t: (key: "voidReturn.mirrorOf", params: { number: string }) => string): string {
+  if (document.docNo) return document.docNo;
+  return document.reversesDocId ? t("voidReturn.mirrorOf", { number: originalNo ?? document.reversesDocId }) : untitled;
+}
+
+export function ReturnMirrorLinks({ document, originalNo, onOpen }: { document: VoidableReturn; originalNo: string | null | undefined; onOpen: (id: string) => void }) {
+  const { t } = useAppTranslation();
+  const otherId = document.reversesDocId ?? document.reversedByDocId ?? null;
+  if (otherId === null) return null;
+  return (
+    <div role="note" className="flex flex-wrap items-center gap-[10px] rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12.5px] text-ink">
+      <span>{document.reversesDocId ? t("voidReturn.mirrorNotice", { number: originalNo ?? otherId }) : t("voidReturn.voidedNotice")}</span>
+      <Button size="sm" onClick={() => onOpen(otherId)}>
+        {t(document.reversesDocId ? "voidReturn.openOriginal" : "voidReturn.openMirror")}
+      </Button>
+    </div>
   );
 }

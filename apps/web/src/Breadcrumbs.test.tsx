@@ -61,6 +61,18 @@ describe("Breadcrumbs — the last crumb names where you are", () => {
     expect(screen.queryByText(/3f0c7b1a/)).not.toBeInTheDocument();
   });
 
+  it.each(["sales-returns", "purchase-returns", "landed-costs"] as const)("a reversing document of «%s», addressed by its internal id, never shows that id", (screenKey) => {
+    renderWithProviders(
+      <TestNavigation initialSegments={["SRT-DEMO-1:void"]}>
+        <SubPageNamesProvider>
+          <Breadcrumbs screen={screenKey} />
+        </SubPageNamesProvider>
+      </TestNavigation>,
+      { initialSession: testAdminSession },
+    );
+    expect(screen.queryByText(/:void/)).not.toBeInTheDocument();
+  });
+
   it.each(["due", "history", "depreciation"])("the recurring journals tab «%s» is named in Arabic, not by its URL segment", (segment) => {
     renderWithProviders(
       <TestNavigation initialSegments={[segment]}>

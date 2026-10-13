@@ -17,7 +17,7 @@ import {
   type RowMenuItem,
   ConfirmDialog,
 } from "@mezan/ui";
-import { Money, Qty, distributeLandedCost, landedCostTotalsByType, type AllocatedLandedCostLine } from "@mezan/domain";
+import { DocumentStatusCode, Money, Qty, distributeLandedCost, landedCostTotalsByType, type AllocatedLandedCostLine } from "@mezan/domain";
 import type {
   CostCategoryDTO,
   DocumentStatusDTO,
@@ -39,7 +39,7 @@ import {
   useWarehouses,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
-import { useScreenIntent } from "../navigation";
+import { useNameSubPage, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
@@ -142,7 +142,9 @@ export function LandedCostsScreen() {
     [projects],
   );
 
-  const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
+  const [panel, setPanel] = useState<"none" | "create">("none");
+  const subPage = useSubPage();
+  const [addressed] = subPage.segments;
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
     "all" | DocumentStatusDTO,
     (next: string) => void,
@@ -220,7 +222,8 @@ export function LandedCostsScreen() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const selected = typeof panel === "object" ? (documents.find((d) => d.id === panel.id) ?? null) : null;
+  const selected = addressed ? (documents.find((d) => d.id === addressed || d.docNo === addressed) ?? null) : null;
+  useNameSubPage(selected ? addressed : null, selected ? (selected.docNo ?? t("docStatus.draft")) : null);
   /**
    * `costItems` is denormalized onto EVERY line, so the document's cost breakdown
    * is read off one line — summing across lines would multiply it by the line count.
@@ -396,7 +399,7 @@ export function LandedCostsScreen() {
         className="text-[11.5px] font-semibold text-brand underline-offset-2 hover:underline"
         onClick={(event) => {
           event.stopPropagation();
-          setPanel({ id: otherId });
+          subPage.open(otherId);
         }}
       >
         {t(d.reversedByDocId ? "landedCosts.reversedByDocument" : "landedCosts.reversesDocument", { number: other?.docNo ?? otherId })}
@@ -502,12 +505,12 @@ export function LandedCostsScreen() {
         rows={pageRows}
         loading={itemsQuery.isLoading}
         rowKey={(d) => d.id}
-        onRowClick={(d) => setPanel({ id: d.id })}
+        onRowClick={(d) => subPage.open(d.id)}
         rowAction={(d) => {
           // Derived from THIS document's state: a draft can still be confirmed or
           // dropped, a confirmed one can only be reversed (R1.3).
           const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => setPanel({ id: d.id }) },
+            { key: "view", label: t("common.view"), onSelect: () => subPage.open(d.id) },
             ...(d.status === "draft"
               ? [
                   { key: "confirm", label: t("landedCosts.confirm"), onSelect: () => void confirmExisting(d.id) },
@@ -515,7 +518,7 @@ export function LandedCostsScreen() {
                 ]
               : []),
             ...resubmitRowMenuItems(resubmit, d),
-            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), tone: "danger" as const, disabled: reversingId === d.id, confirm: { title: t("landedCosts.void"), consequence: t("landedCosts.voidConsequence", { doc: d.docNo ?? d.id }), confirmLabel: t("landedCosts.void") }, onSelect: () => void reverseConfirmed(d.id) }] : []),
+            ...(d.status === DocumentStatusCode.Confirmed && !d.reversesDocId ? [{ key: "void", label: t("landedCosts.void"), tone: "danger" as const, disabled: reversingId === d.id, confirm: { title: t("landedCosts.void"), consequence: t("landedCosts.voidConsequence", { doc: d.docNo ?? d.id }), confirmLabel: t("landedCosts.void") }, onSelect: () => void reverseConfirmed(d.id) }] : []),
           ];
           return (
             <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
@@ -698,7 +701,7 @@ export function LandedCostsScreen() {
         </div>
       </SidePanel>
 
-      <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? t("landedCosts.detailTitle")}>
+      <SidePanel open={selected !== null} onClose={() => subPage.close()} title={selected?.docNo ?? t("landedCosts.detailTitle")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
@@ -756,7 +759,7 @@ export function LandedCostsScreen() {
                 </Button>
               </div>
             ) : null}
-            {selected.status === "confirmed" ? (
+            {selected.status === DocumentStatusCode.Confirmed && !selected.reversesDocId ? (
               <>
                 <Button variant="danger-outline" disabled={reversingId === selected.id} onClick={() => setReverseAsked(selected.id)}>
                   {t("landedCosts.void")}

@@ -9,10 +9,10 @@ import type {
   TopProductsRow,
   VatReturnRow,
 } from "@mezan/domain";
-import { Money, vatNetPayable } from "@mezan/domain";
+import { Money, ScreenRequest, vatNetPayable } from "@mezan/domain";
 import { useFinancialReport, type FinancialReportResult } from "../data/financial-reports-hooks";
 import { useReport, type ReportResult } from "../data/reports-hooks";
-import { useSalesInvoices } from "../data/hooks";
+import { useMayAskScreen, useSalesInvoices } from "../data/hooks";
 import type { ApiError, SalesInvoiceDTO } from "../data/hooks";
 import type { UseQueryResult } from "@tanstack/react-query";
 
@@ -83,7 +83,8 @@ export function useCustomerAging(): UseQueryResult<ReportResult<AgingCustomersRo
 }
 
 export function useSupplierAging(): UseQueryResult<ReportResult<AgingSuppliersRow>, ApiError> {
-  return useReport<AgingSuppliersRow>("dashboard-aging-suppliers", "/aging/suppliers", {});
+  const enabled = useMayAskScreen(ScreenRequest.SupplierAging);
+  return useReport<AgingSuppliersRow>("dashboard-aging-suppliers", "/aging/suppliers", {}, { enabled });
 }
 
 export function useStockLevels(): UseQueryResult<ReportResult<InventoryStockLevelsRow>, ApiError> {

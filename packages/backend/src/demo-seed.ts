@@ -13,6 +13,7 @@ import { seedPlatform } from "./demo-seed/platform.js";
 import { seedAttachments } from "./demo-seed/attachments.js";
 import { seedFragments } from "./demo-seed/fragment-registry.js";
 import { seedHistory } from "./demo-seed/history.js";
+import { registerEveryUnmappedItem } from "./demo-seed/eta-codes.js";
 import { seedContracting, seedContractingProjectInvoice } from "./demo-seed/contracting.js";
 import { seedContractingContracts } from "./demo-seed/contracting-contracts.js";
 import { seedContractingSite } from "./demo-seed/contracting-site.js";
@@ -473,6 +474,8 @@ const ETA_ITEM_CODES = [
   { itemId: "ITEM-DEMO-10", etaItemCode: "EG-100200300-1010", gpcCode: "10005803" },
   { itemId: "ITEM-DEMO-11", etaItemCode: "EG-100200300-1011", gpcCode: "10000117" },
   { itemId: "ITEM-DEMO-12", etaItemCode: "EG-100200300-1012", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-13", etaItemCode: "EG-100200300-1013", gpcCode: "10000117" },
+  { itemId: "ITEM-DEMO-14", etaItemCode: "EG-100200300-1014", gpcCode: "10000117" },
 ];
 
 function salespersonNameOf(employeeId: string | null): string | null {
@@ -842,6 +845,7 @@ export async function seedDemoTenant(
   await seedGuidedClose(app);
   // INVARIANT: after every seed that posts to the bank before August, the guided close's July bank charge included — the statement opens on the book balance of 31 July, and a posting dated earlier that lands after it leaves a difference no matching can explain.
   await seedBankStatement(app);
+  await registerEveryUnmappedItem(app);
 }
 
 /**

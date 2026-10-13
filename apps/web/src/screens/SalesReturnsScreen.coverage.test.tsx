@@ -270,6 +270,28 @@ describe("SalesReturnsScreen — a draft return with no return number yet", () =
   });
 });
 
+describe("SalesReturnsScreen — the document that reversed a return", () => {
+  const original = salesReturn({ id: "sr-1", docNo: "SR-000001", status: "reversed", reversedByDocId: "sr-1:void" });
+  const mirror = salesReturn({ id: "sr-1:void", docNo: null, status: "confirmed", reversesDocId: "sr-1" });
+  const oneReturn = { "GET /sales-returns/*": (_init: RequestInit | undefined, path: string) => (decodeURIComponent(path).endsWith("/sr-1:void") ? { body: mirror } : { status: 404, body: { error: "NOT_FOUND" } }) };
+
+  it("opens at its own address as a read-only page named after the return it reverses, and leads back to that return", async () => {
+    render([original], oneReturn, undefined, ["sr-1:void"]);
+
+    expect(await screen.findByRole("heading", { name: "عكس SR-000001" })).toBeInTheDocument();
+    expect(screen.getByText(/قيد عكس المرتجع SR-000001/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "إلغاء المرتجع" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "طباعة" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "مرتجعات المبيعات" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "عرض المرتجع الأصلي" }));
+
+    expect(await screen.findByRole("heading", { name: "SR-000001" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "عرض مستند العكس" }));
+    expect(await screen.findByRole("heading", { name: "عكس SR-000001" })).toBeInTheDocument();
+  });
+});
+
 describe("SalesReturnsScreen — a sub-page id that matches no return", () => {
   it("falls back to the returns list instead of an empty detail view", async () => {
     const transport = stubTransport(baseHandlers([salesReturn()]));

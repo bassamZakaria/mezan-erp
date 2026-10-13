@@ -1,3 +1,4 @@
+export { formatMoney } from "./format-money.js";
 export {
   SUPPORTED_CURRENCIES,
   SUPPORTED_CURRENCY_CODES,

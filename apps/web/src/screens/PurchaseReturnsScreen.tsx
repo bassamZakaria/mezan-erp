@@ -23,6 +23,7 @@ import {
   useItems,
   usePurchaseInvoices,
   usePurchaseReturns,
+  useReturnDocument,
   useReturnSourceLines,
   ReturnKind,
   usePurchaseReturnCounts,
@@ -33,7 +34,7 @@ import {
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { PurchaseReturnPrintPage } from "../print/documents";
-import { useScreenIntent, useSubPage } from "../navigation";
+import { useNameSubPage, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { nextReturnSourceLine, sourceLineOptions } from "./return-source-lines";
 import { majorOf } from "../lib/money";
@@ -41,7 +42,7 @@ import { returnLinesTotal } from "./exact-line-totals";
 import { todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { ReturnJournalCard } from "./ReturnJournalCard";
-import { ReturnFamily, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
+import { ReturnFamily, ReturnMirrorLinks, VoidReturnAction, VoidReturnDialog, VoidReturnReasonNotice, returnDocumentLabel, useMayVoidReturn, type VoidableReturn } from "./VoidReturnAction";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { ResubmitErrorNotice, ResubmitFamily, ResubmitForApprovalAction, resubmitRowMenuItems, useResubmitForApproval } from "./ResubmitForApprovalAction";
 
@@ -183,10 +184,13 @@ export function PurchaseReturnsScreen() {
   const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const pageRows = documents.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const selected =
-    firstSegment !== undefined && firstSegment !== "new"
-      ? (documents.find((d) => d.id === firstSegment || d.docNo === firstSegment) ?? null)
-      : null;
+  const addressed = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : "";
+  const listed = addressed === "" ? null : (documents.find((d) => d.id === addressed || d.docNo === addressed) ?? null);
+  const unlisted = useReturnDocument<(typeof documents)[number]>(ReturnFamily.Purchases, addressed !== "" && !listed && query.isSuccess ? addressed : "");
+  const selected = listed ?? unlisted.data ?? null;
+  const reversedReturnNo = selected?.reversesDocId ? (documents.find((d) => d.id === selected.reversesDocId)?.docNo ?? null) : null;
+  const selectedLabel = selected ? returnDocumentLabel(selected, reversedReturnNo, t("purchaseReturns.detailTitle"), t) : null;
+  useNameSubPage(selected ? addressed : null, selectedLabel);
 
   useScreenIntent((intent) => {
     openCreate(intent.prefill?.invoiceId);
@@ -382,8 +386,8 @@ export function PurchaseReturnsScreen() {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.returns")}</div>
-          <h1 className="font-display text-xl font-bold text-ink">{selected?.docNo ?? t("purchaseReturns.detailTitle")}</h1>
-          {selected ? (
+          <h1 className="font-display text-xl font-bold text-ink">{selectedLabel ?? t("purchaseReturns.detailTitle")}</h1>
+          {selected && !selected.reversesDocId ? (
             <Button className="mt-2" onClick={() => subPage.open(selected.docNo ?? selected.id, "print")}>
               {t("print.action.print")}
             </Button>
@@ -393,6 +397,7 @@ export function PurchaseReturnsScreen() {
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+            <ReturnMirrorLinks document={selected} originalNo={reversedReturnNo} onOpen={(id) => subPage.open(id)} />
             <div className="text-[12.5px] text-ink-muted">{t("purchaseReturns.sourceInvoice", { number: selected.lines[0]?.sourceInvoiceNumber ?? "—" })}</div>
             <div className="flex flex-col gap-1.5">
               {selected.lines.map((l, i) => (
@@ -426,7 +431,7 @@ export function PurchaseReturnsScreen() {
 
   if (firstSegment === "new") return createPage;
   // إشعار خصم — the debit note sent to the supplier (P-6).
-  if (selected && subPage.segments[1] === "print") return <PurchaseReturnPrintPage document={selected} />;
+  if (selected && !selected.reversesDocId && subPage.segments[1] === "print") return <PurchaseReturnPrintPage document={selected} />;
   if (selected) return detailPage;
 
   return (

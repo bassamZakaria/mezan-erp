@@ -2076,10 +2076,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const customerNameOf = async (id: string | null | undefined) => (id ? ((await customers.findById(id))?.nameAr ?? null) : null);
   const supplierNameOf = async (id: string | null | undefined) => (id ? ((await suppliers.findById(id))?.nameAr ?? null) : null);
   const warehouseNameOf = async (id: string | null | undefined) => (id ? ((await warehouses.findById(id))?.name ?? null) : null);
+  const salesInvoiceNoOf = async (line: { sourceInvoiceId: string; sourceInvoiceNumber: string | null } | undefined) =>
+    line ? (line.sourceInvoiceNumber ?? (await salesInvoices.findById(line.sourceInvoiceId))?.docNo ?? null) : null;
+  const purchaseInvoiceNoOf = async (line: { sourceInvoiceId: string; sourceInvoiceNumber: string | null } | undefined) =>
+    line ? (line.sourceInvoiceNumber ?? (await purchaseInvoices.findById(line.sourceInvoiceId))?.number ?? null) : null;
   const voucherPartyNameOf = async (line: VoucherLine) => (await customerNameOf(line.customerId)) ?? (await supplierNameOf(line.supplierId));
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
-    approvalLabel: async (doc) => approvalLabel({ type: "مرتجع مبيعات", amount: salesReturnGrandTotal(doc), party: await customerNameOf(doc.lines[0]?.customerId) }),
+    approvalLabel: async (doc) => approvalLabel({ type: "مرتجع مبيعات", reference: await salesInvoiceNoOf(doc.lines[0]), amount: salesReturnGrandTotal(doc), party: await customerNameOf(doc.lines[0]?.customerId) }),
     numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
     gl: returnReliefGl("sales", salesReturnStore, salesReturnLineCredit),
     stock: createInventoryStockHook(stockService),
@@ -2103,7 +2107,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
-    approvalLabel: async (doc) => approvalLabel({ type: "مرتجع مشتريات", amount: purchaseReturnGrandTotal(doc), party: await supplierNameOf(doc.lines[0]?.supplierId) }),
+    approvalLabel: async (doc) => approvalLabel({ type: "مرتجع مشتريات", reference: await purchaseInvoiceNoOf(doc.lines[0]), amount: purchaseReturnGrandTotal(doc), party: await supplierNameOf(doc.lines[0]?.supplierId) }),
     numbering: { next: (opts) => ledger.numbering.next("PURCHASE_RETURN", { branchId: opts?.branchId }) },
     gl: returnReliefGl("purchase", purchaseReturnStore, purchaseReturnLineCredit),
     stock: createInventoryStockHook(stockService),

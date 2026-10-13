@@ -984,7 +984,7 @@ export async function foreignSettledInBaseIsNotRevalued_D260(ctx: Ctx): Promise<
         treasuryAccountId: "TR-DEMO-CASH", treasuryGlAccountId: cashGl, counterpartyGlAccountId: "1105", customerId: "SCN-D260-CUST",
       });
       check("an EGP 3,100.00 receipt posts", receipt.status === 201 && (await req("POST", "/vouchers/SCN-D260-CV/confirm", {})).status === 200);
-      const half = await req("POST", "/vouchers/SCN-D260-CV/allocations", { allocationId: "SCN-D260-CV-A1", invoiceId: "SCN-D260-SI2", amount: "3100" });
+      const half = await req("POST", "/vouchers/SCN-D260-CV/allocations", { allocationId: "SCN-D260-CV-A1", invoiceId: "SCN-D260-SI2", amount: "3100", date: today });
       check("and is applied to SCN-D260-SI2", half.status === 201, `status ${half.status} ${JSON.stringify(half.body).slice(0, 200)}`);
       checkEq("D221: the two settlements realise 200.00 + 100.00 on 4920", (await glBalanceOf("4920")) - start.gain, -300);
       let ar = await detailOn("1105", today);
@@ -1010,7 +1010,7 @@ export async function foreignSettledInBaseIsNotRevalued_D260(ctx: Ctx): Promise<
         treasuryAccountId: "TR-DEMO-BANK", treasuryGlAccountId: bankGl, counterpartyGlAccountId: "2100", supplierId: "SCN-D260-SUPP",
       });
       check("an EGP 6,200.00 «شيك» payment posts", (await req("POST", "/vouchers", payment("SCN-D260-PV1", "cheque", ctx.onCalendar("2026-08-26")))).status === 201 && (await req("POST", "/vouchers/SCN-D260-PV1/confirm", {})).status === 200);
-      const applied = await req("POST", "/cheques/SCN-D260-PV1/allocations", { allocationId: "SCN-D260-PV1-A1", invoiceId: "SCN-D260-PI", amount: "6200" });
+      const applied = await req("POST", "/cheques/SCN-D260-PV1/allocations", { allocationId: "SCN-D260-PV1-A1", invoiceId: "SCN-D260-PI", amount: "6200", date: today });
       check("and its cheque pays the GBP bill in full", applied.status === 201 && n((await req("GET", "/purchases/invoices/SCN-D260-PI")).body?.remainingBalance) === 0, `status ${applied.status}`);
       checkEq("D221: paying 200.00 more than booked is a realised loss on 5920", (await glBalanceOf("5920")) - start.loss, 200);
       let ap = await detailOn("2100", today);
@@ -1093,7 +1093,7 @@ export async function allocationUndoneAndMadeAgainSettlesOnce_D265(ctx: Ctx): Pr
         treasuryAccountId: "TR-DEMO-CASH", treasuryGlAccountId: cashGl, counterpartyGlAccountId: "1105", customerId: "SCN-D265-CUST",
       });
       check("an EGP 700.00 receipt dated 26 August posts on account", receipt.status === 201 && (await req("POST", "/vouchers/SCN-D265-CV/confirm", {})).status === 200);
-      const apply = (id: string) => req("POST", "/vouchers/SCN-D265-CV/allocations", { allocationId: id, invoiceId: "SCN-D265-SI", amount: "700" });
+      const apply = (id: string) => req("POST", "/vouchers/SCN-D265-CV/allocations", { allocationId: id, invoiceId: "SCN-D265-SI", amount: "700", date: today });
       check("today it is applied to SCN-D265-SI", (await apply("SCN-D265-A1")).status === 201);
       check("the allocation is undone", (await req("POST", "/allocations/SCN-D265-A1/reverse", {})).status === 200);
       check("and applied again", (await apply("SCN-D265-A2")).status === 201);

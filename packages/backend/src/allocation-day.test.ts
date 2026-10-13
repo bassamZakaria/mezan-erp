@@ -86,6 +86,26 @@ describe("an allocation made after the money was received takes effect on the la
   });
 });
 
+describe("money or an invoice freed by an undone allocation is free from the day of the undo", () => {
+  const TODAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Cairo" }).format(new Date());
+
+  it.each(Object.values(Money))("%s: allocated, undone today and allocated again with no date — the second takes today, never a day on which the first still stood", async (kind) => {
+    books = await openFxBooks();
+    await baseInvoice("2026-09-15");
+    const url = await money(kind, "400");
+    await books.ok("POST", url, { allocationId: "al-1", invoiceId: "inv-egp", amount: "400" });
+    await books.ok("POST", "/allocations/al-1/reverse", {}, 200);
+
+    const early = await books.world.request("POST", url, { allocationId: "al-early", invoiceId: "inv-egp", amount: "400", date: "2026-09-20" });
+    expect(`${early.status} ${String(early.body.error)}`).toBe("422 ALLOCATION_DATE_TOO_EARLY");
+    expect(String(early.body.message)).toContain(TODAY);
+
+    await books.ok("POST", url, { allocationId: "al-2", invoiceId: "inv-egp", amount: "400" });
+    expect(allocationDay("al-2")).toBe(TODAY);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});
+
 describe("a foreign invoice settled by an allocation made later", () => {
   async function usdInvoiceAndSeptemberMoney(): Promise<void> {
     books = await openFxBooks();

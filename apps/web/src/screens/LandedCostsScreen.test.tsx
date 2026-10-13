@@ -79,9 +79,6 @@ function baseHandlers(docs: LandedCostDocumentDTO[]) {
   };
 }
 
-const TOTAL_LABEL = "إجمالي المستندات";
-const CONFIRMED_LABEL = "مؤكدة";
-
 describe("LandedCostsScreen", () => {
   it("shows the empty state when there are no landed cost documents", async () => {
     const transport = stubTransport(baseHandlers([]));
@@ -149,22 +146,6 @@ describe("LandedCostsScreen", () => {
     const confirmButtons = screen.getAllByRole("button", { name: "إلغاء المستند" });
     fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
     await within(dialog).findByText("معكوس");
-  });
-});
-
-describe("LandedCostsScreen — a reversed landed cost and its reversal net to nothing", () => {
-  it("counts neither in the totals above the list, while both rows stay listed", async () => {
-    const original = landedCost({ id: "lc-1", docNo: "LC-000001", status: "reversed", reversedByDocId: "lc-1-rev" });
-    const mirror = landedCost({ id: "lc-1-rev", docNo: "LC-000002", status: "confirmed", reversesDocId: "lc-1" });
-    const standing = landedCost({ id: "lc-2", docNo: "LC-000003", status: "confirmed" });
-    renderWithProviders(<LandedCostsScreen />, { transport: stubTransport(baseHandlers([original, mirror, standing])), initialSession: testAdminSession });
-
-    expect(await screen.findByText("LC-000002")).toBeInTheDocument();
-    expect(screen.getByText("LC-000001")).toBeInTheDocument();
-    for (const label of [TOTAL_LABEL, CONFIRMED_LABEL]) {
-      const stat = screen.getByText(label).parentElement as HTMLElement;
-      expect(within(stat).getByText("1"), label).toBeInTheDocument();
-    }
   });
 });
 

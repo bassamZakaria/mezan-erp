@@ -3,7 +3,7 @@ import type { FiscalPeriodRepository } from "../fiscal-periods/fiscal-period.js"
 import type { LedgerRepository } from "../gl/ledger.js";
 import { assertPeriodOpen } from "../gl/post.js";
 import { earliestDayAfterRevaluation } from "../gl/revaluation-lock.js";
-import { laterDay } from "./allocation.js";
+import { laterDay, type VoucherAllocation } from "./allocation.js";
 import { AllocationMismatchError } from "./errors.js";
 
 export class AllocationDateTooEarlyError extends AllocationMismatchError {
@@ -13,9 +13,9 @@ export class AllocationDateTooEarlyError extends AllocationMismatchError {
     readonly date: string,
     readonly earliestDate: string,
   ) {
-    super(`تاريخ التخصيص ${date} أسبق من ${earliestDate}، وهو الأحدث من تاريخ السند وتاريخ الفاتورة؛ لا يُخصَّص مبلغ على فاتورة قبل وجودهما معاً.`);
+    super(`تاريخ التخصيص ${date} أسبق من ${earliestDate}، وهو أول يوم يتاح فيه المبلغ والفاتورة معاً: الأحدث من تاريخ السند وتاريخ الفاتورة ويوم إلغاء أي تخصيص سابق عليهما.`);
     this.name = "AllocationDateTooEarlyError";
-    this.messageEn = `Allocation date ${date} is before ${earliestDate}, the later of the money's date and the invoice's; money cannot settle an invoice before both exist.`;
+    this.messageEn = `Allocation date ${date} is before ${earliestDate}, the first day the money and the invoice are both free: the latest of the money's date, the invoice's date and the day any earlier allocation on either was undone.`;
   }
 }
 
@@ -24,6 +24,7 @@ export interface LaterAllocationDayInput {
   readonly moneyDay: string;
   readonly invoiceDay: string;
   readonly currencies: ReadonlySet<string>;
+  readonly earlierAllocations: readonly VoucherAllocation[];
 }
 
 export interface LaterAllocationDayDeps {
@@ -33,7 +34,8 @@ export interface LaterAllocationDayDeps {
 
 // INVARIANT: only a day nobody chose falls forward (past a closed period, past a run that still stands for the currency); a day asked for by name is taken as sent or refused.
 export async function laterAllocationDay(input: LaterAllocationDayInput, deps: LaterAllocationDayDeps): Promise<string> {
-  const earliest = laterDay(input.moneyDay.slice(0, 10), input.invoiceDay.slice(0, 10));
+  const undone = input.earlierAllocations.flatMap((allocation) => (allocation.status === "reversed" ? [allocation.reversedOn ?? allocation.reversedAt?.slice(0, 10) ?? ""] : []));
+  const earliest = undone.reduce(laterDay, laterDay(input.moneyDay.slice(0, 10), input.invoiceDay.slice(0, 10)));
   if (input.requested) {
     const requested = input.requested.slice(0, 10);
     if (requested < earliest) throw new AllocationDateTooEarlyError(requested, earliest);

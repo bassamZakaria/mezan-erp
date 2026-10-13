@@ -148,11 +148,6 @@ async function presentAllocationsWith(invoices: Pick<AllocatableInvoiceRepositor
   return allocations.map((allocation) => serializeAllocation(allocation, numbers.get(allocation.invoiceId) ?? null));
 }
 
-// INVARIANT: a reversed voucher and the mirror that reversed it net to nothing, so neither is money received or paid and neither is counted — only the «reversed» count finds them.
-function standsOnItsOwn(row: { readonly status: string; readonly reversesDocId?: string | null }): boolean {
-  return row.status !== "reversed" && !row.reversesDocId;
-}
-
 function serializeHeldAllocation(a: HeldAllocationRequest) {
   return { allocationId: a.allocationId, invoiceId: a.invoiceId, amount: a.amount ? a.amount.toString() : null };
 }
@@ -431,6 +426,7 @@ export function createVouchersRoutes(
       rows = rows.filter(
         (row) =>
           row.status === "confirmed" &&
+          !row.reversesDocId &&
           row.allocatable &&
           row.allocationSummary.needsAllocation &&
           (filter.needsAllocation === "any" || row.direction === filter.needsAllocation),
@@ -465,9 +461,8 @@ export function createVouchersRoutes(
     }
     const { status: _s, needsAllocation: _n, ...withoutStatusAxis } = parsed.data;
     const { type: _t, ...withoutTypeAxis } = parsed.data;
-    const everyStatusAxisRow = await listFilteredVouchers(c, withoutStatusAxis);
-    const statusAxisRows = everyStatusAxisRow.filter(standsOnItsOwn);
-    const typeAxisRows = (await listFilteredVouchers(c, withoutTypeAxis)).filter(standsOnItsOwn);
+    const statusAxisRows = await listFilteredVouchers(c, withoutStatusAxis);
+    const typeAxisRows = await listFilteredVouchers(c, withoutTypeAxis);
     const counts: Record<string, number> = {
       all: statusAxisRows.length,
       draft: 0,
@@ -480,7 +475,7 @@ export function createVouchersRoutes(
     };
     for (const row of statusAxisRows) {
       counts[row.status] = (counts[row.status] ?? 0) + 1;
-      if (row.status === "confirmed" && row.allocatable && row.allocationSummary.needsAllocation) {
+      if (row.status === "confirmed" && !row.reversesDocId && row.allocatable && row.allocationSummary.needsAllocation) {
         counts.needs_allocation! += 1;
         if (row.direction === "receipt") counts.needs_allocation_receipt! += 1;
         if (row.direction === "payment") counts.needs_allocation_payment! += 1;
@@ -492,8 +487,6 @@ export function createVouchersRoutes(
     for (const def of VOUCHER_TYPE_DEFINITIONS) {
       counts[`type:${def.code}`] = typeAxisRows.filter((row) => row.voucherType === def.code).length;
     }
-    const reversed = everyStatusAxisRow.filter((row) => row.status === "reversed").length;
-    if (reversed > 0) counts.reversed = reversed;
     return c.json(counts);
   });
 
@@ -511,7 +504,7 @@ export function createVouchersRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const rows = (await listFilteredVouchers(c, parsed.data)).filter(standsOnItsOwn);
+    const rows = await listFilteredVouchers(c, parsed.data);
     let confirmed = 0;
     let draft = 0;
     let needsAllocation = 0;
@@ -522,6 +515,7 @@ export function createVouchersRoutes(
       if (row.status === "draft") draft += 1;
       if (row.status !== "confirmed") continue;
       confirmed += 1;
+      if (row.reversesDocId) continue;
       const amount = Money.fromMajor(row.amount);
       if (row.direction === "receipt") receipts = receipts.add(amount);
       if (row.direction === "payment") payments = payments.add(amount);

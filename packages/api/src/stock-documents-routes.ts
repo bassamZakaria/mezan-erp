@@ -80,11 +80,6 @@ function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>) {
   };
 }
 
-// INVARIANT: a reversed adjustment and the mirror that reversed it net to nothing, so neither is counted — only the «reversed» count finds them.
-function standsOnItsOwn(doc: { readonly status: string; readonly reversesDocId?: string | null }): boolean {
-  return doc.status !== "reversed" && !doc.reversesDocId;
-}
-
 function serializeTransfer(doc: FrameworkDocument<StockTransferDocLine>) {
   return {
     id: doc.id,
@@ -378,18 +373,16 @@ export function createStockAdjustmentsRoutes(
    */
   app.get("/counts", gate("inventory.adjustment.view"), async (c) => {
     const { status: _ignored, ...withoutStatus } = parseAdjustmentQuery(c);
-    const every = await listFilteredAdjustments(c, withoutStatus);
-    const docs = every.filter(standsOnItsOwn);
+    const docs = await listFilteredAdjustments(c, withoutStatus);
     const counts: Record<string, number> = { all: docs.length };
     for (const status of DOCUMENT_STATUS_KEYS) counts[status] = 0;
     for (const doc of docs) counts[doc.status] = (counts[doc.status] ?? 0) + 1;
-    counts.reversed = every.filter((doc) => doc.status === "reversed").length;
     return c.json(counts);
   });
 
   /** The KPI strip. Unlike `/counts` this DOES honour the status filter. */
   app.get("/stats", gate("inventory.adjustment.view"), async (c) => {
-    const docs = (await listFilteredAdjustments(c, parseAdjustmentQuery(c))).filter(standsOnItsOwn);
+    const docs = await listFilteredAdjustments(c, parseAdjustmentQuery(c));
     return c.json({
       count: docs.length,
       draft: docs.filter((d) => d.status === "draft").length,

@@ -348,6 +348,7 @@ export function TreasuryVouchersScreen() {
         <div>
           <div className="mz-num font-semibold text-ink">{d.docNo ?? "—"}</div>
           <div className="mz-num mt-[2px] text-[11px] text-ink-faint">{d.date}</div>
+          <VoucherReversalLink voucher={d} pageRows={documents} onOpen={openDetail} />
         </div>
       ),
     },
@@ -905,6 +906,28 @@ function VoucherDetailView({
       />
       {reversal.dialog}
     </div>
+  );
+}
+
+function VoucherReversalLink({ voucher, pageRows, onOpen }: { voucher: VoucherRowDTO; pageRows: readonly VoucherRowDTO[]; onOpen: (voucherId: string) => void }) {
+  const { t } = useAppTranslation();
+  const reversedBy = voucher.status === "reversed" ? pageRows.find((row) => row.reversesDocId === voucher.id) : undefined;
+  const reversesId = voucher.reversesDocId ?? null;
+  const reversesOnPage = reversesId ? pageRows.find((row) => row.id === reversesId) : undefined;
+  const fetched = useVoucherDetail(reversesId !== null && !reversesOnPage ? reversesId : null).data;
+  const other = reversedBy ?? reversesOnPage ?? fetched;
+  if (!other?.docNo) return null;
+  return (
+    <button
+      type="button"
+      className="mt-[2px] text-[11.5px] font-semibold text-brand underline-offset-2 hover:underline"
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen(other.id);
+      }}
+    >
+      {t(reversedBy ? "vouchers.reversedByVoucher" : "vouchers.reversesVoucher", { number: other.docNo })}
+    </button>
   );
 }
 

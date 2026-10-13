@@ -147,8 +147,8 @@ function statsOf(rows: VoucherRowDTO[]): Record<string, number> {
   };
 }
 
-function renderScreen({ heldOnConfirm = false, allocations = seededAllocations, permissions }: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]>; permissions?: string[] } = {}) {
-  let current = [...seededVouchers];
+function renderScreen({ heldOnConfirm = false, allocations = seededAllocations, permissions, vouchers = seededVouchers }: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]>; permissions?: string[]; vouchers?: VoucherRowDTO[] } = {}) {
+  let current = [...vouchers];
   let nextSeq = 5;
   const allocationsByVoucher = { ...allocations };
   const reverseRequests: { date?: string }[] = [];
@@ -451,6 +451,21 @@ describe("TreasuryVouchersScreen — reversal", () => {
     await screen.findByRole("tab", { name: /تخصيص على الفواتير/ });
 
     expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TreasuryVouchersScreen — a reversed voucher and the voucher that reversed it", () => {
+  it("each row names the other by its number, and the link opens it", async () => {
+    const [first, ...rest] = seededVouchers;
+    const original: VoucherRowDTO = { ...first!, status: "reversed" };
+    const mirror: VoucherRowDTO = { ...first!, id: "cv-1-rev", docNo: "CV-000009", date: "2026-08-20", reversesDocId: "cv-1" };
+    renderScreen({ vouchers: [original, mirror, ...rest] });
+
+    expect(await screen.findByRole("button", { name: "عُكس بالسند CV-000009" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "يعكس السند CV-000001" }));
+
+    expect(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "CV-000001" })).toBeInTheDocument();
   });
 });
 

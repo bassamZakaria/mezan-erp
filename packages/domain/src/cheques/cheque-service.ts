@@ -458,12 +458,14 @@ export class ChequeService {
    */
   async laterAllocationDay(chequeId: string, invoiceId: string, requested?: string | null): Promise<string> {
     const cheque = await this.require(chequeId);
-    const invoice = await this.allocationStore().invoices.findById(invoiceId);
+    const store = this.allocationStore();
+    const invoice = await store.invoices.findById(invoiceId);
     if (!invoice) throw new InvoiceNotFoundError(invoiceId);
+    const earlierAllocations = [...(await store.allocations.listByVoucher(cheque.id)), ...(await store.allocations.listByInvoice(invoice.id))];
     const raisedLine = (await this.deps.raisedBy?.partyLineOf?.(cheque)) ?? null;
     const booked = await this.deps.realisedFx?.invoiceFx(invoice.id, invoice.kind);
     const currencies = new Set([...(raisedLine?.fxRate && raisedLine.currency ? [raisedLine.currency] : []), ...(booked ? [booked.currency] : [])]);
-    return laterAllocationDay({ requested, moneyDay: cheque.issueDate, invoiceDay: invoice.date, currencies }, { periods: this.deps.gl.periods, ledger: this.deps.gl.ledger });
+    return laterAllocationDay({ requested, moneyDay: cheque.issueDate, invoiceDay: invoice.date, currencies, earlierAllocations }, { periods: this.deps.gl.periods, ledger: this.deps.gl.ledger });
   }
 
   async allocate(cmd: AllocateChequeCommand): Promise<VoucherAllocation> {

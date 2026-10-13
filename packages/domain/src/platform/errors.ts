@@ -199,12 +199,27 @@ export class PlatformUserNotFoundError extends Error {
   }
 }
 
+export enum FreePlanRemoval {
+  Retired = "retired",
+  MadePaid = "made-paid",
+}
+
+const FREE_PLAN_REMOVAL_AR: Readonly<Record<FreePlanRemoval, string>> = {
+  [FreePlanRemoval.Retired]: "لا يمكن إيقاف الباقة المجانية الوحيدة",
+  [FreePlanRemoval.MadePaid]: "لا يمكن تحويل الباقة المجانية الوحيدة إلى باقة مدفوعة",
+};
+
+const FREE_PLAN_REMOVAL_EN: Readonly<Record<FreePlanRemoval, string>> = {
+  [FreePlanRemoval.Retired]: "cannot be retired",
+  [FreePlanRemoval.MadePaid]: "cannot be turned into a paid plan",
+};
+
 export class FreePlanRequiredError extends Error {
   readonly code = "FREE_PLAN_REQUIRED";
   readonly messageEn: string;
-  constructor(readonly id: string) {
-    super(`لا يمكن إيقاف الباقة المجانية الوحيدة "${id}": كل تجربة تنتهي إليها`);
-    this.messageEn = `The only free plan "${id}" cannot be retired: every trial ends on it`;
+  constructor(readonly id: string, readonly removal: FreePlanRemoval = FreePlanRemoval.Retired) {
+    super(`${FREE_PLAN_REMOVAL_AR[removal]} "${id}": كل تجربة تنتهي إليها`);
+    this.messageEn = `The only free plan "${id}" ${FREE_PLAN_REMOVAL_EN[removal]}: every trial ends on it`;
     this.name = "FreePlanRequiredError";
   }
 }

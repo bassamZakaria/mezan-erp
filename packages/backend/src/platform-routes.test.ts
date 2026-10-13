@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect, afterEach } from "vitest";
 import { drainForeignWrites } from "@mezan/persistence";
 import { createSessionRegistry } from "@mezan/api";
@@ -583,6 +584,50 @@ describe("createPlatformRoutes", () => {
     );
     expect(secondRes.status).toBe(409);
     expect(await json(secondRes)).toMatchObject({ error: "TENANT_ALREADY_SUBSCRIBED" });
+  });
+
+  it("refuses to retire the only free plan with a 409 in Arabic, and leaves it active", async () => {
+    const rig = await buildRig();
+    const free = (await rig.platform.stores.plans.list()).filter((plan) => plan.kind === PlanKind.Free && plan.status === "active");
+    expect(free).toHaveLength(1);
+
+    const refused = await rig.app.fetch(req(`/plans/${free[0]!.id}/retire`, rig.ownerToken, { method: "POST" }));
+
+    expect(refused.status).toBe(409);
+    expect(await json(refused)).toMatchObject({
+      error: "FREE_PLAN_REQUIRED",
+      message: expect.stringMatching(/لا يمكن إيقاف الباقة المجانية الوحيدة/),
+      messageEn: expect.stringContaining("cannot be retired"),
+    });
+    expect((await rig.platform.stores.plans.findById(free[0]!.id))?.status).toBe("active");
+  });
+
+  it("refuses the edit that would turn the only free plan into a paid one, with the same 409", async () => {
+    const rig = await buildRig();
+    const free = (await rig.platform.stores.plans.list()).find((plan) => plan.kind === PlanKind.Free && plan.status === "active")!;
+
+    const refused = await rig.app.fetch(req(`/plans/${free.id}`, rig.ownerToken, {
+      method: "PUT",
+      body: JSON.stringify({
+        nameAr: free.nameAr, nameEn: free.nameEn, modules: [...free.modules], features: {}, seatsIncluded: free.seatsIncluded,
+        branchesIncluded: free.branchesIncluded, warehousesIncluded: free.warehousesIncluded, kind: "paid",
+        priceMonthly: "100.00", priceYearly: "1000.00", trialDays: 0, isPublic: free.isPublic, sortOrder: free.sortOrder,
+      }),
+    }));
+
+    expect(refused.status).toBe(409);
+    expect(await json(refused)).toMatchObject({ error: "FREE_PLAN_REQUIRED", message: expect.stringMatching(/لا يمكن تحويل الباقة المجانية الوحيدة/) });
+    expect((await rig.platform.stores.plans.findById(free.id))?.kind).toBe(PlanKind.Free);
+  });
+
+  it("names, in one of the three route files that answer for the platform, every refusal the platform's domain can raise", () => {
+    const declared = [...readFileSync(new URL("../../domain/src/platform/errors.ts", import.meta.url), "utf8").matchAll(/export class (\w+Error)\b/g)].map((m) => m[1]!);
+    const answering = ["./platform-routes.ts", "../../../apps/server/src/signup-routes.ts", "../../../apps/server/src/billing-routes.ts"]
+      .map((file) => readFileSync(new URL(file, import.meta.url), "utf8"))
+      .join("\n");
+
+    expect(declared.length).toBeGreaterThan(20);
+    expect(declared.filter((name) => !new RegExp(`instanceof ${name}\\b`).test(answering))).toEqual([]);
   });
 
   it("invalidates every tenant subscribed to a plan when it is updated or retired", async () => {

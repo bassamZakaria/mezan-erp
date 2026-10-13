@@ -30,6 +30,7 @@ import {
   PlanCodeTakenError,
   PlanRetiredError,
   PlanInUseError,
+  FreePlanRequiredError,
   InvalidSubscriptionError,
   SubscriptionNotFoundError,
   TenantAlreadySubscribedError,
@@ -288,6 +289,9 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     err instanceof PlanInUseError
   ) {
     return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof FreePlanRequiredError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   throw err;
 }

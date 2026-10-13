@@ -2,7 +2,7 @@ import { Money } from "../money/money.js";
 import { isKnownModule } from "./module-catalog.js";
 import { isValidSlug } from "./slug.js";
 import { isCount, isoTimestamp } from "./validation.js";
-import { FreePlanRequiredError, InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
+import { FreePlanRemoval, FreePlanRequiredError, InvalidPlanError, PlanCodeTakenError, PlanInUseError, PlanNotFoundError } from "./errors.js";
 
 export type PlanStatus = "active" | "retired";
 
@@ -161,6 +161,10 @@ export async function createPlan(cmd: CreatePlanCommand, repo: PlanRepository): 
   return candidate;
 }
 
+async function anotherFreePlanIsActive(id: string, repo: PlanRepository): Promise<boolean> {
+  return (await repo.list()).some((p) => p.id !== id && p.kind === PlanKind.Free && p.status === "active");
+}
+
 export async function updatePlan(
   cmd: UpdatePlanCommand,
   repo: PlanRepository,
@@ -187,6 +191,9 @@ export async function updatePlan(
   };
   const reasons = validate(next);
   if (reasons.length > 0) throw new InvalidPlanError(reasons);
+  if (current.kind === PlanKind.Free && next.kind !== PlanKind.Free && current.status === "active" && !(await anotherFreePlanIsActive(current.id, repo))) {
+    throw new FreePlanRequiredError(current.id, FreePlanRemoval.MadePaid);
+  }
   const removed = current.modules.filter((m) => !next.modules.includes(m));
   if (removed.length > 0 && (await hasLiveSubscribers(current.id))) {
     throw new PlanInUseError(current.id, removed);
@@ -199,9 +206,8 @@ export async function retirePlan(cmd: { readonly id: string }, repo: PlanReposit
   const current = await repo.findById(cmd.id);
   if (!current) throw new PlanNotFoundError(cmd.id);
   if (current.status === "retired") return current;
-  if (current.kind === PlanKind.Free) {
-    const otherFree = (await repo.list()).some((p) => p.id !== current.id && p.kind === PlanKind.Free && p.status === "active");
-    if (!otherFree) throw new FreePlanRequiredError(current.id);
+  if (current.kind === PlanKind.Free && !(await anotherFreePlanIsActive(current.id, repo))) {
+    throw new FreePlanRequiredError(current.id, FreePlanRemoval.Retired);
   }
   const next: Plan = { ...current, status: "retired" };
   await repo.save(next);

@@ -1,3 +1,6 @@
+import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import Database from "better-sqlite3";
 import { applyKey, type SqliteOpenOptions } from "./sqlite-connection.js";
 import { SETTINGS_ROW_ID } from "./settings-store.js";
@@ -85,12 +88,12 @@ function usersIn(sqlite: Database.Database): TenantBooksUser[] {
   return rows.map((row) => ({ id: row.id, email: row.email, isCompanyAdmin: row.is_company_admin === 1, status: row.status, erased: row.erased_at !== null }));
 }
 
-// SECURITY: asked before the database is opened for use, so it must change
-// nothing: no journal mode, no schema, no row. `query_only` holds the
-// connection to that. It is NOT opened read-only: a read-only handle cannot
-// take the exclusive lock WAL needs on a network filesystem, and it leaves a
-// `-shm` beside the file.
-export function readTenantBooksIdentity(file: string, options: Pick<SqliteOpenOptions, "driver" | "key" | "exclusive"> = {}): TenantBooksIdentity {
+const REPLAYED_SIBLINGS = ["-wal", "-journal"] as const;
+const SIBLINGS = [...REPLAYED_SIBLINGS, "-shm"] as const;
+
+type IdentityReadOptions = Pick<SqliteOpenOptions, "driver" | "key" | "exclusive">;
+
+function identityIn(file: string, options: IdentityReadOptions): TenantBooksIdentity {
   let sqlite: Database.Database;
   try {
     sqlite = new (options.driver ?? Database)(file, { fileMustExist: true });
@@ -108,6 +111,33 @@ export function readTenantBooksIdentity(file: string, options: Pick<SqliteOpenOp
     throw err;
   } finally {
     sqlite.close();
+  }
+}
+
+// SECURITY: asked before the database is judged, so it must leave the file,
+// its log and its index byte for byte. A database with a log or a journal
+// beside it is replayed by whoever opens it, and that rewrites it: such a
+// database is read from a private copy, copied in one synchronous step so the
+// pair is never torn by a writer in this process. With nothing beside it the
+// database is read in place, where `query_only` holds the connection to
+// reading. It is NOT opened read-only: a read-only handle cannot take the
+// exclusive lock WAL needs on a network filesystem, and it leaves a `-shm`
+// beside the file.
+export function readTenantBooksIdentity(file: string, options: IdentityReadOptions = {}): TenantBooksIdentity {
+  if (!SIBLINGS.some((suffix) => existsSync(`${file}${suffix}`))) return identityIn(file, options);
+  const scratch = mkdtempSync(path.join(tmpdir(), "mezan-books-identity-"));
+  try {
+    const copy = path.join(scratch, "books.db");
+    copyFileSync(file, copy);
+    for (const suffix of REPLAYED_SIBLINGS) if (existsSync(`${file}${suffix}`)) copyFileSync(`${file}${suffix}`, `${copy}${suffix}`);
+    try {
+      return identityIn(copy, options);
+    } catch (err) {
+      if (err instanceof NotASqliteDatabaseError) throw new NotASqliteDatabaseError(file, err.cause);
+      throw err;
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
 }
 

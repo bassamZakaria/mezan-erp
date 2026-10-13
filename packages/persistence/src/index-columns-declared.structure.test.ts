@@ -19,6 +19,14 @@ function sources(dir: string): string[] {
   });
 }
 
+const STRING_CONSTANT = /const\s+([A-Z_][A-Z0-9_]*)\s*=\s*"([^"]*)"/g;
+
+function sqlOf(file: string): string {
+  const source = readFileSync(file, "utf8");
+  const constants = new Map([...source.matchAll(STRING_CONSTANT)].map((match) => [match[1]!, match[2]!]));
+  return source.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/g, (whole, name: string) => constants.get(name) ?? whole);
+}
+
 const identifiers = (sql: string): string[] =>
   (sql.replace(/'[^']*'/g, " ").match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []).filter((word) => !SQL_WORDS.has(word.toLowerCase()));
 
@@ -26,7 +34,7 @@ describe("every index names only columns its table's CREATE TABLE declares", () 
   const files = ROOTS.flatMap((root) => sources(join(REPO, root)));
   const declared = new Map<string, Set<string>>();
   for (const file of files) {
-    for (const match of readFileSync(file, "utf8").matchAll(CREATE_TABLE)) {
+    for (const match of sqlOf(file).matchAll(CREATE_TABLE)) {
       const columns = declared.get(match[1]!) ?? new Set<string>();
       for (const line of match[2]!.split("\n")) {
         const definition = line.trim().replace(/,$/, "");
@@ -47,7 +55,7 @@ describe("every index names only columns its table's CREATE TABLE declares", () 
     const undeclared: string[] = [];
     let indexes = 0;
     for (const file of files) {
-      for (const match of readFileSync(file, "utf8").matchAll(CREATE_INDEX)) {
+      for (const match of sqlOf(file).matchAll(CREATE_INDEX)) {
         const [, index, table, columnList, where] = match;
         const columns = declared.get(table!);
         if (!columns) continue;

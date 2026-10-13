@@ -5,7 +5,6 @@ export enum UpgradeStepId {
   SeededRoleDutySplit = "seeded_role_duty_split",
   ApprovalFingerprint = "approval_fingerprint",
   SeededRoleReconciliationSplit = "seeded_role_reconciliation_split",
-  ChequeBounceOntoParty = "cheque_bounce_onto_party",
   StandardRoles = "standard_roles",
 }
 

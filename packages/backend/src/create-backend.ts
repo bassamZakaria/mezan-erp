@@ -4154,7 +4154,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     realisedFx,
   });
   // INVARIANT: until 2026-09-18 an incoming cheque's bounce parked the debt on «شيكات مرتجعة» and left the customer's control account credited; everything since reads a bounce as back on the customer, and a replacement credits the customer again. A file holding such a bounce is brought to that shape by an entry of its own — never by editing the posted one.
-  await upgradeLedger.runOnce(UpgradeStepId.ChequeBounceOntoParty, async () => {
+  // REQUIRED: not a once-only step. A bounce whose reclassification no open period would take is tried again on every start, and one already made is found by its own entry id.
+  {
     for (const cheque of await cheques.list({ direction: "incoming", status: "bounced" })) {
       const entryId = chequeBounceOntoPartyEntryId(cheque.id);
       if (!cheque.bounceJournalEntryId || (await ledger.findById(entryId))) continue;
@@ -4187,7 +4188,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         console.warn(`[cheques] bounced cheque ${cheque.chequeNumber} stays on ${parkedOn.accountId}: no open period takes its reclassification (${err instanceof Error ? err.message : String(err)})`);
       }
     }
-  });
+  }
 
   const voucherCheques: VoucherChequeRegistrationPort = {
     async register(input) {

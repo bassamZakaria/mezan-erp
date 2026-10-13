@@ -315,11 +315,14 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     root.get("/index.html", (c) => c.html(indexHtml));
     // SECURITY: the page a mailed unlock link opens. The link's token is in the
     // fragment and never reaches here; these headers keep the page out of every
-    // cache and stop the browser naming it to any site it goes on to.
+    // cache and stop the browser naming it to any site it goes on to. It is
+    // served WITHOUT the index transform: that is where a deployment injects
+    // its analytics beacon, and no third-party script may load on a page whose
+    // address carries a credential.
     root.get(UNLOCK_PATH, (c) => {
       c.header("Referrer-Policy", "no-referrer");
       c.header("Cache-Control", "no-store");
-      return c.html(indexHtml);
+      return c.html(rawIndexHtml);
     });
     root.use("/*", serveStatic({ root: env.webDist }));
     root.notFound((c) => c.html(indexHtml));

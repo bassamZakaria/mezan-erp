@@ -36,6 +36,11 @@ services:
         value: "1"
       - key: MEZAN_TRUSTED_PROXY_HOPS
         value: "1"
+      # The origin every mailed link is built on (signup verification, owner
+      # hand-over, the unlock link of a locked account). Never taken from a
+      # request. Change it with the service's address.
+      - key: MEZAN_PUBLIC_URL
+        value: https://mezan-demo.onrender.com
       # The free plan caps the instance at 512 MB and the seeded process sits
       # around 375 MB; without a heap ceiling V8 grows into the OOM killer.
       - key: NODE_OPTIONS

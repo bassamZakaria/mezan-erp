@@ -344,13 +344,17 @@ describe("createCloudApp", () => {
       expect(await res.text()).toContain("مزان-تجريبي");
     });
 
-    it("serves the unlock-link page uncached and with no referrer, and every other page as before", async () => {
-      const app = await boot(testEnv());
+    it("serves the unlock-link page uncached, with no referrer and without the script a deployment injects into every other page", async () => {
+      const BEACON = '<script src="https://analytics.example/beacon.js"></script>';
+      const app = await boot(testEnv(), { transformIndexHtml: (html) => html.replace("</body>", `${BEACON}</body>`) });
       const unlock = await app.root.fetch(new Request("http://cloud.internal/unlock"));
       const home = await app.root.fetch(new Request("http://cloud.internal/"));
 
       expect(unlock.status).toBe(200);
-      expect(await unlock.text()).toContain("مزان");
+      const page = await unlock.text();
+      expect(page).toContain("مزان");
+      expect(page).not.toContain("analytics.example");
+      expect(await home.text()).toContain("analytics.example");
       expect(unlock.headers.get("referrer-policy")).toBe("no-referrer");
       expect(unlock.headers.get("cache-control")).toBe("no-store");
       expect(home.headers.get("cache-control")).not.toBe("no-store");

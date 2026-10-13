@@ -274,6 +274,15 @@ describe("how much of a request the server will hold", () => {
     expect(refused).toMatchObject({ status: 413, body: { error: "PAYLOAD_TOO_LARGE", message: expect.stringContaining("أكبر من المسموح") } });
   });
 
+  it("refuses an oversized sign-in that carries a session token which has ended as too large, exactly as it refuses one that carries none", async () => {
+    const t = await open();
+    const oversized = { username: "nobody@example.eg", pin: "123456", padding: "x".repeat(70 * 1024) };
+
+    const stale = await t.call("POST", "/auth/login", oversized, { "content-type": "application/json", authorization: "Bearer a-session-that-has-ended" });
+
+    expect(stale).toMatchObject({ status: 413, body: { error: "PAYLOAD_TOO_LARGE", message: expect.stringContaining("أكبر من المسموح") } });
+  });
+
   it("refuses an oversized body sent with no declared length just the same", async () => {
     const t = await open();
     const chunk = new TextEncoder().encode("x".repeat(16 * 1024));

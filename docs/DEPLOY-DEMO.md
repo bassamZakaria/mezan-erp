@@ -74,6 +74,29 @@ have no `MEZAN_DEMO_PASSWORD`. Fix both by hand:
 
    A `200` on `/` without credentials means the old build is still serving.
 
+### What `render.yaml` sets
+
+The values the blueprint commits. `apps/server/src/env-docs.test.ts` reads
+`render.yaml` itself and this table, and starts the server's configuration
+from each; a variable marked `sync: false` in the blueprint is asked for in the
+dashboard and is not listed here.
+
+<!-- env-table: render -->
+
+| Variable | Value | Notes |
+|---|---|---|
+| `MEZAN_PLATFORM_DIR` | `/tmp/platform` | wiped on every restart of the free plan |
+| `MEZAN_SEED_DEMO` | `1` | needs `MEZAN_DEMO_PASSWORD` (dashboard) |
+| `MEZAN_TRUST_PROXY` | `1` | |
+| `MEZAN_TRUSTED_PROXY_HOPS` | `1` | required with the line above; see "Whose address the demo counts" |
+| `MEZAN_PUBLIC_URL` | `https://mezan-demo.onrender.com` | every mailed link is built on it; change it with the service's address |
+| `NODE_OPTIONS` | `--max-old-space-size=400` | |
+
+<!-- /env-table -->
+
+On AWS the same two proxy variables are set by `cyag-devops`, not by this file:
+see "Owner must do before deploy" in [DEPLOY-AWS.md](DEPLOY-AWS.md).
+
 ### Whose address the demo counts
 
 `render.yaml` sets `MEZAN_TRUST_PROXY=1` and `MEZAN_TRUSTED_PROXY_HOPS=1`. The

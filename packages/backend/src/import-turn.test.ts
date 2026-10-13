@@ -79,6 +79,34 @@ describe("a large import and everyone else's writes", () => {
     expect(await t.itemCount()).toBe(LARGE_IMPORT);
   });
 
+  it("holds the connection from the first row of a 2,000-row items import to the last without once giving the event loop back, so a voucher posted meanwhile waits and then posts", async () => {
+    const yielded: string[] = [];
+    const t = await open({ connectionTurn: { onYield: (c) => yielded.push(`${c.req.method} ${c.req.path}`) } });
+    expect((await t.call("POST", "/treasury-accounts", { id: "ta-main", code: "TA-MAIN", name: "الخزينة الرئيسية", branchId: "BR-MAIN", glAccountId: "1310" })).status).toBe(201);
+    const finished: string[] = [];
+
+    const importing = t.call("POST", "/data-migration/items/commit", { rows: itemRows(LARGE_IMPORT) }).then((answer) => {
+      finished.push("import");
+      return answer;
+    });
+    const posting = t
+      .call("POST", "/vouchers", {
+        id: "11111111-aaaa-4bbb-8ccc-0000000000b1", date: "2026-08-22", voucherType: "other_income", amount: "50.00", branchId: "BR-MAIN", paymentMethod: "cash",
+        treasuryAccountId: "ta-main", treasuryGlAccountId: "1310", counterpartyGlAccountId: "4900",
+      })
+      .then((answer) => {
+        finished.push("voucher");
+        return answer;
+      });
+    const [imported, posted] = await Promise.all([importing, posting]);
+
+    expect(posted.status, JSON.stringify(posted.body)).toBe(201);
+    expect(imported).toMatchObject({ status: 201, body: { validCount: LARGE_IMPORT } });
+    expect(finished).toEqual(["import", "voucher"]);
+    expect(yielded).toEqual([]);
+    expect(await t.itemCount()).toBe(LARGE_IMPORT);
+  });
+
   it("leaves no item visible when a row far into a 2,000-row import cannot be saved", async () => {
     const t = await open();
     const rows = itemRows(LARGE_IMPORT);

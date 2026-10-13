@@ -33,6 +33,8 @@ the reviewers' own writes alone.
 Set by `cyag-devops/apps/mezan/compute.tf`; listed here so the app side of the
 contract lives with the code that reads it (`apps/server/src/env.ts`).
 
+<!-- env-table: review -->
+
 | Variable | Value on the reviewer stack | Notes |
 |---|---|---|
 | `NODE_ENV` | `production` | |
@@ -42,12 +44,25 @@ contract lives with the code that reads it (`apps/server/src/env.ts`).
 | `MEZAN_TENANT_DOMAIN` | the review domain | |
 | `MEZAN_TRUST_PROXY` | `1` | behind CloudFront and API Gateway |
 | `MEZAN_TRUSTED_PROXY_HOPS` | `2` | CloudFront appends the viewer's address, API Gateway appends CloudFront's. Required: the server refuses to start with `MEZAN_TRUST_PROXY=1` and no count. Set to `1`, every client would be counted as the CloudFront edge it came through; the server logs `CLIENT ADDRESS MISMATCH` when the count disagrees with `CloudFront-Viewer-Address` — see [ENVIRONMENTS.md](ENVIRONMENTS.md) |
+| `MEZAN_PUBLIC_URL` | the review stack's public `https://` origin | Every mailed link is built on it (signup verification, owner hand-over, the unlock link of a locked account). Not set by `compute.tf` today: see "Owner must do before deploy" in [DEPLOY-AWS.md](DEPLOY-AWS.md). |
 | `MEZAN_ORIGIN_SECRET` | SSM, generated | CloudFront adds it; a direct hit on API Gateway gets 403 on `/api/*` |
-| `MEZAN_PLATFORM_OWNER_EMAIL` / `_PASSWORD` | SSM | the platform console owner |
+| `MEZAN_PLATFORM_OWNER_EMAIL` | SSM | the platform console owner |
+| `MEZAN_PLATFORM_OWNER_PASSWORD` | SSM | |
 | `MEZAN_REVIEW_TENANT_CODE` | `review` | 2–40 of `a-z0-9-`, never `demo` |
 | `MEZAN_REVIEW_PIN` | SSM `/mezan/review/review-pin`, generated | six digits; the server refuses `123456` |
 | `MEZAN_SUPPORT_EMAIL` | the owner's support mailbox | required with a reviewer tenant; printed on both legal pages |
-| `MEZAN_SMTP_HOST` … `MEZAN_SMTP_FROM_EMAIL` | optional | only with these does the deletion page show a form; without them it shows the support address |
+
+<!-- /env-table -->
+
+`MEZAN_SMTP_HOST` … `MEZAN_SMTP_FROM_EMAIL` are optional: only with them does
+the deletion page show a form (without them it shows the support address), and
+only with them is a locked account mailed its unlock code and link. Without
+mail on a cloud stack a locked sole administrator is unlocked from the platform
+console (tenant page, «حسابات مقفلة عن الدخول»).
+
+`MEZAN_TRUSTED_PROXY_HOPS` is **not set by `cyag-devops/apps/mezan/compute.tf`
+today** and this build refuses to start without it: see "Owner must do before
+deploy" in [DEPLOY-AWS.md](DEPLOY-AWS.md).
 
 ### The viewer-address check needs a header CloudFront does not send by default
 

@@ -270,6 +270,30 @@ describe("getting back into a locked account", () => {
     expect(sent[0]).not.toMatch(/https?:|evil\.example/);
   }, 120_000);
 
+  it("holds one address that keeps sending wrong unlock codes: it is told to wait, and the mailed code still opens the account from elsewhere", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const sent: string[] = [];
+    const h = await open({
+      securityMail: PLATFORM_SMTP,
+      sendMail: async (_smtp, _to, message) => {
+        sent.push(message.body);
+        return { outcome: "sent", detail: "250" };
+      },
+    });
+    await claim(h);
+    await twentyWrongPins(h);
+    await h.drain();
+    const code = /: ([A-Z2-7]{16})/.exec(sent[0]!)![1]!;
+
+    const statuses: number[] = [];
+    for (let i = 0; i < 40; i += 1) statuses.push((await post(h, "/auth/unlock", { username: OWNER.email, code: "AAAAAAAAAAAAAAAA" }, "196.221.9.9")).status);
+
+    expect(statuses[0]).toBe(400);
+    expect(statuses).toContain(429);
+    expect((await post(h, "/auth/unlock", { username: OWNER.email, code }, "196.221.9.9")).status).toBe(429);
+    expect((await post(h, "/auth/unlock", { username: OWNER.email, code }, "196.221.5.5")).status).toBe(200);
+  }, 120_000);
+
   it("holds a forged link to the same per-address wait as a forged code", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const h = await open();

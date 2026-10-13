@@ -84,7 +84,7 @@ export function createReconciliationRoutes(
       allMatched: summary.allMatched,
       foreignResidue: {
         total: Money.fromScaled(residueTotal).toString(),
-        rows: residues.map((row) => ({ kind: row.kind, ref: row.ref, currency: row.currency, base: row.base.toString() })),
+        rows: residues.map((row) => ({ kind: row.kind, ref: row.ref, ...(row.itemType ? { itemType: row.itemType } : {}), currency: row.currency, base: row.base.toString() })),
       },
       unlinked: unlinked.map((u) => ({
         entryId: u.entryId,

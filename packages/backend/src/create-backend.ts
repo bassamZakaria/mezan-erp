@@ -2397,18 +2397,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const held = accountForeignResidues(deriveOpenFxBalances(lines, chart));
     const openItems = held.length > 0 ? await openFxItems(asOfDate ?? "9999-12-31") : new Map<string, OpenFxItem[]>();
     const residues: ForeignResidue[] = [];
-    for (const residue of held) {
-      const carried = (openItems.get(openFxItemsKey(residue.ref, residue.currency)) ?? []).reduce((sum, item) => sum + item.carryingBase.scaled, 0n);
-      const debitNatured = chart.find((account) => account.id === residue.ref)?.naturalBalance === "debit";
-      const unexplained = residue.base.scaled - (debitNatured ? carried : -carried);
-      if (unexplained !== 0n) residues.push({ ...residue, base: Money.fromScaled(unexplained) });
-    }
+    const leftOnClosedItems = new Map<string, bigint>();
     for (const item of await vouchers.revaluationShares.listItems()) {
       if (await fxItemStandsOpen(item)) continue;
       const standing = await standingRevaluationShare(item);
-      if (standing.scaled === 0n) continue;
       const share = (await vouchers.revaluationShares.listByItem(item))[0];
-      residues.push({ kind: ForeignResidueKind.Item, ref: item.id, itemType: item.type, currency: share?.currency ?? "", base: standing });
+      if (standing.scaled === 0n || !share) continue;
+      const key = openFxItemsKey(share.accountId, share.currency);
+      leftOnClosedItems.set(key, (leftOnClosedItems.get(key) ?? 0n) + standing.scaled);
+      residues.push({ kind: ForeignResidueKind.Item, ref: item.id, itemType: item.type, currency: share.currency, base: standing });
+    }
+    for (const residue of held) {
+      const key = openFxItemsKey(residue.ref, residue.currency);
+      const carried = (openItems.get(key) ?? []).reduce((sum, item) => sum + item.carryingBase.scaled, leftOnClosedItems.get(key) ?? 0n);
+      const debitNatured = chart.find((account) => account.id === residue.ref)?.naturalBalance === "debit";
+      const unexplained = residue.base.scaled - (debitNatured ? carried : -carried);
+      if (unexplained !== 0n) residues.push({ ...residue, base: Money.fromScaled(unexplained) });
     }
     return residues;
   }

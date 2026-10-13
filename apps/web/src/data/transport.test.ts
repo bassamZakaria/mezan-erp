@@ -46,6 +46,32 @@ describe("createHttpTransport", () => {
   });
 });
 
+describe("the wait a refusal names in its Retry-After header", () => {
+  it("is read by the HTTP transport as whole seconds, and is absent when the header is missing or is not a count", async () => {
+    const answer = (header?: string) => new Response("{}", { status: 429, headers: header === undefined ? {} : { "retry-after": header } });
+    const wait = async (header?: string) => {
+      globalThis.fetch = vi.fn(async () => answer(header)) as unknown as typeof fetch;
+      return (await createHttpTransport()("/auth/login")).retryAfterSeconds;
+    };
+
+    expect(await wait("60")).toBe(60);
+    expect(await wait("2.2")).toBe(3);
+    expect(await wait()).toBeNull();
+    expect(await wait("Wed, 21 Oct 2026 07:28:00 GMT")).toBeNull();
+    expect(await wait("0")).toBeNull();
+    expect(await wait("-5")).toBeNull();
+  });
+
+  it("is read by the desktop bridge transport whatever case the header arrived in", async () => {
+    const through = async (headers: Record<string, string>) =>
+      (await createElectronTransport({ fetch: vi.fn(async () => ({ status: 503, headers, body: "{}" })) })("/auth/login")).retryAfterSeconds;
+
+    expect(await through({ "retry-after": "5" })).toBe(5);
+    expect(await through({ "Retry-After": "7" })).toBe(7);
+    expect(await through({})).toBeNull();
+  });
+});
+
 describe("createElectronTransport", () => {
   it("prepends a host so the bridge's Request() constructor accepts the path", async () => {
     const bridgeFetch = vi.fn(async (input: string) => {

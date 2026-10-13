@@ -9,6 +9,8 @@
 export interface TransportResponse {
   readonly status: number;
   readonly ok: boolean;
+  /** The whole seconds a refusal's `Retry-After` header names; null when it names none. */
+  readonly retryAfterSeconds?: number | null;
   json<T = unknown>(): Promise<T>;
   text(): Promise<string>;
 }
@@ -25,6 +27,19 @@ interface MezanBridge {
   fetch(input: string, init?: RequestInit): Promise<MezanIpcResponse>;
 }
 
+const RETRY_AFTER = "retry-after";
+
+export function retryAfterSecondsOf(header: string | null | undefined): number | null {
+  if (header === null || header === undefined || !/^\s*\d+(\.\d+)?\s*$/.test(header)) return null;
+  const seconds = Math.ceil(Number.parseFloat(header));
+  return seconds > 0 ? seconds : null;
+}
+
+function headerOf(headers: Record<string, string> | undefined, name: string): string | null {
+  for (const [key, value] of Object.entries(headers ?? {})) if (key.toLowerCase() === name) return value;
+  return null;
+}
+
 function getBridge(): MezanBridge | undefined {
   return (globalThis as { mezan?: MezanBridge }).mezan;
 }
@@ -36,6 +51,7 @@ export function createHttpTransport(baseUrl = "/api"): Transport {
     return {
       status: res.status,
       ok: res.ok,
+      retryAfterSeconds: retryAfterSecondsOf(res.headers.get(RETRY_AFTER)),
       json: <T,>() => res.json() as Promise<T>,
       text: () => res.text(),
     };
@@ -82,6 +98,7 @@ export function createElectronTransport(bridge: MezanBridge): Transport {
     return {
       status: res.status,
       ok: res.status >= 200 && res.status < 400,
+      retryAfterSeconds: retryAfterSecondsOf(headerOf(res.headers, RETRY_AFTER)),
       json: <T,>() => Promise.resolve(JSON.parse(res.body) as T),
       text: () => Promise.resolve(res.body),
     };

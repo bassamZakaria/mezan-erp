@@ -17,6 +17,13 @@ export interface SignInInput {
   readonly pin: string;
 }
 
+export interface UnlockAccountInput {
+  readonly baseUrl: string;
+  readonly tenantCode: string | null;
+  readonly email: string;
+  readonly code: string;
+}
+
 export interface SessionState {
   readonly ready: boolean;
   readonly session: SessionDTO | null;
@@ -25,6 +32,8 @@ export interface SessionState {
   readonly unlock: (promptMessage: string, cancelLabel: string) => Promise<boolean>;
   readonly connection: Connection;
   readonly signIn: (input: SignInInput) => Promise<void>;
+  /** Opens a locked account with the one-time code mailed to its administrators. Signs nobody in. */
+  readonly unlockAccount: (input: UnlockAccountInput) => Promise<void>;
   readonly signOut: () => Promise<void>;
   readonly request: <T>(path: string, options?: RequestOptions<T>) => Promise<T>;
   readonly can: (permission: string) => boolean;
@@ -173,6 +182,14 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     setLocked(false);
   }, []);
 
+  const unlockAccount = useCallback(async (input: UnlockAccountInput) => {
+    await apiRequest(
+      { baseUrl: input.baseUrl, tenantCode: input.tenantCode, token: null, branchScope: ScopeAll.Every, warehouseScope: ScopeAll.Every },
+      "/auth/unlock",
+      { method: HttpMethod.Post, body: { username: input.email, code: input.code } },
+    );
+  }, []);
+
   const can = useCallback(
     (permission: string) => {
       if (!session) return false;
@@ -182,8 +199,8 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
   );
 
   const value = useMemo<SessionState>(
-    () => ({ ready, session, locked, unlock, connection, signIn, signOut, request, can }),
-    [ready, session, locked, unlock, connection, signIn, signOut, request, can],
+    () => ({ ready, session, locked, unlock, connection, signIn, unlockAccount, signOut, request, can }),
+    [ready, session, locked, unlock, connection, signIn, unlockAccount, signOut, request, can],
   );
 
   return (

@@ -33,6 +33,18 @@ export interface RequestOptions<T> {
 }
 
 const REFUSAL_STATUSES = new Set([400, 404, 409, 422]);
+const FAILURE_BY_STATUS: Readonly<Record<number, ApiFailure>> = {
+  401: ApiFailure.Unauthorized,
+  403: ApiFailure.Forbidden,
+  423: ApiFailure.Locked,
+  429: ApiFailure.Throttled,
+  503: ApiFailure.Unavailable,
+};
+
+function wholeSeconds(value: unknown): number | null {
+  const seconds = typeof value === "number" ? value : typeof value === "string" && /^\s*\d+(\.\d+)?\s*$/.test(value) ? Number.parseFloat(value) : Number.NaN;
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
+}
 
 function headersFor(credentials: ApiCredentials): Record<string, string> {
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -47,7 +59,16 @@ function headersFor(credentials: ApiCredentials): Record<string, string> {
   return headers;
 }
 
-async function readRefusal(response: Response): Promise<{ message: string | null; messageEn: string | null; code: string | null }> {
+interface Refusal {
+  readonly message: string | null;
+  readonly messageEn: string | null;
+  readonly code: string | null;
+  readonly retryAfterSeconds: number | null;
+  readonly unlockByCode: boolean;
+}
+
+async function readRefusal(response: Response): Promise<Refusal> {
+  const waitInHeader = wholeSeconds(response.headers.get("retry-after"));
   try {
     const body: unknown = await response.json();
     if (body && typeof body === "object") {
@@ -56,12 +77,14 @@ async function readRefusal(response: Response): Promise<{ message: string | null
         message: typeof record.message === "string" ? record.message : null,
         messageEn: typeof record.messageEn === "string" ? record.messageEn : null,
         code: typeof record.error === "string" ? record.error : null,
+        retryAfterSeconds: wholeSeconds(record.retryAfterSeconds) ?? waitInHeader,
+        unlockByCode: record.unlockByCode === true,
       };
     }
   } catch {
     // A refusal with no JSON body is still a refusal; the caller falls back to a named reason.
   }
-  return { message: null, messageEn: null, code: null };
+  return { message: null, messageEn: null, code: null, retryAfterSeconds: waitInHeader, unlockByCode: false };
 }
 
 export function joinUrl(baseUrl: string, path: string): string {
@@ -87,15 +110,11 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const refusal = await readRefusal(response);
-    const failure =
-      response.status === 401
-        ? ApiFailure.Unauthorized
-        : response.status === 403
-          ? ApiFailure.Forbidden
-          : REFUSAL_STATUSES.has(response.status)
-            ? ApiFailure.Refused
-            : ApiFailure.Server;
-    throw new ApiError(failure, response.status, refusal.message, refusal.messageEn, refusal.code);
+    const failure = FAILURE_BY_STATUS[response.status] ?? (REFUSAL_STATUSES.has(response.status) ? ApiFailure.Refused : ApiFailure.Server);
+    throw new ApiError(failure, response.status, refusal.message, refusal.messageEn, refusal.code, {
+      retryAfterSeconds: refusal.retryAfterSeconds,
+      unlockByCode: refusal.unlockByCode,
+    });
   }
 
   if (response.status === 204) return undefined as T;

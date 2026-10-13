@@ -164,6 +164,28 @@ describe("the client only talks to the machine it was paired with", () => {
     expect(handshakes).toBe(1);
   });
 
+  it.each([
+    [423, { error: "ACCOUNT_LOCKED", unlockByCode: false, message: "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة." }, undefined],
+    [429, { error: "TOO_MANY_REQUESTS", message: "طلبات كثيرة من هذا الجهاز. انتظر قليلاً ثم أعد المحاولة." }, "60"],
+    [503, { error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." }, "5"],
+  ] as const)("hands the till the host's %i sign-in refusal whole: its status, its Arabic body and the wait it names", async (status, body, retryAfter) => {
+    const tls = await identityIn(`refusal-${status}`);
+    const server = createServer({ key: tls.key, cert: tls.cert }, (_req, res) => {
+      res.writeHead(status, { "content-type": "application/json", ...(retryAfter ? { "retry-after": retryAfter } : {}) });
+      res.end(JSON.stringify(body));
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as { port: number }).port;
+
+    const forward = createLanClient({ config: configFor(port, tls.fingerprintSha256) });
+    const res = await forward("/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: "a@b.eg", pin: "123456" }) });
+
+    expect(res.status).toBe(status);
+    expect(JSON.parse(res.body)).toEqual(body);
+    expect(res.headers["retry-after"]).toBe(retryAfter);
+  });
+
   // guards N-3: a person in front of a login screen must be told something in
   // seconds. Thirty seconds of a frozen button reads as a crashed app, and it
   // is the one moment when "the host is off" is both the likeliest answer and

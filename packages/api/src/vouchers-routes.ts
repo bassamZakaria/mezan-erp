@@ -690,7 +690,8 @@ export function createVouchersRoutes(
     }
     try {
       const id = d.id ?? idGen();
-      const result = await serviceFor(c).createConfirmAndAllocate(
+      const svc = serviceFor(c);
+      const result = await svc.createConfirmAndAllocate(
         {
           id,
           date,
@@ -721,7 +722,7 @@ export function createVouchersRoutes(
       );
       return c.json(
         {
-          voucher: serialize(result.document),
+          voucher: serialize(result.document, serializeApproval((await svc.approvalsOf([result.document])).get(result.document.id))),
           held: result.held,
           allocations: await presentAllocations(result.allocations),
           heldAllocations: result.heldAllocations.map(serializeHeldAllocation),

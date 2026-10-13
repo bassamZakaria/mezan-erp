@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { DEVICE_MISMATCH_LIMIT } from "@mezan/api";
 import { bootCloudHarness, HARNESS_PROXY_HOP, type CloudHarness } from "./cloud-harness.js";
 
 const harnesses: CloudHarness[] = [];
@@ -104,6 +105,11 @@ describe("a cloud caller behind the two-hop proxy", () => {
     expect((await h.send("/api/profile", { token, tenant: "acme", headers: device, client: "2a01:db8:5::77" })).status).toBe(200);
 
     expect((await h.send("/api/profile", { token, tenant: "acme", client: "102.44.7.1" })).status).toBe(401);
+    expect((await h.send("/api/profile", { token, tenant: "acme", headers: device })).status).toBe(200);
+
+    for (let i = 1; i < DEVICE_MISMATCH_LIMIT; i++) {
+      expect((await h.send("/api/profile", { token, tenant: "acme", client: "102.44.7.1" })).status).toBe(401);
+    }
     expect((await h.send("/api/profile", { token, tenant: "acme", headers: device })).status).toBe(401);
   });
 

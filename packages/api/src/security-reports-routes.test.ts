@@ -206,7 +206,7 @@ describe("تقرير الاستثناءات الأمنية — أحداث لم �
     expect(body.unrecorded.recent[0]).toEqual({ at: "2026-03-05T10:00:25.000Z", module: "auth", action: "LOGIN_FAILED", severity: "WARNING", actor: "u-25", entityId: null, reason: "disk full" });
 
     const without = createSecurityReportsRoutes({ audit: fakePort([]), now: NOW }, insecureHeaderAuthContextResolver);
-    expect(((await (await without.fetch(req("/exceptions?from=2026-03-01&to=2026-03-31"))).json()) as { unrecorded: unknown }).unrecorded).toEqual({ count: 0, recent: [] });
+    expect(((await (await without.fetch(req("/exceptions?from=2026-03-01&to=2026-03-31"))).json()) as { unrecorded: unknown }).unrecorded).toEqual({ count: 0, recent: [], dropped: 0, corrupted: 0 });
   });
 });
 

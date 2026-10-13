@@ -158,6 +158,7 @@ describe("a session is bound to where it was issued", () => {
       userId: "USER-CLERK",
       issuedFrom: TILL,
       presentedFrom: OTHER_TILL,
+      sessionEnded: true,
     });
 
     const idled = sessions.issue(clerkGrant, TILL);

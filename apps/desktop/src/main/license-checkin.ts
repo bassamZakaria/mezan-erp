@@ -1,5 +1,5 @@
-import { createHmac } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { createHmac, randomBytes } from "node:crypto";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { verifyCheckinResponse, type CheckinClaim } from "@mezan/domain";
 
@@ -40,8 +40,9 @@ import { verifyCheckinResponse, type CheckinClaim } from "@mezan/domain";
  * MAC'd with a key derived from the sealed database key (see
  * `createLicenseGuardStore`), and `lastVerifiedAt` is cross-checked against that
  * high-water mark — the check the old comment here claimed and no code
- * performed. A deleted, edited or unsigned record resolves to TAMPERED, not to
- * "no history, carry on".
+ * performed. An edited or unsigned record resolves to TAMPERED. A deleted one
+ * reads as never checked in, and the clock then starts at the licence's own
+ * signed `notBefore` — never at today.
  */
 export const READ_ONLY_AFTER_DAYS = 7;
 export const BLOCKING_NOTICE_AFTER_DAYS = 30;
@@ -96,6 +97,13 @@ export function guardFilePath(dir: string): string {
   return path.join(dir, "license-guard.json");
 }
 
+export function guardSecretFilePath(dir: string): string {
+  return path.join(dir, "license-guard.key");
+}
+
+const INSTALL_SECRET_RE = /^[0-9a-f]{64}$/;
+const OWNER_ONLY = 0o600;
+
 /**
  * Canonical bytes for the MAC — a fixed key order, so re-serialising the same
  * record on another platform or Node version cannot invalidate it.
@@ -126,11 +134,16 @@ function macOf(record: LicenseGuardRecord, macKey: string): string {
  * record that carries a MAC we cannot check, or one whose MAC does not match,
  * resolves to TAMPERED.
  *
- * `macKey: null` is the unencrypted/dev install (`--allow-unencrypted-database`,
- * `pnpm start`). There is no secret to MAC with, so the record is written and
- * read plainly — and a record that arrives WITH a MAC on such an install is
- * still refused, because that is a record from an encrypted install carried
- * across.
+ * `macKey: null` is the install with no database key
+ * (`--allow-unencrypted-database`, `pnpm start`). SECURITY: its record is
+ * MAC'd all the same, under a secret this install mints for itself on its
+ * first write (`license-guard.key`, owner-readable only). The record used to
+ * be written plainly there, and setting `lastVerifiedAt` by hand turned
+ * READ_ONLY back into ACTIVE. A record with no MAC, or one whose secret has
+ * gone, is TAMPERED. The one exception is a record an earlier build wrote
+ * before any secret existed: it is sealed once, and what it claimed about
+ * check-ins and the install date is dropped rather than believed, so the clock
+ * falls back to the licence's own signed start date.
  */
 export function createLicenseGuardStore(params: {
   readonly dir: string;
@@ -149,7 +162,26 @@ export function createLicenseGuardStore(params: {
         return null;
       }
     },
-    writeFile: (p: string, data: string) => writeFileSync(p, data, { encoding: "utf8", mode: 0o600 }),
+    writeFile: (p: string, data: string) => {
+      writeFileSync(p, data, { encoding: "utf8", mode: OWNER_ONLY });
+      chmodSync(p, OWNER_ONLY);
+    },
+  };
+
+  const secretPath = guardSecretFilePath(params.dir);
+  const installMacKey = (secret: string): string => `install:${secret}`;
+  const readInstallSecret = (): string | null => {
+    const held = io.readFile(secretPath)?.trim() ?? null;
+    return held !== null && INSTALL_SECRET_RE.test(held) ? held : null;
+  };
+  const mintInstallSecret = (): string => {
+    const minted = randomBytes(32).toString("hex");
+    io.writeFile(secretPath, `${minted}\n`);
+    return minted;
+  };
+  const write = (record: LicenseGuardRecord): void => {
+    const macKey = params.macKey ?? installMacKey(readInstallSecret() ?? mintInstallSecret());
+    io.writeFile(filePath, `${JSON.stringify({ record, mac: macOf(record, macKey) }, null, 2)}\n`);
   };
 
   return {
@@ -178,21 +210,25 @@ export function createLicenseGuardStore(params: {
 
       const mac = typeof parsed.mac === "string" ? parsed.mac : null;
       if (params.macKey === null) {
-        // A MAC we have no key for is not "fine"; it is somebody else's record.
-        return { record, integrity: mac === null ? "ok" : "tampered" };
+        const secret = readInstallSecret();
+        if (mac === null && secret === null) {
+          const sealed: LicenseGuardRecord = { highWater: record.highWater, lastVerifiedAt: null, installedAt: null, revoked: record.revoked };
+          try {
+            write(sealed);
+          } catch {
+            return { record: sealed, integrity: "tampered" };
+          }
+          return { record: sealed, integrity: "ok" };
+        }
+        if (mac === null || secret === null || mac !== macOf(record, installMacKey(secret))) return { record, integrity: "tampered" };
+        return { record, integrity: "ok" };
       }
       if (mac === null || mac !== macOf(record, params.macKey)) {
         return { record, integrity: "tampered" };
       }
       return { record, integrity: "ok" };
     },
-    write(record: LicenseGuardRecord): void {
-      const body =
-        params.macKey === null
-          ? { record }
-          : { record, mac: macOf(record, params.macKey) };
-      io.writeFile(filePath, `${JSON.stringify(body, null, 2)}\n`);
-    },
+    write,
   };
 }
 

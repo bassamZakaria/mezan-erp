@@ -84,6 +84,7 @@ export interface AuthRoutesDeps {
   // SECURITY: the cloud platform's own record that this tenant has an owner.
   // True closes the bootstrap routes whatever this database holds.
   readonly claimedElsewhere?: () => Promise<boolean>;
+  readonly onTenantClaimed?: () => Promise<void>;
 }
 
 export interface AccountLockedEvent {
@@ -660,6 +661,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
         return claimed;
       });
       if (!user) return alreadyClaimed(c, parsed.data.email);
+      await deps.onTenantClaimed?.();
       return c.json(await toSession(user, deps, requestOrigin(c)), 201);
     } catch (err) {
       // This used to hand back the EXISTING admin's session for wizard

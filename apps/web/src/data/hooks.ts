@@ -316,7 +316,7 @@ import type {
   RecurringJournalTemplateStatusDTO,
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
-import { DashboardRequest, ScreenRequest, ShellRequest, mayAskDashboard, type DisplaySettingKey } from "@mezan/domain";
+import { DashboardRequest, ScreenRequest, ShellModuleRequest, ShellRequest, mayAskDashboard, mayAskShellModuleRequest, type DisplaySettingKey } from "@mezan/domain";
 import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
@@ -583,6 +583,42 @@ export function useCompanyKnown(): boolean {
 }
 
 /** What base data already exists — drives the wizard's seed checklist without triggering a seed. */
+export enum BackendBootCode {
+  Starting = "BACKEND_STARTING",
+  StartupBusy = "STARTUP_BUSY",
+  Unavailable = "BACKEND_UNAVAILABLE",
+  SchemaUpgradeFailed = "SCHEMA_UPGRADE_FAILED",
+  SchemaTooNew = "SCHEMA_TOO_NEW",
+}
+
+const BACKEND_STILL_STARTING: readonly string[] = [BackendBootCode.Starting, BackendBootCode.StartupBusy];
+const BACKEND_REFUSED: readonly string[] = [BackendBootCode.Unavailable, BackendBootCode.SchemaUpgradeFailed, BackendBootCode.SchemaTooNew];
+const BACKEND_STARTING_FIRST_RETRY_MS = 400;
+const BACKEND_STARTING_MAX_RETRY_MS = 3_000;
+
+export enum BackendBootPhase {
+  Serving = "serving",
+  Starting = "starting",
+  Refused = "refused",
+}
+
+export interface BackendBootState {
+  readonly phase: BackendBootPhase;
+  readonly message: string | null;
+}
+
+const codeOf = (error: unknown): string | undefined => (error instanceof ApiError ? error.code : undefined);
+
+export function backendBootState(status: Pick<UseQueryResult<BootstrapSeedResultDTO, ApiError>, "data" | "error" | "failureReason" | "isPending" | "fetchStatus">, desktopHost: boolean = isDesktopHost()): BackendBootState {
+  if (status.data) return { phase: BackendBootPhase.Serving, message: null };
+  const failure = status.error ?? status.failureReason;
+  const code = codeOf(failure);
+  if (code !== undefined && BACKEND_REFUSED.includes(code)) return { phase: BackendBootPhase.Refused, message: failure?.message ?? null };
+  if (code !== undefined && BACKEND_STILL_STARTING.includes(code)) return { phase: BackendBootPhase.Starting, message: failure?.message ?? null };
+  if (desktopHost && status.isPending && status.fetchStatus === "fetching") return { phase: BackendBootPhase.Starting, message: null };
+  return { phase: BackendBootPhase.Serving, message: null };
+}
+
 export function useBootstrapStatus(options: { enabled?: boolean } = {}): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
@@ -592,9 +628,17 @@ export function useBootstrapStatus(options: { enabled?: boolean } = {}): UseQuer
     enabled: companyKnown && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request("/bootstrap/status");
-      if (!res.ok) throw await loaderError(res, t("api.theCoreDataStatusCould"), t);
+      if (!res.ok) {
+        const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
+        const bootCode = [...BACKEND_STILL_STARTING, ...BACKEND_REFUSED].find((code) => code === body.error);
+        if (bootCode) throw new ApiError(res.status, body.message ?? t("boot.starting.body"), undefined, undefined, bootCode);
+        throw new ApiError(res.status, body.message !== undefined && body.message !== "" ? body.message : withSupportCode(t("api.theCoreDataStatusCould"), res.status, t));
+      }
       return res.json<BootstrapSeedResultDTO>();
     },
+    // INVARIANT: "the backend is still opening its database" is waited out, however long the first seed takes; every other failure keeps the query's ordinary handling, so a refusal is asked once.
+    retry: (_failureCount, error) => BACKEND_STILL_STARTING.includes(codeOf(error) ?? ""),
+    retryDelay: (failureCount) => Math.min(BACKEND_STARTING_FIRST_RETRY_MS * 2 ** Math.max(0, failureCount - 1), BACKEND_STARTING_MAX_RETRY_MS),
   });
 }
 
@@ -652,6 +696,13 @@ export function useHoldsScreenRequest(request: ScreenRequest): boolean {
   const { session } = useApi();
   const entitlements = useEntitlements();
   return sessionMayAskScreen(session, entitlements.data ?? null, request);
+}
+
+export function useMayAskShellModule(request: ShellModuleRequest): boolean {
+  const { session } = useApi();
+  const entitlements = useEntitlements();
+  if (entitlements.isLoading && entitlements.failureCount === 0) return false;
+  return session !== null && mayAskShellModuleRequest(entitlements.data ?? null, request);
 }
 
 /** First-run wizard "create admin" step — persists the admin, then establishes their session. */
@@ -7640,10 +7691,11 @@ export function useDeleteNotificationRule() {
 /** The current user's own notifications (top-bar bell panel) — real data off `/notifications`. */
 export function useNotifications(status?: "unread" | "read"): UseQueryResult<NotificationDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskShellModule(ShellModuleRequest.Notifications);
   return useQuery<NotificationDTO[], ApiError>({
     queryKey: ["notifications", status ?? "all"],
-    enabled: session !== null,
+    enabled: mayAsk,
     refetchInterval: 30_000,
     queryFn: async () => {
       const qs = status ? `?status=${status}&limit=50` : "?limit=50";
@@ -7656,10 +7708,11 @@ export function useNotifications(status?: "unread" | "read"): UseQueryResult<Not
 
 export function useUnreadNotificationCount(): UseQueryResult<number, ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useMayAskShellModule(ShellModuleRequest.UnreadNotificationCount);
   return useQuery<number, ApiError>({
     queryKey: ["notifications", "unread-count"],
-    enabled: session !== null,
+    enabled: mayAsk,
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/notifications/unread-count");

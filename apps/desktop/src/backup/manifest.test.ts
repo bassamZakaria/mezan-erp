@@ -7,6 +7,7 @@ import {
   serializeManifest,
   MANIFEST_FORMAT,
   CURRENT_SCHEMA_VERSION,
+  BackupReason,
 } from "./manifest.js";
 import { ManifestValidationError } from "./errors.js";
 
@@ -53,7 +54,7 @@ describe("buildManifest / serializeManifest / parseManifest", () => {
       checksum: validChecksum,
       tables: { journal_entry: 2 },
       appVersion: "0.1.0",
-      reason: "manual",
+      reason: BackupReason.Manual,
       createdAt: new Date("2026-08-22T00:00:00.000Z"),
     });
 
@@ -75,7 +76,7 @@ describe("buildManifest / serializeManifest / parseManifest", () => {
       createdAt: new Date().toISOString(),
       checksum: "not-a-hash",
       tables: {},
-      reason: "manual",
+      reason: BackupReason.Manual,
     });
     expect(() => parseManifest(bad)).toThrow(ManifestValidationError);
   });
@@ -94,8 +95,24 @@ describe("buildManifest / serializeManifest / parseManifest", () => {
       createdAt: new Date().toISOString(),
       checksum: validChecksum,
       tables: {},
-      reason: "manual",
+      reason: BackupReason.Manual,
     });
     expect(() => parseManifest(future)).toThrow(ManifestValidationError);
+  });
+});
+
+describe("the manifest's schema version", () => {
+  it("is the one the persistence layer stamps, not a copy of it", async () => {
+    const persistence = await import("@mezan/persistence");
+    expect(CURRENT_SCHEMA_VERSION).toBe(persistence.CURRENT_SCHEMA_VERSION);
+    const manifest = buildManifest({ checksum: "a".repeat(64), tables: {}, appVersion: "1.0.0", reason: BackupReason.Manual });
+    expect(manifest.schemaVersion).toBe(persistence.CURRENT_SCHEMA_VERSION);
+  });
+
+  it("reads the reason of an archive written before reasons were an enum, and the safety copy's", () => {
+    const base = { manifestFormat: MANIFEST_FORMAT, schemaVersion: 1, appVersion: "1.0.0", createdAt: "2026-09-01T00:00:00.000Z", checksum: "a".repeat(64), tables: {} };
+    expect(parseManifest(JSON.stringify({ ...base, reason: BackupReason.OnClose })).reason).toBe(BackupReason.OnClose);
+    expect(parseManifest(JSON.stringify({ ...base, reason: BackupReason.PreRestore })).reason).toBe(BackupReason.PreRestore);
+    expect(() => parseManifest(JSON.stringify({ ...base, reason: "whenever" }))).toThrow(ManifestValidationError);
   });
 });

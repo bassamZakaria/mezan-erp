@@ -5,6 +5,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { createBackup } from "./backup-service.js";
+import { BackupReason } from "./manifest.js";
 
 /**
  * «تصدير نسخة قابلة للنقل» — the ONE way a restore-on-other-hardware archive is
@@ -146,7 +147,7 @@ export async function exportPortableBackup(params: {
       sqlite: params.sqlite,
       backupsDir: staging,
       appVersion: params.appVersion,
-      reason: "manual",
+      reason: BackupReason.Manual,
       encrypted: params.encrypted,
       ...(params.portable ? { portable: params.portable } : {}),
       // Everything in the staging directory is deleted below; retention must

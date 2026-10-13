@@ -172,13 +172,19 @@ export interface ChequeLedgerDays {
   readonly undone: string | null;
 }
 
+const BOUNCE_ONTO_PARTY_ENTRY_PREFIX = "cheque-bounce-onto-party:";
+
+export function chequeBounceOntoPartyEntryId(chequeId: string): string {
+  return `${BOUNCE_ONTO_PARTY_ENTRY_PREFIX}${chequeId}`;
+}
+
 export function chequeLedgerDays(
-  cheque: Pick<Cheque, "status" | "issueDate" | "creationJournalEntryId" | "bounceJournalEntryId" | "bouncedAt">,
+  cheque: Pick<Cheque, "id" | "status" | "issueDate" | "creationJournalEntryId" | "bounceJournalEntryId" | "bouncedAt">,
   entryDate: (entryId: string) => string | undefined,
   timeZone: string = DEFAULT_TIME_ZONE,
 ): ChequeLedgerDays {
   const raised = (cheque.creationJournalEntryId ? entryDate(cheque.creationJournalEntryId) : undefined) ?? cheque.issueDate;
   if (!UNDONE_CHEQUE_STATUSES.has(cheque.status)) return { raised, undone: null };
-  const undone = (cheque.bounceJournalEntryId ? entryDate(cheque.bounceJournalEntryId) : undefined) ?? (cheque.bouncedAt ? toTenantDay(cheque.bouncedAt, timeZone) : raised);
+  const undone = entryDate(chequeBounceOntoPartyEntryId(cheque.id)) ?? (cheque.bounceJournalEntryId ? entryDate(cheque.bounceJournalEntryId) : undefined) ?? (cheque.bouncedAt ? toTenantDay(cheque.bouncedAt, timeZone) : raised);
   return { raised, undone };
 }

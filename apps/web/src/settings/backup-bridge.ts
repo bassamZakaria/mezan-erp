@@ -59,7 +59,7 @@ export type SecondTarget = {
   lastCopyError: string | null;
 };
 
-export type ListResult = { backupsDir: string; entries: BackupEntry[] } | BackupFailure;
+export type ListResult = { backupsDir: string; entries: BackupEntry[]; archivesEncrypted?: boolean } | BackupFailure;
 export type CreateResult = { ok: true; entry: BackupEntry } | BackupFailure;
 export type RestoreResult =
   | { ok: true; restoredFrom: BackupEntry; safetyBackupFileName: string | null; relaunching: boolean }

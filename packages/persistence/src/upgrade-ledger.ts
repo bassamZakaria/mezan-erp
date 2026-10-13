@@ -6,6 +6,7 @@ export enum UpgradeStepId {
   ApprovalFingerprint = "approval_fingerprint",
   SeededRoleReconciliationSplit = "seeded_role_reconciliation_split",
   SeededRoleGoodsReceiving = "seeded_role_goods_receiving",
+  StandardRoles = "standard_roles",
 }
 
 export interface UpgradeLedger {

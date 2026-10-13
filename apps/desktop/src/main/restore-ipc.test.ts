@@ -25,6 +25,7 @@ import {
   type BackupListResult,
   type BackupRestoreResult,
 } from "../shared/ipc-contract.js";
+import { BackupReason } from "../backup/manifest.js";
 
 /**
  * `backup/restore-service.ts` implemented a fully verified restore and was
@@ -196,14 +197,14 @@ describe("list and create", () => {
       sqlite: live,
       backupsDir,
       appVersion: "9.9.9",
-      reason: "manual",
+      reason: BackupReason.Manual,
       now: new Date("2026-08-01T10:00:00.000Z"),
     });
     await createBackup({
       sqlite: live,
       backupsDir,
       appVersion: "9.9.9",
-      reason: "scheduled",
+      reason: BackupReason.Scheduled,
       now: new Date("2026-08-20T10:00:00.000Z"),
     });
 
@@ -212,6 +213,7 @@ describe("list and create", () => {
     expect(listed.entries).toHaveLength(2);
     expect(listed.entries[0]!.createdAt).toBe("2026-08-20T10:00:00.000Z");
     expect(listed.entries[0]!.reason).toBe("scheduled");
+    expect(listed.archivesEncrypted).toBe(false);
     expect(listed.entries[0]!.appVersion).toBe("9.9.9");
     expect(listed.entries[0]!.readable).toBe(true);
     expect(listed.entries[0]!.tables).toMatchObject({ invoice: 1 });
@@ -257,7 +259,7 @@ describe("the restore itself", () => {
       sqlite: live,
       backupsDir,
       appVersion: "9.9.9",
-      reason: "manual",
+      reason: BackupReason.Manual,
     });
     const archiveName = path.basename(snapshot.archivePath);
 
@@ -361,6 +363,11 @@ describe("an encrypted install", () => {
     await register(ADMIN, key);
   }
 
+  it("tells the screen its archives are encrypted, which only a keyed install may claim", async () => {
+    await encryptedLive();
+    expect((await call<BackupListResult>(MEZAN_BACKUP_LIST_CHANNEL, "good-token")).archivesEncrypted).toBe(true);
+  });
+
   it("writes an archive nobody can read off a USB stick", async () => {
     await encryptedLive();
     const created = await call<{ ok: true; entry: BackupEntryDTO }>(
@@ -439,12 +446,12 @@ describe("revert to the copy taken before the update", () => {
   it("restores the newest pre-update archive through the same verified path", async () => {
     await register(ADMIN);
     // An ordinary scheduled archive, and a pre-update one taken after it.
-    await createBackup({ sqlite: live, backupsDir, appVersion: "9.9.8", reason: "scheduled" });
+    await createBackup({ sqlite: live, backupsDir, appVersion: "9.9.8", reason: BackupReason.Scheduled });
     await createBackup({
       sqlite: live,
       backupsDir,
       appVersion: "9.9.9",
-      reason: "pre-update",
+      reason: BackupReason.PreUpdate,
       label: "pre-update-9.9.9",
     });
 
@@ -462,7 +469,7 @@ describe("revert to the copy taken before the update", () => {
 
   it("says in Arabic that there is none, rather than restoring some other archive", async () => {
     await register(ADMIN);
-    await createBackup({ sqlite: live, backupsDir, appVersion: "9.9.8", reason: "scheduled" });
+    await createBackup({ sqlite: live, backupsDir, appVersion: "9.9.8", reason: BackupReason.Scheduled });
 
     const result = await call<BackupRestoreResult>(MEZAN_BACKUP_REVERT_CHANNEL, "good-token");
 
@@ -541,7 +548,7 @@ describe("a restore is recorded in the trail it lands in", () => {
       sqlite: live,
       backupsDir,
       appVersion: "9.9.9",
-      reason: "manual",
+      reason: BackupReason.Manual,
     });
     const archiveName = path.basename(snapshot.archivePath);
 

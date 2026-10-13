@@ -12,6 +12,7 @@ export {
   type ChequeStatus,
   type ChequeStatusDefinition,
   type ChequeStoredStatus,
+  chequeBounceOntoPartyEntryId,
   chequeLedgerDays,
   type ChequeLedgerDays,
 } from "./cheque.js";

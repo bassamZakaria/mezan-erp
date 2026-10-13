@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { create as tarCreate } from "tar";
 import { createArchive, extractArchive, DB_ENTRY_NAME, MANIFEST_ENTRY_NAME } from "./archive.js";
-import { ArchiveContentsError } from "./errors.js";
+import { ArchiveContentsError, ArchiveDamagedError } from "./errors.js";
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -178,5 +178,49 @@ describe("extractArchive — a hostile archive", () => {
     await extractArchive(archivePath, destDir);
 
     expect(await readFile(path.join(destDir, "leftover.txt"), "utf8").catch(() => null)).toBeNull();
+  });
+});
+
+describe("extractArchive — a damaged archive is refused in Arabic, never with the unpacker's own error", () => {
+  async function goodArchive(): Promise<{ dir: string; archive: string }> {
+    const dir = await tmpDir();
+    const dbFile = path.join(dir, "db.sqlite");
+    await writeFile(dbFile, Buffer.alloc(64 * 1024, 7));
+    const archive = path.join(dir, "good.mezanbak");
+    await createArchive({ outputPath: archive, dbFilePath: dbFile, manifestJson: "{}" });
+    return { dir, archive };
+  }
+
+  async function refusal(archive: string, dir: string): Promise<ArchiveDamagedError> {
+    const err = await extractArchive(archive, path.join(dir, "out")).catch((caught: unknown) => caught);
+    expect(err).toBeInstanceOf(ArchiveDamagedError);
+    return err as ArchiveDamagedError;
+  }
+
+  it("truncated to half its bytes", async () => {
+    const { dir, archive } = await goodArchive();
+    const bytes = await readFile(archive);
+    await writeFile(archive, bytes.subarray(0, Math.floor(bytes.length / 2)));
+    const err = await refusal(archive, dir);
+    expect(err.message).toContain("ملف النسخة الاحتياطية تالف أو غير مكتمل");
+    expect(err.message).not.toMatch(/zlib|TAR_/i);
+    expect(err.messageEn).toContain("damaged or incomplete");
+  });
+
+  it("two bytes flipped in the middle", async () => {
+    const { dir, archive } = await goodArchive();
+    const bytes = Buffer.from(await readFile(archive));
+    const middle = Math.floor(bytes.length / 2);
+    bytes[middle] = bytes[middle]! ^ 0xff;
+    bytes[middle + 1] = bytes[middle + 1]! ^ 0xff;
+    await writeFile(archive, bytes);
+    expect((await refusal(archive, dir)).message).toContain("ملف النسخة الاحتياطية تالف أو غير مكتمل");
+  });
+
+  it("a text file renamed to look like an archive", async () => {
+    const dir = await tmpDir();
+    const archive = path.join(dir, "notes.mezanbak");
+    await writeFile(archive, "this is not an archive\n".repeat(50));
+    expect((await refusal(archive, dir)).message).toContain("ملف النسخة الاحتياطية تالف أو غير مكتمل");
   });
 });

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -12,6 +12,7 @@ import {
   createLicenseGuardStore,
   decideCheckin,
   guardFilePath,
+  guardSecretFilePath,
   EMPTY_GUARD_RECORD,
   BLOCKING_NOTICE_AFTER_DAYS,
   READ_ONLY_AFTER_DAYS,
@@ -220,6 +221,81 @@ describe("the guard record is tamper-evident, and tampering is not permissive", 
 });
 
 /** guards L-4 */
+describe("an install with no database key still seals its guard record", () => {
+  const readGuardFile = async (dir: string): Promise<{ record: Record<string, unknown>; mac?: string }> =>
+    JSON.parse(await readFile(guardFilePath(dir), "utf8")) as { record: Record<string, unknown>; mac?: string };
+
+  it("writes a MAC under a secret of its own, kept beside the record and readable by the owner alone", async () => {
+    const dir = await scratchDir();
+    const store = createLicenseGuardStore({ dir, macKey: null });
+    store.write(record());
+
+    expect((await readGuardFile(dir)).mac).toMatch(/^[0-9a-f]{64}$/);
+    const secret = await stat(guardSecretFilePath(dir));
+    expect(secret.mode & 0o777).toBe(0o600);
+    expect((await readFile(guardSecretFilePath(dir), "utf8")).trim()).toMatch(/^[0-9a-f]{64}$/);
+    expect(createLicenseGuardStore({ dir, macKey: null }).read()).toEqual({ record: record(), integrity: "ok" });
+  });
+
+  it("setting lastVerifiedAt by hand — what lifted read-only on the walk — is TAMPERED, and stays read-only", async () => {
+    const dir = await scratchDir();
+    const store = createLicenseGuardStore({ dir, macKey: null });
+    const overdue = record({ lastVerifiedAt: "2026-10-01T00:00:00.000Z", highWater: Date.parse("2026-10-13T00:00:00.000Z") });
+    store.write(overdue);
+    const now = new Date("2026-10-13T00:00:00.000Z");
+    expect(decideCheckin({ ...store.read(), installedAtFallback: null, now }).verdict).toBe("read-only");
+
+    const onDisk = await readGuardFile(dir);
+    await writeFile(guardFilePath(dir), JSON.stringify({ ...onDisk, record: { ...onDisk.record, lastVerifiedAt: "2026-10-12T00:00:00.000Z" } }));
+
+    const read = store.read();
+    expect(read.integrity).toBe("tampered");
+    expect(decideCheckin({ ...read, installedAtFallback: null, now }).verdict).toBe("tampered");
+  });
+
+  it("stripping the MAC off, or deleting the secret, is TAMPERED too", async () => {
+    const dir = await scratchDir();
+    const store = createLicenseGuardStore({ dir, macKey: null });
+    store.write(record());
+    const onDisk = await readGuardFile(dir);
+
+    await writeFile(guardFilePath(dir), JSON.stringify({ record: onDisk.record }));
+    expect(store.read().integrity).toBe("tampered");
+
+    await writeFile(guardFilePath(dir), JSON.stringify(onDisk));
+    expect(store.read().integrity).toBe("ok");
+    await rm(guardSecretFilePath(dir));
+    expect(store.read().integrity).toBe("tampered");
+  });
+
+  it("a record an earlier build wrote with no MAC is sealed once, and what it claimed about check-ins is not believed", async () => {
+    const dir = await scratchDir();
+    const claimed = record({ lastVerifiedAt: "2026-10-12T00:00:00.000Z", installedAt: "2026-10-12T00:00:00.000Z", highWater: Date.parse("2026-10-13T00:00:00.000Z"), revoked: true });
+    await writeFile(guardFilePath(dir), JSON.stringify({ record: claimed }));
+    const store = createLicenseGuardStore({ dir, macKey: null });
+
+    const first = store.read();
+
+    expect(first).toEqual({ record: { highWater: claimed.highWater, lastVerifiedAt: null, installedAt: null, revoked: true }, integrity: "ok" });
+    expect((await readGuardFile(dir)).mac).toMatch(/^[0-9a-f]{64}$/);
+    expect(store.read()).toEqual(first);
+    const signedStart = "2026-08-01T00:00:00.000Z";
+    expect(decideCheckin({ record: { ...first.record, revoked: false }, integrity: first.integrity, installedAtFallback: signedStart, now: new Date("2026-10-13T00:00:00.000Z") }).verdict).not.toBe("ok");
+  });
+
+  it("deleting the record and its secret together reads as never checked in — the clock then starts at the licence's signed date, not today", async () => {
+    const dir = await scratchDir();
+    const store = createLicenseGuardStore({ dir, macKey: null });
+    store.write(record());
+    await rm(guardFilePath(dir));
+    await rm(guardSecretFilePath(dir));
+
+    const read = store.read();
+    expect(read).toEqual({ record: EMPTY_GUARD_RECORD, integrity: "missing" });
+    expect(decideCheckin({ ...read, installedAtFallback: "2026-08-01T00:00:00.000Z", now: new Date("2026-10-13T00:00:00.000Z") }).verdict).toBe("blocked");
+  });
+});
+
 describe("the check-in answer must be signed by the vendor", () => {
   const LICENSE_ID = "lic-1";
   const FINGERPRINT = "fp-abc";

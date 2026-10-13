@@ -83,5 +83,9 @@ export {
   SCREEN_REQUESTS,
   mayAskScreenRequest,
   type ScreenRequestGate,
+  ShellModuleRequest,
+  SHELL_MODULE_REQUESTS,
+  mayAskShellModuleRequest,
+  type ShellModuleRequestGate,
 } from "./shell-requests.js";
 export { DashboardRequest, DASHBOARD_REQUESTS, mayActWith, mayAskDashboard, mayReadWith, type DashboardRequestGate, type PermissionHeld } from "./dashboard-requests.js";

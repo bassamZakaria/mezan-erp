@@ -155,6 +155,17 @@ export type BackendReplyMessage =
   | { readonly id: number; readonly ok: false; readonly error: string };
 
 /** Unsolicited worker → main messages. */
+export enum BackendBootRefusalCode {
+  SchemaUpgradeFailed = "SCHEMA_UPGRADE_FAILED",
+  SchemaTooNew = "SCHEMA_TOO_NEW",
+}
+
+export interface BackendBootRefusal {
+  readonly code: BackendBootRefusalCode;
+  readonly message: string;
+  readonly messageEn: string;
+}
+
 export type BackendNotice =
   | {
       readonly type: "ready";
@@ -165,7 +176,7 @@ export type BackendNotice =
        */
       readonly seededAdmin: { readonly pin: string; readonly generated: boolean } | null;
     }
-  | { readonly type: "boot-error"; readonly error: string };
+  | { readonly type: "boot-error"; readonly error: string; readonly refusal?: BackendBootRefusal | null };
 
 export type BackendWorkerMessage = BackendReplyMessage | BackendNotice;
 

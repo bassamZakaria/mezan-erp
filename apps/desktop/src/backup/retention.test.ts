@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { applyRetention, DEFAULT_RETENTION_POLICY, type RetentionCandidate } from "./retention.js";
+import {
+  applyRetention,
+  DEFAULT_RETENTION_POLICY,
+  MANUAL_ARCHIVES_KEPT,
+  PRE_RESTORE_ARCHIVES_KEPT,
+  PRE_RESTORE_MINIMUM_AGE_DAYS,
+  PRE_UPDATE_ARCHIVES_KEPT,
+  type RetentionCandidate,
+} from "./retention.js";
+import { BackupReason } from "./manifest.js";
 
 function daysAgo(now: Date, n: number): Date {
   return new Date(now.getTime() - n * 24 * 60 * 60 * 1000);
@@ -108,5 +117,62 @@ describe("applyRetention (GFS)", () => {
     const removedIds = new Set(remove.map((c) => c.id));
     for (const id of keptIds) expect(removedIds.has(id)).toBe(false);
     expect(keptIds.size + removedIds.size).toBe(candidates.length);
+  });
+});
+
+describe("applyRetention — archives somebody asked for are not bucketed with the automatic ones", () => {
+  const now = new Date("2026-10-13T17:46:16.000Z");
+  const secondsAgo = (n: number): Date => new Date(now.getTime() - n * 1000);
+  const of = (id: string, createdAt: Date, reason: BackupReason | null): RetentionCandidate => ({ id, createdAt, reason });
+
+  it("an on-close archive does not replace the manual one taken 14 seconds before it", () => {
+    const { keep, remove } = applyRetention([of("manual", secondsAgo(14), BackupReason.Manual), of("on-close", now, BackupReason.OnClose)], DEFAULT_RETENTION_POLICY, now);
+    expect(keep.map((c) => c.id).sort()).toEqual(["manual", "on-close"]);
+    expect(remove).toEqual([]);
+  });
+
+  it("an on-close archive does not replace the safety copy a restore took 16 seconds before it", () => {
+    const { remove } = applyRetention([of("pre-restore", secondsAgo(16), BackupReason.PreRestore), of("on-close", now, BackupReason.OnClose)], DEFAULT_RETENTION_POLICY, now);
+    expect(remove).toEqual([]);
+  });
+
+  it("the calendar buckets still apply among automatic archives, tagged or from before archives were tagged", () => {
+    const { keep, remove } = applyRetention(
+      [of("scheduled", secondsAgo(3600), BackupReason.Scheduled), of("untagged", secondsAgo(1800), null), of("on-close", now, BackupReason.OnClose)],
+      DEFAULT_RETENTION_POLICY,
+      now,
+    );
+    expect(keep.map((c) => c.id)).toEqual(["on-close"]);
+    expect(remove.map((c) => c.id).sort()).toEqual(["scheduled", "untagged"]);
+  });
+
+  it(`keeps the newest ${MANUAL_ARCHIVES_KEPT} manual archives and removes older ones`, () => {
+    const manual = Array.from({ length: MANUAL_ARCHIVES_KEPT + 3 }, (_, i) => of(`manual-${i}`, daysAgo(now, i), BackupReason.Manual));
+    const { keep, remove } = applyRetention(manual, DEFAULT_RETENTION_POLICY, now);
+    expect(keep.map((c) => c.id)).toEqual(manual.slice(0, MANUAL_ARCHIVES_KEPT).map((c) => c.id));
+    expect(remove.map((c) => c.id)).toEqual(manual.slice(MANUAL_ARCHIVES_KEPT).map((c) => c.id));
+  });
+
+  it(`keeps the newest ${PRE_UPDATE_ARCHIVES_KEPT} pre-update archives`, () => {
+    const updates = Array.from({ length: PRE_UPDATE_ARCHIVES_KEPT + 2 }, (_, i) => of(`update-${i}`, daysAgo(now, i * 40), BackupReason.PreUpdate));
+    const { keep } = applyRetention(updates, DEFAULT_RETENTION_POLICY, now);
+    expect(keep.map((c) => c.id)).toEqual(updates.slice(0, PRE_UPDATE_ARCHIVES_KEPT).map((c) => c.id));
+  });
+
+  it(`keeps the newest ${PRE_RESTORE_ARCHIVES_KEPT} safety copies, and never removes one younger than ${PRE_RESTORE_MINIMUM_AGE_DAYS} days`, () => {
+    const recent = Array.from({ length: PRE_RESTORE_ARCHIVES_KEPT + 4 }, (_, i) => of(`recent-${i}`, daysAgo(now, i), BackupReason.PreRestore));
+    expect(applyRetention(recent, DEFAULT_RETENTION_POLICY, now).remove).toEqual([]);
+
+    const old = Array.from({ length: PRE_RESTORE_ARCHIVES_KEPT + 4 }, (_, i) => of(`old-${i}`, daysAgo(now, PRE_RESTORE_MINIMUM_AGE_DAYS + 1 + i), BackupReason.PreRestore));
+    const pruned = applyRetention(old, DEFAULT_RETENTION_POLICY, now);
+    expect(pruned.keep.map((c) => c.id)).toEqual(old.slice(0, PRE_RESTORE_ARCHIVES_KEPT).map((c) => c.id));
+    expect(pruned.remove).toHaveLength(4);
+  });
+
+  it("a safety copy exactly at the age limit is still protected; one day older is not", () => {
+    const crowd = Array.from({ length: PRE_RESTORE_ARCHIVES_KEPT }, (_, i) => of(`newer-${i}`, daysAgo(now, i), BackupReason.PreRestore));
+    const atLimit = of("at-limit", daysAgo(now, PRE_RESTORE_MINIMUM_AGE_DAYS), BackupReason.PreRestore);
+    const past = of("past", daysAgo(now, PRE_RESTORE_MINIMUM_AGE_DAYS + 1), BackupReason.PreRestore);
+    expect(applyRetention([...crowd, atLimit, past], DEFAULT_RETENTION_POLICY, now).remove.map((c) => c.id)).toEqual(["past"]);
   });
 });

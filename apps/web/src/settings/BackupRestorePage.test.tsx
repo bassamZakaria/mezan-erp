@@ -66,6 +66,21 @@ describe("BackupRestorePage", () => {
     expect(screen.getByText("5.0 MB")).toBeInTheDocument();
   });
 
+  it("says the archives are encrypted only where they are", async () => {
+    installBridge({ list: vi.fn(async () => ({ backupsDir: "/data/backups", entries: [entry], archivesEncrypted: true })) });
+    renderWithProviders(<BackupRestorePage />, { transport: stubTransport({}), initialSession: testAdminSession });
+    expect(await screen.findByText(/النسخ اليومية مشفّرة بمفتاح هذا الجهاز وحده/)).toBeInTheDocument();
+    expect(screen.queryByText(/غير مشفّرة/)).not.toBeInTheDocument();
+  });
+
+  it("on an install with no database key it says the archives are NOT encrypted, and never claims a key", async () => {
+    installBridge({ list: vi.fn(async () => ({ backupsDir: "/data/backups", entries: [entry], archivesEncrypted: false })) });
+    renderWithProviders(<BackupRestorePage />, { transport: stubTransport({}), initialSession: testAdminSession });
+    const warning = await screen.findByRole("note", { name: "النسخ الاحتياطية على هذا الجهاز غير مشفّرة" });
+    expect(warning).toHaveTextContent("من ينسخ مجلد النسخ الاحتياطية يقرأ دفاترك كاملة");
+    expect(screen.queryByText(/مشفّرة بمفتاح هذا الجهاز/)).not.toBeInTheDocument();
+  });
+
   it("passes the session token, because an IPC channel carries no headers", async () => {
     // Without it these handlers would be the one unauthenticated write surface
     // in the product: anything in the renderer could replace the books.
@@ -113,6 +128,7 @@ describe("BackupRestorePage", () => {
           { ...entry, fileName: "c.mezanbak", reason: "pre-migration" },
           { ...entry, fileName: "d.mezanbak", reason: "on-close" },
           { ...entry, fileName: "e.mezanbak", reason: "pre-update" },
+          { ...entry, fileName: "f.mezanbak", reason: "pre-restore" },
         ],
       })),
     });
@@ -123,22 +139,24 @@ describe("BackupRestorePage", () => {
     expect(screen.getByText("قبل ترقية قاعدة البيانات")).toBeInTheDocument();
     expect(screen.getByText("عند إغلاق البرنامج")).toBeInTheDocument();
     expect(screen.getByText("قبل تحديث البرنامج")).toBeInTheDocument();
+    expect(screen.getByText("قبل استعادة نسخة سابقة")).toBeInTheDocument();
     expect(screen.queryByText("pre-migration")).not.toBeInTheDocument();
+    expect(screen.queryByText("pre-restore")).not.toBeInTheDocument();
     // The version each archive RECORDS — the build that wrote it, never this one.
-    expect(screen.getAllByText("2026.8")).toHaveLength(5);
+    expect(screen.getAllByText("2026.8")).toHaveLength(6);
   });
 
   // A reason a newer build wrote is shown as it is rather than mislabelled as
-  // one of the five this build knows.
+  // one of the six this build knows.
   it("passes an unrecognised reason through instead of guessing", async () => {
     installBridge({
       list: vi.fn(async () => ({
         backupsDir: "/data/backups",
-        entries: [{ ...entry, reason: "pre-restore" }],
+        entries: [{ ...entry, reason: "pre-archive" }],
       })),
     });
     renderWithProviders(<BackupRestorePage />, { transport: stubTransport({}), initialSession: testAdminSession });
-    expect(await screen.findByText("pre-restore")).toBeInTheDocument();
+    expect(await screen.findByText("pre-archive")).toBeInTheDocument();
   });
 
   it("shows the refusal the main process gave, never its code", async () => {

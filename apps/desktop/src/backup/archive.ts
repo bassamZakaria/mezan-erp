@@ -1,7 +1,7 @@
 import { create as tarCreate, extract as tarExtract } from "tar";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { ArchiveContentsError } from "./errors.js";
+import { ArchiveDamagedError, ArchiveContentsError } from "./errors.js";
 
 /** Fixed member names inside every archive — see createArchive() below. */
 export const DB_ENTRY_NAME = "db.sqlite";
@@ -67,7 +67,11 @@ export async function extractArchive(
   await rm(destDir, { recursive: true, force: true });
   await mkdir(destDir, { recursive: true });
 
-  await tarExtract({ file: archivePath, cwd: destDir });
+  try {
+    await tarExtract({ file: archivePath, cwd: destDir });
+  } catch (err) {
+    throw new ArchiveDamagedError(err);
+  }
 
   const dbFilePath = path.join(destDir, DB_ENTRY_NAME);
   const manifestPath = path.join(destDir, MANIFEST_ENTRY_NAME);

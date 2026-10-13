@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
 import { childRowsByParent, countMatching, FilterClauses, selectPage } from "./list-query.js";
 import {
@@ -441,7 +442,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
   }
 
   async save(invoice: SalesInvoice): Promise<void> {
-    this.insertInvoice.run(invoiceParams(invoice));
+    insertingNew(invoice.id, () => this.insertInvoice.run(invoiceParams(invoice)));
     this.insertLines(invoice);
   }
 

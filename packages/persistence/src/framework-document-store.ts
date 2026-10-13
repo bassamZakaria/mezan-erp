@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import type { DocumentListFilter, DocumentRepository, DocumentStatus, FrameworkDocument } from "@mezan/domain";
+import { insertingNew } from "./insert-new.js";
 import { withSqliteTransaction } from "./sqlite-connection.js";
 
 /**
@@ -126,7 +127,7 @@ class SqliteFrameworkDocumentStore<Line> implements DocumentRepository<Line> {
   }
 
   async save(doc: FrameworkDocument<Line>): Promise<void> {
-    this.insert.run(this.toRow(doc));
+    insertingNew(doc.id, () => this.insert.run(this.toRow(doc)));
   }
 
   async update(doc: FrameworkDocument<Line>): Promise<void> {

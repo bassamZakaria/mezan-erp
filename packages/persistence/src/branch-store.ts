@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Branch, BranchRepository } from "@mezan/domain";
-import { insertingNew, prepareInsertOnly } from "./insert-new.js";
+import { insertingNew, prepareInsertOnly, refusingTakenId } from "./insert-new.js";
 
 /** SQLite-backed BranchRepository (docs/archive/catalog/09 §"إدارة الفروع"). */
 
@@ -79,6 +79,8 @@ class SqliteBranchStore implements BranchRepository {
   }
 
   async insert(branch: Branch): Promise<void> {
+    // ORDERING: a resubmitted branch collides on its code too, and SQLite names that constraint first — the id is asked about before the write so the refusal is the id's.
+    refusingTakenId(this.sqlite, "branch", branch.id);
     insertingNew(branch.id, () => this.write(branch, this.insertOnly));
   }
 

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import { childRowsByParent } from "./list-query.js";
 import { addVersionColumns, createDocumentVersionStore, type DocumentVersionStore } from "./document-version.js";
 import {
@@ -221,7 +222,7 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
   }
 
   async save(quote: SalesQuote): Promise<void> {
-    this.insertQuote.run(quoteParams(quote));
+    insertingNew(quote.id, () => this.insertQuote.run(quoteParams(quote)));
     this.insertLines(quote);
   }
 

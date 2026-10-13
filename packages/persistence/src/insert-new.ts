@@ -23,3 +23,12 @@ export function insertingNew<T>(recordId: string, write: () => T): T {
     throw error;
   }
 }
+
+/*
+ * For a store whose save replaces a record's rows over several statements: its
+ * create path refuses a taken id before the first of them. ORDERING: call it
+ * with no await between it and the write, so nothing can take the id in between.
+ */
+export function refusingTakenId(sqlite: Database.Database, table: string, recordId: string): void {
+  if (sqlite.prepare(`SELECT 1 FROM "${table}" WHERE id = ?`).get(recordId) !== undefined) throw new DuplicateRecordIdError(recordId);
+}

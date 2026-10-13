@@ -200,7 +200,7 @@ class SqliteRfqQuoteStore implements RfqQuoteRepository {
     return (this.selectByRfq.all(rfqId) as RfqQuoteRow[]).map(quoteToDomain);
   }
   async create(quote: RfqQuote): Promise<void> {
-    this.insert.run({
+    insertingNew(quote.id, () => this.insert.run({
       id: quote.id,
       rfq_id: quote.rfqId,
       supplier_id: quote.supplierId,
@@ -209,7 +209,7 @@ class SqliteRfqQuoteStore implements RfqQuoteRepository {
       ),
       notes: quote.notes,
       submitted_at: quote.submittedAt,
-    });
+    }));
   }
 }
 

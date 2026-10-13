@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { insertingNew } from "./insert-new.js";
 import { childRowsByParent } from "./list-query.js";
 import {
   Money,
@@ -215,7 +216,7 @@ class SqliteLedgerRepository implements LedgerRepository {
   }
 
   async save(entry: JournalEntry): Promise<void> {
-    this.insertEntry.run(entryParams(entry));
+    insertingNew(entry.id, () => this.insertEntry.run(entryParams(entry)));
     this.insertLines(entry.id, entry.lines);
   }
 

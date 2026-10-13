@@ -191,8 +191,9 @@ export function LandedCostsScreen() {
   );
 
   const counts = useMemo(() => {
-    const c = { all: documents.length, draft: 0, confirmed: 0 };
-    for (const d of documents) {
+    const standing = documents.filter((d) => d.status !== "reversed" && !d.reversesDocId);
+    const c = { all: standing.length, draft: 0, confirmed: 0 };
+    for (const d of standing) {
       if (d.status === "draft") c.draft += 1;
       if (d.status === "confirmed") c.confirmed += 1;
     }

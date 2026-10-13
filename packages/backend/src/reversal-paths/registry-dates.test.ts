@@ -91,6 +91,11 @@ const FIXTURES: Record<ReversalDocumentType, (() => Promise<Reversible>) | null>
     await ok("POST", "/landed-costs/RD-LC/confirm", {}, 200);
     return { params: { id: "RD-LC" }, originalDate: "2026-08-10", mirror: { list: "/landed-costs", detail: (id) => `/landed-costs/${encodeURIComponent(id)}`, originalId: "RD-LC" } };
   },
+  [ReversalDocumentType.Voucher]: async () => {
+    await ok("POST", "/vouchers", { id: "RD-CV", date: "2026-08-18", voucherType: "other_expense", amount: "250", branchId: "BR-MAIN", paymentMethod: "bank", treasuryAccountId: "TR-DEMO-BANK", treasuryGlAccountId: "1310", counterpartyGlAccountId: "5900", memo: "مصروف سُجّل بالخطأ" }, 201);
+    await ok("POST", "/vouchers/RD-CV/confirm", {}, 200);
+    return { params: { id: "RD-CV" }, originalDate: "2026-08-18" };
+  },
   [ReversalDocumentType.DepreciationRun]: async () => {
     const run = world.sqlite.prepare(`SELECT id, journal_entry_id AS entryId FROM depreciation_run WHERE status = 'posted' AND journal_entry_id IS NOT NULL ORDER BY period DESC LIMIT 1`).get() as { id: string; entryId: string };
     return { params: { id: run.id }, originalDate: entryDate(run.entryId) };
@@ -102,6 +107,37 @@ const FIXTURES: Record<ReversalDocumentType, (() => Promise<Reversible>) | null>
     return { params: { id: run.id }, originalDate: entryDate(run.journalEntryId) };
   },
 };
+
+const REVERSED_STATUS = "reversed";
+
+const FAMILY_TOTALS: Record<ReversalDocumentType, readonly string[] | null> = {
+  [ReversalDocumentType.Voucher]: ["/vouchers/stats", "/vouchers/counts"],
+  [ReversalDocumentType.StockAdjustment]: ["/inventory/stock-adjustments/stats", "/inventory/stock-adjustments/counts"],
+  [ReversalDocumentType.AssetDisposal]: ["/assets/stats", "/assets/counts"],
+  [ReversalDocumentType.FxRevaluation]: null,
+  [ReversalDocumentType.PayrollRun]: null,
+  [ReversalDocumentType.EmployeeAdvance]: null,
+  [ReversalDocumentType.Cheque]: null,
+  [ReversalDocumentType.YearEndClose]: null,
+  [ReversalDocumentType.HrLeaveProvision]: null,
+  [ReversalDocumentType.Adjustment]: null,
+  [ReversalDocumentType.WritedownRun]: null,
+  [ReversalDocumentType.LetterOfGuarantee]: null,
+  [ReversalDocumentType.EquipmentLog]: null,
+  [ReversalDocumentType.MaterialConsumption]: null,
+  [ReversalDocumentType.LandedCost]: null,
+  [ReversalDocumentType.DepreciationRun]: null,
+  [ReversalDocumentType.RecurringJournalTemplate]: null,
+};
+
+async function familyTotals(type: ReversalDocumentType): Promise<Record<string, unknown>> {
+  const out: Record<string, unknown> = {};
+  for (const url of FAMILY_TOTALS[type] ?? []) {
+    const { [REVERSED_STATUS]: _found, ...totals } = (await world.request("GET", url)).body;
+    out[url] = totals;
+  }
+  return out;
+}
 
 const dayBefore = (day: string) => {
   const date = new Date(`${day}T00:00:00.000Z`);
@@ -120,12 +156,17 @@ const entriesSince = (rowid: number) => world.sqlite.prepare(`SELECT id, entry_n
 describe("every reversal route in the registry dates and numbers its reversal the same way", () => {
   const dated = Object.entries(DOCUMENT_REVERSAL_PATHS).filter(([, path]) => path.takesDate) as [ReversalDocumentType, (typeof DOCUMENT_REVERSAL_PATHS)[ReversalDocumentType]][];
 
+  it("names the list totals of every family that has them, and says so for the ones that have none", () => {
+    expect(Object.keys(FAMILY_TOTALS).sort()).toEqual(Object.keys(DOCUMENT_REVERSAL_PATHS).sort());
+  });
+
   it("has a way to raise a reversible document for every route that takes a date", () => {
     for (const [type] of dated) expect(FIXTURES[type], type).not.toBeNull();
     expect(Object.keys(FIXTURES).sort()).toEqual(Object.keys(DOCUMENT_REVERSAL_PATHS).sort());
   });
 
   it.each(dated)("%s: a date before the original is refused, a blank date means today, a closed today names the earliest open day, and the mirror is numbered and linked both ways", async (type, path) => {
+    const totalsBefore = await familyTotals(type);
     const fixture = await FIXTURES[type]!();
     const url = reversalRoute(type, fixture.params);
     expect(fixture.originalDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
@@ -157,6 +198,8 @@ describe("every reversal route in the registry dates and numbers its reversal th
       expect(`${entry.id} ${entry.day}`).toBe(`${entry.id} ${TODAY}`);
       expect(entry.entryNo, entry.id).toMatch(/\d/);
     }
+
+    expect(await familyTotals(type), "the family's list totals and KPIs read as they did before the original was posted").toEqual(totalsBefore);
 
     if (fixture.mirror) {
       const original = (await world.request("GET", fixture.mirror.detail(fixture.mirror.originalId))).body as { docNo: string; status: string; reversedByDocId: string | null };

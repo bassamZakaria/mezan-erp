@@ -148,7 +148,8 @@ describe("a treasury account is mapped only to a cash or bank ledger account", (
   it("refuses a ledger account already mapped to a treasury account of another currency", async () => {
     const res = await admin("POST", "/treasury-accounts", drawer("TR-T-USD", { currency: "USD" }));
     expect(res.status, JSON.stringify(res.body)).toBe(422);
-    expect(res.body?.error).toBe("TREASURY_LEDGER_ACCOUNT_INVALID");
+    expect(res.body?.error).toBe("TREASURY_GL_ACCOUNT_CURRENCY_CONFLICT");
+    expect(res.body?.message).toMatch(ARABIC);
     expect(one("SELECT id FROM treasury_account WHERE id = 'TR-T-USD'")).toBeUndefined();
   });
 

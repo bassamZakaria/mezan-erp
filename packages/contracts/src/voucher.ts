@@ -41,10 +41,10 @@ export const heldAllocationSchema = z.object({
 
 export const treasuryLegFxSchema = z.object({
   currency: z.string(),
-  fxRate: z.string(),
+  fxRate: decimalRateString,
   foreignAmount: moneyString,
-  carryingBase: z.string().optional(),
-  realised: z.string().optional(),
+  carryingBase: moneyString.optional(),
+  realised: moneyString.optional(),
   realisedAccountId: z.string().optional(),
 });
 

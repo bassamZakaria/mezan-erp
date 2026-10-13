@@ -2933,13 +2933,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
 
   const upgradeLedger = createSqliteUpgradeLedger(sqlite);
+  // REQUIRED ORDERING: runs after `grantSuccessorPermissionsOnce` above, so a reversal right granted for an older one is moved with the duty it belongs to.
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleDutySplit, async () => {
+    const reversalSuccessors = reversalPermissionSuccessors();
     const corrected: string[] = [];
     const dutyChanges: SeededRoleDutyChange[] = [];
     for (const role of await uow.roles.list()) {
-      const permissions = correctedSeededRolePermissions(role.code, role.permissions);
+      const permissions = correctedSeededRolePermissions(role.code, role.permissions, reversalSuccessors);
       if (!permissions) continue;
-      const change = seededRoleDutyChange(role);
+      const change = seededRoleDutyChange(role, reversalSuccessors);
       if (change) dutyChanges.push(change);
       await uow.roles.save({ ...role, permissions });
       corrected.push(role.code);

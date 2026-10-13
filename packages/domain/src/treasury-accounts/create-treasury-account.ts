@@ -119,7 +119,7 @@ export async function createTreasuryAccount(
     guaranteeFacilityLimit,
     status: "active",
   };
-  if (ledgerAccounts) await assertTreasuryLedgerAccount(account, existing, ledgerAccounts);
+  if (ledgerAccounts) await assertTreasuryLedgerAccount(account, ledgerAccounts);
 
   await repo.create(account);
   return account;

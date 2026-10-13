@@ -57,3 +57,45 @@ describe("upgrade — a tenant seeded before the duty split", () => {
     expect(stored(dbPath)["TREASURY_CASHIER"]).toEqual(OLD_SHAPE["TREASURY_CASHIER"]);
   }, 120_000);
 });
+
+const BEFORE_BOTH_UPGRADES: Readonly<Record<string, readonly string[]>> = {
+  FINANCE_MANAGER: ["accounting.journal.view", "accounting.journal.post", "accounting.period.view", "accounting.period.close", "accounting.period.reopen"],
+  ACCOUNTANT: ["accounting.journal.view", "accounting.journal.create"],
+  TREASURY_CASHIER: ["treasury.cash_voucher.view", "treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "cheques.view", "cheques.bounce"],
+  MY_TREASURER: ["cheques.view", "cheques.bounce", "accounting.journal.post"],
+};
+
+function writeBooksOlderThanBothUpgrades(dbPath: string): void {
+  const { sqlite } = openSqliteConnection(dbPath);
+  sqlite.exec("DROP TABLE IF EXISTS upgrade_step");
+  sqlite.exec("DELETE FROM permission_grant_marker");
+  const insert = sqlite.prepare("INSERT INTO role (id, code, name, description, permissions, is_system, created_at) VALUES (?, ?, ?, '', ?, 0, '2026-01-01T00:00:00.000Z')");
+  for (const [code, permissions] of Object.entries(BEFORE_BOTH_UPGRADES)) insert.run(`ROLE-${code}`, code, code, JSON.stringify(permissions));
+  sqlite.close();
+}
+
+describe("upgrade — a tenant older than the reversal permissions and the duty split", () => {
+  it("is granted each reversal by what it could already do, then has its seeded roles separated with the reversal following the duty it belongs to", async () => {
+    const dbPath = join(mkdtempSync(join(tmpdir(), "mezan-roles-both-")), "books.db");
+    (await createBackend({ dbPath })).close();
+    writeBooksOlderThanBothUpgrades(dbPath);
+
+    (await createBackend({ dbPath })).close();
+    const upgraded = stored(dbPath);
+
+    expect(upgraded["MY_TREASURER"]).toEqual(["cheques.view", "cheques.bounce", "accounting.journal.post", "accounting.revaluation.reverse", "cheques.reverse"]);
+    expect(upgraded["TREASURY_CASHIER"]).toEqual(["treasury.cash_voucher.view", "treasury.cash_voucher.create", "cheques.view", "cheques.bounce", "cheques.reverse", "dashboard.view"]);
+    expect(upgraded["FINANCE_MANAGER"]).toEqual(["accounting.journal.view", "accounting.period.view", "accounting.period.close", "accounting.period.reopen", "accounting.year_end_close.reverse", "dashboard.view"]);
+    expect(upgraded["ACCOUNTANT"]).toEqual(["accounting.journal.view", "accounting.journal.create", "accounting.journal.post", "accounting.revaluation.reverse", "dashboard.view"]);
+    for (const code of ["FINANCE_MANAGER", "ACCOUNTANT", "TREASURY_CASHIER"]) expect(detectSodConflicts(upgraded[code]!), code).toEqual([]);
+
+    (await createBackend({ dbPath })).close();
+    expect(stored(dbPath)).toEqual(upgraded);
+
+    const { sqlite } = openSqliteConnection(dbPath);
+    sqlite.prepare("UPDATE role SET permissions = ? WHERE code = 'MY_TREASURER'").run(JSON.stringify(["cheques.view", "cheques.bounce"]));
+    sqlite.close();
+    (await createBackend({ dbPath })).close();
+    expect(stored(dbPath)["MY_TREASURER"]).toEqual(["cheques.view", "cheques.bounce"]);
+  }, 120_000);
+});

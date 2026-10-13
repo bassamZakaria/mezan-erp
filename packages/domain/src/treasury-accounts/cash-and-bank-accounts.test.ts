@@ -67,12 +67,12 @@ describe("assertTreasuryLedgerAccount — the cash-and-bank header is the tenant
 
   it("accepts a leaf under the routed header and refuses one under the standard chart's 1300 the tenant no longer uses for cash", async () => {
     const deps = { accounts, cashAndBankParentAccountId: async () => "11" };
-    await expect(assertTreasuryLedgerAccount(drawer("1101"), [], deps)).resolves.toBeUndefined();
-    await expect(assertTreasuryLedgerAccount(drawer("1300-1"), [], deps)).rejects.toBeInstanceOf(InvalidTreasuryLedgerAccountError);
+    await expect(assertTreasuryLedgerAccount(drawer("1101"), deps)).resolves.toBeUndefined();
+    await expect(assertTreasuryLedgerAccount(drawer("1300-1"), deps)).rejects.toBeInstanceOf(InvalidTreasuryLedgerAccountError);
   });
 
   it("falls back to the routing slot's shipped default when no routing is supplied", async () => {
-    await expect(assertTreasuryLedgerAccount(drawer("1300-1"), [], { accounts })).resolves.toBeUndefined();
-    await expect(assertTreasuryLedgerAccount(drawer("1101"), [], { accounts })).rejects.toBeInstanceOf(InvalidTreasuryLedgerAccountError);
+    await expect(assertTreasuryLedgerAccount(drawer("1300-1"), { accounts })).resolves.toBeUndefined();
+    await expect(assertTreasuryLedgerAccount(drawer("1101"), { accounts })).rejects.toBeInstanceOf(InvalidTreasuryLedgerAccountError);
   });
 });

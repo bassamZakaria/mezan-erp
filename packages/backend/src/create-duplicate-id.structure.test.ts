@@ -124,7 +124,7 @@ const CREATE_ROUTES: Record<string, CreateRoute> = {
   createChequeSchema: {
     route: "/cheques",
     table: "cheque",
-    body: (sampled) => ({ ...sampled, chequeNumber: "DUP-0099", bankName: "بنك مصر", branchId: "BR-MAIN", partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" } }),
+    body: (sampled) => ({ ...sampled, issueDate: TODAY, dueDate: TODAY, chequeNumber: "DUP-0099", bankName: "بنك مصر", branchId: "BR-MAIN", partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" } }),
   },
   createCollectionSchema: { route: "/vouchers/collections", table: "voucher", body: (sampled) => ({ ...sampled, customerId: "CUST-DEMO-2", branchId: "BR-MAIN", treasuryAccountId: "TR-DEMO-CASH" }) },
   createConfigInstanceSchema: {
@@ -398,6 +398,7 @@ const NOT_A_CREATE: Record<string, string> = {
   recordVanCashMovementSchema: "the handler mints the movement id itself; the body id is never stored",
   salesInvoiceSchema: "shapes the response of a create; no request is parsed with it",
   salesQuoteSchema: "shapes the response of a create; no request is parsed with it",
+  periodCloseSummarySchema: "shapes the response of a read; no request is parsed with it",
   parseBarcodeRequestSchema: "the code is a scanned barcode to decode; nothing is stored",
   createProductTemplateSchema: "the row's key is an id the server mints; the code is a unique attribute with its own refusal",
   createRoleSchema: "the row's key is an id the server mints; the code is a unique attribute with its own refusal",

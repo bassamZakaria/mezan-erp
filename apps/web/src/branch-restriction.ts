@@ -40,6 +40,7 @@ export const NAV_ITEM_API: Readonly<Record<string, string>> = {
   leads: "/crm/leads",
   reconciliation: "/reconciliation",
   revaluation: "/revaluation",
+  "period-close": "/period-close",
   "tax-simplified-regime": "/tax/simplified-regime",
   "report-simplified-regime-comparison": "/tax/simplified-regime",
   "hr-dashboard": "/hr/dashboard",

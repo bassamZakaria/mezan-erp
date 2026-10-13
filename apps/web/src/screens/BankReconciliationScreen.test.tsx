@@ -636,7 +636,7 @@ describe("BankReconciliationScreen — the branch of a company-level statement a
   async function openCharge(statementBranchId: string | null, handlers: Record<string, (init?: RequestInit) => StubResult> = {}) {
     const user = userEvent.setup();
     const overrides = { statement: { branchId: statementBranchId, treasuryAccountId: statementBranchId === null ? "ta-company" : "ta-bank1" }, lines: [CHARGE] };
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /bank-statements": () => ({ body: [listItem(statement(overrides.statement), [CHARGE])] }),

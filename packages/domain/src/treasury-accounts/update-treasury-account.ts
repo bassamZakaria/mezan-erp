@@ -120,7 +120,7 @@ export async function updateTreasuryAccount(
     status: command.status ?? current.status,
   };
 
-  if (ledgerAccounts) await assertTreasuryLedgerAccount(updated, await repo.list(), ledgerAccounts);
+  if (ledgerAccounts) await assertTreasuryLedgerAccount(updated, ledgerAccounts);
 
   await repo.update(updated);
   return updated;

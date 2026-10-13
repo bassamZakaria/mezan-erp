@@ -216,8 +216,10 @@ async function storedRecordRefusal(c: Context, session: Session, entry: BranchPo
       if (sharedData) continue;
       return branchRefusal(c, BranchRefusalCode.PolicyUndeclared);
     }
-    const standing = standingOf(session, await lookup(session, kind, value));
+    const branches = await lookup(session, kind, value);
+    const standing = standingOf(session, branches);
     if (standing === Standing.Granted) continue;
+    if (standing === Standing.Foreign && isRead(c) && entry.readCutToCallersLines && session.seesUnattributed && branches?.some((id) => id === null || id === "")) continue;
     if (standing === Standing.Unattributed && entry.unownedIsCompanys) {
       if (isRead(c)) continue;
       return branchRefusal(c, BranchRefusalCode.CompanyWideOnly);

@@ -64,4 +64,16 @@ describe("seeded role corrections", () => {
     expect(correctedSeededRolePermissions("SYSTEM_ADMIN", ["*"])).toBeNull();
     expect(correctedSeededRolePermissions("TREASURY_CASHIER", ["*"])).toBeNull();
   });
+
+  it("a right that succeeded a revoked one leaves with it, and one that succeeds a granted right arrives with it", () => {
+    const successors = new Map([
+      ["accounting.journal.post", ["accounting.revaluation.reverse"]],
+      ["accounting.period.reopen", ["accounting.year_end_close.reverse"]],
+    ]);
+    const finance = correctedSeededRolePermissions("FINANCE_MANAGER", [...OLD_FINANCE, "accounting.period.reopen", "accounting.revaluation.reverse", "accounting.year_end_close.reverse"], successors)!;
+    expect(finance).not.toContain("accounting.revaluation.reverse");
+    expect(finance).toContain("accounting.year_end_close.reverse");
+    expect(detectSodConflicts(finance)).toEqual([]);
+    expect(correctedSeededRolePermissions("ACCOUNTANT", ["accounting.journal.view", "accounting.journal.create"], successors)).toContain("accounting.revaluation.reverse");
+  });
 });

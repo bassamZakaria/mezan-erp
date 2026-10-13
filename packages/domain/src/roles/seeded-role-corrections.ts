@@ -56,13 +56,35 @@ export interface SeededRoleDutyChange {
   readonly reasonAr: string;
 }
 
+export type PermissionSuccessors = ReadonlyMap<string, readonly string[]>;
+
+const NO_SUCCESSORS: PermissionSuccessors = new Map();
+
+/**
+ * REQUIRED ORDERING: a permission that succeeded another (a document's own
+ * reversal right, granted to whoever held the older right) follows the duty it
+ * came from. Revoking the older right without it leaves the conflict standing
+ * under the newer name.
+ */
+function splitFor(code: SeededRoleCode, permissions: readonly string[], successors: PermissionSuccessors): { readonly revoked: string[]; readonly granted: string[] } {
+  const split = DUTY_SPLITS[code] ?? NO_SPLIT;
+  const kept = permissions.filter((permission) => !split.revoke.includes(permission));
+  const stillEarned = new Set(kept.flatMap((permission) => successors.get(permission) ?? []));
+  const orphaned = split.revoke.flatMap((permission) => successors.get(permission) ?? []).filter((successor) => !stillEarned.has(successor));
+  const revoked = [...new Set([...split.revoke, ...orphaned])].filter((permission) => permissions.includes(permission));
+  const granted = [...new Set([...split.grant, ...split.grant.flatMap((permission) => successors.get(permission) ?? [])])].filter((permission) => !permissions.includes(permission));
+  return { revoked, granted };
+}
+
 /** What the duty split took from, or handed to, a stored seeded role — null when it changes nothing an administrator must hear about. */
-export function seededRoleDutyChange(role: { readonly code: string; readonly name: string; readonly permissions: readonly string[] }): SeededRoleDutyChange | null {
+export function seededRoleDutyChange(
+  role: { readonly code: string; readonly name: string; readonly permissions: readonly string[] },
+  successors: PermissionSuccessors = NO_SUCCESSORS,
+): SeededRoleDutyChange | null {
   if (!isSeededRoleCode(role.code) || role.permissions.includes(WILDCARD_PERMISSION)) return null;
   const split = DUTY_SPLITS[role.code];
   if (!split) return null;
-  const revoked = split.revoke.filter((permission) => role.permissions.includes(permission));
-  const granted = split.grant.filter((permission) => !role.permissions.includes(permission));
+  const { revoked, granted } = splitFor(role.code, role.permissions, successors);
   if (revoked.length === 0 && granted.length === 0) return null;
   return { roleCode: role.code, roleName: role.name, revoked, granted, reasonAr: split.reasonAr };
 }
@@ -86,11 +108,11 @@ export function seededRoleDutyNotice(changes: readonly SeededRoleDutyChange[]): 
 
 const isSeededRoleCode = (code: string): code is SeededRoleCode => SEEDED_ROLE_CODES.includes(code);
 
-export function correctedSeededRolePermissions(code: string, permissions: readonly string[]): string[] | null {
+export function correctedSeededRolePermissions(code: string, permissions: readonly string[], successors: PermissionSuccessors = NO_SUCCESSORS): string[] | null {
   if (!isSeededRoleCode(code) || permissions.includes(WILDCARD_PERMISSION)) return null;
-  const split = DUTY_SPLITS[code] ?? NO_SPLIT;
-  const kept = permissions.filter((permission) => !split.revoke.includes(permission));
-  const added = [...split.grant, DASHBOARD_VIEW_PERMISSION].filter((permission) => !kept.includes(permission));
+  const { revoked, granted } = splitFor(code, permissions, successors);
+  const kept = permissions.filter((permission) => !revoked.includes(permission));
+  const added = [...granted, DASHBOARD_VIEW_PERMISSION].filter((permission) => !kept.includes(permission));
   if (kept.length === permissions.length && added.length === 0) return null;
   return [...kept, ...added];
 }

@@ -51,7 +51,15 @@ function renderShell(session: Session) {
   return recorded;
 }
 
-const restricted = (permissions: string[]): Session => ({ ...testAdminSession, userId: "USER-RESTRICTED", isCompanyAdmin: false, permissions, roleCode: "RESTRICTED" });
+const OPENS_THE_SCREEN_UNDER_TEST = "dashboard.view";
+
+const restricted = (permissions: string[]): Session => ({
+  ...testAdminSession,
+  userId: "USER-RESTRICTED",
+  isCompanyAdmin: false,
+  permissions: [OPENS_THE_SCREEN_UNDER_TEST, ...permissions],
+  roleCode: "RESTRICTED",
+});
 
 describe("the shell asks only for what the session may read", () => {
   afterEach(() => persistSession(null));

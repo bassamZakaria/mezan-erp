@@ -8,7 +8,6 @@ export enum TreasuryLedgerAccountFault {
   Inactive = "inactive",
   Header = "header",
   NotCashOrBank = "not_cash_or_bank",
-  OtherCurrency = "other_currency",
 }
 
 const FAULT_AR: Readonly<Record<TreasuryLedgerAccountFault, string>> = {
@@ -16,7 +15,6 @@ const FAULT_AR: Readonly<Record<TreasuryLedgerAccountFault, string>> = {
   [TreasuryLedgerAccountFault.Inactive]: "الحساب الدفتري غير نشط",
   [TreasuryLedgerAccountFault.Header]: "الحساب الدفتري حساب رئيسي لا يُرحَّل عليه",
   [TreasuryLedgerAccountFault.NotCashOrBank]: "الحساب الدفتري ليس من حسابات النقدية والبنوك",
-  [TreasuryLedgerAccountFault.OtherCurrency]: "الحساب الدفتري مربوط بحساب خزينة آخر بعملة مختلفة",
 };
 
 const FAULT_EN: Readonly<Record<TreasuryLedgerAccountFault, string>> = {
@@ -24,7 +22,6 @@ const FAULT_EN: Readonly<Record<TreasuryLedgerAccountFault, string>> = {
   [TreasuryLedgerAccountFault.Inactive]: "the ledger account is inactive",
   [TreasuryLedgerAccountFault.Header]: "the ledger account is a header and cannot be posted to",
   [TreasuryLedgerAccountFault.NotCashOrBank]: "the ledger account is not a cash or bank account",
-  [TreasuryLedgerAccountFault.OtherCurrency]: "the ledger account is linked to another treasury account in a different currency",
 };
 
 export class InvalidTreasuryLedgerAccountError extends Error {
@@ -60,11 +57,11 @@ async function sitsUnderCashOrBank(account: Account, deps: TreasuryLedgerAccount
 /**
  * LEDGER INVARIANT: the ledger account a treasury account names is where its
  * cash is posted and what the negative-cash guard reads, so it is a live cash
- * or bank leaf, and one ledger account never carries two currencies.
+ * or bank leaf. That one ledger account never carries two currencies is
+ * `assertGlAccountHoldsOneCurrency`'s to refuse.
  */
 export async function assertTreasuryLedgerAccount(
-  candidate: Pick<TreasuryAccount, "id" | "glAccountId" | "currency">,
-  others: readonly TreasuryAccount[],
+  candidate: Pick<TreasuryAccount, "glAccountId">,
   deps: TreasuryLedgerAccountDeps,
 ): Promise<void> {
   const glAccountId = candidate.glAccountId;
@@ -77,6 +74,4 @@ export async function assertTreasuryLedgerAccount(
   if (account.status !== "active") refuse(TreasuryLedgerAccountFault.Inactive);
   if (account.isHeader) refuse(TreasuryLedgerAccountFault.Header);
   if (account.type !== "asset" || !(await sitsUnderCashOrBank(account, deps))) refuse(TreasuryLedgerAccountFault.NotCashOrBank);
-  const clash = others.some((other) => other.id !== candidate.id && other.glAccountId === glAccountId && other.currency !== candidate.currency);
-  if (clash) refuse(TreasuryLedgerAccountFault.OtherCurrency);
 }

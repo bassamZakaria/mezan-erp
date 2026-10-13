@@ -138,6 +138,13 @@ export interface BranchPolicyEntry {
   readonly query?: Readonly<Record<string, BranchRecordKind>>;
   /** What a body key that means different records on different routes names in this family. */
   readonly bodyKinds?: Readonly<Record<string, BranchRecordKind>>;
+  /**
+   * SECURITY: set only where the by-id read serves a record cut to the lines
+   * in the caller's view (`entryInView`). A record whose branch lines are all
+   * another branch's is then still read, through its «غير مخصص» lines alone,
+   * by a session that may see them — the same lines its lists already show.
+   */
+  readonly readCutToCallersLines?: boolean;
 }
 
 const K = BranchRecordKind;
@@ -278,6 +285,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   companyWide("/reconciliation"),
   companyWide("/tax"),
   companyWide("/gl/year-end-close"),
+  companyWide("/period-close"),
   companyWide("/gl/vat-filings"),
   companyWide("/gl/opening-balance-duplicates"),
   companyWide("/gl/balances-by-currency"),
@@ -315,7 +323,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   handlerScoped("/financial-reports", { companyWide: ["/vat-return"] }),
   handlerScoped("/reports", { params: { id: null } }),
   handlerScoped("/attachments", { params: { id: null } }),
-  handlerScoped("/gl/journal-entries", { params: { id: K.JournalEntry }, defaultsLineBranch: true }),
+  handlerScoped("/gl/journal-entries", { params: { id: K.JournalEntry }, defaultsLineBranch: true, readCutToCallersLines: true }),
   handlerScoped("/gl/accounts", { params: { accountId: null } }),
   scoped("/gl/recurring/templates", K.RecurringTemplate, { params: { entryId: K.JournalEntry } }),
   scoped("/gl/recurring/runs", K.RecurringRun, { bodyKinds: { templateId: K.RecurringTemplate } }),

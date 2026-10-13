@@ -610,6 +610,10 @@ describe("D111 · an id-addressed route checks the stored document's branch, not
     expect(assetState()).toEqual(before);
 
     const draft = one<{ id: string }>("SELECT id FROM depreciation_run WHERE branch_id = ? AND status = 'draft' LIMIT 1", MAIN)!;
+    const raised = await admin("POST", "/assets/depreciation/runs", { period: "2026-08", branchId: MAIN });
+    expect(raised.status, JSON.stringify(raised.body).slice(0, 200)).toBe(201);
+    const booked = await admin("POST", `/assets/depreciation/runs/${raised.body.id}/post`, {});
+    expect(booked.status, JSON.stringify(booked.body).slice(0, 200)).toBe(200);
     const posted = one<{ id: string }>("SELECT id FROM depreciation_run WHERE branch_id = ? AND status = 'posted' LIMIT 1", MAIN)!;
     expect((await alex("GET", `/assets/depreciation/runs/${draft.id}`)).status).toBe(404);
     expectRefusedInArabic(await alex("POST", `/assets/depreciation/runs/${draft.id}/post`, {}));
@@ -1016,7 +1020,10 @@ describe("D111 round 2 · the grant holds on every family, for a non-admin and f
       expect(res.body.counts.journalEntries, label).toBeLessThan(whole.body.counts.journalEntries);
       expect(res.body.recentActivity.length, label).toBeGreaterThan(0);
       for (const activity of res.body.recentActivity) {
-        expect((await caller("GET", `/gl/journal-entries/${activity.id}`)).status, `${label} ${activity.id}`).toBe(200);
+        const opened = await caller("GET", `/gl/journal-entries/${activity.id}`);
+        expect(opened.status, `${label} ${activity.id}`).toBe(200);
+        expect(opened.body.lines.length, `${label} ${activity.id}`).toBeGreaterThan(0);
+        expect(opened.body.lines.filter((line: { branchId: string | null }) => line.branchId !== ALEX && line.branchId !== null), `${label} ${activity.id}`).toEqual([]);
       }
     }
     const pendingEverywhere = (await admin("GET", "/workflow/requests/pending-count")).body.count;
@@ -2036,7 +2043,7 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     { route: "/crm/opportunities", schema: contracts.createOpportunitySchema, table: "crm_opportunity", foreignIdSql: "SELECT id FROM crm_opportunity WHERE id = 'OPP-DEMO-7'" },
     { route: "/hr/payroll/runs", schema: contracts.createPayrollRunSchema, table: "hr_payroll_run", foreignIdSql: "SELECT id FROM hr_payroll_run WHERE id = 'PR-DEMO-3'", valid: (sampled) => ({ ...sampled, year: 2099, month: 1 }) },
     { route: "/cheques", schema: contracts.createChequeSchema, table: "cheque", foreignIdSql: "SELECT id FROM cheque WHERE branch_id = 'BR-MAIN' LIMIT 1",
-      valid: (sampled) => ({ ...sampled, chequeNumber: "D111-R4-0099", bankName: "بنك مصر", partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" } }),
+      valid: (sampled) => ({ ...sampled, issueDate: TODAY, dueDate: TODAY, chequeNumber: "D111-R4-0099", bankName: "بنك مصر", partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" } }),
     },
     { route: "/vouchers", schema: contracts.createVoucherSchema, table: "voucher", foreignIdSql: "SELECT id FROM voucher WHERE branch_id = 'BR-MAIN' LIMIT 1", valid: (sampled) => ({ ...sampled, partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105" }) },
     { route: "/sales-invoices", schema: contracts.createSalesInvoiceSchema, table: "sales_invoice", foreignIdSql: "SELECT id FROM sales_invoice WHERE branch_id = 'BR-MAIN' LIMIT 1", valid: (_sampled, id) => salesInvoice(id, ALEX, ALEX_WAREHOUSE) },

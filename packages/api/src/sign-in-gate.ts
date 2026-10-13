@@ -15,13 +15,6 @@ const PER_SOURCE = 6;
 const RESERVED = 4;
 const HOST_CONSOLE = "\u0000host";
 
-// A PIN check is a scrypt on a four-thread pool the whole process shares, and
-// anyone may ask for one. Unbounded, a thousand anonymous sign-ins queue a
-// thousand hashes ahead of the owner's. Here a tenant hashes a few at a time
-// and keeps a short queue. No one address may fill it; the last places go only
-// to an address holding none, so a handful of busy addresses cannot take them
-// all; waiting addresses are served in turn, not in arrival order; and the
-// machine's own console is outside the count altogether.
 export function createSignInGate(options: SignInGateOptions = {}): SignInGate {
   const maxRunning = options.running ?? RUNNING;
   const capacity = maxRunning + (options.waiting ?? WAITING);

@@ -61,7 +61,6 @@ export type TenantTurn = <T>(work: () => Promise<T>) => Promise<T>;
 const straightThrough: TenantTurn = (work) => work();
 
 export interface EtaReceiptIssuerDeps {
-  /** A timer-driven run holds no request's turn; without this it writes beside whatever request is mid-flight. */
   readonly turn?: TenantTurn;
   readonly eta: EtaService;
   readonly invoices: Pick<SalesInvoiceRepository, "findById">;

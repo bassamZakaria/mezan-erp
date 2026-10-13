@@ -91,10 +91,6 @@ function canRenewSubscription(status: SubscriptionStatusDTO | undefined): boolea
 
 type AppliableCheckout = { readonly status: string; readonly providerRef: string | null; readonly failureReason: string | null };
 
-// A captured payment the server would let an owner apply by hand, were the
-// subscription renewable (card-checkout.ts applyUnapplied). One whose
-// reference is already a recorded payment is refused: applying it would renew
-// the subscription a second time.
 function isAppliable(checkout: AppliableCheckout): boolean {
   return (
     checkout.status === CardCheckoutStatus.Unapplied &&

@@ -473,9 +473,6 @@ export async function withSqliteTurn<T>(sqlite: Database.Database, fn: () => Pro
       if (scope.active) await handBack(scope);
       scope.announceRetaken();
     });
-    // An abandoned re-take is still queued behind whoever holds the connection.
-    // It gives its place straight back when it arrives; waiting for that here
-    // would hang this request on the very holder it gave up on.
     if (scope.abandoned) void closed.catch(() => undefined);
     else await closed;
   }

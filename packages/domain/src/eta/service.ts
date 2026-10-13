@@ -850,8 +850,6 @@ export class EtaService {
             if (settled) out.push(settled);
             now = settled ?? (await this.found(listed.id));
           }
-          // A chain: each receipt names the one before it. Once a link is
-          // refused or left unsettled, the links after it are not reported.
           if (now.status === EtaSubmissionState.Error || now.transmitStartedAt) break;
           if (now.status === EtaSubmissionState.Ready) still.push(now);
         }

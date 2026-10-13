@@ -380,8 +380,6 @@ export function connectionTurn(audit: AuditSink | undefined, options: Connection
       }, heldWarningMs);
       watchdog.unref?.();
     };
-    // A holder that never gives the event loop back starves the interval above,
-    // so the length of its hold is read again as it lets go.
     const unwatch = (): void => {
       clearInterval(watchdog);
       if (heldSince === null) return;

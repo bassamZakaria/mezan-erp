@@ -113,9 +113,6 @@ export function Sell() {
   }, [customer, date, dueDateTouched]);
 
   const createInvoice = useCreateSalesInvoice();
-  // ONE id per invoice the rep means to create. It survives an attempt whose
-  // answer never arrived, so pressing again is answered with the invoice
-  // already created; it is replaced once a create is known to have succeeded.
   const invoiceId = useDocumentId((savedId) => {
     setNotice(`${strings.common.alreadySaved} — ${savedId}`);
     setLines([blankLine()]);

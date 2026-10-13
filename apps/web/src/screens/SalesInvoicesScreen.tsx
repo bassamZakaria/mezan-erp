@@ -367,10 +367,6 @@ function CreateInvoicePage({
   const convertQuote = useConvertSalesQuoteToInvoice();
   const createInvoice = useCreateSalesInvoice();
   const confirmInvoice = useConfirmSalesInvoice();
-  // ONE id per invoice the clerk means to create. It survives an attempt whose
-  // answer never arrived, so pressing save again is answered with the invoice
-  // already created instead of creating a second; it is replaced the moment a
-  // create is known to have succeeded.
   const invoiceId = useDocumentId((savedId) => {
     resetForm();
     onAlreadyCreated(savedId);

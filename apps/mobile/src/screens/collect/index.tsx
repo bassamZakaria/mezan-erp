@@ -92,9 +92,6 @@ export function Collect() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const createCollection = useCreateCollection();
-  // ONE id per collection the rep means to record: a press whose answer never
-  // arrived is answered, on the next press, with the voucher already recorded
-  // instead of taking the customer's money twice.
   const voucherId = useDocumentId((savedId) => {
     setNotice(`${strings.common.alreadySaved} — ${savedId}`);
     setAmount("");

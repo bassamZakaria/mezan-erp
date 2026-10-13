@@ -35,8 +35,6 @@ export class PaymentProviderError extends Error {
 }
 
 const REQUEST_TIMEOUT_MS = 15_000;
-// Paymob documents a 60-minute token; refreshing early keeps a sweep from
-// starting on a token that dies half-way through it.
 const AUTH_TOKEN_TTL_MS = 50 * 60_000;
 
 function unavailable(reason: string): ProviderInquiry {

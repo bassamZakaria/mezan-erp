@@ -79,11 +79,6 @@ export interface IdempotentCreateOptions {
   readonly now?: () => Date;
   readonly creates?: readonly IdempotentCreate[];
   readonly readCurrent: (c: Context, path: string) => Response | Promise<Response>;
-  /**
-   * Whether the document is still there at all, whoever may read it. A caller
-   * allowed to create a document is not always allowed to read it back, and a
-   * refused read must not be answered as a document that was never made.
-   */
   readonly stillExists?: (c: Context, path: string) => Promise<boolean>;
 }
 

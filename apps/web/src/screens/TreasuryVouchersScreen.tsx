@@ -997,10 +997,6 @@ function CreateVoucherView({
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
   const createCollection = useCreateCollection();
-  // ONE id per voucher the cashier means to record. It survives an attempt
-  // whose answer never arrived, so pressing save again is answered with the
-  // voucher already recorded instead of taking the money twice; it is replaced
-  // the moment a create is known to have succeeded.
   const voucherId = useDocumentId(onAlreadyCreated);
   const branchesQuery = useBranches();
   const costCentersQuery = useCostCenters();

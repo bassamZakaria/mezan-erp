@@ -125,11 +125,6 @@ export interface CardCheckoutRepository {
   settlePaid(input: {
     readonly provider: PaymentProviderId;
     readonly providerRef: string;
-    /**
-     * What is claimed as "already processed". Defaults to `providerRef`; an
-     * operator applying an `unapplied` payment by hand claims its own key,
-     * because the provider's transaction id was claimed when it first arrived.
-     */
     readonly claimRef?: string;
     readonly now: string;
     readonly checkoutId: string;

@@ -197,9 +197,6 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
       if (record.lockedUntil > at) return Math.ceil((record.lockedUntil - at) / 1000);
       if (record.lockedUntil !== 0) {
         // A SERVED LOCK STEPS THE LADDER DOWN ONE RUNG — it does not reset it.
-        // Left at its high-water mark, one typo after a served wait bought
-        // double that wait; reset to zero, every served lock bought five free
-        // guesses. One rung down, a post-lock typo costs the same wait again.
         // For the person who is simply locked out and needs to work now, the
         // answer is `POST /users/:id/unlock`, not a weaker ladder.
         record.failures.shift();
@@ -238,16 +235,6 @@ export function createLoginThrottle(now: () => number = Date.now): LoginThrottle
   };
 }
 
-/**
- * Failures a single SOURCE may make, across every account it names, before it
- * is made to wait.
- *
- * The (account, source) ladder above only bites when the attempts name the same
- * account. A caller that names a different one each time never climbs it, so
- * every request it sends buys a full hash and a place in the queue — an
- * unauthenticated flood no rung ever slows. Thirty is far above what one shop's
- * tills mistype in an hour behind one address, and far below a sweep.
- */
 const SOURCE_FREE_ATTEMPTS = 30;
 
 export interface SourceThrottle {

@@ -183,10 +183,6 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     return lockedOut(c, held.retryAfterSeconds);
   }
 
-  // The scrypt behind a sign-in is the slowest thing an anonymous caller can ask
-  // for. It is spent here, before the request queues for the connection, and
-  // only for a caller neither ladder is holding back; the handler below then
-  // finds the verdict waiting.
   const verifyPinBeforeTheTurn: BoundaryPreparation = async (c) => {
     const secrets = deps.secrets;
     if (!secrets) return;
@@ -355,8 +351,6 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const current = verified && user ? await deps.uow.users.findById(user.id) : null;
     const signedIn = current !== null && current.status === UserState.Active && current.pinHash === user?.pinHash ? current : null;
     if (verified && signedIn === null) {
-      // The PIN that was typed was the account's PIN when the check began; the
-      // account changed underneath it. Nobody guessed wrong, so nothing counts.
       await security(c, "LOGIN_FAILED", "WARNING", { username: needle, accountChangedDuringCheck: true });
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }

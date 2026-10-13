@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ALL_SCOPE, SHELL_REQUESTS, ShellRequest, createAuthContext, holdsShellRequest } from "@mezan/domain";
 import { seededWorld, type SeededWorld } from "./test-helpers/seeded-world.js";
@@ -44,4 +46,23 @@ describe("what the shell asks for is what the session's role may read", () => {
     expect(refused).toEqual([]);
     expect(withheldNeedlessly).toEqual([]);
   }, 900_000);
+
+  const tenantServed = Object.values(ShellRequest).filter((request) => SHELL_REQUESTS[request].servedByTenant);
+
+  it.each(tenantServed)("a role holding only the permission behind «%s» is served it, and a role holding every other shell permission is refused it", async (request) => {
+    const { path, permission } = SHELL_REQUESTS[request];
+    const everyOther = [...new Set(Object.values(SHELL_REQUESTS).map((gate) => gate.permission))].filter((held) => held !== permission);
+
+    expect(await statusAs({ code: `ONLY-${request}`, permissions: [permission] }, path), `${path} with only ${permission}`).not.toBe(403);
+    expect(await statusAs({ code: `ALL-BUT-${request}`, permissions: everyOther }, path), `${path} without ${permission}`).toBe(403);
+  });
+
+  it("the subscription request, which the platform serves, is gated there on the same permission the shell checks", () => {
+    const source = readFileSync(fileURLToPath(new URL("../../../apps/server/src/billing-routes.ts", import.meta.url)), "utf8");
+    const handler = source.slice(source.indexOf('app.get("/subscription"'));
+    const gatedOn = /allowed\(caller\.grant, "([^"]+)"\)/.exec(handler)?.[1];
+
+    expect(SHELL_REQUESTS[ShellRequest.Subscription].path).toBe("/billing/subscription");
+    expect(gatedOn).toBe(SHELL_REQUESTS[ShellRequest.Subscription].permission);
+  });
 });

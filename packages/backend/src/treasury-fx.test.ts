@@ -132,7 +132,7 @@ describe("month-end revaluation of the USD bank", () => {
     expect(posted.status).toBe(201);
 
     expect(world.balance("1310-USD", "2026-08-31") - bankBefore).toBe(405n * SCALE);
-    expect(world.balance("4940", "2026-08-31") - gainBefore).toBeLessThanOrEqual(-405n * SCALE);
+    expect(world.balance("4940", "2026-08-31") - gainBefore).toBe(-405n * SCALE);
     expect(world.balance("1310-USD", "2026-08-31")).toBe(54_285n * SCALE);
     expect(world.balance("1310-USD", "2026-09-01")).toBe(bankBefore);
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);

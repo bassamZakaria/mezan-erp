@@ -188,13 +188,17 @@ describe("foreign money held on account is an open item of its own", () => {
     await books.invoice(FxSide.Receivable, "inv-b", { units: "1.111111" });
     await onAccount(FxSide.Receivable, "v-held", "77.777777");
     const before = books.world.balance("1105");
+    await books.rate("fx-closing-2026-08-31", "48.123457", "2026-08-31");
+    const preview = await books.ok("POST", "/revaluation/preview", { date: "2026-08-31", currencies: ["USD"], autoReverse: false }, 200);
+    const previewed = BigInt(String((preview.details as { accountId: string; delta: string }[]).find((detail) => detail.accountId === "1105")?.delta).replace(".", ""));
 
-    await books.revalue("48.123457");
+    await books.ok("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: false });
 
     const posted = books.world.balance("1105") - before;
     const rows = shares();
     expect(rows.map((row) => row.item)).toEqual(["inv-a", "inv-b", "v-held"]);
     expect(rows.reduce((sum, row) => sum + BigInt(row.amount.replace(".", "")), 0n)).toBe(posted);
+    expect(posted).toBe(previewed);
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 

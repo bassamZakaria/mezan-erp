@@ -150,7 +150,7 @@ export interface PayrollRegisterRow {
   readonly advanceRecovery: number;
   readonly otherDeductions: number;
   readonly totalDeductions: number;
-  readonly terminationAdjustment: number;
+  readonly terminationAdjustment: string;
   readonly netPay: number;
   readonly employerContributions: number;
   readonly insuranceEmployer: number;
@@ -201,7 +201,7 @@ export function createPayrollRegisterReport(): ReportDefinition<PayrollPeriodPar
           advanceRecovery: toNumber(advanceRecovery),
           otherDeductions: toNumber(other),
           totalDeductions: toNumber(payslip.totalDeductions),
-          terminationAdjustment: toNumber(Money.sum(payslip.lines.filter((l) => l.kind === "termination_adjustment").map((l) => l.amount))),
+          terminationAdjustment: Money.sum(payslip.lines.filter((l) => l.kind === "termination_adjustment").map((l) => l.amount)).toString(),
           netPay: toNumber(payslip.netPay),
           employerContributions: toNumber(payslip.employerContributions),
           insuranceEmployer: toNumber(totalOf(payslip, ["social_insurance_employer"])),

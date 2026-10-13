@@ -114,13 +114,30 @@ describe("the permission catalogue against the routes that check it", () => {
     //     what DEC-2 decided approval is: `workflow.approve`/`.reject`;
     //   - the desktop shell's restore IPC channel, which is not a Hono route at
     //     all: `admin.backup.view`, `admin.backup.restore`,
-    //     `admin.tenant.settings.edit`.
+    //     `admin.tenant.settings.edit`;
+    //   - the period lock's override, an inline `can()` beside the route's own
+    //     gate: `accounting.period.override_close`; and the till's discount
+    //     ceiling, the same shape: `pos.discount.approve`.
     //
     // The count is pinned so the gap cannot quietly grow: adding a code without
     // anything to check it, or deleting the only consumer of one, moves this
     // number.
-    expect(UNGATED.length).toBeGreaterThan(0);
-    expect(UNGATED.length).toBeLessThanOrEqual(14);
+    expect([...UNGATED].sort()).toEqual([
+      "accounting.period.override_close",
+      "admin.backup.restore",
+      "admin.backup.view",
+      "admin.tenant.settings.edit",
+      "crm.customer360.view",
+      "hr.employee.view_salary",
+      "pos.discount.approve",
+      "purchases.order.edit",
+      "purchases.receipt.edit_cost",
+      "purchases.supplier360.view",
+      "sales.discount.approve",
+      "sales.invoice.view_cost",
+      "workflow.approve",
+      "workflow.reject",
+    ]);
   });
 
   it("every POS code the catalogue carries is checked by a POS route — the module came back with its gates", () => {

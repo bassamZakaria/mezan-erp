@@ -77,4 +77,23 @@ describe("the shell asks only for what the session may read", () => {
 
     await waitFor(() => expect(shellPaths.filter((path) => !asked.includes(path))).toEqual([]));
   });
+
+  it("a role that may read roles but not settings asks for the roles and for neither the settings nor the subscription", async () => {
+    const { asked } = renderShell(restricted(["admin.roles.view"]));
+
+    await waitFor(() => expect(asked).toContain("/roles"));
+    await waitFor(() => expect(asked).toContain("/notifications/unread-count"));
+
+    expect(asked).not.toContain("/settings");
+    expect(asked).not.toContain("/billing/subscription");
+  });
+
+  it("a role that may read settings but not roles asks for the settings and the subscription, and not for the roles", async () => {
+    const { asked } = renderShell(restricted(["admin.settings.view"]));
+
+    await waitFor(() => expect(asked).toContain("/settings"));
+    await waitFor(() => expect(asked).toContain("/billing/subscription"));
+
+    expect(asked).not.toContain("/roles");
+  });
 });

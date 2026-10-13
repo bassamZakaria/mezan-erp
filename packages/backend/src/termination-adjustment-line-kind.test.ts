@@ -47,10 +47,12 @@ describe("a termination adjustment on an approved payslip", () => {
     expect(employeeShare.length).toBe(byAccount.size);
     for (const row of employeeShare) expect(row.net >= (byAccount.get(row.account) ?? 0n), row.account).toBe(true);
 
-    const register = (await world.request("GET", "/reports/hr/payroll-register?year=2026&month=7")).body as { rows?: { employeeId: string; totalDeductions: number; terminationAdjustment: number; netPay: number; gross: number }[] };
+    const register = (await world.request("GET", "/reports/hr/payroll-register?year=2026&month=7")).body as { rows?: { employeeId: string; totalDeductions: number; terminationAdjustment: string; netPay: number; gross: number }[] };
     const row = register.rows?.find((r) => r.employeeId === "EMP-DEMO-2");
     expect(row, JSON.stringify(register).slice(0, 300)).toBeDefined();
-    expect(row!.terminationAdjustment).toBeGreaterThan(0);
-    expect(Math.round((row!.gross - row!.totalDeductions - row!.terminationAdjustment) * 100)).toBe(Math.round(row!.netPay * 100));
+    expect(row!.terminationAdjustment).toMatch(/^\d+\.\d{6}$/);
+    const adjustmentPiastres = Number(BigInt(row!.terminationAdjustment.replace(".", "")) / 10_000n);
+    expect(adjustmentPiastres).toBeGreaterThan(0);
+    expect(Math.round((row!.gross - row!.totalDeductions) * 100) - adjustmentPiastres).toBe(Math.round(row!.netPay * 100));
   });
 });

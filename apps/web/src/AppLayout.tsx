@@ -2,7 +2,7 @@ import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AppShell, SkeletonTable, filterNavGroups, isNavItemVisible, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
-import { ALL_SCOPE, type UserStatusCode } from "@mezan/domain";
+import { ALL_SCOPE, ShellRequest, type UserStatusCode } from "@mezan/domain";
 import { BranchRestrictedAccess, type BranchDTO, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
 
@@ -10,7 +10,7 @@ import { useScopeSelector } from "./data/hub-hooks";
 import { displayName } from "./display-name";
 import { useProfile } from "./data/account-hooks";
 import { LoginScreen } from "./login/LoginScreen";
-import { PlanModule, planIncludesModule } from "./data/plan-modules";
+import { planServesRequest } from "./data/plan-modules";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { LicenceStatusNotice } from "./lan/ConnectedDevicesPanel";
 import {
@@ -204,9 +204,8 @@ export function AppLayout() {
   const branchesQuery = useBranches();
   const warehousesQuery = useWarehouses();
   const entitlementsQuery = useEntitlements();
-  const hrLicensed = planIncludesModule(entitlementsQuery, PlanModule.Hr);
-  const employeesQuery = useEmployees(hrLicensed);
-  const jobTitlesQuery = useJobTitles(hrLicensed);
+  const employeesQuery = useEmployees(planServesRequest(entitlementsQuery, ShellRequest.Employees));
+  const jobTitlesQuery = useJobTitles(planServesRequest(entitlementsQuery, ShellRequest.JobTitles));
   const pendingApprovalCountQuery = usePendingApprovalCount();
   const pendingApprovalCount = pendingApprovalCountQuery.data ?? 0;
   const unreadNotificationCount = useUnreadNotificationCount().data ?? 0;

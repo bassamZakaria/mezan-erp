@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text } from "react-native";
 import type { BranchDTO, CustomerDTO, OpenInvoiceDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import { Button } from "@/components/button";
@@ -21,6 +21,7 @@ import { useStrings } from "@/i18n";
 import { useFormPadding } from "@/layout";
 import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { todayIso } from "@/domain/dates";
+import { useDocumentId } from "@/hooks/use-document-id";
 import { AllocationInvoiceKind, CollectPaymentMethod, TreasuryAccountStatus } from "@/domain/enums";
 import { CollectPath, CollectPermission, allocationRequest, collectPathFor, draftCollectionBody, intendedAllocationFor } from "@/domain/collect-path";
 import { resolveDefaultBranch } from "@/domain/working-location";
@@ -94,6 +95,13 @@ export function Collect() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const createCollection = useCreateCollection();
+  const voucherId = useDocumentId((savedId) => {
+    setNotice(`${strings.common.alreadySaved} — ${savedId}`);
+    setAmount("");
+    setReferenceNo("");
+    setInvoice(null);
+    setTreasuryAccount(null);
+  });
   const createDraft = useCreateVoucherDraft();
 
   async function submit() {
@@ -142,6 +150,7 @@ export function Collect() {
         return;
       }
       const result = await createCollection.mutateAsync({
+        id: voucherId.current(),
         date: todayIso(),
         customerId: customer.id,
         branchId: branch.id,
@@ -151,6 +160,7 @@ export function Collect() {
         referenceNo: referenceNo.trim() === "" ? null : referenceNo.trim(),
         allocations: [allocationRequest(allocation)],
       });
+      voucherId.renew();
       const docNo = result.voucher.docNo ?? result.voucher.id;
       setNotice(result.held ? `${strings.collect.held} — ${docNo}` : `${strings.collect.success} ${invoice.invoiceNo} — ${docNo}`);
       setAmount("");
@@ -158,6 +168,7 @@ export function Collect() {
       setInvoice(null);
       setTreasuryAccount(null);
     } catch (err) {
+      if (voucherId.recover(err)) return;
       setError(describeWriteError(err, strings));
     } finally {
       setBusy(false);

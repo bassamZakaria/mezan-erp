@@ -15,8 +15,9 @@ export function servedTenantLookup(platform: PlatformHandle): ServedTenantLookup
 function tenantOrigin(env: CloudEnv, slug: string | null): string | null {
   const domain = env.tenantDomain?.toLowerCase();
   if (!domain || !slug || isReservedTenantCode(slug)) return null;
-  const host = `${slug}.${domain}`;
   const configured = configuredPublicOrigin(env);
+  const port = configured ? new URL(configured).port : "";
+  const host = `${slug}.${domain}${port === "" ? "" : `:${port}`}`;
   const candidate = `${configured ? new URL(configured).protocol : "https:"}//${host}`;
   if (!URL.canParse(candidate)) return null;
   const parsed = new URL(candidate);
@@ -35,4 +36,18 @@ export async function trustedPublicOrigin(request: Request, env: CloudEnv, serve
 
 export function tenantPublicOrigin(env: CloudEnv, tenantCode: string): string | null {
   return configuredPublicOrigin(env) ?? tenantOrigin(env, tenantSlugOfHost(`${tenantCode}.${env.tenantDomain?.toLowerCase() ?? ""}`, env.tenantDomain));
+}
+
+export const UNLOCK_PATH = "/unlock";
+
+// SECURITY: built from the tenant's registered code and what the deployment
+// configured. Nothing a request carries reaches this function. The token rides
+// in the FRAGMENT: it reaches the page's own script and is never sent to this
+// server, a proxy, an access log or a Referer header.
+export function tenantUnlockLink(env: CloudEnv, tenantCode: string): ((token: string) => string) | undefined {
+  const onTenantHost = tenantOrigin(env, tenantSlugOfHost(`${tenantCode}.${env.tenantDomain?.toLowerCase() ?? ""}`, env.tenantDomain));
+  if (onTenantHost) return (token) => `${onTenantHost}${UNLOCK_PATH}#token=${encodeURIComponent(token)}`;
+  const configured = configuredPublicOrigin(env);
+  if (!configured) return undefined;
+  return (token) => `${configured}${UNLOCK_PATH}#tenant=${encodeURIComponent(tenantCode)}&token=${encodeURIComponent(token)}`;
 }

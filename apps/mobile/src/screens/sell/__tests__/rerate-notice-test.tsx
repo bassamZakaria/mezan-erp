@@ -16,7 +16,7 @@ function refusingUntilAcknowledged(): { confirm: ConfirmDraft; calls: unknown[] 
   const confirm: ConfirmDraft = async (input) => {
     calls.push(input);
     if (input.body?.acknowledgeTaxRecalculation) return confirmed;
-    throw new ApiError(ApiFailure.Refused, 409, SERVER_MESSAGE, null, "114.000000");
+    throw new ApiError(ApiFailure.Refused, 409, SERVER_MESSAGE, null, null, { recalculatedGrandTotal: "114.000000" });
   };
   return { confirm, calls };
 }

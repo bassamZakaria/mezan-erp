@@ -66,10 +66,12 @@ function deploymentsInMarkdown(file: string): DocumentedDeployment[] {
   const found: DocumentedDeployment[] = [];
   for (const [header, , ...rows] of tablesIn(readFileSync(file, "utf8"))) {
     if (header?.[0] !== "Variable") continue;
-    const named = rows.filter((row) => SERVER_VARIABLE.test(/^`([^`]+)`$/.exec(row[0] ?? "")?.[1] ?? ""));
+    const nameIn = (row: string[]): string | undefined => /^`([^`]+)`$/.exec(row[0] ?? "")?.[1];
+    const named = rows.filter((row) => SERVER_VARIABLE.test(nameIn(row) ?? ""));
     if (!named.some((row) => (row[0] ?? "").includes("MEZAN_"))) continue;
-    if (named.length !== rows.length) {
-      throw new Error(`${source}: every row of a server environment table names exactly one variable in backticks; got "${rows.find((row) => !named.includes(row))?.[0] ?? ""}"`);
+    const malformed = rows.find((row) => nameIn(row) === undefined);
+    if (malformed) {
+      throw new Error(`${source}: every row of a server environment table names exactly one variable in backticks; got "${malformed[0] ?? ""}"`);
     }
     found.push({
       source,
@@ -125,8 +127,10 @@ async function signupLinkOrigins(env: CloudEnv): Promise<(string | null)[]> {
 }
 
 describe("every deployment this repository documents", () => {
-  it("is found: the reviewer stack's table, the demo's two command lines and the Render blueprint", () => {
+  it("is found: the three deploy guides' tables, the demo's two command lines and the Render blueprint", () => {
     expect(DOCUMENTED.map((deployment) => deployment.source)).toEqual([
+      "docs/DEPLOY-AWS.md",
+      "docs/DEPLOY-DEMO.md",
       "docs/DEPLOY-REVIEW.md",
       "docs/DEPLOY-DEMO.md (command 1)",
       "docs/DEPLOY-DEMO.md (command 2)",

@@ -18,6 +18,31 @@ commit as the other 12 sites (see the enum table), or the package does not typec
 
 "Ours" is W1E, "theirs" is W1D.
 
+## Done: the merge was made on W1E
+
+`main` at `1ac1e219` already carried W1D (merged against W1E at `dcbac206`), and was merged
+into `test/w1e-saas-live-walk` in the commit that carries this section. The same 17 files
+conflicted. They were resolved as the tables below say, with these departures:
+
+- `packages/api/src/users-routes.ts` is `main`'s whole. Its audit rows share the write or go
+  to the fallback, and the hand-over and the e-mail change wait for `afterAuditCommit`, so
+  W1E's `afterCommit` helper and its two tests of a change saved without its record are gone:
+  under `main`'s rule there is no such state.
+- `apps/server/src/tenant-router.ts`: `openBackend` takes `mail` sixth and `books` seventh.
+  Every books read the console asks for (`booksOnTheConsole`, the two standings) and every
+  `cache.evict` in the three books actions runs in `platform.outsideTheTurn(...)`; the reopen
+  after a confirmation goes through `opened(...)`. `packages/api/src/test/turn-yield-guard.ts`
+  is green over `tenant-books.test.ts`.
+- `packages/backend/src/create-backend.ts`: `main`'s `ensureSystemTaxRates` is skipped for a
+  served company's database that holds no books, as the standard accounts are, so such a
+  database is still left with no row added.
+- `docs/DEPLOY-REVIEW.md` and `docs/ENVIRONMENTS.md` are `main`'s, with the two
+  `MEZAN_SMTP_*` rows kept in the reviewer table. `documented-env.test.ts` now finds the AWS
+  and demo tables too and skips a well-formed row that names a non-server variable
+  (`NODE_OPTIONS`); `env-docs.test.ts` has samples for the two mail rows.
+
+Everything below is kept as the record of what was planned.
+
 ## What is left to merge at these tips
 
 | File | Hunks | Take |

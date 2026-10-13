@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createAuditEvent } from "@mezan/domain";
 import { createSqliteAuditSink } from "./audit-sink.js";
+import { withSqliteTransaction } from "./sqlite-connection.js";
+import { drainUntransactedAudits } from "./untransacted-audits.js";
 
 describe("SqliteAuditSink", () => {
   it("appends and reads back per stream, newest-first, round-tripping details", async () => {
@@ -218,5 +220,161 @@ describe("SqliteAuditSink hash chain", () => {
     } finally {
       sink.close();
     }
+  });
+});
+
+describe("SqliteAuditSink inside a caller's transaction", () => {
+  const changed = (action: string) =>
+    createAuditEvent({
+      stream: "sensitive",
+      module: "sales",
+      entityType: "CUSTOMER",
+      entityId: "C1",
+      action,
+      actor: "u1",
+      severity: "WARNING",
+      timestamp: "2026-10-10T10:00:00.000Z",
+      details: { changes: [{ field: "creditLimit", from: "0", to: "5000" }] },
+    });
+  const countOf = (sink: { db: { prepare(sql: string): { get(): unknown } } }, table: string) =>
+    (sink.db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c;
+
+  it("keeps the chain valid after the transaction an event was appended in rolls back", async () => {
+    const sink = createSqliteAuditSink(":memory:", { chainKey: "k".repeat(64) });
+    try {
+      await expect(
+        sink.atomic(async () => {
+          await sink.append(changed("ROLLED_BACK"));
+          throw new Error("the entity write failed");
+        }),
+      ).rejects.toThrow("the entity write failed");
+
+      expect(countOf(sink, "audit_event")).toBe(0);
+      expect(countOf(sink, "audit_event_field")).toBe(0);
+      expect(countOf(sink, "audit_chain_head")).toBe(0);
+      expect((await sink.verifyChain()).ok).toBe(true);
+
+      await sink.append(changed("KEPT"));
+      expect(await sink.verifyChain()).toEqual({ ok: true, checked: 1, unchained: 0, brokenRowId: null, reason: "OK" });
+      expect(countOf(sink, "audit_event_field")).toBe(1);
+    } finally {
+      sink.close();
+    }
+  });
+
+  it("keeps the chain valid when a rolled-back attempt sits between two committed events", async () => {
+    const sink = createSqliteAuditSink(":memory:", { chainKey: "k".repeat(64) });
+    try {
+      await sink.append(changed("FIRST"));
+      await sink
+        .atomic(async () => {
+          await sink.append(changed("ROLLED_BACK"));
+          throw new Error("rolled back");
+        })
+        .catch(() => undefined);
+      await sink.append(changed("SECOND"));
+
+      const actions = (sink.db.prepare("SELECT action FROM audit_event ORDER BY id").all() as { action: string }[]).map((r) => r.action);
+      expect(actions).toEqual(["FIRST", "SECOND"]);
+      expect(await sink.verifyChain()).toEqual({ ok: true, checked: 2, unchained: 0, brokenRowId: null, reason: "OK" });
+    } finally {
+      sink.close();
+    }
+  });
+
+  it("commits the event together with the write it shares a transaction with", async () => {
+    const sink = createSqliteAuditSink(":memory:", { chainKey: "k".repeat(64) });
+    try {
+      sink.db.exec("CREATE TABLE entity (id TEXT PRIMARY KEY, credit_limit TEXT NOT NULL)");
+      await sink.atomic(async () => {
+        sink.db.prepare("INSERT INTO entity VALUES ('C1', '5000')").run();
+        await sink.append(changed("UPDATE"));
+      });
+      expect(countOf(sink, "entity")).toBe(1);
+      expect(countOf(sink, "audit_event")).toBe(1);
+      expect((await sink.verifyChain()).ok).toBe(true);
+    } finally {
+      sink.close();
+    }
+  });
+
+  it("is already written when an un-awaited append inside a transaction returns", async () => {
+    const sink = createSqliteAuditSink(":memory:", { chainKey: "k".repeat(64) });
+    try {
+      await sink.atomic(async () => {
+        void sink.append(changed("NOT_AWAITED"));
+        expect(countOf(sink, "audit_event")).toBe(1);
+      });
+      expect(await sink.verifyChain()).toEqual({ ok: true, checked: 1, unchained: 0, brokenRowId: null, reason: "OK" });
+    } finally {
+      sink.close();
+    }
+  });
+
+  it("does not join an unrelated transaction that happens to be open on the shared connection", async () => {
+    const sink = createSqliteAuditSink(":memory:", { chainKey: "k".repeat(64) });
+    try {
+      let opened!: () => void;
+      const isOpen = new Promise<void>((resolve) => { opened = resolve; });
+      const other = withSqliteTransaction(sink.db, async () => {
+        opened();
+        await new Promise((resolve) => setImmediate(resolve));
+        throw new Error("the other request rolled back");
+      }).catch(() => undefined);
+      await isOpen;
+      expect(sink.db.inTransaction).toBe(true);
+      await sink.append(changed("UNRELATED"));
+      await other;
+
+      expect(countOf(sink, "audit_event")).toBe(1);
+      expect(await sink.verifyChain()).toEqual({ ok: true, checked: 1, unchained: 0, brokenRowId: null, reason: "OK" });
+    } finally {
+      sink.close();
+    }
+  });
+});
+
+describe("a change-log event appended outside any transaction by a request that is writing", () => {
+  const event = (stream: "sensitive" | "security") =>
+    createAuditEvent({ stream, module: "contracting", entityType: "PROGRESS_CERTIFICATE", entityId: "PC-1", action: "APPROVE", actor: "u1", severity: "INFO" });
+
+  it("is reported by name when the appender holds the connection's turn and has no transaction open", async () => {
+    const sink = createSqliteAuditSink(":memory:");
+    drainUntransactedAudits();
+
+    await sink.turn(() => sink.append(event("sensitive")));
+
+    expect(drainUntransactedAudits()).toEqual(["contracting/PROGRESS_CERTIFICATE/APPROVE"]);
+    sink.close();
+  });
+
+  it("is not reported inside the transaction that makes the write", async () => {
+    const sink = createSqliteAuditSink(":memory:");
+    drainUntransactedAudits();
+
+    await sink.turn(() => sink.atomic(() => sink.append(event("sensitive"))));
+
+    expect(drainUntransactedAudits()).toEqual([]);
+    sink.close();
+  });
+
+  it("is not reported for the security stream, which records attempts and has no write to stay in step with", async () => {
+    const sink = createSqliteAuditSink(":memory:");
+    drainUntransactedAudits();
+
+    await sink.turn(() => sink.append(event("security")));
+
+    expect(drainUntransactedAudits()).toEqual([]);
+    sink.close();
+  });
+
+  it("is not reported for an appender that holds no turn — a read, or a task no request is writing under", async () => {
+    const sink = createSqliteAuditSink(":memory:");
+    drainUntransactedAudits();
+
+    await sink.append(event("sensitive"));
+
+    expect(drainUntransactedAudits()).toEqual([]);
+    sink.close();
   });
 });

@@ -103,6 +103,7 @@ export interface RunBackupsOptions {
   readonly now?: () => Date;
   /** How many backups to keep per folder, newest first. Defaults to 12. */
   readonly keep?: number;
+  readonly verify?: (backupPath: string, now: Date) => Promise<BackupVerifyRecord>;
 }
 
 export interface SkippedTenantBackup {
@@ -192,7 +193,7 @@ export async function runBackups(options: RunBackupsOptions): Promise<BackupRun>
 
   const failures: string[] = [];
   const verify = async (file: string): Promise<void> => {
-    const record = await runVerifyOffThread(file, now());
+    const record = await (options.verify ?? runVerifyOffThread)(file, now());
     if (record.outcome !== BackupVerifyOutcome.Ok) failures.push(`${file}: ${record.report}`);
   };
 

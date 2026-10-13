@@ -1,8 +1,10 @@
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import path from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createSourceThrottle, throttleSource, tooManyAttempts, type SourceThrottle } from "@mezan/api";
 import { createBackend, type BackendHandle, type CompanyAdminAccount, type PlatformHandle, type SignedInUser } from "@mezan/backend";
+import type { SessionGrant, SmtpConfig } from "@mezan/api";
 import {
   clearTenantBinding,
   isBusySqliteError,
@@ -18,6 +20,7 @@ import type { CompanyOwnerPort, UserEmailChange } from "@mezan/api";
 import { REFUSED_TENANT_BOOKS, TenantBooksStanding, TenantResolveMode, type PlatformResolveDTO, type TenantBooksDTO } from "@mezan/contracts";
 import { TenantBooksReview, tenantDbFile, tenantHandedTo, tenantIsServed, TenantStatusCode, tenantWithBooksReview, tenantWithOwnerRecordDue, type Tenant } from "@mezan/domain";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
+import { callerSource, originEnv, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type CloudSource, type SourceReporter } from "./client-source.js";
 import {
   createOwnerContact,
   hashHandOverToken,
@@ -44,19 +47,34 @@ import {
 import { answerTenantDbFileRefusal, settleTenantDbFile, TenantDbFileBusyError, TenantDbFileForeignError, TenantDbFileUnreadableError } from "./tenant-db-file.js";
 import { createTenantResolvers, type TenantResolvers } from "./tenant-entitlements.js";
 import { requestHost, resolveTenantCode, tenantSlugOfHost, TENANT_HEADER } from "./tenant-resolver.js";
+import { asksForDeviceCookie, clearingCookie, secretIntoCookie, withDeviceSecretHeader } from "./device-cookie.js";
 
 export interface TenantRouterOptions {
   readonly platform: PlatformHandle;
   readonly dataDir: string;
   readonly tenantDomain?: string;
+  readonly unlockLinkFor?: (tenantCode: string) => ((token: string) => string) | undefined;
   readonly trustForwardedHost?: boolean;
+  readonly clientSource?: ClientSourceOptions;
+  readonly sourceReporter?: SourceReporter;
+  readonly securityMail?: SmtpConfig;
   readonly allowTenantHeader?: boolean;
   readonly idleMs?: number;
   readonly ttlMs?: number;
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
   readonly dbFileWaitMs?: number;
-  readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, hooks: TenantBackendHooks, connection: SqliteOpenOptions, books: TenantBooks) => Promise<BackendHandle>;
+  readonly openBackend?: (
+    code: string,
+    dbPath: string,
+    resolvers: TenantResolvers,
+    hooks: TenantBackendHooks,
+    connection: SqliteOpenOptions,
+    mail: TenantMail,
+    books: TenantBooks,
+  ) => Promise<BackendHandle>;
+  readonly signInSources?: SourceThrottle;
+  /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
   readonly mailPendingHandOver?: (mail: PendingHandOverMail) => Promise<void>;
 }
@@ -89,6 +107,10 @@ export function booksScratchDir(dataDir: string): string {
   return path.join(dataDir, BOOKS_SCRATCH_FOLDER);
 }
 
+export interface TenantMail {
+  readonly unlockLink?: (token: string) => string;
+}
+
 function safeEqual(provided: string, secret: string): boolean {
   const a = Buffer.from(provided);
   const b = Buffer.from(secret);
@@ -111,6 +133,28 @@ export function requireOriginSecret(secret?: string): MiddlewareHandler {
   };
 }
 
+const SIGN_IN = "/auth/login";
+const SIGN_OUT = "/auth/logout";
+
+function isHttps(request: Request, trustForwarded: boolean): boolean {
+  const forwarded = trustForwarded ? request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() : undefined;
+  return (forwarded ?? new URL(request.url).protocol.replace(":", "")) === "https";
+}
+const COUNTED_AS_FAILED: ReadonlySet<number> = new Set([401, 423]);
+const CROSS_TENANT_FREE_ATTEMPTS = 90;
+
+export interface TenantDoor {
+  fetch(request: Request, source: CloudSource): Promise<Response>;
+  findSession(token: string, source: CloudSource, deviceSecret: string | null): SessionGrant | null;
+}
+
+function doorTo(backend: BackendHandle): TenantDoor {
+  return {
+    fetch: async (request, source) => backend.app.fetch(request, originEnv(source)),
+    findSession: (token, source, deviceSecret) => backend.sessions.find(token, source, deviceSecret),
+  };
+}
+
 export interface OpenTenant {
   readonly id: string;
   readonly code: string;
@@ -118,7 +162,11 @@ export interface OpenTenant {
 
 export interface TenantRouter {
   readonly app: Hono;
+  // SECURITY: the backend as THIS PROCESS acts on it (provisioning, backups,
+  // seeding) — an in-process call with no address reads as the host's own
+  // console. A route answering a caller uses `callerDoor`, never this.
   backendFor(code: string): Promise<BackendHandle>;
+  callerDoor(code: string): Promise<TenantDoor>;
   backendOf(tenantId: string): Promise<BackendHandle>;
   reconcileOwner(code: string): Promise<void>;
   reconcileOwnerOf(tenantId: string): Promise<void>;
@@ -141,8 +189,15 @@ export interface TenantRouter {
   unbindBooks(input: { readonly tenantId: string; readonly actor: string }): Promise<Tenant>;
   // SECURITY: null for every link that confirms nothing, whatever the reason, so the caller answers them all alike.
   confirmPendingOwnerByToken(token: string): Promise<Tenant | null>;
+  lockedAccountsOf(tenantId: string): Promise<readonly string[]>;
+  unlockAccountOf(input: { readonly tenantId: string; readonly account: string; readonly actor: string }): Promise<boolean>;
   evict(tenantId: string): Promise<void>;
   invalidate(code: string): void;
+  // REQUIRED ORDERING: called only for a tenant whose registration has just
+  // been discarded. It closes the open backend BEFORE it removes the database
+  // and every file written beside it, so nothing is left writing to a file
+  // that is gone.
+  discardDatabase(tenant: Pick<Tenant, "id" | "dbFile">): Promise<void>;
   sweep(): Promise<void>;
   close(): Promise<void>;
   openTenants(): OpenTenant[];
@@ -177,7 +232,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     companyOwner: {
       currentOwnerUserId: async () => {
         await reconcileOwnerOf(tenantId).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled`, err));
-        return ownerContact.effectiveOwnerUserId(tenantId, await cache.get(tenantId));
+        return ownerContact.effectiveOwnerUserId(tenantId, await opened(tenantId));
       },
       handOver: (input) => ownerContact.handOver(tenantId, input),
     },
@@ -186,13 +241,16 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return !tenant || tenant.ownerUserId !== null || tenant.status !== TenantStatusCode.Provisioning;
     },
   });
-  const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks, connection, books) => {
+  const openBackend = options.openBackend ?? (async (_code, dbPath, r, hooks, connection, mail, books) => {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     return createBackend({
       dbPath,
       connection,
       tenantBinding: books.bind ? books.tenantId : undefined,
       seedWhenEmpty: books.provisioning,
+      securityMail: options.securityMail,
+      unlockLink: mail.unlockLink,
+      platformOperatorUnlocks: true,
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
       onUserEmailChanged: hooks.onUserEmailChanged,
@@ -223,12 +281,13 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       // their name and every byte.
       const verdict = await judged(stored, booksFileOf(stored), true);
       if (verdict.refusal) throw verdict.refusal;
-      const tenant = await settleTenantDbFile(options.platform.stores.tenants, options.dataDir, stored, { waitMs: options.dbFileWaitMs });
+      const tenant = await settleTenantDbFile(options.platform.stores.tenants, options.dataDir, stored, { waitMs: options.dbFileWaitMs, outsideTheTurn: options.platform.outsideTheTurn });
       const { code } = tenant;
       const provisioning = tenant.status === TenantStatusCode.Provisioning;
       const connection: SqliteOpenOptions = { ...options.connection, fileMustExist: !provisioning };
       const bind = verdict.standing !== TenantBooksStanding.Unbound;
-      const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(tenantId, code), connection, { tenantId, provisioning, bind }).catch((err: unknown) => {
+      const mail: TenantMail = { unlockLink: options.unlockLinkFor?.(code) };
+      const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(tenantId, code), connection, mail, { tenantId, provisioning, bind }).catch((err: unknown) => {
         if (isUnreadableSqliteError(err)) throw new TenantDbFileUnreadableError(tenantId, tenant.dbFile, err);
         if (err instanceof TenantBindingMismatchError) throw new TenantDbFileForeignError(tenantId, tenant.dbFile, err.boundTenantId);
         throw err;
@@ -239,6 +298,11 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return backend;
     },
   });
+
+  // REQUIRED: opening a tenant is file and tenant-database work. A console
+  // route reaches it holding the platform connection's turn, and hands it back here.
+  const opened = (tenantId: string): Promise<BackendHandle> => options.platform.outsideTheTurn(() => cache.get(tenantId));
+  const outside = <T>(work: () => Promise<T>): Promise<T> => options.platform.outsideTheTurn(work);
 
   const scratchDir = booksScratchDir(options.dataDir);
   const booksConnection = options.connection ?? {};
@@ -309,14 +373,14 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   async function booksOnTheConsole(tenantId: string): Promise<{ readonly tenant: Tenant; readonly file: string; readonly verdict: TenantBooksVerdict }> {
     const tenant = await liveTenant(tenantId);
     const file = booksFileOf(tenant);
-    return { tenant, file, verdict: await judged(tenant, file) };
+    return { tenant, file, verdict: await outside(() => judged(tenant, file)) };
   }
 
   const marked = (review: TenantBooksReview) => (before: Tenant, at: string): Tenant => tenantWithBooksReview(before, review, at);
 
   async function standingNow(tenant: Tenant): Promise<TenantBooksStanding | null> {
     try {
-      return (await judged(tenant, booksFileOf(tenant))).standing;
+      return (await outside(() => judged(tenant, booksFileOf(tenant)))).standing;
     } catch (err) {
       console.error(`[cloud] the books of "${tenant.code}" could not be read`, err);
       return standings.get(tenant.id) ?? null;
@@ -326,7 +390,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
   async function reconcileOwnerOf(tenantId: string): Promise<void> {
     const tenant = await options.platform.stores.tenants.findById(tenantId);
     if (!tenant || tenant.status === TenantStatusCode.Archived) return;
-    await ownerContact.reconcile(tenant.id, await cache.get(tenant.id));
+    await ownerContact.reconcile(tenant.id, await opened(tenant.id));
   }
 
   async function reconcileOwner(code: string): Promise<void> {
@@ -340,7 +404,11 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     return tenant;
   }
 
+  const signInSources =
+    options.signInSources ?? createSourceThrottle(options.now ? () => options.now!().getTime() : undefined, CROSS_TENANT_FREE_ATTEMPTS);
+
   const app = new Hono();
+  app.use("*", requireCloudSource(options.clientSource ?? SOCKET_ONLY, options.sourceReporter));
   const resolverOptions = {
     tenantDomain: options.tenantDomain,
     trustForwardedHost: options.trustForwardedHost,
@@ -379,22 +447,50 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     if (!tenant || !tenantIsServed(tenant)) {
       return c.json({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" }, 404);
     }
-    const backend = await cache.get(tenant.id);
+    const door = doorTo(await opened(tenant.id));
     const prefixLen = c.req.routePath.length - REST_PATTERN.length;
     const subPath = c.req.path.slice(prefixLen) || "/";
     const targetUrl = new URL(`${subPath}${new URL(c.req.raw.url).search}`, c.req.raw.url);
-    return backend.app.fetch(new Request(targetUrl, c.req.raw));
+    const cookieSignIn = asksForDeviceCookie(c.req.raw);
+    const secure = isHttps(c.req.raw, options.trustForwardedHost === true);
+    const forwarded = withDeviceSecretHeader(new Request(targetUrl, c.req.raw));
+    const source = callerSource(c);
+    if (c.req.method === "POST" && subPath === SIGN_OUT) return clearingCookie(await door.fetch(forwarded, source), secure);
+    if (c.req.method !== "POST" || subPath !== SIGN_IN) return door.fetch(forwarded, source);
+
+    const counted = throttleSource(source) ?? source;
+    const wait = signInSources.retryAfter(counted);
+    if (wait > 0) {
+      c.header("retry-after", String(wait));
+      return c.json(tooManyAttempts(wait), 429);
+    }
+    const answer = await door.fetch(forwarded, source);
+    if (COUNTED_AS_FAILED.has(answer.status)) signInSources.fail(counted);
+    return cookieSignIn ? secretIntoCookie(answer, secure) : answer;
   });
+
+  async function openFor(code: string): Promise<BackendHandle> {
+    const tenant = await options.platform.stores.tenants.findByCode(code);
+    if (!tenant || tenant.status === TenantStatusCode.Archived) throw new Error("TENANT_NOT_FOUND");
+    return opened(tenant.id);
+  }
+
+  async function discardDatabase(tenant: Pick<Tenant, "id" | "dbFile">): Promise<void> {
+    await cache.evict(tenant.id);
+    const database = tenantDbPath(options.dataDir, tenant.dbFile);
+    const directory = path.dirname(database);
+    if (!existsSync(directory)) return;
+    const ownFiles = readdirSync(directory).filter((name) => name === path.basename(database) || name.startsWith(`${path.basename(database)}-`) || name.startsWith(`${path.basename(database)}.`));
+    for (const name of ownFiles) rmSync(path.join(directory, name), { force: true });
+  }
 
   return {
     app,
-    async backendFor(code) {
-      const tenant = await options.platform.stores.tenants.findByCode(code);
-      if (!tenant || tenant.status === TenantStatusCode.Archived) throw new Error("TENANT_NOT_FOUND");
-      return cache.get(tenant.id);
-    },
+    discardDatabase,
+    backendFor: openFor,
+    callerDoor: async (code) => doorTo(await openFor(code)),
     async backendOf(tenantId) {
-      return cache.get((await liveTenant(tenantId)).id);
+      return opened((await liveTenant(tenantId)).id);
     },
     reconcileOwner,
     reconcileOwnerOf,
@@ -410,21 +506,21 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       );
     },
     async ownerCandidates(tenantId) {
-      return (await cache.get((await liveTenant(tenantId)).id)).companyAdmins();
+      return (await opened((await liveTenant(tenantId)).id)).companyAdmins();
     },
     async assignOwner({ tenantId, userId, actor }) {
       const tenant = await liveTenant(tenantId);
-      return ownerContact.assign(tenant.id, userId, actor, await cache.get(tenant.id));
+      return ownerContact.assign(tenant.id, userId, actor, await opened(tenant.id));
     },
     async confirmPendingOwner({ tenantId, actor }) {
       const tenant = await liveTenant(tenantId);
-      return ownerContact.confirmPending(tenant.id, actor, OwnerConfirmation.PlatformConsole, await cache.get(tenant.id));
+      return ownerContact.confirmPending(tenant.id, actor, OwnerConfirmation.PlatformConsole, await opened(tenant.id));
     },
     async confirmPendingOwnerByToken(token) {
       const tenant = await ownerContact.pendingByToken(token);
       if (!tenant || tenant.status === TenantStatusCode.Archived) return null;
       try {
-        return await ownerContact.confirmPending(tenant.id, PREVIOUS_OWNER_ACTOR, OwnerConfirmation.PreviousOwnerLink, await cache.get(tenant.id), { tokenHash: hashHandOverToken(token) });
+        return await ownerContact.confirmPending(tenant.id, PREVIOUS_OWNER_ACTOR, OwnerConfirmation.PreviousOwnerLink, await opened(tenant.id), { tokenHash: hashHandOverToken(token) });
       } catch (err) {
         if (err instanceof OwnerCandidateNotFoundError || err instanceof PendingOwnerExpiredError || err instanceof NoPendingOwnerError) return null;
         throw err;
@@ -491,7 +587,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       asShown(verdict.identity);
       if (verdict.standing !== TenantBooksStanding.Bound) {
         const eventId = randomUUID();
-        await cache.evict(tenantId);
+        await outside(() => cache.evict(tenantId));
         await reviewed(
           tenantId,
           (before, at) => {
@@ -506,9 +602,9 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
             inTheSameWrite: () => onBooks(tenant, () => writeTenantBinding(file, tenant.id, { ...booksConnection, now: options.now, accept: asShown })),
           },
         );
-        await cache.evict(tenantId);
+        await outside(() => cache.evict(tenantId));
       }
-      await cache.get(tenantId);
+      await opened(tenantId);
       return liveTenant(tenantId);
     },
     // REQUIRED ORDERING: the mark is written before the served backend is closed.
@@ -520,7 +616,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       if (verdict.refusal) throw verdict.refusal;
       if (verdict.standing === TenantBooksStanding.Bound) throw new TenantBooksBoundError();
       const disowned = await reviewed(tenantId, marked(TenantBooksReview.Disowned), { action: TenantBooksAudit.Disowned, actor, details: { companyName: verdict.identity?.companyName ?? null } });
-      await cache.evict(tenantId);
+      await outside(() => cache.evict(tenantId));
       return disowned;
     },
     // REQUIRED ORDERING: the row is marked, with its audit row, then the served
@@ -535,9 +631,16 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
         throw new TenantBooksNotBoundError();
       }
       const disowned = await reviewed(tenantId, marked(TenantBooksReview.Disowned), { action: TenantBooksAudit.Unbound, actor, details: { companyName: verdict.identity.companyName } });
-      await cache.evict(tenantId);
+      await outside(() => cache.evict(tenantId));
       onBooks(tenant, () => clearTenantBinding(file, tenant.id, booksConnection));
       return disowned;
+    },
+    async lockedAccountsOf(tenantId) {
+      return (await opened((await liveTenant(tenantId)).id)).lockedAccounts();
+    },
+    async unlockAccountOf({ tenantId, account, actor }) {
+      const backend = await opened((await liveTenant(tenantId)).id);
+      return options.platform.outsideTheTurn(() => backend.unlockAccount(account, actor));
     },
     evict: (tenantId) => cache.evict(tenantId),
     invalidate(code) { resolvers.get(code)?.invalidate(); },

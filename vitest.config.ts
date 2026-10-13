@@ -16,7 +16,7 @@ export default defineConfig({
     // apps/mobile is React Native on React 19; this project pins React 18 for the web
     // client, and loading both into one vitest run breaks react-dom. It has its own config.
     exclude: ["**/node_modules/**", "**/dist/**", "apps/mobile/**"],
-    setupFiles: ["packages/ui/src/test/setup.ts"],
+    setupFiles: ["packages/ui/src/test/setup.ts", "packages/api/src/test/turn-yield-guard.ts"],
     /*
      * Vitest's 5s default is the per-test budget, and testing-library's
      * `waitFor` deadline has to fit INSIDE it — at 5s each a slow wait ate the

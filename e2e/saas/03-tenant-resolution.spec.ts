@@ -1,4 +1,5 @@
-import { test, expect, type Page } from "@playwright/test";
+import { type Page } from "@playwright/test";
+import { test, expect, directApi } from "./support/test";
 import {
   CodePrefix,
   FORWARDED_HOST_HEADER,
@@ -48,7 +49,7 @@ function collectApiBodies(page: Page): () => Promise<string[]> {
 
 test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in", () => {
   test.beforeAll(async ({ playwright }) => {
-    const request = await playwright.request.newContext();
+    const request = await directApi(playwright);
     tenant = await provisionTenant(request, { code: uniqueCode(CodePrefix.Resolved), nameAr: TENANT_NAME, ownerNameAr: "وليد الواحة", planId: PlanId.Core, trial: true });
     second = await provisionTenant(request, { code: uniqueCode(CodePrefix.ResolvedSecond), nameAr: SECOND_NAME, ownerNameAr: "دينا الدلتا", planId: PlanId.Core, trial: true });
     renamed = await provisionTenant(request, { code: uniqueCode(CodePrefix.Renamed), nameAr: NAME_AT_SIGNUP, ownerNameAr: "رنا التعديل", planId: PlanId.Core, trial: true });

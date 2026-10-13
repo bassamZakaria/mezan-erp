@@ -1,6 +1,7 @@
 import { createBackend, SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "@mezan/backend";
 import { createEntitlements, MODULE_CATALOG } from "@mezan/domain";
 import { POS_SMOKE_PATHS } from "./scenarios/pos.js";
+import { connectionTurnFindings } from "./connection-turn-guard.js";
 import { ENH_SMOKE_PATHS } from "./scenarios/enh.js";
 
 /**
@@ -345,6 +346,7 @@ async function main(): Promise<void> {
   }
 
   handle.close();
+  for (const finding of connectionTurnFindings()) failures.push({ path: "(seed drive)", detail: finding });
 
   if (failures.length > 0) {
     process.stderr.write(`\n${failures.length} smoke failure(s):\n`);

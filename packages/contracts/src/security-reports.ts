@@ -138,6 +138,37 @@ export const securityWatchlistEntrySchema = z.object({
   lastAt: z.string().nullable(),
 });
 
+export const unrecordedSecurityEventSchema = z.object({
+  at: z.string().min(1),
+  module: z.string().min(1),
+  action: z.string().min(1),
+  severity: z.string().min(1),
+  actor: z.string().min(1),
+  entityId: z.string().nullable(),
+  reason: z.string(),
+});
+
+const unrecordedLossShape = {
+  dropped: z.number().int().nonnegative(),
+  corrupted: z.number().int().nonnegative(),
+};
+
+export const unrecordedSecurityEventsSchema = z.object({
+  count: z.number().int().nonnegative(),
+  recent: z.array(unrecordedSecurityEventSchema),
+  ...unrecordedLossShape,
+});
+
+export const platformUnrecordedSecurityEventSchema = unrecordedSecurityEventSchema.extend({
+  details: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).nullable(),
+});
+
+export const platformUnrecordedSecurityEventsSchema = z.object({
+  count: z.number().int().nonnegative(),
+  recent: z.array(platformUnrecordedSecurityEventSchema),
+  ...unrecordedLossShape,
+});
+
 export const securityExceptionsReportSchema = z.object({
   id: z.literal("security.exceptions"),
   titleAr: z.string().min(1),
@@ -162,6 +193,7 @@ export const securityExceptionsReportSchema = z.object({
   watchlist: z.array(securityWatchlistEntrySchema),
   kpis: z.array(reportKpiSchema),
   recent: z.array(auditEventSchema),
+  unrecorded: unrecordedSecurityEventsSchema,
   coverage: reportCoverageSchema,
   gaps: z.array(reportGapSchema),
 });
@@ -442,6 +474,10 @@ export type ReportKpiDTO = z.infer<typeof reportKpiSchema>;
 export type SecurityExceptionRowDTO = z.infer<typeof securityExceptionRowSchema>;
 export type SecurityWatchlistEntryDTO = z.infer<typeof securityWatchlistEntrySchema>;
 export type SecurityExceptionsReportDTO = z.infer<typeof securityExceptionsReportSchema>;
+export type UnrecordedSecurityEventDTO = z.infer<typeof unrecordedSecurityEventSchema>;
+export type UnrecordedSecurityEventsDTO = z.infer<typeof unrecordedSecurityEventsSchema>;
+export type PlatformUnrecordedSecurityEventDTO = z.infer<typeof platformUnrecordedSecurityEventSchema>;
+export type PlatformUnrecordedSecurityEventsDTO = z.infer<typeof platformUnrecordedSecurityEventsSchema>;
 
 export type PostPostingChangeRowDTO = z.infer<typeof postPostingChangeRowSchema>;
 export type PostPostingChangesReportDTO = z.infer<typeof postPostingChangesReportSchema>;

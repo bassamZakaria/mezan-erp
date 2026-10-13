@@ -1119,7 +1119,7 @@ describe("a backend opened on unbound books at the very moment the console confi
       platform,
       dataDir: env.platformDir,
       sweepEveryMs: 0,
-      openBackend: async (_code, dbPath, _resolvers, _hooks, connection, books) => {
+      openBackend: async (_code, dbPath, _resolvers, _hooks, connection, _mail, books) => {
         opens.push(books.bind);
         return createBackend({ dbPath, connection, tenantBinding: books.bind ? books.tenantId : undefined, seedWhenEmpty: false });
       },

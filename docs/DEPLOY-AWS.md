@@ -144,3 +144,64 @@ the workflow do it.
 
 The store reviewers' environment is a second stack of the same root; see
 `docs/DEPLOY-REVIEW.md`.
+
+## Owner must do before deploy
+
+**This build does not start on the task definition `cyag-devops` applies
+today.** `apps/mezan/compute.tf` sets `MEZAN_TRUST_PROXY=1` and no
+`MEZAN_TRUSTED_PROXY_HOPS` (read 2026-10-13). The server now refuses that pair
+at start-up (`apps/server/src/env.ts`, `parseClientSource`): with a trusted
+proxy and no hop count it cannot tell the caller's address from a proxy's, and
+every sign-in throttle and session binding rests on that address. The service
+runs with `deployment_minimum_healthy_percent = 0`, so a task that fails to
+start is not a failed deploy held behind the old task — it is an outage, on the
+demo stack and on the review stack.
+
+Before the image built from this commit is dispatched, add to
+`container_environment` in `cyag-devops/apps/mezan/compute.tf`, for **both**
+stacks, and apply:
+
+```hcl
+{ name = "MEZAN_TRUSTED_PROXY_HOPS", value = "2" },
+{ name = "MEZAN_PUBLIC_URL", value = "https://${local.app_domain}" },
+```
+
+- `MEZAN_TRUSTED_PROXY_HOPS=2`: CloudFront appends the viewer's address and API
+  Gateway appends CloudFront's. `1` would count every client as the CloudFront
+  edge it came through; `3` would read an entry the caller wrote.
+- `MEZAN_PUBLIC_URL`: the `https://` origin of that stack (use whatever local
+  names its public hostname; `local.app_domain` above is a placeholder for it).
+  Without it a mailed unlock link falls back to the tenant's subdomain, and with
+  neither configured the mail carries the one-time code only.
+
+Order: apply the Terraform change first (the running task ignores variables it
+does not read), then deploy the image. Afterwards read the `origin` on a fresh
+`PLATFORM_LOGIN_FAILED` audit event and compare it with your own public
+address, as `docs/ENVIRONMENTS.md` describes under "Behind a proxy: which
+address a request is counted against".
+
+## Server environment variables
+
+The app side of the contract `cyag-devops/apps/mezan/compute.tf` has to honour,
+kept with the code that reads it (`apps/server/src/env.ts`). The table is
+parsed by `apps/server/src/env-docs.test.ts`: a value in backticks is the
+literal the stack sets, anything else is supplied from SSM or Terraform and the
+test substitutes a sample of the right shape.
+
+<!-- env-table: aws -->
+
+| Variable | Value on both stacks | Notes |
+|---|---|---|
+| `NODE_ENV` | `production` | |
+| `PORT` | `8080` | |
+| `MEZAN_PLATFORM_DIR` | `/data` | the EFS mount |
+| `MEZAN_SQLITE_EXCLUSIVE` | `1` | one writer per tenant file |
+| `MEZAN_TENANT_DOMAIN` | the stack's tenant domain | |
+| `MEZAN_TRUST_PROXY` | `1` | behind CloudFront and API Gateway |
+| `MEZAN_TRUSTED_PROXY_HOPS` | `2` | **required with the line above — see "Owner must do before deploy"** |
+| `MEZAN_PUBLIC_URL` | the stack's public `https://` origin | every mailed link is built on it; see "Owner must do before deploy" |
+| `MEZAN_ORIGIN_SECRET` | SSM, generated | CloudFront adds it; a direct hit on API Gateway gets 403 on `/api/*` |
+| `MEZAN_PLATFORM_OWNER_EMAIL` | SSM | the platform console owner |
+| `MEZAN_PLATFORM_OWNER_PASSWORD` | SSM | |
+
+<!-- /env-table -->

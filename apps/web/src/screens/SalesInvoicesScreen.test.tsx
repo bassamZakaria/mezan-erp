@@ -314,7 +314,7 @@ describe("SalesInvoicesScreen — create + confirm flow", () => {
       "GET /sales-invoices": () => ({ body: current }),
       "POST /sales-invoices": (init) => {
         const body = JSON.parse((init?.body as string) ?? "{}");
-        const created = invoice({ id: "inv-4", docNo: null, status: "draft", journalEntryId: null, confirmedAt: null, ...body, lines: body.lines ?? [] });
+        const created = invoice({ docNo: null, status: "draft", journalEntryId: null, confirmedAt: null, ...body, id: "inv-4", lines: body.lines ?? [] });
         current = [...current, created];
         return { status: 201, body: created };
       },
@@ -337,6 +337,71 @@ describe("SalesInvoicesScreen — create + confirm flow", () => {
     // Create is a sub-page: success closes it back to the list, not a dialog.
     await waitFor(() => expect(screen.queryByRole("heading", { name: "فاتورة مبيعات جديدة" })).not.toBeInTheDocument());
     expect(await screen.findByText("INV-000004")).toBeInTheDocument();
+  });
+
+  it("sends the same invoice id again when the first save got no answer, and a fresh one for the next invoice", async () => {
+    const sentIds: string[] = [];
+    let answers = 0;
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "POST /sales-invoices": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        sentIds.push(body.id);
+        answers += 1;
+        if (answers === 1) return { status: 503, body: { error: "DATABASE_BUSY", message: "قاعدة البيانات مشغولة" } };
+        return { status: 201, body: invoice({ docNo: null, status: "draft", journalEntryId: null, confirmedAt: null, ...body, lines: body.lines ?? [] }) };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+    const save = screen.getByRole("button", { name: "حفظ كمسودة" });
+    await waitFor(() => expect(save).toBeEnabled());
+
+    fireEvent.click(save);
+    await waitFor(() => expect(sentIds).toHaveLength(1));
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "فاتورة مبيعات جديدة" })).not.toBeInTheDocument());
+
+    expect(sentIds[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(sentIds[1]).toBe(sentIds[0]);
+
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+    const saveNext = screen.getByRole("button", { name: "حفظ كمسودة" });
+    await waitFor(() => expect(saveNext).toBeEnabled());
+    fireEvent.click(saveNext);
+    await waitFor(() => expect(sentIds).toHaveLength(3));
+
+    expect(sentIds[2]).not.toBe(sentIds[0]);
+  });
+
+  it("opens the invoice already saved, with a notice, when its id was used with other contents", async () => {
+    let sends = 0;
+    const transport = stubTransport({
+      ...baseHandlers(seededInvoices),
+      "POST /sales-invoices": () => {
+        sends += 1;
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(<TestNavigation><SalesInvoicesScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("INV-000001");
+    openNewInvoicePage();
+    await pickFromCombobox("العميل *", "شركة الأمل للتجارة");
+    await pickFromCombobox("الصنف — سطر 1", "أرز أبيض مصري");
+    const save = screen.getByRole("button", { name: "حفظ كمسودة" });
+    await waitFor(() => expect(save).toBeEnabled());
+
+    fireEvent.click(save);
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذه الفاتورة، ففُتحت الفاتورة المحفوظة بدل إنشاء أخرى");
+    expect(screen.queryByRole("heading", { name: "فاتورة مبيعات جديدة" })).not.toBeInTheDocument();
+    expect(sends).toBe(1);
   });
 
   it("shows a domain validation error instead of confirming an invoice without a customer", async () => {

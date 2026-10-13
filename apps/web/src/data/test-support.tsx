@@ -9,6 +9,8 @@ import { NavigationProvider } from "../navigation";
 export interface StubResult {
   status?: number;
   body: unknown;
+  retryAfterSeconds?: number;
+  sessionEnded?: string;
 }
 
 /** A handler key segment of `*` matches any single path segment, e.g. a generated document id. */
@@ -46,6 +48,8 @@ export function stubTransport(
     const response: TransportResponse = {
       status,
       ok: status >= 200 && status < 400,
+      retryAfterSeconds: result.retryAfterSeconds ?? null,
+      sessionEnded: result.sessionEnded ?? null,
       json: <T,>() => Promise.resolve(result.body as T),
       text: () => Promise.resolve(JSON.stringify(result.body)),
     };

@@ -149,13 +149,26 @@ function statsOf(rows: VoucherRowDTO[]): Record<string, number> {
   };
 }
 
+type CollectionAnswer = { status: number; body: unknown } | undefined;
+
 function renderScreen({
   heldOnConfirm = false,
   allocations = seededAllocations,
+  answerCollection,
+  answerAllocation,
   heldOnStaleApproval = false,
   session = testAdminSession,
   drafts = [],
-}: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]>; heldOnStaleApproval?: boolean; session?: Session; drafts?: VoucherRowDTO[] } = {}) {
+}: {
+  heldOnConfirm?: boolean;
+  allocations?: Record<string, VoucherAllocationDTO[]>;
+  answerCollection?: (attempt: number) => CollectionAnswer;
+  answerAllocation?: (attempt: number) => CollectionAnswer;
+  heldOnStaleApproval?: boolean;
+  session?: Session;
+  drafts?: VoucherRowDTO[];
+} = {}) {
+  const allocationRequests: { allocationId?: string; invoiceId: string; amount: string }[] = [];
   let current = heldOnStaleApproval ? seededVouchers.map((v) => (v.id === "cv-1" ? { ...v, status: "pending" as const, workflowRequestId: "cv-1:confirm" } : v)) : [...seededVouchers, ...drafts];
   const createRequests: Record<string, unknown>[] = [];
   const draftConfirms: string[] = [];
@@ -224,6 +237,8 @@ function renderScreen({
     "POST /vouchers/collections": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       collectionRequests.push(body);
+      const instead = answerCollection?.(collectionRequests.length);
+      if (instead) return instead;
       const docNo = `CV-${String(nextSeq).padStart(6, "0")}`;
       const created = voucher({
         ...body,
@@ -251,7 +266,10 @@ function renderScreen({
     },
     "POST /vouchers/cv-1/allocations": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
-      const alloc: VoucherAllocationDTO = { id: "alloc-2", voucherId: "cv-1", invoiceId: body.invoiceId, amount: body.amount, status: "active", createdAt: "2026-08-22T10:00:00.000Z", reversedAt: null };
+      allocationRequests.push(body);
+      const refused = answerAllocation?.(allocationRequests.length);
+      if (refused) return refused;
+      const alloc: VoucherAllocationDTO = { id: body.allocationId ?? "alloc-2", voucherId: "cv-1", invoiceId: body.invoiceId, amount: body.amount, status: "active", createdAt: "2026-08-22T10:00:00.000Z", reversedAt: null };
       allocationsByVoucher["cv-1"] = [...(allocationsByVoucher["cv-1"] ?? []), alloc];
       return { status: 201, body: alloc };
     },
@@ -274,7 +292,7 @@ function renderScreen({
     </TestNavigation>,
     { transport, initialSession: session },
   );
-  return { ...result, reverseRequests, collectionRequests, confirmRequests, createRequests, draftConfirms };
+  return { ...result, reverseRequests, collectionRequests, allocationRequests, confirmRequests, createRequests, draftConfirms };
 }
 
 const STALE_APPROVAL_REASON = "اعتُمد هذا المستند أو أُرسل للموافقة قبل تحديث النظام ولم يُرحَّل؛ الموافقة السابقة لم تعد صالحة للترحيل.";
@@ -362,6 +380,50 @@ describe("TreasuryVouchersScreen — create + confirm", () => {
     expect(collectionRequests[0]).toMatchObject({ amount: "300.000000", allocations: [] });
   });
 
+  async function fillCollection(amount: string) {
+    fireEvent.click(screen.getByRole("button", { name: "سند جديد" }));
+    fireEvent.click(screen.getByText("تحصيل من عميل"));
+    setMoney(screen.getByLabelText("المبلغ"), amount);
+    fireEvent.focus(screen.getByPlaceholderText("ابحث عن عميل…"));
+    fireEvent.mouseDown(screen.getByText("شركة الأمل للتجارة"));
+    return screen.getByRole("button", { name: "إنشاء وتأكيد" });
+  }
+
+  it("sends the same voucher id again when the first save got no answer, and a fresh one for the next voucher", async () => {
+    const { collectionRequests } = renderScreen({
+      answerCollection: (attempt) => (attempt === 1 ? { status: 503, body: { error: "DATABASE_BUSY", message: "قاعدة البيانات مشغولة" } } : undefined),
+    });
+    await screen.findByText("CV-000001");
+    const save = await fillCollection("300");
+
+    fireEvent.click(save);
+    expect(await screen.findByText("قاعدة البيانات مشغولة")).toBeInTheDocument();
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "السندات النقدية" })).toBeInTheDocument());
+
+    expect(collectionRequests).toHaveLength(2);
+    expect(collectionRequests[0]?.["id"]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(collectionRequests[1]?.["id"]).toBe(collectionRequests[0]?.["id"]);
+
+    fireEvent.click(await fillCollection("120"));
+    await waitFor(() => expect(collectionRequests).toHaveLength(3));
+    expect(collectionRequests[2]?.["id"]).not.toBe(collectionRequests[0]?.["id"]);
+  });
+
+  it("opens the voucher already recorded, with a notice, when its id was used with other contents", async () => {
+    const { collectionRequests } = renderScreen({
+      answerCollection: () => ({ status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } }),
+    });
+    await screen.findByText("CV-000001");
+
+    fireEvent.click(await fillCollection("300"));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق تسجيل هذا السند، ففُتح السند المسجَّل بدل تسجيل آخر");
+    expect(screen.queryByRole("button", { name: "إنشاء وتأكيد" })).not.toBeInTheDocument();
+    expect(collectionRequests).toHaveLength(1);
+  });
+
   it("sends the amount as the decimal that was typed, digit for digit, where a binary number would have changed it", async () => {
     const { collectionRequests } = renderScreen();
     await screen.findByText("CV-000001");
@@ -430,6 +492,51 @@ describe("TreasuryVouchersScreen — allocation", () => {
     const reverseButtons = screen.getAllByRole("button", { name: "عكس التخصيص" });
     fireEvent.click(reverseButtons[0]!);
     await waitFor(() => expect(screen.queryByText("INV-000001")).not.toBeInTheDocument());
+  });
+});
+
+describe("TreasuryVouchersScreen — an allocation pressed again", () => {
+  async function allocate(invoice: RegExp, amount: string) {
+    fireEvent.click(await screen.findByRole("combobox", { name: "الفاتورة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: invoice }));
+    setMoney(screen.getByLabelText("مبلغ التخصيص"), amount);
+    fireEvent.click(screen.getByRole("button", { name: "تخصيص" }));
+  }
+
+  it("sends the same allocation id after a press that got no answer, and a new one for the next allocation", async () => {
+    const { allocationRequests } = renderScreen({
+      answerAllocation: (attempt) => (attempt === 1 ? { status: 503, body: { error: "DATABASE_BUSY", message: "الخادم مشغول، أعد المحاولة" } } : undefined),
+    });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+
+    await allocate(/^INV-000002/, "200");
+    expect(await screen.findByText(/الخادم مشغول/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "تخصيص" }));
+    await waitFor(() => expect(allocationRequests).toHaveLength(2));
+    await screen.findByText("INV-000002");
+
+    await allocate(/^INV-000002/, "100");
+    await waitFor(() => expect(allocationRequests).toHaveLength(3));
+
+    expect(allocationRequests[0]!.allocationId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(allocationRequests[1]!.allocationId).toBe(allocationRequests[0]!.allocationId);
+    expect(allocationRequests[2]!.allocationId).not.toBe(allocationRequests[0]!.allocationId);
+  });
+
+  it("says an allocation was already recorded, and starts a fresh one, when its id was used with other contents", async () => {
+    const { allocationRequests } = renderScreen({
+      answerAllocation: (attempt) => (attempt === 1 ? { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } } : undefined),
+    });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+
+    await allocate(/^INV-000002/, "200");
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق تسجيل تخصيص من هذا النموذج ببيانات أخرى");
+    await allocate(/^INV-000002/, "100");
+    await waitFor(() => expect(allocationRequests).toHaveLength(2));
+    expect(allocationRequests[1]!.allocationId).not.toBe(allocationRequests[0]!.allocationId);
   });
 });
 

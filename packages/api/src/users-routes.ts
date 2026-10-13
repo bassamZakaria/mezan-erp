@@ -40,7 +40,8 @@ import {
   getAuthContext,
   type AuthContextResolver,
 } from "./permission-gate.js";
-import { recordAdminEvent, recordSecurityAdminEvent } from "./admin-audit.js";
+import { recordAdminEvent, recordSecurityAdminEvent, recordSecurityAdminEventOrFallback } from "./admin-audit.js";
+import { afterAuditCommit, insideAuditBoundary } from "./audit-boundary.js";
 import type { SessionRegistry } from "./session-auth.js";
 import type { LoginThrottle } from "./login-throttle.js";
 
@@ -274,14 +275,25 @@ export function createUsersRoutes(
    * holes BEFORE they were exploited was discarded.
    */
   function auditRefusal(c: Context, entityId: string | null, details: Record<string, unknown>) {
-    return recordSecurityAdminEvent(audit, c, {
-      module: "admin",
-      entityType: "USER",
-      entityId,
-      action: "PRIVILEGE_ESCALATION_DENIED",
-      severity: "CRITICAL",
-      details,
-    });
+    const record = () =>
+      recordSecurityAdminEvent(audit, c, {
+        module: "admin",
+        entityType: "USER",
+        entityId,
+        action: "PRIVILEGE_ESCALATION_DENIED",
+        severity: "CRITICAL",
+        details,
+      });
+    return recordedInATransaction(c, record);
+  }
+
+  // A row written where no audit boundary is open — a refusal on a route outside
+  // it (erase), or work that runs after the boundary committed — has no write to
+  // share a transaction with, so it takes one of its own.
+  function recordedInATransaction(c: Context, record: () => Promise<void>): Promise<void> {
+    const atomic = audit?.atomic?.bind(audit);
+    const alone = atomic !== undefined && audit?.insideTransaction?.() !== true && !insideAuditBoundary(c);
+    return alone ? atomic(record) : record();
   }
 
   const saveOptions = async () => ({ allowedEmailDomains: (await readAllowedEmailDomains?.()) ?? [] });
@@ -552,17 +564,6 @@ export function createUsersRoutes(
     return c.json({ error: "OWNER_SUCCESSOR_REQUIRED", ...SUCCESSOR_REQUIRED }, 422);
   }
 
-  // REQUIRED ORDERING: runs after the change is committed and the account's
-  // sessions are ended. A step that fails here is logged and the next one still
-  // runs: it can neither undo the saved change nor turn its answer into a 500.
-  async function afterCommit(step: string, run: () => unknown): Promise<void> {
-    try {
-      await run();
-    } catch (err) {
-      console.error(`[users] the account change was saved, but ${step} failed`, err);
-    }
-  }
-
   async function handOverAfterCommit(c: Context, fromUserId: string, successor: User): Promise<OwnerHandOverOutcome> {
     const actorId = getAuthContext(c)?.userId ?? "unknown";
     const outcome = owner
@@ -571,17 +572,34 @@ export function createUsersRoutes(
           return OwnerHandOverOutcome.Failed;
         })
       : OwnerHandOverOutcome.Failed;
-    await afterCommit("recording the hand-over", () =>
-      recordSecurityAdminEvent(audit, c, {
-        module: "admin",
-        entityType: "USER",
-        entityId: successor.id,
-        action: COMPANY_OWNER_HAND_OVER_AUDIT,
-        severity: AuditSeverityCode.Critical,
-        details: { fromUserId, toUserId: successor.id, outcome },
-      }),
-    );
+    const row = {
+      module: "admin",
+      entityType: "USER",
+      entityId: successor.id,
+      action: COMPANY_OWNER_HAND_OVER_AUDIT,
+      severity: AuditSeverityCode.Critical,
+      details: { fromUserId, toUserId: successor.id, outcome },
+    };
+    const sharesTheWrite = insideAuditBoundary(c) || audit?.insideTransaction?.() === true;
+    await recordedInATransaction(c, () => (sharesTheWrite ? recordSecurityAdminEvent(audit, c, row) : recordSecurityAdminEventOrFallback(audit, c, row)));
     return outcome;
+  }
+
+  // REQUIRED ORDERING: the hand-over reaches the platform and a mail server, so
+  // it runs once the account change has committed. Inside the audit transaction
+  // it rolls the account change back and leaves the platform's record and the
+  // mailed link standing.
+  async function answeredAfterHandOver(c: Context, user: User, successor: User | null): Promise<Response> {
+    const answer = (ownerHandOver: OwnerHandOverOutcome | null): Response =>
+      c.json(ownerHandOver ? { ...serializeUser(user), ownerHandOver } : serializeUser(user));
+    if (!successor) return answer(null);
+    const handOver = async (): Promise<Response> => answer(await handOverAfterCommit(c, user.id, successor));
+    const queued = afterAuditCommit(c, async () => {
+      const answered = await handOver();
+      c.res = undefined;
+      c.res = answered;
+    });
+    return queued ? answer(OwnerHandOverOutcome.Failed) : handOver();
   }
 
   app.get("/", gate("admin.users.view"), async (c) => {
@@ -701,6 +719,18 @@ export function createUsersRoutes(
         return { saved, emailBefore: current.email };
       });
       const user = committed.saved;
+      if (onEmailChanged && user.email !== committed.emailBefore) {
+        const moved = { userId: id, before: committed.emailBefore, after: user.email, actorId: getAuthContext(c)?.userId ?? "unknown" };
+        const announce = (): Promise<void> =>
+          onEmailChanged(moved).catch((err: unknown) => console.error("[users] the email change was saved, but announcing it failed", err));
+        // REQUIRED ORDERING: the announcement reaches the platform, so it waits
+        // for the commit like the hand-over below it.
+        if (!afterAuditCommit(c, announce)) await announce();
+      }
+      await auditUser(c, user, "UPDATE", before, change);
+      await auditCredentialReset(c, user, change);
+      if (onCredentialSetByOther && actorId && actorId !== id && (change.pinChanged || change.passwordChanged)) await onCredentialSetByOther(id, actorId);
+      if (conflicts.length > 0) await auditSodOverride(c, user, conflicts, parsed.data.reason ?? "");
       // A grant is snapshotted into the session at login. Anything that changes
       // what this account is worth — its role, its admin flag, its scope, its
       // credential — has to end the sessions carrying the old answer, or every
@@ -717,19 +747,9 @@ export function createUsersRoutes(
       ) {
         sessions.revokeUser(user.id);
       }
-      if (onEmailChanged && user.email !== committed.emailBefore) {
-        await afterCommit("announcing the new email", () =>
-          onEmailChanged({ userId: id, before: committed.emailBefore, after: user.email, actorId: getAuthContext(c)?.userId ?? "unknown" }),
-        );
-      }
-      await afterCommit("recording it", () => auditUser(c, user, "UPDATE", before, change));
-      await afterCommit("recording the credential reset", () => auditCredentialReset(c, user, change));
-      if (onCredentialSetByOther && actorId && actorId !== id && (change.pinChanged || change.passwordChanged)) {
-        await afterCommit("marking the credential as set by another account", () => onCredentialSetByOther(id, actorId));
-      }
-      const ownerHandOver = successor ? await handOverAfterCommit(c, id, successor) : null;
-      if (conflicts.length > 0) await afterCommit("recording the segregation-of-duties override", () => auditSodOverride(c, user, conflicts, parsed.data.reason ?? ""));
-      return c.json(ownerHandOver ? { ...serializeUser(user), ownerHandOver } : serializeUser(user));
+      if (change.pinChanged) loginThrottle?.unlock(user.email);
+      if (before.email !== user.email) loginThrottle?.unlock(before.email);
+      return await answeredAfterHandOver(c, user, successor);
     } catch (err) {
       return userErrorResponse(c, err);
     }
@@ -749,12 +769,11 @@ export function createUsersRoutes(
     }
     try {
       const user = await setUserStatus(id, UserStatusCode.Inactive, uow);
+      await auditUser(c, user, "DEACTIVATE");
       // Firing someone at 10:00 must not leave them posting at 10:05.
       sessions?.revokeUser(user.id);
-      if (loginThrottle) loginThrottle.succeed(user.email.trim().toLowerCase());
-      await afterCommit("recording it", () => auditUser(c, user, "DEACTIVATE"));
-      const ownerHandOver = successor ? await handOverAfterCommit(c, id, successor) : null;
-      return c.json(ownerHandOver ? { ...serializeUser(user), ownerHandOver } : serializeUser(user));
+      if (loginThrottle) loginThrottle.unlock(user.email);
+      return await answeredAfterHandOver(c, user, successor);
     } catch (err) {
       return userErrorResponse(c, err);
     }
@@ -800,7 +819,7 @@ export function createUsersRoutes(
     if (erasedRefusal) return erasedRefusal;
     const outranked = await refuseIfTargetOutranks(c, c.req.param("id"));
     if (outranked) return outranked;
-    loginThrottle?.succeed(user.email.trim().toLowerCase());
+    loginThrottle?.unlock(user.email);
     await recordSecurityAdminEvent(audit, c, {
       module: "admin",
       entityType: "USER",
@@ -829,6 +848,10 @@ export function createUsersRoutes(
       const id = c.req.param("id");
       const ctx = getAuthContext(c);
       if (!ctx) return c.json({ error: "UNAUTHENTICATED" }, 401);
+      // ORDER MATTERS: the hash hands the connection back, so it is taken
+      // before anything is read — every check below is then made on rows no
+      // other request has had a turn to change.
+      const unusableHash = await hasher.hash(`${randomUUID()}${randomUUID()}`);
       const outranked = await refuseIfTargetOutranks(c, id);
       if (outranked) return outranked;
       const target = await uow.users.findById(id);
@@ -852,7 +875,6 @@ export function createUsersRoutes(
           422,
         );
       }
-      const unusableHash = await hasher.hash(`${randomUUID()}${randomUUID()}`);
       try {
         const result = await uow.transaction(async (tx) => {
           const current = await tx.users.findById(id);
@@ -887,7 +909,7 @@ export function createUsersRoutes(
           });
         }
         sessions?.revokeUser(id);
-        loginThrottle?.succeed(result.previousEmail);
+        loginThrottle?.unlock(result.previousEmail);
         return c.json({
           user: serializeUser(result.erased),
           erased: { ...result.counts, sessionsRevoked: sessions !== undefined },

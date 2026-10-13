@@ -522,11 +522,9 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     const storedRefusal = await refuseStoredTemplateBranches(c, c.req.param("id"));
     if (storedRefusal) return storedRefusal;
     try {
-      const skip = await skipRecurringJournalOccurrence(
-        c.req.param("id"),
-        parsed.data.period,
-        parsed.data.note ?? null,
-        {
+      // REQUIRED: the skip and the event that records it are one transaction.
+      const skip = await deps.ledger.transaction(() =>
+        skipRecurringJournalOccurrence(c.req.param("id"), parsed.data.period, parsed.data.note ?? null, {
           templates: deps.templates,
           runs: deps.runs,
           skips: deps.skips,
@@ -535,7 +533,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
           now: deps.now,
           actor: getAuthContext(c)?.userId ?? "system",
           idGen,
-        },
+        }),
       );
       return c.json(serializeSkip(skip), 201);
     } catch (err) {

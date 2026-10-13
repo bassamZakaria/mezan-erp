@@ -9,6 +9,21 @@ import { companyNameSchema } from "./company-name.js";
  * (`x-user-id`, `x-permissions`, `x-branch-scope`, `x-warehouse-scope`) it
  * sends on every subsequent API call.
  */
+export const DEVICE_BINDING_HEADER = "x-mezan-device-binding";
+export const DEVICE_SECRET_HEADER = "x-mezan-device";
+
+export const stepUpRequestSchema = z.object({ pin: z.string().regex(/^\d{6}$/) });
+export type StepUpRequestDTO = z.infer<typeof stepUpRequestSchema>;
+
+export const unlockAccountRequestSchema = z.object({
+  username: z.string().min(1).max(254),
+  code: z.string().min(1).max(64),
+});
+export type UnlockAccountRequestDTO = z.infer<typeof unlockAccountRequestSchema>;
+
+export const unlockAccountByLinkRequestSchema = z.object({ token: z.string().min(20).max(128) });
+export type UnlockAccountByLinkRequestDTO = z.infer<typeof unlockAccountByLinkRequestSchema>;
+
 export const loginRequestSchema = z.object({
   /**
    * The user's EMAIL — never their display name. A display name is neither
@@ -51,6 +66,7 @@ export const sessionSchema = z.object({
    * deciding what a request is allowed to do.
    */
   token: z.string(),
+  deviceSecret: z.string().optional(),
 });
 
 export const loginResponseSchema = sessionSchema;

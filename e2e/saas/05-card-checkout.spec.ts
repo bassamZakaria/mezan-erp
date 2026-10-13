@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
+import { type APIRequestContext, type Page } from "@playwright/test";
+import { test, expect } from "./support/test";
 import { ApiError, CodePrefix, HttpMethod, PlanId, SAAS_API_URL, SubscriptionStatus, uniqueCode } from "./support/env";
 import { openTenantDetail, platformSignIn, platformToken, provisionTenant, tenantApiLogin, tenantCall, tenantSignIn, type TenantLogin } from "./support/saas";
 

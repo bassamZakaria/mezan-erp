@@ -3,8 +3,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import {
   createApp,
+  ACCOUNT_LOCK_FAILURES,
+  ACCOUNT_LOCK_WINDOW_MS,
+  UNLOCK_CODE_TTL_MS,
+  createAccountLocks,
   createPeriodCloseGuardSlot,
   createLoginThrottle,
+  type LoginThrottle,
+  type SmtpConfig,
   createSessionAuthContextResolver,
   createSessionRegistry,
   createSimplifiedRegimeRoutes,
@@ -17,6 +23,8 @@ import {
   type InstallmentCollectPort,
   type SessionRegistry,
   sendNotificationEmail,
+  createPrecomputingHasher,
+  reportTurnYield,
   customerTaxProfileFrom,
   salesTaxRerating,
   type SalesItemTaxSource,
@@ -193,6 +201,8 @@ import {
   type EventCode,
   createProductTemplateSpecificationUsage,
   recordSecurityEvent,
+  recordSecurityEventOrFallback,
+  type AuditSink,
   unwindAdvanceVoucher,
   unwindPayrollDisbursementVoucher,
   type VoucherAdvanceUnwindPort,
@@ -322,6 +332,7 @@ import {
   createSqliteProductTemplateStore,
   createSqliteNotificationRuleStore,
   createSqliteNotificationStore,
+  removeNotificationLinesMatching,
   createSqliteWorkflowConfigStore,
   createSqliteApprovalRequestStore,
   createDataMigrationTransactor,
@@ -330,12 +341,15 @@ import {
   createSqliteOwnerPinFence,
   createSqliteCredentialResetMarks,
   createSqliteAuditSink,
+  createSqliteIdempotentRequestStore,
+  createSqliteAccountLockStore,
   createSqlitePeriodCloseStore,
   deriveAuditChainKey,
   createSqliteLabelLayoutStore,
   createSqliteSequenceConfigStore,
   createSqliteSequenceStore,
   CURRENT_SCHEMA_VERSION,
+  securityFallbackFor,
 } from "@mezan/persistence";
 import {
   EtaService,
@@ -345,6 +359,13 @@ import {
   convertToBase,
   createDefaultSettings,
   NotificationDispatcher,
+  NotificationChannelState,
+  NotificationChannelCode,
+  NotificationPriorityCode,
+  NotificationReadStatusCode,
+  ConnectionTurnLostError,
+  SETTLED_AS,
+  type DispatchOutcome,
   type NotificationTransport,
   type EtaCommandResult,
   type EtaCommandRunner,
@@ -369,7 +390,8 @@ import {
   createAfterTaxClassified,
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
-import { createAuthRoutes } from "./auth-routes.js";
+import { createAuth, type AccountLockedEvent } from "./auth-routes.js";
+import { OutsideWork, OutsideWorkDeadlineError, withinDeadline } from "./outside-work.js";
 import { BranchAccess, BranchRecordKind, type BranchDirectory } from "@mezan/api";
 import { createSqliteBranchDirectory } from "./branch-directory.js";
 import { createWarehouseUse } from "./warehouse-use.js";
@@ -674,6 +696,7 @@ export interface CompanyAdminAccount {
 
 export interface BackendHandle {
   readonly app: App;
+  readonly audit: AuditSink;
   ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null>;
   companyAdmins(): Promise<CompanyAdminAccount[]>;
   recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void>;
@@ -702,6 +725,21 @@ export interface BackendHandle {
    */
   readonly sessions: SessionRegistry;
   /**
+   * SECURITY: every path on which an administrator sets, resets or reopens an
+   * account's credentials calls this ONE function: the Users screen, a PIN
+   * reset, an email change, the platform console's owner PIN reset and its
+   * account unlock. It clears the persisted account lock and the sign-in
+   * backoff together; a reset that skips it hands out a PIN the account still
+   * refuses.
+   */
+  credentialsResetByAdministrator(account: string): void;
+  lockedAccounts(): readonly string[];
+  // SECURITY: not an HTTP route. Only code that holds the handle (the platform
+  // console) can call it; it records the unlock in this tenant's own audit
+  // trail in the transaction that clears the lock, and answers false for an
+  // account that is not locked.
+  unlockAccount(account: string, actor: string): Promise<boolean>;
+  /**
    * Copies the live database to `destination` via better-sqlite3's online
    * backup API — safe to call while the app keeps serving writes, since the
    * backup reads through SQLite's own consistent snapshot rather than
@@ -719,7 +757,39 @@ export interface BackendHandle {
   close(): void;
 }
 
+const ACCOUNT_LOCKED_NOTICE = "SECURITY_ACCOUNT_LOCKED";
+
+const LOCK_NOTICE_UNLOCK_ON_USERS = "لفكّ القفل: افتح شاشة المستخدمين واضغط «فكّ القفل» أمام الحساب.";
+const LOCK_NOTICE_CHANGE_PIN = "إن لم تكن هذه المحاولات من صاحب الحساب فغيّر رمز PIN الخاص به.";
+
+function accountLockedHeadline(event: AccountLockedEvent): string {
+  const locked = `قُفل حساب «${event.user.nameAr}» (${event.user.email}) بعد ${ACCOUNT_LOCK_FAILURES} محاولة دخول فاشلة خلال ٢٤ ساعة. آخر مصدر: ${event.source}.`;
+  return event.reissued ? `${locked} انتهت صلاحية رمز فكّ القفل السابق والحساب ما زال مقفلًا.` : locked;
+}
+
+// SECURITY: this text is STORED (the notification row, and so every backup).
+// It says that a code and a link were mailed and carries neither.
+function accountLockedNotice(event: AccountLockedEvent, mailed: boolean, linkMailed: boolean): string {
+  const lines = [accountLockedHeadline(event), LOCK_NOTICE_UNLOCK_ON_USERS];
+  if (mailed) lines.push(`أُرسل إلى بريد مديري النظام رمز لفكّ القفل${linkMailed ? " ورابط يعمل مرة واحدة" : ""}، صالح لساعة واحدة.`);
+  lines.push(LOCK_NOTICE_CHANGE_PIN);
+  return lines.join("\n");
+}
+
+// SECURITY: this text carries the secrets. It is handed to the mail transport
+// and kept in memory until it is sent; it is never written to the database.
+function accountLockedMail(event: AccountLockedEvent, unlockUrl: string | null): string {
+  const lines = [accountLockedHeadline(event), LOCK_NOTICE_UNLOCK_ON_USERS];
+  if (event.unlockCode) lines.push(`أو أدخل هذا الرمز في شاشة الدخول خلال ساعة واحدة: ${event.unlockCode}`);
+  if (unlockUrl) lines.push(`أو افتح هذا الرابط خلال ساعة واحدة، وهو يعمل مرة واحدة فقط: ${unlockUrl}`);
+  lines.push(LOCK_NOTICE_CHANGE_PIN);
+  return lines.join("\n");
+}
+
+const STORED_UNLOCK_SECRET = /[A-Z2-7]{16}|https?:\/\//;
+
 export interface CreateBackendOptions {
+  readonly connectionTurn?: CreateAppOptions["connectionTurn"];
   /**
    * SQLite location. A file path gives durable, shared-across-restarts storage
    * (apps/server, Electron); `:memory:` gives an ephemeral per-process DB
@@ -743,6 +813,19 @@ export interface CreateBackendOptions {
   readonly seedAdminPin?: string;
   /** Outbound HTTP for the ETA gateway. Tests inject a fake server; nothing else should. */
   readonly etaHttpClient?: EtaHttpClient;
+  readonly securityMail?: SmtpConfig;
+  // SECURITY: the address a mailed unlock link opens. It is built here from an
+  // origin the DEPLOYMENT configured and never from anything a request carried
+  // (Host, X-Forwarded-Host): the request that locks an account is the
+  // attacker's own, and a link built from it would mail the administrators a
+  // working token pointed at the attacker's server.
+  readonly unlockLink?: (token: string) => string;
+  // CONTRACT: true where a platform operator can unlock this tenant's accounts
+  // from the console (the cloud edition). It changes what a locked account is told.
+  readonly platformOperatorUnlocks?: boolean;
+  // TEST HOOK: the clock the account lock and its unlock code's expiry read.
+  readonly signInClock?: () => number;
+  readonly sendMail?: typeof sendNotificationEmail;
   /** Runs the operator's external CAdES-BES signing program. Tests inject a fake. */
   readonly etaSigningRunner?: EtaCommandRunner;
   /**
@@ -881,6 +964,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const auditSink = createSqliteAuditSink(sqlite, {
     ...(options.connection?.key ? { chainKey: deriveAuditChainKey(options.connection.key) } : {}),
   });
+  auditSink.unrecorded = securityFallbackFor(dbPath);
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
   const userPreferences = createSqliteUserPreferencesStore(sqlite);
   const ownerPinFence = createSqliteOwnerPinFence(sqlite);
@@ -914,7 +998,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const itemSpecifications = createSqliteItemSpecificationRepository(sqlite);
   const attachments = createSqliteAttachmentRepository(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
-  await ensureSystemTaxRates(taxRates);
+  // SECURITY: a served company's database that holds no books is left with no
+  // row added, the system tax rate included: see `seedWhenEmpty`.
+  if (options.seedWhenEmpty !== false || !(await isEmptyTenant({ accounts }))) await ensureSystemTaxRates(taxRates);
   const costCenters = createSqliteCostCenterRepository(sqlite);
   const masterDataChecks: MasterDataChecks = {
     [MasterDataKind.Customer]: customers,
@@ -940,8 +1026,27 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * the operator's own program because a CAdES-BES signature is made on the
    * taxpayer's hardware token and cannot be produced in-process.
    */
+  // EVERY PORT THAT LEAVES THE PROCESS HANDS THE CONNECTION BACK FIRST. A request
+  // holds the tenant's turn for its database work only (audit-boundary.ts): the
+  // hash, the signing program, the authority's socket and the mail server are
+  // awaited with the turn released, and the request takes it again to record
+  // what they answered.
+  const outsideTheTurn = <T>(work: () => Promise<T>): Promise<T> => auditSink.outsideTurn(work);
+  // WORK NO REQUEST IS WAITING ON TAKES THE TURN FOR ITS DATABASE WORK TOO: a
+  // timer, an event subscriber, a task a confirm leaves running. Started inside
+  // a request it shares that request's turn, which is then kept until it is
+  // done; started on its own it queues like any write. Either way it is never
+  // writing while another holder has a BEGIN open, and its ports hand the turn
+  // back around the outside world exactly as a request's do.
+  const inTheTurn =
+    (label: string) =>
+    <T>(work: () => Promise<T>): Promise<T> =>
+      auditSink.turn(work, { onYield: () => reportTurnYield(`background ${label}`) });
+  const etaHttp = options.etaHttpClient ?? fetchEtaHttpClient();
+  const etaSigningRunner = options.etaSigningRunner ?? runExternalSigningCommand;
   const etaTransmit = createEtaHttpTransmitPort({
-    http: options.etaHttpClient ?? fetchEtaHttpClient(),
+    http: (request) => outsideTheTurn(() => withinDeadline(OutsideWork.EtaHttp, () => etaHttp(request))),
+    sleep: (ms) => outsideTheTurn(() => new Promise<void>((resolve) => setTimeout(resolve, ms))),
     credentials: {
       read: async () => {
         const config = await etaStore.config.get();
@@ -956,7 +1061,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const etaSigner = createExternalCommandSigner({
     config: () => etaStore.config.get(),
-    run: options.etaSigningRunner ?? runExternalSigningCommand,
+    run: (command, args, stdin) => outsideTheTurn(() => withinDeadline(OutsideWork.EtaSigning, () => etaSigningRunner(command, args, stdin))),
   });
   const etaService = new EtaService({
     config: etaStore.config,
@@ -971,7 +1076,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     receiptChain: etaStore.receiptChain,
     receiptGaps: etaStore.receiptGaps,
   });
-  const hasher = createScryptHasher();
+  const scrypt = createScryptHasher();
+  const secrets = createPrecomputingHasher({
+    hash: (secret) => outsideTheTurn(() => scrypt.hash(secret)),
+    verify: (secret, hash) => outsideTheTurn(() => scrypt.verify(secret, hash)),
+  });
+  const hasher = secrets.hasher;
 
   // --- phase9/operational-reports — read-only repositories the /reports routes aggregate over,
   // shared with phase5/full-sales's sales-invoice GL/stock hooks below (same tables, one connection each). ---
@@ -1134,6 +1244,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // for why a translation step is needed at all). ---
   const notificationRules = createSqliteNotificationRuleStore(sqlite);
   const notifications = createSqliteNotificationStore(sqlite);
+  removeNotificationLinesMatching(sqlite, ACCOUNT_LOCKED_NOTICE, STORED_UNLOCK_SECRET);
   const eventBus = new EventBus({
     onError: (error, event) => {
       console.error(`[notifications] a subscriber failed handling "${event.code}"`, error);
@@ -1159,8 +1270,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     roles: uow.roles,
     generateId: () => randomUUID(),
   });
+  const notifyInTheTurn = inTheTurn("notification rules");
   eventBus.subscribeAll((event) => {
-    void notificationEngine.handle(event).catch((error: unknown) => {
+    void notifyInTheTurn(() => notificationEngine.handle(event)).catch((error: unknown) => {
       console.error(`[notifications] engine failed handling "${event.code}"`, error);
     });
   });
@@ -1376,6 +1488,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * and a future POS till, and from the confirm events for every other path.
    */
   const etaReceipts = createEtaReceiptIssuer({
+    turn: inTheTurn("e-receipt submission"),
     eta: etaService,
     invoices: salesInvoices,
     returns: salesReturnStore,
@@ -1395,6 +1508,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
 
   const etaEnqueueBridge = createEtaEnqueueBridge({
+    turn: inTheTurn("e-invoice queueing"),
     eta: etaService,
     issuer: etaReceipts,
     invoices: salesInvoices,
@@ -3430,7 +3544,104 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * object: a per-router throttle would let an admin "unlock" an account that
    * stays locked at the login route.
    */
-  const loginThrottle = createLoginThrottle();
+  const signInLadder = createLoginThrottle(options.signInClock);
+  const accountLockStore = createSqliteAccountLockStore(sqlite, { now: options.signInClock, failureWindowMs: ACCOUNT_LOCK_WINDOW_MS });
+  const accountLocks = createAccountLocks({ known: accountLockStore, unknown: accountLockStore.unknownNames, now: options.signInClock });
+  // REQUIRED: every unlock in the product — the Users screen, a PIN reset, an
+  // email change — goes through this one object, and it must clear the
+  // account lock as well as the backoff or the button unlocks nothing.
+  const credentialsResetByAdministrator = (account: string): void => {
+    accountLocks.clear(account);
+    signInLadder.unlock(account);
+  };
+  const loginThrottle: LoginThrottle = { ...signInLadder, unlock: credentialsResetByAdministrator };
+  const sendMail = options.sendMail ?? sendNotificationEmail;
+  const securitySmtp = async (): Promise<SmtpConfig | null> => {
+    const tenant = (await settings.get()) ?? createDefaultSettings();
+    return tenant.smtpEnabled ? tenant : (options.securityMail ?? null);
+  };
+  const lockMailInTheTurn = inTheTurn("account lock notice");
+  const recordLateInTheTurn = inTheTurn("late notification record");
+  type MailResult = Awaited<ReturnType<typeof sendNotificationEmail>>;
+  const dispatchOutcomeOf = (sent: MailResult): DispatchOutcome =>
+    sent.outcome === "sent" ? { kind: "sent" } : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
+  // SECURITY: the only place an unlock code or link token lives after it is
+  // issued, besides the mail itself. Keyed by notification id, dropped when the
+  // mail is sent or refused, and never older than the code it carries.
+  const lockMailBodies = new Map<string, { readonly body: string; readonly expiresAt: number }>();
+  const signInNow = options.signInClock ?? Date.now;
+  const keepLockMail = (id: string, body: string): void => {
+    const at = signInNow();
+    for (const [stale, kept] of lockMailBodies) if (kept.expiresAt <= at) lockMailBodies.delete(stale);
+    lockMailBodies.set(id, { body, expiresAt: at + UNLOCK_CODE_TTL_MS });
+  };
+  const emailTransport = (smtp: SmtpConfig | null): NotificationTransport => ({
+    channel: "email",
+    async send(notification, recipientEmail, claim) {
+      if (smtp === null) return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
+      if (!recipientEmail) return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
+      const body = notification.eventCode === ACCOUNT_LOCKED_NOTICE ? lockMailBodies.get(notification.id)?.body : notification.body;
+      if (body === undefined) return { kind: "rejected", reason: "انتهت صلاحية رمز فكّ القفل قبل إرساله؛ يُرسل رمز جديد عند المحاولة التالية." };
+      try {
+        const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body })));
+        const outcome = dispatchOutcomeOf(sent);
+        if (outcome.kind !== "offline") lockMailBodies.delete(notification.id);
+        return outcome;
+      } catch (err) {
+        if (err instanceof OutsideWorkDeadlineError) return { kind: "offline", reason: err.message };
+        // The mail server answered and this drain can no longer write. What it
+        // answered is recorded under a turn of its own, against the same claim,
+        // so a message that was sent is not queued to be sent again.
+        if (err instanceof ConnectionTurnLostError && err.completed) {
+          const late = SETTLED_AS[dispatchOutcomeOf(err.completed.value as MailResult).kind];
+          void recordLateInTheTurn(() => notifications.settleChannel(notification.id, "email", late, claim)).catch((error: unknown) => {
+            console.error(`[notifications] could not record what the mail server answered for ${notification.id}`, error);
+          });
+        }
+        throw err;
+      }
+    },
+  });
+  const notifyAccountLocked = async (event: AccountLockedEvent): Promise<void> => {
+    const smtp = await securitySmtp();
+    const admins = (await uow.users.list()).filter((u) => u.isCompanyAdmin && u.status === UserStatusCode.Active);
+    const createdAt = new Date().toISOString();
+    const mailed = smtp !== null && event.unlockCode !== null;
+    const unlockUrl = options.unlockLink && event.unlockLinkToken ? options.unlockLink(event.unlockLinkToken) : null;
+    const mailBody = mailed ? accountLockedMail(event, unlockUrl) : null;
+    const ids = new Set<string>();
+    for (const admin of admins) {
+      const id = randomUUID();
+      ids.add(id);
+      if (mailBody !== null) keepLockMail(id, mailBody);
+      await notifications.save({
+        id,
+        ruleId: null,
+        recipientUserId: admin.id,
+        eventCode: ACCOUNT_LOCKED_NOTICE,
+        title: "تم قفل حساب بعد محاولات دخول فاشلة",
+        body: accountLockedNotice(event, mailed, unlockUrl !== null),
+        priority: NotificationPriorityCode.Urgent,
+        channels: mailed ? [NotificationChannelCode.InApp, NotificationChannelCode.Email] : [NotificationChannelCode.InApp],
+        channelStatus: mailed
+          ? { in_app: NotificationChannelState.Delivered, email: NotificationChannelState.Queued }
+          : { in_app: NotificationChannelState.Delivered },
+        status: NotificationReadStatusCode.Unread,
+        payload: { userId: event.user.id, source: event.source },
+        createdAt,
+        readAt: null,
+      });
+    }
+    if (!mailed || smtp === null || ids.size === 0) return;
+    const dispatcher = new NotificationDispatcher({
+      notifications,
+      recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
+      transports: [emailTransport(smtp)],
+    });
+    void lockMailInTheTurn(() => dispatcher.drain({ only: ids })).catch((error: unknown) => {
+      console.error("[auth] the account-lock notice could not be mailed; it stays queued", error);
+    });
+  };
 
   /**
    * Refused requests, recorded.
@@ -3451,7 +3662,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     if (now - last < 60_000) return;
     refusalSeenAt.set(key, now);
     if (refusalSeenAt.size > 5_000) refusalSeenAt.clear();
-    void recordSecurityEvent(auditSink, {
+    void recordSecurityEventOrFallback(auditSink, {
       module: "admin",
       entityType: "PERMISSION",
       entityId: refusal.permission,
@@ -3459,7 +3670,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       actor: refusal.userId,
       severity: "WARNING",
       details: { permission: refusal.permission, method: refusal.method, path: refusal.path },
-    }).catch(() => undefined);
+    });
   };
 
   /**
@@ -3957,6 +4168,42 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return { voucherId };
   };
 
+  // REQUIRED: every hook below reaches the platform's database, which is not
+  // this tenant's connection, so each is called with the turn handed back.
+  const announceSignIn = options.onUserSignedIn
+    ? async ({ userId, email }: { readonly userId: string; readonly email: string }): Promise<void> => {
+        const user = await uow.users.findById(userId);
+        const signedIn = {
+          userId,
+          email,
+          canAdminister: user !== null && user.isCompanyAdmin && user.status === UserStatusCode.Active,
+          credentialIsOwn: !credentialResets.has(userId),
+        };
+        await outsideTheTurn(() => options.onUserSignedIn!(signedIn));
+      }
+    : undefined;
+  const claimedElsewhere = options.claimedElsewhere ? () => outsideTheTurn(() => options.claimedElsewhere!()) : undefined;
+
+  const auth = createAuth({
+    uow,
+    hasher,
+    secrets,
+    settings,
+    seedStores,
+    sessions,
+    loginThrottle: signInLadder,
+    accountLocks,
+    platformOperatorUnlocks: options.platformOperatorUnlocks === true,
+    onAccountLocked: notifyAccountLocked,
+    canMailUnlockCode: async () => (await securitySmtp()) !== null,
+    audit: auditSink,
+    resolveEntitlements: options.resolveEntitlements,
+    onSignedIn: announceSignIn,
+    demoSeeded: options.seedDemoData === true,
+    claimedElsewhere,
+    seedWhenEmpty,
+  });
+
   const resolveCashAndBankParentAccountId = async () => routedAccountId(await accountRouting.get(), CASH_AND_BANK_ROUTING_KEY);
   const resolveCashAndBankAccountIds = async (): Promise<readonly string[]> => {
     const [routing, chart, treasury] = await Promise.all([accountRouting.get(), accounts.list(), treasuryAccounts.list()]);
@@ -3969,16 +4216,35 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   const app = createApp(uow, {
     cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
+    connectionTurn: options.connectionTurn,
+    idempotentRequests: createSqliteIdempotentRequestStore(sqlite),
+    secrets,
+    beforeTheTurn: auth.beforeTheTurn,
+    // EXTERNAL CONTRACT: main/lan-client.ts reads both fields at startup and
+    // blocks the client on a mismatch. Do not rename them.
+    health: () => ({
+      ok: true,
+      version: process.env["MEZAN_APP_VERSION"] ?? "0.0.0",
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    }),
     resolveAuthContext,
     security: { sessions, loginThrottle },
     ...(options.onUserEmailChanged
-      ? { onUserEmailChanged: (change) => options.onUserEmailChanged!({ ...change, actorCredentialIsOwn: !credentialResets.has(change.actorId) }) }
+      ? {
+          onUserEmailChanged: (change) => {
+            const announced = { ...change, actorCredentialIsOwn: !credentialResets.has(change.actorId) };
+            return outsideTheTurn(() => options.onUserEmailChanged!(announced));
+          },
+        }
       : {}),
     ...(options.companyOwner
       ? {
           companyOwner: {
-            currentOwnerUserId: () => options.companyOwner!.currentOwnerUserId(),
-            handOver: (input) => options.companyOwner!.handOver({ ...input, actorCredentialIsOwn: !credentialResets.has(input.actorId) }),
+            currentOwnerUserId: () => outsideTheTurn(() => options.companyOwner!.currentOwnerUserId()),
+            handOver: (input) => {
+              const handed = { ...input, actorCredentialIsOwn: !credentialResets.has(input.actorId) };
+              return outsideTheTurn(() => options.companyOwner!.handOver(handed));
+            },
           },
         }
       : {}),
@@ -4021,7 +4287,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     attachments: { repo: attachments },
     labelLayouts: { repo: labelLayouts },
     sequences: { counters: sequenceCounters, config: sequenceConfig, audit: auditSink, transactor: configTransactor },
-    audit: { store: auditSink },
+    audit: { store: auditSink, unrecorded: auditSink.unrecorded },
     auditSink,
     barcodeConfigStore: barcodeConfig,
     taxRateRepo: taxRates,
@@ -5044,63 +5310,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const dispatcher = new NotificationDispatcher({
         notifications,
         recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
-        transports: [
-          {
-            channel: "email",
-            async send(notification, recipientEmail) {
-              if (!tenant.smtpEnabled) {
-                return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
-              }
-              if (!recipientEmail) {
-                // No address on the user. Terminal: the next drain would find
-                // the same missing address and try forever.
-                return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
-              }
-              const sent = await sendNotificationEmail(tenant, recipientEmail, {
-                subject: notification.title,
-                body: notification.body,
-              });
-              return sent.outcome === "sent"
-                ? { kind: "sent" }
-                : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
-            },
-          },
-        ],
+        transports: [emailTransport(tenant.smtpEnabled ? tenant : null)],
       });
       return dispatcher.drain();
     },
     workflow: { configs: workflowConfigs, requests: approvalRequests },
   });
 
-  /**
-   * The one route a till can call before it trusts anything else, and the ONLY
-   * place host/client version skew is detectable.
-   *
-   * It used to answer `{ok:true}`, and the client compared nothing — so a till
-   * left on an old build after the host was updated kept talking to a schema it
-   * did not match, and the first symptom was wrong data rather than a refusal.
-   * EXTERNAL CONTRACT: main/lan-client.ts reads both fields at startup and
-   * blocks the client on a mismatch. Do not rename them.
-   */
-  app.get("/health", (c) =>
-    c.json({
-      ok: true,
-      version: process.env["MEZAN_APP_VERSION"] ?? "0.0.0",
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-    }),
-  );
-  const announceSignIn = options.onUserSignedIn
-    ? async ({ userId, email }: { readonly userId: string; readonly email: string }): Promise<void> => {
-        const user = await uow.users.findById(userId);
-        await options.onUserSignedIn?.({
-          userId,
-          email,
-          canAdminister: user !== null && user.isCompanyAdmin && user.status === UserStatusCode.Active,
-          credentialIsOwn: !credentialResets.has(userId),
-        });
-      }
-    : undefined;
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: announceSignIn, demoSeeded: options.seedDemoData === true, claimedElsewhere: options.claimedElsewhere, seedWhenEmpty }));
+  app.route("/", auth.routes);
   app.route(
     "/",
     createDashboardRoutes({
@@ -5321,7 +5538,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     if (!written) return OwnerPinResetOutcome.Superseded;
     if (!cmd.onlyIfNeverSignedIn) credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
     sessions.revokeUser(owner.id);
-    loginThrottle.succeed(owner.email.trim().toLowerCase());
+    credentialsResetByAdministrator(owner.email);
     await recordSecurityEvent(auditSink, {
       module: "auth",
       entityType: "USER",
@@ -5334,9 +5551,35 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return OwnerPinResetOutcome.Reset;
   }
 
+  const platformUnlockInTheTurn = inTheTurn("platform account unlock");
+  const unlockAccount = (account: string, actor: string): Promise<boolean> => {
+    const key = account.trim().toLowerCase();
+    return platformUnlockInTheTurn(() =>
+      auditSink.atomic(async () => {
+        if (!accountLockStore.lockedAccounts().includes(key)) return false;
+        const user = await uow.users.findByEmail(key);
+        credentialsResetByAdministrator(key);
+        await recordSecurityEvent(auditSink, {
+          module: "auth",
+          entityType: "AUTH_USER",
+          entityId: user?.id ?? null,
+          action: "ACCOUNT_UNLOCKED_BY_PLATFORM",
+          actor,
+          severity: "CRITICAL",
+          details: { username: key, userId: user?.id ?? null, origin: SecurityEventOrigin.Platform },
+        });
+        return true;
+      }),
+    );
+  };
+
   return {
     app,
+    audit: auditSink,
     sessions,
+    credentialsResetByAdministrator,
+    lockedAccounts: () => accountLockStore.lockedAccounts(),
+    unlockAccount,
     ownerAccount,
     companyAdmins,
     recordOwnerAssigned,

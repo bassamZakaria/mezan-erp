@@ -7,9 +7,11 @@ import { useState, useSyncExternalStore, type ReactElement } from "react";
 import { LoginScreen } from "./LoginScreen";
 import { useApi, ApiProvider } from "../data/ApiContext";
 import {
+  SignInNotice,
   loadTenantCode,
   markOwnerHandOver,
   markSessionExpired,
+  markSignInNotice,
   pendingOwnerHandOver,
   persistTenantCode,
   rememberTenantCodeForEmail,
@@ -335,6 +337,19 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
       expect(screen.queryByRole("button", { name: FIRST_RUN })).not.toBeInTheDocument();
     });
   });
+
+  it("says another user signed in on this device, not that the session merely ended, when that is why the tab was signed out", () => {
+    markSignInNotice(SignInNotice.SignedInElsewhere);
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.getByRole("status")).toHaveTextContent("سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.");
+    expect(screen.queryByText("انتهت الجلسة. سجّل الدخول من جديد للمتابعة.")).not.toBeInTheDocument();
+  });
+
+  it("confirms in Arabic that the account was unlocked when the person arrives from a mailed link", () => {
+    markSignInNotice(SignInNotice.AccountUnlocked);
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.getByRole("status")).toHaveTextContent("تم فكّ قفل الحساب. أدخل رمز PIN للدخول.");
+  });
 });
 
 describe("LoginScreen — SaaS company code", () => {
@@ -498,6 +513,127 @@ describe("LoginScreen — SaaS company code", () => {
     fireEvent.change(input, { target: { value: "cyag" } });
     fillPin("000000");
     expect(await screen.findByRole("alert")).toHaveTextContent("اسم المستخدم أو رمز PIN غير صحيح.");
+  });
+
+  it("says the server is busy and holds the button for the seconds it was told to wait", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({
+          status: 503,
+          body: { error: "SIGN_IN_BUSY", retryAfterSeconds: 2, message: "الخادم مشغول الآن بطلبات دخول أخرى، ولم تُحتسب هذه المحاولة. أعد المحاولة بعد ثوانٍ." },
+        }),
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("123456");
+    expect(await screen.findByRole("alert")).toHaveTextContent("الخادم مشغول الآن");
+    fillPin("123456");
+    expect(screen.getByRole("button", { name: /الحساب مقفل|انتظر|بعد/ })).toBeDisabled();
+  });
+
+  it.each([
+    [429, { error: "TOO_MANY_REQUESTS", message: "طلبات كثيرة من هذا الجهاز. انتظر قليلاً ثم أعد المحاولة." }, "طلبات كثيرة من هذا الجهاز", /^حاول بعد 60 ثانية$/],
+    [503, { error: "DATABASE_BUSY", message: "قاعدة البيانات مشغولة بعملية لم تنتهِ، فلم يُنفَّذ طلبك. حاول مرة أخرى بعد قليل." }, "قاعدة البيانات مشغولة", /^الخادم مشغول — أعد المحاولة بعد 60 ثانية$/],
+  ] as const)("holds the button for the wait a %i names only in its Retry-After header, as the host's own socket answers a till", async (status, body, said, held) => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({ status, body, retryAfterSeconds: 60 }),
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("123456");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(said);
+    expect(screen.getByRole("button", { name: held })).toBeDisabled();
+  });
+
+  it("counts a throttle down once, in Arabic, on the button, and never calls it a locked account or leaves a second stale number beside it", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({ status: 429, body: { error: "TOO_MANY_ATTEMPTS", retryAfterSeconds: 3, message: "محاولات دخول كثيرة. حاول بعد 3 ثانية." } }),
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("123456");
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/^محاولات دخول كثيرة\.$/);
+    expect(screen.getByRole("button", { name: "حاول بعد 3 ثوانٍ" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "حاول بعد ثانيتين" }, { timeout: 2500 })).toBeDisabled();
+    expect(document.body).not.toHaveTextContent(/الحساب مقفل|\ds\b/);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "دخول" })).toBeInTheDocument(), { timeout: 4000 });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("says the audit log could not record the sign-in, in the server's own words, without calling it a lock or a wrong PIN", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({
+          status: 503,
+          body: { error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." },
+        }),
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("123456");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى.");
+    expect(screen.getByRole("button", { name: "دخول" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("رمز فكّ القفل")).not.toBeInTheDocument();
+  });
+
+  it("offers a place to type the mailed code when the account is locked, and opens the account with it", async () => {
+    let unlockBody: unknown = null;
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({
+          status: 423,
+          body: { error: "ACCOUNT_LOCKED", unlockByCode: true, message: "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة." },
+        }),
+        "POST /auth/unlock": (init) => {
+          unlockBody = JSON.parse((init?.body as string) ?? "{}");
+          return { body: { ok: true } };
+        },
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("000000");
+    expect(await screen.findByRole("alert")).toHaveTextContent("تم قفل هذا الحساب");
+
+    fireEvent.change(screen.getByLabelText("رمز فكّ القفل"), { target: { value: "ABCDEFGHIJKLMNOP" } });
+    fireEvent.click(screen.getByRole("button", { name: "فكّ القفل" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("تم فكّ قفل الحساب");
+    expect(unlockBody).toMatchObject({ code: "ABCDEFGHIJKLMNOP" });
+    expect(screen.queryByLabelText("رمز فكّ القفل")).not.toBeInTheDocument();
+  });
+
+  it("offers no code field when the lock can only be opened by an administrator", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({
+        ...preAuth,
+        "GET /platform/resolve": () => ({ body: { mode: "code", exists: true } }),
+        "POST /auth/login": () => ({
+          status: 423,
+          body: { error: "ACCOUNT_LOCKED", unlockByCode: false, message: "تم قفل هذا الحساب. اطلب من مدير النظام فكّ القفل." },
+        }),
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("رمز المنشأة"), { target: { value: "cyag" } });
+    fillPin("000000");
+    expect(await screen.findByRole("alert")).toHaveTextContent("اطلب من مدير النظام فكّ القفل");
+    expect(screen.queryByLabelText("رمز فكّ القفل")).not.toBeInTheDocument();
   });
 
   it("sends x-mezan-tenant on the login request once a company code is resolved", async () => {

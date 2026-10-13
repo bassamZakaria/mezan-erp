@@ -16,7 +16,14 @@ import {
 } from "@mezan/domain";
 import { releaseProvisioningTenant } from "./release-tenant.js";
 import { provisionTenant } from "./provision-tenant.js";
-import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
+import { createTenantRouter, type TenantRouter, type TenantRouterOptions } from "./tenant-router.js";
+import { reachable } from "./cloud-harness.js";
+
+function reachableRouter(options: TenantRouterOptions): TenantRouter {
+  const router = createTenantRouter(options);
+  reachable(router.app);
+  return router;
+}
 
 const T = "2026-10-12T10:00:00.000Z";
 const now = (): Date => new Date(T);
@@ -126,7 +133,7 @@ describe("releasing a tenant stuck in provisioning", () => {
     const { dataDir, platform } = await world();
     const parked = gate();
     let park = true;
-    const router = createTenantRouter({
+    const router = reachableRouter({
       platform,
       dataDir,
       sweepEveryMs: 0,

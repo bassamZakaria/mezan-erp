@@ -12,9 +12,15 @@ import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { createSignupRoutes } from "./signup-routes.js";
 import { reachable } from "./cloud-harness.js";
 import { provisionTenant } from "./provision-tenant.js";
-import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
+import { createTenantRouter, TENANT_HEADER, type TenantRouter, type TenantRouterOptions } from "./tenant-router.js";
 import { COMPANY_NAME_MAX_LENGTH } from "@mezan/domain";
 import { parseEnv } from "./env.js";
+
+function reachableRouter(options: TenantRouterOptions): TenantRouter {
+  const router = createTenantRouter(options);
+  reachable(router.app);
+  return router;
+}
 
 const T = "2026-01-15T00:00:00.000Z";
 
@@ -512,7 +518,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
       if (refuseSave) throw new Error("the platform database refused the tenant");
       return platform.stores.tenants.compareAndSetOwner(before, after, sideEffect);
     };
-    const router = createTenantRouter({ platform: { ...platform, stores: { ...platform.stores, tenants } }, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
+    const router = reachableRouter({ platform: { ...platform, stores: { ...platform.stores, tenants } }, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
     routers.push(router);
     const { adminPin } = await provisionTenant(
       { code: "steady", nameAr: "ثابتة", ownerEmail: "owner@steady.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: false },
@@ -608,14 +614,14 @@ type SignupStores = PlatformHandle["stores"];
 interface SignupProcessOptions {
   readonly saveSubscription?: (save: SaveSubscription) => SaveSubscription;
   readonly now?: () => Date;
-  readonly stores?: (stores: SignupStores) => Partial<SignupStores>;
+  readonly stores?: (stores: SignupStores, outsideTheTurn: PlatformHandle["outsideTheTurn"]) => Partial<SignupStores>;
   readonly provisionWaitMs?: number;
   readonly provisionHeartbeatMs?: number;
 }
 
 function signupProcess(platform: PlatformHandle, dataDir: string, options: SignupProcessOptions | SignupProcessOptions["saveSubscription"] = {}): SignupProcess {
   const { saveSubscription, now = () => new Date(T), stores, provisionWaitMs, provisionHeartbeatMs } = typeof options === "function" ? { saveSubscription: options } : options;
-  const router = createTenantRouter({
+  const router = reachableRouter({
     platform,
     dataDir,
     sweepEveryMs: 0,
@@ -633,7 +639,7 @@ function signupProcess(platform: PlatformHandle, dataDir: string, options: Signu
   const subscriptions = Object.create(platform.stores.subscriptions) as SignupStores["subscriptions"];
   if (saveSubscription) subscriptions.save = saveSubscription((subscription) => platform.stores.subscriptions.save(subscription));
   const withSubscriptions: SignupStores = saveSubscription ? { ...platform.stores, subscriptions } : platform.stores;
-  const seen: PlatformHandle = { ...platform, stores: { ...withSubscriptions, ...stores?.(withSubscriptions) } };
+  const seen: PlatformHandle = { ...platform, stores: { ...withSubscriptions, ...stores?.(withSubscriptions, platform.outsideTheTurn) } };
   const signup = reachable(createSignupRoutes({ platform: seen, router, env: { ...parseEnv({}), platformDir: dataDir }, now, provisionWaitMs, provisionHeartbeatMs }));
   return { signup, router };
 }
@@ -646,12 +652,14 @@ function deferred(): { readonly reached: Promise<void>; readonly promise: Promis
   return { reached, promise, arrive, release };
 }
 
-function stallingAfterThePin(gate: ReturnType<typeof deferred>): (stores: SignupStores) => Partial<SignupStores> {
-  return (stores) => {
+// A frozen process holds nothing of its own platform connection while it is
+// frozen, so the stall is taken with the turn handed back.
+function stallingAfterThePin(gate: ReturnType<typeof deferred>): (stores: SignupStores, outsideTheTurn: PlatformHandle["outsideTheTurn"]) => Partial<SignupStores> {
+  return (stores, outsideTheTurn) => {
     const subscriptions = Object.create(stores.subscriptions) as SignupStores["subscriptions"];
     subscriptions.findLiveByTenant = async (tenantId) => {
       gate.arrive();
-      await gate.promise;
+      await outsideTheTurn(() => gate.promise);
       return stores.subscriptions.findLiveByTenant(tenantId);
     };
     return { subscriptions };
@@ -763,13 +771,13 @@ describe("a signup verification whose provisioning claim is contested", () => {
     const takeover = deferred();
     const waiting = deferred();
     const first = signupProcess(platform, dataDir, {
-      stores: (stores) => {
+      stores: (stores, outsideTheTurn) => {
         const signupRequests = Object.create(stores.signupRequests) as SignupStores["signupRequests"];
         signupRequests.provisioningClaimedAt = async (tokenHash) => {
           waiting.arrive();
           return stores.signupRequests.provisioningClaimedAt(tokenHash);
         };
-        return { ...stallingAfterThePin(stalled)(stores), signupRequests };
+        return { ...stallingAfterThePin(stalled)(stores, outsideTheTurn), signupRequests };
       },
     });
     const second = signupProcess(await openPlatform(dataDir), dataDir, { now: () => new Date(LATER), stores: stallingAfterThePin(takeover) });
@@ -804,13 +812,13 @@ describe("a signup verification whose provisioning claim is contested", () => {
     let checks = 0;
     const second = signupProcess(await openPlatform(dataDir), dataDir, {
       now: () => new Date(LATER),
-      stores: (stores) => {
+      stores: (stores, outsideTheTurn) => {
         const signupRequests = Object.create(stores.signupRequests) as SignupStores["signupRequests"];
         signupRequests.renewProvisioning = async (...args) => {
           const ours = await stores.signupRequests.renewProvisioning(...args);
           if ((checks += 1) === 1) {
             frozenBeforeThePin.arrive();
-            await frozenBeforeThePin.promise;
+            await outsideTheTurn(() => frozenBeforeThePin.promise);
           }
           return ours;
         };
@@ -845,7 +853,7 @@ describe("a signup verification whose provisioning claim is contested", () => {
     let claimReads = 0;
     const waiter = signupProcess(await openPlatform(dataDir), dataDir, {
       provisionWaitMs: 400,
-      stores: (stores) => {
+      stores: (stores, outsideTheTurn) => {
         const signupRequests = Object.create(stores.signupRequests) as SignupStores["signupRequests"];
         signupRequests.tryClaimProvisioning = async (...args) => {
           claimAttempts += 1;
@@ -888,14 +896,14 @@ describe("a signup verification whose provisioning claim is contested", () => {
     const holder = signupProcess(platform, dataDir, {
       now: () => new Date(holderClock),
       provisionHeartbeatMs: 10,
-      stores: (stores) => {
+      stores: (stores, outsideTheTurn) => {
         const signupRequests = Object.create(stores.signupRequests) as SignupStores["signupRequests"];
         signupRequests.renewProvisioning = async (tokenHash, claimId, nowIso) => {
           const kept = await stores.signupRequests.renewProvisioning(tokenHash, claimId, nowIso);
           if (nowIso === LATER) renewed.arrive();
           return kept;
         };
-        return { ...stallingAfterThePin(stalled)(stores), signupRequests };
+        return { ...stallingAfterThePin(stalled)(stores, outsideTheTurn), signupRequests };
       },
     });
     const later = signupProcess(await openPlatform(dataDir), dataDir, { now: () => new Date(LATER), provisionWaitMs: 100 });
@@ -925,7 +933,7 @@ describe("a verification link long after it was used", () => {
     let claimAttempts = 0;
     const { signup, router } = signupProcess(platform, dataDir, {
       now: () => new Date(clock),
-      stores: (stores) => {
+      stores: (stores, outsideTheTurn) => {
         const signupRequests = Object.create(stores.signupRequests) as SignupStores["signupRequests"];
         signupRequests.tryClaimProvisioning = async (...args) => {
           claimAttempts += 1;
@@ -1108,7 +1116,7 @@ describe("a stored subscription status this build does not know", () => {
   it("is refused on the way in, so it can only arrive from outside the product", async () => {
     const dataDir = platformDir();
     const platform = await openPlatform(dataDir);
-    const router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
+    const router = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
     routers.push(router);
     const { tenant } = await provisionTenant(
       { code: "strict", nameAr: "صارمة", ownerEmail: "owner@strict.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: false },
@@ -1129,7 +1137,7 @@ describe("the address a signup is counted against", () => {
   async function proxiedSignup(): Promise<Hono> {
     const dataDir = platformDir();
     const platform = await openPlatform(dataDir);
-    const router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
+    const router = reachableRouter({ platform, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
     routers.push(router);
     const env = { ...parseEnv({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2" }), platformDir: dataDir };
     return createSignupRoutes({ platform, router, env, now: () => new Date(T), sourceReporter: { unresolved: () => undefined, viewerMismatch: () => undefined } });

@@ -1,0 +1,11 @@
+{
+  "documentedAt": null,
+  "note": "",
+  "status": 404,
+  "body": [
+    {
+      "detail": "Not found."
+    }
+  ],
+  "expect": "unreadable"
+}

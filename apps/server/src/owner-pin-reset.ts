@@ -20,7 +20,7 @@ export async function resetTenantOwnerPin(
   await deps.router.reconcileOwnerOf(input.tenant.id);
   const tenant = await deps.platform.stores.tenants.findById(input.tenant.id);
   if (!tenant) throw new TenantNotFoundError(input.tenant.id);
-  const account = await backend.ownerAccount(tenant.ownerUserId === null ? { email: tenant.ownerEmail } : { userId: tenant.ownerUserId });
+  const account = await deps.platform.outsideTheTurn(() => backend.ownerAccount(tenant.ownerUserId === null ? { email: tenant.ownerEmail } : { userId: tenant.ownerUserId }));
   if (!account) throw new TenantOwnerAccountNotFoundError();
   const adminPin = (deps.pinOf ?? generateOwnerPin)();
   // SECURITY: the console's PIN takes a fence of its own, newer than any signup
@@ -37,14 +37,16 @@ export async function resetTenantOwnerPin(
     },
     "BEGIN IMMEDIATE",
   );
-  const outcome = await backend.resetOwnerPin({
-    userId: account.id,
-    email: account.email,
-    pin: adminPin,
-    onlyIfNeverSignedIn: false,
-    actor: platformActor(input.actorId),
-    fence,
-  });
+  const outcome = await deps.platform.outsideTheTurn(() =>
+    backend.resetOwnerPin({
+      userId: account.id,
+      email: account.email,
+      pin: adminPin,
+      onlyIfNeverSignedIn: false,
+      actor: platformActor(input.actorId),
+      fence,
+    }),
+  );
   if (outcome !== OwnerPinResetOutcome.Reset) throw new TenantOwnerAccountNotFoundError(outcome);
   return { adminEmail: tenant.ownerEmail, signInEmail: account.email, adminPin };
 }

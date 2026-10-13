@@ -121,6 +121,32 @@ describe("LandedCostsScreen", () => {
     await waitFor(() => expect(screen.queryByText("أنشئ مستند تكلفة لتوزيع التكاليف الإضافية على المشتريات")).not.toBeInTheDocument());
   });
 
+  it("opens the document already saved, with a notice, when its id was used with other contents", async () => {
+    let current: LandedCostDocumentDTO[] = [];
+    const sentIds: string[] = [];
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /landed-costs": () => ({ body: current }),
+      "POST /landed-costs": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        sentIds.push(body.id);
+        current = [landedCost({ id: body.id, docNo: null, status: "draft" })];
+        return { status: 409, body: { error: "IDEMPOTENCY_KEY_REUSED", message: "سبق تسجيل مستند بهذا المعرّف ببيانات مختلفة" } };
+      },
+    });
+    renderWithProviders(<TestNavigation><LandedCostsScreen /></TestNavigation>, { transport, initialSession: testAdminSession });
+    await screen.findByText("أنشئ مستند تكلفة لتوزيع التكاليف الإضافية على المشتريات");
+    fireEvent.click(screen.getAllByRole("button", { name: "مستند تكلفة جديد" })[0]!);
+    const dialog = screen.getByRole("dialog", { name: "مستند تكلفة إضافية جديد" });
+    fireEvent.change(within(dialog).getAllByRole("spinbutton")[0]!, { target: { value: "200" } });
+    await within(dialog).findByText("معاينة التوزيع");
+    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("سبق حفظ هذا المستند، ففُتح المستند المحفوظ بدل إنشاء آخر");
+    expect(screen.queryByRole("dialog", { name: "مستند تكلفة إضافية جديد" })).not.toBeInTheDocument();
+    expect(sentIds).toHaveLength(1);
+  });
+
   it("confirms a draft, then takes the confirmed document back by reversing it — a confirmed landed cost is never cancelled", async () => {
     let current: LandedCostDocumentDTO[] = [landedCost()];
     const transport = stubTransport({

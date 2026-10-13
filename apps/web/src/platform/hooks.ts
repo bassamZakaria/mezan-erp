@@ -1,14 +1,19 @@
 import { useMutation, useMutationState, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { ownerPinResetResultSchema } from "@mezan/contracts";
 import type {
+  ApplyCardCheckoutRequestDTO,
   CardCheckoutDTO,
+  ResolveCardCheckoutRequestDTO,
+  CardCheckoutSweepResultDTO,
   PlatformCardCheckoutsDTO,
   ChangePlanRequestDTO,
   CreateTenantRequestDTO,
   PlanDTO,
+  LockedTenantAccountsDTO,
   OwnerCandidateDTO,
   OwnerPinResetResultDTO,
   TenantBooksDTO,
+  PlatformUnrecordedSecurityEventsDTO,
   ProvisionResultDTO,
   ProvisionRetryRequestDTO,
   RecordPaymentRequestDTO,
@@ -17,7 +22,7 @@ import type {
   TenantSummaryDTO,
 } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { PlatformApiError, readPlatformErrorMessage, usePlatformApi } from "./api";
+import { PlatformApiError, readPlatformError, readPlatformErrorMessage, usePlatformApi } from "./api";
 import { CHECKOUT_POLL_MS } from "../billing/CardCheckoutStatus";
 
 export function useTenantsQuery(): UseQueryResult<TenantSummaryDTO[], PlatformApiError> {
@@ -44,6 +49,23 @@ export function useTenantQuery(id: string): UseQueryResult<TenantSummaryDTO, Pla
       const res = await request(`/tenants/${id}`);
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.notFound"));
       return res.json<TenantSummaryDTO>();
+    },
+  });
+}
+
+const UNRECORDED_EVENTS_REFRESH_MS = 60_000;
+
+export function useUnrecordedSecurityEventsQuery(): UseQueryResult<PlatformUnrecordedSecurityEventsDTO, PlatformApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = usePlatformApi();
+  return useQuery<PlatformUnrecordedSecurityEventsDTO, PlatformApiError>({
+    queryKey: ["platform", "security", "unrecorded"],
+    enabled: session?.user.role === "owner",
+    refetchInterval: UNRECORDED_EVENTS_REFRESH_MS,
+    queryFn: async () => {
+      const res = await request("/security/unrecorded");
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.security.loadFailed"));
+      return res.json<PlatformUnrecordedSecurityEventsDTO>();
     },
   });
 }
@@ -75,7 +97,10 @@ function useSummaryMutation<TVars>(
     mutationFn: async (vars) => {
       const body = buildBody(vars);
       const res = await request(buildPath(vars), { method: "POST", ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
-      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, errorKey));
+      if (!res.ok) {
+        const failure = await readPlatformError(res, t, errorKey);
+        throw new PlatformApiError(res.status, failure.message, failure.code);
+      }
       return res.json<TenantSummaryDTO>();
     },
     onSuccess: (summary) => {
@@ -199,6 +224,40 @@ export function useOwnerCandidates(tenantId: string, enabled: boolean) {
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.owner.loadFailed"));
       return res.json<OwnerCandidateDTO[]>();
     },
+  });
+}
+
+const lockedAccountsKey = (tenantId: string) => ["platform", "tenants", tenantId, "lockedAccounts"] as const;
+
+export function useLockedAccounts(tenantId: string, enabled: boolean) {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  return useQuery<LockedTenantAccountsDTO, PlatformApiError>({
+    queryKey: lockedAccountsKey(tenantId),
+    enabled,
+    queryFn: async () => {
+      const res = await request(`/tenants/${tenantId}/locked-accounts`);
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.locked.loadFailed"));
+      return res.json<LockedTenantAccountsDTO>();
+    },
+  });
+}
+
+export function useUnlockTenantAccountMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useMutation<LockedTenantAccountsDTO, PlatformApiError, { tenantId: string; account: string }>({
+    mutationFn: async ({ tenantId, account }) => {
+      const res = await request(`/tenants/${tenantId}/unlock-account`, { method: "POST", body: JSON.stringify({ account }) });
+      if (!res.ok) {
+        const failure = await readPlatformError(res, t, "platform.tenantDetail.locked.unlockFailed");
+        throw new PlatformApiError(res.status, failure.message, failure.code);
+      }
+      return res.json<LockedTenantAccountsDTO>();
+    },
+    onSuccess: (remaining, { tenantId }) => queryClient.setQueryData(lockedAccountsKey(tenantId), remaining),
+    onError: (_error, { tenantId }) => void queryClient.invalidateQueries({ queryKey: lockedAccountsKey(tenantId) }),
   });
 }
 
@@ -331,6 +390,66 @@ export function useCreateCardCheckoutMutation() {
     },
     onSettled: (_data, _err, tenantId) => {
       void queryClient.invalidateQueries({ queryKey: ["platform", "tenants", tenantId, "card-checkouts"] });
+    },
+  });
+}
+
+export interface ApplyCardCheckoutVariables {
+  readonly tenantId: string;
+  readonly checkoutId: string;
+  readonly body: ApplyCardCheckoutRequestDTO;
+}
+
+export function useApplyCardCheckoutMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useMutation<CardCheckoutDTO, PlatformApiError, ApplyCardCheckoutVariables>({
+    mutationFn: async ({ tenantId, checkoutId, body }) => {
+      const res = await request(`/tenants/${tenantId}/card-checkouts/${checkoutId}/apply`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.cardCheckout.apply.error.generic"));
+      return res.json<CardCheckoutDTO>();
+    },
+    onSettled: (_data, _err, { tenantId }) => {
+      void queryClient.invalidateQueries({ queryKey: ["platform", "tenants", tenantId] });
+    },
+  });
+}
+
+export interface ResolveCardCheckoutVariables {
+  readonly tenantId: string;
+  readonly checkoutId: string;
+  readonly body: ResolveCardCheckoutRequestDTO;
+}
+
+export function useResolveCardCheckoutMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useMutation<CardCheckoutDTO, PlatformApiError, ResolveCardCheckoutVariables>({
+    mutationFn: async ({ tenantId, checkoutId, body }) => {
+      const res = await request(`/tenants/${tenantId}/card-checkouts/${checkoutId}/resolve`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.cardCheckout.resolve.error.generic"));
+      return res.json<CardCheckoutDTO>();
+    },
+    onSettled: (_data, _err, { tenantId }) => {
+      void queryClient.invalidateQueries({ queryKey: ["platform", "tenants", tenantId] });
+    },
+  });
+}
+
+export function useSweepCardCheckoutsMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useMutation<CardCheckoutSweepResultDTO, PlatformApiError, void>({
+    mutationFn: async () => {
+      const res = await request("/card-checkouts/sweep", { method: "POST" });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.cardCheckout.sweep.error"));
+      return res.json<CardCheckoutSweepResultDTO>();
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["platform", "tenants"] });
     },
   });
 }

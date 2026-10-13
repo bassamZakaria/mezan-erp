@@ -18,6 +18,7 @@ import {
   SubscriptionTransition,
   TenantNotFoundError,
   PlanNotFoundError,
+  CardCheckoutStatus,
   type CardCheckout,
   type ModuleTrial,
   type Plan,
@@ -34,13 +35,15 @@ import {
   type BillingQuotaDTO,
   type TenantBillingDTO,
 } from "@mezan/contracts";
-import { readSessionToken, type SessionGrant } from "@mezan/api";
-import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@mezan/backend";
-import type { CardCheckoutService } from "./card-checkout.js";
+import { BodyLimitRefusal, DEVICE_SECRET_HEADER, connectionTurn, readSessionToken, type SessionGrant } from "@mezan/api";
+import { resolveTenantPlan, serializeCardCheckoutForTenant, type PlatformHandle } from "@mezan/backend";
+import { SettlementStatus, type CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
 import { PaymobMode, type CloudEnv } from "./env.js";
 import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
-import type { TenantRouter } from "./tenant-router.js";
+import type { TenantDoor, TenantRouter } from "./tenant-router.js";
+import { deviceSecretOf } from "./device-cookie.js";
+import { callerSource, requireCloudSource, type CloudSource, type SourceReporter } from "./client-source.js";
 import { resolveTenantCode } from "./tenant-resolver.js";
 import { servedTenantLookup, trustedPublicOrigin, type ServedTenantLookup } from "./public-origin.js";
 
@@ -70,12 +73,12 @@ export function createPaymobWebhookRoutes(service: CardCheckoutService): Hono {
   const app = new Hono();
   app.post("/", async (c) => {
     const declared = Number(c.req.header("content-length") ?? "0");
-    if (Number.isFinite(declared) && declared > MAX_WEBHOOK_BYTES) return c.json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+    if (Number.isFinite(declared) && declared > MAX_WEBHOOK_BYTES) return c.json({ error: BodyLimitRefusal.PayloadTooLarge }, 413);
     const raw = await c.req.text();
-    if (raw.length > MAX_WEBHOOK_BYTES) return c.json({ error: "PAYLOAD_TOO_LARGE" }, 413);
+    if (raw.length > MAX_WEBHOOK_BYTES) return c.json({ error: BodyLimitRefusal.PayloadTooLarge }, 413);
     const result = await service.handleWebhook(raw, c.req.query("hmac") ?? "");
-    if (result.status === "rejected") return c.json({ error: "INVALID_SIGNATURE" }, 401);
-    if (result.status === "retry") return c.json({ error: "RETRY" }, 503);
+    if (result.status === SettlementStatus.Rejected) return c.json({ error: "INVALID_SIGNATURE" }, 401);
+    if (result.status === SettlementStatus.Retry) return c.json({ error: "RETRY" }, 503);
     return c.json({ received: true });
   });
   return app;
@@ -86,6 +89,9 @@ interface Caller {
   readonly grant: SessionGrant;
   /** The caller's own bearer token, so the tenant-side usage read is made AS them. */
   readonly token: string;
+  readonly source: CloudSource;
+  readonly door: TenantDoor;
+  readonly device: Readonly<Record<string, string>>;
 }
 
 function allowed(grant: SessionGrant, permission: string): boolean {
@@ -170,6 +176,7 @@ export interface TenantBillingRoutesOptions {
   readonly env: CloudEnv;
   readonly service: CardCheckoutService | null;
   readonly now?: () => Date;
+  readonly sourceReporter?: SourceReporter;
 }
 
 /**
@@ -182,6 +189,8 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
   const { platform, router, env, service } = options;
   const now = options.now ?? (() => new Date());
   const app = new Hono();
+  app.use("*", requireCloudSource(env.clientSource, options.sourceReporter));
+  app.use("*", connectionTurn(platform.audit));
 
   app.onError((err, c) => {
     console.error(err);
@@ -197,23 +206,27 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     }
     const token = readSessionToken(c);
     if (!token) return c.json({ error: "UNAUTHENTICATED", message: "سجّل الدخول أولًا" }, 401);
-    const backend = await router.backendFor(code);
-    // Must look the token up with the same origin the tenant backend saw at
-    // login. The tenant router forwards `backend.app.fetch(request)` without
-    // the socket env, so every tenant session is bound to the null origin; a
-    // mismatched lookup here would not just fail, it would REVOKE the session.
-    const grant = backend.sessions.find(token, null);
+    const source = callerSource(c);
+    const door = await router.callerDoor(code);
+    const deviceSecret = deviceSecretOf(c.req.raw);
+    const device: Record<string, string> = deviceSecret ? { [DEVICE_SECRET_HEADER]: deviceSecret } : {};
+    // REQUIRED ORDERING: the tenant's own app sees the request first, so an
+    // address change on a device-bound session is written to its audit log
+    // exactly as it is on any tenant route; the lookup below would otherwise
+    // absorb the change unrecorded.
+    await door.fetch(new Request("http://tenant/profile", { headers: { authorization: `Bearer ${token}`, ...device } }), source);
+    const grant = door.findSession(token, source, deviceSecret);
     if (!grant) return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى" }, 401);
-    return { tenant, grant, token };
+    return { tenant, grant, token, source, door, device };
   }
 
   const forbidden = (c: Context) => c.json({ error: "FORBIDDEN", message: "ليست لديك صلاحية إدارة الاشتراك" }, 403);
 
   /** What this tenant's own backend counts against its plan, on its own day. Forwarded with the caller's token, so it is the caller's own read. */
-  async function planUsage(code: string, token: string): Promise<PlanUsage> {
-    const backend = await router.backendFor(code);
-    const res = await backend.app.fetch(
-      new Request("http://tenant/plan-usage", { headers: { authorization: `Bearer ${token}` } }),
+  async function planUsage(caller: Caller): Promise<PlanUsage> {
+    const res = await caller.door.fetch(
+      new Request("http://tenant/plan-usage", { headers: { authorization: `Bearer ${caller.token}`, ...caller.device } }),
+      caller.source,
     );
     if (!res.ok) return { today: null, month: null, quotas: [], limits: [] };
     return (await res.json()) as PlanUsage;
@@ -236,7 +249,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
         amountDue = (subscription.billingCycle === "yearly" ? plan.priceYearly : plan.priceMonthly).toString();
       }
     }
-    const usage = await planUsage(caller.tenant.code, caller.token);
+    const usage = await planUsage(caller);
     const plans = (await platform.stores.plans.list()).filter((p) => p.status === "active" && p.isPublic);
     const checkouts: CardCheckout[] = service ? (await service.listByTenant(caller.tenant.id)).slice(0, 10) : [];
 
@@ -274,7 +287,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
           priceMonthly: p.priceMonthly.toString(), priceYearly: p.priceYearly.toString(),
           trialDays: p.trialDays, current: p.id === plan?.id,
         })),
-      checkouts: checkouts.map(serializeCardCheckout),
+      checkouts: checkouts.map(serializeCardCheckoutForTenant),
     };
     return c.json(body);
   });
@@ -351,7 +364,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
         returnUrl: (id) => `${origin}${parsed.data.returnPath}?checkout=${encodeURIComponent(id)}`,
         notificationUrl: notificationUrl(c.req.raw, env),
       });
-      return c.json(serializeCardCheckout(checkout), 201);
+      return c.json(serializeCardCheckoutForTenant(checkout), 201);
     } catch (err) {
       return unavailable(c, err);
     }
@@ -363,7 +376,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     if (!allowed(caller.grant, "admin.settings.view")) return forbidden(c);
     const checkout = service ? await service.find(c.req.param("id")) : null;
     if (!checkout || checkout.tenantId !== caller.tenant.id) return c.json({ error: "NOT_FOUND", message: "عملية الدفع غير موجودة" }, 404);
-    return c.json(serializeCardCheckout(checkout));
+    return c.json(serializeCardCheckoutForTenant(checkout));
   });
 
   return app;
@@ -376,7 +389,7 @@ function escapeHtml(value: string): string {
 function testCheckoutPage(checkout: CardCheckout, tenantCode: string): string {
   const id = escapeHtml(checkout.id);
   const amount = escapeHtml(checkout.amount.toString().replace(/0{1,4}$/, ""));
-  const open = checkout.status === "pending" || checkout.status === "failed";
+  const open = checkout.status === CardCheckoutStatus.Pending || checkout.status === CardCheckoutStatus.Failed;
   const statusLine = open ? "" : `<p class="state">الحالة: ${escapeHtml(checkout.status)} — Status: ${escapeHtml(checkout.status)}</p>`;
   const actions = open
     ? `<form method="post" action="/billing/test-checkout/${id}/complete">
@@ -452,7 +465,7 @@ export function createTestCheckoutRoutes(options: {
     if (!checkout || checkout.provider !== provider.id) return c.text(TEST_CHECKOUT_NOT_FOUND, 404);
     const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
     const outcome = form["outcome"] === "success" ? "success" : "failure";
-    if (checkout.status === "pending" || checkout.status === "failed") {
+    if (checkout.status === CardCheckoutStatus.Pending || checkout.status === CardCheckoutStatus.Failed) {
       const { rawBody, signature } = provider.simulateCallback(checkout, outcome);
       await service.handleWebhook(rawBody, signature);
     }

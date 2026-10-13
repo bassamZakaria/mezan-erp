@@ -1,7 +1,8 @@
+import { ConnectionTurnLostError } from "../audit/index.js";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_ETA_CONFIG, resolveEtaEndpoints, type EtaConfig } from "./config.js";
 import { EtaOfflineError } from "./errors.js";
-import { createEtaHttpTransmitPort, type EtaHttpClient, type EtaHttpRequest } from "./transmit.js";
+import { createEtaHttpTransmitPort, type EtaHttpClient, type EtaHttpRequest, type EtaHttpResponse } from "./transmit.js";
 import type { EtaSubmission } from "./submission.js";
 
 /**
@@ -520,5 +521,64 @@ describe("createEtaHttpTransmitPort — an unreachable authority keeps a receipt
     });
     const receipt: EtaSubmission = { ...SUBMISSION, documentType: "receipt", receiptSerial: "POS-0001", etaUuid: "f".repeat(64) };
     await expect(port.transmit(receipt, CONFIG)).rejects.toBeInstanceOf(EtaOfflineError);
+  });
+});
+
+describe("a transmit port whose caller lost the connection's turn", () => {
+  const lost = () => new ConnectionTurnLostError(10_000, { completed: { value: { status: 200, body: "{}" } } });
+
+  it("stops at once and says so, rather than reporting a transport failure or sending the document again", async () => {
+    let submissions = 0;
+    const http = async (req: EtaHttpRequest): Promise<EtaHttpResponse> => {
+      if (req.url.endsWith("/connect/token")) return tokenResponse();
+      submissions += 1;
+      throw lost();
+    };
+    const port = createEtaHttpTransmitPort({ http, credentials, now: nowStamp, sleep: noSleep });
+
+    await expect(port.transmit(SUBMISSION, CONFIG)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    expect(submissions).toBe(1);
+  });
+
+  it("stops on a lost turn while asking for the token, the status, or the credentials check", async () => {
+    const http = async (): Promise<EtaHttpResponse> => {
+      throw lost();
+    };
+    const port = createEtaHttpTransmitPort({ http, credentials, now: nowStamp, sleep: noSleep });
+
+    await expect(port.transmit(SUBMISSION, CONFIG)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    await expect(port.fetchStatus!({ ...SUBMISSION, etaUuid: "U-1" }, CONFIG)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    await expect(port.checkCredentials!(CONFIG)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+  });
+
+  it("stops on a lost turn while waiting between two attempts", async () => {
+    let calls = 0;
+    const http = async (req: EtaHttpRequest): Promise<EtaHttpResponse> => {
+      if (req.url.endsWith("/connect/token")) return tokenResponse();
+      calls += 1;
+      return { status: 503, body: "" };
+    };
+    const sleep = async (): Promise<void> => {
+      throw lost();
+    };
+    const port = createEtaHttpTransmitPort({ http, credentials, now: nowStamp, sleep });
+
+    await expect(port.transmit(SUBMISSION, CONFIG)).rejects.toBeInstanceOf(ConnectionTurnLostError);
+    expect(calls).toBe(1);
+  });
+});
+
+describe("the transmit port's own source", () => {
+  it("starts every catch around outside work by stopping on a lost turn", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(new URL("./transmit.ts", import.meta.url), "utf8");
+    const lines = source.split("\n");
+    const unguarded = lines
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => /\}\s*catch\b/.test(line))
+      .filter(({ index }) => !/JSON\.parse/.test(lines[index - 1] ?? ""))
+      .filter(({ index }) => !/stopOnLostTurn\(/.test(lines[index + 1] ?? ""))
+      .map(({ index }) => index + 1);
+    expect(unguarded).toEqual([]);
   });
 });

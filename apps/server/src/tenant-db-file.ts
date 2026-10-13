@@ -110,6 +110,9 @@ export interface TenantDbFileIo {
   readonly copyFile?: (from: string, to: string) => Promise<void>;
   readonly sha256Of?: (file: string) => Promise<string>;
   readonly waitMs?: number;
+  // REQUIRED: hashing and copying a file is not the platform's database; a
+  // caller that holds the platform connection's turn hands it back through this.
+  readonly outsideTheTurn?: <T>(work: () => Promise<T>) => Promise<T>;
 }
 
 type Tenants = Pick<TenantRepository, "setDbFile" | "findById" | "list">;
@@ -177,8 +180,9 @@ async function dropStaleCopy(tenants: Tenants, dataDir: string, tenant: Tenant, 
 // complete, and a write that could land in the old file afterwards is refused
 // before anything is copied.
 export async function settleTenantDbFile(tenants: Tenants, dataDir: string, tenant: Tenant, io: TenantDbFileIo = {}): Promise<Tenant> {
-  const sha256Of = io.sha256Of ?? sha256OfFile;
-  const copy = io.copyFile ?? copyFile;
+  const outside = io.outsideTheTurn ?? (<T>(work: () => Promise<T>): Promise<T> => work());
+  const sha256Of = (file: string): Promise<string> => outside(() => (io.sha256Of ?? sha256OfFile)(file));
+  const copy = (source: string, target: string): Promise<void> => outside(() => (io.copyFile ?? copyFile)(source, target));
   const wanted = tenantDbFile(tenant.id);
   if (tenant.dbFile === wanted) {
     refuseServedTenantWithoutBooks(tenant, path.join(dataDir, wanted));
@@ -215,7 +219,7 @@ export async function settleTenantDbFile(tenants: Tenants, dataDir: string, tena
       if (existsSync(to)) {
         if ((await sha256Of(to)) !== source) throw conflict(to);
       } else {
-        await mkdir(path.dirname(to), { recursive: true });
+        await outside(async () => void (await mkdir(path.dirname(to), { recursive: true })));
         const staged = `${to}.adopting`;
         await copy(from, staged);
         if ((await sha256Of(staged)) !== source) {

@@ -8,6 +8,7 @@ import { bindTenantDatabase, openSqliteConnection } from "@mezan/persistence";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
 import { createBackupScheduler, runBackups, startBackupTimer } from "./backup-scheduler.js";
 import { TenantDbFileDisownedError } from "./tenant-db-file.js";
+import { verifyBackupFile } from "./backup-verify-core.js";
 
 const T = "2026-01-15T00:00:00.000Z";
 
@@ -283,7 +284,7 @@ describe("runBackups", () => {
 
     let clock = new Date(T).getTime();
     for (let i = 0; i < 13; i += 1) {
-      await runBackups({ platform, router, dir, now: () => new Date(clock) });
+      await runBackups({ platform, router, dir, now: () => new Date(clock), verify: verifyBackupFile });
       clock += 60_000;
     }
 

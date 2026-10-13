@@ -424,7 +424,7 @@ export function useLogin() {
     mutationFn: async (body) => {
       const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
-        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number };
+        type LoginError = { error?: string; message?: string; retryAfterSeconds?: number; unlockByCode?: boolean };
         const err = await res.json<LoginError>().catch((): LoginError => ({}));
         const message =
           err.error === "TENANT_REQUIRED"
@@ -432,11 +432,46 @@ export function useLogin() {
             : err.error === "TENANT_NOT_FOUND"
               ? t("login.tenantNotFound")
               : (err.message ?? t("api.signInFailed"));
-        throw new ApiError(res.status, message, undefined, err.retryAfterSeconds, err.error);
+        if (err.error === SignInRefusalCode.AccountLocked) throw new AccountLockedError(res.status, message, err.unlockByCode === true);
+        throw new ApiError(res.status, message, undefined, err.retryAfterSeconds ?? res.retryAfterSeconds ?? undefined, err.error);
       }
       return res.json<SessionDTO>();
     },
     onSuccess: (session) => setSession(session),
+  });
+}
+
+export enum SignInRefusalCode {
+  AccountLocked = "ACCOUNT_LOCKED",
+  TooManyAttempts = "TOO_MANY_ATTEMPTS",
+}
+
+export class AccountLockedError extends ApiError {
+  constructor(status: number, message: string, readonly unlockByCode: boolean) {
+    super(status, message, undefined, undefined, SignInRefusalCode.AccountLocked);
+    this.name = "AccountLockedError";
+  }
+}
+
+export function useUnlockAccount() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<void, ApiError, { username: string; code: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/auth/unlock", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
+    },
+  });
+}
+
+export function useUnlockAccountByLink() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<void, ApiError, { token: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/auth/unlock-link", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw await codedError(res, t("login.unlock.failed"), t);
+    },
   });
 }
 
@@ -675,6 +710,16 @@ export async function readError(
   const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
   if (body.message !== undefined && body.message !== "") return body.message;
   return withSupportCode(fallback, res.status, t);
+}
+
+export async function codedError(
+  res: { readonly status: number; json<T>(): Promise<T> },
+  fallback: string,
+  t?: AppTranslate,
+): Promise<ApiError> {
+  const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
+  const message = body.message !== undefined && body.message !== "" ? body.message : withSupportCode(fallback, res.status, t);
+  return new ApiError(res.status, message, undefined, undefined, body.error);
 }
 
 /** `t`, narrowed to what {@link readError} needs, so data files need no i18n types of their own. */
@@ -1623,7 +1668,7 @@ export function useCreateJournalEntry() {
   return useMutation<JournalEntryDTO, ApiError, CreateGlJournalEntryDTO>({
     mutationFn: async (body) => {
       const res = await request("/gl/journal-entries", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theEntryCouldNotBe"), t);
       return res.json<JournalEntryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
@@ -2305,7 +2350,7 @@ export function useCreateCheque() {
   return useMutation<ChequeDTO, ApiError, CreateChequeDTO>({
     mutationFn: async (body) => {
       const res = await request("/cheques", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChequeCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theChequeCouldNotBe"), t);
       return res.json<ChequeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
@@ -2706,7 +2751,7 @@ export function useCreateVoucher() {
   return useMutation<VoucherDTO, ApiError, CreateVoucherDTO>({
     mutationFn: async (body) => {
       const res = await request("/vouchers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2"), t));
+      if (!res.ok) throw await codedError(res, t("api.theVoucherCouldNotBe2"), t);
       return res.json<VoucherDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -2720,7 +2765,7 @@ export function useCreateCollection() {
   return useMutation<CollectionResultDTO, ApiError, CreateCollectionDTO>({
     mutationFn: async (body) => {
       const res = await request("/vouchers/collections", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2"), t));
+      if (!res.ok) throw await codedError(res, t("api.theVoucherCouldNotBe2"), t);
       return res.json<CollectionResultDTO>();
     },
     onSuccess: () => {
@@ -2781,7 +2826,7 @@ export function useCreateAllocation() {
   return useMutation<VoucherAllocationDTO, ApiError, { voucherId: string; body: CreateAllocationDTO }>({
     mutationFn: async ({ voucherId, body }) => {
       const res = await request(`/vouchers/${voucherId}/allocations`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAmountCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theAmountCouldNotBe"), t);
       return res.json<VoucherAllocationDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -3111,7 +3156,7 @@ export function useCreatePurchaseInvoice() {
   return useMutation<PurchaseInvoiceDTO, ApiError, CreatePurchaseInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchases/invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseInvoiceCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.thePurchaseInvoiceCouldNot"), t);
       return res.json<PurchaseInvoiceDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] }),
@@ -3252,7 +3297,7 @@ export function useCreateSalesInvoice() {
   return useMutation<SalesInvoiceDTO, ApiError, CreateSalesInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe"), t));
+      if (!res.ok) throw await codedError(res, t("api.theInvoiceCouldNotBe"), t);
       return res.json<SalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
@@ -5352,6 +5397,20 @@ export function useRequeueEtaSubmission() {
   });
 }
 
+export function useRecordEtaSubmissionUuid() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaSubmissionDTO, ApiError, { id: string; etaUuid: string }>({
+    mutationFn: async ({ id, etaUuid }) => {
+      const res = await request(`/eta/submissions/${id}/accept`, { method: "POST", body: JSON.stringify({ etaUuid }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thatActionCouldNotBe"), t));
+      return res.json<EtaSubmissionDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
 /** إصلاح وإعادة الطابور جماعياً — requeue then submit every selected row. */
 export function useBulkRequeueSubmitEta() {
   const { t } = useAppTranslation();
@@ -5672,7 +5731,7 @@ export function useCreateStockAdjustment() {
   return useMutation<StockAdjustmentDocumentDTO, ApiError, CreateStockAdjustmentDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-adjustments/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockAdjustmentCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theStockAdjustmentCouldNot"), t);
       return res.json<StockAdjustmentDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] }),
@@ -5767,7 +5826,7 @@ export function useCreateStockTransfer() {
   return useMutation<StockTransferDocumentDTO, ApiError, CreateStockTransferDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-transfers/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockTransferCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theStockTransferCouldNot"), t);
       return res.json<StockTransferDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-transfers"] }),
@@ -6337,7 +6396,7 @@ export function useCreateSalesReturn() {
   return useMutation<SalesReturnDocumentDTO, ApiError, CreateSalesReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theSalesReturnCouldNot"), t);
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -6492,7 +6551,7 @@ export function useCreatePurchaseReturn() {
   return useMutation<PurchaseReturnDocumentDTO, ApiError, CreatePurchaseReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchase-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.thePurchaseReturnCouldNot"), t);
       return res.json<PurchaseReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
@@ -6550,7 +6609,7 @@ export function useCreateLandedCost() {
   return useMutation<LandedCostDocumentDTO, ApiError, CreateLandedCostDTO>({
     mutationFn: async (body) => {
       const res = await request("/landed-costs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould"), t));
+      if (!res.ok) throw await codedError(res, t("api.theLandedCostDocumentCould"), t);
       return res.json<LandedCostDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-costs"] }),
@@ -8847,7 +8906,7 @@ export function useCreateSalesReturnFromInvoice() {
   return useMutation<SalesReturnDocumentDTO, ApiError, BuildSalesReturnFromInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns/from-invoice", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot"), t));
+      if (!res.ok) throw await codedError(res, t("api.theSalesReturnCouldNot"), t);
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),

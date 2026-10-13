@@ -1,3 +1,4 @@
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { ReversalDocumentType } from "@mezan/contracts";
 import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
@@ -125,6 +126,7 @@ export function ChequesScreen() {
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const savedNotice = useAlreadySavedNotice();
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
@@ -221,7 +223,16 @@ export function ChequesScreen() {
   }
 
   if (mode === "create") {
-    return <CreateChequeView onDone={() => setMode("list")} />;
+    return (
+      <CreateChequeView
+        onDone={() => setMode("list")}
+        onAlreadySaved={(savedId) => {
+          savedNotice.show(savedId);
+          setMode("list");
+          setSelectedId(savedId);
+        }}
+      />
+    );
   }
 
   const statusChips: DocumentListStatusChip[] = [
@@ -377,6 +388,7 @@ export function ChequesScreen() {
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("cheques.detailTitle", { number: selected.chequeNumber }) : t("cheques.cheques")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
+            <AlreadySavedNotice notice={savedNotice} openId={selectedId} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
             <StatusPill label={getChequeStatusLabel(selected.effectiveStatus, locale)} tone={STATUS_TONE[selected.effectiveStatus]} />
             <div className="text-[12.5px] text-ink-muted">{t("cheques.party2")} {partyName(selected.partyId)}</div>
             <div className="text-[12.5px] text-ink-muted">{t("cheques.bank")} {selected.bankName}</div>
@@ -416,7 +428,7 @@ export function ChequesScreen() {
 /* شيك جديد — create form (`/financial-papers/cheques/new`)              */
 /* -------------------------------------------------------------------- */
 
-function CreateChequeView({ onDone }: { onDone: () => void }) {
+function CreateChequeView({ onDone, onAlreadySaved }: { onDone: () => void; onAlreadySaved: (savedId: string) => void }) {
   const { t } = useAppTranslation();
   const [direction, setDirection] = useState<ChequeDirectionDTO | null>(null);
   const [partyId, setPartyId] = useState("");
@@ -435,6 +447,7 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
   const suppliersQuery = useSuppliers();
   const branchesQuery = useBranches();
   const create = useCreateCheque();
+  const chequeId = useDocumentId(onAlreadySaved);
 
   const partyOptions: EntityPickerOption[] =
     direction === "incoming"
@@ -466,6 +479,7 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
     const accounts = DIRECTION_ACCOUNTS[direction];
     try {
       await create.mutateAsync({
+        id: chequeId.current(),
         direction,
         chequeNumber: chequeNumber.trim(),
         bankName: bankName.trim(),
@@ -480,8 +494,10 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
         counterpartyGlAccountId: accounts.counterparty,
         controlAccounts: { underCollectionAccountId: accounts.underCollection, bouncedAccountId: accounts.bounced },
       });
+      chequeId.renew();
       onDone();
     } catch (err) {
+      if (chequeId.recover(err)) return;
       setError(errorMessage(err, t("common.failed")));
     }
   }

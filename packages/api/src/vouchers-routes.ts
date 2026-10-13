@@ -28,6 +28,8 @@ import {
   InvoiceNotFoundError,
   AllocationNotFoundError,
   AllocationMismatchError,
+  AllocationExceedsError,
+  AllocationIdTakenError,
   SettlementRateMissingError,
   ReversalDateBeforeOriginalError,
   ReversalNotReversibleError,
@@ -248,7 +250,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof ApprovalRequestRejectedError ||
     err instanceof VoucherNotAllocatableError ||
     err instanceof VoucherNotConfirmedError ||
-    err instanceof AllocationAlreadyReversedError
+    err instanceof AllocationAlreadyReversedError ||
+    err instanceof AllocationIdTakenError
   ) {
     return refuse(err, 409);
   }
@@ -713,7 +716,8 @@ export function createVouchersRoutes(
     }
     try {
       const id = d.id ?? idGen();
-      const result = await serviceFor(c).createConfirmAndAllocate(
+      const svc = serviceFor(c);
+      const result = await svc.createConfirmAndAllocate(
         {
           id,
           date,
@@ -740,7 +744,7 @@ export function createVouchersRoutes(
       );
       return c.json(
         {
-          voucher: serialize(result.document),
+          voucher: serialize(result.document, serializeApproval((await svc.approvalsOf([result.document])).get(result.document.id))),
           held: result.held,
           allocations: await presentAllocations(result.allocations),
           heldAllocations: result.heldAllocations.map(serializeHeldAllocation),
@@ -874,6 +878,14 @@ export function createVouchersRoutes(
       allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
       allocations: await presentAllocations(allocations),
     });
+  });
+
+  app.get("/:id/allocations/:allocationId", gate("treasury.allocation.view"), async (c) => {
+    const svc = serviceFor(c);
+    const doc = await findInScope(c, svc, c.req.param("id"));
+    const allocation = doc ? (await svc.listAllocations(doc.id)).find((a) => a.id === c.req.param("allocationId")) : undefined;
+    if (!allocation) return c.json({ error: "NOT_FOUND" }, 404);
+    return c.json((await presentAllocations([allocation]))[0]);
   });
 
   app.post("/:id/allocations", gate("treasury.allocation.manage"), async (c) => {

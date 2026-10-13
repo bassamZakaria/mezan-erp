@@ -2202,7 +2202,7 @@ describe("D111 round 4 · a cheque and the entry that receives it are one write"
     const owed = receivable();
     const res = await admin("POST", "/cheques", { ...cheque(existing.id, "D111-R4-0002"), branchId: MAIN });
     expect(res.status).toBe(409);
-    expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
+    expect(res.body?.error).toBe(contracts.IdempotencyRefusal.KeyReused);
     expect(one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n).toBe(entries);
     expect(receivable()).toBe(owed);
     const reconciliation = await admin("GET", "/reconciliation");

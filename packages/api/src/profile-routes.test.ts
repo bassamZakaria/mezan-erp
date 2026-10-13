@@ -396,3 +396,40 @@ describe("profile router — the audit row rides in the credential change's tran
     expect((await uow.users.findById("u1"))!.pinHash).toBeNull();
   });
 });
+
+describe("profile router — a credential change never gives the event loop away inside its transaction", () => {
+  function turnCounting(uow: ReturnType<typeof newApp>["uow"]) {
+    const yielded: boolean[] = [];
+    const transaction = uow.transaction.bind(uow);
+    uow.transaction = (fn) =>
+      transaction(async (tx) => {
+        let turned = false;
+        const probe = setImmediate(() => {
+          turned = true;
+        });
+        try {
+          return await fn(tx);
+        } finally {
+          clearImmediate(probe);
+          yielded.push(turned);
+        }
+      });
+    return yielded;
+  }
+
+  it.each([
+    ["/change-password", { currentPassword: CURRENT_PASSWORD, newPassword: "BrandNewPass1" }, 204],
+    ["/change-pin", { currentPassword: CURRENT_PASSWORD, newPin: "482913" }, 204],
+    ["/change-pin", { currentPassword: CURRENT_PASSWORD, newPin: null }, 204],
+    ["/change-password", { currentPassword: "WrongPass1", newPassword: "BrandNewPass1" }, 401],
+  ])("POST %s %j", async (path, body, status) => {
+    const { app, uow } = newApp();
+    await seedUser(uow);
+    const yielded = turnCounting(uow);
+
+    const res = await app.fetch(req(path, { method: "POST", userId: "u1", body: JSON.stringify(body) }));
+
+    expect(res.status).toBe(status);
+    expect(yielded).toEqual([false]);
+  });
+});

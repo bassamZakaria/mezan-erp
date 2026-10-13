@@ -115,6 +115,11 @@ export function validateNewItem(
   if (reasons.length > 0) throw new InvalidItemError(reasons);
 }
 
+async function holdersOf(code: string, repo: ItemRepository): Promise<readonly Item[]> {
+  const holder = await repo.findByCode(code);
+  return holder ? [holder] : [];
+}
+
 /** Retries a code collision this many times before giving up (each attempt re-reads the catalog). */
 const MAX_CODE_ALLOCATION_ATTEMPTS = 20;
 
@@ -141,7 +146,7 @@ export async function createItem(
   const autoAssign = manualCode === undefined || manualCode === "";
 
   for (let attempt = 0; ; attempt++) {
-    const existing = await repo.list();
+    const existing = autoAssign ? await repo.list() : await holdersOf(manualCode, repo);
     const code = autoAssign ? nextItemCode(existing) : manualCode;
     const resolved = { ...command, code };
     try {

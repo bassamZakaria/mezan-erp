@@ -2,6 +2,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
+import { PLATFORM_OWNER_EMAIL, PLATFORM_OWNER_PASSWORD } from "./e2e/saas/support/env";
 
 /**
  * Every screen, at desktop and phone width, on its own ports (5311/3311) so it
@@ -62,6 +63,8 @@ export default defineConfig({
         MEZAN_DB: ":memory:",
         MEZAN_SEED_DEMO: "1",
         MEZAN_PLATFORM_DIR: platformDir,
+        MEZAN_PLATFORM_OWNER_EMAIL: PLATFORM_OWNER_EMAIL,
+        MEZAN_PLATFORM_OWNER_PASSWORD: PLATFORM_OWNER_PASSWORD,
       },
     },
     {

@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
+import { localTodayIso } from "./support/dates";
 
 /**
  * Operational reports (apps/web/src/screens/reports/*ReportsScreens.tsx) —
@@ -29,7 +30,7 @@ import { clickSidebarItem } from "./support/nav";
  */
 
 function isoToday(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localTodayIso();
 }
 
 function isoMonthStart(): string {

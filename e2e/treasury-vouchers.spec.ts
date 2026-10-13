@@ -131,6 +131,16 @@ function voucherTypeCard(page: Page, label: string): Locator {
   return page.getByRole("button").filter({ has: page.getByText(label, { exact: true }) });
 }
 
+// The list is filtered by the SERVER after a debounce; asserting before that answer lands reads the unfiltered rows.
+async function searchVouchers(page: Page, text: string): Promise<void> {
+  const answered = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/vouchers" && (url.searchParams.get("search") ?? "") === text.trim();
+  });
+  await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill(text);
+  await answered;
+}
+
 function uniqueRow(page: Page, text: string): Locator {
   return page.locator("table tbody tr").filter({ hasText: text });
 }
@@ -187,7 +197,7 @@ test.describe("Treasury Vouchers", () => {
     await refetched;
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
 
-    await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill(customerName);
+    await searchVouchers(page, customerName);
     const receiptRow = uniqueRow(page, customerName);
     await expect(receiptRow).toHaveCount(1);
     await expect(receiptRow.getByText(receipt.docNo, { exact: true })).toBeVisible();
@@ -202,7 +212,7 @@ test.describe("Treasury Vouchers", () => {
     expect(creditOn(receiptEntry, TRADE_RECEIVABLES)).toBe(microUnits("1000"));
 
     // Payment: دفع لمورد — the cash guard now allows it (balance 1000 ≥ 500).
-    await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill("");
+    await searchVouchers(page, "");
     await page.getByRole("button", { name: "سند جديد" }).first().click();
     await voucherTypeCard(page, "دفع لمورد").click();
     await page.getByLabel("المبلغ").fill("500");
@@ -216,7 +226,7 @@ test.describe("Treasury Vouchers", () => {
     await paymentRefetched;
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
 
-    await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill(supplierName);
+    await searchVouchers(page, supplierName);
     const paymentRow = uniqueRow(page, supplierName);
     await expect(paymentRow).toHaveCount(1);
     await expect(paymentRow.getByText(payment.docNo, { exact: true })).toBeVisible();
@@ -256,7 +266,7 @@ test.describe("Treasury Vouchers", () => {
     await page.getByRole("button", { name: "إنشاء وتأكيد" }).click();
     await expect(page.getByRole("heading", { name: "السندات النقدية" })).toBeVisible();
 
-    await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill(customerName);
+    await searchVouchers(page, customerName);
     const row = uniqueRow(page, customerName);
     await expect(row).toHaveCount(1);
     await row.click();

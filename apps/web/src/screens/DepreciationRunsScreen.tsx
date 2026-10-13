@@ -100,8 +100,8 @@ export function DepreciationRunsScreen() {
   }
 
   const filtered = useMemo(() => {
-    if (statusFilter === "all") return runs;
-    return runs.filter((r) => r.status === statusFilter);
+    const shown = statusFilter === "all" ? runs : runs.filter((r) => r.status === statusFilter);
+    return [...shown].sort((a, b) => b.period.localeCompare(a.period) || b.createdAt.localeCompare(a.createdAt));
   }, [runs, statusFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));

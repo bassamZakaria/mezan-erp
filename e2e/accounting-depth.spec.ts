@@ -104,18 +104,23 @@ test.describe("FX Revaluation", () => {
     await expect(page.getByRole("heading", { name: "إعادة تقييم العملات الأجنبية" })).toBeVisible();
   });
 
-  test("previewing with no foreign-currency exposure shows a genuine empty result, not a crash", async ({ page }) => {
+  test("previewing revalues the seeded dollar bank balance, and the row's own figures foot", async ({ page }) => {
     await expect(page.getByText('اضغط "معاينة" لعرض الأرصدة المفتوحة وحساب فروق العملة.')).toBeVisible();
 
     await page.getByRole("button", { name: "معاينة" }).click();
 
-    // "لا توجد أرصدة مفتوحة." now labels a DIFFERENT, always-visible "open
-    // balances by party" table further down the screen — the preview
-    // RESULT's own empty state is this EmptyState title/description pair.
-    await expect(page.getByText("لا توجد أرصدة عملات أجنبية مفتوحة")).toBeVisible();
-    await expect(
-      page.getByText("لا توجد أرصدة بعملة أجنبية مفتوحة في هذا التاريخ — إعادة التقييم تحتاج رصيداً قائماً بعملة غير العملة الأساسية."),
-    ).toBeVisible();
+    const usdRow = page.locator("table tbody tr").filter({ has: page.getByRole("cell", { name: "حساب بنكي بالدولار", exact: true }) });
+    await expect(usdRow).toHaveCount(1);
+    await expect(page.getByText("لا توجد أرصدة عملات أجنبية مفتوحة")).toHaveCount(0);
+    await expect(usdRow.locator("td").nth(1)).toHaveText("USD");
+
+    const figure = async (index: number): Promise<number> => Number((await usdRow.locator("td").nth(index).innerText()).replace(/,/g, ""));
+    const [foreign, rate, book, revalued, difference] = [await figure(2), await figure(3), await figure(4), await figure(5), await figure(6)];
+    expect(foreign).toBeGreaterThan(0);
+    expect(rate).toBeGreaterThan(1);
+    expect(Math.round(revalued * 100)).toBe(Math.round(foreign * rate * 100));
+    expect(Math.round(difference * 100)).toBe(Math.round(revalued * 100) - Math.round(book * 100));
+    expect(difference).not.toBe(0);
   });
 });
 

@@ -2,6 +2,7 @@ import { test, expect, type Locator, type Page } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
 import { brokenLabelField } from "./support/broken-label";
+import { localTodayIso } from "./support/dates";
 
 /**
  * ميزان المراجعة (apps/web/src/screens/TrialBalanceReportScreen.tsx). This is
@@ -22,7 +23,7 @@ function unique(prefix: string): string {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localTodayIso();
 }
 
 /** Reads a money cell's text (e.g. "52,367.83 ج.م") as a plain number. */

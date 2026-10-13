@@ -402,11 +402,22 @@ export function createVouchersRoutes(
     if (filter.toDate) docs = docs.filter((d) => d.date <= filter.toDate!);
     const term = filter.search?.trim().toLowerCase();
     if (term) {
-      docs = docs.filter(
-        (d) =>
-          (d.docNo ?? "").toLowerCase().includes(term) ||
-          (voucherLine(d).referenceNo ?? "").toLowerCase().includes(term),
+      const namesByParty = new Map<string, Promise<string | null>>();
+      const partyNameOf = (line: ReturnType<typeof voucherLine>): Promise<string | null> => {
+        const partyId = line.customerId ?? line.supplierId;
+        if (!partyId || !deps.partyName) return Promise.resolve(null);
+        const known = namesByParty.get(partyId) ?? deps.partyName(line);
+        namesByParty.set(partyId, known);
+        return known;
+      };
+      const matches = await Promise.all(
+        docs.map(async (d) => {
+          const line = voucherLine(d);
+          if ((d.docNo ?? "").toLowerCase().includes(term) || (line.referenceNo ?? "").toLowerCase().includes(term)) return true;
+          return ((await partyNameOf(line)) ?? "").toLowerCase().includes(term);
+        }),
       );
+      docs = docs.filter((_, index) => matches[index]);
     }
     docs = await withinBranchView(c, docs, async (d) => [voucherLine(d).branchId]);
 

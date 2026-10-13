@@ -216,6 +216,7 @@ export function PurchaseReturnsScreen() {
   }
 
   function changeInvoice(id: string) {
+    if (id === invoiceId) return;
     setInvoiceId(id);
     const invoice = invoices.find((i) => i.id === id) ?? null;
     if (invoice) setWarehouseId(invoice.warehouseId);

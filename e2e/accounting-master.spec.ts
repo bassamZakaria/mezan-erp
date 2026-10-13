@@ -7,10 +7,11 @@ import { confirmRowAction, runRowAction } from "./support/row-menu";
 /**
  * Accounting master-data screens, covered together in one spec:
  *  - Taxes (apps/web/src/screens/TaxesScreen.tsx) — the demo seed carries
- *    exactly TWO tax rates (packages/backend/src/seed.ts's `vat` +
- *    demo-seed.ts's `TABLE5`): VAT14 "ضريبة القيمة المضافة" (14%, exclusive,
- *    default, active, no GL override, ETA "auto") and "ضريبة الجدول" (5%,
- *    exclusive, not default, active). Neither carries a GL mapping or a
+ *    exactly FIVE tax rates: VAT14 "ضريبة القيمة المضافة" (14%, exclusive,
+ *    default, active, no GL override, ETA "auto"), "ضريبة الجدول" (5%,
+ *    exclusive, not default, active), and the three zero rates the tax-rate
+ *    lane added — the system's own "غير خاضع" (SYS-NOT-SUBJECT) plus
+ *    demo-seed.ts's VAT-EXEMPT and VAT-EXPORT. Neither of the first two carries a GL mapping or a
  *    non-"auto" ETA sub-type out of the box — the old fixture (a second,
  *    INACTIVE "WHT1" tax with 2200/1400 GL accounts and ETA V009 already set)
  *    does not exist in this seed, so those states are built by the tests
@@ -58,8 +59,9 @@ test.describe("Taxes", () => {
     await expect(page.getByRole("heading", { name: "الضرائب" })).toBeVisible();
   });
 
-  test("lists the two seeded taxes with rate, type and the default badge on VAT14", async ({ page }) => {
-    await expect(page.getByText("عرض 2 من 2 ضريبة")).toBeVisible();
+  test("lists the five seeded taxes with rate, type and the default badge on VAT14", async ({ page }) => {
+    await expect(page.getByText("عرض 5 من 5 ضريبة")).toBeVisible();
+    await expect(page.locator("table tbody tr")).toHaveCount(5);
 
     // exact:false — the name cell's own text node sits beside the "الافتراضي"
     // badge with no wrapping element around just the name, so an exact match
@@ -76,6 +78,19 @@ test.describe("Taxes", () => {
     await expect(tableRow.getByText("الافتراضي")).toHaveCount(0);
     await expect(tableRow.getByText("5.00%")).toBeVisible();
     await expect(tableRow.getByText("نشط", { exact: true })).toBeVisible();
+
+    for (const [name, code] of [
+      ["غير خاضع", "SYS-NOT-SUBJECT"],
+      ["معفى من الضريبة", "VAT-EXEMPT"],
+      ["تصدير — نسبة صفر", "VAT-EXPORT"],
+    ] as const) {
+      const zeroRow = row(page, code, false);
+      await expect(zeroRow).toHaveCount(1);
+      await expect(zeroRow.getByText(name)).toBeVisible();
+      await expect(zeroRow.getByText("0.00%")).toBeVisible();
+      await expect(zeroRow.getByText("الافتراضي")).toHaveCount(0);
+      await expect(zeroRow.getByText("نشط", { exact: true })).toBeVisible();
+    }
   });
 
   test("editing a tax prefills its fields, and saves a GL mapping + ETA subtype that reopening shows back", async ({ page }) => {
@@ -110,7 +125,7 @@ test.describe("Taxes", () => {
     // Wait for the real list to load first — while it's loading, DocumentList's
     // own empty-state renders a SECOND "إضافة ضريبة" button alongside the
     // toolbar's, and clicking by role/name alone is ambiguous until it's gone.
-    await expect(page.getByText("عرض 2 من 2 ضريبة")).toBeVisible();
+    await expect(page.getByText("عرض 5 من 5 ضريبة")).toBeVisible();
     await page.getByRole("button", { name: "إضافة ضريبة" }).click();
     const form = page.getByRole("dialog", { name: "إضافة ضريبة" });
     await expect(form).toBeVisible();
@@ -130,7 +145,7 @@ test.describe("Taxes", () => {
     await form.getByRole("button", { name: "إضافة", exact: true }).click();
     await expect(form).toBeHidden();
 
-    await expect(page.getByText("عرض 3 من 3 ضريبة")).toBeVisible();
+    await expect(page.getByText("عرض 6 من 6 ضريبة")).toBeVisible();
     await expect(row(page, "ضريبة اختبار")).toBeVisible();
   });
 
@@ -145,7 +160,7 @@ test.describe("Taxes", () => {
     await expect(row(page, "ضريبة اختبار")).toBeVisible();
 
     await chooseComboboxOption(page.getByRole("combobox").filter({ hasText: "غير نشط" }), page, "كل الحالات");
-    await expect(page.getByText("عرض 3 من 3 ضريبة")).toBeVisible();
+    await expect(page.getByText("عرض 6 من 6 ضريبة")).toBeVisible();
   });
 });
 

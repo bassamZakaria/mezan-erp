@@ -146,6 +146,27 @@ describe("an item a branch creates waits for head office to price it", () => {
     expect((await headOffice("GET", "/items/PP-HO")).body.status).toBe(ItemStatusCode.Active);
   });
 
+  it("head office buys and receives it while it still waits for a price, and it stays refused on a sale", async () => {
+    const buyer = callerFor(handle.sessions.issue({ userId: "USER-PP-BUYER", permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }));
+    expect((await buyer("POST", "/suppliers", { id: "SUPP-PP", code: "SUPP-PP", nameAr: "مورد التسعير" })).status).toBe(201);
+    const bought = await buyer("POST", "/purchases/invoices", {
+      id: "PP-PI-1",
+      supplierId: "SUPP-PP",
+      date: "2026-08-22",
+      branchId: BRANCH,
+      warehouseId: "WH-MAIN",
+      currency: "EGP",
+      lines: [{ itemId: "PP-1", qty: "5", unitCost: "40", kind: "inventory", taxRatePercent: 0 }],
+    });
+    expect(bought.body?.error, JSON.stringify(bought.body).slice(0, 300)).not.toBe("ITEM_PENDING_PRICING");
+    expect(bought.status, JSON.stringify(bought.body).slice(0, 300)).toBe(201);
+    expect((await buyer("GET", "/items/PP-1")).body.status).toBe(ItemStatusCode.PendingPricing);
+    const sold = await buyer("POST", "/sales-invoices", invoice("PP-INV-AFTER-RECEIPT", "PP-1"));
+    expect(sold.status).toBe(409);
+    expect(sold.body.error).toBe("ITEM_PENDING_PRICING");
+    expect(sold.body.message).toMatch(ARABIC);
+  });
+
   it("head office prices it, it turns active, and it sells", async () => {
     const priced = await headOffice("PATCH", "/items/PP-1", { salePrice: "120.00" });
     expect(priced.status, JSON.stringify(priced.body)).toBe(200);

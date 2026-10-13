@@ -202,9 +202,9 @@ export class ItemStatusNotSettableError extends Error {
 
 export class ItemPendingPricingError extends Error {
   readonly code = "ITEM_PENDING_PRICING";
-  readonly messageEn = "An item waiting to be priced cannot be put on a document. It becomes available once head office prices it.";
+  readonly messageEn = "An item waiting to be priced cannot be sold or put on a price list or promotion. It can be bought, received, transferred and counted; it sells once head office prices it.";
   constructor(readonly itemIds: readonly string[]) {
-    super("لا يمكن استخدام صنف بانتظار التسعير في مستند. يُتاح الصنف بعد أن تسعّره الإدارة.");
+    super("لا يمكن بيع صنف بانتظار التسعير ولا إدراجه في قائمة أسعار أو عرض. يمكن شراؤه واستلامه وتحويله وجرده، ويُتاح للبيع بعد أن تسعّره الإدارة.");
     this.name = "ItemPendingPricingError";
   }
 }

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { ItemStatusCode, type Item } from "@mezan/domain";
-import { itemReferencesNamedIn, pendingPricingGuard } from "./pending-pricing-guard.js";
+import { ItemDocumentFamily, PENDING_ITEM_RULES, PendingItemRule, itemDocumentFamilyOf, itemReferencesNamedIn, pendingPricingGuard } from "./pending-pricing-guard.js";
 
 const stored = (id: string, status: ItemStatusCode) => ({ id, code: `C-${id}`, nameAr: `صنف ${id}`, status }) as unknown as Item;
 const ITEMS = [stored("PENDING", ItemStatusCode.PendingPricing), stored("PRICED", ItemStatusCode.Active)];
@@ -55,10 +55,45 @@ describe("pendingPricingGuard", () => {
     expect(await (await app()("PUT", "/sales-invoices/1", { notes: "x" })).json()).toEqual({ reached: true });
   });
 
-  it("leaves the item master and its price lists open, so head office can price it", async () => {
+  it("leaves the item master open, so head office can price it — a look-alike path is not the item master", async () => {
     expect((await app()("PATCH", "/items/PENDING", { itemId: "PENDING" })).status).toBe(200);
-    expect((await app()("POST", "/price-lists", { lines: [{ itemId: "PENDING" }] })).status).toBe(200);
     expect((await app()("POST", "/items-archive", { itemId: "PENDING" })).status).toBe(409);
+  });
+
+  it.each([
+    ["a sales quote", "/sales-quotes"],
+    ["a sales invoice", "/sales-invoices"],
+    ["a sales return", "/sales-returns/from-invoice"],
+    ["a point-of-sale sale", "/pos/sales"],
+    ["a van trip's load", "/field/van-trips"],
+    ["a price list", "/price-lists"],
+    ["a promotion", "/promotions"],
+  ])("refuses a pending item on %s: it has no price to sell at", async (_label, path) => {
+    expect((await app()("POST", path, { lines: [{ itemId: "PENDING" }] })).status).toBe(409);
+  });
+
+  it.each([
+    ["a purchase order", "/purchases/orders"],
+    ["a goods receipt", "/purchases/receipts"],
+    ["a purchase invoice", "/purchases/invoices"],
+    ["a purchase return", "/purchase-returns"],
+    ["a request for quotation", "/rfqs"],
+    ["a landed cost", "/landed-costs"],
+    ["a stock transfer", "/inventory/stock-transfers/draft"],
+    ["a stock adjustment", "/inventory/stock-adjustments/draft"],
+    ["a physical count", "/inventory/physical-counts"],
+  ])("lets a pending item onto %s: head office receives and counts stock before it prices it", async (_label, path) => {
+    expect(await (await app()("POST", path, { lines: [{ itemId: "PENDING" }] })).json()).toEqual({ reached: true });
+  });
+
+  it("says, for every family it knows, whether a pending item may be named — and denies a route it does not know", () => {
+    expect(Object.keys(PENDING_ITEM_RULES).sort()).toEqual(Object.values(ItemDocumentFamily).sort());
+    expect(itemDocumentFamilyOf("/any/route/added/later")).toBe(ItemDocumentFamily.Unclassified);
+    expect(PENDING_ITEM_RULES[ItemDocumentFamily.Unclassified]).toBe(PendingItemRule.Deny);
+    expect(itemDocumentFamilyOf("/purchases")).toBe(ItemDocumentFamily.Purchasing);
+    expect(itemDocumentFamilyOf("/purchases-archive")).toBe(ItemDocumentFamily.Unclassified);
+    const sales = [ItemDocumentFamily.SalesQuote, ItemDocumentFamily.SalesInvoice, ItemDocumentFamily.SalesReturn, ItemDocumentFamily.PointOfSale, ItemDocumentFamily.VanSales, ItemDocumentFamily.PriceList, ItemDocumentFamily.Promotion];
+    for (const family of sales) expect(PENDING_ITEM_RULES[family], family).toBe(PendingItemRule.Deny);
   });
 
   it("does not read a request it has nothing to refuse: a read, a delete, a body that is not JSON", async () => {

@@ -103,3 +103,63 @@ describe("a run posted after an invoice was relieved of more than it had left re
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });
+
+describe("runs that do not reverse themselves come off latest first, and nothing is slipped in under one that stands", () => {
+  async function runNumber(entryId: string): Promise<string> {
+    const runs = (await books.world.request("GET", "/revaluation/runs")).body.runs as { entryId: string; entryNo: string }[];
+    return String(runs.find((run) => run.entryId === entryId)?.entryNo);
+  }
+
+  async function expectHeldBy(refused: { status: number; body: Record<string, unknown> }, laterRunNo: string): Promise<void> {
+    expect(`${refused.status} ${String(refused.body.error)}`).toBe("409 FX_REVALUATION_LATER_RUN_STANDS");
+    expect(String(refused.body.message)).toContain(laterRunNo);
+    expect(String(refused.body.message)).toMatch(/[؀-ۿ]/);
+    expect(refused.body.laterRun).toBe(laterRunNo);
+  }
+
+  it.each(SIDES)("%s: reversing August while September stands is refused in Arabic naming September; September first, then August, leaves the booked 48,000", async (side) => {
+    await opened(side);
+    const august = String((await books.ok("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: false })).entryId);
+    const september = String((await books.ok("POST", "/revaluation/post", { date: "2026-09-30", currencies: ["USD"], autoReverse: false })).entryId);
+    const held = books.fx(side);
+    const entries = books.world.count("journal_entry");
+
+    const refused = await books.world.request("POST", `/revaluation/runs/${august}/reverse`, { memo: "سبب العكس", date: "2026-10-01" });
+
+    await expectHeldBy(refused, await runNumber(september));
+    expect(books.fx(side)).toEqual(held);
+    expect(held.control).toBe(mirrored(side, 48_950n * SCALE));
+    expect(books.world.count("journal_entry")).toBe(entries);
+
+    await books.ok("POST", `/revaluation/runs/${september}/reverse`, { memo: "سبب العكس", date: "2026-10-01" });
+    await books.ok("POST", `/revaluation/runs/${august}/reverse`, { memo: "سبب العكس", date: "2026-10-01" });
+    expect(books.fx(side)).toEqual({ control: mirrored(side, 48_000n * SCALE), unrealised: major(0n), realised: major(0n) });
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: a self-reversing August run under a standing September run is accepted — it is gone again on 1 September and September's figures do not move", async (side) => {
+    await opened(side);
+    await take(side, Step.SeptemberRun);
+    const held = books.fx(side);
+
+    await books.ok("POST", "/revaluation/post", { date: "2026-08-31", currencies: ["USD"], autoReverse: true });
+
+    expect(books.fx(side)).toEqual(held);
+    expect(major(books.world.balance(FX_CONTROL[side], "2026-08-31"))).toBe(mirrored(side, 48_450n * SCALE));
+    expect(major(books.world.balance(FX_CONTROL[side], "2026-09-01"))).toBe(mirrored(side, 48_000n * SCALE));
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: a self-reversing run dated the day before a standing run is refused, because its reversal would land on that run's own day", async (side) => {
+    await opened(side);
+    const september = String((await books.ok("POST", "/revaluation/post", { date: "2026-09-30", currencies: ["USD"], autoReverse: false })).entryId);
+    const held = books.fx(side);
+    const entries = books.world.count("journal_entry");
+
+    const refused = await books.world.request("POST", "/revaluation/post", { date: "2026-09-29", currencies: ["USD"], autoReverse: true });
+
+    await expectHeldBy(refused, await runNumber(september));
+    expect(books.fx(side)).toEqual(held);
+    expect(books.world.count("journal_entry")).toBe(entries);
+  });
+});

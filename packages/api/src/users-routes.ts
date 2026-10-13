@@ -523,6 +523,17 @@ export function createUsersRoutes(
     return c.json({ error: "OWNER_SUCCESSOR_REQUIRED", ...SUCCESSOR_REQUIRED }, 422);
   }
 
+  // REQUIRED ORDERING: runs after the change is committed and the account's
+  // sessions are ended. A step that fails here is logged and the next one still
+  // runs: it can neither undo the saved change nor turn its answer into a 500.
+  async function afterCommit(step: string, run: () => unknown): Promise<void> {
+    try {
+      await run();
+    } catch (err) {
+      console.error(`[users] the account change was saved, but ${step} failed`, err);
+    }
+  }
+
   async function handOverAfterCommit(c: Context, fromUserId: string, successor: User): Promise<OwnerHandOverOutcome> {
     const actorId = getAuthContext(c)?.userId ?? "unknown";
     const outcome = owner
@@ -531,14 +542,16 @@ export function createUsersRoutes(
           return OwnerHandOverOutcome.Failed;
         })
       : OwnerHandOverOutcome.Failed;
-    await recordSecurityAdminEvent(audit, c, {
-      module: "admin",
-      entityType: "USER",
-      entityId: successor.id,
-      action: COMPANY_OWNER_HAND_OVER_AUDIT,
-      severity: AuditSeverityCode.Critical,
-      details: { fromUserId, toUserId: successor.id, outcome },
-    });
+    await afterCommit("recording the hand-over", () =>
+      recordSecurityAdminEvent(audit, c, {
+        module: "admin",
+        entityType: "USER",
+        entityId: successor.id,
+        action: COMPANY_OWNER_HAND_OVER_AUDIT,
+        severity: AuditSeverityCode.Critical,
+        details: { fromUserId, toUserId: successor.id, outcome },
+      }),
+    );
     return outcome;
   }
 
@@ -660,16 +673,6 @@ export function createUsersRoutes(
         return { saved, emailBefore: current.email };
       });
       const user = committed.saved;
-      if (onEmailChanged && user.email !== committed.emailBefore) {
-        await onEmailChanged({ userId: id, before: committed.emailBefore, after: user.email, actorId: getAuthContext(c)?.userId ?? "unknown" }).catch(
-          (err: unknown) => console.error("[users] the email change was saved, but announcing it failed", err),
-        );
-      }
-      await auditUser(c, user, "UPDATE", before, change);
-      await auditCredentialReset(c, user, change);
-      if (onCredentialSetByOther && actorId && actorId !== id && (change.pinChanged || change.passwordChanged)) await onCredentialSetByOther(id, actorId);
-      const ownerHandOver = successor ? await handOverAfterCommit(c, id, successor) : null;
-      if (conflicts.length > 0) await auditSodOverride(c, user, conflicts, parsed.data.reason ?? "");
       // A grant is snapshotted into the session at login. Anything that changes
       // what this account is worth — its role, its admin flag, its scope, its
       // credential — has to end the sessions carrying the old answer, or every
@@ -686,6 +689,18 @@ export function createUsersRoutes(
       ) {
         sessions.revokeUser(user.id);
       }
+      if (onEmailChanged && user.email !== committed.emailBefore) {
+        await afterCommit("announcing the new email", () =>
+          onEmailChanged({ userId: id, before: committed.emailBefore, after: user.email, actorId: getAuthContext(c)?.userId ?? "unknown" }),
+        );
+      }
+      await afterCommit("recording it", () => auditUser(c, user, "UPDATE", before, change));
+      await afterCommit("recording the credential reset", () => auditCredentialReset(c, user, change));
+      if (onCredentialSetByOther && actorId && actorId !== id && (change.pinChanged || change.passwordChanged)) {
+        await afterCommit("marking the credential as set by another account", () => onCredentialSetByOther(id, actorId));
+      }
+      const ownerHandOver = successor ? await handOverAfterCommit(c, id, successor) : null;
+      if (conflicts.length > 0) await afterCommit("recording the segregation-of-duties override", () => auditSodOverride(c, user, conflicts, parsed.data.reason ?? ""));
       return c.json(ownerHandOver ? { ...serializeUser(user), ownerHandOver } : serializeUser(user));
     } catch (err) {
       return userErrorResponse(c, err);
@@ -706,11 +721,11 @@ export function createUsersRoutes(
     }
     try {
       const user = await setUserStatus(id, UserStatusCode.Inactive, uow);
-      await auditUser(c, user, "DEACTIVATE");
-      const ownerHandOver = successor ? await handOverAfterCommit(c, id, successor) : null;
       // Firing someone at 10:00 must not leave them posting at 10:05.
       sessions?.revokeUser(user.id);
       if (loginThrottle) loginThrottle.succeed(user.email.trim().toLowerCase());
+      await afterCommit("recording it", () => auditUser(c, user, "DEACTIVATE"));
+      const ownerHandOver = successor ? await handOverAfterCommit(c, id, successor) : null;
       return c.json(ownerHandOver ? { ...serializeUser(user), ownerHandOver } : serializeUser(user));
     } catch (err) {
       return userErrorResponse(c, err);

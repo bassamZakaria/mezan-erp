@@ -11,6 +11,7 @@ export interface MoneyStringInputProps {
   name?: string;
   "aria-label"?: string;
   className?: string;
+  allowNegative?: boolean;
 }
 
 export const toMoneyDecimal = toExactDecimal;

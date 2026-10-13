@@ -35,6 +35,8 @@ describe("a stock movement dated before a landed cost the position has absorbed"
     const confirmed = await world.request("POST", "/landed-costs/LCD-1/confirm", { absorptionDate: "2026-09-10" });
     expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
     absorbedOn = (confirmed.body.document as { absorptionDate: string }).absorptionDate;
+    const landedCostNo = String((confirmed.body.document as { docNo: string }).docNo);
+    expect(landedCostNo).toMatch(/\d/);
     expect(absorbedOn).toBe("2026-09-10");
     expect(position()).toEqual({ qty: 10n * EGP, value: 1100n * EGP });
     const movements = world.count("stock_movement");
@@ -44,8 +46,8 @@ describe("a stock movement dated before a landed cost the position has absorbed"
 
     expect(`${refused.status} ${String(refused.body.error)}`, JSON.stringify(refused.body)).toBe("422 STOCK_MOVEMENT_BEFORE_LANDED_COST");
     expect(refused.body).toMatchObject({
-      message: `حركة المخزون بتاريخ 2026-08-20 على الصنف "${ITEM}" تسبق تحميل تكلفة إضافية على الرصيد نفسه بتاريخ 2026-09-10. أقرب تاريخ مسموح به هو 2026-09-10؛ أو اعكس التكلفة الإضافية أولاً.`,
-      messageEn: `The stock movement dated 2026-08-20 on item "${ITEM}" is before a landed cost the same position absorbed on 2026-09-10. The earliest date allowed is 2026-09-10; or reverse the landed cost first.`,
+      message: `حركة المخزون بتاريخ 2026-08-20 على الصنف "${ITEM}" تسبق التكلفة الإضافية ${landedCostNo} التي عدّلت تكلفة الرصيد نفسه بتاريخ 2026-09-10. أقرب تاريخ مسموح به هو 2026-09-10؛ أو اعكس المستند ${landedCostNo} أولاً.`,
+      messageEn: `The stock movement dated 2026-08-20 on item "${ITEM}" is before the landed cost ${landedCostNo}, which changed the cost of the same position on 2026-09-10. The earliest date allowed is 2026-09-10; or reverse document ${landedCostNo} first.`,
       earliestAllowedDate: "2026-09-10",
     });
     expect(world.count("stock_movement")).toBe(movements);

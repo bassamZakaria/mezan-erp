@@ -31,19 +31,39 @@ export class ZeroLandedCostWeightError extends Error {
   }
 }
 
-export class StockMovementBeforeLandedCostError extends Error {
-  readonly code = "STOCK_MOVEMENT_BEFORE_LANDED_COST";
+export enum StockRevaluationSource {
+  LandedCost = "LANDED_COST",
+  PurchasePriceVariance = "PURCHASE_INVOICE",
+}
+
+const REVALUATION_SOURCE_LABEL: Record<StockRevaluationSource, { readonly ar: string; readonly en: string; readonly code: string }> = {
+  [StockRevaluationSource.LandedCost]: { ar: "التكلفة الإضافية", en: "landed cost", code: "STOCK_MOVEMENT_BEFORE_LANDED_COST" },
+  [StockRevaluationSource.PurchasePriceVariance]: { ar: "فرق سعر فاتورة المشتريات", en: "purchase invoice price difference", code: "STOCK_MOVEMENT_BEFORE_COST_REVALUATION" },
+};
+
+export interface StandingStockRevaluation {
+  readonly day: string;
+  readonly source: StockRevaluationSource;
+  readonly documentNo: string;
+}
+
+export class StockMovementBeforeRevaluationError extends Error {
+  readonly code: string;
   readonly messageEn: string;
+  readonly earliestAllowedDate: string;
   constructor(
     readonly date: string,
     readonly itemId: string,
-    readonly earliestAllowedDate: string,
+    readonly revaluation: StandingStockRevaluation,
   ) {
+    const label = REVALUATION_SOURCE_LABEL[revaluation.source];
     super(
-      `حركة المخزون بتاريخ ${date} على الصنف "${itemId}" تسبق تحميل تكلفة إضافية على الرصيد نفسه بتاريخ ${earliestAllowedDate}. أقرب تاريخ مسموح به هو ${earliestAllowedDate}؛ أو اعكس التكلفة الإضافية أولاً.`,
+      `حركة المخزون بتاريخ ${date} على الصنف "${itemId}" تسبق ${label.ar} ${revaluation.documentNo} التي عدّلت تكلفة الرصيد نفسه بتاريخ ${revaluation.day}. أقرب تاريخ مسموح به هو ${revaluation.day}؛ أو اعكس المستند ${revaluation.documentNo} أولاً.`,
     );
-    this.messageEn = `The stock movement dated ${date} on item "${itemId}" is before a landed cost the same position absorbed on ${earliestAllowedDate}. The earliest date allowed is ${earliestAllowedDate}; or reverse the landed cost first.`;
-    this.name = "StockMovementBeforeLandedCostError";
+    this.messageEn = `The stock movement dated ${date} on item "${itemId}" is before the ${label.en} ${revaluation.documentNo}, which changed the cost of the same position on ${revaluation.day}. The earliest date allowed is ${revaluation.day}; or reverse document ${revaluation.documentNo} first.`;
+    this.code = label.code;
+    this.earliestAllowedDate = revaluation.day;
+    this.name = "StockMovementBeforeRevaluationError";
   }
 }
 

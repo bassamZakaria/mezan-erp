@@ -39,6 +39,8 @@ export {
   EmptyLandedCostTargetsError,
   ZeroLandedCostWeightError,
   LandedCostDateBeforeStockMovementError,
-  StockMovementBeforeLandedCostError,
+  StockMovementBeforeRevaluationError,
+  StockRevaluationSource,
+  type StandingStockRevaluation,
   LandedCostStandsOnDocumentError,
 } from "./errors.js";

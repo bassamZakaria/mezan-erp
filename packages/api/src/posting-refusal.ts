@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, StockMovementBeforeLandedCostError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
+import { NoFiscalPeriodForDateError, PeriodNotOpenForPostingError, StockMovementBeforeRevaluationError, StockPlanDateRequiredError, VatPeriodAlreadyFiledError } from "@mezan/domain";
 
 export function postingRefusalResponse(c: Context, err: unknown): Response | null {
   if (err instanceof PeriodNotOpenForPostingError) {
@@ -11,7 +11,7 @@ export function postingRefusalResponse(c: Context, err: unknown): Response | nul
   if (err instanceof VatPeriodAlreadyFiledError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, filingId: err.filingId, date: err.date }, 422);
   }
-  if (err instanceof StockMovementBeforeLandedCostError) {
+  if (err instanceof StockMovementBeforeRevaluationError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, earliestAllowedDate: err.earliestAllowedDate }, 422);
   }
   if (err instanceof StockPlanDateRequiredError) {

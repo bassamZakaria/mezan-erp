@@ -97,6 +97,7 @@ const uiAr = {
 
   "ui.currency": "ج.م",
   "ui.decimal.tooManyDecimals": "حتى {max} خانات عشرية على الأكثر",
+  "ui.decimal.negativeNotAllowed": "لا تُقبل القيم السالبة",
 
   // print, notifications, permissions
   "print.company.phone": "هاتف: {value}",
@@ -345,6 +346,7 @@ const uiEn: Record<UiTranslationKey, string> = {
 
   "ui.currency": "EGP",
   "ui.decimal.tooManyDecimals": "At most {max} decimal places",
+  "ui.decimal.negativeNotAllowed": "Negative values are not allowed",
 
   // print, notifications, permissions
   "print.company.phone": "Phone: {value}",

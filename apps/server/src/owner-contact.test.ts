@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { openSqliteConnection } from "@mezan/persistence";
+import { bindTenantDatabase, openSqliteConnection } from "@mezan/persistence";
 import { createSessionRegistry } from "@mezan/api";
 import {
   createPlatform,
@@ -11,6 +11,7 @@ import {
   OwnerPinResetOutcome,
   PlatformAuditAction,
   PlatformAuditUnavailableError,
+  type BackendHandle,
   type PlatformHandle,
 } from "@mezan/backend";
 import { activateTenant, AuditSeverityCode, createPlatformUser, createTenant, pendingOwnerExpiresAt, type Tenant } from "@mezan/domain";
@@ -1072,6 +1073,7 @@ describe("an owner change racing another one", () => {
     readonly mails: PendingHandOverMail[];
     readonly clock: { at: Date };
     readonly id: string;
+    readonly dataDir: string;
     stored(): Promise<Tenant>;
     nominate(toUserId: string, toEmail: string): ReturnType<OwnerContact["handOver"]>;
   }
@@ -1095,7 +1097,7 @@ describe("an owner change racing another one", () => {
     });
     const stored = async () => (await platform.stores.tenants.findById(tenant.id))!;
     const nominate: Desk["nominate"] = (toUserId, toEmail) => contact.handOver(tenant.id, { fromUserId: "U-OWNER", toUserId, toEmail, actorId: "U-Y" });
-    return { platform, contact, mails, clock, id: tenant.id, stored, nominate };
+    return { platform, contact, mails, clock, id: tenant.id, dataDir: dir, stored, nominate };
   }
 
   it("does not confirm a successor other than the one the mailed link was for, when the request is replaced while the link is being confirmed", async () => {
@@ -1149,6 +1151,78 @@ describe("an owner change racing another one", () => {
 
     expect(refused).toBeInstanceOf(NoPendingOwnerError);
     expect((await d.stored()).ownerUserId).toBe("U-OWNER");
+  });
+
+  describe("through the router the mailed link is answered by", () => {
+    interface Routed {
+      readonly router: TenantRouter;
+      readonly work: { companyAdmins: number; recorded: number };
+    }
+
+    function routed(d: Desk, dataDir: string, during: { opening?: (router: TenantRouter) => Promise<unknown>; readingAdmins?: (router: TenantRouter) => Promise<unknown> }): Routed {
+      mkdirSync(path.join(dataDir, "tenants"), { recursive: true });
+      const { sqlite } = openSqliteConnection(path.join(dataDir, "tenants", `${d.id}.db`));
+      bindTenantDatabase(sqlite, d.id);
+      sqlite.close();
+      const work = { companyAdmins: 0, recorded: 0 };
+      const backend = {
+        ownerAccount: async () => ({ id: "U-OWNER", email: "owner@x.example", canAdminister: true }),
+        recordOwnerAssigned: async () => void (work.recorded += 1),
+        companyAdmins: async () => {
+          work.companyAdmins += 1;
+          await during.readingAdmins?.(router);
+          return ADMINS;
+        },
+        close: () => undefined,
+      } as unknown as BackendHandle;
+      const router: TenantRouter = createTenantRouter({
+        platform: d.platform,
+        dataDir,
+        sweepEveryMs: 0,
+        now: () => d.clock.at,
+        mailPendingHandOver: async (mail) => void d.mails.push(mail),
+        openBackend: async () => {
+          await during.opening?.(router);
+          return backend;
+        },
+      });
+      routers.push(router);
+      return { router, work };
+    }
+
+    function resendOnce(d: Desk): (router: TenantRouter) => Promise<unknown> {
+      let sent = false;
+      return async (router) => {
+        if (sent) return;
+        sent = true;
+        await router.resendPendingOwner({ tenantId: d.id, actor: PLATFORM_ACTOR });
+      };
+    }
+
+    it("does not confirm on the old link when the console sends a new one while the tenant's admins are being read", async () => {
+      const d = await desk();
+      await d.nominate("U-X", "x@x.example");
+      const { router } = routed(d, d.dataDir, { readingAdmins: resendOnce(d) });
+
+      const byOldLink = await router.confirmPendingOwnerByToken("tok-1");
+
+      expect(byOldLink).toBeNull();
+      expect(d.mails).toHaveLength(2);
+      expect(await d.stored()).toMatchObject({ ownerUserId: "U-OWNER", ownerEmail: "owner@x.example", pendingOwner: { userId: "U-X", tokenHash: hashHandOverToken(d.mails[1]?.token ?? "") } });
+      expect(await router.confirmPendingOwnerByToken(d.mails[1]?.token ?? "")).toMatchObject({ ownerUserId: "U-X" });
+    });
+
+    it("does none of the tenant's work for a link that was replaced while the tenant's database was being opened", async () => {
+      const d = await desk();
+      await d.nominate("U-X", "x@x.example");
+      const { router, work } = routed(d, d.dataDir, { opening: resendOnce(d) });
+
+      const byOldLink = await router.confirmPendingOwnerByToken("tok-1");
+
+      expect(byOldLink).toBeNull();
+      expect(work).toEqual({ companyAdmins: 0, recorded: 0 });
+      expect(await d.stored()).toMatchObject({ ownerUserId: "U-OWNER", pendingOwner: { userId: "U-X" } });
+    });
   });
 
   it("refuses a confirmation that crossed the seven days while the tenant's admins were being read", async () => {

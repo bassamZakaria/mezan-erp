@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBackend, createPlatform, SEED_ADMIN_PIN, type PlatformHandle } from "@mezan/backend";
 import { activateTenant, createTenant, releaseTenant, tenantDbFile, TenantStatusCode, type Tenant } from "@mezan/domain";
-import { bindTenantDatabase, holdSqliteFile, openSqliteConnection, readTenantBooksIdentity, SqliteFileBusyError } from "@mezan/persistence";
+import { bindTenantDatabase, holdSqliteFile, openSqliteConnection, SqliteFileBusyError } from "@mezan/persistence";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { harnessEnv, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, proxiedRequest, type SendInit } from "./cloud-harness.js";
 import type { CloudEnv } from "./env.js";
@@ -448,6 +448,16 @@ async function boot(env: CloudEnv) {
 
 type Booted = Awaited<ReturnType<typeof boot>>;
 
+function boundTo(file: string): string | null {
+  const { sqlite } = openSqliteConnection(file);
+  try {
+    if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tenant_binding'").get()) return null;
+    return (sqlite.prepare("SELECT tenant_id FROM tenant_binding").get() as { tenant_id: string } | undefined)?.tenant_id ?? null;
+  } finally {
+    sqlite.close();
+  }
+}
+
 const NOT_IN_PLACE = {
   message: "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم.",
   messageEn: "The company's data file is not where it is expected. Contact support.",
@@ -608,7 +618,7 @@ describe("a served company whose database file does not hold its own books", () 
     const fresh = await company(cloud, env, "nile");
     await cloud.app.close();
 
-    expect(readTenantBooksIdentity(fresh.file).boundTenantId).toBe(fresh.tenantId);
+    expect(boundTo(fresh.file)).toBe(fresh.tenantId);
   });
 
   describe("written by a build that did not bind databases yet", () => {
@@ -618,47 +628,32 @@ describe("a served company whose database file does not hold its own books", () 
       await first.app.close();
       inBooks(legacy.file, (sqlite) => sqlite.exec(`DROP TABLE tenant_binding; ${booksChange}`));
       if (platformRow) inBooks(path.join(env.platformDir, "platform.db"), (sqlite) => sqlite.prepare(`UPDATE tenant SET ${platformRow} WHERE id = ?`).run(legacy.tenantId));
-      expect(readTenantBooksIdentity(legacy.file).boundTenantId).toBeNull();
+      expect(boundTo(legacy.file)).toBeNull();
       return legacy;
     }
 
     it.each([
-      ["its owner is linked on the platform by id", undefined],
-      ["the platform still knows its owner by e-mail only", "owner_user_id = NULL"],
-    ])("is bound once on its first open when %s, and keeps working with that same binding afterwards", async (_label, platformRow) => {
-      const env = harnessEnv({}, {}, harnessDirs);
-      const legacy = await unbound(env, platformRow);
-
-      const second = await boot(env);
-      expect((await signIn(second, legacy)).status).toBe(200);
-      await second.app.close();
-      const bound = bindingOf(legacy.file);
-
-      const third = await boot(env);
-      expect((await signIn(third, legacy)).status).toBe(200);
-      await third.app.close();
-
-      expect(bound).toEqual([{ tenant_id: legacy.tenantId, bound_at: expect.any(String) }]);
-      expect(bindingOf(legacy.file)).toEqual(bound);
-    });
-
-    it.each([
+      ["its owner is linked on the platform by id", undefined, "", 200],
+      ["the platform still knows its owner by e-mail only", "owner_user_id = NULL", "", 200],
       ["the owner the platform recorded by id is not an account in it", "owner_user_id = 'somebody-else'", "", 200],
       ["the owner the platform recorded by e-mail is nobody's address in it", "owner_user_id = NULL, owner_email = 'nobody@nile.example'", "", 200],
       ["the owner the platform recorded by e-mail is not a company admin in it", "owner_user_id = NULL", "UPDATE user SET is_company_admin = 0", 200],
       ["the owner the platform recorded by e-mail is a deactivated account in it", "owner_user_id = NULL", "UPDATE user SET status = 'inactive'", 401],
       ["the owner the platform recorded is the seed admin's id, which every company's database holds", "owner_user_id = 'USER-ADMIN', owner_email = 'admin@cyag.example'", "", 200],
-    ])("is served as it is, left unbound and marked for the console to confirm when %s", async (_label, platformRow, booksChange, signedIn) => {
+    ])("is served as it is on every start, and no open binds or marks it, when %s", async (_label, platformRow, booksChange, signedIn) => {
       const env = harnessEnv({}, {}, harnessDirs);
       const legacy = await unbound(env, platformRow, booksChange);
 
       const second = await boot(env);
       const answer = await signIn(second, legacy);
       await second.app.close();
+      const third = await boot(env);
+      const again = await signIn(third, legacy);
+      await third.app.close();
 
-      expect(answer.status).toBe(signedIn);
-      expect(readTenantBooksIdentity(legacy.file).boundTenantId).toBeNull();
-      expect(inBooks(path.join(env.platformDir, "platform.db"), (sqlite) => sqlite.prepare("SELECT books_review FROM tenant WHERE id = ?").get(legacy.tenantId))).toEqual({ books_review: "unconfirmed" });
+      expect([answer.status, again.status]).toEqual([signedIn, signedIn]);
+      expect(boundTo(legacy.file)).toBeNull();
+      expect(inBooks(path.join(env.platformDir, "platform.db"), (sqlite) => sqlite.prepare("SELECT books_review FROM tenant WHERE id = ?").get(legacy.tenantId))).toEqual({ books_review: null });
     });
   });
 
@@ -736,7 +731,7 @@ describe("a served company whose database file does not hold its own books", () 
     const refused = await router.backendOf("t-new").catch((err: unknown) => err);
 
     expect(refused).toBeInstanceOf(TenantDbFileForeignError);
-    expect(readTenantBooksIdentity(path.join(dataDir, "tenants/t-new.db"))).toEqual({ boundTenantId: "t-other", claimed: false, companyName: null, users: [] });
+    expect(boundTo(path.join(dataDir, "tenants/t-new.db"))).toBe("t-other");
   });
 
   it("is refused when a freshly seeded database nobody ever claimed is put in its place, even though the platform's recorded owner address is the seed account's", async () => {
@@ -755,7 +750,7 @@ describe("a served company whose database file does not hold its own books", () 
     await second.app.close();
 
     expect(seedAdmin).toEqual({ status: 503, json: FOREIGN });
-    expect(readTenantBooksIdentity(victim.file).boundTenantId).toBeNull();
+    expect(boundTo(victim.file)).toBeNull();
   });
 
   it("answers the same 503 when the database turns out to be corrupt only once it is opened for use", async () => {
@@ -795,7 +790,7 @@ describe("a database opened with no tenant to bind it to, as the desktop and its
     expect(before).toMatchObject({ claimed: false });
     expect(before["accounts"]).toBeGreaterThan(0);
     expect([first.status, second.status]).toEqual([201, 409]);
-    expect(readTenantBooksIdentity(dbPath).boundTenantId).toBeNull();
+    expect(boundTo(dbPath)).toBeNull();
   });
 });
 

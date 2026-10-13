@@ -49,6 +49,13 @@ export const SEED_ADMIN_EMAIL = "admin@cyag.example";
  * "unclaimed".
  */
 export const SEED_ADMIN_USER_ID = "USER-ADMIN";
+
+// SECURITY: the one answer to "has anybody claimed these books", shared by the
+// bootstrap routes and the cloud's rule for serving a database. The recorded
+// claim, or any account other than the seeded fallback admin, whatever its status.
+export function tenantBooksClaimed(books: { readonly claimedAt?: string | null; readonly userIds: readonly string[] }): boolean {
+  return Boolean(books.claimedAt) || books.userIds.some((id) => id !== SEED_ADMIN_USER_ID);
+}
 /**
  * The DEVELOPMENT default PIN — the one docs/TESTING.md, `pnpm smoke`,
  * `pnpm check:seed` and `pnpm scenarios` all sign in with.

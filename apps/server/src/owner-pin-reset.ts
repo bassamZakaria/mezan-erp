@@ -1,9 +1,8 @@
 import { OwnerPinResetOutcome, TenantOwnerAccountNotFoundError, type OwnerPinResetAccount, type PlatformHandle } from "@mezan/backend";
 import type { OwnerPinResetResultDTO } from "@mezan/contracts";
-import { TenantBooksReview, TenantNotFoundError, type Tenant } from "@mezan/domain";
+import { TenantNotFoundError, type Tenant } from "@mezan/domain";
 import { withSqliteTransaction } from "@mezan/persistence";
 import { generateOwnerPin, platformActor } from "./provision-tenant.js";
-import { TenantBooksUnconfirmedError } from "./tenant-books.js";
 import type { TenantRouter } from "./tenant-router.js";
 
 export interface ResetTenantOwnerPinDeps {
@@ -17,7 +16,6 @@ export async function resetTenantOwnerPin(
   deps: ResetTenantOwnerPinDeps,
   input: { readonly tenant: Tenant; readonly actorId: string; readonly recordIntent?: (account: OwnerPinResetAccount) => Promise<void> },
 ): Promise<OwnerPinResetResultDTO> {
-  if (input.tenant.booksReview === TenantBooksReview.Unconfirmed) throw new TenantBooksUnconfirmedError();
   const backend = await deps.router.backendOf(input.tenant.id);
   await deps.router.reconcileOwnerOf(input.tenant.id);
   const tenant = await deps.platform.stores.tenants.findById(input.tenant.id);

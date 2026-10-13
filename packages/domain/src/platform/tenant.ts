@@ -19,7 +19,6 @@ export enum TenantStatusCode {
 export type TenantStatus = `${TenantStatusCode}`;
 
 export enum TenantBooksReview {
-  Unconfirmed = "unconfirmed",
   Disowned = "disowned",
 }
 

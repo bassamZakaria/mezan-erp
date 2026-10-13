@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { closeSync, createReadStream, existsSync, openSync, readSync, renameSync, rmSync, statSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { tenantDbFile, TenantDbFileRefusal, TenantStatusCode, type Tenant, type TenantRepository } from "@mezan/domain";
+import type { Context } from "hono";
+import { tenantDbFile, TenantDbFileRefusal, tenantDbFileRefusalOf, TenantStatusCode, type Tenant, type TenantRepository } from "@mezan/domain";
 import { holdSqliteFile, SqliteFileBusyError } from "@mezan/persistence";
 
 const SQLITE_FILE_SUFFIXES = ["", "-wal", "-shm"] as const;
@@ -84,6 +85,15 @@ export class TenantDbFileUnreadableError extends TenantDbFileError {
   constructor(tenantId: string, file: string, readonly cause: unknown) {
     super(tenantId, file, `the database file "${file}" of tenant "${tenantId}" is not a readable SQLite database; nothing was written`);
   }
+}
+
+const RETRY_AFTER_SECONDS = 5;
+
+export function answerTenantDbFileRefusal(c: Context, err: unknown): Response | null {
+  const refusal = tenantDbFileRefusalOf(err);
+  if (!refusal) return null;
+  if (refusal.retryable) c.header("Retry-After", String(RETRY_AFTER_SECONDS));
+  return c.json({ error: refusal.error, message: refusal.message, messageEn: refusal.messageEn }, 503);
 }
 
 export function sha256OfFile(file: string): Promise<string> {

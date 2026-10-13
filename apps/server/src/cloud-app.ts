@@ -13,8 +13,10 @@ import {
 } from "@mezan/backend";
 import { createSessionRegistry } from "@mezan/api";
 import { SubscriptionStatusKind, TenantNotFoundError, type Tenant } from "@mezan/domain";
+import { emptyBooksScratch } from "@mezan/persistence";
 import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
-import { createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
+import { booksScratchDir, createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
+import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
 import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
 import { releaseProvisioningTenant } from "./release-tenant.js";
@@ -54,6 +56,8 @@ export interface CreateCloudAppOptions {
 
 export interface CloudApp {
   readonly root: Hono;
+  // CONTRACT: settles once the start-up read of every tenant's books is over. Serving does not wait for it.
+  readonly booksScanned: Promise<void>;
   close(): Promise<void>;
 }
 
@@ -81,13 +85,16 @@ async function readIndexHtmlIfPresent(webDist: string): Promise<string | null> {
 
 function reportTenantBooks(scan: TenantBooksScan): void {
   const counts = [...scan.standings].map(([standing, count]) => `${standing} ${count}`).join(", ");
-  console.log(`[cloud] tenant books at start: ${scan.checked} checked${counts === "" ? "" : `: ${counts}`}`);
-  for (const tenant of scan.needingSomebody) console.warn(`[cloud] tenant books: "${tenant.code}" (${tenant.id}) is ${tenant.standing}`);
+  const checked = [...scan.standings.values()].reduce((sum, count) => sum + count, 0);
+  console.log(`[cloud] tenant books at start: ${checked} checked${counts === "" ? "" : `: ${counts}`}`);
+  for (const tenant of scan.refused) console.warn(`[cloud] tenant books: "${tenant.code}" (${tenant.id}) is ${tenant.standing}`);
+  for (const tenant of scan.unread) console.warn(`[cloud] tenant books: "${tenant.code}" (${tenant.id}) could not be read`);
 }
 
 export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptions = {}): Promise<CloudApp> {
   const now = options.now ?? (() => new Date());
   mkdirSync(env.platformDir, { recursive: true });
+  emptyBooksScratch(booksScratchDir(env.platformDir));
 
   const ownerPassword = env.platformOwnerEmail ? (env.platformOwnerPassword ?? generateOwnerPassword()) : undefined;
   const platform = await createPlatform({
@@ -125,8 +132,6 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     now,
     connection: { exclusive: env.sqliteExclusive },
   });
-
-  reportTenantBooks(await router.scanBooks());
 
   if (env.seedDemo) {
     await (options.seedDemo ?? provisionDemoTenant)({ platform, router, env });
@@ -195,9 +200,10 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     declinePendingOwner: ({ tenant, actorId }) => router.declinePendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
     resendPendingOwner: ({ tenant, actorId }) => router.resendPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
     tenantBooks: {
+      lastStandingOf: (tenant) => router.lastBooksStandingOf(tenant),
       standingOf: (tenant) => router.booksStandingOf(tenant),
       read: (tenant) => router.booksOf(tenant.id),
-      confirm: ({ tenant, userId, actorId }) => router.confirmBooks({ tenantId: tenant.id, userId, actor: platformActor(actorId) }),
+      confirm: ({ tenant, userId, companyName, actorId }) => router.confirmBooks({ tenantId: tenant.id, userId, companyName, actor: platformActor(actorId) }),
       disown: ({ tenant, actorId }) => router.disownBooks({ tenantId: tenant.id, actor: platformActor(actorId) }),
       unbind: ({ tenant, actorId }) => router.unbindBooks({ tenantId: tenant.id, actor: platformActor(actorId) }),
     },
@@ -285,7 +291,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   root.onError((err, c) => {
     console.error(err);
-    return c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
+    return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
   });
 
   const rawIndexHtml = await readIndexHtmlIfPresent(env.webDist);
@@ -299,15 +305,25 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     root.notFound((c) => c.json({ error: "NOT_FOUND", message: "لا توجد حزمة واجهة مبنية" }, 404));
   }
 
+  // REQUIRED ORDERING: started last and never awaited here. The server answers
+  // its health check and its tenants while every company's books are read in
+  // the background; a tenant asked for first is judged by its own open.
+  const booksScanned = router
+    .scanBooks()
+    .then(reportTenantBooks)
+    .catch((err: unknown) => console.error("[cloud] the start-up read of tenant books failed", err));
+
   let closed = false;
   return {
     root,
+    booksScanned,
     async close() {
       if (closed) return;
       closed = true;
       stopBackups?.();
       dunningTimer.stop();
       await router.close();
+      await booksScanned;
       platform.close();
     },
   };

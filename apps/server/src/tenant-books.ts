@@ -1,7 +1,6 @@
-import { existsSync } from "node:fs";
-import { PlatformAuditUnavailableError, SEED_ADMIN_USER_ID, type PlatformHandle } from "@mezan/backend";
+import { PlatformAuditUnavailableError, tenantBooksClaimed, type PlatformHandle } from "@mezan/backend";
 import { PlatformRefusalCode, TenantBooksStanding } from "@mezan/contracts";
-import { AuditSeverityCode, recordSecurityEvent, TenantBooksReview, TenantStatusCode, UserStatusCode, type Tenant } from "@mezan/domain";
+import { AuditSeverityCode, recordSecurityEvent, TenantStatusCode, UserStatusCode, type Tenant } from "@mezan/domain";
 import { NotASqliteDatabaseError, readTenantBooksIdentity, type SqliteOpenOptions, type TenantBooksIdentity, type TenantBooksUser } from "@mezan/persistence";
 import {
   holdsSqliteDatabase,
@@ -13,22 +12,9 @@ import {
 } from "./tenant-db-file.js";
 
 export enum TenantBooksAudit {
-  Unconfirmed = "TENANT_BOOKS_UNCONFIRMED",
   Confirmed = "TENANT_BOOKS_CONFIRMED",
   Disowned = "TENANT_BOOKS_DISOWNED",
   Unbound = "TENANT_BOOKS_UNBOUND",
-}
-
-export const BOOKS_CHECK_ACTOR = "platform:books-check";
-
-export class TenantBooksUnconfirmedError extends Error {
-  readonly code = "TENANT_BOOKS_UNCONFIRMED";
-  readonly messageEn = "Confirm this company's books first.";
-
-  constructor() {
-    super("أكّد دفاتر هذه المنشأة أولًا.");
-    this.name = "TenantBooksUnconfirmedError";
-  }
 }
 
 export class TenantBooksBoundError extends Error {
@@ -51,7 +37,28 @@ export class TenantBooksNotBoundError extends Error {
   }
 }
 
+export class TenantBooksChangedError extends Error {
+  readonly code = PlatformRefusalCode.BooksChanged;
+  readonly messageEn = "These books are no longer the ones that were shown. Read them again before confirming.";
+
+  constructor() {
+    super("هذه الدفاتر لم تعد كما عُرضت. أعد قراءتها قبل التأكيد.");
+    this.name = "TenantBooksChangedError";
+  }
+}
+
 export type TenantBooksConnection = Pick<SqliteOpenOptions, "driver" | "key" | "exclusive">;
+
+export enum BooksFileState {
+  Absent = "absent",
+  Unreadable = "unreadable",
+  Read = "read",
+}
+
+export type BooksFile =
+  | { readonly state: BooksFileState.Absent }
+  | { readonly state: BooksFileState.Unreadable; readonly cause: unknown }
+  | { readonly state: BooksFileState.Read; readonly identity: TenantBooksIdentity };
 
 export interface TenantBooksVerdict {
   readonly standing: TenantBooksStanding;
@@ -65,60 +72,54 @@ export function activeCompanyAdminsIn(books: TenantBooksIdentity): TenantBooksUs
   return books.users.filter((user) => user.isCompanyAdmin && isActive(user));
 }
 
-function claimed(books: TenantBooksIdentity): boolean {
-  return books.claimed || books.users.some((user) => user.id !== SEED_ADMIN_USER_ID && isActive(user));
-}
-
-// SECURITY: the proof that binds a database nobody bound, with no person
-// asked. An owner id is proof only when it is an id of its own: the seed
-// admin's id is in every company's database. An owner e-mail is proof only
-// while no other tenant row carries it, or two companies of one owner whose
-// files changed places would each be bound to the other's books for good.
-function holdsRecordedOwner(tenant: Tenant, books: TenantBooksIdentity, ownerEmailShared: boolean): boolean {
-  if (tenant.ownerUserId !== null && tenant.ownerUserId !== SEED_ADMIN_USER_ID) return books.users.some((user) => user.id === tenant.ownerUserId);
-  if (ownerEmailShared) return false;
-  return activeCompanyAdminsIn(books).some((user) => user.email === tenant.ownerEmail && (tenant.ownerUserId === null || user.id === tenant.ownerUserId));
-}
-
-// SECURITY: asked on every open, at start-up and by the console, and it only
-// reads. A tenant still being provisioned may have no database yet, or one
-// nobody has bound. Any other tenant's unbound database is served only when
-// somebody claimed it, never seeded, and bound without a person only on the
-// proof above; once marked for confirmation only the console binds it.
-export function judgeTenantBooks(tenant: Tenant, file: string, connection: TenantBooksConnection, ownerEmailShared: boolean): TenantBooksVerdict {
-  const provisioning = tenant.status === TenantStatusCode.Provisioning;
-  const refused = (standing: TenantBooksStanding, refusal: TenantDbFileError, identity: TenantBooksIdentity | null = null): TenantBooksVerdict => ({ standing, identity, refusal });
-  if (provisioning && !existsSync(file)) return { standing: TenantBooksStanding.NotCreated, identity: null, refusal: null };
-  if (!provisioning && !holdsSqliteDatabase(file)) return refused(TenantBooksStanding.Missing, new TenantDbFileMissingError(tenant.id, tenant.dbFile));
-  let books: TenantBooksIdentity;
+// CONTRACT: reads the file where it is and writes nothing, to it or anywhere
+// a refusal would have to undo.
+export async function readBooksFile(file: string, scratchDir: string, connection: TenantBooksConnection): Promise<BooksFile> {
+  if (!holdsSqliteDatabase(file)) return { state: BooksFileState.Absent };
   try {
-    books = readTenantBooksIdentity(file, connection);
+    return { state: BooksFileState.Read, identity: await readTenantBooksIdentity(file, scratchDir, connection) };
   } catch (err) {
-    if (err instanceof NotASqliteDatabaseError) return refused(TenantBooksStanding.Unreadable, new TenantDbFileUnreadableError(tenant.id, tenant.dbFile, err.cause));
+    if (err instanceof NotASqliteDatabaseError) return { state: BooksFileState.Unreadable, cause: err.cause };
     throw err;
   }
+}
+
+// SECURITY: the one rule for whose books a database holds, asked on every
+// open, by the start-up scan and by the console. Books bound to this tenant
+// are served; books bound to another, missing, unreadable or disowned are
+// refused. Books nobody bound are served only when somebody claimed them, as
+// they were before databases were bound, and are never bound here: only
+// provisioning and the console's confirmation write a binding.
+export function classifyTenantBooks(tenant: Tenant, file: BooksFile): TenantBooksVerdict {
+  const provisioning = tenant.status === TenantStatusCode.Provisioning;
+  const refused = (standing: TenantBooksStanding, refusal: TenantDbFileError, identity: TenantBooksIdentity | null = null): TenantBooksVerdict => ({ standing, identity, refusal });
+  if (file.state === BooksFileState.Absent) {
+    if (provisioning) return { standing: TenantBooksStanding.Provisioning, identity: null, refusal: null };
+    return refused(TenantBooksStanding.Missing, new TenantDbFileMissingError(tenant.id, tenant.dbFile));
+  }
+  if (file.state === BooksFileState.Unreadable) return refused(TenantBooksStanding.Unreadable, new TenantDbFileUnreadableError(tenant.id, tenant.dbFile, file.cause));
+  const books = file.identity;
   const accepted = (standing: TenantBooksStanding): TenantBooksVerdict => ({ standing, identity: books, refusal: null });
-  if (tenant.booksReview === TenantBooksReview.Disowned) return refused(TenantBooksStanding.Disowned, new TenantDbFileDisownedError(tenant.id, tenant.dbFile), books);
+  if (tenant.booksReview) return refused(TenantBooksStanding.Disowned, new TenantDbFileDisownedError(tenant.id, tenant.dbFile), books);
   if (books.boundTenantId === tenant.id) return accepted(TenantBooksStanding.Bound);
   if (books.boundTenantId !== null) return refused(TenantBooksStanding.Foreign, new TenantDbFileForeignError(tenant.id, tenant.dbFile, books.boundTenantId), books);
-  if (provisioning) return accepted(TenantBooksStanding.WillBind);
-  if (!claimed(books)) return refused(TenantBooksStanding.Foreign, new TenantDbFileForeignError(tenant.id, tenant.dbFile, null), books);
-  if (tenant.booksReview === TenantBooksReview.Unconfirmed) return accepted(TenantBooksStanding.Unconfirmed);
-  return accepted(holdsRecordedOwner(tenant, books, ownerEmailShared) ? TenantBooksStanding.WillBind : TenantBooksStanding.Unconfirmed);
+  if (provisioning) return accepted(TenantBooksStanding.Provisioning);
+  const claimed = tenantBooksClaimed({ claimedAt: books.claimedAt, userIds: books.users.map((user) => user.id) });
+  if (!claimed) return refused(TenantBooksStanding.Foreign, new TenantDbFileForeignError(tenant.id, tenant.dbFile, null), books);
+  return accepted(TenantBooksStanding.Unbound);
 }
 
 export interface BooksReviewRecord {
   readonly action: TenantBooksAudit;
-  readonly severity: AuditSeverityCode;
   readonly actor: string;
   readonly details?: Record<string, unknown>;
   readonly inTheSameWrite?: () => void;
 }
 
 // REQUIRED ORDERING: the audit row is written inside the transaction that
-// moves the mark, and whatever is done to the books themselves comes after it
-// in that same transaction. A row that cannot be written rolls the mark back
-// before the books are touched.
+// changes the platform row, and whatever is done to the books themselves comes
+// after it in that same transaction. A row that cannot be written rolls the
+// change back before the books are touched.
 export async function recordBooksReview(platform: PlatformHandle, before: Tenant, after: Tenant, record: BooksReviewRecord): Promise<boolean> {
   return platform.stores.tenants.compareAndSetOwner(before, after, async () => {
     if (after.ownerEmail !== before.ownerEmail) await platform.stores.signupRequests.followOwnerEmail(before.code, before.ownerEmail, after.ownerEmail);
@@ -128,7 +129,7 @@ export async function recordBooksReview(platform: PlatformHandle, before: Tenant
       entityId: after.id,
       action: record.action,
       actor: record.actor,
-      severity: record.severity,
+      severity: AuditSeverityCode.Critical,
       timestamp: after.updatedAt,
       details: { code: after.code, before: before.booksReview ?? null, after: after.booksReview ?? null, ...record.details },
     }).catch((cause: unknown) => {

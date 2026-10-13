@@ -21,11 +21,14 @@ export { holdSqliteFile, isBusySqliteError, SqliteFileBusyError, type HeldSqlite
 export {
   bindTenantDatabase,
   clearTenantBinding,
+  emptyBooksScratch,
   isUnreadableSqliteError,
   writeTenantBinding,
   NotASqliteDatabaseError,
   readTenantBooksIdentity,
+  sqliteFileStamp,
   TenantBindingMismatchError,
+  type TenantBindingWrite,
   type TenantBooksIdentity,
   type TenantBooksUser,
 } from "./tenant-binding.js";

@@ -237,7 +237,11 @@ export function useTenantBooksQuery(tenantId: string, enabled: boolean) {
 }
 
 export function useConfirmTenantBooksMutation() {
-  return useSummaryMutation<{ tenantId: string; userId: string }>(({ tenantId }) => `/tenants/${tenantId}/books/confirm`, ({ userId }) => ({ userId }), "platform.books.confirm.failed");
+  return useSummaryMutation<{ tenantId: string; userId: string; companyName: string | null }>(
+    ({ tenantId }) => `/tenants/${tenantId}/books/confirm`,
+    ({ userId, companyName }) => ({ userId, companyName }),
+    "platform.books.confirm.failed",
+  );
 }
 
 export function useDisownTenantBooksMutation() {

@@ -376,7 +376,9 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   }
 
   // SECURITY: the token is the only credential here, and it was mailed to the
-  // previously recorded owner address. Every failure answers the same way.
+  // previously recorded owner address. Every link that confirms nothing is
+  // answered the same way. A link for a company whose books are refused is
+  // answered with that company's 503 instead.
   app.post("/owner-handover", async (c) => {
     const ip = callerSource(c);
     const wait = verifyIpLimit.retryAfter(ip);

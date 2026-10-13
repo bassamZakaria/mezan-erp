@@ -1765,6 +1765,7 @@ export {
   type OwnerCandidateDTO,
   PlatformRefusalCode,
   TenantBooksStanding,
+  REFUSED_TENANT_BOOKS,
   tenantBooksStandingSchema,
   tenantBooksSchema,
   confirmTenantBooksRequestSchema,

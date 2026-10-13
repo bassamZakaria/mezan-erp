@@ -164,15 +164,16 @@ describe("TenantsPage", () => {
       expect(screen.getAllByText("نقل ملكية بانتظار التأكيد")).toHaveLength(1);
     });
 
-    it("marks on its own card the tenant whose books await confirmation, and no other", async () => {
-      const unconfirmed: TenantSummaryDTO = { ...tenantSummary, tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "unconfirmed-co" }, books: TenantBooksStanding.Unconfirmed };
+    it("shows on each tenant's own card where its books stand", async () => {
+      const disowned: TenantSummaryDTO = { ...tenantSummary, tenant: { ...tenantSummary.tenant, id: "tenant-2", code: "disowned-co" }, books: TenantBooksStanding.Disowned };
       renderWithPlatformProviders(<TenantsPage />, {
-        transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [tenantSummary, unconfirmed] }) }),
+        transport: stubPlatformTransport({ ...baseHandlers(), "GET /tenants": () => ({ body: [tenantSummary, disowned] }) }),
         initialSession: testPlatformSession,
       });
 
-      expect(within((await screen.findByText("unconfirmed-co")).closest("li") as HTMLElement).getByText("دفاتر بانتظار التأكيد")).toBeInTheDocument();
-      expect(screen.getAllByText("دفاتر بانتظار التأكيد")).toHaveLength(1);
+      expect(within((await screen.findByText("disowned-co")).closest("li") as HTMLElement).getByText("دفاتر موقوفة")).toBeInTheDocument();
+      expect(within((await screen.findByText("acme")).closest("li") as HTMLElement).getByText("دفاتر مربوطة")).toBeInTheDocument();
+      expect(screen.getAllByText("دفاتر موقوفة")).toHaveLength(1);
     });
 
     it("lists each tenant as a card that carries its status, licence and its own «عرض» action, with no table to scroll sideways", async () => {
@@ -230,7 +231,7 @@ describe("TenantsPage", () => {
     expect(screen.getByText("acme").closest("tr")).not.toHaveTextContent("يوم الفوترة يحتاج مراجعة");
   });
 
-  it("marks each tenant whose books need somebody, and says nothing on one whose books are bound", async () => {
+  it("shows where each tenant's books stand, and nothing for a tenant still being provisioned", async () => {
     const withBooks = (id: string, code: string, books: TenantBooksStanding): TenantSummaryDTO => ({ ...tenantSummary, tenant: { ...tenantSummary.tenant, id, code }, books });
     renderWithPlatformProviders(<TenantsPage />, {
       transport: stubPlatformTransport({
@@ -238,9 +239,12 @@ describe("TenantsPage", () => {
         "GET /tenants": () => ({
           body: [
             withBooks("t-1", "bound-co", TenantBooksStanding.Bound),
-            withBooks("t-2", "unconfirmed-co", TenantBooksStanding.Unconfirmed),
+            withBooks("t-2", "unbound-co", TenantBooksStanding.Unbound),
             withBooks("t-3", "disowned-co", TenantBooksStanding.Disowned),
             withBooks("t-4", "missing-co", TenantBooksStanding.Missing),
+            withBooks("t-5", "foreign-co", TenantBooksStanding.Foreign),
+            withBooks("t-6", "torn-co", TenantBooksStanding.Unreadable),
+            withBooks("t-7", "new-co", TenantBooksStanding.Provisioning),
           ],
         }),
       }),
@@ -248,10 +252,13 @@ describe("TenantsPage", () => {
     });
 
     const rowOf = async (code: string) => (await screen.findByText(code)).closest("tr") as HTMLElement;
-    expect(within(await rowOf("unconfirmed-co")).getByText("دفاتر بانتظار التأكيد")).toBeInTheDocument();
+    expect(within(await rowOf("bound-co")).getByText("دفاتر مربوطة")).toBeInTheDocument();
+    expect(within(await rowOf("unbound-co")).getByText("دفاتر غير مربوطة (قديمة)")).toBeInTheDocument();
     expect(within(await rowOf("disowned-co")).getByText("دفاتر موقوفة")).toBeInTheDocument();
     expect(within(await rowOf("missing-co")).getByText("ملف الدفاتر مفقود")).toBeInTheDocument();
-    expect(within(await rowOf("bound-co")).queryByText(/دفاتر/)).not.toBeInTheDocument();
+    expect(within(await rowOf("foreign-co")).getByText("دفاتر منشأة أخرى")).toBeInTheDocument();
+    expect(within(await rowOf("torn-co")).getByText("ملف دفاتر تالف")).toBeInTheDocument();
+    expect(within(await rowOf("new-co")).queryByText(/دفاتر/)).not.toBeInTheDocument();
   });
 
   it("marks only the tenant whose owner address has not been confirmed by the owner", async () => {

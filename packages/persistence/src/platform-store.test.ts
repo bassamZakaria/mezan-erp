@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { Money, OwnerConfirmation, PlanKind, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
+import { Money, OwnerConfirmation, PlanKind, TenantBooksReview, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
 import { createSqlitePlatformStores } from "./platform-store.js";
 
 const NOW = "2026-09-13T10:00:00.000Z";
@@ -128,6 +128,35 @@ describe("createSqlitePlatformStores", () => {
     expect(before.pendingOwner).toMatchObject({ userId: "U2", expiresAt: "2026-09-20T10:00:00.000Z" });
     expect(declined).toBe(true);
     expect((await stores.tenants.findById("T1"))?.pendingOwner).toBeUndefined();
+    db.close();
+  });
+
+  it.each([
+    ["the mark the console writes", "disowned"],
+    ["a mark this build does not know", "quarantined"],
+    ["an empty mark", ""],
+  ])("reads %s on a tenant's books as disowned, never as no mark", async (_label, stored) => {
+    const db = new Database(":memory:");
+    const stores = createSqlitePlatformStores(db);
+    await stores.tenants.save(tenant);
+    db.prepare("UPDATE tenant SET books_review = ? WHERE id = 'T1'").run(stored);
+
+    expect((await stores.tenants.findById("T1"))?.booksReview).toBe(TenantBooksReview.Disowned);
+    db.close();
+  });
+
+  it("drops the mark an earlier build left on books it served unbound, which stopped nothing, and keeps a disowned mark", async () => {
+    const db = new Database(":memory:");
+    const earlier = createSqlitePlatformStores(db);
+    await earlier.tenants.save(tenant);
+    await earlier.tenants.save({ ...tenant, id: "T2", code: "nile", dbFile: "tenants/nile.db" });
+    db.prepare("UPDATE tenant SET books_review = 'unconfirmed' WHERE id = 'T1'").run();
+    db.prepare("UPDATE tenant SET books_review = 'disowned' WHERE id = 'T2'").run();
+
+    const stores = createSqlitePlatformStores(db);
+
+    expect((await stores.tenants.findById("T1"))?.booksReview).toBeUndefined();
+    expect((await stores.tenants.findById("T2"))?.booksReview).toBe(TenantBooksReview.Disowned);
     db.close();
   });
 

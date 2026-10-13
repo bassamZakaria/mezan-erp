@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link, useBlocker, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, TextInput, useFormat } from "@mezan/ui";
 import { MODULES } from "@mezan/domain";
 import {
+  REFUSED_TENANT_BOOKS,
   SubscriptionStatusCode,
   TenantWireStatus,
   type BillingCycleDTO,
@@ -159,6 +160,7 @@ export function TenantDetailPage() {
   const [retryBillingCycle, setRetryBillingCycle] = useState<BillingCycleDTO>("monthly");
   const [retryTrial, setRetryTrial] = useState(true);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const booksRefusedHintId = useId();
   const onMutationError = (err: unknown) => setMutationError(err instanceof PlatformApiError ? err.message : t("platform.error.network"));
 
   const summary = tenantQuery.data;
@@ -167,6 +169,7 @@ export function TenantDetailPage() {
   }
 
   const { tenant, subscription, plan, licenseState, entitlements, payments } = summary;
+  const booksRefused = summary.books !== null && REFUSED_TENANT_BOOKS.includes(summary.books);
   const checkoutsData = cardCheckouts.data;
   const returnedCheckout = returnedCheckoutId ? checkoutsData?.checkouts.find((c) => c.id === returnedCheckoutId) : undefined;
 
@@ -215,7 +218,7 @@ export function TenantDetailPage() {
           <TenantStatusChip status={tenant.status} />
           <LicenseStateChip state={licenseState.state} />
         </div>
-        <TenantOwnerCard tenant={tenant} isOwner={isOwner} handOverMailConfigured={summary.handOverMailConfigured} onError={onMutationError} />
+        <TenantOwnerCard tenant={tenant} isOwner={isOwner} handOverMailConfigured={summary.handOverMailConfigured} booksRefusedHintId={booksRefused ? booksRefusedHintId : null} onError={onMutationError} />
         <TenantBooksCard tenant={tenant} standing={summary.books} isOwner={isOwner} onError={onMutationError} />
       </div>
 
@@ -253,7 +256,12 @@ export function TenantDetailPage() {
             </Button>
           ) : null}
           {canResetOwnerPin(tenant.status) ? (
-            <Button variant="default" disabled={ownerPin.phase === OwnerPinResetPhase.Pending} onClick={() => setConfirmResetOwnerPin(true)}>
+            <Button
+              variant="default"
+              disabled={ownerPin.phase === OwnerPinResetPhase.Pending || booksRefused}
+              aria-describedby={booksRefused ? booksRefusedHintId : undefined}
+              onClick={() => setConfirmResetOwnerPin(true)}
+            >
               {t("platform.tenantDetail.resetOwnerPin")}
             </Button>
           ) : null}

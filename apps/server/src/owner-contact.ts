@@ -24,8 +24,6 @@ import {
   type TenantOwnerAccount,
 } from "@mezan/domain";
 
-import { TenantBooksUnconfirmedError } from "./tenant-books.js";
-
 export enum OwnerContactAudit {
   Linked = "TENANT_OWNER_LINKED",
   EmailChanged = "TENANT_OWNER_EMAIL_CHANGED",
@@ -237,9 +235,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
   async function settle(tenantId: string, actorOf: (tenant: Tenant) => string, next: (tenant: Tenant, at: string) => Promise<Tenant | null> | Tenant | null): Promise<void> {
     for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
       const tenant = await tenants.findById(tenantId);
-      // SECURITY: the platform does not learn who owns a company from books
-      // nobody has confirmed are that company's.
-      if (!tenant || tenant.booksReview) return;
+      if (!tenant) return;
       const after = await next(tenant, deps.now().toISOString());
       if (!after) return;
       if (await write(tenant, after, changeOf(tenant, after), actorOf(tenant), {})) return;
@@ -329,7 +325,6 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
       for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
         const tenant = await tenants.findById(tenantId);
         if (!tenant) throw new Error("TENANT_NOT_FOUND");
-        if (tenant.booksReview) throw new TenantBooksUnconfirmedError();
         const at = deps.now().toISOString();
         const done = alreadyHandedOver(tenant, input, at) ?? (await handOverOnce(tenant, input, at));
         if (done) return done;

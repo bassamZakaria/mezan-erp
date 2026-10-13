@@ -24,7 +24,7 @@ import {
   type LoginThrottle,
   type SessionRegistry,
 } from "@mezan/api";
-import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
+import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, tenantBooksClaimed, type SeedStores } from "./seed.js";
 
 export interface AuthRoutesDeps {
   readonly demoSeeded?: boolean;
@@ -193,9 +193,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
   async function tenantIsClaimed(): Promise<boolean> {
     if (await deps.claimedElsewhere?.()) return true;
     const settings = await deps.settings.get();
-    if (settings?.tenantClaimedAt) return true;
-    const users = await deps.uow.users.list();
-    return users.some((u) => u.id !== SEED_ADMIN_USER_ID);
+    const users = settings?.tenantClaimedAt ? [] : await deps.uow.users.list();
+    return tenantBooksClaimed({ claimedAt: settings?.tenantClaimedAt, userIds: users.map((u) => u.id) });
   }
 
   // SECURITY: writes the claim once; it is never cleared and is unreachable

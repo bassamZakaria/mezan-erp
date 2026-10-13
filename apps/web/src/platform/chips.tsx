@@ -56,13 +56,10 @@ export function OwnerContactChip({ tenant }: { tenant: Pick<TenantDTO, "ownerCon
   );
 }
 
-export const TENANT_BOOKS_NEEDING_NO_WORD: readonly TenantBooksStanding[] = [TenantBooksStanding.Bound, TenantBooksStanding.NotCreated];
-
 const TENANT_BOOKS_TONE: Record<TenantBooksStanding, PillTone> = {
   [TenantBooksStanding.Bound]: "success",
-  [TenantBooksStanding.NotCreated]: "neutral",
-  [TenantBooksStanding.WillBind]: "info",
-  [TenantBooksStanding.Unconfirmed]: "warning",
+  [TenantBooksStanding.Unbound]: "info",
+  [TenantBooksStanding.Provisioning]: "neutral",
   [TenantBooksStanding.Disowned]: "danger",
   [TenantBooksStanding.Missing]: "danger",
   [TenantBooksStanding.Foreign]: "danger",
@@ -70,10 +67,9 @@ const TENANT_BOOKS_TONE: Record<TenantBooksStanding, PillTone> = {
 };
 
 const TENANT_BOOKS_LABEL: Record<TenantBooksStanding, AppTranslationKey | null> = {
-  [TenantBooksStanding.Bound]: null,
-  [TenantBooksStanding.NotCreated]: null,
-  [TenantBooksStanding.WillBind]: "platform.books.chip.willBind",
-  [TenantBooksStanding.Unconfirmed]: "platform.books.chip.unconfirmed",
+  [TenantBooksStanding.Bound]: "platform.books.chip.bound",
+  [TenantBooksStanding.Unbound]: "platform.books.chip.unbound",
+  [TenantBooksStanding.Provisioning]: null,
   [TenantBooksStanding.Disowned]: "platform.books.chip.disowned",
   [TenantBooksStanding.Missing]: "platform.books.chip.missing",
   [TenantBooksStanding.Foreign]: "platform.books.chip.foreign",

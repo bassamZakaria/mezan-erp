@@ -101,6 +101,7 @@ export enum PlatformRefusalCode {
   PendingOwnerExpired = "TENANT_PENDING_OWNER_EXPIRED",
   BooksBound = "TENANT_BOOKS_BOUND",
   BooksNotBound = "TENANT_BOOKS_NOT_BOUND",
+  BooksChanged = "TENANT_BOOKS_CHANGED",
   MailNotConfigured = "PLATFORM_MAIL_NOT_CONFIGURED",
   TenantNotLive = "TENANT_NOT_LIVE",
   TenantCodeMismatch = "TENANT_CODE_MISMATCH",
@@ -108,16 +109,22 @@ export enum PlatformRefusalCode {
 
 export enum TenantBooksStanding {
   Bound = "bound",
-  WillBind = "will-bind",
-  Unconfirmed = "unconfirmed",
+  Unbound = "unbound",
+  Provisioning = "provisioning",
   Disowned = "disowned",
   Missing = "missing",
   Foreign = "foreign",
   Unreadable = "unreadable",
-  NotCreated = "not-created",
 }
 
 export const tenantBooksStandingSchema = z.nativeEnum(TenantBooksStanding);
+
+export const REFUSED_TENANT_BOOKS: readonly TenantBooksStanding[] = [
+  TenantBooksStanding.Disowned,
+  TenantBooksStanding.Missing,
+  TenantBooksStanding.Foreign,
+  TenantBooksStanding.Unreadable,
+];
 
 export const tenantBooksSchema = z.object({
   standing: tenantBooksStandingSchema,
@@ -125,7 +132,10 @@ export const tenantBooksSchema = z.object({
   admins: z.array(ownerCandidateSchema),
 });
 
-export const confirmTenantBooksRequestSchema = assignOwnerRequestSchema;
+export const confirmTenantBooksRequestSchema = z.object({
+  userId: z.string().trim().min(1),
+  companyName: z.string().nullable(),
+});
 
 export const unbindTenantBooksRequestSchema = z.object({
   code: z.string().trim().min(1),

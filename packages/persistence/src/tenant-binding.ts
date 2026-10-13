@@ -1,8 +1,9 @@
-import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, existsSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { chmod, copyFile, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { applyKey, type SqliteOpenOptions } from "./sqlite-connection.js";
+import { SqliteFileBusyError } from "./sqlite-file-hold.js";
 import { SETTINGS_ROW_ID } from "./settings-store.js";
 
 const BINDING_ROW_ID = 1;
@@ -51,7 +52,7 @@ export interface TenantBooksUser {
 
 export interface TenantBooksIdentity {
   readonly boundTenantId: string | null;
-  readonly claimed: boolean;
+  readonly claimedAt: string | null;
   readonly companyName: string | null;
   readonly users: readonly TenantBooksUser[];
 }
@@ -77,7 +78,7 @@ function settingsIn(sqlite: Database.Database): StoredSettings {
   return row ? (JSON.parse(row.data) as StoredSettings) : {};
 }
 
-const textOr = <T>(value: unknown, otherwise: T): string | T => (typeof value === "string" && value !== "" ? value : otherwise);
+const textOrNull = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
 
 interface UserRow {
   id: string;
@@ -96,12 +97,27 @@ function usersIn(sqlite: Database.Database): TenantBooksUser[] {
   return rows.map((row) => ({ id: row.id, nameAr: row.name_ar, email: row.email, isCompanyAdmin: row.is_company_admin === 1, status: row.status, erased: row.erased_at !== null }));
 }
 
+function identityOf(sqlite: Database.Database): TenantBooksIdentity {
+  const settings = settingsIn(sqlite);
+  return { boundTenantId: boundTenantIdOf(sqlite), claimedAt: textOrNull(settings.tenantClaimedAt), companyName: textOrNull(settings.companyName), users: usersIn(sqlite) };
+}
+
 const REPLAYED_SIBLINGS = ["-wal", "-journal"] as const;
 const SIBLINGS = [...REPLAYED_SIBLINGS, "-shm"] as const;
+const STAMPED = ["", ...REPLAYED_SIBLINGS] as const;
 
-type IdentityReadOptions = Pick<SqliteOpenOptions, "driver" | "key" | "exclusive">;
+// CONTRACT: changes whenever the database, its log or its journal is written,
+// replaced or removed. The index (`-shm`) is left out: reading moves it.
+export function sqliteFileStamp(file: string): string {
+  return STAMPED.map((suffix) => {
+    const stat = statSync(`${file}${suffix}`, { throwIfNoEntry: false });
+    return stat ? `${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` : "-";
+  }).join("|");
+}
 
-function identityIn(file: string, options: IdentityReadOptions): TenantBooksIdentity {
+type BooksConnection = Pick<SqliteOpenOptions, "driver" | "key" | "exclusive">;
+
+function identityIn(file: string, options: BooksConnection): TenantBooksIdentity {
   let sqlite: Database.Database;
   try {
     sqlite = new (options.driver ?? Database)(file, { fileMustExist: true });
@@ -113,8 +129,7 @@ function identityIn(file: string, options: IdentityReadOptions): TenantBooksIden
     if (options.key !== undefined) applyKey(sqlite, options.key);
     if (options.exclusive === true) sqlite.pragma("locking_mode = EXCLUSIVE");
     sqlite.pragma("query_only = ON");
-    const settings = settingsIn(sqlite);
-    return { boundTenantId: boundTenantIdOf(sqlite), claimed: textOr(settings.tenantClaimedAt, null) !== null, companyName: textOr(settings.companyName, null), users: usersIn(sqlite) };
+    return identityOf(sqlite);
   } catch (err) {
     if (isUnreadableSqliteError(err) || err instanceof SyntaxError) throw new NotASqliteDatabaseError(file, err);
     throw err;
@@ -123,31 +138,71 @@ function identityIn(file: string, options: IdentityReadOptions): TenantBooksIden
   }
 }
 
+const SCRATCH_DIR_MODE = 0o700;
+const SCRATCH_FILE_MODE = 0o600;
+const SNAPSHOT_ATTEMPTS = 3;
+
+// SECURITY: the scratch directory holds copies of customers' databases while
+// they are read. It is the owner's alone, and whatever a killed process left
+// in it is removed before anything else is started.
+export function emptyBooksScratch(dir: string): void {
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true, mode: SCRATCH_DIR_MODE });
+  chmodSync(dir, SCRATCH_DIR_MODE);
+}
+
+function isGone(err: unknown): boolean {
+  return err instanceof Error && (err as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+async function copyPrivately(from: string, to: string): Promise<void> {
+  await copyFile(from, to);
+  await chmod(to, SCRATCH_FILE_MODE);
+}
+
+async function snapshotInto(scratch: string, file: string): Promise<string | null> {
+  const before = sqliteFileStamp(file);
+  const copy = path.join(scratch, "books.db");
+  try {
+    await copyPrivately(file, copy);
+    for (const suffix of REPLAYED_SIBLINGS) if (existsSync(`${file}${suffix}`)) await copyPrivately(`${file}${suffix}`, `${copy}${suffix}`);
+  } catch (err) {
+    if (isGone(err)) return null;
+    throw err;
+  }
+  return sqliteFileStamp(file) === before ? copy : null;
+}
+
 // SECURITY: asked before the database is judged, so it must leave the file,
 // its log and its index byte for byte. A database with a log or a journal
 // beside it is replayed by whoever opens it, and that rewrites it: such a
-// database is read from a private copy, copied in one synchronous step so the
-// pair is never torn by a writer in this process. With nothing beside it the
-// database is read in place, where `query_only` holds the connection to
-// reading. It is NOT opened read-only: a read-only handle cannot take the
-// exclusive lock WAL needs on a network filesystem, and it leaves a `-shm`
-// beside the file.
-export function readTenantBooksIdentity(file: string, options: IdentityReadOptions = {}): TenantBooksIdentity {
+// database is read from a private copy in `scratchDir`. The copy is made off
+// the event loop, so a writer in this process may write between the database
+// and its log being copied; a copy whose source changed meanwhile is thrown
+// away and made again, and after three tries the file is reported busy rather
+// than judged from a torn pair. With nothing beside it the database is read in
+// place, where `query_only` holds the connection to reading. It is NOT opened
+// read-only: a read-only handle cannot take the exclusive lock WAL needs on a
+// network filesystem, and it leaves a `-shm` beside the file.
+export async function readTenantBooksIdentity(file: string, scratchDir: string, options: BooksConnection = {}): Promise<TenantBooksIdentity> {
   if (!SIBLINGS.some((suffix) => existsSync(`${file}${suffix}`))) return identityIn(file, options);
-  const scratch = mkdtempSync(path.join(tmpdir(), "mezan-books-identity-"));
-  try {
-    const copy = path.join(scratch, "books.db");
-    copyFileSync(file, copy);
-    for (const suffix of REPLAYED_SIBLINGS) if (existsSync(`${file}${suffix}`)) copyFileSync(`${file}${suffix}`, `${copy}${suffix}`);
+  mkdirSync(scratchDir, { recursive: true, mode: SCRATCH_DIR_MODE });
+  for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt += 1) {
+    const scratch = await mkdtemp(path.join(scratchDir, "identity-"));
     try {
-      return identityIn(copy, options);
-    } catch (err) {
-      if (err instanceof NotASqliteDatabaseError) throw new NotASqliteDatabaseError(file, err.cause);
-      throw err;
+      const copy = await snapshotInto(scratch, file);
+      if (copy === null) continue;
+      try {
+        return identityIn(copy, options);
+      } catch (err) {
+        if (err instanceof NotASqliteDatabaseError) throw new NotASqliteDatabaseError(file, err.cause);
+        throw err;
+      }
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
     }
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
   }
+  throw new SqliteFileBusyError(file);
 }
 
 // SECURITY: an open never moves a binding. A database already bound to another
@@ -163,7 +218,7 @@ export function bindTenantDatabase(sqlite: Database.Database, tenantId: string, 
 
 const BINDING_WRITE_WAIT_MS = 2000;
 
-function onBooks<T>(file: string, options: IdentityReadOptions, write: (sqlite: Database.Database) => T): T {
+function onBooks<T>(file: string, options: BooksConnection, write: (sqlite: Database.Database) => T): T {
   const sqlite = new (options.driver ?? Database)(file, { fileMustExist: true, timeout: BINDING_WRITE_WAIT_MS });
   try {
     if (options.key !== undefined) applyKey(sqlite, options.key);
@@ -174,13 +229,27 @@ function onBooks<T>(file: string, options: IdentityReadOptions, write: (sqlite: 
   }
 }
 
-export function writeTenantBinding(file: string, tenantId: string, options: IdentityReadOptions = {}, now: () => Date = () => new Date()): void {
-  onBooks(file, options, (sqlite) => bindTenantDatabase(sqlite, tenantId, now));
+export interface TenantBindingWrite extends BooksConnection {
+  readonly now?: () => Date;
+  // SECURITY: handed the books as they are inside the write that binds them.
+  // Throwing leaves them unbound.
+  readonly accept?: (books: TenantBooksIdentity) => void;
+}
+
+export function writeTenantBinding(file: string, tenantId: string, options: TenantBindingWrite = {}): void {
+  onBooks(file, options, (sqlite) =>
+    sqlite
+      .transaction(() => {
+        options.accept?.(identityOf(sqlite));
+        bindTenantDatabase(sqlite, tenantId, options.now);
+      })
+      .immediate(),
+  );
 }
 
 // SECURITY: takes out this tenant's binding and no other's. False when the
 // database is not bound to this tenant; nothing is written then.
-export function clearTenantBinding(file: string, tenantId: string, options: IdentityReadOptions = {}): boolean {
+export function clearTenantBinding(file: string, tenantId: string, options: BooksConnection = {}): boolean {
   return onBooks(file, options, (sqlite) => {
     if (boundTenantIdOf(sqlite) !== tenantId) return false;
     return sqlite.prepare(`DELETE FROM tenant_binding WHERE id = ? AND tenant_id = ?`).run(BINDING_ROW_ID, tenantId).changes === 1;

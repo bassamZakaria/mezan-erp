@@ -24,15 +24,19 @@ export function TenantOwnerCard({
   tenant,
   isOwner,
   handOverMailConfigured,
+  booksRefusedHintId,
   onError,
 }: {
   tenant: TenantDTO;
   isOwner: boolean;
   handOverMailConfigured: boolean;
+  // CONTRACT: the id of the reason shown here while the company's books are refused; null while they are not.
+  booksRefusedHintId: string | null;
   onError: (err: unknown) => void;
 }) {
   const { t } = useAppTranslation();
   const noMailHintId = useId();
+  const booksRefused = booksRefusedHintId !== null;
   const [picking, setPicking] = useState(false);
   const [chosen, setChosen] = useState<OwnerCandidateDTO | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -69,18 +73,23 @@ export function TenantOwnerCard({
         <span>{t("platform.tenantDetail.ownerEmail")}: {tenant.ownerEmail}</span>
         <OwnerContactChip tenant={tenant} />
         {actionable ? (
-          <Button variant="default" size="sm" onClick={() => setPicking((open) => !open)}>
+          <Button variant="default" size="sm" disabled={booksRefused} aria-describedby={booksRefusedHintId ?? undefined} onClick={() => setPicking((open) => !open)}>
             {t("platform.tenantDetail.owner.assign")}
           </Button>
         ) : null}
       </p>
+      {actionable && booksRefusedHintId !== null ? (
+        <p id={booksRefusedHintId} className="mt-[2px] max-w-[72ch] text-[12px] text-danger-ink">
+          {t("platform.books.refused.ownerActions")}
+        </p>
+      ) : null}
       {tenant.ownerNeeded ? <p className="mt-[2px] text-[12px] text-danger-ink">{t("platform.tenantDetail.owner.neededHint")}</p> : null}
       {tenant.ownerContactVerified ? null : <p className="mt-[2px] text-[12px] text-warning-ink">{t("platform.tenantDetail.ownerUnverifiedHint")}</p>}
       {pending ? (
         <p className="mt-[4px] flex flex-wrap items-center gap-[8px] text-[12px] text-warning-ink">
           <span>{t(pendingHintKey(pending, expired), { email: pending.email })}</span>
           {actionable && !expired ? (
-            <Button variant="default" size="sm" disabled={acting !== null} onClick={() => setAsking(PendingOwnerAct.Confirm)}>
+            <Button variant="default" size="sm" disabled={acting !== null || booksRefused} aria-describedby={booksRefusedHintId ?? undefined} onClick={() => setAsking(PendingOwnerAct.Confirm)}>
               {t("platform.tenantDetail.owner.confirmPending")}
             </Button>
           ) : null}
@@ -107,7 +116,7 @@ export function TenantOwnerCard({
           {t("platform.tenantDetail.owner.resendNoMail")}
         </p>
       ) : null}
-      {actionable && picking ? (
+      {actionable && picking && !booksRefused ? (
         <div className="mt-[8px] rounded-md border border-border bg-surface-2 p-[10px_12px]">
           <p className="text-[12.5px] font-semibold text-ink">{t("platform.tenantDetail.owner.pick")}</p>
           {candidates.isPending ? <p className="mt-[6px] text-[12.5px] text-ink-muted">{t("platform.tenantDetail.owner.loading")}</p> : null}

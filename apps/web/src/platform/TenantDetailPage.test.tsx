@@ -884,20 +884,21 @@ describe("TenantDetailPage", () => {
       });
     }
 
-    it("says nothing about books that are bound, beyond offering the platform owner to unbind them", async () => {
+    it("shows bound books as bound and offers the platform owner to unbind them, nothing else", async () => {
       renderDetail({ transport: booksTransport(TenantBooksStanding.Bound), session: testPlatformSession });
 
       expect(await screen.findByRole("button", { name: "فك ربط الدفاتر" })).toBeInTheDocument();
-      expect(screen.queryByText("دفاتر بانتظار التأكيد")).not.toBeInTheDocument();
+      expect(screen.getByText("دفاتر مربوطة")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "تأكيد الدفاتر" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "ليست دفاتر هذه المنشأة" })).not.toBeInTheDocument();
     });
 
-    it("explains unconfirmed books, shows the company name and admins the file holds, and binds them to the admin picked only after asking", async () => {
+    it("says unbound books hold nothing back, shows the company name and admins the file holds, and confirms with exactly what the dialog showed and the admin picked, only after asking", async () => {
       const posts: { route: string; body: unknown }[] = [];
-      renderDetail({ transport: booksTransport(TenantBooksStanding.Unconfirmed, posts), session: testPlatformSession });
+      renderDetail({ transport: booksTransport(TenantBooksStanding.Unbound, posts), session: testPlatformSession });
 
-      expect(await screen.findByText("دفاتر بانتظار التأكيد")).toBeInTheDocument();
-      expect(screen.getByText(/تعمل المنشأة على هذه الدفاتر كما هي، ولم تستطع المنصة أن تتأكد وحدها من أنها دفاترها/)).toBeInTheDocument();
+      expect(await screen.findByText("دفاتر غير مربوطة (قديمة)")).toBeInTheDocument();
+      expect(screen.getByText(/وتعمل المنشأة عليها كما كانت ولا يمنع ذلك شيئًا/)).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "تأكيد الدفاتر" }));
       const dialog = await screen.findByRole("dialog", { name: "تأكيد أن هذه دفاتر المنشأة؟" });
       expect(await within(dialog).findByText("شركة أكمي للتجارة")).toBeInTheDocument();
@@ -907,13 +908,14 @@ describe("TenantDetailPage", () => {
       expect(posts).toEqual([]);
       fireEvent.click(confirm);
 
-      await waitFor(() => expect(posts).toEqual([{ route: "confirm", body: { userId: "U-2" } }]));
-      await waitFor(() => expect(screen.queryByText("دفاتر بانتظار التأكيد")).not.toBeInTheDocument());
+      await waitFor(() => expect(posts).toEqual([{ route: "confirm", body: { userId: "U-2", companyName: "شركة أكمي للتجارة" } }]));
+      expect(await screen.findByText("دفاتر مربوطة")).toBeInTheDocument();
+      expect(screen.queryByText("دفاتر غير مربوطة (قديمة)")).not.toBeInTheDocument();
     });
 
     it("stops serving the company when the platform owner says the books are not its own, after asking", async () => {
       const posts: { route: string; body: unknown }[] = [];
-      renderDetail({ transport: booksTransport(TenantBooksStanding.Unconfirmed, posts), session: testPlatformSession });
+      renderDetail({ transport: booksTransport(TenantBooksStanding.Unbound, posts), session: testPlatformSession });
 
       fireEvent.click(await screen.findByRole("button", { name: "ليست دفاتر هذه المنشأة" }));
       const dialog = await screen.findByRole("dialog", { name: "إيقاف العمل على هذه الدفاتر؟" });
@@ -947,7 +949,6 @@ describe("TenantDetailPage", () => {
       [TenantBooksStanding.Missing, "ملف الدفاتر مفقود", /ملف دفاتر هذه المنشأة ليس في مكانه على الخادم/],
       [TenantBooksStanding.Foreign, "دفاتر منشأة أخرى", /الملف الموجود مربوط بمنشأة أخرى أو لم يُنشئ فيه أحد حسابًا/],
       [TenantBooksStanding.Unreadable, "ملف دفاتر تالف", /تعذّرت قراءة ملف دفاتر هذه المنشأة/],
-      [TenantBooksStanding.WillBind, "تُربط عند أول فتح", /ستُربط هذه الدفاتر بالمنشأة تلقائيًا عند أول فتح لها/],
     ])("explains books that are %s", async (standing, label, explanation) => {
       renderDetail({ transport: booksTransport(standing), session: testPlatformSession });
 
@@ -956,17 +957,49 @@ describe("TenantDetailPage", () => {
       expect(screen.queryByRole("button", { name: "تأكيد الدفاتر" })).not.toBeInTheDocument();
     });
 
-    it("shows a support operator the state of the books and none of the actions", async () => {
-      renderDetail({ transport: booksTransport(TenantBooksStanding.Unconfirmed), session: supportSession });
+    it("says nothing about the books of a company still being provisioned", async () => {
+      renderDetail({ transport: stubPlatformTransport({ "GET /tenants/tenant-1": () => ({ body: withBooks(TenantBooksStanding.Provisioning, { status: TenantWireStatus.Provisioning }) }), "GET /plans": () => ({ body: [plan, plan2] }) }), session: testPlatformSession });
 
-      expect(await screen.findByText("دفاتر بانتظار التأكيد")).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "إعادة المحاولة" })).toBeInTheDocument();
+      expect(screen.queryByText(/دفاتر/)).not.toBeInTheDocument();
+    });
+
+    const REASON = "دفاتر هذه المنشأة لا تُفتح الآن، فلا يُعيَّن لها مالك ولا يُعاد تعيين رمزه حتى تعود دفاترها إلى مكانها.";
+
+    it.each([TenantBooksStanding.Disowned, TenantBooksStanding.Foreign, TenantBooksStanding.Missing, TenantBooksStanding.Unreadable])(
+      "does not offer to assign an owner or reset the owner's PIN while the books are %s, and says why in Arabic",
+      async (standing) => {
+        renderDetail({ transport: booksTransport(standing), session: testPlatformSession });
+
+        const assign = await screen.findByRole("button", { name: "تعيين مالك" });
+        const reset = screen.getByRole("button", { name: "إعادة تعيين رمز المالك" });
+        expect(assign).toBeDisabled();
+        expect(reset).toBeDisabled();
+        expect(assign).toHaveAccessibleDescription(REASON);
+        expect(reset).toHaveAccessibleDescription(REASON);
+        expect(screen.getByText(REASON)).toBeVisible();
+      },
+    );
+
+    it.each([TenantBooksStanding.Unbound, TenantBooksStanding.Bound])("offers to assign an owner and to reset the owner's PIN while the books are %s", async (standing) => {
+      renderDetail({ transport: booksTransport(standing), session: testPlatformSession });
+
+      expect(await screen.findByRole("button", { name: "تعيين مالك" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "إعادة تعيين رمز المالك" })).toBeEnabled();
+      expect(screen.queryByText(REASON)).not.toBeInTheDocument();
+    });
+
+    it("shows a support operator where the books stand and none of the actions", async () => {
+      renderDetail({ transport: booksTransport(TenantBooksStanding.Unbound), session: supportSession });
+
+      expect(await screen.findByText("دفاتر غير مربوطة (قديمة)")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "تأكيد الدفاتر" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "ليست دفاتر هذه المنشأة" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "فك ربط الدفاتر" })).not.toBeInTheDocument();
     });
 
-    it("shows the server's refusal when the books cannot be confirmed", async () => {
-      const stub = booksTransport(TenantBooksStanding.Unconfirmed);
+    it("shows the server's refusal when the books cannot be confirmed, and offers the three actions again", async () => {
+      const stub = booksTransport(TenantBooksStanding.Unbound);
       const transport: Transport = async (path, init) => {
         if (path === "/tenants/tenant-1/books/confirm") {
           const body = { error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." };
@@ -982,7 +1015,9 @@ describe("TenantDetailPage", () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد وربط" }));
 
       expect(await screen.findByText("تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى.")).toBeInTheDocument();
-      expect(screen.getByText("دفاتر بانتظار التأكيد")).toBeInTheDocument();
+      expect(screen.getByText("دفاتر غير مربوطة (قديمة)")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "تأكيد الدفاتر" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "ليست دفاتر هذه المنشأة" })).toBeEnabled();
     });
   });
 });

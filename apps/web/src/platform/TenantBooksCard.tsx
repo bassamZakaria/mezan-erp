@@ -1,9 +1,9 @@
 import { useId, useState } from "react";
 import { Button, ConfirmDialog } from "@mezan/ui";
-import { TenantBooksStanding, TenantWireStatus, type TenantDTO } from "@mezan/contracts";
+import { TenantBooksStanding, TenantWireStatus, type TenantBooksDTO, type TenantDTO } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { TextField } from "../settings/form-controls";
-import { TENANT_BOOKS_NEEDING_NO_WORD, TenantBooksChip } from "./chips";
+import { TenantBooksChip } from "./chips";
 import { useConfirmTenantBooksMutation, useDisownTenantBooksMutation, useTenantBooksQuery, useUnbindTenantBooksMutation } from "./hooks";
 
 enum BooksAct {
@@ -13,37 +13,47 @@ enum BooksAct {
 }
 
 const EXPLANATION: Partial<Record<TenantBooksStanding, AppTranslationKey>> = {
-  [TenantBooksStanding.WillBind]: "platform.books.explain.willBind",
-  [TenantBooksStanding.Unconfirmed]: "platform.books.explain.unconfirmed",
+  [TenantBooksStanding.Unbound]: "platform.books.explain.unbound",
   [TenantBooksStanding.Disowned]: "platform.books.explain.disowned",
   [TenantBooksStanding.Missing]: "platform.books.explain.missing",
   [TenantBooksStanding.Foreign]: "platform.books.explain.foreign",
   [TenantBooksStanding.Unreadable]: "platform.books.explain.unreadable",
 };
 
-const CONFIRMABLE: readonly TenantBooksStanding[] = [TenantBooksStanding.Unconfirmed, TenantBooksStanding.Disowned];
+const CONFIRMABLE: readonly TenantBooksStanding[] = [TenantBooksStanding.Unbound, TenantBooksStanding.Disowned];
 
 function isLive(tenant: TenantDTO): boolean {
   return tenant.status === TenantWireStatus.Active || tenant.status === TenantWireStatus.Suspended;
 }
 
-function ConfirmBooksChoice({ tenantId, chosenId, onChoose }: { tenantId: string; chosenId: string | null; onChoose: (userId: string) => void }) {
+function ConfirmBooksChoice({
+  books,
+  loading,
+  failure,
+  chosenId,
+  onChoose,
+}: {
+  books: TenantBooksDTO | undefined;
+  loading: boolean;
+  failure: string | null;
+  chosenId: string | null;
+  onChoose: (userId: string) => void;
+}) {
   const { t } = useAppTranslation();
   const groupName = useId();
-  const books = useTenantBooksQuery(tenantId, true);
-  if (books.isPending) return <p>{t("platform.books.confirm.loading")}</p>;
-  if (books.isError) return <p role="alert" className="text-danger-ink">{books.error.message}</p>;
+  if (failure !== null) return <p role="alert" className="text-danger-ink">{failure}</p>;
+  if (loading || !books) return <p>{t("platform.books.confirm.loading")}</p>;
   return (
     <div className="flex flex-col gap-[10px]">
       <p>
-        {t("platform.books.confirm.companyName")}: <span className="break-words font-semibold text-ink">{books.data.companyName ?? t("platform.books.confirm.noCompanyName")}</span>
+        {t("platform.books.confirm.companyName")}: <span className="break-words font-semibold text-ink">{books.companyName ?? t("platform.books.confirm.noCompanyName")}</span>
       </p>
-      {books.data.admins.length === 0 ? (
+      {books.admins.length === 0 ? (
         <p className="text-danger-ink">{t("platform.books.confirm.none")}</p>
       ) : (
-        <fieldset className="flex flex-col gap-[6px]">
+        <fieldset className="flex min-w-0 flex-col gap-[6px]">
           <legend className="mb-[4px] font-semibold text-ink">{t("platform.books.confirm.pick")}</legend>
-          {books.data.admins.map((admin) => (
+          {books.admins.map((admin) => (
             <label key={admin.id} className="flex min-h-[var(--h-btn)] cursor-pointer items-center gap-[8px] rounded-md border border-border bg-surface-2 px-[10px] py-[6px]">
               <input type="radio" name={groupName} checked={chosenId === admin.id} onChange={() => onChoose(admin.id)} />
               <span className="min-w-0">
@@ -74,14 +84,13 @@ export function TenantBooksCard({
   const [acting, setActing] = useState<BooksAct | null>(null);
   const [chosenId, setChosenId] = useState<string | null>(null);
   const [typedCode, setTypedCode] = useState("");
+  const shown = useTenantBooksQuery(tenant.id, asking === BooksAct.Confirm);
   const confirmBooks = useConfirmTenantBooksMutation();
   const disownBooks = useDisownTenantBooksMutation();
   const unbindBooks = useUnbindTenantBooksMutation();
-  if (standing === null) return null;
+  if (standing === null || standing === TenantBooksStanding.Provisioning) return null;
   const actionable = isOwner && isLive(tenant);
   const explanation = EXPLANATION[standing];
-  const canUnbind = actionable && standing === TenantBooksStanding.Bound;
-  if (TENANT_BOOKS_NEEDING_NO_WORD.includes(standing) && !canUnbind) return null;
 
   const close = () => {
     setAsking(null);
@@ -94,7 +103,7 @@ export function TenantBooksCard({
   const act = (which: BooksAct) => {
     if (acting !== null) return;
     setActing(which);
-    if (which === BooksAct.Confirm && chosenId !== null) confirmBooks.mutate({ tenantId: tenant.id, userId: chosenId }, settle);
+    if (which === BooksAct.Confirm && chosenId !== null && shown.data) confirmBooks.mutate({ tenantId: tenant.id, userId: chosenId, companyName: shown.data.companyName }, settle);
     else if (which === BooksAct.Disown) disownBooks.mutate(tenant.id, settle);
     else if (which === BooksAct.Unbind) unbindBooks.mutate({ tenantId: tenant.id, code: typedCode.trim() }, settle);
     else setActing(null);
@@ -110,12 +119,12 @@ export function TenantBooksCard({
             {t("platform.books.confirm")}
           </Button>
         ) : null}
-        {actionable && standing === TenantBooksStanding.Unconfirmed ? (
+        {actionable && standing === TenantBooksStanding.Unbound ? (
           <Button variant="ghost" size="sm" disabled={acting !== null} onClick={() => setAsking(BooksAct.Disown)}>
             {t("platform.books.disown")}
           </Button>
         ) : null}
-        {canUnbind ? (
+        {actionable && standing === TenantBooksStanding.Bound ? (
           <Button variant="ghost" size="sm" disabled={acting !== null} onClick={() => setAsking(BooksAct.Unbind)}>
             {t("platform.books.unbind")}
           </Button>
@@ -126,9 +135,13 @@ export function TenantBooksCard({
       <ConfirmDialog
         open={asking === BooksAct.Confirm}
         title={t("platform.books.confirm.title")}
-        consequence={asking === BooksAct.Confirm ? <ConfirmBooksChoice tenantId={tenant.id} chosenId={chosenId} onChoose={setChosenId} /> : null}
+        consequence={
+          asking === BooksAct.Confirm ? (
+            <ConfirmBooksChoice books={shown.data} loading={shown.isFetching} failure={shown.isError ? shown.error.message : null} chosenId={chosenId} onChoose={setChosenId} />
+          ) : null
+        }
         confirmLabel={t("platform.books.confirm.confirm")}
-        confirmDisabled={chosenId === null}
+        confirmDisabled={chosenId === null || shown.isFetching || !shown.data}
         onConfirm={() => act(BooksAct.Confirm)}
         onCancel={close}
       />

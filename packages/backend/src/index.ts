@@ -14,6 +14,7 @@ export {
   // to the recovery file. A packaged build's PIN is random and was printed
   // nowhere, so a forgotten one bricked the install (apps/desktop/src/main/recovery.ts).
   SEED_ADMIN_USER_ID,
+  tenantBooksClaimed,
   takeSeededAdminSecrets,
   resolveSeedAdminSecrets,
   type SeedStores,

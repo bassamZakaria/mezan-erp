@@ -76,6 +76,7 @@ import {
   type OwnerPinResetResultDTO,
   type OwnerCandidateDTO,
   PlatformRefusalCode,
+  REFUSED_TENANT_BOOKS,
   type TenantBooksDTO,
   type TenantBooksStanding,
   type TenantSummaryDTO,
@@ -123,12 +124,15 @@ export enum PlatformAuditAction {
 }
 
 export interface PlatformTenantBooksPort {
-  // CONTRACT: must not open a tenant's database for use; the list asks it for every tenant.
+  // CONTRACT: neither opens a tenant's database for use. The list asks
+  // `lastStandingOf` for every tenant, so it must not read books it has read
+  // before; `standingOf` reads them again when their file has changed.
+  lastStandingOf(tenant: Tenant): Promise<TenantBooksStanding | null>;
   standingOf(tenant: Tenant): Promise<TenantBooksStanding | null>;
   read(tenant: Tenant): Promise<TenantBooksDTO>;
   // REQUIRED ORDERING: as for the owner routes, each of these writes its own
   // CRITICAL audit row in the same step as the change.
-  confirm(input: { tenant: Tenant; userId: string; actorId: string }): Promise<Tenant>;
+  confirm(input: { tenant: Tenant; userId: string; companyName: string | null; actorId: string }): Promise<Tenant>;
   disown(input: { tenant: Tenant; actorId: string }): Promise<Tenant>;
   unbind(input: { tenant: Tenant; actorId: string }): Promise<Tenant>;
 }
@@ -246,9 +250,9 @@ const SERVER_OWNER_CONFLICT_CODES: ReadonlySet<string> = new Set([
   PlatformRefusalCode.OwnerCandidateNotFound,
   PlatformRefusalCode.NoPendingOwner,
   PlatformRefusalCode.PendingOwnerExpired,
-  "TENANT_BOOKS_UNCONFIRMED",
   PlatformRefusalCode.BooksBound,
   PlatformRefusalCode.BooksNotBound,
+  PlatformRefusalCode.BooksChanged,
   PlatformRefusalCode.MailNotConfigured,
 ]);
 const DB_FILE_RETRY_AFTER_SECONDS = 5;
@@ -348,9 +352,12 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   const onAuditError = options.onAuditError ?? ((err: unknown) => console.error(err));
   const nowIso = () => now().toISOString();
 
-  async function summaryOf(tenant: Tenant): Promise<TenantSummaryDTO> {
+  const booksReadAgain = async (tenant: Tenant): Promise<TenantBooksStanding | null> => (tenantBooks ? tenantBooks.standingOf(tenant) : null);
+
+  // CONTRACT: with no standing handed in, the last one read is shown and no books are read again.
+  async function summaryOf(tenant: Tenant, books?: TenantBooksStanding | null): Promise<TenantSummaryDTO> {
     return tenantSummary(platform, tenant, nowIso(), {
-      books: tenantBooks ? await tenantBooks.standingOf(tenant) : null,
+      books: books !== undefined ? books : tenantBooks ? await tenantBooks.lastStandingOf(tenant) : null,
       handOverMailConfigured: options.handOverMailConfigured === true,
     });
   }
@@ -424,9 +431,13 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.get("/tenants/:id", requireAny, async (c) => {
     try {
       const read = await requireTenant(c.req.param("id"));
-      if (reconcileOwner && (read.status === TenantStatusCode.Active || read.status === TenantStatusCode.Suspended)) await reconcileOwner(read);
+      // REQUIRED ORDERING: the books are read first. Reconciling the owner opens
+      // them for use, and refused books are not opened to draw a page.
+      const books = await booksReadAgain(read);
+      const refused = books !== null && REFUSED_TENANT_BOOKS.includes(books);
+      if (reconcileOwner && !refused && (read.status === TenantStatusCode.Active || read.status === TenantStatusCode.Suspended)) await reconcileOwner(read);
       const tenant = await requireTenant(read.id);
-      return c.json(await summaryOf(tenant));
+      return c.json(await summaryOf(tenant, books));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -567,18 +578,21 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     const parsed = confirmTenantBooksRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     return onLiveTenantBooks(c, async (books, tenant) => {
-      const confirmed = await books.confirm({ tenant, userId: parsed.data.userId, actorId: c.get("platformUser")!.id });
+      const confirmed = await books.confirm({ tenant, userId: parsed.data.userId, companyName: parsed.data.companyName, actorId: c.get("platformUser")!.id });
       invalidateEntitlements(tenant.code);
-      return c.json(await summaryOf(confirmed));
+      return c.json(await summaryOf(confirmed, await booksReadAgain(confirmed)));
     });
   });
 
   app.post("/tenants/:id/books/disown", requireOwner, (c) =>
-    onLiveTenantBooks(c, async (books, tenant) => c.json(await summaryOf(await books.disown({ tenant, actorId: c.get("platformUser")!.id })))),
+    onLiveTenantBooks(c, async (books, tenant) => {
+      const disowned = await books.disown({ tenant, actorId: c.get("platformUser")!.id });
+      return c.json(await summaryOf(disowned, await booksReadAgain(disowned)));
+    }),
   );
 
   // SECURITY: the company's code is typed, as for a deletion: unbinding stops
-  // the company being served until somebody confirms its books again.
+  // the company being served until somebody confirms books for it again.
   app.post("/tenants/:id/books/unbind", requireOwner, async (c) => {
     const parsed = unbindTenantBooksRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -586,7 +600,8 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       if (parsed.data.code !== tenant.code) {
         return c.json({ error: PlatformRefusalCode.TenantCodeMismatch, message: "الرمز المكتوب لا يطابق رمز هذه المنشأة", messageEn: "The typed code is not this company's code" }, 422);
       }
-      return c.json(await summaryOf(await books.unbind({ tenant, actorId: c.get("platformUser")!.id })));
+      const unbound = await books.unbind({ tenant, actorId: c.get("platformUser")!.id });
+      return c.json(await summaryOf(unbound, await booksReadAgain(unbound)));
     });
   });
 

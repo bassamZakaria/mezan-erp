@@ -260,16 +260,18 @@ function toTenant(r: TenantRow): Tenant {
     ...(r.owner_needed === 1 ? { ownerNeeded: true } : {}),
     ...(r.pending_owner === null ? {} : { pendingOwner: pendingOwnerOf(r.pending_owner) }),
     ...(r.owner_record_due === null ? {} : { ownerRecordDue: JSON.parse(r.owner_record_due) as OwnerRecordDue }),
-    ...(r.books_review === null ? {} : { booksReview: booksReviewOf(r.books_review) }),
+    // SECURITY: any mark stops the books being served. One this build does
+    // not know is read as `disowned`, never as no mark at all.
+    ...(r.books_review === null ? {} : { booksReview: TenantBooksReview.Disowned }),
   };
 }
 
-const BOOKS_REVIEWS: readonly string[] = Object.values(TenantBooksReview);
+const RETIRED_BOOKS_REVIEW = "unconfirmed";
 
-// SECURITY: a mark this build does not know is read as the one that stops the
-// books being served, never as no mark at all.
-function booksReviewOf(stored: string): TenantBooksReview {
-  return BOOKS_REVIEWS.includes(stored) ? (stored as TenantBooksReview) : TenantBooksReview.Disowned;
+// An earlier build of this lane wrote this mark on books it served unbound. It
+// stopped nothing then, and left in place it would now read as `disowned`.
+function dropRetiredBooksReview(sqlite: Database.Database): void {
+  sqlite.prepare(`UPDATE tenant SET books_review = NULL WHERE books_review = ?`).run(RETIRED_BOOKS_REVIEW);
 }
 
 function pendingOwnerOf(stored: string): PendingOwner {
@@ -335,11 +337,15 @@ class SqliteTenantStore implements TenantRepository {
          owner_needed = @ownerNeeded, pending_owner = @pendingOwner, owner_record_due = @ownerRecordDue, books_review = @booksReview,
          status = @status, db_file = @dbFile, created_at = @createdAt, updated_at = @updatedAt`,
     );
+    // CONTRACT: the books mark is compared as marked or not, never by its text:
+    // a mark this build does not know is read as `disowned` and must still be
+    // one the console can move.
     this.ownerUpdate = sqlite.prepare(
       `UPDATE tenant SET owner_email = @ownerEmail, owner_user_id = @ownerUserId, owner_contact_verified = @ownerContactVerified,
          owner_needed = @ownerNeeded, pending_owner = @pendingOwner, owner_record_due = @ownerRecordDue, books_review = @booksReview, updated_at = @updatedAt
        WHERE id = @id AND owner_email = @beforeEmail AND owner_user_id IS @beforeUserId AND owner_contact_verified = @beforeVerified
-         AND owner_needed = @beforeNeeded AND pending_owner IS @beforePending AND owner_record_due IS @beforeRecordDue AND books_review IS @beforeBooksReview`,
+         AND owner_needed = @beforeNeeded AND pending_owner IS @beforePending AND owner_record_due IS @beforeRecordDue
+         AND (books_review IS NULL) = (@beforeBooksReview IS NULL)`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM tenant WHERE id = ?`);
     this.byCode = sqlite.prepare(`SELECT * FROM tenant WHERE code = ?`);
@@ -1142,6 +1148,7 @@ export function createSqlitePlatformStores(
   const { sqlite, owned } = openSqliteConnection(path, options);
   sqlite.exec(CREATE_TABLES);
   addMissingColumns(sqlite);
+  dropRetiredBooksReview(sqlite);
   rewriteOwnerTextAsThisBuildWritesIt(sqlite);
   guardOneDbFilePerTenant(sqlite);
   backfillBillingAnchors(sqlite);

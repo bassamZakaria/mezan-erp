@@ -39,6 +39,7 @@ import { resolveTenantPlan, serializeCardCheckout, type PlatformHandle } from "@
 import type { CardCheckoutService } from "./card-checkout.js";
 import type { PaymobTestProvider } from "./paymob-provider.js";
 import { PaymobMode, type CloudEnv } from "./env.js";
+import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
 import type { TenantRouter } from "./tenant-router.js";
 import { resolveTenantCode } from "./tenant-resolver.js";
 import { servedTenantLookup, trustedPublicOrigin, type ServedTenantLookup } from "./public-origin.js";
@@ -181,6 +182,11 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
   const { platform, router, env, service } = options;
   const now = options.now ?? (() => new Date());
   const app = new Hono();
+
+  app.onError((err, c) => {
+    console.error(err);
+    return answerTenantDbFileRefusal(c, err) ?? c.json({ error: "INTERNAL", message: "حدث خطأ غير متوقع" }, 500);
+  });
 
   async function resolveCaller(c: Context): Promise<Caller | Response> {
     const code = resolveTenantCode(c.req.raw, { tenantDomain: env.tenantDomain, trustForwardedHost: env.trustProxy, allowTenantHeader: true });

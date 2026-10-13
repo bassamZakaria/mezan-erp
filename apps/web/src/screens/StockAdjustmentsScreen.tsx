@@ -503,7 +503,7 @@ export function StockAdjustmentsScreen() {
               ? [{ key: "confirm", label: t("stockAdj.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
               : []),
             ...resubmitRowMenuItems(resubmit, d),
-            ...(d.status === "confirmed" ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
+            ...(d.status === "confirmed" && !d.reversesDocId ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
         }}

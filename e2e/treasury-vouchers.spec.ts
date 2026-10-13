@@ -135,7 +135,7 @@ function voucherTypeCard(page: Page, label: string): Locator {
 async function searchVouchers(page: Page, text: string): Promise<void> {
   const answered = page.waitForResponse((response) => {
     const url = new URL(response.url());
-    return url.pathname === "/api/vouchers" && (url.searchParams.get("search") ?? "") === text.trim();
+    return url.pathname === "/api/vouchers" && url.searchParams.get("search") === text.trim();
   });
   await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill(text);
   await answered;
@@ -212,7 +212,7 @@ test.describe("Treasury Vouchers", () => {
     expect(creditOn(receiptEntry, TRADE_RECEIVABLES)).toBe(microUnits("1000"));
 
     // Payment: دفع لمورد — the cash guard now allows it (balance 1000 ≥ 500).
-    await searchVouchers(page, "");
+    await page.getByPlaceholder("ابحث برقم السند، المرجع، العميل، المورد…").fill("");
     await page.getByRole("button", { name: "سند جديد" }).first().click();
     await voucherTypeCard(page, "دفع لمورد").click();
     await page.getByLabel("المبلغ").fill("500");

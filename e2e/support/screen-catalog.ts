@@ -186,7 +186,6 @@ export interface AddressedScreen {
   readonly addressedBy?: AddressSource;
 }
 
-// Addresses the nav tree cannot name: a sub-page behind a record's id, a tab, and every page outside the tenant shell.
 export const ADDRESSED_SCREENS: readonly AddressedScreen[] = [
   { key: "bank-reconciliation-workspace", door: ScreenDoor.Tenant, path: `/money/bank-reconciliation/${ADDRESS_PLACEHOLDER}`, addressedBy: AddressSource.BankStatement },
   { key: "landed-cost-document", door: ScreenDoor.Tenant, path: `/buy/landed-costs/${ADDRESS_PLACEHOLDER}`, addressedBy: AddressSource.LandedCost },

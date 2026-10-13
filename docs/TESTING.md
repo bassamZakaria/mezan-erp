@@ -95,9 +95,17 @@ return, and the way they are written changes:
 | UI | `pnpm test` (`apps/web/**`, `packages/ui/**`) | rendered screens, RTL, Arabic copy, keyboard paths, error and empty states |
 | Property / fuzz | `pnpm test:fuzz` | invariants over generated input — balance, non-negative stock, exact allocation sums |
 | Abuse / brute force | `pnpm test` (`*.abuse.test.ts`) | PIN brute force, lockout, replay, IDOR, injection, oversized payloads |
-| E2E | `pnpm test:e2e` | the browser path a named persona actually walks |
+| E2E | `pnpm test:e2e` | the browser path a named persona actually walks — the `demo` tenant on the cloud entrypoint, API **3187** / web **5183** |
+| Every screen | `pnpm test:every-screen` | every address in `e2e/support/screen-catalog.ts` at 1440px and 390px, plus the journeys in `e2e/journeys/` — the nav tree, and `ADDRESSED_SCREENS` for sub-pages behind an id and the pages outside the tenant shell (platform console, signup, unlock link, owner hand-over); API **3311** / web **5311** |
+| Responsive | `pnpm test:responsive` | page-level sideways scroll and the workspace drawer at 390px and 360px; API **3133** / web **5233** |
 | Executable scenarios | `pnpm scenarios` | seeded end-to-end money trails over the real HTTP surface |
 | Manual | `docs/MANUAL-TEST-PLAN.md` | what only a human can judge — the persona walkthroughs |
+
+The three browser suites above each start their own API and web server and keep
+`reuseExistingServer` on outside CI, so a server left listening on one of those six
+ports is silently reused — with whatever code and data it was started on. Check the
+ports are free before a run (`lsof -nP -iTCP:3187 -iTCP:5183 -iTCP:3311 -iTCP:5311
+-iTCP:3133 -iTCP:5233 -sTCP:LISTEN`) and run one suite at a time.
 
 ## 1.4 Coverage targets
 

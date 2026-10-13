@@ -60,6 +60,7 @@ const SELECTION_PROMPT = /^اختر/;
 // records: an empty one is their correct opening state.
 const WORK_TABLE_SCREENS = new Set<string>([
   "labels", // the print queue: rows are the items the operator adds for printing
+  "recurring-journals-due", // a work queue: empty once every due period has its entry generated, which is how the demo seed leaves it
 ]);
 
 const test = base.extend<object, { workerStorageState: string }>({
@@ -375,6 +376,15 @@ async function platformSignIn(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/platform\/tenants$/);
 }
 
+async function platformGet<T>(page: Page, path: string): Promise<T> {
+  const stored = await page.evaluate(() => window.localStorage.getItem("mezan.platform.session"));
+  if (!stored) throw new Error("no platform session on this page — sign in to the console first");
+  const { token } = JSON.parse(stored) as { token: string };
+  const response = await page.request.get(`/api/platform${path}`, { headers: { authorization: `Bearer ${token}` } });
+  expect(response.status(), `GET /api/platform${path}`).toBe(200);
+  return (await response.json()) as T;
+}
+
 async function addressOf(page: Page, source: AddressSource): Promise<string> {
   switch (source) {
     case AddressSource.BankStatement:
@@ -386,16 +396,14 @@ async function addressOf(page: Page, source: AddressSource): Promise<string> {
     case AddressSource.OpenFiscalPeriod:
       return fiscalPeriodIn(page, FiscalPeriodStatus.Open);
     case AddressSource.PlatformTenant: {
-      await page.goto("/platform/tenants");
-      const href = await page.locator('a[href^="/platform/tenants/"]').first().getAttribute("href");
-      if (!href) throw new Error("the platform console lists no tenant to open");
-      return href.split("/").pop() ?? "";
+      const first = (await platformGet<readonly { readonly tenant: { readonly id: string } }[]>(page, "/tenants"))[0];
+      if (!first) throw new Error("the platform console lists no tenant to open");
+      return first.tenant.id;
     }
     case AddressSource.PlatformPlan: {
-      await page.goto("/platform/plans");
-      await page.locator("table tbody tr").first().click();
-      await expect(page).toHaveURL(/\/platform\/plans\/[^/]+$/);
-      return decodeURIComponent(new URL(page.url()).pathname.split("/").pop() ?? "");
+      const first = (await platformGet<readonly { readonly id: string }[]>(page, "/plans"))[0];
+      if (!first) throw new Error("the platform console lists no plan to open");
+      return first.id;
     }
   }
 }

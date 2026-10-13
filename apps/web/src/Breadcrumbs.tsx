@@ -30,6 +30,8 @@ const SEGMENT_LABEL_KEY: Record<string, AppTranslationKey> = {
   "slow-moving": "inventoryReports.view.slowMoving",
 };
 
+const SUB_PAGE_LABEL_KEY: Partial<Record<ScreenKey, AppTranslationKey>> = { "bank-reconciliation": "bankRec.reconcileABankStatement" };
+
 function segmentLabel(segment: string, t: (key: AppTranslationKey) => string): string {
   const key = SEGMENT_LABEL_KEY[segment];
   return key ? t(key) : segment;
@@ -103,7 +105,8 @@ export function Breadcrumbs({ screen }: { screen: ScreenKey }) {
     // number. Anything after `new` is a prefill parameter — a reason code, an
     // item id — and printing it puts a raw enum in the Arabic breadcrumb.
     if (i > 0 && segments[0] === "new") break;
-    crumbs.push({ label: segmentLabel(segment, t), onClick: undefined });
+    const subPageKey = i === 0 ? SUB_PAGE_LABEL_KEY[screen] : undefined;
+    crumbs.push({ label: subPageKey ? t(subPageKey) : segmentLabel(segment, t), onClick: undefined });
     if (i > 0) break;
   }
 

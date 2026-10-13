@@ -460,7 +460,7 @@ export async function run(ctx: Ctx): Promise<void> {
       crew: [{ employeeId: "EMP-DEMO-1", role: "rep" }],
     });
     checkEq("open succeeds", opened.status, 201);
-    checkEq("the trip is stored under the id the caller sent (FLD-11 fixed with D111: the route no longer mints its own)", opened.body.id, "SCN-VANTRIP-FLD11");
+    check("the trip is stored under the id the caller sent (FLD-11 fixed with D111: the route no longer mints its own)", opened.body.id === "SCN-VANTRIP-FLD11", `returned id=${opened.body.id}`);
     const again = await req("POST", "/field/van-trips", {
       id: "SCN-VANTRIP-FLD11",
       date: "2026-08-24",
@@ -472,7 +472,7 @@ export async function run(ctx: Ctx): Promise<void> {
       crew: [{ employeeId: "EMP-DEMO-1", role: "rep" }],
     });
     checkEq("opening a second trip under the same id is refused", again.status, 409);
-    checkEq("as a duplicate id", again.body?.error, "DUPLICATE_ID");
+    check("as a duplicate id", again.body?.error === "DUPLICATE_ID", `error=${again.body?.error}`);
     // Regression guard: tripNo used to stay null forever — the create form
     // never sends one, and openVanTrip had no fallback. Fixed by allocating
     // from the VAN_TRIP numbering sequence (`TRIP-####`) when omitted.

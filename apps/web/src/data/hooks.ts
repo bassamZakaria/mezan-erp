@@ -302,7 +302,9 @@ import type {
   RecurringJournalTemplateStatusDTO,
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
+import { ShellRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
+import { sessionMayAsk } from "./session";
 import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
 
@@ -1802,7 +1804,7 @@ export function useUsers(): UseQueryResult<UserDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<UserDTO[], ApiError>({
     queryKey: ["users"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.Users),
     queryFn: async () => {
       const res = await request("/users");
       if (!res.ok) throw await loaderError(res, t("api.usersCouldNotBeLoaded"), t);
@@ -1859,7 +1861,7 @@ export function useRoles(): UseQueryResult<RoleDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<RoleDTO[], ApiError>({
     queryKey: ["roles"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.Roles),
     queryFn: async () => {
       const res = await request("/roles");
       if (!res.ok) throw await loaderError(res, t("api.rolesCouldNotBeLoaded"), t);
@@ -1940,7 +1942,7 @@ export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
   const { request, session } = useApi();
   return useQuery<TenantSettingsDTO, ApiError>({
     queryKey: ["settings"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.Settings),
     queryFn: async () => {
       const res = await request("/settings");
       if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
@@ -1973,7 +1975,7 @@ export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<BranchDTO[], ApiError>({
     queryKey: ["branches"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.Branches),
     queryFn: async () => {
       const res = await request("/branches");
       if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
@@ -2344,7 +2346,7 @@ export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<WarehouseDTO[], ApiError>({
     queryKey: ["warehouses"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.Warehouses),
     queryFn: async () => {
       const res = await request("/warehouses");
       if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
@@ -6448,7 +6450,7 @@ export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<JobTitleDTO[], ApiError>({
     queryKey: ["hr-job-titles"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.JobTitles),
     queryFn: async () => {
       const res = await request("/hr/job-titles");
       if (!res.ok) throw await loaderError(res, t("api.jobTitlesCouldNotBe"), t);
@@ -6490,7 +6492,7 @@ export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<EmployeeDTO[], ApiError>({
     queryKey: ["hr-employees"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.Employees),
     queryFn: async () => {
       const res = await request("/hr/employees");
       if (!res.ok) throw await loaderError(res, t("api.employeesCouldNotBeLoaded"), t);
@@ -7539,7 +7541,7 @@ export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
   const { request, session } = useApi();
   return useQuery<number, ApiError>({
     queryKey: ["workflow-requests", "pending-count"],
-    enabled: session !== null,
+    enabled: sessionMayAsk(session, ShellRequest.PendingApprovals),
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/workflow/requests/pending-count");

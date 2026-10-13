@@ -1,6 +1,23 @@
 import { sessionSchema, type SessionDTO } from "@mezan/contracts";
+import { ALL_SCOPE, SHELL_REQUESTS, can, createAuthContext, type AuthContext, type ShellRequest } from "@mezan/domain";
 
 export type Session = SessionDTO;
+
+const grants = new WeakMap<Session, AuthContext>();
+
+export function sessionHolds(session: Session | null, permission: string): boolean {
+  if (!session) return false;
+  let grant = grants.get(session);
+  if (!grant) {
+    grant = createAuthContext({ userId: session.userId, permissions: session.permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    grants.set(session, grant);
+  }
+  return can(grant, permission);
+}
+
+export function sessionMayAsk(session: Session | null, request: ShellRequest): boolean {
+  return sessionHolds(session, SHELL_REQUESTS[request].permission);
+}
 
 const SESSION_STORAGE_KEY = "mezan.session";
 

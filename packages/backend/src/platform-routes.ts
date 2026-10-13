@@ -129,8 +129,6 @@ export interface CreatePlatformRoutesOptions {
   readonly provisionTenant: (cmd: CreateTenantRequestDTO & { actorId: string }) => Promise<ProvisionResultDTO>;
   /** Re-runs a failed provisioning (seed, admin, subscription) idempotently for a tenant stuck in `provisioning`. Optional only so a rig that never exercises this route still typechecks without supplying it. */
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO) => Promise<ProvisionResultDTO>;
-  // REQUIRED ORDERING: `recordIntent` is called inside the platform transaction
-  // that fences the reset, before the PIN moves. When it throws, nothing changes.
   readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPinResetAccount) => Promise<void> }) => Promise<OwnerPinResetResultDTO>;
   readonly releaseTenant?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   readonly ownerCandidates?: (tenant: Tenant) => Promise<OwnerCandidateDTO[]>;

@@ -470,8 +470,6 @@ function retryAfterSecondsOf(res: TransportResponse): number | undefined {
 const PLATFORM_LOOKUP_JITTER = 0.2;
 const PERMANENT_LOOKUP_REFUSALS: readonly number[] = [400, 401, 403, 410];
 
-// INVARIANT: the spread keeps every till that lost the same host from looking again in
-// the same instant. A wait the server asked for is never shortened by it.
 export function platformLookupRetryDelay(failureCount: number, error: unknown, random: () => number = Math.random): number {
   const backoff = PLATFORM_LOOKUP_FIRST_RETRY_MS * 2 ** Math.min(failureCount, 16);
   const spread = 1 + PLATFORM_LOOKUP_JITTER * (2 * random() - 1);

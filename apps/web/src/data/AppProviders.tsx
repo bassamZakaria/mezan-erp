@@ -16,7 +16,7 @@ export interface AppProvidersProps {
 
 /**
  * The app-wide providers: the interface language (which also owns the document
- * direction), the stored theme, TanStack Query, and the {@link ApiProvider} that holds the
+ * direction), TanStack Query, and the {@link ApiProvider} that holds the
  * session and the transport. Wraps the whole app in main.tsx; tests render it
  * with a fake `transport` (and optionally a seeded `initialSession`).
  */

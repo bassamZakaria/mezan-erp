@@ -24,8 +24,6 @@ export type PaymobEnv =
 
 export interface CloudEnv {
   readonly platformDir: string;
-  // SECURITY: `MEZAN_PUBLIC_URL`. A mailed link is built on this origin, or on one of
-  // this deployment's own tenant subdomains (public-origin.ts), and on nothing else.
   readonly publicOrigin?: string;
   readonly tenantDomain?: string;
   readonly trustProxy: boolean;

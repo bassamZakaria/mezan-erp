@@ -163,8 +163,6 @@ const TENANT_CODE_CONFIRMED_KEY = "mezan.tenantCodeConfirmed";
 // the plain-http LAN origin a till runs on, and would stop the app loading there.
 const PAGE_LOAD_ID = `${Date.now()}:${Math.random()}`;
 
-// SECURITY: holds for this page load only and is ended by a sign-in, so a
-// reload, or the next operator at the machine, gets a neutral screen again.
 export function markTenantCodeConfirmed(code: string): void {
   getTabStorage()?.setItem(TENANT_CODE_CONFIRMED_KEY, JSON.stringify({ code, load: PAGE_LOAD_ID }));
 }

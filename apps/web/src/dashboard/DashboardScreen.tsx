@@ -143,8 +143,8 @@ export function DashboardScreen() {
   const attention = useAttentionData(window, today);
   /**
    * استثناءات المقاولات — the one contracting tile (design §06). Gated on the
-   * certificate-view right AND the plan: a company admin holds every right, so
-   * the right alone asked a plan without contracting for a report it refuses.
+   * certificate-view right so a tenant that does not run contracting never sees
+   * a row about it.
    */
   const mayViewContracting = (session?.permissions ?? []).some((p) => p === "*" || p === "contracting.certificate.view");
   const contractingLicensed = planIncludesModule(useEntitlements(), PlanModule.Contracting);

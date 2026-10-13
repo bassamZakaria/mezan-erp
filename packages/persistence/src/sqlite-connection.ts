@@ -61,8 +61,6 @@ export interface SqliteOpenOptions {
    * second till may want the file, leave it off.
    */
   readonly exclusive?: boolean;
-  // SECURITY: true opens an existing database only. A missing file is an
-  // error, never a fresh empty database under the same name.
   readonly fileMustExist?: boolean;
 }
 

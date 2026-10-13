@@ -144,9 +144,6 @@ export interface SignupRoutesOptions {
   readonly mailer?: PlatformMailer;
 }
 
-// SECURITY: these routes are public and carry no session. `POST /` only
-// records a `provisioning` tenant; of the routes here, `POST /verify` alone
-// provisions it, so an address nobody has proved never owns a live tenant.
 export function createSignupRoutes(options: SignupRoutesOptions): Hono {
   const { platform, router, env } = options;
   const now = options.now ?? (() => new Date());

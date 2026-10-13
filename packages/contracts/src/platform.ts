@@ -110,7 +110,6 @@ export const tenantSchema = z.object({
   updatedAt: isoLikeSchema,
 });
 
-// INVARIANT: the one place a stored tenant becomes its wire shape. Every route that answers a tenant goes through it.
 export function tenantDTOOf(
   stored: Omit<z.infer<typeof tenantSchema>, "status" | "ownerNeeded" | "pendingOwner"> & {
     readonly status: string;
@@ -211,7 +210,6 @@ export enum SubscriptionStatusCode {
   PastDue = "past_due",
   Suspended = "suspended",
   Cancelled = "cancelled",
-  // CONTRACT: never stored. It is what a read answers for a stored value this build does not recognise, so one odd row cannot fail a whole list.
   Unknown = "unknown",
 }
 

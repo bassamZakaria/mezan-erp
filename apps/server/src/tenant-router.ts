@@ -76,8 +76,6 @@ export interface OpenTenant {
 export interface TenantRouter {
   readonly app: Hono;
   backendFor(code: string): Promise<BackendHandle>;
-  // SECURITY: a caller that already holds a tenant resolves by id. A code is
-  // handed to another company once its tenant is released.
   backendOf(tenantId: string): Promise<BackendHandle>;
   reconcileOwner(code: string): Promise<void>;
   reconcileOwnerOf(tenantId: string): Promise<void>;

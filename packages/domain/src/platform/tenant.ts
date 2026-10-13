@@ -44,9 +44,6 @@ export interface PendingOwner {
   readonly tokenHash: string | null;
 }
 
-// CONTRACT: the tenant's own audit row for an owner the platform set. It is
-// written to the platform row in the same write as the owner, and stays there
-// until the tenant's database has recorded it under this event id.
 export enum OwnerConfirmation {
   PlatformConsole = "platform-console",
   PreviousOwnerLink = "previous-owner-link",
@@ -265,8 +262,6 @@ export function tenantHandedTo(tenant: Tenant, successor: TenantOwnerAccount, no
   };
 }
 
-// SECURITY: a successor nobody the platform trusts has confirmed owns nothing
-// yet. The recorded owner and address stay exactly where they were.
 export function tenantWithPendingOwner(
   tenant: Tenant,
   successor: TenantOwnerAccount,
@@ -296,8 +291,6 @@ export enum PendingOwnerLink {
   Withdrawn = "withdrawn",
 }
 
-// SECURITY: a reissued link restarts the seven days and replaces the old
-// token; a withdrawn one leaves the request waiting for the console alone.
 export function tenantWithPendingOwnerLink(tenant: Tenant, link: PendingOwnerLink, tokenHash: string | null, now: string): Tenant {
   const pending = pendingOf(tenant);
   const at = isoTimestamp(now);

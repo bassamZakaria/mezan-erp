@@ -520,8 +520,6 @@ export interface SignedInUser {
   readonly userId: string;
   readonly email: string;
   readonly canAdminister: boolean;
-  // SECURITY: false while the credential this sign-in used was set by somebody
-  // other than the account. Such a sign-in proves nothing about who owns it.
   readonly credentialIsOwn: boolean;
 }
 

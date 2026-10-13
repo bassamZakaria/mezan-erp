@@ -505,9 +505,6 @@ export function createUsersRoutes(
     );
   }
 
-  // SECURITY: the owner's account is never erased, by anyone. Ownership moves
-  // first, by the owner's own hand-over or by the platform console; only then
-  // is the account an ordinary one.
   async function refuseOwnerErasure(c: Context, targetId: string) {
     await auditRefusal(c, targetId, { reason: "OWNER_ACCOUNT_PROTECTED", attempted: "ERASE" });
     return c.json(

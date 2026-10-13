@@ -108,9 +108,7 @@ export class OwnerRecordDueError extends Error {
 }
 
 export interface OwnerContact {
-  // SECURITY: never moves the recorded address. Only the owner's own act does.
   reconcile(tenantId: string, backend: OwnerBackend & RecordingBackend): Promise<void>;
-  // SECURITY: the account the owner rules protect, known even before the platform row names it by id.
   effectiveOwnerUserId(tenantId: string, backend: OwnerBackend): Promise<string | null>;
   emailChanged(tenantId: string, change: UserEmailChange): Promise<void>;
   signedIn(tenantId: string, user: SignedInUser): Promise<void>;
@@ -119,7 +117,6 @@ export interface OwnerContact {
   confirmPending(tenantId: string, actor: string, by: OwnerConfirmation, backend: AssigningBackend, link?: { readonly tokenHash: string }): Promise<Tenant>;
   declinePending(tenantId: string, actor: string): Promise<Tenant>;
   resendPending(tenantId: string, actor: string): Promise<Tenant>;
-  // SECURITY: null for a link older than the age limit, exactly as for a link that names nothing.
   pendingByToken(token: string): Promise<Tenant | null>;
 }
 
@@ -224,8 +221,6 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
     return { eventId: eventIdOf(), userId, previousUserId, actor, confirmedBy };
   }
 
-  // SECURITY: every owner write resolves its tenant by id. A code is handed to
-  // another company once its tenant is released.
   async function settle(tenantId: string, actorOf: (tenant: Tenant) => string, next: (tenant: Tenant, at: string) => Promise<Tenant | null> | Tenant | null): Promise<void> {
     for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt += 1) {
       const tenant = await tenants.findById(tenantId);

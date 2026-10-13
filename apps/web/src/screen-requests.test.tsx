@@ -135,6 +135,13 @@ describe("a document screen asks for its side lists only where the session may r
     expect(asked).not.toContain("/vouchers");
   });
 
+  it("a session that may read a list still asks for it on a plan without its module, so the screen can show the server's refusal", async () => {
+    const { asked } = renderPage(restricted(["hr.department.view"]), EVERY_MODULE.filter((module) => module !== "hr"));
+
+    await waitFor(() => expect(asked).toContain("/entitlements"));
+    await waitFor(() => expect(asked).toContain(SCREEN_REQUESTS[ScreenRequest.Departments].path));
+  });
+
   it("the administrator still gets every one of them", async () => {
     const { asked } = renderPage(testAdminSession);
 

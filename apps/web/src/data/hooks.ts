@@ -688,14 +688,13 @@ export function useMayAskScreen(request: ScreenRequest): boolean {
   return sessionMayAskScreen(session, entitlements.data ?? null, request);
 }
 
-// INVARIANT: decided at once, by the permission, and narrowed by the licence
-// when it has answered — a list a screen draws its rows or its picker from is
-// not held back behind the licence's first answer, and is never asked for by a
-// session that may not read it.
+// INVARIANT: decided by the permission alone, at once. A session that may not
+// read a list never asks for it; one that may still asks on a plan without the
+// list's module, because the server's refusal there is the sentence the screen
+// shows a user who opened it by its address.
 export function useHoldsScreenRequest(request: ScreenRequest): boolean {
   const { session } = useApi();
-  const entitlements = useEntitlements();
-  return sessionMayAskScreen(session, entitlements.data ?? null, request);
+  return sessionMayAskScreen(session, null, request);
 }
 
 export function useMayAskShellModule(request: ShellModuleRequest): boolean {

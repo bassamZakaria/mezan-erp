@@ -22,7 +22,7 @@ import { useFormPadding } from "@/layout";
 import { formatAmountWithCurrency, isPositiveDecimal, toAmountInput } from "@/money";
 import { todayIso } from "@/domain/dates";
 import { AllocationInvoiceKind, CollectPaymentMethod, TreasuryAccountStatus } from "@/domain/enums";
-import { CollectPath, collectPathFor, draftCollectionBody } from "@/domain/collect-path";
+import { CollectPath, CollectPermission, allocationRequest, collectPathFor, draftCollectionBody, intendedAllocationFor } from "@/domain/collect-path";
 import { resolveDefaultBranch } from "@/domain/working-location";
 import { useSession } from "@/session/SessionProvider";
 import { SPACE, TYPE, useTheme } from "@/theme";
@@ -115,11 +115,12 @@ export function Collect() {
       return;
     }
     const voucherAmount = amount.trim();
-    const inBaseCurrency = invoiceDetail.data.fxRate === null;
+    const allocation = intendedAllocationFor(invoice.id, voucherAmount, invoiceDetail.data.fxRate === null);
     setBusy(true);
     setError(null);
     try {
       if (path === CollectPath.DraftForApproval) {
+        const carries = can(CollectPermission.Allocate);
         const draft = await createDraft.mutateAsync(
           draftCollectionBody({
             date: todayIso(),
@@ -130,9 +131,10 @@ export function Collect() {
             referenceNo,
             invoiceNo: invoice.invoiceNo,
             memoPrefix: strings.collect.draftMemo,
+            ...(carries ? { allocation } : {}),
           }),
         );
-        setNotice(`${strings.collect.draftSaved} — ${draft.docNo ?? invoice.invoiceNo}`);
+        setNotice(`${carries ? strings.collect.draftSavedCarrying : strings.collect.draftSaved} — ${draft.docNo ?? invoice.invoiceNo}`);
         setAmount("");
         setReferenceNo("");
         setInvoice(null);
@@ -147,10 +149,7 @@ export function Collect() {
         amount: voucherAmount,
         paymentMethod: CollectPaymentMethod.Cash,
         referenceNo: referenceNo.trim() === "" ? null : referenceNo.trim(),
-        // The allocation is in base currency. Only a base-currency collection
-        // can name it from the typed figure; a foreign one lets the server
-        // allocate the voucher's base amount at its own approved rate.
-        allocations: [inBaseCurrency ? { invoiceId: invoice.id, amount: voucherAmount } : { invoiceId: invoice.id }],
+        allocations: [allocationRequest(allocation)],
       });
       const docNo = result.voucher.docNo ?? result.voucher.id;
       setNotice(result.held ? `${strings.collect.held} — ${docNo}` : `${strings.collect.success} ${invoice.invoiceNo} — ${docNo}`);

@@ -277,6 +277,10 @@ export interface CollectionAllocationRequest {
   readonly amount?: import("../money/money.js").Money;
 }
 
+function heldRequestsOf(allocations: readonly CollectionAllocationRequest[]): HeldAllocationRequest[] {
+  return allocations.map((a) => ({ allocationId: a.allocationId, invoiceId: a.invoiceId, amount: a.amount ?? null }));
+}
+
 export interface CollectionResult {
   readonly document: VoucherDocument;
   readonly held: boolean;
@@ -387,6 +391,23 @@ export class VoucherService {
       date: cmd.date,
       memo: cmd.memo ?? def.labelAr,
       lines: [line],
+    });
+  }
+
+  /**
+   * A draft that names the invoices it is for. Nothing settles here: the draft
+   * carries the request and the confirm applies it with the posting (D344).
+   */
+  async createVoucherCarrying(cmd: CreateVoucherCommand, allocations: readonly CollectionAllocationRequest[]): Promise<VoucherDocument> {
+    if (allocations.length === 0) return this.createVoucher(cmd);
+    const requests = heldRequestsOf(allocations);
+    return this.deps.documents.transaction(async () => {
+      const created = await this.createVoucher(cmd);
+      const standing = (await this.service.findById(cmd.id)) ?? created;
+      await this.assertAllocationsFit(standing, requests, false);
+      const carrying: VoucherDocument = { ...standing, lines: [{ ...voucherLine(standing), heldAllocations: requests }] };
+      await this.writeLine(carrying, standing.status);
+      return carrying;
     });
   }
 
@@ -713,11 +734,7 @@ export class VoucherService {
     allocations: readonly CollectionAllocationRequest[],
     opts: ConfirmVoucherOptions = {},
   ): Promise<CollectionResult> {
-    const requests: HeldAllocationRequest[] = allocations.map((a) => ({
-      allocationId: a.allocationId,
-      invoiceId: a.invoiceId,
-      amount: a.amount ?? null,
-    }));
+    const requests = heldRequestsOf(allocations);
     return this.deps.documents.transaction(async () => {
       await this.createVoucher(cmd);
       const confirmed = await this.confirmVoucher(cmd.id, opts);

@@ -50,21 +50,21 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
     expect(screen.getByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "فاتورة جديدة" })).toBeInTheDocument();
     // The revenue label/figure now also appear in the balance-beam hero, so more than one match is expected.
-    expect(screen.getAllByText("إجمالي الإيرادات").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("إجمالي الإيرادات")).length).toBeGreaterThan(0);
     expect((await screen.findAllByText("86,240.00")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("24,310.00").length).toBeGreaterThan(0);
   });
 
   it("renders the company-wide KPI row from real GL figures", async () => {
     renderDashboard();
-    expect(screen.getByText("مبالغ لدى العملاء")).toBeInTheDocument();
+    expect(await screen.findByText("مبالغ لدى العملاء")).toBeInTheDocument();
     expect(await screen.findByText("604,950.90")).toBeInTheDocument();
     expect(screen.getByText("2,782.30")).toBeInTheDocument();
   });
 
   it("renders the system-data counts and recent activity from real data", async () => {
     renderDashboard();
-    expect(screen.getByText("بيانات النظام")).toBeInTheDocument();
+    expect(await screen.findByText("بيانات النظام")).toBeInTheDocument();
     expect(await screen.findByText("قيد افتتاحي")).toBeInTheDocument();
     expect(screen.getByText("النشاط الأخير")).toBeInTheDocument();
   });
@@ -86,10 +86,10 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
     expect((await screen.findAllByText("9,999.00")).length).toBeGreaterThan(0);
   });
 
-  it("shows the company-wide footer disclaimer", () => {
+  it("shows the company-wide footer disclaimer", async () => {
     renderDashboard();
     expect(
-      screen.getByText("جميع الأرقام المالية مصدرها القيود المحاسبية المرحلة · نطاق الفرع لا يؤثر على الأرقام على مستوى الشركة"),
+      await screen.findByText("جميع الأرقام المالية مصدرها القيود المحاسبية المرحلة · نطاق الفرع لا يؤثر على الأرقام على مستوى الشركة"),
     ).toBeInTheDocument();
   });
 

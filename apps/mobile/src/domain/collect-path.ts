@@ -39,6 +39,25 @@ export interface DraftCollectionInput {
   readonly referenceNo: string;
   readonly invoiceNo: string;
   readonly memoPrefix: string;
+  readonly allocation?: IntendedAllocation;
+}
+
+export interface IntendedAllocation {
+  readonly invoiceId: string;
+  readonly amount: string | null;
+}
+
+/**
+ * The allocation is in base currency. Only a base-currency collection can
+ * name it from the typed figure; a foreign one leaves the amount to the
+ * server, which allocates the voucher's base amount at its own approved rate.
+ */
+export function intendedAllocationFor(invoiceId: string, voucherAmount: string, inBaseCurrency: boolean): IntendedAllocation {
+  return { invoiceId, amount: inBaseCurrency ? voucherAmount : null };
+}
+
+export function allocationRequest(allocation: IntendedAllocation): { invoiceId: string; amount?: string } {
+  return allocation.amount === null ? { invoiceId: allocation.invoiceId } : { invoiceId: allocation.invoiceId, amount: allocation.amount };
 }
 
 export function draftCollectionBody(input: DraftCollectionInput): CreateVoucherDTO {
@@ -53,5 +72,6 @@ export function draftCollectionBody(input: DraftCollectionInput): CreateVoucherD
     customerId: input.customerId,
     referenceNo: referenceNo === "" ? null : referenceNo,
     memo: `${input.memoPrefix} ${input.invoiceNo}`,
+    ...(input.allocation ? { allocations: [allocationRequest(input.allocation)] } : {}),
   };
 }

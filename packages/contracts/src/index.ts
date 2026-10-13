@@ -514,6 +514,8 @@ export {
   voucherListQuerySchema,
   createCollectionSchema,
   collectionResultSchema,
+  requestedAllocationSchema,
+  type RequestedAllocationDTO,
   type CreateCollectionDTO,
   type CollectionResultDTO,
   type VoucherTypeDTO,

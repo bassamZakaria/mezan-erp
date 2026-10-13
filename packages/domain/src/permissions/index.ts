@@ -72,3 +72,4 @@ export {
 } from "./labels.js";
 
 export { ShellRequest, SHELL_REQUESTS, holdsShellRequest, type ShellRequestGate } from "./shell-requests.js";
+export { DashboardRequest, DASHBOARD_REQUESTS, mayActWith, mayAskDashboard, mayReadWith, type DashboardRequestGate, type PermissionHeld } from "./dashboard-requests.js";

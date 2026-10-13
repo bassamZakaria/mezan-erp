@@ -41,6 +41,7 @@ import {
   branchScopedAuditSink,
   can,
   type VoucherServiceDeps,
+  type CollectionAllocationRequest,
   type HeldAllocationRequest,
   type VoucherDocument,
   type VoucherAllocation,
@@ -55,6 +56,7 @@ import {
   reverseVoucherSchema,
   createAllocationSchema,
   voucherListQuerySchema,
+  type RequestedAllocationDTO,
   type VoucherListQueryDTO,
 } from "@mezan/contracts";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, withinScope } from "./permission-gate.js";
@@ -198,6 +200,16 @@ function serializeInvoice(i: AllocatableInvoice, returned: Money = Money.zero())
     returned: returned.toString(),
     outstanding: invoiceOpenBalance(i, returned).toString(),
   };
+}
+
+const ALLOCATE = "treasury.allocation.manage";
+
+function requestedAllocations(voucherId: string, requested: readonly RequestedAllocationDTO[]): CollectionAllocationRequest[] {
+  return requested.map((a, i) => ({
+    allocationId: a.allocationId ?? `${voucherId}:A${i + 1}`,
+    invoiceId: a.invoiceId,
+    ...(a.amount ? { amount: Money.fromMajor(a.amount) } : {}),
+  }));
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
@@ -590,6 +602,9 @@ export function createVouchersRoutes(
     const d = parsed.data;
     const refusal = refuseVoucherType(c, voucherPermissions("create", d.voucherType, d.projectId));
     if (refusal) return refusal;
+    const intended = d.allocations ?? [];
+    const drafter = getAuthContext(c);
+    if (intended.length > 0 && !(drafter && can(drafter, ALLOCATE))) return c.json(permissionDeniedBody(ALLOCATE), 403);
     const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Customer, ids: [d.customerId] },
       { kind: MasterDataKind.Supplier, ids: [d.supplierId] },
@@ -625,8 +640,9 @@ export function createVouchersRoutes(
     if (counterTreasury instanceof Response) return counterTreasury;
     try {
       const svc = serviceFor(c);
-      const doc = await svc.createVoucher({
-        id: d.id ?? idGen(),
+      const id = d.id ?? idGen();
+      const doc = await svc.createVoucherCarrying({
+        id,
         date: d.date,
         memo: d.memo,
         voucherType: d.voucherType,
@@ -648,7 +664,7 @@ export function createVouchersRoutes(
         withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
         withholdingRatePercent: d.withholdingRatePercent ?? null,
         withholdingGlAccountId: d.withholdingGlAccountId ?? null,
-      });
+      }, requestedAllocations(id, intended));
       return c.json(serialize(doc), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -668,8 +684,8 @@ export function createVouchersRoutes(
       if (refusal) return refusal;
     }
     const ctx = getAuthContext(c);
-    if (d.allocations.length > 0 && !(ctx && can(ctx, "treasury.allocation.manage"))) {
-      return c.json(permissionDeniedBody("treasury.allocation.manage"), 403);
+    if (d.allocations.length > 0 && !(ctx && can(ctx, ALLOCATE))) {
+      return c.json(permissionDeniedBody(ALLOCATE), 403);
     }
     const partyRefusal = await refuseUnknownMasterData(c, deps.masterData, [
       { kind: MasterDataKind.Customer, ids: [d.customerId] },
@@ -719,11 +735,7 @@ export function createVouchersRoutes(
           withholdingRatePercent: d.withholdingRatePercent ?? null,
           withholdingGlAccountId: d.withholdingGlAccountId ?? null,
         },
-        d.allocations.map((a, i) => ({
-          allocationId: a.allocationId ?? `${id}:A${i + 1}`,
-          invoiceId: a.invoiceId,
-          ...(a.amount ? { amount: Money.fromMajor(a.amount) } : {}),
-        })),
+        requestedAllocations(id, d.allocations),
         { actor: ctx?.userId, actorRoles: gateActorRoles(c) },
       );
       return c.json(

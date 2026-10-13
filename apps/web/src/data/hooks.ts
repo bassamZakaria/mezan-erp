@@ -1,5 +1,5 @@
 import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { loadTenantCode, subscribeTenantCode } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -317,11 +317,11 @@ import type {
   RecurringJournalTemplateStatusDTO,
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
-import { ShellRequest, type DisplaySettingKey } from "@mezan/domain";
+import { DashboardRequest, ShellRequest, mayAskDashboard, type DisplaySettingKey } from "@mezan/domain";
 import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
 import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
-import { sessionMayAsk } from "./session";
+import { sessionHolds, sessionMayAsk } from "./session";
 import type { TransportResponse } from "./transport";
 import { BranchRefusalCode } from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -585,6 +585,21 @@ export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
   });
 }
 
+export interface QueryGate {
+  readonly enabled?: boolean;
+}
+
+export function useDashboardGate(): (request: DashboardRequest) => boolean {
+  const { session } = useApi();
+  const entitlements = useEntitlements();
+  const plan = entitlements.data;
+  const planKnown = plan !== undefined || entitlements.isError;
+  return useCallback(
+    (request: DashboardRequest) => session !== null && planKnown && mayAskDashboard(request, (permission) => sessionHolds(session, permission), plan),
+    [session, plan, planKnown],
+  );
+}
+
 /** First-run wizard "create admin" step — persists the admin, then establishes their session. */
 export function useCreateFirstAdmin() {
   const { t } = useAppTranslation();
@@ -615,10 +630,11 @@ export interface DashboardRange {
  */
 export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<DashboardSummaryDTO, ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useDashboardGate();
   return useQuery<DashboardSummaryDTO, ApiError>({
     queryKey: ["dashboard", "summary", range.fromDate ?? null, range.toDate ?? null],
-    enabled: session !== null,
+    enabled: mayAsk(DashboardRequest.Summary),
     queryFn: async () => {
       const params = new URLSearchParams();
       if (range.fromDate) params.set("fromDate", range.fromDate);
@@ -2593,12 +2609,12 @@ function voucherParams(filter: Partial<VoucherListQueryDTO>): URLSearchParams {
  * to drop for which count. Withholding both here made the status chips report
  * the whole book while a type was selected.
  */
-export function useVoucherCounts(filter: Partial<VoucherListQueryDTO> = {}): UseQueryResult<ListCountsDTO, ApiError> {
+export function useVoucherCounts(filter: Partial<VoucherListQueryDTO> = {}, gate: QueryGate = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ListCountsDTO, ApiError>({
     queryKey: ["vouchers", "counts", filter],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers/counts${qs ? `?${qs}` : ""}`);
@@ -3110,12 +3126,12 @@ export function useConfirmPurchaseInvoice() {
 export type { SalesInvoiceLineRowDTO, SalesInvoiceTotalsDTO, SalesInvoiceDTO };
 
 /** فواتير المبيعات (docs/archive/catalog/01) — list, create, confirm, record a payment. */
-export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
+export function useSalesInvoices(filter: Partial<SalesInvoiceListQueryDTO> = {}, gate: QueryGate = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SalesInvoiceDTO[], ApiError>({
     queryKey: ["sales-invoices", filter],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const fail = async (res: TransportResponse): Promise<never> => {
         throw await loaderError(res, t("api.salesInvoicesCouldNotBe"), t);
@@ -7118,12 +7134,12 @@ export interface MyLeaveDTO {
   readonly requests: LeaveRequestDTO[];
 }
 
-export function useMyLeave(): UseQueryResult<MyLeaveDTO, ApiError> {
+export function useMyLeave(gate: QueryGate = {}): UseQueryResult<MyLeaveDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<MyLeaveDTO, ApiError>({
     queryKey: ["hr-my-leave"],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const res = await request("/hr/leave-requests/me");
       if (!res.ok) throw await loaderError(res, t("api.yourLeaveCouldNotBe"), t);
@@ -8417,12 +8433,12 @@ export interface LeaveRequestCountsDTO {
   readonly cancelled: number;
 }
 
-export function useLeaveRequestCounts(): UseQueryResult<LeaveRequestCountsDTO, ApiError> {
+export function useLeaveRequestCounts(gate: QueryGate = {}): UseQueryResult<LeaveRequestCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LeaveRequestCountsDTO, ApiError>({
     queryKey: ["hr-leave-request-counts"],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const res = await request("/hr/leave-requests/counts");
       if (!res.ok) throw await loaderError(res, t("api.theLeaveRequestSummaryCould"), t);
@@ -8888,12 +8904,12 @@ export interface TreasuryAccountStatsDTO {
  * The live figures come from the GL, because a treasury account's balance IS
  * its control account's balance.
  */
-export function useTreasuryAccountStats(): UseQueryResult<TreasuryAccountStatsDTO, ApiError> {
+export function useTreasuryAccountStats(gate: QueryGate = {}): UseQueryResult<TreasuryAccountStatsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<TreasuryAccountStatsDTO, ApiError>({
     queryKey: ["treasury-accounts", "stats"],
-    enabled: session !== null,
+    enabled: session !== null && (gate.enabled ?? true),
     queryFn: async () => {
       const res = await request("/treasury-accounts/stats");
       if (!res.ok) throw await loaderError(res, t("api.treasuryAccountsCouldNotBe"), t);

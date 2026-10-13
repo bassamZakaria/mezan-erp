@@ -1,14 +1,15 @@
 import { BranchGatedAction } from "../branch-restriction";
 import { useBranchGate } from "../shell/useBranchGate";
-import { Money as ExactMoney } from "@mezan/domain";
+import { DashboardRequest, Money as ExactMoney, mayActWith, mayReadWith } from "@mezan/domain";
 import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Button, Card, Chip, Money, StatCard, useFormat } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
 import { useNavigation } from "../navigation";
 import type { ScreenKey } from "../router/screens";
 import type { ScreenIntentInput } from "../navigation";
-import { useDashboardSummary, useEntitlements, useUserPreferences, type DashboardRange } from "../data/hooks";
-import { PlanModule, planIncludesModule } from "../data/plan-modules";
+import { useDashboardGate, useDashboardSummary, useEntitlements, useUserPreferences, type DashboardRange } from "../data/hooks";
+import { sessionHolds } from "../data/session";
+import { DeskTiles, useDeskTiles } from "./DeskTiles";
 import { displayName } from "../display-name";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { BalanceBeam, beamTiltDegrees } from "./BalanceBeam";
@@ -43,17 +44,17 @@ import {
 import { entityName } from "../lib/entity-names";
 import { useContractingExceptionSummary } from "../data/contracting-controls-hooks";
 
-type QuickAction = { labelKey: AppTranslationKey; screen: ScreenKey; intent?: ScreenIntentInput; primary?: boolean };
+type QuickAction = { labelKey: AppTranslationKey; screen: ScreenKey; permission: string; intent?: ScreenIntentInput; primary?: boolean };
 
 /** Quick-action launchers: each navigates to its screen and opens that screen's create flow. */
 const quickActions: QuickAction[] = [
-  { labelKey: "dashboard.action.salesInvoice", screen: "sales-invoices", intent: "create", primary: true },
-  { labelKey: "dashboard.action.voucher", screen: "treasury-vouchers", intent: "create" },
-  { labelKey: "dashboard.action.goodsReceipt", screen: "goods-receipts", intent: "create" },
-  { labelKey: "dashboard.action.purchaseInvoice", screen: "purchase-invoices", intent: "create" },
-  { labelKey: "dashboard.action.purchaseOrder", screen: "purchase-orders", intent: "create" },
-  { labelKey: "dashboard.action.quote", screen: "quotes", intent: "create" },
-  { labelKey: "dashboard.action.newItem", screen: "items", intent: "create" },
+  { labelKey: "dashboard.action.salesInvoice", screen: "sales-invoices", permission: "sales.invoice.create", intent: "create", primary: true },
+  { labelKey: "dashboard.action.voucher", screen: "treasury-vouchers", permission: "treasury.cash_voucher.create", intent: "create" },
+  { labelKey: "dashboard.action.goodsReceipt", screen: "goods-receipts", permission: "purchases.receipt.create", intent: "create" },
+  { labelKey: "dashboard.action.purchaseInvoice", screen: "purchase-invoices", permission: "purchases.invoice.create", intent: "create" },
+  { labelKey: "dashboard.action.purchaseOrder", screen: "purchase-orders", permission: "purchases.order.create", intent: "create" },
+  { labelKey: "dashboard.action.quote", screen: "quotes", permission: "sales.quote.create", intent: "create" },
+  { labelKey: "dashboard.action.newItem", screen: "items", permission: "inventory.item.create", intent: "create" },
 ];
 
 const RANGE_OPTIONS = [
@@ -131,6 +132,8 @@ export function DashboardScreen() {
   const window = useMemo(() => reportWindow(range, today), [range, today]);
   const priorWindow = useMemo(() => previousReportWindow(range, today), [range, today]);
 
+  const mayAsk = useDashboardGate();
+  const seesSummary = mayAsk(DashboardRequest.Summary);
   const query = useDashboardSummary(dates);
   const summary = query.data;
   // Mounted here, not inside the cockpit section: the cockpit renders only for
@@ -149,10 +152,9 @@ export function DashboardScreen() {
    * a row about it.
    */
   const branchGate = useBranchGate();
-  const mayViewContracting =
-    branchGate.allows(BranchGatedAction.ContractingExceptions) && (session?.permissions ?? []).some((p) => p === "*" || p === "contracting.certificate.view");
-  const contractingLicensed = planIncludesModule(useEntitlements(), PlanModule.Contracting);
-  const contractingExceptions = useContractingExceptionSummary(mayViewContracting && contractingLicensed);
+  const mayViewContracting = branchGate.allows(BranchGatedAction.ContractingExceptions) && mayAsk(DashboardRequest.ContractingExceptions);
+  const contractingExceptions = useContractingExceptionSummary(mayViewContracting);
+  const desk = useDeskTiles();
 
   const greetingName = session ? firstNameOf(displayName(session, locale)) : "";
   const gl = summary?.gl;
@@ -208,7 +210,7 @@ export function DashboardScreen() {
   const netDelta = delta(netProfit, prior.netProfit, true);
 
   const invoicesUnit = t("dashboard.attention.invoicesUnit");
-  const attentionItems: AttentionItem[] = [
+  const invoiceItems: AttentionItem[] = [
     {
       key: "overdue",
       kind: "overdue",
@@ -244,7 +246,41 @@ export function DashboardScreen() {
       actionLabel: t("dashboard.attention.dueSoon.action"),
       onAction: () => navigate("sales-invoices"),
     },
-    ...(branchGate.allows(BranchGatedAction.VatReturn)
+  ];
+  const stockItem: AttentionItem = {
+    key: "stock",
+    kind: "stock",
+    tone: attention.lowStockCount > 0 ? "info" : "clear",
+    title: t("dashboard.attention.stock"),
+    detail:
+      attention.lowStockCount > 0 ? (
+        <>
+          <span className="mz-num">{format.number(attention.lowStockCount)}</span> {t("dashboard.attention.itemsUnit")}
+          {attention.lowStockFirstName ? ` · ${attention.lowStockFirstName}` : ""}
+        </>
+      ) : (
+        t("dashboard.attention.stock.clear")
+      ),
+    actionLabel: t("dashboard.attention.stock.action"),
+    onAction: () => navigate("report-inventory-stock-levels"),
+  };
+  const payablesItem: AttentionItem = {
+    key: "payables",
+    kind: "payables",
+    tone: ExactMoney.fromMajor(attention.agedPayables).scaled > 0n ? "warning" : "clear",
+    title: t("dashboard.attention.payables"),
+    detail:
+      ExactMoney.fromMajor(attention.agedPayables).scaled > 0n ? (
+        <span className="mz-num">{format.money(attention.agedPayables)}</span>
+      ) : (
+        t("dashboard.attention.payables.clear")
+      ),
+    actionLabel: t("dashboard.attention.payables.action"),
+    onAction: () => navigate("report-aging-suppliers"),
+  };
+  const attentionItems: AttentionItem[] = [
+    ...(mayAsk(DashboardRequest.SalesInvoices) ? invoiceItems : []),
+    ...(branchGate.allows(BranchGatedAction.VatReturn) && mayAsk(DashboardRequest.VatReturn)
       ? [
           {
             key: "tax",
@@ -258,23 +294,7 @@ export function DashboardScreen() {
           },
         ]
       : []),
-    {
-      key: "stock",
-      kind: "stock",
-      tone: attention.lowStockCount > 0 ? "info" : "clear",
-      title: t("dashboard.attention.stock"),
-      detail:
-        attention.lowStockCount > 0 ? (
-          <>
-            <span className="mz-num">{format.number(attention.lowStockCount)}</span> {t("dashboard.attention.itemsUnit")}
-            {attention.lowStockFirstName ? ` · ${attention.lowStockFirstName}` : ""}
-          </>
-        ) : (
-          t("dashboard.attention.stock.clear")
-        ),
-      actionLabel: t("dashboard.attention.stock.action"),
-      onAction: () => navigate("report-inventory-stock-levels"),
-    },
+    ...(mayAsk(DashboardRequest.StockLevels) ? [stockItem] : []),
     ...(mayViewContracting
       ? [
           {
@@ -296,20 +316,7 @@ export function DashboardScreen() {
           },
         ]
       : []),
-    {
-      key: "payables",
-      kind: "payables",
-      tone: ExactMoney.fromMajor(attention.agedPayables).scaled > 0n ? "warning" : "clear",
-      title: t("dashboard.attention.payables"),
-      detail:
-        ExactMoney.fromMajor(attention.agedPayables).scaled > 0n ? (
-          <span className="mz-num">{format.money(attention.agedPayables)}</span>
-        ) : (
-          t("dashboard.attention.payables.clear")
-        ),
-      actionLabel: t("dashboard.attention.payables.action"),
-      onAction: () => navigate("report-aging-suppliers"),
-    },
+    ...(mayAsk(DashboardRequest.SupplierAging) ? [payablesItem] : []),
   ];
 
   const agingRows: AgingMatrixRow[] = [];
@@ -361,26 +368,30 @@ export function DashboardScreen() {
   ];
 
   const preferences = useUserPreferences().data;
-  const held = useMemo(() => new Set(session?.permissions ?? []), [session]);
-  const canRead = (permission: string) => held.has("*") || held.has(permission);
+  const plan = useEntitlements().data;
+  const holds = (permission: string) => sessionHolds(session, permission);
+  const canRead = (permission: string) => mayReadWith(permission, holds, plan);
   const audience = dashboardAudienceOf(session?.permissions ?? []);
   const visibleWidgets = useMemo(
     () => resolveDashboardWidgets(preferences?.dashboard, canRead, DashboardSection.Panels, audience),
-    // `canRead` closes over `held`, so the identity of `held` is the real input.
+    // `canRead` closes over the session and the plan, so their identities are the real inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [preferences?.dashboard, held, audience],
+    [preferences?.dashboard, session, plan, audience],
   );
   const cockpitWidgets = useMemo(
     () => (canRead(COCKPIT_PERMISSION) ? resolveDashboardWidgets(preferences?.dashboard, canRead, DashboardSection.Cockpit, audience) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [preferences?.dashboard, held, audience],
+    [preferences?.dashboard, session, plan, audience],
   );
   const cockpitFirst = useMemo(
     () => cockpitWidgets.length > 0 && cockpitLeads(preferences?.dashboard, canRead, audience),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [preferences?.dashboard, held, audience, cockpitWidgets.length],
+    [preferences?.dashboard, session, plan, audience, cockpitWidgets.length],
   );
   const cockpit = cockpitWidgets.length > 0 ? <CockpitSection widgets={cockpitWidgets} rtl={rtl} live={!liveWatch.isError} /> : null;
+  const offeredActions = quickActions.filter((action) => mayActWith(action.permission, holds, plan));
+  const ranged = seesSummary || mayAsk(DashboardRequest.IncomeStatement) || mayAsk(DashboardRequest.TopProducts);
+  const nothingToShow = !seesSummary && attentionItems.length === 0 && visibleWidgets.length === 0 && cockpit === null && !desk.askable;
 
   const panelFor: Readonly<Record<DashboardPanelKind, ReactNode>> = {
     aging: (
@@ -442,10 +453,10 @@ export function DashboardScreen() {
       <div className="flex flex-wrap items-start justify-between gap-[16px]" style={riseStyle(0, reduced)}>
         <div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("dashboard.greeting", { name: greetingName })}</h1>
-          <p className="mt-[4px] max-w-[62ch] text-sm text-ink-muted">{t("dashboard.subtitle")}</p>
+          {seesSummary ? <p className="mt-[4px] max-w-[62ch] text-sm text-ink-muted">{t("dashboard.subtitle")}</p> : null}
         </div>
         <div className="flex flex-wrap gap-[8px]">
-          {quickActions.map((action) => (
+          {offeredActions.map((action) => (
             <Button
               key={action.labelKey}
               size="sm"
@@ -460,13 +471,23 @@ export function DashboardScreen() {
 
       {cockpitFirst ? cockpit : null}
 
-      <div className="flex flex-wrap gap-[6px]" role="radiogroup" aria-label={t("dashboard.range.legend")} style={riseStyle(1, reduced)}>
-        {RANGE_OPTIONS.map((opt) => (
-          <Chip key={opt.value} type="button" active={range === opt.value} onClick={() => setRange(opt.value)}>
-            {t(opt.labelKey)}
-          </Chip>
-        ))}
-      </div>
+      {nothingToShow ? (
+        <Card className="p-[18px_20px]">
+          <p className="text-sm text-ink-muted">{t("dashboard.nothingToShow")}</p>
+        </Card>
+      ) : null}
+
+      <DeskTiles tiles={desk.tiles} />
+
+      {ranged ? (
+        <div className="flex flex-wrap gap-[6px]" role="radiogroup" aria-label={t("dashboard.range.legend")} style={riseStyle(1, reduced)}>
+          {RANGE_OPTIONS.map((opt) => (
+            <Chip key={opt.value} type="button" active={range === opt.value} onClick={() => setRange(opt.value)}>
+              {t(opt.labelKey)}
+            </Chip>
+          ))}
+        </div>
+      ) : null}
 
       {query.isError ? (
         <Card className="p-[18px_20px]">
@@ -477,91 +498,97 @@ export function DashboardScreen() {
         </Card>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-[12px] lg:grid-cols-4" style={riseStyle(2, reduced)}>
-        <KpiTile
-          label={t("dashboard.kpi.revenue")}
-          value={revenue}
-          direction={revenueDelta.direction}
-          deltaTone={revenueDelta.tone}
-          delta={revenueDelta.node}
-          rtl={rtl}
-        />
-        <KpiTile
-          label={t("dashboard.kpi.expenses")}
-          value={expenses}
-          direction={expensesDelta.direction}
-          deltaTone={expensesDelta.tone}
-          delta={expensesDelta.node}
-          rtl={rtl}
-        />
-        <KpiTile
-          label={t("dashboard.kpi.netProfit")}
-          value={netProfit}
-          valueTone={netProfit < 0 ? "bad" : "good"}
-          direction={netDelta.direction}
-          deltaTone={netDelta.tone}
-          delta={netDelta.node}
-          rtl={rtl}
-        />
-        <KpiTile
-          label={t("dashboard.kpi.cash")}
-          value={num(gl?.cash)}
-          direction="level"
-          deltaTone="neutral"
-          delta={t("dashboard.kpi.cash.sub")}
-          rtl={rtl}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-[1.5fr_1fr]">
-        <Card className="p-[20px_22px]" style={riseStyle(3, reduced)}>
-          <h2 className="mt-[4px] font-display text-lg font-bold text-ink">{t("dashboard.hero.title")}</h2>
-
-          <BalanceBeam
-            revenue={revenue}
-            expenses={expenses}
-            net={netProfit}
-            revenueAtEnd={rtl}
-            label={t(beamAriaKey, { net: format.money(netProfit) })}
+      {seesSummary ? (
+        <div className="grid grid-cols-2 gap-[12px] lg:grid-cols-4" style={riseStyle(2, reduced)}>
+          <KpiTile
+            label={t("dashboard.kpi.revenue")}
+            value={revenue}
+            direction={revenueDelta.direction}
+            deltaTone={revenueDelta.tone}
+            delta={revenueDelta.node}
+            rtl={rtl}
           />
+          <KpiTile
+            label={t("dashboard.kpi.expenses")}
+            value={expenses}
+            direction={expensesDelta.direction}
+            deltaTone={expensesDelta.tone}
+            delta={expensesDelta.node}
+            rtl={rtl}
+          />
+          <KpiTile
+            label={t("dashboard.kpi.netProfit")}
+            value={netProfit}
+            valueTone={netProfit < 0 ? "bad" : "good"}
+            direction={netDelta.direction}
+            deltaTone={netDelta.tone}
+            delta={netDelta.node}
+            rtl={rtl}
+          />
+          <KpiTile
+            label={t("dashboard.kpi.cash")}
+            value={num(gl?.cash)}
+            direction="level"
+            deltaTone="neutral"
+            delta={t("dashboard.kpi.cash.sub")}
+            rtl={rtl}
+          />
+        </div>
+      ) : null}
 
-          <div className="mt-[6px] flex flex-wrap items-end justify-between gap-[14px]">
-            <div className="min-w-[104px]">
-              <div className="flex items-center gap-[6px] text-2xs text-ink-muted">
-                <span aria-hidden className="h-[8px] w-[8px] rounded-sm bg-chart-1" />
-                {t("dashboard.kpi.revenue")}
+      <div className={seesSummary && attentionItems.length > 0 ? "grid grid-cols-1 gap-[16px] xl:grid-cols-[1.5fr_1fr]" : "grid grid-cols-1 gap-[16px]"}>
+        {seesSummary ? (
+          <Card className="p-[20px_22px]" style={riseStyle(3, reduced)}>
+            <h2 className="mt-[4px] font-display text-lg font-bold text-ink">{t("dashboard.hero.title")}</h2>
+
+            <BalanceBeam
+              revenue={revenue}
+              expenses={expenses}
+              net={netProfit}
+              revenueAtEnd={rtl}
+              label={t(beamAriaKey, { net: format.money(netProfit) })}
+            />
+
+            <div className="mt-[6px] flex flex-wrap items-end justify-between gap-[14px]">
+              <div className="min-w-[104px]">
+                <div className="flex items-center gap-[6px] text-2xs text-ink-muted">
+                  <span aria-hidden className="h-[8px] w-[8px] rounded-sm bg-chart-1" />
+                  {t("dashboard.kpi.revenue")}
+                </div>
+                <div className="mz-num mt-[2px] text-md font-semibold" style={{ color: "var(--chart-1)" }}>
+                  {format.money(revenue)}
+                </div>
               </div>
-              <div className="mz-num mt-[2px] text-md font-semibold" style={{ color: "var(--chart-1)" }}>
-                {format.money(revenue)}
+
+              <div className="flex-1 text-center">
+                <div
+                  className={`font-display text-2xl font-bold tracking-tight ${netProfit < 0 ? "text-danger-ink" : "text-success-ink"}`}
+                >
+                  <Money value={netProfit} />
+                </div>
+                <div className="mt-[2px] text-2xs text-ink-muted">{t(verdictKey)}</div>
+              </div>
+
+              <div className="min-w-[104px] text-end">
+                <div className="flex items-center justify-end gap-[6px] text-2xs text-ink-muted">
+                  <span aria-hidden className="h-[8px] w-[8px] rounded-sm bg-chart-2" />
+                  {t("dashboard.kpi.expenses")}
+                </div>
+                <div className="mz-num mt-[2px] text-md font-semibold" style={{ color: "var(--chart-2)" }}>
+                  {format.money(expenses)}
+                </div>
               </div>
             </div>
+          </Card>
+        ) : null}
 
-            <div className="flex-1 text-center">
-              <div
-                className={`font-display text-2xl font-bold tracking-tight ${netProfit < 0 ? "text-danger-ink" : "text-success-ink"}`}
-              >
-                <Money value={netProfit} />
-              </div>
-              <div className="mt-[2px] text-2xs text-ink-muted">{t(verdictKey)}</div>
-            </div>
-
-            <div className="min-w-[104px] text-end">
-              <div className="flex items-center justify-end gap-[6px] text-2xs text-ink-muted">
-                <span aria-hidden className="h-[8px] w-[8px] rounded-sm bg-chart-2" />
-                {t("dashboard.kpi.expenses")}
-              </div>
-              <div className="mz-num mt-[2px] text-md font-semibold" style={{ color: "var(--chart-2)" }}>
-                {format.money(expenses)}
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-[18px_20px]" style={riseStyle(4, reduced)}>
-          <h3 className="font-display text-md font-bold text-ink">{t("dashboard.attention")}</h3>
-          <div className="mb-[4px] mt-[2px] text-2xs text-ink-faint">{t("dashboard.attention.sub")}</div>
-          <AttentionQueue items={attentionItems} />
-        </Card>
+        {attentionItems.length > 0 ? (
+          <Card className="p-[18px_20px]" style={riseStyle(4, reduced)}>
+            <h3 className="font-display text-md font-bold text-ink">{t("dashboard.attention")}</h3>
+            <div className="mb-[4px] mt-[2px] text-2xs text-ink-faint">{t("dashboard.attention.sub")}</div>
+            <AttentionQueue items={attentionItems} />
+          </Card>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-2">
@@ -580,29 +607,33 @@ export function DashboardScreen() {
 
       {cockpitFirst ? null : cockpit}
 
-      <div style={riseStyle(9, reduced)}>
-        <div className="mb-[8px] mz-eyebrow">{t("dashboard.companyWide")}</div>
-        <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-3">
-          <StatCard label={t("dashboard.kpi.receivables")} value={<Money value={num(gl?.receivables)} />} />
-          <StatCard label={t("dashboard.kpi.payables")} value={<Money value={num(gl?.payables)} />} />
-          <StatCard label={t("dashboard.kpi.inventoryValue")} value={<Money value={num(gl?.inventoryValue)} />} />
-        </div>
-      </div>
-
-      <Card className="p-[18px_20px]" style={riseStyle(10, reduced)}>
-        <h3 className="font-display text-md font-bold text-ink">{t("dashboard.systemData")}</h3>
-        <div className="mt-[2px] text-2xs text-ink-faint">{t("dashboard.systemData.sub")}</div>
-        <dl className="mt-[14px] grid grid-cols-2 gap-[10px] sm:grid-cols-3 lg:grid-cols-6">
-          {systemData.map((row) => (
-            <div key={row.key} className="rounded-md border border-border p-[10px_12px]">
-              <dt className="text-2xs text-ink-faint">{row.label}</dt>
-              <dd className="mz-num mt-[2px] text-lg font-bold text-ink">{format.number(row.value)}</dd>
+      {seesSummary ? (
+        <>
+          <div style={riseStyle(9, reduced)}>
+            <div className="mb-[8px] mz-eyebrow">{t("dashboard.companyWide")}</div>
+            <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-3">
+              <StatCard label={t("dashboard.kpi.receivables")} value={<Money value={num(gl?.receivables)} />} />
+              <StatCard label={t("dashboard.kpi.payables")} value={<Money value={num(gl?.payables)} />} />
+              <StatCard label={t("dashboard.kpi.inventoryValue")} value={<Money value={num(gl?.inventoryValue)} />} />
             </div>
-          ))}
-        </dl>
-      </Card>
+          </div>
 
-      <p className="text-2xs text-ink-faint">{t("dashboard.footnote")}</p>
+          <Card className="p-[18px_20px]" style={riseStyle(10, reduced)}>
+            <h3 className="font-display text-md font-bold text-ink">{t("dashboard.systemData")}</h3>
+            <div className="mt-[2px] text-2xs text-ink-faint">{t("dashboard.systemData.sub")}</div>
+            <dl className="mt-[14px] grid grid-cols-2 gap-[10px] sm:grid-cols-3 lg:grid-cols-6">
+              {systemData.map((row) => (
+                <div key={row.key} className="rounded-md border border-border p-[10px_12px]">
+                  <dt className="text-2xs text-ink-faint">{row.label}</dt>
+                  <dd className="mz-num mt-[2px] text-lg font-bold text-ink">{format.number(row.value)}</dd>
+                </div>
+              ))}
+            </dl>
+          </Card>
+
+          <p className="text-2xs text-ink-faint">{t("dashboard.footnote")}</p>
+        </>
+      ) : null}
     </div>
   );
 }

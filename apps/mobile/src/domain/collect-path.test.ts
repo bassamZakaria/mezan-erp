@@ -48,5 +48,13 @@ describe("the draft a create-only cashier saves", () => {
       memo: "تحصيل الفاتورة INV-000123",
     });
     expect(Object.keys(body)).not.toContain("counterpartyGlAccountId");
+    expect(Object.keys(body)).not.toContain("allocations");
+  });
+
+  it("carries the invoice it is for as the allocation the confirmer will apply, when the cashier may allocate", () => {
+    const base = { date: "2026-10-13", customerId: "CUST-1", branchId: "BR-MAIN", treasuryAccountId: "TR-1", amount: "150.50", referenceNo: "", invoiceNo: "INV-000123", memoPrefix: "تحصيل الفاتورة" };
+
+    expect(draftCollectionBody({ ...base, allocation: { invoiceId: "INV-ID-1", amount: "150.50" } }).allocations).toEqual([{ invoiceId: "INV-ID-1", amount: "150.50" }]);
+    expect(draftCollectionBody({ ...base, allocation: { invoiceId: "INV-ID-1", amount: null } }).allocations).toEqual([{ invoiceId: "INV-ID-1" }]);
   });
 });

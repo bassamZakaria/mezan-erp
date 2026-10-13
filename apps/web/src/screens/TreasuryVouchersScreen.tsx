@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useApi } from "../data/ApiContext";
 import { sessionHolds } from "../data/session";
 import { useQueryClient } from "@tanstack/react-query";
+import { IntendedAllocationsNote } from "./IntendedAllocationsNote";
 import { APPROVAL_STANDING_KEY, ReapprovalNotice } from "../shell/ReapprovalNotice";
 import { useDocumentEffectText } from "../lib/document-effects";
 import {
@@ -946,6 +947,7 @@ function VoucherDetailView({
           {error}
         </div>
       ) : null}
+      <IntendedAllocationsNote voucher={doc} invoices={openInvoices} />
       <ReapprovalNotice
         requestId={doc.status === "pending" ? (doc.workflowRequestId ?? null) : null}
         pending={requestAgain.isPending}

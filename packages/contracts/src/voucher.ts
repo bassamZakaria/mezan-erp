@@ -105,6 +105,12 @@ export const voucherSchema = z.object({
   heldAllocations: z.array(heldAllocationSchema).optional(),
 });
 
+export const requestedAllocationSchema = z.object({
+  allocationId: z.string().min(1).optional(),
+  invoiceId: z.string().min(1),
+  amount: moneyString.optional(),
+});
+
 /** Create a voucher draft. */
 export const createVoucherSchema = z.object({
   id: z.string().min(1).optional(),
@@ -133,6 +139,8 @@ export const createVoucherSchema = z.object({
   withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
+  /** The invoices this draft is meant to settle; whoever confirms it applies them in the same act (D344). */
+  allocations: z.array(requestedAllocationSchema).optional(),
 });
 
 /** Confirm a draft voucher (posts GL, stamps CV- number). */
@@ -210,15 +218,7 @@ export const createCollectionSchema = z.object({
   withholdingAmount: moneyString.nullish(),
   withholdingRatePercent: z.number().min(0).max(100).nullish(),
   withholdingGlAccountId: z.string().nullish(),
-  allocations: z
-    .array(
-      z.object({
-        allocationId: z.string().min(1).optional(),
-        invoiceId: z.string().min(1),
-        amount: moneyString.optional(),
-      }),
-    )
-    .default([]),
+  allocations: z.array(requestedAllocationSchema).default([]),
 });
 
 export const collectionResultSchema = z.object({
@@ -265,6 +265,7 @@ export type AllocationInvoiceKindDTO = z.infer<typeof allocationInvoiceKindSchem
 export type AllocationStatusDTO = z.infer<typeof allocationStatusSchema>;
 export type VoucherDTO = z.infer<typeof voucherSchema>;
 export type CreateVoucherDTO = z.infer<typeof createVoucherSchema>;
+export type RequestedAllocationDTO = z.infer<typeof requestedAllocationSchema>;
 export type ConfirmVoucherDTO = z.infer<typeof confirmVoucherSchema>;
 export type ReverseVoucherDTO = z.infer<typeof reverseVoucherSchema>;
 export type OpenInvoiceDTO = z.infer<typeof openInvoiceSchema>;

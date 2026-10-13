@@ -18,6 +18,7 @@ export { createAccountsRouter } from "./accounts.js";
 export {
   createAuthenticatedGate,
   createPermissionGate,
+  displacedSessionRefusal,
   insecureHeaderAuthContextResolver,
   getAuthContext,
   type AuthContextResolver,

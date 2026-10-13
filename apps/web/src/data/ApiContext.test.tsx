@@ -8,7 +8,7 @@ import { ApiProvider, useApi } from "./ApiContext";
 import { AppI18nProvider } from "../i18n";
 import { createQueryClient } from "./queryClient";
 import { stubTransport, testAdminSession } from "./test-support";
-import { sessionExpiredPending, type Session } from "./session";
+import { SignInNotice, pendingSignInNotice, sessionExpiredPending, type Session } from "./session";
 
 const STORAGE_KEY = "mezan.session";
 
@@ -135,6 +135,19 @@ describe("ApiProvider request() — 401 session expiry", () => {
     await screen.findByText("none");
     expect(sessionExpiredPending()).toBe(true);
     expect(clearSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("a 401 that says another user signed in on this device signs the user out with that reason, not as an expired session", async () => {
+    const transport = stubTransport({
+      "GET /items": () => ({ status: 401, sessionEnded: "displaced", body: { error: "SESSION_DISPLACED", message: "سجّل مستخدم آخر الدخول على هذا الجهاز" } }),
+    });
+    renderRequestProbe("/items", transport);
+
+    fireEvent.click(screen.getByText("call"));
+
+    await screen.findByText("none");
+    expect(pendingSignInNotice()).toBe(SignInNotice.SignedInElsewhere);
+    expect(sessionExpiredPending()).toBe(false);
   });
 
   it("a 403 (a real permission refusal) does NOT sign the user out or touch the cache — only 401 means the session itself is gone", async () => {

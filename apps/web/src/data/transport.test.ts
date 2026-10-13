@@ -62,6 +62,16 @@ describe("the wait a refusal names in its Retry-After header", () => {
     expect(await wait("-5")).toBeNull();
   });
 
+  it("carries the reason a session ended, when the server names one, through both transports", async () => {
+    globalThis.fetch = vi.fn(async () => new Response("{}", { status: 401, headers: { "x-mezan-session-ended": "displaced" } })) as unknown as typeof fetch;
+    expect((await createHttpTransport()("/items")).sessionEnded).toBe("displaced");
+    globalThis.fetch = vi.fn(async () => new Response("{}", { status: 401 })) as unknown as typeof fetch;
+    expect((await createHttpTransport()("/items")).sessionEnded).toBeNull();
+
+    const bridged = createElectronTransport({ fetch: vi.fn(async () => ({ status: 401, headers: { "X-Mezan-Session-Ended": "displaced" }, body: "{}" })) });
+    expect((await bridged("/items")).sessionEnded).toBe("displaced");
+  });
+
   it("is read by the desktop bridge transport whatever case the header arrived in", async () => {
     const through = async (headers: Record<string, string>) =>
       (await createElectronTransport({ fetch: vi.fn(async () => ({ status: 503, headers, body: "{}" })) })("/auth/login")).retryAfterSeconds;

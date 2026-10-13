@@ -27,6 +27,7 @@ import {
 } from "@mezan/contracts";
 import {
   createPermissionGate,
+  displacedSessionRefusal,
   getAuthContext,
   insecureHeaderAuthContextResolver,
   type AuthContextResolver,
@@ -88,6 +89,8 @@ function requireCaller(resolveAuthContext: AuthContextResolver): MiddlewareHandl
   return async (c, next) => {
     const ctx = await resolveAuthContext(c);
     if (!ctx.userId || ctx.userId === "anonymous") {
+      const displaced = displacedSessionRefusal(c);
+      if (displaced) return displaced;
       return c.json({ error: "UNAUTHENTICATED", message: "تسجيل الدخول مطلوب." }, 401);
     }
     c.set("authContext", ctx);

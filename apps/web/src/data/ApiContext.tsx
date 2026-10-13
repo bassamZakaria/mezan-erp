@@ -4,14 +4,15 @@ import {
   authHeaders,
   loadPersistedScopeSelection,
   loadPersistedSession,
-  markSessionExpired,
+  markSignInNotice,
   NO_SCOPE_SELECTION,
   persistScopeSelection,
   persistSession,
+  SignInNotice,
   type ScopeSelection,
   type Session,
 } from "./session";
-import { resolveDefaultTransport, type Transport, type TransportResponse } from "./transport";
+import { resolveDefaultTransport, SessionEndedReason, type Transport, type TransportResponse } from "./transport";
 import { publishLoaderApi } from "./api-bridge";
 import { DEVICE_BINDING_HEADER } from "@mezan/contracts";
 import { StepUpDialog, type StepUpPrompt } from "./StepUpDialog";
@@ -174,7 +175,7 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
          * reports itself, not a session that expired.
          */
         if (response.status === 401 && session !== null && !path.startsWith("/auth/login")) {
-          markSessionExpired();
+          markSignInNotice(response.sessionEnded === SessionEndedReason.Displaced ? SignInNotice.SignedInElsewhere : SignInNotice.SessionExpired);
           setSession(null);
           // Every cached answer was read as someone who is no longer signed in.
           queryClient.clear();

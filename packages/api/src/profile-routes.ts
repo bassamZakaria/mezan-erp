@@ -14,7 +14,7 @@ import {
   type AuditSink,
 } from "@mezan/domain";
 import { updateProfileSchema, changePasswordSchema, changePinSchema } from "@mezan/contracts";
-import { getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { displacedSessionRefusal, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
 import { createPrecomputingHasher } from "./precomputed-secrets.js";
 
 export enum ProfileRefusal {
@@ -73,6 +73,8 @@ function requireCaller(resolveAuthContext: AuthContextResolver): MiddlewareHandl
   return async (c, next) => {
     const ctx = await resolveAuthContext(c);
     if (!ctx.userId || ctx.userId === "anonymous") {
+      const displaced = displacedSessionRefusal(c);
+      if (displaced) return displaced;
       return c.json({ error: "UNAUTHENTICATED", message: "تسجيل الدخول مطلوب." }, 401);
     }
     c.set("authContext", ctx);

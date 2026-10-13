@@ -446,6 +446,55 @@ describe("a session bound to the device that signed in rather than to its addres
   }, 120_000);
 });
 
+describe("a second person signing in on a device somebody else is signed in on", () => {
+  const DEVICE = "41.33.7.7";
+  const deviceSignIn = (h: BackendHandle, username: string, pin: string, heldSecret?: string) =>
+    h.app.fetch(
+      new Request("http://local/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-mezan-device-binding": "1", ...(heldSecret ? { "x-mezan-device": heldSecret } : {}) },
+        body: JSON.stringify({ username, pin }),
+      }),
+      from(DEVICE),
+    );
+  const profileOf = (h: BackendHandle, token: string, secret: string) =>
+    h.app.fetch(new Request("http://local/profile", { headers: { authorization: `Bearer ${token}`, "x-mezan-device": secret } }), from(DEVICE));
+
+  it("tells the first person's tab that another user signed in on this device, in Arabic, and records no theft", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const h = await open();
+    const owner = await claim(h);
+    const cashier = { nameAr: "أمين الخزنة", nameEn: "Cashier", email: "cashier@shop.eg", pin: "246813" };
+    const created = await post(h, "/users", { ...cashier, password: "a-long-password-1", roleId: null, isCompanyAdmin: true, branchScope: "*", warehouseScope: "*", acknowledge: true, reason: "مدير ثانٍ للاختبار" }, null, owner.token);
+    expect(created.status, await created.clone().text()).toBeLessThan(300);
+
+    const first = (await (await deviceSignIn(h, OWNER.email, OWNER.pin)).json()) as SessionDTO & { deviceSecret: string };
+    expect((await profileOf(h, first.token, first.deviceSecret)).status).toBe(200);
+    const second = (await (await deviceSignIn(h, cashier.email, cashier.pin, first.deviceSecret)).json()) as SessionDTO & { deviceSecret: string };
+    expect(second.userId).not.toBe(first.userId);
+
+    const displaced = await profileOf(h, first.token, second.deviceSecret);
+    expect(displaced.status).toBe(401);
+    expect(displaced.headers.get("x-mezan-session-ended")).toBe("displaced");
+    expect(await displaced.json()).toEqual({ error: "SESSION_DISPLACED", message: "سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة." });
+    expect((await profileOf(h, second.token, second.deviceSecret)).status).toBe(200);
+
+    const neverIssued = await profileOf(h, "a-token-nobody-issued", second.deviceSecret);
+    expect(neverIssued.status).toBe(401);
+    expect(neverIssued.headers.get("x-mezan-session-ended")).toBeNull();
+    expect(await neverIssued.json()).toMatchObject({ error: "UNAUTHENTICATED" });
+    const gated = await h.app.fetch(new Request("http://local/customers", { headers: { authorization: `Bearer ${first.token}`, "x-mezan-device": second.deviceSecret } }), from(DEVICE));
+    expect(gated.status).toBe(401);
+    expect(await gated.json()).toMatchObject({ error: "SESSION_DISPLACED" });
+    const gatedUnknown = await h.app.fetch(new Request("http://local/customers", { headers: { authorization: "Bearer a-token-nobody-issued" } }), from(DEVICE));
+    expect(await gatedUnknown.json()).toMatchObject({ error: "SESSION_EXPIRED", message: "انتهت الجلسة. سجّل الدخول من جديد." });
+
+    const audit = await (await h.app.fetch(new Request("http://local/audit?stream=security", { headers: { authorization: `Bearer ${owner.token}` } }))).text();
+    expect(audit).toContain("LOGIN_SUCCEEDED");
+    expect(audit).not.toMatch(/SESSION_DEVICE_REJECTED|SESSION_ORIGIN_REJECTED/);
+  }, 120_000);
+});
+
 describe("claiming a tenant when the claim cannot be recorded", () => {
   it("claims nothing: no administrator, no session, and the tenant can still be claimed once the log records again", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);

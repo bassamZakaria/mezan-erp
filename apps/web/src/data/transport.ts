@@ -11,6 +11,8 @@ export interface TransportResponse {
   readonly ok: boolean;
   /** The whole seconds a refusal's `Retry-After` header names; null when it names none. */
   readonly retryAfterSeconds?: number | null;
+  /** Why the server says this session ended, when it says ({@link SessionEndedReason}). */
+  readonly sessionEnded?: string | null;
   json<T = unknown>(): Promise<T>;
   text(): Promise<string>;
 }
@@ -28,6 +30,11 @@ interface MezanBridge {
 }
 
 const RETRY_AFTER = "retry-after";
+const SESSION_ENDED = "x-mezan-session-ended";
+
+export enum SessionEndedReason {
+  Displaced = "displaced",
+}
 
 export function retryAfterSecondsOf(header: string | null | undefined): number | null {
   if (header === null || header === undefined || !/^\s*\d+(\.\d+)?\s*$/.test(header)) return null;
@@ -52,6 +59,7 @@ export function createHttpTransport(baseUrl = "/api"): Transport {
       status: res.status,
       ok: res.ok,
       retryAfterSeconds: retryAfterSecondsOf(res.headers.get(RETRY_AFTER)),
+      sessionEnded: res.headers.get(SESSION_ENDED),
       json: <T,>() => res.json() as Promise<T>,
       text: () => res.text(),
     };
@@ -99,6 +107,7 @@ export function createElectronTransport(bridge: MezanBridge): Transport {
       status: res.status,
       ok: res.status >= 200 && res.status < 400,
       retryAfterSeconds: retryAfterSecondsOf(headerOf(res.headers, RETRY_AFTER)),
+      sessionEnded: headerOf(res.headers, SESSION_ENDED),
       json: <T,>() => Promise.resolve(JSON.parse(res.body) as T),
       text: () => Promise.resolve(res.body),
     };

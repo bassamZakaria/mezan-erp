@@ -69,6 +69,7 @@ function getTabStorage(): Storage | null {
 export enum SignInNotice {
   SessionExpired = "1",
   AccountUnlocked = "unlocked",
+  SignedInElsewhere = "displaced",
 }
 
 const SIGN_IN_NOTICES: ReadonlySet<string> = new Set(Object.values(SignInNotice));

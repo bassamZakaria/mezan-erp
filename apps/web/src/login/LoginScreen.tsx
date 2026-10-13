@@ -203,7 +203,8 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   // the two are not one call.
   const [arrivedWith] = useState(pendingSignInNotice);
   useEffect(() => clearSignInNotice(), []);
-  const expired = arrivedWith === SignInNotice.SessionExpired;
+  const signedOutNotice =
+    arrivedWith === SignInNotice.SignedInElsewhere ? t("login.signedInElsewhere") : arrivedWith === SignInNotice.SessionExpired ? t("login.sessionExpired") : null;
   const [error, setError] = useState<string | null>(null);
   /**
    * Seconds left on a lockout, counted down locally.
@@ -383,12 +384,12 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
         {/* A session that ended says so, rather than looking like a fresh start
             the user asked for. It sits above the face row, since that is where
             the eye lands first. */}
-        {expired && error === null ? (
+        {signedOutNotice !== null && error === null ? (
           <div
             role="status"
             className="mt-[12px] rounded-md border border-warning bg-warning-soft px-[12px] py-[9px] text-xs text-warning-ink"
           >
-            {t("login.sessionExpired")}
+            {signedOutNotice}
           </div>
         ) : null}
 

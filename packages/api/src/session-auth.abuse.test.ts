@@ -6,6 +6,8 @@ import {
   createSessionRegistry,
   readSessionToken,
   tokensMatch,
+  DISPLACED_SESSIONS_REMEMBERED,
+  SessionRefusalKind,
 } from "./session-auth.js";
 import { createPermissionGate } from "./permission-gate.js";
 
@@ -303,14 +305,44 @@ describe("a second sign-in from a device that already holds a session's secret",
     expect(sessions.inspect(second.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-1");
   });
 
-  it("ends another user's session on that device quietly, so its token is unknown and not reported as stolen", () => {
+  it("ends another user's session on that device and says why — displaced by a sign-in, never a stolen device or a moved address", () => {
     const sessions = createSessionRegistry();
     const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
     const second = sessions.issueDeviceBound(grantOf("u-2"), "41.33.10.10", first.deviceSecret);
 
     expect(second.deviceSecret).not.toBe(first.deviceSecret);
-    expect(sessions.inspect(first.token, "41.33.10.10", second.deviceSecret)).toEqual({ grant: null, refusal: null });
+    const ended = sessions.inspect(first.token, "41.33.10.10", second.deviceSecret);
+    expect(ended.grant).toBeNull();
+    expect(ended.refusal).toMatchObject({ reason: SessionRefusalKind.Displaced, userId: "u-1" });
+    expect(ended.addressChange ?? null).toBeNull();
+    expect(sessions.inspect(first.token, "41.33.10.10", second.deviceSecret).refusal?.reason).toBe(SessionRefusalKind.Displaced);
     expect(sessions.inspect(second.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-2");
+  });
+
+  it("forgets that a session was displaced once the session would have idled out anyway, and never remembers more than a bounded number", () => {
+    let now = 1_700_000_000_000;
+    const sessions = createSessionRegistry(() => now);
+    const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    sessions.issueDeviceBound(grantOf("u-2"), "41.33.10.10", first.deviceSecret);
+    now += 12 * 60 * 60 * 1000 + 1;
+    expect(sessions.inspect(first.token, "41.33.10.10", null)).toEqual({ grant: null, refusal: null });
+
+    const crowded = createSessionRegistry(() => now);
+    const tokens: string[] = [];
+    let held = crowded.issueDeviceBound(grantOf("u-0"), "41.33.10.10");
+    for (let i = 1; i <= DISPLACED_SESSIONS_REMEMBERED + 5; i += 1) {
+      tokens.push(held.token);
+      held = crowded.issueDeviceBound(grantOf(`u-${i}`), "41.33.10.10", held.deviceSecret);
+    }
+    expect(crowded.inspect(tokens[0]!, "41.33.10.10", null)).toEqual({ grant: null, refusal: null });
+    expect(crowded.inspect(tokens.at(-1)!, "41.33.10.10", null).refusal?.reason).toBe(SessionRefusalKind.Displaced);
+  });
+
+  it("does not call a signed-out or revoked session displaced", () => {
+    const sessions = createSessionRegistry();
+    const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    sessions.revoke(first.token);
+    expect(sessions.inspect(first.token, "41.33.10.10", first.deviceSecret)).toEqual({ grant: null, refusal: null });
   });
 
   it("never adopts a secret no live session was issued with", () => {

@@ -128,6 +128,13 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     expect(screen.getByRole("status")).toHaveTextContent("انتهت الجلسة. سجّل الدخول من جديد للمتابعة.");
   });
 
+  it("says another user signed in on this device, not that the session merely ended, when that is why the tab was signed out", () => {
+    markSignInNotice(SignInNotice.SignedInElsewhere);
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
+    expect(screen.getByRole("status")).toHaveTextContent("سجّل مستخدم آخر الدخول على هذا الجهاز، فانتهت جلستك هنا. سجّل الدخول من جديد للمتابعة.");
+    expect(screen.queryByText("انتهت الجلسة. سجّل الدخول من جديد للمتابعة.")).not.toBeInTheDocument();
+  });
+
   it("confirms in Arabic that the account was unlocked when the person arrives from a mailed link", () => {
     markSignInNotice(SignInNotice.AccountUnlocked);
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });

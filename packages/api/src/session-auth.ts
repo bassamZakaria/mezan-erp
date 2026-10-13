@@ -12,6 +12,7 @@ import {
 import { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER } from "@mezan/contracts";
 import type { AuthContextResolver } from "./permission-gate.js";
 import { requestOrigin } from "./request-origin.js";
+import { markSessionDisplaced } from "./session-ended.js";
 
 /**
  * Server-held sessions, and the resolver that reads one off a request.
@@ -85,6 +86,15 @@ export enum SessionRefusalKind {
   Aged = "aged",
   Moved = "moved",
   Device = "device",
+  Displaced = "displaced",
+}
+
+export const DISPLACED_SESSIONS_REMEMBERED = 1000;
+
+interface DisplacedSession {
+  readonly userId: string;
+  readonly issuedFrom: string | null;
+  readonly at: number;
 }
 
 /** Why a token that exists was nonetheless refused. */
@@ -271,6 +281,21 @@ function originLabel(origin: string | null): string {
  */
 export function createSessionRegistry(now: () => number = Date.now): SessionRegistry {
   const byHash = new Map<string, StoredSession>();
+  // SECURITY: a record that a session ENDED, kept only so its holder can be
+  // told why. It grants nothing, is bounded, and is forgotten after the idle
+  // window; it is written only by another user's verified sign-in on the same
+  // device, never by a revoke, a sign-out or anything a caller sends.
+  const displaced = new Map<string, DisplacedSession>();
+
+  function rememberDisplaced(key: string, session: StoredSession, at: number): void {
+    displaced.delete(key);
+    displaced.set(key, { userId: session.userId, issuedFrom: session.issuedFrom, at });
+    while (displaced.size > DISPLACED_SESSIONS_REMEMBERED) {
+      const oldest = displaced.keys().next();
+      if (oldest.done) break;
+      displaced.delete(oldest.value);
+    }
+  }
 
   function open(grant: SessionGrant, origin: string | null, deviceHash: string | null): string {
     const at = now();
@@ -291,6 +316,9 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
     for (const [key, session] of byHash) {
       if (expired(session, at)) byHash.delete(key);
     }
+    for (const [key, ended] of displaced) {
+      if (at - ended.at > IDLE_TIMEOUT_MS) displaced.delete(key);
+    }
   }
 
   const registry: SessionRegistry = {
@@ -310,7 +338,10 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
         if (onThisDevice.some(([, session]) => session.userId === grant.userId)) {
           return { token: open(grant, origin, heldHash), deviceSecret: heldSecret };
         }
-        for (const [key] of onThisDevice) byHash.delete(key);
+        for (const [key, session] of onThisDevice) {
+          byHash.delete(key);
+          rememberDisplaced(key, session, at);
+        }
       }
       const deviceSecret = randomBytes(32).toString("base64url");
       return { token: open(grant, origin, hashToken(deviceSecret)), deviceSecret };
@@ -326,7 +357,14 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
       const at = now();
       const key = hashToken(token);
       const session = byHash.get(key);
-      if (!session) return { grant: null, refusal: null };
+      if (!session) {
+        const ended = displaced.get(key);
+        if (!ended || at - ended.at > IDLE_TIMEOUT_MS) return { grant: null, refusal: null };
+        return {
+          grant: null,
+          refusal: { reason: SessionRefusalKind.Displaced, userId: ended.userId, issuedFrom: originLabel(ended.issuedFrom), presentedFrom: originLabel(canonicalOrigin(origin)) },
+        };
+      }
 
       const presented = canonicalOrigin(origin);
       if (session.deviceHash !== null) {
@@ -371,6 +409,7 @@ export function createSessionRegistry(now: () => number = Date.now): SessionRegi
     },
     revoke(token) {
       byHash.delete(hashToken(token));
+      displaced.delete(hashToken(token));
     },
     revokeUser(userId) {
       for (const [key, session] of byHash) {
@@ -481,7 +520,8 @@ export function createSessionAuthContextResolver(sessions: SessionRegistry): Aut
     // session is revoked on the way out. 401, never a quieter, smaller grant —
     // a mismatched origin degrading to reduced permissions would be a session
     // the thief still holds.
-    const { grant } = sessionLookup(sessions, c, token);
+    const { grant, refusal } = sessionLookup(sessions, c, token);
+    if (refusal?.reason === SessionRefusalKind.Displaced) markSessionDisplaced(c);
     if (!grant) return ANONYMOUS;
     return createAuthContext({
       userId: grant.userId,

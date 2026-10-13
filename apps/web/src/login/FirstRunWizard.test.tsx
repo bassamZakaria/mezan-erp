@@ -245,6 +245,39 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
  * Outside the theme matrix, because the bridge has to be installed and torn
  * down around each case and none of this is about colour.
  */
+describe("FirstRunWizard — the standard roles", () => {
+  function atSeedStep(roles: number | undefined) {
+    renderWithProviders(<FirstRunWizard onFinish={() => {}} onCancel={() => {}} />, {
+      transport: stubTransport({
+        "GET /tenant": () => ({ body: { name: "Cyag" } }),
+        "GET /bootstrap/status": () => ({ body: { ...SEEDED_COUNTS, ...(roles === undefined ? {} : { roles }) } }),
+        "POST /bootstrap/admin": () => ({ status: 201, body: testAdminSession }),
+      }),
+    });
+    goToAdminStep();
+    fillAdminForm();
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+  }
+
+  it("says the standard roles were added, and how many, so the owner knows a cashier can be assigned one", async () => {
+    atSeedStep(13);
+    const note = await screen.findByTestId("standard-roles-note");
+    expect(note).toHaveTextContent("أُضيف 12 دوراً قياسياً");
+    expect(note).toHaveTextContent("الأدوار والصلاحيات");
+  });
+
+  it("says they will arrive once the licence is installed when the install holds only the system role", async () => {
+    atSeedStep(1);
+    expect(await screen.findByTestId("standard-roles-note")).toHaveTextContent("تُضاف الأدوار القياسية");
+  });
+
+  it("says nothing on an edition that does not report its roles", async () => {
+    atSeedStep(undefined);
+    await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" });
+    expect(screen.queryByTestId("standard-roles-note")).not.toBeInTheDocument();
+  });
+});
+
 describe("FirstRunWizard — installing a licence file", () => {
   interface Bridge {
     mezan?: { licence?: Record<string, (...args: unknown[]) => Promise<unknown>> };

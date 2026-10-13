@@ -57,6 +57,7 @@ const REASON_KEYS: Record<string, AppTranslationKey> = {
   "pre-migration": "backup.reason.preMigration",
   "on-close": "backup.reason.onClose",
   "pre-update": "backup.reason.preUpdate",
+  "pre-restore": "backup.reason.preRestore",
 };
 
 const BACKUP_STALE_AFTER_DAYS = 2;
@@ -98,6 +99,7 @@ export function BackupRestorePage() {
   const { session } = useApi();
   const [entries, setEntries] = useState<BackupEntry[]>([]);
   const [backupsDir, setBackupsDir] = useState<string>("");
+  const [archivesEncrypted, setArchivesEncrypted] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -127,6 +129,7 @@ export function BackupRestorePage() {
     }
     setEntries([...result.entries]);
     setBackupsDir(result.backupsDir);
+    setArchivesEncrypted(result.archivesEncrypted !== false);
     if (current && !isBackupFailure(current)) setStatus(current);
     setError(null);
   }, [api, token]);
@@ -390,10 +393,17 @@ export function BackupRestorePage() {
         </Card>
       ) : null}
 
+      {archivesEncrypted ? null : (
+        <div role="note" aria-label={t("backup.unencrypted.title")} className="mb-[16px] rounded-md border border-warning bg-warning-soft p-[12px_14px] text-warning-ink">
+          <div className="text-[13px] font-semibold">{t("backup.unencrypted.title")}</div>
+          <p className="mt-[4px] text-[12.5px]">{t("backup.unencrypted.body")}</p>
+        </div>
+      )}
+
       {api.chooseSecondTarget && secondTarget ? (
         <Card className="mb-[16px] p-[18px]">
           <div className="text-[13px] font-semibold text-ink">{t("secondTarget.title")}</div>
-          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("secondTarget.hint")}</p>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t(archivesEncrypted ? "secondTarget.hint" : "secondTarget.hintUnencrypted")}</p>
           <p className="mt-[8px] mz-lat break-all text-[12px] text-ink">{secondTarget.dir ?? t("secondTarget.none")}</p>
           {secondTarget.dir && secondTarget.lastCopyAt ? (
             secondTarget.lastCopyOk ? (
@@ -438,7 +448,7 @@ export function BackupRestorePage() {
       {api.exportPortable ? (
         <Card className="mb-[16px] p-[18px]">
           <div className="text-[13px] font-semibold text-ink">{t("backup.portableTitle")}</div>
-          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("backup.portableHint")}</p>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t(archivesEncrypted ? "backup.portableHint" : "backup.portableHintUnencrypted")}</p>
           <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
             <div className="max-w-[280px] grow">
               <TextInput

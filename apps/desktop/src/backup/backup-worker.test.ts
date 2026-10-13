@@ -7,6 +7,7 @@ import { runBackupWorkerJob, lightVerify, type BackupWorkerJob } from "./backup-
 import { createArchive, extractArchive } from "./archive.js";
 import { serializeManifest, buildManifest } from "./manifest.js";
 import { ChecksumMismatchError } from "./errors.js";
+import { BackupReason } from "./manifest.js";
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -23,7 +24,7 @@ function baseJob(overrides: Partial<BackupWorkerJob> & { dbFilePath: string; arc
     snapshot: null,
     manifestInput: {
       appVersion: "1.0.0",
-      reason: "manual",
+      reason: BackupReason.Manual,
       createdAt: new Date("2026-09-07T00:00:00.000Z").toISOString(),
       tables: {},
       lastIntegrityCheckAt: null,
@@ -88,7 +89,7 @@ describe("runBackupWorkerJob — off-thread pipeline (guards Q-2)", () => {
       runFullIntegrityCheck: true,
       manifestInput: {
         appVersion: "1.0.0",
-        reason: "scheduled",
+        reason: BackupReason.Scheduled,
         createdAt: new Date("2026-09-07T00:00:00.000Z").toISOString(),
         tables: {},
         lastIntegrityCheckAt: null,
@@ -107,7 +108,7 @@ describe("runBackupWorkerJob — off-thread pipeline (guards Q-2)", () => {
       runFullIntegrityCheck: false,
       manifestInput: {
         appVersion: "1.0.0",
-        reason: "scheduled",
+        reason: BackupReason.Scheduled,
         createdAt: new Date("2026-09-08T00:00:00.000Z").toISOString(),
         tables: {},
         lastIntegrityCheckAt: "2026-09-07T00:00:00.000Z",
@@ -167,7 +168,7 @@ describe("runBackupWorkerJob — off-thread pipeline (guards Q-2)", () => {
       checksum: "a".repeat(64),
       tables: {},
       appVersion: "1.0.0",
-      reason: "scheduled",
+      reason: BackupReason.Scheduled,
       createdAt: new Date(),
     });
     await createArchive({ dbFilePath, manifestJson: serializeManifest(staleManifest), outputPath: archivePath });

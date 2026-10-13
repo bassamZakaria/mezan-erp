@@ -36,6 +36,8 @@ import {
   parseManifest,
   restoreBackup,
   BackupKeyMismatchError,
+  ArchiveDamagedError,
+  BackupReason,
   BACKUP_FILE_EXTENSION,
   MANIFEST_ENTRY_NAME,
   MIN_PASSPHRASE_LENGTH,
@@ -413,7 +415,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
       const found = await listBackups(deps.backupsDir);
       found.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
       const entries = await Promise.all(found.map((b) => describeArchive(b.path, b.createdAt)));
-      return { backupsDir: deps.backupsDir, entries };
+      return { backupsDir: deps.backupsDir, entries, archivesEncrypted: deps.cipher !== undefined };
     },
   );
 
@@ -437,7 +439,7 @@ export function registerRestoreOverIpc(deps: RestoreIpcDeps): void {
             sqlite,
             backupsDir: deps.backupsDir,
             appVersion: deps.appVersion,
-            reason: "manual",
+            reason: BackupReason.Manual,
             encrypted: deps.cipher !== undefined,
             cipher: deps.cipher ? { key: deps.cipher.key } : undefined,
           }),
@@ -779,7 +781,7 @@ async function performVerifiedRestore(
           sqlite,
           backupsDir: deps.backupsDir,
           appVersion: deps.appVersion,
-          reason: "manual",
+          reason: BackupReason.PreRestore,
           encrypted: deps.cipher !== undefined,
           cipher: deps.cipher ? { key: deps.cipher.key } : undefined,
         }),
@@ -855,6 +857,9 @@ async function performVerifiedRestore(
         "VERIFICATION_FAILED",
         "هذه النسخة الاحتياطية مشفّرة بمفتاح جهاز آخر، ولا يمكن فتحها هنا. استخدم مفتاح التشفير الخاص بالجهاز الذي أخذها. لم تتغيّر بياناتك.",
       );
+    }
+    if (err instanceof ArchiveDamagedError) {
+      return failure("VERIFICATION_FAILED", `${err.message} سيُعاد تشغيل البرنامج الآن.`);
     }
     return failure(
       "VERIFICATION_FAILED",

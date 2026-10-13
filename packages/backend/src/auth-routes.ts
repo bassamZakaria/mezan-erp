@@ -56,6 +56,7 @@ export interface AuthRoutesDeps {
   // SECURITY: the cloud platform's own record that this tenant has an owner.
   // True closes the bootstrap routes whatever this database holds.
   readonly claimedElsewhere?: () => Promise<boolean>;
+  readonly onTenantClaimed?: () => Promise<void>;
 }
 
 export { UNDISCLOSED_TENANT_NAME };
@@ -441,6 +442,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       );
       await recordTenantClaim(new Date().toISOString(), parsed.data.companyName);
       await retireSeedAdmin();
+      await deps.onTenantClaimed?.();
       // The single highest-authority write in the product, and it recorded
       // nothing at all — so a company admin appearing from nowhere was
       // indistinguishable, afterwards, from one that had always been there.

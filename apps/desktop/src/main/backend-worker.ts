@@ -1,10 +1,13 @@
 import { createBackend, takeSeededAdminSecrets, type BackendHandle } from "@mezan/backend";
 import { createEntitlements, SeatSessionRegistry } from "@mezan/domain";
+import { SchemaTooNewError, SchemaUpgradeFailedError } from "@mezan/persistence";
 import {
   BACKEND_BRIDGE_PROTOCOL,
+  BackendBootRefusalCode,
   bridgeEnv,
   decodeBridgeRequest,
   type BackendBootPayload,
+  type BackendBootRefusal,
   type BackendCall,
   type BackendCallMessage,
   type BackendCallResult,
@@ -96,6 +99,12 @@ async function boot(payload: BackendBootPayload): Promise<{ pin: string; generat
       ? {}
       : { connection: { driver: cipherDriver, key: payload.cipherKey } }),
     lan: { resolveEntitlements: () => entitlements, registry: seats },
+    standardRoles: {
+      resolveEntitlements: () => {
+        const held = liveLicence();
+        return held.verified ? held.entitlements : null;
+      },
+    },
     ...(payload.applyEntitlements ? { entitlements } : {}),
     // PER REQUEST, exactly as it was when this ran in the main process: a guard
     // file read plus arithmetic, no signature check. Freezing it at boot is what
@@ -115,6 +124,20 @@ async function boot(payload: BackendBootPayload): Promise<{ pin: string; generat
   state = { backend, seats, licence: payload.licence };
   const seeded = takeSeededAdminSecrets();
   return seeded ? { pin: seeded.pin, generated: seeded.generated } : null;
+}
+
+export function bootRefusalOf(err: unknown): BackendBootRefusal | null {
+  if (err instanceof SchemaUpgradeFailedError) {
+    return { code: BackendBootRefusalCode.SchemaUpgradeFailed, message: err.message, messageEn: err.messageEn };
+  }
+  if (err instanceof SchemaTooNewError) {
+    return {
+      code: BackendBootRefusalCode.SchemaTooNew,
+      message: err.message,
+      messageEn: `This database was written by a newer version of Mezan. Open it with that version, or restore a backup taken with this one. Nothing in the file was changed. (schema ${err.fileVersion} > ${err.appSchemaVersion})`,
+    };
+  }
+  return null;
 }
 
 async function run(call: BackendCall): Promise<BackendCallResult> {
@@ -224,6 +247,7 @@ function listen(port: BridgePort): void {
           port.postMessage({
             type: "boot-error",
             error: err instanceof Error ? err.message : String(err),
+            refusal: bootRefusalOf(err),
           });
           setTimeout(() => process.exit(1), 0);
         });

@@ -134,7 +134,7 @@ describe("backupThenMigrate — the books are safe before the schema moves", () 
     expect(logged).toContain("الاستعادة");
   });
 
-  it("tags the archive's manifest as the pre-migration one, so retention can tell it apart", async () => {
+  it("tags the archive's manifest as the pre-update one, so retention keeps it under its own rule", async () => {
     const { db, backupsDir, dir } = await seededDb();
     await backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3" });
 
@@ -142,7 +142,7 @@ describe("backupThenMigrate — the books are safe before the schema moves", () 
     const extracted = await extractArchive(path.join(backupsDir, archive as string), path.join(dir, "unpacked"));
     const manifest = parseManifest(extracted.manifestJson);
 
-    expect(manifest.reason).toBe("pre-migration");
+    expect(manifest.reason).toBe("pre-update");
     expect(manifest.appVersion).toBe("1.2.3");
     // The database really travelled: an archive whose db file is missing would
     // mean the "restore it and retry" instruction has nothing behind it.
@@ -184,6 +184,14 @@ describe("backupThenMigrate — the books are safe before the schema moves", () 
     await backupThenMigrate({ sqlite: db, backupsDir, appVersion: "1.2.3", migrate });
 
     expect(migrate).toHaveBeenCalledTimes(1);
+  });
+
+  it("a file that holds no books yet has nothing to protect: a first launch is not a migration", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "mezan-premigrate-"));
+    dirs.push(dir);
+    const db = new Database(path.join(dir, "fresh.sqlite"));
+    dbs.push(db);
+    expect(isMigrationPending(db)).toBe(false);
   });
 
   it("backs up when the stored schema is older than this build's", async () => {

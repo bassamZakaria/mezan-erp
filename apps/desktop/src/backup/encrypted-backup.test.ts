@@ -8,6 +8,7 @@ import { createBackup } from "./backup-service.js";
 import { restoreBackup } from "./restore-service.js";
 import { extractArchive } from "./archive.js";
 import { BackupKeyMismatchError } from "./errors.js";
+import { BackupReason } from "./manifest.js";
 
 /**
  * The backups directory is what gets copied onto a USB stick and carried out of
@@ -54,7 +55,7 @@ describe("backups of an encrypted database", () => {
         sqlite: db,
         backupsDir: path.join(dir, "backups"),
         appVersion: "1.2.3",
-        reason: "manual",
+        reason: BackupReason.Manual,
         encrypted: true,
       });
 
@@ -89,7 +90,7 @@ describe("backups of an encrypted database", () => {
           sqlite: plain,
           backupsDir: path.join(dir, "backups"),
           appVersion: "1.2.3",
-          reason: "manual",
+          reason: BackupReason.Manual,
           encrypted: true,
         }),
       ).rejects.toThrow(/refusing to write a plaintext archive/);
@@ -108,7 +109,7 @@ describe("restoring an encrypted archive", () => {
       sqlite: db,
       backupsDir: path.join(dir, "backups"),
       appVersion: "1.2.3",
-      reason: "manual",
+      reason: BackupReason.Manual,
       encrypted: true,
     });
     db.prepare("INSERT INTO customer VALUES (?, ?, ?)").run("C-2", "بعد النسخة", 1);
@@ -135,7 +136,7 @@ describe("restoring an encrypted archive", () => {
       sqlite: db,
       backupsDir: path.join(dir, "backups"),
       appVersion: "1.2.3",
-      reason: "manual",
+      reason: BackupReason.Manual,
       encrypted: true,
     });
     db.close();
@@ -169,7 +170,7 @@ describe("restoring an encrypted archive", () => {
       sqlite: legacy,
       backupsDir: path.join(dir, "backups"),
       appVersion: "0.9.0",
-      reason: "manual",
+      reason: BackupReason.Manual,
     });
     legacy.close();
 

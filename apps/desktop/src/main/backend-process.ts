@@ -6,11 +6,13 @@ import type { DeviceSession, Entitlements } from "@mezan/domain";
 import type { SessionGrant } from "@mezan/api";
 import {
   BACKEND_BRIDGE_PROTOCOL,
+  BackendBootRefusalCode,
   decodeBridgeResponse,
   encodeBridgeRequest,
   isBackendNotice,
   isBackendReply,
   type BackendBootPayload,
+  type BackendBootRefusal,
   type BackendCall,
   type BackendNotice,
   type BackendReplyMessage,
@@ -96,6 +98,7 @@ export interface BackendProcessOptions {
   readonly env: Record<string, string>;
   /** Defaults to Electron's `utilityProcess`; injected by tests. */
   readonly spawn?: BackendTransportFactory;
+  readonly preUpdateArchivePath?: () => string | null;
   /** Shown when the worker has died twice. Defaults to `dialog.showErrorBox`. */
   readonly onFatal?: (messageAr: string, detail: string) => void;
   readonly log?: (line: string) => void;
@@ -106,6 +109,7 @@ export interface BackendProcessHandle {
   readonly app: FetchLike;
   /** Resolves once the worker has answered `ready` (or failed to boot). */
   readonly ready: Promise<void>;
+  bootRefusal(): BackendBootRefusal | null;
   /**
    * The seeded administrator's first-run PIN, once — `takeSeededAdminSecrets()`
    * is a one-shot read inside @mezan/backend and the seed now runs in the
@@ -195,6 +199,7 @@ export function startBackendProcess(options: BackendProcessOptions): BackendProc
   let restarts = 0;
   let seededAdmin: { pin: string; generated: boolean } | null = null;
   let closing = false;
+  let bootRefusal: BackendBootRefusal | null = null;
   let nextId = 1;
 
   const waiting = new Map<
@@ -224,6 +229,7 @@ export function startBackendProcess(options: BackendProcessOptions): BackendProc
         return;
       }
       log(`[backend] the database worker failed to start: ${notice.error}`);
+      bootRefusal = notice.refusal ?? null;
       status = "dead";
       failAllWaiting(notice.error);
       signalReady();
@@ -244,6 +250,8 @@ export function startBackendProcess(options: BackendProcessOptions): BackendProc
     transport.onExit((code) => {
       if (closing) return;
       failAllWaiting(`the database worker exited (code ${code ?? "unknown"})`);
+      // A refusal is a decision about the FILE, not a crash: booting again would run the same upgrade into the same failure.
+      if (bootRefusal) return;
       if (restarts >= 1) {
         status = "dead";
         log(`[backend] the database worker exited (code ${code ?? "unknown"}) and will NOT be restarted again.`);
@@ -276,13 +284,24 @@ export function startBackendProcess(options: BackendProcessOptions): BackendProc
     });
   };
 
+  const refusedBody = (refusal: BackendBootRefusal): string => {
+    const archive = refusal.code === BackendBootRefusalCode.SchemaUpgradeFailed ? (options.preUpdateArchivePath?.() ?? null) : null;
+    return JSON.stringify({
+      error: refusal.code,
+      message: archive ? `${refusal.message}\nنسخة ما قبل التحديث: ${archive}` : refusal.message,
+      messageEn: archive ? `${refusal.messageEn}\nPre-update backup: ${archive}` : refusal.messageEn,
+    });
+  };
+  const notServing = (): string => {
+    if (bootRefusal) return refusedBody(bootRefusal);
+    return statusNow() === "dead" ? DEAD_BODY : STARTING_BODY;
+  };
+
   return {
     app: {
       async fetch(request: Request, env?: unknown): Promise<Response> {
         if (status !== "ready") {
-          return decodeBridgeResponse(
-            unavailable(statusNow() === "dead" ? DEAD_BODY : STARTING_BODY),
-          );
+          return decodeBridgeResponse(unavailable(notServing()));
         }
         const remote = (env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)
           ?.incoming?.socket?.remoteAddress;
@@ -298,13 +317,12 @@ export function startBackendProcess(options: BackendProcessOptions): BackendProc
           // surfaces as an unhandled promise with an Electron-shaped message
           // instead of the screen's own error state.
           log(`[backend] ${request.method} ${new URL(request.url).pathname} failed: ${String(err)}`);
-          return decodeBridgeResponse(
-            unavailable(statusNow() === "dead" ? DEAD_BODY : STARTING_BODY),
-          );
+          return decodeBridgeResponse(unavailable(notServing()));
         }
       },
     },
     ready,
+    bootRefusal: () => bootRefusal,
     seededAdmin: () => {
       const held = seededAdmin;
       seededAdmin = null;

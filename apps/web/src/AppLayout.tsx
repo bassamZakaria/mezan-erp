@@ -20,14 +20,17 @@ import {
   buildTopNavItem,
   filterNavGroupsByEntitlements,
   PINNED_NAV_ITEM_KEYS,
+  isScreenOutsideLicence,
 } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { isBranchRestricted, navItemAccess, withoutBranchUnavailable } from "./branch-restriction";
-import { BranchReadOnlyNotice, BranchUnavailableState, DashboardNotPermittedState } from "./shell/BranchRestrictionNotices";
+import { BranchReadOnlyNotice, BranchUnavailableState, DashboardNotPermittedState, ModuleNotLicensedState } from "./shell/BranchRestrictionNotices";
 import { ReadOnlyForm } from "./shell/ReadOnlyForm";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
 import {
+  BackendBootPhase,
+  backendBootState,
   useBootstrapStatus,
   useBranches,
   useCreateRole,
@@ -50,6 +53,7 @@ import {
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage, type RoleEditorSaveCommand } from "./pages/RoleEditorPage";
+import { BackendRefusedScreen, BackendStartingScreen } from "./login/BackendBootScreens";
 import { NavigationProvider, SubPageNamesProvider, toScreenIntent, type ScreenIntent, type ScreenIntentInput } from "./navigation";
 import { groupKeyForScreen, hubScreenForGroup, parsePath, pathForRoute } from "./routing";
 import { isRoutable, type RoutableKey, type ScreenKey } from "./router/screens";
@@ -545,6 +549,7 @@ export function AppLayout() {
         onFinish={() => setShowWizard(false)}
         onCancel={() => {
           setSession(null);
+          setWizardDismissed(true);
           setShowWizard(false);
         }}
       />
@@ -552,6 +557,9 @@ export function AppLayout() {
   }
 
   if (!session) {
+    const boot = backendBootState(bootstrapStatus);
+    if (boot.phase === BackendBootPhase.Refused) return <BackendRefusedScreen message={boot.message ?? t("boot.refused.title")} />;
+    if (boot.phase === BackendBootPhase.Starting) return <BackendStartingScreen detail={boot.message} />;
     // AN UNCLAIMED INSTALL OPENS THE WIZARD, IT DOES NOT HIDE IT BEHIND A LINK.
     // The wizard used to be a 10px text link at the bottom of the login form,
     // so a fresh packaged install showed an empty account list and a blank
@@ -572,7 +580,8 @@ export function AppLayout() {
     // `onFinish` did not show the bug only because finishing flips `claimed` on
     // the server and this branch stops matching on its own.
     if (bootstrapStatus.data?.claimed === false && !wizardDismissed) {
-      return <FirstRunWizard onFinish={() => setShowWizard(false)} onCancel={() => setWizardDismissed(true)} />;
+      // INVARIANT: creating the owner signs them in, and a wizard kept open only by "nobody is signed in" would close on its second step with two more still on its stepper. `onOwnerSubmitted` hands it to `showWizard` BEFORE that sign-in lands.
+      return <FirstRunWizard onFinish={() => setShowWizard(false)} onCancel={() => setWizardDismissed(true)} onOwnerSubmitted={() => setShowWizard(true)} />;
     }
     // Re-arming the auto-open: someone who cancelled into the login screen and
     // then chose «الإعداد الأولي» means it, and must not land back on a screen
@@ -662,6 +671,8 @@ export function AppLayout() {
       */}
       {activeScreen === "dashboard" && !dashboardPermitted ? (
         <DashboardNotPermittedState />
+      ) : isScreenOutsideLicence(activeScreen === "role-editor" ? "roles" : activeScreen, entitlements) ? (
+        <ModuleNotLicensedState onGoHome={() => setActiveScreen("dashboard")} />
       ) : screenAccess === BranchRestrictedAccess.Unavailable ? (
         <BranchUnavailableState onGoHome={() => setActiveScreen("dashboard")} />
       ) : (

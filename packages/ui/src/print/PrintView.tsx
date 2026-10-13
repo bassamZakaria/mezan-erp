@@ -59,6 +59,9 @@ function useScreenFitScale(pageWidthMm: number) {
   return { rootRef, scale };
 }
 
+// EXTERNAL CONTRACT: a printed QR is sized in millimetres on the element itself — a class can lose to another class of the same weight, and a symbol that fills the sheet pushes itself onto a second page.
+const QR_SIDE_MM = 26;
+
 export function PrintView({ config, document, showToolbar = true, orientation = "portrait", className }: PrintViewProps) {
   const { t } = useTranslation();
   const effective = useMemo(
@@ -79,7 +82,7 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
     <div ref={rootRef} className={cn("mz-print-root", className)} style={{ [SCREEN_SCALE_VARIABLE]: scale } as CSSProperties}>
       <style>{`@page { size: ${effective.pageSize}${landscape ? " landscape" : ""}; margin: 14mm 12mm; } @media screen { .mz-print-page { zoom: var(${SCREEN_SCALE_VARIABLE}, 1); } }`}</style>
 
-      {showToolbar ? <PrintToolbar pageSize={effective.pageSize} landscape={landscape} /> : null}
+      {showToolbar ? <PrintToolbar pageSize={effective.pageSize} landscape={landscape} defaultFileName={document.number} /> : null}
 
       <div
         dir="rtl"
@@ -291,7 +294,7 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
             </tbody>
           </table>
 
-          <div className="flex justify-end">
+          <div className="mz-print-keep flex justify-end">
             <div className="flex w-full max-w-[260px] flex-col gap-[4px] text-[11.5px]">
               {totalsConfig.showSubtotal ? (
                 <div className="flex justify-between">
@@ -353,9 +356,9 @@ export function PrintView({ config, document, showToolbar = true, orientation = 
           ) : null}
 
           {document.etaUuid || document.etaQrValue ? (
-            <div className="mt-[8px] flex flex-col items-center gap-[6px] border-t border-border pt-[6px]">
+            <div className="mz-print-keep mt-[8px] flex flex-col items-center gap-[6px] border-t border-border pt-[6px]">
               {document.etaQrValue ? (
-                <QrCode value={document.etaQrValue} label={t("print.etaUuid")} className="h-[26mm] w-[26mm]" />
+                <QrCode value={document.etaQrValue} label={t("print.etaUuid")} className="flex-none" style={{ width: `${QR_SIDE_MM}mm`, height: `${QR_SIDE_MM}mm` }} />
               ) : (
                 /*
                  * A UUID with no QR payload yet. A STATED empty box, never an

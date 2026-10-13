@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { createBackup, type BackupResult } from "./backup-service.js";
+import { BackupReason } from "./manifest.js";
 
 /**
  * Runs one "pre-migration" backup. Wired to run before any schema-changing
@@ -29,7 +30,7 @@ export async function runPreMigrationBackup(params: {
     sqlite: params.sqlite,
     backupsDir: params.backupsDir,
     appVersion: params.appVersion,
-    reason: "pre-migration",
+    reason: params.label ? BackupReason.PreUpdate : BackupReason.PreMigration,
     encrypted: params.encrypted,
     cipher: params.cipher,
     label: params.label,

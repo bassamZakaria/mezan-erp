@@ -86,6 +86,7 @@ export const bootstrapSeedResultSchema = z.object({
    */
   claimed: z.boolean().optional(),
   demoSeeded: z.boolean().optional(),
+  roles: z.number().int().nonnegative().optional(),
 });
 
 export type LoginRequestDTO = z.infer<typeof loginRequestSchema>;

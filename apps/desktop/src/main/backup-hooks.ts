@@ -1,7 +1,8 @@
 import { app } from "electron";
 import type Database from "better-sqlite3";
-import { CURRENT_SCHEMA_VERSION, readSchemaVersion } from "@mezan/persistence";
+import { CURRENT_SCHEMA_VERSION, holdsExistingBooks, readSchemaVersion } from "@mezan/persistence";
 import {
+  BackupReason,
   abortDrill,
   copyToSecondTarget,
   createBackup,
@@ -42,7 +43,7 @@ export function isMigrationPending(
   sqlite: Database.Database,
   currentSchemaVersion: number = CURRENT_SCHEMA_VERSION,
 ): boolean {
-  return readSchemaVersion(sqlite) < currentSchemaVersion;
+  return readSchemaVersion(sqlite) < currentSchemaVersion && holdsExistingBooks(sqlite);
 }
 
 /**
@@ -159,7 +160,7 @@ export function scheduleBackups(params: {
       trigger: DrillTrigger.Scheduled,
     });
   };
-  const run = async (reason: "scheduled" | "on-close"): Promise<void> => {
+  const run = async (reason: BackupReason.Scheduled | BackupReason.OnClose): Promise<void> => {
     try {
       const result = await withBackupLock(() =>
         createBackup({
@@ -176,12 +177,12 @@ export function scheduleBackups(params: {
       console.error(`[backup] ${reason} backup failed`, err);
       return;
     }
-    if (reason === "scheduled" && !closing) {
+    if (reason === BackupReason.Scheduled && !closing) {
       await drillIfDue().catch((err: unknown) => console.error("[backup] weekly restore drill failed to run", err));
     }
   };
 
-  const interval = setInterval(() => void run("scheduled"), ONE_DAY_MS);
+  const interval = setInterval(() => void run(BackupReason.Scheduled), ONE_DAY_MS);
   // Verify-and-report only: a shop that closes every evening never reaches the
   // 24-hour tick, so the weekly drill would otherwise never run on it.
   const launchDrill = setTimeout(() => {
@@ -218,7 +219,7 @@ export function scheduleBackups(params: {
       }, timeoutMs);
     });
 
-    void Promise.race([run("on-close"), bounded]).finally(() => {
+    void Promise.race([run(BackupReason.OnClose), bounded]).finally(() => {
       if (timer) clearTimeout(timer);
       app.quit();
     });

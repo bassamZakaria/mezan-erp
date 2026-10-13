@@ -7,6 +7,7 @@ import { createBackup } from "./backup-service.js";
 import { restoreBackup } from "./restore-service.js";
 import { ChecksumMismatchError, ManifestValidationError } from "./errors.js";
 import { extractArchive, createArchive } from "./archive.js";
+import { BackupReason } from "./manifest.js";
 
 const dirs: string[] = [];
 const dbs: Database.Database[] = [];
@@ -43,7 +44,7 @@ describe("createBackup -> restoreBackup (end-to-end integrity)", () => {
       sqlite: db,
       backupsDir,
       appVersion: "1.0.0",
-      reason: "manual",
+      reason: BackupReason.Manual,
     });
 
     const targetDbPath = path.join(dir, "restored.sqlite");
@@ -69,7 +70,7 @@ describe("createBackup -> restoreBackup (end-to-end integrity)", () => {
     const dir = await tmpDir();
     const { db } = await seededFileDb(dir);
     const backupsDir = path.join(dir, "backups");
-    const { archivePath } = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "manual" });
+    const { archivePath } = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.Manual });
 
     const workDir = path.join(dir, "work");
     await restoreBackup({ archivePath, targetDbPath: path.join(dir, "restored.sqlite"), workDir });
@@ -82,7 +83,7 @@ describe("createBackup -> restoreBackup (end-to-end integrity)", () => {
     const dir = await tmpDir();
     const { db } = await seededFileDb(dir);
     const backupsDir = path.join(dir, "backups");
-    const { archivePath } = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "manual" });
+    const { archivePath } = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.Manual });
 
     // Tamper: extract, corrupt the db bytes, repack under the same manifest.
     const extracted = await extractArchive(archivePath, path.join(dir, "tamper"));
@@ -127,7 +128,7 @@ describe("createBackup -> restoreBackup (end-to-end integrity)", () => {
     const dir = await tmpDir();
     const { db } = await seededFileDb(dir);
     const backupsDir = path.join(dir, "backups");
-    const { archivePath } = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: "manual" });
+    const { archivePath } = await createBackup({ sqlite: db, backupsDir, appVersion: "1.0.0", reason: BackupReason.Manual });
 
     const extracted = await extractArchive(archivePath, path.join(dir, "tamper2"));
     const dbBytes = await readFile(extracted.dbFilePath);

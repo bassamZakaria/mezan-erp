@@ -196,7 +196,8 @@ export function createLanRoutes(options: LanRoutesOptions) {
             error: err.code,
             seats: err.seats,
             connected: err.connected,
-            message: err.message,
+            message: `اكتمل عدد الأجهزة التي يسمح بها الترخيص (${err.connected} من ${err.seats}). افصل جهازاً من «الأجهزة المتصلة» قبل توصيل جهاز آخر.`,
+            messageEn: err.message,
           },
           409,
         );
@@ -206,7 +207,8 @@ export function createLanRoutes(options: LanRoutesOptions) {
           {
             error: err.code,
             maxSeatsPerUser: err.maxSeatsPerUser,
-            message: err.message,
+            message: `هذا الحساب متصل بالفعل من ${err.maxSeatsPerUser} جهاز، وهو الحد الأقصى للحساب الواحد. افصل أحد أجهزته من «الأجهزة المتصلة» ثم أعد المحاولة، أو استخدم حساباً آخر على هذا الجهاز.`,
+            messageEn: err.message,
           },
           409,
         );

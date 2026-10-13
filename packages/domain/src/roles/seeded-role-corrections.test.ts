@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { detectSodConflicts } from "../permissions/sod.js";
-import { correctedSeededRolePermissions, SEEDED_ROLE_CODES, SeededRoleCode, SeededRoleSplit, seededRoleDutyChange } from "./seeded-role-corrections.js";
+import { correctedSeededRolePermissions, SEEDED_ROLE_CODES, SeededRoleCode, SeededRoleSplit, seededRoleDutyChange, seededRoleDutyNotice } from "./seeded-role-corrections.js";
 
 const OLD_CASHIER = ["treasury.account.view", "treasury.cash_voucher.view", "treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "cheques.view"];
 const OLD_MANAGER = ["sales.invoice.view", "treasury.cash_voucher.view", "treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "hr.leave.approve"];
@@ -86,5 +86,18 @@ describe("seeded role corrections", () => {
     expect(correctedSeededRolePermissions(SeededRoleCode.WarehouseKeeper, corrected!, undefined, SeededRoleSplit.GoodsReceiving)).toBeNull();
     expect(seededRoleDutyChange({ code: SeededRoleCode.WarehouseKeeper, name: "أمين مخزن", permissions: stored }, undefined, SeededRoleSplit.GoodsReceiving)?.revoked).toEqual([]);
     expect(correctedSeededRolePermissions(SeededRoleCode.SalesRep, stored, undefined, SeededRoleSplit.GoodsReceiving)).toBeNull();
+  });
+
+  it("the notice of a grant says a role was completed, and does not call it a separation of duties", () => {
+    const change = seededRoleDutyChange({ code: SeededRoleCode.WarehouseKeeper, name: "أمين مخزن", permissions: ["purchases.receipt.view"] }, undefined, SeededRoleSplit.GoodsReceiving)!;
+
+    const grant = seededRoleDutyNotice([change], SeededRoleSplit.GoodsReceiving);
+    const separation = seededRoleDutyNotice([change], SeededRoleSplit.Duties);
+
+    expect(grant.title).not.toContain("بين المهام");
+    expect(grant.body).not.toContain("بين المهام");
+    expect(grant.title).toContain("استكمل");
+    expect(grant.body).toContain("purchases.receipt.create");
+    expect(separation.title).toContain("بين المهام");
   });
 });

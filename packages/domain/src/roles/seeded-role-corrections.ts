@@ -126,7 +126,21 @@ export function seededRoleDutyChange(
   return { roleCode: role.code, roleName: role.name, revoked, granted, reasonAr: split.reasonAr };
 }
 
-export function seededRoleDutyNotice(changes: readonly SeededRoleDutyChange[]): { readonly title: string; readonly body: string } {
+const SEPARATION_NOTICE = {
+  title: "تحديث النظام عدّل صلاحيات أدوار جاهزة تطبيقاً للفصل بين المهام",
+  intro: "طبّق هذا التحديث قاعدة الفصل بين المهام على الأدوار الجاهزة: من يُنشئ عملية مالية لا يعتمدها بنفسه. راجع المستخدمين المعنيين، وأسند الصلاحية المسحوبة لمن يجب أن يقوم بها إن لزم.",
+} as const;
+
+const NOTICE_COPY: Readonly<Record<SeededRoleSplit, { readonly title: string; readonly intro: string }>> = {
+  [SeededRoleSplit.Duties]: SEPARATION_NOTICE,
+  [SeededRoleSplit.BankReconciliation]: SEPARATION_NOTICE,
+  [SeededRoleSplit.GoodsReceiving]: {
+    title: "تحديث النظام استكمل صلاحيات دور جاهز",
+    intro: "استكمل هذا التحديث صلاحيات دور جاهز ليؤدي العمل الذي يصفه، ولم يسحب منه شيئاً. راجع المستخدمين المعنيين إن كنت لا تريد لهم الصلاحيات المضافة.",
+  },
+};
+
+export function seededRoleDutyNotice(changes: readonly SeededRoleDutyChange[], which: SeededRoleSplit = SeededRoleSplit.Duties): { readonly title: string; readonly body: string } {
   const lines = changes.map((change) => {
     const parts = [
       change.revoked.length > 0 ? `سُحبت منه: ${change.revoked.join("، ")}` : null,
@@ -134,13 +148,8 @@ export function seededRoleDutyNotice(changes: readonly SeededRoleDutyChange[]): 
     ].filter((part): part is string => part !== null);
     return `• ${change.roleName} (${change.roleCode}) — ${parts.join("؛ ")}. السبب: ${change.reasonAr}.`;
   });
-  return {
-    title: "تحديث النظام عدّل صلاحيات أدوار جاهزة تطبيقاً للفصل بين المهام",
-    body: [
-      "طبّق هذا التحديث قاعدة الفصل بين المهام على الأدوار الجاهزة: من يُنشئ عملية مالية لا يعتمدها بنفسه. راجع المستخدمين المعنيين، وأسند الصلاحية المسحوبة لمن يجب أن يقوم بها إن لزم.",
-      ...lines,
-    ].join("\n"),
-  };
+  const { title, intro } = NOTICE_COPY[which];
+  return { title, body: [intro, ...lines].join("\n") };
 }
 
 const isSeededRoleCode = (code: string): code is SeededRoleCode => SEEDED_ROLE_CODES.includes(code);

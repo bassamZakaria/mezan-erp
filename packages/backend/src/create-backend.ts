@@ -3323,7 +3323,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }
     if (corrected.length > 0) console.info(`[roles] separated duties (${split}) on seeded role(s) ${corrected.join(", ")}`);
     if (dutyChanges.length > 0) {
-      const { title, body } = seededRoleDutyNotice(dutyChanges);
+      const { title, body } = seededRoleDutyNotice(dutyChanges, split);
       const roles = await uow.roles.list();
       const holdsEverything = new Set(roles.filter((role) => role.permissions.includes("*")).map((role) => role.id));
       const createdAt = new Date().toISOString();

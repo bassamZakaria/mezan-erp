@@ -384,11 +384,9 @@ test.describe("Fiscal periods", () => {
     await period.getByRole("button", { name: /^إجراءات/ }).click();
     await period.getByRole("menuitem", { name: "قفل" }).click();
     await expect(page.getByRole("heading", { name: "مساحة إقفال الفترة" })).toBeVisible();
-    await page.getByRole("button", { name: "قفل مع تجاوز الفحوص" }).click();
-    const dialog = page.getByRole("dialog", { name: new RegExp(`تجاوز فحوص الإقفال لـ ${month} ${SANDBOX_YEAR}`) });
-    await dialog.getByRole("textbox", { name: "سبب التجاوز" }).fill(OVERRIDE_REASON);
-    await dialog.getByRole("button", { name: "قفل مع تجاوز الفحوص" }).click();
-    await expect(page.getByRole("alert").filter({ hasText: "يتطلب مستخدماً غير الذي أقفلها" })).toBeVisible();
+    await expect(page.getByText("أنت من أقفل هذه الفترة؛ قفلها نهائياً فوق فحوص غير مكتملة يتطلب مستخدماً آخر يملك الصلاحية، أو عالج الفحوص أولاً.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "قفل الفترة نهائياً" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "قفل مع تجاوز الفحوص" })).toHaveCount(0);
     await page.getByRole("button", { name: "الفترات المالية" }).click();
     await expect(page.getByRole("heading", { name: "الفترات المالية" })).toBeVisible();
     await showYear(page, SANDBOX_YEAR);

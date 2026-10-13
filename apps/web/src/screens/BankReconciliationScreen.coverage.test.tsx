@@ -17,7 +17,7 @@ import {
 import { BankReconciliationScreen } from "./BankReconciliationScreen";
 import { scaledOf, sumScaled } from "../lib/money";
 import type { Transport } from "../data/transport";
-import { renderWithProviders, stubTransport, testAdminSession, type StubResult } from "../data/test-support";
+import { renderWithProviders, stubTransport, testAdminSession, TestNavigation, type StubResult } from "../data/test-support";
 
 const BANK_ACCOUNT: TreasuryAccountDTO = {
   id: "ta-bank1",
@@ -182,7 +182,7 @@ async function openStatement(
   wrap: (transport: Transport) => Transport = (transport) => transport,
 ) {
   const user = userEvent.setup();
-  renderWithProviders(<BankReconciliationScreen />, {
+  renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
     initialSession: testAdminSession,
     transport: wrap(
       stubTransport({
@@ -202,7 +202,7 @@ async function openStatement(
 
 describe("BankReconciliationScreen — list filters", () => {
   it("resets to the first page once the loaded data no longer has that many pages", async () => {
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport(baseHandlers([statement()])),
       route: "/?page=5",
@@ -213,7 +213,7 @@ describe("BankReconciliationScreen — list filters", () => {
   it("narrows the list by treasury account and a date range, and reflects the count on the filter toggle", async () => {
     const user = userEvent.setup();
     const paths: string[] = [];
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: (path, init) => {
         const method = (init?.method ?? "GET").toUpperCase();
@@ -250,7 +250,7 @@ describe("BankReconciliationScreen — list filters", () => {
 
   it("searches statements by account name, statement number or period", async () => {
     const statements = [statement(), statement({ id: "stmt-2", statementNumber: "ST-002", periodStart: "2026-09-01", periodEnd: "2026-09-30" })];
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport(baseHandlers(statements)),
     });
@@ -264,7 +264,7 @@ describe("BankReconciliationScreen — list filters", () => {
 
   it("shows a statement's raw account id, a dash reference and a dash match rate when it has no matching data", async () => {
     const orphan = statement({ id: "stmt-2", treasuryAccountId: "ta-missing", statementNumber: null });
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /bank-statements": () => ({ body: [listItem(orphan, [])] }),
@@ -281,7 +281,7 @@ describe("BankReconciliationScreen — list filters", () => {
 describe("BankReconciliationScreen — import dialog", () => {
   it("shows a generic error and clears the headers when the uploaded file has no rows, and ignores a cleared file input", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({ ...baseHandlers([]), "GET /bank-statements/column-mapping/ta-bank1": () => ({ status: 404, body: {} }) }),
     });
@@ -304,7 +304,7 @@ describe("BankReconciliationScreen — import dialog", () => {
     const user = userEvent.setup();
     let imported: Record<string, unknown> | null = null;
     const csv = "التاريخ,البيان,المبلغ\n01/08/2026,إيداع نقدي,1000.00\n";
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /treasury-accounts": () => ({ body: [BANK_ACCOUNT] }),
@@ -353,7 +353,7 @@ describe("BankReconciliationScreen — import dialog", () => {
 
   it("prefills a blank debit, credit and reference from a saved mapping that has none of them", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         ...baseHandlers([]),
@@ -392,7 +392,7 @@ describe("BankReconciliationScreen — import dialog", () => {
 
   it("surfaces the server's rejection when importing a statement fails", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /treasury-accounts": () => ({ body: [BANK_ACCOUNT] }),

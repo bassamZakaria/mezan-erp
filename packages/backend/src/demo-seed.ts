@@ -8,7 +8,7 @@ import { seedCrm } from "./demo-seed/crm.js";
 import { seedInventoryOps, seedShopFloor } from "./demo-seed/inventory-ops.js";
 import { seedPurchasing } from "./demo-seed/purchasing.js";
 import { seedGuidedClose } from "./demo-seed/period-close.js";
-import { seedTreasury } from "./demo-seed/treasury.js";
+import { seedBankStatement, seedTreasury } from "./demo-seed/treasury.js";
 import { seedPlatform } from "./demo-seed/platform.js";
 import { seedAttachments } from "./demo-seed/attachments.js";
 import { seedFragments } from "./demo-seed/fragment-registry.js";
@@ -762,6 +762,8 @@ export async function seedDemoTenant(
   // year-end, and it has to happen after the books are written.
   await closeHistoricPeriods(app);
   await seedGuidedClose(app);
+  // INVARIANT: after every seed that posts to the bank before August, the guided close's July bank charge included — the statement opens on the book balance of 31 July, and a posting dated earlier that lands after it leaves a difference no matching can explain.
+  await seedBankStatement(app);
 }
 
 /**

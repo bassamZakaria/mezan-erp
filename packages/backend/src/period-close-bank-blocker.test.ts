@@ -52,6 +52,12 @@ describe("the bank statements the demo ships with", () => {
     }
   });
 
+  it("August's statement opens on the balance July's closed on, so the two tell one story of the account", async () => {
+    const july = (await world.request("GET", "/bank-statements/BSTMT-DEMO-2026-07")).body as { closingBalance: string };
+    const august = (await world.request("GET", `/bank-statements/${AUGUST}`)).body as { openingBalance: string };
+    expect(august.openingBalance).toBe(july.closingBalance);
+  });
+
   it("August is blocked by a statement with lines nobody has matched yet, and the checklist says how many", async () => {
     const unmatched = (await linesOf(AUGUST)).filter((line) => line.status !== "matched");
     expect(unmatched.length).toBe(11);
@@ -75,6 +81,8 @@ describe("the bank statements the demo ships with", () => {
     expect(finalized.status, JSON.stringify(finalized.body)).toBe(200);
     expect(finalized.body.finalizeOverrideReason).toBeNull();
     expect(await statementFinding(AUGUST)).toMatchObject({ state: "ok", passed: true });
+    const { position } = (await world.request("GET", `/bank-statements/${AUGUST}/review`)).body as { position: { difference: string; unexplainedBookDifference: string; outstandingBook: { count: number } } };
+    expect(position).toMatchObject({ difference: "0.000000", unexplainedBookDifference: "0.000000", outstandingBook: { count: 1 } });
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });

@@ -33,6 +33,7 @@ import {
 import { useImportStatementFile } from "../data/bank-rec-hooks";
 import { formatExactMoney, StatementWorkspace } from "./BankReconciliationWorkspace";
 import { useAppTranslation } from "../i18n";
+import { useSubPage } from "../navigation";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /**
@@ -88,7 +89,9 @@ export function BankReconciliationScreen() {
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [importOpen, setImportOpen] = useState(false);
-  const [openStatementId, setOpenStatementId] = useState<string | null>(null);
+  const subPage = useSubPage();
+  const openStatementId = subPage.segments[0] ?? null;
+  const setOpenStatementId = (id: string | null) => (id ? subPage.open(id) : subPage.close());
 
   const query = useBankStatements({
     status: statusFilter === "all" ? undefined : statusFilter,

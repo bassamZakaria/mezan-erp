@@ -571,7 +571,7 @@ export async function bookReferenceOf(app: App, entryId: string): Promise<string
  *   - the last book movement is left OFF the statement, the uncleared-payment
  *     side of the same difference.
  */
-async function seedBankStatement(app: App): Promise<void> {
+export async function seedBankStatement(app: App): Promise<void> {
   const ledger = (await step(app, "GET", `/gl/accounts/${ACCOUNTS.bank}/ledger?asOf=${STATEMENT_PERIOD_END}`)) as {
     lines: LedgerLineRow[];
   };
@@ -724,6 +724,5 @@ export async function seedTreasury(app: App): Promise<void> {
   await seedExchangeRates(app);
   await seedInstallmentPlan(app);
   await seedFieldSales(app);
-  await seedBankStatement(app);
   await seedForeignCurrencyBankStatement(app);
 }

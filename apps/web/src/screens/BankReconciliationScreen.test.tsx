@@ -17,7 +17,7 @@ import {
 } from "@mezan/contracts";
 import { BankReconciliationScreen } from "./BankReconciliationScreen";
 import { scaledOf, sumScaled } from "../lib/money";
-import { renderWithProviders, stubTransport, testAdminSession, type StubResult } from "../data/test-support";
+import { renderWithProviders, stubTransport, testAdminSession, TestNavigation, type StubResult } from "../data/test-support";
 
 const BANK_ACCOUNT: TreasuryAccountDTO = {
   id: "ta-bank1",
@@ -187,7 +187,7 @@ function baseHandlers(statements: BankStatementDTO[]): Record<string, () => Stub
 
 describe("BankReconciliationScreen — list", () => {
   it("renders real statements off GET /bank-statements with the account name resolved from treasury accounts", async () => {
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport(baseHandlers([statement()])),
     });
@@ -197,7 +197,7 @@ describe("BankReconciliationScreen — list", () => {
   });
 
   it("shows the load error instead of the empty state when the statements request fails", async () => {
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /bank-statements": () => ({ status: 500, body: { error: "INTERNAL" } }),
@@ -209,7 +209,7 @@ describe("BankReconciliationScreen — list", () => {
   });
 
   it("shows the documented empty state when no statement has been imported", async () => {
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport(baseHandlers([])),
     });
@@ -226,7 +226,7 @@ describe("BankReconciliationScreen — list", () => {
       statement({ id: "stmt-2", statementNumber: "ST-002", status: "in_progress" }),
       statement({ id: "stmt-3", statementNumber: "ST-003", status: "completed" }),
     ];
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: (path, init) => {
         const method = (init?.method ?? "GET").toUpperCase();
@@ -252,10 +252,32 @@ describe("BankReconciliationScreen — list", () => {
   });
 });
 
+describe("BankReconciliationScreen — a statement's workspace has an address", () => {
+  it("opening a statement from the list puts it in the address, and arriving at that address opens the same statement", async () => {
+    const user = userEvent.setup();
+    const addressed: (readonly string[])[] = [];
+    const handlers = { ...baseHandlers([statement()]), "GET /bank-statements/stmt-1": () => ({ body: detail() }), "GET /bank-statements/stmt-1/review": () => ({ body: reviewOf({}) }) };
+    const first = renderWithProviders(<TestNavigation onSegments={(segments) => addressed.push(segments)}><BankReconciliationScreen /></TestNavigation>, {
+      initialSession: testAdminSession,
+      transport: stubTransport(handlers),
+    });
+    await user.click(await screen.findByText("ST-001"));
+    expect(addressed).toEqual([["stmt-1"]]);
+    expect(await screen.findByRole("button", { name: "إنهاء التسوية" })).toBeInTheDocument();
+    first.unmount();
+
+    renderWithProviders(<TestNavigation initialSegments={["stmt-1"]}><BankReconciliationScreen /></TestNavigation>, {
+      initialSession: testAdminSession,
+      transport: stubTransport(handlers),
+    });
+    expect(await screen.findByRole("button", { name: "إنهاء التسوية" })).toBeInTheDocument();
+  });
+});
+
 describe("BankReconciliationScreen — import dialog", () => {
   it("keeps the column mapping locked until a CSV is chosen, then maps its real headers", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({ ...baseHandlers([]), "GET /bank-statements/column-mapping/ta-bank1": () => ({ status: 404, body: {} }) }),
     });
@@ -277,7 +299,7 @@ describe("BankReconciliationScreen — import dialog", () => {
 
   it("prefills the mapping from the account's saved per-account mapping", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         ...baseHandlers([]),
@@ -314,7 +336,7 @@ describe("BankReconciliationScreen — import dialog", () => {
   it("posts the raw CSV plus the chosen mapping to POST /bank-statements/import", async () => {
     const user = userEvent.setup();
     let imported: Record<string, unknown> | null = null;
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         "GET /treasury-accounts": () => ({ body: [BANK_ACCOUNT] }),
@@ -378,7 +400,7 @@ describe("BankReconciliationScreen — import dialog", () => {
 describe("BankReconciliationScreen — matching", () => {
   async function openStatement(handlers: Record<string, (init?: RequestInit) => StubResult>) {
     const user = userEvent.setup();
-    renderWithProviders(<BankReconciliationScreen />, {
+    renderWithProviders(<TestNavigation><BankReconciliationScreen /></TestNavigation>, {
       initialSession: testAdminSession,
       transport: stubTransport({
         ...baseHandlers([statement()]),

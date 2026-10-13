@@ -41,8 +41,11 @@ function scaled(value: unknown): bigint {
   return match[1] ? -units : units;
 }
 
-export async function bootBackendKit(): Promise<BackendKit> {
+export type BackendKitOptions = Pick<NonNullable<Parameters<typeof createBackend>[0]>, "etaHttpClient">;
+
+export async function bootBackendKit(options: BackendKitOptions = {}): Promise<BackendKit> {
   const backend = await createBackend({
+    ...options,
     dbPath: ":memory:",
     seedDemoData: true,
     resolveEntitlements: () => createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null }),

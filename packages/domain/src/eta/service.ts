@@ -599,12 +599,14 @@ export class EtaService {
     rejected: EtaSubmission[];
     queued: string[];
     unsigned: string[];
+    blocked: string[];
   }> {
     const submitted: EtaSubmission[] = [];
     const accepted: EtaSubmission[] = [];
     const rejected: EtaSubmission[] = [];
     const queued: string[] = [];
     const unsigned: string[] = [];
+    const blocked: string[] = [];
 
     // Oldest first, and a device's receipts in chain order: a link reported
     // before its predecessor names a previousUUID the authority has not seen.
@@ -621,6 +623,7 @@ export class EtaService {
       } catch (err) {
         if (err instanceof EtaOfflineError) queued.push(s.id);
         else if (err instanceof EtaSignerNotConfiguredError || err instanceof EtaSigningFailedError) unsigned.push(s.id);
+        else if (err instanceof EtaPrevalidationFailedError) blocked.push(s.id);
         else throw err;
       }
     }
@@ -638,7 +641,7 @@ export class EtaService {
       }
     }
 
-    return { submitted, accepted, rejected, queued, unsigned };
+    return { submitted, accepted, rejected, queued, unsigned, blocked };
   }
 
   /**
@@ -852,19 +855,21 @@ export class EtaService {
    * failures leave the document queued and are collected rather than thrown, so
    * one unreachable document doesn't abort the batch.
    */
-  async submitAllReady(): Promise<{ submitted: EtaSubmission[]; queued: string[] }> {
+  async submitAllReady(): Promise<{ submitted: EtaSubmission[]; queued: string[]; blocked: string[] }> {
     const ready = (await this.deps.submissions.list("ready")).sort(queueOrder);
     const submitted: EtaSubmission[] = [];
     const queued: string[] = [];
+    const blocked: string[] = [];
     for (const s of ready) {
       try {
         submitted.push(await this.submit(s.id));
       } catch (err) {
         if (err instanceof EtaOfflineError) queued.push(s.id);
+        else if (err instanceof EtaPrevalidationFailedError) blocked.push(s.id);
         else throw err;
       }
     }
-    return { submitted, queued };
+    return { submitted, queued, blocked };
   }
 
   /**

@@ -214,8 +214,8 @@ function handleError(c: Context, err: unknown): Response {
   if (err instanceof EtaReceiptUuidUnavailableError) return c.json({ error: err.code, message: err.message }, 501);
   // A till whose device is not registered must be told so, loudly — not have a
   // receipt filed with a blank serial the authority will not accept.
-  if (err instanceof EtaDeviceSerialNotRegisteredError) return c.json({ error: err.code, message: err.message }, 409);
-  if (err instanceof EtaRefundReferenceRequiredError) return c.json({ error: err.code, message: err.message }, 400);
+  if (err instanceof EtaDeviceSerialNotRegisteredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  if (err instanceof EtaRefundReferenceRequiredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 400);
   if (err instanceof EtaReceiptNotASupplyError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   // D-B4 — a rejected receipt corrected too late, twice, or not rejected at all.
   if (
@@ -230,11 +230,11 @@ function handleError(c: Context, err: unknown): Response {
     err instanceof EtaBuyerIdentityRequiredError ||
     err instanceof EtaRefundTooLateError ||
     err instanceof EtaOriginalReceiptNotFoundError ||
-    err instanceof EtaDeviceSerialUnknownError ||
-    err instanceof EtaMissingExchangeRateError
+    err instanceof EtaDeviceSerialUnknownError
   ) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
+  if (err instanceof EtaMissingExchangeRateError) return c.json({ error: err.code, message: err.message }, 422);
   if (err instanceof EtaReceiptChainConflictError) return c.json({ error: err.code, message: err.message }, 409);
   // ENH-011b: blocked before transmit — every failing rule, not just the
   // first, so a "Fix & Requeue" pass clears the batch in one read.
@@ -746,6 +746,7 @@ export function createEtaRoutes(
       rejected: result.rejected.map((s) => serializeSubmission(s)),
       queued: result.queued,
       unsigned: result.unsigned,
+      blocked: result.blocked,
     });
   });
 
@@ -759,7 +760,7 @@ export function createEtaRoutes(
 
   app.post("/submissions/submit-all", gate("accounting.eta.submit"), async (c) => {
     const result = await service.submitAllReady();
-    return c.json({ submitted: result.submitted.map((s) => serializeSubmission(s)), queued: result.queued });
+    return c.json({ submitted: result.submitted.map((s) => serializeSubmission(s)), queued: result.queued, blocked: result.blocked });
   });
 
   app.post("/submissions/:id/accept", gate("accounting.eta.submit"), async (c) => {

@@ -5042,6 +5042,7 @@ export function useSubmitEtaSubmission() {
 export interface SubmitAllReadyEtaResult {
   readonly submitted: readonly EtaSubmissionDTO[];
   readonly queued: readonly string[];
+  readonly blocked?: readonly string[];
 }
 
 export function useSubmitAllReadyEta() {
@@ -5064,6 +5065,8 @@ export interface ProcessEtaQueueResult {
   readonly rejected: EtaSubmissionDTO[];
   readonly queued: string[];
   readonly unsigned: string[];
+  /** Left ready: their own data fails a rule the authority would refuse them on. */
+  readonly blocked?: string[];
 }
 
 export function useProcessEtaQueue() {

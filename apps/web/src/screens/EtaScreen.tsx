@@ -1021,8 +1021,8 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   const bulkMutation = useBulkRequeueSubmitEta();
   const [notice, setNotice] = useState<
     | { kind: "offline" }
-    | { kind: "queued"; count: number }
-    | { kind: "processed"; submitted: number; accepted: number; rejected: number; queued: number; unsigned: number }
+    | { kind: "queued"; count: number; blocked: number }
+    | { kind: "processed"; submitted: number; accepted: number; rejected: number; queued: number; unsigned: number; blocked: number }
     | null
   >(null);
   const [bulkNotice, setBulkNotice] = useState<{
@@ -1068,7 +1068,8 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   async function submitAll() {
     setNotice(null);
     const result = await submitAllMutation.mutateAsync();
-    if (result.queued.length > 0) setNotice({ kind: "queued", count: result.queued.length });
+    const blocked = result.blocked?.length ?? 0;
+    if (result.queued.length > 0 || blocked > 0) setNotice({ kind: "queued", count: result.queued.length, blocked });
   }
 
   async function processQueue() {
@@ -1083,6 +1084,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         rejected: result.rejected.length,
         queued: result.queued.length,
         unsigned: result.unsigned.length,
+        blocked: result.blocked?.length ?? 0,
       });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
@@ -1261,7 +1263,9 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
           {notice.kind === "offline"
             ? t("eta.actualSubmissionNeedsALive")
             : notice.kind === "queued"
-              ? t("eta.queuedNotice", { count: String(notice.count) })
+              ? notice.count > 0
+                ? t("eta.queuedNotice", { count: String(notice.count) })
+                : null
               : t("eta.processedNotice", {
                   submitted: String(notice.submitted),
                   accepted: String(notice.accepted),
@@ -1269,6 +1273,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
                   queued: String(notice.queued),
                   unsigned: String(notice.unsigned),
                 })}
+          {notice.kind !== "offline" && notice.blocked > 0 ? <span className="block">{t("eta.blockedNotice", { count: String(notice.blocked) })}</span> : null}
         </div>
       ) : null}
 

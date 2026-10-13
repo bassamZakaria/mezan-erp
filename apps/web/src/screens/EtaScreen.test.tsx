@@ -574,6 +574,24 @@ describe("EtaScreen — الإرسالات (submissions)", () => {
     expect(calls).toContain("POST /eta/submissions/submit-all");
   });
 
+  it.each([
+    ["إرسال كل الجاهز", "POST /eta/submissions/submit-all", { submitted: [], queued: [], blocked: ["s2"] }],
+    ["معالجة القائمة", "POST /eta/submissions/process", { submitted: [], accepted: [], rejected: [], queued: [], unsigned: [], blocked: ["s2"] }],
+  ])("«%s» says how many documents were held back by their own data, instead of failing the whole pass", async (button, route, body) => {
+    const { transport } = trackedTransport({
+      "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),
+      "GET /eta/submissions": () => ({ body: [submission(), submission({ id: "s2", internalId: "INV-000015" })] }),
+      [route]: () => ({ body }),
+    });
+    renderWithProviders(<EtaScreen />, { transport, initialSession: testAdminSession });
+
+    fireEvent.click(screen.getByRole("tab", { name: "الإرسالات" }));
+    await screen.findByText("INV-000014");
+    fireEvent.click(screen.getByRole("button", { name: button }));
+
+    expect(await screen.findByText(/موقوفة لنقص في بياناتها: 1/)).toBeInTheDocument();
+  });
+
   it("filters the visible rows by status without a new request (already-loaded submissions)", async () => {
     const { transport, calls } = trackedTransport({
       "GET /eta/config": () => ({ body: { config: config(), readiness: readiness() } }),

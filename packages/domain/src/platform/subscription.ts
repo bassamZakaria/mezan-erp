@@ -29,7 +29,11 @@ export enum SubscriptionTransition {
 export enum PlanChangeActor {
   ReverseTrial = "reverse-trial",
 }
-export type BillingCycle = "monthly" | "yearly";
+export enum BillingCycleKind {
+  Monthly = "monthly",
+  Yearly = "yearly",
+}
+export type BillingCycle = `${BillingCycleKind}`;
 
 export interface Subscription {
   readonly id: string;
@@ -84,7 +88,8 @@ export interface SubscriptionTransitionRepository extends SubscriptionRepository
 }
 
 export const DEFAULT_GRACE_DAYS = 7;
-const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
 interface BusinessClock {
   readonly year: number;
@@ -153,8 +158,8 @@ export function billingAnchorDayOf(s: Pick<Subscription, "billingAnchorDay" | "c
 
 export function addPeriod(startIso: string, cycle: BillingCycle, anchorDay: number = businessDayOfMonth(startIso)): string {
   const start = businessClock(new Date(startIso));
-  const year = start.year + (cycle === "yearly" ? 1 : 0);
-  const month = start.month + (cycle === "monthly" ? 1 : 0);
+  const year = start.year + (cycle === BillingCycleKind.Yearly ? 1 : 0);
+  const month = start.month + (cycle === BillingCycleKind.Monthly ? 1 : 0);
   const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   return instantOfBusinessClock({ ...start, year: year + Math.floor(month / 12), month: month % 12, day: Math.min(anchorDay, lastDay) }).toISOString();
 }
@@ -166,8 +171,8 @@ function businessDateOrdinal(iso: string): number {
 
 function periodEndInUtc(startIso: string, cycle: BillingCycle): string {
   const start = new Date(startIso);
-  const year = start.getUTCFullYear() + (cycle === "yearly" ? 1 : 0);
-  const month = start.getUTCMonth() + (cycle === "monthly" ? 1 : 0);
+  const year = start.getUTCFullYear() + (cycle === BillingCycleKind.Yearly ? 1 : 0);
+  const month = start.getUTCMonth() + (cycle === BillingCycleKind.Monthly ? 1 : 0);
   const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const day = Math.min(start.getUTCDate(), lastDay);
   return new Date(Date.UTC(year, month, day, start.getUTCHours(), start.getUTCMinutes(), start.getUTCSeconds(), start.getUTCMilliseconds())).toISOString();
@@ -181,19 +186,29 @@ function periodEndInUtc(startIso: string, cycle: BillingCycle): string {
 //     already the 1st of the next month in Cairo, and the renewal skips a month;
 //   - started on the 1st: UTC is still in the month before, so the end falls
 //     days short of the next 1st, and the renewal buys only those days.
+// A third wrong end is a day off rather than a month: the UTC end keeps the UTC
+// time of day, so across a change of summer time it lands an hour before or
+// after the Cairo time the period started at. Within an hour of midnight that
+// is the day beside the billing day, and the renewal counted from it is a day
+// shorter or longer than the cycle paid for.
 // Those exact signatures, and nothing else, are read as the day the period was
 // meant to end on. The second is read only while the anchor is the period's
 // own start day: under any other anchor the stored end already renews to it.
 export function settledPeriodEnd(s: Pick<Subscription, "currentPeriodStart" | "currentPeriodEnd" | "billingCycle" | "billingAnchorDay">): string {
   const anchorDay = billingAnchorDayOf(s);
   const intended = addPeriod(s.currentPeriodStart, s.billingCycle, anchorDay);
+  const writtenInUtc = s.currentPeriodEnd === periodEndInUtc(s.currentPeriodStart, s.billingCycle);
   const spilled = businessDayOfMonth(s.currentPeriodEnd) === 1 && businessDateOrdinal(s.currentPeriodEnd) === businessDateOrdinal(intended) + 1;
   const short =
     anchorDay === businessDayOfMonth(s.currentPeriodStart) &&
     businessDateOrdinal(s.currentPeriodEnd) < businessDateOrdinal(intended) &&
     businessMonthOf(s.currentPeriodEnd) !== businessMonthOf(intended) &&
-    s.currentPeriodEnd === periodEndInUtc(s.currentPeriodStart, s.billingCycle);
-  return spilled || short ? intended : s.currentPeriodEnd;
+    writtenInUtc;
+  const shiftedBySummerTime =
+    writtenInUtc &&
+    Math.abs(new Date(s.currentPeriodEnd).getTime() - new Date(intended).getTime()) <= HOUR_MS &&
+    businessDateOrdinal(s.currentPeriodEnd) !== businessDateOrdinal(intended);
+  return spilled || short || shiftedBySummerTime ? intended : s.currentPeriodEnd;
 }
 
 /** CONTRACT: `renewedAt` is when each renewal was RECORDED (not when it was paid), oldest first. Null means the history does not settle the day. */
@@ -222,6 +237,14 @@ export function anchorIsUtcDayOfCreation(s: Pick<Subscription, "createdAt" | "bi
   return s.billingAnchorDay === utcDay && utcDay !== businessDayOfMonth(s.createdAt);
 }
 
+/** CONTRACT: only for a subscription `anchorIsUtcDayOfCreation` is true of. Null means the payment history does not settle the day. */
+export function billingDayBehindUtcAnchor(
+  s: Pick<Subscription, "createdAt" | "billingCycle" | "currentPeriodStart" | "currentPeriodEnd">,
+  renewedAt: readonly string[],
+): number | null {
+  return renewedAt.length === 0 ? businessDayOfMonth(s.createdAt) : inferBillingAnchorDay(s, renewedAt);
+}
+
 export function addDays(iso: string, days: number): string {
   return new Date(new Date(iso).getTime() + days * DAY_MS).toISOString();
 }
@@ -240,9 +263,9 @@ export function applyTrialEndToFree(s: Subscription, freePlanId: string, nowIso:
     previousPlanId: s.planId,
     status: SubscriptionStatusKind.Active,
     trialEndsAt: null,
-    billingCycle: "monthly",
+    billingCycle: BillingCycleKind.Monthly,
     currentPeriodStart: endedAt,
-    currentPeriodEnd: addPeriod(endedAt, "monthly"),
+    currentPeriodEnd: addPeriod(endedAt, BillingCycleKind.Monthly),
     billingAnchorDay: businessDayOfMonth(endedAt),
     updatedAt: nowIso,
   };

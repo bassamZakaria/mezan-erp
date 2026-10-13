@@ -13,7 +13,7 @@ import {
   type SubscriptionTransitionRepository,
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
-  type Subscription, SubscriptionStatusKind, anchorIsUtcDayOfCreation, inferBillingAnchorDay,
+  type Subscription, SubscriptionStatusKind, anchorIsUtcDayOfCreation, billingDayBehindUtcAnchor, inferBillingAnchorDay,
   type OwnerRecordDue, type PendingOwner, type Tenant, type TenantRepository, TenantStatusCode,
 } from "@mezan/domain";
 
@@ -503,40 +503,58 @@ function backfillBillingAnchors(sqlite: Database.Database): void {
 }
 
 const UTC_ANCHOR_REPAIR = "2026-10-billing-anchor-utc-repair";
+const UTC_ANCHOR_UNRENEWED_REPAIR = "2026-10-billing-anchor-utc-unrenewed-repair";
+
+enum UtcAnchorRepairScope {
+  EveryAnchor = "every_anchor",
+  LeftForReview = "left_for_review",
+}
+
+const UTC_ANCHOR_CANDIDATES: Record<UtcAnchorRepairScope, string> = {
+  [UtcAnchorRepairScope.EveryAnchor]: `SELECT * FROM subscription WHERE billing_anchor_day IS NOT NULL AND status <> ?`,
+  [UtcAnchorRepairScope.LeftForReview]: `SELECT * FROM subscription WHERE billing_anchor_day IS NOT NULL AND billing_anchor_review = 1 AND status <> ?`,
+};
 
 // INVARIANT: corrects only an anchor that is provably the UTC day of the subscription's
-// creation, and only to the day its own payment history reproduces. Anything
-// the history does not settle is marked for the platform owner, never guessed.
-function repairUtcBillingAnchors(sqlite: Database.Database): void {
-  if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(UTC_ANCHOR_REPAIR)) return;
-  const anchored = sqlite.prepare(`SELECT * FROM subscription WHERE billing_anchor_day IS NOT NULL AND status <> ?`);
+// creation: to the Cairo day it was created on while it was never renewed, and
+// otherwise only to the day its own payment history reproduces. Anything the
+// history does not settle is marked for the platform owner, never guessed.
+// INVARIANT: one pass per marker, and neither marker may be dropped or merged.
+// Stores that ran the first pass ran it before a never-renewed subscription
+// was settled without its history; the second marker reaches the rows it left
+// marked, and only those: an unmarked day may be one the platform owner chose.
+function repairUtcBillingAnchors(sqlite: Database.Database, marker: string, scope: UtcAnchorRepairScope): void {
+  if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(marker)) return;
+  const candidates = sqlite.prepare(UTC_ANCHOR_CANDIDATES[scope]);
   const renewals = sqlite.prepare(`SELECT created_at FROM payment WHERE subscription_id = ? ORDER BY created_at, id`);
-  const setAnchor = sqlite.prepare(`UPDATE subscription SET billing_anchor_day = ? WHERE id = ? AND billing_anchor_day = ?`);
+  const setAnchor = sqlite.prepare(`UPDATE subscription SET billing_anchor_day = ?, billing_anchor_review = 0 WHERE id = ? AND billing_anchor_day = ?`);
   const markForReview = sqlite.prepare(`UPDATE subscription SET billing_anchor_review = 1 WHERE id = ? AND billing_anchor_day = ?`);
   const done = sqlite.prepare(`INSERT INTO platform_migration (name, applied_at) VALUES (?, ?)`);
   sqlite
     .transaction(() => {
-      for (const row of anchored.all(SubscriptionStatusKind.Cancelled) as SubscriptionRow[]) {
+      for (const row of candidates.all(SubscriptionStatusKind.Cancelled) as SubscriptionRow[]) {
         const subscription = toSubscription(row);
         if (!anchorIsUtcDayOfCreation(subscription)) continue;
         const recordedAt = (renewals.all(row.id) as { created_at: string }[]).map((payment) => payment.created_at);
-        const day = inferBillingAnchorDay(subscription, recordedAt);
+        const day = billingDayBehindUtcAnchor(subscription, recordedAt);
         if (day === null) markForReview.run(row.id, row.billing_anchor_day);
         else setAnchor.run(day, row.id, row.billing_anchor_day);
       }
-      done.run(UTC_ANCHOR_REPAIR, new Date().toISOString());
+      done.run(marker, new Date().toISOString());
     })
     .immediate();
 }
 
 const PERIOD_END_REPAIR = "2026-10-period-end-cairo-repair";
 const PERIOD_END_SHORT_REPAIR = "2026-10-period-end-utc-short-repair";
+const PERIOD_END_SUMMER_TIME_REPAIR = "2026-10-period-end-summer-time-repair";
 
 // REQUIRED ORDERING: after the anchor repairs, because the day a period was
 // meant to end on is read from the anchor they settle.
-// INVARIANT: one pass per marker, and neither marker may be dropped or merged.
-// Stores that ran the first pass ran it before `settledPeriodEnd` also read a
-// period that ends short of its day; only the second marker reaches them.
+// INVARIANT: one pass per marker, and no marker may be dropped or merged.
+// Stores that ran an earlier pass ran it before `settledPeriodEnd` also read a
+// period that ends short of its day, and before it read one a change of summer
+// time put on the day beside its billing day; only a later marker reaches them.
 function repairPeriodEnds(sqlite: Database.Database, marker: string): void {
   if (sqlite.prepare(`SELECT 1 FROM platform_migration WHERE name = ?`).get(marker)) return;
   const live = sqlite.prepare(`SELECT * FROM subscription WHERE status <> ?`);
@@ -1095,9 +1113,11 @@ export function createSqlitePlatformStores(
   addMissingColumns(sqlite);
   guardOneDbFilePerTenant(sqlite);
   backfillBillingAnchors(sqlite);
-  repairUtcBillingAnchors(sqlite);
+  repairUtcBillingAnchors(sqlite, UTC_ANCHOR_REPAIR, UtcAnchorRepairScope.EveryAnchor);
+  repairUtcBillingAnchors(sqlite, UTC_ANCHOR_UNRENEWED_REPAIR, UtcAnchorRepairScope.LeftForReview);
   repairPeriodEnds(sqlite, PERIOD_END_REPAIR);
   repairPeriodEnds(sqlite, PERIOD_END_SHORT_REPAIR);
+  repairPeriodEnds(sqlite, PERIOD_END_SUMMER_TIME_REPAIR);
   return {
     tenants: new SqliteTenantStore(sqlite),
     plans: new SqlitePlanStore(sqlite),

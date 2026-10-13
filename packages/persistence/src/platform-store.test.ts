@@ -309,8 +309,49 @@ describe("createSqlitePlatformStores", () => {
     });
   });
 
+  describe("period ends an earlier build computed in UTC across a change of summer time", () => {
+    const SUMMER = { billingCycle: "yearly" as const, createdAt: "2024-04-25T21:30:00.000Z", currentPeriodStart: "2024-04-25T21:30:00.000Z", currentPeriodEnd: "2025-04-25T21:30:00.000Z", billingAnchorDay: 25 };
+
+    async function storedBeforeTheThirdRepair(db: InstanceType<typeof Database>) {
+      const before = createSqlitePlatformStores(db);
+      await before.subscriptions.save({ ...sub, id: "S-SUMMER", tenantId: "T-SUMMER", ...SUMMER });
+      await before.subscriptions.save({ ...sub, id: "S-SUMMER-ENDED", tenantId: "T-SUMMER-ENDED", status: "cancelled", cancelledAt: NOW, ...SUMMER });
+      await before.subscriptions.save({ ...sub, id: "S-SUMMER-NOON", tenantId: "T-SUMMER-NOON", ...SUMMER, createdAt: "2024-04-25T10:00:00.000Z", currentPeriodStart: "2024-04-25T10:00:00.000Z", currentPeriodEnd: "2025-04-25T10:00:00.000Z" });
+      db.exec("DELETE FROM platform_migration WHERE name = '2026-10-period-end-summer-time-repair'");
+    }
+
+    it("are moved back onto the billing day on a store both earlier period-end repairs already ran on, once", async () => {
+      const db = new Database(":memory:");
+      await storedBeforeTheThirdRepair(db);
+      const markersBefore = (db.prepare("SELECT name FROM platform_migration ORDER BY name").all() as { name: string }[]).map((row) => row.name);
+
+      const first = createSqlitePlatformStores(db);
+      const repaired = await first.subscriptions.findById("S-SUMMER");
+      await first.subscriptions.save({ ...repaired!, currentPeriodEnd: SUMMER.currentPeriodEnd });
+      const second = createSqlitePlatformStores(db);
+
+      expect(markersBefore).toEqual(expect.arrayContaining(["2026-10-period-end-cairo-repair", "2026-10-period-end-utc-short-repair"]));
+      expect(markersBefore).not.toContain("2026-10-period-end-summer-time-repair");
+      expect(repaired?.currentPeriodEnd).toBe("2025-04-25T20:30:00.000Z");
+      expect((await second.subscriptions.findById("S-SUMMER"))?.currentPeriodEnd).toBe(SUMMER.currentPeriodEnd);
+      db.close();
+    });
+
+    it("touch neither a period that ends on its billing day an hour off its time, nor a cancelled subscription", async () => {
+      const db = new Database(":memory:");
+      await storedBeforeTheThirdRepair(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect((await subscriptions.findById("S-SUMMER-NOON"))?.currentPeriodEnd).toBe("2025-04-25T10:00:00.000Z");
+      expect((await subscriptions.findById("S-SUMMER-ENDED"))?.currentPeriodEnd).toBe(SUMMER.currentPeriodEnd);
+      db.close();
+    });
+  });
+
   describe("anchor days stored as the UTC day by an earlier build", () => {
     const stored = (over: Partial<Subscription>): Subscription => ({ ...sub, ...over });
+    const NEVER_RENEWED = { createdAt: "2024-02-29T22:30:00.000Z", currentPeriodStart: "2024-02-29T22:30:00.000Z", currentPeriodEnd: "2024-03-29T22:30:00.000Z" };
 
     async function storedWithUtcAnchors(db: InstanceType<typeof Database>) {
       const before = createSqlitePlatformStores(db);
@@ -339,8 +380,77 @@ describe("createSqlitePlatformStores", () => {
         id: "S-CHOSEN", tenantId: "T-CHOSEN", createdAt: "2026-01-14T23:00:00.000Z",
         currentPeriodStart: "2026-01-14T23:00:00.000Z", currentPeriodEnd: "2026-02-14T23:00:00.000Z", billingAnchorDay: 20,
       }));
+      await before.subscriptions.save(stored({ id: "S-FIRST-PERIOD", tenantId: "T-FIRST-PERIOD", ...NEVER_RENEWED, billingAnchorDay: 29 }));
       db.exec("DELETE FROM platform_migration WHERE name LIKE '%utc%'");
     }
+
+    it("moves the anchor of a subscription that was never renewed to the Cairo day it was created on, with no review mark, and its first period then ends on that day", async () => {
+      const db = new Database(":memory:");
+      await storedWithUtcAnchors(db);
+
+      const { subscriptions } = createSqlitePlatformStores(db);
+
+      expect(await subscriptions.findById("S-FIRST-PERIOD")).toMatchObject({ billingAnchorDay: 1, currentPeriodEnd: "2024-03-31T22:30:00.000Z" });
+      expect((await subscriptions.findById("S-FIRST-PERIOD"))?.billingAnchorNeedsReview).toBeUndefined();
+      db.close();
+    });
+
+    describe("on a store the first anchor repair and both period-end repairs already ran on", () => {
+      const NEW_MARKERS = ["2026-10-billing-anchor-utc-unrenewed-repair", "2026-10-period-end-summer-time-repair"] as const;
+      const markersIn = (db: InstanceType<typeof Database>): string[] => (db.prepare("SELECT name FROM platform_migration ORDER BY name").all() as { name: string }[]).map((row) => row.name);
+
+      async function leftByTheFirstRepair(db: InstanceType<typeof Database>) {
+        const before = createSqlitePlatformStores(db);
+        await before.subscriptions.save(stored({ id: "S-LEFT", tenantId: "T-LEFT", ...NEVER_RENEWED, billingAnchorDay: 29, billingAnchorNeedsReview: true }));
+        await before.subscriptions.save(stored({ id: "S-OWNER-CHOSE", tenantId: "T-OWNER-CHOSE", ...NEVER_RENEWED, billingAnchorDay: 29 }));
+        await before.subscriptions.save(stored({
+          id: "S-LEFT-RENEWED", tenantId: "T-LEFT-RENEWED", createdAt: "2026-01-14T23:00:00.000Z",
+          currentPeriodStart: "2026-03-20T09:00:00.000Z", currentPeriodEnd: "2026-04-20T09:00:00.000Z", billingAnchorDay: 14, billingAnchorNeedsReview: true,
+        }));
+        await before.payments.save({ ...payment, id: "P-LATE", tenantId: "T-LEFT-RENEWED", subscriptionId: "S-LEFT-RENEWED", createdAt: "2026-03-20T09:00:00.000Z" });
+        for (const marker of NEW_MARKERS) db.prepare("DELETE FROM platform_migration WHERE name = ?").run(marker);
+      }
+
+      it("moves the anchor it left marked for review on a subscription that was never renewed, clears the mark, and the period end follows", async () => {
+        const db = new Database(":memory:");
+        await leftByTheFirstRepair(db);
+        const markersBefore = markersIn(db);
+
+        const { subscriptions } = createSqlitePlatformStores(db);
+
+        expect(markersBefore).toEqual(expect.arrayContaining(["2026-10-billing-anchor-utc-repair", "2026-10-period-end-cairo-repair", "2026-10-period-end-utc-short-repair"]));
+        for (const marker of NEW_MARKERS) expect(markersBefore).not.toContain(marker);
+        expect(await subscriptions.findById("S-LEFT")).toMatchObject({ billingAnchorDay: 1, currentPeriodEnd: "2024-03-31T22:30:00.000Z" });
+        expect((await subscriptions.findById("S-LEFT"))?.billingAnchorNeedsReview).toBeUndefined();
+        expect(markersIn(db)).toEqual(expect.arrayContaining([...NEW_MARKERS]));
+        db.close();
+      });
+
+      it("leaves a day nobody marked for review, which the platform owner may have chosen, and keeps the mark where the payment history disagrees", async () => {
+        const db = new Database(":memory:");
+        await leftByTheFirstRepair(db);
+
+        const { subscriptions } = createSqlitePlatformStores(db);
+
+        expect(await subscriptions.findById("S-OWNER-CHOSE")).toMatchObject({ billingAnchorDay: 29, currentPeriodEnd: NEVER_RENEWED.currentPeriodEnd });
+        expect(await subscriptions.findById("S-LEFT-RENEWED")).toMatchObject({ billingAnchorDay: 14, billingAnchorNeedsReview: true });
+        db.close();
+      });
+
+      it("runs once: a day and a mark put back afterwards are not moved again", async () => {
+        const db = new Database(":memory:");
+        await leftByTheFirstRepair(db);
+        const first = createSqlitePlatformStores(db);
+        const repaired = await first.subscriptions.findById("S-LEFT");
+        if (!repaired) throw new Error("the subscription is missing");
+        await first.subscriptions.save({ ...repaired, ...NEVER_RENEWED, billingAnchorDay: 29, billingAnchorNeedsReview: true });
+
+        const again = createSqlitePlatformStores(db);
+
+        expect(await again.subscriptions.findById("S-LEFT")).toMatchObject({ billingAnchorDay: 29, billingAnchorNeedsReview: true, currentPeriodEnd: NEVER_RENEWED.currentPeriodEnd });
+        db.close();
+      });
+    });
 
     it("moves an anchor that was the UTC day of a subscription created after midnight in Cairo to the Cairo day its history proves", async () => {
       const db = new Database(":memory:");

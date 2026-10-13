@@ -823,7 +823,10 @@ function VoucherDetailView({
                 <SelectField
                   label={t("vouchers.invoice")}
                   value={invoiceId}
-                  onChange={setInvoiceId}
+                  onChange={(next) => {
+                    setInvoiceId(next);
+                    setAllocDate("");
+                  }}
                   options={[
                     { value: "", label: t("vouchers.chooseAnInvoice") },
                     ...openInvoices.map((i) => ({

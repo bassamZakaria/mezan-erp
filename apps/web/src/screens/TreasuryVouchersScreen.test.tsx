@@ -405,6 +405,17 @@ describe("TreasuryVouchersScreen — the day an allocation takes effect", () => 
     expect(await screen.findByRole("status")).toHaveTextContent("2026-09-01");
   });
 
+  it("goes back to the new invoice's own day when another invoice is chosen after a day was picked", async () => {
+    renderScreen();
+    const date = await chooseSecondInvoice();
+    fireEvent.change(date, { target: { value: "2026-08-20" } });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "الفاتورة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: /^INV-000001/ }));
+
+    expect((screen.getByLabelText("تاريخ التخصيص") as HTMLInputElement).value).toBe("2026-08-07");
+  });
+
   it("sends a later day the user picked", async () => {
     const { allocationRequests } = renderScreen();
     const date = await chooseSecondInvoice();

@@ -30,22 +30,28 @@ export function effectiveChequeStatus(cheque: Pick<Cheque, "status" | "dueDate">
 }
 
 /** Legal stored-status transitions per manual action (docs/archive/catalog/04's 7-state lifecycle). */
-export type ChequeAction = "deposit" | "collect" | "bounce" | "replace" | "return";
+export enum ChequeAction {
+  Deposit = "deposit",
+  Collect = "collect",
+  Bounce = "bounce",
+  Replace = "replace",
+  Return = "return",
+}
 
 const ALLOWED_FROM: Record<ChequeAction, ChequeStoredStatus> = {
-  deposit: "pending",
-  collect: "deposited",
-  bounce: "deposited",
-  replace: "bounced",
-  return: "collected",
+  [ChequeAction.Deposit]: "pending",
+  [ChequeAction.Collect]: "deposited",
+  [ChequeAction.Bounce]: "deposited",
+  [ChequeAction.Replace]: "bounced",
+  [ChequeAction.Return]: "collected",
 };
 
 const TARGET_STATUS: Record<ChequeAction, ChequeStoredStatus> = {
-  deposit: "deposited",
-  collect: "collected",
-  bounce: "bounced",
-  replace: "replaced",
-  return: "bounced",
+  [ChequeAction.Deposit]: "deposited",
+  [ChequeAction.Collect]: "collected",
+  [ChequeAction.Bounce]: "bounced",
+  [ChequeAction.Replace]: "replaced",
+  [ChequeAction.Return]: "bounced",
 };
 
 /** Guard one manual transition; throws {@link InvalidChequeTransitionError} when illegal. */

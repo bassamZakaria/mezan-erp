@@ -48,6 +48,7 @@ import type {
   SiteReceipt,
   UnreceivedRow,
 } from "./site-documents.js";
+import { EquipmentLogStatus, MaterialConsumptionStatus } from "./site-documents.js";
 
 export interface SiteServiceDeps {
   readonly issues: SiteIssueRepository;
@@ -474,7 +475,7 @@ export class SiteService {
       boqLineId,
       subcontractId: command.subcontractId?.trim() ? command.subcontractId.trim() : null,
       notes: command.notes ?? null,
-      status: "draft",
+      status: MaterialConsumptionStatus.Draft,
       lines: command.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
       totalCost: Money.zero(),
       journalEntryId: null,
@@ -494,7 +495,7 @@ export class SiteService {
   async confirmConsumption(id: string, actor?: string | null): Promise<MaterialConsumption> {
     const consumption = await this.deps.consumptions.findById(id);
     if (!consumption) throw new SiteDocumentNotFoundError(id);
-    if (consumption.status === "confirmed") {
+    if (consumption.status === MaterialConsumptionStatus.Confirmed) {
       throw new SiteDocumentStatusError("تم اعتماد مستند الاستهلاك بالفعل.");
     }
     const [wipAccountId, inventoryAccountId] = await Promise.all([
@@ -554,7 +555,7 @@ export class SiteService {
       const confirmed: MaterialConsumption = {
         ...consumption,
         docNo: number.formatted,
-        status: "confirmed",
+        status: MaterialConsumptionStatus.Confirmed,
         totalCost: result.totalCost,
         journalEntryId,
         confirmedAt: this.now(),
@@ -581,7 +582,7 @@ export class SiteService {
   async reverseConsumption(id: string, opts: SiteReversalOptions): Promise<MaterialConsumption> {
     const consumption = await this.deps.consumptions.findById(id);
     if (!consumption) throw new SiteDocumentNotFoundError(id);
-    if (consumption.status !== "confirmed") {
+    if (consumption.status !== MaterialConsumptionStatus.Confirmed) {
       throw new SiteDocumentStatusError("مستند الاستهلاك ليس معتمداً، فلا يمكن عكسه.", "The consumption is not confirmed, so it cannot be reversed.");
     }
     const date = opts.date ?? consumption.date;
@@ -606,7 +607,7 @@ export class SiteService {
       const reversal = consumption.journalEntryId
         ? (await reverseJournalEntry(consumption.journalEntryId, gl, { reversalId: opts.reversalId, date, memo: opts.memo ?? `عكس استهلاك مواد ${consumption.docNo ?? consumption.id}` })).reversal
         : null;
-      const reversed: MaterialConsumption = { ...consumption, status: "reversed" };
+      const reversed: MaterialConsumption = { ...consumption, status: MaterialConsumptionStatus.Reversed };
       await this.deps.consumptions.save(reversed);
       await recordTransition(this.deps.audit, {
         entityType: "MATERIAL_CONSUMPTION",
@@ -624,7 +625,7 @@ export class SiteService {
   async reverseEquipmentLog(id: string, opts: SiteReversalOptions): Promise<EquipmentLog> {
     const log = await this.deps.equipmentLogs.findById(id);
     if (!log) throw new SiteDocumentNotFoundError(id);
-    if (log.status !== "confirmed" || !log.journalEntryId) {
+    if (log.status !== EquipmentLogStatus.Confirmed || !log.journalEntryId) {
       throw new SiteDocumentStatusError("سجل التشغيل ليس معتمداً، فلا يمكن عكسه.", "The equipment log is not confirmed, so it cannot be reversed.");
     }
     const entryId = log.journalEntryId;
@@ -634,7 +635,7 @@ export class SiteService {
 
     return this.run(async () => {
       const { reversal } = await reverseJournalEntry(entryId, gl, { reversalId: opts.reversalId, date, memo: opts.memo ?? `عكس تشغيل معدات ${log.docNo ?? log.id}` });
-      const reversed: EquipmentLog = { ...log, status: "reversed" };
+      const reversed: EquipmentLog = { ...log, status: EquipmentLogStatus.Reversed };
       await this.deps.equipmentLogs.save(reversed);
       await recordTransition(this.deps.audit, {
         entityType: "EQUIPMENT_LOG",
@@ -748,7 +749,7 @@ export class SiteService {
       amount: extend(command.hours, hourlyRate),
       boqLineId,
       notes: command.notes ?? null,
-      status: "draft",
+      status: EquipmentLogStatus.Draft,
       journalEntryId: null,
       createdAt: this.now(),
       confirmedAt: null,
@@ -760,7 +761,7 @@ export class SiteService {
   async confirmEquipmentLog(id: string, actor?: string | null): Promise<EquipmentLog> {
     const log = await this.deps.equipmentLogs.findById(id);
     if (!log) throw new SiteDocumentNotFoundError(id);
-    if (log.status === "confirmed") {
+    if (log.status === EquipmentLogStatus.Confirmed) {
       throw new SiteDocumentStatusError("تم اعتماد سجل التشغيل بالفعل.");
     }
     const [wipAccountId, recoveryAccountId] = await Promise.all([
@@ -804,7 +805,7 @@ export class SiteService {
         ...log,
         docNo: number.formatted,
         amount,
-        status: "confirmed",
+        status: EquipmentLogStatus.Confirmed,
         journalEntryId: entry.id,
         confirmedAt: this.now(),
       };
@@ -941,7 +942,7 @@ export class SiteService {
 
   /** Consumed quantity and value per (BOQ line, item) — slice 5's consumed-vs-theoretical input. */
   async consumptionByBoqLine(projectId: string): Promise<readonly ConsumptionByBoqLineRow[]> {
-    const consumptions = await this.deps.consumptions.list({ projectId, status: "confirmed" });
+    const consumptions = await this.deps.consumptions.list({ projectId, status: MaterialConsumptionStatus.Confirmed });
     const byKey = new Map<string, { boqLineId: string | null; itemId: string; qty: Qty; cost: Money }>();
     for (const doc of consumptions) {
       // Largest-remainder, so the shares of a multi-line document sum back to
@@ -965,7 +966,7 @@ export class SiteService {
 
   /** Confirmed plant hours and their charged value per BOQ line. */
   async equipmentHours(projectId: string): Promise<readonly EquipmentHoursRow[]> {
-    const logs = await this.deps.equipmentLogs.list({ projectId, status: "confirmed" });
+    const logs = await this.deps.equipmentLogs.list({ projectId, status: EquipmentLogStatus.Confirmed });
     const byLine = new Map<string, { boqLineId: string | null; hours: Qty; amount: Money }>();
     for (const log of logs) {
       const key = log.boqLineId ?? "";

@@ -124,6 +124,8 @@ import {
   type OpenFxItem,
   type AllocationInvoiceKind,
   FX_REALISED_DOC_TYPE,
+  EquipmentLogStatus,
+  MaterialConsumptionStatus,
   FX_SHARE_RELEASE_ENTRY_PREFIX,
   fxLateReleaseEntryId,
   isBaseCurrency,
@@ -1822,7 +1824,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   const subcontractConsumptions: SubcontractConsumptionPort = {
     async materialsIssuedTo(subcontractId) {
-      const rows = await contractingSiteStore.consumptions.list({ subcontractId, status: "confirmed" });
+      const rows = await contractingSiteStore.consumptions.list({ subcontractId, status: MaterialConsumptionStatus.Confirmed });
       return Money.sum(rows.map((r) => r.totalCost));
     },
   };
@@ -2692,8 +2694,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         subcontracts.list(),
         subcontracts.listCertificates(),
         retentionReleases.list(),
-        contractingSiteStore.consumptions.list({ status: "confirmed" }),
-        contractingSiteStore.equipmentLogs.list({ status: "confirmed" }),
+        contractingSiteStore.consumptions.list({ status: MaterialConsumptionStatus.Confirmed }),
+        contractingSiteStore.equipmentLogs.list({ status: EquipmentLogStatus.Confirmed }),
         recognitionRuns.list(),
       ]);
     const account = (key: string, fallback: string): string => routedAccountId(routing, key) ?? fallback;

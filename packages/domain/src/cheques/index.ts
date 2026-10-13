@@ -25,7 +25,7 @@ export {
   ReplacementAmountMismatchError,
 } from "./errors.js";
 
-export { COLLECTION_WINDOW_DAYS, assertChequeTransition, effectiveChequeStatus } from "./status.js";
+export { COLLECTION_WINDOW_DAYS, ChequeAction, assertChequeTransition, effectiveChequeStatus } from "./status.js";
 
 export {
   ChequeService,

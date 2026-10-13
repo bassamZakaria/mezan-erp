@@ -44,7 +44,7 @@ import type {
   ChequeStatus,
   ChequeStoredStatus,
 } from "./cheque.js";
-import { assertChequeTransition, effectiveChequeStatus } from "./status.js";
+import { ChequeAction, assertChequeTransition, effectiveChequeStatus } from "./status.js";
 import {
   DuplicateChequeNumberError,
   ChequeNotFoundError,
@@ -283,7 +283,7 @@ export class ChequeService {
   /** Hand the cheque to the bank for collection: pending → deposited. No GL entry. */
   async deposit(cmd: DepositChequeCommand): Promise<Cheque> {
     const cheque = await this.require(cmd.chequeId);
-    assertChequeTransition(cheque, "deposit");
+    assertChequeTransition(cheque, ChequeAction.Deposit);
     const updated: Cheque = {
       ...cheque,
       status: "deposited",
@@ -315,7 +315,7 @@ export class ChequeService {
   /** The bank confirms clearance: deposited → collected. Posts the cash-recognition GL entry. */
   async collect(cmd: CollectChequeCommand): Promise<Cheque> {
     const cheque = await this.require(cmd.chequeId);
-    assertChequeTransition(cheque, "collect");
+    assertChequeTransition(cheque, ChequeAction.Collect);
 
     const collectionDate = cmd.date ?? this.now().slice(0, 10);
     const bankLeg = (await this.deps.bankLegFx?.(cmd.bankGlAccountId, collectionDate)) ?? null;
@@ -365,7 +365,7 @@ export class ChequeService {
   async bounce(cmd: BounceChequeCommand): Promise<Cheque> {
     return this.deps.cheques.transaction(async () => {
       const cheque = await this.require(cmd.chequeId);
-      assertChequeTransition(cheque, "bounce");
+      assertChequeTransition(cheque, ChequeAction.Bounce);
       return this.postBounce(cheque, cmd, cmd.date ?? this.now().slice(0, 10));
     });
   }
@@ -373,7 +373,7 @@ export class ChequeService {
   async returnCollected(cmd: ReturnCollectedChequeCommand): Promise<Cheque> {
     return this.deps.cheques.transaction(async () => {
       const cheque = await this.require(cmd.chequeId);
-      assertChequeTransition(cheque, "return");
+      assertChequeTransition(cheque, ChequeAction.Return);
       const date = cmd.date ?? this.now().slice(0, 10);
       let restated: JournalLineInput[] = [];
       if (cheque.collectionJournalEntryId) {
@@ -565,7 +565,7 @@ export class ChequeService {
    */
   async replace(cmd: ReplaceChequeCommand): Promise<{ original: Cheque; replacement: Cheque }> {
     const original = await this.require(cmd.bouncedChequeId);
-    assertChequeTransition(original, "replace");
+    assertChequeTransition(original, ChequeAction.Replace);
     if (original.direction !== "incoming") {
       throw new InvalidChequeCommandError(
         `لا يمكن استبدال الشيك الصادر "${original.id}" عبر هذه العملية؛ أنشئ شيكاً جديداً بدلاً من ذلك.`,

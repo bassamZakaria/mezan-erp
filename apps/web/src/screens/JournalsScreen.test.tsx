@@ -176,6 +176,23 @@ describe("JournalsScreen — list", () => {
   });
 });
 
+describe("JournalsScreen — the detail view names where the entry came from", () => {
+  const sourceOf = () => screen.getByText("المصدر").parentElement?.textContent ?? "";
+
+  it.each([
+    { what: "an FX revaluation run", overrides: { source: "system" as const, sourceDocType: "FX_REVALUATION", sourceModule: "treasury" as const, reversibleFromJournal: false }, label: "الخزينة" },
+    { what: "a sales invoice's own entry", overrides: { source: "system" as const, sourceDocType: "SALES_INVOICE", sourceDocId: "inv-1", sourceDocNumber: "INV-000001", sourceModule: "sales" as const, reversibleFromJournal: false }, label: "المبيعات" },
+    { what: "an entry a person typed", overrides: {}, label: "قيد يدوي" },
+  ])("$what reads «$label», the label its row carries in the list", async ({ overrides, label }) => {
+    renderScreen([entry(overrides)]);
+    expect(await screen.findByText(label)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("JE-000001"));
+
+    await screen.findByLabelText("حالة المستند");
+    expect(sourceOf()).toBe(`المصدر${label}`);
+  });
+});
+
 describe("JournalsScreen — create: balance gating", () => {
   it("keeps the post button disabled until the entry balances", async () => {
     renderScreen();

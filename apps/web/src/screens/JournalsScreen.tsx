@@ -463,7 +463,7 @@ export function JournalsScreen() {
           }
           summary={[
             { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
-            { label: t("journals.source"), value: t("journals.manual") },
+            { label: t("journals.source"), value: t(MODULE_KEY[selected.sourceModule]) },
             { label: t("journals.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
             { label: t("journals.totalDebit"), value: <MoneyDisplay value={totals.debit} /> },
             { label: t("journals.totalCredit"), value: <MoneyDisplay value={totals.credit} /> },

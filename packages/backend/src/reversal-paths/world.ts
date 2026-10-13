@@ -21,15 +21,15 @@ export async function expectJournalRouteClosed(world: SeededWorld, entryId: stri
   expect(`${res.status} ${String(res.body.error)}`).toBe("422 JOURNAL_ENTRY_OWNED_BY_DOCUMENT");
 }
 
-export async function expectRefusedInClosedPeriod(world: SeededWorld, periodId: string, attempt: () => Promise<{ status: number; body: Record<string, unknown> }>): Promise<void> {
-  const before = (world.sqlite.prepare(`SELECT status FROM fiscal_period WHERE id = ?`).get(periodId) as { status: string }).status;
+export async function expectRefusedInClosedPeriod(world: SeededWorld, periodId: string, attempt: (lastDayOfPeriod: string) => Promise<{ status: number; body: Record<string, unknown> }>): Promise<void> {
+  const period = world.sqlite.prepare(`SELECT status, end_date AS endDate FROM fiscal_period WHERE id = ?`).get(periodId) as { status: string; endDate: string };
   world.sqlite.prepare(`UPDATE fiscal_period SET status = 'closed' WHERE id = ?`).run(periodId);
   try {
-    const res = await attempt();
+    const res = await attempt(period.endDate);
     expect(`${res.status} ${String(res.body.error)}`, JSON.stringify(res.body)).toBe("422 PERIOD_NOT_OPEN_FOR_POSTING");
     expect(String(res.body.message)).toMatch(/[؀-ۿ]/);
     expect(typeof res.body.messageEn).toBe("string");
   } finally {
-    world.sqlite.prepare(`UPDATE fiscal_period SET status = ? WHERE id = ?`).run(before, periodId);
+    world.sqlite.prepare(`UPDATE fiscal_period SET status = ? WHERE id = ?`).run(period.status, periodId);
   }
 }

@@ -21,6 +21,7 @@ import type { FrameworkDocument } from "../documents/document.js";
 import type { StockLedgerService } from "../inventory/stock-ledger-service.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import { Money } from "../money/index.js";
+import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import { landedCostAbsorptionDate, type LandedCostLine } from "./landed-cost-document.js";
 
 /**
@@ -127,6 +128,7 @@ export class LandedCostService {
   private async reverseWithin(id: string, opts: ReverseOptions & { readonly date: string }): Promise<{ original: FrameworkDocument<LandedCostLine>; reversal: FrameworkDocument<LandedCostLine> }> {
     const existing = await this.documents.findById(id);
     const live = existing !== null && existing.status === "confirmed" && !existing.reversesDocId;
+    if (live && opts.date < existing.date.slice(0, 10)) throw new ReversalDateBeforeOriginalError(id, opts.date, existing.date);
     const date = live ? await this.earliestAbsorptionDay(opts.date, existing.lines) : opts.date;
     if (live) await this.stock.assertMovementDateOpen(occurredAtFromDocumentDate(date));
     const result = await this.documents.reverse(id, { ...opts, date });

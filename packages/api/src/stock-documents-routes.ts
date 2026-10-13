@@ -1,4 +1,4 @@
-import { postingRefusalResponse } from "./posting-refusal.js";
+import { noteReversalOriginalDay } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -38,7 +38,7 @@ import {
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
-import { readReversalRequest, recordDocumentReversal, requireReversalReason } from "./document-reversal.js";
+import { readReversalRequest, recordDocumentReversal, requireReversalReason, reversalRefusalResponse } from "./document-reversal.js";
 import type { AuditSink } from "@mezan/domain";
 import { tenantDay } from "./tenant-day.js";
 
@@ -71,6 +71,8 @@ function serializeAdjustment(doc: FrameworkDocument<StockAdjustmentDocLine>) {
     createdAt: doc.createdAt,
     confirmedAt: doc.confirmedAt,
     journalEntryId: doc.journalEntryId,
+    reversesDocId: doc.reversesDocId,
+    reversedByDocId: doc.reversedByDocId,
     // One project/category per adjustment — carried per-line and validated
     // uniform (stock-adjustment-document.ts), surfaced here as a single header.
     projectId: doc.lines[0]?.projectId ?? null,
@@ -206,7 +208,7 @@ function warehouseScopeRefusal(c: Context, warehouseIds: readonly string[]): Res
 }
 
 function handleDocumentError(c: Context, err: unknown): Response {
-  const postingRefusal = postingRefusalResponse(c, err);
+  const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
@@ -303,6 +305,7 @@ export function createStockAdjustmentsRoutes(
         if (refusal) return refusal;
       }
       const { date, memo } = await readReversalRequest(c);
+      await noteReversalOriginalDay(c, existing?.date);
       const { original, reversal } = await service.reverse(id, { reversalId: `${id}:REVERSAL`, date, memo });
       await recordDocumentReversal(audit, {
         module: "inventory",

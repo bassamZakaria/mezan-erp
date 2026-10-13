@@ -325,7 +325,7 @@ export function createFxRevaluationRoutes(
     if (!original || original.sourceDocType !== FX_REVALUATION_DOC_TYPE || original.reversesEntryId) return c.json(RUN_NOT_FOUND, 404);
     try {
       const { date, memo } = await readReversalRequest(c);
-      const reversalDate = date ?? original.date.slice(0, 10);
+      const reversalDate = date;
       if (reversalDate < original.date.slice(0, 10)) throw new ReversalDateBeforeOriginalError(original.id, reversalDate, original.date);
       const actor = getAuthContext(c)?.userId ?? "system";
       const result = await deps.ledger.transaction(async () => {

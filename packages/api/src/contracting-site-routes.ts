@@ -1,4 +1,5 @@
 import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
+import { noteReversalOriginalDay } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -374,6 +375,7 @@ export function createContractingSiteRoutes(
   app.post("/consumptions/:id/reverse", gate(ReversalPermission.MaterialConsumption), requireReversalReason, async (c) => {
     try {
       const { date, memo } = await readReversalRequest(c);
+      await noteReversalOriginalDay(c, (await service.getConsumption(c.req.param("id")))?.date);
       const consumption = await service.reverseConsumption(c.req.param("id"), { reversalId: randomUUID(), date, memo, actor: callerUserId(c) ?? null });
       return c.json(serializeConsumption(consumption));
     } catch (err) {

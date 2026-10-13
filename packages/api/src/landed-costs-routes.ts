@@ -15,6 +15,7 @@ import {
 import { ReversalPermission, createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
+import { noteReversalOriginalDay } from "./posting-refusal.js";
 import { tenantDay, tenantToday } from "./tenant-day.js";
 
 function serializeLine(l: LandedCostLine) {
@@ -170,6 +171,7 @@ export function createLandedCostsRoutes(
     }
     try {
       const date = await tenantDay(c, typeof body?.date === "string" ? body.date : new Date().toISOString());
+      await noteReversalOriginalDay(c, (await documents.findById(c.req.param("id")))?.date);
       const result = await landedCostService.reverse(c.req.param("id"), {
         reversalId: typeof body?.reversalId === "string" && body.reversalId !== "" ? body.reversalId : randomUUID(),
         date,

@@ -17,7 +17,7 @@ const postings = () =>
     .prepare(`SELECT id, status FROM journal_entry WHERE source_doc_type = 'LETTER_OF_GUARANTEE' AND source_doc_id = ? AND reverses_entry_id IS NULL ORDER BY created_at, id`)
     .all(ID) as { id: string; status: string }[];
 const letter = async () => (await world.request("GET", `/contracting/guarantees/${ID}`)).body as { status: string; currentValue: string; reductions: unknown[]; closedDate: string | null };
-const undo = () => world.request("POST", `/contracting/guarantees/${ID}/reverse-last`, { memo: "سبب العكس" });
+const undo = (date?: string) => world.request("POST", `/contracting/guarantees/${ID}/reverse-last`, { memo: "سبب العكس", ...(date ? { date } : {}) });
 const balances = () => ({ memo: world.balance("9100"), restricted: world.balance("1340"), bank: world.balance("1310"), loss: world.balance("5930") });
 
 describe("reversing a letter of guarantee's postings", () => {

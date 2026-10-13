@@ -1,4 +1,5 @@
-import { tenantStockMoment } from "./tenant-day.js";
+import { tenantDay, tenantStockMoment } from "./tenant-day.js";
+import { noteReversalOriginalDay } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -25,6 +26,7 @@ import {
   availableQty,
   type StockReservationSource,
   type StockReservations,
+  ReversalDateBeforeOriginalError,
 } from "@mezan/domain";
 import {
   ReversalPermission,
@@ -442,7 +444,10 @@ export function createInventoryRoutes(
     }
     try {
       const { date, memo } = await readReversalRequest(c);
-      const occurredAt = await tenantStockMoment(c, date ?? posted?.occurredAt);
+      const originalDay = posted ? await tenantDay(c, posted.occurredAt) : null;
+      if (originalDay && date < originalDay) throw new ReversalDateBeforeOriginalError(adjustmentId, date, originalDay);
+      await noteReversalOriginalDay(c, originalDay);
+      const occurredAt = await tenantStockMoment(c, date);
       const reversalId = `${adjustmentId}:REVERSAL`;
       await service.reverseAdjustment({ adjustmentId, reversalId, occurredAt, memo });
       await recordDocumentReversal(reversal?.audit, {

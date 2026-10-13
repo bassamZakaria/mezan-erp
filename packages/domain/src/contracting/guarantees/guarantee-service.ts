@@ -5,7 +5,7 @@ import type { ProjectRepository } from "../../projects/project.js";
 import type { TreasuryAccountRepository } from "../../treasury-accounts/treasury-account.js";
 import type { AuditSink } from "../../audit/index.js";
 import { recordTransition } from "../audit.js";
-import { nextEntryGenerationId, postJournalEntry, reverseJournalEntry, standingEntryGeneration, type JournalLineInput, type JournalPostingDeps } from "../../gl/index.js";
+import { nextEntryGenerationId, postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, standingEntryGeneration, type JournalLineInput, type JournalPostingDeps } from "../../gl/index.js";
 import type { JournalEntry } from "../../journal.js";
 import {
   daysToExpiry,
@@ -610,6 +610,7 @@ export class GuaranteeService {
     if (!step) throw new GuaranteeNothingToReverseError(id);
     if (step.sourceRef) throw new GuaranteePostingFromDocumentError(id, step.sourceRef);
     const date = command.date ?? step.entry.date.slice(0, 10);
+    if (date < step.entry.date.slice(0, 10)) throw new ReversalDateBeforeOriginalError(step.entry.id, date, step.entry.date);
     const gl = { ...this.deps.gl, actor: command.userId ?? this.deps.gl.actor };
 
     return this.deps.gl.ledger.transaction(async () => {

@@ -302,6 +302,9 @@ export class DocumentService<Line> {
         reversalJournalEntryId = result.journalEntryId;
         reversalDocNo = result.journalEntryNo;
       }
+      if (this.def.numberingSequence && !this.def.numberFromGl && this.deps.numbering) {
+        reversalDocNo = (await this.deps.numbering.next({ branchId: this.def.branchOf?.(existing) ?? null })).formatted;
+      }
 
       const reversal: FrameworkDocument<Line> = {
         id: opts.reversalId,

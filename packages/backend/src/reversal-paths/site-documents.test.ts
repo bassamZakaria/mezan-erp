@@ -17,7 +17,7 @@ describe("reversing an equipment log", () => {
     const log = world.sqlite.prepare(`SELECT id, journal_entry_id AS entryId, amount, substr(date, 1, 7) AS month FROM equipment_log WHERE status = 'confirmed' AND date >= '2026-08-01' ORDER BY id LIMIT 1`).safeIntegers().get() as { id: string; entryId: string; amount: bigint; month: string };
     const before = { wip: world.balance(WIP), recovery: world.balance("5160") };
     await expectJournalRouteClosed(world, log.entryId);
-    await expectRefusedInClosedPeriod(world, `fp-${log.month}`, () => world.request("POST", `/contracting/site/equipment-logs/${log.id}/reverse`, { memo: "سبب العكس" }));
+    await expectRefusedInClosedPeriod(world, `fp-${log.month}`, (date) => world.request("POST", `/contracting/site/equipment-logs/${log.id}/reverse`, { memo: "سبب العكس", date }));
 
     const reversed = await world.request("POST", `/contracting/site/equipment-logs/${log.id}/reverse`, { memo: "سبب العكس" });
 
@@ -46,7 +46,7 @@ describe("reversing a material consumption", () => {
       world.sqlite.prepare(`SELECT on_hand AS qty, total_value AS value FROM wac_snapshot WHERE item_id = ? AND warehouse_id = ?`).safeIntegers().get(itemId, doc.warehouseId) as { qty: bigint; value: bigint };
     const before = { wip: world.balance(WIP), inventory: world.balance("1200"), position: position() };
     await expectJournalRouteClosed(world, doc.entryId);
-    await expectRefusedInClosedPeriod(world, `fp-${doc.month}`, () => world.request("POST", "/contracting/site/consumptions/CON-DEMO-SUB-1/reverse", { memo: "سبب العكس" }));
+    await expectRefusedInClosedPeriod(world, `fp-${doc.month}`, (date) => world.request("POST", "/contracting/site/consumptions/CON-DEMO-SUB-1/reverse", { memo: "سبب العكس", date }));
     expect(position()).toEqual(before.position);
 
     const reversed = await world.request("POST", "/contracting/site/consumptions/CON-DEMO-SUB-1/reverse", { memo: "سبب العكس", date: "2026-09-03" });

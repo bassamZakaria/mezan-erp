@@ -5,6 +5,8 @@ export {
   DuplicateFiscalPeriodError,
   InvalidPeriodTransitionError,
   PeriodNotOpenForPostingError,
+  earliestOpenDayFrom,
+  namingEarliestOpenDay,
   NoFiscalPeriodForDateError,
 } from "./errors.js";
 export { closePeriod, reopenPeriod, lockPeriod, assertOpenForPosting } from "./transitions.js";

@@ -28,10 +28,10 @@ describe("reversing an FX revaluation that does not reverse itself", () => {
     const listed = (await world.request("GET", "/revaluation/runs")).body.runs as { entryId: string; status: string; reversible: boolean }[];
     expect(listed.find((r) => r.entryId === entryId)).toMatchObject({ status: "posted", reversible: true });
 
-    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", `/revaluation/runs/${entryId}/reverse`, { memo: "سبب العكس" }));
+    await expectRefusedInClosedPeriod(world, "fp-2026-08", (date) => world.request("POST", `/revaluation/runs/${entryId}/reverse`, { memo: "سبب العكس", date }));
     expect(entry(world, entryId).status).toBe("posted");
 
-    const reversed = await world.request("POST", `/revaluation/runs/${entryId}/reverse`, { memo: "سبب العكس" });
+    const reversed = await world.request("POST", `/revaluation/runs/${entryId}/reverse`, { memo: "سبب العكس", date: "2026-08-31" });
 
     expect(reversed.status, JSON.stringify(reversed.body)).toBe(201);
     expect(entry(world, entryId).status).toBe("reversed");

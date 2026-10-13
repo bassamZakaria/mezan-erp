@@ -56,6 +56,7 @@ export class PeriodNotOpenForPostingError extends Error {
   readonly code = "PERIOD_NOT_OPEN_FOR_POSTING";
   readonly periodId: string;
   readonly messageEn: string;
+  earliestOpenDate: string | null = null;
   constructor(
     period: FiscalPeriodRef | string,
     readonly status: FiscalPeriodStatus,
@@ -74,9 +75,27 @@ export class PeriodNotOpenForPostingError extends Error {
 export class NoFiscalPeriodForDateError extends Error {
   readonly code = "NO_FISCAL_PERIOD_FOR_DATE";
   readonly messageEn: string;
+  earliestOpenDate: string | null = null;
   constructor(readonly date: string) {
     super(`لا توجد فترة محاسبية تغطي التاريخ "${date}".`);
     this.messageEn = `No fiscal period covers the date "${date}".`;
     this.name = "NoFiscalPeriodForDateError";
+  }
+}
+
+export function earliestOpenDayFrom(periods: readonly { readonly status: FiscalPeriodStatus; readonly startDate: string; readonly endDate: string }[], day: string): string | null {
+  const open = periods.filter((period) => period.status === "open" && period.endDate >= day).sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+  if (!open) return null;
+  return open.startDate > day ? open.startDate : day;
+}
+
+export async function namingEarliestOpenDay<T>(periods: { list?: () => Promise<readonly { readonly status: FiscalPeriodStatus; readonly startDate: string; readonly endDate: string }[]> }, originalDay: string, post: () => Promise<T>): Promise<T> {
+  try {
+    return await post();
+  } catch (err) {
+    if ((err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) && err.earliestOpenDate === null && periods.list) {
+      err.earliestOpenDate = earliestOpenDayFrom(await periods.list(), originalDay.slice(0, 10));
+    }
+    throw err;
   }
 }

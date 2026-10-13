@@ -23,7 +23,7 @@ describe("undoing an asset disposal", () => {
     const [posting] = disposalEntries();
     expect(posting).toMatchObject({ status: "posted" });
     await expectJournalRouteClosed(world, posting!.id);
-    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", "/assets/ASSET-DEMO-5/undo-disposal", { memo: "سبب العكس" }));
+    await expectRefusedInClosedPeriod(world, "fp-2026-08", (date) => world.request("POST", "/assets/ASSET-DEMO-5/undo-disposal", { memo: "سبب العكس", date }));
     expect(asset().status).toBe("disposed");
 
     const undone = await world.request("POST", "/assets/ASSET-DEMO-5/undo-disposal", { memo: "سبب العكس" });

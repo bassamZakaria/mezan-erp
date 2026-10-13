@@ -25,7 +25,7 @@ describe("reversing an inventory write-down run", () => {
     expect(run.status).toBe("posted");
     const provisionBefore = world.balance("1190");
     await expectJournalRouteClosed(world, run.entryId);
-    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", `/inventory/writedown-runs/${run.id}/reverse`, { memo: "سبب العكس" }));
+    await expectRefusedInClosedPeriod(world, "fp-2026-08", (date) => world.request("POST", `/inventory/writedown-runs/${run.id}/reverse`, { memo: "سبب العكس", date }));
     expect(augustRun().status).toBe("posted");
 
     const reversed = await world.request("POST", `/inventory/writedown-runs/${run.id}/reverse`, { memo: "سبب العكس" });

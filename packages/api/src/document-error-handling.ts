@@ -13,7 +13,7 @@ import {
   UncostedDeficitIssueError,
   InvalidStockMovementError,
 } from "@mezan/domain";
-import { postingRefusalResponse } from "./posting-refusal.js";
+import { reversalRefusalResponse } from "./document-reversal.js";
 
 /**
  * Shared error → HTTP mapping for every document-framework-backed router
@@ -24,7 +24,7 @@ import { postingRefusalResponse } from "./posting-refusal.js";
 export function handleDocumentError(c: Context, err: unknown): Response {
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422 | 500) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
-  const postingRefusal = postingRefusalResponse(c, err);
+  const postingRefusal = reversalRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   if (err instanceof DocumentNotFoundError) {
     return refuse(err, 404);

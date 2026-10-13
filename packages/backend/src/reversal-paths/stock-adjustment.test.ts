@@ -25,7 +25,7 @@ describe("reversing a stock adjustment document", () => {
     expect(position().qty - before.position.qty).toBe(10n * EGP);
     expect(world.balance("1200") - before.inventory).toBe(10n * EGP);
     await expectJournalRouteClosed(world, "ADJ-REV-1");
-    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/reverse", { memo: "سبب العكس" }));
+    await expectRefusedInClosedPeriod(world, "fp-2026-08", (date) => world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/reverse", { memo: "سبب العكس", date }));
     expect(position().qty - before.position.qty).toBe(10n * EGP);
 
     const reversed = await world.request("POST", "/inventory/stock-adjustments/ADJ-REV-1/reverse", { memo: "سبب العكس" });
@@ -62,7 +62,7 @@ describe("reversing an adjustment posted through the direct route", () => {
     expect(posted.status, JSON.stringify(posted.body)).toBe(201);
     expect(before.position.qty - position().qty).toBe(2n * EGP);
     await expectJournalRouteClosed(world, "ADJ-DIRECT-1");
-    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => world.request("POST", "/inventory/adjustments/ADJ-DIRECT-1/reverse", { memo: "سبب العكس" }));
+    await expectRefusedInClosedPeriod(world, "fp-2026-08", (date) => world.request("POST", "/inventory/adjustments/ADJ-DIRECT-1/reverse", { memo: "سبب العكس", date }));
 
     const reversed = await world.request("POST", "/inventory/adjustments/ADJ-DIRECT-1/reverse", { memo: "سبب العكس" });
 

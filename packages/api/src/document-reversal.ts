@@ -40,13 +40,14 @@ export const requireReversalReason: MiddlewareHandler = async (c, next) => {
 };
 
 export interface ReversalRequest {
-  readonly date: string | undefined;
+  readonly date: string;
   readonly memo: string | undefined;
 }
 
+/** INVARIANT: a reversal with no date is dated the tenant's today, never the original's day — the original's period may be closed (reversal-paths/registry-dates.test.ts). */
 export async function readReversalRequest(c: Context): Promise<ReversalRequest> {
   const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; memo?: unknown } | null;
-  const date = typeof body?.date === "string" && body.date !== "" ? await tenantDay(c, body.date) : undefined;
+  const date = await tenantDay(c, typeof body?.date === "string" && body.date !== "" ? body.date : new Date().toISOString());
   const memo = typeof body?.memo === "string" && body.memo.trim() !== "" ? body.memo.trim() : undefined;
   return { date, memo };
 }

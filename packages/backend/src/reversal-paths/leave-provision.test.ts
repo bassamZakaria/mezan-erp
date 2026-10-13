@@ -11,7 +11,7 @@ beforeAll(async () => {
 afterAll(() => world?.close());
 
 const preview = async (asOfDate: string) => (await world.request("GET", `/hr/payroll/provisions/leave/preview?asOfDate=${asOfDate}`)).body as { postedBalance: string; movement: string };
-const reverse = (asOfDate: string) => world.request("POST", `/hr/payroll/provisions/leave/${asOfDate}/reverse`, { memo: "سبب العكس" });
+const reverse = (asOfDate: string, date?: string) => world.request("POST", `/hr/payroll/provisions/leave/${asOfDate}/reverse`, { memo: "سبب العكس", ...(date ? { date } : {}) });
 
 describe("reversing a leave provision posting", () => {
   it("takes the movement back off 2180 through the provision's own route and lets the same date be provisioned again", async () => {
@@ -22,7 +22,7 @@ describe("reversing a leave provision posting", () => {
     const entryId = String(posted.body.journalEntryId);
     expect(world.balance("2180")).not.toBe(liabilityBefore);
     await expectJournalRouteClosed(world, entryId);
-    await expectRefusedInClosedPeriod(world, "fp-2026-08", () => reverse("2026-08-31"));
+    await expectRefusedInClosedPeriod(world, "fp-2026-08", (date) => reverse("2026-08-31", date));
 
     const listed = (await world.request("GET", "/hr/payroll/provisions/leave/postings")).body.postings as { asOfDate: string; status: string; reversible: boolean }[];
     expect(listed.find((p) => p.asOfDate === "2026-08-31")).toMatchObject({ status: "posted", reversible: true });

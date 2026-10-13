@@ -35,7 +35,7 @@ describe("cancelling the approval of a payroll run", () => {
     const entryAdvanceCredit = world.sqlite.prepare(`SELECT COALESCE(SUM(credit - debit), 0) AS n FROM journal_line WHERE entry_id = ? AND account_id = '1160'`).safeIntegers().get(entryId) as { n: bigint };
     const scheduleBefore = recovered("ADV-DEMO-1");
 
-    const closedMonth = await unapprove("PR-DEMO-2");
+    const closedMonth = await unapprove("PR-DEMO-2", { date: entry(world, entryId).date });
     expect(`${closedMonth.status} ${String(closedMonth.body.error)}`).toBe("422 PERIOD_NOT_OPEN_FOR_POSTING");
     expect(typeof closedMonth.body.messageEn).toBe("string");
     expect(run("PR-DEMO-2").status).toBe("approved");

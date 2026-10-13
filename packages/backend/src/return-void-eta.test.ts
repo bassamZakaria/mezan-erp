@@ -5,7 +5,7 @@ const TODAY = "2026-08-24";
 const STOCK_ITEM = "ITEM-DEMO-2";
 const WAREHOUSE = "WH-MAIN";
 const BUSINESS_CUSTOMER = "RVE-BUSINESS";
-const UNFILEABLE_CUSTOMER = "CUST-DEMO-1";
+const UNFILEABLE_CUSTOMER = "RVE-UNFILEABLE";
 const REASON = "أُدخل المرتجع على الفاتورة الخطأ";
 
 interface GatewayRequest {
@@ -75,6 +75,11 @@ beforeAll(async () => {
     active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "business", taxNumber: "311222333",
   });
   expect(customer.status, JSON.stringify(customer.body)).toBe(201);
+  const unfileable = await kit.call("POST", "/customers", {
+    id: UNFILEABLE_CUSTOMER, code: UNFILEABLE_CUSTOMER, nameAr: "شركة برقم ضريبي ناقص", paymentTermsDays: 30, currency: "EGP", openingBalance: "0",
+    active: true, creditLimit: "0", taxExempt: false, etaBuyerType: "business", taxNumber: "300112233445",
+  });
+  expect(unfileable.status, JSON.stringify(unfileable.body)).toBe(201);
 }, 180_000);
 
 afterAll(async () => {

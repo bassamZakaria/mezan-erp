@@ -397,7 +397,7 @@ describe("classifying the tax of a posted line that stored none", () => {
     expect(await submissionOf(docNoOf(confirmed))).toBeNull();
 
     const done = await classify("T-B2C", "L1", { taxRateId: EXEMPT_RATE });
-    expect([done.status, done.body.filing]).toEqual([200, "not_queued"]);
+    expect([done.status, done.body.filing]).toEqual([200, "issued"]);
     const receipt = await submissionOf(docNoOf(confirmed));
     expect(receipt?.documentType).toBe("receipt");
     const payload = (await call("GET", `/eta/submissions/${receipt.id}`)).body.payload;

@@ -55,7 +55,7 @@ export function gatedFamilies(kitOf: () => BackendKit): readonly GatedFamily[] {
       auditEntity: "SALES_RETURN",
       submitter: ["sales.return.create", "sales.return.confirm", "sales.return.view"],
       reader: ["sales.return.view"],
-      canceller: ["sales.return.void"],
+      canceller: ["sales.return.void", "sales.return.view"],
       postedStatus: "confirmed",
       documentOf: nested,
       draft: async (id) => {

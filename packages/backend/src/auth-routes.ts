@@ -5,6 +5,7 @@ import {
   ALL_SCOPE,
   InvalidUserError,
   DuplicateUserEmailError,
+  AuditSeverityCode,
   recordSecurityEvent,
   seatsOverLimitRefusal,
   type AuditSink,
@@ -151,7 +152,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
   let decoy: Promise<string> | null = null;
   const decoyHash = () => (decoy ??= deps.hasher.hash("mezan-login-timing-decoy"));
 
-  function security(c: Context, action: string, severity: "CRITICAL" | "WARNING" | "INFO", details: Record<string, unknown>) {
+  function security(c: Context, action: string, severity: AuditSeverityCode, details: Record<string, unknown>) {
     if (!deps.audit) return Promise.resolve();
     return recordSecurityEvent(deps.audit, {
       module: "auth",
@@ -245,7 +246,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
 
     const waitSeconds = throttle.retryAfter(key);
     if (waitSeconds > 0) {
-      await security(c, "LOGIN_BLOCKED", "WARNING", { username: needle, retryAfterSeconds: waitSeconds });
+      await security(c, "LOGIN_BLOCKED", AuditSeverityCode.Warning, { username: needle, retryAfterSeconds: waitSeconds });
       return lockedOut(c, waitSeconds);
     }
 
@@ -265,10 +266,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       if (lockedFor > 0) {
         // The taxonomy in audit/audit-event.ts names account lockout as the
         // canonical CRITICAL event. It wrote nothing until now.
-        await security(c, "ACCOUNT_LOCKED", "CRITICAL", { username: needle, lockedForSeconds: lockedFor });
+        await security(c, "ACCOUNT_LOCKED", AuditSeverityCode.Critical, { username: needle, lockedForSeconds: lockedFor });
         return lockedOut(c, lockedFor);
       }
-      await security(c, "LOGIN_FAILED", "WARNING", { username: needle });
+      await security(c, "LOGIN_FAILED", AuditSeverityCode.Warning, { username: needle });
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
     /**
@@ -287,7 +288,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
             nameAr: entitlements.planNameAr ?? entitlements.plan,
             nameEn: entitlements.planNameEn ?? entitlements.plan,
           });
-          await security(c, "LOGIN_REFUSED_SEATS", "WARNING", { userId: user.id, seats: entitlements.seats, active });
+          await security(c, "LOGIN_REFUSED_SEATS", AuditSeverityCode.Warning, { userId: user.id, seats: entitlements.seats, active });
           return c.json(refusal, 403);
         }
       }
@@ -295,7 +296,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     throttle.succeed(key);
     const at = new Date().toISOString();
     await recordSuccessfulLogin(user.id, at, deps.uow);
-    await security(c, "LOGIN_SUCCEEDED", "INFO", { userId: user.id, username: needle });
+    await security(c, "LOGIN_SUCCEEDED", AuditSeverityCode.Info, { userId: user.id, username: needle });
     await deps.onSignedIn?.({ userId: user.id, email: user.email }).catch((err: unknown) =>
       console.error("[auth] the sign-in succeeded, but announcing it failed", err),
     );
@@ -403,7 +404,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
     const raw: unknown = await c.req.json().catch(() => null);
     if (await tenantIsClaimed()) {
       const attempted = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>)["email"] : null;
-      await security(c, "BOOTSTRAP_REFUSED", "CRITICAL", { email: typeof attempted === "string" ? attempted.slice(0, 320) : null });
+      await security(c, "BOOTSTRAP_REFUSED", AuditSeverityCode.Critical, { email: typeof attempted === "string" ? attempted.slice(0, 320) : null });
       return c.json(
         {
           error: "TENANT_ALREADY_PROVISIONED",
@@ -443,7 +444,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       // The single highest-authority write in the product, and it recorded
       // nothing at all — so a company admin appearing from nowhere was
       // indistinguishable, afterwards, from one that had always been there.
-      await security(c, "TENANT_CLAIMED", "CRITICAL", {
+      await security(c, "TENANT_CLAIMED", AuditSeverityCode.Critical, {
         userId: user.id,
         email: user.email,
         seedAdminRetired: true,

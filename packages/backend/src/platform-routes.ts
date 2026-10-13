@@ -336,7 +336,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
     action: string,
     entityId: string | null,
     details: Record<string, unknown>,
-    severity: AuditSeverity = "INFO",
+    severity: AuditSeverity = AuditSeverityCode.Info,
     actorId?: string,
   ) {
     const platformUser = c.get("platformUser");

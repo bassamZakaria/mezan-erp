@@ -322,6 +322,46 @@ describe("a stale copy left under the code after the row already names the id fi
     warned.mockRestore();
   });
 
+  it("is hashed once while its bytes differ, and again only after one of the two files changes", async () => {
+    const { dataDir, platform } = await world();
+    const tenant = await createTenant({ id: "t-seen", code: "seen", nameAr: "شركة", ownerEmail: "o@seen.example", now: T }, platform.stores.tenants);
+    books(path.join(dataDir, "tenants/t-seen.db"), [1]);
+    books(path.join(dataDir, "tenants/seen.db"), [2]);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const hashed: string[] = [];
+    const io = { sha256Of: (file: string) => (hashed.push(path.basename(file)), sha256OfFile(file)) };
+
+    await settleTenantDbFile(platform.stores.tenants, dataDir, tenant, io);
+    const first = hashed.splice(0);
+    await settleTenantDbFile(platform.stores.tenants, dataDir, tenant, io);
+    const second = hashed.splice(0);
+    books(path.join(dataDir, "tenants/t-seen.db"), Array.from({ length: 2000 }, (_, n) => n));
+    await settleTenantDbFile(platform.stores.tenants, dataDir, tenant, io);
+
+    expect(first.sort()).toEqual(["seen.db", "t-seen.db"]);
+    expect(second).toEqual([]);
+    expect(hashed.sort()).toEqual(["seen.db", "t-seen.db"]);
+    expect(rowsOf(path.join(dataDir, "tenants/seen.db"))).toEqual([2]);
+    expect(warned.mock.calls.filter(([line]) => String(line).includes("t-seen"))).toHaveLength(1);
+    warned.mockRestore();
+  });
+
+  it("is removed on a later open once its bytes have become the same as the tenant's database", async () => {
+    const { dataDir, platform } = await world();
+    const tenant = await createTenant({ id: "t-later", code: "later", nameAr: "شركة", ownerEmail: "o@later.example", now: T }, platform.stores.tenants);
+    books(path.join(dataDir, "tenants/t-later.db"), [1]);
+    books(path.join(dataDir, "tenants/later.db"), [2]);
+    const warned = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await settleTenantDbFile(platform.stores.tenants, dataDir, tenant);
+    holdSqliteFile(path.join(dataDir, "tenants/t-later.db")).release();
+    copyFileSync(path.join(dataDir, "tenants/t-later.db"), path.join(dataDir, "tenants/later.db"));
+    await settleTenantDbFile(platform.stores.tenants, dataDir, tenant);
+
+    expect(filesIn(dataDir)).toEqual(["t-later.db"]);
+    warned.mockRestore();
+  });
+
   it("is never touched while another tenant's row names it", async () => {
     const { dataDir, platform } = await world();
     const released = await storedByCode(platform, "t-first", "reused");

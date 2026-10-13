@@ -110,7 +110,7 @@ function stampOf(files: readonly string[]): string {
 }
 
 const knownConflicts = new Map<string, { readonly stamp: string; readonly error: TenantDbFileConflictError }>();
-const reportedStaleCopies = new Set<string>();
+const differingStaleCopies = new Map<string, string>();
 
 async function othersNaming(tenants: Tenants, tenant: Tenant, dbFile: string): Promise<string[]> {
   return (await tenants.list()).filter((other) => other.id !== tenant.id && other.dbFile === dbFile).map((other) => other.id);
@@ -122,13 +122,17 @@ async function dropStaleCopy(tenants: Tenants, dataDir: string, tenant: Tenant, 
   const current = path.join(dataDir, tenant.dbFile);
   if (legacy === tenant.dbFile || !existsSync(stale) || !existsSync(current)) return;
   if ((await othersNaming(tenants, tenant, legacy)).length > 0) return;
+  const key = `${dataDir}\n${tenant.id}`;
+  const stamp = stampOf([stale, current]);
+  if (differingStaleCopies.get(key) === stamp) return;
   if ((await sha256Of(stale)) === (await sha256Of(current))) {
     for (const suffix of SQLITE_FILE_SUFFIXES) rmSync(`${stale}${suffix}`, { force: true });
+    differingStaleCopies.delete(key);
     return;
   }
-  const key = `${dataDir}\n${tenant.id}`;
-  if (reportedStaleCopies.has(key)) return;
-  reportedStaleCopies.add(key);
+  const reported = differingStaleCopies.has(key);
+  differingStaleCopies.set(key, stamp);
+  if (reported) return;
   console.warn(`[cloud] tenant "${tenant.id}" is served from "${tenant.dbFile}", and a different file was left at "${legacy}"; it was not removed`);
 }
 

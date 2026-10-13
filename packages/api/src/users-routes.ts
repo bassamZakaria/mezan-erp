@@ -727,12 +727,12 @@ export function createUsersRoutes(
     const target = await uow.users.findById(id);
     const erasedRefusal = refuseErased(c, target);
     if (erasedRefusal) return erasedRefusal;
-    if (target?.status === "inactive") {
+    if (target?.status === UserStatusCode.Inactive) {
       const overCap = await refuseIfOverSeatCap(c);
       if (overCap) return overCap;
     }
     try {
-      const user = await setUserStatus(id, "active", uow);
+      const user = await setUserStatus(id, UserStatusCode.Active, uow);
       await auditUser(c, user, "ACTIVATE");
       return c.json(serializeUser(user));
     } catch (err) {

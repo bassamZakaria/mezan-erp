@@ -4,7 +4,7 @@ export { isValidSlug } from "./slug.js";
 export {
   createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant,
   tenantDbFile,
-  TenantLifecycle, type Tenant, type TenantStatus, type TenantRepository,
+  TenantStatusCode, type Tenant, type TenantStatus, type TenantRepository,
   type CreateTenantCommand, type TenantTransitionCommand,
 } from "./tenant.js";
 export {
@@ -15,7 +15,7 @@ export {
 export {
   DEFAULT_GRACE_DAYS,
   startSubscription, renewSubscription, applyRenewal, changePlan, markPastDue,
-  suspendSubscription, resumeSubscription, cancelSubscription, RENEWABLE_SUBSCRIPTION_STATES, SubscriptionState,
+  suspendSubscription, resumeSubscription, cancelSubscription, RENEWABLE_SUBSCRIPTION_STATES, SubscriptionStatusKind,
   type Subscription, type SubscriptionStatus, type BillingCycle, type SubscriptionRepository,
   type StartSubscriptionCommand, type SubscriptionCommand, type ChangePlanCommand,
 } from "./subscription.js";

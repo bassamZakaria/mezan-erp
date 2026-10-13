@@ -13,7 +13,7 @@ import {
   type UnitOfWork,
   type SecretHasher,
   type SettingsRepository,
-  UserState,
+  UserStatusCode,
   type User,
 } from "@mezan/domain";
 import { loginRequestSchema, bootstrapAdminRequestSchema, unlockAccountRequestSchema, unlockAccountByLinkRequestSchema, stepUpRequestSchema, type SessionDTO } from "@mezan/contracts";
@@ -199,7 +199,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const checked = gate.admit(throttleSource(origin), async () => {
       await deps.audit?.settled?.();
       const user = await deps.uow.users.findByEmail(needle);
-      const hash = user && user.status === UserState.Active && user.pinHash ? user.pinHash : await decoyHash();
+      const hash = user && user.status === UserStatusCode.Active && user.pinHash ? user.pinHash : await decoyHash();
       return secrets.precompute({ verify: [[parsed.data.pin, hash]] });
     });
     if (checked !== null) return checked;
@@ -297,8 +297,8 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
    */
   async function retireSeedAdmin(uow: UnitOfWork): Promise<void> {
     const seed = await uow.users.findById(SEED_ADMIN_USER_ID);
-    if (!seed || seed.status !== UserState.Active) return;
-    await uow.users.save({ ...seed, status: UserState.Inactive });
+    if (!seed || seed.status !== UserStatusCode.Active) return;
+    await uow.users.save({ ...seed, status: UserStatusCode.Inactive });
   }
 
   async function alreadyClaimed(c: Context, email: string) {
@@ -342,14 +342,14 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // response time answered "does this account exist" for free. Verify against
     // a throwaway hash instead, and spend the same scrypt either way.
     const verified =
-      user && user.status === UserState.Active && user.pinHash
+      user && user.status === UserStatusCode.Active && user.pinHash
         ? await deps.hasher.verify(pin, user.pinHash)
         : (await deps.hasher.verify(pin, await decoyHash()), false);
     // The check may have handed the connection back. The verdict holds only for
     // the account as it stands now: still active, still on the PIN it was
     // checked against.
     const current = verified && user ? await deps.uow.users.findById(user.id) : null;
-    const signedIn = current !== null && current.status === UserState.Active && current.pinHash === user?.pinHash ? current : null;
+    const signedIn = current !== null && current.status === UserStatusCode.Active && current.pinHash === user?.pinHash ? current : null;
     if (verified && signedIn === null) {
       await security(c, "LOGIN_FAILED", "WARNING", { username: needle, accountChangedDuringCheck: true });
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
@@ -387,7 +387,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     if (!signedIn.isCompanyAdmin) {
       const entitlements = await deps.resolveEntitlements?.(c);
       if (entitlements) {
-        const active = (await deps.uow.users.list()).filter((u) => u.status === UserState.Active).length;
+        const active = (await deps.uow.users.list()).filter((u) => u.status === UserStatusCode.Active).length;
         if (active > entitlements.seats) {
           const refusal = seatsOverLimitRefusal(entitlements.seats, active, {
             nameAr: entitlements.planNameAr ?? entitlements.plan,
@@ -414,7 +414,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     const origin = requestOrigin(c);
     const grant = token ? deps.sessions.find(token, origin, c.req.header(DEVICE_SECRET_HEADER) ?? null) : null;
     const user = grant ? await deps.uow.users.findById(grant.userId) : null;
-    if (!token || !user || user.status !== UserState.Active || !user.pinHash) {
+    if (!token || !user || user.status !== UserStatusCode.Active || !user.pinHash) {
       return c.json({ error: "UNAUTHENTICATED", message: "انتهت الجلسة، سجّل الدخول مرة أخرى." }, 401);
     }
     const held = guard.check(user.email, origin, true);
@@ -588,7 +588,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
             employeeId: null,
             branchScope: ALL_SCOPE,
             warehouseScope: ALL_SCOPE,
-            status: UserState.Active,
+            status: UserStatusCode.Active,
             createdAt: new Date().toISOString(),
           },
           tx,

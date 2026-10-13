@@ -10,7 +10,7 @@ import {
   TenantAlreadySubscribedError,
 } from "./errors.js";
 
-export enum SubscriptionState {
+export enum SubscriptionStatusKind {
   Trialing = "trialing",
   Active = "active",
   PastDue = "past_due",
@@ -18,12 +18,12 @@ export enum SubscriptionState {
   Cancelled = "cancelled",
 }
 
-export type SubscriptionStatus = `${SubscriptionState}`;
+export type SubscriptionStatus = `${SubscriptionStatusKind}`;
 
 export const RENEWABLE_SUBSCRIPTION_STATES: readonly SubscriptionStatus[] = [
-  SubscriptionState.Trialing,
-  SubscriptionState.Active,
-  SubscriptionState.PastDue,
+  SubscriptionStatusKind.Trialing,
+  SubscriptionStatusKind.Active,
+  SubscriptionStatusKind.PastDue,
 ];
 
 export enum SubscriptionTransition {

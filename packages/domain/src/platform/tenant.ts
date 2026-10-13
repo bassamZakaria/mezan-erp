@@ -8,14 +8,14 @@ import {
   TenantNotFoundError,
 } from "./errors.js";
 
-export enum TenantLifecycle {
+export enum TenantStatusCode {
   Provisioning = "provisioning",
   Active = "active",
   Suspended = "suspended",
   Archived = "archived",
 }
 
-export type TenantStatus = `${TenantLifecycle}`;
+export type TenantStatus = `${TenantStatusCode}`;
 
 export interface Tenant {
   readonly id: string;

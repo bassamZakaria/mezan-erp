@@ -15,7 +15,7 @@ import {
   ProviderInquiryStatus,
   ProviderNonPaymentKind,
   ProviderTransactionOutcome,
-  TenantLifecycle,
+  TenantStatusCode,
   InvalidSubscriptionError,
   InvalidSubscriptionTransitionError,
   PlanNotFoundError,
@@ -269,7 +269,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
 
   async function open(input: OpenCardCheckoutInput): Promise<CardCheckout> {
     const tenant = await requireTenant(input.tenantId);
-    if (tenant.status !== TenantLifecycle.Active && tenant.status !== TenantLifecycle.Suspended) {
+    if (tenant.status !== TenantStatusCode.Active && tenant.status !== TenantStatusCode.Suspended) {
       throw new CardCheckoutUnavailableError([`حالة المنشأة "${tenant.status}" لا تسمح بالدفع`], [`tenant status "${tenant.status}" cannot pay`]);
     }
     const subscription = await platform.stores.subscriptions.findLiveByTenant(tenant.id);

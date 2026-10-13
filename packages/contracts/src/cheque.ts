@@ -22,6 +22,7 @@ export const chequeAllocationSchema = z.object({
   id: z.string(),
   invoiceId: z.string(),
   amount: moneyString,
+  date: z.string().nullable().optional(),
 });
 
 /** Apply part or all of a cheque against one of its party's open invoices. */
@@ -29,6 +30,7 @@ export const createChequeAllocationSchema = z.object({
   allocationId: z.string().min(1).optional(),
   invoiceId: z.string().min(1),
   amount: moneyString,
+  date: isoDateOrInstant.optional(),
 });
 
 /** A cheque as it crosses the wire. */

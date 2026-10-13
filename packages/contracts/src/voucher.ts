@@ -174,6 +174,7 @@ export const voucherAllocationSchema = z.object({
   status: allocationStatusSchema,
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
+  date: z.string().nullable().optional(),
 });
 
 /** Apply an allocation of part of a voucher onto one invoice. */
@@ -181,6 +182,7 @@ export const createAllocationSchema = z.object({
   allocationId: z.string().min(1).optional(),
   invoiceId: z.string().min(1),
   amount: moneyString,
+  date: isoDateOrInstant.optional(),
 });
 
 /**

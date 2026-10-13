@@ -167,6 +167,7 @@ function serializeAllocation(a: VoucherAllocation, invoiceNo: string | null) {
     status: a.status,
     createdAt: a.createdAt,
     reversedAt: a.reversedAt,
+    date: a.date ?? null,
   };
 }
 
@@ -842,11 +843,12 @@ export function createVouchersRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
-      const result = await serviceFor(c).allocate(c.req.param("id"), {
+      const svc = serviceFor(c);
+      const result = await svc.allocate(c.req.param("id"), {
         allocationId: parsed.data.allocationId ?? idGen(),
         invoiceId: parsed.data.invoiceId,
         amount: Money.fromMajor(parsed.data.amount),
-        date: await tenantDay(c, new Date().toISOString()),
+        date: await svc.laterAllocationDay(c.req.param("id"), parsed.data.invoiceId, await tenantDay(c, parsed.data.date)),
       });
       return c.json((await presentAllocations([result.allocation]))[0], 201);
     } catch (err) {

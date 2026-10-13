@@ -154,6 +154,7 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
   const allocationsByVoucher = { ...allocations };
   const reverseRequests: { date?: string }[] = [];
   const collectionRequests: Record<string, unknown>[] = [];
+  const allocationRequests: Record<string, unknown>[] = [];
   const transport = stubTransport({
     "GET /vouchers": (_init, path) => {
       const params = new URLSearchParams(path.split("?")[1] ?? "");
@@ -222,7 +223,8 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
     },
     "POST /vouchers/cv-1/allocations": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
-      const alloc: VoucherAllocationDTO = { id: "alloc-2", voucherId: "cv-1", invoiceId: body.invoiceId, amount: body.amount, status: "active", createdAt: "2026-08-22T10:00:00.000Z", reversedAt: null };
+      allocationRequests.push(body);
+      const alloc: VoucherAllocationDTO = { id: `alloc-${allocationRequests.length + 1}`, voucherId: "cv-1", invoiceId: body.invoiceId, amount: body.amount, status: "active", createdAt: "2026-08-22T10:00:00.000Z", reversedAt: null, date: body.date ?? "2026-09-01" };
       allocationsByVoucher["cv-1"] = [...(allocationsByVoucher["cv-1"] ?? []), alloc];
       return { status: 201, body: alloc };
     },
@@ -245,7 +247,7 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
     </TestNavigation>,
     { transport, initialSession: testAdminSession },
   );
-  return { ...result, reverseRequests, collectionRequests };
+  return { ...result, reverseRequests, collectionRequests, allocationRequests };
 }
 
 describe("TreasuryVouchersScreen — list", () => {
@@ -380,6 +382,38 @@ describe("TreasuryVouchersScreen — allocation", () => {
     const reverseButtons = screen.getAllByRole("button", { name: "عكس التخصيص" });
     fireEvent.click(reverseButtons[0]!);
     await waitFor(() => expect(screen.queryByText("INV-000001")).not.toBeInTheDocument());
+  });
+});
+
+describe("TreasuryVouchersScreen — the day an allocation takes effect", () => {
+  async function chooseSecondInvoice() {
+    fireEvent.click(await screen.findByText("CV-000001"));
+    fireEvent.click(await screen.findByRole("tab", { name: /تخصيص على الفواتير/ }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "الفاتورة" }));
+    fireEvent.mouseDown(screen.getByRole("option", { name: /^INV-000002/ }));
+    setMoney(screen.getByLabelText("مبلغ التخصيص"), "100");
+    return screen.getByLabelText("تاريخ التخصيص") as HTMLInputElement;
+  }
+
+  it("shows the later of the voucher's day and the invoice's; left alone it is not sent, and the day the server used is stated", async () => {
+    const { allocationRequests } = renderScreen();
+    const date = await chooseSecondInvoice();
+    expect(date.value).toBe("2026-08-11");
+
+    fireEvent.click(screen.getByRole("button", { name: "تخصيص" }));
+
+    await waitFor(() => expect(allocationRequests).toEqual([{ invoiceId: "inv-2", amount: "100" }]));
+    expect(await screen.findByRole("status")).toHaveTextContent("2026-09-01");
+  });
+
+  it("sends a later day the user picked", async () => {
+    const { allocationRequests } = renderScreen();
+    const date = await chooseSecondInvoice();
+
+    fireEvent.change(date, { target: { value: "2026-08-20" } });
+    fireEvent.click(screen.getByRole("button", { name: "تخصيص" }));
+
+    await waitFor(() => expect(allocationRequests).toEqual([{ invoiceId: "inv-2", amount: "100", date: "2026-08-20" }]));
   });
 });
 

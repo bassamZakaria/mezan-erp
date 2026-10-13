@@ -122,3 +122,4 @@ export {
   HeldAllocationRefusal,
   HeldAllocationRefusedError,
 } from "./errors.js";
+export { AllocationDateTooEarlyError, laterAllocationDay } from "./allocation-day.js";

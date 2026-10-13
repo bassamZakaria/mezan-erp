@@ -633,6 +633,8 @@ function VoucherDetailView({
   const [reversingAllocId, setReversingAllocId] = useState<string | null>(null);
   const [invoiceId, setInvoiceId] = useState("");
   const [allocAmount, setAllocAmount] = useState("");
+  const [allocDate, setAllocDate] = useState("");
+  const [allocatedOn, setAllocatedOn] = useState<string | null>(null);
   const [reverseConfirmOpen, setReverseConfirmOpen] = useState(false);
   const [reverseDate, setReverseDate] = useState(todayIso());
 
@@ -642,6 +644,9 @@ function VoucherDetailView({
   const openInvoicesQuery = useOpenInvoices(def?.allocationKind ?? undefined, partyId);
   const openInvoices = openInvoicesQuery.data ?? EMPTY;
   const invoiceById = useMemo(() => new Map(openInvoices.map((i) => [i.id, i])), [openInvoices]);
+
+  const chosenInvoice = invoiceById.get(invoiceId);
+  const defaultAllocDate = doc && chosenInvoice ? (chosenInvoice.date.slice(0, 10) > doc.date.slice(0, 10) ? chosenInvoice.date.slice(0, 10) : doc.date.slice(0, 10)) : "";
 
   const effects = useMemo(() => {
     if (!doc) return null;
@@ -675,10 +680,14 @@ function VoucherDetailView({
     if (busy || !doc || invoiceId === "" || allocAmount === "" || Money.fromMajor(allocAmount).scaled <= 0n) return;
     setBusy(true);
     setError(null);
+    setAllocatedOn(null);
     try {
-      await createAllocation.mutateAsync({ voucherId: doc.id, body: { invoiceId, amount: allocAmount } });
+      const chosen = allocDate !== "" && allocDate !== defaultAllocDate ? { date: allocDate } : {};
+      const made = await createAllocation.mutateAsync({ voucherId: doc.id, body: { invoiceId, amount: allocAmount, ...chosen } });
+      setAllocatedOn(made.date ?? null);
       setInvoiceId("");
       setAllocAmount("");
+      setAllocDate("");
     } catch (err) {
       setError(err instanceof Error ? err.message : t("vouchers.theAmountCouldNotBe"));
     } finally {
@@ -802,7 +811,7 @@ function VoucherDetailView({
                             </span>
                           )}
                         </td>
-                        <td className="mz-num px-[15px] py-[11px] text-ink-muted">{a.createdAt.slice(0, 10)}</td>
+                        <td className="mz-num px-[15px] py-[11px] text-ink-muted">{a.date ?? a.createdAt.slice(0, 10)}</td>
                         <td className="px-[15px] py-[11px] text-end">
                           <Button
                             size="sm"
@@ -822,6 +831,11 @@ function VoucherDetailView({
           </div>
         </Card>
 
+        {allocatedOn ? (
+          <div role="status" className="rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12.5px] text-ink">
+            {t("vouchers.allocationDatedOn", { date: allocatedOn })}
+          </div>
+        ) : null}
         {doc.status === "confirmed" && summary.needsAllocation ? (
           <Card className="flex flex-col gap-[12px] p-[16px_18px]">
             <h3 className="font-display text-[13.5px] font-bold text-ink">{t("vouchers.allocateAnAmountToAn")}</h3>
@@ -845,6 +859,7 @@ function VoucherDetailView({
                   <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("common.amount")}</div>
                   <MoneyStringInput value={allocAmount} onChange={setAllocAmount} aria-label={t("vouchers.amountToAllocate")} />
                 </div>
+                <TextField label={t("vouchers.allocationDate")} hint={t("vouchers.allocationDateHint")} type="date" value={allocDate || defaultAllocDate} onChange={setAllocDate} disabled={invoiceId === ""} />
                 <div className="flex justify-end">
                   <Button variant="primary" disabled={busy || invoiceId === "" || allocAmount === ""} onClick={handleAllocate}>
                     {t("vouchers.allocate")}

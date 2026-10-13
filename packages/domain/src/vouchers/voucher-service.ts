@@ -14,6 +14,7 @@
 import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import type { LedgerRepository } from "../gl/ledger.js";
 import type { AccountRepository } from "../accounts/account.js";
+import { laterAllocationDay } from "./allocation-day.js";
 import type { FiscalPeriodRepository } from "../fiscal-periods/fiscal-period.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { AuditSink } from "../audit/index.js";
@@ -167,7 +168,7 @@ export interface VoucherServiceDeps {
   readonly documents: import("../documents/document.js").DocumentRepository<VoucherLine>;
   readonly ledger: LedgerRepository;
   readonly accounts: Pick<AccountRepository, "findById">;
-  readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
+  readonly periods: JournalPostingDeps["periods"];
   readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly numbering: NextNumberService;
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
@@ -599,6 +600,16 @@ export class VoucherService {
       const undone = await reverseAllocationFn(alloc.id, this.now(), { allocations: this.deps.allocations, invoices: this.deps.invoices }, undoneOn);
       await this.projectSettlement(undone.invoice);
     }
+  }
+
+  async laterAllocationDay(voucherId: string, invoiceId: string, requested?: string | null): Promise<string> {
+    const doc = await this.requireConfirmedAllocatable(voucherId);
+    const invoice = await this.deps.invoices.findById(invoiceId);
+    if (!invoice) throw new InvoiceNotFoundError(invoiceId);
+    const line = voucherLine(doc);
+    const booked = await this.deps.realisedFx?.invoiceFx(invoice.id, invoice.kind);
+    const currencies = new Set([...(line.fxRate ? [line.currency] : []), ...(booked ? [booked.currency] : [])]);
+    return laterAllocationDay({ requested, moneyDay: doc.date, invoiceDay: invoice.date, currencies }, { periods: this.deps.periods, ledger: this.deps.ledger });
   }
 
   async allocate(

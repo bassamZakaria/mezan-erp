@@ -24,6 +24,12 @@ export const purchaseOrderStatusSchema = z.enum([
   "cancelled",
 ]);
 export const goodsReceiptStatusSchema = z.enum(["draft", "confirmed", "cancelled"]);
+export enum GoodsReceiptInvoicingStatusDTO {
+  NotInvoiced = "not_invoiced",
+  PartiallyInvoiced = "partially_invoiced",
+  Invoiced = "invoiced",
+}
+export const goodsReceiptInvoicingStatusSchema = z.nativeEnum(GoodsReceiptInvoicingStatusDTO);
 export const purchaseInvoiceStatusSchema = z.enum(["draft", "confirmed", "cancelled"]);
 export const purchaseInvoiceLineKindSchema = z.enum(["inventory", "expense", "freight"]);
 
@@ -82,6 +88,8 @@ export const goodsReceiptLineSchema = z.object({
   itemId: z.string().min(1),
   description: z.string().nullable(),
   qty: decimalString,
+  invoicedQty: decimalString,
+  remainingQty: decimalString,
   unitCost: decimalString,
   batchNo: z.string().nullable(),
   expiryDate: z.string().nullable(),
@@ -103,6 +111,8 @@ export const goodsReceiptSchema = z.object({
   lines: z.array(goodsReceiptLineSchema),
   status: goodsReceiptStatusSchema,
   invoiced: z.boolean(),
+  invoicingStatus: goodsReceiptInvoicingStatusSchema,
+  uninvoicedCost: decimalString,
   totalCost: decimalString,
   createdBy: z.string(),
   createdAt: z.string(),
@@ -248,6 +258,7 @@ export const createPurchaseInvoiceSchema = z.object({
   /** بُعد المشروع — optional; omit to inherit the receipt's (create-from-receipt) or leave unset. */
   projectId: z.string().min(1).nullable().optional(),
   lines: z.array(createPurchaseInvoiceLineSchema).min(1).optional(),
+  receiptQuantities: z.array(z.object({ lineIndex: z.number().int().min(0), qty: positiveDecimalString })).min(1).optional(),
 });
 
 export type PurchaseOrderStatusDTO = z.infer<typeof purchaseOrderStatusSchema>;

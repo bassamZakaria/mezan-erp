@@ -1,4 +1,5 @@
 import { BranchRecordKind, BranchRefusalCode, branchRefusal, recordInBranchGrant, recordsInBranchGrant } from "./branch-policy.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -194,6 +195,8 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 
 function handleTimeLeaveError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (
     err instanceof AttendanceEntryNotFoundError ||
     err instanceof LeavePolicyNotFoundError ||

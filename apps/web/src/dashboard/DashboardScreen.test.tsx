@@ -233,3 +233,37 @@ describe("DashboardScreen — a branch-restricted session sees no company-wide t
     expect(calls.some((path) => path.includes("vat-return"))).toBe(true);
   });
 });
+
+describe("DashboardScreen — the contracting tile follows the plan (D-SAAS-04)", () => {
+  const CONTRACTING_SUMMARY = "/contracting/reports/summary";
+
+  function renderOnPlan(activeModules: string[]): string[] {
+    const requests: string[] = [];
+    const answer = stubTransport({
+      "GET /dashboard/summary": () => ({ body: summary() }),
+      "GET /entitlements": () => ({ body: { plan: "business", activeModules, features: {}, seats: 5, expiresAt: null } }),
+    });
+    renderWithProviders(<DashboardScreen />, {
+      transport: (path, init) => {
+        requests.push(path.split("?")[0] ?? path);
+        return answer(path, init);
+      },
+      initialSession: testAdminSession,
+    });
+    return requests;
+  }
+
+  it("does not ask for contracting exceptions on a plan with projects but no contracting", async () => {
+    const requests = renderOnPlan(["sales", "accounting", "projects"]);
+
+    await waitFor(() => expect(requests).toContain("/entitlements"));
+    expect((await screen.findAllByText("86,240.00")).length).toBeGreaterThan(0);
+    expect(requests).not.toContain(CONTRACTING_SUMMARY);
+  });
+
+  it("asks for them when the plan includes contracting", async () => {
+    const requests = renderOnPlan(["sales", "accounting", "projects", "contracting"]);
+
+    await waitFor(() => expect(requests).toContain(CONTRACTING_SUMMARY));
+  });
+});

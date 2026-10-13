@@ -258,6 +258,17 @@ class SqliteLedgerRepository implements LedgerRepository {
     return row ? this.hydrate(row) : null;
   }
 
+  async entryDates(ids: readonly string[]): Promise<ReadonlyMap<string, string>> {
+    const dates = new Map<string, string>();
+    const unique = [...new Set(ids)];
+    for (let start = 0; start < unique.length; start += 500) {
+      const chunk = unique.slice(start, start + 500);
+      const rows = this.sqlite.prepare(`SELECT id, date FROM journal_entry WHERE id IN (${chunk.map(() => "?").join(", ")})`).all(...chunk) as { id: string; date: string }[];
+      for (const row of rows) dates.set(row.id, row.date);
+    }
+    return dates;
+  }
+
   async findByEntryNo(entryNo: string): Promise<JournalEntry | null> {
     const row = this.selectEntryByNo.get(entryNo) as EntryRow | undefined;
     return row ? this.hydrate(row) : null;

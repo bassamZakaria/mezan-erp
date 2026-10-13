@@ -20,7 +20,7 @@ import {
   type RowMenuItem,
 } from "@mezan/ui";
 import { Money } from "@mezan/domain";
-import { RecurringJournalFrequencyDTO, RecurringJournalTemplateStatusDTO } from "@mezan/contracts";
+import { RecurringJournalFrequencyDTO, RecurringJournalTemplateStatusDTO, ReversalDocumentType } from "@mezan/contracts";
 import {
   useAccounts,
   useAllRecurringJournalSkips,
@@ -32,6 +32,7 @@ import {
   useDueRecurringJournals,
   useGenerateDueRecurringJournals,
   usePartyControlAccounts,
+  ApiError,
   useRecurringJournalRuns,
   useRecurringJournalSkips,
   useRecurringJournalTemplates,
@@ -41,6 +42,7 @@ import {
   useUpdateRecurringJournalTemplate,
   type DueRecurringJournalDTO,
   type RecurringJournalRunDTO,
+  RecurringJournalRunEntryStatusDTO,
   type RecurringJournalSkipDTO,
   type RecurringJournalTemplateDTO,
   type RecurringJournalTemplateLineDTO,
@@ -53,6 +55,7 @@ import { useEntityName } from "../../../lib/entity-names";
 import { todayIso } from "../../../lib/dates";
 import { EMPTY } from "../../../lib/empty";
 import { ScreenTabs } from "../../ScreenTabs";
+import { useReverseDocumentAction } from "../../../reversal/ReverseDocumentAction";
 
 const PAGE_SIZE = 25;
 
@@ -581,6 +584,7 @@ function DueTab() {
 enum RecurringJournalHistoryKind {
   Generated = "generated",
   Skipped = "skipped",
+  Reversed = "reversed",
 }
 
 interface RecurringJournalHistoryRow {
@@ -595,8 +599,10 @@ interface RecurringJournalHistoryRow {
 
 const HISTORY_SKIPS_LIMIT = 200;
 
-function HistoryTab() {
+export function RecurringJournalHistory() {
   const { t } = useAppTranslation();
+  const reversal = useReverseDocumentAction(ReversalDocumentType.RecurringJournalTemplate);
+
   const runsQuery = useRecurringJournalRuns();
   const skipsQuery = useAllRecurringJournalSkips(HISTORY_SKIPS_LIMIT, useBranchGate().allows(BranchGatedAction.RecurringSkips));
   const templatesQuery = useRecurringJournalTemplates();
@@ -609,7 +615,7 @@ function HistoryTab() {
   const rows: RecurringJournalHistoryRow[] = useMemo(() => {
     const generated = runs.map((run) => ({
       key: `run:${run.id}`,
-      kind: RecurringJournalHistoryKind.Generated,
+      kind: run.entryStatus === RecurringJournalRunEntryStatusDTO.Reversed ? RecurringJournalHistoryKind.Reversed : RecurringJournalHistoryKind.Generated,
       templateId: run.templateId,
       period: run.period,
       at: run.generatedAt,
@@ -630,17 +636,26 @@ function HistoryTab() {
 
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const draftEntryLabel = (row: RecurringJournalHistoryRow): string => {
+    const template = nameById.get(row.templateId);
+    return template ? t("recurringJournals.draftEntry", { template, period: row.period }) : t("recurringJournals.draftEntryUnnamed", { period: row.period });
+  };
 
   const columns: DocumentListColumn<RecurringJournalHistoryRow>[] = [
     { key: "templateId", header: t("recurringJournals.name"), render: (row) => nameById.get(row.templateId) ?? row.templateId },
     { key: "period", header: t("recurringJournals.period"), render: (row) => <span className="mz-num">{row.period}</span> },
+    {
+      key: "generation",
+      header: t("recurringJournals.generation"),
+      render: (row) => (row.run ? <span className="mz-num" data-generation>{row.run.generation ?? 1}</span> : <span className="text-ink-faint">—</span>),
+    },
     {
       key: "kind",
       header: t("recurringJournals.kind"),
       render: (row) => (
         <StatusPill
           label={t(`recurringJournals.kind.${row.kind}`)}
-          tone={row.kind === RecurringJournalHistoryKind.Generated ? "success" : "neutral"}
+          tone={row.kind === RecurringJournalHistoryKind.Generated ? "success" : row.kind === RecurringJournalHistoryKind.Reversed ? "danger" : "neutral"}
         />
       ),
     },
@@ -652,7 +667,7 @@ function HistoryTab() {
         if (!run) return <span className="text-ink-faint">{row.skip?.note ?? "—"}</span>;
         return (
           <button type="button" className="text-brand underline" onClick={() => nav.openScreenAt("journals", [run.journalEntryNo ?? run.journalEntryId])}>
-            {run.journalEntryNo ?? run.journalEntryId}
+            {run.journalEntryNo ?? draftEntryLabel(row)}
           </button>
         );
       },
@@ -670,15 +685,38 @@ function HistoryTab() {
         );
       },
     },
+    {
+      key: "runReversal",
+      header: t("recurringJournals.runReversal"),
+      render: (row) => {
+        const run = row.run;
+        if (!run?.reversedByEntryId) return <span className="text-ink-faint">—</span>;
+        return (
+          <span className="inline-flex flex-wrap items-center gap-[6px]">
+            <button type="button" className="text-brand underline" onClick={() => nav.openScreenAt("journals", [run.reversedByEntryNo ?? run.reversedByEntryId ?? ""])}>
+              {run.reversedByEntryNo ?? run.reversedByEntryId}
+            </button>
+            <span className="mz-num text-ink-muted">{run.reversedOn}</span>
+          </span>
+        );
+      },
+    },
     { key: "at", header: t("recurringJournals.generatedAt"), render: (row) => <span className="mz-num text-ink-muted">{row.at.slice(0, 10)}</span> },
   ];
 
   return (
+    <>
     <DocumentList<RecurringJournalHistoryRow>
       title={t("recurringJournals.tab.history")}
       columns={columns}
       rows={pageRows}
       rowKey={(row) => row.key}
+      rowAction={(row) => {
+        const run = row.run;
+        if (!run || row.kind === RecurringJournalHistoryKind.Reversed) return null;
+        const items = reversal.menuItems({ id: run.id, params: { id: run.id }, subject: `${nameById.get(run.templateId) ?? run.templateId} — ${run.period}` });
+        return items.length > 0 ? <RowMenu items={items} label={t("common.rowActionsFor", { name: run.period })} /> : null;
+      }}
       loading={runsQuery.isLoading || skipsQuery.isLoading}
       loadFailed={runsQuery.isError || skipsQuery.isError}
       page={page}
@@ -686,6 +724,8 @@ function HistoryTab() {
       onPageChange={setPage}
       emptyState={<EmptyState title={t("recurringJournals.noHistory")} description={t("recurringJournals.subtitle")} />}
     />
+      {reversal.dialog}
+    </>
   );
 }
 
@@ -730,7 +770,7 @@ export function RecurringJournalsScreen() {
       tabs={[
         { key: "templates", label: t("recurringJournals.tab.templates"), render: () => <TemplatesTab /> },
         ...(branchGate.allows(BranchGatedAction.RecurringDue) ? [{ key: "due", label: t("recurringJournals.tab.due"), render: () => <DueTab /> }] : []),
-        { key: "history", label: t("recurringJournals.tab.history"), render: () => <HistoryTab /> },
+        { key: "history", label: t("recurringJournals.tab.history"), render: () => <RecurringJournalHistory /> },
         ...(branchGate.allows(BranchGatedAction.RecurringDepreciationDue)
           ? [{ key: "depreciation", label: t("recurringJournals.tab.depreciation"), render: () => <DepreciationDueTab /> }]
           : []),

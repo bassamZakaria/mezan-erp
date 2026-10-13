@@ -1,3 +1,6 @@
+import { DOC_STATUS_TONE, documentStatusLabel } from "../../../doc-status";
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../../../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import {
   RowActionOutcome,
@@ -53,6 +56,7 @@ function blankLine(): LineDraft {
 }
 
 export function MaterialConsumptionScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.MaterialConsumption);
   const { t } = useAppTranslation();
   const { money } = useFormat();
   const nameOf = useEntityName();
@@ -128,8 +132,8 @@ export function MaterialConsumptionScreen() {
       header: t("common.status"),
       render: (d) => (
         <StatusPill
-          label={d.status === "confirmed" ? t("docStatus.confirmed") : t("docStatus.draft")}
-          tone={d.status === "confirmed" ? "success" : "neutral"}
+          label={documentStatusLabel(d.status, t)}
+          tone={DOC_STATUS_TONE[d.status]}
         />
       ),
     },
@@ -176,6 +180,7 @@ export function MaterialConsumptionScreen() {
             ...(d.status === "draft"
               ? [{ key: "confirm", label: t("site.consumption.confirm"), disabled: rowPendingId === d.id, onSelect: () => confirmRow(d.id) }]
               : []),
+            ...(d.status === "confirmed" ? reversal.menuItems({ id: d.id, params: { id: d.id }, subject: d.docNo ?? d.id }) : []),
           ];
           return menuItems.length > 0 ? <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} /> : null;
         }}
@@ -194,6 +199,7 @@ export function MaterialConsumptionScreen() {
           />
         }
       />
+      {reversal.dialog}
     </div>
   );
 }

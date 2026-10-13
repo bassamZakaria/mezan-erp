@@ -18,6 +18,7 @@ export {
   SALES_INVOICE_TERMINAL_STATUSES,
   SALES_INVOICE_STATUS_LABELS_AR,
   isSalesInvoiceActive,
+  salesInvoiceVoidEntryId,
   isSalesInvoiceTerminal,
   isOverdue,
 } from "./sales-invoice.js";

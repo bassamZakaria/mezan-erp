@@ -35,6 +35,10 @@ class MemSubmissions implements EtaSubmissionRepository {
   async list(status?: EtaSubmissionStatus) {
     return [...this.rows.values()].filter((s) => (status ? s.status === status : true));
   }
+  async statusByEtaUuid(etaUuid: string) {
+    for (const s of this.rows.values()) if (s.documentType === "receipt" && s.etaUuid === etaUuid) return s.status;
+    return null;
+  }
   async create(s: EtaSubmission) {
     this.rows.set(s.id, s);
   }

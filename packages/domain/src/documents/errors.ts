@@ -4,6 +4,7 @@ import { DOCUMENT_STATUS_LABELS_AR, type DocumentStatus } from "./status.js";
 
 export class InvalidDocumentTransitionError extends Error {
   readonly code = "INVALID_DOCUMENT_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly docType: string,
     readonly docId: string,
@@ -11,7 +12,21 @@ export class InvalidDocumentTransitionError extends Error {
     readonly to: DocumentStatus,
   ) {
     super(`لا يمكن نقل المستند ${docId} من "${DOCUMENT_STATUS_LABELS_AR[from]}" إلى "${DOCUMENT_STATUS_LABELS_AR[to]}".`);
+    this.messageEn = `Document ${docId} cannot move from "${from}" to "${to}".`;
     this.name = "InvalidDocumentTransitionError";
+  }
+}
+
+export class ReversalNotReversibleError extends Error {
+  readonly code = "REVERSAL_NOT_REVERSIBLE";
+  readonly messageEn: string;
+  constructor(
+    readonly docType: string,
+    readonly docId: string,
+  ) {
+    super(`المستند ${docId} قيد عكسي ولا يُعكس. أعد إدخال المستند الأصلي من جديد بدلاً من عكس عكسه.`);
+    this.messageEn = `Document ${docId} is itself a reversal and cannot be reversed. Re-enter the original document instead.`;
+    this.name = "ReversalNotReversibleError";
   }
 }
 
@@ -45,6 +60,19 @@ export class MissingHookError extends Error {
   }
 }
 
+export class StockPlanDateRequiredError extends Error {
+  readonly code = "STOCK_PLAN_DATE_REQUIRED";
+  readonly messageEn: string;
+  constructor(
+    readonly docType: string,
+    readonly docId: string,
+  ) {
+    super(`حركة المخزون للمستند "${docId}" من النوع "${docType}" بلا تاريخ مستند، ولا تُرحَّل بتاريخ اليوم.`);
+    this.messageEn = `The stock plan of ${docType} "${docId}" carries no document date and will not be stamped with today's.`;
+    this.name = "StockPlanDateRequiredError";
+  }
+}
+
 /** A confirm was attempted but the document's own structural validation failed. */
 export class InvalidDocumentError extends Error {
   readonly code = "INVALID_DOCUMENT";
@@ -52,6 +80,7 @@ export class InvalidDocumentError extends Error {
     readonly docType: string,
     readonly docId: string,
     message: string,
+    readonly messageEn?: string,
   ) {
     super(message);
     this.name = "InvalidDocumentError";

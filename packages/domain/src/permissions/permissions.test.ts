@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 250 permissions across 20 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 266 permissions across 20 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -50,10 +50,10 @@ describe("permission catalog", () => {
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(250);
+    expect(PERMISSIONS).toHaveLength(266);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(250);
+    expect(summed).toBe(266);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -101,8 +101,12 @@ describe("permission catalog", () => {
     expect(isSensitive("accounting.cockpit.view")).toBe(true);
     expect(isSensitive("treasury.cash_forecast.view")).toBe(true);
     expect(isSensitive("accounting.reports.view_unattributed")).toBe(true);
+    expect(isSensitive("accounting.period.override_close")).toBe(true);
+    expect(isSensitive("accounting.period.close")).toBe(false);
+    expect(PERMISSIONS.filter((p) => p.code.endsWith(".reverse")).every((p) => p.sensitive)).toBe(true);
+    expect(isSensitive("purchases.landed_cost.void")).toBe(false);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(9);
+    expect(sensitiveCount).toBe(25);
   });
 
   it("marks the one platform-admin-only permission", () => {

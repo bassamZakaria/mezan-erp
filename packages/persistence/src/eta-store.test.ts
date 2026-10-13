@@ -1,4 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
+import Database from "better-sqlite3";
 import { DEFAULT_ETA_CONFIG, type EtaSubmission } from "@mezan/domain";
 import { createSqliteEtaStore, type SqliteEtaStoreHandle } from "./eta-store.js";
 
@@ -48,6 +49,20 @@ describe("SqliteEtaSubmissionRepository", () => {
     await store.submissions.update({ ...sub, status: "submitted", submittedAt: "2026-08-22T11:00:00.000Z" });
     expect(await store.submissions.list("ready")).toHaveLength(0);
     expect(await store.submissions.list("submitted")).toHaveLength(1);
+  });
+
+  it("answers a receipt's status by its authority UUID through an index, and does not mistake an invoice for one", async () => {
+    const raw = new Database(":memory:");
+    store = createSqliteEtaStore(raw);
+    await store.submissions.create({ ...sub, id: "r1", internalId: "RCP-1", documentType: "receipt", status: "submitted", etaUuid: "UUID-RECEIPT" });
+    await store.submissions.create({ ...sub, id: "i1", internalId: "INV-1", status: "accepted", etaUuid: "UUID-INVOICE" });
+
+    expect(await store.submissions.statusByEtaUuid("UUID-RECEIPT")).toBe("submitted");
+    expect(await store.submissions.statusByEtaUuid("UUID-INVOICE")).toBeNull();
+    expect(await store.submissions.statusByEtaUuid("UUID-NOBODY")).toBeNull();
+    const plan = raw.prepare(`EXPLAIN QUERY PLAN SELECT status FROM eta_submission WHERE eta_uuid = ? AND document_type = 'receipt'`).all("x") as { detail: string }[];
+    expect(plan.map((step) => step.detail).join(" ")).toContain("USING INDEX idx_eta_submission_uuid");
+    raw.close();
   });
 
   // guards P-1 — the transmit evidence has to survive the round trip, or the

@@ -1,7 +1,13 @@
 import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
+import { reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  ReversalDateBeforeOriginalError,
+  JournalEntryAlreadyReversedError,
+  JournalEntryNotPostedError,
+  reverseJournalEntry,
   AccountNotFoundError,
   HeaderAccountNotPostableError,
   InactiveAccountError,
@@ -19,11 +25,13 @@ import {
   RecurringJournalTemplateStatus,
   UnbalancedEntryError,
   type RecurringJournalFrequency,
+  type RecurringJournalRun,
   type RecurringJournalSkip,
   createRecurringJournalTemplate,
   dueDepreciationPeriods,
   duePeriods,
   generateDueRecurringJournals,
+  recurringRunStanding,
   setRecurringJournalTemplateStatus,
   skipRecurringJournalOccurrence,
   updateRecurringJournalTemplate,
@@ -42,6 +50,7 @@ import {
   type RecurringJournalTemplateRepository,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createRecurringJournalTemplateSchema,
   generateDueRecurringJournalsSchema,
   saveJournalEntryAsTemplateSchema,
@@ -73,6 +82,7 @@ export interface RecurringJournalRoutesDeps {
   readonly projects?: JournalPostingDeps["projects"];
   readonly projectRequiredAccountIds?: JournalPostingDeps["projectRequiredAccountIds"];
   readonly audit?: AuditSink;
+  readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly events?: GlEventPublisher;
   readonly now?: () => string;
   readonly idGen?: () => string;
@@ -156,6 +166,8 @@ function parseLine(line: { accountId: string; debit: string; credit: string; mem
 
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof RecurringJournalTemplateNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -164,6 +176,12 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof InvalidRecurringJournalScheduleError || err instanceof InvalidJournalEntryError) {
     return c.json({ error: err.code, message: err.message }, 400);
+  }
+  if (err instanceof ReversalDateBeforeOriginalError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  }
+  if (err instanceof JournalEntryAlreadyReversedError || err instanceof JournalEntryNotPostedError) {
+    return c.json({ error: err.code, message: err.message }, 409);
   }
   if (err instanceof RecurringJournalPeriodAlreadyGeneratedError || err instanceof RecurringJournalPeriodAlreadySkippedError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
@@ -261,9 +279,28 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     return c.json(serializeTemplate(template));
   });
 
+  async function withEntryState(runs: readonly RecurringJournalRun[]) {
+    return Promise.all(
+      runs.map(async (run) => {
+        const entry = await deps.ledger.findById(run.journalEntryId);
+        const reversal = entry?.reversedByEntryId ? await deps.ledger.findById(entry.reversedByEntryId) : null;
+        const newest = await deps.runs.findByTemplateAndPeriod(run.templateId, run.period);
+        return {
+          ...run,
+          journalEntryNo: entry?.entryNo ?? run.journalEntryNo ?? null,
+          entryStatus: entry?.status ?? null,
+          current: newest?.id === run.id,
+          reversedByEntryId: reversal?.id ?? null,
+          reversedByEntryNo: reversal?.entryNo ?? null,
+          reversedOn: reversal ? reversal.date.slice(0, 10) : null,
+        };
+      }),
+    );
+  }
+
   app.get("/templates/:id/runs", gate("accounting.recurring.view"), async (c) => {
     if (!(await visibleTemplate(c, c.req.param("id")))) return c.json({ error: "RECURRING_JOURNAL_TEMPLATE_NOT_FOUND" }, 404);
-    return c.json(await deps.runs.listByTemplate(c.req.param("id")));
+    return c.json(await withEntryState(await deps.runs.listByTemplate(c.req.param("id"))));
   });
 
   app.post("/templates", gate("accounting.recurring.manage"), async (c) => {
@@ -395,7 +432,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
       if (template.status !== RecurringJournalTemplateStatus.Active) continue;
       const outstanding: string[] = [];
       for (const period of duePeriods(template, asOfDate)) {
-        if (await deps.runs.findByTemplateAndPeriod(template.id, period)) continue;
+        if ((await recurringRunStanding(deps, template.id, period)).standing) continue;
         if (await deps.skips.findByTemplateAndPeriod(template.id, period)) continue;
         outstanding.push(period);
       }
@@ -433,7 +470,40 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     const limit = limitParam ? Number(limitParam) : undefined;
     const visible = await visibleTemplateIds(c);
     const runs = await deps.runs.list(Number.isFinite(limit) ? limit : undefined, visible ? [...visible] : undefined);
-    return c.json(visible ? runs.filter((run) => visible.has(run.templateId)) : runs);
+    return c.json(await withEntryState(visible ? runs.filter((run) => visible.has(run.templateId)) : runs));
+  });
+
+  app.post("/runs/:id/reverse", gate(ReversalPermission.RecurringJournalRun), gate("accounting.journal.post"), requireReversalReason, async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; memo?: unknown } | null;
+    const run = await deps.runs.findById(c.req.param("id"));
+    if (!run || !(await visibleTemplate(c, run.templateId))) return c.json({ error: "RECURRING_JOURNAL_RUN_NOT_FOUND", message: "دورة القيد المتكرر غير موجودة.", messageEn: "The recurring journal run does not exist." }, 404);
+    try {
+      const date = await tenantDay(c, typeof body?.date === "string" && body.date !== "" ? body.date : (deps.now?.() ?? new Date().toISOString()));
+      const original = await deps.ledger.findById(run.journalEntryId);
+      if (original && date < original.date) throw new ReversalDateBeforeOriginalError(run.journalEntryId, date, original.date);
+      const result = await reverseJournalEntry(
+        run.journalEntryId,
+        {
+          ledger: deps.ledger,
+          accounts: deps.accounts,
+          periods: deps.periods,
+          numbering: deps.numbering,
+          projects: deps.projects,
+          audit: deps.audit,
+          vatFilings: deps.vatFilings,
+          events: deps.events,
+          now: deps.now,
+          actor: getAuthContext(c)?.userId ?? "system",
+        },
+        { reversalId: idGen(), date, memo: typeof body?.memo === "string" && body.memo !== "" ? body.memo : undefined },
+      );
+      return c.json(
+        { runId: run.id, templateId: run.templateId, period: run.period, journalEntryId: run.journalEntryId, entryStatus: result.original.status, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null },
+        201,
+      );
+    } catch (err) {
+      return reversalRefusalResponse(c, err) ?? handleDomainError(c, err);
+    }
   });
 
   /**
@@ -457,6 +527,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
           templates: deps.templates,
           runs: deps.runs,
           skips: deps.skips,
+          entryStatusOf: async (journalEntryId) => (await deps.ledger.findById(journalEntryId))?.status ?? null,
           audit: deps.audit,
           now: deps.now,
           actor: getAuthContext(c)?.userId ?? "system",

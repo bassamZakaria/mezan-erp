@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   createLabelLayout,
@@ -48,6 +49,8 @@ function serialize(layout: LabelLayout) {
 
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof LabelLayoutNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }

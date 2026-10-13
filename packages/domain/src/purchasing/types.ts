@@ -106,6 +106,7 @@ export interface PurchaseGlPosting {
   readonly memo: string;
   readonly lines: readonly PurchaseGlPostingLine[];
   readonly warehouseId?: string | null;
+  readonly entrySuffix?: string;
 }
 
 export interface PurchaseGlPostingPort {
@@ -139,6 +140,7 @@ export interface PurchaseGlAccounts {
    * no such account configured must fall back to.
    */
   readonly goodsReceivedNotInvoicedAccountId?: string;
+  readonly priceVarianceAccountId?: string;
 }
 
 /**
@@ -150,6 +152,19 @@ export interface PurchaseStockPostingPort {
   postReceipt(command: PostReceiptCommand): Promise<void>;
   /** Undo a prior `postReceipt` (cancellation). `StockLedgerService.reverseReceipt` satisfies this structurally. */
   reverseReceipt(command: ReverseReceiptCommand): Promise<void>;
+  applyReceiptCostVariance?(command: ReceiptCostVarianceCommand): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money; readonly occurredAt?: string }>;
+  reverseReceiptCostVariance?(command: { readonly varianceDocId: string; readonly reversalId: string; readonly positions: readonly { itemId: string; warehouseId: string }[]; readonly occurredAt: string }): Promise<{ readonly takenBack: boolean; readonly occurredOn: string | null }>;
+}
+
+export interface ReceiptCostVarianceCommand {
+  readonly varianceDocId: string;
+  readonly varianceDocNumber: string | null;
+  readonly receiptId: string;
+  readonly itemId: string;
+  readonly warehouseId: string;
+  readonly valueDelta: Money;
+  readonly occurredAt: string;
+  readonly lateOccurredAt?: string;
 }
 
 /**

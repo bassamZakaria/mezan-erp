@@ -207,6 +207,7 @@ function grToDomain(row: GrRow): GoodsReceipt {
     batchNo?: string | null;
     expiryDate?: string | null;
     costCategory?: GoodsReceiptLine["costCategory"];
+    invoicedQty?: string;
   }[]).map<GoodsReceiptLine>((l) => ({
     itemId: l.itemId,
     description: l.description,
@@ -215,6 +216,7 @@ function grToDomain(row: GrRow): GoodsReceipt {
     batchNo: l.batchNo ?? null,
     expiryDate: l.expiryDate ?? null,
     costCategory: l.costCategory ?? null,
+    ...(l.invoicedQty === undefined ? {} : { invoicedQty: Qty.fromMajor(l.invoicedQty) }),
   }));
   return {
     id: row.id,
@@ -289,6 +291,7 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
           batchNo: l.batchNo,
           expiryDate: l.expiryDate,
           costCategory: l.costCategory ?? null,
+          ...(l.invoicedQty === undefined ? {} : { invoicedQty: l.invoicedQty.toString() }),
         })),
       ),
       status: r.status,
@@ -359,6 +362,7 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     batchNo?: string | null;
     expiryDate?: string | null;
     costCategory?: PurchaseInvoiceLine["costCategory"];
+    receiptBillings?: { lineIndex: number; qty: string }[];
   }[]).map<PurchaseInvoiceLine>((l) => ({
     itemId: l.itemId,
     description: l.description,
@@ -369,6 +373,7 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     batchNo: l.batchNo ?? null,
     expiryDate: l.expiryDate ?? null,
     costCategory: l.costCategory ?? null,
+    ...(l.receiptBillings === undefined ? {} : { receiptBillings: l.receiptBillings.map((b) => ({ lineIndex: b.lineIndex, qty: Qty.fromMajor(b.qty) })) }),
   }));
   return {
     id: row.id,
@@ -423,7 +428,8 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
       .gte("date", filter.fromDate)
       .lte("date", filter.toDate)
       .eq("branch_id", filter.branchId)
-      .eq("warehouse_id", filter.warehouseId);
+      .eq("warehouse_id", filter.warehouseId)
+      .eq("receipt_id", filter.receiptId);
     if (filter.statusIn) {
       // An empty set matches nothing, exactly as asked — dropping the clause
       // would widen it to every status.
@@ -484,6 +490,7 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
           batchNo: l.batchNo,
           expiryDate: l.expiryDate,
           costCategory: l.costCategory ?? null,
+          ...(l.receiptBillings === undefined ? {} : { receiptBillings: l.receiptBillings.map((b) => ({ lineIndex: b.lineIndex, qty: b.qty.toString() })) }),
         })),
       ),
       status: inv.status,

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createApp } from "./app.js";
+import type { UserEmailChange } from "./users-routes.js";
 import { createSqliteUnitOfWork, createSqliteSettingsStore, type SqliteSettingsStoreHandle, type SqliteUnitOfWorkHandle } from "@mezan/persistence";
 import { createAuthContext, createDefaultSettings, createEntitlements, ALL_SCOPE } from "@mezan/domain";
 
@@ -954,3 +955,75 @@ describe("ENH-051 — the segregation-of-duties gate on a user's grant", () => {
     expect(inside.status).toBe(201);
   });
 });
+
+describe("announcing an email change", () => {
+  function appWithAnnouncer(options: { failCommit?: () => boolean; announcerThrows?: boolean } = {}) {
+    const uow = createSqliteUnitOfWork(":memory:");
+    handles.push(uow);
+    const commits = Object.create(uow) as typeof uow;
+    commits.transaction = (fn) =>
+      uow.transaction(async (tx) => {
+        const result = await fn(tx);
+        if (options.failCommit?.()) throw new Error("the commit failed after the row was written");
+        return result;
+      });
+    const announced: UserEmailChange[] = [];
+    const ctx = createAuthContext({ userId: "u1", permissions: ["*"], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const app = createApp(commits, {
+      resolveAuthContext: () => ctx,
+      onUserEmailChanged: async (change) => {
+        announced.push(change);
+        if (options.announcerThrows) throw new Error("the platform is down");
+      },
+    });
+    return { app, announced, users: uow.users };
+  }
+
+  async function createdUser(app: ReturnType<typeof newApp>) {
+    const res = await app.fetch(new Request("http://x/users", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(newUserBody) }));
+    expect(res.status).toBe(201);
+    return (await res.json()) as Record<string, unknown>;
+  }
+
+  const rename = (app: ReturnType<typeof newApp>, user: Record<string, unknown>, email: string) =>
+    app.fetch(new Request(`http://x/users/${String(user["id"])}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...user, email }) }));
+
+  it("announces the change once, after the save, naming who made it", async () => {
+    const { app, announced } = appWithAnnouncer();
+    const user = await createdUser(app);
+
+    expect((await rename(app, user, "moved@cyag.test")).status).toBe(200);
+
+    expect(announced).toEqual([{ userId: user["id"], before: "mohamed@cyag.test", after: "moved@cyag.test", actorId: "u1" }]);
+  });
+
+  it("announces nothing when the save's transaction fails after the row was written", async () => {
+    let failing = false;
+    const { app, announced, users } = appWithAnnouncer({ failCommit: () => failing });
+    const user = await createdUser(app);
+
+    failing = true;
+    const res = await rename(app, user, "moved@cyag.test");
+
+    expect(res.status).toBe(500);
+    expect(announced).toEqual([]);
+    expect((await users.findById(String(user["id"])))?.email).toBe("mohamed@cyag.test");
+  });
+
+  it("keeps the saved change and answers 200 when the announcement itself fails", async () => {
+    const { app, users } = appWithAnnouncer({ announcerThrows: true });
+    const user = await createdUser(app);
+
+    expect((await rename(app, user, "moved@cyag.test")).status).toBe(200);
+    expect((await users.findById(String(user["id"])))?.email).toBe("moved@cyag.test");
+  });
+
+  it("announces nothing for an edit that leaves the email alone", async () => {
+    const { app, announced } = appWithAnnouncer();
+    const user = await createdUser(app);
+
+    expect((await rename(app, { ...user, phone: "+201111111111" }, "mohamed@cyag.test")).status).toBe(200);
+    expect(announced).toEqual([]);
+  });
+});
+

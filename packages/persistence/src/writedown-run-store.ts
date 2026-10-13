@@ -103,9 +103,9 @@ class SqliteWritedownRunRepository implements WritedownRunRepository {
     this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM writedown_run WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM writedown_run`);
-    this.selectByPeriodWarehouse = sqlite.prepare(`SELECT * FROM writedown_run WHERE period = ? AND warehouse_id = ?`);
+    this.selectByPeriodWarehouse = sqlite.prepare(`SELECT * FROM writedown_run WHERE period = ? AND warehouse_id = ? ORDER BY (status = 'cancelled'), created_at DESC`);
     this.selectByPeriodNullWarehouse = sqlite.prepare(
-      `SELECT * FROM writedown_run WHERE period = ? AND warehouse_id IS NULL`,
+      `SELECT * FROM writedown_run WHERE period = ? AND warehouse_id IS NULL ORDER BY (status = 'cancelled'), created_at DESC`,
     );
   }
 

@@ -1,3 +1,5 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
+import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -6,6 +8,8 @@ import {
   advanceRecovered,
   approveEmployeeAdvance,
   approvePayrollRun,
+  PART_MONTH_TAX_NOTICE,
+  isPartMonthTaxedPayslip,
   calculatePayrollRun,
   cancelPayrollRun,
   createEmployeeDirectory,
@@ -56,6 +60,18 @@ import {
   getHrProvisionDefinition,
   hrProvisionMovement,
   postHrProvision,
+  listHrProvisionPostings,
+  reversePayrollRunApproval,
+  cancelEmployeeAdvance,
+  PayrollRunDisbursedError,
+  DisbursementTreasuryAccountNotFoundError,
+  PayrollRunNotApprovedError,
+  PayrollRunHasTerminationAdjustmentError,
+  AdvancePartlyRepaidError,
+  TerminationRecoveryAlreadyCollectedError,
+  reverseHrProvision,
+  HrProvisionPostingNotFoundError,
+  HrProvisionLaterPostingError,
   createLeaveLiabilityReport,
   runReport,
   type AuditSink,
@@ -86,6 +102,7 @@ import {
   type UnpaidLeaveDaysProvider,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createEmployeeAdvanceSchema,
   createPayrollRunSchema,
   createPayrollComponentSchema,
@@ -233,6 +250,8 @@ export function serializePayslip(p: Payslip) {
     periodEnd: p.periodEnd,
     periodDays: p.periodDays,
     paidDays: p.paidDays,
+    partMonthTaxNotice: isPartMonthTaxedPayslip(p) ? PART_MONTH_TAX_NOTICE.ar : null,
+    partMonthTaxNoticeEn: isPartMonthTaxedPayslip(p) ? PART_MONTH_TAX_NOTICE.en : null,
     lines: p.lines.map((l) => ({
       id: l.id,
       kind: l.kind,
@@ -326,6 +345,20 @@ function withMessageEn(err: { readonly code: string; readonly message: string; r
 
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const reversalRefusal = reversalRefusalResponse(c, err);
+  if (reversalRefusal) return reversalRefusal;
+  if (err instanceof HrProvisionPostingNotFoundError) return c.json(withMessageEn(err), 404);
+  if (err instanceof HrProvisionLaterPostingError) return c.json(withMessageEn(err), 409);
+  if (err instanceof DisbursementTreasuryAccountNotFoundError) return c.json(withMessageEn(err), 422);
+  if (err instanceof PayrollRunDisbursedError) return c.json({ ...withMessageEn(err), disbursementVoucherId: err.disbursementVoucherId }, 409);
+  if (
+    err instanceof PayrollRunNotApprovedError ||
+    err instanceof PayrollRunHasTerminationAdjustmentError ||
+    err instanceof AdvancePartlyRepaidError ||
+    err instanceof TerminationRecoveryAlreadyCollectedError
+  ) {
+    return c.json(withMessageEn(err), 409);
+  }
   if (
     err instanceof EmployeeAdvanceNotFoundError ||
     err instanceof PayrollRunNotFoundError ||
@@ -537,6 +570,25 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
       const next = rejectEmployeeAdvance(advance, actorOf(c));
       await deps.advances.update(next);
       return c.json(serializeAdvance(next));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/advances/:id/cancel", gate(ReversalPermission.EmployeeAdvance), async (c) => {
+    try {
+      const { date } = await readReversalRequest(c);
+      const advance = await cancelEmployeeAdvance(
+        c.req.param("id"),
+        {
+          advances: deps.advances,
+          treasury: deps.treasury,
+          terminationRecovery: { runs: deps.runs, payslips: deps.payslips },
+          gl: { ...deps.gl, actor: actorOf(c) },
+        },
+        { reversalId: idGen(), date, today: await tenantToday(c) },
+      );
+      return c.json(serializeAdvance(advance));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -883,12 +935,7 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
   if (ledger && leave) {
     async function provisionState(kind: HrProvisionKind, asOfDate: string) {
       const definition = getHrProvisionDefinition(kind);
-      let balance = 0n;
-      for (const entry of await ledger!.list({ status: "posted" })) {
-        for (const line of entry.lines) {
-          if (line.accountId === definition.liabilityAccountId) balance += line.credit.scaled - line.debit.scaled;
-        }
-      }
+      const balance = -(await deps.gl.ledger.accountBalance(definition.liabilityAccountId)).balance.scaled;
       const outcome = runReport(createLeaveLiabilityReport(), { asOfDate }, {
         employees: await deps.employees.list(),
         contracts: await deps.contracts.list(),
@@ -944,6 +991,8 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
           journalEntryId: result.journalEntryId,
         });
       } catch (err) {
+        const postingRefusal = postingRefusalResponse(c, err);
+        if (postingRefusal) return postingRefusal;
         if (
           err instanceof InvalidPayrollRunError ||
           err instanceof NoFiscalPeriodForDateError ||
@@ -953,6 +1002,42 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
           return c.json({ error: err.code, message: err.message }, 422);
         }
         throw err;
+      }
+    });
+
+    app.get("/payroll/provisions/:kind/postings", gate("hr.payroll.view"), async (c) => {
+      const kind = parseKind(c.req.param("kind"));
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision kind." }, 404);
+      const postings = await listHrProvisionPostings(kind, { ledger: deps.gl.ledger });
+      const latestStanding = postings.find((posting) => posting.entry.status === "posted")?.asOfDate ?? null;
+      const { liabilityAccountId } = getHrProvisionDefinition(kind);
+      return c.json({
+        postings: postings.map((posting) => ({
+          kind,
+          asOfDate: posting.asOfDate,
+          journalEntryId: posting.entry.id,
+          journalEntryNo: posting.entry.entryNo ?? null,
+          status: posting.entry.status,
+          movement: Money.fromScaled(posting.entry.lines.reduce((sum, line) => (line.accountId === liabilityAccountId ? sum + line.credit.scaled - line.debit.scaled : sum), 0n)).toString(),
+          reversible: posting.entry.status === "posted" && posting.asOfDate === latestStanding,
+          reversalEntryId: posting.reversal?.id ?? null,
+          reversalEntryNo: posting.reversal?.entryNo ?? null,
+          reversalDate: posting.reversal?.date ?? null,
+        })),
+      });
+    });
+
+    app.post("/payroll/provisions/:kind/:asOfDate/reverse", gate(ReversalPermission.HrLeaveProvision), requireReversalReason, async (c) => {
+      const kind = parseKind(c.req.param("kind"));
+      if (!kind) return c.json({ error: "UNKNOWN_PROVISION", message: "نوع المخصص غير معروف.", messageEn: "Unknown provision kind." }, 404);
+      const asOfDate = c.req.param("asOfDate");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) return c.json({ error: "VALIDATION_ERROR", message: "تاريخ غير صالح.", messageEn: "Invalid date." }, 400);
+      try {
+        const { date, memo } = await readReversalRequest(c);
+        const result = await reverseHrProvision(kind, asOfDate, { gl: { ...deps.gl, actor: getAuthContext(c)?.userId ?? "system" } }, { reversalId: idGen(), date, memo });
+        return c.json({ kind, asOfDate, journalEntryId: result.journalEntryId, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null, reversalDate: result.reversal.date }, 201);
+      } catch (err) {
+        return handleDomainError(c, err);
       }
     });
   }
@@ -1044,6 +1129,20 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
         accounts: deps.accounts,
         idGen,
       });
+      return c.json(serializeRun(run));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/payroll/runs/:id/reverse-approval", gate(ReversalPermission.PayrollRun), requireReversalReason, async (c) => {
+    try {
+      const { date, memo } = await readReversalRequest(c);
+      const run = await reversePayrollRunApproval(
+        c.req.param("id"),
+        { runs: deps.runs, payslips: deps.payslips, advances: deps.advances, garnishments: deps.garnishmentRegister, gl: { ...deps.gl, actor: actorOf(c) } },
+        { reversalId: idGen(), date, memo },
+      );
       return c.json(serializeRun(run));
     } catch (err) {
       return handleDomainError(c, err);

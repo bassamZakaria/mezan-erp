@@ -47,16 +47,36 @@ CREATE TABLE IF NOT EXISTS recurring_journal_run (
   id                          TEXT PRIMARY KEY,
   template_id                 TEXT NOT NULL,
   period                      TEXT NOT NULL,
+  generation                  INTEGER NOT NULL DEFAULT 1,
   journal_entry_id            TEXT NOT NULL,
   journal_entry_no            TEXT,
   reversal_journal_entry_id   TEXT,
   reversal_journal_entry_no   TEXT,
   generated_at                TEXT NOT NULL,
   generated_by                TEXT NOT NULL,
-  UNIQUE(template_id, period)
+  UNIQUE(template_id, period, generation)
 );
 CREATE INDEX IF NOT EXISTS idx_recurring_journal_run_template ON recurring_journal_run(template_id);
 `;
+
+const RUN_COLUMNS_BEFORE_GENERATIONS = "id, template_id, period, journal_entry_id, journal_entry_no, reversal_journal_entry_id, reversal_journal_entry_no, generated_at, generated_by";
+
+/** INVARIANT: a file written before generations keys a period by (template_id, period) alone, which SQLite cannot widen in place — the table is rebuilt under the new key with every row as generation 1, in one transaction, and a file already keyed by generation is left alone. */
+function keyRunsByGeneration(sqlite: Database.Database): void {
+  const table = sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'recurring_journal_run'`).get();
+  if (!table) return;
+  const uniqueKeys = (sqlite.pragma(`index_list('recurring_journal_run')`) as { name: string; unique: number; origin: string }[])
+    .filter((index) => index.unique === 1 && index.origin === "u")
+    .map((index) => (sqlite.pragma(`index_info('${index.name}')`) as { name: string }[]).map((column) => column.name));
+  if (uniqueKeys.some((columns) => columns.includes("generation"))) return;
+  sqlite.transaction(() => {
+    sqlite.exec(`ALTER TABLE recurring_journal_run RENAME TO recurring_journal_run_before_generations`);
+    sqlite.exec(`DROP INDEX IF EXISTS idx_recurring_journal_run_template`);
+    sqlite.exec(CREATE_RUN);
+    sqlite.exec(`INSERT INTO recurring_journal_run (${RUN_COLUMNS_BEFORE_GENERATIONS}, generation) SELECT ${RUN_COLUMNS_BEFORE_GENERATIONS}, 1 FROM recurring_journal_run_before_generations`);
+    sqlite.exec(`DROP TABLE recurring_journal_run_before_generations`);
+  })();
+}
 
 const CREATE_SKIP = `
 CREATE TABLE IF NOT EXISTS recurring_journal_skip (
@@ -220,6 +240,7 @@ interface RunRow {
   id: string;
   template_id: string;
   period: string;
+  generation: number;
   journal_entry_id: string;
   journal_entry_no: string | null;
   reversal_journal_entry_id: string | null;
@@ -233,6 +254,7 @@ function toRun(row: RunRow): RecurringJournalRun {
     id: row.id,
     templateId: row.template_id,
     period: row.period,
+    generation: row.generation,
     journalEntryId: row.journal_entry_id,
     journalEntryNo: row.journal_entry_no,
     reversalJournalEntryId: row.reversal_journal_entry_id,
@@ -251,25 +273,30 @@ class SqliteRecurringJournalRunRepository implements RecurringJournalRunReposito
 
   constructor(private readonly sqlite: Database.Database) {
     // ON CONFLICT DO NOTHING is the DB-level half of the idempotency
-    // guarantee: even a concurrent double-call for the same (template,
-    // period) leaves only the first run's row.
+    // guarantee: even a concurrent double-call for the same generation of a
+    // (template, period) leaves only the first run's row.
     this.insert = sqlite.prepare(`
       INSERT INTO recurring_journal_run
-        (id, template_id, period, journal_entry_id, journal_entry_no, reversal_journal_entry_id, reversal_journal_entry_no, generated_at, generated_by)
+        (id, template_id, period, generation, journal_entry_id, journal_entry_no, reversal_journal_entry_id, reversal_journal_entry_no, generated_at, generated_by)
       VALUES
-        (@id, @template_id, @period, @journal_entry_id, @journal_entry_no, @reversal_journal_entry_id, @reversal_journal_entry_no, @generated_at, @generated_by)
-      ON CONFLICT(template_id, period) DO NOTHING
+        (@id, @template_id, @period, @generation, @journal_entry_id, @journal_entry_no, @reversal_journal_entry_id, @reversal_journal_entry_no, @generated_at, @generated_by)
+      ON CONFLICT(template_id, period, generation) DO NOTHING
     `);
     this.selectByTemplateAndPeriod = sqlite.prepare(
-      `SELECT * FROM recurring_journal_run WHERE template_id = ? AND period = ?`,
+      `SELECT * FROM recurring_journal_run WHERE template_id = ? AND period = ? ORDER BY generation DESC LIMIT 1`,
     );
     this.selectByTemplate = sqlite.prepare(
-      `SELECT * FROM recurring_journal_run WHERE template_id = ? ORDER BY period DESC`,
+      `SELECT * FROM recurring_journal_run WHERE template_id = ? ORDER BY period DESC, generation DESC`,
     );
-    this.selectAll = sqlite.prepare(`SELECT * FROM recurring_journal_run ORDER BY generated_at DESC LIMIT ?`);
+    this.selectAll = sqlite.prepare(`SELECT * FROM recurring_journal_run ORDER BY generated_at DESC, generation DESC LIMIT ?`);
     this.selectOfTemplates = sqlite.prepare(
-      `SELECT * FROM recurring_journal_run WHERE template_id IN (SELECT value FROM json_each(?)) ORDER BY generated_at DESC LIMIT ?`,
+      `SELECT * FROM recurring_journal_run WHERE template_id IN (SELECT value FROM json_each(?)) ORDER BY generated_at DESC, generation DESC LIMIT ?`,
     );
+  }
+
+  async findById(id: string): Promise<RecurringJournalRun | null> {
+    const row = this.sqlite.prepare(`SELECT * FROM recurring_journal_run WHERE id = ?`).get(id) as RunRow | undefined;
+    return row ? toRun(row) : null;
   }
 
   async findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalRun | null> {
@@ -287,12 +314,17 @@ class SqliteRecurringJournalRunRepository implements RecurringJournalRunReposito
   }
 
   async save(run: RecurringJournalRun): Promise<boolean> {
+    return this.insertRun(run);
+  }
+
+  private insertRun(run: RecurringJournalRun): boolean {
     // `changes === 0` is exactly the ON CONFLICT DO NOTHING path: another
     // call already claimed this (template, period) first.
     const info = this.insert.run({
       id: run.id,
       template_id: run.templateId,
       period: run.period,
+      generation: run.generation,
       journal_entry_id: run.journalEntryId,
       journal_entry_no: run.journalEntryNo,
       reversal_journal_entry_id: run.reversalJournalEntryId,
@@ -325,6 +357,7 @@ export function createSqliteRecurringJournalRunRepository(
   path: SqliteConnectionInput = ":memory:",
 ): SqliteRecurringJournalRunRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
+  keyRunsByGeneration(sqlite);
   sqlite.exec(CREATE_RUN);
   const repo = new SqliteRecurringJournalRunRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } });

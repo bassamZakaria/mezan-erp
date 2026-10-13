@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { z } from "zod";
 import { Money, Qty } from "../money/index.js";
 import type { AttendanceEntry } from "../hr/attendance.js";
@@ -113,7 +114,7 @@ export function createAttendanceSummaryReport(): ReportDefinition<AttendanceSumm
         const lateDays = entries.filter((e) => e.status === "late").length;
         const halfDays = entries.filter((e) => e.status === "half_day").length;
         const absentDays = entries.filter((e) => e.status === "absent").length;
-        const leaveDays = entries.filter((e) => e.status === "on_leave").length;
+        const leaveDays = entries.filter((e) => e.status === EmployeeRefStatus.OnLeave).length;
         const workedMinutes = entries.reduce((sum, e) => sum + e.workedMinutes, 0);
         const overtimeMinutes = entries.reduce((sum, e) => sum + (e.approvedOvertimeMinutes ?? 0), 0);
         // Rest days are not attendance the employee can fail — a rate measured
@@ -220,7 +221,7 @@ export function createLeaveLiabilityReport(): ReportDefinition<LeaveLiabilityPar
         const available = availableLeaveDays(balance);
         if (available.isZero() || available.isNegative()) continue;
         const employee = ctx.employees.find((e) => e.id === balance.employeeId);
-        if (!employee || employee.status === "terminated") continue;
+        if (!employee || employee.status === EmployeeRefStatus.Terminated) continue;
         const contract = activeContract(ctx.contracts, balance.employeeId, params.asOfDate);
         if (!contract) continue;
         const dailyRate = Money.fromScaled(comprehensiveWage(contract).scaled / 30n);

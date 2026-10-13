@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  landedCostAbsorptionDate,
   Money,
   Qty,
   distributeLandedCost,
@@ -12,12 +14,13 @@ import {
   type WarehouseBranchLookup,
   branchOfPostingWarehouse,
 } from "@mezan/domain";
-import { createLandedCostSchema } from "@mezan/contracts";
+import { ReversalPermission, createLandedCostSchema } from "@mezan/contracts";
 import { type AuthContextResolver, callerUserId, createPermissionGate } from "./permission-gate.js";
 import { documentBranches, storedBranchesById, withinBranchGrant } from "./stored-branches.js";
 import { handleDocumentError } from "./document-error-handling.js";
 import { refuseOutOfScopeBranches } from "./branch-scope-refusal.js";
-import { tenantDay } from "./tenant-day.js";
+import { noteReversalOriginalDay } from "./posting-refusal.js";
+import { tenantDay, tenantToday } from "./tenant-day.js";
 
 function serializeLine(l: LandedCostLine) {
   return {
@@ -48,6 +51,7 @@ function serialize(doc: FrameworkDocument<LandedCostLine>) {
     docType: doc.docType,
     docNo: doc.docNo,
     date: doc.date,
+    absorptionDate: doc.status === "draft" ? null : landedCostAbsorptionDate(doc),
     memo: doc.memo,
     status: doc.status,
     lines: doc.lines.map(serializeLine),
@@ -140,7 +144,9 @@ export function createLandedCostsRoutes(
 
   app.post("/:id/confirm", gate("purchases.landed_cost.confirm"), async (c) => {
     try {
-      const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c) });
+      const body = (await c.req.json().catch(() => ({}))) as { absorptionDate?: unknown } | null;
+      const absorptionDate = typeof body?.absorptionDate === "string" && body.absorptionDate !== "" ? await tenantDay(c, body.absorptionDate) : undefined;
+      const result = await landedCostService.confirm(c.req.param("id"), { actor: callerUserId(c), today: await tenantToday(c), absorptionDate });
       return c.json({
         document: serialize(result.document),
         held: result.held,
@@ -149,6 +155,8 @@ export function createLandedCostsRoutes(
         // inventory into cost of sales, and the caller is told how much and by
         // which entry rather than being left to wonder why the valuation report
         // moved by less than the document's total (D84).
+        absorbedTotal: result.absorbedTotal.toString(),
+        absorptionJournalEntryId: result.absorptionJournalEntryId,
         unabsorbedTotal: result.unabsorbedTotal.toString(),
         unabsorbedJournalEntryId: result.unabsorbedJournalEntryId,
         unabsorbed: result.unabsorbed.map((u) => ({
@@ -167,6 +175,24 @@ export function createLandedCostsRoutes(
     try {
       const doc = await documents.cancel(c.req.param("id"));
       return c.json(serialize(doc));
+    } catch (err) {
+      return handleDocumentError(c, err);
+    }
+  });
+
+  app.post("/:id/reverse", gate(ReversalPermission.LandedCost), async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { date?: unknown; reversalId?: unknown } | null;
+    if (body?.date !== undefined && body.date !== null && (typeof body.date !== "string" || body.date.trim() === "")) {
+      return c.json({ error: "VALIDATION_ERROR", message: "تاريخ العكس يجب أن يكون نصاً بصيغة YYYY-MM-DD.", messageEn: "The reversal date must be a YYYY-MM-DD string." }, 400);
+    }
+    try {
+      const date = await tenantDay(c, typeof body?.date === "string" ? body.date : new Date().toISOString());
+      await noteReversalOriginalDay(c, (await documents.findById(c.req.param("id")))?.date);
+      const result = await landedCostService.reverse(c.req.param("id"), {
+        reversalId: typeof body?.reversalId === "string" && body.reversalId !== "" ? body.reversalId : randomUUID(),
+        date,
+      });
+      return c.json({ original: serialize(result.original), reversal: serialize(result.reversal) }, 201);
     } catch (err) {
       return handleDocumentError(c, err);
     }

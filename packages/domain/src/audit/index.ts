@@ -16,3 +16,4 @@ export type {
   AuditQueryPort,
 } from "./audit-event.js";
 export { auditBranchFromScope, branchScopedAuditSink } from "./branch-scope.js";
+export { AuditSeverityCode } from "./severity.js";

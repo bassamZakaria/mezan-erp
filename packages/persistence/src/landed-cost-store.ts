@@ -14,6 +14,7 @@ interface WireCostItem {
   costType: string;
   description: string;
   amount: string;
+  supplierId?: string | null;
 }
 
 interface WireLine {
@@ -32,6 +33,7 @@ interface WireLine {
   projectId?: string | null;
   costCategory?: LandedCostLine["costCategory"];
   branchId?: string | null;
+  absorptionDate?: string | null;
 }
 
 function serializeLine(line: LandedCostLine): WireLine {
@@ -50,10 +52,12 @@ function serializeLine(line: LandedCostLine): WireLine {
       costType: c.costType,
       description: c.description,
       amount: c.amount.toString(),
+      supplierId: c.supplierId ?? null,
     })),
     projectId: line.projectId ?? null,
     costCategory: line.costCategory ?? null,
     branchId: line.branchId ?? null,
+    absorptionDate: line.absorptionDate ?? null,
   };
 }
 
@@ -75,10 +79,12 @@ function deserializeLine(wire: unknown): LandedCostLine {
       costType: c.costType as LandedCostLine["costItems"][number]["costType"],
       description: c.description,
       amount: Money.fromMajor(c.amount),
+      supplierId: c.supplierId ?? null,
     })),
     projectId: w.projectId ?? null,
     costCategory: w.costCategory ?? null,
     branchId: w.branchId ?? null,
+    absorptionDate: w.absorptionDate ?? null,
   };
 }
 

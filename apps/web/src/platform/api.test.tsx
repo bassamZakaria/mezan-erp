@@ -2,6 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { TransportResponse } from "../data/transport";
 import { PlatformApiProvider, usePlatformApi } from "./api";
 import { stubPlatformTransport, testPlatformSession } from "./test-support";
@@ -50,6 +51,44 @@ describe("PlatformApiProvider", () => {
     screen.getByRole("button", { name: "fire" }).click();
     await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent("none"));
     expect(localStorage.getItem("mezan.platform.session")).toBeNull();
+  });
+
+  it("empties the query cache when the session expires, exactly as signing out does, so a PIN shown once does not stay in memory", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["platform", "ownerPinReset", "PU-1", "tenant-1"], { adminEmail: "owner@acme.test", adminPin: "305917" });
+    queryClient.setQueryDefaults(["platform", "ownerPinReset"], { gcTime: Infinity });
+    const transport = stubPlatformTransport({ "GET /tenants": () => ({ status: 401, body: { error: "UNAUTHENTICATED" } }) });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PlatformApiProvider transport={transport} initialSession={testPlatformSession}>
+          <SessionAndRequestProbe path="/tenants" />
+        </PlatformApiProvider>
+      </QueryClientProvider>,
+    );
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(1);
+
+    screen.getByRole("button", { name: "fire" }).click();
+
+    await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent("none"));
+    expect(queryClient.getQueryCache().getAll()).toEqual([]);
+  });
+
+  it("keeps the query cache on a 401 from the login path itself", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(["platform", "plans"], []);
+    const transport = stubPlatformTransport({ "GET /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS" } }) });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PlatformApiProvider transport={transport} initialSession={testPlatformSession}>
+          <SessionAndRequestProbe path="/auth/login" />
+        </PlatformApiProvider>
+      </QueryClientProvider>,
+    );
+
+    screen.getByRole("button", { name: "fire" }).click();
+
+    await vi.waitFor(() => expect(screen.getByTestId("session")).toHaveTextContent("owner@mezan.example"));
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(1);
   });
 
   it("does not clear the session on a 401 from the login path itself", async () => {

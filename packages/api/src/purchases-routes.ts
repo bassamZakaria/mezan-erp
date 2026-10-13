@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   type AllocatableInvoiceRepository,
@@ -35,12 +36,23 @@ import {
   PurchaseOrderRequiredError,
   PurchaseItemsAlreadyConsumedError,
   GoodsReceiptAlreadyInvoicedError,
+  GoodsReceiptInvoicedRefusal,
+  InvoiceDoesNotMatchReceiptError,
+  InvoiceExceedsReceiptError,
+  GoodsReceiptInvoicingStatus,
+  goodsReceiptInvoicingStatus,
+  goodsReceiptUninvoicedCost,
+  receiptLineInvoicedQty,
+  receiptLineRemainingQty,
+  LandedCostStandsOnDocumentError,
   InvalidJournalEntryError,
   AccountNotFoundError,
   HeaderAccountNotPostableError,
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  ReversalDateBeforeOriginalError,
+  InvalidStockMovementError,
   NegativeStockError,
   UncostedDeficitIssueError,
   CashBalanceWouldGoNegativeError,
@@ -82,6 +94,8 @@ import {
   documentVersionsOf,
   expectedVersionOf,
   readOptionalBody,
+  requestedReversalDate,
+  INVALID_REVERSAL_DATE,
   refuseStaleDocument,
   stampDocumentModifier,
   type DocumentVersionGuard,
@@ -186,6 +200,8 @@ export interface PurchasesRoutesDeps {
   readonly layers?: CostLayerRepository;
   /** GL reversal hook for cancelling a confirmed purchase invoice. Required together with `layers`. */
   readonly glReverse?: PurchaseGlReversalPort;
+  readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
+  readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
   /** Append-only audit sink; when present every confirm/cancel below is recorded on the `sensitive` stream. */
   readonly audit?: AuditSink;
   /**
@@ -272,9 +288,13 @@ function serializeReceipt(r: GoodsReceipt) {
       batchNo: l.batchNo ?? null,
       expiryDate: l.expiryDate ?? null,
       costCategory: l.costCategory ?? null,
+      invoicedQty: receiptLineInvoicedQty(r, l).toString(),
+      remainingQty: receiptLineRemainingQty(r, l).toString(),
     })),
     status: r.status,
-    invoiced: r.invoiced,
+    invoiced: goodsReceiptInvoicingStatus(r) === GoodsReceiptInvoicingStatus.Invoiced,
+    invoicingStatus: goodsReceiptInvoicingStatus(r),
+    uninvoicedCost: goodsReceiptUninvoicedCost(r).toString(),
     totalCost: goodsReceiptTotalCost(r).toString(),
     createdBy: r.createdBy,
     createdAt: r.createdAt,
@@ -331,6 +351,8 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero(),
 
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (
     err instanceof PurchaseOrderNotFoundError ||
     err instanceof GoodsReceiptNotFoundError ||
@@ -350,12 +372,16 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof OverReceiptError ||
     err instanceof PurchaseOrderRequiredError ||
     err instanceof PurchaseItemsAlreadyConsumedError ||
-    err instanceof GoodsReceiptAlreadyInvoicedError
+    err instanceof GoodsReceiptAlreadyInvoicedError ||
+    err instanceof InvoiceDoesNotMatchReceiptError ||
+    err instanceof InvoiceExceedsReceiptError ||
+    err instanceof LandedCostStandsOnDocumentError
   ) {
     return c.json(
       {
         error: err.code,
         message: err.message,
+        messageEn: "messageEn" in err ? err.messageEn : undefined,
         reasons: err instanceof InvalidPurchaseDocumentError ? err.reasons : undefined,
       },
       422,
@@ -376,6 +402,8 @@ function handleDomainError(c: Context, err: unknown): Response {
     // Raised by the voucher engine behind `POST /invoices/:id/payments` — the
     // same D20 shape: a refusal the caller can act on must not answer 500.
     err instanceof CashBalanceWouldGoNegativeError ||
+    err instanceof ReversalDateBeforeOriginalError ||
+    err instanceof InvalidStockMovementError ||
     err instanceof InvalidDocumentError ||
     err instanceof AllocationMismatchError ||
     err instanceof AllocationExceedsError
@@ -815,18 +843,24 @@ export function createPurchasesRoutes(
   if (deps.layers) {
     const layers = deps.layers;
     app.post("/receipts/:id/cancel", gate("purchases.receipt.void"), async (c) => {
+      const requested = requestedReversalDate(await readOptionalBody(c));
+      if (!requested.ok) return c.json(INVALID_REVERSAL_DATE, 400);
+      const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
       try {
+        const target = await deps.receipts.findById(c.req.param("id"));
         const receipt = await cancelGoodsReceipt(c.req.param("id"), {
           receipts: deps.receipts,
           orders: deps.orders,
           stock: deps.stock,
           layers,
+          glReverse: deps.glReverse,
+          landedCostsStandingOn: deps.landedCostsStandingOn,
           policy: await resolvePolicy(),
           transactor: deps.transactor,
           audit: audit(c),
           actor: actor(c),
           now: deps.now,
-        });
+        }, { date: requested.date ?? (target && today < target.date ? target.date : today) });
         emit("DOCUMENT_CANCELLED", "GOODS_RECEIPT", receipt.id, receipt.number);
         return c.json(serializeReceipt(receipt));
       } catch (err) {
@@ -1305,7 +1339,8 @@ export function createPurchasesRoutes(
         for (const line of receipt.lines) {
           if (!rates.has(line.itemId)) rates.set(line.itemId, await resolveTaxRate(line.itemId));
         }
-        lines = buildInvoiceLinesFromReceipt(receipt, (itemId) => rates.get(itemId) ?? 0);
+        lines = buildInvoiceLinesFromReceipt(receipt, (itemId) => rates.get(itemId) ?? 0, parsed.data.receiptQuantities?.map((q) => ({ lineIndex: q.lineIndex, qty: Qty.fromMajor(q.qty) })));
+        if (lines.length === 0) throw new GoodsReceiptAlreadyInvoicedError(receipt.id, GoodsReceiptInvoicedRefusal.SecondInvoice);
       } else {
         return c.json({ error: "VALIDATION_ERROR", message: "lines or receiptId is required" }, 400);
       }
@@ -1369,8 +1404,12 @@ export function createPurchasesRoutes(
     const layers = deps.layers;
     const glReverse = deps.glReverse;
     app.post("/invoices/:id/cancel", gate("purchases.invoice.void"), async (c) => {
-      const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(await readOptionalBody(c)));
+      const body = await readOptionalBody(c);
+      const stale = await refuseStaleDocument(c, deps.invoiceVersions, c.req.param("id"), expectedVersionOf(body));
       if (stale) return stale;
+      const requested = requestedReversalDate(body);
+      if (!requested.ok) return c.json(INVALID_REVERSAL_DATE, 400);
+      const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
       const target = await deps.invoices.findById(c.req.param("id"));
       if (target?.status === "confirmed") {
         if (((await allocatedByInvoice([target.id])).get(target.id) ?? Money.zero()).scaled !== 0n) {
@@ -1400,12 +1439,15 @@ export function createPurchasesRoutes(
           stock: deps.stock,
           glReverse,
           layers,
+          landedCostsStandingOn: deps.landedCostsStandingOn,
+          receipts: deps.receipts,
           policy: await resolvePolicy(),
           transactor: deps.transactor,
           audit: audit(c),
           actor: actor(c),
           now: deps.now,
-        });
+        }, { date: requested.date ?? (target && today < target.date ? target.date : today) });
+        if (target?.status === "confirmed") await deps.releaseRevaluationShare?.(invoice.id, requested.date ?? (today < target.date ? target.date : today));
         await stampDocumentModifier(deps.invoiceVersions, invoice.id, actor(c));
         emit("DOCUMENT_CANCELLED", "PURCHASE_INVOICE", invoice.id, invoice.number);
         return c.json(serializeInvoice(invoice));

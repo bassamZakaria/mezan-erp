@@ -10,12 +10,14 @@ import type { CostCategory } from "../contracting/cost-category.js";
 import { Money, Qty } from "../money/index.js";
 import type { CostLayer } from "./cost-layer.js";
 import type { StockMovement, StockSourceDocType } from "./movement.js";
+import type { StandingStockRevaluation } from "../landed-costs/errors.js";
 
 /** Append-only stock-ledger store: movements are never updated or deleted. */
 export interface StockLedgerRepository {
   append(movement: StockMovement): Promise<void>;
   /** Movements for one position, in ledger order (occurredAt, then insertion). */
   listByPosition(itemId: string, warehouseId: string): Promise<readonly StockMovement[]>;
+  latestStandingRevaluation?(itemId: string, warehouseId: string): Promise<StandingStockRevaluation | null>;
   listByItem(itemId: string): Promise<readonly StockMovement[]>;
   listByWarehouse(warehouseId: string): Promise<readonly StockMovement[]>;
   /** Every distinct (itemId, warehouseId) that has at least one movement. */
@@ -149,4 +151,5 @@ export interface InventoryGlPosting {
 
 export interface InventoryGlPostingPort {
   post(posting: InventoryGlPosting): Promise<void>;
+  reverse?(entryId: string, opts: { readonly reversalId: string; readonly date: string; readonly memo: string }): Promise<readonly InventoryGlPostingLine[] | null>;
 }

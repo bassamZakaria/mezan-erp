@@ -38,6 +38,27 @@ describe("module gate middleware", () => {
     });
   });
 
+  it("words the refusal by the licence on an install that has no subscription plan", async () => {
+    const app = appWithEntitlements(["sales"]);
+    const res = await app.fetch(new Request("http://x/pos/sales"));
+    expect(((await res.json()) as { message: string }).message).toBe("وحدة نقاط البيع غير مُفعّلة في ترخيص هذه النسخة. تواصل مع الدعم لإضافتها إلى الاشتراك.");
+  });
+
+  it("words the refusal by the subscription plan on a tenant that has one", async () => {
+    const entitlements = createEntitlements({ plan: "business", planNameAr: "الأعمال", planNameEn: "Business", activeModules: ["sales"], features: {}, seats: 5, expiresAt: null });
+    const app = new Hono();
+    app.use("/pos/*", createModuleGate(() => entitlements)("pos"));
+    app.get("/pos/sales", (c) => c.json({ ok: true }));
+
+    const res = await app.fetch(new Request("http://x/pos/sales"));
+
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("MODULE_NOT_LICENSED");
+    expect(body.message).toBe("وحدة نقاط البيع ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.");
+    expect(body.message).not.toContain("ترخيص");
+  });
+
   it("leaves ungated routes untouched", async () => {
     const app = appWithEntitlements(["sales"]);
     const res = await app.fetch(new Request("http://x/sales/invoices"));

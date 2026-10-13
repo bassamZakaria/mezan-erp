@@ -33,6 +33,7 @@ const EXEMPT_FILES = new Set(
     "packages/ui/src/primitives/form.tsx",
     "packages/ui/src/primitives/Select.tsx",
     "packages/ui/src/primitives/MoneyInput.tsx",
+    "packages/ui/src/primitives/DecimalStringInput.tsx",
     "packages/ui/src/primitives/QtyInput.tsx",
     "packages/ui/src/primitives/EntityPicker.tsx",
     "packages/ui/src/shell/CommandPalette.tsx",

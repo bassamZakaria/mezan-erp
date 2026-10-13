@@ -1,7 +1,8 @@
-import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import {
   Chip,
   cn,
+  DecimalStringInput,
   Field as UiField,
   Select,
   Switch,
@@ -19,16 +20,17 @@ import { ReadOnlyFields, useReadOnlyControl } from "../shell/ReadOnlyForm";
 export interface FieldProps {
   label: string;
   hint?: string;
+  error?: ReactNode;
   /** The id of the control inside. Without it the label names nothing (D67). */
   htmlFor?: string;
   className?: string;
   children: ReactNode;
 }
 
-export function Field({ label, hint: givenHint, htmlFor, className, children }: FieldProps) {
+export function Field({ label, hint: givenHint, error, htmlFor, className, children }: FieldProps) {
   const { disabled, hint } = useReadOnlyControl(undefined, givenHint);
   return (
-    <UiField label={label} hint={hint} htmlFor={htmlFor} className={className}>
+    <UiField label={label} hint={hint} error={error} htmlFor={htmlFor} className={className}>
       {disabled ? (
         <fieldset disabled className="contents">
           {children}
@@ -49,20 +51,29 @@ export interface TextFieldProps {
   disabled?: boolean;
   type?: "text" | "email" | "tel" | "date" | "password" | "number";
   autoComplete?: string;
+  maxLength?: number;
+  error?: string | null;
+  inputRef?: Ref<HTMLInputElement>;
 }
 
-export function TextField({ label, value, onChange, placeholder, hint: givenHint, disabled: givenDisabled, type = "text", autoComplete }: TextFieldProps) {
+export function TextField({ label, value, onChange, placeholder, hint: givenHint, disabled: givenDisabled, type = "text", autoComplete, maxLength, error, inputRef }: TextFieldProps) {
   const { disabled, hint } = useReadOnlyControl(givenDisabled, givenHint);
   const id = useId();
+  const errorId = `${id}-error`;
   return (
-    <Field label={label} hint={hint} htmlFor={id}>
+    <Field label={label} hint={hint} error={error ? <span id={errorId}>{error}</span> : undefined} htmlFor={id}>
       <TextInput
         id={id}
+        ref={inputRef}
+        invalid={Boolean(error)}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
         type={type}
         value={value}
         placeholder={placeholder}
         disabled={disabled}
         autoComplete={autoComplete}
+        maxLength={maxLength}
         onChange={(e) => onChange(e.target.value)}
       />
     </Field>
@@ -96,6 +107,25 @@ export function NumberField({ label, value, onChange, hint: givenHint, min, max,
         disabled={disabled}
         onChange={(e) => onChange(e.target.valueAsNumber)}
       />
+    </Field>
+  );
+}
+
+export interface DecimalFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  hint?: string;
+  suffix?: string;
+  minimumFractionDigits?: number;
+  disabled?: boolean;
+}
+
+export function DecimalField({ label, value, onChange, hint, suffix, minimumFractionDigits, disabled }: DecimalFieldProps) {
+  const id = useId();
+  return (
+    <Field label={label} hint={hint} htmlFor={id}>
+      <DecimalStringInput id={id} value={value} onChange={onChange} suffix={suffix} minimumFractionDigits={minimumFractionDigits} disabled={disabled} />
     </Field>
   );
 }

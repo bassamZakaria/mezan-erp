@@ -36,7 +36,7 @@ import {
   type PhysicalCountFilter,
 } from "../data/hooks";
 import { TextField, SelectField, ToggleField } from "../settings/form-controls";
-import { useSubPage } from "../navigation";
+import { useNameSubPage, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
@@ -152,6 +152,7 @@ export function PhysicalCountsScreen() {
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const selected = selectedId ? (counts.find((c) => c.id === selectedId) ?? null) : null;
+  useNameSubPage(selectedId, selected ? (selected.countNo ?? t("counts.physicalCount")) : null);
   const active = secondSegment === "count" ? selected : null;
 
   const columns: DocumentListColumn<PhysicalCountDTO>[] = [

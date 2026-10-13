@@ -5,7 +5,8 @@ import type { ProjectRepository } from "../../projects/project.js";
 import type { TreasuryAccountRepository } from "../../treasury-accounts/treasury-account.js";
 import type { AuditSink } from "../../audit/index.js";
 import { recordTransition } from "../audit.js";
-import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../../gl/index.js";
+import { nextEntryGenerationId, postJournalEntry, reverseJournalEntry, ReversalDateBeforeOriginalError, standingEntryGeneration, type JournalLineInput, type JournalPostingDeps } from "../../gl/index.js";
+import type { JournalEntry } from "../../journal.js";
 import {
   daysToExpiry,
   derivedGuaranteeStatus,
@@ -24,6 +25,8 @@ import {
   GuaranteeChargeAccountNotFoundError,
   GuaranteeNotDraftError,
   GuaranteeNotFoundError,
+  GuaranteeNothingToReverseError,
+  GuaranteePostingFromDocumentError,
   InvalidGuaranteeError,
   InvalidGuaranteeTransitionError,
 } from "./errors.js";
@@ -121,6 +124,20 @@ export interface CallGuaranteeCommand {
   readonly amount?: Money;
   /** Where the loss lands. Omitted, the `contracting.onerous_loss` routing slot decides. */
   readonly chargeAccountId?: string | null;
+}
+
+export interface ReverseGuaranteePostingCommand {
+  readonly reversalId: string;
+  readonly date?: string;
+  readonly memo?: string;
+  readonly userId?: string | null;
+}
+
+interface GuaranteePostingStep {
+  readonly action: string;
+  readonly entry: JournalEntry;
+  readonly sourceRef: string | null;
+  readonly restored: LetterOfGuarantee;
 }
 
 export class GuaranteeService {
@@ -584,6 +601,77 @@ export class GuaranteeService {
    * letter existed, or in the future, is either a mistake or a backdate past a
    * period the books have closed — and both were accepted.
    */
+  async reverseLastPosting(id: string, command: ReverseGuaranteePostingCommand): Promise<LetterOfGuarantee> {
+    const current = await this.require(id);
+    const step = await this.latestPosting(current);
+    if (!step) throw new GuaranteeNothingToReverseError(id);
+    if (step.sourceRef) throw new GuaranteePostingFromDocumentError(id, step.sourceRef);
+    const date = command.date ?? step.entry.date.slice(0, 10);
+    if (date < step.entry.date.slice(0, 10)) throw new ReversalDateBeforeOriginalError(step.entry.id, date, step.entry.date);
+    const gl = { ...this.deps.gl, actor: command.userId ?? this.deps.gl.actor };
+
+    return this.deps.gl.ledger.transaction(async () => {
+      const { reversal } = await reverseJournalEntry(step.entry.id, gl, {
+        reversalId: command.reversalId,
+        date,
+        memo: command.memo ?? `عكس ${step.entry.memo ?? `حركة خطاب ضمان ${current.docNo ?? current.id}`}`,
+      });
+      await this.deps.guarantees.update(step.restored);
+      await this.audit(step.restored, "REVERSE", command.userId, {
+        reversed: step.action,
+        journalEntryId: step.entry.id,
+        reversalId: reversal.id,
+        date,
+        status: step.restored.status,
+        currentValue: step.restored.currentValue.toString(),
+      });
+      return step.restored;
+    });
+  }
+
+  private async latestPosting(current: LetterOfGuarantee): Promise<GuaranteePostingStep | null> {
+    const standing = (action: string, suffix = "") => standingEntryGeneration(this.deps.gl.ledger, `${GUARANTEE_DOC_TYPE}:${action}:${current.id}${suffix}`);
+    const outstandingStatus = (reductions: readonly GuaranteeReduction[]): LetterOfGuarantee["status"] => (reductions.length > 0 ? "reduced" : "active");
+    if (current.status === "called" || current.status === "released") {
+      const action = current.status === "called" ? "CALL" : "RELEASE";
+      const entry = await standing(action);
+      if (!entry) return null;
+      const outstanding = current.restorations.reduce((sum, r) => sum + r.amount.scaled, current.reductions.reduce((sum, r) => sum - r.amount.scaled, current.faceValue.scaled));
+      return {
+        action,
+        entry,
+        sourceRef: null,
+        restored: { ...current, status: outstandingStatus(current.reductions), currentValue: Money.fromScaled(outstanding), closedDate: null, closedBy: null, closedAmount: Money.zero() },
+      };
+    }
+    if (current.status !== "active" && current.status !== "reduced") return null;
+    const lastReduction = current.reductions[current.reductions.length - 1];
+    const lastRestoration = current.restorations[current.restorations.length - 1];
+    const reductionEntry = lastReduction ? await standing("REDUCE", `:${current.reductions.length}`) : null;
+    const restorationEntry = lastRestoration ? await standing("RESTORE", `:${current.restorations.length}`) : null;
+    const stamp = (entry: JournalEntry | null) => entry?.postedAt ?? entry?.createdAt ?? "";
+    if (lastRestoration && restorationEntry && stamp(restorationEntry) >= stamp(reductionEntry)) {
+      return {
+        action: "RESTORE",
+        entry: restorationEntry,
+        sourceRef: lastRestoration.sourceRef,
+        restored: { ...current, currentValue: current.currentValue.add(lastRestoration.amount.negate()), restorations: current.restorations.slice(0, -1) },
+      };
+    }
+    if (lastReduction && reductionEntry) {
+      const reductions = current.reductions.slice(0, -1);
+      return {
+        action: "REDUCE",
+        entry: reductionEntry,
+        sourceRef: lastReduction.sourceRef,
+        restored: { ...current, status: outstandingStatus(reductions), currentValue: current.currentValue.add(lastReduction.amount), reductions },
+      };
+    }
+    if (current.reductions.length > 0 || current.restorations.length > 0) return null;
+    const issueEntry = await standing("ISSUE");
+    return issueEntry ? { action: "ISSUE", entry: issueEntry, sourceRef: null, restored: { ...current, status: "draft", currentValue: current.faceValue } } : null;
+  }
+
   private assertEventDate(labelAr: string, date: string, guarantee: LetterOfGuarantee): void {
     const reasons: string[] = [];
     if (!ISO_DATE.test(date)) reasons.push(`${labelAr} مطلوب بصيغة YYYY-MM-DD.`);
@@ -608,7 +696,7 @@ export class GuaranteeService {
       entityId: guarantee.id,
       action,
       actor: userId ?? "system",
-      severity: action === "RELEASE" || action === "CALL" ? "WARNING" : "INFO",
+      severity: action === "RELEASE" || action === "CALL" || action === "REVERSE" ? "WARNING" : "INFO",
       details: {
         docNo: guarantee.docNo,
         kind: guarantee.kind,
@@ -647,7 +735,7 @@ export class GuaranteeService {
   ): Promise<void> {
     await postJournalEntry(
       {
-        id: entryId,
+        id: await nextEntryGenerationId(this.deps.gl.ledger, entryId),
         date,
         memo,
         source: "system",

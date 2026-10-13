@@ -117,6 +117,7 @@ export const depreciationRunSchema = z.object({
   branchId: z.string().nullable(),
   status: depreciationRunStatusSchema,
   lines: z.array(depreciationRunLineSchema),
+  skippedLines: z.array(z.object({ assetId: z.string().min(1), assetCode: z.string(), amount: moneyString })).optional(),
   totalAmount: moneyString,
   journalEntryId: z.string().nullable(),
   createdAt: z.string(),

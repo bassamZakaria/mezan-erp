@@ -22,6 +22,7 @@ export interface RecurringJournalTemplateRepository {
  * an orphan entry with no run record pointing at it.
  */
 export interface RecurringJournalRunRepository {
+  findById(id: string): Promise<RecurringJournalRun | null>;
   findByTemplateAndPeriod(templateId: string, period: string): Promise<RecurringJournalRun | null>;
   listByTemplate(templateId: string): Promise<readonly RecurringJournalRun[]>;
   /** The newest runs, of `templateIds` only when given — the limit counts the rows asked for, never rows the caller may not see. */

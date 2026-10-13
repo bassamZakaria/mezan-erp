@@ -28,6 +28,7 @@ import type {
   EquipmentLogRepository,
   UnreceivedRow,
 } from "../site/index.js";
+import { EquipmentLogStatus } from "../site/index.js";
 import { getBoqUnitLabel } from "../contracts/boq-unit.js";
 import { contractValueAsOf } from "../recognition/recognition-math.js";
 import type { SubcontractView } from "../subcontracts/subcontract-service.js";
@@ -539,7 +540,7 @@ export class ControlsService {
     const byProject = new Map(contexts.map((ctx) => [ctx.contract.projectId, ctx]));
     const logs: readonly EquipmentLog[] =
       (await this.deps.equipmentLogs?.list({
-        status: "confirmed",
+        status: EquipmentLogStatus.Confirmed,
         ...(params.projectId ? { projectId: params.projectId } : {}),
       })) ?? [];
     const candidates: EquipmentExceptionCandidate[] = [];

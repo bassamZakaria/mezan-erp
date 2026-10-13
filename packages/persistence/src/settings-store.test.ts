@@ -38,4 +38,18 @@ describe("SqliteSettingsStore", () => {
       store.close();
     }
   });
+
+  it("a row saved before the period-close setting existed takes its value from the contracting single-operator switch it used to share", async () => {
+    const store = createSqliteSettingsStore();
+    try {
+      const { periodCloseSingleOperatorMode: _dropped, ...legacy } = createDefaultSettings({ contractingSingleOperatorMode: true });
+      await store.save(legacy as ReturnType<typeof createDefaultSettings>);
+      expect(await store.get()).toMatchObject({ contractingSingleOperatorMode: true, periodCloseSingleOperatorMode: true });
+
+      await store.save(createDefaultSettings({ contractingSingleOperatorMode: true, periodCloseSingleOperatorMode: false }));
+      expect(await store.get()).toMatchObject({ contractingSingleOperatorMode: true, periodCloseSingleOperatorMode: false });
+    } finally {
+      store.close();
+    }
+  });
 });

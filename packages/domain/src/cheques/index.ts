@@ -12,17 +12,20 @@ export {
   type ChequeStatus,
   type ChequeStatusDefinition,
   type ChequeStoredStatus,
+  chequeLedgerDays,
+  type ChequeLedgerDays,
 } from "./cheque.js";
 
 export {
   ChequeNotFoundError,
   DuplicateChequeNumberError,
   InvalidChequeCommandError,
+  ChequeBankRateMissingError,
   InvalidChequeTransitionError,
   ReplacementAmountMismatchError,
 } from "./errors.js";
 
-export { COLLECTION_WINDOW_DAYS, assertChequeTransition, effectiveChequeStatus } from "./status.js";
+export { COLLECTION_WINDOW_DAYS, ChequeAction, assertChequeTransition, effectiveChequeStatus } from "./status.js";
 
 export {
   ChequeService,

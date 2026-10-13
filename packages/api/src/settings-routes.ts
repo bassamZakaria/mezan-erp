@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import {
   createDefaultSettings,
+  displaySettingsOf,
   updateSettings,
   InvalidSettingsError,
   type AuditSink,
@@ -78,6 +79,10 @@ export function createSettingsRoutes(
     const settings = (await store.get()) ?? createDefaultSettings();
     const lookup: TenantSettingsLookupDTO = tenantSettingsLookupSchema.parse(Object.fromEntries(TENANT_SETTINGS_LOOKUP_KEYS.map((key) => [key, settings[key]])));
     return c.json(lookup);
+  });
+
+  app.get("/display", createAuthenticatedGate(resolveAuthContext), async (c) => {
+    return c.json(displaySettingsOf((await store.get()) ?? createDefaultSettings()));
   });
 
   app.get("/currencies", createAuthenticatedGate(resolveAuthContext), async (c) => {

@@ -1,8 +1,12 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
-  closeFiscalPeriod,
+  PeriodCloseAction,
+  PeriodCloseChecksUnavailableError,
+  PeriodCloseErrorCode,
+  PeriodCloseRefusal,
+  PeriodCloseUnauditableError,
   reopenFiscalPeriod,
-  lockFiscalPeriod,
   generateFiscalYear,
   DuplicateFiscalPeriodError,
   FiscalPeriodNotFoundError,
@@ -11,11 +15,50 @@ import {
   type FiscalPeriod,
   type FiscalPeriodRepository,
 } from "@mezan/domain";
-import { generateFiscalYearSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
-import { recordAdminEvent } from "./admin-audit.js";
+import { generateFiscalYearSchema, periodCloseRequestSchema } from "@mezan/contracts";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { buildAdminEvent, recordAdminEvent } from "./admin-audit.js";
+import { callerUserId } from "./permission-gate.js";
+import {
+  PeriodCloseAttemptKind,
+  canOverridePeriodClose,
+  serializePeriodCloseError,
+  serializePeriodCloseRefusal,
+  type PeriodCloseGuardSource,
+  periodCloseScopeOf,
+} from "./period-close-routes.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
+
+enum PeriodAudit {
+  Module = "accounting",
+  EntityType = "FISCAL_PERIOD",
+  Severity = "WARNING",
+}
+
+const AUDIT_ACTION: Readonly<Record<PeriodCloseAction, string>> = {
+  [PeriodCloseAction.Close]: "CLOSE",
+  [PeriodCloseAction.Lock]: "LOCK",
+};
+
+const REFUSAL_STATUS: Readonly<Record<PeriodCloseErrorCode, 403 | 409 | 503>> = {
+  [PeriodCloseErrorCode.Blocked]: 409,
+  [PeriodCloseErrorCode.Contended]: 409,
+  [PeriodCloseErrorCode.OverrideNotPermitted]: 403,
+  [PeriodCloseErrorCode.LockOverrideSameUser]: 403,
+  [PeriodCloseErrorCode.ChecksUnavailable]: 503,
+  [PeriodCloseErrorCode.Unauditable]: 503,
+};
+
+async function readOptionalJson(c: Context): Promise<unknown> {
+  const text = await c.req.text();
+  if (text.trim() === "") return {};
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
 
 function serialize(period: FiscalPeriod) {
   return {
@@ -30,6 +73,8 @@ function serialize(period: FiscalPeriod) {
 
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof FiscalPeriodNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -37,7 +82,10 @@ function handleDomainError(c: Context, err: unknown) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
   if (err instanceof InvalidPeriodTransitionError) {
-    return c.json({ error: err.code, message: err.message }, 422);
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
+  }
+  if (err instanceof PeriodCloseRefusal) {
+    return c.json(serializePeriodCloseError(err), REFUSAL_STATUS[err.code]);
   }
   throw err;
 }
@@ -58,12 +106,8 @@ function handleDomainError(c: Context, err: unknown) {
 export function createFiscalPeriodsRoutes(
   repo: FiscalPeriodRepository,
   resolveAuthContext: AuthContextResolver,
-  /**
-   * Who closed, reopened or locked a period. Reopening a closed period is the
-   * move that lets a posted month be changed after the fact, and it left no
-   * record at all.
-   */
-  audit?: AuditSink,
+  audit: AuditSink | undefined,
+  periodCloseGuard: PeriodCloseGuardSource,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -117,16 +161,60 @@ export function createFiscalPeriodsRoutes(
     }
   });
 
-  app.post("/:id/close", gate("accounting.period.close"), async (c) => {
+  async function guardedTransition(c: Context, action: PeriodCloseAction) {
+    const periodId = c.req.param("id") ?? "";
     try {
-      const before = await repo.findById(c.req.param("id"));
-      const period = await closeFiscalPeriod(c.req.param("id"), repo);
-      await auditPeriod(c, period, "CLOSE", before?.status ?? null);
-      return c.json(serialize(period));
+      const parsed = periodCloseRequestSchema.safeParse(await readOptionalJson(c));
+      if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      const guard = periodCloseGuard();
+      if (!guard || !audit) {
+        const period = await repo.findById(periodId);
+        if (!period) throw new FiscalPeriodNotFoundError(periodId);
+        throw guard ? new PeriodCloseUnauditableError(period) : new PeriodCloseChecksUnavailableError(period);
+      }
+
+      const canOverride = canOverridePeriodClose(c);
+      const result = await guard.attempt({
+        periodId,
+        action,
+        overrideReason: parsed.data.overrideReason ?? null,
+        canOverride,
+        actor: callerUserId(c) ?? "system",
+        wildcardAdmin: getAuthContext(c)?.permissions.has("*") ?? false,
+        scope: periodCloseScopeOf(c),
+        buildAuditEvent: (input) =>
+          buildAdminEvent(c, {
+            module: PeriodAudit.Module,
+            entityType: PeriodAudit.EntityType,
+            entityId: input.period.id,
+            action: AUDIT_ACTION[input.action],
+            severity: PeriodAudit.Severity,
+            details: {
+              year: input.period.year,
+              periodNumber: input.period.periodNumber,
+              status: input.period.status,
+              previousStatus: input.previousStatus,
+              overridden: input.overrideReason !== null,
+              failedChecks: input.failedChecks,
+              reason: input.overrideReason,
+              sha256: input.sha256,
+              singleOperatorMode: input.singleOperatorMode,
+            },
+          }),
+      });
+      if (result.kind === PeriodCloseAttemptKind.Refused) {
+        return c.json(
+          serializePeriodCloseRefusal(result.refusal, result.evaluation, result.period, canOverride),
+          REFUSAL_STATUS[result.refusal.code],
+        );
+      }
+      return c.json(serialize(result.period));
     } catch (err) {
       return handleDomainError(c, err);
     }
-  });
+  }
+
+  app.post("/:id/close", gate("accounting.period.close"), (c) => guardedTransition(c, PeriodCloseAction.Close));
 
   app.post("/:id/reopen", gate("accounting.period.reopen"), async (c) => {
     try {
@@ -139,16 +227,7 @@ export function createFiscalPeriodsRoutes(
     }
   });
 
-  app.post("/:id/lock", gate("accounting.period.close"), async (c) => {
-    try {
-      const before = await repo.findById(c.req.param("id"));
-      const period = await lockFiscalPeriod(c.req.param("id"), repo);
-      await auditPeriod(c, period, "LOCK", before?.status ?? null);
-      return c.json(serialize(period));
-    } catch (err) {
-      return handleDomainError(c, err);
-    }
-  });
+  app.post("/:id/lock", gate("accounting.period.close"), (c) => guardedTransition(c, PeriodCloseAction.Lock));
 
   return app;
 }

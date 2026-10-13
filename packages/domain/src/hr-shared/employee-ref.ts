@@ -12,7 +12,12 @@
  * depend on it without pulling in the full HR module's write surface.
  */
 
-export type EmployeeRefStatus = "active" | "on_leave" | "suspended" | "terminated";
+export enum EmployeeRefStatus {
+  Active = "active",
+  OnLeave = "on_leave",
+  Suspended = "suspended",
+  Terminated = "terminated",
+}
 export type EmployeeWorkerCategory = "staff" | "worker";
 export type EmployeeOvertimeEligibility = "inherit_department" | "eligible" | "not_eligible";
 
@@ -29,6 +34,7 @@ export interface EmployeeRef {
   readonly managerId: string | null;
   readonly hireDate: string;
   readonly status: EmployeeRefStatus;
+  readonly terminatedAt?: string | null;
   readonly workerCategory: EmployeeWorkerCategory;
   /** Overtime eligibility, already resolved of the "inherit department" indirection is NOT done here — callers needing the resolved boolean combine this with the department's `overtimeEligible` default. */
   readonly overtimeEligibility: EmployeeOvertimeEligibility;

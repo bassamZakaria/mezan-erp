@@ -117,6 +117,7 @@ export interface EtaSubmissionRepository {
   findById(id: string): Promise<EtaSubmission | null>;
   findByInternalId(internalId: string): Promise<EtaSubmission | null>;
   list(status?: EtaSubmissionStatus): Promise<EtaSubmission[]>;
+  statusByEtaUuid(etaUuid: string): Promise<EtaSubmissionStatus | null>;
   create(submission: EtaSubmission): Promise<void>;
   update(submission: EtaSubmission): Promise<void>;
 }

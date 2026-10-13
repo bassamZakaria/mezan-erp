@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { NumeralsProvider, loadPersistedLocale, useTranslation } from "@mezan/ui";
-import { useTenantSettings } from "../data/hooks";
+import { useDisplaySettings } from "../data/hooks";
 
 /**
  * Applies the two عام settings that describe the interface itself.
@@ -11,7 +11,7 @@ import { useTenantSettings } from "../data/hooks";
  * on a shared Arabic install is never overwritten on the next page load.
  */
 export function TenantPreferences({ children }: { children: ReactNode }) {
-  const settings = useTenantSettings();
+  const settings = useDisplaySettings();
   const { setLocale } = useTranslation();
   const applied = useRef(false);
   const language = settings.data?.language;

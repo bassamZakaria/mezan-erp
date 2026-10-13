@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import { randomUUID } from "node:crypto";
 import {
@@ -144,6 +145,8 @@ function withMessageEn(err: { code: string; message: string }) {
 
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof VanTripNotFoundError || err instanceof VanNotFoundError) {
     return c.json(withMessageEn(err), 404);
   }

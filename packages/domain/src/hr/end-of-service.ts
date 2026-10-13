@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { Money } from "../money/index.js";
 import type { Contract } from "./contract.js";
 import type { Employee } from "./employee.js";
@@ -71,7 +72,7 @@ export interface EndOfServiceSettlement {
 }
 
 export function calculateEndOfServiceSettlement(input: EndOfServiceSettlementInput): EndOfServiceSettlement {
-  if (input.employee.status !== "terminated" && input.employee.terminatedAt === null) {
+  if (input.employee.status !== EmployeeRefStatus.Terminated && input.employee.terminatedAt === null) {
     throw new EmployeeStillEmployedError(input.employee.id);
   }
 

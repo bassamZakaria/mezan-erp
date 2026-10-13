@@ -59,18 +59,18 @@ export const CATALOG_VERSION = 3 as const;
 
 const CORE_MODULES: readonly ModuleDef[] = [
   { id: "sales", labelAr: "المبيعات", count: 28 },
-  { id: "purchases", labelAr: "المشتريات", count: 31 },
-  { id: "inventory", labelAr: "المخزون", count: 20 },
+  { id: "purchases", labelAr: "المشتريات", count: 32 },
+  { id: "inventory", labelAr: "المخزون", count: 22 },
   { id: "field", labelAr: "المبيعات الميدانية", count: 4 },
-  { id: "accounting", labelAr: "المحاسبة", count: 17 },
+  { id: "accounting", labelAr: "المحاسبة", count: 19 },
   { id: "treasury", labelAr: "الخزينة", count: 19 },
   { id: "workflow", labelAr: "سير العمل", count: 5 },
-  { id: "hr", labelAr: "الموارد البشرية", count: 37 },
+  { id: "hr", labelAr: "الموارد البشرية", count: 40 },
   { id: "crm", labelAr: "إدارة العملاء", count: 13 },
   { id: "installments", labelAr: "الأقساط", count: 7 },
-  { id: "cheques", labelAr: "الأوراق المالية", count: 5 },
+  { id: "cheques", labelAr: "الأوراق المالية", count: 6 },
   { id: "manufacturing", labelAr: "التصنيع", count: 5 },
-  { id: "assets", labelAr: "الأصول", count: 6 },
+  { id: "assets", labelAr: "الأصول", count: 8 },
   { id: "admin", labelAr: "الإدارة", count: 24 },
   { id: "notifications", labelAr: "الإشعارات", count: 2 },
   { id: "audit", labelAr: "المراجعة", count: 1 },
@@ -81,7 +81,7 @@ const CORE_MODULES: readonly ModuleDef[] = [
   // المقاولات — docs/artifacts/mezan-contracting-designs.html §06 "Four rights, not
   // one": the certificate's preparer, certifier, approver and collector are four
   // different people, and one `manage` right cannot express that.
-  { id: "contracting", labelAr: "المقاولات", count: 12 },
+  { id: "contracting", labelAr: "المقاولات", count: 15 },
   { id: "dashboard", labelAr: "لوحة التحكم", count: 1 },
 ];
 
@@ -164,6 +164,7 @@ const ROWS: readonly Row[] = [
   ["purchases.landed_cost.create", "purchases.landed_cost.view"],
   ["purchases.landed_cost.confirm", "purchases.landed_cost.view"],
   ["purchases.landed_cost.void", "purchases.landed_cost.view"],
+  ["purchases.landed_cost.reverse", "purchases.landed_cost.view", "s"],
   ["purchases.supplier360.view", "purchases.supplier.view"],
 
   // 3. inventory — 20
@@ -177,6 +178,7 @@ const ROWS: readonly Row[] = [
   ["inventory.adjustment.view"],
   ["inventory.adjustment.create", "inventory.adjustment.view"],
   ["inventory.adjustment.confirm", "inventory.adjustment.view"],
+  ["inventory.adjustment.reverse", "inventory.adjustment.view", "s"],
   ["inventory.valuation.view", "inventory.stock.view"],
   ["inventory.valuation.rebuild", "inventory.valuation.view"],
   ["inventory.count.view"],
@@ -188,6 +190,7 @@ const ROWS: readonly Row[] = [
   ["inventory.template.generate", "inventory.template.view"],
   ["inventory.writedown.view"],
   ["inventory.writedown.run", "inventory.writedown.view"],
+  ["inventory.writedown.reverse", "inventory.writedown.view", "s"],
 
   // 4. field (van sales) — 4
   ["field.van_trip.view"],
@@ -204,6 +207,8 @@ const ROWS: readonly Row[] = [
   ["accounting.period.view"],
   ["accounting.period.close", "accounting.period.view"],
   ["accounting.period.reopen", "accounting.period.close"],
+  ["accounting.year_end_close.reverse", "accounting.period.view", "s"],
+  ["accounting.revaluation.reverse", "accounting.journal.view", "s"],
   ["accounting.reports.view"],
   ["accounting.reports.view_unattributed", "accounting.reports.view", "s"],
   ["accounting.exchange_rate.manage"],
@@ -266,12 +271,15 @@ const ROWS: readonly Row[] = [
   ["hr.advance.view"],
   ["hr.advance.approve", "hr.advance.view"],
   ["hr.advance.create", "hr.advance.view"],
+  ["hr.advance.reverse", "hr.advance.view", "s"],
   ["hr.payroll.view"],
   ["hr.payroll.approve", "hr.payroll.view"],
   ["hr.payroll.pay", "hr.payroll.approve"],
   ["hr.payroll.create", "hr.payroll.view"],
   ["hr.payroll.calculate", "hr.payroll.create"],
   ["hr.payroll.void", "hr.payroll.view"],
+  ["hr.payroll.reverse", "hr.payroll.view", "s"],
+  ["hr.provision.reverse", "hr.payroll.view", "s"],
   ["hr.attendance.view"],
   ["hr.attendance.edit", "hr.attendance.view"],
   ["hr.contract.view", "hr.employee.view"],
@@ -324,6 +332,7 @@ const ROWS: readonly Row[] = [
   ["cheques.deposit", "cheques.view"],
   ["cheques.collect", "cheques.view"],
   ["cheques.bounce", "cheques.view"],
+  ["cheques.reverse", "cheques.view", "s"],
 
   // 13. manufacturing — 5
   ["manufacturing.bom.view"],
@@ -337,8 +346,10 @@ const ROWS: readonly Row[] = [
   ["assets.create", "assets.view"],
   ["assets.manage", "assets.view"],
   ["assets.dispose", "assets.view"],
+  ["assets.disposal.reverse", "assets.view", "s"],
   ["assets.depreciation.view", "assets.view"],
   ["assets.depreciation.run", "assets.depreciation.view"],
+  ["assets.depreciation.reverse", "assets.depreciation.view", "s"],
 
   // 15. admin — 23
   ["admin.users.view"],
@@ -406,6 +417,9 @@ const ROWS: readonly Row[] = [
   ["contracting.guarantee.view"],
   ["contracting.guarantee.manage", "contracting.guarantee.view"],
   ["contracting.guarantee.release", "contracting.guarantee.view", "s"],
+  ["contracting.guarantee.reverse", "contracting.guarantee.view", "s"],
+  ["contracting.equipment_log.reverse", "projects.project.view", "s"],
+  ["contracting.consumption.reverse", "projects.project.view", "s"],
 
   ["dashboard.view"],
 ];

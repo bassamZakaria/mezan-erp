@@ -161,9 +161,9 @@ export function StockTransfersScreen() {
    * say so plainly when the server does not have it either.
    */
   const inList = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
-  const fetched = useStockTransfer(selectedId !== null && inList === null ? selectedId : null);
+  const fetched = useStockTransfer(selectedId !== null && inList === null && !query.isPending ? selectedId : null);
   const selected: StockTransferDocumentDTO | null = inList ?? fetched.data ?? null;
-  const selectedMissing = selectedId !== null && selected === null && !fetched.isPending;
+  const selectedMissing = selectedId !== null && selected === null && !query.isPending && !fetched.isPending;
 
   const columns: DocumentListColumn<StockTransferDocumentDTO>[] = [
     {

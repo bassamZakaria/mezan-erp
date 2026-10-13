@@ -996,7 +996,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const period = ctx.rows((await req("GET", "/fiscal-periods")).body).find((p: any) => p.status === "open");
     if (period) {
-      await req("POST", `/fiscal-periods/${period.id}/close`, {});
+      await req("POST", `/fiscal-periods/${period.id}/close`, { overrideReason: "SCN: إقفال اختباري فوق فحوص الإقفال المفتوحة" });
       await req("POST", `/fiscal-periods/${period.id}/reopen`, {});
       const trail = ctx.rows(
         (await req("GET", `/audit?stream=sensitive&entityType=FISCAL_PERIOD&entityId=${period.id}`)).body,

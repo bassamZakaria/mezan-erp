@@ -1,6 +1,6 @@
 import { createJournalEntry, deleteDraftJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import { duePeriods, journalDateForPeriod, nextPeriodFirstDate } from "./schedule.js";
-import { RecurringJournalTemplateStatus, type RecurringJournalTemplate } from "./types.js";
+import { RecurringJournalTemplateStatus, type RecurringJournalRun, type RecurringJournalTemplate } from "./types.js";
 import type { RecurringJournalRunRepository, RecurringJournalSkipRepository, RecurringJournalTemplateRepository } from "./store.js";
 
 export interface GenerateDueRecurringJournalsDeps extends JournalPostingDeps {
@@ -17,6 +17,22 @@ export interface GenerateDueRecurringJournalsDeps extends JournalPostingDeps {
    * layer (Node-only) always supplies one.
    */
   readonly idGen: () => string;
+}
+
+export interface RecurringRunStanding {
+  readonly standing: RecurringJournalRun | null;
+  readonly reversed: RecurringJournalRun | null;
+}
+
+export async function recurringRunStanding(
+  deps: { readonly runs: Pick<RecurringJournalRunRepository, "findByTemplateAndPeriod">; readonly ledger: Pick<JournalPostingDeps["ledger"], "findById"> },
+  templateId: string,
+  period: string,
+): Promise<RecurringRunStanding> {
+  const run = await deps.runs.findByTemplateAndPeriod(templateId, period);
+  if (!run) return { standing: null, reversed: null };
+  const entry = await deps.ledger.findById(run.journalEntryId);
+  return entry?.status === "reversed" ? { standing: null, reversed: run } : { standing: run, reversed: null };
 }
 
 export interface GenerateDueRecurringJournalsOptions {
@@ -82,13 +98,14 @@ export async function generateDueRecurringJournals(
       // The fast pre-check: a period already recorded is skipped without
       // ever drafting anything. The actual idempotency guarantee is the
       // atomic claim inside `generateOnePeriod`.
-      if (await deps.runs.findByTemplateAndPeriod(template.id, period)) continue;
+      const { standing, reversed } = await recurringRunStanding(deps, template.id, period);
+      if (standing) continue;
       // A period an operator deliberately skipped is never drafted either —
       // "skip this occurrence" would be decorative if the next sweep drafted
       // it anyway.
       if (await deps.skips.findByTemplateAndPeriod(template.id, period)) continue;
       try {
-        const result = await generateOnePeriod(template, period, idGen, deps);
+        const result = await generateOnePeriod(template, period, idGen, deps, reversed);
         if (result) generated.push(result);
         // `result === null` means another call won the (template, period)
         // race between the pre-check above and the claim — already
@@ -111,6 +128,7 @@ async function generateOnePeriod(
   period: string,
   idGen: () => string,
   deps: GenerateDueRecurringJournalsDeps,
+  reversed: RecurringJournalRun | null,
 ): Promise<GeneratedRecurringJournal | null> {
   const date = journalDateForPeriod(template, period);
   const entry = await createJournalEntry(
@@ -149,17 +167,19 @@ async function generateOnePeriod(
     reversalNo = reversal.entryNo ?? null;
   }
 
-  const claimed = await deps.runs.save({
+  const run: RecurringJournalRun = {
     id: idGen(),
     templateId: template.id,
     period,
+    generation: reversed ? reversed.generation + 1 : 1,
     journalEntryId: entry.id,
     journalEntryNo: entry.entryNo ?? null,
     reversalJournalEntryId: reversalId,
     reversalJournalEntryNo: reversalNo,
     generatedAt: deps.now ? deps.now() : new Date().toISOString(),
     generatedBy: deps.actor ?? "system",
-  });
+  };
+  const claimed = await deps.runs.save(run);
 
   if (!claimed) {
     // Lost the race: a concurrent call recorded this (template, period)

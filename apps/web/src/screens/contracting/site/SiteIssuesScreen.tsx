@@ -30,7 +30,7 @@ import {
 } from "../../../data/contracting-site-hooks";
 import { useItems, useProjects, useStockBalance, useWarehouses } from "../../../data/hooks";
 import { FormColumns, FormError, FormPage, SectionCard, SelectField, TextField } from "../../../settings/form-controls";
-import { useSubPage } from "../../../navigation";
+import { useNameSubPage, useSubPage } from "../../../navigation";
 import { useAppTranslation } from "../../../i18n";
 import { useEntityName } from "../../../lib/entity-names";
 import { errorMessage } from "../../../lib/error-message";
@@ -109,6 +109,7 @@ export function SiteIssuesScreen() {
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const detail = useSiteIssue(selectedId);
+  useNameSubPage(selectedId, detail.data ? (detail.data.docNo ?? t("docStatus.draft")) : null);
 
   async function confirmRow(id: string): Promise<RowActionOutcome | void> {
     if (rowPendingId) return;

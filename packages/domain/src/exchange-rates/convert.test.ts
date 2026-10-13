@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
-import { convertToBase, convertFromBase, isBaseCurrency, FxRateMissingError } from "./convert.js";
+import { carryingBaseOf, convertToBase, convertFromBase, isBaseCurrency, FxRateMissingError } from "./convert.js";
 
 describe("convertToBase", () => {
   it("multiplies a foreign amount by the base-per-foreign rate, rounding HALF_UP at scale 1e-6", () => {
@@ -66,5 +66,25 @@ describe("FxRateMissingError", () => {
     expect(err.message).toContain("USD");
     expect(err.message).toContain("2026-08-31");
     expect(err).toBeInstanceOf(Error);
+  });
+});
+
+describe("carryingBaseOf — what leaves a foreign position leaves at what it is carried at", () => {
+  const position = { foreign: Money.fromMajor("3"), base: Money.fromMajor("100") };
+
+  it("a part takes its weighted share, rounded once", () => {
+    expect(carryingBaseOf(position, Money.fromMajor("1"))).toEqual({ covered: Money.fromMajor("1"), base: Money.fromMajor("33.333333") });
+  });
+
+  it("all of the foreign money takes all of the base, so nothing is left behind by rounding", () => {
+    expect(carryingBaseOf(position, Money.fromMajor("3"))).toEqual({ covered: Money.fromMajor("3"), base: Money.fromMajor("100") });
+  });
+
+  it("more than the position holds is covered only as far as it holds, at no more than its whole base", () => {
+    expect(carryingBaseOf(position, Money.fromMajor("5"))).toEqual({ covered: Money.fromMajor("3"), base: Money.fromMajor("100") });
+  });
+
+  it("a position holding nothing carries nothing", () => {
+    expect(carryingBaseOf({ foreign: Money.zero(), base: Money.fromMajor("7") }, Money.fromMajor("1"))).toEqual({ covered: Money.zero(), base: Money.zero() });
   });
 });

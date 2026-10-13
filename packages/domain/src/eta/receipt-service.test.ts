@@ -28,6 +28,10 @@ class MemSubmissions implements EtaSubmissionRepository {
   async list(status?: EtaSubmissionStatus) {
     return [...this.rows.values()].filter((s) => (status ? s.status === status : true));
   }
+  async statusByEtaUuid(etaUuid: string) {
+    for (const s of this.rows.values()) if (s.documentType === "receipt" && s.etaUuid === etaUuid) return s.status;
+    return null;
+  }
   async create(s: EtaSubmission) {
     this.rows.set(s.id, s);
   }
@@ -426,6 +430,92 @@ describe("submitReadyReceipts — reported device by device, in chain order", ()
     expect(result.rejected.map((s) => s.internalId)).toEqual(["RCP-BATCH-2"]);
     expect(result.submitted.every((s) => s.status === "submitted")).toBe(true);
     expect(result.rejected[0]?.errors).toEqual(["رفضت المصلحة هذا الإيصال"]);
+  });
+});
+
+describe("submitReadyReceipts — what it reads from the queue", () => {
+  function stored(submissions: MemSubmissions, internalId: string): EtaSubmission {
+    const found = [...submissions.rows.values()].find((s) => s.internalId === internalId);
+    if (!found) throw new Error(`no submission for ${internalId}`);
+    return found;
+  }
+
+  function referTo(submissions: MemSubmissions, refundInternalId: string, sale: EtaSubmission): EtaSubmission {
+    const refund = stored(submissions, refundInternalId);
+    const payload = refund.payload as { header: Record<string, unknown> };
+    const next = { ...refund, payload: { ...payload, header: { ...payload.header, referenceUUID: sale.etaUuid } } };
+    submissions.rows.set(refund.id, next);
+    return next;
+  }
+
+  it("reads only the ready receipts and the one receipt a refund refers to, never the whole history", async () => {
+    let clock = 0;
+    const reads: (EtaSubmissionStatus | "everything")[] = [];
+    const lookups: string[] = [];
+    class CountingSubmissions extends MemSubmissions {
+      override async list(status?: EtaSubmissionStatus) {
+        reads.push(status ?? "everything");
+        return super.list(status);
+      }
+      override async statusByEtaUuid(etaUuid: string) {
+        lookups.push(etaUuid);
+        return super.statusByEtaUuid(etaUuid);
+      }
+    }
+    const submissions = new CountingSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => new Date(Date.UTC(2026, 8, 1, 10, 0, clock++)).toISOString(),
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit(submission) {
+          return { ok: true, etaUuid: submission.etaUuid ?? undefined };
+        },
+      },
+    });
+    for (const n of [1, 2, 3]) await svc.enqueueReceipt({ ...receipt, internalId: `RCP-OLD-${n}` });
+    await svc.submitReadyReceipts();
+    const sale = stored(submissions, "RCP-OLD-2");
+
+    await svc.enqueueReceipt({ ...receipt, internalId: "RCP-NEW-1" });
+    await svc.enqueueReceipt({ ...receipt, internalId: "RCP-NEW-2" });
+    referTo(submissions, "RCP-NEW-2", sale);
+    reads.length = 0;
+    lookups.length = 0;
+    const result = await svc.submitReadyReceipts();
+
+    expect(result.submitted.map((s) => s.internalId)).toEqual(["RCP-NEW-1", "RCP-NEW-2"]);
+    expect(reads).toEqual(["ready"]);
+    expect(lookups).toEqual([sale.etaUuid]);
+  });
+
+  it("holds a refund back while the sale it refers to has not reached the authority", async () => {
+    let clock = 0;
+    const submissions = new MemSubmissions();
+    const svc = new EtaService({
+      config: new MemConfig(READY),
+      submissions,
+      receiptUuid: countingUuidPort(),
+      now: () => new Date(Date.UTC(2026, 8, 1, 10, 0, clock++)).toISOString(),
+      newId: () => `eta-${++ids}`,
+      transmit: {
+        async transmit(submission) {
+          return { ok: true, etaUuid: submission.etaUuid ?? undefined };
+        },
+      },
+    });
+    await svc.enqueueReceipt({ ...receipt, internalId: "RCP-SALE", seller: { deviceSerialNumber: "POS-A", branchCode: "1", companyTradeName: "متجر" } });
+    const sale = { ...stored(submissions, "RCP-SALE"), status: "error" as const };
+    submissions.rows.set(sale.id, sale);
+    await svc.enqueueReceipt({ ...receipt, internalId: "RCP-REFUND", seller: { deviceSerialNumber: "POS-B", branchCode: "1", companyTradeName: "متجر" } });
+    const refund = referTo(submissions, "RCP-REFUND", sale);
+
+    const result = await svc.submitReadyReceipts();
+
+    expect(result.submitted).toEqual([]);
+    expect(result.queued).toEqual([refund.id]);
   });
 });
 

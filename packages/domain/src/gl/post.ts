@@ -86,7 +86,7 @@ export interface CreateJournalEntryCommand {
 export interface JournalPostingDeps {
   readonly ledger: LedgerRepository;
   readonly accounts: Pick<AccountRepository, "findById">;
-  readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
+  readonly periods: Pick<FiscalPeriodRepository, "findByDate"> & Partial<Pick<FiscalPeriodRepository, "list">>;
   /**
    * Filed VAT returns. A separate lock from the fiscal period, answering a
    * separate question: a tenant can legitimately have an open accounting period

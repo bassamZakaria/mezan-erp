@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { EmptyState, PrintView, resolvePrintTemplateConfig, useFormat, type PrintTemplateConfig } from "@mezan/ui";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
-import { useBranches, useCustomers, useEtaSubmissions, usePrintTemplateConfig, useTenantSettings, useWarehouses } from "../data/hooks";
+import { useBranches, useCustomers, useEtaSubmissions, usePrintTemplateConfig, useDisplaySettings, useWarehouses } from "../data/hooks";
 import { salesInvoicePrintModel } from "./sales-invoice-print";
 import { useEtaReceiptPrint } from "../screens/eta/receipt-print";
 import { EMPTY } from "../lib/empty";
@@ -21,7 +21,7 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
   const { t } = useAppTranslation();
   const format = useFormat();
   const configQuery = usePrintTemplateConfig();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const customers = useCustomers().data ?? [];
   const branches = useBranches().data ?? EMPTY;
   const warehouses = useWarehouses().data ?? EMPTY;

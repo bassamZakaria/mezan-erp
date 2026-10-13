@@ -68,6 +68,12 @@ describe("TreasuryAccountsScreen", () => {
     expect(screen.getByText("البنك الأهلي المصري — جاري")).toBeInTheDocument();
   });
 
+  it("a foreign-currency account shows what it holds in its own currency beside the base balance", async () => {
+    renderScreen([{ ...sampleAccounts[2]!, id: "ta-usd", code: "BANK-USD", name: "البنك الأهلي — دولار", currency: "USD", foreignBalance: "1100.000000", foreignBalanceBase: "53745.000000", foreignBalanceDerivedLines: 0 }]);
+    const row = (await screen.findByText("البنك الأهلي — دولار")).closest("tr")!;
+    expect(row).toHaveTextContent("1,100.00 USD");
+  });
+
   it("shows an empty state when there are no treasury accounts yet", async () => {
     renderScreen([]);
     expect(await screen.findByText("لا توجد حسابات خزينة مطابقة")).toBeInTheDocument();

@@ -1,4 +1,5 @@
 import { BranchRecordKind, recordsInBranchGrant } from "./branch-policy.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -7,6 +8,7 @@ import {
   createAsset,
   createDepreciationRun,
   postDepreciationRun,
+  discardDepreciationRun,
   reverseDepreciationRun,
   DuplicateAssetCategoryCodeError,
   InvalidAssetCategoryError,
@@ -18,14 +20,20 @@ import {
   InvalidAssetDisposalError,
   type DisposalProceedsAccount,
   disposeAsset,
+  undoAssetDisposal,
+  assetDisposalEntryId,
+  nextEntryGenerationId,
+  AssetNotDisposedError,
   postJournalEntry,
   DepreciationRunNotFoundError,
   DepreciationRunNotDraftError,
   DepreciationRunNotPostedError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  type FiscalPeriodRepository,
   VatPeriodAlreadyFiledError,
   DuplicateDepreciationPeriodError,
+  AssetAlreadyDepreciatedError,
   NoDepreciableAssetsError,
   ReversalDateBeforeOriginalError,
   LaterDepreciationRunExistsError,
@@ -46,6 +54,7 @@ import {
   sortInternalRateHistory,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   createAssetCategorySchema,
   createAssetSchema,
   createDepreciationRunSchema,
@@ -62,6 +71,7 @@ import {
 import type { StoredBranchesResolver } from "./permission-gate.js";
 import { documentBranches } from "./stored-branches.js";
 import { recordAdminEvent } from "./admin-audit.js";
+import { readReversalRequest, requireReversalReason } from "./document-reversal.js";
 import { tenantDay } from "./tenant-day.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
@@ -79,6 +89,7 @@ export interface FixedAssetsRoutesDeps {
   readonly categories: AssetCategoryRepository;
   readonly assets: AssetRepository;
   readonly runs: DepreciationRunRepository;
+  readonly periods?: Pick<FiscalPeriodRepository, "findByDate">;
   readonly gl: JournalPostingDeps;
   readonly warehouses?: WarehouseBranchLookup;
   /** Where a disposal's sale proceeds may land — derived by the composition root from the chart, never from a code prefix. */
@@ -170,6 +181,7 @@ function serializeRun(run: DepreciationRun) {
     branchId: run.branchId,
     status: run.status,
     lines: run.lines.map((l) => ({ assetId: l.assetId, amount: l.amount.toString() })),
+    skippedLines: (run.skippedLines ?? []).map((l) => ({ assetId: l.assetId, assetCode: l.assetCode, amount: l.amount.toString() })),
     totalAmount: run.totalAmount.toString(),
     journalEntryId: run.journalEntryId,
     createdAt: run.createdAt,
@@ -179,6 +191,8 @@ function serializeRun(run: DepreciationRun) {
 
 function handleDomainError(c: Context, err: unknown) {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof AssetCategoryNotFoundError || err instanceof AssetNotFoundError || err instanceof DepreciationRunNotFoundError) {
@@ -190,7 +204,8 @@ function handleDomainError(c: Context, err: unknown) {
   if (
     err instanceof DepreciationRunNotDraftError ||
     err instanceof DepreciationRunNotPostedError ||
-    err instanceof AssetAlreadyDisposedError
+    err instanceof AssetAlreadyDisposedError ||
+    err instanceof AssetNotDisposedError
   ) {
     return refuse(err, 409);
   }
@@ -209,7 +224,8 @@ function handleDomainError(c: Context, err: unknown) {
     err instanceof InvalidAssetDisposalError ||
     err instanceof InvalidAssetCategoryError ||
     err instanceof InvalidAssetError ||
-    err instanceof NoDepreciableAssetsError
+    err instanceof NoDepreciableAssetsError ||
+    err instanceof AssetAlreadyDepreciatedError
   ) {
     return refuse(err, 422);
   }
@@ -462,52 +478,72 @@ export function createFixedAssetsRoutes(
       );
     }
     try {
-      const result = await disposeAsset(
-        {
-          assetId: c.req.param("id"),
-          date: await tenantDay(c, body.date),
-          proceeds: body.proceeds ? Money.fromMajor(body.proceeds) : undefined,
-          proceedsAccountId: body.proceedsAccountId ?? null,
-          notes: body.notes ?? null,
-        },
-        {
-          assets: deps.assets,
-          categories: deps.categories,
-          warehouses: deps.warehouses,
-          accounts: {
-            assetAccountId: deps.defaultAccounts.assetAccountId ?? "1500",
-            accumulatedDepreciationAccountId: deps.defaultAccounts.accumulatedDepreciationAccountId,
-            gainAccountId: deps.defaultAccounts.disposalGainAccountId ?? "4500",
-            lossAccountId: deps.defaultAccounts.disposalLossAccountId ?? "5450",
+      const assetId = c.req.param("id");
+      const result = await deps.gl.ledger.transaction(async () =>
+        disposeAsset(
+          {
+            assetId,
+            date: await tenantDay(c, body.date),
+            proceeds: body.proceeds ? Money.fromMajor(body.proceeds) : undefined,
+            proceedsAccountId: body.proceedsAccountId ?? null,
+            notes: body.notes ?? null,
           },
-          gl: {
-            post: async (posting) => {
-              await postJournalEntry(
-                {
-                  id: `DISP-JE:${posting.sourceDocId}`,
-                  date: posting.date,
-                  memo: posting.memo,
-                  source: "system",
-                  lines: posting.lines.map((l) => ({
-                    accountId: l.accountId,
-                    debit: l.debit,
-                    credit: l.credit,
-                    projectId: l.projectId ?? null,
-                    costCategory: l.costCategory ?? null,
-                    branchId: l.branchId ?? null,
-                  })),
-                },
-                deps.gl,
-              );
+          {
+            assets: deps.assets,
+            categories: deps.categories,
+            warehouses: deps.warehouses,
+            accounts: {
+              assetAccountId: deps.defaultAccounts.assetAccountId ?? "1500",
+              accumulatedDepreciationAccountId: deps.defaultAccounts.accumulatedDepreciationAccountId,
+              gainAccountId: deps.defaultAccounts.disposalGainAccountId ?? "4500",
+              lossAccountId: deps.defaultAccounts.disposalLossAccountId ?? "5450",
+            },
+            gl: {
+              post: async (posting) => {
+                await postJournalEntry(
+                  {
+                    id: await nextEntryGenerationId(deps.gl.ledger, assetDisposalEntryId(posting.sourceDocId)),
+                    date: posting.date,
+                    memo: posting.memo,
+                    source: "system",
+                    sourceDocType: posting.sourceDocType,
+                    sourceDocId: posting.sourceDocId,
+                    sourceDocNumber: posting.sourceDocNumber,
+                    lines: posting.lines.map((l) => ({
+                      accountId: l.accountId,
+                      debit: l.debit,
+                      credit: l.credit,
+                      projectId: l.projectId ?? null,
+                      costCategory: l.costCategory ?? null,
+                      branchId: l.branchId ?? null,
+                    })),
+                  },
+                  deps.gl,
+                );
+              },
             },
           },
-        },
+        ),
       );
       return c.json({
         ...serializeAsset(result.asset),
         bookValueAtDisposal: result.bookValue.toString(),
         gainOrLoss: result.gainOrLoss.toString(),
       });
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/undo-disposal", gate(ReversalPermission.AssetDisposal), requireReversalReason, async (c) => {
+    try {
+      const { date, memo } = await readReversalRequest(c);
+      const asset = await undoAssetDisposal(
+        c.req.param("id"),
+        { assets: deps.assets, gl: { ...deps.gl, actor: getAuthContext(c)?.userId ?? "system" } },
+        { reversalId: idGen(), date, memo },
+      );
+      return c.json(serializeAsset(asset, await deps.rateHistory.list(asset.id)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -575,7 +611,7 @@ export function createFixedAssetsRoutes(
           branchId: parsed.data.branchId ?? null,
           prorate: settings?.depreciationProrate ?? "DAILY",
         },
-        { runs: deps.runs, assets: deps.assets },
+        { runs: deps.runs, assets: deps.assets, periods: deps.periods },
       );
       return c.json(serializeRun(run), 201);
     } catch (err) {
@@ -607,6 +643,23 @@ export function createFixedAssetsRoutes(
     }
   });
 
+  app.post("/depreciation/runs/:id/discard", gate("assets.depreciation.run"), async (c) => {
+    try {
+      const run = await discardDepreciationRun(c.req.param("id"), { runs: deps.runs });
+      await recordAdminEvent(deps.audit, c, {
+        module: "assets",
+        entityType: "DEPRECIATION_RUN",
+        entityId: run.id,
+        action: "DISCARD",
+        severity: "WARNING",
+        details: { period: run.period, branchId: run.branchId, lines: run.lines.length, totalAmount: run.totalAmount.toString() },
+      });
+      return c.json(serializeRun(run));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
   /**
    * عكس تشغيل الإهلاك (B-9, D275). Period-gated by the GL engine on the
    * reversal's own date, so a locked or closed month refuses; the assets'
@@ -615,7 +668,7 @@ export function createFixedAssetsRoutes(
    * gave voucher reversals, one bounded context over — never the run's own
    * period-end day, which would restate a period already reported.
    */
-  app.post("/depreciation/runs/:id/reverse", gate("assets.depreciation.run"), async (c) => {
+  app.post("/depreciation/runs/:id/reverse", gate(ReversalPermission.DepreciationRun), async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { date?: string; memo?: string };
     try {
       const run = await reverseDepreciationRun(

@@ -89,19 +89,70 @@ export class PurchaseOrderRequiredError extends Error {
 
 export class PurchaseItemsAlreadyConsumedError extends Error {
   readonly code = "PURCHASE_ITEMS_ALREADY_CONSUMED";
+  readonly messageEn: string;
   constructor(readonly id: string) {
     super(
-      `لا يمكن إلغاء مستند المشتريات "${id}": جزء من بضاعته بيع أو نُقل أو استُهلك بالفعل، وسياسة تتبّع الأصناف المباعة مفعّلة.`,
+      `لا يمكن إلغاء مستند المشتريات "${id}": جزء من بضاعته بيع أو نُقل أو استُهلك بالفعل. سجّل مرتجع مشتريات بالكمية الباقية في المخزن بدلاً من الإلغاء.`,
     );
+    this.messageEn = `Purchase document "${id}" cannot be cancelled: some of its goods have already been sold, transferred or consumed. Record a purchase return for what is still on hand instead.`;
     this.name = "PurchaseItemsAlreadyConsumedError";
   }
 }
 
+export enum GoodsReceiptInvoicedRefusal {
+  Cancel = "cancel",
+  SecondInvoice = "second_invoice",
+}
+
 export class GoodsReceiptAlreadyInvoicedError extends Error {
   readonly code = "GOODS_RECEIPT_ALREADY_INVOICED";
-  constructor(readonly id: string) {
-    super(`إذن الاستلام "${id}" تمت فوترته ولا يمكن إلغاؤه.`);
+  readonly messageEn: string;
+  constructor(
+    readonly id: string,
+    readonly refusal: GoodsReceiptInvoicedRefusal = GoodsReceiptInvoicedRefusal.Cancel,
+  ) {
+    super(
+      refusal === GoodsReceiptInvoicedRefusal.Cancel
+        ? `إذن الاستلام "${id}" تمت فوترته ولا يمكن إلغاؤه.`
+        : `إذن الاستلام "${id}" فُوترت كل كمياته بفواتير مشتريات مؤكدة، ولا تُؤكَّد عليه فاتورة أخرى. ألغِ الفاتورة القائمة أولاً إن كانت هذه هي الصحيحة.`,
+    );
+    this.messageEn =
+      refusal === GoodsReceiptInvoicedRefusal.Cancel
+        ? `Goods receipt "${id}" has been invoiced and cannot be cancelled.`
+        : `Goods receipt "${id}" is already fully billed by confirmed purchase invoices; another one cannot be confirmed against it. Cancel the standing invoice first if this is the right one.`;
     this.name = "GoodsReceiptAlreadyInvoicedError";
+  }
+}
+
+export class InvoiceDoesNotMatchReceiptError extends Error {
+  readonly code = "INVOICE_DOES_NOT_MATCH_RECEIPT";
+  readonly messageEn: string;
+  constructor(
+    readonly receiptId: string,
+    readonly reasons: readonly { readonly ar: string; readonly en: string }[],
+  ) {
+    super(`فاتورة المشتريات لا تطابق إذن الاستلام "${receiptId}": ${reasons.map((r) => r.ar).join("، ")}.`);
+    this.messageEn = `The purchase invoice does not match goods receipt "${receiptId}": ${reasons.map((r) => r.en).join("; ")}.`;
+    this.name = "InvoiceDoesNotMatchReceiptError";
+  }
+}
+
+export class InvoiceExceedsReceiptError extends Error {
+  readonly code = "INVOICE_EXCEEDS_RECEIPT";
+  readonly messageEn: string;
+  constructor(
+    readonly receiptId: string,
+    readonly excess: readonly { readonly itemId: string; readonly requested: string; readonly remaining: string }[],
+  ) {
+    super(
+      `فاتورة المشتريات تتجاوز الكمية المتبقية بدون فوترة في إذن الاستلام "${receiptId}": ${excess
+        .map((e) => `الصنف "${e.itemId}" مطلوب فوترة ${e.requested} والمتبقي ${e.remaining}`)
+        .join("، ")}.`,
+    );
+    this.messageEn = `The purchase invoice bills more than goods receipt "${receiptId}" still has uninvoiced: ${excess
+      .map((e) => `item "${e.itemId}" requested ${e.requested}, remaining ${e.remaining}`)
+      .join("; ")}.`;
+    this.name = "InvoiceExceedsReceiptError";
   }
 }
 

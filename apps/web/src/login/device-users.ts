@@ -23,8 +23,7 @@ const LIMIT = 3;
  * the desktop build (and cloud "subdomain" mode, one origin per tenant
  * already) never has a code here, so it keeps the old unscoped key.
  */
-function storageKey(): string {
-  const code = loadTenantCode();
+function storageKey(code: string | null = loadTenantCode()): string {
   return code ? `${KEY}.${code}` : KEY;
 }
 
@@ -46,9 +45,9 @@ function initialsOf(name: string): string {
   return second ? `${first}.${second}` : first;
 }
 
-export function readDeviceUsers(): DeviceUser[] {
+export function readDeviceUsers(code: string | null = loadTenantCode()): DeviceUser[] {
   try {
-    const raw = window.localStorage.getItem(storageKey());
+    const raw = window.localStorage.getItem(storageKey(code));
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];

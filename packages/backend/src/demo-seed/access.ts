@@ -1,3 +1,4 @@
+import { withReversalPermissions } from "@mezan/contracts";
 import type { App } from "@mezan/api";
 import { loadSeededUsers, step } from "./shared.js";
 import type { SeedPerson } from "./fragments.js";
@@ -617,7 +618,7 @@ export function seededRoles(licensing: SeedLicensing): SeededRoleGrant[] {
     code: role.code,
     name: role.name,
     description: role.description,
-    permissions: [...new Set([DASHBOARD_PERMISSION, ...role.permissions, ...fragmentGrantsFor(role.code, licensing)])],
+    permissions: withReversalPermissions([...new Set([DASHBOARD_PERMISSION, ...role.permissions, ...fragmentGrantsFor(role.code, licensing)])]),
   }));
 }
 
@@ -633,6 +634,7 @@ export async function seedAccess(app: App): Promise<void> {
     // wildcard admin is subject to فصل المهام exactly like they are. A demo
     // that waived it could not show the rule refusing anything.
     contractingSingleOperatorMode: false,
+    periodCloseSingleOperatorMode: false,
   });
 
   // --- الأدوار ---

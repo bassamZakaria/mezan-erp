@@ -1185,22 +1185,22 @@ async function taxSettingsAreLive(ctx: Ctx): Promise<void> {
       usefulLifeMonths: 10,
       salvageValue: "0",
     });
-    const a = await req("POST", "/assets", asset("SCN-SET-ASSET-A", "2026-05-20"));
-    const b = await req("POST", "/assets", asset("SCN-SET-ASSET-B", "2026-06-20"));
+    const a = await req("POST", "/assets", asset("SCN-SET-ASSET-A", "2027-05-20"));
+    const b = await req("POST", "/assets", asset("SCN-SET-ASSET-B", "2027-06-20"));
     check("two identical assets, each acquired on the 20th of its own month", a.status === 201 && b.status === 201, `${a.status}/${b.status}`);
 
     // 31,000 over 10 months is 3,100 a month; May has 31 days and the asset was
     // in service for 12 of them, so a day-prorated May charge is 1,200.
     const daily = await setTax({ depreciationProrate: "DAILY" });
     check("the tenant's basis is the IFRS daily proration", daily.status === 200 && daily.body?.depreciationProrate === "DAILY", `status ${daily.status}`);
-    const mayRun = await req("POST", "/assets/depreciation/runs", { period: "2026-05" });
+    const mayRun = await req("POST", "/assets/depreciation/runs", { period: "2027-05" });
     check("the May run drafts", mayRun.status === 201, `${mayRun.status}: ${JSON.stringify(mayRun.body).slice(0, 200)}`);
     const mayLine = (mayRun.body?.lines ?? []).find((l: any) => l.assetId === "SCN-SET-ASSET-A");
     checkEq("and charges 12 of May's 31 days, not a whole month", ctx.n(mayLine?.amount), 1200);
 
     const fullMonth = await setTax({ depreciationProrate: "FULL_MONTH" });
     check("the tenant switches to a whole month in the month of acquisition", fullMonth.status === 200 && fullMonth.body?.depreciationProrate === "FULL_MONTH", `status ${fullMonth.status}`);
-    const juneRun = await req("POST", "/assets/depreciation/runs", { period: "2026-06" });
+    const juneRun = await req("POST", "/assets/depreciation/runs", { period: "2027-06" });
     check("the June run drafts", juneRun.status === 201, `${juneRun.status}: ${JSON.stringify(juneRun.body).slice(0, 200)}`);
     const juneLine = (juneRun.body?.lines ?? []).find((l: any) => l.assetId === "SCN-SET-ASSET-B");
     checkEq("and the identical asset acquired on the 20th now carries the whole 3,100", ctx.n(juneLine?.amount), 3100);

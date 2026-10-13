@@ -26,6 +26,7 @@ export const DOC_TYPE = "LANDED_COST";
 export interface LandedCostLine extends AllocatedLandedCostLine {
   readonly costItems: readonly LandedCostItemEntry[];
   readonly distributionMethod: LandedCostDistributionMethod;
+  readonly absorptionDate?: string | null;
 }
 
 export type LandedCostDocument = FrameworkDocument<LandedCostLine>;
@@ -43,6 +44,12 @@ export interface LandedCostGlAccounts {
    * product is sold on (D75).
    */
   readonly accruedLandedCostPayableId: string;
+  /** INVARIANT: a balance-sheet account. It carries the cost from the document date to the absorption day and ends at zero, so no month's profit holds a cost its stock had not yet taken (landed-cost-two-dates.test.ts). */
+  readonly clearingAccountId?: string;
+}
+
+export function landedCostAbsorptionDate(doc: Pick<LandedCostDocument, "date" | "lines">): string {
+  return doc.lines[0]?.absorptionDate ?? doc.date;
 }
 
 /**
@@ -107,6 +114,19 @@ export function createLandedCostDocumentType(
       // takes the first line's explicit category or "materials" (D-01).
       const costCategory: CostCategory = doc.lines.find((l) => l.costCategory)?.costCategory ?? "materials";
       const branchId = landedCostBranchId(doc.lines);
+      if (landedCostAbsorptionDate(doc) !== doc.date && accounts.clearingAccountId) {
+        return {
+          sourceDocType: DOC_TYPE,
+          sourceDocId: doc.id,
+          sourceDocNumber: doc.docNo,
+          date: doc.date,
+          memo: doc.memo || `تكلفة إضافية ${doc.docNo ?? doc.id}`,
+          lines: [
+            { accountId: accounts.clearingAccountId, debit: total, credit: Money.zero(), projectId, ...(projectId ? { costCategory } : {}), branchId },
+            { accountId: accounts.accruedLandedCostPayableId, debit: Money.zero(), credit: total, projectId, branchId },
+          ],
+        };
+      }
       return {
         sourceDocType: DOC_TYPE,
         sourceDocId: doc.id,

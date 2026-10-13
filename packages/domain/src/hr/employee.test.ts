@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { describe, it, expect } from "vitest";
 import { createInMemoryEmployeeRepository } from "./test-helpers/in-memory-hr-repositories.js";
 import { createEmployee, updateEmployee } from "./create-employee.js";
@@ -65,26 +66,29 @@ describe("employee status transitions", () => {
   it("allows active -> on_leave -> active", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee(BASE, repo);
-    const onLeave = transitionEmployee(emp, "on_leave");
+    const onLeave = transitionEmployee(emp, EmployeeRefStatus.OnLeave);
     expect(onLeave.status).toBe("on_leave");
-    const active = transitionEmployee(onLeave, "active");
+    const active = transitionEmployee(onLeave, EmployeeRefStatus.Active);
     expect(active.status).toBe("active");
   });
 
   it("rejects transitioning out of terminated", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee(BASE, repo);
-    const terminated = terminateEmployee(emp, "2026-06-01T00:00:00.000Z");
+    const terminated = terminateEmployee(emp, "2026-06-01", "2026-06-10");
     expect(terminated.status).toBe("terminated");
-    expect(terminated.terminatedAt).toBe("2026-06-01T00:00:00.000Z");
-    expect(() => transitionEmployee(terminated, "active")).toThrow(InvalidEmployeeTransitionError);
+    expect(terminated.terminatedAt).toBe("2026-06-01");
+    expect(() => terminateEmployee(emp, "2026-06-11", "2026-06-10")).toThrow(InvalidEmployeeError);
+    expect(() => terminateEmployee(emp, "2026-06-01T00:00:00.000Z", "2026-06-10")).toThrow(InvalidEmployeeError);
+    expect(() => terminateEmployee({ ...emp, hireDate: "2026-06-05" }, "2026-06-01", "2026-06-10")).toThrow(InvalidEmployeeError);
+    expect(() => transitionEmployee(terminated, EmployeeRefStatus.Active)).toThrow(InvalidEmployeeTransitionError);
   });
 
   it("terminateEmployee rejects an already-terminated employee", async () => {
     const repo = createInMemoryEmployeeRepository();
     const emp = await createEmployee(BASE, repo);
-    const terminated = terminateEmployee(emp);
-    expect(() => terminateEmployee(terminated)).toThrow(InvalidEmployeeTransitionError);
+    const terminated = terminateEmployee(emp, "2026-06-01");
+    expect(() => terminateEmployee(terminated, "2026-06-02")).toThrow(InvalidEmployeeTransitionError);
   });
 });
 
@@ -121,7 +125,7 @@ describe("name helpers + EmployeeDirectory adapter", () => {
     const repo = createInMemoryEmployeeRepository();
     const active = await createEmployee(BASE, repo);
     const toTerminate = await createEmployee({ ...BASE, id: "emp-2", code: "EMP-0002" }, repo);
-    await repo.update(terminateEmployee(toTerminate));
+    await repo.update(terminateEmployee(toTerminate, "2026-06-01"));
 
     const directory = createEmployeeDirectory(repo);
     expect((await directory.findById(active.id))?.id).toBe(active.id);

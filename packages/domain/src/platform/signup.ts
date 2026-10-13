@@ -1,12 +1,15 @@
 import { emailDomain, normalizeEmail } from "../users/save-user.js";
-import { isValidSlug } from "./slug.js";
+import { isReservedTenantCode, isValidSlug, RESERVED_TENANT_CODE_MESSAGE } from "./slug.js";
+import { CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
 import { isoTimestamp } from "./validation.js";
 import type { BillingCycle } from "./subscription.js";
 import type { PlanRepository } from "./plan.js";
-import type { TenantRepository } from "./tenant.js";
+import { TenantStatusCode, type TenantRepository } from "./tenant.js";
 import {
   InvalidSignupError,
   PlanNotFoundError,
+  SignupActivationIncompleteError,
+  SignupAlreadyActivatedError,
   SignupTokenExpiredError,
   SignupTokenInvalidError,
   TenantCodeTakenError,
@@ -65,6 +68,7 @@ export function isDisposableEmailDomain(email: string): boolean {
 export enum SignupRequestStatus {
   Pending = "pending",
   Verified = "verified",
+  Released = "released",
 }
 
 export interface SignupRequest {
@@ -98,6 +102,19 @@ export interface SignupRequestRepository {
    * transition; only this method's WHERE clause makes it safe to run twice.
    */
   tryMarkVerified(tokenHash: string, nowIso: string): Promise<SignupRequest | null>;
+  // CONTRACT: a claim taken before `staleBeforeIso` must be taken over; its holder died mid-provision and will never release it.
+  tryClaimProvisioning(tokenHash: string, claimId: string, nowIso: string, staleBeforeIso: string): Promise<boolean>;
+  // CONTRACT: false once another caller has taken the claim over; the holder must stop before it hands out a PIN.
+  renewProvisioning(tokenHash: string, claimId: string, nowIso: string): Promise<boolean>;
+  provisioningClaimedAt(tokenHash: string): Promise<string | null>;
+  /** INVARIANT: higher than every claim taken before it, on any token. Null once the claim is no longer this caller's. */
+  provisioningFence(tokenHash: string, claimId: string): Promise<number | null>;
+  /** INVARIANT: higher than every fence taken before it, by a signup claim or by the console. */
+  takeProvisionFence(nowIso: string): Promise<number>;
+  releaseProvisioning(tokenHash: string, claimId: string): Promise<void>;
+  followOwnerEmail(code: string, before: string, after: string): Promise<void>;
+  // CONTRACT: retires every request for the code AND drops any provisioning claim held on them, so a holder mid-provision loses its turn.
+  releaseByCode(code: string): Promise<void>;
 }
 
 export interface StartSignupCommand {
@@ -118,7 +135,10 @@ function validate(cmd: StartSignupCommand): string[] {
   const reasons: string[] = [];
   if (cmd.id.trim() === "") reasons.push("المعرّف مطلوب");
   if (!isValidSlug(cmd.code)) reasons.push("رمز المنشأة يجب أن يكون من 3 إلى 32 حرفًا إنجليزيًا صغيرًا أو رقمًا أو شرطة داخلية");
-  if (cmd.nameAr.trim() === "") reasons.push("اسم المنشأة بالعربية مطلوب");
+  else if (isReservedTenantCode(cmd.code)) reasons.push(RESERVED_TENANT_CODE_MESSAGE);
+  const nameProblem = companyNameProblem(cmd.nameAr);
+  if (nameProblem === CompanyNameProblem.Empty) reasons.push("اسم المنشأة بالعربية مطلوب");
+  else if (nameProblem) reasons.push(companyNameProblemAr(nameProblem));
   if (cmd.ownerNameAr.trim() === "") reasons.push("اسم المالك مطلوب");
   if (normalizeEmail(cmd.ownerEmail) === "") reasons.push("البريد الإلكتروني مطلوب");
   if (cmd.tokenHash.trim() === "") reasons.push("رمز التفعيل مطلوب");
@@ -168,6 +188,8 @@ export async function startSignup(
   return request;
 }
 
+export const VERIFIED_LINK_VALID_MS = 30 * 24 * 60 * 60 * 1000;
+
 /**
  * Consumes a verification token.
  *
@@ -187,12 +209,25 @@ export async function startSignup(
  * and writing after leaves the exact gap `card-checkout.ts`'s `settlePaid`
  * was built to avoid.
  */
-export async function verifySignup(tokenHash: string, repo: SignupRequestRepository, now: string): Promise<SignupRequest> {
+export async function verifySignup(
+  tokenHash: string,
+  repo: SignupRequestRepository,
+  now: string,
+  tenants: Pick<TenantRepository, "findByCode">,
+): Promise<SignupRequest> {
   const nowIso = isoTimestamp(now);
   if (!nowIso) throw new SignupTokenInvalidError();
   const request = await repo.findByTokenHash(tokenHash);
-  if (!request) throw new SignupTokenInvalidError();
-  if (request.status === SignupRequestStatus.Verified) return request;
+  if (!request || request.status === SignupRequestStatus.Released) throw new SignupTokenInvalidError();
+  if (request.status === SignupRequestStatus.Verified) {
+    const usedAt = new Date(request.verifiedAt ?? request.expiresAt).getTime();
+    if (new Date(nowIso).getTime() - usedAt > VERIFIED_LINK_VALID_MS) {
+      const tenant = await tenants.findByCode(request.code);
+      if (tenant?.status === TenantStatusCode.Provisioning) throw new SignupActivationIncompleteError();
+      throw new SignupAlreadyActivatedError();
+    }
+    return request;
+  }
   if (new Date(request.expiresAt).getTime() < new Date(nowIso).getTime()) throw new SignupTokenExpiredError();
 
   const won = await repo.tryMarkVerified(tokenHash, nowIso);

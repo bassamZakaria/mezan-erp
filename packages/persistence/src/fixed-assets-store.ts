@@ -476,10 +476,18 @@ CREATE TABLE IF NOT EXISTS depreciation_run (
   total_amount     INTEGER NOT NULL,
   journal_entry_id TEXT,
   created_at       TEXT NOT NULL,
-  posted_at        TEXT
+  posted_at        TEXT,
+  skipped_lines    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_depreciation_run_period ON depreciation_run(period, branch_id);
 `;
+
+function addRunSkippedLinesColumnIfMissing(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(depreciation_run)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "skipped_lines")) {
+    sqlite.exec(`ALTER TABLE depreciation_run ADD COLUMN skipped_lines TEXT`);
+  }
+}
 
 interface DepreciationRunRow {
   id: string;
@@ -491,6 +499,7 @@ interface DepreciationRunRow {
   journal_entry_id: string | null;
   created_at: string;
   posted_at: string | null;
+  skipped_lines: string | null;
 }
 
 function toDepreciationRun(row: DepreciationRunRow): DepreciationRun {
@@ -513,6 +522,11 @@ function toDepreciationRun(row: DepreciationRunRow): DepreciationRun {
     branchId: row.branch_id,
     status: row.status as DepreciationRunStatus,
     lines,
+    skippedLines: (JSON.parse(row.skipped_lines ?? "[]") as { assetId: string; assetCode: string; amount: string }[]).map((l) => ({
+      assetId: l.assetId,
+      assetCode: l.assetCode,
+      amount: Money.fromMajor(l.amount),
+    })),
     totalAmount: Money.fromScaled(row.total_amount),
     journalEntryId: row.journal_entry_id,
     createdAt: row.created_at,
@@ -530,8 +544,8 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO depreciation_run (id, period, branch_id, status, lines, total_amount, journal_entry_id, created_at, posted_at)
-      VALUES (@id, @period, @branch_id, @status, @lines, @total_amount, @journal_entry_id, @created_at, @posted_at)
+      INSERT INTO depreciation_run (id, period, branch_id, status, lines, total_amount, journal_entry_id, created_at, posted_at, skipped_lines)
+      VALUES (@id, @period, @branch_id, @status, @lines, @total_amount, @journal_entry_id, @created_at, @posted_at, @skipped_lines)
       ON CONFLICT(id) DO UPDATE SET
         period = excluded.period,
         branch_id = excluded.branch_id,
@@ -540,7 +554,8 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
         total_amount = excluded.total_amount,
         journal_entry_id = excluded.journal_entry_id,
         created_at = excluded.created_at,
-        posted_at = excluded.posted_at
+        posted_at = excluded.posted_at,
+        skipped_lines = excluded.skipped_lines
     `);
     this.insertOnly = prepareInsertOnly(sqlite, this.upsert.source);
     this.selectById = sqlite.prepare(`SELECT * FROM depreciation_run WHERE id = ?`);
@@ -595,6 +610,7 @@ class SqliteDepreciationRunRepository implements DepreciationRunRepository {
       journal_entry_id: run.journalEntryId,
       created_at: run.createdAt,
       posted_at: run.postedAt,
+      skipped_lines: JSON.stringify((run.skippedLines ?? []).map((l) => ({ assetId: l.assetId, assetCode: l.assetCode, amount: l.amount.toString() }))),
     });
   }
 }
@@ -607,6 +623,7 @@ export interface SqliteDepreciationRunRepositoryHandle extends DepreciationRunRe
 export function createSqliteDepreciationRunRepository(path: SqliteConnectionInput = ":memory:"): SqliteDepreciationRunRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_DEPRECIATION_RUN);
+  addRunSkippedLinesColumnIfMissing(sqlite);
   const repo = new SqliteDepreciationRunRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteDepreciationRunRepositoryHandle;
 }

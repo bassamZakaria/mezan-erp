@@ -128,6 +128,7 @@ describe("skipRecurringJournalOccurrence", () => {
             id: "run-1",
             templateId: "tpl-1",
             period: "2026-02",
+            generation: 1,
             journalEntryId: "je-1",
             journalEntryNo: "JE-0001",
             reversalJournalEntryId: null,

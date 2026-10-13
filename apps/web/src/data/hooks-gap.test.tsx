@@ -644,15 +644,20 @@ describe("HR", () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: ["hr-employees"] });
   });
 
-  it("useTerminateEmployee POSTs /terminate and invalidates ['hr-employees']", async () => {
+  it("useTerminateEmployee POSTs the last day of service and invalidates ['hr-employees']", async () => {
+    let sent: unknown = null;
     const transport = stubTransport({
-      "POST /hr/employees/E1/terminate": () => ({ body: { id: "E1", status: "terminated" } }),
+      "POST /hr/employees/E1/terminate": (init) => {
+        sent = jsonBody(init);
+        return { body: { id: "E1", status: "terminated", payRecovery: null } };
+      },
     });
     const { Wrapper, queryClient } = makeWrapper(transport);
     const spy = vi.spyOn(queryClient, "invalidateQueries");
     const { result } = renderHook(() => useTerminateEmployee(), { wrapper: Wrapper });
-    result.current.mutate("E1");
+    result.current.mutate({ id: "E1", effectiveDate: "2026-06-12" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(sent).toEqual({ effectiveDate: "2026-06-12" });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["hr-employees"] });
   });
 

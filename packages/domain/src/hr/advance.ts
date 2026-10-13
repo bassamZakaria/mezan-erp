@@ -11,7 +11,16 @@ import { InvalidEmployeeAdvanceError, InvalidEmployeeAdvanceTransitionError } fr
  * credits it back down.
  */
 
-export type EmployeeAdvanceStatus = "pending" | "approved" | "disbursed" | "repaid" | "rejected";
+export enum EmployeeAdvanceStatusCode {
+  Pending = "pending",
+  Approved = "approved",
+  Disbursed = "disbursed",
+  Repaid = "repaid",
+  Rejected = "rejected",
+  Cancelled = "cancelled",
+}
+
+export type EmployeeAdvanceStatus = `${EmployeeAdvanceStatusCode}`;
 
 export interface EmployeeAdvanceStatusDefinition {
   readonly code: EmployeeAdvanceStatus;
@@ -24,6 +33,7 @@ export const EMPLOYEE_ADVANCE_STATUS_DEFINITIONS: readonly EmployeeAdvanceStatus
   { code: "disbursed", labelAr: "مصروفة" },
   { code: "repaid", labelAr: "مسددة" },
   { code: "rejected", labelAr: "مرفوضة" },
+  { code: "cancelled", labelAr: "ملغاة" },
 ] as const;
 
 export function getEmployeeAdvanceStatusLabel(status: EmployeeAdvanceStatus): string {
@@ -114,6 +124,7 @@ export const ALLOWED_ADVANCE_TRANSITIONS: Record<EmployeeAdvanceStatus, readonly
   disbursed: ["repaid"],
   repaid: [],
   rejected: [],
+  cancelled: [],
 };
 
 export function canTransitionAdvance(from: EmployeeAdvanceStatus, to: EmployeeAdvanceStatus): boolean {

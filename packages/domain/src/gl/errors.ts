@@ -13,8 +13,10 @@
 /** Raised when an operation references a journal-entry id that does not exist. */
 export class JournalEntryNotFoundError extends Error {
   readonly code = "JOURNAL_ENTRY_NOT_FOUND";
+  readonly messageEn: string;
   constructor(readonly entryId: string) {
     super(`تعذّر العثور على القيد "${entryId}".`);
+    this.messageEn = `Journal entry "${entryId}" was not found.`;
     this.name = "JournalEntryNotFoundError";
   }
 }
@@ -38,11 +40,13 @@ export class JournalEntryNotDraftError extends Error {
  */
 export class JournalEntryNotPostedError extends Error {
   readonly code = "JOURNAL_ENTRY_NOT_POSTED";
+  readonly messageEn: string;
   constructor(
     readonly entryId: string,
     readonly status: string,
   ) {
     super(`القيد "${entryId}" حالته "${status}" وليس مُرحَّلاً، فلا يمكن عكسه.`);
+    this.messageEn = `Journal entry "${entryId}" is "${status}", not posted, so it cannot be reversed.`;
     this.name = "JournalEntryNotPostedError";
   }
 }
@@ -50,11 +54,13 @@ export class JournalEntryNotPostedError extends Error {
 /** Raised when reversing an entry that has already been reversed (append-only: never reverse twice). */
 export class JournalEntryAlreadyReversedError extends Error {
   readonly code = "JOURNAL_ENTRY_ALREADY_REVERSED";
+  readonly messageEn: string;
   constructor(
     readonly entryId: string,
     readonly reversedByEntryId: string,
   ) {
     super(`القيد "${entryId}" سبق عكسه بالقيد "${reversedByEntryId}".`);
+    this.messageEn = `Journal entry "${entryId}" was already reversed by entry "${reversedByEntryId}".`;
     this.name = "JournalEntryAlreadyReversedError";
   }
 }
@@ -137,5 +143,48 @@ export class ReversalDateBeforeOriginalError extends Error {
     super(`تاريخ العكس "${date}" أسبق من تاريخ القيد الأصلي "${originalDate}"؛ لا يمكن أن يعكس المستند قبل تاريخه.`);
     this.messageEn = `Reversal date "${date}" is before the original entry's date "${originalDate}"; a reversal cannot be dated before the document it reverses.`;
     this.name = "ReversalDateBeforeOriginalError";
+  }
+}
+
+export class JournalEntryOwnedByDocumentError extends Error {
+  readonly code = "JOURNAL_ENTRY_OWNED_BY_DOCUMENT";
+  readonly messageEn: string;
+  constructor(
+    readonly entryId: string,
+    readonly sourceDocType: string | null,
+    readonly sourceDocReference: string,
+  ) {
+    super(`القيد يخص المستند ${sourceDocReference} ولا يُعكس من دفتر اليومية. اعكس المستند نفسه أو ألغِه من شاشته ليبقى المستند ودفتره الفرعي متطابقين مع القيد.`);
+    this.messageEn = `This entry belongs to document ${sourceDocReference} and is not reversed from the journal. Reverse or cancel the document on its own screen, so the document and its sub-ledger stay in step with the entry.`;
+    this.name = "JournalEntryOwnedByDocumentError";
+  }
+}
+
+export class JournalReversalNotReversibleError extends Error {
+  readonly code = "JOURNAL_REVERSAL_NOT_REVERSIBLE";
+  readonly messageEn: string;
+  constructor(
+    readonly entryId: string,
+    readonly entryReference: string,
+  ) {
+    super(`القيد ${entryReference} قيد عكسي ولا يُعكس. أعد إدخال القيد الأصلي من جديد بدلاً من عكس عكسه.`);
+    this.messageEn = `Entry ${entryReference} is itself a reversal and cannot be reversed. Post the original entry again instead.`;
+    this.name = "JournalReversalNotReversibleError";
+  }
+}
+
+const JOURNAL_LIKE_SOURCE_DOC_TYPES: ReadonlySet<string> = new Set(["INITIAL_BALANCE"]);
+
+export function assertReversibleFromJournal(entry: {
+  readonly id: string;
+  readonly entryNo?: string | null;
+  readonly reversesEntryId?: string | null;
+  readonly sourceDocType?: string | null;
+  readonly sourceDocId?: string | null;
+  readonly sourceDocNumber?: string | null;
+}): void {
+  if (entry.reversesEntryId) throw new JournalReversalNotReversibleError(entry.id, entry.entryNo ?? entry.id);
+  if (entry.sourceDocType && !JOURNAL_LIKE_SOURCE_DOC_TYPES.has(entry.sourceDocType)) {
+    throw new JournalEntryOwnedByDocumentError(entry.id, entry.sourceDocType, entry.sourceDocNumber ?? entry.sourceDocId ?? entry.id);
   }
 }

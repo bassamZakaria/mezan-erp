@@ -88,10 +88,10 @@ export class RecordingGlPort implements PurchaseGlPostingPort {
 }
 
 /** A real StockLedgerService over in-memory stores, negative stock blocked. */
-export function makeStockService(): StockLedgerService {
+export function makeStockService(layers: InMemoryCostLayers = new InMemoryCostLayers()): StockLedgerService {
   return new StockLedgerService({
     ledger: new InMemoryStockLedger(),
-    layers: new InMemoryCostLayers(),
+    layers,
     snapshots: new InMemorySnapshots(),
     policy: { allowNegativeStock: false },
     clock: () => "2026-08-21T00:00:00.000Z",

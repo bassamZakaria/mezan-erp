@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { EmptyState, PrintView, resolvePrintTemplateConfig, useFormat, type PrintTemplateConfig } from "@mezan/ui";
 import type { PayrollRunDTO, PayslipDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
-import { useBranches, useDepartments, useEmployees, useJobTitles, usePrintTemplateConfig, useTenantSettings } from "../data/hooks";
+import { useBranches, useDepartments, useEmployees, useJobTitles, usePrintTemplateConfig, useDisplaySettings } from "../data/hooks";
 import { payslipPrintModel, type PayslipLetterhead, type PayslipPrintEmployee } from "./payslip-print";
 import { useUnverifiedStatutoryCodes } from "../data/hr-payroll-hooks";
 import { employeeDisplayName } from "../screens/hr-employee-name";
@@ -25,7 +25,7 @@ const PAY_BASIS_KEY = {
 export function PayslipPrintPage({ payslip, run }: { payslip: PayslipDTO; run: PayrollRunDTO }) {
   const { locale } = useAppTranslation();
   const configQuery = usePrintTemplateConfig();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const employees = useEmployees().data ?? EMPTY;
   const departments = useDepartments().data ?? EMPTY;
   const jobTitles = useJobTitles().data ?? EMPTY;
@@ -86,6 +86,7 @@ export function PayslipPrintView({ payslip, run, employee, letterhead, branchNam
           earning: t("payslipPrint.earning"),
           deduction: t("payslipPrint.deduction"),
           employerContribution: t("payslipPrint.employerContribution"),
+          terminationAdjustment: t("payroll.lineKind.termination_adjustment"),
           grossEarnings: t("payslipPrint.grossEarnings"),
           totalDeductions: t("payslipPrint.totalDeductions"),
           netPay: t("payslipPrint.netPay"),

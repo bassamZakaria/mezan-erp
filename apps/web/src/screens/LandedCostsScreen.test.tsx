@@ -121,7 +121,7 @@ describe("LandedCostsScreen", () => {
     await waitFor(() => expect(screen.queryByText("أنشئ مستند تكلفة لتوزيع التكاليف الإضافية على المشتريات")).not.toBeInTheDocument());
   });
 
-  it("confirms then cancels a draft landed-cost document", async () => {
+  it("confirms a draft, then takes the confirmed document back by reversing it — a confirmed landed cost is never cancelled", async () => {
     let current: LandedCostDocumentDTO[] = [landedCost()];
     const transport = stubTransport({
       ...baseHandlers(current),
@@ -130,9 +130,9 @@ describe("LandedCostsScreen", () => {
         current = current.map((d) => (d.id === "lc-1" ? { ...d, status: "confirmed" as const, confirmedAt: "2026-08-21T10:00:00.000Z" } : d));
         return { body: { document: current[0], held: false } };
       },
-      "POST /landed-costs/lc-1/cancel": () => {
-        current = current.map((d) => (d.id === "lc-1" ? { ...d, status: "cancelled" as const } : d));
-        return { body: current[0] };
+      "POST /landed-costs/lc-1/reverse": () => {
+        current = current.map((d) => (d.id === "lc-1" ? { ...d, status: "reversed" as const, reversedByDocId: "lc-1-rev" } : d));
+        return { status: 201, body: { original: current[0], reversal: { ...current[0], id: "lc-1-rev", reversesDocId: "lc-1" } } };
       },
     });
     renderWithProviders(<LandedCostsScreen />, { transport, initialSession: testAdminSession });
@@ -141,7 +141,25 @@ describe("LandedCostsScreen", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد التوزيع" }));
     expect(await within(dialog).findByRole("button", { name: "إلغاء المستند" })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "إلغاء المستند" }));
-    await within(dialog).findByText("ملغي");
+    const confirmation = await screen.findByText(/سيُعكس مستند التكلفة الإضافية LC-000001/);
+    expect(confirmation).toBeInTheDocument();
+    const confirmButtons = screen.getAllByRole("button", { name: "إلغاء المستند" });
+    fireEvent.click(confirmButtons[confirmButtons.length - 1]!);
+    await within(dialog).findByText("معكوس");
+  });
+});
+
+describe("LandedCostsScreen — a reversed landed cost and its reversal point at each other", () => {
+  it("names the other document by its number on both rows and opens it from the link", async () => {
+    const original = landedCost({ id: "lc-1", docNo: "LC-000001", status: "reversed", reversedByDocId: "lc-1-rev" });
+    const mirror = landedCost({ id: "lc-1-rev", docNo: "LC-000002", status: "confirmed", reversesDocId: "lc-1" });
+    renderWithProviders(<LandedCostsScreen />, { transport: stubTransport(baseHandlers([original, mirror])), initialSession: testAdminSession });
+
+    fireEvent.click(await screen.findByRole("button", { name: "عُكس بالمستند LC-000002" }));
+    const panel = await screen.findByRole("dialog", { name: "LC-000002" });
+    fireEvent.click(within(panel).getByRole("button", { name: "يعكس المستند LC-000001" }));
+    const back = await screen.findByRole("dialog", { name: "LC-000001" });
+    expect(within(back).getByRole("button", { name: "عُكس بالمستند LC-000002" })).toBeInTheDocument();
   });
 });
 

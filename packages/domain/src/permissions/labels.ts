@@ -82,6 +82,8 @@ export const PERMISSION_ACTION_LABELS = {
   certify: { ar: "اعتماد الاستشاري", en: "Certify" },
   release: { ar: "إفراج", en: "Release" },
   post_entry: { ar: "ترحيل قيد من الكشف", en: "Post entry from statement" },
+  override_close: { ar: "تجاوز فحوص الإقفال", en: "Override close checks" },
+  reverse: { ar: "عكس", en: "Reverse" },
 } as const satisfies Record<string, PermissionLabel>;
 
 export const PERMISSION_ENTITY_LABELS = {
@@ -169,6 +171,12 @@ export const PERMISSION_ENTITY_LABELS = {
   cash_forecast: { ar: "توقع السيولة", en: "cash forecast" },
   recurring: { ar: "القيود المتكررة", en: "Recurring journals" },
   terminal: { ar: "جهاز نقطة البيع", en: "POS terminal" },
+  revaluation: { ar: "إعادة تقييم العملات", en: "FX revaluation" },
+  year_end_close: { ar: "إقفال نهاية السنة", en: "Year-end close" },
+  disposal: { ar: "استبعاد أصل", en: "Asset disposal" },
+  provision: { ar: "مخصص الإجازات ونهاية الخدمة", en: "Leave and end-of-service provision" },
+  equipment_log: { ar: "سجل تشغيل المعدات", en: "Equipment log" },
+  consumption: { ar: "صرف مواد للموقع", en: "Site material consumption" },
 } as const satisfies Record<string, PermissionLabel>;
 
 type ActionSegment = keyof typeof PERMISSION_ACTION_LABELS;

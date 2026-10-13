@@ -9,7 +9,7 @@ import type {
   VoucherDTO,
 } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
-import { useAccounts, useBranches, useCustomers, useItems, useTenantSettings, useSuppliers, useTreasuryAccounts, useWarehouses } from "../data/hooks";
+import { useAccounts, useBranches, useCustomers, useItems, useDisplaySettings, useSuppliers, useTreasuryAccounts, useWarehouses } from "../data/hooks";
 import type { JournalEntryDTO, SalesQuoteRecord } from "../data/hooks";
 import { DocumentPrintPage } from "./DocumentPrintPage";
 import { documentPrintModel, type DocumentPrintLineInput } from "./document-print";
@@ -50,7 +50,7 @@ function useLedgerLabels(): LedgerPrintLabels {
 export function QuotePrintPage({ quote }: { quote: SalesQuoteRecord }) {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const customers = useCustomers().data ?? EMPTY;
   const branches = useBranches().data ?? EMPTY;
   const items = useItems().data ?? EMPTY;
@@ -103,7 +103,7 @@ export function QuotePrintPage({ quote }: { quote: SalesQuoteRecord }) {
 export function PurchaseOrderPrintPage({ order }: { order: PurchaseOrderDTO }) {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const suppliers = useSuppliers().data ?? EMPTY;
   const branches = useBranches().data ?? EMPTY;
   const warehouses = useWarehouses().data ?? EMPTY;
@@ -141,7 +141,7 @@ export function PurchaseOrderPrintPage({ order }: { order: PurchaseOrderDTO }) {
 export function PurchaseInvoicePrintPage({ invoice }: { invoice: PurchaseInvoiceDTO }) {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const suppliers = useSuppliers().data ?? EMPTY;
   const branches = useBranches().data ?? EMPTY;
   const warehouses = useWarehouses().data ?? EMPTY;
@@ -182,7 +182,7 @@ export function PurchaseInvoicePrintPage({ invoice }: { invoice: PurchaseInvoice
 export function SalesReturnPrintPage({ document: doc }: { document: SalesReturnDocumentDTO }) {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const customers = useCustomers().data ?? EMPTY;
   const items = useItems().data ?? EMPTY;
 
@@ -229,7 +229,7 @@ export function SalesReturnPrintPage({ document: doc }: { document: SalesReturnD
 export function PurchaseReturnPrintPage({ document: doc }: { document: PurchaseReturnDocumentDTO }) {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const suppliers = useSuppliers().data ?? EMPTY;
   const items = useItems().data ?? EMPTY;
 
@@ -264,7 +264,7 @@ export function PurchaseReturnPrintPage({ document: doc }: { document: PurchaseR
 export function GoodsReceiptPrintPage({ receipt }: { receipt: GoodsReceiptDTO }) {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const suppliers = useSuppliers().data ?? EMPTY;
   const warehouses = useWarehouses().data ?? EMPTY;
   const items = useItems().data ?? EMPTY;
@@ -312,7 +312,7 @@ export function GoodsReceiptPrintPage({ receipt }: { receipt: GoodsReceiptDTO })
 export function JournalEntryPrintPage({ entry }: { entry: JournalEntryDTO }) {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const accounts = useAccounts().data ?? EMPTY;
   const labels = useLedgerLabels();
 
@@ -352,7 +352,7 @@ export function JournalEntryPrintPage({ entry }: { entry: JournalEntryDTO }) {
 export function VoucherPrintPage({ voucher, partyName }: { voucher: VoucherDTO; partyName?: string }) {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const branches = useBranches().data ?? EMPTY;
   const treasuries = useTreasuryAccounts().data ?? EMPTY;
   const labels = useLedgerLabels();
@@ -439,7 +439,7 @@ export function StatementPrintPage({
 }) {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const settings = useTenantSettings().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const labels = useLedgerLabels();
 
   const document = useMemo(

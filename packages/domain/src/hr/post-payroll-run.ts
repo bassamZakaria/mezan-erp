@@ -1,10 +1,11 @@
 import { Money } from "../money/index.js";
-import { postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
+import { nextEntryGenerationId, postJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
 import { applyAdvanceRecovery, type EmployeeAdvanceRepository } from "./advance.js";
 import type { EmployeeDirectory } from "../hr-shared/employee-ref.js";
 import { applyGarnishmentRecovery, type GarnishmentRepository } from "./garnishment.js";
 import {
   canTransitionPayrollRun,
+  PayslipLineKindCode,
   type PayrollGlAccounts,
   type PayrollRun,
   type PayrollRunRepository,
@@ -85,6 +86,8 @@ function buildJournalLines(
           branchId,
           line.amount,
         );
+      } else if (line.kind === PayslipLineKindCode.TerminationAdjustment) {
+        addTo(credits, accounts.salariesPayableAccountId, branchId, line.amount);
       } else if (line.source === "advance_recovery") {
         addTo(credits, accounts.employeeAdvanceAccountId, branchId, line.amount);
       } else {
@@ -131,7 +134,7 @@ export async function approvePayrollRun(runId: string, approvedBy: string, deps:
   const lines = buildJournalLines(payslips, deps.accounts, (p) => run.branchId ?? employeeBranch.get(p.employeeId) ?? null);
   const entry = await postJournalEntry(
     {
-      id: `PAYROLL-JE:${run.id}`,
+      id: await nextEntryGenerationId(deps.gl.ledger, `PAYROLL-JE:${run.id}`),
       date: run.periodEnd,
       memo: `رواتب ${run.number} — ${run.year}-${String(run.month).padStart(2, "0")}`,
       source: "system",

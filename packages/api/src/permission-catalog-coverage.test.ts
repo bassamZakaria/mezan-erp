@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ALL_PERMISSION_CODES, WILDCARD_PERMISSION, getPermission } from "@mezan/domain";
+import { ReversalPermission } from "@mezan/contracts";
 
 /**
  * Which permission codes any route actually gates on.
@@ -55,6 +56,11 @@ function gatedCodes(): ReadonlySet<string> {
           const resolved = constants.get(name[1] as string);
           if (resolved) found.add(resolved);
         }
+      }
+      const reversal: Readonly<Record<string, string>> = ReversalPermission;
+      for (const match of source.matchAll(/gate\(\s*ReversalPermission\.([A-Za-z]+)/g)) {
+        const code = reversal[match[1] as string];
+        if (code) found.add(code);
       }
     }
   };
@@ -112,12 +118,30 @@ describe("the permission catalogue against the routes that check it", () => {
     //   - a right that widens what every GL read returns rather than opening a
     //     route of its own, checked in `branch-view.ts`:
     //     `accounting.reports.view_unattributed` (D111).
+    //   - the period lock's override, an inline `can()` beside the route's own
+    //     gate: `accounting.period.override_close`; and the till's discount
+    //     ceiling, the same shape: `pos.discount.approve`.
     //
     // The count is pinned so the gap cannot quietly grow: adding a code without
     // anything to check it, or deleting the only consumer of one, moves this
     // number.
-    expect(UNGATED.length).toBeGreaterThan(0);
-    expect(UNGATED.length).toBeLessThanOrEqual(14);
+    expect([...UNGATED].sort()).toEqual([
+      "accounting.period.override_close",
+      "accounting.reports.view_unattributed",
+      "admin.backup.restore",
+      "admin.backup.view",
+      "admin.tenant.settings.edit",
+      "crm.customer360.view",
+      "hr.employee.view_salary",
+      "pos.discount.approve",
+      "purchases.order.edit",
+      "purchases.receipt.edit_cost",
+      "purchases.supplier360.view",
+      "sales.discount.approve",
+      "sales.invoice.view_cost",
+      "workflow.approve",
+      "workflow.reject",
+    ]);
   });
 
   it("every POS code the catalogue carries is checked by a POS route — the module came back with its gates", () => {

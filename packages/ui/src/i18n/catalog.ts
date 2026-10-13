@@ -96,6 +96,7 @@ const uiAr = {
   "ui.report.difference": "(فرق {amount})",
 
   "ui.currency": "ج.م",
+  "ui.decimal.tooManyDecimals": "حتى {max} خانات عشرية على الأكثر",
 
   // print, notifications, permissions
   "print.company.phone": "هاتف: {value}",
@@ -343,6 +344,7 @@ const uiEn: Record<UiTranslationKey, string> = {
   "ui.report.difference": "(difference {amount})",
 
   "ui.currency": "EGP",
+  "ui.decimal.tooManyDecimals": "At most {max} decimal places",
 
   // print, notifications, permissions
   "print.company.phone": "Phone: {value}",

@@ -71,7 +71,12 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
 
   const permitted = sessionMayRead(session, CLASSIFY_PERMISSION[document]);
   const mayManageRates = sessionMayRead(session, DocumentReadPermission.TaxRatesManage);
-  if (!posted || documentKind === InvoiceDocumentKind.RetentionRelease || line.taxRateId !== null || !permitted) return null;
+  const classified = line.taxRateId !== null;
+  if (!posted || documentKind === InvoiceDocumentKind.RetentionRelease || !permitted) return null;
+  // INVARIANT: the document reloads with the line classified the moment the
+  // classification lands. What became of its e-receipt — and the retry — is
+  // still on screen then, and must outlive that reload.
+  if (classified && receiptOutcome === null) return null;
 
   function openPanel() {
     setError(null);
@@ -124,7 +129,7 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
 
   return (
     <>
-      {openedExternally ? null : (
+      {openedExternally || classified ? null : (
         <Button type="button" size="sm" onClick={openPanel} aria-label={t("classifyTax.actionFor", { line: line.label })}>
           {t("classifyTax.action")}
         </Button>

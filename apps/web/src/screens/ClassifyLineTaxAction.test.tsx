@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { MemoryRouter } from "react-router";
+import { AppProviders } from "../data/AppProviders";
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
@@ -189,6 +191,34 @@ describe("ClassifyLineTaxAction — «تصنيف ضريبة البند» on a po
     expect(await screen.findByText(/أُعيد إصدار الإيصال الإلكتروني المرفوض بالتصنيف الجديد/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "إعادة المحاولة" })).toBeNull();
     expect(retried).toEqual(["/sales-invoices/INV-1/eta-receipt/retry", "/sales-invoices/INV-1/eta-receipt/retry"]);
+  });
+
+  it("keeps the failed-issue report and its retry on screen when the document reloads with the line now classified", async () => {
+    const classified = { documentId: "INV-1", documentNumber: "INV-000001", lineIds: ["L1"], taxRateId: "VAT-EXEMPT", taxRateName: "معفى من الضريبة", taxRatePercent: 0, journalLinesNamed: 1 };
+    const transport = stubTransport({
+      "POST /sales-invoices/*/lines/*/classify-tax": () => ({ body: { ...classified, filing: "reissue_failed", filingMessage: "تعذّر الاتصال بجهاز الإيصالات." } }),
+      "POST /sales-invoices/*/eta-receipt/retry": () => ({ body: { documentId: "INV-1", filing: "reissued" } }),
+    });
+    const action = (target: ClassifiableLine) => (
+      <ClassifyLineTaxAction document={ClassifiableDocument.SalesInvoice} documentId="INV-1" posted line={target} lines={LINES} taxRates={TAX_RATES} />
+    );
+    const view = renderWithProviders(action(LINES[0]!), { transport, initialSession: testAdminSession });
+    fireEvent.click(screen.getByRole("button", { name: /تصنيف ضريبة البند/ }));
+    pick("معفى من الضريبة · 0٪");
+    fireEvent.click(screen.getByRole("button", { name: "تصنيف" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("لم يُصدر الإيصال الإلكتروني بعد التصنيف");
+
+    view.rerender(
+      <AppProviders transport={transport} initialSession={testAdminSession}>
+        <MemoryRouter>{action({ ...LINES[0]!, taxRateId: "VAT-EXEMPT" })}</MemoryRouter>
+      </AppProviders>,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("لم يُصدر الإيصال الإلكتروني بعد التصنيف");
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect(await screen.findByText(/أُعيد إصدار الإيصال الإلكتروني المرفوض بالتصنيف الجديد/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "تم" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByRole("button", { name: /تصنيف ضريبة البند/ })).toBeNull();
   });
 
   it("tells a tenant with no 0% rate of its own to create one, and offers the Tax Rates screen to whoever may manage them", async () => {

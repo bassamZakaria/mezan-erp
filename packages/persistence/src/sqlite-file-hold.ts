@@ -15,7 +15,7 @@ export interface HeldSqliteFile {
 
 const DEFAULT_WAIT_MS = 2_000;
 
-function isBusy(err: unknown): boolean {
+export function isBusySqliteError(err: unknown): boolean {
   const code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "";
   return code.startsWith("SQLITE_BUSY") || code.startsWith("SQLITE_LOCKED");
 }
@@ -32,7 +32,7 @@ export function holdSqliteFile(file: string, options: { readonly waitMs?: number
     sqlite.exec("BEGIN EXCLUSIVE");
   } catch (err) {
     sqlite.close();
-    throw isBusy(err) ? new SqliteFileBusyError(file) : err;
+    throw isBusySqliteError(err) ? new SqliteFileBusyError(file) : err;
   }
   return {
     release() {

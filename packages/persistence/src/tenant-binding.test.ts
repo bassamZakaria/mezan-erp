@@ -85,7 +85,7 @@ describe("the tenant a database is bound to", () => {
 
     const identity = readTenantBooksIdentity(file, options);
 
-    expect(identity).toEqual({ boundTenantId: "t-1", claimed: false, users: [] });
+    expect(identity).toEqual({ boundTenantId: "t-1", claimed: false, companyName: null, users: [] });
     expect(readFileSync(file).equals(before)).toBe(true);
     expect(["-wal", "-shm"].filter((suffix) => existsSync(`${file}${suffix}`))).toEqual([]);
   });
@@ -150,7 +150,7 @@ describe("the tenant a database is bound to", () => {
     const file = fileIn("empty.db");
     openSqliteConnection(file).sqlite.close();
 
-    expect(readTenantBooksIdentity(file)).toEqual({ boundTenantId: null, claimed: false, users: [] });
+    expect(readTenantBooksIdentity(file)).toEqual({ boundTenantId: null, claimed: false, companyName: null, users: [] });
   });
 
   it("is not read from a file that only starts like a database, and the file is left as it was", () => {

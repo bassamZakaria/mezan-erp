@@ -2,9 +2,8 @@ import { createHash } from "node:crypto";
 import { closeSync, createReadStream, existsSync, openSync, readSync, renameSync, rmSync, statSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { SEED_ADMIN_USER_ID } from "@mezan/backend";
-import { tenantDbFile, TenantStatusCode, UserStatusCode, type Tenant, type TenantRepository } from "@mezan/domain";
-import { holdSqliteFile, NotASqliteDatabaseError, readTenantBooksIdentity, SqliteFileBusyError, type SqliteOpenOptions, type TenantBooksIdentity } from "@mezan/persistence";
+import { tenantDbFile, TenantDbFileRefusal, TenantStatusCode, type Tenant, type TenantRepository } from "@mezan/domain";
+import { holdSqliteFile, SqliteFileBusyError } from "@mezan/persistence";
 
 const SQLITE_FILE_SUFFIXES = ["", "-wal", "-shm"] as const;
 const SQLITE_SIBLING_SUFFIXES = ["-wal", "-shm"] as const;
@@ -12,14 +11,7 @@ const SQLITE_SIBLING_SUFFIXES = ["-wal", "-shm"] as const;
 const SQLITE_HEADER_MAGIC = Buffer.from("SQLite format 3\0");
 const SQLITE_HEADER_BYTES = 100;
 
-export enum TenantDbFileRefusal {
-  Conflict = "TENANT_DB_FILE_CONFLICT",
-  Missing = "TENANT_DB_FILE_MISSING",
-  Shared = "TENANT_DB_FILE_SHARED",
-  Busy = "TENANT_DB_FILE_BUSY",
-  Foreign = "TENANT_DB_FILE_FOREIGN",
-  Unreadable = "TENANT_DB_FILE_UNREADABLE",
-}
+export { TenantDbFileRefusal };
 
 export abstract class TenantDbFileError extends Error {
   abstract readonly code: TenantDbFileRefusal;
@@ -72,9 +64,17 @@ export class TenantDbFileForeignError extends TenantDbFileError {
       tenantId,
       file,
       boundTenantId === null
-        ? `the database file "${file}" is not bound to tenant "${tenantId}" and does not hold the owner the platform recorded for it; it was not opened and nothing was written`
-        : `the database file "${file}" of tenant "${tenantId}" is bound to tenant "${boundTenantId}"; it was not opened and nothing was written`,
+        ? `the database file "${file}" is not bound to tenant "${tenantId}" and nobody ever claimed it; it was not opened for use and nothing was written`
+        : `the database file "${file}" of tenant "${tenantId}" is bound to tenant "${boundTenantId}"; it was not opened for use and nothing was written`,
     );
+  }
+}
+
+export class TenantDbFileDisownedError extends TenantDbFileError {
+  readonly code = TenantDbFileRefusal.Disowned;
+
+  constructor(tenantId: string, file: string) {
+    super(tenantId, file, `the platform console recorded that the database file "${file}" does not hold the books of tenant "${tenantId}"; it was not opened for use`);
   }
 }
 
@@ -104,7 +104,7 @@ export interface TenantDbFileIo {
 
 type Tenants = Pick<TenantRepository, "setDbFile" | "findById" | "list">;
 
-function holdsSqliteDatabase(file: string): boolean {
+export function holdsSqliteDatabase(file: string): boolean {
   const stat = statSync(file, { throwIfNoEntry: false });
   if (!stat || !stat.isFile() || stat.size < SQLITE_HEADER_BYTES) return false;
   const magic = Buffer.alloc(SQLITE_HEADER_MAGIC.length);
@@ -122,40 +122,6 @@ function holdsSqliteDatabase(file: string): boolean {
 // for the first anonymous caller to claim.
 function refuseServedTenantWithoutBooks(tenant: Tenant, file: string): void {
   if (tenant.status !== TenantStatusCode.Provisioning && !holdsSqliteDatabase(file)) throw new TenantDbFileMissingError(tenant.id, tenant.dbFile);
-}
-
-function holdsRecordedOwner(tenant: Tenant, books: TenantBooksIdentity): boolean {
-  if (tenant.ownerUserId !== null) return books.users.some((user) => user.id === tenant.ownerUserId);
-  return books.users.some((user) => user.email === tenant.ownerEmail && user.isCompanyAdmin && user.status === UserStatusCode.Active && !user.erased);
-}
-
-// SECURITY: a database written before databases were bound is taken as this
-// tenant's only on what the platform recorded on its own: somebody claimed it,
-// and the owner the platform row names is an account in it. An empty database,
-// or another company's, has neither and is refused before it is opened for use.
-function provenBeforeBinding(tenant: Tenant, books: TenantBooksIdentity): boolean {
-  const claimed = books.claimed || books.users.some((user) => user.id !== SEED_ADMIN_USER_ID);
-  return claimed && holdsRecordedOwner(tenant, books);
-}
-
-export type TenantBooksConnection = Pick<SqliteOpenOptions, "driver" | "key" | "exclusive">;
-
-// SECURITY: asked on every open, before the database is opened for use. A
-// tenant still being provisioned may have no database yet, or one nobody has
-// bound; any other tenant's database must already be its own.
-export function requireOwnBooks(tenant: Tenant, file: string, connection: TenantBooksConnection = {}): void {
-  const provisioning = tenant.status === TenantStatusCode.Provisioning;
-  if (provisioning && !existsSync(file)) return;
-  let books: TenantBooksIdentity;
-  try {
-    books = readTenantBooksIdentity(file, connection);
-  } catch (err) {
-    if (err instanceof NotASqliteDatabaseError) throw new TenantDbFileUnreadableError(tenant.id, tenant.dbFile, err.cause);
-    throw err;
-  }
-  if (books.boundTenantId === tenant.id) return;
-  if (books.boundTenantId !== null) throw new TenantDbFileForeignError(tenant.id, tenant.dbFile, books.boundTenantId);
-  if (!provisioning && !provenBeforeBinding(tenant, books)) throw new TenantDbFileForeignError(tenant.id, tenant.dbFile, null);
 }
 
 function stampOf(files: readonly string[]): string {

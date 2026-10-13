@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { Link, Route, Routes } from "react-router";
 import type { Transport, TransportResponse } from "../data/transport";
-import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
+import { LicenseStateCode, SubscriptionStatusCode, TenantBooksStanding, TenantWireStatus, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import { TenantDetailPage } from "./TenantDetailPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
 import type { PlatformSession } from "./session";
@@ -83,6 +83,8 @@ function makeSummary(overrides: Partial<TenantSummaryDTO["tenant"]> = {}, subOve
     licenseState: { state: LicenseStateCode.Active, canWrite: true, usable: true },
     entitlements: null,
     payments: [],
+    books: TenantBooksStanding.Bound,
+    handOverMailConfigured: true,
   };
 }
 

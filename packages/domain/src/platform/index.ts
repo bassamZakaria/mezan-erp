@@ -3,7 +3,8 @@ export * from "./errors.js";
 export { isValidSlug, isReservedTenantCode, RESERVED_TENANT_CODE_MESSAGE } from "./slug.js";
 export { COMPANY_NAME_MAX_LENGTH, CompanyNameProblem, companyNameProblem, companyNameProblemAr } from "./company-name.js";
 export {
-  createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant, releaseTenant, releasedTenantCode, tenantWithOwnerContact, tenantHandedTo, tenantNeedingOwner, tenantWithPendingOwner, tenantWithPendingOwnerConfirmed, tenantWithPendingOwnerDeclined, tenantWithPendingOwnerLink, tenantWithOwnerRecordDue,
+  createTenant, activateTenant, suspendTenant, resumeTenant, archiveTenant, releaseTenant, releasedTenantCode, tenantWithOwnerContact, tenantHandedTo, tenantNeedingOwner, tenantWithPendingOwner, tenantWithPendingOwnerConfirmed, tenantWithPendingOwnerDeclined, tenantWithPendingOwnerLink, tenantWithOwnerRecordDue, tenantWithBooksReview,
+  TenantBooksReview, TenantDbFileRefusal, tenantDbFileRefusalAnswer, tenantDbFileRefusalOf, type TenantDbFileRefusalAnswer,
   PendingOwnerLink, OwnerConfirmation, PENDING_OWNER_MAX_AGE_MS, pendingOwnerExpiresAt, pendingOwnerExpired,
   tenantDbFile,
   TenantStatusCode, OwnerContactProof,

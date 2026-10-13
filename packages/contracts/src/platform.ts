@@ -95,6 +95,31 @@ export const assignOwnerRequestSchema = z.object({
   userId: z.string().trim().min(1),
 });
 
+export enum TenantBooksStanding {
+  Bound = "bound",
+  WillBind = "will-bind",
+  Unconfirmed = "unconfirmed",
+  Disowned = "disowned",
+  Missing = "missing",
+  Foreign = "foreign",
+  Unreadable = "unreadable",
+  NotCreated = "not-created",
+}
+
+export const tenantBooksStandingSchema = z.nativeEnum(TenantBooksStanding);
+
+export const tenantBooksSchema = z.object({
+  standing: tenantBooksStandingSchema,
+  companyName: z.string().nullable(),
+  admins: z.array(ownerCandidateSchema),
+});
+
+export const confirmTenantBooksRequestSchema = assignOwnerRequestSchema;
+
+export const unbindTenantBooksRequestSchema = z.object({
+  code: z.string().trim().min(1),
+});
+
 export const tenantSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),
@@ -347,6 +372,8 @@ export const tenantSummarySchema = z.object({
   licenseState: licenseStateViewSchema,
   entitlements: entitlementsSchema.nullable(),
   payments: z.array(paymentSchema),
+  books: tenantBooksStandingSchema.nullable(),
+  handOverMailConfigured: z.boolean(),
 });
 
 export const cardCheckoutStatusSchema = z.enum(["pending", "paid", "failed", "unapplied"]);
@@ -462,6 +489,9 @@ export type OwnerPinResetResultDTO = z.infer<typeof ownerPinResetResultSchema>;
 export type OwnerCandidateDTO = z.infer<typeof ownerCandidateSchema>;
 export type AssignOwnerRequestDTO = z.infer<typeof assignOwnerRequestSchema>;
 export type PendingOwnerDTO = z.infer<typeof pendingOwnerSchema>;
+export type TenantBooksDTO = z.infer<typeof tenantBooksSchema>;
+export type ConfirmTenantBooksRequestDTO = z.infer<typeof confirmTenantBooksRequestSchema>;
+export type UnbindTenantBooksRequestDTO = z.infer<typeof unbindTenantBooksRequestSchema>;
 export type StartSubscriptionRequestDTO = z.infer<typeof startSubscriptionRequestSchema>;
 export type ChangePlanRequestDTO = z.infer<typeof changePlanRequestSchema>;
 export type SubscriptionSuspendRequestDTO = z.infer<typeof subscriptionSuspendRequestSchema>;

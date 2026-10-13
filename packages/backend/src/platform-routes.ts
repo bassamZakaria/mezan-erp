@@ -41,6 +41,7 @@ import {
   PlatformUserEmailTakenError,
   PlatformUserNotFoundError,
   TenantStatusCode,
+  tenantDbFileRefusalOf,
   type Tenant,
   type Plan,
   type Payment,
@@ -55,6 +56,8 @@ import {
   createTenantRequestSchema,
   provisionRetryRequestSchema,
   assignOwnerRequestSchema,
+  confirmTenantBooksRequestSchema,
+  unbindTenantBooksRequestSchema,
   setBillingAnchorDayRequestSchema,
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
@@ -72,6 +75,8 @@ import {
   type ProvisionResultDTO,
   type OwnerPinResetResultDTO,
   type OwnerCandidateDTO,
+  type TenantBooksDTO,
+  type TenantBooksStanding,
   type TenantSummaryDTO,
   type TenantDTO,
   type PlanDTO,
@@ -116,6 +121,17 @@ export enum PlatformAuditAction {
   TenantSuspended = "TENANT_SUSPENDED",
 }
 
+export interface PlatformTenantBooksPort {
+  // CONTRACT: must not open a tenant's database for use; the list asks it for every tenant.
+  standingOf(tenant: Tenant): Promise<TenantBooksStanding | null>;
+  read(tenant: Tenant): Promise<TenantBooksDTO>;
+  // REQUIRED ORDERING: as for the owner routes, each of these writes its own
+  // CRITICAL audit row in the same step as the change.
+  confirm(input: { tenant: Tenant; userId: string; actorId: string }): Promise<Tenant>;
+  disown(input: { tenant: Tenant; actorId: string }): Promise<Tenant>;
+  unbind(input: { tenant: Tenant; actorId: string }): Promise<Tenant>;
+}
+
 export interface OwnerPinResetAccount {
   readonly userId: string;
   readonly signInEmail: string;
@@ -136,6 +152,8 @@ export interface CreatePlatformRoutesOptions {
   readonly confirmPendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   readonly declinePendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
   readonly resendPendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
+  readonly tenantBooks?: PlatformTenantBooksPort;
+  readonly handOverMailConfigured?: boolean;
   // CONTRACT: must not throw; it runs in front of a read.
   readonly reconcileOwner?: (tenant: Tenant) => Promise<void>;
   // CONTRACT: only tenants whose backend is already open. The list must not open every tenant's database to draw itself.
@@ -185,7 +203,7 @@ function serializePlatformUser(u: PlatformUser): PlatformUserDTO {
   return { id: u.id, email: u.email, role: u.role, status: u.status, createdAt: u.createdAt };
 }
 
-async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: string): Promise<TenantSummaryDTO> {
+async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: string, onConsole: Pick<TenantSummaryDTO, "books" | "handOverMailConfigured">): Promise<TenantSummaryDTO> {
   const subscription = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
   const plan = subscription ? await platform.stores.plans.findById(subscription.planId) : null;
   const licenseState = subscriptionLicenseState(tenant, subscription, nowIso);
@@ -217,12 +235,22 @@ async function tenantSummary(platform: PlatformHandle, tenant: Tenant, nowIso: s
         }
       : null,
     payments: payments.map(serializePayment),
+    ...onConsole,
   };
 }
 
 /** Codes for the `apps/server`-only error classes (`provision-tenant.ts`'s `TenantProvisioningError` and `PlanRequiredError`) that map to 422 here. `@mezan/backend` cannot import an `apps/*` class, so each is recognised by shape (`.code` plus, for a provisioning failure, the tenant id it left in `provisioning`) instead of `instanceof`. */
 const SERVER_DOMAIN_ERROR_CODES = new Set(["TENANT_PROVISIONING_FAILED", "PLAN_REQUIRED"]);
-const SERVER_OWNER_CONFLICT_CODES = new Set(["TENANT_OWNER_CANDIDATE_NOT_FOUND", "TENANT_NO_PENDING_OWNER", "TENANT_PENDING_OWNER_EXPIRED"]);
+const SERVER_OWNER_CONFLICT_CODES = new Set([
+  "TENANT_OWNER_CANDIDATE_NOT_FOUND",
+  "TENANT_NO_PENDING_OWNER",
+  "TENANT_PENDING_OWNER_EXPIRED",
+  "TENANT_BOOKS_UNCONFIRMED",
+  "TENANT_BOOKS_BOUND",
+  "TENANT_BOOKS_NOT_BOUND",
+  "PLATFORM_MAIL_NOT_CONFIGURED",
+]);
+const DB_FILE_RETRY_AFTER_SECONDS = 5;
 const SERVER_OWNER_RETRY_CODE = "TENANT_OWNER_RECORD_DUE";
 const OWNER_RETRY_AFTER_SECONDS = 5;
 
@@ -256,6 +284,12 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     console.error(err.cause);
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 503);
   }
+  const dbFileRefusal = tenantDbFileRefusalOf(err) ?? tenantDbFileRefusalOf(err instanceof Error ? err.cause : undefined);
+  if (dbFileRefusal) {
+    console.error(err);
+    if (dbFileRefusal.retryable) c.header("Retry-After", String(DB_FILE_RETRY_AFTER_SECONDS));
+    return c.json({ error: dbFileRefusal.error, message: dbFileRefusal.message, messageEn: dbFileRefusal.messageEn }, 503);
+  }
   const serverFailure = asServerDomainFailure(err);
   if (serverFailure) {
     return c.json({ error: serverFailure.code, message: serverFailure.message, ...(serverFailure.tenantId ? { tenantId: serverFailure.tenantId } : {}) }, 422);
@@ -266,7 +300,8 @@ function domainErrorResponse(c: Context, err: unknown): Response {
     return c.json({ error: SERVER_OWNER_RETRY_CODE, message: err.message }, 503);
   }
   if (err instanceof Error && SERVER_OWNER_CONFLICT_CODES.has(String((err as { code?: unknown }).code))) {
-    return c.json({ error: (err as unknown as { code: string }).code, message: err.message }, 409);
+    const messageEn = (err as { messageEn?: unknown }).messageEn;
+    return c.json({ error: (err as unknown as { code: string }).code, message: err.message, ...(typeof messageEn === "string" ? { messageEn } : {}) }, 409);
   }
   if (err instanceof Error && (err as { code?: unknown }).code === "PAYMENT_PROVIDER_ERROR") {
     console.error(err);
@@ -308,9 +343,16 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 }
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
-  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
+  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, tenantBooks, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
   const onAuditError = options.onAuditError ?? ((err: unknown) => console.error(err));
   const nowIso = () => now().toISOString();
+
+  async function summaryOf(tenant: Tenant): Promise<TenantSummaryDTO> {
+    return tenantSummary(platform, tenant, nowIso(), {
+      books: tenantBooks ? await tenantBooks.standingOf(tenant) : null,
+      handOverMailConfigured: options.handOverMailConfigured === true,
+    });
+  }
 
   async function requireTenant(id: string): Promise<Tenant> {
     const tenant = await platform.stores.tenants.findById(id);
@@ -374,7 +416,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
   app.get("/tenants", requireAny, async (c) => {
     await reconcileOpenOwners?.();
     const tenants = await platform.stores.tenants.list();
-    const summaries = await Promise.all(tenants.map((t) => tenantSummary(platform, t, nowIso())));
+    const summaries = await Promise.all(tenants.map((t) => summaryOf(t)));
     return c.json(summaries);
   });
 
@@ -383,7 +425,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const read = await requireTenant(c.req.param("id"));
       if (reconcileOwner && (read.status === TenantStatusCode.Active || read.status === TenantStatusCode.Suspended)) await reconcileOwner(read);
       const tenant = await requireTenant(read.id);
-      return c.json(await tenantSummary(platform, tenant, nowIso()));
+      return c.json(await summaryOf(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -432,7 +474,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       if (!releaseTenant) throw new Error("releaseTenant dependency is not configured");
       const released = await releaseTenant({ tenant, actorId: c.get("platformUser")!.id });
       invalidateEntitlements(tenant.code);
-      return c.json(await tenantSummary(platform, released, nowIso()));
+      return c.json(await summaryOf(released));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -463,7 +505,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       if (!isLive(tenant)) return c.json(TENANT_NOT_LIVE_FOR_OWNER, 409);
       if (!assignOwner) throw new Error("assignOwner dependency is not configured");
       const assigned = await assignOwner({ tenant, userId: parsed.data.userId, actorId: c.get("platformUser")!.id });
-      return c.json(await tenantSummary(platform, assigned, nowIso()));
+      return c.json(await summaryOf(assigned));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -475,7 +517,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       if (!isLive(tenant)) return c.json(TENANT_NOT_LIVE_FOR_OWNER, 409);
       if (!confirmPendingOwner) throw new Error("confirmPendingOwner dependency is not configured");
       const confirmed = await confirmPendingOwner({ tenant, actorId: c.get("platformUser")!.id });
-      return c.json(await tenantSummary(platform, confirmed, nowIso()));
+      return c.json(await summaryOf(confirmed));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -487,7 +529,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       if (!isLive(tenant)) return c.json(TENANT_NOT_LIVE_FOR_OWNER, 409);
       if (!declinePendingOwner) throw new Error("declinePendingOwner dependency is not configured");
       const declined = await declinePendingOwner({ tenant, actorId: c.get("platformUser")!.id });
-      return c.json(await tenantSummary(platform, declined, nowIso()));
+      return c.json(await summaryOf(declined));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -499,10 +541,52 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       if (!isLive(tenant)) return c.json(TENANT_NOT_LIVE_FOR_OWNER, 409);
       if (!resendPendingOwner) throw new Error("resendPendingOwner dependency is not configured");
       const resent = await resendPendingOwner({ tenant, actorId: c.get("platformUser")!.id });
-      return c.json(await tenantSummary(platform, resent, nowIso()));
+      return c.json(await summaryOf(resent));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
+  });
+
+  const TENANT_NOT_LIVE_FOR_BOOKS = { error: "TENANT_NOT_LIVE", message: "لا تُراجَع إلا دفاتر منشأة نشطة أو موقوفة", messageEn: "Only an active or suspended company's books are reviewed" } as const;
+
+  async function onLiveTenantBooks(c: Context, act: (books: PlatformTenantBooksPort, tenant: Tenant) => Promise<Response>): Promise<Response> {
+    try {
+      const tenant = await requireTenant(c.req.param("id") ?? "");
+      if (!isLive(tenant)) return c.json(TENANT_NOT_LIVE_FOR_BOOKS, 409);
+      if (!tenantBooks) throw new Error("tenantBooks dependency is not configured");
+      return await act(tenantBooks, tenant);
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  }
+
+  app.get("/tenants/:id/books", requireOwner, (c) => onLiveTenantBooks(c, async (books, tenant) => c.json(await books.read(tenant))));
+
+  app.post("/tenants/:id/books/confirm", requireOwner, async (c) => {
+    const parsed = confirmTenantBooksRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    return onLiveTenantBooks(c, async (books, tenant) => {
+      const confirmed = await books.confirm({ tenant, userId: parsed.data.userId, actorId: c.get("platformUser")!.id });
+      invalidateEntitlements(tenant.code);
+      return c.json(await summaryOf(confirmed));
+    });
+  });
+
+  app.post("/tenants/:id/books/disown", requireOwner, (c) =>
+    onLiveTenantBooks(c, async (books, tenant) => c.json(await summaryOf(await books.disown({ tenant, actorId: c.get("platformUser")!.id })))),
+  );
+
+  // SECURITY: the company's code is typed, as for a deletion: unbinding stops
+  // the company being served until somebody confirms its books again.
+  app.post("/tenants/:id/books/unbind", requireOwner, async (c) => {
+    const parsed = unbindTenantBooksRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    return onLiveTenantBooks(c, async (books, tenant) => {
+      if (parsed.data.code !== tenant.code) {
+        return c.json({ error: "TENANT_CODE_MISMATCH", message: "الرمز المكتوب لا يطابق رمز هذه المنشأة", messageEn: "The typed code is not this company's code" }, 422);
+      }
+      return c.json(await summaryOf(await books.unbind({ tenant, actorId: c.get("platformUser")!.id })));
+    });
   });
 
   const ownerPinResetRefused = (c: Context, tenantId: string | null, reason: string, actorId?: string, outcome?: OwnerPinResetOutcome) =>
@@ -550,7 +634,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const tenant = await suspendTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
       invalidateEntitlements(tenant.code);
       await audit(c, "TENANT_SUSPENDED", tenant.id, {});
-      return c.json(await tenantSummary(platform, tenant, nowIso()));
+      return c.json(await summaryOf(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -561,7 +645,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const tenant = await resumeTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
       invalidateEntitlements(tenant.code);
       await audit(c, "TENANT_RESUMED", tenant.id, {});
-      return c.json(await tenantSummary(platform, tenant, nowIso()));
+      return c.json(await summaryOf(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -572,7 +656,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       const tenant = await archiveTenant({ id: c.req.param("id"), now: nowIso() }, platform.stores.tenants);
       invalidateEntitlements(tenant.code);
       await audit(c, "TENANT_ARCHIVED", tenant.id, {});
-      return c.json(await tenantSummary(platform, tenant, nowIso()));
+      return c.json(await summaryOf(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -590,7 +674,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       );
       invalidateEntitlements(tenant.code);
       await audit(c, "SUBSCRIPTION_STARTED", tenant.id, { planId: parsed.data.planId });
-      return c.json(await tenantSummary(platform, tenant, nowIso()), 201);
+      return c.json(await summaryOf(tenant), 201);
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -611,7 +695,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       await changePlan({ id: subscription.id, planId: parsed.data.planId, now: nowIso() }, platform.stores.subscriptions, platform.stores.plans);
       invalidateEntitlements(tenant.code);
       await audit(c, "SUBSCRIPTION_PLAN_CHANGED", tenant.id, { planId: parsed.data.planId });
-      return c.json(await tenantSummary(platform, tenant, nowIso()));
+      return c.json(await summaryOf(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -624,7 +708,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       await cancelSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
       invalidateEntitlements(tenant.code);
       await audit(c, "SUBSCRIPTION_CANCELLED", tenant.id, {});
-      return c.json(await tenantSummary(platform, tenant, nowIso()));
+      return c.json(await summaryOf(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -644,7 +728,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
         { before: billingAnchorDayOf(subscription), after: parsed.data.day, neededReview: subscription.billingAnchorNeedsReview === true },
         AuditSeverityCode.Warning,
       );
-      return c.json(await tenantSummary(platform, tenant, nowIso()));
+      return c.json(await summaryOf(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -659,7 +743,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       await suspendSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
       invalidateEntitlements(tenant.code);
       await audit(c, "SUBSCRIPTION_SUSPENDED", tenant.id, { reason: parsed.data.reason });
-      return c.json(await tenantSummary(platform, tenant, nowIso()));
+      return c.json(await summaryOf(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -674,7 +758,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       await resumeSubscription({ id: subscription.id, now: nowIso() }, platform.stores.subscriptions);
       invalidateEntitlements(tenant.code);
       await audit(c, "SUBSCRIPTION_RESUMED", tenant.id, { reason: parsed.data.reason });
-      return c.json(await tenantSummary(platform, tenant, nowIso()));
+      return c.json(await summaryOf(tenant));
     } catch (err) {
       return domainErrorResponse(c, err);
     }
@@ -704,7 +788,7 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       );
       invalidateEntitlements(tenant.code);
       await audit(c, "PAYMENT_RECORDED", tenant.id, { paymentId: result.payment.id, amount: parsed.data.amount });
-      return c.json(await tenantSummary(platform, tenant, nowIso()), 201);
+      return c.json(await summaryOf(tenant), 201);
     } catch (err) {
       return domainErrorResponse(c, err);
     }

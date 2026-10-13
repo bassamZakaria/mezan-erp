@@ -14,7 +14,8 @@ import {
   type BackendHandle,
   type PlatformHandle,
 } from "@mezan/backend";
-import { activateTenant, AuditSeverityCode, createPlatformUser, createTenant, pendingOwnerExpiresAt, type Tenant } from "@mezan/domain";
+import { activateTenant, AuditSeverityCode, createPlatformUser, createTenant, pendingOwnerExpiresAt, TenantBooksReview, tenantWithBooksReview, type Tenant } from "@mezan/domain";
+import { TenantBooksUnconfirmedError } from "./tenant-books.js";
 import { createCardCheckoutService } from "./card-checkout.js";
 import {
   createOwnerContact,
@@ -622,6 +623,24 @@ describe("a hand-over the platform cannot take as the owner's own act", () => {
 
     expect(await ownerAudit(c, OwnerContactAudit.HandOverPending)).toHaveLength(1);
     expect(sent).toEqual(["owner@indigo.example"]);
+  });
+});
+
+describe("a hand-over inside books nobody has confirmed are the company's", () => {
+  it("is refused, and the platform's record of the owner stays where it was", async () => {
+    const c = await cloud();
+    const co = await company(c, "umber");
+    const peer = await secondAdmin(co);
+    const owner = await co.user("owner@umber.example");
+    const before = (await c.platform.stores.tenants.findById(co.tenantId))!;
+    await c.platform.stores.tenants.save(tenantWithBooksReview(before, TenantBooksReview.Unconfirmed, T));
+    const contact = createOwnerContact({ platform: c.platform, now });
+
+    const refused = await contact.handOver(co.tenantId, { fromUserId: String(owner["id"]), toUserId: peer.id, toEmail: "second@umber.example", actorId: String(owner["id"]) }).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(TenantBooksUnconfirmedError);
+    expect(await c.platform.stores.tenants.findById(co.tenantId)).toMatchObject({ ownerUserId: before.ownerUserId, ownerEmail: "owner@umber.example" });
+    expect(await ownerAudit(c, OwnerContactAudit.HandedOver)).toEqual([]);
   });
 });
 

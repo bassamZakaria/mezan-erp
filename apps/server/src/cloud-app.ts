@@ -14,7 +14,7 @@ import {
 import { createSessionRegistry } from "@mezan/api";
 import { SubscriptionStatusKind, TenantNotFoundError, type Tenant } from "@mezan/domain";
 import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
-import { createTenantRouter, requireOriginSecret, type TenantRouter } from "./tenant-router.js";
+import { createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
 import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
 import { releaseProvisioningTenant } from "./release-tenant.js";
@@ -79,6 +79,12 @@ async function readIndexHtmlIfPresent(webDist: string): Promise<string | null> {
   }
 }
 
+function reportTenantBooks(scan: TenantBooksScan): void {
+  const counts = [...scan.standings].map(([standing, count]) => `${standing} ${count}`).join(", ");
+  console.log(`[cloud] tenant books at start: ${scan.checked} checked${counts === "" ? "" : `: ${counts}`}`);
+  for (const tenant of scan.needingSomebody) console.warn(`[cloud] tenant books: "${tenant.code}" (${tenant.id}) is ${tenant.standing}`);
+}
+
 export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptions = {}): Promise<CloudApp> {
   const now = options.now ?? (() => new Date());
   mkdirSync(env.platformDir, { recursive: true });
@@ -119,6 +125,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     now,
     connection: { exclusive: env.sqliteExclusive },
   });
+
+  reportTenantBooks(await router.scanBooks());
 
   if (env.seedDemo) {
     await (options.seedDemo ?? provisionDemoTenant)({ platform, router, env });
@@ -186,6 +194,14 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     confirmPendingOwner: ({ tenant, actorId }) => router.confirmPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
     declinePendingOwner: ({ tenant, actorId }) => router.declinePendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
     resendPendingOwner: ({ tenant, actorId }) => router.resendPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),
+    tenantBooks: {
+      standingOf: (tenant) => router.booksStandingOf(tenant),
+      read: (tenant) => router.booksOf(tenant.id),
+      confirm: ({ tenant, userId, actorId }) => router.confirmBooks({ tenantId: tenant.id, userId, actor: platformActor(actorId) }),
+      disown: ({ tenant, actorId }) => router.disownBooks({ tenantId: tenant.id, actor: platformActor(actorId) }),
+      unbind: ({ tenant, actorId }) => router.unbindBooks({ tenantId: tenant.id, actor: platformActor(actorId) }),
+    },
+    handOverMailConfigured: mailer !== undefined,
     reconcileOwner: reconcileOwnerQuietly,
     reconcileOpenOwners: () => router.reconcileOpenOwners(),
     invalidateEntitlements: router.invalidate,

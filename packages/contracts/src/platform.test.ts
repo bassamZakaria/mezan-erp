@@ -337,6 +337,8 @@ describe("tenantSummarySchema", () => {
     licenseState: { state: "UNLICENSED" as const, canWrite: false, usable: true },
     entitlements: null,
     payments: [payment],
+    books: "bound" as const,
+    handOverMailConfigured: false,
   };
 
   it("accepts a valid tenant summary with null subscription, plan and entitlements", () => {

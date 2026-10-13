@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { useLocation } from "react-router";
-import { LicenseStateCode, SubscriptionStatusCode, TenantWireStatus, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
+import { LicenseStateCode, SubscriptionStatusCode, TenantBooksStanding, TenantWireStatus, type PlanDTO, type TenantSummaryDTO } from "@mezan/contracts";
 import type { Transport } from "../data/transport";
 import { NARROW_TENANT_LIST_QUERY, TenantsPage } from "./TenantsPage";
 import { renderWithPlatformProviders, stubPlatformTransport, testPlatformSession } from "./test-support";
@@ -69,6 +69,8 @@ const tenantSummary: TenantSummaryDTO = {
   licenseState: { state: LicenseStateCode.Active, canWrite: true, usable: true },
   entitlements: null,
   payments: [],
+  books: TenantBooksStanding.Bound,
+  handOverMailConfigured: true,
 };
 
 const supportSession: PlatformSession = {

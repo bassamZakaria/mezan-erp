@@ -448,11 +448,14 @@ async function boot(env: CloudEnv) {
 
 type Booted = Awaited<ReturnType<typeof boot>>;
 
-const NOT_IN_PLACE = "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم.";
+const NOT_IN_PLACE = {
+  message: "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم.",
+  messageEn: "The company's data file is not where it is expected. Contact support.",
+};
 const ATTACKER = { nameAr: "مهاجم", nameEn: "Attacker", email: "attacker@evil.example", pin: "246813", companyName: "شركة النيل" };
 
 describe("a served company whose database file was removed from the server", () => {
-  const MISSING = { error: "TENANT_DB_FILE_MISSING", message: NOT_IN_PLACE };
+  const MISSING = { error: "TENANT_DB_FILE_MISSING", ...NOT_IN_PLACE };
 
   it.each([
     ["removed", (file: string) => rmSync(file)],
@@ -494,8 +497,8 @@ describe("a served company whose database file was removed from the server", () 
 });
 
 describe("a served company whose database file does not hold its own books", () => {
-  const FOREIGN = { error: "TENANT_DB_FILE_FOREIGN", message: NOT_IN_PLACE };
-  const UNREADABLE = { error: "TENANT_DB_FILE_UNREADABLE", message: NOT_IN_PLACE };
+  const FOREIGN = { error: "TENANT_DB_FILE_FOREIGN", ...NOT_IN_PLACE };
+  const UNREADABLE = { error: "TENANT_DB_FILE_UNREADABLE", ...NOT_IN_PLACE };
   const SIBLINGS = ["-wal", "-shm"] as const;
 
   interface Company {
@@ -640,21 +643,22 @@ describe("a served company whose database file does not hold its own books", () 
     });
 
     it.each([
-      ["the owner the platform recorded by id is not an account in it", "owner_user_id = 'somebody-else'", ""],
-      ["the owner the platform recorded by e-mail is nobody's address in it", "owner_user_id = NULL, owner_email = 'nobody@nile.example'", ""],
-      ["the owner the platform recorded by e-mail is not a company admin in it", "owner_user_id = NULL", "UPDATE user SET is_company_admin = 0"],
-      ["the owner the platform recorded by e-mail is a deactivated account in it", "owner_user_id = NULL", "UPDATE user SET status = 'inactive'"],
-    ])("is refused and left unbound when %s", async (_label, platformRow, booksChange) => {
+      ["the owner the platform recorded by id is not an account in it", "owner_user_id = 'somebody-else'", "", 200],
+      ["the owner the platform recorded by e-mail is nobody's address in it", "owner_user_id = NULL, owner_email = 'nobody@nile.example'", "", 200],
+      ["the owner the platform recorded by e-mail is not a company admin in it", "owner_user_id = NULL", "UPDATE user SET is_company_admin = 0", 200],
+      ["the owner the platform recorded by e-mail is a deactivated account in it", "owner_user_id = NULL", "UPDATE user SET status = 'inactive'", 401],
+      ["the owner the platform recorded is the seed admin's id, which every company's database holds", "owner_user_id = 'USER-ADMIN', owner_email = 'admin@cyag.example'", "", 200],
+    ])("is served as it is, left unbound and marked for the console to confirm when %s", async (_label, platformRow, booksChange, signedIn) => {
       const env = harnessEnv({}, {}, harnessDirs);
       const legacy = await unbound(env, platformRow, booksChange);
-      const planted = readFileSync(legacy.file);
 
       const second = await boot(env);
       const answer = await signIn(second, legacy);
       await second.app.close();
 
-      expect(answer).toEqual({ status: 503, json: FOREIGN });
-      expect(readFileSync(legacy.file).equals(planted)).toBe(true);
+      expect(answer.status).toBe(signedIn);
+      expect(readTenantBooksIdentity(legacy.file).boundTenantId).toBeNull();
+      expect(inBooks(path.join(env.platformDir, "platform.db"), (sqlite) => sqlite.prepare("SELECT books_review FROM tenant WHERE id = ?").get(legacy.tenantId))).toEqual({ books_review: "unconfirmed" });
     });
   });
 
@@ -715,7 +719,7 @@ describe("a served company whose database file does not hold its own books", () 
     const refused = await router.backendOf("t-new").catch((err: unknown) => err);
 
     expect(refused).toBeInstanceOf(TenantDbFileForeignError);
-    expect(readTenantBooksIdentity(path.join(dataDir, "tenants/t-new.db"))).toEqual({ boundTenantId: "t-other", claimed: false, users: [] });
+    expect(readTenantBooksIdentity(path.join(dataDir, "tenants/t-new.db"))).toEqual({ boundTenantId: "t-other", claimed: false, companyName: null, users: [] });
   });
 
   it("is refused when a freshly seeded database nobody ever claimed is put in its place, even though the platform's recorded owner address is the seed account's", async () => {
@@ -841,7 +845,7 @@ describe("opening a tenant stored under its code", () => {
     );
 
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "TENANT_DB_FILE_MISSING", message: "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم." });
+    expect(await res.json()).toEqual({ error: "TENANT_DB_FILE_MISSING", ...NOT_IN_PLACE });
     expect((await platform.stores.tenants.findById(tenant.id))?.dbFile).toBe(legacy);
     expect(existsSync(path.join(dataDir, tenantDbFile(tenant.id)))).toBe(false);
   });
@@ -865,7 +869,11 @@ describe("opening a tenant stored under its code", () => {
 
     expect(busy.status).toBe(503);
     expect(busy.headers.get("retry-after")).toBe("5");
-    expect(await busy.json()).toEqual({ error: "TENANT_DB_FILE_BUSY", message: "بيانات المنشأة قيد النقل الآن. أعد المحاولة بعد لحظات." });
+    expect(await busy.json()).toEqual({
+      error: "TENANT_DB_FILE_BUSY",
+      message: "بيانات المنشأة قيد النقل الآن. أعد المحاولة بعد لحظات.",
+      messageEn: "The company's data is being moved right now. Try again in a moment.",
+    });
     expect(free.status).toBe(200);
   });
 

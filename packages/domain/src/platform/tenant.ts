@@ -18,6 +18,42 @@ export enum TenantStatusCode {
 
 export type TenantStatus = `${TenantStatusCode}`;
 
+export enum TenantBooksReview {
+  Unconfirmed = "unconfirmed",
+  Disowned = "disowned",
+}
+
+export enum TenantDbFileRefusal {
+  Conflict = "TENANT_DB_FILE_CONFLICT",
+  Missing = "TENANT_DB_FILE_MISSING",
+  Shared = "TENANT_DB_FILE_SHARED",
+  Busy = "TENANT_DB_FILE_BUSY",
+  Foreign = "TENANT_DB_FILE_FOREIGN",
+  Unreadable = "TENANT_DB_FILE_UNREADABLE",
+  Disowned = "TENANT_DB_FILE_DISOWNED",
+}
+
+export interface TenantDbFileRefusalAnswer {
+  readonly error: TenantDbFileRefusal;
+  readonly message: string;
+  readonly messageEn: string;
+  readonly retryable: boolean;
+}
+
+export function tenantDbFileRefusalAnswer(code: TenantDbFileRefusal): TenantDbFileRefusalAnswer {
+  if (code === TenantDbFileRefusal.Busy) {
+    return { error: code, message: "بيانات المنشأة قيد النقل الآن. أعد المحاولة بعد لحظات.", messageEn: "The company's data is being moved right now. Try again in a moment.", retryable: true };
+  }
+  return { error: code, message: "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم.", messageEn: "The company's data file is not where it is expected. Contact support.", retryable: false };
+}
+
+const TENANT_DB_FILE_REFUSALS: ReadonlySet<string> = new Set(Object.values(TenantDbFileRefusal));
+
+export function tenantDbFileRefusalOf(err: unknown): TenantDbFileRefusalAnswer | null {
+  const code = err instanceof Error ? (err as { code?: unknown }).code : undefined;
+  return typeof code === "string" && TENANT_DB_FILE_REFUSALS.has(code) ? tenantDbFileRefusalAnswer(code as TenantDbFileRefusal) : null;
+}
+
 export interface Tenant {
   readonly id: string;
   readonly code: string;
@@ -29,6 +65,7 @@ export interface Tenant {
   readonly ownerNeeded?: boolean;
   readonly pendingOwner?: PendingOwner | null;
   readonly ownerRecordDue?: OwnerRecordDue | null;
+  readonly booksReview?: TenantBooksReview | null;
   readonly status: TenantStatus;
   readonly dbFile: string;
   readonly createdAt: string;
@@ -73,7 +110,7 @@ export interface TenantRepository {
   list(): Promise<Tenant[]>;
   save(tenant: Tenant): Promise<void>;
   /**
-   * CONTRACT: writes `after`'s owner fields only while the stored row still carries
+   * CONTRACT: writes `after`'s owner fields and books review only while the stored row still carries
    * `before`'s, then runs `sideEffect` in the SAME transaction. False when
    * another writer moved the owner first; nothing is written then.
    */
@@ -301,6 +338,12 @@ export function tenantWithPendingOwnerLink(tenant: Tenant, link: PendingOwnerLin
 
 export function tenantWithOwnerRecordDue(tenant: Tenant, due: OwnerRecordDue | null): Tenant {
   return { ...tenant, ownerRecordDue: due };
+}
+
+export function tenantWithBooksReview(tenant: Tenant, review: TenantBooksReview | null, now: string): Tenant {
+  const at = isoTimestamp(now);
+  if (!at) throw new InvalidTenantError(["الطابع الزمني الحالي غير صالح (يجب أن يكون بصيغة ISO-8601)"]);
+  return { ...tenant, booksReview: review, updatedAt: at };
 }
 
 export function tenantWithPendingOwnerConfirmed(tenant: Tenant, now: string): Tenant {

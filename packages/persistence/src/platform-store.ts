@@ -14,7 +14,7 @@ import {
   type PlatformUser, type PlatformUserRepository,
   type SignupRequest, type SignupRequestRepository, SignupRequestStatus,
   type Subscription, SubscriptionStatusKind, anchorIsUtcDayOfCreation, billingDayBehindUtcAnchor, inferBillingAnchorDay,
-  type OwnerRecordDue, type PendingOwner, type Tenant, type TenantRepository, TenantStatusCode,
+  type OwnerRecordDue, type PendingOwner, type Tenant, type TenantRepository, TenantBooksReview, TenantStatusCode,
 } from "@mezan/domain";
 
 const TENANT_STATUSES: readonly string[] = Object.values(TenantStatusCode);
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS tenant (
   owner_needed INTEGER NOT NULL DEFAULT 0,
   pending_owner TEXT,
   owner_record_due TEXT,
+  books_review TEXT,
   status       TEXT NOT NULL,
   db_file      TEXT NOT NULL,
   created_at   TEXT NOT NULL,
@@ -218,6 +219,7 @@ function addMissingColumns(sqlite: Database.Database): void {
   if (!onTenant.has("owner_needed")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_needed INTEGER NOT NULL DEFAULT 0`);
   if (!onTenant.has("pending_owner")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN pending_owner TEXT`);
   if (!onTenant.has("owner_record_due")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN owner_record_due TEXT`);
+  if (!onTenant.has("books_review")) sqlite.exec(`ALTER TABLE tenant ADD COLUMN books_review TEXT`);
 }
 
 const TENANT_DB_FILE_INDEX = "idx_tenant_db_file";
@@ -246,7 +248,7 @@ function isDbFileTaken(err: unknown): boolean {
 interface TenantRow {
   id: string; code: string; name_ar: string; name_en: string | null; owner_email: string;
   owner_user_id: string | null; owner_contact_verified: number;
-  owner_needed: number; pending_owner: string | null; owner_record_due: string | null;
+  owner_needed: number; pending_owner: string | null; owner_record_due: string | null; books_review: string | null;
   status: Tenant["status"]; db_file: string; created_at: string; updated_at: string;
 }
 
@@ -258,7 +260,16 @@ function toTenant(r: TenantRow): Tenant {
     ...(r.owner_needed === 1 ? { ownerNeeded: true } : {}),
     ...(r.pending_owner === null ? {} : { pendingOwner: pendingOwnerOf(r.pending_owner) }),
     ...(r.owner_record_due === null ? {} : { ownerRecordDue: JSON.parse(r.owner_record_due) as OwnerRecordDue }),
+    ...(r.books_review === null ? {} : { booksReview: booksReviewOf(r.books_review) }),
   };
+}
+
+const BOOKS_REVIEWS: readonly string[] = Object.values(TenantBooksReview);
+
+// SECURITY: a mark this build does not know is read as the one that stops the
+// books being served, never as no mark at all.
+function booksReviewOf(stored: string): TenantBooksReview {
+  return BOOKS_REVIEWS.includes(stored) ? (stored as TenantBooksReview) : TenantBooksReview.Disowned;
 }
 
 function pendingOwnerOf(stored: string): PendingOwner {
@@ -296,19 +307,19 @@ class SqliteTenantStore implements TenantRepository {
     );
     this.dbFileUpdate = sqlite.prepare(`UPDATE tenant SET db_file = @to WHERE id = @id AND db_file = @from`);
     this.upsert = sqlite.prepare(
-      `INSERT INTO tenant (id, code, name_ar, name_en, owner_email, owner_user_id, owner_contact_verified, owner_needed, pending_owner, owner_record_due, status, db_file, created_at, updated_at)
-       VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @ownerUserId, @ownerContactVerified, @ownerNeeded, @pendingOwner, @ownerRecordDue, @status, @dbFile, @createdAt, @updatedAt)
+      `INSERT INTO tenant (id, code, name_ar, name_en, owner_email, owner_user_id, owner_contact_verified, owner_needed, pending_owner, owner_record_due, books_review, status, db_file, created_at, updated_at)
+       VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @ownerUserId, @ownerContactVerified, @ownerNeeded, @pendingOwner, @ownerRecordDue, @booksReview, @status, @dbFile, @createdAt, @updatedAt)
        ON CONFLICT(id) DO UPDATE SET
          code = @code, name_ar = @nameAr, name_en = @nameEn, owner_email = @ownerEmail,
          owner_user_id = @ownerUserId, owner_contact_verified = @ownerContactVerified,
-         owner_needed = @ownerNeeded, pending_owner = @pendingOwner, owner_record_due = @ownerRecordDue,
+         owner_needed = @ownerNeeded, pending_owner = @pendingOwner, owner_record_due = @ownerRecordDue, books_review = @booksReview,
          status = @status, db_file = @dbFile, created_at = @createdAt, updated_at = @updatedAt`,
     );
     this.ownerUpdate = sqlite.prepare(
       `UPDATE tenant SET owner_email = @ownerEmail, owner_user_id = @ownerUserId, owner_contact_verified = @ownerContactVerified,
-         owner_needed = @ownerNeeded, pending_owner = @pendingOwner, owner_record_due = @ownerRecordDue, updated_at = @updatedAt
+         owner_needed = @ownerNeeded, pending_owner = @pendingOwner, owner_record_due = @ownerRecordDue, books_review = @booksReview, updated_at = @updatedAt
        WHERE id = @id AND owner_email = @beforeEmail AND owner_user_id IS @beforeUserId AND owner_contact_verified = @beforeVerified
-         AND owner_needed = @beforeNeeded AND pending_owner IS @beforePending AND owner_record_due IS @beforeRecordDue`,
+         AND owner_needed = @beforeNeeded AND pending_owner IS @beforePending AND owner_record_due IS @beforeRecordDue AND books_review IS @beforeBooksReview`,
     );
     this.byId = sqlite.prepare(`SELECT * FROM tenant WHERE id = ?`);
     this.byCode = sqlite.prepare(`SELECT * FROM tenant WHERE code = ?`);
@@ -335,7 +346,7 @@ class SqliteTenantStore implements TenantRepository {
       this.upsert.run({
         id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
         ownerUserId: t.ownerUserId, ownerContactVerified: t.ownerContactVerified ? 1 : 0,
-        ownerNeeded: t.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(t), ownerRecordDue: storedOwnerRecordDue(t),
+        ownerNeeded: t.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(t), ownerRecordDue: storedOwnerRecordDue(t), booksReview: t.booksReview ?? null,
         status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
       });
     } catch (err) {
@@ -370,9 +381,9 @@ class SqliteTenantStore implements TenantRepository {
         const result = this.ownerUpdate.run({
           id: after.id, ownerEmail: after.ownerEmail, ownerUserId: after.ownerUserId,
           ownerContactVerified: after.ownerContactVerified ? 1 : 0, updatedAt: after.updatedAt,
-          ownerNeeded: after.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(after), ownerRecordDue: storedOwnerRecordDue(after),
+          ownerNeeded: after.ownerNeeded === true ? 1 : 0, pendingOwner: storedPendingOwner(after), ownerRecordDue: storedOwnerRecordDue(after), booksReview: after.booksReview ?? null,
           beforeEmail: before.ownerEmail, beforeUserId: before.ownerUserId, beforeVerified: before.ownerContactVerified ? 1 : 0,
-          beforeNeeded: before.ownerNeeded === true ? 1 : 0, beforePending: storedPendingOwner(before), beforeRecordDue: storedOwnerRecordDue(before),
+          beforeNeeded: before.ownerNeeded === true ? 1 : 0, beforePending: storedPendingOwner(before), beforeRecordDue: storedOwnerRecordDue(before), beforeBooksReview: before.booksReview ?? null,
         });
         if (result.changes !== 1) return false;
         await sideEffect();

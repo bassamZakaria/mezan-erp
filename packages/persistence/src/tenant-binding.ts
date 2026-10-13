@@ -42,6 +42,7 @@ export function isUnreadableSqliteError(err: unknown): boolean {
 
 export interface TenantBooksUser {
   readonly id: string;
+  readonly nameAr: string;
   readonly email: string;
   readonly isCompanyAdmin: boolean;
   readonly status: string;
@@ -51,6 +52,7 @@ export interface TenantBooksUser {
 export interface TenantBooksIdentity {
   readonly boundTenantId: string | null;
   readonly claimed: boolean;
+  readonly companyName: string | null;
   readonly users: readonly TenantBooksUser[];
 }
 
@@ -64,16 +66,22 @@ function boundTenantIdOf(sqlite: Database.Database): string | null {
   return row?.tenant_id ?? null;
 }
 
-function claimedIn(sqlite: Database.Database): boolean {
-  if (!hasTable(sqlite, "tenant_settings")) return false;
-  const row = sqlite.prepare(`SELECT data FROM tenant_settings WHERE id = ?`).get(SETTINGS_ROW_ID) as { data: string } | undefined;
-  if (!row) return false;
-  const claimedAt = (JSON.parse(row.data) as { tenantClaimedAt?: unknown }).tenantClaimedAt;
-  return typeof claimedAt === "string" && claimedAt !== "";
+interface StoredSettings {
+  readonly tenantClaimedAt?: unknown;
+  readonly companyName?: unknown;
 }
+
+function settingsIn(sqlite: Database.Database): StoredSettings {
+  if (!hasTable(sqlite, "tenant_settings")) return {};
+  const row = sqlite.prepare(`SELECT data FROM tenant_settings WHERE id = ?`).get(SETTINGS_ROW_ID) as { data: string } | undefined;
+  return row ? (JSON.parse(row.data) as StoredSettings) : {};
+}
+
+const textOr = <T>(value: unknown, otherwise: T): string | T => (typeof value === "string" && value !== "" ? value : otherwise);
 
 interface UserRow {
   id: string;
+  name_ar: string;
   email: string;
   is_company_admin: number;
   status: string;
@@ -84,8 +92,8 @@ function usersIn(sqlite: Database.Database): TenantBooksUser[] {
   if (!hasTable(sqlite, "user")) return [];
   const columns = new Set((sqlite.pragma("table_info(user)") as { name: string }[]).map((column) => column.name));
   const erasedAt = columns.has("erased_at") ? "erased_at" : "NULL AS erased_at";
-  const rows = sqlite.prepare(`SELECT id, email, is_company_admin, status, ${erasedAt} FROM user`).all() as UserRow[];
-  return rows.map((row) => ({ id: row.id, email: row.email, isCompanyAdmin: row.is_company_admin === 1, status: row.status, erased: row.erased_at !== null }));
+  const rows = sqlite.prepare(`SELECT id, name_ar, email, is_company_admin, status, ${erasedAt} FROM user`).all() as UserRow[];
+  return rows.map((row) => ({ id: row.id, nameAr: row.name_ar, email: row.email, isCompanyAdmin: row.is_company_admin === 1, status: row.status, erased: row.erased_at !== null }));
 }
 
 const REPLAYED_SIBLINGS = ["-wal", "-journal"] as const;
@@ -105,7 +113,8 @@ function identityIn(file: string, options: IdentityReadOptions): TenantBooksIden
     if (options.key !== undefined) applyKey(sqlite, options.key);
     if (options.exclusive === true) sqlite.pragma("locking_mode = EXCLUSIVE");
     sqlite.pragma("query_only = ON");
-    return { boundTenantId: boundTenantIdOf(sqlite), claimed: claimedIn(sqlite), users: usersIn(sqlite) };
+    const settings = settingsIn(sqlite);
+    return { boundTenantId: boundTenantIdOf(sqlite), claimed: textOr(settings.tenantClaimedAt, null) !== null, companyName: textOr(settings.companyName, null), users: usersIn(sqlite) };
   } catch (err) {
     if (isUnreadableSqliteError(err) || err instanceof SyntaxError) throw new NotASqliteDatabaseError(file, err);
     throw err;
@@ -141,12 +150,39 @@ export function readTenantBooksIdentity(file: string, options: IdentityReadOptio
   }
 }
 
-// SECURITY: written once and never moved. A database already bound to another
-// tenant is refused before anything else is written to it.
+// SECURITY: an open never moves a binding. A database already bound to another
+// tenant is refused before anything else is written to it; only the platform
+// console's audited unbinding takes a binding out.
 export function bindTenantDatabase(sqlite: Database.Database, tenantId: string, now: () => Date = () => new Date()): void {
   const bound = boundTenantIdOf(sqlite);
   if (bound === tenantId) return;
   if (bound !== null) throw new TenantBindingMismatchError(tenantId, bound);
   sqlite.exec(CREATE_BINDING_TABLE);
   sqlite.prepare(`INSERT INTO tenant_binding (id, tenant_id, bound_at) VALUES (?, ?, ?)`).run(BINDING_ROW_ID, tenantId, now().toISOString());
+}
+
+const BINDING_WRITE_WAIT_MS = 2000;
+
+function onBooks<T>(file: string, options: IdentityReadOptions, write: (sqlite: Database.Database) => T): T {
+  const sqlite = new (options.driver ?? Database)(file, { fileMustExist: true, timeout: BINDING_WRITE_WAIT_MS });
+  try {
+    if (options.key !== undefined) applyKey(sqlite, options.key);
+    if (options.exclusive === true) sqlite.pragma("locking_mode = EXCLUSIVE");
+    return write(sqlite);
+  } finally {
+    sqlite.close();
+  }
+}
+
+export function writeTenantBinding(file: string, tenantId: string, options: IdentityReadOptions = {}, now: () => Date = () => new Date()): void {
+  onBooks(file, options, (sqlite) => bindTenantDatabase(sqlite, tenantId, now));
+}
+
+// SECURITY: takes out this tenant's binding and no other's. False when the
+// database is not bound to this tenant; nothing is written then.
+export function clearTenantBinding(file: string, tenantId: string, options: IdentityReadOptions = {}): boolean {
+  return onBooks(file, options, (sqlite) => {
+    if (boundTenantIdOf(sqlite) !== tenantId) return false;
+    return sqlite.prepare(`DELETE FROM tenant_binding WHERE id = ? AND tenant_id = ?`).run(BINDING_ROW_ID, tenantId).changes === 1;
+  });
 }

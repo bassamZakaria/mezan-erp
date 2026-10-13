@@ -17,10 +17,12 @@ export {
   type SqliteDriver,
   type SqliteOpenOptions,
 } from "./sqlite-connection.js";
-export { holdSqliteFile, SqliteFileBusyError, type HeldSqliteFile } from "./sqlite-file-hold.js";
+export { holdSqliteFile, isBusySqliteError, SqliteFileBusyError, type HeldSqliteFile } from "./sqlite-file-hold.js";
 export {
   bindTenantDatabase,
+  clearTenantBinding,
   isUnreadableSqliteError,
+  writeTenantBinding,
   NotASqliteDatabaseError,
   readTenantBooksIdentity,
   TenantBindingMismatchError,

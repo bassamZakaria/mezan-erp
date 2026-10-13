@@ -8,6 +8,7 @@ import {
   sessionOriginReporting,
 } from "./session-auth.js";
 import { createPermissionGate } from "./permission-gate.js";
+import { requestBodyLimit } from "./body-limit.js";
 
 const IDLE_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 const MAX_SESSION_MS = 16 * 60 * 60 * 1000;
@@ -157,6 +158,7 @@ describe("a session is bound to where it was issued", () => {
       userId: "USER-CLERK",
       issuedFrom: TILL,
       presentedFrom: OTHER_TILL,
+      sessionEnded: true,
     });
 
     const idled = sessions.issue(clerkGrant, TILL);
@@ -331,6 +333,58 @@ describe("a moved token is recorded", () => {
       );
     }
     expect(rows).toHaveLength(1);
+  });
+
+  it("records a stolen token on a write as it does on a read, though the body limit asked who the caller was first", async () => {
+    for (const method of ["GET", "POST"]) {
+      const sessions = createSessionRegistry();
+      const { sink, rows } = collectingSink();
+      const token = sessions.issue(clerkGrant, TILL);
+      const resolve = createSessionAuthContextResolver(sessions);
+      const app = new Hono();
+      app.use("*", requestBodyLimit(resolve));
+      app.use("*", sessionOriginReporting(sessions, sink));
+      app.all("/secret", createPermissionGate(resolve)("accounting.coa.view"), (c) => c.json({ ok: true }));
+
+      const res = await app.fetch(
+        new Request("http://local/secret", {
+          method,
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          body: method === "POST" ? "{}" : undefined,
+        }),
+        fromAddress(OTHER_TILL),
+      );
+
+      expect(res.status, method).toBe(401);
+      expect(rows.map((row) => row.action), method).toEqual(["SESSION_ORIGIN_REJECTED"]);
+      expect(rows[0]?.details, method).toMatchObject({ method, issuedFrom: TILL, presentedFrom: OTHER_TILL });
+      expect(sessions.find(token, TILL), method).toBeNull();
+    }
+  });
+
+  it("looks a token up once per request, however many middlewares ask who the caller is", async () => {
+    const sessions = createSessionRegistry();
+    let lookups = 0;
+    const counting = {
+      ...sessions,
+      inspect: (token: string, origin?: string | null) => ((lookups += 1), sessions.inspect(token, origin)),
+      find: (token: string, origin?: string | null) => ((lookups += 1), sessions.find(token, origin)),
+    };
+    const token = sessions.issue(clerkGrant, TILL);
+    const resolve = createSessionAuthContextResolver(counting);
+    const { sink } = collectingSink();
+    const app = new Hono();
+    app.use("*", requestBodyLimit(resolve));
+    app.use("*", sessionOriginReporting(counting, sink));
+    app.post("/secret", createPermissionGate(resolve)("accounting.coa.view"), (c) => c.json({ ok: true }));
+
+    const res = await app.fetch(
+      new Request("http://local/secret", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "{}" }),
+      fromAddress(TILL),
+    );
+
+    expect(res.status).toBe(200);
+    expect(lookups).toBe(1);
   });
 
   it("never turns a failing audit write into a 500 on the request", async () => {

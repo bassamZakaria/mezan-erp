@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for Fixed Assets (docs/archive/catalog/07-mfg-projects-assets.md
@@ -30,7 +31,7 @@ export const assetCategorySchema = z.object({
 });
 
 export const createAssetCategorySchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),
@@ -82,7 +83,7 @@ export const assetSchema = z.object({
 });
 
 export const createAssetSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),

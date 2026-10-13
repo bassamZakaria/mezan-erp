@@ -4,15 +4,37 @@ import {
   authHeaders,
   loadPersistedScopeSelection,
   loadPersistedSession,
-  markSessionExpired,
+  markSignInNotice,
   NO_SCOPE_SELECTION,
   persistScopeSelection,
   persistSession,
+  SignInNotice,
   type ScopeSelection,
   type Session,
 } from "./session";
-import { resolveDefaultTransport, type Transport, type TransportResponse } from "./transport";
+import { resolveDefaultTransport, SessionEndedReason, type Transport, type TransportResponse } from "./transport";
 import { publishLoaderApi } from "./api-bridge";
+import { DEVICE_BINDING_HEADER } from "@mezan/contracts";
+import { StepUpDialog, type StepUpPrompt } from "./StepUpDialog";
+
+const SIGN_IN_PATH = "/auth/login";
+const STEP_UP_PATH = "/auth/step-up";
+const STEP_UP_STATUS = 403;
+const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
+const COOKIE_KEPT_DEVICE_SECRET = "cookie";
+
+function parsed(text: string): { error?: string; message?: string } | null {
+  try {
+    return JSON.parse(text) as { error?: string; message?: string };
+  } catch {
+    return null;
+  }
+}
+
+function replayable(response: TransportResponse, text: string): TransportResponse {
+  return { status: response.status, ok: response.ok, json: async <T,>() => JSON.parse(text) as T, text: async () => text };
+}
+
 import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
 
 const BRANCH_REFUSAL_STATUS = 403;
@@ -94,6 +116,34 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
     void queryClient.invalidateQueries();
   }, [scopeSelection, queryClient]);
 
+  const [stepUp, setStepUp] = useState<StepUpPrompt | null>(null);
+
+  const afterStepUp = useCallback(
+    async (refused: TransportResponse, resend: () => Promise<TransportResponse>, headers: Headers): Promise<TransportResponse> => {
+      const text = await refused.text();
+      const replayed = replayable(refused, text);
+      const body = parsed(text);
+      if (body?.error !== STEP_UP_REQUIRED) return replayed;
+      const confirmed = await new Promise<boolean>((resolve) => {
+        setStepUp({
+          message: body.message ?? "",
+          cancel: () => resolve(false),
+          confirm: async (pin) => {
+            const answer = await resolvedTransport(STEP_UP_PATH, { method: "POST", headers, body: JSON.stringify({ pin }) });
+            if (answer.ok) {
+              resolve(true);
+              return null;
+            }
+            return parsed(await answer.text())?.message ?? "";
+          },
+        });
+      });
+      setStepUp(null);
+      return confirmed ? resend() : replayed;
+    },
+    [resolvedTransport],
+  );
+
   const value = useMemo<ApiContextValue>(
     () => ({
       session,
@@ -112,9 +162,12 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
         const narrowing = method === "GET" || method === "HEAD" ? scopeSelection : undefined;
         for (const [k, v] of Object.entries(authHeaders(session, narrowing))) headers.set(k, v);
         if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
+        if (path === SIGN_IN_PATH) headers.set(DEVICE_BINDING_HEADER, COOKIE_KEPT_DEVICE_SECRET);
         const refusedByBranchPolicy = isBranchRestricted(session) ? branchRefusalBefore(path, method) : null;
         if (refusedByBranchPolicy) return locallyRefused(refusedByBranchPolicy);
-        const response = await resolvedTransport(path, { ...init, headers });
+        const send = (): Promise<TransportResponse> => resolvedTransport(path, { ...init, headers });
+        const first = await send();
+        const response = first.status === STEP_UP_STATUS && session !== null ? await afterStepUp(first, send, headers) : first;
 
         /*
          * 401 means the server does not know this session any more — it
@@ -133,7 +186,7 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
          * reports itself, not a session that expired.
          */
         if (response.status === 401 && session !== null && !path.startsWith("/auth/login")) {
-          markSessionExpired();
+          markSignInNotice(response.sessionEnded === SessionEndedReason.Displaced ? SignInNotice.SignedInElsewhere : SignInNotice.SessionExpired);
           setSession(null);
           // Every cached answer was read as someone who is no longer signed in.
           queryClient.clear();
@@ -141,7 +194,7 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
         return response;
       },
     }),
-    [session, setSession, scopeSelection, setScopeSelection, resolvedTransport, queryClient],
+    [session, setSession, scopeSelection, setScopeSelection, resolvedTransport, queryClient, afterStepUp],
   );
 
   /*
@@ -155,7 +208,12 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
    */
   publishLoaderApi({ request: value.request, queryClient, isAuthenticated: session !== null });
 
-  return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;
+  return (
+    <ApiContext.Provider value={value}>
+      {children}
+      {stepUp ? <StepUpDialog prompt={stepUp} /> : null}
+    </ApiContext.Provider>
+  );
 }
 
 export function useApi(): ApiContextValue {

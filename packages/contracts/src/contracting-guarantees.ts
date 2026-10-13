@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for خطابات الضمان — the letters-of-guarantee register
@@ -58,7 +59,7 @@ export const guaranteeSchema = z.object({
 });
 
 export const createGuaranteeSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   kind: guaranteeKindSchema,
   projectId: z.string().nullable().optional(),
   contractId: z.string().nullable().optional(),

@@ -7,6 +7,8 @@ import { TenantDetailPage } from "./TenantDetailPage";
 import { PlanEditor } from "./PlanEditor";
 import { PlansPage } from "./PlansPage";
 import { OperatorsPage } from "./OperatorsPage";
+import { SecurityEventsPage } from "./SecurityEventsPage";
+import { useUnrecordedSecurityEventsQuery } from "./hooks";
 
 const RAIL_ITEMS = [
   { to: "/platform/tenants", labelKey: "platform.nav.tenants" as const },
@@ -17,6 +19,8 @@ const RAIL_ITEMS = [
 export function PlatformShell() {
   const { t } = useAppTranslation();
   const { session, endSession } = usePlatformApi();
+  const isOwner = session?.user.role === "owner";
+  const unrecorded = useUnrecordedSecurityEventsQuery().data?.count ?? 0;
 
   return (
     <div className="flex min-h-screen flex-col bg-bg md:flex-row">
@@ -49,6 +53,29 @@ export function PlatformShell() {
               </NavLink>
             </li>
           ))}
+          {isOwner ? (
+            <li>
+              <NavLink
+                to="/platform/security"
+                className={({ isActive }) =>
+                  cn(
+                    "flex min-h-[var(--h-btn)] w-full items-center justify-between gap-[8px] rounded-md px-[10px] text-[13px] transition-colors",
+                    isActive ? "bg-chrome-active text-chrome-ink" : "text-chrome-ink-muted hover:bg-chrome-hover hover:text-chrome-ink",
+                  )
+                }
+              >
+                {t("platform.nav.security")}
+                {unrecorded > 0 ? (
+                  <span
+                    aria-label={t("platform.security.badge", { count: unrecorded })}
+                    className="mz-num rounded-full border border-danger bg-danger-soft px-[7px] py-[1px] text-2xs font-bold text-danger-ink"
+                  >
+                    <span aria-hidden>{unrecorded}</span>
+                  </span>
+                ) : null}
+              </NavLink>
+            </li>
+          ) : null}
         </ul>
 
         <div className="flex min-w-0 items-center gap-[6px] md:mt-auto md:flex-col md:items-stretch md:border-t md:border-chrome-border md:pt-[10px]">
@@ -71,6 +98,7 @@ export function PlatformShell() {
           <Route path="plans" element={<PlansPage />} />
           <Route path="plans/:id" element={<PlanEditor />} />
           <Route path="users" element={<OperatorsPage />} />
+          <Route path="security" element={<SecurityEventsPage />} />
         </Routes>
       </main>
     </div>

@@ -155,6 +155,7 @@ export async function postDepreciationRun(runId: string, deps: PostDepreciationR
         lines: journalLines,
       },
       deps.gl,
+      { mintedBySystem: true },
     );
 
     for (const line of chargeable) {

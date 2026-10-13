@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useBlocker, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, TextInput, useFormat } from "@mezan/ui";
-import { MODULES } from "@mezan/domain";
+import { CardCheckoutFailureReason, CardCheckoutStatus, MODULES, RENEWABLE_SUBSCRIPTION_STATES } from "@mezan/domain";
 import {
   SubscriptionStatusCode,
   TenantWireStatus,
   type BillingCycleDTO,
+  type CardCheckoutDTO,
+  type CardCheckoutSweepResultDTO,
+  type ResolveCardCheckoutRequestDTO,
   type ProvisionResultDTO,
   type SubscriptionStatusDTO,
   type TenantStatusDTO,
@@ -16,8 +19,12 @@ import { moduleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { TenantOwnerCard } from "./TenantOwnerCard";
+import { TenantLockedAccountsCard } from "./TenantLockedAccountsCard";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
+import { attentionCauseKey, resolvedKey } from "./card-checkout-labels";
+import { ResolveCardCheckoutDialog, ResolveOutcome } from "./ResolveCardCheckoutDialog";
+import { ApplyCardPaymentDialog } from "./ApplyCardPaymentDialog";
 import { CardCheckoutChip, CheckoutOutcomeNotice, TestModeChip, absoluteCheckoutUrl } from "../billing/CardCheckoutStatus";
 import {
   useArchiveTenantMutation,
@@ -28,6 +35,7 @@ import {
   useCreateCardCheckoutMutation,
   useChangePlanMutation,
   usePlansQuery,
+  useResolveCardCheckoutMutation,
   useResumeSubscriptionMutation,
   useResumeTenantMutation,
   OwnerPinResetPhase,
@@ -35,6 +43,7 @@ import {
   useRetryProvisionMutation,
   useSuspendSubscriptionMutation,
   useSuspendTenantMutation,
+  useSweepCardCheckoutsMutation,
   useTenantQuery,
 } from "./hooks";
 
@@ -83,16 +92,41 @@ function canResumeSubscription(status: SubscriptionStatusDTO): boolean {
   return status === SubscriptionStatusCode.Suspended;
 }
 
-const FAILURE_REASON_KEY: Readonly<Record<string, AppTranslationKey>> = {
-  DECLINED: "platform.cardCheckout.reason.DECLINED",
-  PROVIDER_ERROR: "platform.cardCheckout.reason.PROVIDER_ERROR",
-  AMOUNT_MISMATCH: "platform.cardCheckout.reason.AMOUNT_MISMATCH",
-  PRICE_CHANGED: "platform.cardCheckout.reason.PRICE_CHANGED",
-  SUBSCRIPTION_NOT_RENEWABLE: "platform.cardCheckout.reason.SUBSCRIPTION_NOT_RENEWABLE",
+const FAILURE_REASON_KEY: Readonly<Record<CardCheckoutFailureReason, AppTranslationKey>> = {
+  [CardCheckoutFailureReason.Declined]: "platform.cardCheckout.reason.DECLINED",
+  [CardCheckoutFailureReason.ProviderError]: "platform.cardCheckout.reason.PROVIDER_ERROR",
+  [CardCheckoutFailureReason.AmountMismatch]: "platform.cardCheckout.reason.AMOUNT_MISMATCH",
+  [CardCheckoutFailureReason.PriceChanged]: "platform.cardCheckout.reason.PRICE_CHANGED",
+  [CardCheckoutFailureReason.SubscriptionNotRenewable]: "platform.cardCheckout.reason.SUBSCRIPTION_NOT_RENEWABLE",
+  [CardCheckoutFailureReason.Expired]: "platform.cardCheckout.reason.EXPIRED",
+  [CardCheckoutFailureReason.NeedsAttention]: "platform.cardCheckout.reason.NEEDS_ATTENTION",
+  [CardCheckoutFailureReason.ReferenceAlreadyRecorded]: "platform.cardCheckout.reason.REFERENCE_ALREADY_RECORDED",
 };
 
+function canRenewSubscription(status: SubscriptionStatusDTO | undefined): boolean {
+  return status !== undefined && RENEWABLE_SUBSCRIPTION_STATES.some((renewable) => renewable === status);
+}
+
+type AppliableCheckout = { readonly status: string; readonly providerRef: string | null; readonly failureReason: string | null };
+
+function isAppliable(checkout: AppliableCheckout): boolean {
+  return (
+    checkout.status === CardCheckoutStatus.Unapplied &&
+    Boolean(checkout.providerRef) &&
+    checkout.failureReason !== CardCheckoutFailureReason.ReferenceAlreadyRecorded
+  );
+}
+
+function awaitsADecision(checkout: Pick<CardCheckoutDTO, "status" | "failureReason" | "resolution">): boolean {
+  return (
+    checkout.status === CardCheckoutStatus.Pending &&
+    checkout.failureReason === CardCheckoutFailureReason.NeedsAttention &&
+    checkout.resolution === null
+  );
+}
+
 function failureReasonKey(reason: string): AppTranslationKey {
-  return FAILURE_REASON_KEY[reason] ?? "platform.cardCheckout.reason.other";
+  return (FAILURE_REASON_KEY as Readonly<Record<string, AppTranslationKey | undefined>>)[reason] ?? "platform.cardCheckout.reason.other";
 }
 
 /** `MODULE_CATALOG`/entitlement ids are the permission catalog's `MODULES` ids, except its one differing entry (`financial_papers` → `cheques`) — mirrors `PlanEditor.tsx`'s own mapping. */
@@ -134,6 +168,11 @@ export function TenantDetailPage() {
   }, [holdsUndeliveredPin]);
   const cardCheckouts = useCardCheckoutsQuery(id);
   const createCardCheckout = useCreateCardCheckoutMutation();
+  const sweepCardCheckouts = useSweepCardCheckoutsMutation();
+  const [applyTarget, setApplyTarget] = useState<CardCheckoutDTO | null>(null);
+  const resolveCardCheckout = useResolveCardCheckoutMutation();
+  const [resolveTarget, setResolveTarget] = useState<CardCheckoutDTO | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
   const returnedCheckoutId = searchParams.get("checkout");
   const [cardLink, setCardLink] = useState<string | null>(null);
@@ -168,6 +207,17 @@ export function TenantDetailPage() {
   const { tenant, subscription, plan, licenseState, entitlements, payments } = summary;
   const checkoutsData = cardCheckouts.data;
   const returnedCheckout = returnedCheckoutId ? checkoutsData?.checkouts.find((c) => c.id === returnedCheckoutId) : undefined;
+
+  async function resolveCheckout(checkout: CardCheckoutDTO, body: ResolveCardCheckoutRequestDTO): Promise<ResolveOutcome> {
+    if (resolvingId !== null) return ResolveOutcome.Busy;
+    setResolvingId(checkout.id);
+    try {
+      await resolveCardCheckout.mutateAsync({ tenantId: checkout.tenantId, checkoutId: checkout.id, body });
+      return ResolveOutcome.Saved;
+    } finally {
+      setResolvingId(null);
+    }
+  }
 
   function payByCard() {
     if (createCardCheckout.isPending) return;
@@ -216,6 +266,8 @@ export function TenantDetailPage() {
         </div>
         <TenantOwnerCard tenant={tenant} isOwner={isOwner} onError={onMutationError} />
       </div>
+
+      <TenantLockedAccountsCard tenant={tenant} isOwner={isOwner} onError={onMutationError} />
 
       {mutationError ? (
         <Card className="p-[14px_16px]">
@@ -454,7 +506,23 @@ export function TenantDetailPage() {
           <div className="mb-[12px] flex flex-wrap items-center gap-[8px]">
             <h2 className="text-[13px] font-bold text-ink">{t("platform.cardCheckout.title")}</h2>
             {checkoutsData?.testMode ? <TestModeChip /> : null}
+            {isOwner && checkoutsData?.cardCheckout ? (
+              <Button
+                className="ms-auto"
+                variant="default"
+                size="sm"
+                title={t("platform.cardCheckout.sweep.hint")}
+                disabled={sweepCardCheckouts.isPending}
+                onClick={() => {
+                  setMutationError(null);
+                  sweepCardCheckouts.mutate(undefined, { onError: onMutationError });
+                }}
+              >
+                {sweepCardCheckouts.isPending ? t("platform.cardCheckout.sweep.running") : t("platform.cardCheckout.sweep.run")}
+              </Button>
+            ) : null}
           </div>
+          {sweepCardCheckouts.data ? <SweepOutcome result={sweepCardCheckouts.data} /> : null}
           {returnedCheckoutId ? (
             <div className="mb-[12px] rounded-md border border-border bg-surface-2 p-[12px]">
               <CheckoutOutcomeNotice checkout={returnedCheckout} timedOut={false} />
@@ -494,10 +562,38 @@ export function TenantDetailPage() {
                     </div>
                     <span className="text-[11px] text-ink-faint">
                       {format.date(c.createdAt)}
-                      {c.failureReason ? ` — ${t(failureReasonKey(c.failureReason))}` : ""}
+                      {c.failureReason && !(c.failureReason === CardCheckoutFailureReason.NeedsAttention && c.resolution === null)
+                        ? ` — ${t(failureReasonKey(c.failureReason))}`
+                        : ""}
                     </span>
+                    {awaitsADecision(c) ? <span className="text-[11px] text-warning-ink">{t(attentionCauseKey(c.attentionCause))}</span> : null}
+                    {c.resolution ? (
+                      <span className="text-[11px] text-ink-muted">
+                        {t(resolvedKey(c.resolution))}
+                        {c.resolutionReason ? ` — ${c.resolutionReason}` : ""}
+                        {c.resolvedBy ? ` (${c.resolvedBy})` : ""}
+                      </span>
+                    ) : null}
                   </div>
-                  <Money value={Number(c.amount)} />
+                  <div className="flex items-center gap-[10px]">
+                    {isOwner && awaitsADecision(c) ? (
+                      <Button variant="default" size="sm" disabled={resolvingId === c.id} onClick={() => setResolveTarget(c)}>
+                        {resolvingId === c.id ? t("platform.cardCheckout.resolve.saving") : t("platform.cardCheckout.resolve.action")}
+                      </Button>
+                    ) : null}
+                    {isOwner && isAppliable(c) && canRenewSubscription(subscription?.status) ? (
+                      <Button variant="default" size="sm" onClick={() => setApplyTarget(c)}>
+                        {t("platform.cardCheckout.apply.action")}
+                      </Button>
+                    ) : null}
+                    {isAppliable(c) && !canRenewSubscription(subscription?.status) ? (
+                      <span className="text-[11px] text-ink-muted">{t("platform.cardCheckout.apply.notRenewable")}</span>
+                    ) : null}
+                    {c.status === CardCheckoutStatus.Unapplied && c.failureReason === CardCheckoutFailureReason.ReferenceAlreadyRecorded ? (
+                      <span className="text-[11px] text-ink-muted">{t("platform.cardCheckout.apply.alreadyRecorded")}</span>
+                    ) : null}
+                    <Money value={Number(c.amount)} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -556,6 +652,21 @@ export function TenantDetailPage() {
       </Card>
 
       <RecordPaymentDialog open={paymentDialogOpen} onClose={() => setPaymentDialogOpen(false)} tenantId={tenant.id} />
+      <ApplyCardPaymentDialog
+        key={`apply:${applyTarget?.id ?? "closed"}`}
+        checkout={applyTarget}
+        onClose={() => setApplyTarget(null)}
+        tenantId={tenant.id}
+      />
+
+      <ResolveCardCheckoutDialog
+        key={`resolve:${resolveTarget?.id ?? "closed"}`}
+        checkout={resolveTarget}
+        canApply={canRenewSubscription(subscription?.status)}
+        saving={resolvingId !== null}
+        onResolve={resolveCheckout}
+        onClose={() => setResolveTarget(null)}
+      />
 
       <ConfirmDialog
         open={confirmResetOwnerPin}
@@ -685,6 +796,34 @@ export function TenantDetailPage() {
         }}
         onCancel={() => setConfirmResumeSubscription(false)}
       />
+    </div>
+  );
+}
+
+function SweepOutcome({ result }: { result: CardCheckoutSweepResultDTO }) {
+  const { t } = useAppTranslation();
+  return (
+    <div role="status" className="mb-[12px] flex flex-col gap-[4px] rounded-md border border-border bg-surface-2 p-[12px] text-[12px] text-ink">
+      <p>
+        {t("platform.cardCheckout.sweep.result", {
+          examined: result.examined,
+          paid: result.paid,
+          declined: result.declined,
+          unapplied: result.unapplied,
+          expired: result.expired,
+          stillPending: result.stillPending,
+          alreadySettled: result.alreadySettled,
+        })}
+      </p>
+      {result.needsAttention > 0 ? (
+        <p className="text-warning-ink">{t("platform.cardCheckout.sweep.needsAttention", { count: result.needsAttention })}</p>
+      ) : null}
+      {result.unavailable + result.failed > 0 ? (
+        <p className="text-warning-ink">
+          {t("platform.cardCheckout.sweep.unavailable", { unavailable: result.unavailable, failed: result.failed })}
+        </p>
+      ) : null}
+      {result.deferred > 0 ? <p>{t("platform.cardCheckout.sweep.deferred", { count: result.deferred })}</p> : null}
     </div>
   );
 }

@@ -234,7 +234,7 @@ describe("the sub-ledgers are read as of the month end, like the ledger they are
     const arJuneBefore = controlBalanceAt("1105", "2026-06-30");
     const arJulyBefore = controlBalanceAt("1105", "2026-07-31");
 
-    const reversed = await ok("POST", `/vouchers/${encodeURIComponent(voucher.id)}/reverse`, { date: "2026-07-10" }, 201);
+    const reversed = await ok("POST", `/vouchers/${encodeURIComponent(voucher.id)}/reverse`, { memo: "سبب العكس", date: "2026-07-10" }, 201);
     const amount = arJulyBefore - controlBalanceAt("1105", "2026-07-31");
 
     expect((reversed.original as { status: string }).status).toBe("reversed");

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for the costing + stock-ledger engine (docs/archive/catalog/03).
@@ -149,7 +150,7 @@ export const adjustmentLineSchema = z.object({
 });
 
 export const postAdjustmentSchema = z.object({
-  adjustmentId: z.string().min(1),
+  adjustmentId: clientSuppliedId,
   adjustmentNumber: z.string().nullable().optional(),
   warehouseId: z.string().min(1),
   reason: adjustmentReasonSchema,
@@ -175,7 +176,7 @@ export const transferLineSchema = z.object({
 });
 
 export const postTransferSchema = z.object({
-  transferId: z.string().min(1),
+  transferId: clientSuppliedId,
   transferNumber: z.string().nullable().optional(),
   fromWarehouseId: z.string().min(1),
   toWarehouseId: z.string().min(1),

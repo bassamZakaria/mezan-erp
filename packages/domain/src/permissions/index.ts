@@ -71,5 +71,21 @@ export {
   type PermissionLabelTranslations,
 } from "./labels.js";
 
-export { ShellRequest, SHELL_REQUESTS, holdsShellRequest, type ShellRequestGate, ScreenRequest, SCREEN_REQUESTS, mayAskScreenRequest, type ScreenRequestGate, ShellModuleRequest, SHELL_MODULE_REQUESTS, mayAskShellModuleRequest, type ShellModuleRequestGate } from "./shell-requests.js";
+export {
+  ShellRequest,
+  ShellRequestModule,
+  SHELL_REQUESTS,
+  holdsShellRequest,
+  planServesShellRequest,
+  type PlanModules,
+  type ShellRequestGate,
+  ScreenRequest,
+  SCREEN_REQUESTS,
+  mayAskScreenRequest,
+  type ScreenRequestGate,
+  ShellModuleRequest,
+  SHELL_MODULE_REQUESTS,
+  mayAskShellModuleRequest,
+  type ShellModuleRequestGate,
+} from "./shell-requests.js";
 export { DashboardRequest, DASHBOARD_REQUESTS, mayActWith, mayAskDashboard, mayReadWith, type DashboardRequestGate, type PermissionHeld } from "./dashboard-requests.js";

@@ -107,3 +107,32 @@ describe("print-template-config-routes — PUT", () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe("print-template-config-routes — a logo stored before the size limit", () => {
+  const oversize = `data:image/png;base64,${"A".repeat(300_000)}`;
+  const put = (app: ReturnType<typeof newApp>["app"], config: PrintTemplateConfig) =>
+    app.fetch(req("/", { method: "PUT", permissions: ADMIN, body: JSON.stringify(config) }));
+
+  it("does not block a later save that leaves it as it is", async () => {
+    const { app, repo } = newApp();
+    await repo.save({ ...DEFAULT_PRINT_TEMPLATE_CONFIG, identity: { ...DEFAULT_PRINT_TEMPLATE_CONFIG.identity, logoUrl: oversize } });
+    const stored = (await repo.get())!;
+
+    const res = await put(app, { ...stored, footer: { ...stored.footer }, pageSize: "A5" });
+
+    expect(res.status).toBe(200);
+    expect((await repo.get())!.pageSize).toBe("A5");
+    expect((await repo.get())!.identity.logoUrl).toBe(oversize);
+  });
+
+  it("still refuses a new logo over the limit, in Arabic, and one swapped in beside the stored one", async () => {
+    const { app, repo } = newApp();
+    const fresh = await put(app, { ...DEFAULT_PRINT_TEMPLATE_CONFIG, identity: { ...DEFAULT_PRINT_TEMPLATE_CONFIG.identity, logoUrl: oversize } });
+    expect(fresh.status).toBe(400);
+    expect(await fresh.json()).toMatchObject({ error: "VALIDATION_ERROR", message: expect.stringContaining("الشعار") });
+
+    await repo.save({ ...DEFAULT_PRINT_TEMPLATE_CONFIG, identity: { ...DEFAULT_PRINT_TEMPLATE_CONFIG.identity, logoUrl: oversize } });
+    const other = await put(app, { ...DEFAULT_PRINT_TEMPLATE_CONFIG, identity: { ...DEFAULT_PRINT_TEMPLATE_CONFIG.identity, logoUrl: `${oversize}B` } });
+    expect(other.status).toBe(400);
+  });
+});

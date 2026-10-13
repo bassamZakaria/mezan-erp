@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { importRowLimit } from "./import-limit.js";
 import { Hono, type Context } from "hono";
 import {
   Money,
@@ -288,6 +289,8 @@ export function createDataMigrationRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  app.use("*", importRowLimit());
 
   function readBody(c: Context) {
     return c.req.json() as Promise<{ rows?: unknown }>;

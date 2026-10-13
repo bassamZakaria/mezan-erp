@@ -1684,7 +1684,7 @@ export async function closingAMonthStrandsTheDraftsDatedIntoIt(ctx: Ctx): Promis
 
     for (const id of ["SCN-A-TFX-EGP", "SCN-A-TFX-OUT", "SCN-A-TFX-IN"]) {
       const date = id === "SCN-A-TFX-IN" ? "2026-08-10" : "2026-08-20";
-      const reversed = await ctx.req("POST", `/vouchers/${id}/reverse`, { date });
+      const reversed = await ctx.req("POST", `/vouchers/${id}/reverse`, { memo: "سبب العكس", date });
       ctx.check(`${id} reverses`, reversed.status === 201, `status ${reversed.status} ${JSON.stringify(reversed.body).slice(0, 140)}`);
     }
     const restored = await bank("2026-08-31");

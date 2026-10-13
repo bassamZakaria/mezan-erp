@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { FX_REVALUATION_LINE_MEMO } from "@mezan/domain";
+import { FX_REVALUATION_DOC_TYPE, FX_REVALUATION_LINE_MEMO } from "@mezan/domain";
 import { INVARIANTS_ZERO } from "./test-helpers/seeded-world.js";
 import { FxSide, openFxBooks, type FxBooks } from "./test-helpers/fx-books.js";
 
@@ -15,6 +15,7 @@ async function settledInvoiceWithRestatementLeft(entryId: string, amount: string
       { accountId: "2190", debit: "0", credit: amount },
     ],
   });
+  books.world.sqlite.prepare("UPDATE journal_entry SET source = 'system', source_doc_type = ? WHERE id = ?").run(FX_REVALUATION_DOC_TYPE, entryId);
   books.world.sqlite
     .prepare("INSERT INTO fx_revaluation_share (entry_id, item_id, account_id, kind, party_id, currency, amount, item_type) VALUES (?, ?, '1105', 'sales', 'cust-usd', 'USD', ?, ?)")
     .run(entryId, item.id, BigInt(amount.replace(".", "")), item.type);
@@ -49,6 +50,26 @@ describe("the residue sweep, for a restatement left on a document that has close
     ]);
     expect(books.world.balance("1105")).toBe(0n);
     expect(books.world.balance("5920") - lossBefore).toBe(3n);
+    expect(await residue()).toEqual({ total: "0.000000", rows: [] });
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it("a sweep dated on or before the run whose restatement it clears is refused naming the first day it may carry, and the day after it posts there", async () => {
+    books = await openFxBooks();
+    await books.invoice(FxSide.Receivable);
+    await books.settle(FxSide.Receivable, "v-all", "48000");
+    await settledInvoiceWithRestatementLeft("Z-RES", "0.000003");
+    const releases = () => books.world.sqlite.prepare("SELECT substr(date, 1, 10) AS day FROM journal_entry WHERE id LIKE 'FXR:release:inv-usd:%'").all() as { day: string }[];
+
+    const early = await books.world.request("POST", "/revaluation/residue/sweep", { date: "2026-09-01" });
+
+    expect(`${early.status} ${String(early.body.error)}`).toBe("422 FX_POSTING_BEFORE_REVALUATION");
+    expect(early.body.earliestAllowedDate).toBe("2026-09-11");
+    expect(releases()).toEqual([]);
+
+    await books.ok("POST", "/revaluation/residue/sweep", { date: "2026-09-11" });
+
+    expect(releases()).toEqual([{ day: "2026-09-11" }]);
     expect(await residue()).toEqual({ total: "0.000000", rows: [] });
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for the manufacturing module (docs/archive/catalog/07): قوائم المواد
@@ -45,7 +46,7 @@ export const createBomLineSchema = z.object({
 });
 
 export const createBomSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   productItemId: z.string().min(1),
   standardQty: positiveDecimalString,
   unit: z.string().min(1),
@@ -56,7 +57,7 @@ export const createBomSchema = z.object({
 });
 
 export const createBomVersionSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   sourceBomId: z.string().min(1),
   standardQty: positiveDecimalString.optional(),
   unit: z.string().min(1).optional(),
@@ -94,7 +95,7 @@ export const bomSchema = z.object({
 // --- Work Order ------------------------------------------------------------
 
 export const createWorkOrderSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   bomId: z.string().min(1),
   plannedQty: positiveDecimalString,
   sourceWarehouseId: z.string().min(1),
@@ -147,7 +148,7 @@ export const workStationSchema = z.object({
 });
 
 export const createWorkStationSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),
@@ -199,7 +200,7 @@ export const materialFormulaSchema = z.object({
 });
 
 export const upsertConfigurableProductSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),
@@ -218,7 +219,7 @@ export const upsertConfigurableProductSchema = z.object({
 // --- Config Instance (Custom Manufacturing Order) --------------------------
 
 export const createConfigInstanceSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   configurableProductId: z.string().min(1),
   spec: z.record(z.string(), z.string()),
   qty: positiveDecimalString,

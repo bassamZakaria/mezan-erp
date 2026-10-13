@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { App, SessionRegistry } from "@mezan/api";
 import { ALL_SCOPE, MODULE_CATALOG, Money, createCustomer as buildCustomer, createSupplier as buildSupplier, createEntitlements, toTenantDay } from "@mezan/domain";
 import { createSqliteCustomerRepository, createSqliteLedgerStore, createSqliteSupplierRepository, openSqliteConnection } from "@mezan/persistence";
@@ -4415,6 +4415,8 @@ describe("createBackend — GET /gl/balances-by-currency reads real open receiva
   });
 });
 
+const DEMO_SEED_BUDGET_MS = 180_000;
+
 describe("createBackend — seedDemoData wires a real session and seeds through the real API", () => {
   // The demo seed's ~15-user tenant exceeds the default resolver's 10 seats
   // (A3's SEAT_LIMIT_REACHED), so every demo-seeded backend here supplies its
@@ -4422,15 +4424,19 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
   const demoEntitlements = () =>
     createEntitlements({ plan: "DEMO", activeModules: MODULE_CATALOG, features: {}, seats: 50, expiresAt: null });
 
+  let seeded: BackendHandle;
+  beforeAll(async () => {
+    seeded = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
+    registries.set(seeded.app, seeded.sessions);
+  }, DEMO_SEED_BUDGET_MS);
+  afterAll(() => seeded.close());
+
   it("seeds more than zero customers, reachable over the real HTTP surface", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
-    handles.push(handle);
-    registries.set(handle.app, handle.sessions);
-    const res = await handle.app.fetch(new Request("http://local/customers", { headers: admin(handle.app) }));
+    const res = await seeded.app.fetch(new Request("http://local/customers", { headers: admin(seeded.app) }));
     expect(res.status).toBe(200);
     const customersList = (await res.json()) as unknown[];
     expect(customersList.length).toBeGreaterThan(0);
-  }, 60000);
+  }, DEMO_SEED_BUDGET_MS);
 
   it("keeps the demo company's own name, and leaves its first-run claim closed", async () => {
     const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
@@ -4448,7 +4454,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
 
     const settings = await handle.app.fetch(new Request("http://local/settings", { headers: admin(handle.app) }));
     expect(((await settings.json()) as { companyName: string }).companyName).toBe(SEED_TENANT_NAME);
-  }, 60000);
+  }, DEMO_SEED_BUDGET_MS);
 
   /**
    * D5 — the certificate BILLS through the ordinary sales-invoice engine, so
@@ -4457,10 +4463,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
    * confirms a live invoice the authority never hears about.
    */
   it("an approved progress certificate's invoice reaches the ETA queue exactly once", async () => {
-    const handle = await createBackend({ dbPath: ":memory:", seedDemoData: true, resolveEntitlements: demoEntitlements });
-    handles.push(handle);
-    registries.set(handle.app, handle.sessions);
-    const app = handle.app;
+    const app = seeded.app;
 
     const certRes = await app.fetch(new Request("http://local/contracting/certificates", { headers: admin(app) }));
     expect(certRes.status).toBe(200);
@@ -4478,7 +4481,7 @@ describe("createBackend — seedDemoData wires a real session and seeds through 
       const rows = queued.filter((r) => r.internalId === docNo);
       expect(rows.map((r) => r.documentType), `certificate invoice ${docNo} in the queue`).toEqual(["invoice"]);
     }
-  }, 60000);
+  }, DEMO_SEED_BUDGET_MS);
 });
 
 describe("resolveEntitlements", () => {
@@ -4605,7 +4608,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect((await post(app, "/vouchers/v-rev/confirm", {}, admin(app))).status).toBe(200);
     expect(await reconDiff(app, "ar")).toBe(0);
 
-    expect((await post(app, "/vouchers/v-rev/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-rev/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(201);
     expect(await glBalance(app, "1105")).toBe(1000);
     expect(await reconDiff(app, "ar")).toBe(0);
     const aging = await get(app, "/reports/aging/customers?asOfDate=2026-09-30");
@@ -4624,7 +4627,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect((await post(app, "/vouchers/v-exp/confirm", {}, admin(app))).status).toBe(200);
     expect(Number((await get(app, "/dashboard/summary")).gl.expenses)).toBe(250);
 
-    expect((await post(app, "/vouchers/v-exp/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-exp/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(201);
     expect(Number((await get(app, "/dashboard/summary")).gl.expenses)).toBe(0);
     const entries = (await get(app, "/gl/journal-entries?pageSize=200")) as { items?: { sourceModule: string; memo: string }[] } | { sourceModule: string }[];
     const list = Array.isArray(entries) ? entries : (entries.items ?? []);
@@ -4754,7 +4757,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
 
     expect((await post(app, "/vouchers/v-chq/allocations", { invoiceId: "inv-chq", amount: "400.00" }, admin(app))).status).toBe(201);
     expect((await get(app, "/cheques/v-chq")).allocations).toHaveLength(1);
-    expect((await post(app, "/vouchers/v-chq/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(422);
+    expect((await post(app, "/vouchers/v-chq/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(422);
 
     expect((await post(app, "/cheques/v-chq/deposit", { bankTreasuryAccountId: "ta-cash" }, admin(app))).status).toBe(200);
     expect((await post(app, "/cheques/v-chq/bounce", { date: "2026-08-25" }, admin(app))).status).toBe(200);
@@ -4990,7 +4993,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     const before = await get(app, "/reports/tax/withholding?periodFrom=2026-01-01&periodTo=2026-12-31");
     expect(before.rows.filter((r: { voucherId: string }) => r.voucherId === "v-wht")).toHaveLength(1);
 
-    expect((await post(app, "/vouchers/v-wht/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-wht/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(201);
     const after = await get(app, "/reports/tax/withholding?periodFrom=2026-01-01&periodTo=2026-12-31");
     expect(after.rows).toEqual([]);
     const reversed = (await get(app, "/vouchers")) as { id: string; reversesDocId?: string | null }[];
@@ -5661,18 +5664,18 @@ describe("createBackend — foreign documents settle and return in base (D202, D
 
     const today = toTenantDay(new Date().toISOString());
 
-    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500", date: today }, admin(app))).status).toBe(201);
     expect(await glBalance(app, "4920")).toBe(-100);
     expect(await position(app, today, "1105")).toEqual(half);
     // D265: applied by hand today, so at the August close the receipt was still on account.
     expect(await position(app, "2026-08-31", "1105")).toEqual(open);
     expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
     expect(await position(app, today, "1105")).toEqual(open);
-    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500", date: today }, admin(app))).status).toBe(201);
     expect(await position(app, today, "1105")).toEqual(half);
     expect(await reconDiff(app, "ar")).toBe(0);
 
-    expect((await post(app, "/vouchers/v-half/reverse", { date: "2026-08-28" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/reverse", { memo: "سبب العكس", date: "2026-08-28" }, admin(app))).status).toBe(201);
     expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("4800.000000");
     expect(await glBalance(app, "4920")).toBe(0);
     expect(await position(app, today, "1105")).toEqual(open);
@@ -5702,12 +5705,12 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-usd",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-chq/confirm", {}, admin(app))).status).toBe(200);
-    expect((await post(app, "/cheques/v-chq/allocations", { allocationId: "al-chq", invoiceId: "pi-usd", amount: "5000" }, admin(app))).status).toBe(201);
+    const today = toTenantDay(new Date().toISOString());
+    expect((await post(app, "/cheques/v-chq/allocations", { allocationId: "al-chq", invoiceId: "pi-usd", amount: "5000", date: today }, admin(app))).status).toBe(201);
     expect((await get(app, "/purchases/invoices/pi-usd")).remainingBalance).toBe("0.000000");
     expect(await glBalance(app, "2100")).toBe(0);
     expect(await glBalance(app, "5920")).toBe(200);
 
-    const today = toTenantDay(new Date().toISOString());
     const open = { foreign: "100.000000", booked: "4800.000000", delta: "-100.000000", gainLoss: "100.000000" };
     expect(await position(app, today, "2100")).toBeNull();
     expect((await revaluationPreview(app, today)).hasImpact).toBe(false);
@@ -5795,7 +5798,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     await halfReceiptOnAccount(app);
     const today = toTenantDay(new Date().toISOString());
     for (const id of ["al-1", "al-2"]) {
-      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: id, invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: id, invoiceId: "inv-usd", amount: "2500", date: today }, admin(app))).status).toBe(201);
       if (id === "al-1") expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
     }
     for (const id of ["FXR:al-1", "FXR:al-1:REV", "FXR:al-2"]) {
@@ -5815,7 +5818,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       at("2026-08-28");
-      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500", date: "2026-08-28" }, admin(app))).status).toBe(201);
       const periods = (await get(app, "/fiscal-periods")) as { id: string; startDate: string; endDate: string }[];
       const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
       at("2026-09-02");
@@ -5825,7 +5828,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       expect((await post(app, `/fiscal-periods/${august.id}/close`, { overrideReason: "إقفال أغسطس قبل إعادة تقييم العملات" }, admin(app))).status).toBe(200);
       expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
       at("2026-09-05");
-      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500", date: "2026-09-05" }, admin(app))).status).toBe(201);
     } finally {
       vi.useRealTimers();
     }
@@ -5881,7 +5884,7 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
       expect((await post(app, "/vouchers", receipt(id, date, amount), admin(app))).status).toBe(201);
       expect((await post(app, `/vouchers/${id}/confirm`, {}, admin(app))).status).toBe(200);
     }
-    expect((await post(app, "/vouchers/v-rev/reverse", { date: "2026-08-25" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-rev/reverse", { memo: "سبب العكس", date: "2026-08-25" }, admin(app))).status).toBe(201);
     expect((await post(app, "/cheques", {
       id: "chq-asof", direction: "incoming", chequeNumber: "770001", bankName: "بنك القاهرة", amount: "70.00", issueDate: "2026-08-18", dueDate: "2026-08-19",
       branchId: "BR-MAIN", partyId: "cust-asof", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },

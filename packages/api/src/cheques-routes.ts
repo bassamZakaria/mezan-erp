@@ -18,6 +18,8 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  AllocationExceedsError,
+  AllocationIdTakenError,
   SettlementRateMissingError,
   AllocationMismatchError,
   InvoiceNotFoundError,
@@ -99,7 +101,7 @@ function serialize(cheque: Cheque, asOfDate: string, allocations: readonly Vouch
     bounceJournalEntryId: cheque.bounceJournalEntryId,
     allocations: allocations
       .filter((a) => a.status === "active")
-      .map((a) => ({ id: a.id, invoiceId: a.invoiceId, amount: a.amount.toString() })),
+      .map((a) => ({ id: a.id, invoiceId: a.invoiceId, amount: a.amount.toString(), date: a.date ?? null })),
   };
 }
 
@@ -118,7 +120,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof ChequeNotFoundError || err instanceof InvoiceNotFoundError) {
     return refuse(err, 404);
   }
-  if (err instanceof DuplicateChequeNumberError || err instanceof InvalidChequeTransitionError) {
+  if (err instanceof DuplicateChequeNumberError || err instanceof InvalidChequeTransitionError || err instanceof AllocationIdTakenError) {
     return refuse(err, 409);
   }
   if (
@@ -331,7 +333,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
         allocationId: parsed.data.allocationId ?? idGen(),
         invoiceId: parsed.data.invoiceId,
         amount: Money.fromMajor(parsed.data.amount),
-        date: await tenantDay(c, new Date().toISOString()),
+        date: await service.laterAllocationDay(c.req.param("id"), parsed.data.invoiceId, await tenantDay(c, parsed.data.date)),
       });
       const cheque = await service.findById(c.req.param("id"));
       if (!cheque) return c.json({ error: "NOT_FOUND" }, 404);

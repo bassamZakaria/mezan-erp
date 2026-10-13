@@ -18,7 +18,18 @@ export interface CheckoutSession {
   readonly providerOrderRef: string;
 }
 
-export type ProviderTransactionOutcome = "paid" | "failed" | "pending" | "not_a_payment";
+export enum ProviderTransactionOutcome {
+  Paid = "paid",
+  Failed = "failed",
+  Pending = "pending",
+  NotAPayment = "not_a_payment",
+}
+
+export enum ProviderNonPaymentKind {
+  Refund = "refund",
+  Void = "void",
+  Other = "other",
+}
 
 export interface VerifiedProviderTransaction {
   readonly providerRef: string;
@@ -27,7 +38,26 @@ export interface VerifiedProviderTransaction {
   readonly amount: Money;
   readonly currency: string;
   readonly outcome: ProviderTransactionOutcome;
+  readonly nonPayment?: ProviderNonPaymentKind | null;
   readonly occurredAt: string;
+}
+
+export enum ProviderInquiryStatus {
+  Found = "found",
+  None = "none",
+  Unreadable = "unreadable",
+  Unavailable = "unavailable",
+}
+
+export type ProviderInquiry =
+  | { readonly status: ProviderInquiryStatus.Found; readonly transaction: VerifiedProviderTransaction }
+  | { readonly status: ProviderInquiryStatus.None }
+  | { readonly status: ProviderInquiryStatus.Unreadable; readonly reason: string }
+  | { readonly status: ProviderInquiryStatus.Unavailable; readonly reason: string };
+
+export interface ProviderInquiryRequest {
+  readonly providerOrderRef: string;
+  readonly merchantRef: string;
 }
 
 export interface PaymentProvider {
@@ -36,4 +66,7 @@ export interface PaymentProvider {
   createCheckout(input: CheckoutRequest): Promise<CheckoutSession>;
   /** `null` means the signature did not verify: nothing in the body may be acted on. */
   verifyWebhook(rawBody: string, signature: string): Promise<VerifiedProviderTransaction | null>;
+  // CONTRACT: never throws for a provider-side failure. That is `Unavailable`
+  // or `Unreadable`, and neither may be read as "no payment".
+  inquireTransaction(input: ProviderInquiryRequest): Promise<ProviderInquiry>;
 }

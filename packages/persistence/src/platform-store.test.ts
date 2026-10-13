@@ -1,6 +1,17 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { Money, OwnerConfirmation, PlanKind, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
+import {
+  Money,
+  OwnerConfirmation,
+  PaymentReferenceAlreadyRecordedError,
+  PlanKind,
+  recordPayment,
+  type Plan,
+  type Subscription,
+  type Tenant,
+  type PlatformUser,
+  type Payment,
+} from "@mezan/domain";
 import { createSqlitePlatformStores } from "./platform-store.js";
 
 const NOW = "2026-09-13T10:00:00.000Z";
@@ -69,7 +80,7 @@ describe("createSqlitePlatformStores", () => {
     const stores = createSqlitePlatformStores(":memory:");
     expect(stores.sqlite.open).toBe(true);
     await stores.payments.save({ ...payment, id: "PAY1", paidAt: "2026-09-01T00:00:00.000Z" });
-    await stores.payments.save({ ...payment, id: "PAY2", paidAt: "2026-09-10T00:00:00.000Z" });
+    await stores.payments.save({ ...payment, id: "PAY2", reference: "TRX-002", paidAt: "2026-09-10T00:00:00.000Z" });
     await stores.payments.save({ ...payment, id: "PAY3", tenantId: "T2", paidAt: "2026-09-20T00:00:00.000Z" });
     const list = await stores.payments.listByTenant("T1");
     expect(list.map((x) => x.id)).toEqual(["PAY2", "PAY1"]);
@@ -430,6 +441,124 @@ describe("createSqlitePlatformStores", () => {
     await stores.payments.save(payment);
     await expect(stores.payments.save({ ...payment, note: "second write" })).rejects.toThrow(/UNIQUE/);
     stores.close();
+  });
+});
+
+describe("a manual subscription payment on SQLite", () => {
+  const cmd = {
+    id: "PAY1", tenantId: "T1", subscriptionId: "S1", amount: Money.fromMajor("490.50"),
+    reference: "TRF-9001", paidAt: NOW, recordedBy: "U1", now: "2026-10-13T10:00:00.000Z", idempotencyKey: "KEY-1",
+  };
+  const periodEnd = (stores: ReturnType<typeof createSqlitePlatformStores>) =>
+    (stores.sqlite.prepare("SELECT current_period_end AS e FROM subscription WHERE id = 'S1'").get() as { e: string }).e;
+  const paymentCount = (stores: ReturnType<typeof createSqlitePlatformStores>) =>
+    (stores.sqlite.prepare("SELECT COUNT(*) AS c FROM payment").get() as { c: number }).c;
+
+  it("rolls the renewal back when the payment row cannot be written", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.subscriptions.save(sub);
+    await stores.payments.save({ ...payment, id: "PAY1", reference: "AN-EARLIER-ONE" });
+
+    await expect(recordPayment(cmd, stores.payments, stores.subscriptions)).rejects.toThrow(/UNIQUE/);
+
+    expect(periodEnd(stores)).toBe(sub.currentPeriodEnd);
+    expect(paymentCount(stores)).toBe(1);
+    stores.close();
+  });
+
+  it("renews and records together on success", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.subscriptions.save(sub);
+
+    const result = await recordPayment(cmd, stores.payments, stores.subscriptions);
+
+    expect(result.replayed).toBe(false);
+    expect(periodEnd(stores)).toBe(result.subscription.currentPeriodEnd);
+    expect(periodEnd(stores)).not.toBe(sub.currentPeriodEnd);
+    expect((await stores.payments.findByReference("T1", "TRF-9001"))?.id).toBe("PAY1");
+    stores.close();
+  });
+
+  it("renews once when the same submission arrives twice at the same moment", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.subscriptions.save(sub);
+
+    const results = await Promise.all([
+      recordPayment(cmd, stores.payments, stores.subscriptions),
+      recordPayment({ ...cmd, id: "PAY2" }, stores.payments, stores.subscriptions),
+    ]);
+
+    expect(results.map((r) => r.replayed).sort()).toEqual([false, true]);
+    expect(paymentCount(stores)).toBe(1);
+    expect(periodEnd(stores)).toBe("2026-11-13T11:00:00.000Z");
+    stores.close();
+  });
+
+  it("records one and refuses the other when two separate submissions name the same reference at the same moment", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.subscriptions.save(sub);
+
+    const results = await Promise.allSettled([
+      recordPayment(cmd, stores.payments, stores.subscriptions),
+      recordPayment({ ...cmd, id: "PAY2", idempotencyKey: "KEY-2" }, stores.payments, stores.subscriptions),
+    ]);
+
+    expect(results.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+    const refused = results.find((r) => r.status === "rejected");
+    expect(refused?.reason).toBeInstanceOf(PaymentReferenceAlreadyRecordedError);
+    expect(paymentCount(stores)).toBe(1);
+    expect(periodEnd(stores)).toBe("2026-11-13T11:00:00.000Z");
+    stores.close();
+  });
+
+  it("keeps both payments, and both renewals, when a duplicate reference is confirmed", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.subscriptions.save(sub);
+    await recordPayment(cmd, stores.payments, stores.subscriptions);
+
+    const second = await recordPayment(
+      { ...cmd, id: "PAY2", idempotencyKey: "KEY-2", confirmDuplicateReference: true },
+      stores.payments,
+      stores.subscriptions,
+    );
+
+    expect(second.duplicateOfPaymentId).toBe("PAY1");
+    expect((await stores.payments.listByTenant("T1")).map((p) => p.id).sort()).toEqual(["PAY1", "PAY2"]);
+    expect(periodEnd(stores)).toBe("2026-12-13T11:00:00.000Z");
+    expect((await stores.payments.findByIdempotencyKey("T1", "KEY-2"))?.id).toBe("PAY2");
+    stores.close();
+  });
+
+  it("refuses a second row for one tenant's idempotency key at the database, and lets another tenant use it", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    await stores.payments.save(payment, "KEY-1");
+    await expect(stores.payments.save({ ...payment, id: "PAY2", reference: "OTHER" }, "KEY-1")).rejects.toThrow(/UNIQUE/);
+    await stores.payments.save({ ...payment, id: "PAY3", tenantId: "T2" }, "KEY-1");
+    await stores.payments.save({ ...payment, id: "PAY4" });
+    await stores.payments.save({ ...payment, id: "PAY5" });
+    stores.close();
+  });
+
+  it("opens a platform file written when the reference was unique, keeps its rows and stops enforcing that", async () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec(`
+      CREATE TABLE payment (
+        id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, subscription_id TEXT NOT NULL, amount INTEGER NOT NULL, currency TEXT NOT NULL,
+        reference TEXT NOT NULL, paid_at TEXT NOT NULL, recorded_by TEXT NOT NULL, note TEXT, created_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX ux_payment_tenant_reference ON payment (tenant_id, reference);
+      INSERT INTO payment VALUES ('OLD', 'T1', 'S1', 490500000, 'EGP', 'TRX-001', '${NOW}', 'U1', NULL, '${NOW}');
+    `);
+
+    const stores = createSqlitePlatformStores(sqlite);
+
+    expect((await stores.payments.findByReference("T1", "TRX-001"))?.id).toBe("OLD");
+    expect(await stores.payments.findByIdempotencyKey("T1", "KEY-1")).toBeNull();
+    await stores.payments.save({ ...payment, id: "NEW", reference: "TRX-001" }, "KEY-1");
+    expect((await stores.payments.listByTenant("T1")).map((p) => p.id).sort()).toEqual(["NEW", "OLD"]);
+    expect(sqlite.prepare("SELECT name FROM sqlite_master WHERE name = 'ux_payment_tenant_reference'").get()).toBeUndefined();
+    createSqlitePlatformStores(sqlite);
+    sqlite.close();
   });
 });
 

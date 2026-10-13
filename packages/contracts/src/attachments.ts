@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for المرفقات (R1.4) — files attached to a document or to a
@@ -41,7 +42,7 @@ export const attachmentSchema = z.object({
 });
 
 export const createAttachmentSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   entityType: attachmentEntityTypeSchema,
   entityId: z.string().min(1),
   fileName: z.string().min(1),

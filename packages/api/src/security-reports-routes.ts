@@ -11,6 +11,7 @@ import {
   type AuditSeverity,
   type AuditStream,
   type RoleRepository,
+  type SecurityEventFallback,
   type SettingsRepository,
   type SodConflictMatch,
   type User,
@@ -37,6 +38,7 @@ import {
   type SecurityWatchlistEntryDTO,
   type SodConflictRowDTO,
   type SodReportDTO,
+  type UnrecordedSecurityEventsDTO,
   type WorkingHoursDTO,
 } from "@mezan/contracts";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
@@ -66,6 +68,7 @@ import { refuseBranchScopedCaller } from "./branch-scope-refusal.js";
 export interface SecurityReportsRoutesDeps {
   /** The append-only trail. The only source these reports aggregate over. */
   readonly audit: AuditQueryPort;
+  readonly unrecorded?: SecurityEventFallback;
   /**
    * The user register, for حسابات أُنشئت حديثاً. Optional, and its route is
    * only mounted when a composition wires it — an app without it serves no
@@ -347,6 +350,17 @@ function flatten(issues: readonly { path: (string | number)[]; message: string }
   }));
 }
 
+function unrecordedOf(fallback: SecurityEventFallback | undefined): UnrecordedSecurityEventsDTO {
+  if (!fallback) return { count: 0, recent: [], dropped: 0, corrupted: 0 };
+  const { count, recent, dropped, corrupted } = fallback.summary();
+  return {
+    count,
+    dropped,
+    corrupted,
+    recent: recent.map(({ at, module, action, severity, actor, entityId, reason }) => ({ at, module, action, severity, actor, entityId, reason })),
+  };
+}
+
 export function createSecurityReportsRoutes(
   deps: SecurityReportsRoutesDeps,
   resolveAuthContext: AuthContextResolver,
@@ -585,6 +599,7 @@ export function createSecurityReportsRoutes(
       recent: [...events]
         .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
         .slice(0, RECENT_LIMIT),
+      unrecorded: unrecordedOf(deps.unrecorded),
       coverage,
       gaps: [
         {

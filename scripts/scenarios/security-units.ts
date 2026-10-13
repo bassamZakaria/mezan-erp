@@ -173,7 +173,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     // An unlock means "this person can sign in now", so it must clear every
     // source the account was counted under, not just the one that locked it.
-    remote.succeed(atCounter);
+    remote.unlock("owner@shop.example");
     check("an admin unlock clears the remote streak too", remote.retryAfter(fromWifi) === 0);
 
     // Unbounded growth: records are written BEFORE any account lookup, so an

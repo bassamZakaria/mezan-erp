@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPlatform, type PlatformHandle } from "@mezan/backend";
 import { activateTenant, archiveTenant, cancelSubscription, createTenant, startSubscription, suspendSubscription } from "@mezan/domain";
+import { drainForeignWrites } from "@mezan/persistence";
 import { runDunningSweep, startDunningTimer } from "./dunning.js";
 
 const T = "2026-01-15T00:00:00.000Z";
@@ -36,6 +37,36 @@ describe("runDunningSweep", () => {
     expect(expiredSub?.status).toBe("past_due");
     const freshSub = await platform.stores.subscriptions.findById("sub-fresh");
     expect(freshSub?.status).toBe("active");
+  });
+
+  it("waits for a transaction another operation has open instead of writing into it", async () => {
+    const platform = await newPlatform();
+    const expired = await createTenant({ id: "t-expired", code: "expired", nameAr: "منتهية", ownerEmail: "a@x.example", now: T }, platform.stores.tenants);
+    await activateTenant({ id: expired.id, now: T }, platform.stores.tenants);
+    await startSubscription({ id: "sub-expired", tenantId: expired.id, planId: "PLAN-CORE", billingCycle: "monthly", now: T }, platform.stores.subscriptions, platform.stores.plans);
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    let begin!: () => void;
+    const begun = new Promise<void>((resolve) => {
+      begin = resolve;
+    });
+    const settling = platform.audit.atomic!(async () => {
+      begin();
+      await finished;
+      throw new Error("the settlement rolls back");
+    }).catch(() => undefined);
+    await begun;
+
+    const sweeping = runDunningSweep(platform, () => new Date(PAST_END));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    finish();
+    await settling;
+
+    expect(await sweeping).toEqual({ marked: 1, failed: 0, landedOnFree: 0 });
+    expect((await platform.stores.subscriptions.findById("sub-expired"))?.status).toBe("past_due");
+    expect(drainForeignWrites()).toEqual([]);
   });
 
   it("lands an ended trial on Free, and leaves a suspended or cancelled subscription alone", async () => {

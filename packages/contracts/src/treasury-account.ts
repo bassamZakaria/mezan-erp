@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contract for treasury accounts (docs/archive/catalog/04 "حسابات الخزينة").
@@ -32,7 +33,7 @@ export const treasuryAccountSchema = z.object({
 });
 
 export const createTreasuryAccountSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   code: z.string().min(1),
   name: z.string().min(1),
   nameEn: z.string().nullable().optional(),

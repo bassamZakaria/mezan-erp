@@ -1,10 +1,16 @@
-import { reversalPermissionSuccessors } from "@mezan/contracts";
+import { ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import {
   createApp,
+  ACCOUNT_LOCK_FAILURES,
+  ACCOUNT_LOCK_WINDOW_MS,
+  UNLOCK_CODE_TTL_MS,
+  createAccountLocks,
   createPeriodCloseGuardSlot,
   createLoginThrottle,
+  type LoginThrottle,
+  type SmtpConfig,
   createSessionAuthContextResolver,
   createSessionRegistry,
   createSimplifiedRegimeRoutes,
@@ -17,6 +23,8 @@ import {
   type InstallmentCollectPort,
   type SessionRegistry,
   sendNotificationEmail,
+  createPrecomputingHasher,
+  reportTurnYield,
   customerTaxProfileFrom,
   salesTaxRerating,
   type SalesItemTaxSource,
@@ -130,7 +138,6 @@ import {
   DocumentStatusCode,
   type DocumentStatus,
   purchaseInvoiceCancelEntryId,
-  FX_REVALUATION_LINE_MEMO,
   goodsReceiptCancelEntryId,
   goodsReceiptTotalCost,
   goodsReceiptUninvoicedCost,
@@ -139,9 +146,17 @@ import {
   CUSTOMER_OPENING_BALANCE_DOC_TYPE,
   SUPPLIER_OPENING_BALANCE_DOC_TYPE,
   fxRevaluationNet,
+  isFxRestatementLine,
   openFxItemsKey,
   unconsumedRevaluationShare,
   FxOpenItemType,
+  FxItemEventKind,
+  fxItemOpenOn,
+  fxItemTimeline,
+  walkRunShare,
+  type FxItemEvent,
+  type FxItemTimeline,
+  type FxShareRelief,
   type FxOpenItemRef,
   sumActive,
   getVoucherTypeDefinition,
@@ -153,6 +168,8 @@ import {
   type OpenFxItem,
   type AllocationInvoiceKind,
   FX_REALISED_DOC_TYPE,
+  FX_REVALUATION_DOC_TYPE,
+  realisedFxReversalId,
   EquipmentLogStatus,
   MaterialConsumptionStatus,
   FX_SHARE_RELEASE_ENTRY_PREFIX,
@@ -167,7 +184,6 @@ import {
   ForeignResidueKind,
   accountForeignResidues,
   shareOfBase,
-  relievedRevaluationShare,
   buildRevaluationReleaseLines,
   replay,
   type StockMovement,
@@ -194,6 +210,8 @@ import {
   type EventCode,
   createProductTemplateSpecificationUsage,
   recordSecurityEvent,
+  recordSecurityEventOrFallback,
+  type AuditSink,
   unwindAdvanceVoucher,
   unwindPayrollDisbursementVoucher,
   type VoucherAdvanceUnwindPort,
@@ -322,6 +340,7 @@ import {
   createSqliteProductTemplateStore,
   createSqliteNotificationRuleStore,
   createSqliteNotificationStore,
+  removeNotificationLinesMatching,
   createSqliteWorkflowConfigStore,
   createSqliteApprovalRequestStore,
   createDataMigrationTransactor,
@@ -330,6 +349,8 @@ import {
   createSqliteOwnerPinFence,
   createSqliteCredentialResetMarks,
   createSqliteAuditSink,
+  createSqliteIdempotentRequestStore,
+  createSqliteAccountLockStore,
   createSqlitePeriodCloseStore,
   deriveAuditChainKey,
   createSqliteLabelLayoutStore,
@@ -340,6 +361,7 @@ import {
   holdsExistingBooks,
   readSchemaVersion,
   stampSchemaVersion,
+  securityFallbackFor,
 } from "@mezan/persistence";
 import {
   EtaService,
@@ -349,6 +371,13 @@ import {
   convertToBase,
   createDefaultSettings,
   NotificationDispatcher,
+  NotificationChannelState,
+  NotificationChannelCode,
+  NotificationPriorityCode,
+  NotificationReadStatusCode,
+  ConnectionTurnLostError,
+  SETTLED_AS,
+  type DispatchOutcome,
   type NotificationTransport,
   type EtaCommandResult,
   type EtaCommandRunner,
@@ -373,7 +402,8 @@ import {
   createAfterTaxClassified,
   type EtaReceiptIssuer,
 } from "./eta-receipts.js";
-import { createAuthRoutes } from "./auth-routes.js";
+import { createAuth, type AccountLockedEvent } from "./auth-routes.js";
+import { OutsideWork, OutsideWorkDeadlineError, withinDeadline } from "./outside-work.js";
 import { BranchAccess, BranchRecordKind, type BranchDirectory } from "@mezan/api";
 import { createSqliteBranchDirectory } from "./branch-directory.js";
 import { createWarehouseUse } from "./warehouse-use.js";
@@ -679,6 +709,7 @@ export interface CompanyAdminAccount {
 
 export interface BackendHandle {
   readonly app: App;
+  readonly audit: AuditSink;
   ownerAccount(query: OwnerAccountQuery): Promise<OwnerAccount | null>;
   companyAdmins(): Promise<CompanyAdminAccount[]>;
   recordOwnerAssigned(input: OwnerAssignedRecord): Promise<void>;
@@ -707,6 +738,21 @@ export interface BackendHandle {
    */
   readonly sessions: SessionRegistry;
   /**
+   * SECURITY: every path on which an administrator sets, resets or reopens an
+   * account's credentials calls this ONE function: the Users screen, a PIN
+   * reset, an email change, the platform console's owner PIN reset and its
+   * account unlock. It clears the persisted account lock and the sign-in
+   * backoff together; a reset that skips it hands out a PIN the account still
+   * refuses.
+   */
+  credentialsResetByAdministrator(account: string): void;
+  lockedAccounts(): readonly string[];
+  // SECURITY: not an HTTP route. Only code that holds the handle (the platform
+  // console) can call it; it records the unlock in this tenant's own audit
+  // trail in the transaction that clears the lock, and answers false for an
+  // account that is not locked.
+  unlockAccount(account: string, actor: string): Promise<boolean>;
+  /**
    * Copies the live database to `destination` via better-sqlite3's online
    * backup API — safe to call while the app keeps serving writes, since the
    * backup reads through SQLite's own consistent snapshot rather than
@@ -724,7 +770,39 @@ export interface BackendHandle {
   close(): void;
 }
 
+const ACCOUNT_LOCKED_NOTICE = "SECURITY_ACCOUNT_LOCKED";
+
+const LOCK_NOTICE_UNLOCK_ON_USERS = "لفكّ القفل: افتح شاشة المستخدمين واضغط «فكّ القفل» أمام الحساب.";
+const LOCK_NOTICE_CHANGE_PIN = "إن لم تكن هذه المحاولات من صاحب الحساب فغيّر رمز PIN الخاص به.";
+
+function accountLockedHeadline(event: AccountLockedEvent): string {
+  const locked = `قُفل حساب «${event.user.nameAr}» (${event.user.email}) بعد ${ACCOUNT_LOCK_FAILURES} محاولة دخول فاشلة خلال ٢٤ ساعة. آخر مصدر: ${event.source}.`;
+  return event.reissued ? `${locked} انتهت صلاحية رمز فكّ القفل السابق والحساب ما زال مقفلًا.` : locked;
+}
+
+// SECURITY: this text is STORED (the notification row, and so every backup).
+// It says that a code and a link were mailed and carries neither.
+function accountLockedNotice(event: AccountLockedEvent, mailed: boolean, linkMailed: boolean): string {
+  const lines = [accountLockedHeadline(event), LOCK_NOTICE_UNLOCK_ON_USERS];
+  if (mailed) lines.push(`أُرسل إلى بريد مديري النظام رمز لفكّ القفل${linkMailed ? " ورابط يعمل مرة واحدة" : ""}، صالح لساعة واحدة.`);
+  lines.push(LOCK_NOTICE_CHANGE_PIN);
+  return lines.join("\n");
+}
+
+// SECURITY: this text carries the secrets. It is handed to the mail transport
+// and kept in memory until it is sent; it is never written to the database.
+function accountLockedMail(event: AccountLockedEvent, unlockUrl: string | null): string {
+  const lines = [accountLockedHeadline(event), LOCK_NOTICE_UNLOCK_ON_USERS];
+  if (event.unlockCode) lines.push(`أو أدخل هذا الرمز في شاشة الدخول خلال ساعة واحدة: ${event.unlockCode}`);
+  if (unlockUrl) lines.push(`أو افتح هذا الرابط خلال ساعة واحدة، وهو يعمل مرة واحدة فقط: ${unlockUrl}`);
+  lines.push(LOCK_NOTICE_CHANGE_PIN);
+  return lines.join("\n");
+}
+
+const STORED_UNLOCK_SECRET = /[A-Z2-7]{16}|https?:\/\//;
+
 export interface CreateBackendOptions {
+  readonly connectionTurn?: CreateAppOptions["connectionTurn"];
   /**
    * SQLite location. A file path gives durable, shared-across-restarts storage
    * (apps/server, Electron); `:memory:` gives an ephemeral per-process DB
@@ -748,6 +826,19 @@ export interface CreateBackendOptions {
   readonly seedAdminPin?: string;
   /** Outbound HTTP for the ETA gateway. Tests inject a fake server; nothing else should. */
   readonly etaHttpClient?: EtaHttpClient;
+  readonly securityMail?: SmtpConfig;
+  // SECURITY: the address a mailed unlock link opens. It is built here from an
+  // origin the DEPLOYMENT configured and never from anything a request carried
+  // (Host, X-Forwarded-Host): the request that locks an account is the
+  // attacker's own, and a link built from it would mail the administrators a
+  // working token pointed at the attacker's server.
+  readonly unlockLink?: (token: string) => string;
+  // CONTRACT: true where a platform operator can unlock this tenant's accounts
+  // from the console (the cloud edition). It changes what a locked account is told.
+  readonly platformOperatorUnlocks?: boolean;
+  // TEST HOOK: the clock the account lock and its unlock code's expiry read.
+  readonly signInClock?: () => number;
+  readonly sendMail?: typeof sendNotificationEmail;
   /** Runs the operator's external CAdES-BES signing program. Tests inject a fake. */
   readonly etaSigningRunner?: EtaCommandRunner;
   /**
@@ -828,6 +919,7 @@ export interface CreateBackendOptions {
 const CERTIFICATE_AR_ACCOUNT_ID = "1105";
 
 const REVERSAL_PERMISSIONS_GRANT = "reversal_permissions";
+const VOUCHER_REVERSAL_PERMISSION_GRANT = "voucher_reversal_permission";
 
 enum BackendPass {
   Upgrade = "upgrade",
@@ -868,6 +960,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 }
 
 async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<typeof openSqliteConnection>["sqlite"], pass: BackendPass): Promise<BackendHandle> {
+  const dbPath = options.dbPath ?? ":memory:";
   /*
    * DEC-17 removed the API-key and webhook back end. Their stores are gone, so
    * a new database never creates these tables — but an existing one still
@@ -891,6 +984,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const auditSink = createSqliteAuditSink(sqlite, {
     ...(options.connection?.key ? { chainKey: deriveAuditChainKey(options.connection.key) } : {}),
   });
+  auditSink.unrecorded = securityFallbackFor(dbPath);
   const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
   const userPreferences = createSqliteUserPreferencesStore(sqlite);
   const ownerPinFence = createSqliteOwnerPinFence(sqlite);
@@ -904,6 +998,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
 
   const uow = createSqliteUnitOfWork(sqlite);
   grantSuccessorPermissionsOnce(sqlite, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
+  // INVARIANT: a marker of its own — books that already hold the marker above were upgraded before the voucher route joined the registry and would never be given its permission.
+  grantSuccessorPermissionsOnce(sqlite, VOUCHER_REVERSAL_PERMISSION_GRANT, reversalPermissionSuccessors([ReversalDocumentType.Voucher]));
   const settings = createSqliteSettingsStore(sqlite);
   const vatFilings = createSqliteVatFilingStore(sqlite);
   const simplifiedRegime = createSqliteSimplifiedRegimeStore(sqlite);
@@ -950,8 +1046,27 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    * the operator's own program because a CAdES-BES signature is made on the
    * taxpayer's hardware token and cannot be produced in-process.
    */
+  // EVERY PORT THAT LEAVES THE PROCESS HANDS THE CONNECTION BACK FIRST. A request
+  // holds the tenant's turn for its database work only (audit-boundary.ts): the
+  // hash, the signing program, the authority's socket and the mail server are
+  // awaited with the turn released, and the request takes it again to record
+  // what they answered.
+  const outsideTheTurn = <T>(work: () => Promise<T>): Promise<T> => auditSink.outsideTurn(work);
+  // WORK NO REQUEST IS WAITING ON TAKES THE TURN FOR ITS DATABASE WORK TOO: a
+  // timer, an event subscriber, a task a confirm leaves running. Started inside
+  // a request it shares that request's turn, which is then kept until it is
+  // done; started on its own it queues like any write. Either way it is never
+  // writing while another holder has a BEGIN open, and its ports hand the turn
+  // back around the outside world exactly as a request's do.
+  const inTheTurn =
+    (label: string) =>
+    <T>(work: () => Promise<T>): Promise<T> =>
+      auditSink.turn(work, { onYield: () => reportTurnYield(`background ${label}`) });
+  const etaHttp = options.etaHttpClient ?? fetchEtaHttpClient();
+  const etaSigningRunner = options.etaSigningRunner ?? runExternalSigningCommand;
   const etaTransmit = createEtaHttpTransmitPort({
-    http: options.etaHttpClient ?? fetchEtaHttpClient(),
+    http: (request) => outsideTheTurn(() => withinDeadline(OutsideWork.EtaHttp, () => etaHttp(request))),
+    sleep: (ms) => outsideTheTurn(() => new Promise<void>((resolve) => setTimeout(resolve, ms))),
     credentials: {
       read: async () => {
         const config = await etaStore.config.get();
@@ -966,7 +1081,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   });
   const etaSigner = createExternalCommandSigner({
     config: () => etaStore.config.get(),
-    run: options.etaSigningRunner ?? runExternalSigningCommand,
+    run: (command, args, stdin) => outsideTheTurn(() => withinDeadline(OutsideWork.EtaSigning, () => etaSigningRunner(command, args, stdin))),
   });
   const etaService = new EtaService({
     config: etaStore.config,
@@ -981,7 +1096,12 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     receiptChain: etaStore.receiptChain,
     receiptGaps: etaStore.receiptGaps,
   });
-  const hasher = createScryptHasher();
+  const scrypt = createScryptHasher();
+  const secrets = createPrecomputingHasher({
+    hash: (secret) => outsideTheTurn(() => scrypt.hash(secret)),
+    verify: (secret, hash) => outsideTheTurn(() => scrypt.verify(secret, hash)),
+  });
+  const hasher = secrets.hasher;
 
   // --- phase9/operational-reports — read-only repositories the /reports routes aggregate over,
   // shared with phase5/full-sales's sales-invoice GL/stock hooks below (same tables, one connection each). ---
@@ -1144,6 +1264,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   // for why a translation step is needed at all). ---
   const notificationRules = createSqliteNotificationRuleStore(sqlite);
   const notifications = createSqliteNotificationStore(sqlite);
+  removeNotificationLinesMatching(sqlite, ACCOUNT_LOCKED_NOTICE, STORED_UNLOCK_SECRET);
   const eventBus = new EventBus({
     onError: (error, event) => {
       console.error(`[notifications] a subscriber failed handling "${event.code}"`, error);
@@ -1169,8 +1290,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     roles: uow.roles,
     generateId: () => randomUUID(),
   });
+  const notifyInTheTurn = inTheTurn("notification rules");
   eventBus.subscribeAll((event) => {
-    void notificationEngine.handle(event).catch((error: unknown) => {
+    void notifyInTheTurn(() => notificationEngine.handle(event)).catch((error: unknown) => {
       console.error(`[notifications] engine failed handling "${event.code}"`, error);
     });
   });
@@ -1386,6 +1508,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    * and a future POS till, and from the confirm events for every other path.
    */
   const etaReceipts = createEtaReceiptIssuer({
+    turn: inTheTurn("e-receipt submission"),
     eta: etaService,
     invoices: salesInvoices,
     returns: salesReturnStore,
@@ -1405,6 +1528,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   });
 
   const etaEnqueueBridge = createEtaEnqueueBridge({
+    turn: inTheTurn("e-invoice queueing"),
     eta: etaService,
     issuer: etaReceipts,
     invoices: salesInvoices,
@@ -1577,7 +1701,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
           reversalId: `${invoice.id}:void`,
           date,
           memo: `عكس فاتورة مستخلص ${invoice.docNo ?? invoice.id} — ${reasonAr}`,
-        });
+        }, { mintedBySystem: true });
       }
       const written = await salesInvoices.writeFields({ ...invoice, status: "reversed" }, [SalesInvoiceField.Status], { status: [invoice.status] });
       if (!written) throw new DocumentChangedError("SALES_INVOICE", invoice.id);
@@ -1829,6 +1953,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
           })),
         },
         salesInvoiceGl,
+        { mintedBySystem: true },
       );
     },
   };
@@ -2365,6 +2490,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         ],
       },
       salesInvoiceGl,
+      { mintedBySystem: true },
     );
   };
   const landedCosts = new LandedCostService(landedCostDocuments, stockService, {
@@ -2378,7 +2504,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     reverseSideEntry: async (entryId, opts) => {
       const entry = await ledger.findById(entryId);
       if (!entry || entry.status !== "posted") return null;
-      await reverseJournalEntry(entryId, salesInvoiceGl, { reversalId: opts.reversalId, date: opts.date });
+      await reverseJournalEntry(entryId, salesInvoiceGl, { reversalId: opts.reversalId, date: opts.date }, { mintedBySystem: true });
       return Money.sum(entry.lines.map((line) => line.debit));
     },
   }, {
@@ -2637,7 +2763,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         // never carried one) — the reversal names the party regardless, so
         // the sub-ledger can follow it even when the entry it offsets could not.
         linePatch: (line) => (line.accountId === controlAccountId ? { ...line, partyId: party.id } : line),
-      });
+      }, { mintedBySystem: true });
       reversed = true;
     }
 
@@ -2676,6 +2802,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
             ],
       },
       salesInvoiceGl,
+      { mintedBySystem: true },
     );
     return true;
   }
@@ -3315,6 +3442,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   // confirmed "inter_treasury_transfer" voucher between the two treasury
   // accounts, posted through the same GL engine every other voucher uses. ---
   const vanTripVoucherService = new VoucherService({
+    documentIdsMintedBySystem: true,
     documents: vouchers.documents,
     vatFilings,
     ledger,
@@ -3447,7 +3575,104 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    * object: a per-router throttle would let an admin "unlock" an account that
    * stays locked at the login route.
    */
-  const loginThrottle = createLoginThrottle();
+  const signInLadder = createLoginThrottle(options.signInClock);
+  const accountLockStore = createSqliteAccountLockStore(sqlite, { now: options.signInClock, failureWindowMs: ACCOUNT_LOCK_WINDOW_MS });
+  const accountLocks = createAccountLocks({ known: accountLockStore, unknown: accountLockStore.unknownNames, now: options.signInClock });
+  // REQUIRED: every unlock in the product — the Users screen, a PIN reset, an
+  // email change — goes through this one object, and it must clear the
+  // account lock as well as the backoff or the button unlocks nothing.
+  const credentialsResetByAdministrator = (account: string): void => {
+    accountLocks.clear(account);
+    signInLadder.unlock(account);
+  };
+  const loginThrottle: LoginThrottle = { ...signInLadder, unlock: credentialsResetByAdministrator };
+  const sendMail = options.sendMail ?? sendNotificationEmail;
+  const securitySmtp = async (): Promise<SmtpConfig | null> => {
+    const tenant = (await settings.get()) ?? createDefaultSettings();
+    return tenant.smtpEnabled ? tenant : (options.securityMail ?? null);
+  };
+  const lockMailInTheTurn = inTheTurn("account lock notice");
+  const recordLateInTheTurn = inTheTurn("late notification record");
+  type MailResult = Awaited<ReturnType<typeof sendNotificationEmail>>;
+  const dispatchOutcomeOf = (sent: MailResult): DispatchOutcome =>
+    sent.outcome === "sent" ? { kind: "sent" } : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
+  // SECURITY: the only place an unlock code or link token lives after it is
+  // issued, besides the mail itself. Keyed by notification id, dropped when the
+  // mail is sent or refused, and never older than the code it carries.
+  const lockMailBodies = new Map<string, { readonly body: string; readonly expiresAt: number }>();
+  const signInNow = options.signInClock ?? Date.now;
+  const keepLockMail = (id: string, body: string): void => {
+    const at = signInNow();
+    for (const [stale, kept] of lockMailBodies) if (kept.expiresAt <= at) lockMailBodies.delete(stale);
+    lockMailBodies.set(id, { body, expiresAt: at + UNLOCK_CODE_TTL_MS });
+  };
+  const emailTransport = (smtp: SmtpConfig | null): NotificationTransport => ({
+    channel: "email",
+    async send(notification, recipientEmail, claim) {
+      if (smtp === null) return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
+      if (!recipientEmail) return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
+      const body = notification.eventCode === ACCOUNT_LOCKED_NOTICE ? lockMailBodies.get(notification.id)?.body : notification.body;
+      if (body === undefined) return { kind: "rejected", reason: "انتهت صلاحية رمز فكّ القفل قبل إرساله؛ يُرسل رمز جديد عند المحاولة التالية." };
+      try {
+        const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body })));
+        const outcome = dispatchOutcomeOf(sent);
+        if (outcome.kind !== "offline") lockMailBodies.delete(notification.id);
+        return outcome;
+      } catch (err) {
+        if (err instanceof OutsideWorkDeadlineError) return { kind: "offline", reason: err.message };
+        // The mail server answered and this drain can no longer write. What it
+        // answered is recorded under a turn of its own, against the same claim,
+        // so a message that was sent is not queued to be sent again.
+        if (err instanceof ConnectionTurnLostError && err.completed) {
+          const late = SETTLED_AS[dispatchOutcomeOf(err.completed.value as MailResult).kind];
+          void recordLateInTheTurn(() => notifications.settleChannel(notification.id, "email", late, claim)).catch((error: unknown) => {
+            console.error(`[notifications] could not record what the mail server answered for ${notification.id}`, error);
+          });
+        }
+        throw err;
+      }
+    },
+  });
+  const notifyAccountLocked = async (event: AccountLockedEvent): Promise<void> => {
+    const smtp = await securitySmtp();
+    const admins = (await uow.users.list()).filter((u) => u.isCompanyAdmin && u.status === UserStatusCode.Active);
+    const createdAt = new Date().toISOString();
+    const mailed = smtp !== null && event.unlockCode !== null;
+    const unlockUrl = options.unlockLink && event.unlockLinkToken ? options.unlockLink(event.unlockLinkToken) : null;
+    const mailBody = mailed ? accountLockedMail(event, unlockUrl) : null;
+    const ids = new Set<string>();
+    for (const admin of admins) {
+      const id = randomUUID();
+      ids.add(id);
+      if (mailBody !== null) keepLockMail(id, mailBody);
+      await notifications.save({
+        id,
+        ruleId: null,
+        recipientUserId: admin.id,
+        eventCode: ACCOUNT_LOCKED_NOTICE,
+        title: "تم قفل حساب بعد محاولات دخول فاشلة",
+        body: accountLockedNotice(event, mailed, unlockUrl !== null),
+        priority: NotificationPriorityCode.Urgent,
+        channels: mailed ? [NotificationChannelCode.InApp, NotificationChannelCode.Email] : [NotificationChannelCode.InApp],
+        channelStatus: mailed
+          ? { in_app: NotificationChannelState.Delivered, email: NotificationChannelState.Queued }
+          : { in_app: NotificationChannelState.Delivered },
+        status: NotificationReadStatusCode.Unread,
+        payload: { userId: event.user.id, source: event.source },
+        createdAt,
+        readAt: null,
+      });
+    }
+    if (!mailed || smtp === null || ids.size === 0) return;
+    const dispatcher = new NotificationDispatcher({
+      notifications,
+      recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
+      transports: [emailTransport(smtp)],
+    });
+    void lockMailInTheTurn(() => dispatcher.drain({ only: ids })).catch((error: unknown) => {
+      console.error("[auth] the account-lock notice could not be mailed; it stays queued", error);
+    });
+  };
 
   /**
    * Refused requests, recorded.
@@ -3468,7 +3693,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     if (now - last < 60_000) return;
     refusalSeenAt.set(key, now);
     if (refusalSeenAt.size > 5_000) refusalSeenAt.clear();
-    void recordSecurityEvent(auditSink, {
+    void recordSecurityEventOrFallback(auditSink, {
       module: "admin",
       entityType: "PERMISSION",
       entityId: refusal.permission,
@@ -3476,7 +3701,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       actor: refusal.userId,
       severity: "WARNING",
       details: { permission: refusal.permission, method: refusal.method, path: refusal.path },
-    }).catch(() => undefined);
+    });
   };
 
   /**
@@ -3516,12 +3741,11 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   };
   const standingRevaluationShare = (item: FxOpenItemRef) =>
     unconsumedRevaluationShare(item, { shares: vouchers.revaluationShares, allocations: vouchers.allocations, entryStands: revaluationEntryStands });
-  type FxItemRelief = { readonly relieved: Money; readonly outstanding: Money };
   const invoiceItem = (id: string): FxOpenItemRef => ({ id, type: FxOpenItemType.Invoice });
   const moneyItem = (id: string): FxOpenItemRef => ({ id, type: FxOpenItemType.Money });
   async function foreignMoneyOnAccount(voucherId: string): Promise<{ date: string; line: VoucherLine; fxRate: string; kind: AllocationInvoiceKind; unallocated: Money } | null> {
     const doc = await vouchers.documents.findById(voucherId);
-    if (!doc || doc.status !== "confirmed" || doc.reversesDocId) return null;
+    if (!doc || doc.status !== "confirmed") return null;
     const line = voucherLine(doc);
     const kind = getVoucherTypeDefinition(line.voucherType).allocationKind;
     if (!kind || !line.fxRate) return null;
@@ -3535,140 +3759,177 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     const returned = (await returnedByInvoice(invoiceReturnCredits, [invoice])).get(invoice.id) ?? Money.zero();
     return invoiceOpenBalance(invoice, returned).scaled !== 0n;
   }
-  interface FxLaterRelief {
-    readonly date: string;
-    readonly relieved: Money | null;
-    readonly releasedBy: string;
-    readonly allocationId?: string;
-  }
-  interface FxItemAsOf {
+  interface FxItemBook {
+    readonly ref: FxOpenItemRef;
     readonly key: string;
-    readonly open: OpenFxItem;
-    readonly later: readonly FxLaterRelief[];
+    readonly kind: AllocationInvoiceKind;
+    readonly partyId: string;
+    readonly fxRate: string;
+    readonly openedOn: string;
+    readonly endedOn: string | null;
+    readonly timeline: FxItemTimeline;
+    readonly allocationIds: ReadonlySet<string>;
   }
   const FX_OPEN_TODAY = "9999-12-31";
+  const FX_CLOSE_REF = "close";
+  const fxReturnRef = (returnId: string): string => `return:${returnId}`;
   const allocationDay = (allocation: VoucherAllocation): string => allocation.date ?? allocation.createdAt.slice(0, 10);
-  const allocationStoodOn = (allocation: VoucherAllocation, day: string): boolean =>
-    allocationDay(allocation) <= day && (allocation.status === "active" || (allocation.reversedOn ?? allocation.reversedAt?.slice(0, 10) ?? "") > day);
-  async function revaluationShareAsOf(item: FxOpenItemRef, day: string): Promise<bigint> {
-    if (day >= FX_OPEN_TODAY) return (await standingRevaluationShare(item)).scaled;
-    let share = 0n;
-    for (const record of await vouchers.revaluationShares.listByItem(item)) {
-      const entry = await ledger.findById(record.entryId);
-      if (entry?.status === "posted" && !entry.reversedByEntryId && entry.date.slice(0, 10) <= day) share += record.amount.scaled;
-    }
-    const money = item.type === FxOpenItemType.Money;
-    for (const allocation of money ? await vouchers.allocations.listByVoucher(item.id) : await vouchers.allocations.listByInvoice(item.id)) {
-      if (allocation.status === "active" && allocationDay(allocation) <= day) share -= (money ? allocation.moneyRevaluationShare : allocation.revaluationShare)?.scaled ?? 0n;
-    }
-    return share;
-  }
-  async function laterAllocationReliefs(allocations: readonly VoucherAllocation[], day: string, money: boolean): Promise<FxLaterRelief[]> {
-    const out: FxLaterRelief[] = [];
+  function allocationEvents(allocations: readonly VoucherAllocation[], money: boolean): FxItemEvent[] {
+    const events: FxItemEvent[] = [];
     for (const allocation of allocations) {
-      if (allocation.status !== "active" || allocationDay(allocation) <= day) continue;
-      out.push({ date: allocationDay(allocation), relieved: money ? allocation.amount : allocationInvoiceAmount(allocation), releasedBy: await fxDocumentNumber(money ? allocation.invoiceId : allocation.voucherId), allocationId: allocation.id });
+      const undoneOn = allocation.status === "active" ? null : (allocation.reversedOn ?? allocation.reversedAt?.slice(0, 10) ?? null);
+      if (allocation.status !== "active" && !undoneOn) continue;
+      const amount = money ? allocation.amount : allocationInvoiceAmount(allocation);
+      const by = money ? allocation.invoiceId : allocation.voucherId;
+      events.push({ kind: FxItemEventKind.Relief, ref: allocation.id, day: allocationDay(allocation), at: allocation.createdAt, amount, by });
+      if (undoneOn) events.push({ kind: FxItemEventKind.Reopening, ref: allocation.id, day: undoneOn, at: allocation.reversedAt ?? undoneOn, amount, by });
     }
-    return out;
+    return events;
   }
-  const inDateOrder = (reliefs: FxLaterRelief[]): FxLaterRelief[] => reliefs.sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? -1 : 1));
-  async function foreignInvoiceAsOf(invoiceId: string, kind: AllocationInvoiceKind, control: string, day: string): Promise<FxItemAsOf | null> {
+  async function invoiceBook(invoiceId: string, kind: AllocationInvoiceKind, control: string): Promise<FxItemBook | null> {
     const booked = await realisedFx.invoiceFx(invoiceId, kind);
     const sub = await vouchers.invoices.findById(invoiceId);
-    if (!booked || !sub || sub.date.slice(0, 10) > day) return null;
+    if (!booked || !sub) return null;
     const live = await invoiceStands(invoiceId, kind);
-    const endedOn = live ? null : ((await ledger.findById(kind === "sales" ? salesInvoiceVoidEntryId(invoiceId) : purchaseInvoiceCancelEntryId(invoiceId)))?.date.slice(0, 10) ?? null);
-    if (!live && (endedOn === null || endedOn <= day)) return null;
+    const ended = live ? null : await ledger.findById(kind === "sales" ? salesInvoiceVoidEntryId(invoiceId) : purchaseInvoiceCancelEntryId(invoiceId));
+    if (!live && !ended) return null;
     const allocations = await vouchers.allocations.listByInvoice(invoiceId);
     const returns = kind === "sales"
-      ? (await listReturnsCiting(salesReturnStore, [invoiceId])).map((doc) => ({ date: doc.date.slice(0, 10), number: doc.docNo ?? doc.id, credit: salesReturnCreditByInvoice([doc]).get(invoiceId) ?? Money.zero() }))
-      : (await listReturnsCiting(purchaseReturnStore, [invoiceId])).map((doc) => ({ date: doc.date.slice(0, 10), number: doc.docNo ?? doc.id, credit: purchaseReturnCreditByInvoice([doc]).get(invoiceId) ?? Money.zero() }));
-    const later = await laterAllocationReliefs(allocations, day, false);
-    for (const credit of returns) if (credit.date > day && credit.credit.scaled !== 0n) later.push({ date: credit.date, relieved: credit.credit, releasedBy: credit.number });
-    const relievedLater = later.reduce((sum, relief) => sum + (relief.relieved?.scaled ?? 0n), 0n);
-    let openBase: bigint;
-    if (live) {
-      const returnedToday = returns.reduce((sum, credit) => sum + credit.credit.scaled, 0n);
-      const reopenedLater = allocations.filter((allocation) => allocation.status !== "active" && allocationStoodOn(allocation, day)).reduce((sum, allocation) => sum + allocationInvoiceAmount(allocation).scaled, 0n);
-      openBase = invoiceOpenBalance(sub, Money.fromScaled(returnedToday)).scaled + relievedLater - reopenedLater;
-    } else {
-      const total = kind === "sales" ? await salesInvoices.findById(invoiceId).then((doc) => (doc ? salesInvoiceBaseGrandTotal(salesInvoiceTotals(doc), doc.fxRate).scaled : 0n)) : await purchaseInvoices.findById(invoiceId).then((doc) => (doc ? purchaseInvoiceBaseTotal(doc).scaled : 0n));
-      const settled = allocations.filter((allocation) => allocationStoodOn(allocation, day)).reduce((sum, allocation) => sum + allocationInvoiceAmount(allocation).scaled, 0n);
-      openBase = total - settled - returns.filter((credit) => credit.date <= day).reduce((sum, credit) => sum + credit.credit.scaled, 0n);
-      later.push({ date: endedOn as string, relieved: null, releasedBy: sub.invoiceNo });
+      ? (await listReturnsCiting(salesReturnStore, [invoiceId])).map((doc) => ({ doc, credit: salesReturnCreditByInvoice([doc]).get(invoiceId) ?? Money.zero() }))
+      : (await listReturnsCiting(purchaseReturnStore, [invoiceId])).map((doc) => ({ doc, credit: purchaseReturnCreditByInvoice([doc]).get(invoiceId) ?? Money.zero() }));
+    const events = allocationEvents(allocations, false);
+    for (const { doc, credit } of returns) {
+      if (credit.scaled !== 0n) events.push({ kind: FxItemEventKind.Relief, ref: fxReturnRef(doc.id), day: doc.date.slice(0, 10), at: doc.confirmedAt ?? doc.date, amount: credit, by: doc.docNo ?? doc.id });
     }
-    if (openBase <= 0n) return null;
-    const open = Money.fromScaled(openBase);
-    return {
-      key: openFxItemsKey(control, booked.currency),
-      open: { itemId: invoiceId, itemType: FxOpenItemType.Invoice, kind, partyId: sub.partyId, foreignOutstanding: convertFromBase(open, booked.fxRate), carryingBase: Money.fromScaled(openBase + (await revaluationShareAsOf(invoiceItem(invoiceId), day))) },
-      later: inDateOrder(later),
-    };
+    if (ended) events.push({ kind: FxItemEventKind.Close, ref: FX_CLOSE_REF, day: ended.date.slice(0, 10), at: ended.postedAt ?? ended.date, amount: Money.zero(), by: sub.invoiceNo });
+    const opened = live
+      ? sub.total
+      : Money.fromScaled(kind === "sales" ? await salesInvoices.findById(invoiceId).then((doc) => (doc ? salesInvoiceBaseGrandTotal(salesInvoiceTotals(doc), doc.fxRate).scaled : 0n)) : await purchaseInvoices.findById(invoiceId).then((doc) => (doc ? purchaseInvoiceBaseTotal(doc).scaled : 0n)));
+    return { ref: invoiceItem(invoiceId), key: openFxItemsKey(control, booked.currency), kind, partyId: sub.partyId, fxRate: booked.fxRate, openedOn: sub.date.slice(0, 10), endedOn: ended?.date.slice(0, 10) ?? null, timeline: fxItemTimeline(opened, events), allocationIds: new Set(allocations.map((allocation) => allocation.id)) };
   }
-  async function foreignMoneyAsOf(doc: VoucherDocument, day: string): Promise<FxItemAsOf | null> {
-    if (doc.reversesDocId || doc.date.slice(0, 10) > day || (doc.status !== "confirmed" && doc.status !== "reversed")) return null;
+  async function moneyBook(doc: VoucherDocument): Promise<FxItemBook | null> {
+    if (doc.reversesDocId || (doc.status !== "confirmed" && doc.status !== "reversed")) return null;
     const line = voucherLine(doc);
     const kind = getVoucherTypeDefinition(line.voucherType).allocationKind;
     const partyId = line.customerId ?? line.supplierId;
     if (!kind || !line.fxRate || !partyId || !line.counterpartyGlAccountId) return null;
-    const live = doc.status === "confirmed";
-    const endedOn = live ? null : doc.reversedByDocId ? ((await vouchers.documents.findById(doc.reversedByDocId))?.date.slice(0, 10) ?? null) : null;
-    if (!live && (endedOn === null || endedOn <= day)) return null;
+    const mirror = doc.status === "reversed" && doc.reversedByDocId ? await vouchers.documents.findById(doc.reversedByDocId) : null;
+    if (doc.status === "reversed" && !mirror) return null;
     const allocations = await vouchers.allocations.listByVoucher(doc.id);
-    const later = await laterAllocationReliefs(allocations, day, true);
-    const given = live
-      ? sumActive(allocations).scaled - later.reduce((sum, relief) => sum + (relief.relieved?.scaled ?? 0n), 0n) + allocations.filter((allocation) => allocation.status !== "active" && allocationStoodOn(allocation, day)).reduce((sum, allocation) => sum + allocation.amount.scaled, 0n)
-      : allocations.filter((allocation) => allocationStoodOn(allocation, day)).reduce((sum, allocation) => sum + allocation.amount.scaled, 0n);
-    const held = voucherBaseAmount(line).scaled - given;
-    if (held <= 0n) return null;
-    if (!live) later.push({ date: endedOn as string, relieved: null, releasedBy: doc.docNo ?? doc.id });
+    const events = allocationEvents(allocations, true);
+    if (mirror) events.push({ kind: FxItemEventKind.Close, ref: FX_CLOSE_REF, day: mirror.date.slice(0, 10), at: mirror.confirmedAt ?? mirror.date, amount: Money.zero(), by: doc.docNo ?? doc.id });
+    return { ref: moneyItem(doc.id), key: openFxItemsKey(line.counterpartyGlAccountId, line.currency), kind, partyId, fxRate: line.fxRate, openedOn: doc.date.slice(0, 10), endedOn: mirror?.date.slice(0, 10) ?? null, timeline: fxItemTimeline(voucherBaseAmount(line), events), allocationIds: new Set(allocations.map((allocation) => allocation.id)) };
+  }
+  async function fxControlAccounts(): Promise<Record<AllocationInvoiceKind, string>> {
+    const routing = await accountRouting.get();
+    return { sales: routedAccountId(routing, "control.receivable") ?? "1105", purchase: routedAccountId(routing, "control.payable") ?? "2100" };
+  }
+  async function fxItemBook(item: FxOpenItemRef): Promise<FxItemBook | null> {
+    if (item.type === FxOpenItemType.Money) {
+      const doc = await vouchers.documents.findById(item.id);
+      return doc ? moneyBook(doc) : null;
+    }
+    const sub = await vouchers.invoices.findById(item.id);
+    return sub ? invoiceBook(item.id, sub.kind, (await fxControlAccounts())[sub.kind]) : null;
+  }
+  async function standingRunShares(item: FxOpenItemRef): Promise<{ day: string; share: Money }[]> {
+    const byRun = new Map<string, { day: string; share: bigint }>();
+    for (const record of await vouchers.revaluationShares.listByItem(item)) {
+      const entry = await ledger.findById(record.entryId);
+      if (!entry || entry.sourceDocType !== FX_REVALUATION_DOC_TYPE || entry.status !== "posted" || entry.reversedByEntryId || entry.reversesEntryId) continue;
+      const run = byRun.get(entry.id) ?? { day: entry.date.slice(0, 10), share: 0n };
+      run.share += record.amount.scaled;
+      byRun.set(entry.id, run);
+    }
+    return [...byRun.values()].map((run) => ({ day: run.day, share: Money.fromScaled(run.share) }));
+  }
+  async function revaluationShareAsOf(book: FxItemBook, day: string): Promise<bigint> {
+    if (day >= FX_OPEN_TODAY) return (await standingRevaluationShare(book.ref)).scaled;
+    let share = 0n;
+    for (const run of await standingRunShares(book.ref)) if (run.day <= day) share += walkRunShare(book.timeline, run, day).remaining.scaled;
+    return share;
+  }
+  // INVARIANT: what a relief about to be recorded takes of the item's standing shares — the sum, run by run, of the same walk a run posted after it would make. A relief that closes the item takes whatever the ledger still holds on it, so nothing is left behind.
+  async function revaluationShareTaken(item: FxOpenItemRef, relief: FxShareRelief): Promise<Money> {
+    if (relief.closes) return standingRevaluationShare(item);
+    const book = await fxItemBook(item);
+    if (!book) return Money.zero();
+    const timeline = fxItemTimeline(book.timeline.opened, [...book.timeline.events, { kind: FxItemEventKind.Relief, ref: relief.ref, day: relief.day, at: relief.at, amount: relief.amount }]);
+    let taken = 0n;
+    for (const run of await standingRunShares(item)) taken += walkRunShare(timeline, run).takenBy(relief.ref).scaled;
+    return Money.fromScaled(taken);
+  }
+  async function fxItemAsOf(book: FxItemBook, day: string): Promise<{ key: string; open: OpenFxItem } | null> {
+    if (book.openedOn > day || (book.endedOn !== null && book.endedOn <= day)) return null;
+    const open = fxItemOpenOn(book.timeline, day);
+    if (open.scaled <= 0n) return null;
+    const side = book.ref.type === FxOpenItemType.Money ? -1n : 1n;
     return {
-      key: openFxItemsKey(line.counterpartyGlAccountId, line.currency),
-      open: { itemId: doc.id, itemType: FxOpenItemType.Money, kind, partyId, foreignOutstanding: Money.fromScaled(-convertFromBase(Money.fromScaled(held), line.fxRate).scaled), carryingBase: Money.fromScaled(-held + (await revaluationShareAsOf(moneyItem(doc.id), day))) },
-      later: inDateOrder(later),
+      key: book.key,
+      open: { itemId: book.ref.id, itemType: book.ref.type, kind: book.kind, partyId: book.partyId, foreignOutstanding: Money.fromScaled(side * convertFromBase(open, book.fxRate).scaled), carryingBase: Money.fromScaled(side * open.scaled + (await revaluationShareAsOf(book, day))) },
     };
   }
-  async function fxItemsAsOf(asOfDate: string): Promise<FxItemAsOf[]> {
-    const routing = await accountRouting.get();
-    const controlOf = { sales: routedAccountId(routing, "control.receivable") ?? "1105", purchase: routedAccountId(routing, "control.payable") ?? "2100" } as const;
-    const out: FxItemAsOf[] = [];
+  async function fxItemBooks(asOfDate: string): Promise<FxItemBook[]> {
+    const controlOf = await fxControlAccounts();
+    const out: FxItemBook[] = [];
     const foreign = (doc: { currency?: string | null; fxRate?: string | null }) => Boolean(doc.fxRate && doc.currency && !isBaseCurrency(doc.currency));
     for (const invoice of (await salesInvoices.list()).filter(foreign)) {
-      const item = await foreignInvoiceAsOf(invoice.id, "sales", controlOf.sales, asOfDate);
-      if (item) out.push(item);
+      const book = await invoiceBook(invoice.id, "sales", controlOf.sales);
+      if (book) out.push(book);
     }
     for (const invoice of (await purchaseInvoices.list()).filter(foreign)) {
-      const item = await foreignInvoiceAsOf(invoice.id, "purchase", controlOf.purchase, asOfDate);
-      if (item) out.push(item);
+      const book = await invoiceBook(invoice.id, "purchase", controlOf.purchase);
+      if (book) out.push(book);
     }
     for (const doc of await vouchers.documents.list({ toDate: asOfDate })) {
-      const item = await foreignMoneyAsOf(doc, asOfDate);
-      if (item) out.push(item);
+      const book = await moneyBook(doc);
+      if (book) out.push(book);
     }
     return out;
   }
   async function openFxItems(asOfDate: string): Promise<ReadonlyMap<string, OpenFxItem[]>> {
     const out = new Map<string, OpenFxItem[]>();
-    for (const item of await fxItemsAsOf(asOfDate)) out.set(item.key, [...(out.get(item.key) ?? []), item.open]);
+    for (const book of await fxItemBooks(asOfDate)) {
+      const item = await fxItemAsOf(book, asOfDate);
+      if (item) out.set(item.key, [...(out.get(item.key) ?? []), item.open]);
+    }
     return out;
   }
-  // INVARIANT: runs in the run's own transaction, after its shares are saved — a relief dated in a closed period throws here and takes the run with it.
-  async function releaseSharesRelievedSince(asOfDate: string, shared: readonly { readonly itemId: string; readonly itemType: FxOpenItemType }[]): Promise<void> {
-    const wanted = new Set(shared.map((share) => `${share.itemType} ${share.itemId}`));
-    for (const item of await fxItemsAsOf(asOfDate)) {
-      if (!wanted.has(`${item.open.itemType} ${item.open.itemId}`)) continue;
-      const ref: FxOpenItemRef = { id: item.open.itemId, type: item.open.itemType };
-      const side = item.open.itemType === FxOpenItemType.Money ? -1n : 1n;
-      let outstanding = side * item.open.carryingBase.scaled - side * (await revaluationShareAsOf(ref, asOfDate));
-      for (const relief of item.later) {
-        if (relief.relieved === null) {
-          await releaseItemShare(ref, relief.date, undefined, relief.releasedBy);
+  // INVARIANT: runs in the run's own transaction, after its shares are saved — a relief dated in a closed period throws here and takes the run with it. Each release and each give-back is dated the day of the event that caused it, or the day of a standing run on the item if that is later, so the ledger read at a month end is the one the date order would have left, to the rounding of a share split; a day inside a month can still read differently (fx-order-independence.test.ts).
+  async function releaseSharesRelievedSince(asOfDate: string, shared: readonly { readonly itemId: string; readonly itemType: FxOpenItemType; readonly amount: Money }[]): Promise<void> {
+    const ownShare = new Map<string, { ref: FxOpenItemRef; share: bigint }>();
+    for (const share of shared) {
+      const key = `${share.itemType} ${share.itemId}`;
+      ownShare.set(key, { ref: { id: share.itemId, type: share.itemType }, share: (ownShare.get(key)?.share ?? 0n) + share.amount.scaled });
+    }
+    for (const { ref, share } of ownShare.values()) {
+      const book = await fxItemBook(ref);
+      if (!book) continue;
+      const released = new Map<string, { entryId: string; amount: bigint }>();
+      for (const step of walkRunShare(book.timeline, { day: asOfDate, share: Money.fromScaled(share) }).steps) {
+        if (step.kind === FxItemEventKind.Reopening) {
+          const release = released.get(step.ref);
+          const entry = release && release.amount === step.amount.scaled ? await ledger.findById(release.entryId) : null;
+          if (entry) await reverseJournalEntry(entry.id, salesInvoiceGl, { reversalId: realisedFxReversalId(entry.id), date: laterDay(step.day, entry.date.slice(0, 10)), memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})` }, { mintedBySystem: true });
+          else await postShareRelease(ref, step.day, Money.fromScaled(-step.amount.scaled), step.by ? await fxDocumentNumber(step.by) : undefined);
           continue;
         }
-        await releaseItemShare(ref, relief.date, { relieved: relief.relieved, outstanding: Money.fromScaled(outstanding) }, relief.releasedBy, relief.allocationId ? fxLateReleaseEntryId(ref.id, relief.allocationId, (await fxLateReleaseEntryIds(ref.id, relief.allocationId, ledger)).length) : undefined);
-        outstanding -= relief.relieved.scaled;
+        const releaseEntryId = book.allocationIds.has(step.ref) ? fxLateReleaseEntryId(ref.id, step.ref, (await fxLateReleaseEntryIds(ref.id, step.ref, ledger)).length) : undefined;
+        const releasedBy = step.by && step.kind === FxItemEventKind.Relief && book.allocationIds.has(step.ref) ? await fxDocumentNumber(step.by) : step.by;
+        const entryId = await postShareRelease(ref, step.day, step.amount, releasedBy, releaseEntryId);
+        if (entryId) released.set(step.ref, { entryId, amount: step.amount.scaled });
       }
     }
+  }
+  async function allocationsOnReversedVouchers() {
+    const out: { allocationId: string; voucherId: string; voucherNo: string; invoiceId: string }[] = [];
+    for (const doc of await vouchers.documents.list()) {
+      if (!doc.reversesDocId && doc.status !== "reversed") continue;
+      for (const allocation of [...(await vouchers.allocations.listByVoucher(doc.id)), ...(await vouchers.allocations.listByInvoice(doc.id))]) {
+        if (allocation.status === "active") out.push({ allocationId: allocation.id, voucherId: doc.id, voucherNo: doc.docNo ?? doc.id, invoiceId: allocation.invoiceId });
+      }
+    }
+    return out;
   }
   async function invoiceStands(invoiceId: string, kind: AllocationInvoiceKind): Promise<boolean> {
     if (kind === "sales") {
@@ -3684,28 +3945,32 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     if (cheque) return cheque.chequeNumber;
     return (await salesInvoices.findById(id))?.docNo ?? (await purchaseInvoices.findById(id))?.number ?? id;
   }
-  const releaseRevaluationShare = (invoiceId: string, date: string, part?: FxItemRelief, releasedBy?: string) => releaseItemShare(invoiceItem(invoiceId), date, part, releasedBy);
-  async function releaseItemShare(item: FxOpenItemRef, date: string, part?: FxItemRelief, releasedBy?: string, releaseEntryId?: string): Promise<void> {
-    const standing = await standingRevaluationShare(item);
+  const releaseRevaluationShare = (invoiceId: string, date: string) => releaseItemShare(invoiceItem(invoiceId), date);
+  async function releaseItemShare(item: FxOpenItemRef, date: string): Promise<void> {
+    await postShareRelease(item, date, await standingRevaluationShare(item));
+  }
+  async function postShareRelease(item: FxOpenItemRef, date: string, taken: Money, releasedBy?: string, releaseEntryId?: string): Promise<string | null> {
     const records = await vouchers.revaluationShares.listByItem(item);
     const share = records[0];
-    if (standing.scaled === 0n || !share) return;
+    if (taken.scaled === 0n || !share) return null;
     const booked = item.type === FxOpenItemType.Money ? (await vouchers.documents.findById(item.id).then((doc) => (doc ? voucherLine(doc).fxRate : null))) : (await realisedFx.invoiceFx(item.id, share.kind))?.fxRate;
     const fxRate = booked ?? "1";
-    const taken = part ? relievedRevaluationShare(standing, convertFromBase(part.relieved, fxRate), convertFromBase(part.outstanding, fxRate)) : standing;
     const lines = buildRevaluationReleaseLines({ kind: share.kind, controlAccountId: share.accountId, partyId: share.partyId, currency: share.currency, fxRate, share: taken }, await fxDifferenceAccounts("realised"));
-    if (lines.length === 0) return;
+    if (lines.length === 0) return null;
     let restatedOn = date;
     for (const record of records) {
-      if (await revaluationEntryStands(record.entryId)) restatedOn = laterDay(restatedOn, (await ledger.findById(record.entryId))?.date.slice(0, 10));
+      const run = await ledger.findById(record.entryId);
+      if (run?.sourceDocType === FX_REVALUATION_DOC_TYPE && run.status === "posted" && !run.reversedByEntryId) restatedOn = laterDay(restatedOn, run.date.slice(0, 10));
     }
     const entryId = releaseEntryId ?? `${FX_SHARE_RELEASE_ENTRY_PREFIX}${item.id}:${records.length}`;
     const itemNo = await fxDocumentNumber(item.id);
     await postJournalEntry(
       { id: entryId, date: restatedOn, memo: `إقفال إعادة تقييم قائمة على مستند أُقفل (${itemNo})`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, sourceDocId: item.id, sourceDocNumber: releasedBy ?? itemNo, lines },
       salesInvoiceGl,
+      { mintedBySystem: true },
     );
     await vouchers.revaluationShares.saveAll([{ ...share, entryId, amount: Money.fromScaled(-taken.scaled) }]);
+    return entryId;
   }
   function returnReliefGl<L extends { readonly sourceInvoiceId: string }>(kind: AllocationInvoiceKind, returns: Pick<DocumentRepository<L>, "findById">, lineCredit: (line: L) => Money): DocumentGlHook {
     return {
@@ -3723,7 +3988,11 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         }
         const posted = await documentGl.post(posting);
         for (const [invoiceId, outstanding] of openBefore) {
-          if (outstanding.scaled > 0n) await releaseRevaluationShare(invoiceId, posting.date.slice(0, 10), { relieved: credits.get(invoiceId) ?? Money.zero(), outstanding }, posting.sourceDocNumber ?? undefined);
+          if (outstanding.scaled <= 0n) continue;
+          const credit = credits.get(invoiceId) ?? Money.zero();
+          const day = posting.date.slice(0, 10);
+          const taken = await revaluationShareTaken(invoiceItem(invoiceId), { ref: fxReturnRef(posting.sourceDocId), day, at: new Date().toISOString(), amount: credit, closes: credit.scaled >= outstanding.scaled });
+          await postShareRelease(invoiceItem(invoiceId), day, taken, posting.sourceDocNumber ?? undefined);
         }
         return posted;
       },
@@ -3766,13 +4035,12 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       return (await exchangeRates.findRate(currency, date))?.rate ?? null;
     },
     differenceAccounts: () => fxDifferenceAccounts("realised"),
-    revaluationShare: (invoice) => standingRevaluationShare(invoiceItem(invoice.id)),
-    moneyRevaluationShare: (voucherId) => standingRevaluationShare(moneyItem(voucherId)),
+    revaluationShareTaken,
     releaseMoneyShare: (voucherId, date) => releaseItemShare(moneyItem(voucherId), date),
     async treasuryRevaluationShare(treasuryAccountId, foreign, fromDate, toDate) {
       const account = (await treasuryAccounts.list()).find((row) => row.id === treasuryAccountId);
       if (!account?.glAccountId) return Money.zero();
-      const restated = ((await ledger.listLines?.({ accountIds: [account.glAccountId], fromDate, toDate })) ?? []).filter((line) => line.source === "system" && line.memo === FX_REVALUATION_LINE_MEMO);
+      const restated = ((await ledger.listLines?.({ accountIds: [account.glAccountId], fromDate, toDate })) ?? []).filter(isFxRestatementLine);
       let share = 0n;
       for (const entryId of new Set(restated.map((line) => line.entryId))) {
         const entry = await ledger.findById(entryId);
@@ -3788,7 +4056,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       const held = (await foreignTreasuryBalances(asOfDate)).find((row) => row.treasuryAccountId === treasuryAccountId);
       if (!held) return null;
       // INVARIANT: a revaluation that reverses itself is not cost. Both halves are left out, on whichever day each is dated, so the carrying amount is the same before and after the reversal lands.
-      const restated = ((await ledger.listLines?.({ accountIds: [held.glAccountId], toDate: asOfDate })) ?? []).filter((line) => line.source === "system" && line.memo === FX_REVALUATION_LINE_MEMO);
+      const restated = ((await ledger.listLines?.({ accountIds: [held.glAccountId], toDate: asOfDate })) ?? []).filter(isFxRestatementLine);
       let selfReversing = 0n;
       for (const entryId of new Set(restated.map((line) => line.entryId))) {
         const entry = await ledger.findById(entryId);
@@ -3856,6 +4124,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         realisedFx,
       }).reverseVoucher(doc.id, {
         reversalId: `${doc.id}:BOUNCED`,
+        mintedBySystem: true,
         date,
         memo: `عكس السند لارتداد الشيك رقم ${cheque.chequeNumber}`,
       });
@@ -3909,6 +4178,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
             ],
           },
           salesInvoiceGl,
+          { mintedBySystem: true },
         );
       try {
         await post(bounce.date.slice(0, 10)).catch(() => post(tenantTodayIso()));
@@ -3941,6 +4211,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         counterpartyGlAccountId: input.treasuryGlAccountId,
         controlAccounts: voucherChequeControls[input.direction],
         journalEntryId: `CHQ-JE:${input.voucherId}`,
+        journalEntryIdMintedBySystem: true,
         actor: input.actor,
       });
       return { chequeId: cheque.id };
@@ -3970,6 +4241,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     }
     const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
     const service = new VoucherService({
+      documentIdsMintedBySystem: true,
       documents: vouchers.documents,
       vatFilings,
       ledger,
@@ -4009,6 +4281,42 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     return { voucherId };
   };
 
+  // REQUIRED: every hook below reaches the platform's database, which is not
+  // this tenant's connection, so each is called with the turn handed back.
+  const announceSignIn = options.onUserSignedIn
+    ? async ({ userId, email }: { readonly userId: string; readonly email: string }): Promise<void> => {
+        const user = await uow.users.findById(userId);
+        const signedIn = {
+          userId,
+          email,
+          canAdminister: user !== null && user.isCompanyAdmin && user.status === UserStatusCode.Active,
+          credentialIsOwn: !credentialResets.has(userId),
+        };
+        await outsideTheTurn(() => options.onUserSignedIn!(signedIn));
+      }
+    : undefined;
+  const claimedElsewhere = options.claimedElsewhere ? () => outsideTheTurn(() => options.claimedElsewhere!()) : undefined;
+
+  const auth = createAuth({
+    uow,
+    hasher,
+    secrets,
+    settings,
+    seedStores,
+    sessions,
+    loginThrottle: signInLadder,
+    accountLocks,
+    platformOperatorUnlocks: options.platformOperatorUnlocks === true,
+    onAccountLocked: notifyAccountLocked,
+    canMailUnlockCode: async () => (await securitySmtp()) !== null,
+    audit: auditSink,
+    resolveEntitlements: options.resolveEntitlements,
+    onSignedIn: announceSignIn,
+    demoSeeded: options.seedDemoData === true,
+    claimedElsewhere,
+    onTenantClaimed: offerStandardRoles,
+  });
+
   const resolveCashAndBankParentAccountId = async () => routedAccountId(await accountRouting.get(), CASH_AND_BANK_ROUTING_KEY);
   const resolveCashAndBankAccountIds = async (): Promise<readonly string[]> => {
     const [routing, chart, treasury] = await Promise.all([accountRouting.get(), accounts.list(), treasuryAccounts.list()]);
@@ -4021,16 +4329,35 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
 
   const app = createApp(uow, {
     cashAndBankParentAccountId: resolveCashAndBankParentAccountId,
+    connectionTurn: options.connectionTurn,
+    idempotentRequests: createSqliteIdempotentRequestStore(sqlite),
+    secrets,
+    beforeTheTurn: auth.beforeTheTurn,
+    // EXTERNAL CONTRACT: main/lan-client.ts reads both fields at startup and
+    // blocks the client on a mismatch. Do not rename them.
+    health: () => ({
+      ok: true,
+      version: process.env["MEZAN_APP_VERSION"] ?? "0.0.0",
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+    }),
     resolveAuthContext,
     security: { sessions, loginThrottle },
     ...(options.onUserEmailChanged
-      ? { onUserEmailChanged: (change) => options.onUserEmailChanged!({ ...change, actorCredentialIsOwn: !credentialResets.has(change.actorId) }) }
+      ? {
+          onUserEmailChanged: (change) => {
+            const announced = { ...change, actorCredentialIsOwn: !credentialResets.has(change.actorId) };
+            return outsideTheTurn(() => options.onUserEmailChanged!(announced));
+          },
+        }
       : {}),
     ...(options.companyOwner
       ? {
           companyOwner: {
-            currentOwnerUserId: () => options.companyOwner!.currentOwnerUserId(),
-            handOver: (input) => options.companyOwner!.handOver({ ...input, actorCredentialIsOwn: !credentialResets.has(input.actorId) }),
+            currentOwnerUserId: () => outsideTheTurn(() => options.companyOwner!.currentOwnerUserId()),
+            handOver: (input) => {
+              const handed = { ...input, actorCredentialIsOwn: !credentialResets.has(input.actorId) };
+              return outsideTheTurn(() => options.companyOwner!.handOver(handed));
+            },
           },
         }
       : {}),
@@ -4073,7 +4400,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     attachments: { repo: attachments },
     labelLayouts: { repo: labelLayouts },
     sequences: { counters: sequenceCounters, config: sequenceConfig, audit: auditSink, transactor: configTransactor },
-    audit: { store: auditSink },
+    audit: { store: auditSink, unrecorded: auditSink.unrecorded },
     auditSink,
     barcodeConfigStore: barcodeConfig,
     taxRateRepo: taxRates,
@@ -4224,6 +4551,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         }
         const voucherId = `PAY:${input.invoiceId}:${randomUUID()}`;
         const service = new VoucherService({
+          documentIdsMintedBySystem: true,
           documents: vouchers.documents,
           vatFilings,
           ledger,
@@ -4500,7 +4828,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         return issued;
       },
     },
-    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite), stockPositionFaults: async () => stockPositionFaults((await stockService.getValuation()).positions) },
+    reconciliation: { ledger, resolveControls: () => resolveReconciliationControls(), foreignResidues: () => foreignResidues(), stockLedgerDates: async () => readStockLedgerDateMismatches(sqlite), stockPositionFaults: async () => stockPositionFaults((await stockService.getValuation()).positions) , allocationsOnReversedVouchers },
     openingBalanceDuplicates: {
       resolveContext: resolveOpeningBalanceDuplicatesContext,
       repair: repairOpeningBalanceDuplicate,
@@ -4773,6 +5101,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
               lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
             },
             salesInvoiceGl,
+            { mintedBySystem: true },
           );
         },
         ...historicalImportGate,
@@ -4814,6 +5143,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
             // A trial-balance row names no party, so a debtors or creditors
             // total would sit on 1105/2100 with no customer behind it (D212).
             { ...salesInvoiceGl, partyControlAccounts: await resolvePartyControlAccounts() },
+            { mintedBySystem: true },
           );
         } catch (err) {
           if (!(err instanceof PartyRequiredOnControlAccountError)) throw err;
@@ -4838,6 +5168,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
                 lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
               },
               salesInvoiceGl,
+              { mintedBySystem: true },
             );
           },
         },
@@ -4856,6 +5187,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
                 lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
               },
               salesInvoiceGl,
+              { mintedBySystem: true },
             );
           },
         },
@@ -4887,6 +5219,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
               lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
             },
             salesInvoiceGl,
+            { mintedBySystem: true },
           );
         },
         ...historicalImportGate,
@@ -4936,6 +5269,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
           const customer = await customers.findById(command.customerId);
           const voucherId = `REFUND:${command.returnId}:${randomUUID()}`;
           const service = new VoucherService({
+            documentIdsMintedBySystem: true,
             documents: vouchers.documents,
             vatFilings,
             ledger,
@@ -5096,63 +5430,14 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       const dispatcher = new NotificationDispatcher({
         notifications,
         recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
-        transports: [
-          {
-            channel: "email",
-            async send(notification, recipientEmail) {
-              if (!tenant.smtpEnabled) {
-                return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
-              }
-              if (!recipientEmail) {
-                // No address on the user. Terminal: the next drain would find
-                // the same missing address and try forever.
-                return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
-              }
-              const sent = await sendNotificationEmail(tenant, recipientEmail, {
-                subject: notification.title,
-                body: notification.body,
-              });
-              return sent.outcome === "sent"
-                ? { kind: "sent" }
-                : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
-            },
-          },
-        ],
+        transports: [emailTransport(tenant.smtpEnabled ? tenant : null)],
       });
       return dispatcher.drain();
     },
     workflow: { configs: workflowConfigs, requests: approvalRequests },
   });
 
-  /**
-   * The one route a till can call before it trusts anything else, and the ONLY
-   * place host/client version skew is detectable.
-   *
-   * It used to answer `{ok:true}`, and the client compared nothing — so a till
-   * left on an old build after the host was updated kept talking to a schema it
-   * did not match, and the first symptom was wrong data rather than a refusal.
-   * EXTERNAL CONTRACT: main/lan-client.ts reads both fields at startup and
-   * blocks the client on a mismatch. Do not rename them.
-   */
-  app.get("/health", (c) =>
-    c.json({
-      ok: true,
-      version: process.env["MEZAN_APP_VERSION"] ?? "0.0.0",
-      schemaVersion: CURRENT_SCHEMA_VERSION,
-    }),
-  );
-  const announceSignIn = options.onUserSignedIn
-    ? async ({ userId, email }: { readonly userId: string; readonly email: string }): Promise<void> => {
-        const user = await uow.users.findById(userId);
-        await options.onUserSignedIn?.({
-          userId,
-          email,
-          canAdminister: user !== null && user.isCompanyAdmin && user.status === UserStatusCode.Active,
-          credentialIsOwn: !credentialResets.has(userId),
-        });
-      }
-    : undefined;
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: announceSignIn, demoSeeded: options.seedDemoData === true, claimedElsewhere: options.claimedElsewhere, onTenantClaimed: offerStandardRoles }));
+  app.route("/", auth.routes);
   await offerStandardRoles();
   app.route(
     "/",
@@ -5374,7 +5659,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     if (!written) return OwnerPinResetOutcome.Superseded;
     if (!cmd.onlyIfNeverSignedIn) credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
     sessions.revokeUser(owner.id);
-    loginThrottle.succeed(owner.email.trim().toLowerCase());
+    credentialsResetByAdministrator(owner.email);
     await recordSecurityEvent(auditSink, {
       module: "auth",
       entityType: "USER",
@@ -5387,9 +5672,35 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     return OwnerPinResetOutcome.Reset;
   }
 
+  const platformUnlockInTheTurn = inTheTurn("platform account unlock");
+  const unlockAccount = (account: string, actor: string): Promise<boolean> => {
+    const key = account.trim().toLowerCase();
+    return platformUnlockInTheTurn(() =>
+      auditSink.atomic(async () => {
+        if (!accountLockStore.lockedAccounts().includes(key)) return false;
+        const user = await uow.users.findByEmail(key);
+        credentialsResetByAdministrator(key);
+        await recordSecurityEvent(auditSink, {
+          module: "auth",
+          entityType: "AUTH_USER",
+          entityId: user?.id ?? null,
+          action: "ACCOUNT_UNLOCKED_BY_PLATFORM",
+          actor,
+          severity: "CRITICAL",
+          details: { username: key, userId: user?.id ?? null, origin: SecurityEventOrigin.Platform },
+        });
+        return true;
+      }),
+    );
+  };
+
   return {
     app,
+    audit: auditSink,
     sessions,
+    credentialsResetByAdministrator,
+    lockedAccounts: () => accountLockStore.lockedAccounts(),
+    unlockAccount,
     ownerAccount,
     companyAdmins,
     recordOwnerAssigned,

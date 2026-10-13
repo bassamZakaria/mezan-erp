@@ -1,3 +1,4 @@
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import {
   RowActionOutcome,
@@ -175,6 +176,11 @@ export function JournalsScreen() {
   const projectsQuery = useProjects();
   const branchesQuery = useBranches();
   const createJournalEntry = useCreateJournalEntry();
+  const savedNotice = useAlreadySavedNotice();
+  const entryId = useDocumentId((savedId) => {
+    savedNotice.show(savedId);
+    subPage.open(savedId);
+  });
   const updateJournalEntry = useUpdateJournalEntry();
   const deleteJournalEntry = useDeleteJournalEntry();
   const reverseJournalEntry = useReverseJournalEntry();
@@ -398,7 +404,16 @@ export function JournalsScreen() {
   if (selectedId === "new") {
     return (
       <CreateJournalView
-        onPost={(body) => createJournalEntry.mutateAsync({ id: crypto.randomUUID(), ...body })}
+        onPost={async (body) => {
+          try {
+            const posted = await createJournalEntry.mutateAsync({ id: entryId.current(), ...body });
+            entryId.renew();
+            return posted;
+          } catch (err) {
+            if (entryId.recover(err)) return false;
+            throw err;
+          }
+        }}
         accountOptions={accountOptions}
         costCenterOptions={costCenterOptions}
         onDone={subPage.close}
@@ -428,6 +443,7 @@ export function JournalsScreen() {
     const balanced = Math.abs(totals.debit - totals.credit) < 0.005;
     return (
       <div className="w-full">
+        <AlreadySavedNotice notice={savedNotice} openId={selectedId ?? null} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
         <DocumentDetail
           title={selected.entryNo ?? t("journals.journalEntry")}
           statusLabel={t(STATUS_KEY[selected.status])}
@@ -466,7 +482,7 @@ export function JournalsScreen() {
           }
           summary={[
             { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
-            { label: t("journals.source"), value: t("journals.manual") },
+            { label: t("journals.source"), value: t(MODULE_KEY[selected.sourceModule]) },
             { label: t("journals.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
             { label: t("journals.totalDebit"), value: <MoneyDisplay value={totals.debit} /> },
             { label: t("journals.totalCredit"), value: <MoneyDisplay value={totals.credit} /> },
@@ -848,7 +864,7 @@ function CreateJournalView({
     setBusy(true);
     setError(null);
     try {
-      await onPost({
+      const posted = await onPost({
         date,
         memo: memo.trim(),
         lines: lines.map((l) => ({
@@ -863,6 +879,7 @@ function CreateJournalView({
           partyId: partyKindOf.has(l.accountId) && l.partyId ? l.partyId : null,
         })),
       });
+      if (posted === false) return;
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : t(mode === "edit" ? "journals.theEntryCouldNotBeSaved" : "journals.theEntryCouldNotBe"));

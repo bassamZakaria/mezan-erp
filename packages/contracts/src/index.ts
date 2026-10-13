@@ -87,6 +87,14 @@ export {
   type SodConflictRowDTO,
   type SodQueryDTO,
   type SodReportDTO,
+  unrecordedSecurityEventSchema,
+  unrecordedSecurityEventsSchema,
+  type UnrecordedSecurityEventDTO,
+  type UnrecordedSecurityEventsDTO,
+  platformUnrecordedSecurityEventSchema,
+  platformUnrecordedSecurityEventsSchema,
+  type PlatformUnrecordedSecurityEventDTO,
+  type PlatformUnrecordedSecurityEventsDTO,
 } from "./security-reports.js";
 
 export { sodConflictSchema, sodAcknowledgeFields, type SodConflictDTO } from "./sod.js";
@@ -939,6 +947,14 @@ export {
 
 export {
   loginRequestSchema,
+  unlockAccountRequestSchema,
+  unlockAccountByLinkRequestSchema,
+  stepUpRequestSchema,
+  DEVICE_BINDING_HEADER,
+  DEVICE_SECRET_HEADER,
+  type StepUpRequestDTO,
+  type UnlockAccountRequestDTO,
+  type UnlockAccountByLinkRequestDTO,
   sessionSchema,
   loginResponseSchema,
   bootstrapAdminRequestSchema,
@@ -1331,6 +1347,7 @@ export {
   printPosReceiptConfigSchema,
   printTemplateOverrideSchema,
   printTemplateConfigSchema,
+  LOGO_MAX_CHARS,
   type PrintPageSizeDTO,
   type LogoPositionDTO,
   type LogoSizeDTO,
@@ -1807,14 +1824,19 @@ export {
   type SetBillingAnchorDayRequestDTO,
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
+  PlatformPaymentRefusal,
   subscriptionStatusSchema,
   ownerPinResetResultSchema,
   type OwnerPinResetResultDTO,
   ownerCandidateSchema,
   assignOwnerRequestSchema,
+  unlockTenantAccountRequestSchema,
+  lockedTenantAccountsSchema,
   pendingOwnerSchema,
   type OwnerCandidateDTO,
   type AssignOwnerRequestDTO,
+  type UnlockTenantAccountRequestDTO,
+  type LockedTenantAccountsDTO,
   type PendingOwnerDTO,
   SubscriptionStatusCode,
   subscriptionSchema,
@@ -1839,7 +1861,17 @@ export {
   createCardCheckoutRequestSchema,
   tenantBillingSchema,
   platformCardCheckoutsSchema,
+  cardCheckoutSweepResultSchema,
+  applyCardCheckoutRequestSchema,
+  resolveCardCheckoutRequestSchema,
+  cardCheckoutAttentionCauseSchema,
+  cardCheckoutResolutionSchema,
+  type ResolveCardCheckoutRequestDTO,
+  type CardCheckoutAttentionCauseDTO,
+  type CardCheckoutResolutionDTO,
   type PlatformCardCheckoutsDTO,
+  type CardCheckoutSweepResultDTO,
+  type ApplyCardCheckoutRequestDTO,
   type CardCheckoutStatusDTO,
   type CardCheckoutDTO,
   type CreateCardCheckoutRequestDTO,
@@ -1902,6 +1934,7 @@ export {
 } from "./signup.js";
 
 export { isoDateOrInstant, isoDay, ISO_DATE_PATTERNS } from "./iso-date.js";
+export { clientSuppliedId, isAcceptableClientSuppliedId, CLIENT_SUPPLIED_ID_DESCRIPTION, CLIENT_SUPPLIED_ID_MAX_LENGTH, CLIENT_SUPPLIED_ID_REFUSAL_CODE, CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE, CLIENT_SUPPLIED_ID_REFUSAL_MESSAGE_EN } from "./client-supplied-id.js";
 
 export {
   simplifiedRegimeStateSchema,
@@ -1920,6 +1953,10 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { VoucherPermissionAction, mayReverseVoucher, voucherActionPermissions } from "./voucher-permissions.js";
+
+export { IdempotencyRefusal, IDEMPOTENT_REPLAY_HEADER } from "./idempotency.js";
+export { IMPORT_ROW_LIMIT, ImportRefusal, importLimitNotice, importTooLargeMessage, linesOfCsvImport, type BilingualSentence } from "./import-limit.js";
 export {
   BODY_REFERENCE_KEYS,
   BRANCH_POLICY_TABLE,

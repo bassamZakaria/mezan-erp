@@ -1,4 +1,4 @@
-import type { SecurityExceptionRowDTO, SecurityWatchlistEntryDTO } from "@mezan/contracts";
+import type { SecurityExceptionRowDTO, SecurityWatchlistEntryDTO, UnrecordedSecurityEventsDTO } from "@mezan/contracts";
 import type { ReportRunnerColumn, ReportRunnerParamField } from "@mezan/ui";
 import { SecurityReportScreen, securityCopy, type SecurityReportResult } from "./SecurityReportScreen";
 import { useAppTranslation } from "../../i18n";
@@ -65,7 +65,12 @@ export function ExceptionsReportScreen() {
       defaultParams={{ from: monthStartIso(), to: today, actor: "", action: "", severity: "" }}
       columns={columns}
       rowKey={(r) => `${r.actor}|${r.action}`}
-      renderContext={(result) => <Watchlist result={result} />}
+      renderContext={(result) => (
+        <>
+          <Unrecorded result={result} />
+          <Watchlist result={result} />
+        </>
+      )}
     />
   );
 }
@@ -87,6 +92,38 @@ function Watchlist({ result }: { result: SecurityReportResult<SecurityExceptionR
           <li key={entry.action} className="flex items-baseline justify-between gap-[8px]">
             <span className={entry.count > 0 ? "text-ink" : "text-ink-muted"}>{entry.labelAr}</span>
             <span className="mz-num font-semibold text-ink">{entry.count}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function Unrecorded({ result }: { result: SecurityReportResult<SecurityExceptionRowDTO> }) {
+  const { t } = useAppTranslation();
+  const unrecorded = (result as { unrecorded?: UnrecordedSecurityEventsDTO }).unrecorded;
+  if (!unrecorded) return null;
+  if (unrecorded.count === 0) {
+    return (
+      <div className="rounded-md border border-border bg-surface px-[12px] py-[10px] text-[12.5px] text-ink-muted">
+        {t("securityReports.unrecordedNone")}
+      </div>
+    );
+  }
+  return (
+    <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+      <div className="mb-[6px] flex items-baseline justify-between gap-[8px] font-semibold">
+        <span>{t("securityReports.unrecordedTitle")}</span>
+        <span className="mz-num">{unrecorded.count}</span>
+      </div>
+      <p className="mb-[6px]">{t("securityReports.unrecordedHelp")}</p>
+      <ul className="grid gap-[4px]">
+        {unrecorded.recent.map((entry) => (
+          <li key={`${entry.at}|${entry.action}|${entry.actor}`} className="flex flex-wrap items-baseline gap-x-[8px]">
+            <span className="mz-num" dir="ltr">{entry.at}</span>
+            <span className="font-semibold" dir="ltr">{entry.action}</span>
+            <span>{entry.actor}</span>
+            <span dir="ltr">{entry.reason}</span>
           </li>
         ))}
       </ul>

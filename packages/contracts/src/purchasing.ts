@@ -3,6 +3,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { moneyString, nonNegativeMoneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 import { InvoiceDocumentKind } from "./invoice-document-kind.js";
 
 /**
@@ -72,7 +73,7 @@ export const createPurchaseOrderLineSchema = z.object({
 });
 
 export const createPurchaseOrderSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   supplierId: z.string().min(1),
   date: isoDate,
   expectedDeliveryDate: z.string().nullable().optional(),
@@ -130,7 +131,7 @@ export const createGoodsReceiptLineSchema = z.object({
 });
 
 export const createGoodsReceiptSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   /** Omit for an ad-hoc (PO-less) receipt — only allowed when `requirePoForGrn` is off. */
   purchaseOrderId: z.string().min(1).nullable().optional(),
   date: isoDate,
@@ -248,7 +249,7 @@ export const purchaseInvoicePaymentSchema = z.object({
 });
 
 export const createPurchaseInvoiceSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   supplierId: z.string().min(1),
   date: isoDate,
   dueDate: z.string().nullable().optional(),
@@ -316,7 +317,7 @@ export const createPurchaseRfqLineSchema = z.object({
 });
 
 export const createPurchaseRfqSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDate,
   requiredByDate: z.string().nullable().optional(),
   branchId: z.string().min(1),
@@ -347,7 +348,7 @@ export const createRfqQuoteLineSchema = z.object({
 });
 
 export const createRfqQuoteSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   supplierId: z.string().min(1),
   lines: z.array(createRfqQuoteLineSchema).min(1),
   notes: z.string().nullable().optional(),

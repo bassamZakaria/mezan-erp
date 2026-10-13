@@ -34,6 +34,7 @@ import {
   EtaSignerNotConfiguredError,
   EtaSigningFailedError,
   EtaSubmissionNotFoundError,
+  EtaSubmissionInFlightError,
   InvalidEtaTransitionError,
   type EtaBranchCodeRepository,
   type EtaConfig,
@@ -201,7 +202,7 @@ function handleError(c: Context, err: unknown): Response {
   if (err instanceof EtaSubmissionNotFoundError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 404);
   }
-  if (err instanceof DuplicateEtaSubmissionError) {
+  if (err instanceof DuplicateEtaSubmissionError || err instanceof EtaSubmissionInFlightError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof InvalidEtaTransitionError) {
@@ -840,7 +841,7 @@ export function createEtaRoutes(
         const submitted = await service.submit(id);
         results.push({ id, outcome: EtaBulkRequeueOutcome.Submitted, submission: serializeSubmission(submitted) });
       } catch (err) {
-        if (err instanceof EtaOfflineError) {
+        if (err instanceof EtaOfflineError || err instanceof EtaSubmissionInFlightError) {
           results.push({ id, outcome: EtaBulkRequeueOutcome.Queued, message: err.message });
         } else if (err instanceof EtaPrevalidationFailedError) {
           results.push({ id, outcome: EtaBulkRequeueOutcome.Blocked, message: err.message });

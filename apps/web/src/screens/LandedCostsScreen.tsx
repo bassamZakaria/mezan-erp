@@ -1,3 +1,4 @@
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
@@ -116,6 +117,12 @@ export function LandedCostsScreen() {
   const itemsQuery = useItems();
   const projectsQuery = useProjects();
   const createLandedCost = useCreateLandedCost();
+  const savedNotice = useAlreadySavedNotice();
+  const landedCostId = useDocumentId((savedId) => {
+    savedNotice.show(savedId);
+    setPanel("none");
+    subPage.open(savedId);
+  });
   const confirmLandedCost = useConfirmLandedCost();
   const resubmit = useResubmitForApproval(ResubmitFamily.LandedCosts);
   const cancelLandedCost = useCancelLandedCost();
@@ -333,9 +340,8 @@ export function LandedCostsScreen() {
       costCategory: target.costCategory,
     }));
     try {
-      const id = crypto.randomUUID();
       const created = await createLandedCost.mutateAsync({
-        id,
+        id: landedCostId.current(),
         date: todayIso(),
         memo: "",
         distributionMethod: method,
@@ -344,8 +350,10 @@ export function LandedCostsScreen() {
         projectId: project?.id ?? null,
       });
       if (confirmAfter) await confirmLandedCost.mutateAsync(created.id);
+      landedCostId.renew();
       setPanel("none");
     } catch (err) {
+      if (landedCostId.recover(err)) return;
       setError(errorMessage(err, t("common.failed")));
     }
   }
@@ -709,6 +717,7 @@ export function LandedCostsScreen() {
       <SidePanel open={selected !== null} onClose={() => subPage.close()} title={selected?.docNo ?? t("landedCosts.detailTitle")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
+            <AlreadySavedNotice notice={savedNotice} openId={selected.id} message={t("documents.alreadySaved")} dismissLabel={t("documents.alreadySaved.dismiss")} />
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
             <HeldDocumentReapproval document={selected} pending={confirmLandedCost.isPending} confirm={(id) => confirmLandedCost.mutateAsync(id)} />
             {reversalLink(selected)}

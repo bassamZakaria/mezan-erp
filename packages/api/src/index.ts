@@ -18,6 +18,7 @@ export { createAccountsRouter } from "./accounts.js";
 export {
   createAuthenticatedGate,
   createPermissionGate,
+  displacedSessionRefusal,
   insecureHeaderAuthContextResolver,
   getAuthContext,
   type AuthContextResolver,
@@ -81,13 +82,48 @@ export {
   readSessionToken,
   sessionOriginReporting,
   canonicalOrigin,
+  stepUpGate,
+  STEP_UP_REQUIRED,
+  DEVICE_SECRET_HEADER,
+  DEVICE_BINDING_HEADER,
+  DEVICE_MISMATCH_LIMIT,
+  DEVICE_MISMATCH_WINDOW_MS,
+  MAX_SESSION_MS,
+  SessionRefusalKind,
+  type DeviceBoundSession,
   type SessionGrant,
   type SessionRegistry,
   type SessionLookup,
   type SessionRefusal,
-  type SessionRefusalReason,
 } from "./session-auth.js";
-export { createLoginThrottle, throttleKey, type LoginThrottle } from "./login-throttle.js";
+export {
+  createLoginThrottle,
+  createSourceThrottle,
+  throttleKey,
+  throttleSource,
+  tooManyAttempts,
+  accountLocked,
+  signInBusy,
+  waitPhrase,
+  SignInRefusal,
+  type LoginThrottle,
+  type SourceThrottle,
+} from "./login-throttle.js";
+export {
+  ACCOUNT_LOCK_FAILURES,
+  ACCOUNT_LOCK_WINDOW_MS,
+  UNLOCK_CODE_TTL_MS,
+  SignInVerdict,
+  createAccountLocks,
+  createMemoryAccountLockStore,
+  createSignInGuard,
+  type AccountLockRecord,
+  type AccountLockStore,
+  type AccountLocks,
+  type SignInDecision,
+  type SignInGuard,
+} from "./sign-in-guard.js";
+export { createSignInGate, type SignInGate, type SignInGateOptions } from "./sign-in-gate.js";
 export { requestOrigin } from "./request-origin.js";
 export {
   BODY_REFERENCE_KEYS,
@@ -112,6 +148,8 @@ export {
   type SecurityReportsRoutesDeps,
 } from "./security-reports-routes.js";
 export { sendNotificationEmail, type SmtpConfig } from "./smtp-client.js";
+export { createPrecomputingHasher, type PrecomputingHasher, type SecretsToPrecompute } from "./precomputed-secrets.js";
+export { drainTurnYields, reportTurnYield } from "./turn-yields.js";
 export {
   createSimplifiedRegimeRoutes,
   type SimplifiedRegimeRoutesDeps,
@@ -119,5 +157,8 @@ export {
 
 export * from "./pos/index.js";
 export * from "./enh/index.js";
+export { AUDITED_MOUNTS, MutatingMethod, connectionTurn, type AuditedMount, type BoundaryPreparation, type ConnectionTurnOptions } from "./audit-boundary.js";
+export { BodyLimitBytes, BodyLimitRefusal, bodyLimitFor, requestBodyLimit } from "./body-limit.js";
+export { IDEMPOTENT_CREATES, IDEMPOTENT_REPLAY_HEADER, IdempotencyRefusal, idempotentCreate, type IdempotentRequests } from "./idempotent-create.js";
 
 export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, reversalRoute, type DocumentReversalPath } from "./document-reversal-paths.js";

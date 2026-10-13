@@ -2045,7 +2045,7 @@ describe("D111 round 4 · a create cannot take over another branch's record by n
     { route: "/cheques", schema: contracts.createChequeSchema, table: "cheque", foreignIdSql: "SELECT id FROM cheque WHERE branch_id = 'BR-MAIN' LIMIT 1",
       valid: (sampled) => ({ ...sampled, issueDate: TODAY, dueDate: TODAY, chequeNumber: "D111-R4-0099", bankName: "بنك مصر", partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" } }),
     },
-    { route: "/vouchers", schema: contracts.createVoucherSchema, table: "voucher", foreignIdSql: "SELECT id FROM voucher WHERE branch_id = 'BR-MAIN' LIMIT 1", valid: (sampled) => ({ ...sampled, partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105" }) },
+    { route: "/vouchers", schema: contracts.createVoucherSchema, table: "voucher", foreignIdSql: "SELECT id FROM voucher WHERE branch_id = 'BR-MAIN' AND id NOT LIKE '%:%' LIMIT 1", valid: (sampled) => ({ ...sampled, partyId: "CUST-DEMO-2", counterpartyGlAccountId: "1105" }) },
     { route: "/sales-invoices", schema: contracts.createSalesInvoiceSchema, table: "sales_invoice", foreignIdSql: "SELECT id FROM sales_invoice WHERE branch_id = 'BR-MAIN' LIMIT 1", valid: (_sampled, id) => salesInvoice(id, ALEX, ALEX_WAREHOUSE) },
   ];
   const storedReferences = () => ({
@@ -2202,7 +2202,7 @@ describe("D111 round 4 · a cheque and the entry that receives it are one write"
     const owed = receivable();
     const res = await admin("POST", "/cheques", { ...cheque(existing.id, "D111-R4-0002"), branchId: MAIN });
     expect(res.status).toBe(409);
-    expect(res.body?.error).toBe(RecordErrorCode.DuplicateId);
+    expect(res.body?.error).toBe(contracts.IdempotencyRefusal.KeyReused);
     expect(one<{ n: number }>("SELECT count(*) AS n FROM journal_entry")!.n).toBe(entries);
     expect(receivable()).toBe(owed);
     const reconciliation = await admin("GET", "/reconciliation");

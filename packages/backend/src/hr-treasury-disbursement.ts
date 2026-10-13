@@ -26,7 +26,7 @@ import {
 export function createHrTreasuryDisbursementPort(
   deps: VoucherServiceDeps & { readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById"> },
 ): TreasuryDisbursementPort {
-  const vouchers = new VoucherService(deps);
+  const vouchers = new VoucherService({ ...deps, documentIdsMintedBySystem: true });
   async function post(request: TreasuryDisbursementRequest, voucherType: "other_expense" | "other_income") {
     const treasury = await deps.treasuryAccounts.findById(request.treasuryAccountId);
     if (!treasury || treasury.status !== "active" || !treasury.glAccountId) {

@@ -107,3 +107,40 @@ describe("where a cloud request came from", () => {
     expect(originEnv(UNRESOLVED_SOURCE).incoming.socket.remoteAddress).toBe(UNRESOLVED_SOURCE);
   });
 });
+
+describe("a deployment that names the header its edge writes the caller's address in", () => {
+  const EDGE_HEADER: ClientSourceOptions = { ...ONE_PROXY, trustedAddressHeader: "cf-connecting-ip" };
+
+  it("counts the address in that header, not the forwarded chain", async () => {
+    expect(await sourceOf({ "cf-connecting-ip": "196.221.5.5", "x-forwarded-for": "6.6.6.6, 172.70.1.1" }, EDGE_HEADER)).toBe("196.221.5.5");
+    const sameAddressFromTheChain = await sourceOf({ "x-forwarded-for": "2a01:db8:5::77" }, ONE_PROXY);
+    expect(isResolvedSource(sameAddressFromTheChain)).toBe(true);
+    expect(await sourceOf({ "cf-connecting-ip": "2A01:DB8:5::77", "x-forwarded-for": "6.6.6.6" }, EDGE_HEADER)).toBe(sameAddressFromTheChain);
+  });
+
+  it("reads CloudFront's viewer address through the same setting, port and all", async () => {
+    const viewer: ClientSourceOptions = { ...TWO_PROXIES, trustedAddressHeader: "CloudFront-Viewer-Address" };
+    expect(await sourceOf({ "cloudfront-viewer-address": "196.221.5.5:46532", "x-forwarded-for": "6.6.6.6, 130.176.1.1" }, viewer)).toBe("196.221.5.5");
+    expect(await sourceOf({ "cloudfront-viewer-address": "[2a01:db8:5::77]:443", "x-forwarded-for": "6.6.6.6, 130.176.1.1" }, viewer))
+      .toBe(await sourceOf({ "x-forwarded-for": "2a01:db8:5::77" }, ONE_PROXY));
+  });
+
+  it("is unresolved when the named header is missing, empty, a list or not an address — it never falls back to what the caller wrote", async () => {
+    for (const headers of [
+      { "x-forwarded-for": "196.221.5.5" },
+      { "cf-connecting-ip": "", "x-forwarded-for": "196.221.5.5" },
+      { "cf-connecting-ip": "196.221.5.5, 6.6.6.6", "x-forwarded-for": "196.221.5.5" },
+      { "cf-connecting-ip": "localhost", "x-forwarded-for": "196.221.5.5" },
+    ] as Record<string, string>[]) {
+      expect(await sourceOf(headers, EDGE_HEADER), JSON.stringify(headers)).toBe(UNRESOLVED_SOURCE);
+    }
+  });
+
+  it("ignores every such header the deployment did not name, with a proxy trusted or without", async () => {
+    const spoofed = { "cf-connecting-ip": "6.6.6.6", "true-client-ip": "6.6.6.6", "x-real-ip": "6.6.6.6", "x-forwarded-for": "196.221.5.5" };
+    expect(await sourceOf(spoofed, ONE_PROXY)).toBe("196.221.5.5");
+    expect(await sourceOf(spoofed, NO_PROXY)).toBe("10.0.9.9");
+    expect(await sourceOf(spoofed, { ...ONE_PROXY, trustedAddressHeader: "x-edge-address" })).toBe(UNRESOLVED_SOURCE);
+    expect(await sourceOf(spoofed, { ...NO_PROXY, trustedAddressHeader: "cf-connecting-ip" })).toBe("10.0.9.9");
+  });
+});

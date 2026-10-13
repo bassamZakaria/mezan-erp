@@ -1,10 +1,24 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect, afterEach } from "vitest";
+import { drainForeignWrites } from "@mezan/persistence";
 import { createSessionRegistry } from "@mezan/api";
-import { createPlatformUser, createTenant, activateTenant, releaseTenant, startSubscription } from "@mezan/domain";
+import {
+  activateTenant,
+  CardPaymentNotApplicableError,
+  createPlatformUser,
+  createTenant,
+  Money,
+  releaseTenant,
+  startSubscription,
+  CardCheckoutResolution,
+  CardCheckoutStatus,
+  PlanKind,
+  type CardCheckout,
+} from "@mezan/domain";
 import { tenantDTOOf, type CreateTenantRequestDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { createPlatform, type PlatformHandle } from "./create-platform.js";
 import { createPlatformAuth, type PlatformAuth } from "./platform-auth.js";
-import { createPlatformRoutes, TenantOwnerAccountNotFoundError } from "./platform-routes.js";
+import { createPlatformRoutes, serializeCardCheckout, serializeCardCheckoutForTenant, TenantOwnerAccountNotFoundError, type PlatformCardCheckoutPort, type RecordedActivation } from "./platform-routes.js";
 
 const FIXED_NOW = () => new Date("2026-01-01T00:00:00Z");
 
@@ -65,33 +79,40 @@ async function buildRig(overrides: Partial<Parameters<typeof createPlatformRoute
   let idCounter = 0;
   const idOf = () => `ID-${++idCounter}`;
 
-  const provisionTenant = async (cmd: CreateTenantRequestDTO & { actorId: string }): Promise<ProvisionResultDTO> => {
+  const provisionTenant = async (cmd: CreateTenantRequestDTO & { actorId: string }, activation: RecordedActivation): Promise<ProvisionResultDTO> => {
     provisioned.push(cmd);
     const nowIso = FIXED_NOW().toISOString();
     const tenant = await createTenant(
       { id: idOf(), code: cmd.code, nameAr: cmd.nameAr, nameEn: cmd.nameEn ?? null, ownerEmail: cmd.ownerEmail, now: nowIso },
       platform.stores.tenants,
     );
-    const active = await activateTenant({ id: tenant.id, now: nowIso }, platform.stores.tenants);
-    await startSubscription(
-      { id: idOf(), tenantId: tenant.id, planId: cmd.planId, billingCycle: cmd.billingCycle, trial: cmd.trial, now: nowIso },
-      platform.stores.subscriptions,
-      platform.stores.plans,
-    );
-    return { tenant: tenantDTOOf(active), adminEmail: cmd.ownerEmail, adminPin: "482913" };
-  };
-
-  const provisionRetry = async ({ tenantId, planId, billingCycle, trial }: { tenantId: string } & ProvisionRetryRequestDTO): Promise<ProvisionResultDTO> => {
-    const nowIso = FIXED_NOW().toISOString();
-    const tenant = await activateTenant({ id: tenantId, now: nowIso }, platform.stores.tenants);
-    const live = await platform.stores.subscriptions.findLiveByTenant(tenant.id);
-    if (!live) {
+    const active = await activation(async () => {
       await startSubscription(
-        { id: idOf(), tenantId: tenant.id, planId: planId ?? "PLAN-CORE", billingCycle: billingCycle ?? "monthly", trial: trial ?? false, now: nowIso },
+        { id: idOf(), tenantId: tenant.id, planId: cmd.planId, billingCycle: cmd.billingCycle, trial: cmd.trial, now: nowIso },
         platform.stores.subscriptions,
         platform.stores.plans,
       );
-    }
+      return activateTenant({ id: tenant.id, now: nowIso }, platform.stores.tenants);
+    });
+    return { tenant: tenantDTOOf(active), adminEmail: cmd.ownerEmail, adminPin: "482913" };
+  };
+
+  const provisionRetry = async (
+    { tenantId, planId, billingCycle, trial }: { tenantId: string } & ProvisionRetryRequestDTO,
+    activation: RecordedActivation,
+  ): Promise<ProvisionResultDTO> => {
+    const nowIso = FIXED_NOW().toISOString();
+    const tenant = await activation(async () => {
+      const live = await platform.stores.subscriptions.findLiveByTenant(tenantId);
+      if (!live) {
+        await startSubscription(
+          { id: idOf(), tenantId, planId: planId ?? "PLAN-CORE", billingCycle: billingCycle ?? "monthly", trial: trial ?? false, now: nowIso },
+          platform.stores.subscriptions,
+          platform.stores.plans,
+        );
+      }
+      return activateTenant({ id: tenantId, now: nowIso }, platform.stores.tenants);
+    });
     return { tenant: tenantDTOOf(tenant), adminEmail: tenant.ownerEmail, adminPin: null };
   };
 
@@ -268,6 +289,116 @@ describe("createPlatformRoutes", () => {
     expect(actions).toContain("TENANT_ARCHIVED");
     expect(rows.every((r) => r.module === "platform" && r.stream === "security")).toBe(true);
     expect(rows.find((r) => r.action === "TENANT_SUSPENDED")?.actor).toBe("PU-OWNER");
+  });
+
+  it("answers 409 in Arabic and English to a second create for a code that is being provisioned right now", async () => {
+    let entered = 0;
+    let letTheFirstFinish!: () => void;
+    const firstHeld = new Promise<void>((resolve) => (letTheFirstFinish = resolve));
+    const inFlight = (code: string) =>
+      Object.assign(new Error(`المنشأة «${code}» قيد التجهيز الآن بطلب آخر. انتظر انتهاءه ثم أعد المحاولة.`), { code: "TENANT_CODE_PROVISIONING", messageEn: "in flight" });
+    let outside!: PlatformHandle["outsideTheTurn"];
+    const rig = await buildRig({
+      provisionTenant: async (cmd) => {
+        entered += 1;
+        if (entered === 1) await outside(() => firstHeld);
+        throw inFlight(cmd.code);
+      },
+    });
+    outside = rig.platform.outsideTheTurn;
+
+    const first = provisionOne(rig);
+    const second = await provisionOne(rig);
+    letTheFirstFinish();
+    await first;
+
+    expect(second.res.status).toBe(409);
+    expect(second.body).toMatchObject({ error: "TENANT_CODE_PROVISIONING", message: expect.stringMatching(/[\u0600-\u06FF]/), messageEn: "in flight" });
+  });
+
+  describe("a tenant account locked out of sign-in", () => {
+    function lockedTenant() {
+      const locked = new Set(["acme-owner@example.com", "cashier@example.com"]);
+      const unlocks: string[] = [];
+      return {
+        locked,
+        unlocks,
+        deps: {
+          lockedAccounts: async () => [...locked].sort(),
+          unlockAccount: async ({ account, actorId }: { account: string; actorId: string }) => {
+            unlocks.push(`${account} by ${actorId}`);
+            return locked.delete(account);
+          },
+        },
+      };
+    }
+    const unlock = (rig: Rig, tenantId: string, token: string, account: unknown) =>
+      rig.app.fetch(req(`/tenants/${tenantId}/unlock-account`, token, { method: "POST", body: JSON.stringify({ account }) }));
+    const unlockRows = async (rig: Rig) => (await rig.platform.audit.query("security")).filter((row) => row.action.startsWith("TENANT_ACCOUNT_UNLOCK")).reverse();
+
+    it("is listed for the platform owner and unlocked by them, with the request and the outcome both in the platform audit", async () => {
+      const t = lockedTenant();
+      const rig = await buildRig(t.deps);
+      const { body } = await provisionOne(rig);
+
+      const listed = await rig.app.fetch(req(`/tenants/${body.tenant.id}/locked-accounts`, rig.ownerToken));
+      expect(await json(listed)).toEqual({ accounts: ["acme-owner@example.com", "cashier@example.com"] });
+
+      const res = await unlock(rig, body.tenant.id, rig.ownerToken, " Acme-Owner@Example.com ");
+
+      expect(res.status).toBe(200);
+      expect(await json(res)).toEqual({ accounts: ["cashier@example.com"] });
+      expect(t.unlocks).toEqual(["acme-owner@example.com by PU-OWNER"]);
+      const rows = await unlockRows(rig);
+      expect(rows.map((row) => row.action)).toEqual(["TENANT_ACCOUNT_UNLOCK_REQUESTED", "TENANT_ACCOUNT_UNLOCKED"]);
+      expect(rows.every((row) => row.actor === "PU-OWNER" && row.entityId === body.tenant.id && row.severity === "CRITICAL")).toBe(true);
+      expect(rows[0]?.details).toMatchObject({ code: "acme", account: "acme-owner@example.com" });
+    });
+
+    it("is refused to a support operator, for the list and for the unlock, and nothing is unlocked", async () => {
+      const t = lockedTenant();
+      const rig = await buildRig(t.deps);
+      const { body } = await provisionOne(rig);
+
+      const listed = await rig.app.fetch(req(`/tenants/${body.tenant.id}/locked-accounts`, rig.supportToken));
+      const res = await unlock(rig, body.tenant.id, rig.supportToken, "acme-owner@example.com");
+
+      expect([listed.status, res.status]).toEqual([403, 403]);
+      expect(t.unlocks).toEqual([]);
+    });
+
+    it("answers 503 in Arabic and unlocks nothing when the audit cannot record that the unlock was asked for", async () => {
+      const t = lockedTenant();
+      const rig = await buildRig(t.deps);
+      const { body } = await provisionOne(rig);
+      const append = rig.platform.audit.append.bind(rig.platform.audit);
+      rig.platform.audit.append = async (event) => {
+        if (event.action === "TENANT_ACCOUNT_UNLOCK_REQUESTED") throw new Error("audit sink down");
+        await append(event);
+      };
+
+      const res = await unlock(rig, body.tenant.id, rig.ownerToken, "acme-owner@example.com");
+      rig.platform.audit.append = append;
+
+      expect(res.status).toBe(503);
+      expect(await json(res)).toMatchObject({ error: "AUDIT_UNAVAILABLE", message: expect.stringMatching(/[\u0600-\u06FF]/), messageEn: expect.any(String) });
+      expect(t.unlocks).toEqual([]);
+      expect(t.locked.has("acme-owner@example.com")).toBe(true);
+    });
+
+    it("says in Arabic that an account is not locked, records the refusal, and rejects a body that names no account", async () => {
+      const t = lockedTenant();
+      const rig = await buildRig(t.deps);
+      const { body } = await provisionOne(rig);
+
+      const notLocked = await unlock(rig, body.tenant.id, rig.ownerToken, "someone-else@example.com");
+      const invalid = await unlock(rig, body.tenant.id, rig.ownerToken, "");
+
+      expect(notLocked.status).toBe(409);
+      expect(await json(notLocked)).toMatchObject({ error: "ACCOUNT_NOT_LOCKED", message: expect.stringMatching(/[\u0600-\u06FF]/), messageEn: expect.any(String) });
+      expect(invalid.status).toBe(400);
+      expect((await unlockRows(rig)).map((row) => row.action)).toEqual(["TENANT_ACCOUNT_UNLOCK_REQUESTED", "TENANT_ACCOUNT_UNLOCK_REFUSED"]);
+    });
   });
 
   it("resets a live tenant's owner PIN for the platform owner, answers it once and audits it without the PIN", async () => {
@@ -461,7 +592,7 @@ describe("createPlatformRoutes", () => {
     const payRes = await rig.app.fetch(
       req(`/tenants/${id}/payments`, rig.ownerToken, {
         method: "POST",
-        body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z" }),
+        body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z", idempotencyKey: "KEY-0001" }),
       }),
     );
     expect(payRes.status).toBe(201);
@@ -480,6 +611,141 @@ describe("createPlatformRoutes", () => {
     expect(rows.some((r) => r.action === "PAYMENT_RECORDED")).toBe(true);
     expect(rig.invalidated).toContain("acme");
     expect(rig.invalidated.filter((code) => code === "acme").length).toBeGreaterThanOrEqual(2);
+  });
+
+  function payer(rig: Awaited<ReturnType<typeof buildRig>>, id: string) {
+    return (body: { amount?: string; reference?: string; idempotencyKey: string; confirmDuplicateReference?: boolean }) =>
+      rig.app.fetch(
+        req(`/tenants/${id}/payments`, rig.ownerToken, {
+          method: "POST",
+          body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z", ...body }),
+        }),
+      );
+  }
+  const recordedEvents = async (rig: Awaited<ReturnType<typeof buildRig>>) =>
+    (await rig.platform.audit.query("security")).filter((r) => r.action === "PAYMENT_RECORDED");
+
+  it("answers a resubmission of the same payment without renewing or auditing again", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const pay = payer(rig, id);
+
+    const first = await pay({ idempotencyKey: "KEY-0001" });
+    const second = await pay({ idempotencyKey: "KEY-0001" });
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(200);
+    const firstBody = (await json(first)) as { subscription: { currentPeriodEnd: string } };
+    const secondBody = (await json(second)) as { subscription: { currentPeriodEnd: string }; payments: unknown[] };
+    expect(secondBody.subscription.currentPeriodEnd).toBe(firstBody.subscription.currentPeriodEnd);
+    expect(secondBody.payments).toHaveLength(1);
+    expect(await recordedEvents(rig)).toHaveLength(1);
+  });
+
+  it("refuses a second, separate payment under a recorded reference instead of reporting it saved", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const pay = payer(rig, id);
+    const first = (await json(await pay({ idempotencyKey: "KEY-0001" }))) as { subscription: { currentPeriodEnd: string }; payments: { id: string }[] };
+
+    const res = await pay({ idempotencyKey: "KEY-0002" });
+
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({
+      error: "PAYMENT_REFERENCE_ALREADY_RECORDED",
+      message: expect.stringMatching(/المرجع "REF-1" مسجَّل من قبل لهذه المنشأة بتاريخ \d{4}-\d{2}-\d{2} بمبلغ 500\.00 ج\.م/),
+      messageEn: expect.stringContaining("REF-1"),
+      details: { reference: "REF-1", paymentId: first.payments[0]!.id, amount: "500.000000", recordedAt: expect.any(String) },
+    });
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(1);
+    const after = (await json(await rig.app.fetch(req(`/tenants/${id}`, rig.ownerToken)))) as { subscription: { currentPeriodEnd: string } };
+    expect(after.subscription.currentPeriodEnd).toBe(first.subscription.currentPeriodEnd);
+    expect(await recordedEvents(rig)).toHaveLength(1);
+  });
+
+  it("records the second payment once the duplicate reference is confirmed, renews again and says so in the audit event", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const pay = payer(rig, id);
+    const first = (await json(await pay({ idempotencyKey: "KEY-0001" }))) as { subscription: { currentPeriodEnd: string }; payments: { id: string }[] };
+    await pay({ idempotencyKey: "KEY-0002" });
+
+    const confirmed = await pay({ idempotencyKey: "KEY-0002", confirmDuplicateReference: true });
+
+    expect(confirmed.status).toBe(201);
+    const body = (await json(confirmed)) as { subscription: { currentPeriodEnd: string }; payments: unknown[] };
+    expect(body.payments).toHaveLength(2);
+    expect(body.subscription.currentPeriodEnd > first.subscription.currentPeriodEnd).toBe(true);
+    const events = await recordedEvents(rig);
+    expect(events).toHaveLength(2);
+    expect(events.some((event) => event.details?.["duplicateOfPaymentId"] === first.payments[0]!.id)).toBe(true);
+    expect((await pay({ idempotencyKey: "KEY-0002", confirmDuplicateReference: true })).status).toBe(200);
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(2);
+  });
+
+  it("400s a payment sent with no idempotency key", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const res = await rig.app.fetch(
+      req(`/tenants/${id}/payments`, rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(0);
+  });
+
+  it("records no payment when its audit event cannot be written, so the retry is a first submission and not a replay", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const before = (await json(await rig.app.fetch(req(`/tenants/${id}`, rig.ownerToken)))) as { subscription: { currentPeriodEnd: string } };
+    const pay = () =>
+      rig.app.fetch(
+        req(`/tenants/${id}/payments`, rig.ownerToken, {
+          method: "POST",
+          body: JSON.stringify({ amount: "500.00", reference: "REF-1", paidAt: "2026-01-01T00:00:00.000Z", idempotencyKey: "KEY-0001" }),
+        }),
+      );
+    const append = rig.platform.audit.append.bind(rig.platform.audit);
+    let failures = 1;
+    rig.platform.audit.append = async (event) => {
+      if (event.action === "PAYMENT_RECORDED" && failures > 0) {
+        failures -= 1;
+        throw new Error("audit sink unavailable");
+      }
+      await append(event);
+    };
+
+    const refused = await pay();
+
+    expect(refused.status).toBe(503);
+    expect(await json(refused)).toMatchObject({ error: "AUDIT_UNAVAILABLE", messageEn: expect.any(String) });
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(0);
+    const after = (await json(await rig.app.fetch(req(`/tenants/${id}`, rig.ownerToken)))) as { subscription: { currentPeriodEnd: string } };
+    expect(after.subscription.currentPeriodEnd).toBe(before.subscription.currentPeriodEnd);
+
+    const retried = await pay();
+
+    expect(retried.status).toBe(201);
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(1);
+    const recorded = (await rig.platform.audit.query("security")).filter((r) => r.action === "PAYMENT_RECORDED");
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.actor).toBe("PU-OWNER");
+    expect(recorded[0]?.details).toMatchObject({ reference: "REF-1" });
+  });
+
+  it("409s the same submission resent with a different amount, and changes nothing", async () => {
+    const rig = await buildRig();
+    const id = (await provisionOne(rig)).body.tenant.id;
+    const pay = payer(rig, id);
+    await pay({ idempotencyKey: "KEY-0001" });
+
+    const res = await pay({ idempotencyKey: "KEY-0001", amount: "750.00" });
+
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({ error: "PAYMENT_IDEMPOTENCY_CONFLICT", message: expect.any(String), messageEn: expect.any(String) });
+    expect(await rig.platform.stores.payments.listByTenant(id)).toHaveLength(1);
   });
 
   it("creates, updates (ignoring code) and retires a plan", async () => {
@@ -567,7 +833,7 @@ describe("createPlatformRoutes", () => {
       ["POST", "/tenants", JSON.stringify({ code: "zzz", nameAr: "س", ownerEmail: "z@z.com", ownerNameAr: "س", planId: "x", billingCycle: "monthly", trial: false })],
       ["POST", `/tenants/${id}/suspend`, undefined],
       ["POST", `/tenants/${id}/subscription/cancel`, undefined],
-      ["POST", `/tenants/${id}/payments`, JSON.stringify({ amount: "1.00", reference: "r", paidAt: "2026-01-01T00:00:00.000Z" })],
+      ["POST", `/tenants/${id}/payments`, JSON.stringify({ amount: "1.00", reference: "r", paidAt: "2026-01-01T00:00:00.000Z", idempotencyKey: "KEY-0001" })],
       ["POST", "/plans", JSON.stringify({ code: "x", nameAr: "س", nameEn: "x", modules: ["sales"], seatsIncluded: 1, branchesIncluded: 1, warehousesIncluded: 1, priceMonthly: "0", priceYearly: "0", trialDays: 0, isPublic: true, sortOrder: 0 })],
       ["POST", "/users", JSON.stringify({ email: "x@mezan.app", password: "correct horse battery", role: "support" })],
       ["POST", `/users/PU-SUPPORT/deactivate`, undefined],
@@ -618,6 +884,50 @@ describe("createPlatformRoutes", () => {
     expect(await json(secondRes)).toMatchObject({ error: "TENANT_ALREADY_SUBSCRIBED" });
   });
 
+  it("refuses to retire the only free plan with a 409 in Arabic, and leaves it active", async () => {
+    const rig = await buildRig();
+    const free = (await rig.platform.stores.plans.list()).filter((plan) => plan.kind === PlanKind.Free && plan.status === "active");
+    expect(free).toHaveLength(1);
+
+    const refused = await rig.app.fetch(req(`/plans/${free[0]!.id}/retire`, rig.ownerToken, { method: "POST" }));
+
+    expect(refused.status).toBe(409);
+    expect(await json(refused)).toMatchObject({
+      error: "FREE_PLAN_REQUIRED",
+      message: expect.stringMatching(/لا يمكن إيقاف الباقة المجانية الوحيدة/),
+      messageEn: expect.stringContaining("cannot be retired"),
+    });
+    expect((await rig.platform.stores.plans.findById(free[0]!.id))?.status).toBe("active");
+  });
+
+  it("refuses the edit that would turn the only free plan into a paid one, with the same 409", async () => {
+    const rig = await buildRig();
+    const free = (await rig.platform.stores.plans.list()).find((plan) => plan.kind === PlanKind.Free && plan.status === "active")!;
+
+    const refused = await rig.app.fetch(req(`/plans/${free.id}`, rig.ownerToken, {
+      method: "PUT",
+      body: JSON.stringify({
+        nameAr: free.nameAr, nameEn: free.nameEn, modules: [...free.modules], features: {}, seatsIncluded: free.seatsIncluded,
+        branchesIncluded: free.branchesIncluded, warehousesIncluded: free.warehousesIncluded, kind: "paid",
+        priceMonthly: "100.00", priceYearly: "1000.00", trialDays: 0, isPublic: free.isPublic, sortOrder: free.sortOrder,
+      }),
+    }));
+
+    expect(refused.status).toBe(409);
+    expect(await json(refused)).toMatchObject({ error: "FREE_PLAN_REQUIRED", message: expect.stringMatching(/لا يمكن تحويل الباقة المجانية الوحيدة/) });
+    expect((await rig.platform.stores.plans.findById(free.id))?.kind).toBe(PlanKind.Free);
+  });
+
+  it("names, in one of the three route files that answer for the platform, every refusal the platform's domain can raise", () => {
+    const declared = [...readFileSync(new URL("../../domain/src/platform/errors.ts", import.meta.url), "utf8").matchAll(/export class (\w+Error)\b/g)].map((m) => m[1]!);
+    const answering = ["./platform-routes.ts", "../../../apps/server/src/signup-routes.ts", "../../../apps/server/src/billing-routes.ts"]
+      .map((file) => readFileSync(new URL(file, import.meta.url), "utf8"))
+      .join("\n");
+
+    expect(declared.length).toBeGreaterThan(20);
+    expect(declared.filter((name) => !new RegExp(`instanceof ${name}\\b`).test(answering))).toEqual([]);
+  });
+
   it("invalidates every tenant subscribed to a plan when it is updated or retired", async () => {
     const rig = await buildRig();
     await provisionOne(rig);
@@ -649,32 +959,181 @@ describe("createPlatformRoutes", () => {
     expect(rig.invalidated).toEqual(["acme"]);
   });
 
-  it("logs an audit failure through onAuditError instead of swallowing it, and the request still succeeds", async () => {
-    const rig = await buildRig();
-    const { body } = await provisionOne(rig);
-    const id = body.tenant.id;
+  describe("a console mutation whose event the audit log refuses", () => {
+    function refusing(rig: Rig, action: string): () => void {
+      const append = rig.platform.audit.append.bind(rig.platform.audit);
+      rig.platform.audit.append = async (event) => {
+        if (event.action === action) throw new Error("audit sink down");
+        await append(event);
+      };
+      return () => {
+        rig.platform.audit.append = append;
+      };
+    }
+    const post = (rig: Rig, path: string, body?: unknown) =>
+      rig.app.fetch(req(path, rig.ownerToken, { method: "POST", ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
+    const tenantOf = async (rig: Rig, id: string) => ({
+      status: (await rig.platform.stores.tenants.findById(id))?.status,
+      subscription: await rig.platform.stores.subscriptions.findLiveByTenant(id),
+    });
+    async function expectRefused(res: Response) {
+      expect(res.status).toBe(503);
+      expect(await json(res)).toMatchObject({ error: "AUDIT_UNAVAILABLE", message: expect.stringMatching(/[\u0600-\u06FF]/) });
+    }
 
-    const auditErrors: unknown[] = [];
-    const brokenPlatform: PlatformHandle = {
-      ...rig.platform,
-      audit: {
-        append: async () => { throw new Error("audit sink down"); },
-        query: rig.platform.audit.query.bind(rig.platform.audit),
-      },
-    };
-    const brokenApp = createPlatformRoutes({
-      platform: brokenPlatform,
-      auth: rig.auth,
-      now: FIXED_NOW,
-      provisionTenant: async () => { throw new Error("not used in this test"); },
-      invalidateEntitlements: () => undefined,
-      onAuditError: (err) => { auditErrors.push(err); },
+    it.each([
+      ["suspend", "TENANT_SUSPENDED", "active"],
+      ["archive", "TENANT_ARCHIVED", "active"],
+    ])("answers 503 and leaves the tenant as it was on %s", async (step, action, statusBefore) => {
+      const rig = await buildRig();
+      const { body } = await provisionOne(rig);
+      rig.invalidated.length = 0;
+      const restore = refusing(rig, action);
+
+      await expectRefused(await post(rig, `/tenants/${body.tenant.id}/${step}`));
+
+      expect((await tenantOf(rig, body.tenant.id)).status).toBe(statusBefore);
+      expect(rig.invalidated).toEqual([]);
+      restore();
+      expect((await post(rig, `/tenants/${body.tenant.id}/${step}`)).status).toBe(200);
+      expect((await rig.platform.audit.query("security", 100)).filter((event) => event.action === action)).toHaveLength(1);
     });
 
-    const res = await brokenApp.fetch(req(`/tenants/${id}/suspend`, rig.ownerToken, { method: "POST" }));
-    expect(res.status).toBe(200);
-    expect(auditErrors).toHaveLength(1);
-    expect((auditErrors[0] as Error).message).toBe("audit sink down");
+    it("answers 503 and leaves a suspended tenant suspended on resume", async () => {
+      const rig = await buildRig();
+      const { body } = await provisionOne(rig);
+      await post(rig, `/tenants/${body.tenant.id}/suspend`);
+      refusing(rig, "TENANT_RESUMED");
+
+      await expectRefused(await post(rig, `/tenants/${body.tenant.id}/resume`));
+
+      expect((await tenantOf(rig, body.tenant.id)).status).toBe("suspended");
+    });
+
+    it.each([
+      ["cancel", "SUBSCRIPTION_CANCELLED", undefined],
+      ["suspend", "SUBSCRIPTION_SUSPENDED", { reason: "unpaid" }],
+    ])("answers 503 and leaves the subscription as it was on subscription %s", async (step, action, payload) => {
+      const rig = await buildRig();
+      const { body } = await provisionOne(rig);
+      const before = await tenantOf(rig, body.tenant.id);
+      refusing(rig, action);
+
+      await expectRefused(await post(rig, `/tenants/${body.tenant.id}/subscription/${step}`, payload));
+
+      expect((await tenantOf(rig, body.tenant.id)).subscription).toEqual(before.subscription);
+    });
+
+    it("answers 503 and keeps the plan on a plan change, and resumes nothing on a resume", async () => {
+      const rig = await buildRig();
+      const { body, planId } = await provisionOne(rig);
+      const other = (await plans(rig)).find((plan) => plan.id !== planId)!;
+      refusing(rig, "SUBSCRIPTION_PLAN_CHANGED");
+      await expectRefused(await post(rig, `/tenants/${body.tenant.id}/subscription/change-plan`, { planId: other.id }));
+      expect((await tenantOf(rig, body.tenant.id)).subscription?.planId).toBe(planId);
+
+      await post(rig, `/tenants/${body.tenant.id}/subscription/suspend`, { reason: "unpaid" });
+      refusing(rig, "SUBSCRIPTION_RESUMED");
+      await expectRefused(await post(rig, `/tenants/${body.tenant.id}/subscription/resume`, { reason: "paid" }));
+      expect((await tenantOf(rig, body.tenant.id)).subscription?.status).toBe("suspended");
+    });
+
+    it("answers 503 and starts no subscription", async () => {
+      const rig = await buildRig();
+      const nowIso = FIXED_NOW().toISOString();
+      const tenant = await activateTenant(
+        { id: (await createTenant({ id: "T-BARE", code: "bare", nameAr: "بلا اشتراك", ownerEmail: "bare@example.com", now: nowIso }, rig.platform.stores.tenants)).id, now: nowIso },
+        rig.platform.stores.tenants,
+      );
+      const core = (await plans(rig)).find((plan) => plan.code === "core")!;
+      refusing(rig, "SUBSCRIPTION_STARTED");
+
+      await expectRefused(await post(rig, `/tenants/${tenant.id}/subscription`, { planId: core.id, billingCycle: "monthly", trial: false }));
+
+      expect(await rig.platform.stores.subscriptions.findLiveByTenant(tenant.id)).toBeNull();
+    });
+
+    it("answers 503 and creates, changes or retires no plan", async () => {
+      const rig = await buildRig();
+      const core = (await rig.platform.stores.plans.list()).find((plan) => plan.code === "core")!;
+      const draft = {
+        code: "unrecorded", nameAr: "غير مسجّلة", nameEn: "Unrecorded", modules: ["accounting"], features: {}, seatsIncluded: 1, branchesIncluded: 1,
+        warehousesIncluded: 1, priceMonthly: "10.00", priceYearly: "100.00", trialDays: 0, isPublic: false, sortOrder: 99,
+      };
+      refusing(rig, "PLAN_CREATED");
+      await expectRefused(await post(rig, "/plans", draft));
+      expect((await rig.platform.stores.plans.list()).map((plan) => plan.code)).not.toContain("unrecorded");
+
+      refusing(rig, "PLAN_RETIRED");
+      const spare = (await rig.platform.stores.plans.list()).find((plan) => plan.code !== "core" && plan.kind !== PlanKind.Free)!;
+      await expectRefused(await post(rig, `/plans/${spare.id}/retire`));
+      expect((await rig.platform.stores.plans.findById(spare.id))?.status).toBe("active");
+
+      refusing(rig, "PLAN_UPDATED");
+      const edited = await rig.app.fetch(req(`/plans/${core.id}`, rig.ownerToken, {
+        method: "PUT",
+        body: JSON.stringify({ ...draft, code: undefined, nameAr: "اسم جديد", nameEn: core.nameEn }),
+      }));
+      await expectRefused(edited);
+      expect((await rig.platform.stores.plans.findById(core.id))?.nameAr).toBe(core.nameAr);
+    });
+
+    it("keeps a sweep's summary event in the fallback, where the owner can read it and support cannot", async () => {
+      const rig = await buildRig();
+      const sweeping = createPlatformRoutes({
+        platform: rig.platform,
+        auth: rig.auth,
+        now: FIXED_NOW,
+        provisionTenant: async () => { throw new Error("not used in this test"); },
+        invalidateEntitlements: () => undefined,
+        cardCheckout: { sweep: async () => ({ examined: 1, paid: 0, declined: 0, unapplied: 0, expired: 0, stillPending: 1, alreadySettled: 0 }) } as unknown as PlatformCardCheckoutPort,
+      });
+      refusing(rig, "CARD_CHECKOUT_SWEEP_RUN");
+
+      const swept = await sweeping.fetch(req("/card-checkouts/sweep", rig.ownerToken, { method: "POST" }));
+
+      expect(swept.status).toBe(200);
+      const unrecorded = (await json(await sweeping.fetch(req("/security/unrecorded", rig.ownerToken)))) as { count: number; recent: { action: string; reason: string; details: Record<string, unknown> }[] };
+      expect(unrecorded.count).toBe(1);
+      expect(unrecorded.recent[0]).toMatchObject({ action: "CARD_CHECKOUT_SWEEP_RUN", reason: "audit sink down" });
+      expect(unrecorded.recent[0]!.details).toMatchObject({ examined: 1, paid: 0, stillPending: 1 });
+      expect((await sweeping.fetch(req("/security/unrecorded", rig.supportToken))).status).toBe(403);
+    });
+
+    it("answers 503 and deactivates no platform user", async () => {
+      const rig = await buildRig();
+      refusing(rig, "PLATFORM_USER_DEACTIVATED");
+
+      await expectRefused(await post(rig, "/users/PU-SUPPORT/deactivate"));
+
+      expect((await rig.platform.stores.platformUsers.findById("PU-SUPPORT"))?.status).toBe("active");
+    });
+
+    it("answers 503 on a retried provisioning and leaves the tenant waiting to be provisioned", async () => {
+      const rig = await buildRig();
+      const nowIso = FIXED_NOW().toISOString();
+      const tenant = await createTenant({ id: "T-WAIT", code: "wait", nameAr: "تنتظر", ownerEmail: "wait@example.com", now: nowIso }, rig.platform.stores.tenants);
+      refusing(rig, "TENANT_PROVISION_RETRIED");
+
+      await expectRefused(await post(rig, `/tenants/${tenant.id}/provision`));
+
+      expect((await rig.platform.stores.tenants.findById(tenant.id))?.status).toBe("provisioning");
+      expect(await rig.platform.stores.subscriptions.findLiveByTenant(tenant.id)).toBeNull();
+    });
+
+    it("answers 503 on a new tenant and leaves it unactivated and unsubscribed", async () => {
+      const rig = await buildRig();
+      refusing(rig, "TENANT_PROVISIONED");
+
+      const { res, body } = await provisionOne(rig);
+
+      expect(res.status).toBe(503);
+      expect(body).toMatchObject({ error: "AUDIT_UNAVAILABLE" });
+      const registered = await rig.platform.stores.tenants.findByCode("acme");
+      expect(registered?.status ?? "absent").not.toBe("active");
+      expect(registered ? await rig.platform.stores.subscriptions.findLiveByTenant(registered.id) : null).toBeNull();
+      expect(rig.invalidated).toEqual([]);
+    });
   });
 
   it("retries provisioning for a tenant stuck in `provisioning`, returning the DTO and invalidating", async () => {
@@ -750,5 +1209,298 @@ describe("createPlatformRoutes", () => {
 
     const res = await unwiredApp.fetch(req(`/tenants/${tenant.id}/provision`, rig.ownerToken, { method: "POST" }));
     expect(res.status).toBe(500);
+  });
+});
+
+describe("createPlatformRoutes — the platform connection's turn", () => {
+  const newUser = (email: string) => JSON.stringify({ email, password: "a long enough password", role: "support" });
+  const LONGER_THAN_A_HASH_MS = 600;
+
+  it("makes a platform user create wait for a transaction another operation has open, instead of writing into it", async () => {
+    const rig = await buildRig();
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    let opened!: () => void;
+    const open = new Promise<void>((resolve) => {
+      opened = resolve;
+    });
+    const settling = rig.platform.audit.atomic!(async () => {
+      opened();
+      await finished;
+      throw new Error("the settlement rolls back");
+    }).catch(() => undefined);
+    await open;
+
+    let answered = false;
+    const creating = Promise.resolve(rig.app.fetch(req("/users", rig.ownerToken, { method: "POST", body: newUser("waits@mezan.app") }))).then((res) => {
+      answered = true;
+      return res;
+    });
+    await new Promise((resolve) => setTimeout(resolve, LONGER_THAN_A_HASH_MS));
+    expect(answered).toBe(false);
+    finish();
+    await settling;
+    const created = await creating;
+
+    expect(created.status).toBe(201);
+    expect((await rig.platform.stores.platformUsers.list()).map((user) => user.email)).toContain("waits@mezan.app");
+    expect(drainForeignWrites()).toEqual([]);
+  });
+
+  it("creates no platform user when the event that records it cannot be written", async () => {
+    const rig = await buildRig();
+    const realAppend = rig.platform.audit.append.bind(rig.platform.audit);
+    rig.platform.audit.append = async (event) => {
+      if (event.action === "PLATFORM_USER_CREATED") throw new Error("audit sink unavailable");
+      await realAppend(event);
+    };
+
+    const refused = await rig.app.fetch(req("/users", rig.ownerToken, { method: "POST", body: newUser("unrecorded@mezan.app") }));
+
+    expect(refused.status).toBe(503);
+    expect(await json(refused)).toMatchObject({ error: "AUDIT_UNAVAILABLE" });
+    expect((await rig.platform.stores.platformUsers.list()).map((user) => user.email)).not.toContain("unrecorded@mezan.app");
+
+    rig.platform.audit.append = realAppend;
+    const created = await rig.app.fetch(req("/users", rig.ownerToken, { method: "POST", body: newUser("unrecorded@mezan.app") }));
+    expect(created.status).toBe(201);
+    expect((await rig.platform.audit.query("security", 50)).filter((event) => event.action === "PLATFORM_USER_CREATED")).toHaveLength(1);
+  });
+});
+
+describe("createPlatformRoutes — card checkout operator actions", () => {
+  const swept = {
+    examined: 3, paid: 1, declined: 0, unapplied: 0, expired: 1, stillPending: 1, alreadySettled: 0,
+    needsAttention: 0, unavailable: 0, failed: 0, deferred: 0,
+  };
+
+  async function withCardCheckout(port: Partial<PlatformCardCheckoutPort> = {}) {
+    const rig = await buildRig();
+    const calls: { sweeps: number; applied: unknown[]; resolved: unknown[] } = { sweeps: 0, applied: [], resolved: [] };
+    const app = createPlatformRoutes({
+      platform: rig.platform,
+      auth: rig.auth,
+      now: FIXED_NOW,
+      provisionTenant: async () => { throw new Error("not used in this test"); },
+      invalidateEntitlements: () => undefined,
+      cardCheckout: {
+        testMode: true,
+        open: async () => { throw new Error("not used in this test"); },
+        list: async () => [],
+        sweep: async () => { calls.sweeps += 1; return swept; },
+        applyUnapplied: async (input) => {
+          calls.applied.push({ ...input, amount: input.amount?.toString() ?? null });
+          return checkout({ id: input.checkoutId, tenantId: input.tenantId, status: CardCheckoutStatus.Paid });
+        },
+        resolveFlagged: async (input) => {
+          calls.resolved.push({ ...input, amount: input.amount?.toString() ?? null });
+          return checkout({
+            id: input.checkoutId, tenantId: input.tenantId, status: CardCheckoutStatus.Refunded, resolution: input.resolution,
+            resolvedAt: "2026-01-02T00:00:00.000Z", resolvedBy: input.actorId, resolutionReason: input.reason,
+          });
+        },
+        ...port,
+      },
+    });
+    const nowIso = FIXED_NOW().toISOString();
+    const tenant = await createTenant(
+      { id: "T-CARD", code: "card", nameAr: "بطاقة", ownerEmail: "card@example.com", now: nowIso },
+      rig.platform.stores.tenants,
+    );
+    return { rig, app, calls, tenant };
+  }
+
+  function checkout(overrides: Partial<CardCheckout>): CardCheckout {
+    return {
+      id: "CHK-1", tenantId: "T-CARD", subscriptionId: "S1", provider: "paymob-test", amount: Money.fromMajor("490.50"), currency: "EGP",
+      status: CardCheckoutStatus.Unapplied, providerOrderRef: "1", checkoutUrl: null, providerRef: "2", paymentId: null, failureReason: null,
+      capturedAmount: Money.fromMajor("480.00"),
+      requestedBy: "tester", attentionCause: null, resolution: null, resolvedAt: null, resolvedBy: null, resolutionReason: null,
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", ...overrides,
+    };
+  }
+
+  it("runs the sweep for an owner, returns its tally and audits who ran it", async () => {
+    const { rig, app, calls } = await withCardCheckout();
+
+    const res = await app.fetch(req("/card-checkouts/sweep", rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toEqual(swept);
+    expect(calls.sweeps).toBe(1);
+    const run = (await rig.platform.audit.query("security")).find((r) => r.action === "CARD_CHECKOUT_SWEEP_RUN");
+    expect(run?.actor).toBe("PU-OWNER");
+    expect(run?.details).toMatchObject({ examined: 3, paid: 1, expired: 1 });
+  });
+
+  it("refuses the sweep and the manual application to support staff and to anonymous callers", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+    const body = JSON.stringify({ amount: "490.50", reason: "checked the dashboard" });
+
+    const responses = await Promise.all([
+      app.fetch(req("/card-checkouts/sweep", rig.supportToken, { method: "POST" })),
+      app.fetch(req(`/tenants/${tenant.id}/card-checkouts/CHK-1/apply`, rig.supportToken, { method: "POST", body })),
+      app.fetch(new Request("http://x/card-checkouts/sweep", { method: "POST" })),
+      app.fetch(new Request(`http://x/tenants/${tenant.id}/card-checkouts/CHK-1/apply`, { method: "POST", body, headers: { "content-type": "application/json" } })),
+    ]);
+
+    expect(responses.map((res) => res.status)).toEqual([403, 403, 401, 401]);
+    expect(calls).toEqual({ sweeps: 0, applied: [], resolved: [] });
+  });
+
+  it("applies an unapplied payment as the signed-in owner, never as an actor named in the body", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+
+    const res = await app.fetch(
+      req(`/tenants/${tenant.id}/card-checkouts/CHK-1/apply`, rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ amount: "480.00", reason: "  matched the bank statement  ", actorId: "someone-else", tenantId: "T-OTHER" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toMatchObject({ id: "CHK-1", status: "paid", capturedAmount: "480.000000" });
+    expect(calls.applied).toEqual([
+      {
+        tenantId: tenant.id, checkoutId: "CHK-1", amount: "480.000000", overrideAmount: false,
+        reason: "matched the bank statement", actorId: "PU-OWNER",
+      },
+    ]);
+  });
+
+  it("passes no amount when none is given, and the override only when it is explicitly true", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+    const apply = (body: Record<string, unknown>) =>
+      app.fetch(req(`/tenants/${tenant.id}/card-checkouts/CHK-1/apply`, rig.ownerToken, { method: "POST", body: JSON.stringify(body) }));
+
+    await apply({ reason: "matched the bank statement" });
+    await apply({ reason: "matched the bank statement", amount: "500.00", overrideAmount: true });
+    await apply({ reason: "matched the bank statement", amount: "500.00", overrideAmount: "yes" });
+
+    expect(calls.applied).toEqual([
+      expect.objectContaining({ amount: null, overrideAmount: false }),
+      expect.objectContaining({ amount: "500.000000", overrideAmount: true }),
+    ]);
+  });
+
+  it("answers 409 instead of queueing behind a pass that is already running", async () => {
+    const { rig, app } = await withCardCheckout({ sweep: async () => null });
+
+    const res = await app.fetch(req("/card-checkouts/sweep", rig.ownerToken, { method: "POST" }));
+
+    expect(res.status).toBe(409);
+    expect(await json(res)).toMatchObject({ error: "CARD_CHECKOUT_SWEEP_RUNNING", messageEn: expect.any(String) });
+    expect((await rig.platform.audit.query("security")).some((r) => r.action === "CARD_CHECKOUT_SWEEP_RUN")).toBe(false);
+  });
+
+  it.each([
+    ["no reason", { amount: "480.00" }],
+    ["a reason too short to mean anything", { amount: "480.00", reason: "ok" }],
+    ["a zero amount", { amount: "0", reason: "matched the bank statement" }],
+    ["a negative amount", { amount: "-5.00", reason: "matched the bank statement" }],
+    ["a numeric amount", { amount: 480, reason: "matched the bank statement" }],
+  ])("400s a manual application with %s", async (_label, body) => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+    const res = await app.fetch(
+      req(`/tenants/${tenant.id}/card-checkouts/CHK-1/apply`, rig.ownerToken, { method: "POST", body: JSON.stringify(body) }),
+    );
+    expect(res.status).toBe(400);
+    expect(calls.applied).toEqual([]);
+  });
+
+  it("answers 409 in Arabic and English when the payment cannot be applied, and 404 for an unknown tenant", async () => {
+    const { rig, app } = await withCardCheckout({
+      applyUnapplied: async () => { throw new CardPaymentNotApplicableError(["حالة عملية الدفع ليست «غير مطبّقة»"], ["checkout is not unapplied"]); },
+    });
+    const body = JSON.stringify({ amount: "480.00", reason: "matched the bank statement" });
+
+    const refused = await app.fetch(req("/tenants/T-CARD/card-checkouts/CHK-1/apply", rig.ownerToken, { method: "POST", body }));
+    const unknown = await app.fetch(req("/tenants/T-NOBODY/card-checkouts/CHK-1/apply", rig.ownerToken, { method: "POST", body }));
+
+    expect(refused.status).toBe(409);
+    expect(await json(refused)).toMatchObject({ error: "CARD_PAYMENT_NOT_APPLICABLE", messageEn: expect.stringContaining("not unapplied") });
+    expect(unknown.status).toBe(404);
+  });
+
+  it("resolves a flagged checkout as the signed-in owner and answers with who resolved it and why", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+
+    const res = await app.fetch(
+      req(`/tenants/${tenant.id}/card-checkouts/CHK-1/resolve`, rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ resolution: "REFUNDED", reason: "  refunded on the dashboard  ", actorId: "someone-else" }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await json(res)).toMatchObject({
+      id: "CHK-1", status: "refunded", resolution: "REFUNDED", resolvedBy: "PU-OWNER", resolutionReason: "refunded on the dashboard",
+    });
+    expect(calls.resolved).toEqual([
+      { tenantId: tenant.id, checkoutId: "CHK-1", resolution: "REFUNDED", reason: "refunded on the dashboard", actorId: "PU-OWNER", amount: null, overrideAmount: false },
+    ]);
+  });
+
+  it("passes the transaction number and amount of a payment applied by hand", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+
+    await app.fetch(
+      req(`/tenants/${tenant.id}/card-checkouts/CHK-1/resolve`, rig.ownerToken, {
+        method: "POST",
+        body: JSON.stringify({ resolution: "APPLIED_BY_HAND", reason: "seen on the dashboard", providerRef: "123456", amount: "490.50", overrideAmount: true }),
+      }),
+    );
+
+    expect(calls.resolved).toEqual([expect.objectContaining({ resolution: "APPLIED_BY_HAND", providerRef: "123456", amount: "490.500000", overrideAmount: true })]);
+  });
+
+  it.each([
+    ["an unknown resolution", { resolution: "FORGOTTEN", reason: "seen on the dashboard" }],
+    ["no reason", { resolution: "REVIEWED" }],
+    ["a transaction number that is not digits", { resolution: "APPLIED_BY_HAND", reason: "seen on the dashboard", providerRef: "12 OR 1", amount: "1.00" }],
+    ["a numeric amount", { resolution: "APPLIED_BY_HAND", reason: "seen on the dashboard", providerRef: "12", amount: 5 }],
+  ])("400s a resolution with %s", async (_label, body) => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+    const res = await app.fetch(req(`/tenants/${tenant.id}/card-checkouts/CHK-1/resolve`, rig.ownerToken, { method: "POST", body: JSON.stringify(body) }));
+    expect(res.status).toBe(400);
+    expect(calls.resolved).toEqual([]);
+  });
+
+  it("refuses a resolution from support, from nobody, and for an unknown tenant, and answers a refusal in Arabic", async () => {
+    const { rig, app, calls, tenant } = await withCardCheckout();
+    const body = JSON.stringify({ resolution: "REVIEWED", reason: "seen on the dashboard" });
+    const path = `/tenants/${tenant.id}/card-checkouts/CHK-1/resolve`;
+
+    const support = await app.fetch(req(path, rig.supportToken, { method: "POST", body }));
+    const nobody = await app.fetch(new Request(`http://x${path}`, { method: "POST", body, headers: { "content-type": "application/json" } }));
+    const unknown = await app.fetch(req("/tenants/T-NOBODY/card-checkouts/CHK-1/resolve", rig.ownerToken, { method: "POST", body }));
+
+    expect([support.status, nobody.status, unknown.status]).toEqual([403, 401, 404]);
+    expect(calls.resolved).toEqual([]);
+
+    const refusing = await withCardCheckout({
+      resolveFlagged: async () => { throw new CardPaymentNotApplicableError(["عملية الدفع ليست معلّقة للمراجعة"], ["the checkout is not waiting for a review"]); },
+    });
+    const refused = await refusing.app.fetch(req("/tenants/T-CARD/card-checkouts/CHK-1/resolve", refusing.rig.ownerToken, { method: "POST", body }));
+    expect(refused.status).toBe(409);
+    expect(await json(refused)).toMatchObject({ error: "CARD_PAYMENT_NOT_APPLICABLE", message: expect.stringContaining("ليست معلّقة للمراجعة") });
+  });
+
+  it("keeps who resolved a checkout, and the operator's note, out of what the tenant is shown", () => {
+    const resolved = checkout({ resolution: CardCheckoutResolution.Reviewed, resolvedAt: "2026-01-02T00:00:00.000Z", resolvedBy: "PU-OWNER", resolutionReason: "internal note" });
+
+    expect(serializeCardCheckout(resolved)).toMatchObject({ resolvedBy: "PU-OWNER", resolutionReason: "internal note" });
+    expect(serializeCardCheckoutForTenant(resolved)).toMatchObject({ resolution: "REVIEWED", resolvedBy: null, resolutionReason: null });
+  });
+
+  it("answers 503 for both actions when card checkout is not configured", async () => {
+    const rig = await buildRig();
+    const sweep = await rig.app.fetch(req("/card-checkouts/sweep", rig.ownerToken, { method: "POST" }));
+    const apply = await rig.app.fetch(
+      req("/tenants/T-X/card-checkouts/CHK-1/apply", rig.ownerToken, { method: "POST", body: JSON.stringify({ amount: "1.00", reason: "matched" }) }),
+    );
+    expect([sweep.status, apply.status]).toEqual([503, 503]);
   });
 });

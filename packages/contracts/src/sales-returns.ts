@@ -2,6 +2,7 @@ import { z } from "zod";
 import { decimalRateString, moneyString, nonNegativeMoneyString, nonNegativeQuantityString } from "./money-string.js";
 import { documentStatusSchema } from "./documents.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 import { documentApprovalSchema } from "./workflow.js";
 
 /**
@@ -41,7 +42,7 @@ export const salesReturnLineSchema = z.object({
 });
 
 export const createSalesReturnSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDateOrInstant,
   memo: z.string().default(""),
   lines: z.array(salesReturnLineSchema).min(1),
@@ -57,7 +58,7 @@ export const salesReturnRequestedQtySchema = z.object({
 });
 
 export const buildSalesReturnFromInvoiceSchema = z.object({
-  id: z.string().min(1),
+  id: clientSuppliedId,
   date: isoDateOrInstant,
   memo: z.string().default(""),
   sourceInvoiceId: z.string().min(1),

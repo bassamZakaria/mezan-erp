@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { AttendanceEntryDTO, AttendanceSummaryDTO, BranchDTO, EmployeeDTO } from "@mezan/contracts";
+import { IMPORT_ROW_LIMIT, importTooLargeMessage } from "@mezan/contracts";
 import { AttendanceScreen } from "./AttendanceScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -225,6 +226,30 @@ describe("AttendanceScreen", () => {
       status: null,
       notes: null,
     });
+  });
+
+  it("states the import's row limit before a file is chosen, and refuses a CSV over it here without asking the server", async () => {
+    const previews: unknown[] = [];
+    renderScreen({
+      extra: {
+        "POST /hr/attendance/import/preview": (init) => {
+          previews.push(init?.body);
+          return { body: {} };
+        },
+      },
+    });
+    await screen.findByText("أحمد حسن");
+    fireEvent.click(screen.getByRole("button", { name: "استيراد من جهاز البصمة" }));
+    expect(screen.getByText(new RegExp(`الحد الأقصى للاستيراد في المرة الواحدة ${IMPORT_ROW_LIMIT} صف`))).toBeInTheDocument();
+
+    const lines = IMPORT_ROW_LIMIT + 1;
+    const csv = ["badge,datetime", ...Array.from({ length: lines - 1 }, (_, i) => `B${i},2026-08-20 08:00`)].join("\n");
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File([csv], "punches.csv", { type: "text/csv" })] } });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(importTooLargeMessage(lines).ar);
+    expect(screen.getByRole("button", { name: "معاينة" })).toBeDisabled();
+    expect(previews).toEqual([]);
   });
 
   it("renders the Arabic refusal message when recording attendance is rejected, not a raw enum", async () => {

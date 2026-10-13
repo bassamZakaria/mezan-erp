@@ -33,6 +33,8 @@ the reviewers' own writes alone.
 Set by `cyag-devops/apps/mezan/compute.tf`; listed here so the app side of the
 contract lives with the code that reads it (`apps/server/src/env.ts`).
 
+<!-- env-table: review -->
+
 | Variable | Value on the reviewer stack | Notes |
 |---|---|---|
 | `NODE_ENV` | `production` | |
@@ -41,12 +43,53 @@ contract lives with the code that reads it (`apps/server/src/env.ts`).
 | `MEZAN_SQLITE_EXCLUSIVE` | `1` | one writer per tenant file |
 | `MEZAN_TENANT_DOMAIN` | the review domain | |
 | `MEZAN_TRUST_PROXY` | `1` | behind CloudFront and API Gateway |
+| `MEZAN_TRUSTED_PROXY_HOPS` | `2` | CloudFront appends the viewer's address, API Gateway appends CloudFront's. Required: the server refuses to start with `MEZAN_TRUST_PROXY=1` and no count. Set to `1`, every client would be counted as the CloudFront edge it came through; the server logs `CLIENT ADDRESS MISMATCH` when the count disagrees with `CloudFront-Viewer-Address` — see [ENVIRONMENTS.md](ENVIRONMENTS.md) |
+| `MEZAN_PUBLIC_URL` | the review stack's public `https://` origin | Every mailed link is built on it (signup verification, owner hand-over, the unlock link of a locked account). Not set by `compute.tf` today: see "Owner must do before deploy" in [DEPLOY-AWS.md](DEPLOY-AWS.md). |
 | `MEZAN_ORIGIN_SECRET` | SSM, generated | CloudFront adds it; a direct hit on API Gateway gets 403 on `/api/*` |
-| `MEZAN_PLATFORM_OWNER_EMAIL` / `_PASSWORD` | SSM | the platform console owner |
+| `MEZAN_PLATFORM_OWNER_EMAIL` | SSM | the platform console owner |
+| `MEZAN_PLATFORM_OWNER_PASSWORD` | SSM | |
 | `MEZAN_REVIEW_TENANT_CODE` | `review` | 2–40 of `a-z0-9-`, never `demo` |
 | `MEZAN_REVIEW_PIN` | SSM `/mezan/review/review-pin`, generated | six digits; the server refuses `123456` |
 | `MEZAN_SUPPORT_EMAIL` | the owner's support mailbox | required with a reviewer tenant; printed on both legal pages |
-| `MEZAN_SMTP_HOST` … `MEZAN_SMTP_FROM_EMAIL` | optional | only with these does the deletion page show a form; without them it shows the support address |
+
+<!-- /env-table -->
+
+`MEZAN_SMTP_HOST` … `MEZAN_SMTP_FROM_EMAIL` are optional: only with them does
+the deletion page show a form (without them it shows the support address), and
+only with them is a locked account mailed its unlock code and link. Without
+mail on a cloud stack a locked sole administrator is unlocked from the platform
+console (tenant page, «حسابات مقفلة عن الدخول»).
+
+`MEZAN_TRUSTED_PROXY_HOPS` is **not set by `cyag-devops/apps/mezan/compute.tf`
+today** and this build refuses to start without it: see "Owner must do before
+deploy" in [DEPLOY-AWS.md](DEPLOY-AWS.md).
+
+### The viewer-address check needs a header CloudFront does not send by default
+
+The `CLIENT ADDRESS MISMATCH` line compares the counted hop with
+`CloudFront-Viewer-Address`. CloudFront adds that header only when the cache
+behaviour's origin request policy names it
+(<https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/adding-cloudfront-headers.html>).
+`cyag-devops/modules/static-site/cdn.tf` uses the managed
+`Managed-AllViewerExceptHostHeader` policy, which forwards the viewer's own
+headers and no CloudFront header, so on this stack the header never arrives:
+the check stays silent however wrong the hop count is, and
+`MEZAN_TRUST_VIEWER_ADDRESS=1` would fall back to the hop count on every
+request. Until the origin request policy for `/api/*` and `/legal/*` forwards
+`CloudFront-Viewer-Address`, a wrong `MEZAN_TRUSTED_PROXY_HOPS` is found only by
+reading an audit event's address by hand.
+
+Once that policy forwards the header, `MEZAN_TRUSTED_CLIENT_ADDRESS_HEADER=cloudfront-viewer-address`
+reads the caller from it directly and refuses a request that arrives without
+it; like `MEZAN_TRUST_VIEWER_ADDRESS`, it is only CloudFront's word while
+`MEZAN_ORIGIN_SECRET` keeps everything else from reaching the origin. It is
+not set on this stack today, for the reason above: the header never arrives,
+so every request would be refused.
+
+One policy cannot both drop the viewer's `Host` and add a CloudFront header
+(<https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/origin-request-understand-origin-request-policy.html>),
+so the change replaces the managed policy with one that lists the headers the
+API reads. It belongs to `cyag-devops`; the owner applies it there.
 
 Must **not** be set: `MEZAN_SEED_DEMO` (the server refuses it next to a
 reviewer tenant — its basic auth would block the app), `MEZAN_SEED_ADMIN_PIN`,

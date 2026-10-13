@@ -70,6 +70,7 @@ export async function postWritedownRun(runId: string, deps: PostWritedownRunDeps
       lines,
     },
     deps.gl,
+    { mintedBySystem: true },
   );
 
   const postedRun: WritedownRun = {

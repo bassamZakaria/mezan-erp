@@ -93,9 +93,9 @@ export function createInventoryOpsStockHook(
       return { valueMoved: Money.zero() };
     },
 
-    async reverse(plan: DocumentStockPlan, reversesDocId: string): Promise<DocumentStockResult> {
+    async reverse(plan: DocumentStockPlan, reversesDocId: string, internal: { readonly mintedBySystem?: boolean } = {}): Promise<DocumentStockResult> {
       if (plan.sourceDocType === "ADJUSTMENT") {
-        return service.reverseAdjustment({ adjustmentId: reversesDocId, reversalId: plan.sourceDocId, occurredAt: stockPlanOccurredAt(plan) });
+        return service.reverseAdjustment({ adjustmentId: reversesDocId, reversalId: plan.sourceDocId, occurredAt: stockPlanOccurredAt(plan), mintedBySystem: internal.mintedBySystem });
       }
       const mirrored = mirrorStockPlan(plan, await service.getMovementsOfDocument(reversesDocId));
       if (!mirrored) return { valueMoved: Money.zero() };
@@ -146,12 +146,13 @@ export function createInventoryGlPostingHook(
           })),
         },
         deps,
+        { mintedBySystem: posting.mintedBySystem },
       );
     },
     async reverse(entryId, opts) {
       const original = await deps.ledger.findById(entryId);
       if (!original || original.status === "draft") return null;
-      await reverseJournalEntry(entryId, deps, opts);
+      await reverseJournalEntry(entryId, deps, opts, { mintedBySystem: true });
       return original.lines.map((line) => ({ accountId: line.accountId, debit: line.debit, credit: line.credit, projectId: line.projectId ?? null, costCategory: line.costCategory ?? null }));
     },
   };

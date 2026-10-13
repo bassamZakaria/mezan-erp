@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlreadySavedNotice, useAlreadySavedNotice, useDocumentId } from "../lib/document-id";
 import { useQueryClient } from "@tanstack/react-query";
 import { APPROVAL_STANDING_KEY, ReapprovalNotice } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
@@ -43,6 +44,7 @@ import {
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
   type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency, convertToBase, extend, SALES_INVOICE_ACTIVE_STATUSES,} from "@mezan/domain";
+import { IdempotencyRefusal } from "@mezan/contracts";
 import type { ProjectDTO, SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO, TaxRateDTO } from "@mezan/contracts";
 import { SalesInvoicePrintPage } from "../print/SalesInvoicePrintPage";
 import {
@@ -75,6 +77,7 @@ import {
   type SalesInvoiceDTO,
   useTreasuryAccounts,
   useAllowedCurrencies,
+  ApiError,
   ClassifiableDocument,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
@@ -366,7 +369,15 @@ function InvoiceEffectCards({
   );
 }
 
-function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void; initialCustomerId?: string | null }) {
+function CreateInvoicePage({
+  onClose,
+  onAlreadyCreated,
+  initialCustomerId,
+}: {
+  onClose: () => void;
+  onAlreadyCreated: (invoiceId: string) => void;
+  initialCustomerId?: string | null;
+}) {
   const { t, locale } = useAppTranslation();
   const format = useFormat();
   const customersQuery = useCustomers();
@@ -380,6 +391,10 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const convertQuote = useConvertSalesQuoteToInvoice();
   const createInvoice = useCreateSalesInvoice();
   const confirmInvoice = useConfirmSalesInvoice();
+  const invoiceId = useDocumentId((savedId) => {
+    resetForm();
+    onAlreadyCreated(savedId);
+  });
   const unitLabel = useUnitLabel();
   const workingLocation = useWorkingLocation();
   const nameOf = useEntityName();
@@ -678,6 +693,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     setError(null);
     try {
       const created = await createInvoice.mutateAsync({
+        id: invoiceId.current(),
         date,
         dueDate,
         customerId: customer.id,
@@ -720,9 +736,11 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
             : created.id,
         );
       }
+      invoiceId.renew();
       resetForm();
       onClose();
     } catch (err) {
+      if (invoiceId.recover(err)) return;
       setError(err instanceof Error ? err.message : t("salesInvoices.error.saveFailed"));
     } finally {
       setBusy(false);
@@ -2007,6 +2025,7 @@ export function SalesInvoicesScreen() {
   // `#/sales/sales-invoices` · `…/new` · `…/<docNo|id>`
   const subPage = useSubPage();
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const savedNotice = useAlreadySavedNotice();
   const { navigate } = useNavigation();
   useScreenIntent((intent) => {
     const customerId = intent.prefill?.customerId;
@@ -2158,7 +2177,18 @@ export function SalesInvoicesScreen() {
     },
   ];
 
-  if (firstSegment === "new") return <CreateInvoicePage onClose={subPage.close} initialCustomerId={subPage.segments[1] ?? null} />;
+  if (firstSegment === "new") {
+    return (
+      <CreateInvoicePage
+        onClose={subPage.close}
+        onAlreadyCreated={(invoiceId) => {
+          savedNotice.show(invoiceId);
+          subPage.open(invoiceId);
+        }}
+        initialCustomerId={subPage.segments[1] ?? null}
+      />
+    );
+  }
 
   // `#/sell/sales-invoices/<docNo>/print` — a destination, not an overlay, so
   // it survives a reload and leaves through the shell's own «رجوع».
@@ -2166,6 +2196,7 @@ export function SalesInvoicesScreen() {
 
   return (
     <>
+      <AlreadySavedNotice notice={savedNotice} openId={selectedId ?? null} message={t("salesInvoices.alreadyCreated")} dismissLabel={t("documents.alreadySaved.dismiss")} />
       {selected ? (
         <InvoiceDetailView invoice={selected} today={today} onPrint={() => subPage.open(selected.docNo ?? selected.id, "print")} />
       ) : (

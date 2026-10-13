@@ -58,6 +58,22 @@ export class VoucherNotConfirmedError extends Error {
   }
 }
 
+export class VoucherReversedError extends Error {
+  readonly code = "VOUCHER_REVERSED";
+  readonly messageEn: string;
+  constructor(readonly voucherId: string, readonly voucherNo: string, readonly mirror: boolean) {
+    super(
+      mirror
+        ? `السند ${voucherNo} قيد عكس لسند آخر وليس مالاً مقبوضاً أو مدفوعاً، فلا يُخصَّص على فاتورة ولا يُعكس.`
+        : `السند ${voucherNo} معكوس ولم يعد مبلغه قائماً، فلا يُخصَّص على فاتورة.`,
+    );
+    this.name = "VoucherReversedError";
+    this.messageEn = mirror
+      ? `Voucher ${voucherNo} is the reversal of another voucher, not money received or paid; it cannot be allocated to an invoice or reversed.`
+      : `Voucher ${voucherNo} has been reversed and its money no longer stands; it cannot be allocated to an invoice.`;
+  }
+}
+
 /** Raised when an operation references an invoice id that does not exist. */
 export class InvoiceNotFoundError extends Error {
   readonly code = "INVOICE_NOT_FOUND";
@@ -118,6 +134,16 @@ export class AllocationExceedsError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AllocationExceedsError";
+  }
+}
+
+export class AllocationIdTakenError extends Error {
+  readonly code = "DUPLICATE_ALLOCATION";
+  readonly messageEn: string;
+  constructor(readonly allocationId: string) {
+    super("سبق تسجيل تخصيص بهذا المعرّف، فلم يُسجَّل هذا الطلب مرة ثانية.");
+    this.name = "AllocationIdTakenError";
+    this.messageEn = "An allocation is already recorded under this id, so this request was not recorded a second time.";
   }
 }
 

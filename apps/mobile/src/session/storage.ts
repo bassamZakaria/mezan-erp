@@ -4,6 +4,7 @@ import { sessionSchema, type SessionDTO } from "@mezan/contracts";
 import { z } from "zod";
 
 const TOKEN_KEY = "mezan.session.token";
+const DEVICE_SECRET_KEY = "mezan.session.device";
 const PROFILE_KEY = "mezan.session.profile";
 const CONNECTION_KEY = "mezan.connection";
 
@@ -13,7 +14,7 @@ const CONNECTION_KEY = "mezan.connection";
  * resolved permission list is far larger than that — storing the whole session
  * there fails on exactly the accounts that matter most.
  */
-const storedProfileSchema = sessionSchema.omit({ token: true });
+const storedProfileSchema = sessionSchema.omit({ token: true, deviceSecret: true });
 type StoredProfile = z.infer<typeof storedProfileSchema>;
 
 export const connectionSchema = z.object({
@@ -24,10 +25,17 @@ export const connectionSchema = z.object({
 export type Connection = z.infer<typeof connectionSchema>;
 
 export async function saveSession(session: SessionDTO): Promise<void> {
-  const { token, ...profile } = session;
+  const { token, deviceSecret, ...profile } = session;
   await SecureStore.setItemAsync(TOKEN_KEY, token, {
     keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
   });
+  // SECURITY: the device secret is what makes a copied token worthless
+  // elsewhere, so it lives only in the OS keystore, never beside the profile.
+  if (deviceSecret) {
+    await SecureStore.setItemAsync(DEVICE_SECRET_KEY, deviceSecret, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
+  } else {
+    await SecureStore.deleteItemAsync(DEVICE_SECRET_KEY);
+  }
   await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
 }
 
@@ -44,11 +52,13 @@ export async function loadSession(): Promise<SessionDTO | null> {
   } catch {
     return null;
   }
-  return { ...profile, token };
+  const deviceSecret = await SecureStore.getItemAsync(DEVICE_SECRET_KEY);
+  return { ...profile, token, ...(deviceSecret ? { deviceSecret } : {}) };
 }
 
 export async function clearSession(): Promise<void> {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
+  await SecureStore.deleteItemAsync(DEVICE_SECRET_KEY);
   await AsyncStorage.removeItem(PROFILE_KEY);
 }
 

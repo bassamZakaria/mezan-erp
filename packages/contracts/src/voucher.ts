@@ -3,6 +3,7 @@ import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "./paging.js";
 import { decimalRateString, moneyString } from "./money-string.js";
 import { costCategorySchema } from "./contracting.js";
 import { isoDateOrInstant } from "./iso-date.js";
+import { clientSuppliedId } from "./client-supplied-id.js";
 import { documentApprovalSchema } from "./workflow.js";
 
 /**
@@ -106,14 +107,14 @@ export const voucherSchema = z.object({
 });
 
 export const requestedAllocationSchema = z.object({
-  allocationId: z.string().min(1).optional(),
+  allocationId: clientSuppliedId.optional(),
   invoiceId: z.string().min(1),
   amount: moneyString.optional(),
 });
 
 /** Create a voucher draft. */
 export const createVoucherSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: isoDateOrInstant,
   memo: z.string().optional(),
   voucherType: voucherTypeSchema,
@@ -148,7 +149,7 @@ export const confirmVoucherSchema = z.object({});
 
 /** Reverse a confirmed voucher. */
 export const reverseVoucherSchema = z.object({
-  reversalId: z.string().min(1).optional(),
+  reversalId: clientSuppliedId.optional(),
   date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
 });
@@ -185,13 +186,15 @@ export const voucherAllocationSchema = z.object({
   status: allocationStatusSchema,
   createdAt: z.string(),
   reversedAt: z.string().nullable(),
+  date: z.string().nullable().optional(),
 });
 
 /** Apply an allocation of part of a voucher onto one invoice. */
 export const createAllocationSchema = z.object({
-  allocationId: z.string().min(1).optional(),
+  allocationId: clientSuppliedId.optional(),
   invoiceId: z.string().min(1),
   amount: moneyString,
+  date: isoDateOrInstant.optional(),
 });
 
 /**
@@ -203,7 +206,7 @@ export const createAllocationSchema = z.object({
  */
 export const createCollectionSchema = z.object({
   currency: z.string().optional(),
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   date: isoDateOrInstant.optional(),
   memo: z.string().optional(),
   customerId: z.string().min(1),

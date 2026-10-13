@@ -19,6 +19,7 @@ export interface ReversalTarget {
 
 export interface ReverseDocumentController {
   readonly allowed: boolean;
+  holds(permission: string): boolean;
   readonly pendingId: string | null;
   ask(target: ReversalTarget): Promise<void>;
   menuItems(target: ReversalTarget): RowMenuItem[];
@@ -47,10 +48,11 @@ export function useReverseDocumentAction(type: ActionReversalType): ReverseDocum
   const queryClient = useQueryClient();
   const path = DOCUMENT_REVERSAL_PATHS[type];
   const permissions = session?.permissions;
-  const allowed = useMemo(
-    () => can(createAuthContext({ userId: session?.userId ?? "anonymous", permissions: permissions ?? [], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE }), path.permission),
-    [permissions, session?.userId, path.permission],
-  );
+  const holds = useMemo(() => {
+    const context = createAuthContext({ userId: session?.userId ?? "anonymous", permissions: permissions ?? [], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    return (permission: string) => can(context, permission);
+  }, [permissions, session?.userId]);
+  const allowed = holds(path.permission);
 
   const [asked, setAsked] = useState<ReversalTarget | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -153,7 +155,7 @@ export function useReverseDocumentAction(type: ActionReversalType): ReverseDocum
   const menuItems = (target: ReversalTarget): RowMenuItem[] =>
     allowed ? [{ key: `reverse-${type}`, label: action, disabled: pendingId === target.id, onSelect: () => ask(target) }] : [];
 
-  return { allowed, pendingId, ask, menuItems, dialog };
+  return { allowed, holds, pendingId, ask, menuItems, dialog };
 }
 
 export interface ReverseDocumentActionProps {

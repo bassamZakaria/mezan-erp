@@ -11,13 +11,14 @@ import type { EventCode } from "../events/catalog.js";
  * `null` means "fires on every occurrence of the event."
  */
 
-export type NotificationPriority = "low" | "normal" | "high" | "urgent";
-export const NOTIFICATION_PRIORITIES: readonly NotificationPriority[] = [
-  "low",
-  "normal",
-  "high",
-  "urgent",
-];
+export enum NotificationPriorityCode {
+  Low = "low",
+  Normal = "normal",
+  High = "high",
+  Urgent = "urgent",
+}
+export type NotificationPriority = `${NotificationPriorityCode}`;
+export const NOTIFICATION_PRIORITIES: readonly NotificationPriority[] = Object.values(NotificationPriorityCode);
 
 /**
  * Delivery channels (docs/archive/catalog/09: داخل التطبيق / بريد إلكتروني / إشعار
@@ -26,12 +27,13 @@ export const NOTIFICATION_PRIORITIES: readonly NotificationPriority[] = [
  * (docs/archive/plan.md line 535: "the rules engine must degrade per channel, not
  * per rule").
  */
-export type NotificationChannel = "in_app" | "email" | "push";
-export const NOTIFICATION_CHANNELS: readonly NotificationChannel[] = [
-  "in_app",
-  "email",
-  "push",
-];
+export enum NotificationChannelCode {
+  InApp = "in_app",
+  Email = "email",
+  Push = "push",
+}
+export type NotificationChannel = `${NotificationChannelCode}`;
+export const NOTIFICATION_CHANNELS: readonly NotificationChannel[] = Object.values(NotificationChannelCode);
 
 export type ConditionOperator = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "contains";
 export const CONDITION_OPERATORS: readonly ConditionOperator[] = [
@@ -100,16 +102,21 @@ export interface NotificationRuleRepository {
   delete(id: string): Promise<void>;
 }
 
-export type NotificationReadStatus = "unread" | "read";
+export enum NotificationReadStatusCode {
+  Unread = "unread",
+  Read = "read",
+}
+export type NotificationReadStatus = `${NotificationReadStatusCode}`;
 
-/** Per-channel delivery status recorded at creation time. */
-/**
- * `delivered` is in-app (a row the user can read). `queued` is waiting for the
- * dispatcher; `sent` was accepted by the transport; `failed` is terminal —
- * rejected by the server, or abandoned as stale. Being offline is none of
- * these: it leaves the status on `queued` (see `dispatcher.ts`).
- */
-export type NotificationChannelStatus = "delivered" | "queued" | "sent" | "failed";
+export enum NotificationChannelState {
+  Delivered = "delivered",
+  Queued = "queued",
+  Sending = "sending",
+  Sent = "sent",
+  Failed = "failed",
+}
+
+export type NotificationChannelStatus = `${NotificationChannelState}`;
 
 /** A generated notification instance — one rule match × one recipient. */
 export interface Notification {

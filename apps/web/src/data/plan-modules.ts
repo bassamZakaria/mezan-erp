@@ -1,6 +1,6 @@
 import type { UseQueryResult } from "@tanstack/react-query";
 import type { EntitlementsDTO } from "@mezan/contracts";
-import { hasModule, hasReadOnlyModule } from "@mezan/domain";
+import { hasModule, hasReadOnlyModule, planServesShellRequest, type ShellRequest } from "@mezan/domain";
 
 export enum PlanModule {
   Hr = "hr",
@@ -9,5 +9,10 @@ export enum PlanModule {
 
 export function planIncludesModule(entitlements: Pick<UseQueryResult<EntitlementsDTO>, "data" | "isError">, module: PlanModule): boolean {
   if (entitlements.data) return hasModule(entitlements.data, module) || hasReadOnlyModule(entitlements.data, module);
+  return entitlements.isError;
+}
+
+export function planServesRequest(entitlements: Pick<UseQueryResult<EntitlementsDTO>, "data" | "isError">, request: ShellRequest): boolean {
+  if (entitlements.data) return planServesShellRequest(entitlements.data, request);
   return entitlements.isError;
 }

@@ -2,10 +2,11 @@ import { Hono } from "hono";
 import {
   createDefaultSettings,
   DEFAULT_PRINT_TEMPLATE_CONFIG,
+  type PrintTemplateConfig,
   type PrintTemplateConfigRepository,
   type SettingsRepository,
 } from "@mezan/domain";
-import { printTemplateConfigSchema } from "@mezan/contracts";
+import { LOGO_MAX_CHARS, printTemplateConfigSchema } from "@mezan/contracts";
 import { createAnyPermissionGate, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
 /**
@@ -15,6 +16,47 @@ import { createAnyPermissionGate, createPermissionGate, type AuthContextResolver
  * something to render) and `PUT /` validates and replaces it wholesale — same
  * shape as `createSettingsRoutes`, gated via the permissions engine.
  */
+const LOGO_FIELD = "logoUrl";
+
+type Identity = { logoUrl?: unknown } | undefined;
+type WithIdentity = { identity?: Identity; perDocumentOverrides?: Record<string, { identity?: Identity } | undefined> };
+
+// A logo saved before the size limit existed is larger than any save may now
+// send. Sent back UNCHANGED it is not a new upload, and refusing it would stop
+// every later save of the template; only a logo that differs from the stored
+// one is held to the limit.
+function keepStoredOversizeLogos(
+  body: unknown,
+  stored: PrintTemplateConfig | null,
+): { forValidation: unknown; restore: (config: PrintTemplateConfig) => PrintTemplateConfig } {
+  if (stored === null || body === null || typeof body !== "object") return { forValidation: body, restore: (config) => config };
+  const incoming = structuredClone(body) as WithIdentity;
+  const restores: ((config: PrintTemplateConfig) => void)[] = [];
+  const keep = (target: Identity, storedLogo: string | undefined, put: (config: PrintTemplateConfig, logo: string) => void): void => {
+    if (!target || typeof target.logoUrl !== "string" || storedLogo === undefined) return;
+    if (target.logoUrl.length <= LOGO_MAX_CHARS || target.logoUrl !== storedLogo) return;
+    target.logoUrl = "";
+    restores.push((config) => put(config, storedLogo));
+  };
+  keep(incoming.identity, stored.identity.logoUrl, (config, logo) => {
+    (config.identity as { logoUrl?: string }).logoUrl = logo;
+  });
+  for (const [docType, override] of Object.entries(incoming.perDocumentOverrides ?? {})) {
+    keep(override?.identity, stored.perDocumentOverrides[docType]?.identity?.logoUrl, (config, logo) => {
+      const identity = config.perDocumentOverrides[docType]?.identity as { logoUrl?: string } | undefined;
+      if (identity) identity.logoUrl = logo;
+    });
+  }
+  return {
+    forValidation: incoming,
+    restore: (config) => {
+      const restored = structuredClone(config);
+      for (const put of restores) put(restored);
+      return restored;
+    },
+  };
+}
+
 export interface PrintTemplateConfigRoutesDeps {
   readonly repo: PrintTemplateConfigRepository;
   readonly settings?: Pick<SettingsRepository, "get">;
@@ -70,13 +112,24 @@ export function createPrintTemplateConfigRoutes(
   });
 
   app.put("/", gate("admin.settings.edit"), async (c) => {
-    const parsed = printTemplateConfigSchema.safeParse(await c.req.json());
+    const body: unknown = await c.req.json();
+    const kept = keepStoredOversizeLogos(body, await deps.repo.get());
+    const parsed = printTemplateConfigSchema.safeParse(kept.forValidation);
     if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      const logoTooLarge = parsed.error.issues.some((issue) => issue.path.at(-1) === LOGO_FIELD && issue.code === "too_big");
+      return c.json(
+        {
+          error: "VALIDATION_ERROR",
+          details: parsed.error.flatten(),
+          ...(logoTooLarge ? { message: "حجم الشعار أكبر من المسموح به. استخدم صورة أصغر." } : {}),
+        },
+        400,
+      );
     }
 
-    await deps.repo.save(parsed.data);
-    return c.json(parsed.data);
+    const saved = kept.restore(parsed.data);
+    await deps.repo.save(saved);
+    return c.json(saved);
   });
 
   return app;

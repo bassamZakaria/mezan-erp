@@ -26,5 +26,6 @@ export const REVERSAL_SCREENS: Readonly<Record<ReversalDocumentType, ReversalScr
   [ReversalDocumentType.MaterialConsumption]: action("screens/contracting/site/MaterialConsumptionScreen.tsx", ReversalDocumentType.MaterialConsumption),
   [ReversalDocumentType.LandedCost]: { file: "screens/LandedCostsScreen.tsx", marker: "useReverseLandedCost(" },
   [ReversalDocumentType.DepreciationRun]: { file: "screens/DepreciationRunsScreen.tsx", marker: "useReverseDepreciationRun(" },
+  [ReversalDocumentType.Voucher]: action("screens/TreasuryVouchersScreen.tsx", ReversalDocumentType.Voucher),
   [ReversalDocumentType.RecurringJournalTemplate]: { file: "screens/enh/recurring-journals/RecurringJournalsScreen.tsx", marker: "ReversalDocumentType.RecurringJournalTemplate" },
 };

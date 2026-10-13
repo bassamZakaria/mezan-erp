@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientSuppliedId } from "./client-supplied-id.js";
 
 /**
  * Wire contracts for CRM (docs/archive/catalog/06-crm-hr.md "العملاء المحتملون /
@@ -27,7 +28,7 @@ export const leadSchema = z.object({
 });
 
 export const createLeadSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   name: z.string().min(1),
   company: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
@@ -46,7 +47,7 @@ export const convertLeadSchema = z.object({
   createCustomer: z.boolean(),
   customer: z
     .object({
-      id: z.string().min(1),
+      id: clientSuppliedId,
       /** Omitted, the server allocates the next free customer code. */
       code: z.string().trim().min(1).optional(),
     })
@@ -54,7 +55,7 @@ export const convertLeadSchema = z.object({
   createOpportunity: z.boolean(),
   opportunity: z
     .object({
-      id: z.string().min(1),
+      id: clientSuppliedId,
       title: z.string().min(1),
       branchId: z.string().min(1).nullable().optional(),
       stageId: z.string().min(1),
@@ -83,7 +84,7 @@ export const opportunitySchema = z.object({
 });
 
 export const createOpportunitySchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   title: z.string().min(1),
   customerId: z.string().min(1),
   branchId: z.string().min(1).nullable().optional(),
@@ -110,7 +111,7 @@ export const pipelineStageSchema = z.object({
 });
 
 export const createPipelineStageSchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   name: z.string().min(1),
   defaultProbability: z.number().min(0).max(100).optional(),
   color: z.string().min(1).optional(),
@@ -134,7 +135,7 @@ export const activitySchema = z.object({
 });
 
 export const createActivitySchema = z.object({
-  id: z.string().min(1).optional(),
+  id: clientSuppliedId.optional(),
   subject: z.string().min(1),
   type: activityTypeSchema.optional(),
   relatedLeadId: z.string().nullable().optional(),

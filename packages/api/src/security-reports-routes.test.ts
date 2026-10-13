@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   createAuditEvent,
   createDefaultSettings,
+  createMemorySecurityEventFallback,
   type AuditEvent,
   type AuditEventInput,
   type AuditQueryFilter,
@@ -187,6 +188,25 @@ describe("تقرير الاستثناءات الأمنية", () => {
     const app = createSecurityReportsRoutes({ audit: fakePort([]), now: NOW }, insecureHeaderAuthContextResolver);
     const res = await app.fetch(req("/exceptions?from=2026-03-31&to=2026-03-01"));
     expect(res.status).toBe(400);
+  });
+});
+
+describe("تقرير الاستثناءات الأمنية — أحداث لم يسجّلها سجل التدقيق", () => {
+  it("shows how many security events the audit log refused and the latest of them, and zero when there is no fallback", async () => {
+    const unrecorded = createMemorySecurityEventFallback();
+    for (let n = 1; n <= 25; n += 1) {
+      unrecorded.record({ at: `2026-03-05T10:00:${String(n).padStart(2, "0")}.000Z`, module: "auth", action: "LOGIN_FAILED", severity: "WARNING", actor: `u-${n}`, entityId: null, details: { origin: "10.0.0.9" }, reason: "disk full" });
+    }
+    const withFallback = createSecurityReportsRoutes({ audit: fakePort([]), unrecorded, now: NOW }, insecureHeaderAuthContextResolver);
+    const body = (await (await withFallback.fetch(req("/exceptions?from=2026-03-01&to=2026-03-31"))).json()) as {
+      unrecorded: { count: number; recent: Record<string, unknown>[] };
+    };
+    expect(body.unrecorded.count).toBe(25);
+    expect(body.unrecorded.recent).toHaveLength(20);
+    expect(body.unrecorded.recent[0]).toEqual({ at: "2026-03-05T10:00:25.000Z", module: "auth", action: "LOGIN_FAILED", severity: "WARNING", actor: "u-25", entityId: null, reason: "disk full" });
+
+    const without = createSecurityReportsRoutes({ audit: fakePort([]), now: NOW }, insecureHeaderAuthContextResolver);
+    expect(((await (await without.fetch(req("/exceptions?from=2026-03-01&to=2026-03-31"))).json()) as { unrecorded: unknown }).unrecorded).toEqual({ count: 0, recent: [], dropped: 0, corrupted: 0 });
   });
 });
 

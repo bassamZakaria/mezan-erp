@@ -452,7 +452,7 @@ export function createInventoryRoutes(
       await noteReversalOriginalDay(c, originalDay);
       const occurredAt = await tenantStockMoment(c, date);
       const reversalId = `${adjustmentId}:REVERSAL`;
-      await service.reverseAdjustment({ adjustmentId, reversalId, occurredAt, memo });
+      await service.reverseAdjustment({ adjustmentId, reversalId, occurredAt, memo, mintedBySystem: true });
       await recordDocumentReversal(reversal?.audit, {
         module: "inventory",
         entityType: "STOCK_ADJUSTMENT",

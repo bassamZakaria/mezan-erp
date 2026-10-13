@@ -3,6 +3,7 @@ import { SEED_ADMIN_EMAIL, SEED_ADMIN_PIN } from "../packages/backend/src/seed.j
 import { createEntitlements, MODULE_CATALOG } from "../packages/domain/src/index.js";
 import { openSqliteConnection } from "../packages/persistence/src/index.js";
 import { danglingSeedReferences } from "./seed-reference-guard.js";
+import { connectionTurnFindings } from "./connection-turn-guard.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -168,6 +169,10 @@ async function main() {
   } else {
     console.log("every user, customer, supplier, item, branch and warehouse id the seed wrote resolves to a real row");
   }
+
+  const turnFindings = connectionTurnFindings();
+  for (const finding of turnFindings) console.error(`✖ ${finding}`);
+  if (turnFindings.length) process.exitCode = 1;
 
   if (unexplained.length || failed.length || dangling.length) {
     console.error(`\n✖ ${unexplained.length} surface(s) return no rows, ${failed.length} did not succeed, and ${dangling.length} seeded reference(s) dangle.`);

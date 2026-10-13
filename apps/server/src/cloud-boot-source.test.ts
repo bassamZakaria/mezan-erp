@@ -32,11 +32,7 @@ describe("the cloud app as the deployed entry point serves it: no socket under t
     expect(await checkCodeStatus({ MEZAN_TRUST_PROXY: "1", MEZAN_TRUSTED_PROXY_HOPS: "2" })).toBe(200);
   });
 
-  // EXPECTED UNTIL THE MERGE of fix/w1d-audit-atomicity-billing, which adds the
-  // proxy variables to render.yaml. On this branch the blueprint sets neither,
-  // so the same request has no source and is refused. When the merge lands this
-  // test starts passing, `it.fails` turns red, and the marker is removed.
-  it.fails("answers the public signup check under the proxy variables render.yaml sets on this branch", async () => {
+  it("answers the public signup check under the proxy variables render.yaml sets", async () => {
     expect(await checkCodeStatus(proxyVariablesInRenderYaml())).toBe(200);
   });
 });

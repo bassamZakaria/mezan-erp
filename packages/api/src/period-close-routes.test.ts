@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSqliteAuditSink,
   createSqliteFiscalPeriodRepository,
@@ -303,8 +303,7 @@ describe("the close is one atomic step", () => {
       await held;
       throw new Error("the other request fails and rolls back");
     });
-    await Promise.resolve();
-    expect(sqlite.inTransaction).toBe(true);
+    await vi.waitFor(() => expect(sqlite.inTransaction).toBe(true));
 
     const during = await periods.fetch(post(`/${PERIOD_ID}/close`, CLOSE));
     expect(during.status).toBe(409);

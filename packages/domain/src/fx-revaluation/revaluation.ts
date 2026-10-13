@@ -1,12 +1,14 @@
 import { Money, allocateScaled } from "../money/index.js";
-import type { Account, AccountType, NaturalBalance } from "../accounts/account.js";
+import type { Account, NaturalBalance } from "../accounts/account.js";
+import { isMonetaryAccountType } from "../accounts/monetary.js";
 import type { JournalEntry } from "../journal.js";
 import type { PostedLine } from "../gl/ledger.js";
 import type { JournalLineInput, JournalPostingDeps } from "../gl/post.js";
 import { postJournalEntry } from "../gl/post.js";
 import { reverseJournalEntry } from "../gl/reverse.js";
+import { FX_REVALUATION_DOC_TYPE, nextDay } from "../gl/revaluation-lock.js";
 import { convertToBase, convertFromBase, isBaseCurrency, FxRateMissingError } from "../exchange-rates/convert.js";
-import { FX_REALISED_LINE_MEMO } from "../vouchers/realised-fx.js";
+import { FX_REALISED_DOC_TYPE, FX_REALISED_LINE_MEMO } from "../vouchers/realised-fx.js";
 import { FxOpenItemType } from "../vouchers/allocation.js";
 import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
 
@@ -201,26 +203,7 @@ export function computeFxRevaluation(
   };
 }
 
-/**
- * Account types whose balance is a **monetary item** under IAS 21 ¶8 — a right
- * to receive or an obligation to pay a fixed number of currency units, which
- * ¶23(a) retranslates at each closing rate: receivables, payables, cash, bank
- * and loans.
- *
- * Revenue, expense and equity are not. A foreign receipt credits its revenue
- * account once, at the spot rate of the day the income was earned (¶21), and
- * that entry is final — ¶23(b) leaves a non-monetary item at its historical
- * rate. Collecting one as an open position put GL 4910 إيرادات أخرى in the
- * preview as USD 1,200.00 booked at 58,680.00 and restated the whole tenant by
- * 540.00 every month end, for income settled the day it was booked (D322).
- * A memorandum account is off balance sheet and never restated at all.
- */
-const MONETARY_ACCOUNT_TYPES: ReadonlySet<AccountType> = new Set<AccountType>(["asset", "liability"]);
-
-/** Whether a balance on this account is a monetary item an FX revaluation restates. */
-export function isMonetaryAccountType(type: AccountType): boolean {
-  return MONETARY_ACCOUNT_TYPES.has(type);
-}
+export { isMonetaryAccountType };
 
 /**
  * Recover the open foreign-currency balances from posted ledger lines. Each FX
@@ -368,15 +351,22 @@ export const FX_REVALUATION_LINE_MEMO = "إعادة تقييم عملات أجن
 const BASE_ONLY_MEMOS: ReadonlySet<string> = new Set([FX_REVALUATION_LINE_MEMO, FX_REALISED_LINE_MEMO]);
 
 /** `sourceDocType` of a revaluation entry and, through the mirror, of its reversal. */
-export const FX_REVALUATION_DOC_TYPE = "FX_REVALUATION";
+export { FX_REVALUATION_DOC_TYPE };
+
+const FX_RESTATING_DOC_TYPES: ReadonlySet<string> = new Set([FX_REVALUATION_DOC_TYPE, FX_REALISED_DOC_TYPE]);
+
+// INVARIANT: a restatement is known by the document type of its entry, which only the system's own posting sites set; the memo only tells the restated leg from the gain/loss leg inside such an entry. A memo alone proves nothing — a person can type it.
+export function isFxRestatementLine(line: Pick<PostedLine, "memo" | "sourceDocType">): boolean {
+  return line.memo === FX_REVALUATION_LINE_MEMO && FX_RESTATING_DOC_TYPES.has(line.sourceDocType ?? "");
+}
 
 export function fxRevaluationNet(
-  lines: readonly Pick<PostedLine, "accountId" | "source" | "memo" | "debit" | "credit" | "partyId">[],
+  lines: readonly Pick<PostedLine, "accountId" | "memo" | "sourceDocType" | "debit" | "credit" | "partyId">[],
   accountId: string,
 ): Money {
   let net = 0n;
   for (const line of lines) {
-    if (line.accountId !== accountId || line.source !== "system" || line.memo !== FX_REVALUATION_LINE_MEMO || line.partyId) continue;
+    if (line.accountId !== accountId || !isFxRestatementLine(line) || line.partyId) continue;
     net += line.debit.scaled - line.credit.scaled;
   }
   return Money.fromScaled(net);
@@ -402,12 +392,7 @@ export interface PostFxRevaluationResult {
   readonly reversal: JournalEntry | null;
 }
 
-/** ISO date (YYYY-MM-DD) one day after `date`, computed in UTC (no float, no TZ drift). */
-export function nextDay(date: string): string {
-  const d = new Date(`${date}T00:00:00.000Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
+export { nextDay };
 
 /**
  * Compute + post the FX revaluation entry through the GL engine, then (by
@@ -436,6 +421,7 @@ export async function postFxRevaluation(
       lines: computed.lines,
     },
     deps,
+    { isRevaluationRun: true },
   );
 
   let reversal: JournalEntry | null = null;
@@ -448,7 +434,7 @@ export async function postFxRevaluation(
       reversalId: opts.reversalId,
       date: opts.reversalDate ?? nextDay(config.date),
       memo: `عكس إعادة تقييم العملات الأجنبية (${entry.entryNo ?? entry.id})`,
-    });
+    }, { isRevaluationRun: true });
     reversal = result.reversal;
   }
 

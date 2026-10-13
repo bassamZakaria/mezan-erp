@@ -62,7 +62,7 @@ export function createSalesInvoiceGlHook(deps: JournalPostingDeps, stockVariance
         appendLines: stock
           ? async (entry) => stockVarianceLines((await stock({ journalEntryId: entry.id, journalEntryNo: entry.entryNo }))?.unmirroredValue, stockVariance)
           : undefined,
-      });
+      }, { mintedBySystem: opts.mintedBySystem });
       return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
     },
   };

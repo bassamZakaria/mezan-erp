@@ -104,12 +104,12 @@ describe("reversing a reversal", () => {
 
   it("is refused in Arabic with the way forward, and nothing is posted", async () => {
     await collection("LD-V-1", "2026-08-10", "100.00");
-    const first = await world.request("POST", "/vouchers/LD-V-1/reverse", { date: "2026-08-31" });
+    const first = await world.request("POST", "/vouchers/LD-V-1/reverse", { memo: "سبب العكس", date: "2026-08-31" });
     expect(first.status).toBe(201);
     const reversalId = (first.body.reversal as { id: string }).id;
     const entries = world.count("journal_entry");
 
-    const refused = await world.request("POST", `/vouchers/${encodeURIComponent(reversalId)}/reverse`, { date: "2026-09-10" });
+    const refused = await world.request("POST", `/vouchers/${encodeURIComponent(reversalId)}/reverse`, { memo: "سبب العكس", date: "2026-09-10" });
 
     expect(refused.status).toBe(422);
     expect(refused.body).toEqual({
@@ -152,7 +152,7 @@ describe("reversing a reversal", () => {
   it("a chain already in the books — a reversal that was itself reversed — still ties at every month end, and the statement and the aging follow it", async () => {
     const before = { statement: await statement(), standing: await aged("2026-08-20"), reversed: await aged("2026-08-31"), restored: await aged("2026-09-10") };
     await collection("LD-V-2", "2026-08-11", "250.00");
-    const first = await world.request("POST", "/vouchers/LD-V-2/reverse", { date: "2026-08-31" });
+    const first = await world.request("POST", "/vouchers/LD-V-2/reverse", { memo: "سبب العكس", date: "2026-08-31" });
     const reversal = first.body.reversal as { id: string };
     const reversalEntryId = (world.sqlite.prepare(`SELECT journal_entry_id AS id FROM voucher WHERE id = ?`).get(reversal.id) as { id: string }).id;
     const secondEntryNo = mirrorEntry(reversalEntryId, "LD-V-2-RR-JE", "2026-09-10");

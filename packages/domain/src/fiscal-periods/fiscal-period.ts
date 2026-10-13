@@ -9,7 +9,9 @@
  * whether a date is postable.
  */
 
-export type FiscalPeriodStatus = "open" | "closed" | "locked";
+import type { PeriodStatus } from "../period-close/types.js";
+
+export type FiscalPeriodStatus = `${PeriodStatus}`;
 
 export interface FiscalPeriod {
   readonly id: string;

@@ -326,7 +326,7 @@ export function createStockAdjustmentsRoutes(
       }
       const { date, memo } = await readReversalRequest(c);
       await noteReversalOriginalDay(c, existing?.date);
-      const { original, reversal } = await service.reverse(id, { reversalId: `${id}:REVERSAL`, date, memo, reason: memo, actor: callerUserId(c) });
+      const { original, reversal } = await service.reverse(id, { reversalId: `${id}:REVERSAL`, date, memo, reason: memo, actor: callerUserId(c), mintedBySystem: true });
       return c.json({ original: serializeAdjustment(original), reversal: serializeAdjustment(reversal) }, 201);
     } catch (err) {
       return handleDocumentError(c, err);

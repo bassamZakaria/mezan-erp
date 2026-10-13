@@ -37,6 +37,12 @@ export const reconciliationReportSchema = z.object({
       rows: z.array(z.object({ docType: z.string(), docId: z.string(), docNo: z.string().nullable(), movedOn: z.string(), postedOn: z.array(z.string()) })),
     })
     .optional(),
+  allocationsOnReversedVouchers: z
+    .object({
+      count: z.number().int().nonnegative(),
+      rows: z.array(z.object({ allocationId: z.string(), voucherId: z.string(), voucherNo: z.string(), invoiceId: z.string() })),
+    })
+    .optional(),
   stockPositions: z
     .object({
       count: z.number().int().nonnegative(),

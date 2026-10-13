@@ -1,0 +1,42 @@
+{
+  "documentedAt": "https://developers.paymob.com/paymob-docs/developers/transaction-inquiry-apis/by-order-id-or-reference",
+  "note": "The same documented object with the documented is_refund / has_parent_transaction flags set.",
+  "status": 200,
+  "body": {
+    "id": 574601,
+    "pending": false,
+    "amount_cents": 49050,
+    "success": true,
+    "is_auth": false,
+    "is_capture": false,
+    "is_standalone_payment": true,
+    "is_voided": false,
+    "is_refunded": false,
+    "is_3d_secure": true,
+    "integration_id": 4242,
+    "terminal_id": null,
+    "has_parent_transaction": true,
+    "order": {
+      "id": 690898,
+      "merchant_order_id": "checkout-1"
+    },
+    "created_at": "2026-03-01T10:05:00.123456",
+    "paid_at": "2026-03-01T10:05:03.000000",
+    "currency": "EGP",
+    "source_data": {
+      "pan": "2346",
+      "type": "card",
+      "sub_type": "MasterCard"
+    },
+    "is_void": false,
+    "is_refund": true,
+    "error_occured": false,
+    "is_live": false,
+    "owner": 1,
+    "parent_transaction": 574588,
+    "refunded_amount_cents": 0,
+    "is_captured": false,
+    "is_settled": false
+  },
+  "expect": "found"
+}

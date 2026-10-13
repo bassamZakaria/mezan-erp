@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openSqliteConnection } from "@mezan/persistence";
 import { createSessionRegistry } from "@mezan/api";
 import {
+  createBackend,
   createPlatform,
   createPlatformAuth,
   createPlatformRoutes,
@@ -12,7 +13,9 @@ import {
   PlatformAuditAction,
   PlatformAuditUnavailableError,
   type PlatformHandle,
+  type SignedInUser,
 } from "@mezan/backend";
+import { DEVICE_BINDING_HEADER, DEVICE_SECRET_HEADER } from "@mezan/contracts";
 import { activateTenant, AuditSeverityCode, createPlatformUser, createTenant, pendingOwnerExpiresAt, type Tenant } from "@mezan/domain";
 import { createCardCheckoutService } from "./card-checkout.js";
 import {
@@ -30,8 +33,15 @@ import {
 } from "./owner-contact.js";
 import { createPaymobTestProvider } from "./paymob-provider.js";
 import { provisionTenant } from "./provision-tenant.js";
-import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
+import { createTenantRouter, TENANT_HEADER, type TenantRouter, type TenantRouterOptions } from "./tenant-router.js";
 import { resetTenantOwnerPin } from "./owner-pin-reset.js";
+import { reachable } from "./cloud-harness.js";
+
+function reachableRouter(options: TenantRouterOptions): TenantRouter {
+  const router = createTenantRouter(options);
+  reachable(router.app);
+  return router;
+}
 
 const T = "2026-01-15T00:00:00.000Z";
 const now = () => new Date(T);
@@ -67,7 +77,7 @@ interface Cloud {
   readonly mails: HandOverMail[];
 }
 
-async function cloud(): Promise<Cloud> {
+async function cloud(observe: { onSignedIn?: (user: SignedInUser) => void; mailTakesMs?: number; platformTakesMs?: number } = {}): Promise<Cloud> {
   const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-owner-contact-"));
   dirs.push(dataDir);
   const platform = await createPlatform({ dbPath: path.join(dataDir, "platform.db"), now });
@@ -81,6 +91,7 @@ async function cloud(): Promise<Cloud> {
   };
   const tenants = Object.create(platform.stores.tenants) as PlatformHandle["stores"]["tenants"];
   tenants.compareAndSetOwner = async (before, after, sideEffect) => {
+    if (observe.platformTakesMs !== undefined) await new Promise((resolve) => setTimeout(resolve, observe.platformTakesMs));
     if (faults.ownerWriteRefuses) throw new Error("the platform database refused the owner contact");
     if (faults.ownerWritesLost > 0) {
       faults.ownerWritesLost -= 1;
@@ -89,12 +100,35 @@ async function cloud(): Promise<Cloud> {
     return platform.stores.tenants.compareAndSetOwner(before, after, sideEffect);
   };
   const faulty: PlatformHandle = { ...platform, audit, stores: { ...platform.stores, tenants } };
-  const router = createTenantRouter({
+  const router = reachableRouter({
     platform: faulty,
     dataDir,
     sweepEveryMs: 0,
     now,
-    mailPendingHandOver: async (mail) => void mails.push({ to: mail.to, code: mail.tenant.code, successorEmail: mail.successorEmail, token: mail.token }),
+    mailPendingHandOver: async (mail) => {
+      if (observe.mailTakesMs !== undefined) await new Promise((resolve) => setTimeout(resolve, observe.mailTakesMs));
+      mails.push({ to: mail.to, code: mail.tenant.code, successorEmail: mail.successorEmail, token: mail.token });
+    },
+    ...(observe.onSignedIn
+      ? {
+          openBackend: async (_code, dbPath, resolvers, hooks, connection) => {
+            mkdirSync(path.dirname(dbPath), { recursive: true });
+            return createBackend({
+              dbPath,
+              connection,
+              resolveEntitlements: () => resolvers.resolveEntitlements(),
+              resolveLicenseState: () => resolvers.resolveLicenseState(),
+              onUserEmailChanged: hooks.onUserEmailChanged,
+              onUserSignedIn: async (user) => {
+                observe.onSignedIn?.(user);
+                await hooks.onUserSignedIn(user);
+              },
+              companyOwner: hooks.companyOwner,
+              claimedElsewhere: hooks.claimedElsewhere,
+            });
+          },
+        }
+      : {}),
   });
   routers.push(router);
   return { platform, router, dataDir, faults, mails };
@@ -211,7 +245,7 @@ describe("the platform's record of a tenant's owner", () => {
     const raw = openSqliteConnection(path.join(c.dataDir, "platform.db")).sqlite;
     raw.prepare("UPDATE tenant SET owner_user_id = NULL WHERE code = 'legacy'").run();
     raw.close();
-    const reopened = createTenantRouter({ platform: c.platform, dataDir: c.dataDir, sweepEveryMs: 0, now });
+    const reopened = reachableRouter({ platform: c.platform, dataDir: c.dataDir, sweepEveryMs: 0, now });
     routers.push(reopened);
 
     await reopened.backendFor("legacy");
@@ -361,6 +395,63 @@ describe("the platform's record of a tenant's owner", () => {
 
     expect(await co.recorded()).toMatchObject({ ownerEmail: "owner@quebec.example", ownerContactVerified: false });
     expect(await ownerAudit(c, OwnerContactAudit.EmailChanged)).toEqual([]);
+  });
+
+  it("does not announce a sign-in from a device session that is presented again without a PIN, so a console-issued PIN is never taken as proof through it", async () => {
+    const announced: SignedInUser[] = [];
+    const c = await cloud({ onSignedIn: (user) => announced.push(user) });
+    const co = await company(c, "sierra");
+    const onDevice = (route: string, init: { method?: string; token?: string; deviceSecret?: string; body?: unknown }) =>
+      c.router.app.fetch(
+        new Request(`http://ignored${route}`, {
+          method: init.method ?? "GET",
+          headers: {
+            "content-type": "application/json",
+            [TENANT_HEADER]: co.code,
+            [DEVICE_BINDING_HEADER]: "1",
+            ...(init.token ? { authorization: `Bearer ${init.token}` } : {}),
+            ...(init.deviceSecret ? { [DEVICE_SECRET_HEADER]: init.deviceSecret } : {}),
+          },
+          ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+        }),
+      );
+    const beforeTheDevice = announced.length;
+    const first = await onDevice("/auth/login", { method: "POST", body: { username: "owner@sierra.example", pin: co.ownerPin } });
+    expect(first.status).toBe(200);
+    const device = (await first.json()) as { token: string; deviceSecret: string };
+    expect(device.deviceSecret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(announced.length).toBe(beforeTheDevice + 1);
+    expect(announced.at(-1)).toMatchObject({ email: "owner@sierra.example", credentialIsOwn: true });
+
+    await ownerMovedWhilePlatformWasDown(c, co, "inbox@elsewhere.example");
+    const reset = await resetTenantOwnerPin({ platform: c.platform, router: c.router }, { tenant: await co.recorded(), actorId: "op-1" });
+    const afterReset = announced.length;
+
+    const again = await onDevice("/users", { token: device.token, deviceSecret: device.deviceSecret });
+    const withoutPin = await onDevice("/auth/login", { method: "POST", deviceSecret: device.deviceSecret, body: { username: "inbox@elsewhere.example" } });
+    const wrongPin = await onDevice("/auth/login", { method: "POST", deviceSecret: device.deviceSecret, body: { username: "inbox@elsewhere.example", pin: "000000" } });
+
+    expect([200, 401]).toContain(again.status);
+    expect([withoutPin.status, wrongPin.status]).toEqual([400, 401]);
+    expect(announced.length).toBe(afterReset);
+    expect(await co.recorded()).toMatchObject({ ownerEmail: "owner@sierra.example", ownerContactVerified: false });
+
+    const withTheResetPin = await onDevice("/auth/login", { method: "POST", deviceSecret: device.deviceSecret, body: { username: "inbox@elsewhere.example", pin: reset.adminPin } });
+    expect(withTheResetPin.status).toBe(200);
+    expect(announced.at(-1)).toMatchObject({ email: "inbox@elsewhere.example", credentialIsOwn: false });
+    expect(await co.recorded()).toMatchObject({ ownerEmail: "owner@sierra.example", ownerContactVerified: false });
+  });
+
+  it("saves an owner's new address, and the platform follows it, when the platform's database takes its time", async () => {
+    const c = await cloud({ platformTakesMs: 20 });
+    const co = await company(c, "uniform");
+    const owner = await co.user("owner@uniform.example");
+
+    const moved = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "moved@uniform.example" });
+
+    expect(moved.status).toBe(200);
+    expect(await co.recorded()).toMatchObject({ ownerEmail: "moved@uniform.example" });
+    expect((await co.signIn("moved@uniform.example", co.ownerPin)).status).toBe(200);
   });
 
   it("does not follow an email changed in a session opened with a PIN the console issued", async () => {
@@ -551,6 +642,21 @@ describe("a hand-over the platform cannot take as the owner's own act", () => {
     expect(await tenantAudit(co, "COMPANY_OWNER_HAND_OVER", peer.token)).toMatchObject([
       { entityId: peer.id, severity: "CRITICAL", details: { fromUserId: owner["id"], toUserId: peer.id, outcome: "pending" } },
     ]);
+  });
+
+  it("saves the owner's step-down and records it pending when the mail server takes its time over the confirmation link", async () => {
+    const c = await cloud({ mailTakesMs: 20 });
+    const co = await company(c, "tango");
+    const peer = await secondAdmin(co);
+
+    const { owner, status } = await ownerStepsDownOnConsolePin(c, co, peer.id);
+
+    expect(status).toBe(200);
+    const accounts = (await co.call("GET", "/users", undefined, peer.token)).json as { email: string; status: string }[];
+    expect(accounts.find((account) => account.email === "owner@tango.example")?.status).toBe("inactive");
+    expect(await co.recorded()).toMatchObject({ ownerUserId: owner["id"], pendingOwner: { userId: peer.id, email: "second@tango.example" } });
+    expect(c.mails).toEqual([expect.objectContaining({ to: "owner@tango.example", successorEmail: "second@tango.example" })]);
+    expect(await tenantAudit(co, "COMPANY_OWNER_HAND_OVER", peer.token)).toMatchObject([{ entityId: peer.id, details: { outcome: "pending" } }]);
   });
 
   it("makes the pending successor the verified owner when the previous owner opens the link they were mailed, once", async () => {
@@ -965,7 +1071,7 @@ describe("a tenant whose owner the platform does not know by id", () => {
     const raw = openSqliteConnection(path.join(c.dataDir, "platform.db")).sqlite;
     raw.prepare("UPDATE tenant SET owner_user_id = NULL WHERE code = ?").run(code);
     raw.close();
-    const reopened = createTenantRouter({ platform: c.platform, dataDir: c.dataDir, sweepEveryMs: 0, now });
+    const reopened = reachableRouter({ platform: c.platform, dataDir: c.dataDir, sweepEveryMs: 0, now });
     routers.push(reopened);
     return reopened;
   }

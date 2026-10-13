@@ -16,7 +16,8 @@
 
 import { Money } from "../money/index.js";
 import { postJournalEntry, reverseJournalEntry, type JournalLineInput, type JournalPostingDeps } from "../gl/index.js";
-import { laterDay, type AllocatableInvoice, type SettlementRates, type SettlementSplit, type VoucherAllocation } from "./allocation.js";
+import { FX_SHARE_RELEASE_ENTRY_PREFIX } from "../gl/revaluation-lock.js";
+import { laterDay, type AllocatableInvoice, type FxOpenItemRef, type FxShareRelief, type SettlementRates, type SettlementSplit, type VoucherAllocation } from "./allocation.js";
 import type { AllocationInvoiceKind } from "./voucher-types.js";
 
 /** `sourceDocType` of a realised-FX entry and, through the mirror, of its reversal. The ladders skip these lines by it. */
@@ -43,8 +44,7 @@ export interface RealisedFxPort {
   rateOn(currency: string, date: string): Promise<string | null>;
   /** Where a realised difference posts, read at each posting so a tenant's account routing applies at once (D229). */
   differenceAccounts(): Promise<FxDifferenceAccounts>;
-  revaluationShare?(invoice: AllocatableInvoice): Promise<Money>;
-  moneyRevaluationShare?(voucherId: string): Promise<Money>;
+  revaluationShareTaken?(item: FxOpenItemRef, relief: FxShareRelief): Promise<Money>;
   releaseMoneyShare?(voucherId: string, date: string): Promise<void>;
   treasuryRevaluationShare?(treasuryAccountId: string, foreign: Money, fromDate: string, toDate: string): Promise<Money>;
   treasuryPosition?(treasuryAccountId: string, asOfDate: string): Promise<{ readonly foreign: Money; readonly base: Money } | null>;
@@ -220,6 +220,7 @@ export async function postRealisedFx(
       lines,
     },
     gl,
+    { mintedBySystem: true },
   );
   return id;
 }
@@ -267,7 +268,7 @@ export async function allocationUndoDay(
 }
 
 /** Mirrors the settlement entry of an allocation being undone, on the day from {@link allocationUndoDay}. */
-export const FX_SHARE_RELEASE_ENTRY_PREFIX = "FXR:release:";
+export { FX_SHARE_RELEASE_ENTRY_PREFIX };
 
 export function fxLateReleaseEntryId(itemId: string, allocationId: string, generation: number): string {
   return `${FX_SHARE_RELEASE_ENTRY_PREFIX}${itemId}:late:${allocationId}:${generation}`;
@@ -293,6 +294,6 @@ export async function reverseRealisedFx(allocation: VoucherAllocation, gl: Journ
       reversalId: realisedFxReversalId(entryId),
       date: laterDay(date, entry.date.slice(0, 10)),
       memo: `عكس فروق عملة محققة (${entry.entryNo ?? entry.id})`,
-    });
+    }, { mintedBySystem: true });
   }
 }

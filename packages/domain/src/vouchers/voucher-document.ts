@@ -163,6 +163,10 @@ export function isStandingVoucher(doc: VoucherDocument): boolean {
   return (doc.status === "confirmed" || doc.status === "posted") && !doc.reversesDocId;
 }
 
+export function voucherTakesAllocations(doc: VoucherDocument): boolean {
+  return getVoucherTypeDefinition(voucherLine(doc).voucherType).allocatable && doc.status !== "reversed" && !doc.reversesDocId;
+}
+
 export function voucherStandsAsOf(doc: VoucherDocument, byId: ReadonlyMap<string, VoucherDocument>, asOfDate: string | undefined): boolean {
   if (doc.reversesDocId) return false;
   const dates = [doc.date];

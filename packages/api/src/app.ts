@@ -1790,8 +1790,8 @@ function buildHeldDocumentResolver(options: CreateAppOptions, salesInvoices: Sal
     confirm: async (docId, actor) => {
       await svc.confirm(docId, { actor });
     },
-    returnToDraft: async (docId) => {
-      await svc.returnToDraft(docId);
+    returnToDraft: async (docId, actor) => {
+      await svc.returnToDraft(docId, { actor });
     },
   });
 
@@ -1818,8 +1818,8 @@ function buildHeldDocumentResolver(options: CreateAppOptions, salesInvoices: Sal
       confirm: async (docId, actor) => {
         await new VoucherService({ ...vouchers, actor }).confirmVoucher(docId);
       },
-      returnToDraft: async (docId) => {
-        await new VoucherService(vouchers).returnVoucherToDraft(docId);
+      returnToDraft: async (docId, actor) => {
+        await new VoucherService(vouchers).returnVoucherToDraft(docId, { actor });
       },
     };
   }

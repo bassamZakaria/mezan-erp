@@ -474,8 +474,8 @@ export class VoucherService {
   }
 
   /** Hand a voucher held بانتظار الموافقة back to its submitter as a draft. */
-  async returnVoucherToDraft(id: string): Promise<VoucherDocument> {
-    return this.service.returnToDraft(id);
+  async returnVoucherToDraft(id: string, opts: { readonly actor?: string } = {}): Promise<VoucherDocument> {
+    return this.service.returnToDraft(id, opts);
   }
 
   /** Cancel a draft/pending voucher (a live one is reversed instead). */

@@ -22,6 +22,7 @@ enum AuditedAct {
   Cancel = "CANCEL",
   Reverse = "REVERSE",
   Resubmit = "RESUBMIT",
+  ReturnToDraft = "RETURN_TO_DRAFT",
 }
 
 const CALLER = "USER-CLERK";
@@ -54,7 +55,7 @@ function requestStore(): ApprovalRequestRepository {
 function arrange(act: AuditedAct, serviceActor?: string) {
   const audit = new RecordingAuditSink();
   const requests = requestStore();
-  const gated = act === AuditedAct.Resubmit;
+  const gated = act === AuditedAct.Resubmit || act === AuditedAct.ReturnToDraft;
   const workflow = createDocumentWorkflowGate((actionType: GateableActionType): GateConfig => ({ actionType, steps: [{ role: "manager" }] }), requests);
   const service = new DocumentService(definition(gated), { repo: new InMemoryDocumentRepository<Line>(), audit, workflow, actor: serviceActor });
   return { audit, requests, service };
@@ -78,6 +79,10 @@ async function perform(act: AuditedAct, service: DocumentService<Line>, requests
       await decideApproval("d1:confirm", { actorId: "boss", actorRoles: ["manager"], decision: "reject" }, requests);
       await service.returnToDraft("d1");
       await service.resubmit("d1", { actor });
+      return;
+    case AuditedAct.ReturnToDraft:
+      await service.confirm("d1", { actor: "someone-else" });
+      await service.returnToDraft("d1", { actor });
       return;
   }
 }

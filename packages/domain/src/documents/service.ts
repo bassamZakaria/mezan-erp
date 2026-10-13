@@ -266,13 +266,14 @@ export class DocumentService<Line> {
    * draft — what "طلب تعديل" (request modification) and a rejection mean for
    * the DOCUMENT, as opposed to for the approval request.
    */
-  async returnToDraft(id: string): Promise<FrameworkDocument<Line>> {
+  async returnToDraft(id: string, opts: CancelOptions = {}): Promise<FrameworkDocument<Line>> {
     const returned = await this.deps.repo.transaction(async () => {
       const existing = await this.require(id);
       if (existing.status === "draft") return null;
       assertTransition(this.def.code, id, existing.status, "draft");
       const next: FrameworkDocument<Line> = { ...existing, status: "draft", workflowRequestId: null };
       await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], existing.status);
+      await this.recordAudit("RETURN_TO_DRAFT", next, "INFO", { actor: opts.actor });
       return next;
     });
     if (!returned) return this.require(id);
@@ -498,7 +499,7 @@ export class DocumentService<Line> {
   }
 
   private async recordAudit(
-    action: "CONFIRM" | "CANCEL" | "REVERSE" | "RESUBMIT",
+    action: "CONFIRM" | "CANCEL" | "REVERSE" | "RESUBMIT" | "RETURN_TO_DRAFT",
     doc: FrameworkDocument<Line>,
     severity: "INFO" | "WARNING",
     by: { readonly actor?: string; readonly reversalId?: string; readonly reason?: string } = {},

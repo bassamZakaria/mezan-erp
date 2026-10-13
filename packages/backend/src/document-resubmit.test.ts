@@ -63,6 +63,8 @@ describe.each(FAMILIES)("resubmitting a rejected $mount document", (family) => {
     const rejected = await read(family.reader);
     expect([rejected.status, rejected.approval], JSON.stringify(rejected)).toEqual(["draft", { status: "rejected", rejectionReason: REJECTION, rejectedBy: "USER-ADMIN" }]);
 
+    expect((await kit.auditRows(family.auditEntity, id, "RETURN_TO_DRAFT")).map((row) => row.actor)).toEqual(["USER-ADMIN"]);
+
     const confirmedAgain = await kit.call("POST", `${family.mount}/${id}/confirm`, {}, family.submitter);
     expect([confirmedAgain.status, confirmedAgain.body.error]).toEqual([409, "APPROVAL_REQUEST_REJECTED"]);
   });

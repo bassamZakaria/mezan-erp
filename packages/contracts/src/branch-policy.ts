@@ -344,7 +344,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   scoped("/purchase-returns", K.PurchaseReturn, { handlerNarrowed: COUNTS_AND_STATS, params: { lineId: null, invoiceId: null } }),
   scoped("/rfqs", K.Rfq, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
   scoped("/landed-costs", K.LandedCost),
-  scoped("/vouchers", K.Voucher, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),
+  scoped("/vouchers", K.Voucher, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true, params: { allocationId: null } }),
   scoped("/allocations", K.VoucherAllocation),
   scoped("/open-invoices", K.AnyInvoice),
   scoped("/cheques", K.Cheque, { handlerNarrowed: COUNTS_AND_STATS, defaultsBranch: true }),

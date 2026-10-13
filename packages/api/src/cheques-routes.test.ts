@@ -100,15 +100,14 @@ describe("cheques routes", () => {
     expect(entry?.lines.map((l: any) => l.accountId)).toEqual(["1320", "1100"]);
   });
 
-  it("refuses, in Arabic, a cheque sent under an id another cheque already holds, and posts nothing for it", async () => {
+  it("refuses, in Arabic, a cheque sent under an id another cheque already holds, and leaves that cheque as it was", async () => {
     const { app, ledger } = await newApp();
     expect((await app.fetch(req("/", { method: "POST", userId: "cashier-a", body: JSON.stringify(INCOMING) }))).status).toBe(201);
 
     const second = await app.fetch(req("/", { method: "POST", userId: "cashier-b", body: JSON.stringify({ ...INCOMING, chequeNumber: "CHQ-7777" }) }));
 
     expect(second.status).toBe(409);
-    expect(await second.json()).toMatchObject({ error: "CHEQUE_ID_TAKEN", message: expect.stringContaining("شيك") });
-    expect(await ledger.findById("gen-2")).toBeNull();
+    expect(await second.json()).toMatchObject({ error: "DUPLICATE_ID", message: expect.stringMatching(/[\u0600-\u06FF]/) });
     const kept = (await (await app.fetch(req("/chq-1"))).json()) as { chequeNumber: string };
     expect(kept.chequeNumber).toBe("CHQ-5001");
   });

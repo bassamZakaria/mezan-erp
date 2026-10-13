@@ -383,7 +383,7 @@ export const cardCheckoutSchema = z.object({
   providerRef: z.string().nullable(),
   paymentId: z.string().nullable(),
   failureReason: z.string().nullable(),
-  capturedAmount: z.string().nullable(),
+  capturedAmount: nonNegativeMoneyString.nullable(),
   requestedBy: z.string().min(1),
   attentionCause: cardCheckoutAttentionCauseSchema.nullable(),
   resolution: cardCheckoutResolutionSchema.nullable(),

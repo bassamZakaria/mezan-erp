@@ -164,16 +164,23 @@ const preloaded = new WeakMap<Request, Promise<void>>();
 
 // Read BEFORE the connection is taken, whatever the content type says: the body
 // arrives over the socket, and a handler awaiting it with the turn held keeps
-// every other request of the tenant waiting on a slow client. Hono serves later
-// reads from this cache — as bytes, so a body that is not text survives it.
+// every other request of the tenant waiting on a slow client. Read as BYTES, so
+// a handler may still parse it as JSON under any content type; a form is parsed
+// from those bytes with its own content type, which Hono's cache would drop.
 // Once per request, however many middlewares ask.
 export function preloadBody(c: Context): Promise<void> {
   const already = preloaded.get(c.req.raw);
   if (already) return already;
-  const type = (c.req.header("content-type") ?? "").toLowerCase();
-  const isForm = type.includes("multipart/form-data") || type.includes("application/x-www-form-urlencoded");
-  const loading = (isForm ? c.req.formData() : c.req.arrayBuffer()).then(
-    () => undefined,
+  const type = c.req.header("content-type") ?? "";
+  const lowered = type.toLowerCase();
+  const isForm = lowered.includes("multipart/form-data") || lowered.includes("application/x-www-form-urlencoded");
+  const loading = c.req.arrayBuffer().then(
+    (bytes) => {
+      if (!isForm) return;
+      const form = new Response(bytes, { headers: { "content-type": type } }).formData();
+      form.catch(() => undefined);
+      (c.req.bodyCache as { formData?: Promise<FormData> }).formData = form;
+    },
     () => undefined,
   );
   preloaded.set(c.req.raw, loading);

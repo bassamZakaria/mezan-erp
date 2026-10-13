@@ -161,10 +161,6 @@ function handleDomainError(c: Context, err: unknown): Response {
  * `ChequeService.replace`'s doc comment). "تحت التحصيل"/"المستحقة اليوم" have
  * no endpoints of their own — they're derived at read time (status.ts).
  */
-export enum ChequeRefusal {
-  IdTaken = "CHEQUE_ID_TAKEN",
-}
-
 export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: AuthContextResolver) {
   const app = new Hono();
   const service = new ChequeService(deps);
@@ -358,9 +354,6 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
       { kind: MasterDataKind.Branch, ids: [d.branchId] },
     ]);
     if (branchRefusal) return branchRefusal;
-    if (d.id !== undefined && (await service.findById(d.id)) !== null) {
-      return c.json({ error: ChequeRefusal.IdTaken, message: "يوجد شيك مسجَّل بهذا المعرّف بالفعل، فلم يُسجَّل هذا الشيك. أنشئ شيكًا جديدًا." }, 409);
-    }
     try {
       const cheque = await service.createCheque({
         id: d.id ?? idGen(),

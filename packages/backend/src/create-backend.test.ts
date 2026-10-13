@@ -5570,14 +5570,14 @@ describe("createBackend — foreign documents settle and return in base (D202, D
 
     const today = toTenantDay(new Date().toISOString());
 
-    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500", date: today }, admin(app))).status).toBe(201);
     expect(await glBalance(app, "4920")).toBe(-100);
     expect(await position(app, today, "1105")).toEqual(half);
     // D265: applied by hand today, so at the August close the receipt was still on account.
     expect(await position(app, "2026-08-31", "1105")).toEqual(open);
     expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
     expect(await position(app, today, "1105")).toEqual(open);
-    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500", date: today }, admin(app))).status).toBe(201);
     expect(await position(app, today, "1105")).toEqual(half);
     expect(await reconDiff(app, "ar")).toBe(0);
 
@@ -5611,12 +5611,12 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "2100", supplierId: "sup-usd",
     }, admin(app))).status).toBe(201);
     expect((await post(app, "/vouchers/v-chq/confirm", {}, admin(app))).status).toBe(200);
-    expect((await post(app, "/cheques/v-chq/allocations", { allocationId: "al-chq", invoiceId: "pi-usd", amount: "5000" }, admin(app))).status).toBe(201);
+    const today = toTenantDay(new Date().toISOString());
+    expect((await post(app, "/cheques/v-chq/allocations", { allocationId: "al-chq", invoiceId: "pi-usd", amount: "5000", date: today }, admin(app))).status).toBe(201);
     expect((await get(app, "/purchases/invoices/pi-usd")).remainingBalance).toBe("0.000000");
     expect(await glBalance(app, "2100")).toBe(0);
     expect(await glBalance(app, "5920")).toBe(200);
 
-    const today = toTenantDay(new Date().toISOString());
     const open = { foreign: "100.000000", booked: "4800.000000", delta: "-100.000000", gainLoss: "100.000000" };
     expect(await position(app, today, "2100")).toBeNull();
     expect((await revaluationPreview(app, today)).hasImpact).toBe(false);
@@ -5704,7 +5704,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     await halfReceiptOnAccount(app);
     const today = toTenantDay(new Date().toISOString());
     for (const id of ["al-1", "al-2"]) {
-      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: id, invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: id, invoiceId: "inv-usd", amount: "2500", date: today }, admin(app))).status).toBe(201);
       if (id === "al-1") expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
     }
     for (const id of ["FXR:al-1", "FXR:al-1:REV", "FXR:al-2"]) {
@@ -5724,7 +5724,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     vi.useFakeTimers({ toFake: ["Date"] });
     try {
       at("2026-08-28");
-      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "2500", date: "2026-08-28" }, admin(app))).status).toBe(201);
       const periods = (await get(app, "/fiscal-periods")) as { id: string; startDate: string; endDate: string }[];
       const august = periods.find((p) => p.startDate <= "2026-08-28" && p.endDate >= "2026-08-28")!;
       at("2026-09-02");
@@ -5734,7 +5734,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
       expect((await post(app, `/fiscal-periods/${august.id}/close`, { overrideReason: "إقفال أغسطس قبل إعادة تقييم العملات" }, admin(app))).status).toBe(200);
       expect((await post(app, "/allocations/al-1/reverse", {}, admin(app))).status).toBe(200);
       at("2026-09-05");
-      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500" }, admin(app))).status).toBe(201);
+      expect((await post(app, "/vouchers/v-half/allocations", { allocationId: "al-2", invoiceId: "inv-usd", amount: "2500", date: "2026-09-05" }, admin(app))).status).toBe(201);
     } finally {
       vi.useRealTimers();
     }

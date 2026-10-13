@@ -363,7 +363,8 @@ describe("a month-end run posted after the item it restates was already relieved
     books = await openFxBooks();
     await books.invoice(side);
     await books.rate("fx-settle", "48.70", "2026-09-10");
-    await relieve(ReliefPath.Settlement, side, 1000n);
+    await books.voucher(side, "v-1000", "48700");
+    await books.ok("POST", "/vouchers/v-1000/allocations", { allocationId: "al-v-1000", invoiceId: side === FxSide.Receivable ? "inv-usd" : "pi-usd", amount: "48700", date: "2026-10-02" });
     await books.revalue("48.45", "2026-08-31");
 
     await books.revalue("49.00", "2026-09-30");

@@ -63,6 +63,7 @@ import {
   createTenantRequestSchema,
   provisionRetryRequestSchema,
   assignOwnerRequestSchema,
+  unlockTenantAccountRequestSchema,
   setBillingAnchorDayRequestSchema,
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
@@ -146,6 +147,9 @@ export enum PlatformAuditAction {
   SubscriptionStarted = "SUBSCRIPTION_STARTED",
   SubscriptionSuspended = "SUBSCRIPTION_SUSPENDED",
   TenantArchived = "TENANT_ARCHIVED",
+  TenantAccountUnlockRequested = "TENANT_ACCOUNT_UNLOCK_REQUESTED",
+  TenantAccountUnlocked = "TENANT_ACCOUNT_UNLOCKED",
+  TenantAccountUnlockRefused = "TENANT_ACCOUNT_UNLOCK_REFUSED",
   TenantOwnerPinReset = "TENANT_OWNER_PIN_RESET",
   TenantOwnerPinResetRefused = "TENANT_OWNER_PIN_RESET_REFUSED",
   TenantOwnerPinResetRequested = "TENANT_OWNER_PIN_RESET_REQUESTED",
@@ -170,6 +174,10 @@ export interface CreatePlatformRoutesOptions {
   readonly provisionRetry?: (input: { tenantId: string; actorId: string } & ProvisionRetryRequestDTO, activation: RecordedActivation) => Promise<ProvisionResultDTO>;
   readonly resetOwnerPin?: (input: { tenant: Tenant; actorId: string; recordIntent: (account: OwnerPinResetAccount) => Promise<void> }) => Promise<OwnerPinResetResultDTO>;
   readonly releaseTenant?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
+  readonly lockedAccounts?: (tenant: Tenant) => Promise<readonly string[]>;
+  // CONTRACT: false when the account is not locked. The tenant's own audit row
+  // is the dependency's to write, in the step that clears the lock.
+  readonly unlockAccount?: (input: { tenant: Tenant; account: string; actorId: string }) => Promise<boolean>;
   readonly ownerCandidates?: (tenant: Tenant) => Promise<OwnerCandidateDTO[]>;
   readonly assignOwner?: (input: { tenant: Tenant; userId: string; actorId: string }) => Promise<Tenant>;
   readonly confirmPendingOwner?: (input: { tenant: Tenant; actorId: string }) => Promise<Tenant>;
@@ -374,7 +382,7 @@ function domainErrorResponse(c: Context, err: unknown): Response {
 export type RecordedActivation = (activate: () => Promise<Tenant>) => Promise<Tenant>;
 
 export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono {
-  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
+  const { platform, auth, now, provisionTenant, provisionRetry, resetOwnerPin, releaseTenant, lockedAccounts, unlockAccount, ownerCandidates, assignOwner, confirmPendingOwner, declinePendingOwner, resendPendingOwner, reconcileOwner, reconcileOpenOwners, invalidateEntitlements, idOf = randomUUID } = options;
   const nowIso = () => now().toISOString();
 
   async function requireTenant(id: string): Promise<Tenant> {
@@ -583,6 +591,45 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
       if (!resendPendingOwner) throw new Error("resendPendingOwner dependency is not configured");
       const resent = await resendPendingOwner({ tenant, actorId: c.get("platformUser")!.id });
       return c.json(await tenantSummary(platform, resent, nowIso()));
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  app.get("/tenants/:id/locked-accounts", requireOwner, async (c) => {
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      const accounts = isLive(tenant) && lockedAccounts ? await lockedAccounts(tenant) : [];
+      return c.json({ accounts: [...accounts] });
+    } catch (err) {
+      return domainErrorResponse(c, err);
+    }
+  });
+
+  // REQUIRED ORDERING: the request is recorded, or refused with 503, BEFORE the
+  // tenant's lock is touched. The lock lives in the tenant's own database and
+  // cannot share a transaction with this row, so the row that says it was
+  // asked for is the one that must not be missing.
+  app.post("/tenants/:id/unlock-account", requireOwner, async (c) => {
+    const parsed = unlockTenantAccountRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const { account } = parsed.data;
+    try {
+      const tenant = await requireTenant(c.req.param("id"));
+      if (!isLive(tenant)) return c.json({ error: "TENANT_NOT_LIVE", message: "لا يُفكّ قفل حساب إلا في منشأة نشطة أو موقوفة", messageEn: "An account can be unlocked only in an active or suspended tenant." }, 409);
+      if (!unlockAccount || !lockedAccounts) throw new Error("unlockAccount dependency is not configured");
+      const details = { code: tenant.code, account };
+      await recordedWith(c, async () => ({
+        value: null,
+        action: PlatformAuditAction.TenantAccountUnlockRequested,
+        entityId: tenant.id,
+        details,
+        severity: AuditSeverityCode.Critical,
+      }));
+      const unlocked = await unlockAccount({ tenant, account, actorId: c.get("platformUser")!.id });
+      await noted(c, unlocked ? PlatformAuditAction.TenantAccountUnlocked : PlatformAuditAction.TenantAccountUnlockRefused, tenant.id, details, AuditSeverityCode.Critical);
+      if (!unlocked) return c.json({ error: "ACCOUNT_NOT_LOCKED", message: "هذا الحساب غير مقفل في هذه المنشأة.", messageEn: "This account is not locked in this tenant." }, 409);
+      return c.json({ accounts: [...(await lockedAccounts(tenant))] });
     } catch (err) {
       return domainErrorResponse(c, err);
     }

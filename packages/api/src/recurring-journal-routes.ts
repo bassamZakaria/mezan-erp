@@ -455,11 +455,9 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
     const parsed = skipRecurringJournalOccurrenceSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const skip = await skipRecurringJournalOccurrence(
-        c.req.param("id"),
-        parsed.data.period,
-        parsed.data.note ?? null,
-        {
+      // REQUIRED: the skip and the event that records it are one transaction.
+      const skip = await deps.ledger.transaction(() =>
+        skipRecurringJournalOccurrence(c.req.param("id"), parsed.data.period, parsed.data.note ?? null, {
           templates: deps.templates,
           runs: deps.runs,
           skips: deps.skips,
@@ -468,7 +466,7 @@ export function createRecurringJournalRoutes(deps: RecurringJournalRoutesDeps, r
           now: deps.now,
           actor: getAuthContext(c)?.userId ?? "system",
           idGen,
-        },
+        }),
       );
       return c.json(serializeSkip(skip), 201);
     } catch (err) {

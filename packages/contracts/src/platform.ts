@@ -95,6 +95,14 @@ export const assignOwnerRequestSchema = z.object({
   userId: z.string().trim().min(1),
 });
 
+export const unlockTenantAccountRequestSchema = z.object({
+  account: z.string().trim().toLowerCase().min(1).max(320),
+});
+
+export const lockedTenantAccountsSchema = z.object({
+  accounts: z.array(z.string()),
+});
+
 export const tenantSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),
@@ -511,6 +519,8 @@ export type ProvisionResultDTO = z.infer<typeof provisionResultSchema>;
 export type OwnerPinResetResultDTO = z.infer<typeof ownerPinResetResultSchema>;
 export type OwnerCandidateDTO = z.infer<typeof ownerCandidateSchema>;
 export type AssignOwnerRequestDTO = z.infer<typeof assignOwnerRequestSchema>;
+export type UnlockTenantAccountRequestDTO = z.infer<typeof unlockTenantAccountRequestSchema>;
+export type LockedTenantAccountsDTO = z.infer<typeof lockedTenantAccountsSchema>;
 export type PendingOwnerDTO = z.infer<typeof pendingOwnerSchema>;
 export type StartSubscriptionRequestDTO = z.infer<typeof startSubscriptionRequestSchema>;
 export type ChangePlanRequestDTO = z.infer<typeof changePlanRequestSchema>;

@@ -19,6 +19,7 @@ import { moduleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
 import { TenantOwnerCard } from "./TenantOwnerCard";
+import { TenantLockedAccountsCard } from "./TenantLockedAccountsCard";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { attentionCauseKey, resolvedKey } from "./card-checkout-labels";
@@ -265,6 +266,8 @@ export function TenantDetailPage() {
         </div>
         <TenantOwnerCard tenant={tenant} isOwner={isOwner} onError={onMutationError} />
       </div>
+
+      <TenantLockedAccountsCard tenant={tenant} isOwner={isOwner} onError={onMutationError} />
 
       {mutationError ? (
         <Card className="p-[14px_16px]">

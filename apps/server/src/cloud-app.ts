@@ -194,6 +194,8 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     provisionRetry: provisionRetryForRoutes,
     resetOwnerPin: resetOwnerPinForRoutes,
     releaseTenant: (input) => releaseProvisioningTenant({ platform, router, dataDir: env.platformDir, now }, input),
+    lockedAccounts: (tenant) => router.lockedAccountsOf(tenant.id),
+    unlockAccount: ({ tenant, account, actorId }) => router.unlockAccountOf({ tenantId: tenant.id, account, actor: platformActor(actorId) }),
     ownerCandidates: (tenant) => router.ownerCandidates(tenant.id),
     assignOwner: ({ tenant, userId, actorId }) => router.assignOwner({ tenantId: tenant.id, userId, actor: platformActor(actorId) }),
     confirmPendingOwner: ({ tenant, actorId }) => router.confirmPendingOwner({ tenantId: tenant.id, actor: platformActor(actorId) }),

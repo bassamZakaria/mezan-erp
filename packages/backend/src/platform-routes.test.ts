@@ -291,6 +291,91 @@ describe("createPlatformRoutes", () => {
     expect(rows.find((r) => r.action === "TENANT_SUSPENDED")?.actor).toBe("PU-OWNER");
   });
 
+  describe("a tenant account locked out of sign-in", () => {
+    function lockedTenant() {
+      const locked = new Set(["acme-owner@example.com", "cashier@example.com"]);
+      const unlocks: string[] = [];
+      return {
+        locked,
+        unlocks,
+        deps: {
+          lockedAccounts: async () => [...locked].sort(),
+          unlockAccount: async ({ account, actorId }: { account: string; actorId: string }) => {
+            unlocks.push(`${account} by ${actorId}`);
+            return locked.delete(account);
+          },
+        },
+      };
+    }
+    const unlock = (rig: Rig, tenantId: string, token: string, account: unknown) =>
+      rig.app.fetch(req(`/tenants/${tenantId}/unlock-account`, token, { method: "POST", body: JSON.stringify({ account }) }));
+    const unlockRows = async (rig: Rig) => (await rig.platform.audit.query("security")).filter((row) => row.action.startsWith("TENANT_ACCOUNT_UNLOCK")).reverse();
+
+    it("is listed for the platform owner and unlocked by them, with the request and the outcome both in the platform audit", async () => {
+      const t = lockedTenant();
+      const rig = await buildRig(t.deps);
+      const { body } = await provisionOne(rig);
+
+      const listed = await rig.app.fetch(req(`/tenants/${body.tenant.id}/locked-accounts`, rig.ownerToken));
+      expect(await json(listed)).toEqual({ accounts: ["acme-owner@example.com", "cashier@example.com"] });
+
+      const res = await unlock(rig, body.tenant.id, rig.ownerToken, " Acme-Owner@Example.com ");
+
+      expect(res.status).toBe(200);
+      expect(await json(res)).toEqual({ accounts: ["cashier@example.com"] });
+      expect(t.unlocks).toEqual(["acme-owner@example.com by PU-OWNER"]);
+      const rows = await unlockRows(rig);
+      expect(rows.map((row) => row.action)).toEqual(["TENANT_ACCOUNT_UNLOCK_REQUESTED", "TENANT_ACCOUNT_UNLOCKED"]);
+      expect(rows.every((row) => row.actor === "PU-OWNER" && row.entityId === body.tenant.id && row.severity === "CRITICAL")).toBe(true);
+      expect(rows[0]?.details).toMatchObject({ code: "acme", account: "acme-owner@example.com" });
+    });
+
+    it("is refused to a support operator, for the list and for the unlock, and nothing is unlocked", async () => {
+      const t = lockedTenant();
+      const rig = await buildRig(t.deps);
+      const { body } = await provisionOne(rig);
+
+      const listed = await rig.app.fetch(req(`/tenants/${body.tenant.id}/locked-accounts`, rig.supportToken));
+      const res = await unlock(rig, body.tenant.id, rig.supportToken, "acme-owner@example.com");
+
+      expect([listed.status, res.status]).toEqual([403, 403]);
+      expect(t.unlocks).toEqual([]);
+    });
+
+    it("answers 503 in Arabic and unlocks nothing when the audit cannot record that the unlock was asked for", async () => {
+      const t = lockedTenant();
+      const rig = await buildRig(t.deps);
+      const { body } = await provisionOne(rig);
+      const append = rig.platform.audit.append.bind(rig.platform.audit);
+      rig.platform.audit.append = async (event) => {
+        if (event.action === "TENANT_ACCOUNT_UNLOCK_REQUESTED") throw new Error("audit sink down");
+        await append(event);
+      };
+
+      const res = await unlock(rig, body.tenant.id, rig.ownerToken, "acme-owner@example.com");
+      rig.platform.audit.append = append;
+
+      expect(res.status).toBe(503);
+      expect(await json(res)).toMatchObject({ error: "AUDIT_UNAVAILABLE", message: expect.stringMatching(/[\u0600-\u06FF]/), messageEn: expect.any(String) });
+      expect(t.unlocks).toEqual([]);
+      expect(t.locked.has("acme-owner@example.com")).toBe(true);
+    });
+
+    it("says in Arabic that an account is not locked, records the refusal, and rejects a body that names no account", async () => {
+      const t = lockedTenant();
+      const rig = await buildRig(t.deps);
+      const { body } = await provisionOne(rig);
+
+      const notLocked = await unlock(rig, body.tenant.id, rig.ownerToken, "someone-else@example.com");
+      const invalid = await unlock(rig, body.tenant.id, rig.ownerToken, "");
+
+      expect(notLocked.status).toBe(409);
+      expect(await json(notLocked)).toMatchObject({ error: "ACCOUNT_NOT_LOCKED", message: expect.stringMatching(/[\u0600-\u06FF]/), messageEn: expect.any(String) });
+      expect(invalid.status).toBe(400);
+      expect((await unlockRows(rig)).map((row) => row.action)).toEqual(["TENANT_ACCOUNT_UNLOCK_REQUESTED", "TENANT_ACCOUNT_UNLOCK_REFUSED"]);
+    });
+  });
+
   it("resets a live tenant's owner PIN for the platform owner, answers it once and audits it without the PIN", async () => {
     const rig = await buildRig();
     const { body } = await provisionOne(rig);

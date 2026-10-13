@@ -4,6 +4,8 @@ import { OwnerPinResetOutcome } from "./owner-pin-reset-outcome.js";
 import {
   createApp,
   ACCOUNT_LOCK_FAILURES,
+  ACCOUNT_LOCK_WINDOW_MS,
+  UNLOCK_CODE_TTL_MS,
   createAccountLocks,
   createPeriodCloseGuardSlot,
   createLoginThrottle,
@@ -283,6 +285,7 @@ import {
   createSqliteProductTemplateStore,
   createSqliteNotificationRuleStore,
   createSqliteNotificationStore,
+  removeNotificationLinesMatching,
   createSqliteWorkflowConfigStore,
   createSqliteApprovalRequestStore,
   createDataMigrationTransactor,
@@ -639,11 +642,19 @@ export interface BackendHandle {
   readonly sessions: SessionRegistry;
   /**
    * SECURITY: every path on which an administrator sets, resets or reopens an
-   * account's credentials calls this ONE function, the platform console's
-   * included. It clears the persisted account lock and the sign-in backoff
-   * together; a reset that skips it hands out a PIN the account still refuses.
+   * account's credentials calls this ONE function: the Users screen, a PIN
+   * reset, an email change, the platform console's owner PIN reset and its
+   * account unlock. It clears the persisted account lock and the sign-in
+   * backoff together; a reset that skips it hands out a PIN the account still
+   * refuses.
    */
   credentialsResetByAdministrator(account: string): void;
+  lockedAccounts(): readonly string[];
+  // SECURITY: not an HTTP route. Only code that holds the handle (the platform
+  // console) can call it; it records the unlock in this tenant's own audit
+  // trail in the transaction that clears the lock, and answers false for an
+  // account that is not locked.
+  unlockAccount(account: string, actor: string): Promise<boolean>;
   /**
    * Copies the live database to `destination` via better-sqlite3's online
    * backup API — safe to call while the app keeps serving writes, since the
@@ -664,16 +675,34 @@ export interface BackendHandle {
 
 const ACCOUNT_LOCKED_NOTICE = "SECURITY_ACCOUNT_LOCKED";
 
-function accountLockedNotice(event: AccountLockedEvent, mailed: boolean, unlockUrl: string | null): string {
-  const lines = [
-    `قُفل حساب «${event.user.nameAr}» (${event.user.email}) بعد ${ACCOUNT_LOCK_FAILURES} محاولة دخول فاشلة خلال ٢٤ ساعة. آخر مصدر: ${event.source}.`,
-    "لفكّ القفل: افتح شاشة المستخدمين واضغط «فكّ القفل» أمام الحساب.",
-  ];
-  if (mailed && event.unlockCode) lines.push(`أو أدخل هذا الرمز في شاشة الدخول خلال ساعة واحدة: ${event.unlockCode}`);
-  if (mailed && unlockUrl) lines.push(`أو افتح هذا الرابط خلال ساعة واحدة، وهو يعمل مرة واحدة فقط: ${unlockUrl}`);
-  lines.push("إن لم تكن هذه المحاولات من صاحب الحساب فغيّر رمز PIN الخاص به.");
+const LOCK_NOTICE_UNLOCK_ON_USERS = "لفكّ القفل: افتح شاشة المستخدمين واضغط «فكّ القفل» أمام الحساب.";
+const LOCK_NOTICE_CHANGE_PIN = "إن لم تكن هذه المحاولات من صاحب الحساب فغيّر رمز PIN الخاص به.";
+
+function accountLockedHeadline(event: AccountLockedEvent): string {
+  const locked = `قُفل حساب «${event.user.nameAr}» (${event.user.email}) بعد ${ACCOUNT_LOCK_FAILURES} محاولة دخول فاشلة خلال ٢٤ ساعة. آخر مصدر: ${event.source}.`;
+  return event.reissued ? `${locked} انتهت صلاحية رمز فكّ القفل السابق والحساب ما زال مقفلًا.` : locked;
+}
+
+// SECURITY: this text is STORED (the notification row, and so every backup).
+// It says that a code and a link were mailed and carries neither.
+function accountLockedNotice(event: AccountLockedEvent, mailed: boolean, linkMailed: boolean): string {
+  const lines = [accountLockedHeadline(event), LOCK_NOTICE_UNLOCK_ON_USERS];
+  if (mailed) lines.push(`أُرسل إلى بريد مديري النظام رمز لفكّ القفل${linkMailed ? " ورابط يعمل مرة واحدة" : ""}، صالح لساعة واحدة.`);
+  lines.push(LOCK_NOTICE_CHANGE_PIN);
   return lines.join("\n");
 }
+
+// SECURITY: this text carries the secrets. It is handed to the mail transport
+// and kept in memory until it is sent; it is never written to the database.
+function accountLockedMail(event: AccountLockedEvent, unlockUrl: string | null): string {
+  const lines = [accountLockedHeadline(event), LOCK_NOTICE_UNLOCK_ON_USERS];
+  if (event.unlockCode) lines.push(`أو أدخل هذا الرمز في شاشة الدخول خلال ساعة واحدة: ${event.unlockCode}`);
+  if (unlockUrl) lines.push(`أو افتح هذا الرابط خلال ساعة واحدة، وهو يعمل مرة واحدة فقط: ${unlockUrl}`);
+  lines.push(LOCK_NOTICE_CHANGE_PIN);
+  return lines.join("\n");
+}
+
+const STORED_UNLOCK_SECRET = /[A-Z2-7]{16}|https?:\/\//;
 
 export interface CreateBackendOptions {
   readonly connectionTurn?: CreateAppOptions["connectionTurn"];
@@ -707,6 +736,11 @@ export interface CreateBackendOptions {
   // attacker's own, and a link built from it would mail the administrators a
   // working token pointed at the attacker's server.
   readonly unlockLink?: (token: string) => string;
+  // CONTRACT: true where a platform operator can unlock this tenant's accounts
+  // from the console (the cloud edition). It changes what a locked account is told.
+  readonly platformOperatorUnlocks?: boolean;
+  // TEST HOOK: the clock the account lock and its unlock code's expiry read.
+  readonly signInClock?: () => number;
   readonly sendMail?: typeof sendNotificationEmail;
   /** Runs the operator's external CAdES-BES signing program. Tests inject a fake. */
   readonly etaSigningRunner?: EtaCommandRunner;
@@ -1100,6 +1134,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // for why a translation step is needed at all). ---
   const notificationRules = createSqliteNotificationRuleStore(sqlite);
   const notifications = createSqliteNotificationStore(sqlite);
+  // Lock notices written by a build that stored the code and the link in the
+  // row: the lines that carry either are removed, the rest of the notice stays.
+  removeNotificationLinesMatching(sqlite, ACCOUNT_LOCKED_NOTICE, STORED_UNLOCK_SECRET);
   const eventBus = new EventBus({
     onError: (error, event) => {
       console.error(`[notifications] a subscriber failed handling "${event.code}"`, error);
@@ -3135,8 +3172,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * object: a per-router throttle would let an admin "unlock" an account that
    * stays locked at the login route.
    */
-  const signInLadder = createLoginThrottle();
-  const accountLocks = createAccountLocks({ known: createSqliteAccountLockStore(sqlite) });
+  const signInLadder = createLoginThrottle(options.signInClock);
+  const accountLockStore = createSqliteAccountLockStore(sqlite, { now: options.signInClock, failureWindowMs: ACCOUNT_LOCK_WINDOW_MS });
+  const accountLocks = createAccountLocks({ known: accountLockStore, unknown: accountLockStore.unknownNames, now: options.signInClock });
   // REQUIRED: every unlock in the product — the Users screen, a PIN reset, an
   // email change — goes through this one object, and it must clear the
   // account lock as well as the backoff or the button unlocks nothing.
@@ -3155,16 +3193,28 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   type MailResult = Awaited<ReturnType<typeof sendNotificationEmail>>;
   const dispatchOutcomeOf = (sent: MailResult): DispatchOutcome =>
     sent.outcome === "sent" ? { kind: "sent" } : { kind: sent.outcome === "offline" ? "offline" : "rejected", reason: sent.detail };
+  // SECURITY: the only place an unlock code or link token lives after it is
+  // issued, besides the mail itself. Keyed by notification id, dropped when the
+  // mail is sent or refused, and never older than the code it carries.
+  const lockMailBodies = new Map<string, { readonly body: string; readonly expiresAt: number }>();
+  const signInNow = options.signInClock ?? Date.now;
+  const keepLockMail = (id: string, body: string): void => {
+    const at = signInNow();
+    for (const [stale, kept] of lockMailBodies) if (kept.expiresAt <= at) lockMailBodies.delete(stale);
+    lockMailBodies.set(id, { body, expiresAt: at + UNLOCK_CODE_TTL_MS });
+  };
   const emailTransport = (smtp: SmtpConfig | null): NotificationTransport => ({
     channel: "email",
     async send(notification, recipientEmail, claim) {
       if (smtp === null) return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
       if (!recipientEmail) return { kind: "rejected", reason: "لا يوجد بريد إلكتروني مسجَّل لهذا المستخدم." };
+      const body = notification.eventCode === ACCOUNT_LOCKED_NOTICE ? lockMailBodies.get(notification.id)?.body : notification.body;
+      if (body === undefined) return { kind: "rejected", reason: "انتهت صلاحية رمز فكّ القفل قبل إرساله؛ يُرسل رمز جديد عند المحاولة التالية." };
       try {
-        const sent = await outsideTheTurn(() =>
-          withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body: notification.body })),
-        );
-        return dispatchOutcomeOf(sent);
+        const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body })));
+        const outcome = dispatchOutcomeOf(sent);
+        if (outcome.kind !== "offline") lockMailBodies.delete(notification.id);
+        return outcome;
       } catch (err) {
         if (err instanceof OutsideWorkDeadlineError) return { kind: "offline", reason: err.message };
         // The mail server answered and this drain can no longer write. What it
@@ -3186,17 +3236,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     const createdAt = new Date().toISOString();
     const mailed = smtp !== null && event.unlockCode !== null;
     const unlockUrl = options.unlockLink && event.unlockLinkToken ? options.unlockLink(event.unlockLinkToken) : null;
+    const mailBody = mailed ? accountLockedMail(event, unlockUrl) : null;
     const ids = new Set<string>();
     for (const admin of admins) {
       const id = randomUUID();
       ids.add(id);
+      if (mailBody !== null) keepLockMail(id, mailBody);
       await notifications.save({
         id,
         ruleId: null,
         recipientUserId: admin.id,
         eventCode: ACCOUNT_LOCKED_NOTICE,
         title: "تم قفل حساب بعد محاولات دخول فاشلة",
-        body: accountLockedNotice(event, mailed, unlockUrl),
+        body: accountLockedNotice(event, mailed, unlockUrl !== null),
         priority: "urgent",
         channels: mailed ? ["in_app", "email"] : ["in_app"],
         channelStatus: mailed
@@ -3769,6 +3821,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     sessions,
     loginThrottle: signInLadder,
     accountLocks,
+    platformOperatorUnlocks: options.platformOperatorUnlocks === true,
     onAccountLocked: notifyAccountLocked,
     canMailUnlockCode: async () => (await securitySmtp()) !== null,
     audit: auditSink,
@@ -5101,7 +5154,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     if (!written) return OwnerPinResetOutcome.Superseded;
     if (!cmd.onlyIfNeverSignedIn) credentialResets.mark(owner.id, new Date().toISOString(), cmd.actor);
     sessions.revokeUser(owner.id);
-    loginThrottle.succeed(owner.email.trim().toLowerCase());
+    credentialsResetByAdministrator(owner.email);
     await recordSecurityEvent(auditSink, {
       module: "auth",
       entityType: "USER",
@@ -5114,11 +5167,35 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     return OwnerPinResetOutcome.Reset;
   }
 
+  const platformUnlockInTheTurn = inTheTurn("platform account unlock");
+  const unlockAccount = (account: string, actor: string): Promise<boolean> => {
+    const key = account.trim().toLowerCase();
+    return platformUnlockInTheTurn(() =>
+      auditSink.atomic(async () => {
+        if (!accountLockStore.lockedAccounts().includes(key)) return false;
+        const user = await uow.users.findByEmail(key);
+        credentialsResetByAdministrator(key);
+        await recordSecurityEvent(auditSink, {
+          module: "auth",
+          entityType: "AUTH_USER",
+          entityId: user?.id ?? null,
+          action: "ACCOUNT_UNLOCKED_BY_PLATFORM",
+          actor,
+          severity: "CRITICAL",
+          details: { username: key, userId: user?.id ?? null, origin: SecurityEventOrigin.Platform },
+        });
+        return true;
+      }),
+    );
+  };
+
   return {
     app,
     audit: auditSink,
     sessions,
     credentialsResetByAdministrator,
+    lockedAccounts: () => accountLockStore.lockedAccounts(),
+    unlockAccount,
     ownerAccount,
     companyAdmins,
     recordOwnerAssigned,

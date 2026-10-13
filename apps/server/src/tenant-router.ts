@@ -133,6 +133,8 @@ export interface TenantRouter {
   resendPendingOwner(input: { readonly tenantId: string; readonly actor: string }): Promise<Tenant>;
   // SECURITY: null for every link that confirms nothing, whatever the reason, so the caller answers them all alike.
   confirmPendingOwnerByToken(token: string): Promise<Tenant | null>;
+  lockedAccountsOf(tenantId: string): Promise<readonly string[]>;
+  unlockAccountOf(input: { readonly tenantId: string; readonly account: string; readonly actor: string }): Promise<boolean>;
   evict(tenantId: string): Promise<void>;
   invalidate(code: string): void;
   // REQUIRED ORDERING: called only for a tenant whose registration has just
@@ -190,6 +192,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       connection,
       securityMail: options.securityMail,
       unlockLink: mail.unlockLink,
+      platformOperatorUnlocks: true,
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
       onUserEmailChanged: hooks.onUserEmailChanged,
@@ -378,6 +381,13 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     },
     async resendPendingOwner({ tenantId, actor }) {
       return ownerContact.resendPending((await liveTenant(tenantId)).id, actor);
+    },
+    async lockedAccountsOf(tenantId) {
+      return (await opened((await liveTenant(tenantId)).id)).lockedAccounts();
+    },
+    async unlockAccountOf({ tenantId, account, actor }) {
+      const backend = await opened((await liveTenant(tenantId)).id);
+      return options.platform.outsideTheTurn(() => backend.unlockAccount(account, actor));
     },
     evict: (tenantId) => cache.evict(tenantId),
     invalidate(code) { resolvers.get(code)?.invalidate(); },

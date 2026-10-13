@@ -73,3 +73,66 @@ describe("the account lock in the tenant's own database", () => {
     db.close();
   });
 });
+
+describe("the lock on a name nobody holds", () => {
+  const LOCKED = { failures: [1], lockedAt: 1, unlockHash: null, unlockExpiresAt: null, unlockAttempts: 0 };
+  const DAY = 24 * 60 * 60_000;
+
+  it("is still there after a restart, under a key that is not the name, and is never listed as a locked account", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-account-lock-"));
+    dirs.push(dir);
+    const file = path.join(dir, "tenant.db");
+    const first = new Database(file);
+    createSqliteAccountLockStore(first).unknownNames.put("ghost@shop.test", LOCKED);
+    first.close();
+
+    const second = new Database(file);
+    const store = createSqliteAccountLockStore(second);
+
+    expect(store.unknownNames.get("ghost@shop.test")).toMatchObject({ lockedAt: 1 });
+    expect(store.get("ghost@shop.test")).toBeNull();
+    expect(store.lockedAccounts()).toEqual([]);
+    const stored = (second.prepare("SELECT account FROM sign_in_account_lock").all() as { account: string }[]).map((row) => row.account);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatch(/^unknown:[0-9a-f]{64}$/);
+    expect(JSON.stringify(second.prepare("SELECT * FROM sign_in_account_lock").all())).not.toContain("ghost");
+    second.close();
+  });
+
+  it("drops rows whose failures have all left the window, of either kind, and keeps every lock", () => {
+    const db = new Database(":memory:");
+    let now = 10 * DAY;
+    const store = createSqliteAccountLockStore(db, { now: () => now });
+    const stale = { ...LOCKED, lockedAt: null, failures: [now - DAY - 1] };
+    const recent = { ...LOCKED, lockedAt: null, failures: [now - 1] };
+    store.unknownNames.put("stale-ghost@shop.test", stale);
+    store.put("stale-real@shop.test", stale);
+    store.unknownNames.put("locked-ghost@shop.test", { ...LOCKED, lockedAt: now - 5 * DAY, failures: [now - 5 * DAY] });
+    store.put("locked-real@shop.test", { ...LOCKED, lockedAt: now - 5 * DAY, failures: [now - 5 * DAY] });
+
+    now += 1;
+    store.unknownNames.put("recent-ghost@shop.test", recent);
+
+    expect(store.unknownNames.get("stale-ghost@shop.test")).toBeNull();
+    expect(store.get("stale-real@shop.test")).toBeNull();
+    expect(store.unknownNames.get("recent-ghost@shop.test")).not.toBeNull();
+    expect(store.unknownNames.get("locked-ghost@shop.test")).not.toBeNull();
+    expect(store.lockedAccounts()).toEqual(["locked-real@shop.test"]);
+    db.close();
+  });
+
+  it("holds at most the stated number of unknown names, dropping the oldest, and never a real account for them", () => {
+    const db = new Database(":memory:");
+    let now = 1_000;
+    const store = createSqliteAccountLockStore(db, { now: () => now, maxUnknownNames: 3 });
+    store.put("owner@shop.test", { ...LOCKED, lockedAt: now, failures: [now] });
+    for (let i = 0; i < 5; i += 1) {
+      now += 1;
+      store.unknownNames.put(`ghost${i}@shop.test`, { ...LOCKED, lockedAt: now, failures: [now] });
+    }
+
+    expect([0, 1, 2, 3, 4].map((i) => store.unknownNames.get(`ghost${i}@shop.test`) !== null)).toEqual([false, false, true, true, true]);
+    expect(store.lockedAccounts()).toEqual(["owner@shop.test"]);
+    db.close();
+  });
+});

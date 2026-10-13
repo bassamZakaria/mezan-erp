@@ -342,6 +342,200 @@ describe("getting back into a locked account", () => {
   }, 120_000);
 });
 
+describe("a locked account can always be recovered", () => {
+  const HOUR = 60 * 60_000;
+  const LINK_BASE = "https://acme.mezan.test/unlock#token=";
+  const codeIn = (body: string) => /: ([A-Z2-7]{16})/.exec(body)?.[1];
+  const tokenIn = (body: string) => /#token=([A-Za-z0-9_-]{43})/.exec(body)?.[1];
+
+  async function lockedWithMail(extra: CreateBackendOptions = {}) {
+    let now = Date.parse("2026-10-13T08:00:00.000Z");
+    const sent: { to: string; subject: string; body: string }[] = [];
+    const logged: string[] = [];
+    for (const level of ["log", "info", "warn", "error"] as const) {
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => void logged.push(args.map(String).join(" ")));
+    }
+    const h = await open({
+      securityMail: PLATFORM_SMTP,
+      unlockLink: (token) => `${LINK_BASE}${token}`,
+      signInClock: () => now,
+      sendMail: async (_smtp, to, message) => {
+        sent.push({ to, ...message });
+        return { outcome: "sent", detail: "250" };
+      },
+      ...extra,
+    });
+    await claim(h);
+    expect((await twentyWrongPins(h))[19]).toBe(423);
+    await h.drain();
+    return { h, sent, logged, advance: (ms: number) => void (now += ms) };
+  }
+
+  it("keeps the mailed code alive through wrong codes from many addresses", async () => {
+    const { h, sent } = await lockedWithMail();
+    const code = codeIn(sent[0]!.body)!;
+
+    for (let i = 0; i < 12; i += 1) {
+      expect((await post(h, "/auth/unlock", { username: OWNER.email, code: "AAAAAAAAAAAAAAAA" }, `197.50.${i}.9`)).status).toBe(400);
+    }
+
+    expect((await post(h, "/auth/unlock", { username: OWNER.email, code }, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+  }, 120_000);
+
+  it("mails a fresh code and link on the next attempt after the last ones expired, once, and the fresh link opens the account", async () => {
+    const { h, sent, advance } = await lockedWithMail();
+    const firstCode = codeIn(sent[0]!.body)!;
+    const firstToken = tokenIn(sent[0]!.body)!;
+
+    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(423);
+    await h.drain();
+    expect(sent).toHaveLength(1);
+
+    advance(HOUR + 1);
+    expect((await post(h, "/auth/unlock", { username: OWNER.email, code: firstCode }, "196.221.5.5")).status).toBe(400);
+    expect((await signIn(h, "000000", "196.221.5.6")).status).toBe(423);
+    await h.drain();
+    expect(sent).toHaveLength(2);
+    expect((await signIn(h, "000000", "196.221.5.7")).status).toBe(423);
+    expect((await signIn(h, "000000", "196.221.5.8", "nobody@shop.eg")).status).not.toBe(200);
+    await h.drain();
+    expect(sent).toHaveLength(2);
+
+    const freshCode = codeIn(sent[1]!.body)!;
+    const freshToken = tokenIn(sent[1]!.body)!;
+    expect(freshCode).not.toBe(firstCode);
+    expect((await post(h, "/auth/unlock-link", { token: firstToken }, "196.221.5.5")).status).toBe(400);
+    expect((await post(h, "/auth/unlock-link", { token: freshToken }, "196.221.5.5")).status).toBe(200);
+    expect((await signIn(h, OWNER.pin, "196.221.5.5")).status).toBe(200);
+  }, 120_000);
+
+  it("writes the code and the link token into the mail only: no notification row, audit row or log line holds either", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-sign-in-lock-"));
+    dirs.push(dir);
+    const dbPath = path.join(dir, "tenant.db");
+    const { h, sent, logged } = await lockedWithMail({ dbPath });
+    const code = codeIn(sent[0]!.body)!;
+    const token = tokenIn(sent[0]!.body)!;
+    expect(sent[0]!.body).toContain(`${LINK_BASE}${token}`);
+
+    const hostSession = (await (await signIn(h, OWNER.pin, null)).json()) as SessionDTO;
+    const get = (pathname: string) => h.app.fetch(new Request(`http://local${pathname}`, { headers: { authorization: `Bearer ${hostSession.token}` } }));
+    const notices = await (await get("/notifications")).text();
+    expect(notices).toContain("تم قفل حساب");
+    expect(notices).toContain("أُرسل");
+    await h.backupTo(path.join(dir, "backup.db"));
+
+    const { sqlite } = openSqliteConnection(path.join(dir, "backup.db"));
+    const tables = (sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((row) => row.name);
+    const everything = tables.map((table) => JSON.stringify(sqlite.prepare(`SELECT * FROM "${table}"`).all())).join("\n");
+    sqlite.close();
+    for (const secret of [code, token]) {
+      expect(notices).not.toContain(secret);
+      expect(everything).not.toContain(secret);
+      expect(logged.join("\n")).not.toContain(secret);
+    }
+  }, 120_000);
+
+  it("scrubs the code and the link out of lock notices an earlier build stored in full", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-sign-in-lock-"));
+    dirs.push(dir);
+    const dbPath = path.join(dir, "tenant.db");
+    const first = await createBackend({ dbPath });
+    const session = await claim(first);
+    first.close();
+    const { sqlite } = openSqliteConnection(dbPath);
+    const columns = (sqlite.prepare("PRAGMA table_info(notification)").all() as { name: string }[]).map((column) => column.name);
+    expect(columns).toContain("event_code");
+    sqlite
+      .prepare(
+        `INSERT INTO notification (id, rule_id, recipient_user_id, event_code, title, body, priority, channels_json, channel_status_json, status, payload_json, created_at, read_at)
+         VALUES ('old-lock', NULL, ?, 'SECURITY_ACCOUNT_LOCKED', 'تم قفل حساب بعد محاولات دخول فاشلة', ?, 'urgent', '["in_app","email"]', '{"in_app":"delivered","email":"sent"}', 'unread', '{}', '2026-10-01T00:00:00.000Z', NULL)`,
+      )
+      .run(
+        session.userId,
+        ["قُفل حساب المالك بعد 20 محاولة دخول فاشلة.", "أو أدخل هذا الرمز في شاشة الدخول خلال ساعة واحدة: ABCDEFGHIJKLMNOP", `أو افتح هذا الرابط خلال ساعة واحدة: https://acme.mezan.test/unlock?token=${"t".repeat(43)}`, "إن لم تكن هذه المحاولات من صاحب الحساب فغيّر رمز PIN الخاص به."].join("\n"),
+      );
+    sqlite.close();
+
+    const second = await createBackend({ dbPath });
+    handles.push(second);
+    const hostSession = (await (await signIn(second, OWNER.pin, null)).json()) as SessionDTO;
+    const notices = await (await second.app.fetch(new Request("http://local/notifications", { headers: { authorization: `Bearer ${hostSession.token}` } }))).text();
+
+    expect(notices).toContain("قُفل حساب المالك");
+    expect(notices).not.toContain("ABCDEFGHIJKLMNOP");
+    expect(notices).not.toContain("t".repeat(43));
+    expect(notices).not.toContain("https://");
+  }, 120_000);
+
+  it("keeps a name nobody holds locked across a restart exactly as it keeps a real account", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const dir = mkdtempSync(path.join(tmpdir(), "mezan-sign-in-lock-"));
+    dirs.push(dir);
+    const dbPath = path.join(dir, "tenant.db");
+    const first = await createBackend({ dbPath });
+    await claim(first);
+    await twentyWrongPins(first);
+    for (let i = 0; i < 20; i += 1) await signIn(first, String(300000 + i), `41.44.${i}.10`, "ghost@shop.eg");
+    const before = [await signIn(first, OWNER.pin, "196.221.5.5"), await signIn(first, "123456", "196.221.5.6", "ghost@shop.eg")];
+    expect(before.map((res) => res.status)).toEqual([423, 423]);
+    first.close();
+
+    const second = await createBackend({ dbPath });
+    handles.push(second);
+    const real = await signIn(second, OWNER.pin, "196.221.5.5");
+    const ghost = await signIn(second, "123456", "196.221.5.6", "ghost@shop.eg");
+
+    expect([real.status, ghost.status]).toEqual([423, 423]);
+    expect(await ghost.json()).toEqual(await real.json());
+    expect(second.lockedAccounts()).toEqual([OWNER.email]);
+  }, 120_000);
+
+  it("tells a cloud tenant with no mail server that the platform's operator unlocks the account, and never to use a server machine", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const cloud = await open({ platformOperatorUnlocks: true });
+    await claim(cloud);
+    await twentyWrongPins(cloud);
+
+    const refused = (await (await signIn(cloud, OWNER.pin, "196.221.5.5")).json()) as { message: string; messageEn: string; unlockByCode: boolean };
+
+    expect(refused.unlockByCode).toBe(false);
+    expect(refused.message).toContain("دعم المنصة");
+    expect(refused.message).not.toContain("جهاز الخادم");
+    expect(refused.messageEn).toMatch(/platform support/i);
+
+    const onPremises = await open();
+    await claim(onPremises);
+    await twentyWrongPins(onPremises);
+    const local = (await (await signIn(onPremises, OWNER.pin, "196.221.5.5")).json()) as { message: string; messageEn: string };
+    expect(local.message).toContain("جهاز الخادم");
+    expect(local.message).not.toContain("دعم المنصة");
+    expect(local.messageEn).toMatch(/server machine/i);
+  }, 120_000);
+
+  it("is unlocked by the platform's operator through the handle, listed while locked, and recorded in the tenant's own audit trail", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const h = await open({ platformOperatorUnlocks: true });
+    await claim(h);
+    await twentyWrongPins(h);
+    expect(h.lockedAccounts()).toEqual([OWNER.email]);
+
+    expect(await h.unlockAccount("nobody@shop.eg", "platform:op-1")).toBe(false);
+    expect(await h.unlockAccount(OWNER.email.toUpperCase(), "platform:op-1")).toBe(true);
+
+    expect(h.lockedAccounts()).toEqual([]);
+    const signedIn = await signIn(h, OWNER.pin, "196.221.5.5");
+    expect(signedIn.status).toBe(200);
+    const session = (await signedIn.json()) as SessionDTO;
+    const audit = await (await h.app.fetch(new Request("http://local/audit?stream=security&action=ACCOUNT_UNLOCKED_BY_PLATFORM", { headers: { authorization: `Bearer ${session.token}` } }), from("196.221.5.5"))).text();
+    expect(audit.match(/ACCOUNT_UNLOCKED_BY_PLATFORM/g)).toHaveLength(1);
+    expect(audit).toContain("platform:op-1");
+    expect(await h.unlockAccount(OWNER.email, "platform:op-1")).toBe(false);
+  }, 120_000);
+});
+
 describe("a burst of sign-ins larger than the tenant checks at once", () => {
   it("tells the ones it has no place for that the server is busy, not that they tried too often", async () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);

@@ -9,6 +9,7 @@ import type {
   ChangePlanRequestDTO,
   CreateTenantRequestDTO,
   PlanDTO,
+  LockedTenantAccountsDTO,
   OwnerCandidateDTO,
   OwnerPinResetResultDTO,
   PlatformUnrecordedSecurityEventsDTO,
@@ -222,6 +223,40 @@ export function useOwnerCandidates(tenantId: string, enabled: boolean) {
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.owner.loadFailed"));
       return res.json<OwnerCandidateDTO[]>();
     },
+  });
+}
+
+const lockedAccountsKey = (tenantId: string) => ["platform", "tenants", tenantId, "lockedAccounts"] as const;
+
+export function useLockedAccounts(tenantId: string, enabled: boolean) {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  return useQuery<LockedTenantAccountsDTO, PlatformApiError>({
+    queryKey: lockedAccountsKey(tenantId),
+    enabled,
+    queryFn: async () => {
+      const res = await request(`/tenants/${tenantId}/locked-accounts`);
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.locked.loadFailed"));
+      return res.json<LockedTenantAccountsDTO>();
+    },
+  });
+}
+
+export function useUnlockTenantAccountMutation() {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  const queryClient = useQueryClient();
+  return useMutation<LockedTenantAccountsDTO, PlatformApiError, { tenantId: string; account: string }>({
+    mutationFn: async ({ tenantId, account }) => {
+      const res = await request(`/tenants/${tenantId}/unlock-account`, { method: "POST", body: JSON.stringify({ account }) });
+      if (!res.ok) {
+        const failure = await readPlatformError(res, t, "platform.tenantDetail.locked.unlockFailed");
+        throw new PlatformApiError(res.status, failure.message, failure.code);
+      }
+      return res.json<LockedTenantAccountsDTO>();
+    },
+    onSuccess: (remaining, { tenantId }) => queryClient.setQueryData(lockedAccountsKey(tenantId), remaining),
+    onError: (_error, { tenantId }) => void queryClient.invalidateQueries({ queryKey: lockedAccountsKey(tenantId) }),
   });
 }
 

@@ -107,6 +107,8 @@ export {
 } from "./login-throttle.js";
 export {
   ACCOUNT_LOCK_FAILURES,
+  ACCOUNT_LOCK_WINDOW_MS,
+  UNLOCK_CODE_TTL_MS,
   SignInVerdict,
   createAccountLocks,
   createMemoryAccountLockStore,

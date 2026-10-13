@@ -256,3 +256,13 @@ export function createSqliteNotificationStore(path: SqliteConnectionInput = ":me
     },
   }) as SqliteNotificationStoreHandle;
 }
+
+export function removeNotificationLinesMatching(input: SqliteConnectionInput, eventCode: string, pattern: RegExp): void {
+  const { sqlite } = openSqliteConnection(input);
+  const rows = sqlite.prepare(`SELECT id, body FROM notification WHERE event_code = ?`).all(eventCode) as { id: string; body: string }[];
+  const rewrite = sqlite.prepare(`UPDATE notification SET body = ? WHERE id = ?`);
+  for (const row of rows) {
+    const kept = row.body.split("\n").filter((line) => !pattern.test(line)).join("\n");
+    if (kept !== row.body) rewrite.run(kept, row.id);
+  }
+}

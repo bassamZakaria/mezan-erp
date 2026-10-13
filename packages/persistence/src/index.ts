@@ -88,7 +88,7 @@ export {
   type SqliteNotificationRuleStoreHandle,
 } from "./notification-rule-store.js";
 export {
-  createSqliteNotificationStore,
+  createSqliteNotificationStore, removeNotificationLinesMatching,
   type SqliteNotificationStoreHandle,
 } from "./notification-store.js";
 export { createScryptHasher } from "./secret-hasher.js";

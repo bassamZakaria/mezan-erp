@@ -63,6 +63,7 @@ export interface AuthRoutesDeps {
   readonly accountLocks?: AccountLocks;
   readonly onAccountLocked?: (event: AccountLockedEvent) => Promise<void>;
   readonly canMailUnlockCode?: () => Promise<boolean>;
+  readonly platformOperatorUnlocks?: boolean;
   readonly secrets?: PrecomputingHasher;
   /**
    * The forensic trail for the credential boundary.
@@ -90,6 +91,7 @@ export interface AccountLockedEvent {
   readonly unlockCode: string | null;
   readonly unlockLinkToken: string | null;
   readonly source: string;
+  readonly reissued?: boolean;
 }
 
 const SIGN_IN_BUSY_RETRY_SECONDS = 2;
@@ -187,7 +189,9 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
   const canMailUnlockCode = deps.canMailUnlockCode ?? (async () => false);
 
   async function refused(c: Context, held: SignInDecision): Promise<Response> {
-    if (held.verdict === SignInVerdict.Locked) return c.json(accountLocked(await canMailUnlockCode()), ACCOUNT_LOCKED_STATUS);
+    if (held.verdict === SignInVerdict.Locked) {
+      return c.json(accountLocked({ mailed: await canMailUnlockCode(), operatorUnlocks: deps.platformOperatorUnlocks === true }), ACCOUNT_LOCKED_STATUS);
+    }
     return lockedOut(c, held.retryAfterSeconds);
   }
 
@@ -328,6 +332,20 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     );
   }
 
+  // SECURITY: a locked account is mailed again only once its last code and
+  // link have expired, so whoever keeps knocking buys the administrators at
+  // most one mail an hour. The second read of `unlockReissueDue` is made after
+  // the only await, with nothing awaited before the issue: two attempts that
+  // arrive together cannot both mail.
+  async function mailFreshUnlockIfDue(c: Context, needle: string, user: User, origin: string | null): Promise<void> {
+    if (!deps.onAccountLocked || !guard.unlockReissueDue(needle)) return;
+    if (!(await canMailUnlockCode()) || !guard.unlockReissueDue(needle)) return;
+    const unlockCode = guard.issueUnlockCode(needle);
+    const unlockLinkToken = guard.issueUnlockLink(needle);
+    await security(c, "ACCOUNT_UNLOCK_REISSUED", AuditSeverityCode.Warning, { username: needle, userId: user.id });
+    await deps.onAccountLocked({ user, unlockCode, unlockLinkToken, source: origin ?? "host", reissued: true });
+  }
+
   app.post("/auth/login", async (c) => {
     const parsed = loginRequestSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) {
@@ -351,6 +369,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
         retryAfterSeconds: held.retryAfterSeconds,
         accountLocked: held.verdict === SignInVerdict.Locked,
       });
+      if (held.verdict === SignInVerdict.Locked && user) await mailFreshUnlockIfDue(c, needle, user, origin);
       return refused(c, held);
     }
 

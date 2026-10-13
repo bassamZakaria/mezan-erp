@@ -87,14 +87,36 @@ export function signInBusy(seconds: number) {
   };
 }
 
-export function accountLocked(unlockByCode: boolean) {
-  return {
-    error: SignInRefusal.AccountLocked,
-    unlockByCode,
-    message: unlockByCode
-      ? "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة. أُرسل رمز فكّ القفل إلى بريد مديري النظام: أدخله هنا، أو اطلب من مدير النظام فكّ القفل من شاشة المستخدمين."
-      : "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة. اطلب من مدير النظام فكّ القفل من شاشة المستخدمين، أو سجّل الدخول من جهاز الخادم نفسه.",
-  };
+export interface AccountRecovery {
+  readonly mailed: boolean;
+  // CONTRACT: true where the tenant is served by a platform whose operator can
+  // unlock an account from the console. There is no "server machine" to sit at
+  // there, and with no mail it is the only way back in for a sole administrator.
+  readonly operatorUnlocks: boolean;
+}
+
+const LOCKED_AR = "تم قفل هذا الحساب بعد محاولات دخول فاشلة متكررة.";
+const LOCKED_EN = "This account was locked after repeated failed sign-in attempts.";
+const BY_ADMIN_AR = "اطلب من مدير النظام فكّ القفل من شاشة المستخدمين";
+const BY_ADMIN_EN = "ask a system administrator to unlock it from the Users screen";
+
+export function accountLocked(recovery: AccountRecovery) {
+  const mailedAr = `${LOCKED_AR} أُرسل رمز فكّ القفل ورابطه إلى بريد مديري النظام، ويُرسل رمز جديد عند المحاولة بعد انتهاء صلاحية السابق: أدخل الرمز هنا أو افتح الرابط، أو ${BY_ADMIN_AR}`;
+  const mailedEn = `${LOCKED_EN} An unlock code and link were mailed to the system administrators, and a fresh one is mailed on an attempt after the last expired: enter the code here or open the link, or ${BY_ADMIN_EN}`;
+  const [message, messageEn] = recovery.mailed
+    ? recovery.operatorUnlocks
+      ? [`${mailedAr}، أو تواصل مع دعم المنصة.`, `${mailedEn}, or contact platform support.`]
+      : [`${mailedAr}.`, `${mailedEn}.`]
+    : recovery.operatorUnlocks
+      ? [
+          `${LOCKED_AR} ${BY_ADMIN_AR}، وإن كان هذا حساب المدير الوحيد فتواصل مع دعم المنصة ليفكّ القفل.`,
+          `${LOCKED_EN} Please ${BY_ADMIN_EN}; if this is the only administrator account, contact platform support to have it unlocked.`,
+        ]
+      : [
+          `${LOCKED_AR} ${BY_ADMIN_AR}، أو سجّل الدخول من جهاز الخادم نفسه.`,
+          `${LOCKED_EN} Please ${BY_ADMIN_EN}, or sign in at the server machine itself.`,
+        ];
+  return { error: SignInRefusal.AccountLocked, unlockByCode: recovery.mailed, message, messageEn };
 }
 
 export function waitPhrase(seconds: number): string {

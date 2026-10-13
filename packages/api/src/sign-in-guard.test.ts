@@ -222,17 +222,47 @@ describe("what ends a lock", () => {
     expect(r.guard.redeemUnlockCode(OWNER, code!)).toBe(false);
   });
 
-  it("refuses the code after an hour, and after five wrong tries", () => {
+  it("refuses the code after an hour", () => {
     const late = locked();
     const stale = late.guard.issueUnlockCode(OWNER)!;
     late.advance(HOUR + 1);
     expect(late.guard.redeemUnlockCode(OWNER, stale)).toBe(false);
+  });
 
+  it("is never spent by wrong codes: after fifty of them the mailed code still opens the account", () => {
     const guessed = locked();
     const real = guessed.guard.issueUnlockCode(OWNER)!;
-    for (let i = 0; i < 5; i += 1) expect(guessed.guard.redeemUnlockCode(OWNER, "BBBBBBBBBBBBBBBB")).toBe(false);
-    expect(guessed.guard.redeemUnlockCode(OWNER, real)).toBe(false);
+    for (let i = 0; i < 50; i += 1) expect(guessed.guard.redeemUnlockCode(OWNER, "BBBBBBBBBBBBBBBB")).toBe(false);
     expect(guessed.guard.check(OWNER, "196.221.5.5", true).verdict).toBe(SignInVerdict.Locked);
+    expect(guessed.guard.redeemUnlockCode(OWNER, real)).toBe(true);
+    expect(guessed.guard.check(OWNER, "196.221.5.5", true).verdict).toBe(SignInVerdict.Proceed);
+  });
+
+  it("is due a fresh code and link only once the last ones have expired, so a locked account is mailed at most once an hour", () => {
+    const r = locked();
+    expect(r.guard.unlockReissueDue(OWNER)).toBe(true);
+    const firstCode = r.guard.issueUnlockCode(OWNER)!;
+    const firstLink = r.guard.issueUnlockLink(OWNER)!;
+    expect(r.guard.unlockReissueDue(OWNER)).toBe(false);
+    r.advance(HOUR - 1);
+    expect(r.guard.unlockReissueDue(OWNER)).toBe(false);
+    r.advance(2);
+    expect(r.guard.unlockReissueDue(OWNER)).toBe(true);
+
+    const secondCode = r.guard.issueUnlockCode(OWNER)!;
+    const secondLink = r.guard.issueUnlockLink(OWNER)!;
+    expect(r.guard.unlockReissueDue(OWNER)).toBe(false);
+    expect(r.guard.redeemUnlockCode(OWNER, firstCode)).toBe(false);
+    expect(r.guard.redeemUnlockLink(firstLink)).toBeNull();
+    expect(r.guard.redeemUnlockLink(secondLink)).toBe(OWNER);
+    expect(secondCode).not.toBe(firstCode);
+  });
+
+  it("is never due anything for an account that is not locked, or for a name nobody holds", () => {
+    const r = rig();
+    expect(r.guard.unlockReissueDue(OWNER)).toBe(false);
+    for (let i = 0; i < ACCOUNT_LOCK_FAILURES; i += 1) r.guess("nobody@shop.test", `10.4.${i}.1`, false);
+    expect(r.guard.unlockReissueDue("nobody@shop.test")).toBe(false);
   });
 
   it("is the single-use link mailed when it locked: it names no account, opens the one it was issued for, and dies with the code", () => {

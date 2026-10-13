@@ -4,7 +4,6 @@ import { throttleKey, throttleSource, type LoginThrottle, type SourceThrottle } 
 export const ACCOUNT_LOCK_FAILURES = 20;
 export const ACCOUNT_LOCK_WINDOW_MS = 24 * 60 * 60_000;
 export const UNLOCK_CODE_TTL_MS = 60 * 60_000;
-export const UNLOCK_CODE_ATTEMPTS = 5;
 const UNLOCK_CODE_LENGTH = 16;
 const UNLOCK_LINK_BYTES = 32;
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -56,6 +55,10 @@ export interface AccountLocks {
   isLocked(account: string, exists: boolean): boolean;
   fail(account: string, exists: boolean): AccountLockOutcome;
   clear(account: string): void;
+  // SECURITY: true only for a locked account whose last code and link have
+  // expired, or that was never issued any. It is what bounds the lock mail to
+  // one an hour, whoever keeps knocking.
+  unlockReissueDue(account: string): boolean;
   issueUnlockCode(account: string): string | null;
   redeemUnlockCode(account: string, code: string): boolean;
   issueUnlockLink(account: string): string | null;
@@ -115,6 +118,11 @@ export function createAccountLocks(options: AccountLocksOptions): AccountLocks {
       options.known.delete(key);
       unknown.delete(key);
     },
+    unlockReissueDue(account) {
+      const record = options.known.get(accountKey(account));
+      if (!record || record.lockedAt === null) return false;
+      return record.unlockExpiresAt === null || now() > record.unlockExpiresAt;
+    },
     issueUnlockCode(account) {
       const key = accountKey(account);
       const record = options.known.get(key);
@@ -127,13 +135,13 @@ export function createAccountLocks(options: AccountLocksOptions): AccountLocks {
       const key = accountKey(account);
       const record = options.known.get(key);
       if (!record || record.lockedAt === null || record.unlockHash === null || record.unlockExpiresAt === null) return false;
-      if (now() > record.unlockExpiresAt || record.unlockAttempts >= UNLOCK_CODE_ATTEMPTS) return false;
+      if (now() > record.unlockExpiresAt) return false;
       const offered = Buffer.from(hashCode(code), "hex");
       const expected = Buffer.from(record.unlockHash, "hex");
-      if (offered.length !== expected.length || !timingSafeEqual(offered, expected)) {
-        options.known.put(key, { ...record, unlockAttempts: record.unlockAttempts + 1 });
-        return false;
-      }
+      // SECURITY: a wrong code changes nothing. The code is 80 bits and every
+      // caller is held by the per-address throttle; counting wrong tries here
+      // would let anyone who can reach the route spend the administrator's code.
+      if (offered.length !== expected.length || !timingSafeEqual(offered, expected)) return false;
       options.known.delete(key);
       return true;
     },
@@ -188,6 +196,7 @@ export interface SignInGuard {
   failed(account: string, source: string | null, exists: boolean): SignInDecision;
   succeeded(account: string, source: string | null): void;
   unlock(account: string): void;
+  unlockReissueDue(account: string): boolean;
   issueUnlockCode(account: string): string | null;
   redeemUnlockCode(account: string, code: string): boolean;
   issueUnlockLink(account: string): string | null;
@@ -228,6 +237,7 @@ export function createSignInGuard(options: SignInGuardOptions): SignInGuard {
       throttle.succeed(throttleKey(account, source));
     },
     unlock,
+    unlockReissueDue: (account) => locks.unlockReissueDue(account),
     issueUnlockCode: (account) => locks.issueUnlockCode(account),
     redeemUnlockCode(account, code) {
       if (!locks.redeemUnlockCode(account, code)) return false;

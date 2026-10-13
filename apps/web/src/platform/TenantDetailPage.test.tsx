@@ -1193,6 +1193,63 @@ describe("TenantDetailPage", () => {
     });
   });
 
+  describe("accounts locked out of sign-in", () => {
+    function lockedTransport(session: PlatformSession, respond: (account: string) => { status?: number; body: unknown } = () => ({ body: { accounts: ["cashier@acme.test"] } })) {
+      const asked: string[] = [];
+      const unlocked: string[] = [];
+      const transport = stubPlatformTransport({
+        "GET /tenants/tenant-1": () => ({ body: makeSummary() }),
+        "GET /plans": () => ({ body: [plan, plan2] }),
+        "GET /tenants/tenant-1/locked-accounts": () => {
+          asked.push("list");
+          return { body: { accounts: ["cashier@acme.test", "owner@acme.test"] } };
+        },
+        "POST /tenants/tenant-1/unlock-account": (init) => {
+          const { account } = JSON.parse(String(init?.body)) as { account: string };
+          unlocked.push(account);
+          return respond(account);
+        },
+      });
+      renderDetail({ transport, session });
+      return { asked, unlocked };
+    }
+
+    it("lists them for the platform owner and unlocks the one confirmed, leaving the others listed", async () => {
+      const t = lockedTransport(testPlatformSession);
+
+      const row = (await screen.findByText("owner@acme.test")).closest("li")!;
+      fireEvent.click(within(row).getByRole("button", { name: "فكّ القفل" }));
+      const dialog = await screen.findByRole("dialog", { name: "فكّ قفل هذا الحساب؟" });
+      expect(dialog).toHaveTextContent("owner@acme.test");
+      expect(t.unlocked).toEqual([]);
+      fireEvent.click(within(dialog).getByRole("button", { name: "فكّ القفل" }));
+
+      await waitFor(() => expect(screen.queryByText("owner@acme.test")).not.toBeInTheDocument());
+      expect(t.unlocked).toEqual(["owner@acme.test"]);
+      expect(screen.getByText("cashier@acme.test")).toBeInTheDocument();
+    });
+
+    it("shows the server's Arabic refusal when the unlock cannot be recorded, and keeps the account listed", async () => {
+      lockedTransport(testPlatformSession, () => ({ status: 503, body: { error: "AUDIT_UNAVAILABLE", message: "تعذّر تسجيل العملية في سجل التدقيق، فلم يُحفظ أي تغيير. حاول مرة أخرى." } }));
+
+      const row = (await screen.findByText("owner@acme.test")).closest("li")!;
+      fireEvent.click(within(row).getByRole("button", { name: "فكّ القفل" }));
+      fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "فكّ القفل" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("تعذّر تسجيل العملية في سجل التدقيق");
+      expect(screen.getByText("owner@acme.test")).toBeInTheDocument();
+    });
+
+    it("is not asked for, and not shown, to a support operator", async () => {
+      const t = lockedTransport({ ...testPlatformSession, user: { ...testPlatformSession.user, role: "support" } });
+
+      await screen.findByText("شركة أكمي");
+
+      expect(t.asked).toEqual([]);
+      expect(screen.queryByText("حسابات مقفلة عن الدخول")).not.toBeInTheDocument();
+    });
+  });
+
   describe("the tenant's owner", () => {
     const admins = [
       { id: "U-1", nameAr: "سارة المالكة", email: "owner@acme.test" },

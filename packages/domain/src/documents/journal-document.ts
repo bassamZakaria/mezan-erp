@@ -250,7 +250,7 @@ export function createDocumentWorkflowGate(
           if (existing.status === "approved") return { granted: true, requestId: existing.id };
           if (existing.status === "pending") return { granted: false, requestId: existing.id };
           if (existing.status === "rejected") throw new ApprovalRequestRejectedError(existing.id);
-          const resumed = await resubmitApproval(existing.id, { submittedBy: input.submittedBy }, requests);
+          const resumed = await resubmitApproval(existing.id, { submittedBy: input.submittedBy, entityLabel: input.entityLabel }, requests);
           return { granted: resumed.status === "approved", requestId: resumed.id };
         }
         const record = await submitApproval(

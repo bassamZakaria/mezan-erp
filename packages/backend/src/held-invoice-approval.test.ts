@@ -45,6 +45,13 @@ afterAll(async () => {
 });
 
 describe("approving a held invoice posts what the approver read, or nothing", () => {
+  it("names the held invoice in the approver's inbox by its value and customer, since a draft has no number yet", async () => {
+    await held("HELD-LABEL", { taxRateId: VAT_RATE });
+    const request = ((await kit.call("GET", "/workflow/requests")).body as { id: string; entityLabel: string | null }[]).find((row) => row.id === "HELD-LABEL:confirm");
+    expect(request?.entityLabel).toBe("فاتورة مبيعات بقيمة 114.00 — عميل");
+    expect((await approve("HELD-LABEL")).status).toBe(200);
+  });
+
   it("posts the named rate at the held total when the VAT setting has not moved", async () => {
     const before = await held("HELD-SAME", { taxRateId: VAT_RATE });
     const approved = await approve("HELD-SAME");
@@ -70,6 +77,8 @@ describe("approving a held invoice posts what the approver read, or nothing", ()
 
     const resubmitted = await submit("HELD-OFF-ON");
     expect([resubmitted.status, resubmitted.body.held], JSON.stringify(resubmitted.body)).toEqual([200, true]);
+    const relabelled = ((await kit.call("GET", "/workflow/requests")).body as { id: string; entityLabel: string | null }[]).find((row) => row.id === "HELD-OFF-ON:confirm");
+    expect(relabelled?.entityLabel).toBe("فاتورة مبيعات بقيمة 114.00 — عميل");
     expect((await approve("HELD-OFF-ON")).status).toBe(200);
     const posted = await invoiceOf("HELD-OFF-ON");
     expect([posted.status, taxOf(posted), posted.totals.grandTotal]).toEqual(["confirmed", [[14, VAT_RATE]], "114.000000"]);

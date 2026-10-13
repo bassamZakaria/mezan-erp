@@ -458,6 +458,7 @@ export class SalesInvoiceService {
         requestId,
         submittedBy: opts.actor ?? this.deps.actor ?? "system",
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
+        entityLabel: existing.docNo ?? `فاتورة مبيعات بقيمة ${displayAmount(this.totalsOf(existing).grandTotal)} — ${existing.customerNameAr}`,
       });
       if (!decision.granted) {
         // Re-confirming while the request is still in the inbox is a no-op, not

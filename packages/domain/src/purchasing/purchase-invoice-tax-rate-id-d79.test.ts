@@ -6,11 +6,6 @@ import { InactiveTaxRateError, TaxRateNotFoundError, TaxRatePercentMismatchError
 import { buildInvoicePosting, createPurchaseInvoice, type PurchaseInvoice, type PurchaseInvoiceRepository } from "./purchase-invoice.js";
 import type { PurchaseGlAccounts } from "./types.js";
 
-/**
- * D79 on the purchase side: a purchase invoice line stores the tax rate it was
- * charged under, resolved server-side, and the input-VAT line it posts carries
- * that id — whichever request shape raised the invoice.
- */
 
 class InMemoryInvoices implements Pick<PurchaseInvoiceRepository, "findById" | "create"> {
   private readonly rows = new Map<string, PurchaseInvoice>();

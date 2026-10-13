@@ -32,8 +32,6 @@ const tagOf = (line: JournalLine, lineIndex: number): JournalLineTaxTag => ({
   taxRateId: line.taxRateId ?? null,
 });
 
-// Each expected line claims ONE untagged journal line of its account and
-// amounts; a line is never claimed twice. Null when any expected line finds none.
 function matchExpected(entry: JournalEntry, expected: readonly ExpectedTaxJournalLine[], taxRatePercent: number): number[] | null {
   const claimed = new Set<number>();
   for (const wanted of expected) {
@@ -44,7 +42,6 @@ function matchExpected(entry: JournalEntry, expected: readonly ExpectedTaxJourna
   return [...claimed];
 }
 
-// The expected lines no journal line named under this rate already answers for.
 function notYetNamed(entry: JournalEntry, expected: readonly ExpectedTaxJournalLine[], taxRatePercent: number, taxRateId: string): ExpectedTaxJournalLine[] {
   const claimed = new Set<number>();
   return expected.filter((wanted) => {

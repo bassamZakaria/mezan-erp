@@ -85,9 +85,6 @@ async function updateTaxRateInTransaction(
     status: command.status ?? current.status,
   };
 
-  // A look-alike a file already holds must stay editable — above all it must
-  // be possible to rename or deactivate it. Only a change that MAKES a rate a
-  // look-alike, keeps one while restating it, or switches one back on is refused.
   const restated = updated.name !== current.name || updated.rate !== current.rate || updated.etaSubType !== current.etaSubType;
   const reactivated = updated.status === TaxRateStatusCode.Active && current.status !== TaxRateStatusCode.Active;
   if (restated || reactivated) assertNotReservedTaxRate(updated);

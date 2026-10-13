@@ -174,7 +174,6 @@ export interface VoucherServiceDeps {
   readonly vatFilings?: JournalPostingDeps["vatFilings"];
   readonly numbering: NextNumberService;
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
-  /** The customer or supplier a voucher is for, by name, for the approvals inbox; absent, the inbox names the treasury account. */
   readonly partyName?: (line: VoucherLine) => Promise<string | null>;
   readonly allocations: AllocationRepository;
   readonly invoices: AllocatableInvoiceRepository;
@@ -544,7 +543,6 @@ export class VoucherService {
     return stamped;
   }
 
-  /** Put a voucher whose approval request was rejected back in front of the approver. */
   async resubmitVoucher(id: string, opts: ConfirmVoucherOptions = {}): Promise<VoucherDocument> {
     return this.service.resubmit(id, opts);
   }
@@ -701,8 +699,6 @@ export class VoucherService {
       await this.projectSettlement(result.invoice);
       return { allocation: result.allocation };
     };
-    // The realised-FX entry, the allocation and the invoice's settlement are
-    // one act: a refused settlement must take the allocation back with it.
     return this.deps.documents.transaction(run);
   }
 

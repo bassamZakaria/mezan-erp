@@ -27,7 +27,6 @@ export const salesReturnLineSchema = z.object({
   customerId: z.string().min(1),
   sourceInvoiceId: z.string().min(1),
   sourceInvoiceNumber: z.string().nullable(),
-  /** The source invoice line this reverses. Omitted, the first line of the item is taken. */
   sourceLineId: z.string().min(1).nullish(),
   reason: salesReturnReasonSchema,
   availableQty: positiveDecimalString,
@@ -51,7 +50,6 @@ export const createSalesReturnSchema = z.object({
 /** Convenience request: derive return lines from a resolved source-invoice snapshot + requested qty per item. */
 export const salesReturnRequestedQtySchema = z.object({
   itemId: z.string().min(1),
-  /** The source invoice line this reverses. Omitted, the first line of the item is taken. */
   sourceLineId: z.string().min(1).nullish(),
   qty: positiveDecimalString,
   /** Per-line سبب الإرجاع (R3.9); omitted lines fall back to the document's reason. */
@@ -78,7 +76,6 @@ export const salesReturnDocumentSchema = z.object({
   status: documentStatusSchema,
   lines: z.array(
     salesReturnLineSchema.extend({
-      /** Read off the source invoice line, never off the request. */
       taxRateId: z.string().nullable().optional(),
       /** The source invoice's currency and confirm rate, stamped by the server (D203). */
       currency: z.string().nullable().optional(),
@@ -121,7 +118,6 @@ export const refundSalesReturnSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
-/** POST /sales-returns/:id/void and its purchase twin — the reason is required and is kept on the reversal and its audit row. */
 export const voidReturnSchema = z.object({
   reason: z.string().trim().min(1).max(500),
   date: isoDateOrInstant.optional(),
@@ -135,12 +131,6 @@ export type BuildSalesReturnFromInvoiceDTO = z.infer<typeof buildSalesReturnFrom
 export type SalesReturnDocumentDTO = z.infer<typeof salesReturnDocumentSchema>;
 export type RefundSalesReturnDTO = z.infer<typeof refundSalesReturnSchema>;
 
-/**
- * GET /sales-returns/source-lines/:invoiceId and its purchase twin — what each
- * line of a confirmed invoice sold and what confirmed returns have already
- * taken from it, computed server-side. A return form starts a new row from
- * this, never from whichever returns its list happens to be showing.
- */
 export const returnSourceLineSchema = z.object({
   sourceLineId: z.string().min(1),
   itemId: z.string().min(1),

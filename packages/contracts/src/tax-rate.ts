@@ -13,13 +13,6 @@ export enum TaxRateStatusCode {
   Inactive = "inactive",
 }
 
-/**
- * Egyptian ETA e-invoice VAT sub-type codes (docs/archive/catalog/04's "الضرائب"
- * section transcribes V001–V009 from the tax dialog's helper text). "auto"
- * mirrors the mockup's default option — "تلقائي (أساسي عند وجود ضريبة، غير
- * خاضع عند 0%)" — which lets the invoicing engine pick V009 (basic sales) or
- * V004 (not subject) itself based on the line's rate at submission time.
- */
 export enum EtaVatSubTypeCode {
   Auto = "auto",
   ExportGoods = "V001",
@@ -60,7 +53,6 @@ export const taxRateSchema = z.object({
   inputTaxAccountId: z.string().nullable(),
   etaSubType: etaVatSubTypeSchema,
   status: taxRateStatusSchema,
-  /** A rate the system owns and names on the 0% lines it raises; PATCH answers 409 `TAX_RATE_SYSTEM_LOCKED`. */
   isSystem: z.boolean().optional(),
 });
 
@@ -136,22 +128,11 @@ export type UpsertTaxGroupDTO = z.infer<typeof upsertTaxGroupSchema>;
 export type TaxGroupComponentDTO = z.infer<typeof taxGroupComponentSchema>;
 export type TaxGroupDTO = z.infer<typeof taxGroupSchema>;
 
-/**
- * POST /sales-invoices/:id/lines/:lineId/classify-tax and its purchase twin —
- * names the tax rate of a POSTED line that stored none. `withLineIds` names
- * the document's other unnamed lines at the same percent: they share a journal
- * line with it and are classified together, never implicitly.
- */
 export const classifyLineTaxSchema = z.object({
   taxRateId: z.string().min(1),
   withLineIds: z.array(z.string().min(1)).max(500).optional(),
 });
 
-/**
- * تسمية ضريبة سطر القيد — the entry's lines, by their position in the entry,
- * that carry the tax of one document line. `taxRateId` is required only when
- * the document line names no rate yet.
- */
 export const nameJournalLineTaxSchema = z.object({
   journalLineIndexes: z.array(z.number().int().nonnegative()).min(1).max(500),
   taxRateId: z.string().min(1).optional(),

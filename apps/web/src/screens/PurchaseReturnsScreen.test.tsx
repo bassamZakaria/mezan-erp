@@ -133,7 +133,6 @@ function purchaseReturn(overrides: Partial<PurchaseReturnDocumentDTO> = {}): Pur
 function baseHandlers(
   returns: PurchaseReturnDocumentDTO[],
   invoices: PurchaseInvoiceDTO[] = [purchaseInvoice()],
-  /** What the SERVER says confirmed returns already took, by invoice line position. */
   returnedByLine: Record<string, string> = {},
 ) {
   return {
@@ -388,7 +387,6 @@ describe("PurchaseReturnsScreen", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
     await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
 
-    // أسمنت was invoiced 20: returning all 20 leaves that line nothing.
     fireEvent.change(qtyInputAt(0), { target: { value: "20" } });
     fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
     fireEvent.change(qtyInputAt(1), { target: { value: "2" } });

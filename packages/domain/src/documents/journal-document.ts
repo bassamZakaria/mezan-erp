@@ -146,7 +146,6 @@ export const journalDocumentType: DocumentTypeDefinition<JournalDocLine> = {
  * entry id equals the document id (`posting.sourceDocId`), so the ledger entry
  * and the document share one identity and one JE- number.
  */
-/** Where a reversal books stock value its mirrored issue could not take out of an emptied position. */
 export interface StockReversalVarianceAccounts {
   readonly inventoryAccountId: string;
   readonly costVarianceAccountId: string;
@@ -208,8 +207,6 @@ const BACK_ORDER_COVER_MEMO = "فرق تكلفة: بضاعة غطّت كمية �
 export function stockVarianceLines(unmirrored: Money | undefined, accounts: StockReversalVarianceAccounts | undefined, memo: string = STOCK_VARIANCE_MEMO): JournalLine[] {
   if (!unmirrored || unmirrored.scaled === 0n) return [];
   if (!accounts) throw new UnbookedStockVarianceError(unmirrored);
-  // The mirrored lines already took the FULL mirrored value off the inventory
-  // account; the position only held less (positive) or more (negative).
   const heldMore = unmirrored.scaled < 0n;
   const magnitude = heldMore ? unmirrored.negate() : unmirrored;
   const [debited, credited] = heldMore

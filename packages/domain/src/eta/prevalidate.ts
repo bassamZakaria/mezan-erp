@@ -75,7 +75,6 @@ export interface EtaPrevalidationFinding {
 }
 
 export interface EtaPrevalidationLineInput {
-  /** The source document's own line id, so a finding about the line can open an action on it. */
   readonly lineRef?: string | null;
   readonly itemId: string;
   readonly itemLabel: string;

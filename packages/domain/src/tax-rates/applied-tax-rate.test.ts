@@ -73,8 +73,6 @@ describe("resolveAppliedTaxRate — a line names only a percent", () => {
   });
 
   it("NEVER infers a rate at 0% — not even when the tenant holds exactly one 0% rate", () => {
-    // Guards review finding 1: with only «معفى» at 0%, a retention release or a
-    // tax-exempt customer's sale would otherwise be stored, and filed, as exempt.
     expect(resolveAppliedTaxRate(ONLY_EXEMPT_AT_ZERO, { taxRatePercent: 0 }, 14)).toEqual({ taxRateId: null, taxRatePercent: 0 });
     expect(resolveAppliedTaxRate(ONLY_EXPORT_AT_ZERO, { taxRatePercent: 0 }, 14)).toEqual({ taxRateId: null, taxRatePercent: 0 });
     expect(resolveAppliedTaxRate(MASTER, { taxRatePercent: 0 }, 14)).toEqual({ taxRateId: null, taxRatePercent: 0 });
@@ -135,9 +133,6 @@ describe("resolveInheritedTaxRate — a line copied from a document that already
   });
 
   it("infers nothing for a source that stored no rate, though exactly one active rate has its percent (D79 round 3)", () => {
-    // Round 2 named VAT14 here for a quote written before quotes stored a
-    // rate. A stored NULL cannot say whether it is that or a line whose author
-    // answered "no rate", so it is carried, never resolved a second time.
     expect(resolveInheritedTaxRate(MASTER, { taxRateId: null, taxRatePercent: 14 })).toEqual({ taxRateId: null, taxRatePercent: 14 });
   });
 

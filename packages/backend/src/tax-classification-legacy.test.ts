@@ -6,12 +6,6 @@ import { ALL_SCOPE, MODULE_CATALOG, createEntitlements } from "@mezan/domain";
 import { openSqliteConnection } from "@mezan/persistence";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
-/**
- * D79 round 5: an entry posted before journal lines carried a tax percent has
- * nothing the percent can find. Classifying its invoice line either names the
- * entry's base and tax lines too, or is refused — the line and its journal
- * never part ways.
- */
 
 const TODAY = "2026-08-24";
 const dbPath = join(mkdtempSync(join(tmpdir(), "mezan-legacy-tax-")), "t.db");

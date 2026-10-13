@@ -157,8 +157,6 @@ describe("purchases-routes — an invoice line stores the tax rate applied (D79)
     ]));
     expect(res.status).toBe(201);
     const created = (await res.json()) as { lines: { taxRatePercent: number; taxRateId: string | null }[] };
-    // A percent alone lets the server infer the one 14% rate; an explicit null
-    // beside it says "no rate", and the route must not collapse the two.
     expect(created.lines.map((l) => [l.taxRatePercent, l.taxRateId])).toEqual([
       [0, "VAT-EXEMPT"],
       [0, "VAT-EXPORT"],

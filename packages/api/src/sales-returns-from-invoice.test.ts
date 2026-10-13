@@ -337,8 +337,6 @@ describe("POST /sales-returns/from-invoice — the returnable quantity is the in
       }),
     );
     expect(otherItem.status).toBe(422);
-    // D79 round 3: this answered NO_RETURNABLE_LINES only because it was the
-    // sole line — beside a valid line it was dropped and the rest drafted.
     expect((await otherItem.json() as { error: string }).error).toBe("RETURN_LINE_NOT_ON_INVOICE");
 
     const nothing = await app.fetch(

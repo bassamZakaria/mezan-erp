@@ -62,7 +62,6 @@ export interface DocumentGlPostingLine {
    * existed — the report falls back to the old derivation for those.
    */
   readonly taxRatePercent?: number | null;
-  /** The tax rate row behind `taxRatePercent`. Dropped here, the VAT return cannot tell two 0% rates apart (D79). */
   readonly taxRateId?: string | null;
   /** بُعد المشروع — the contracting project the line belongs to (D-01). Dropped here, it is gone for good. */
   readonly projectId?: string | null;
@@ -91,7 +90,7 @@ export interface DocumentGlPosting {
   readonly memo: string;
   readonly lines: readonly DocumentGlPostingLine[];
   /**
-   * Set by the framework, never by a document type: what the stock ledger
+   * INVARIANT: set by the framework, never by a document type — what the stock ledger
    * moved beyond (positive) or short of (negative) what the document's own
    * lines state. The GL hook books it in this same entry.
    */
@@ -134,9 +133,7 @@ export interface DocumentStockLine {
   readonly qty: Qty;
   /** Required for an IN line (receipt cost); ignored for OUT (moving average used). */
   readonly unitCost?: Money;
-  /** Only on a line that mirrors a recorded movement: the exact value that movement moved. */
   readonly value?: Money;
-  /** Set only when this line moves in a warehouse other than the plan's own. */
   readonly warehouseId?: string;
 }
 
@@ -188,7 +185,7 @@ export interface DocumentStockResult {
   /** Signed: positive when value entered stock, negative when it left. */
   readonly valueMoved: Money;
   /**
-   * Signed, positive when stock holds more than the document's lines state:
+   * INVARIANT: signed, positive when stock holds more than the document's lines state —
    * what mirrored issues were asked to take and did not, less what receipts
    * into a back-ordered position stated and did not add. The document's entry
    * books it, or the control account and the stock ledger part by this figure.
@@ -220,7 +217,6 @@ export interface MirrorableStockMovement {
   readonly qty: Qty;
   /** The cost the movement actually recorded — a receipt cost on an IN, the moving average on an OUT. */
   readonly unitCost: Money;
-  /** The exact value it moved; absent on a row written before it was stored. */
   readonly value?: Money | null;
 }
 
@@ -241,9 +237,6 @@ export function mirrorStockPlan(
   if (moved.length === 0) return null;
   const warehouses = [...new Set(moved.map((m) => m.warehouseId))];
   const directions = new Set(moved.map((m) => m.direction));
-  // An issue the engine sourced from several warehouses goes back to each of
-  // them; a movement set that went OUT of one warehouse and IN to another is a
-  // transfer, and mirroring it line by line would not be valuation-neutral.
   if (warehouses.length > 1 && directions.size > 1) {
     throw new Error("لا يمكن عكس حركة مخزنية موزّعة على أكثر من مستودع");
   }
@@ -292,14 +285,7 @@ export interface DocumentApprovalView {
 
 export interface DocumentWorkflowGate {
   evaluate(input: DocumentWorkflowInput): Promise<DocumentWorkflowDecision>;
-  /** The standing requests among `requestIds`, keyed by request id. A gate that keeps no requests has none. */
   standing?(requestIds: readonly string[]): Promise<ReadonlyMap<string, DocumentApprovalView>>;
-  /**
-   * The document behind a decided request no longer stands as it was judged:
-   * a rejected draft was edited, or an approved one would post other figures.
-   * Its next confirm is judged afresh. A gate that keeps no requests has
-   * nothing to reopen.
-   */
   reopen?(requestId: string): Promise<void>;
 }
 

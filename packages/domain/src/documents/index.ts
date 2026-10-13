@@ -11,6 +11,7 @@
  */
 
 export {
+  DocumentStatusCode,
   type DocumentStatus,
   DOCUMENT_TRANSITIONS,
   ACTIVE_STATUSES,

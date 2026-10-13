@@ -397,7 +397,6 @@ export interface CreateAppOptions {
   readonly taxGroupRepo?: TaxGroupRepository;
   /** Mounts `/tax-rates` (docs/archive/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
   readonly taxRateRepo?: TaxRateRepository;
-  /** Which tax rates stored lines name. Left out, every rate is treated as referenced and its percent and sub-type stay locked. */
   readonly taxRateUsage?: TaxRateUsage;
   /** Mounts `/cost-centers` (docs/archive/catalog/04 "مراكز التكلفة") when present — omit it for no `/cost-centers` route. */
   readonly costCenterRepo?: CostCenterRepository;
@@ -1744,7 +1743,6 @@ function salesTaxPolicyOf(options: CreateAppOptions): SalesTaxPolicySource {
 const DEFAULT_SETTINGS_SOURCE = { get: async () => null };
 const NO_TAX_RATES = { list: async () => [] };
 
-/** What a composition hands the app: the tax sources may be left to the app's own stores. */
 export type SalesInvoiceAppDeps = Omit<SalesInvoiceRoutesDeps, "taxPolicy" | "taxRates"> & Partial<Pick<SalesInvoiceRoutesDeps, "taxPolicy" | "taxRates">>;
 
 // INVARIANT: the sales-invoice wiring is completed ONCE. The invoice routes, a
@@ -1778,14 +1776,10 @@ function wireSalesInvoices(options: CreateAppOptions, uow: UnitOfWork): SalesInv
     ...salesInvoices,
     creditControl,
     promotions,
-    // DEC-31 rule 6 — the monthly invoice quota, re-counted inside the write
-    // transaction. Auto-wired so the create route is never mounted without it.
     quota: salesInvoices.quota ?? createSalesInvoiceQuota(salesInvoices.repo, (fn) => uow.transaction(fn)),
-    // `view_own` narrows on `salespersonId`, which holds an Employee id (D147).
     users: salesInvoices.users ?? uow.users,
     returns: salesInvoices.returns ?? options.salesReturns?.service,
     currencyCheck: salesInvoices.currencyCheck ?? (settingsStore ? createCurrencyCheck(settingsStore) : undefined),
-    // A permitted foreign currency still posts at par without a rate (D24).
     exchangeRates: salesInvoices.exchangeRates ?? options.exchangeRateRepo,
     taxRates: salesInvoices.taxRates ?? options.taxRateRepo ?? NO_TAX_RATES,
     customerTax: salesInvoices.customerTax ?? (customerStore ? customerTaxProfileFrom(customerStore) : undefined),

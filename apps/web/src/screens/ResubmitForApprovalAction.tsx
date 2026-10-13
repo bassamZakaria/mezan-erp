@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, type RowMenuItem } from "@mezan/ui";
 import { DocumentApprovalStatus, type DocumentApprovalDTO } from "@mezan/contracts";
+import { DocumentStatusCode } from "@mezan/domain";
 import { useApi } from "../data/ApiContext";
 import { ApiError, readError } from "../data/hooks";
 import { sessionHolds } from "../data/session";
@@ -57,7 +58,7 @@ const QUERY_ROOT: Record<ResubmitFamily, string> = {
   [ResubmitFamily.Vouchers]: "vouchers",
 };
 
-const RESUBMITTABLE_STATUS = "draft";
+const RESUBMITTABLE_STATUS = DocumentStatusCode.Draft;
 
 export function useResubmitForApproval(family: ResubmitFamily): ResubmitController {
   const { t } = useAppTranslation();

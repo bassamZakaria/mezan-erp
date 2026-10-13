@@ -41,7 +41,6 @@ export interface NameReturnJournalLineTaxDeps<Line extends ReturnTaxLine> {
     sourceInvoiceId?: string,
     taxRateId?: string | null,
   ) => readonly ExpectedTaxJournalLine[] | Promise<readonly ExpectedTaxJournalLine[]>;
-  /** The rate the source invoice line names, null when it names none, undefined when it cannot be read. */
   readonly sourceRateOf?: (line: Line) => Promise<string | null | undefined>;
   readonly filing?: ReturnTaxFilingPort<Line>;
   readonly audit?: AuditSink;
@@ -129,8 +128,6 @@ export async function nameReturnJournalLineTax<Line extends ReturnTaxLine>(
 
     const expected = await deps.expected(doc, taxRatePercent, undefined, storedRateId);
     if (expected.length === 0) throw new TaxClassificationJournalUntaggedError(number);
-    // An entry posted before the split per source invoice holds each
-    // account's lines merged; it is matched against the merged figures.
     let journalLines: ChosenJournalLinesNamed;
     try {
       journalLines = await deps.tags.nameChosenLines(doc.journalEntryId, request.journalLineIndexes, taxRatePercent, taxRateId, expected);

@@ -76,11 +76,6 @@ export class SalesInvoiceLineNotFoundError extends Error {
   }
 }
 
-/**
- * Confirming would post other tax and another total than the draft shows: the
- * VAT setting moved since it was raised. The caller is shown the recalculated
- * figures and must say it has seen them.
- */
 export class SalesTaxRecalculationUnacknowledgedError extends Error {
   readonly code = "TAX_RECALCULATION_NOT_ACKNOWLEDGED";
   readonly messageEn: string;
@@ -97,11 +92,6 @@ export class SalesTaxRecalculationUnacknowledgedError extends Error {
   }
 }
 
-/**
- * An approval was given for one set of figures and the invoice would post
- * another: the VAT setting moved while it waited. It is handed back as a draft
- * carrying the recalculated figures, and posts only on a fresh approval.
- */
 export class ApprovedSalesInvoiceReratedError extends Error {
   readonly code = "APPROVED_DOCUMENT_RERATED";
   readonly messageEn: string;

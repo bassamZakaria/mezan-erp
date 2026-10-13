@@ -70,9 +70,7 @@ const OWNED_STORES = /(?:^|\.)(?:repo|documents|invoices|returns|quotes|salesInv
 const STORE_WRITES = new Set(["save", "update", "create", "writeFields", "nameLineTaxRate", "nameSourcedLineTaxRate"]);
 const STORE_READS = new Set(["findById", "require", "requireVoucher", "list", "findByDocNo"]);
 const TRANSACTION_OPENERS = new Set(["transaction", "atomically"]);
-// A private writer that only forwards to the store; every CALL of it is judged as the write it is.
 const WRITE_HELPERS = new Set(["write", "writeFields", "writeLine"]);
-// A new document has no stored row to read; the store's primary key refuses a duplicate.
 const CREATES = new Set(["createDraft", "createPurchaseInvoice", "createVoucher"]);
 // INVARIANT: each of these runs only inside the transaction of the operation
 // named beside it, which read the document there. A new caller outside one

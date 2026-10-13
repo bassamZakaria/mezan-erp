@@ -2016,7 +2016,6 @@ export function SalesInvoicesScreen() {
       setRowRerate(null);
       setRowNotice(confirmed.taxRecalculated?.message ?? null);
     } catch (err) {
-      // The server names the total that would post; the row asks before it posts it.
       if (err instanceof SalesTaxRecalculationPendingError) setRowRerate({ row, message: err.message, recalculated: err.recalculatedGrandTotal });
       else {
         setRowRerate(null);

@@ -3147,7 +3147,6 @@ export type ConfirmSalesInvoiceAct =
   | string
   | ({ readonly id: string; readonly expectedVersion?: number } & Pick<ConfirmSalesInvoiceDTO, "receiptPaymentMethod" | "acknowledgeTaxRecalculation">);
 
-/** A confirm the server refused because posting would re-rate the draft: it carries the total that would post. */
 export class SalesTaxRecalculationPendingError extends ApiError {
   constructor(
     status: number,
@@ -5184,7 +5183,6 @@ export interface ProcessEtaQueueResult {
   readonly rejected: EtaSubmissionDTO[];
   readonly queued: string[];
   readonly unsigned: string[];
-  /** Left ready: their own data fails a rule the authority would refuse them on. */
   readonly blocked?: string[];
 }
 
@@ -6162,11 +6160,6 @@ export enum ReturnKind {
   Purchase = "purchase-returns",
 }
 
-/**
- * What each line of a confirmed invoice sold and what confirmed returns have
- * taken from it — the server's figure. Keyed under the returns list so every
- * confirm or cancel refetches it.
- */
 export function useReturnSourceLines(kind: ReturnKind, invoiceId: string): UseQueryResult<ReturnSourceLinesDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();

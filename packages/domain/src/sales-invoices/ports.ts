@@ -70,7 +70,6 @@ export interface SalesInvoiceRepository {
 
 export interface SalesInvoiceListFilter {
   readonly status?: SalesInvoice["status"];
-  /** The quote an invoice was raised from. */
   readonly sourceQuoteId?: string;
   /**
    * Narrows to a SET of stored statuses, ANDed with `status`. The derived

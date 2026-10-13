@@ -125,6 +125,7 @@ import {
   ledgerPresenceAsOf,
   reversalChainPresenceAsOf,
   isActive,
+  DocumentStatusCode,
   type DocumentStatus,
   purchaseInvoiceCancelEntryId,
   FX_REVALUATION_LINE_MEMO,
@@ -2061,7 +2062,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const standingSalesReturnRefunds = async (returnId: string) => {
     const prefix = `REFUND:${returnId}:`;
     return (await vouchers.documents.list())
-      .filter((doc) => doc.id.startsWith(prefix) && doc.status === "confirmed" && doc.reversesDocId === null)
+      .filter((doc) => doc.id.startsWith(prefix) && doc.status === DocumentStatusCode.Confirmed && doc.reversesDocId === null)
       .map((doc) => ({
         voucherId: doc.id,
         voucherNo: doc.docNo,
@@ -4161,10 +4162,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         filing: salesReturnTaxFiling,
       }),
       taxFiling: createSalesInvoiceTaxFiling({ eta: etaService, taxRates, rebuild: rebuildEtaInvoiceSubmission }),
-      // A consumer sale whose e-receipt was refused for its unnamed 0% line
-      // gets it now, and a rejected one is corrected — once per rejection.
-      // Best-effort, as at confirm: the classification stands either way, and
-      // the reply says what actually became of the receipt.
       afterTaxClassified: createAfterTaxClassified({
         receipts: etaReceipts,
         returnsOf: async (invoiceId) => (await salesReturnStore.listByLineRef?.("sourceInvoiceId", [invoiceId], { status: "confirmed" })) ?? [],

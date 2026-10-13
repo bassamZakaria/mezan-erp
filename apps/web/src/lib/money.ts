@@ -44,7 +44,6 @@ export function majorOf(value: string | null | undefined): number {
   return toMajorNumber(scaledOf(value));
 }
 
-// A cleared number field holds NaN, and the exact-decimal parsers throw on it.
 export function finiteOrZero(value: number): number {
   return Number.isFinite(value) ? value : 0;
 }

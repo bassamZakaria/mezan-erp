@@ -60,7 +60,6 @@ export interface TaxRate {
 /** Persistence port for tax rates. The domain depends on this interface only — no SQL, no driver. */
 export interface TaxRateUsage {
   isReferenced(taxRateId: string): Promise<boolean>;
-  /** How many customer cards name the rate as their exemption rate. Omitted, none are assumed. */
   exemptCustomerCount?(taxRateId: string): Promise<number>;
 }
 

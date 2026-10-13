@@ -8,11 +8,6 @@ import { buildPurchaseReturnLinesFromInvoice } from "../purchase-returns/from-in
 import { createPurchaseReturnDocumentType, type PurchaseReturnLine } from "../purchase-returns/purchase-return-document.js";
 import type { SourcePurchaseInvoice } from "../purchase-returns/ports.js";
 
-/**
- * D79 on the return side. A return is the mirror of the invoice line it
- * reverses, so it carries that line's tax rate id: an exempt line that comes
- * back is still exempt, never the 0% rate that happened to be defined first.
- */
 
 const SALES_ACCOUNTS = {
   accountsReceivableId: "1105",

@@ -177,11 +177,6 @@ export interface EtaReceiptIssuer {
   reissueInvoiceReceipt(invoiceId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
   /** The refund-receipt mirror of {@link reissueInvoiceReceipt}, for a confirmed consumer return's rejected receipt. */
   reissueReturnReceipt(returnId: string, options?: IssueEtaReceiptOptions): Promise<IssuedEtaReceipt | null>;
-  /**
-   * What became of an invoice's e-receipt after its tax was classified: the
-   * rejected receipt reissued now, a reissue already awaiting the authority, a
-   * reissue the 96-hour window refuses — or null when there is nothing to say.
-   */
   correctInvoiceReceiptAfterClassification(invoiceId: string): Promise<EtaReceiptCorrection | null>;
   /**
    * Reports queued receipts when الإرسال التلقائي is on; one run at a time.
@@ -777,8 +772,6 @@ interface ReturnCreditNoteDeps {
   readonly unitMappings: EtaUnitMappingRepository;
 }
 
-// The ONE build of a B2B return's إشعار دائن — queued when the return confirms
-// and rebuilt when a classification names its lines, from the same code.
 async function buildReturnCreditNoteInputs(
   deps: ReturnCreditNoteDeps,
   doc: FrameworkDocument<SalesReturnLine>,
@@ -998,12 +991,6 @@ export function createSalesInvoiceTaxFiling(deps: {
   };
 }
 
-/**
- * The same judgement for the e-document of a RETURN whose lines a
- * classification names: its queued credit note is rebuilt, its filed credit
- * note or refund receipt must still declare what it was filed under, and its
- * rejected refund receipt is left for the reissue that follows the commit.
- */
 export function createSalesReturnTaxFiling(deps: {
   readonly eta: EtaService;
   readonly taxRates: Pick<TaxRateRepository, "list">;

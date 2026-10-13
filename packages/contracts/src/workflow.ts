@@ -33,7 +33,6 @@ export enum DocumentApprovalStatus {
   ModificationRequested = "modification_requested",
 }
 
-/** The approval request standing behind a gated document, and why it was last rejected. */
 export const documentApprovalSchema = z.object({
   status: approvalStatusSchema,
   rejectionReason: z.string().nullable(),

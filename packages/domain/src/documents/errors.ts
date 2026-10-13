@@ -152,7 +152,6 @@ const RESUBMIT_REFUSAL_AR: Readonly<Record<ApprovalStatus | "none", string>> = {
   rejected: "تعذّرت إعادة إرسال المستند للاعتماد.",
 };
 
-/** A wiring error: a reversal emptied a stock position at a value its mirror did not name, and nothing can book the difference. */
 export class UnbookedStockVarianceError extends Error {
   readonly code = "UNBOOKED_STOCK_VARIANCE";
   readonly messageEn: string;

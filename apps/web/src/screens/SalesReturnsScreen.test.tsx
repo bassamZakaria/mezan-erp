@@ -164,7 +164,6 @@ function salesReturn(overrides: Partial<SalesReturnDocumentDTO> = {}): SalesRetu
 function baseHandlers(
   returns: SalesReturnDocumentDTO[],
   invoices: SalesInvoiceDTO[] = [salesInvoice()],
-  /** What the SERVER says confirmed returns already took, by invoice line. */
   returnedByLine: Record<string, string> = {},
 ) {
   return {
@@ -327,7 +326,6 @@ describe("SalesReturnsScreen", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
     await screen.findByRole("heading", { name: "مرتجع مبيعات جديد" });
 
-    // أسمنت بورتلاندي was sold 10: returning all 10 leaves that line nothing.
     fireEvent.change(qtyInputAt(0), { target: { value: "10" } });
     fireEvent.click(screen.getByRole("button", { name: "إضافة بند" }));
     fireEvent.change(qtyInputAt(1), { target: { value: "2" } });
@@ -361,7 +359,6 @@ describe("SalesReturnsScreen", () => {
     let served = false;
     const handlers = baseHandlers([], [salesInvoice()], { l1: "10" });
     const transport = stubTransport({
-      // The list is filtered down to nothing, while the server knows أسمنت's line is fully returned.
       ...handlers,
       "GET /sales-returns/source-lines/*": (init, path) => {
         served = true;

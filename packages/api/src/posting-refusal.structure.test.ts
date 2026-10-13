@@ -7,11 +7,6 @@ import { describe, expect, it } from "vitest";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const THE_ONE_MAPPING = "posting-refusal.ts";
 const MAPPED_ONCE = ["VatPeriodAlreadyFiledError", "DocumentChangedError", "AllocationExceedsError"];
-// The treasury route files still map an over-allocation for themselves; they
-// are edited on other branches and converge after those merge.
-const OVER_ALLOCATION_MAPPED_LOCALLY = ["vouchers-routes.ts", "cheques-routes.ts"];
-const mapsLocally = (finding: string): boolean =>
-  finding.endsWith("instanceof AllocationExceedsError") && OVER_ALLOCATION_MAPPED_LOCALLY.some((file) => finding.includes(`/${file}:`));
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -37,8 +32,7 @@ function instanceofChecks(file: string, text: string = readFileSync(file, "utf8"
 describe("a posting refusal has one mapping", () => {
   it("no route decides for itself what a filed VAT month or a moved document answers", () => {
     const elsewhere = sourceFiles(HERE).filter((file) => !file.endsWith(`/${THE_ONE_MAPPING}`)).flatMap((file) => instanceofChecks(file));
-    expect(elsewhere.filter((finding) => !mapsLocally(finding))).toEqual([]);
-    expect(elsewhere.filter(mapsLocally).map((finding) => finding.split(":")[0]?.split("/").pop()).sort()).toEqual([...OVER_ALLOCATION_MAPPED_LOCALLY].sort());
+    expect(elsewhere).toEqual([]);
   });
 
   it("the one mapping holds both checks, and a mention in a comment does not count", () => {

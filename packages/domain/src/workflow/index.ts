@@ -18,6 +18,7 @@ export {
   type GateStep,
   type GateConfig,
   type ApprovalRequest,
+  ApprovalStatusCode,
   type ApprovalStatus,
   type DecisionKind,
   type DecisionRecord,

@@ -166,7 +166,6 @@ export interface PurchasesRoutesDeps {
    */
   readonly transactor?: PurchaseTransactor;
   readonly taxTags?: PurchaseInvoiceTaxTagPort;
-  /** The lines of the entry an invoice posted, so a classification expects the accounts it really used. */
   readonly postedJournalLines?: ClassifyPurchaseInvoiceLineTaxDeps["postedLines"];
   readonly taxDependents?: TaxClassificationDependentsPort;
   readonly accounts: PurchaseGlAccounts;
@@ -1405,11 +1404,6 @@ export function createPurchasesRoutes(
     }
   });
 
-  /**
-   * تصنيف ضريبة بند فاتورة المشتريات — names the tax rate of a posted line
-   * that stored none; `:lineId` is the line's index. See
-   * `classifyPurchaseInvoiceLineTax`.
-   */
   app.post("/invoices/:id/lines/:lineId/classify-tax", gate("purchases.invoice.classify_tax"), async (c) => {
     if (!deps.taxTags || !deps.taxRates) {
       return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);

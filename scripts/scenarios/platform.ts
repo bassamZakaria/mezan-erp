@@ -31,7 +31,6 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// The salesperson of INV-DEMO-1: the returns role reads its OWN invoices and no others.
 const SUBMITTER_EMPLOYEE_ID = "EMP-DEMO-1";
 
 export async function run(ctx: Ctx): Promise<void> {
@@ -483,9 +482,6 @@ export async function run(ctx: Ctx): Promise<void> {
       const onRegister = gaps.some((g: any) => g.docType === gapDocType && (g.docId === doc.id || g.internalId === key));
       return onQueue !== onRegister;
     };
-    // A retention release raises a sales-invoice DOCUMENT that is not a supply
-    // (Dr receivables / Cr retention): it belongs on neither the queue nor the
-    // register (D79). It is held to that separately, not waved through.
     const releaseDocIds = new Set(rows((await req("GET", "/contracting/retention/releases")).body).map((r: any) => r.invoiceId).filter(Boolean));
     const supplies = confirmed.filter((i: any) => !releaseDocIds.has(i.id));
     const releaseDocs = confirmed.filter((i: any) => releaseDocIds.has(i.id));

@@ -28,11 +28,6 @@ export interface ChosenJournalLinesNamed {
 
 export interface JournalTaxTagPort {
   retagUnnamedTaxRate(entryId: string, taxRatePercent: number, taxRateId: string, expected?: readonly ExpectedTaxJournalLine[]): Promise<number>;
-  /**
-   * «تسمية ضريبة سطر القيد» — the accountant names the lines by hand, for an
-   * entry the match above cannot resolve. The chosen lines must carry no rate
-   * and be, account for account and amount for amount, the `expected` ones.
-   */
   nameChosenLines(
     entryId: string,
     lineIndexes: readonly number[],
@@ -40,11 +35,6 @@ export interface JournalTaxTagPort {
     taxRateId: string,
     expected: readonly ExpectedTaxJournalLine[],
   ): Promise<ChosenJournalLinesNamed>;
-  /**
-   * Names ONLY the unnamed lines that are, account for account and amount for
-   * amount, the `expected` ones — all of them or none. For an entry that holds
-   * other documents' unnamed lines at the same percent.
-   */
   nameExpectedLines(entryId: string, taxRatePercent: number, taxRateId: string, expected: readonly ExpectedTaxJournalLine[]): Promise<number>;
 }
 

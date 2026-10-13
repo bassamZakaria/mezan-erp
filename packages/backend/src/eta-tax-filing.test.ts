@@ -14,10 +14,6 @@ import {
 } from "@mezan/domain";
 import { createSalesInvoiceTaxFiling, createSalesReturnTaxFiling } from "./eta-receipts.js";
 
-/**
- * What a tax classification may do to the e-document of its invoice, by the
- * state that document is in (D79 round 5).
- */
 
 const DOC_NO = "INV-000900";
 

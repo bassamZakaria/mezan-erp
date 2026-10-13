@@ -58,8 +58,6 @@ export function ClassifyLineTaxAction({ document, documentId, posted, documentKi
   const retryReceipt = useRetryEtaReceipt();
   const [receiptOutcome, setReceiptOutcome] = useState<ReceiptOutcome | null>(null);
 
-  // The system's rate classifies a sale only for a tenant outside VAT; the
-  // server refuses it everywhere else, so it is offered nowhere else.
   const systemRateApplies = document === ClassifiableDocument.SalesInvoice && vatEnabled === false;
   const candidates = useMemo(
     () => taxRates.filter((rate) => rate.status === TaxRateStatusCode.Active && rate.rate === line.taxRatePercent && (rate.isSystem !== true || systemRateApplies)),

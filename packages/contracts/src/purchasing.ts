@@ -162,7 +162,6 @@ export const purchaseInvoiceLineSchema = z.object({
 
 export const purchaseInvoiceSchema = z.object({
   id: z.string().min(1),
-  /** Absent from a server older than the field: an ordinary invoice. */
   documentKind: z.nativeEnum(InvoiceDocumentKind).optional(),
   number: z.string().min(1),
   supplierId: z.string().min(1),

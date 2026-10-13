@@ -146,7 +146,6 @@ export interface PurchaseGlAccounts {
    */
   readonly goodsReceivedNotInvoicedAccountId?: string;
   readonly priceVarianceAccountId?: string;
-  /** Takes what a receipt stated for goods that levelled a back-order beyond the value that back-order carried: the cost of goods already sold. */
   readonly backOrderCostAccountId?: string;
 }
 

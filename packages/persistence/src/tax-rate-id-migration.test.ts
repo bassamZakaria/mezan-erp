@@ -8,13 +8,6 @@ import { createSqliteLedgerStore } from "./ledger-store.js";
 import { createSqliteSalesInvoiceStore } from "./sales-invoice-store.js";
 import { createSqliteSalesQuoteStore } from "./sales-quote-store.js";
 
-/**
- * D79 — `tax_rate_id` arrives on tables that already hold rows in every books
- * file in the field. Each test writes a row, strips the column so the file is
- * exactly what a pre-D79 build left on disk, and reopens it with the current
- * store: the column must come back, the old row must read NULL (never a guess),
- * and a new row must keep the id it was given.
- */
 
 const dirs: string[] = [];
 afterEach(() => {

@@ -38,7 +38,6 @@ describe("resolveEtaVatSubType", () => {
 
     expect(subTypeOf("EXEMPT")).toBe("V003");
     expect(subTypeOf("EXPORT")).toBe("V001");
-    // Guards D79: only a line with NO stored id is still filed as the neutral V004.
     expect(subTypeOf(null)).toBe("V004");
   });
 

@@ -298,15 +298,6 @@ export async function run(ctx: Ctx): Promise<void> {
   await postedLineTaxIsClassified_D79(ctx);
 }
 
-/**
- * D79 — the tax rate a line was charged under is STORED on the line, and the
- * e-invoice, the e-receipt and the VAT return read the classification off that
- * row. معفى (V003) and تصدير (V001) are both 0%: before the id existed a 0% line
- * could only be filed as the neutral V004, or as whichever rate was defined
- * first. A 0% line with no stored id — every such line in a books file written
- * before the column existed — is never matched to a rate: on a tenant holding
- * exempt or export it is blocked from the authority until its rate is named.
- */
 export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
   const { req, n, check, checkEq, scenario, rows } = ctx;
   const CONSUMER = "SCN-D79-WALKIN";
@@ -549,13 +540,6 @@ export async function taxRateIdentity_D79(ctx: Ctx): Promise<void> {
   });
 }
 
-/**
- * Review round 1 on D79. A rate is never INFERRED at 0%: on a tenant whose only
- * 0% rate is «معفى», the 0% lines the system raises by itself — a tax-exempt
- * customer's sale, a sale with VAT switched off, a retention release — would
- * otherwise all be stored, and filed, as exempt supplies. This scenario puts
- * the tenant in exactly that state and restores it before it finishes.
- */
 export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
   const { req, n, check, scenario, rows, scaled } = ctx;
   const TOWER_CONTRACT = "CTR-DEMO-1";
@@ -946,13 +930,6 @@ export async function zeroPercentIsNeverInferred_D79(ctx: Ctx): Promise<void> {
   });
 }
 
-/**
- * The VAT return's INPUT side on the tenant the seed built: each rate's input
- * tax stands against the base it was charged on, and the input tax it reports
- * is exactly what GL 1400 moved. Before the purchase posting tagged its
- * cost-side lines the same rows read base −2,840.00 against tax 136,488.90.
- * Run on the seeded tenant, before any suite posts to 1400 by hand.
- */
 export async function vatReturnInputBaseTiesToItsTax_D79(ctx: Ctx): Promise<void> {
   const { req, n, check, rows, scaled } = ctx;
   const window = `periodFrom=2020-01-01&periodTo=${ctx.today}`;
@@ -1001,14 +978,6 @@ async function postedEntries(ctx: Ctx, toDate: string): Promise<any[]> {
   }
 }
 
-/**
- * The VAT return's OUTPUT side on the tenant the seed built, held to the
- * ledger twice: the tax it reports is what GL 2200 moved, and the base it
- * reports — every row, the 0% ones too — is what the revenue accounts and the
- * contract-billings liability moved. The second is the one that catches a
- * supply counted twice: a certificate invoice credits 2165 and the recognition
- * run then credits the same value to revenue.
- */
 export async function vatReturnOutputBaseTiesToItsTax_D79(ctx: Ctx): Promise<void> {
   const { req, n, check, rows, scaled } = ctx;
   const window = `periodFrom=2020-01-01&periodTo=${ctx.today}`;
@@ -1056,11 +1025,6 @@ export async function vatReturnOutputBaseTiesToItsTax_D79(ctx: Ctx): Promise<voi
     );
   }
 
-  // The tax each document posted, re-derived from its own lines the way the
-  // server prices them: extend the line, round to the piastre, take the rate,
-  // round to the piastre, THEN sum. One 2200 line aggregates many invoice
-  // lines, so base × rate on the aggregate is not this figure (three lines of
-  // 0.25 at 14% are 0.12, not 0.105) — and no tolerance stands in for it.
   const invoices = (await ctx.allRows("/sales-invoices")).filter((i: any) => ["confirmed", "partially_paid", "paid"].includes(String(i.status)));
   const noDiscount = (discount: any) => !discount || (scaled(discount.amount ?? "0") ?? 0n) === 0n && Number(discount.percent ?? 0) === 0;
   const pricedPlainly = (invoice: any) =>
@@ -1113,12 +1077,6 @@ export async function vatReturnOutputBaseTiesToItsTax_D79(ctx: Ctx): Promise<voi
   );
 }
 
-/**
- * The reviewer's own counter-example to a tolerance: one 2200 line aggregates
- * many invoice lines, and tax is rounded per LINE. Three lines of 0.25 at 14%
- * are 0.04 each — 0.12 — while 14% of their 0.75 total is 0.105. The ledger and
- * the VAT return must carry 0.12 to the micro-unit.
- */
 export async function taxIsRoundedPerLine_D79(ctx: Ctx): Promise<void> {
   const { req, check, scenario, rows, scaled } = ctx;
   await scenario("d79i · tax is rounded on each line and then summed: three lines of 0.25 at 14% post 0.12, exactly, on the ledger and on the VAT return", async () => {
@@ -1148,12 +1106,6 @@ export async function taxIsRoundedPerLine_D79(ctx: Ctx): Promise<void> {
   });
 }
 
-/**
- * D79 round 4 — the way out for a posted line that stored no rate. The sale
- * d79g left blocked (an exempt customer with no exemption rate) is classified
- * here: the line and its journal line take the rate, nothing else moves, and
- * the e-invoice's blocking finding is gone.
- */
 export async function postedLineTaxIsClassified_D79(ctx: Ctx): Promise<void> {
   const { req, check, scenario, rows, scaled } = ctx;
   await scenario("d79j · a posted line that named no rate is classified: NULL → a rate at its own percent, on the line and the ledger, audited; never rate → rate, never another percent", async () => {

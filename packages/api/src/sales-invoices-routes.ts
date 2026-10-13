@@ -148,7 +148,6 @@ export interface SalesInvoiceRoutesDeps {
   /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
   readonly taxPolicy: SalesTaxPolicySource;
   readonly taxRates: Pick<TaxRateRepository, "list">;
-  /** Where a customer's tax exemption is read from; a request body is never believed (D79). */
   readonly customerTax?: CustomerTaxProfileSource;
   readonly taxTags?: SalesInvoiceServiceDeps["taxTags"];
   readonly taxFiling?: SalesInvoiceServiceDeps["taxFiling"];
@@ -231,12 +230,6 @@ export interface SalesInvoiceRoutesDeps {
    */
   readonly stockRestore?: DocumentStockHook;
   readonly withdrawUnsentEtaSubmission?: (invoice: SalesInvoice) => Promise<void>;
-  /**
-   * Where the invoice's e-invoice OR e-receipt stands with the tax authority
-   * — the last link of its chain — or null when it has none. A void reads it
-   * inside its own transaction: a document the authority holds, or is
-   * judging, is never dropped from the books.
-   */
   readonly etaDocumentOf?: (invoice: SalesInvoice) => Promise<{ readonly status: EtaSubmissionStatus; readonly documentType: EtaDocumentType } | null>;
   /**
    * SECURITY: what the print page needs beyond the invoice itself — the names
@@ -247,12 +240,6 @@ export interface SalesInvoiceRoutesDeps {
    */
   readonly printContext?: (invoice: SalesInvoice) => Promise<SalesInvoicePrintContext>;
   readonly onDraftCancelled?: (invoice: SalesInvoice) => Promise<void>;
-  /**
-   * The document a draft was raised from — a quote it converts — with the
-   * figures that document was agreed at. A draft that has one is held to it:
-   * an edit that departs from those figures needs the price-override
-   * permission and is audited against them.
-   */
   readonly sourceDocumentOf?: (invoiceId: string) => Promise<SalesInvoiceSourceDocument | null>;
   readonly itemTax?: SalesItemTaxSource;
   readonly audit?: AuditSink;
@@ -610,9 +597,6 @@ export function createSalesInvoicesRoutes(
     if (!ctx) return false;
     return !can(ctx, "sales.invoice.view") && !can(ctx, "sales.invoice.view_all");
   };
-  // An own-records caller who names no salesperson IS the salesperson:
-  // otherwise the invoice they just raised is one they can neither open nor
-  // confirm.
   const ownSalespersonForUnnamed = async (c: Context): Promise<string | null> => {
     if (!ownVisibilityOnly(c)) return null;
     const own = await ownSalespersonIdOf(c);
@@ -1174,11 +1158,6 @@ export function createSalesInvoicesRoutes(
     });
   });
 
-  /**
-   * تصنيف ضريبة البند — names the tax rate of a posted line that stored none.
-   * NULL → a rate at the line's own percent, and nothing else: see
-   * `SalesInvoiceService.classifyLineTax`.
-   */
   app.post("/:id/lines/:lineId/classify-tax", gate("sales.invoice.classify_tax"), async (c) => {
     if (!deps.taxTags || !deps.taxRates) {
       return c.json({ error: "TAX_CLASSIFICATION_NOT_CONFIGURED", message: "تصنيف ضريبة البنود غير مُفعّل على هذا الخادم." }, 501);

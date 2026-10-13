@@ -28,11 +28,14 @@ export interface GateConfig {
   readonly steps: readonly GateStep[];
 }
 
-export type ApprovalStatus =
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "modification_requested";
+export enum ApprovalStatusCode {
+  Pending = "pending",
+  Approved = "approved",
+  Rejected = "rejected",
+  ModificationRequested = "modification_requested",
+}
+
+export type ApprovalStatus = `${ApprovalStatusCode}`;
 
 export type DecisionKind = "approve" | "reject" | "request_modification";
 
@@ -365,12 +368,6 @@ export function resubmit(
   };
 }
 
-/**
- * The document behind a DECIDED request changed after the decision — a
- * rejected draft was edited, or an approved one no longer carries the figures
- * that were approved. The request goes back to «طلب تعديل», so the document's
- * next confirm restarts the chain instead of reading a stale verdict.
- */
 export function reopenForModification(request: ApprovalRequest): ApprovalRequest | null {
   if (request.status !== "rejected" && request.status !== "approved") return null;
   return { ...request, status: "modification_requested" };

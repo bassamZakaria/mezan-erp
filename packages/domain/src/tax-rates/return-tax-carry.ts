@@ -49,8 +49,6 @@ export function createReturnTaxCarry<Line extends SourcedTaxLine>(deps: {
       let journalLinesNamed = 0;
       for (const doc of candidates) {
         const number = doc.docNo ?? doc.id;
-        // A return whose lines were named on the return itself holds this
-        // invoice's lines to that rate: the invoice is never classified apart.
         const disagreeing = doc.lines.find(
           (line) => line.sourceInvoiceId === sourceDocumentId && line.taxRatePercent === taxRatePercent && (line.taxRateId ?? null) !== null && line.taxRateId !== taxRateId,
         );

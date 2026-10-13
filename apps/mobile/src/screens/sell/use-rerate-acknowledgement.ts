@@ -13,7 +13,6 @@ export interface RerateAcknowledgement {
   readonly keptDraft: PendingRerate | null;
   readonly confirmed: SalesInvoiceDTO | null;
   readonly busy: boolean;
-  /** Resolves to the posted invoice, or to null when posting it now waits on the seller's acknowledgement. */
   confirmDraft(id: string, shownTotal: string): Promise<SalesInvoiceDTO | null>;
   acknowledge(): Promise<SalesInvoiceDTO | null>;
   keepDraft(): void;

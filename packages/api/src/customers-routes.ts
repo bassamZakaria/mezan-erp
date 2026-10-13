@@ -489,12 +489,7 @@ export function createCustomersRouter(
     }
     const nextTaxExempt = parsed.data.taxExempt ?? current.taxExempt;
     const namedExemptionRate = parsed.data.taxExemptionRateId;
-    // Un-exempting a customer drops its exemption rate with it; a rate the
-    // caller names in the same request is checked, never silently dropped.
     const nextExemptionRateId = namedExemptionRate !== undefined ? namedExemptionRate : nextTaxExempt ? current.taxExemptionRateId : null;
-    // A value resent as the card already holds it is not a change, so it is
-    // not re-judged: a phone edit from a form that sends every field must not
-    // be refused because the stored rate was deactivated since.
     if (nextExemptionRateId !== current.taxExemptionRateId || nextTaxExempt !== current.taxExempt) {
       const exemptionRefusal = await exemptionRateRefusal(nextTaxExempt, nextExemptionRateId);
       if (exemptionRefusal) return c.json(exemptionRefusal, 422);

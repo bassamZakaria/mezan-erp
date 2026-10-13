@@ -29,7 +29,6 @@ import {
   InvoiceNotFoundError,
   AllocationNotFoundError,
   AllocationMismatchError,
-  AllocationExceedsError,
   SettlementRateMissingError,
   ReversalDateBeforeOriginalError,
   ReversalNotReversibleError,
@@ -222,7 +221,6 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof AllocationMismatchError ||
-    err instanceof AllocationExceedsError ||
     err instanceof SettlementRateMissingError
   ) {
     return refuse(err, 422);

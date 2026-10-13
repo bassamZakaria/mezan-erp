@@ -337,8 +337,6 @@ export function createSqliteSalesQuoteStore(path: SqliteConnectionInput = ":memo
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
-  // sales_quote_line predates the rate's identity (D79); an existing books file
-  // has the table already, so CREATE TABLE IF NOT EXISTS alone never adds it.
   const lineColumns = new Set(
     (sqlite.prepare(`PRAGMA table_info(sales_quote_line)`).all() as { name: string }[]).map((c) => c.name),
   );

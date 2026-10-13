@@ -78,7 +78,6 @@ export interface SalesQuoteRoutesDeps {
   /** Refuses a quote naming a customer, warehouse or branch no master record holds (D310). */
   readonly masterData?: MasterDataChecks;
   readonly taxRates?: Pick<TaxRateRepository, "list">;
-  /** Where a customer's tax exemption is read from; a request body is never believed (D79). */
   readonly customerTax?: CustomerTaxProfileSource;
   readonly taxPolicy?: SalesTaxPolicySource;
   readonly numbering: DocumentNumberingHook;
@@ -554,7 +553,6 @@ export function createSalesQuotesRoutes(
       dueDate: d.dueDate,
       customerId: quote.customerId,
       customerNameAr: quote.customerNameAr,
-      // The quote's own answer: it priced its lines under it when it was raised.
       customerTaxExempt: quote.customerTaxExempt,
       customerTaxExemptionRateId: customerTax.taxExempt ? customerTax.taxExemptionRateId : null,
       warehouseId: d.warehouseId,

@@ -155,7 +155,6 @@ export enum SalesInvoiceLifecycleAuditAction {
 const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
 const SALES_MODULE = "sales";
 
-/** The request a gated confirm of this invoice raises and later reads. */
 const confirmRequestIdOf = (invoiceId: string): string => `${invoiceId}:confirm`;
 
 export interface SalesInvoiceServiceDeps {
@@ -189,11 +188,6 @@ export interface SalesInvoiceServiceDeps {
   readonly taxRates: Pick<TaxRateRepository, "list">;
   readonly taxRerating: SalesTaxReratingPort;
   readonly taxTags?: JournalTaxTagPort;
-  /**
-   * Brings the e-document the authority holds, or is about to, in line with a
-   * classification. Runs INSIDE the classification's transaction and throws to
-   * refuse it — a filed document's classification cannot be contradicted.
-   */
   readonly taxFiling?: SalesInvoiceTaxFilingPort;
   readonly taxDependents?: TaxClassificationDependentsPort;
   /**
@@ -259,15 +253,11 @@ export interface CreateSalesInvoiceLine {
   readonly taxRatePercent?: number;
   readonly taxRateId?: string | null;
   /**
-   * SERVER-INTERNAL: the tax another document already resolved for this line
+   * SECURITY: server-internal — the tax another document already resolved for this line
    * (a quote converting into an invoice). Taken as it stands — no active check,
    * no repricing. Never map it from a request body.
    */
   readonly inheritedTax?: AppliedTaxRate;
-  /**
-   * Names the rate of an inherited line whose source stored NONE. Honoured
-   * only for a stored NULL, and only for a rate at the stored percent.
-   */
   readonly inheritedTaxRateId?: string | null;
   readonly revenueAccountId: string;
   readonly cogsAccountId?: string | null;
@@ -283,9 +273,9 @@ export interface CreateSalesInvoiceCommand {
   readonly dueDate: string;
   readonly customerId: string;
   readonly customerNameAr: string;
-  /** SERVER-DERIVED from the customer record; never map it from a request body. */
+  /** SECURITY: server-derived from the customer record; never map it from a request body. */
   readonly customerTaxExempt?: boolean;
-  /** SERVER-DERIVED: the 0% rate on the exempt customer's card, when it has one. */
+  /** SECURITY: server-derived — the 0% rate on the exempt customer's card; never map it from a request body. */
   readonly customerTaxExemptionRateId?: string | null;
   readonly warehouseId: string;
   readonly branchId: string;
@@ -307,13 +297,12 @@ export interface CreateSalesInvoiceCommand {
    * document the customer agreed to.
    */
   readonly sourcePricing?: SalesPricingMode;
-  /** SERVER-DERIVED by a quote's conversion; never mapped from a request body. */
+  /** SECURITY: server-derived by a quote's conversion; never map it from a request body. */
   readonly sourceQuoteId?: string | null;
   readonly lines: readonly CreateSalesInvoiceLine[];
 }
 
 export interface ConfirmSalesInvoiceOptions {
-  /** The caller has been shown the totals a changed VAT setting would post, and confirms them. */
   readonly acknowledgeTaxRecalculation?: boolean;
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
@@ -412,12 +401,6 @@ export class SalesInvoiceService {
    * Confirm an invoice. Applies the workflow gate first (if configured); if
    * approval is required the invoice is held بانتظار الموافقة (pending). Otherwise
    * it runs numbering → stock issue → GL post → persist in one transaction.
-   */
-  /**
-   * What confirming this draft would post that the draft does not show: the
-   * lines and totals the current VAT setting re-rates it to. Null when
-   * confirming posts the draft as it stands. Computed by the SAME re-rating the
-   * confirm runs, so the notice and the posting cannot disagree.
    */
   async confirmPreview(invoice: SalesInvoice): Promise<{ readonly invoice: SalesInvoice; readonly totals: SalesInvoiceTotals } | null> {
     if (invoice.status !== SalesInvoiceStatusCode.Draft) return null;
@@ -892,11 +875,6 @@ export class SalesInvoiceService {
     });
   }
 
-  /**
-   * تعديل بند مسودة — the quantity, price or tax rate of ONE line, while the
-   * invoice is still a draft. A posted line is never edited: that correction
-   * is a return.
-   */
   async editDraftLine(id: string, lineId: string, change: EditSalesInvoiceDraftLineCommand): Promise<SalesInvoice> {
     return this.deps.repo.transaction(async () => {
       const existing = await this.require(id);
@@ -986,16 +964,11 @@ export class SalesInvoiceService {
     const appliedTax = (l: CreateSalesInvoiceLine): AppliedTaxRate => {
       if (!l.inheritedTax) return resolveDocumentLineTax(taxRates, l, { defaultPercent: taxPolicy.defaultRatePercent, zeroRating });
       const inherited = resolveInheritedTaxRate(taxRates, l.inheritedTax);
-      // VAT is off NOW: the sale is out of scope whatever its source document
-      // was priced at. Only a 0% rate the source itself named is kept, as the
-      // source held it — an inherited rate is never re-checked for being active.
       if (zeroRating?.cause === ZeroRatingCause.VatOff) {
         return inherited.taxRatePercent === 0 && inherited.taxRateId !== null
           ? inherited
           : resolveDocumentLineTax(taxRates, {}, { defaultPercent: 0, zeroRating });
       }
-      // Priced outside VAT, raised inside it: the line is rated afresh, under
-      // the rate the request names or, failing one, by `rerateForCurrentVat`.
       if (inherited.taxRateId !== null && isSystemTaxRate(inherited.taxRateId)) {
         return typeof l.inheritedTaxRateId === "string"
           ? resolveDocumentLineTax(taxRates, { taxRateId: l.inheritedTaxRateId }, { defaultPercent: taxPolicy.defaultRatePercent, zeroRating })
@@ -1140,8 +1113,6 @@ export class SalesInvoiceService {
       const postedLines = existing.lines.map((l) => ({ lineRef: l.lineId, label: l.itemNameAr, stored: { taxRateId: l.taxRateId ?? null, taxRatePercent: l.taxRatePercent } }));
       const standing = alreadyClassifiedAs(taxRates, postedLines, request);
       if (standing) {
-        // A return drafted while the first classification ran never heard of
-        // it; asking again carries the standing rate to it and nothing else.
         const reached = await this.deps.taxDependents?.carry({ sourceDocumentId: existing.id, taxRatePercent: standing.before.taxRatePercent, taxRateId: request.taxRateId });
         // INVARIANT: every write is audited. A retry that names a return's
         // lines or its entry leaves a row saying which; one that reaches
@@ -1191,8 +1162,6 @@ export class SalesInvoiceService {
         } else {
           journalLinesNamed = await this.deps.taxTags.retagUnnamedTaxRate(existing.journalEntryId, plan.before.taxRatePercent, request.taxRateId, expected);
         }
-        // A group that posted nothing has no journal line to name; any other
-        // that names none is refused, so the line and its entry never part ways.
         if (journalLinesNamed === 0 && expected.length > 0) throw new TaxClassificationJournalUntaggedError(documentNumber);
       }
       const carried = (await this.deps.taxDependents?.carry({

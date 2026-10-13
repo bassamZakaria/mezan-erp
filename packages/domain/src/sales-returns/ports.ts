@@ -30,7 +30,6 @@ export interface SourceSalesInvoiceLine {
 export interface SourceSalesInvoice {
   readonly id: string;
   readonly number: string;
-  /** The employee the invoice was sold by — what an own-records caller's visibility is measured against. */
   readonly salespersonId?: string | null;
   readonly customerId: string;
   readonly warehouseId: string;

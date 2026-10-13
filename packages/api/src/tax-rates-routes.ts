@@ -85,7 +85,7 @@ export function createTaxRatesRoutes(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 
-  // Registered before `/:id`, which would otherwise read `policy` as an id.
+  // ORDER MATTERS: registered before `/:id`, which would otherwise read `policy` as an id.
   app.get("/policy", gate("accounting.tax.view"), async (c) => {
     return c.json({ vatEnabled: vatPolicy ? (await vatPolicy()).enabled : true });
   });

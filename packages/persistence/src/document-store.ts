@@ -203,7 +203,6 @@ export function createSqliteDocumentStore<Line>(
         named += 1;
       }
       if (named === 0) return 0;
-      // The stored lines are compared as read: a row another writer moved is left alone.
       const written = sqlite
         .prepare(`UPDATE framework_document SET lines_json = ? WHERE id = ? AND doc_type = ? AND lines_json = ?`)
         .run(JSON.stringify(lines), docId, docType, row.lines_json).changes;

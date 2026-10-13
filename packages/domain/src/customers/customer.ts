@@ -23,11 +23,6 @@ export interface Customer extends PartnerBase {
   /** Always in base (tenant) currency regardless of the customer's own `currency` (catalog note). */
   readonly creditLimit: Money;
   readonly taxExempt: boolean;
-  /**
-   * The 0% tax rate this customer's exemption is declared under. An id into
-   * the tax-rates resource; the routes verify it names an active 0% rate.
-   * Null leaves the customer's zero-rated lines unclassified (D79).
-   */
   readonly taxExemptionRateId: string | null;
   readonly etaBuyerType: EtaBuyerType;
   /** رقم السجل التجاري — required on an Egyptian B2B invoice alongside the tax number. */

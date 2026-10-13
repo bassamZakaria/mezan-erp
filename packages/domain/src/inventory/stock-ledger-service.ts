@@ -110,7 +110,7 @@ export interface StockLedgerServiceDeps {
   readonly events?: InventoryEventPublisher;
   readonly gl?: InventoryGlPostingPort;
   /**
-   * A transfer posts no entry of its own, so when its goods level a shortfall
+   * INVARIANT: a transfer posts no entry of its own, so when its goods level a shortfall
    * at the destination the engine books the difference itself, here.
    */
   readonly transferCoverAccounts?: { readonly inventoryAccountId: string; readonly costAccountId: string };
@@ -329,7 +329,7 @@ export interface IssueLineCost {
 export const TRANSFER_COVER_ENTRY_SUFFIX = ":cover";
 
 export interface PostReceiptResult {
-  /** Signed: what the receipt stated for goods that levelled a shortfall, beyond the value that shortfall carried. The receiving document books it. */
+  /** INVARIANT: signed, positive when the receipt stated MORE than stock took — the opposite sense to `unmirroredValue`. The receiving document books it. */
   readonly coverVariance: Money;
 }
 
@@ -349,7 +349,7 @@ export interface PostIssueResult {
  */
 export interface DocumentStockPlanResult {
   readonly valueMoved: Money;
-  /** Signed, positive when stock holds MORE than the document stated: what mirrored issues were asked to take and did not, less what receipts into a shortfall stated and did not add. */
+  /** INVARIANT: signed, positive when stock holds MORE than the document stated: what mirrored issues were asked to take and did not, less what receipts into a shortfall stated and did not add. */
   readonly unmirroredValue: Money;
 }
 

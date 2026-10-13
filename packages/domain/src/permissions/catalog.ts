@@ -93,7 +93,6 @@ const CORE_MODULES: readonly ModuleDef[] = [
 type Row = PermissionRow;
 
 const ROWS: readonly Row[] = [
-  // 1. sales — 29
   ["sales.invoice.view"],
   ["sales.invoice.view_own"],
   ["sales.invoice.view_all", "sales.invoice.view"],
@@ -133,7 +132,6 @@ const ROWS: readonly Row[] = [
   ["sales.promotion.view"],
   ["sales.promotion.manage", "sales.promotion.view"],
 
-  // 2. purchases — 32
   ["purchases.supplier.view"],
   ["purchases.supplier.create", "purchases.supplier.view"],
   ["purchases.supplier.edit", "purchases.supplier.view"],

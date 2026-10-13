@@ -52,19 +52,8 @@ export interface ClassifyPurchaseInvoiceLineTaxDeps extends PurchaseAuditDeps {
   readonly taxRates?: Pick<TaxRateRepository, "list">;
   readonly taxTags?: PurchaseInvoiceTaxTagPort;
   readonly taxDependents?: TaxClassificationDependentsPort;
-  /**
-   * The accounts the invoice posted to. With them the lines a classification
-   * may name are the ones the invoice's own posting builder produces — account
-   * for account and amount for amount — never "any debit of the entry".
-   */
   readonly accounts?: PurchaseGlAccounts;
   readonly baseCurrency?: string;
-  /**
-   * The lines of the entry the invoice ACTUALLY posted. An invoice confirmed
-   * under accounts of its own — a subcontract certificate books its work to
-   * the subcontract's account, never the chain's expense account — is rebuilt
-   * with those, so the lines it expects are the lines its entry holds.
-   */
   readonly postedLines?: (invoiceId: string) => Promise<readonly PostedPurchaseJournalLine[] | null>;
 }
 

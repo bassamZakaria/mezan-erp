@@ -52,9 +52,9 @@ export interface CreateSalesQuoteCommand {
   readonly expiryDate: string;
   readonly customerId: string;
   readonly customerNameAr: string;
-  /** SERVER-DERIVED from the customer record; never map it from a request body. */
+  /** SECURITY: server-derived from the customer record; never map it from a request body. */
   readonly customerTaxExempt?: boolean;
-  /** SERVER-DERIVED: the 0% rate on the exempt customer's card, when it has one. */
+  /** SECURITY: server-derived — the 0% rate on the exempt customer's card; never map it from a request body. */
   readonly customerTaxExemptionRateId?: string | null;
   readonly branchId: string;
   readonly currency?: string;
@@ -190,8 +190,6 @@ export class SalesQuoteService {
     return this.deps.repo.transaction(async () => {
       const quote = (await this.deps.repo.list({ status: "converted" })).find((candidate) => candidate.convertedInvoiceId === invoiceId);
       if (!quote) return null;
-      // A quote another live invoice was also raised from stays converted:
-      // handing it back would let it be invoiced a further time.
       if (((await otherLiveInvoicesOf?.(quote.id)) ?? []).some((id) => id !== invoiceId)) return null;
       const reopened: SalesQuote = { ...quote, status: "accepted", convertedAt: null, convertedInvoiceId: null };
       await this.deps.repo.update(reopened);

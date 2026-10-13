@@ -206,8 +206,6 @@ export function Sell() {
             };
           }),
         });
-        // The draft exists from here on: a confirm refused for a re-rate is
-        // acknowledged against THIS draft, never by raising another.
         const posted = await rerate.confirmDraft(created.id, created.totals.grandTotal);
         if (!posted) return;
         announceConfirmed(posted);

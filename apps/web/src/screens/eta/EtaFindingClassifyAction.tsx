@@ -31,8 +31,6 @@ export function EtaFindingClassifyAction({ documentNumber, lineId }: EtaFindingC
   }));
   const line = lines.find((candidate) => candidate.lineId === lineId);
   const loading = armed && (invoiceQuery.isLoading || taxRatesQuery.isLoading);
-  // Every way the dialog can fail to open is said in words: a click that does
-  // nothing leaves the accountant with a blocked e-invoice and no reason.
   const unavailable = !armed || loading
     ? null
     : invoiceQuery.isError

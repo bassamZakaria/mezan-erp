@@ -88,7 +88,6 @@ export interface PurchaseInvoiceLine {
 
 export interface PurchaseInvoice {
   readonly id: string;
-  /** Absent on a document written before the column existed: an ordinary invoice. */
   readonly documentKind?: InvoiceDocumentKind;
   readonly number: string;
   readonly supplierId: string;
@@ -247,11 +246,6 @@ export interface CancelPurchaseInvoiceDeps extends PurchaseAuditDeps {
   readonly receipts?: GoodsReceiptRepository;
   readonly policy?: PurchasePolicy;
   readonly now?: () => string;
-  /**
-   * What must not stand against a confirmed invoice for it to be cancelled —
-   * a payment allocated to it, a return raised on it. Run on the invoice as
-   * read INSIDE the cancel's transaction; it throws to refuse.
-   */
   readonly cancelGuard?: (invoice: PurchaseInvoice) => Promise<void>;
 }
 

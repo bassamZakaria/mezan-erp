@@ -1,6 +1,7 @@
 import { Qty } from "../money/index.js";
 import type { FrameworkDocument } from "./document.js";
 import { InvalidDocumentError } from "./errors.js";
+import { DocumentStatusCode } from "./status.js";
 import { overdrawnSourceLines, type ReturnableSourceLine } from "./match-source-lines.js";
 
 export interface ReturnDocumentLine {
@@ -20,7 +21,7 @@ export interface ReturnSourceInvoice {
 // in `reversesDocId` — neither took anything off an invoice, a customer or a
 // supplier, and no aggregate may count either.
 export function isStandingReturn(doc: { readonly status: string; readonly reversesDocId?: string | null }): boolean {
-  return doc.status === "confirmed" && !doc.reversesDocId;
+  return doc.status === DocumentStatusCode.Confirmed && !doc.reversesDocId;
 }
 
 export type ReturnConfirmGuard<Line> = (doc: FrameworkDocument<Line>) => Promise<void>;

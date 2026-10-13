@@ -92,7 +92,7 @@ export const createSalesInvoiceSchema = z.object({
   dueDate: z.string().min(1),
   customerId: z.string().min(1),
   customerNameAr: z.string().min(1),
-  /** IGNORED: exemption is read off the customer record server-side. Kept so older clients still parse. */
+  /** EXTERNAL CONTRACT: ignored — exemption is read off the customer record server-side. Kept so older clients still parse. */
   customerTaxExempt: z.boolean().optional(),
   warehouseId: z.string().min(1),
   branchId: z.string().min(1),
@@ -115,11 +115,6 @@ export const createSalesInvoiceSchema = z.object({
 /** Confirm a draft invoice (posts stock + the AR/revenue/COGS journal entry). */
 export const confirmSalesInvoiceSchema = z.object({
   requestId: z.string().min(1).optional(),
-  /**
-   * The caller has been shown the totals a changed VAT setting would post
-   * (`confirmPreview` on the draft) and confirms them. Without it such a
-   * confirm is refused 409 with the recalculated totals.
-   */
   acknowledgeTaxRecalculation: z.boolean().optional(),
   /**
    * N-9 — the `version` the screen was served. Sent back on the act so a second
@@ -145,10 +140,6 @@ export const confirmSalesInvoiceSchema = z.object({
  * without it was how the invoice's `amountPaid` drifted from the ledger (D1).
  * The route creates and confirms a real collection voucher and allocates it.
  */
-/**
- * تعديل بند مسودة — one line of a DRAFT invoice. At least one field; a posted
- * invoice refuses it.
- */
 export const editSalesInvoiceDraftLineSchema = z
   .object({
     qty: moneyString.optional(),
@@ -160,7 +151,6 @@ export const editSalesInvoiceDraftLineSchema = z
   });
 export type EditSalesInvoiceDraftLineDTO = z.infer<typeof editSalesInvoiceDraftLineSchema>;
 
-/** إلغاء فاتورة مرحّلة — the reason is required and is kept on the document and its audit row. */
 export const voidSalesInvoiceSchema = z.object({
   reason: z.string().trim().min(1).max(500),
   expectedVersion: z.number().int().positive().optional(),
@@ -322,10 +312,8 @@ export const salesInvoiceSchema = z.object({
   dueDate: z.string().min(1),
   customerId: z.string().min(1),
   customerNameAr: z.string(),
-  /** Absent from a server older than the field: an ordinary invoice. */
   documentKind: z.nativeEnum(InvoiceDocumentKind).optional(),
   voidReason: z.string().nullish(),
-  /** On a draft the current VAT setting would re-rate: what confirming it would post. */
   confirmPreview: z
     .object({
       taxRecalculated: z.literal(true),

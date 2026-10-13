@@ -112,7 +112,6 @@ export async function resubmitApproval(
   return record;
 }
 
-/** Hands a decided request back for modification; a pending or unknown one is left as it is. */
 export async function reopenApprovalForModification(
   id: string,
   repo: ApprovalRequestRepository,

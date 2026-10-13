@@ -534,7 +534,6 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
       named += 1;
     }
     if (named === 0) return 0;
-    // The stored lines are compared as read: a row another writer moved is left alone.
     const written = this.sqlite
       .prepare(`UPDATE purchase_invoice SET lines = ? WHERE id = ? AND status = ? AND lines = ?`)
       .run(JSON.stringify(lines), invoiceId, PurchaseInvoiceStatusCode.Confirmed, row.lines).changes;

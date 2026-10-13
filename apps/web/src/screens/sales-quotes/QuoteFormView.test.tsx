@@ -124,8 +124,6 @@ describe("QuoteFormView", () => {
     const lines = body.lines as Array<Record<string, unknown>>;
     expect(lines[0]!.itemId).toBe("item-1");
     expect(lines[0]!.unitPrice).toBe("200.000000");
-    // D79: a 14% item preselects the one active 14% rate, and the line names
-    // that rate by id — the server reads the percent off the row.
     expect(lines[0]!.taxRateId).toBe("VAT14");
     expect(lines[0]).not.toHaveProperty("taxRatePercent");
   });
@@ -243,7 +241,6 @@ describe("QuoteFormView", () => {
     fireEvent.click(screen.getByRole("button", { name: "تفاصيل البند 1" }));
     const discountInput = screen.getByText("خصم %").parentElement!.querySelector("input")!;
     fireEvent.change(discountInput, { target: { value: "25" } });
-    // D79: the tax is a picker over the tenant's tax rates, not a typed number.
     expect(screen.queryByText("نسبة الضريبة %")).not.toBeInTheDocument();
     chooseTaxRate("ضريبة الجدول · 5٪");
 

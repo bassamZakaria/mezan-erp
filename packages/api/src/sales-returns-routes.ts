@@ -126,7 +126,6 @@ export function createSalesReturnsRoutes(
    * answers 503 rather than flipping a state flag that moves no money.
    */
   refunds?: SalesReturnRefundPort,
-  /** The employee a user sells as; absent, an own-records caller is shown no source invoice at all. */
   ownSalespersonId?: (userId: string) => Promise<string | null>,
   journalTax?: ReturnJournalTaxPort<SalesReturnLine>,
 ) {
@@ -188,7 +187,7 @@ export function createSalesReturnsRoutes(
    * refusing there would break them rather than protect them.
    */
   type SourceInvoice = Awaited<ReturnType<SalesInvoiceLookupPort["findConfirmedInvoice"]>>;
-  // Scoped to ONE request: `alreadyReturnedQty` moves every time a return
+  // INVARIANT: scoped to ONE request — `alreadyReturnedQty` moves every time a return
   // confirms, and a cache that outlives the request would keep serving the
   // cap from before it did.
   async function lookupInvoice(c: Context, cache: Map<string, SourceInvoice>, sourceInvoiceId: string): Promise<SourceInvoice> {

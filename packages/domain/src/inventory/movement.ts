@@ -116,7 +116,6 @@ export function signedValue(movement: StockMovement): Money {
   return movement.direction === "IN" ? value : value.negate();
 }
 
-/** The value a quantity movement moved: what it stored, or quantity × unit cost for a row that stored none. */
 export function movementValue(movement: Pick<StockMovement, "qty" | "unitCost" | "value">): Money {
   return movement.value ?? extend(movement.qty, movement.unitCost);
 }

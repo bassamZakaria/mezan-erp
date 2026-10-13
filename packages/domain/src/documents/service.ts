@@ -32,7 +32,8 @@ import type {
   DocumentGlPosting,
   DocumentGlPostingResult,
 } from "./hooks.js";
-import { assertTransition, isActive, type DocumentStatus } from "./status.js";
+import { DocumentStatusCode, assertTransition, isActive, type DocumentStatus } from "./status.js";
+import { ApprovalStatusCode } from "../workflow/gate.js";
 import { ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import {
   DocumentNotFoundError,
@@ -60,7 +61,6 @@ export interface DocumentServiceDeps<Line> {
   /** Default acting user for audit/workflow; per-call opts override this. */
   readonly actor?: string;
   readonly actorRoles?: readonly string[];
-  /** What the approvals inbox calls a held document that has no number yet: its type, amount and party. */
   readonly approvalLabel?: (doc: FrameworkDocument<Line>) => Promise<string | null> | string | null;
   /** INVARIANT: runs before the workflow gate and again as the first act of the confirm's transaction. */
   readonly confirmGuard?: (doc: FrameworkDocument<Line>) => Promise<void>;
@@ -130,7 +130,7 @@ export class DocumentService<Line> {
       docNo: null,
       date: cmd.date,
       memo: cmd.memo,
-      status: "draft",
+      status: DocumentStatusCode.Draft,
       lines: cmd.lines,
       createdAt: this.now(),
       confirmedAt: null,
@@ -168,11 +168,11 @@ export class DocumentService<Line> {
         // Confirming an already-held document is a no-op, not an illegal
         // pending → pending transition: the UI's confirm button stays clickable
         // while the request sits in the inbox.
-        if (existing.status === "pending") return { document: existing, held: true };
+        if (existing.status === DocumentStatusCode.Pending) return { document: existing, held: true };
         const held = await this.deps.repo.transaction(async () => {
           const fresh = await this.require(id);
-          assertTransition(this.def.code, id, fresh.status, "pending");
-          const next: FrameworkDocument<Line> = { ...fresh, status: "pending", workflowRequestId: decision.requestId };
+          assertTransition(this.def.code, id, fresh.status, DocumentStatusCode.Pending);
+          const next: FrameworkDocument<Line> = { ...fresh, status: DocumentStatusCode.Pending, workflowRequestId: decision.requestId };
           await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], fresh.status);
           return next;
         });
@@ -277,9 +277,9 @@ export class DocumentService<Line> {
   async returnToDraft(id: string, opts: CancelOptions = {}): Promise<FrameworkDocument<Line>> {
     const returned = await this.deps.repo.transaction(async () => {
       const existing = await this.require(id);
-      if (existing.status === "draft") return null;
-      assertTransition(this.def.code, id, existing.status, "draft");
-      const next: FrameworkDocument<Line> = { ...existing, status: "draft", workflowRequestId: null };
+      if (existing.status === DocumentStatusCode.Draft) return null;
+      assertTransition(this.def.code, id, existing.status, DocumentStatusCode.Draft);
+      const next: FrameworkDocument<Line> = { ...existing, status: DocumentStatusCode.Draft, workflowRequestId: null };
       await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], existing.status);
       await this.recordAudit("RETURN_TO_DRAFT", next, "INFO", { actor: opts.actor });
       return next;
@@ -289,10 +289,6 @@ export class DocumentService<Line> {
     return returned;
   }
 
-  /**
-   * Put a document whose approval request was REJECTED back in front of the
-   * approver, under the same request so the rejection stays in its history.
-   */
   async resubmit(id: string, opts: ConfirmOptions = {}): Promise<FrameworkDocument<Line>> {
     const gateActionType = this.def.gateActionType;
     const workflow = this.deps.workflow;
@@ -307,8 +303,8 @@ export class DocumentService<Line> {
       // as rejected inside this transaction may reach it, or a resubmit would
       // discard an approval that is waiting to post.
       const status = (await standing([requestId])).get(requestId)?.status ?? null;
-      if (status !== "rejected") throw new DocumentResubmitRefusedError(this.def.code, id, status);
-      assertTransition(this.def.code, id, fresh.status, "pending");
+      if (status !== ApprovalStatusCode.Rejected) throw new DocumentResubmitRefusedError(this.def.code, id, status);
+      assertTransition(this.def.code, id, fresh.status, DocumentStatusCode.Pending);
       await this.assertConfirmable(fresh);
       await reopen(requestId);
       const decision = await workflow.evaluate({
@@ -318,7 +314,7 @@ export class DocumentService<Line> {
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
         entityLabel: await this.approvalLabelOf(fresh),
       });
-      const next: FrameworkDocument<Line> = { ...fresh, status: "pending", workflowRequestId: decision.requestId };
+      const next: FrameworkDocument<Line> = { ...fresh, status: DocumentStatusCode.Pending, workflowRequestId: decision.requestId };
       await this.write(next, [DocumentField.Status, DocumentField.WorkflowRequestId], fresh.status);
       await this.recordAudit("RESUBMIT", next, "INFO", { actor });
       return next;
@@ -327,7 +323,6 @@ export class DocumentService<Line> {
     return held;
   }
 
-  /** The approval request standing behind each document, keyed by document id. One read for the whole page. */
   async approvalsOf(docs: readonly FrameworkDocument<Line>[]): Promise<ReadonlyMap<string, DocumentApprovalView>> {
     const standing = this.deps.workflow?.standing;
     if (!this.def.gateActionType || !standing || docs.length === 0) return new Map();
@@ -347,7 +342,7 @@ export class DocumentService<Line> {
   async amendDraftLines(id: string, lines: readonly Line[]): Promise<FrameworkDocument<Line>> {
     return this.deps.repo.transaction(async () => {
       const existing = await this.require(id);
-      if (existing.status !== "draft") assertTransition(this.def.code, id, existing.status, "draft");
+      if (existing.status !== DocumentStatusCode.Draft) assertTransition(this.def.code, id, existing.status, DocumentStatusCode.Draft);
       const amended: FrameworkDocument<Line> = { ...existing, lines };
       await this.write(amended, [DocumentField.Lines], existing.status);
       return amended;
@@ -358,11 +353,11 @@ export class DocumentService<Line> {
   async cancel(id: string, opts: CancelOptions = {}): Promise<FrameworkDocument<Line>> {
     const cancelled = await this.deps.repo.transaction(async () => {
       const existing = await this.require(id);
-      assertTransition(this.def.code, id, existing.status, "cancelled");
+      assertTransition(this.def.code, id, existing.status, DocumentStatusCode.Cancelled);
       const cancelledLines = this.def.onCancel?.(existing) ?? null;
       const next: FrameworkDocument<Line> = {
         ...existing,
-        status: "cancelled",
+        status: DocumentStatusCode.Cancelled,
         lines: cancelledLines ?? existing.lines,
         workflowRequestId: null,
       };
@@ -388,7 +383,7 @@ export class DocumentService<Line> {
       const existing = await this.require(id);
       if (!isActive(existing.status)) {
         // assertTransition gives the precise error (only active → reversed is legal).
-        assertTransition(this.def.code, id, existing.status, "reversed");
+        assertTransition(this.def.code, id, existing.status, DocumentStatusCode.Reversed);
       }
       if (existing.reversesDocId) throw new ReversalNotReversibleError(this.def.code, id);
       await this.deps.reverseGuard?.(existing);
@@ -457,7 +452,7 @@ export class DocumentService<Line> {
 
       const original: FrameworkDocument<Line> = {
         ...existing,
-        status: "reversed",
+        status: DocumentStatusCode.Reversed,
         reversedByDocId: reversal.id,
       };
       await this.write(original, [DocumentField.Status, DocumentField.ReversedByDocId], existing.status);

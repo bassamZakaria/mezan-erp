@@ -4,12 +4,6 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-/**
- * D79 round 5: a quote's conversion built its invoice service with no VAT
- * policy, so a tenant with VAT switched off posted 14%. Every place that
- * builds a sales invoice or quote service outside a test must hand it the
- * tenant's policy — this reads the sources so a new caller cannot forget.
- */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOTS = [HERE, join(HERE, "../../backend/src")];

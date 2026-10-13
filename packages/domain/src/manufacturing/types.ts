@@ -135,7 +135,6 @@ export interface WorkOrderGlAccounts {
   readonly overheadAppliedAccountId: string;
   /** Debited for scrap beyond the BOM's waste allowance, at the moment it is logged. */
   readonly abnormalScrapAccountId: string;
-  /** Takes what finished goods that levelled a back-order cost beyond the value that back-order carried. */
   readonly backOrderCostAccountId?: string;
   /**
    * إنتاج تحت التشغيل — parks the value of NORMAL scrap between the moment it

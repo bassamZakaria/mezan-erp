@@ -2,11 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ALL_SCOPE, MODULE_CATALOG, createEntitlements } from "@mezan/domain";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 
-/**
- * D79 round 4, against the real seeded backend and through the routes the UI
- * calls: who decides a sale is zero-rated, which rate its lines then name, and
- * what a retention release tells the tax authority (nothing).
- */
 
 const BRANCH = "BR-MAIN";
 const WAREHOUSE = "WH-MAIN";

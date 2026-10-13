@@ -150,3 +150,75 @@ describe("a foreign invoice settled by an allocation made later", () => {
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });
+
+describe("a day asked for by name is held by a standing run even when the allocation itself posts nothing", () => {
+  it("voucher and invoice both at 48.00, the August run standing: 10 August is refused in Arabic naming the run, nothing is allocated, and 1 September is taken", async () => {
+    books = await openFxBooks();
+    await books.invoice(FxSide.Receivable, "inv-usd", { date: "2026-08-05" });
+    await books.voucher(FxSide.Receivable, "m-1", "400", { date: "2026-08-05", currency: "USD" });
+    await books.rate("fx-sep-1", "48.50", "2026-09-01");
+    const runId = await books.revalue("48.45");
+    const runNo = String(((await books.world.request("GET", "/revaluation/runs")).body.runs as { entryId: string; entryNo: string }[]).find((run) => run.entryId === runId)?.entryNo);
+    const entries = books.world.count("journal_entry");
+
+    const early = await books.world.request("POST", "/vouchers/m-1/allocations", { allocationId: "al-early", invoiceId: "inv-usd", amount: "19200", date: "2026-08-10" });
+
+    expect(`${early.status} ${String(early.body.error)}`).toBe("422 FX_POSTING_BEFORE_REVALUATION");
+    expect(String(early.body.message)).toMatch(ARABIC);
+    expect(String(early.body.message)).toContain(runNo);
+    expect(early.body.earliestAllowedDate).toBe("2026-09-01");
+    expect(allocationDay("al-early")).toBeNull();
+    expect(books.world.count("journal_entry")).toBe(entries);
+
+    const onRunDay = await books.world.request("POST", "/vouchers/m-1/allocations", { allocationId: "al-run-day", invoiceId: "inv-usd", amount: "19200", date: "2026-08-31" });
+    expect(`${onRunDay.status} ${String(onRunDay.body.error)}`).toBe("422 FX_POSTING_BEFORE_REVALUATION");
+
+    await books.ok("POST", "/vouchers/m-1/allocations", { allocationId: "al-after", invoiceId: "inv-usd", amount: "19200", date: "2026-09-01" });
+    expect(allocationDay("al-after")).toBe("2026-09-01");
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});
+
+describe("a day nobody chose falls forward out of a month whose VAT return is filed", () => {
+  async function julyFiledWithUsdMoney(withCheque = false): Promise<void> {
+    books = await openFxBooks();
+    await books.rate("fx-jul-1", "47.50", "2026-07-01");
+    await books.rate("fx-jul-20", "47.80", "2026-07-20");
+    await books.invoice(FxSide.Receivable, "inv-usd", { date: "2026-07-05" });
+    await books.voucher(FxSide.Receivable, "m-1", "400", { date: "2026-07-20", currency: "USD" });
+    if (withCheque) await books.ok("POST", "/cheques", { id: "chq", chequeNumber: "N-chq", bankName: "بنك مصر", issueDate: "2026-07-20", dueDate: "2026-07-20", branchId: "BR-MAIN", partyId: "cust-usd", counterpartyGlAccountId: "1105", amount: "4780", direction: "incoming", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" } });
+    await books.ok("POST", "/gl/vat-filings", { id: "VATR-2026-07", periodFrom: "2026-07-01", periodTo: "2026-07-31", netAmount: "0.00" });
+  }
+
+  it("July filed, USD money dated 20 July, no date sent: the allocation takes 1 August and its realised difference lands there, not in the filed month", async () => {
+    await julyFiledWithUsdMoney();
+    const julyBefore = books.world.balance("4920", "2026-07-31") + books.world.balance("5920", "2026-07-31");
+
+    const made = await books.ok("POST", "/vouchers/m-1/allocations", { allocationId: "al-1", invoiceId: "inv-usd", amount: "19120" });
+
+    expect(made.date).toBe("2026-08-01");
+    expect(allocationDay("al-1")).toBe("2026-08-01");
+    expect(books.world.balance("4920", "2026-07-31") + books.world.balance("5920", "2026-07-31")).toBe(julyBefore);
+    expect(-(books.world.balance("4920") + books.world.balance("5920"))).toBe(120n * SCALE);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it("a day in the filed month asked for by name is still refused, naming the filing", async () => {
+    await julyFiledWithUsdMoney();
+
+    const asked = await books.world.request("POST", "/vouchers/m-1/allocations", { allocationId: "al-named", invoiceId: "inv-usd", amount: "19120", date: "2026-07-25" });
+
+    expect(`${asked.status} ${String(asked.body.error)}`).toBe("422 VAT_PERIOD_ALREADY_FILED");
+    expect(String(asked.body.message)).toMatch(ARABIC);
+    expect(allocationDay("al-named")).toBeNull();
+  });
+
+  it("a cheque issued in the filed month, allocated with no date, takes 1 August too", async () => {
+    await julyFiledWithUsdMoney(true);
+
+    await books.ok("POST", "/cheques/chq/allocations", { allocationId: "al-chq", invoiceId: "inv-usd", amount: "4780" });
+
+    expect(allocationDay("al-chq")).toBe("2026-08-01");
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});

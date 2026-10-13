@@ -613,7 +613,7 @@ export class VoucherService {
     const booked = await this.deps.realisedFx?.invoiceFx(invoice.id, invoice.kind);
     const currencies = new Set([...(line.fxRate ? [line.currency] : []), ...(booked ? [booked.currency] : [])]);
     const earlierAllocations = [...(await this.deps.allocations.listByVoucher(doc.id)), ...(await this.deps.allocations.listByInvoice(invoice.id))];
-    return laterAllocationDay({ requested, moneyDay: doc.date, invoiceDay: invoice.date, currencies, earlierAllocations }, { periods: this.deps.periods, ledger: this.deps.ledger });
+    return laterAllocationDay({ requested, moneyDay: doc.date, invoiceDay: invoice.date, currencies, earlierAllocations }, { periods: this.deps.periods, ledger: this.deps.ledger, vatFilings: this.deps.vatFilings });
   }
 
   async allocate(

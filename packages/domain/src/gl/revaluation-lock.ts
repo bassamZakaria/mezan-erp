@@ -44,11 +44,6 @@ export async function latestStandingRevaluation(currencies: ReadonlySet<string>,
   return latest;
 }
 
-export async function earliestDayAfterRevaluation(currencies: ReadonlySet<string>, ledger: Pick<LedgerRepository, "list">): Promise<string | null> {
-  const standing = await latestStandingRevaluation(currencies, ledger);
-  return standing ? nextDay(standing.run.date.slice(0, 10)) : null;
-}
-
 export interface JournalPostingInternals {
   readonly isRevaluationRun?: boolean;
 }

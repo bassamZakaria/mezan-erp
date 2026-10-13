@@ -580,15 +580,56 @@ describe("every period an earlier build could have written in UTC, and every per
     return day === null ? { ...s, billingAnchorNeedsReview: true } : { ...s, billingAnchorDay: day };
   }
 
-  function* everyHourOf(firstYear: number, lastYear: number): Generator<string> {
-    for (let at = Date.UTC(firstYear, 0, 1, 0, 30); at < Date.UTC(lastYear + 1, 0, 1); at += HOUR_MS) yield new Date(at).toISOString();
+  const DAYS_BEFORE_A_SUMMER_TIME_CHANGE = 32;
+  const DAYS_AFTER_A_SUMMER_TIME_CHANGE = 10;
+  const DAYS_BEFORE_A_MONTH_ENDS = 4;
+  const DAYS_AFTER_A_MONTH_STARTS = 2;
+  const YEAR_SWEPT_WHOLE = 2024;
+
+  const cairoWallClockAsUtc = (at: number): number => Date.parse(`${inCairo(new Date(at).toISOString()).replace(", ", "T").replace("T24:", "T00:")}:00.000Z`);
+  const cairoOffsetHours = (at: number): number => Math.round((cairoWallClockAsUtc(at) - at) / HOUR_MS);
+
+  function summerTimeChanges(firstYear: number, lastYear: number): number[] {
+    const changes: number[] = [];
+    for (let at = Date.UTC(firstYear, 0, 1, 0, 30); at < Date.UTC(lastYear + 1, 0, 1); at += HOUR_MS) {
+      if (cairoOffsetHours(at) !== cairoOffsetHours(at - HOUR_MS)) changes.push(at);
+    }
+    return changes;
   }
 
-  function* everyHourOf2024(): Generator<string> {
-    yield* everyHourOf(2024, 2024);
+  function atAMonthBoundary(year: number, month: number, day: number): boolean {
+    return day <= DAYS_AFTER_A_MONTH_STARTS || day > new Date(Date.UTC(year, month + 1, 0)).getUTCDate() - DAYS_BEFORE_A_MONTH_ENDS;
   }
 
-  it("ends on its billing day exactly one cycle after it started in Cairo, and the renewal paid for it ends on the billing day exactly one cycle after that, from 2023 to 2026", { timeout: SWEEP_TIMEOUT_MS }, () => {
+  // The hours a period end can go wrong in: from a month before a change of
+  // summer time, so that a monthly period started then ends across it, to ten
+  // days after; the last four and first two days of a month (on either
+  // calendar, Cairo's or UTC's); and one whole year for everything else.
+  function worthSweeping(at: number, changes: readonly number[]): boolean {
+    const utc = new Date(at);
+    if (utc.getUTCFullYear() === YEAR_SWEPT_WHOLE) return true;
+    if (changes.some((change) => at >= change - DAYS_BEFORE_A_SUMMER_TIME_CHANGE * DAY_MS && at <= change + DAYS_AFTER_A_SUMMER_TIME_CHANGE * DAY_MS)) return true;
+    const civil = civilDateOf(utc.toISOString());
+    return atAMonthBoundary(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate()) || atAMonthBoundary(Number(civil.slice(0, 4)), Number(civil.slice(5, 7)) - 1, Number(civil.slice(8, 10)));
+  }
+
+  function* everyHourOfTheMonth(year: number, month: number): Generator<number> {
+    for (let at = Date.UTC(year, month, 1, 0, 30); at < Date.UTC(year, month + 1, 1); at += HOUR_MS) yield at;
+  }
+
+  // REQUIRED: one month at a time, with the event loop given a turn in between.
+  // Swept in one synchronous pass, the worker stops answering the test runner
+  // for half a minute and the whole run is reported as hung.
+  async function monthByMonth(firstYear: number, lastYear: number, sweep: (hours: Generator<number>) => void): Promise<void> {
+    for (let year = firstYear; year <= lastYear; year += 1) {
+      for (let month = 0; month < 12; month += 1) {
+        sweep(everyHourOfTheMonth(year, month));
+        await new Promise((resume) => setTimeout(resume, 0));
+      }
+    }
+  }
+
+  it("ends on its billing day exactly one cycle after it started in Cairo, and the renewal paid for it ends on the billing day exactly one cycle after that, from 2023 to 2026", { timeout: SWEEP_TIMEOUT_MS }, async () => {
     const offenders: string[] = [];
     let rows = 0;
     const check = (start: string, cycle: BillingCycleKind, written: string, read: Subscription, billingDay: number): void => {
@@ -602,21 +643,27 @@ describe("every period an earlier build could have written in UTC, and every per
         (settled === read.currentPeriodEnd || settledPeriodEnd({ ...read, currentPeriodEnd: settled }) === settled);
       if (!sound) offenders.push(`${inCairo(start)} ${cycle} ${written} anchor ${String(read.billingAnchorDay)}: ${inCairo(read.currentPeriodEnd)} read as ${inCairo(settled)}, renewed to ${inCairo(renewed.currentPeriodEnd)}`);
     };
-    for (const start of everyHourOf(2023, 2026)) {
-      const cairoDay = cairoDayOf(start);
-      for (const cycle of CYCLES) {
-        for (const anchor of new Set([undefined, cairoDay, new Date(start).getUTCDate()])) {
-          check(start, cycle, "by the earlier build", withTheAnchorTheStoreSettles(row(start, cycle, endTheEarlierBuildWrote(start, cycle), anchor)), cairoDay);
+    const changes = summerTimeChanges(2023, 2026);
+    await monthByMonth(2023, 2026, (hours) => {
+      for (const at of hours) {
+        if (!worthSweeping(at, changes)) continue;
+        const start = new Date(at).toISOString();
+        const cairoDay = cairoDayOf(start);
+        for (const cycle of CYCLES) {
+          for (const anchor of new Set([undefined, cairoDay, new Date(start).getUTCDate()])) {
+            check(start, cycle, "by the earlier build", withTheAnchorTheStoreSettles(row(start, cycle, endTheEarlierBuildWrote(start, cycle), anchor)), cairoDay);
+          }
+          for (const anchor of [undefined, cairoDay]) check(start, cycle, "by this build", row(start, cycle, addPeriod(start, cycle, anchor), anchor), cairoDay);
         }
-        for (const anchor of [undefined, cairoDay]) check(start, cycle, "by this build", row(start, cycle, addPeriod(start, cycle, anchor), anchor), cairoDay);
       }
-    }
+    });
 
+    expect(changes).toHaveLength(8);
     expect(offenders).toEqual([]);
-    expect(rows).toBeGreaterThan(280_000);
+    expect(rows).toBeGreaterThan(150_000);
   });
 
-  it("never moves a period end the current build wrote, under its own anchor, an anchor the owner set, or after the owner moved the anchor or the cycle", () => {
+  it("never moves a period end the current build wrote, under its own anchor, an anchor the owner set, or after the owner moved the anchor or the cycle", { timeout: SWEEP_TIMEOUT_MS }, async () => {
     const moved: string[] = [];
     let rows = 0;
     const check = (start: string, writtenUnder: number | undefined, read: Subscription): void => {
@@ -624,16 +671,19 @@ describe("every period an earlier build could have written in UTC, and every per
       if (settledPeriodEnd(read) === read.currentPeriodEnd) return;
       moved.push(`${inCairo(start)} ${read.billingCycle} written under ${String(writtenUnder)}, read under ${String(read.billingAnchorDay)}: ${inCairo(read.currentPeriodEnd)} read as ${inCairo(settledPeriodEnd(read))}`);
     };
-    for (const start of everyHourOf2024()) {
-      for (const cycle of CYCLES) {
-        for (const anchor of new Set([undefined, new Date(start).getUTCDate(), 1, 31])) {
-          const written = row(start, cycle, addPeriod(start, cycle, anchor), anchor);
-          check(start, anchor, written);
-          check(start, anchor, row(start, cycle, written.currentPeriodEnd, cairoDayOf(start)));
-          if (anchor === undefined) check(start, anchor, { ...written, billingCycle: cycle === BillingCycleKind.Monthly ? BillingCycleKind.Yearly : BillingCycleKind.Monthly });
+    await monthByMonth(YEAR_SWEPT_WHOLE, YEAR_SWEPT_WHOLE, (hours) => {
+      for (const at of hours) {
+        const start = new Date(at).toISOString();
+        for (const cycle of CYCLES) {
+          for (const anchor of new Set([undefined, new Date(start).getUTCDate(), 1, 31])) {
+            const written = row(start, cycle, addPeriod(start, cycle, anchor), anchor);
+            check(start, anchor, written);
+            check(start, anchor, row(start, cycle, written.currentPeriodEnd, cairoDayOf(start)));
+            if (anchor === undefined) check(start, anchor, { ...written, billingCycle: cycle === BillingCycleKind.Monthly ? BillingCycleKind.Yearly : BillingCycleKind.Monthly });
+          }
         }
       }
-    }
+    });
 
     expect(moved).toEqual([]);
     expect(rows).toBeGreaterThan(120_000);

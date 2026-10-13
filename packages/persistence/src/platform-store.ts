@@ -208,8 +208,10 @@ class SqliteTenantStore implements TenantRepository {
   private readonly byId: Database.Statement;
   private readonly byCode: Database.Statement;
   private readonly all: Database.Statement;
+  private readonly discard: Database.Statement;
 
   constructor(sqlite: Database.Database) {
+    this.discard = sqlite.prepare(`DELETE FROM tenant WHERE id = ? AND status = 'provisioning'`);
     this.upsert = sqlite.prepare(
       `INSERT INTO tenant (id, code, name_ar, name_en, owner_email, status, db_file, created_at, updated_at)
        VALUES (@id, @code, @nameAr, @nameEn, @ownerEmail, @status, @dbFile, @createdAt, @updatedAt)
@@ -241,6 +243,10 @@ class SqliteTenantStore implements TenantRepository {
       id: t.id, code: t.code, nameAr: t.nameAr, nameEn: t.nameEn, ownerEmail: t.ownerEmail,
       status: t.status, dbFile: t.dbFile, createdAt: t.createdAt, updatedAt: t.updatedAt,
     });
+  }
+
+  async discardProvisioning(id: string): Promise<boolean> {
+    return this.discard.run(id).changes > 0;
   }
 }
 

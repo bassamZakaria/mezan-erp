@@ -1,8 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createBackend, createPlatform, type PlatformHandle } from "@mezan/backend";
+import { createBackend, createPlatform, PlatformAuditUnavailableError, type PlatformHandle, type RecordedActivation } from "@mezan/backend";
 import { createTenant, retirePlan, startSubscription, TenantCodeTakenError } from "@mezan/domain";
 import { reachable } from "./cloud-harness.js";
 import { createTenantRouter, TENANT_HEADER, type TenantRouter } from "./tenant-router.js";
@@ -187,5 +187,74 @@ describe("provisionTenant", () => {
     const subs = await platform.stores.subscriptions.listByTenant(tenant.id);
     expect(subs.length).toBe(1);
     expect(subs[0]?.planId).toBe("PLAN-CORE");
+  });
+
+  describe("when the audit log cannot record the activation", () => {
+    function onDisk(platform: PlatformHandle): { router: TenantRouter; dataDir: string } {
+      const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-provision-disk-"));
+      dirs.push(dataDir);
+      const router = createTenantRouter({ platform, dataDir, sweepEveryMs: 0, now: () => new Date(T) });
+      routers.push(router);
+      reachable(router.app);
+      return { router, dataDir };
+    }
+    const filesOf = (dataDir: string, code: string): string[] => {
+      const dir = path.join(dataDir, "tenants");
+      return existsSync(dir) ? readdirSync(dir).filter((name) => name.startsWith(`${code}.`)) : [];
+    };
+    const auditDown: RecordedActivation = async () => {
+      throw new PlatformAuditUnavailableError(new Error("audit sink down"));
+    };
+    const cmd = {
+      code: "fresh", nameAr: "جديدة", ownerEmail: "owner@fresh.example", ownerNameAr: "المالك",
+      planId: "PLAN-CORE", billingCycle: "monthly" as const, trial: false,
+    };
+
+    it("leaves nothing of a tenant this call registered: no registration, no open backend, no database file, and the code is free to provision again", async () => {
+      const platform = await newPlatform();
+      const { router, dataDir } = onDisk(platform);
+
+      const refused = await provisionTenant(cmd, { platform, router, now: () => new Date(T), pinOf: () => "111111", activation: auditDown }).catch((err: unknown) => err);
+
+      expect(refused).toBeInstanceOf(PlatformAuditUnavailableError);
+      expect(await platform.stores.tenants.findByCode("fresh")).toBeNull();
+      expect((await platform.stores.tenants.list()).map((tenant) => tenant.code)).not.toContain("fresh");
+      expect(router.openTenants()).not.toContain("fresh");
+      expect(filesOf(dataDir, "fresh")).toEqual([]);
+
+      const again = await provisionTenant(cmd, { platform, router, now: () => new Date(T), pinOf: () => "222222" });
+      expect(again.tenant.status).toBe("active");
+      expect(again.adminPin).toBe("222222");
+      const backend = await router.backendFor("fresh");
+      const signIn = (pin: string) =>
+        backend.app.fetch(new Request("http://tenant.internal/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username: cmd.ownerEmail, pin }) }));
+      expect((await signIn("222222")).status).toBe(200);
+      expect((await signIn("111111")).status).toBe(401);
+    });
+
+    it("keeps a tenant that was already waiting to be provisioned, with its database, so the retry the console offers still completes it", async () => {
+      const platform = await newPlatform();
+      const { router, dataDir } = onDisk(platform);
+      const waiting = await createTenant({ id: "t-fresh", code: "fresh", nameAr: "جديدة", ownerEmail: cmd.ownerEmail, now: T }, platform.stores.tenants);
+
+      const refused = await provisionTenant(cmd, { platform, router, now: () => new Date(T), pinOf: () => "111111", activation: auditDown }).catch((err: unknown) => err);
+
+      expect(refused).toBeInstanceOf(PlatformAuditUnavailableError);
+      expect((await platform.stores.tenants.findByCode("fresh"))?.status).toBe("provisioning");
+      expect(filesOf(dataDir, "fresh")).toContain("fresh.db");
+
+      const resumed = await provisionTenant(cmd, { platform, router, now: () => new Date(T), pinOf: () => "333333" });
+      expect(resumed.tenant).toMatchObject({ id: waiting.id, status: "active" });
+      expect(resumed.adminPin).toBeNull();
+    });
+
+    it("never removes a tenant that is not waiting to be provisioned", async () => {
+      const platform = await newPlatform();
+      const live = await createTenant({ id: "t-live", code: "live", nameAr: "قائمة", ownerEmail: "o@live.example", now: T }, platform.stores.tenants);
+      await platform.stores.tenants.save({ ...live, status: "active" });
+
+      expect(await platform.stores.tenants.discardProvisioning("t-live")).toBe(false);
+      expect((await platform.stores.tenants.findById("t-live"))?.status).toBe("active");
+    });
   });
 });

@@ -23,6 +23,7 @@ function memoryRepo(seed: Tenant[] = []): TenantRepository & { rows: Map<string,
     async findByCode(code) { return [...rows.values()].find((t) => t.code === code) ?? null; },
     async list() { return [...rows.values()]; },
     async save(t) { rows.set(t.id, t); },
+    async discardProvisioning(id) { return rows.get(id)?.status === "provisioning" && rows.delete(id); },
   };
 }
 

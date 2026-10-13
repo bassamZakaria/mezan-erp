@@ -1,10 +1,11 @@
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import path from "node:path";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { createSourceThrottle, throttleSource, tooManyAttempts, type SourceThrottle } from "@mezan/api";
 import { createBackend, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import type { SessionGrant, SmtpConfig } from "@mezan/api";
+import type { Tenant } from "@mezan/domain";
 import type { SqliteOpenOptions } from "@mezan/persistence";
 import { createBackendCache, type BackendCache } from "./backend-cache.js";
 import { callerSource, originEnv, requireCloudSource, SOCKET_ONLY, type ClientSourceOptions, type CloudSource, type SourceReporter } from "./client-source.js";
@@ -114,6 +115,11 @@ export interface TenantRouter {
   backendFor(code: string): Promise<BackendHandle>;
   callerDoor(code: string): Promise<TenantDoor>;
   invalidate(code: string): void;
+  // REQUIRED ORDERING: called only for a tenant whose registration has just
+  // been discarded. It closes the open backend BEFORE it removes the database
+  // and every file written beside it, so nothing is left writing to a file
+  // that is gone.
+  discardDatabase(tenant: Pick<Tenant, "code" | "dbFile">): Promise<void>;
   sweep(): Promise<void>;
   close(): Promise<void>;
   /** Codes with a currently open (cached) tenant backend — an idle-evicted or never-opened tenant is absent. */
@@ -248,8 +254,18 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
     return cache.get(code);
   }
 
+  async function discardDatabase(tenant: Pick<Tenant, "code" | "dbFile">): Promise<void> {
+    await cache.evict(tenant.code);
+    const database = tenantDbPath(options.dataDir, tenant.dbFile);
+    const directory = path.dirname(database);
+    if (!existsSync(directory)) return;
+    const ownFiles = readdirSync(directory).filter((name) => name === path.basename(database) || name.startsWith(`${path.basename(database)}-`) || name.startsWith(`${path.basename(database)}.`));
+    for (const name of ownFiles) rmSync(path.join(directory, name), { force: true });
+  }
+
   return {
     app,
+    discardDatabase,
     backendFor: openFor,
     callerDoor: async (code) => doorTo(await openFor(code)),
     invalidate(code) { resolvers.get(code)?.invalidate(); },

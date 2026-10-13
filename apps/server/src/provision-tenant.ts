@@ -86,19 +86,27 @@ async function prepareTenantDatabase(cmd: ProvisionTenantCommand, tenant: Tenant
   return { adminPin };
 }
 
+// The caller is answered "nothing was saved" (503). That is made true here for
+// a tenant THIS call registered: its registration and its database go, and the
+// administrator PIN inside that database was never shown to anyone. A tenant
+// that was already waiting is left for the console's retry.
+async function discardUnrecorded(tenant: Tenant, deps: ProvisionTenantDeps): Promise<void> {
+  const removed = await deps.platform.inTheTurn("unrecorded tenant discard", () => deps.platform.stores.tenants.discardProvisioning(tenant.id));
+  if (removed) await deps.router.discardDatabase(tenant);
+}
+
 export async function provisionTenant(cmd: ProvisionTenantCommand, deps: ProvisionTenantDeps): Promise<ProvisionTenantResult> {
   const nowIso = deps.now().toISOString();
   const { platform } = deps;
 
-  const registered = await platform.inTheTurn("tenant registration", async () => {
+  const { registered, registeredByThisCall } = await platform.inTheTurn("tenant registration", async () => {
     const existing = await platform.stores.tenants.findByCode(cmd.code);
-    return (
-      existing ??
-      (await createTenant(
-        { id: randomUUID(), code: cmd.code, nameAr: cmd.nameAr, nameEn: cmd.nameEn, ownerEmail: cmd.ownerEmail, now: nowIso },
-        platform.stores.tenants,
-      ))
+    if (existing) return { registered: existing, registeredByThisCall: false };
+    const created = await createTenant(
+      { id: randomUUID(), code: cmd.code, nameAr: cmd.nameAr, nameEn: cmd.nameEn, ownerEmail: cmd.ownerEmail, now: nowIso },
+      platform.stores.tenants,
     );
+    return { registered: created, registeredByThisCall: true };
   });
 
   try {
@@ -126,6 +134,7 @@ export async function provisionTenant(cmd: ProvisionTenantCommand, deps: Provisi
 
     return { tenant, adminEmail: cmd.ownerEmail, adminPin };
   } catch (err) {
+    if (err instanceof PlatformAuditUnavailableError && registeredByThisCall) await discardUnrecorded(registered, deps);
     if (err instanceof TenantCodeTakenError || err instanceof PlatformAuditUnavailableError) throw err;
     throw new TenantProvisioningError(registered.id, err);
   }

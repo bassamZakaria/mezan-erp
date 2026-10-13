@@ -30,7 +30,7 @@ export function ModuleNotLicensedState({ message }: { readonly message: string }
   return (
     <section data-testid="module-not-licensed" role="status" className="mx-auto flex max-w-[52ch] flex-col items-center gap-[12px] px-[16px] py-[56px] text-center">
       <Lock aria-hidden className="size-[28px] text-ink-faint" />
-      <p className="text-[14px] font-semibold text-ink">{message}</p>
+      <h1 className="font-display text-[16px] font-bold text-ink">{message}</h1>
     </section>
   );
 }

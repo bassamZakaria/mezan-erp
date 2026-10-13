@@ -558,6 +558,7 @@ describe("AppLayout — a direct address to a screen the licence does not carry"
     const refusal = await screen.findByTestId("module-not-licensed");
     expect(refusal.textContent).toBe(moduleNotLicensedMessageAr("sales", undefined));
     expect(refusal).toHaveTextContent("وحدة المبيعات");
+    expect(within(refusal).getByRole("heading", { level: 1 }).textContent).toBe(moduleNotLicensedMessageAr("sales", undefined));
     expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
     expect(within(screen.getByRole("main")).queryAllByRole("button")).toEqual([]);
   });

@@ -26,8 +26,8 @@ function chooseSelectOption(triggerLabel: string, optionLabel: string) {
   fireEvent.mouseDown(screen.getByRole("option", { name: optionLabel }));
 }
 
-function TestNavigation({ children }: { children: ReactNode }) {
-  const [segments, setSegments] = useState<readonly string[]>([]);
+function TestNavigation({ children, initialSegments = [] }: { children: ReactNode; initialSegments?: readonly string[] }) {
+  const [segments, setSegments] = useState<readonly string[]>(initialSegments);
   return (
     <NavigationProvider
       value={{
@@ -312,5 +312,24 @@ describe("StockAdjustmentsScreen — a reversed adjustment and its reversal poin
     fireEvent.click(screen.getByRole("button", { name: "تعكس المستند ADJ-000006" }));
     expect(await screen.findByRole("heading", { name: "ADJ-000006" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "عُكست بالمستند ADJ-000007" })).toBeInTheDocument();
+  });
+});
+
+describe("StockAdjustmentsScreen — opening a document by its number on a fresh load", () => {
+  it("waits for the list instead of asking the server for a document whose id is the number, so the reload raises no 404", async () => {
+    const asked: string[] = [];
+    const base = stubTransport(baseHandlers(() => [adj1, adj5]));
+    const transport: typeof base = (path, init) => {
+      asked.push(path.split("?")[0] ?? path);
+      return base(path, init);
+    };
+    renderWithProviders(
+      <TestNavigation initialSegments={["ADJ-000005"]}>
+        <StockAdjustmentsScreen />
+      </TestNavigation>,
+      { transport, initialSession: testAdminSession },
+    );
+    expect(await screen.findByRole("heading", { name: "ADJ-000005" })).toBeInTheDocument();
+    expect(asked).not.toContain("/inventory/stock-adjustments/ADJ-000005");
   });
 });

@@ -785,7 +785,10 @@ export function createPlatformRoutes(options: CreatePlatformRoutesOptions): Hono
 
   app.get("/security/unrecorded", requireOwner, (c) => {
     const { count, recent } = platform.audit.unrecorded?.summary() ?? { count: 0, recent: [] };
-    return c.json({ count, recent: recent.map(({ at, module, action, severity, actor, entityId, reason }) => ({ at, module, action, severity, actor, entityId, reason })) });
+    return c.json({
+      count,
+      recent: recent.map(({ at, module, action, severity, actor, entityId, reason, details }) => ({ at, module, action, severity, actor, entityId, reason, details: details ?? null })),
+    });
   });
 
   app.get("/users", requireAny, async (c) => {

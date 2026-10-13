@@ -8,6 +8,7 @@ import type {
   ChangePlanRequestDTO,
   CreateTenantRequestDTO,
   PlanDTO,
+  PlatformUnrecordedSecurityEventsDTO,
   ProvisionResultDTO,
   ProvisionRetryRequestDTO,
   RecordPaymentRequestDTO,
@@ -43,6 +44,23 @@ export function useTenantQuery(id: string): UseQueryResult<TenantSummaryDTO, Pla
       const res = await request(`/tenants/${id}`);
       if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.notFound"));
       return res.json<TenantSummaryDTO>();
+    },
+  });
+}
+
+const UNRECORDED_EVENTS_REFRESH_MS = 60_000;
+
+export function useUnrecordedSecurityEventsQuery(): UseQueryResult<PlatformUnrecordedSecurityEventsDTO, PlatformApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = usePlatformApi();
+  return useQuery<PlatformUnrecordedSecurityEventsDTO, PlatformApiError>({
+    queryKey: ["platform", "security", "unrecorded"],
+    enabled: session?.user.role === "owner",
+    refetchInterval: UNRECORDED_EVENTS_REFRESH_MS,
+    queryFn: async () => {
+      const res = await request("/security/unrecorded");
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.security.loadFailed"));
+      return res.json<PlatformUnrecordedSecurityEventsDTO>();
     },
   });
 }

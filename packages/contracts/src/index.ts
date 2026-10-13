@@ -91,6 +91,10 @@ export {
   unrecordedSecurityEventsSchema,
   type UnrecordedSecurityEventDTO,
   type UnrecordedSecurityEventsDTO,
+  platformUnrecordedSecurityEventSchema,
+  platformUnrecordedSecurityEventsSchema,
+  type PlatformUnrecordedSecurityEventDTO,
+  type PlatformUnrecordedSecurityEventsDTO,
 } from "./security-reports.js";
 
 export { sodConflictSchema, sodAcknowledgeFields, type SodConflictDTO } from "./sod.js";

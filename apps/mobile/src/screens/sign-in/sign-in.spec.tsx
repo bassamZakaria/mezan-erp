@@ -9,7 +9,7 @@ const mockUnlockAccount = jest.fn();
 
 jest.mock("expo-localization", () => ({ getLocales: () => [{ languageCode: "ar" }] }));
 jest.mock("expo-router", () => ({ useRouter: () => ({ replace: mockReplace }) }));
-jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
+jest.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0 }) }));
 jest.mock("@/components/legal-links", () => ({ LegalLinks: () => null }));
 jest.mock("@/session/SessionProvider", () => ({
   useSession: () => ({ connection: { baseUrl: "https://shop.example/api", tenantCode: "acme", email: "owner@shop.eg" }, signIn: mockSignIn, unlockAccount: mockUnlockAccount }),

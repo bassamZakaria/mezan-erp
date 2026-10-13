@@ -750,9 +750,10 @@ describe("createPlatformRoutes", () => {
       const swept = await sweeping.fetch(req("/card-checkouts/sweep", rig.ownerToken, { method: "POST" }));
 
       expect(swept.status).toBe(200);
-      const unrecorded = (await json(await sweeping.fetch(req("/security/unrecorded", rig.ownerToken)))) as { count: number; recent: { action: string; reason: string }[] };
+      const unrecorded = (await json(await sweeping.fetch(req("/security/unrecorded", rig.ownerToken)))) as { count: number; recent: { action: string; reason: string; details: Record<string, unknown> }[] };
       expect(unrecorded.count).toBe(1);
       expect(unrecorded.recent[0]).toMatchObject({ action: "CARD_CHECKOUT_SWEEP_RUN", reason: "audit sink down" });
+      expect(unrecorded.recent[0]!.details).toMatchObject({ examined: 1, paid: 0, stillPending: 1 });
       expect((await sweeping.fetch(req("/security/unrecorded", rig.supportToken))).status).toBe(403);
     });
 

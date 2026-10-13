@@ -153,6 +153,15 @@ export const unrecordedSecurityEventsSchema = z.object({
   recent: z.array(unrecordedSecurityEventSchema),
 });
 
+export const platformUnrecordedSecurityEventSchema = unrecordedSecurityEventSchema.extend({
+  details: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).nullable(),
+});
+
+export const platformUnrecordedSecurityEventsSchema = z.object({
+  count: z.number().int().nonnegative(),
+  recent: z.array(platformUnrecordedSecurityEventSchema),
+});
+
 export const securityExceptionsReportSchema = z.object({
   id: z.literal("security.exceptions"),
   titleAr: z.string().min(1),
@@ -460,6 +469,8 @@ export type SecurityWatchlistEntryDTO = z.infer<typeof securityWatchlistEntrySch
 export type SecurityExceptionsReportDTO = z.infer<typeof securityExceptionsReportSchema>;
 export type UnrecordedSecurityEventDTO = z.infer<typeof unrecordedSecurityEventSchema>;
 export type UnrecordedSecurityEventsDTO = z.infer<typeof unrecordedSecurityEventsSchema>;
+export type PlatformUnrecordedSecurityEventDTO = z.infer<typeof platformUnrecordedSecurityEventSchema>;
+export type PlatformUnrecordedSecurityEventsDTO = z.infer<typeof platformUnrecordedSecurityEventsSchema>;
 
 export type PostPostingChangeRowDTO = z.infer<typeof postPostingChangeRowSchema>;
 export type PostPostingChangesReportDTO = z.infer<typeof postPostingChangesReportSchema>;

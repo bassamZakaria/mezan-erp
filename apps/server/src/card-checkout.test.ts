@@ -118,6 +118,22 @@ function failAudit(r: Rig, action: string): () => void {
 }
 
 describe("card checkout — opening", () => {
+  it("still opens the checkout when the audit log cannot record it, and leaves the opening where the console's owner reads unrecorded events", async () => {
+    const r = await rig();
+    failAudit(r, "CARD_CHECKOUT_OPENED");
+
+    const checkout = await r.open();
+
+    expect(checkout.status).toBe("pending");
+    expect(await r.actions()).not.toContain("CARD_CHECKOUT_OPENED");
+    const unrecorded = r.platform.audit.unrecorded!.summary();
+    expect(unrecorded.count).toBe(1);
+    expect(unrecorded.recent[0]).toMatchObject({
+      action: "CARD_CHECKOUT_OPENED", entityId: "t-acme", reason: "audit sink unavailable",
+      details: { checkoutId: checkout.id, requestedBy: "tester" },
+    });
+  });
+
   it("opens a pending checkout for the plan's own price, never a caller's figure", async () => {
     const r = await rig();
     const checkout = await r.open();

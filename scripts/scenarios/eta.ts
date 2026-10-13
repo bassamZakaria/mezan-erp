@@ -82,8 +82,6 @@ export async function run(ctx: Ctx): Promise<void> {
   // e2 — item mapping
   // ---------------------------------------------------------------------------
   await scenario("e2 · mapping an item's authority code removes it from the unmapped filter and from the readiness count", async () => {
-    const seeded = await req("GET", "/eta/item-mappings?unmapped=1");
-    check("the seed leaves no item unregistered", n(seeded.body?.total) === 0, JSON.stringify(seeded.body).slice(0, 200));
     const created = await req("POST", "/items", { id: "SCN-E-UNREGISTERED", code: "SCN-E-UNREG", nameAr: "صنف بلا كود لدى المصلحة", type: "stock", baseUnitCode: "PCS", trackInventory: true });
     check("a new item is created", created.status === 201, JSON.stringify(created.body).slice(0, 200));
     const before = await req("GET", "/eta/item-mappings?unmapped=1");

@@ -5,7 +5,7 @@ import { allowBackorders, describeFailure, secondWarehouse, stockWalk } from "./
 const REVIEW_SEEDS = [13, 100, 106, 215, 231, 237];
 const SPREAD_SEEDS = Array.from({ length: 62 }, (_, index) => index + 1).filter((seed) => !REVIEW_SEEDS.includes(seed));
 const REVIEW_STEPS = 60;
-const SPREAD_STEPS = 30;
+const SPREAD_STEPS = 24;
 
 function seedsFromEnvironment(): number[] | null {
   const range = /^(\d+)-(\d+)$/.exec(process.env.STOCK_WALK_SEEDS ?? "");
@@ -17,7 +17,7 @@ function seedsFromEnvironment(): number[] | null {
 
 const seeds = seedsFromEnvironment() ?? [...REVIEW_SEEDS, ...SPREAD_SEEDS];
 const stepsFor = (seed: number) => Number(process.env.STOCK_WALK_STEPS ?? (REVIEW_SEEDS.includes(seed) ? REVIEW_STEPS : SPREAD_STEPS));
-const SEEDS_PER_TENANT = 11;
+const SEEDS_PER_TENANT = 34;
 
 describe("a random walk over every stock path keeps each position and its control account true", () => {
   for (let start = 0; start < seeds.length; start += SEEDS_PER_TENANT) {

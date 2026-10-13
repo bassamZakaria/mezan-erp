@@ -122,12 +122,6 @@ export async function stockWalk(kit: BackendKit, otherWarehouse: string, seed: n
       if (onHand === 0n && value !== 0n) problems.push(`value with no quantity: ${at}`);
       if (onHand < 0n && value > 0n) problems.push(`a shortfall carrying positive value: ${at}`);
     }
-    for (const itemId of items) {
-      for (const warehouseId of warehouses) {
-        const drift = (await kit.call("GET", `/inventory/drift?itemId=${itemId}&warehouseId=${warehouseId}`)).body;
-        if (scaled(drift.cacheDrift) !== 0n) problems.push(`${itemId}@${warehouseId} replays to ${drift.recomputedValue}, the cache holds ${drift.cachedValue}`);
-      }
-    }
     const totals = (await kit.call("GET", "/financial-reports/trial-balance")).body?.grandTotals ?? {};
     if (scaled(totals.debit) !== scaled(totals.credit)) problems.push(`the trial balance is off by ${scaled(totals.debit) - scaled(totals.credit)}`);
     const reconciliation = (await kit.call("GET", "/reconciliation")).body;

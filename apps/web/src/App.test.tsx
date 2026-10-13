@@ -107,9 +107,15 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
   });
 
-  it("reaches the first-run wizard from the login screen and can cancel back to it", () => {
-    renderApp();
-    fireEvent.click(screen.getByRole("button", { name: "الإعداد الأولي" }));
+  it("reaches the first-run wizard from the login screen of an install nobody has claimed, and can cancel back to it", async () => {
+    renderApp(
+      stubTransport({
+        "GET /bootstrap/status": () => ({ body: { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0, claimed: false } }),
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "الإعداد الأولي" }));
     expect(screen.getByRole("heading", { name: "معالج الإعداد الأولي" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));

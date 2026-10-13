@@ -278,11 +278,62 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     expect(screen.getByRole("status")).toHaveTextContent("انتهت الجلسة. سجّل الدخول من جديد للمتابعة.");
   });
 
-  it("calls onStartWizard from the first-run link", () => {
-    const onStartWizard = vi.fn();
-    renderWithProviders(<LoginScreen onStartWizard={onStartWizard} />, { transport: okTransport() });
-    fireEvent.click(screen.getByRole("button", { name: "الإعداد الأولي" }));
-    expect(onStartWizard).toHaveBeenCalledTimes(1);
+  describe("the way to a first account", () => {
+    const desktop = globalThis as { mezan?: unknown };
+    const counts = { accounts: 50, taxRates: 3, branches: 1, warehouses: 1, fiscalPeriods: 12, users: 1 };
+    const FIRST_RUN = "الإعداد الأولي";
+    const SIGN_UP = "أنشئ حسابًا جديدًا";
+    const withStatus = (claimed: boolean) => stubTransport({ ...preAuth, "GET /bootstrap/status": () => ({ body: { ...counts, claimed } }), "POST /auth/login": () => ({ body: testAdminSession }) });
+    afterEach(() => {
+      delete desktop.mezan;
+    });
+
+    it("is the first-run wizard on a desktop host nobody has claimed, and calls onStartWizard", async () => {
+      desktop.mezan = { licence: { status: async () => ({}) } };
+      const onStartWizard = vi.fn();
+      renderWithProviders(<LoginScreen onStartWizard={onStartWizard} />, { transport: withStatus(false) });
+
+      fireEvent.click(await screen.findByRole("button", { name: FIRST_RUN }));
+
+      expect(onStartWizard).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("link", { name: SIGN_UP })).not.toBeInTheDocument();
+    });
+
+    it("is the first-run wizard on an unclaimed desktop host even when the device remembers somebody who signed in", async () => {
+      desktop.mezan = { licence: { status: async () => ({}) } };
+      localStorage.setItem("mezan.deviceUsers", JSON.stringify([{ email: "admin@cyag.example", nameAr: "محمد الشهابي", initials: "م.ا", role: "admin" }]));
+
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: withStatus(false) });
+
+      expect(await screen.findByRole("button", { name: FIRST_RUN })).toBeInTheDocument();
+    });
+
+    it("is not offered at all on a desktop host that holds a company's books", async () => {
+      desktop.mezan = { licence: { status: async () => ({}) } };
+      const asked: string[] = [];
+      const base = withStatus(true);
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: (path, init) => (asked.push(path), base(path, init)) });
+
+      await waitFor(() => expect(asked).toContain("/bootstrap/status"));
+      await screen.findByLabelText("رمز PIN رقم 1");
+      expect(screen.queryByRole("button", { name: FIRST_RUN })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: SIGN_UP })).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ["a company's own subdomain", { mode: "subdomain", exists: true }, "/tenant"],
+      ["the shared address that asks for a company code", { mode: "code", exists: false }, "/platform/resolve"],
+    ])("is the signup page on the cloud, on %s, where the first-run wizard leads nowhere: no wizard link, and nothing asked about setup", async (_label, resolved, lastAsked) => {
+      const asked: string[] = [];
+      const base = stubTransport({ ...preAuth, "GET /platform/resolve": () => ({ body: resolved }), "GET /bootstrap/status": () => ({ body: { ...counts, claimed: false } }) });
+      renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: (path, init) => (asked.push(path), base(path, init)) });
+
+      expect(await screen.findByRole("link", { name: SIGN_UP })).toHaveAttribute("href", "/signup");
+      await waitFor(() => expect(asked).toContain(lastAsked));
+      await screen.findByLabelText("رمز PIN رقم 1");
+      expect(asked).not.toContain("/bootstrap/status");
+      expect(screen.queryByRole("button", { name: FIRST_RUN })).not.toBeInTheDocument();
+    });
   });
 });
 

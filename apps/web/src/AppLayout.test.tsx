@@ -657,9 +657,12 @@ describe("AppLayout — first-run wizard", () => {
     persistSession(null);
   });
 
-  it("'الإعداد الأولي' on the login screen opens the first-run wizard, and its own cancel returns to sign-in", async () => {
-    const transport = stubTransport({});
+  it("'الإعداد الأولي' on the login screen of an install nobody has claimed opens the first-run wizard, and its own cancel returns to sign-in", async () => {
+    const transport = stubTransport({
+      "GET /bootstrap/status": () => ({ body: { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0, claimed: false } }),
+    });
     renderLayout(transport, ["/dashboard"], null);
+    fireEvent.click(await screen.findByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "الإعداد الأولي" }));
     expect(await screen.findByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" })).toBeInTheDocument();
@@ -668,17 +671,31 @@ describe("AppLayout — first-run wizard", () => {
     expect(await screen.findByRole("button", { name: "الإعداد الأولي" })).toBeInTheDocument();
   });
 
+  it("offers no first-run wizard on the login screen of an install that already has an owner", async () => {
+    const asked: string[] = [];
+    const answer = stubTransport({
+      "GET /bootstrap/status": () => ({ body: { accounts: 5, taxRates: 2, branches: 1, warehouses: 1, fiscalPeriods: 1, users: 2, claimed: true } }),
+    });
+    renderLayout((path, init) => (asked.push(path), answer(path, init)), ["/dashboard"], null);
+
+    await waitFor(() => expect(asked).toContain("/bootstrap/status"));
+    await screen.findByLabelText("رمز PIN رقم 1");
+    expect(screen.queryByRole("button", { name: "الإعداد الأولي" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "معالج الإعداد الأولي" })).not.toBeInTheDocument();
+  });
+
   it("walking every wizard step through to 'إنهاء والانتقال إلى النظام' calls onFinish, which lands the app on the real shell", async () => {
     const transport = stubTransport({
       ...baseHandlers(),
       "GET /roles": () => ({ body: [] }),
       "GET /users": () => ({ body: [] }),
       "GET /tenant": () => ({ body: { name: "Cyag" } }),
-      "GET /bootstrap/status": () => ({ body: { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0 } }),
+      "GET /bootstrap/status": () => ({ body: { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0, claimed: false } }),
       "POST /bootstrap/admin": () => ({ body: testAdminSession }),
       "POST /bootstrap/seed": () => ({ body: { accounts: 5, taxRates: 2, branches: 1, warehouses: 1, fiscalPeriods: 1, users: 1 } }),
     });
     renderLayout(transport, ["/dashboard"], null);
+    fireEvent.click(await screen.findByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "الإعداد الأولي" }));
 

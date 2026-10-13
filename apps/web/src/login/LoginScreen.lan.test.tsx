@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import { LoginScreen } from "./LoginScreen";
-import { LookupHost, lookupHostOf } from "./lookup-host";
+import { holdsItsOwnBooks, LookupHost, lookupHostOf } from "./lookup-host";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { Transport } from "../data/transport";
 
@@ -33,11 +33,34 @@ describe("a till on the shop's network whose host machine does not answer", () =
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("offers neither the first-run wizard nor the cloud's signup page: a till sets nothing up", async () => {
+    renderWithProviders(<LoginScreen onStartWizard={() => {}} />, {
+      transport: stubTransport({ "POST /auth/login": () => ({ body: testAdminSession }), "GET /bootstrap/status": () => ({ body: { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0, claimed: false } }) }),
+    });
+
+    await screen.findByLabelText("رمز PIN رقم 1");
+    expect(screen.queryByRole("button", { name: "الإعداد الأولي" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "أنشئ حسابًا جديدًا" })).not.toBeInTheDocument();
+  });
+
   it("says nothing of the kind while the host answers", async () => {
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: stubTransport({ "POST /auth/login": () => ({ body: testAdminSession }) }) });
 
     await screen.findByLabelText("رمز PIN رقم 1");
     expect(screen.queryByText(UNREACHABLE)).not.toBeInTheDocument();
+  });
+});
+
+describe("which sign-in screens are on the machine that holds the company's books, where the first-run wizard can run", () => {
+  it.each([
+    [LookupHost.DesktopHost, false, true],
+    [LookupHost.DesktopHost, true, true],
+    [LookupHost.Cloud, true, true],
+    [LookupHost.Cloud, false, false],
+    [LookupHost.LanTill, true, false],
+    [LookupHost.LanTill, false, false],
+  ])("%s, with no platform in front: %s → %s", (host, noPlatformInFront, expected) => {
+    expect(holdsItsOwnBooks(host, noPlatformInFront)).toBe(expected);
   });
 });
 

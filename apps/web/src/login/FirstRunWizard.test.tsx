@@ -81,6 +81,20 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     expect(screen.getByText(/تُثبَّت التراخيص على الجهاز الرئيسي/)).toBeInTheDocument();
   });
 
+  it("keeps what was typed on the admin step when going back a step and forward again", () => {
+    renderWizard();
+    goToAdminStep();
+    fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "سارة إبراهيم" } });
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), { target: { value: "sara-back-nav@example.com" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "رجوع" }));
+    expect(screen.queryByRole("heading", { name: "إنشاء حساب المسؤول" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+
+    expect(screen.getByLabelText("الاسم الكامل")).toHaveValue("سارة إبراهيم");
+    expect(screen.getByLabelText("البريد الإلكتروني", { exact: false })).toHaveValue("sara-back-nav@example.com");
+  });
+
   it("validates the admin step, then persists the admin and advances to seed", async () => {
     renderWizard();
     goToAdminStep();

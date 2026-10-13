@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { BrandMark, Button, Copyright, TextInput, cn } from "@mezan/ui";
 import { TenantResolveMode } from "@mezan/contracts";
-import { ApiError, isDesktopHost, platformLookupFailing, useBootstrapStatus, useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
-import { lastTenantMode, LookupHost, lookupHostOf, rememberTenantMode } from "./lookup-host";
+import { ApiError, isDesktopHost, noPlatformInFront, platformLookupFailing, useBootstrapStatus, useLogin, usePlatformResolve, useTenantInfo } from "../data/hooks";
+import { holdsItsOwnBooks, lastTenantMode, LookupHost, lookupHostOf, rememberTenantMode } from "./lookup-host";
 import { useAppVersion } from "../data/hub-hooks";
 import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
 import {
@@ -119,11 +120,15 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   /** True once «آخر» is chosen, or when the device remembers nobody at all. */
   const [typing, setTyping] = useState(remembered.length === 0);
   const [username, setUsername] = useState(remembered[0]?.email ?? "");
-  const demoSeed = useBootstrapStatus({ enabled: isDesktopHost() && remembered.length === 0 });
-  const demoSeeded = demoSeed.data?.demoSeeded === true;
+  const desktopHost = isDesktopHost();
+  const oneCompanyHost = holdsItsOwnBooks(lookupHost, noPlatformInFront(platformResolve.error));
+  const bootstrap = useBootstrapStatus({ enabled: oneCompanyHost });
+  const demoSeeded = bootstrap.data?.demoSeeded === true;
+  const offersFirstRun = oneCompanyHost && bootstrap.data?.claimed === false;
+  const offersSignup = tenantMode !== undefined;
   useEffect(() => {
-    if (demoSeeded && isDesktopHost()) setUsername((current) => (current === "" ? DEMO_SEED_ADMIN_EMAIL : current));
-  }, [demoSeeded]);
+    if (demoSeeded && desktopHost && remembered.length === 0) setUsername((current) => (current === "" ? DEMO_SEED_ADMIN_EMAIL : current));
+  }, [demoSeeded, desktopHost, remembered.length]);
 
   /**
    * Whether the OPERATOR NOW AT THE MACHINE has explicitly confirmed a
@@ -628,9 +633,16 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
               {t("login.otherUser")}
             </button>
           ) : null}
-          <button type="button" onClick={onStartWizard} className="text-ink-muted hover:underline">
-            {t("login.wizard.short")}
-          </button>
+          {offersFirstRun ? (
+            <button type="button" onClick={onStartWizard} className="text-ink-muted hover:underline">
+              {t("login.wizard.short")}
+            </button>
+          ) : null}
+          {offersSignup ? (
+            <Link to="/signup" className="text-ink-muted hover:underline">
+              {t("login.signup")}
+            </Link>
+          ) : null}
           {/* lan-ux: the only way into pairing from the UI. Rendered only on a
               desktop machine that holds no books, so it can never appear on a
               shop's live host and offer to turn it into a till. */}

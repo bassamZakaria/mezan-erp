@@ -535,6 +535,7 @@ export function AppLayout() {
         onCancel={() => {
           setSession(null);
           setShowWizard(false);
+          setWizardDismissed(true);
         }}
       />
     );

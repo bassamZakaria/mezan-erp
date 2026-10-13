@@ -30,6 +30,7 @@ const SECOND_NAME = "مؤسسة الدلتا";
 const NAME_AT_SIGNUP = "شركة الاسم الأول";
 const NAME_AFTER_RENAME = "الاسم التجاري بعد التعديل";
 const WIZARD_LINK = "الإعداد الأولي";
+const SIGNUP_LINK = "أنشئ حسابًا جديدًا";
 const COMPANY_LOOKUP_PATH = "/api/platform/resolve";
 
 let tenant: TenantLogin;
@@ -243,7 +244,7 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await expect(page.getByRole("heading", { level: 1 })).toContainText("وليد");
   });
 
-  test("on a shared device, a company just confirmed survives opening the setup wizard and cancelling", async ({ page }) => {
+  test("on a shared device, the cloud sign-in offers the signup page and never the first-run wizard, and a company just confirmed survives going there and back", async ({ page }) => {
     await tenantSignIn(page, tenant);
     await tenantSignOut(page);
     await page.getByRole("button", { name: "تغيير المنشأة" }).click();
@@ -255,9 +256,12 @@ test.describe("PLT-SAAS-08 — resolving a tenant reveals nothing before sign-in
     await expect(page.getByRole("textbox", { name: "رمز المنشأة" })).toHaveValue("");
 
     await enterTenantCode(page, tenant.code);
-    await page.getByRole("button", { name: WIZARD_LINK }).click();
-    await expect(page.getByRole("heading", { name: "معالج الإعداد الأولي" })).toBeVisible();
-    await page.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }).click();
+    await expect(page.getByRole("link", { name: SIGNUP_LINK })).toBeVisible();
+    await expect(page.getByRole("button", { name: WIZARD_LINK })).toHaveCount(0);
+    await page.getByRole("link", { name: SIGNUP_LINK }).click();
+    await expect(page).toHaveURL(/\/signup$/);
+    await expect(page.getByRole("heading", { name: "أنشئ حساب ميزان" })).toBeVisible();
+    await page.goBack();
 
     await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
     await expect(page.getByText(`الرمز: ${tenant.code}`)).toBeVisible();

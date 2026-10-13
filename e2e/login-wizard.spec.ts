@@ -3,18 +3,14 @@ import { test, expect, type Page } from "@playwright/test";
 const SEED_ADMIN_EMAIL = "admin@cyag.example";
 
 /**
- * Login screen + first-run wizard (apps/web/src/login/LoginScreen.tsx,
- * apps/web/src/login/FirstRunWizard.tsx, App.tsx's `mode` state machine:
- * "login" -> "wizard" -> "app"). These tests exercise the login gate itself,
- * so — unlike every other spec — they do NOT use support/auth.ts's
- * loginAsDemoUser and start each test with a plain `page.goto("/")`.
+ * The cloud login gate (apps/web/src/login/LoginScreen.tsx). These tests
+ * exercise the gate itself, so — unlike every other spec — they do NOT use
+ * support/auth.ts's loginAsDemoUser and start each test with a plain
+ * `page.goto("/")`.
  *
- * The PIN is now SIX digits everywhere (login and the wizard's admin step —
- * `PIN_LENGTH = 6` in LoginScreen.tsx, `/^\d{6}$/` in FirstRunWizard.tsx), not
- * four. A brand-new browser context (Playwright's default, no localStorage)
- * has no remembered device users, so the login screen renders straight into
- * "typing" mode with the seed admin's email pre-filled — the same state
- * support/auth.ts relies on — rather than the «مَن يعمل الآن؟» face picker.
+ * A brand-new browser context (Playwright's default, no localStorage) has no
+ * remembered device users, so the login screen renders straight into "typing"
+ * mode rather than the «مَن يعمل الآن؟» face picker.
  *
  * This platform resolves the tenant by CODE (`tenantMode === "code"` —
  * LoginScreen.tsx), so a login screen with no code entered yet refuses to
@@ -23,31 +19,15 @@ const SEED_ADMIN_EMAIL = "admin@cyag.example";
  * `selectDemoTenant` fills and resolves the "demo" code first, the same way
  * support/auth.ts's `loginAsDemoUser` does.
  *
- * The wizard's step-indicator (<ol> of step labels) and the "تفعيل
- * الترخيص" step's own <section aria-label> render identical text for that
- * one step, so step content is scoped via `getByRole("region", {name})`
- * (the section's implicit landmark role) rather than plain text, to avoid
- * the ambiguous-locator trap that class of duplicate text creates.
- *
- * The wizard's licence step used to be a fake "تفعيل" (activate) toggle that
- * always painted a green "مُفعّل" pill with nothing behind it. It is now a
- * real file import (`licenceUi.import` — "استيراد ملف الترخيص") gated on
- * `isDesktopHost()`, which is false in this Playwright/Chromium run (no
- * Electron licence bridge) — so on the web build the button is disabled and
- * the step shows the honest "desktop only" explanation instead. The step's
- * own "التالي" is deliberately NEVER gated on licence state either way (see
- * the comment in FirstRunWizard.tsx) — a shop with no licence file yet must
- * still be able to finish the rest of setup.
+ * The first-run wizard is not reachable here: it sets up the one company a
+ * desktop install holds, and a company on the cloud is created by signing up.
+ * Its steps are covered in apps/web/src/login/FirstRunWizard.test.tsx.
  */
 
 async function fillPin(page: Page, digits: string): Promise<void> {
   for (const [index, digit] of [...digits].entries()) {
     await page.getByLabel(`رمز PIN رقم ${index + 1}`).fill(digit);
   }
-}
-
-function wizardStep(page: Page, ariaLabel: string) {
-  return page.getByRole("region", { name: ariaLabel });
 }
 
 async function selectDemoTenant(page: Page): Promise<void> {
@@ -91,110 +71,21 @@ test.describe("Login screen", () => {
   });
 });
 
-test.describe("First-run wizard", () => {
-  test.beforeEach(async ({ page }) => {
+test.describe("The way to a first account on the cloud", () => {
+  test("is the signup page, before and after a company code is entered, and never the first-run wizard", async ({ page }) => {
+    const wizardLink = page.getByRole("button", { name: "الإعداد الأولي" });
+    const signupLink = page.getByRole("link", { name: "أنشئ حسابًا جديدًا" });
+
     await page.goto("/");
-    await page.getByRole("button", { name: "الإعداد الأولي" }).click();
-    await expect(page.getByRole("heading", { name: "معالج الإعداد الأولي" })).toBeVisible();
-  });
+    await expect(signupLink).toBeVisible();
+    await expect(wizardLink).toHaveCount(0);
 
-  test("cancelling returns to the login screen", async ({ page }) => {
-    await page.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }).click();
-    await expect(page.getByRole("heading", { name: "تسجيل الدخول" })).toBeVisible();
-  });
-
-  test("back navigation returns to the previous step without losing entered data", async ({ page }) => {
-    const activateStep = wizardStep(page, "تفعيل الترخيص");
-    // On the web build (no Electron licence bridge) the import button is
-    // disabled and the step explains why, rather than offering a fake
-    // "activate" toggle — see the header comment.
-    await expect(activateStep.getByRole("button", { name: "استيراد ملف الترخيص" })).toBeDisabled();
-    await expect(activateStep.getByText("تُثبَّت التراخيص على الجهاز الرئيسي")).toBeVisible();
-    // Deliberately never gated on licence state — a shop with no licence
-    // file yet must still be able to finish the rest of setup.
-    await page.getByRole("button", { name: "التالي" }).click();
-
-    const adminStep = wizardStep(page, "إنشاء حساب المسؤول");
-    await expect(adminStep).toBeVisible();
-    await adminStep.getByLabel("الاسم الكامل").fill("سارة إبراهيم");
-    await adminStep.getByLabel("البريد الإلكتروني").fill("sara-back-nav@example.com");
-
-    await page.getByRole("button", { name: "رجوع" }).click();
-    await expect(activateStep).toBeVisible();
-
-    await page.getByRole("button", { name: "التالي" }).click();
-    await expect(adminStep).toBeVisible();
-    await expect(adminStep.getByLabel("الاسم الكامل")).toHaveValue("سارة إبراهيم");
-    await expect(adminStep.getByLabel("البريد الإلكتروني")).toHaveValue("sara-back-nav@example.com");
-  });
-
-  test("validates the admin-account step, then surfaces the already-claimed refusal and offers a way back to sign in", async ({
-    page,
-  }) => {
-    // The wizard's admin-creation call is tenant-scoped like every other API
-    // call — without a resolved tenant code it fails client-side with "حدّد
-    // رمز المنشأة" before ever reaching the server, and the tenant-code field
-    // lives on the LOGIN screen, not inside the wizard. Back out, select
-    // "demo", then reopen a fresh wizard so the final submission below
-    // reaches the REAL /bootstrap/admin refusal instead.
-    await page.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }).click();
-    await expect(page.getByRole("heading", { name: "تسجيل الدخول" })).toBeVisible();
     await selectDemoTenant(page);
-    await page.getByRole("button", { name: "الإعداد الأولي" }).click();
-    await expect(page.getByRole("heading", { name: "معالج الإعداد الأولي" })).toBeVisible();
+    await expect(wizardLink).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "معالج الإعداد الأولي" })).toHaveCount(0);
 
-    const activateStep = wizardStep(page, "تفعيل الترخيص");
-    const nextButton = page.getByRole("button", { name: "التالي" });
-    // Deliberately never gated on licence state (FirstRunWizard.tsx) — a shop
-    // with no licence file yet must still be able to finish setting up.
-    await expect(nextButton).toBeEnabled();
-    // On the web build (no Electron licence bridge) the import button is
-    // disabled and the step explains why, rather than offering a fake
-    // "activate" toggle — see the header comment.
-    await expect(activateStep.getByRole("button", { name: "استيراد ملف الترخيص" })).toBeDisabled();
-    await nextButton.click();
-
-    const adminStep = wizardStep(page, "إنشاء حساب المسؤول");
-    await expect(adminStep).toBeVisible();
-
-    await page.getByRole("button", { name: "التالي" }).click();
-    await expect(adminStep.getByRole("alert")).toHaveText("اسم المنشأة مطلوب.");
-    await adminStep.getByLabel("اسم المنشأة").fill("متجر سارة");
-
-    // Missing name/email.
-    await page.getByRole("button", { name: "التالي" }).click();
-    await expect(adminStep.getByRole("alert")).toHaveText("الاسم الكامل والبريد الإلكتروني مطلوبان.");
-
-    await adminStep.getByLabel("الاسم الكامل").fill("سارة إبراهيم");
-    await adminStep.getByLabel("البريد الإلكتروني").fill("sara-finish-flow@example.com");
-
-    // PIN not 6 digits yet.
-    await page.getByRole("button", { name: "التالي" }).click();
-    await expect(adminStep.getByRole("alert")).toHaveText("الرمز السرّي يجب أن يكون ٦ أرقام.");
-
-    await adminStep.getByLabel("الرمز السرّي (٦ أرقام)").fill("123456");
-    await adminStep.getByLabel("تأكيد رمز PIN").fill("654321");
-
-    // PIN / confirmation mismatch.
-    await page.getByRole("button", { name: "التالي" }).click();
-    await expect(adminStep.getByRole("alert")).toHaveText("رمز PIN وتأكيده غير متطابقين.");
-
-    await adminStep.getByLabel("تأكيد رمز PIN").fill("123456");
-    await page.getByRole("button", { name: "التالي" }).click();
-
-    // The demo tenant is already claimed (a real seeded admin exists), so a
-    // brand-new /bootstrap/admin call is refused with a 409 rather than
-    // advancing to "seed" — the wizard's own recovery path for "opening the
-    // wizard on a machine already set up" (FirstRunWizard.tsx). Every step
-    // through here still ran the wizard's OWN client-side validation for
-    // real; only the tenant this environment can point it at is already set
-    // up, so the happy path to "seed"/"import" cannot be exercised in this
-    // suite without claiming a tenant some other test also depends on being
-    // unclaimed.
-    await expect(adminStep.getByRole("alert")).toHaveText("تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك.");
-    await expect(adminStep).toBeVisible();
-
-    await adminStep.getByRole("button", { name: "سجّل الدخول بحسابك" }).click();
-    await expect(page.getByRole("heading", { name: "تسجيل الدخول" })).toBeVisible();
+    await signupLink.click();
+    await expect(page).toHaveURL(/\/signup$/);
+    await expect(page.getByRole("heading", { name: "أنشئ حساب ميزان" })).toBeVisible();
   });
 });

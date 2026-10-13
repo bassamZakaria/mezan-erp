@@ -17,6 +17,10 @@ export function lookupHostOf(hostname: string = window.location.hostname): Looku
   return LookupHost.Cloud;
 }
 
+export function holdsItsOwnBooks(host: LookupHost, noPlatformInFront: boolean): boolean {
+  return host === LookupHost.DesktopHost || (host === LookupHost.Cloud && noPlatformInFront);
+}
+
 const LAST_MODE_KEY = "mezan.platformMode";
 const MODES: readonly string[] = Object.values(TenantResolveMode);
 

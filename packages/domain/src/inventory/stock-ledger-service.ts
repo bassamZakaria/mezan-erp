@@ -340,12 +340,9 @@ export interface DocumentStockPlanResult {
   readonly unmirroredValue: Money;
 }
 
-function issueValue(snap: { readonly totalValue: Money }, remaining: Qty, qty: Qty, unitCost: Money, mirroredValue: Money | undefined): Money {
+function issueValue(held: Money, remaining: Qty, qty: Qty, unitCost: Money): Money {
   const atAverage = extend(qty, unitCost);
-  const held = !remaining.isNegative() && snap.totalValue.scaled >= 0n ? snap.totalValue : null;
-  const withinHeld = held && atAverage.scaled > held.scaled ? held : atAverage;
-  if (!mirroredValue) return withinHeld;
-  return held && mirroredValue.scaled > held.scaled ? withinHeld : mirroredValue;
+  return !remaining.isNegative() && held.scaled >= 0n && atAverage.scaled > held.scaled ? held : atAverage;
 }
 
 export class StockLedgerService {
@@ -526,14 +523,13 @@ export class StockLedgerService {
       // window in which they disagree. `wac.ts`'s replay applies the identical
       // rule, or `cacheDrift` would report this fix as corruption.
       // INVARIANT: a movement that leaves quantity 0 leaves value 0, and one
-      // that leaves quantity above 0 never leaves value below 0 — a mirrored
-      // one included. A mirror takes the value its original moved while the
-      // position holds that much; once it does not, it takes its share at the
-      // moving average. Whatever it asked for and did not take is returned as
-      // `unmirrored`, and the caller books it with the reversal, so the
-      // control account follows the stock.
+      // that leaves quantity above 0 never leaves value below 0. A mirrored
+      // issue leaves at the moving average like any other — never at the value
+      // its original moved, which the position may no longer hold. What it was
+      // asked to take and did not is returned as `unmirrored`, and the caller
+      // books it with the reversal, so the control account follows the stock.
       const drained = projected.isZero();
-      const cogs = drained ? snap.totalValue : issueValue(snap, projected, input.qty, unitCost, input.value);
+      const cogs = drained ? snap.totalValue : issueValue(snap.totalValue, projected, input.qty, unitCost);
       if (input.value) unmirrored = input.value.add(cogs.negate());
       newOnHand = projected;
       newTotalValue = snap.totalValue.add(cogs.negate());

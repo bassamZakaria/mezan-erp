@@ -36,7 +36,7 @@ function world() {
 }
 
 describe("an issue that mirrors a recorded receipt", () => {
-  it("takes its share at the moving average once the position no longer holds the stored value, and hands the rest back to be booked", async () => {
+  it("takes its share at the moving average when the goods were sold on cheaper, and hands the rest back to be booked", async () => {
     const { move, position, replayed } = world();
     await move("BUY-1", "IN", "2", "10");
     await move("SALE-1", "OUT", "2");
@@ -56,29 +56,28 @@ describe("an issue that mirrors a recorded receipt", () => {
     expect(await position()).toEqual(["0.000000", "0.000000"]);
   });
 
-  it("puts a position back exactly where it stood when nothing moved in between, even above its average", async () => {
+  it("leaves at the moving average even when the position still holds the stored value, so the units left behind keep their cost", async () => {
     const { move, position, replayed } = world();
     await move("BUY-1", "IN", "4", "6");
     await move("RETURN-1", "IN", "2", "10");
-    expect(await position()).toEqual(["6.000000", "44.000000"]);
+    await move("SALE-1", "OUT", "3");
+    expect(await position()).toEqual(["3.000000", "22.000001"]);
 
     const mirrored = await move("RETURN-1:void", "OUT", "2", undefined, "20");
 
-    expect(await position()).toEqual(["4.000000", "24.000000"]);
-    expect([mirrored.valueMoved.toString(), mirrored.unmirroredValue.toString()]).toEqual(["-20.000000", "0.000000"]);
+    expect(await position()).toEqual(["1.000000", "7.333333"]);
+    expect([mirrored.valueMoved.toString(), mirrored.unmirroredValue.toString()]).toEqual(["-14.666668", "5.333332"]);
     expect(await replayed()).toEqual(await position());
   });
 
-  it("still takes exactly the stored value when the position holds at least that much", async () => {
+  it("takes exactly what its original moved when the position's average is still that cost", async () => {
     const { move, position, replayed } = world();
-    await move("BUY-1", "IN", "2", "10");
-    await move("BUY-2", "IN", "2", "30");
+    await move("BUY-1", "IN", "4", "10");
     await move("RETURN-1", "IN", "2", "10");
-    expect(await position()).toEqual(["6.000000", "100.000000"]);
 
     const mirrored = await move("RETURN-1:void", "OUT", "2", undefined, "20");
 
-    expect(await position()).toEqual(["4.000000", "80.000000"]);
+    expect(await position()).toEqual(["4.000000", "40.000000"]);
     expect([mirrored.valueMoved.toString(), mirrored.unmirroredValue.toString()]).toEqual(["-20.000000", "0.000000"]);
     expect(await replayed()).toEqual(await position());
   });

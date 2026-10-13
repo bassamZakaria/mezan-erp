@@ -53,17 +53,16 @@ describe("a stock reversal mirrors the value the original movement moved, not qu
     expect(await replayed()).toEqual(before);
   });
 
-  it("takes back out exactly what a return put in, when the position's average is not the return's cost", async () => {
+  it("takes a return back out at the moving average, not at what it put in, and reports the difference for the reversal to book", async () => {
     const { hook, plan, receive, position, replayed } = world();
     await receive("GRN-1", "10", "10");
-    const before = await position();
     await hook.apply(plan("SR-1", "SALES_RETURN", [{ itemId: ITEM, direction: "IN", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("4") }]));
     expect(await position()).toEqual(["12.000000", "108.000000", "9.000000"]);
 
     const reversed = await hook.reverse!(plan("SR-1:void", "SALES_RETURN", []), "SR-1");
-    expect(reversed.valueMoved.toString()).toBe("-8.000000");
-    expect(await position()).toEqual(before);
-    expect(await replayed()).toEqual(before);
+    expect([reversed.valueMoved.toString(), reversed.unmirroredValue?.toString()]).toEqual(["-18.000000", "-10.000000"]);
+    expect(await position()).toEqual(["10.000000", "90.000000", "9.000000"]);
+    expect(await replayed()).toEqual(await position());
   });
 
   it("empties the position when a mirrored issue is its last one out, and reports what the mirror asked for beyond what was there", async () => {
@@ -81,12 +80,12 @@ describe("a stock reversal mirrors the value the original movement moved, not qu
     expect(await replayed()).toEqual(await position());
   });
 
-  it("reports nothing unmirrored when the mirrored issue leaves stock behind", async () => {
+  it("reports nothing unmirrored when the mirrored issue leaves at the cost it came in at", async () => {
     const { hook, plan, receive } = world();
     await receive("GRN-1", "10", "10");
-    await hook.apply(plan("SR-1", "SALES_RETURN", [{ itemId: ITEM, direction: "IN", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("4") }]));
+    await hook.apply(plan("SR-1", "SALES_RETURN", [{ itemId: ITEM, direction: "IN", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("10") }]));
     const reversed = await hook.reverse!(plan("SR-1:void", "SALES_RETURN", []), "SR-1");
-    expect([reversed.valueMoved.toString(), reversed.unmirroredValue?.toString()]).toEqual(["-8.000000", "0.000000"]);
+    expect([reversed.valueMoved.toString(), reversed.unmirroredValue?.toString()]).toEqual(["-20.000000", "0.000000"]);
   });
 
   it("values an ordinary issue at the moving average, as before", async () => {

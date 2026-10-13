@@ -215,7 +215,7 @@ export function replay(
       // be identical in both, or replaying a ledger the engine wrote would
       // report the difference as `cacheDrift` — turning the fix into a
       // permanent false corruption signal on every fully-sold item.
-      const cogs = remainingAfter.isZero() ? totalValue : (m.value ?? extend(m.qty, issuedAt));
+      const cogs = remainingAfter.isZero() ? totalValue : (m.value ?? issueValueWithin(totalValue, remainingAfter, extend(m.qty, issuedAt)));
       totalValue = totalValue.add(cogs.negate());
       onHand = remainingAfter;
       layers = consumeLayers(layers, m.qty);
@@ -303,4 +303,8 @@ export function checkDrift(
     withinTolerance: driftMagnitude <= tolerance.scaled,
     unabsorbedRevaluation: recomputed.unabsorbedRevaluation,
   };
+}
+
+function issueValueWithin(held: Money, remaining: Qty, atAverage: Money): Money {
+  return !remaining.isNegative() && held.scaled >= 0n && atAverage.scaled > held.scaled ? held : atAverage;
 }

@@ -104,19 +104,28 @@ describe("voiding a confirmed sales return", () => {
     expect(await returnedQty("/sales-returns", "RV-S-1")).toEqual([12]);
   });
 
-  it("takes out exactly the value the return put in when a purchase has moved the average since the sale", async () => {
+  it("takes the goods back out at the moving average when a purchase has moved it since the sale, and books the difference with the reversal", async () => {
     await confirmedSale("RV-S-7");
     await confirmedPurchase("RV-S-7-BUY");
     const stockBefore = await position();
-    const ledgerBefore = await kit.invariants();
-    await confirmedSalesReturn("RV-S-7-R", "RV-S-7", "2");
+    const returnedDoc = await confirmedSalesReturn("RV-S-7-R", "RV-S-7", "2");
     const returned = await position();
     expect(returned[2]).not.toBe(stockBefore[2]);
     const voided = await kit.call("POST", "/sales-returns/RV-S-7-R/void", { reason: REASON });
     expect([voided.status, voided.body.status], JSON.stringify(voided.body)).toEqual([200, "reversed"]);
-    expect(await position()).toEqual(stockBefore);
-    expect(await kit.invariants()).toEqual(ledgerBefore);
-    expect((await kit.invariants()).inventory).toBe(0n);
+
+    const after = await position();
+    const scaled = (value: string) => BigInt(value.replace(".", ""));
+    const putIn = scaled(returned[1]) - scaled(stockBefore[1]);
+    const takenOut = scaled(returned[1]) - scaled(after[1]);
+    expect(after[0]).toBe(stockBefore[0]);
+    expect(takenOut).toBe((2n * scaled(returned[2])));
+    expect(takenOut).not.toBe(putIn);
+    const reversal = await kit.journalLines(voided.body.reversalJournalEntryId);
+    const net = (accountId: string) => reversal.filter((line) => line.accountId === accountId).reduce((sum, line) => sum + scaled(line.credit) - scaled(line.debit), 0n);
+    expect([net("1200"), net("5100")]).toEqual([takenOut, -takenOut]);
+    expect(reversal.length).toBe((await kit.journalLines(returnedDoc.journalEntryId)).length + 2);
+    expect(await kit.invariants()).toEqual({ tb: 0n, inventory: 0n, ap: 0n, ar: 0n });
   });
 
   it("leaves no value on a position its void empties: the last issue out takes what is there and the difference is booked with the reversal", async () => {

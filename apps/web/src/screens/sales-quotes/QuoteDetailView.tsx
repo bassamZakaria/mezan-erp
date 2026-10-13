@@ -361,7 +361,7 @@ export function QuoteDetailView({ quote, onPrint, onBack }: { quote: SalesQuoteR
                   </Button>
                 ) : null}
 
-                {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
+                {error ? <div role="alert" className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
               </div>
             </SectionCard>
 

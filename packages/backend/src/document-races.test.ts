@@ -289,7 +289,7 @@ describe("two operations on one stored document land as one story", () => {
         const [won, lost] = first.status === 201 ? [`${fixture}-I1`, `${fixture}-I2`] : [`${fixture}-I2`, `${fixture}-I1`];
         const loser = first.status === 201 ? second : first;
         expect(loser.status, JSON.stringify(loser.body)).toBe(409);
-        expect(loser.body.message).toMatch(/[\u0600-\u06FF]/);
+        expect([loser.body.error, loser.body.message]).toEqual(["INVALID_QUOTE_STATUS", expect.stringContaining("حُوِّل بالفعل إلى فاتورة مبيعات")]);
         const quote = (await kit.call("GET", `/sales-quotes/${fixture}`)).body;
         expect([quote.status, quote.convertedInvoiceId]).toEqual(["converted", won]);
         expect([(await kit.call("GET", `/sales-invoices/${won}`)).status, (await kit.call("GET", `/sales-invoices/${lost}`)).status]).toEqual([200, 404]);

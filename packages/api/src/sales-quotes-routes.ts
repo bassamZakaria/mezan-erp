@@ -201,6 +201,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  * `markConverted` is ready for it).
  */
 const ACCEPTED_QUOTE_STATUS: SalesQuote["status"] = "accepted";
+const CONVERTED_QUOTE_STATUS: SalesQuote["status"] = "converted";
 
 export function createSalesQuotesRoutes(
   deps: SalesQuoteRoutesDeps,
@@ -590,14 +591,17 @@ export function createSalesQuotesRoutes(
       // with it — never left standing beside the winner's.
       const outcome = await deps.repo.transaction(async () => {
         const standing = await quoteSvc.findById(quote.id);
-        if (standing?.status !== ACCEPTED_QUOTE_STATUS) return { refusal: null, notAccepted: true } as const;
+        if (standing?.status !== ACCEPTED_QUOTE_STATUS) return { refusal: null, notAccepted: true, alreadyConverted: standing?.status === CONVERTED_QUOTE_STATUS } as const;
         const quota = await withQuota(c, deps.invoice?.quota, QuotaKind.SalesInvoicesPerMonth, () => invoiceSvc.createDraft(cmd));
         if (quota.refusal) return { refusal: quota.refusal, notAccepted: false } as const;
         const raised = quota.value!;
         return { refusal: null, notAccepted: false, invoice: raised, converted: await quoteSvc.markConverted(quote.id, raised.id) } as const;
       });
       if (outcome.notAccepted) {
-        return c.json({ error: "INVALID_QUOTE_STATUS", message: "لا يمكن تحويل عرض السعر إلا بعد قبوله من العميل." }, 409);
+        const message = outcome.alreadyConverted
+          ? "عرض السعر حُوِّل بالفعل إلى فاتورة مبيعات؛ افتح فاتورته من صفحة العرض بدلاً من تحويله مرة أخرى."
+          : "لا يمكن تحويل عرض السعر إلا بعد قبوله من العميل.";
+        return c.json({ error: "INVALID_QUOTE_STATUS", message }, 409);
       }
       if (outcome.refusal) return quotaRefusalResponse(c, outcome.refusal);
       const { invoice, converted } = outcome;

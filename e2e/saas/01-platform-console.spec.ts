@@ -38,7 +38,6 @@ const PAYMENT_REFERENCE = `INSTAPAY-${TENANT_CODE}`;
 const PAYMENT_AMOUNT = "980";
 const CUSTOMER_NAME = `عميل ${TENANT_CODE}`;
 const HR_REFUSAL = "وحدة الموارد البشرية ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.";
-const SCREEN_NOT_LICENSED = "هذه الشاشة ليست ضمن ترخيص منشأتك";
 const READ_ONLY_BANNER = "الترخيص غير فعّال — وضع القراءة فقط";
 const SUSPEND_QUESTION = "إيقاف المنشأة؟";
 const RESET_OWNER_PIN = "إعادة تعيين رمز المالك";
@@ -203,7 +202,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
     expect(await page.evaluate((key) => window.localStorage.getItem(key), StorageKey.Session)).toBeNull();
   });
 
-  test("PLT-SAAS-04 a module outside the plan is refused by the server in Arabic, and its screen is not opened", async ({ page, request }) => {
+  test("PLT-SAAS-04 a module outside the plan is refused with the server's Arabic sentence", async ({ page, request }) => {
     const api = await tenantApiLogin(request, tenant);
     const refusal = await tenantCall(request, api, HttpMethod.Get, "/hr/employees");
     expect(refusal.status).toBe(403);
@@ -224,8 +223,7 @@ test.describe("PLT-SAAS-01..06 — the platform console and the tenant it create
 
     await page.goto("/people/employees");
     const main = page.locator("main");
-    await expect(main.getByRole("heading", { level: 1, name: SCREEN_NOT_LICENSED, exact: true })).toBeVisible();
-    await expect(main.getByRole("button", { name: "موظف جديد" })).toHaveCount(0);
+    await expect(main.getByText(HR_REFUSAL, { exact: true })).toBeVisible();
     await expect(main).not.toContainText(ApiError.ModuleNotLicensed);
     await expect(main).not.toContainText("تعذّر تحميل");
   });

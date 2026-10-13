@@ -2,7 +2,7 @@ import { Suspense, useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { AppShell, SkeletonTable, filterNavGroups, isNavItemVisible, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
-import { ALL_SCOPE, ShellRequest, type UserStatusCode } from "@mezan/domain";
+import { ALL_SCOPE, ShellRequest, moduleNotLicensedMessageAr, type UserStatusCode } from "@mezan/domain";
 import { BranchRestrictedAccess, type BranchDTO, type EraseUserDTO, type RoleDTO, type ScopeSelectionDTO } from "@mezan/contracts";
 import { TenantPreferences } from "./settings/TenantPreferences";
 
@@ -20,7 +20,7 @@ import {
   buildTopNavItem,
   filterNavGroupsByEntitlements,
   PINNED_NAV_ITEM_KEYS,
-  isScreenOutsideLicence,
+  moduleOutsideLicence,
 } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { isBranchRestricted, navItemAccess, withoutBranchUnavailable } from "./branch-restriction";
@@ -319,6 +319,7 @@ export function AppLayout() {
    * the wordmark is a button. A named, hoverable icon costs 32px and removes
    * the guess; the lockup stays a link for everyone who already reaches for it.
    */
+  const unlicensedModule = moduleOutsideLicence(activeScreen === "role-editor" ? "roles" : activeScreen, entitlements);
   const dashboardPermitted = useMemo(
     () => isNavItemVisible(buildTopNavItem(t), { permissions: session?.permissions ?? EMPTY, activeModules: null }),
     [session?.permissions, t],
@@ -671,8 +672,8 @@ export function AppLayout() {
       */}
       {activeScreen === "dashboard" && !dashboardPermitted ? (
         <DashboardNotPermittedState />
-      ) : isScreenOutsideLicence(activeScreen === "role-editor" ? "roles" : activeScreen, entitlements) ? (
-        <ModuleNotLicensedState onGoHome={() => setActiveScreen("dashboard")} />
+      ) : unlicensedModule !== null ? (
+        <ModuleNotLicensedState message={moduleNotLicensedMessageAr(unlicensedModule, entitlements?.planNameAr)} />
       ) : screenAccess === BranchRestrictedAccess.Unavailable ? (
         <BranchUnavailableState onGoHome={() => setActiveScreen("dashboard")} />
       ) : (

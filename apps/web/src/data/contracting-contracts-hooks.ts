@@ -14,7 +14,8 @@ import type {
   VariationOrderDTO,
   WorksContractDTO,
 } from "@mezan/contracts";
-import { ApiError, loaderError } from "./hooks";
+import { ApiError, loaderError, useHoldsScreenRequest } from "./hooks";
+import { ScreenRequest } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -45,14 +46,15 @@ export interface WorksContractFilter {
 
 export function useWorksContracts(filter: WorksContractFilter = {}): UseQueryResult<WorksContractDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.WorksContracts);
   const params = new URLSearchParams();
   if (filter.projectId) params.set("projectId", filter.projectId);
   if (filter.status) params.set("status", filter.status);
   const suffix = params.toString() === "" ? "" : `?${params.toString()}`;
   return useQuery<WorksContractDTO[], ApiError>({
     queryKey: [...CONTRACTS_KEY, "list", suffix],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request(`/contracting/contracts${suffix}`);
       if (!res.ok) throw await loaderError(res, t("worksContracts.loadFailed"), t);

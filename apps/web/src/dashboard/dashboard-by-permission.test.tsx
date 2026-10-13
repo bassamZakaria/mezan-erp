@@ -157,10 +157,10 @@ describe("the dashboard asks only for what the session may read", () => {
 
 describe("the hubs that borrow the dashboard's summary", () => {
   it.each([
-    ["the treasury hub", TreasuryHubScreen],
-    ["the accounting hub", AccountingHubScreen],
-  ] as const)("%s does not ask for it on behalf of a session that may not read it", async (_name, Hub) => {
-    const session = sessionHolding(["dashboard.view", "treasury.account.view", "treasury.cash_voucher.view"]);
+    ["the treasury hub", TreasuryHubScreen, ["treasury.account.view", "treasury.cash_voucher.view"]],
+    ["the accounting hub", AccountingHubScreen, ["accounting.coa.view"]],
+  ] as const)("%s does not ask for it on behalf of a session that may not read it", async (_name, Hub, reads) => {
+    const session = sessionHolding(["dashboard.view", ...reads]);
     const recorded = recordingTransport(session, EVERY_MODULE);
     renderWithProviders(
       <TestNavigation>

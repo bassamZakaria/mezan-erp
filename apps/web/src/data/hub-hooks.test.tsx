@@ -52,10 +52,10 @@ describe("useManufacturingDashboard", () => {
 });
 
 describe("useSystemStatus", () => {
-  it("reports both checks operational when /health and /branches both succeed", async () => {
+  it("reports both checks operational when /health and /profile both succeed", async () => {
     const transport = stubTransport({
       "GET /health": () => ({ body: { ok: true } }),
-      "GET /branches": () => ({ body: [] }),
+      "GET /profile": () => ({ body: {} }),
     });
     const { result } = renderHook(() => useSystemStatus(), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -64,10 +64,10 @@ describe("useSystemStatus", () => {
     expect(services.find((s) => s.key === "database")?.state).toBe("operational");
   });
 
-  it("reports the database check as down when /branches fails, independently of /health", async () => {
+  it("reports the database check as down when /profile fails, independently of /health", async () => {
     const transport = stubTransport({
       "GET /health": () => ({ body: { ok: true } }),
-      "GET /branches": () => ({ status: 500, body: {} }),
+      "GET /profile": () => ({ status: 500, body: {} }),
     });
     const { result } = renderHook(() => useSystemStatus(), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -79,7 +79,7 @@ describe("useSystemStatus", () => {
   it("never fabricates an uptime/incident feed — only the two real checks are reported", async () => {
     const transport = stubTransport({
       "GET /health": () => ({ body: { ok: true } }),
-      "GET /branches": () => ({ body: [] }),
+      "GET /profile": () => ({ body: {} }),
     });
     const { result } = renderHook(() => useSystemStatus(), { wrapper: makeWrapper(transport).Wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));

@@ -17,7 +17,8 @@ import type {
   SetPayrollStatutoryFlagDTO,
   SocialInsuranceYearOverrideDTO,
 } from "@mezan/contracts";
-import { ApiError, readError } from "./hooks";
+import { ScreenRequest } from "@mezan/domain";
+import { ApiError, readError, useHoldsScreenRequest } from "./hooks";
 import { useApi } from "./ApiContext";
 import { useAppTranslation } from "../i18n";
 
@@ -33,10 +34,11 @@ async function readMessage(res: { json<T>(): Promise<T> }, fallback: string, loc
 
 export function useEmployeeAdvances(): UseQueryResult<EmployeeAdvanceDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.EmployeeAdvances);
   return useQuery<EmployeeAdvanceDTO[], ApiError>({
     queryKey: ["hr", "advances"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/hr/advances");
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("advances.advancesCouldNotBeLoaded"), t));
@@ -233,10 +235,11 @@ export function useEmployeePayslips(employeeId: string | null): UseQueryResult<P
 
 export function usePayrollComponents(): UseQueryResult<PayrollComponentDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.PayrollComponents);
   return useQuery<PayrollComponentDTO[], ApiError>({
     queryKey: ["hr", "payroll", "components"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/hr/payroll/components");
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("payrollComponents.componentsCouldNotBeLoaded"), t));
@@ -443,10 +446,11 @@ export function useRemoveInsuranceYear() {
 
 export function usePayrollStatutoryFlag(): UseQueryResult<PayrollStatutoryFlagDTO, ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.PayrollStatutoryFlag);
   return useQuery<PayrollStatutoryFlagDTO, ApiError>({
     queryKey: ["hr", "payroll", "statutory-flag"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/hr/payroll/statutory-flag");
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("statutory.couldNotLoad"), t));

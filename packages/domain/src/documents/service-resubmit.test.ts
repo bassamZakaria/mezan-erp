@@ -64,7 +64,7 @@ describe("DocumentService.resubmit", () => {
     expect([resubmitted.status, resubmitted.workflowRequestId]).toEqual(["pending", "d1:confirm"]);
     const request = await requests.findById("d1:confirm");
     expect([request?.status, request?.submittedBy, request?.decisions.map((d) => d.kind)]).toEqual(["pending", "clerk-2", ["reject"]]);
-    expect(audit.events.map((event) => [event.action, event.actor])).toEqual([["RESUBMIT", "clerk-2"]]);
+    expect(audit.events.map((event) => [event.action, event.actor])).toEqual([["RETURN_TO_DRAFT", "system"], ["RESUBMIT", "clerk-2"]]);
     expect((await service.approvalsOf([resubmitted])).get("d1")).toEqual({ status: "pending", rejectionReason: "سبب", rejectedBy: "boss" });
   });
 
@@ -76,7 +76,7 @@ describe("DocumentService.resubmit", () => {
     await expect(service.resubmit("d1", { actor: "clerk" })).rejects.toBeInstanceOf(DocumentResubmitRefusedError);
 
     expect((await requests.findById("d1:confirm"))?.status).toBe("approved");
-    expect(audit.events).toEqual([]);
+    expect(audit.events.map((event) => event.action)).toEqual(["RETURN_TO_DRAFT"]);
     expect((await service.confirm("d1", { actor: "clerk" })).document.status).toBe("confirmed");
   });
 

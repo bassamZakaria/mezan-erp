@@ -851,7 +851,7 @@ function lateVariancePostings(invoice: PurchaseInvoice, accounts: PurchaseGlAcco
  * تأكيد الفاتورة (Confirm invoice): مسودة → مؤكد. Posts the GL entry (inventory +
  * tax + payable) always; posts stock IN only for a MANUAL invoice (no receipt),
  * since a from-receipt invoice's goods already entered the ledger at receipt
- * confirmation. Gateable action PURCHASE_INVOICE_CONFIRM is enforced at the edge.
+ * confirmation.
  */
 export async function confirmPurchaseInvoice(
   id: string,

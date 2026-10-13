@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { createReadStream, existsSync, renameSync, rmSync, statSync } from "node:fs";
+import { closeSync, createReadStream, existsSync, openSync, readSync, renameSync, rmSync, statSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { tenantDbFile, TenantStatusCode, type Tenant, type TenantRepository } from "@mezan/domain";
@@ -7,6 +7,9 @@ import { holdSqliteFile, SqliteFileBusyError } from "@mezan/persistence";
 
 const SQLITE_FILE_SUFFIXES = ["", "-wal", "-shm"] as const;
 const SQLITE_SIBLING_SUFFIXES = ["-wal", "-shm"] as const;
+
+const SQLITE_HEADER_MAGIC = Buffer.from("SQLite format 3\0");
+const SQLITE_HEADER_BYTES = 100;
 
 export enum TenantDbFileRefusal {
   Conflict = "TENANT_DB_FILE_CONFLICT",
@@ -76,6 +79,26 @@ export interface TenantDbFileIo {
 
 type Tenants = Pick<TenantRepository, "setDbFile" | "findById" | "list">;
 
+function holdsSqliteDatabase(file: string): boolean {
+  const stat = statSync(file, { throwIfNoEntry: false });
+  if (!stat || !stat.isFile() || stat.size < SQLITE_HEADER_BYTES) return false;
+  const magic = Buffer.alloc(SQLITE_HEADER_MAGIC.length);
+  const fd = openSync(file, "r");
+  try {
+    readSync(fd, magic, 0, magic.length, 0);
+  } finally {
+    closeSync(fd);
+  }
+  return magic.equals(SQLITE_HEADER_MAGIC);
+}
+
+// SECURITY: a tenant that was ever served has books. Opening a name that holds
+// no database would create an empty one in their place, with no owner in it,
+// for the first anonymous caller to claim.
+function refuseServedTenantWithoutBooks(tenant: Tenant, file: string): void {
+  if (tenant.status !== TenantStatusCode.Provisioning && !holdsSqliteDatabase(file)) throw new TenantDbFileMissingError(tenant.id, tenant.dbFile);
+}
+
 function stampOf(files: readonly string[]): string {
   return files
     .flatMap((file) => SQLITE_FILE_SUFFIXES.map((suffix) => `${file}${suffix}`))
@@ -119,6 +142,7 @@ export async function settleTenantDbFile(tenants: Tenants, dataDir: string, tena
   const copy = io.copyFile ?? copyFile;
   const wanted = tenantDbFile(tenant.id);
   if (tenant.dbFile === wanted) {
+    refuseServedTenantWithoutBooks(tenant, path.join(dataDir, wanted));
     await dropStaleCopy(tenants, dataDir, tenant, sha256Of);
     return tenant;
   }
@@ -127,6 +151,7 @@ export async function settleTenantDbFile(tenants: Tenants, dataDir: string, tena
   const cacheKey = `${dataDir}\n${tenant.id}`;
 
   if (existsSync(from)) {
+    refuseServedTenantWithoutBooks(tenant, from);
     const sharers = await othersNaming(tenants, tenant, tenant.dbFile);
     if (sharers.length > 0) throw new TenantDbFileSharedError(tenant.id, tenant.dbFile, sharers);
     const known = knownConflicts.get(cacheKey);
@@ -168,9 +193,7 @@ export async function settleTenantDbFile(tenants: Tenants, dataDir: string, tena
     return { ...tenant, dbFile: wanted };
   }
 
-  // SECURITY: a tenant that was ever served has books. With its file gone the
-  // row is left naming it: repointing would open an empty database in its place.
-  if (tenant.status !== TenantStatusCode.Provisioning && !existsSync(to)) throw new TenantDbFileMissingError(tenant.id, tenant.dbFile);
+  refuseServedTenantWithoutBooks(tenant, to);
   await repoint(tenants, tenant, wanted);
   return { ...tenant, dbFile: wanted };
 }

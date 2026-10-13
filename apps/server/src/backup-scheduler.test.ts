@@ -31,6 +31,8 @@ async function newPlatform(): Promise<PlatformHandle> {
   return platform;
 }
 
+const dataDirs = new WeakMap<TenantRouter, string>();
+
 function newRouter(platform: PlatformHandle): TenantRouter {
   const dataDir = tempDir("mezan-backup-router-");
   const router = createTenantRouter({
@@ -41,7 +43,16 @@ function newRouter(platform: PlatformHandle): TenantRouter {
     openBackend: () => createBackend({ dbPath: ":memory:" }),
   });
   routers.push(router);
+  dataDirs.set(router, dataDir);
   return router;
+}
+
+async function openServed(router: TenantRouter, platform: PlatformHandle, code: string) {
+  const tenant = await platform.stores.tenants.findByCode(code);
+  const file = path.join(dataDirs.get(router)!, tenant!.dbFile);
+  mkdirSync(path.dirname(file), { recursive: true });
+  openSqliteConnection(file).sqlite.close();
+  return router.backendFor(code);
 }
 
 async function seedTenant(platform: PlatformHandle, code: string): Promise<void> {
@@ -79,7 +90,7 @@ describe("runBackups", () => {
     await seedTenant(platform, "cyag");
     await seedTenant(platform, "nile");
     const router = newRouter(platform);
-    await router.backendFor("cyag");
+    await openServed(router, platform, "cyag");
 
     const dir = tempDir("mezan-backup-dir-");
     await runBackups({ platform, router, dir, now: () => new Date(T) });
@@ -112,7 +123,7 @@ describe("runBackups", () => {
     const tenant = await createTenant({ id: "t-odd", code: "platform", nameAr: "منشأة", ownerEmail: "o@x.example", now: T }, platform.stores.tenants);
     await activateTenant({ id: tenant.id, now: T }, platform.stores.tenants);
     const router = newRouter(platform);
-    await router.backendFor("platform");
+    await openServed(router, platform, "platform");
     const dir = tempDir("mezan-backup-dir-");
 
     await runBackups({ platform, router, dir, now: () => new Date(T) });
@@ -129,7 +140,7 @@ describe("runBackups", () => {
     const platform = await newPlatform();
     await seedTenant(platform, "shared");
     const router = newRouter(platform);
-    await router.backendFor("shared");
+    await openServed(router, platform, "shared");
     const dir = tempDir("mezan-backup-dir-");
     await runBackups({ platform, router, dir, now: () => new Date(T) });
     const first = await platform.stores.tenants.findByCode("shared");
@@ -137,7 +148,7 @@ describe("runBackups", () => {
     await router.evict("t-shared");
     const second = await createTenant({ id: "t-second", code: "shared", nameAr: "ثانية", ownerEmail: "n@x.example", now: T }, platform.stores.tenants);
     await activateTenant({ id: second.id, now: T }, platform.stores.tenants);
-    await router.backendFor("shared");
+    await openServed(router, platform, "shared");
 
     await runBackups({ platform, router, dir, now: () => new Date("2026-01-16T00:00:00.000Z") });
 
@@ -151,7 +162,7 @@ describe("runBackups", () => {
       const platform = await newPlatform();
       await seedTenant(platform, "cyag");
       const router = newRouter(platform);
-      await router.backendFor("cyag");
+      await openServed(router, platform, "cyag");
       const dir = tempDir("mezan-backup-dir-");
       const legacy = path.join(dir, "backups", "cyag");
       mkdirSync(legacy, { recursive: true });

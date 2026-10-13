@@ -639,6 +639,7 @@ export interface CreateBackendOptions {
   readonly onUserEmailChanged?: CreateAppOptions["onUserEmailChanged"];
   readonly companyOwner?: CreateAppOptions["companyOwner"];
   readonly onUserSignedIn?: (user: SignedInUser) => Promise<void>;
+  readonly claimedElsewhere?: () => Promise<boolean>;
   /**
    * The VERIFIED capability set every module-gated route group is checked
    * against, and that `GET /entitlements` and `/roles` report.
@@ -4151,7 +4152,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         });
       }
     : undefined;
-  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: announceSignIn, demoSeeded: options.seedDemoData === true }));
+  app.route("/", createAuthRoutes({ uow, hasher, settings, seedStores, sessions, loginThrottle, audit: auditSink, resolveEntitlements: options.resolveEntitlements, onSignedIn: announceSignIn, demoSeeded: options.seedDemoData === true, claimedElsewhere: options.claimedElsewhere }));
   app.route(
     "/",
     createDashboardRoutes({

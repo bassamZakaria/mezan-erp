@@ -1,10 +1,13 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPlatform, type PlatformHandle } from "@mezan/backend";
 import { activateTenant, createTenant, releaseTenant, tenantDbFile, TenantStatusCode, type Tenant } from "@mezan/domain";
 import { holdSqliteFile, openSqliteConnection } from "@mezan/persistence";
+import { createCloudApp, type CloudApp } from "./cloud-app.js";
+import { harnessEnv, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, proxiedRequest, type SendInit } from "./cloud-harness.js";
+import type { CloudEnv } from "./env.js";
 import { provisionTenant } from "./provision-tenant.js";
 import {
   settleTenantDbFile,
@@ -298,6 +301,117 @@ describe("a stale copy left under the code after the row already names the id fi
 
     expect(filesIn(dataDir)).toEqual(["reused.db", "reused.db-shm", "reused.db-wal", "t-next.db"].filter((name) => existsSync(path.join(dataDir, "tenants", name))));
     expect(existsSync(path.join(dataDir, "tenants/reused.db"))).toBe(true);
+  });
+});
+
+describe("a served tenant whose database is not at the id name any more", () => {
+  async function served(platform: PlatformHandle, id: string, code: string): Promise<Tenant> {
+    await createTenant({ id, code, nameAr: "شركة قائمة", ownerEmail: `o@${code}.example`, now: T }, platform.stores.tenants);
+    return activateTenant({ id, now: T }, platform.stores.tenants);
+  }
+
+  it("is refused when the file is gone, and nothing is created in its place", async () => {
+    const { dataDir, platform } = await world();
+    const active = await served(platform, "t-lost", "lost");
+
+    const refused = await settleTenantDbFile(platform.stores.tenants, dataDir, active).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(TenantDbFileMissingError);
+    expect((await platform.stores.tenants.findById("t-lost"))?.dbFile).toBe("tenants/t-lost.db");
+    expect(filesIn(dataDir)).toEqual([]);
+  });
+
+  it.each([
+    ["an empty file", Buffer.alloc(0)],
+    ["a file that is not a database", Buffer.from("this is not a database, and it is longer than the hundred bytes a database header takes up on disk, so only its first bytes tell")],
+    ["a file cut off inside the database header", Buffer.from("SQLite format 3\0")],
+  ])("is refused when %s sits at the id name, and the file is left as it was", async (_label, bytes) => {
+    const { dataDir, platform } = await world();
+    const active = await served(platform, "t-blank", "blank");
+    const file = path.join(dataDir, "tenants/t-blank.db");
+    writeFileSync(file, bytes);
+
+    const refused = await settleTenantDbFile(platform.stores.tenants, dataDir, active).catch((err: unknown) => err);
+
+    expect(refused).toBeInstanceOf(TenantDbFileMissingError);
+    expect(readFileSync(file).equals(bytes)).toBe(true);
+    expect(filesIn(dataDir)).toEqual(["t-blank.db"]);
+  });
+
+  it("is served when its database is there", async () => {
+    const { dataDir, platform } = await world();
+    const active = await served(platform, "t-here", "here");
+    books(path.join(dataDir, "tenants/t-here.db"), [3]);
+
+    expect((await settleTenantDbFile(platform.stores.tenants, dataDir, active)).dbFile).toBe("tenants/t-here.db");
+  });
+
+  it("leaves a tenant still being provisioned to have its database created on the first open", async () => {
+    const { dataDir, platform } = await world();
+    const provisioning = await createTenant({ id: "t-fresh", code: "fresh", nameAr: "شركة جديدة", ownerEmail: "o@fresh.example", now: T }, platform.stores.tenants);
+
+    expect((await settleTenantDbFile(platform.stores.tenants, dataDir, provisioning)).dbFile).toBe("tenants/t-fresh.db");
+  });
+});
+
+describe("a served company whose database file was removed from the server", () => {
+  const harnessDirs: string[] = [];
+  const apps: CloudApp[] = [];
+  afterEach(async () => {
+    for (const app of apps.splice(0)) await app.close();
+    for (const dir of harnessDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function boot(env: CloudEnv) {
+    const app = await createCloudApp(env);
+    apps.push(app);
+    const send = async (pathname: string, init: SendInit = {}) => {
+      const res = await app.root.fetch(proxiedRequest(pathname, init));
+      return { status: res.status, json: (await res.json().catch(() => null)) as Record<string, unknown> | null };
+    };
+    const login = await send("/api/platform/auth/login", { method: "POST", body: JSON.stringify({ email: HARNESS_OWNER_EMAIL, password: HARNESS_OWNER_PASSWORD }) });
+    return { app, send, platformToken: String(login.json?.["token"]) };
+  }
+
+  const MISSING = { error: "TENANT_DB_FILE_MISSING", message: "ملف بيانات المنشأة ليس في مكانه المتوقع. تواصل مع الدعم." };
+  const ATTACKER = { nameAr: "مهاجم", nameEn: "Attacker", email: "attacker@evil.example", pin: "246813", companyName: "شركة النيل" };
+
+  it.each([
+    ["removed", (file: string) => rmSync(file)],
+    ["emptied", (file: string) => writeFileSync(file, "")],
+  ])("cannot be signed in to, is not offered for setup and cannot be claimed once the file is %s; its platform row is untouched", async (_label, damage) => {
+    const env = harnessEnv({}, {}, harnessDirs);
+    const first = await boot(env);
+    const created = await first.send("/api/platform/tenants", {
+      method: "POST", token: first.platformToken,
+      body: JSON.stringify({ code: "nile", nameAr: "شركة النيل", ownerEmail: "owner@nile.example", ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly", trial: true }),
+    });
+    expect(created.status).toBe(201);
+    const tenantId = String((created.json?.["tenant"] as Record<string, unknown>)["id"]);
+    const adminPin = String(created.json?.["adminPin"]);
+    const credentials = JSON.stringify({ username: "owner@nile.example", pin: adminPin });
+    expect((await first.send("/api/auth/login", { method: "POST", tenant: "nile", body: credentials })).status).toBe(200);
+    const rowOf = async (from: Awaited<ReturnType<typeof boot>>) => (await from.send(`/api/platform/tenants/${tenantId}`, { token: from.platformToken })).json?.["tenant"];
+    const before = await rowOf(first);
+    await first.app.close();
+    const file = path.join(env.platformDir, tenantDbFile(tenantId));
+    for (const suffix of ["-wal", "-shm"]) rmSync(`${file}${suffix}`, { force: true });
+    damage(file);
+
+    const second = await boot(env);
+    const login = await second.send("/api/auth/login", { method: "POST", tenant: "nile", body: credentials });
+    const status = await second.send("/api/bootstrap/status", { tenant: "nile" });
+    const claim = await second.send("/api/bootstrap/admin", { method: "POST", tenant: "nile", body: JSON.stringify(ATTACKER) });
+    const attacker = await second.send("/api/auth/login", { method: "POST", tenant: "nile", body: JSON.stringify({ username: ATTACKER.email, pin: ATTACKER.pin }) });
+
+    expect(login).toEqual({ status: 503, json: MISSING });
+    expect(status.status).toBe(503);
+    expect(status.json?.["claimed"]).not.toBe(false);
+    expect(claim.status).not.toBe(201);
+    expect(claim.json?.["permissions"]).toBeUndefined();
+    expect(attacker.status).not.toBe(200);
+    expect(await rowOf(second)).toEqual(before);
+    expect(existsSync(file) ? readFileSync(file).length : 0).toBe(0);
   });
 });
 

@@ -52,6 +52,9 @@ export interface AuthRoutesDeps {
    * scenario rigs — and no seat check happens at all.
    */
   readonly resolveEntitlements?: (c: Context) => Promise<Entitlements | null | undefined> | Entitlements | null | undefined;
+  // SECURITY: the cloud platform's own record that this tenant has an owner.
+  // True closes the bootstrap routes whatever this database holds.
+  readonly claimedElsewhere?: () => Promise<boolean>;
 }
 
 export { UNDISCLOSED_TENANT_NAME };
@@ -185,6 +188,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
    * with one anonymous POST.
    */
   async function tenantIsClaimed(): Promise<boolean> {
+    if (await deps.claimedElsewhere?.()) return true;
     const settings = await deps.settings.get();
     if (settings?.tenantClaimedAt) return true;
     const users = await deps.uow.users.list();

@@ -32,7 +32,7 @@ export interface TenantRouterOptions {
   readonly sweepEveryMs?: number;
   readonly now?: () => Date;
   readonly dbFileWaitMs?: number;
-  readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, hooks: TenantBackendHooks) => Promise<BackendHandle>;
+  readonly openBackend?: (code: string, dbPath: string, resolvers: TenantResolvers, hooks: TenantBackendHooks, connection: SqliteOpenOptions) => Promise<BackendHandle>;
   /** Passed straight through to every tenant `createBackend` call (e.g. `{ exclusive: true }` on EFS). Ignored when `openBackend` is supplied. */
   readonly connection?: SqliteOpenOptions;
   readonly mailPendingHandOver?: (mail: PendingHandOverMail) => Promise<void>;
@@ -42,6 +42,7 @@ export interface TenantBackendHooks {
   readonly onUserEmailChanged: (change: UserEmailChange) => Promise<void>;
   readonly onUserSignedIn: (user: SignedInUser) => Promise<void>;
   readonly companyOwner: CompanyOwnerPort;
+  readonly claimedElsewhere: () => Promise<boolean>;
 }
 
 function safeEqual(provided: string, secret: string): boolean {
@@ -127,17 +128,22 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       },
       handOver: (input) => ownerContact.handOver(tenantId, input),
     },
+    claimedElsewhere: async () => {
+      const tenant = await options.platform.stores.tenants.findById(tenantId);
+      return !tenant || tenant.ownerUserId !== null || tenant.status !== TenantStatusCode.Provisioning;
+    },
   });
-  const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks) => {
+  const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks, connection) => {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     return createBackend({
       dbPath,
-      connection: options.connection,
+      connection,
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
       onUserEmailChanged: hooks.onUserEmailChanged,
       onUserSignedIn: hooks.onUserSignedIn,
       companyOwner: hooks.companyOwner,
+      claimedElsewhere: hooks.claimedElsewhere,
     });
   });
   // SECURITY: open backends are keyed by tenant id, never by code. A code is
@@ -158,7 +164,8 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       if (!stored) throw new Error("TENANT_NOT_FOUND");
       const tenant = await settleTenantDbFile(options.platform.stores.tenants, options.dataDir, stored, { waitMs: options.dbFileWaitMs });
       const { code } = tenant;
-      const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(tenantId, code));
+      const connection: SqliteOpenOptions = { ...options.connection, fileMustExist: tenant.status !== TenantStatusCode.Provisioning };
+      const backend = await openBackend(code, tenantDbPath(options.dataDir, tenant.dbFile), resolversFor(code), hooksFor(tenantId, code), connection);
       openCodes.set(tenantId, code);
       await ownerContact.reconcile(tenantId, backend).catch((err: unknown) => console.error(`[cloud] owner contact of "${code}" could not be reconciled on open`, err));
       return backend;

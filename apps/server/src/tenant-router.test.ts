@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBackend, createPlatform, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { createSessionRegistry } from "@mezan/api";
-import { createTenant, activateTenant, archiveTenant, suspendTenant, startSubscription, changePlan, LicenseReasonCode } from "@mezan/domain";
+import { createTenant, activateTenant, archiveTenant, suspendTenant, startSubscription, changePlan, LicenseReasonCode, tenantIsServed } from "@mezan/domain";
 import { openSqliteConnection } from "@mezan/persistence";
 import type { SessionDTO } from "@mezan/contracts";
 import { createTenantRouter, type TenantRouter } from "./tenant-router.js";
@@ -75,7 +75,17 @@ async function seedPlatform() {
   return platform;
 }
 
-function newRouter(
+async function dataDirWithBooks(platform: PlatformHandle, prefix: string): Promise<string> {
+  const dataDir = mkdtempSync(path.join(tmpdir(), prefix));
+  dirs.push(dataDir);
+  mkdirSync(path.join(dataDir, "tenants"), { recursive: true });
+  for (const tenant of await platform.stores.tenants.list()) {
+    if (tenantIsServed(tenant)) openSqliteConnection(path.join(dataDir, tenant.dbFile)).sqlite.close();
+  }
+  return dataDir;
+}
+
+async function newRouter(
   platform: PlatformHandle,
   opts: {
     tenantDomain?: string;
@@ -84,10 +94,10 @@ function newRouter(
     idleMs?: number;
     ttlMs?: number;
     now?: () => Date;
+    platformClaimGuard?: boolean;
   } = {},
-): { router: TenantRouter; opened: BackendHandle[] } {
-  const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-tenant-router-"));
-  dirs.push(dataDir);
+): Promise<{ router: TenantRouter; opened: BackendHandle[] }> {
+  const dataDir = await dataDirWithBooks(platform, "mezan-tenant-router-");
   const opened: BackendHandle[] = [];
   const router = createTenantRouter({
     platform,
@@ -99,11 +109,12 @@ function newRouter(
     ttlMs: opts.ttlMs,
     sweepEveryMs: 0,
     now: opts.now ?? (() => new Date(T)),
-    openBackend: async (_code, _dbPath, resolvers) => {
+    openBackend: async (_code, _dbPath, resolvers, hooks) => {
       const handle = await createBackend({
         dbPath: ":memory:",
         resolveEntitlements: () => resolvers.resolveEntitlements(),
         resolveLicenseState: () => resolvers.resolveLicenseState(),
+        ...(opts.platformClaimGuard ? { claimedElsewhere: hooks.claimedElsewhere } : {}),
       });
       const spied: BackendHandle = { ...handle, close: vi.fn(handle.close) };
       opened.push(spied);
@@ -115,10 +126,11 @@ function newRouter(
 }
 
 async function bootstrapAdmin(router: TenantRouter, code: string): Promise<string> {
-  const res = await router.app.fetch(
-    new Request("http://ignored/bootstrap/admin", {
+  const backend = await router.backendFor(code);
+  const res = await backend.app.fetch(
+    new Request("http://tenant.internal/bootstrap/admin", {
       method: "POST",
-      headers: { "content-type": "application/json", [TENANT_HEADER]: code },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ nameAr: "المدير", email: `owner-${code}@example.com`, pin: "123456", companyName: "متجر الاختبار" }),
     }),
   );
@@ -131,7 +143,7 @@ describe("createTenantRouter", () => {
   describe("GET /platform/resolve", () => {
     it("reports mode subdomain and exists true when the host names a live tenant — never its name", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform, { tenantDomain: "mezan.test" });
+      const { router } = await newRouter(platform, { tenantDomain: "mezan.test" });
       const res = await router.app.fetch(new Request("http://ignored/platform/resolve", { headers: { host: "cyag.mezan.test" } }));
       expect(res.status).toBe(200);
       const body = await res.text();
@@ -141,7 +153,7 @@ describe("createTenantRouter", () => {
 
     it("reports mode code and exists false when the host does not name one and no header is sent", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform, { tenantDomain: "mezan.test" });
+      const { router } = await newRouter(platform, { tenantDomain: "mezan.test" });
       const res = await router.app.fetch(new Request("http://ignored/platform/resolve", { headers: { host: "localhost" } }));
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ mode: "code", exists: false });
@@ -149,7 +161,7 @@ describe("createTenantRouter", () => {
 
     it("reports exists true for the tenant named by the header — never its name", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform, { tenantDomain: "mezan.test" });
+      const { router } = await newRouter(platform, { tenantDomain: "mezan.test" });
       const res = await router.app.fetch(
         new Request("http://ignored/platform/resolve", { headers: { host: "localhost", [TENANT_HEADER]: "nile" } }),
       );
@@ -161,7 +173,7 @@ describe("createTenantRouter", () => {
 
     it.each(["new", "old"])("gives exists false for %s (provisioning/archived) even though the code is valid", async (code) => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
       const res = await router.app.fetch(new Request("http://ignored/platform/resolve", { headers: { [TENANT_HEADER]: code } }));
       expect(res.status).toBe(200);
       expect(((await res.json()) as { exists: unknown }).exists).toBe(false);
@@ -171,7 +183,7 @@ describe("createTenantRouter", () => {
   describe("GET /tenant", () => {
     it("refuses with 400 TENANT_REQUIRED when no code is given", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
       const res = await router.app.fetch(new Request("http://ignored/tenant"));
       expect(res.status).toBe(400);
       expect(await res.json()).toEqual({ error: "TENANT_REQUIRED", message: "حدّد رمز المنشأة" });
@@ -179,7 +191,7 @@ describe("createTenantRouter", () => {
 
     it("refuses with 404 TENANT_NOT_FOUND for an unknown code", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
       const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "ghost" } }));
       expect(res.status).toBe(404);
       expect(await res.json()).toEqual({ error: "TENANT_NOT_FOUND", message: "المنشأة غير موجودة" });
@@ -187,7 +199,7 @@ describe("createTenantRouter", () => {
 
     it.each(["old", "new"])("refuses with 404 TENANT_NOT_FOUND for tenant %s (archived/provisioning)", async (code) => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
       const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: code } }));
       expect(res.status).toBe(404);
       expect(await res.json()).toMatchObject({ error: "TENANT_NOT_FOUND" });
@@ -195,7 +207,7 @@ describe("createTenantRouter", () => {
 
     it("dispatches to the tenant's own backend for a live tenant", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
       const res = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "cyag" } }));
       expect(res.status).toBe(200);
       /** The backend's own seeded settings name the company, independent of the platform tenant's `nameAr`. */
@@ -206,7 +218,7 @@ describe("createTenantRouter", () => {
   describe("tenant isolation", () => {
     it("keeps each tenant's data in its own backend", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
 
       const cyagToken = await bootstrapAdmin(router, "cyag");
       const nileToken = await bootstrapAdmin(router, "nile");
@@ -245,7 +257,7 @@ describe("createTenantRouter", () => {
   describe("module gate", () => {
     it("refuses an unlicensed module on a core plan tenant and allows it on a business/enterprise tenant", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
 
       const cyagToken = await bootstrapAdmin(router, "cyag");
       const nileToken = await bootstrapAdmin(router, "nile");
@@ -270,7 +282,7 @@ describe("createTenantRouter", () => {
   describe("dispatch path stripping", () => {
     it("still reaches the tenant backend's own route when the router is nested under a parent mount", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
       const parent = new Hono();
       parent.route("/api", router.app);
 
@@ -283,7 +295,7 @@ describe("createTenantRouter", () => {
   describe("close", () => {
     it("closes every backend it opened", async () => {
       const platform = await seedPlatform();
-      const { router, opened } = newRouter(platform);
+      const { router, opened } = await newRouter(platform);
 
       await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "cyag" } }));
       await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "nile" } }));
@@ -299,14 +311,14 @@ describe("createTenantRouter", () => {
   describe("backendFor", () => {
     it("refuses an archived tenant", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
 
       await expect(router.backendFor("old")).rejects.toThrow();
     });
 
     it("refuses an archived tenant even after its backend was already cached", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
 
       await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "susp" } }));
       await archiveTenant({ id: "t-susp", now: T }, platform.stores.tenants);
@@ -316,7 +328,7 @@ describe("createTenantRouter", () => {
 
     it("opens a provisioning tenant's own backend even though the public dispatcher 404s on it", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
 
       const backend = await router.backendFor("new");
       expect(backend.app).toBeTruthy();
@@ -326,10 +338,37 @@ describe("createTenantRouter", () => {
     });
   });
 
+  describe("the connection a tenant's database is opened with", () => {
+    it("may create the database of a tenant still being provisioned, and only opens an existing one for every tenant that was ever served", async () => {
+      const platform = await seedPlatform();
+      const dataDir = await dataDirWithBooks(platform, "mezan-tenant-router-conn-");
+      const mustExist = new Map<string, boolean | undefined>();
+      const router = createTenantRouter({
+        platform,
+        dataDir,
+        sweepEveryMs: 0,
+        now: () => new Date(T),
+        connection: { exclusive: true },
+        openBackend: async (code, _dbPath, resolvers, _hooks, connection) => {
+          expect(connection.exclusive).toBe(true);
+          mustExist.set(code, connection.fileMustExist);
+          return createBackend({ dbPath: ":memory:", resolveEntitlements: () => resolvers.resolveEntitlements(), resolveLicenseState: () => resolvers.resolveLicenseState() });
+        },
+      });
+      routers.push(router);
+
+      await router.backendFor("new");
+      await router.backendFor("cyag");
+      await router.backendFor("susp");
+
+      expect([...mustExist]).toEqual([["new", false], ["cyag", true], ["susp", true]]);
+    });
+  });
+
   describe("openTenants", () => {
     it("lists only tenants with a currently cached backend, by id and code, and drops one closed", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
 
       expect(router.openTenants()).toEqual([]);
 
@@ -344,9 +383,8 @@ describe("createTenantRouter", () => {
   });
 
   describe("dispatch preserves encoded path segments", () => {
-    function stubRouter(platform: PlatformHandle): { router: TenantRouter; captured: string[] } {
-      const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-tenant-router-stub-"));
-      dirs.push(dataDir);
+    async function stubRouter(platform: PlatformHandle): Promise<{ router: TenantRouter; captured: string[] }> {
+      const dataDir = await dataDirWithBooks(platform, "mezan-tenant-router-stub-");
       const captured: string[] = [];
       const stub = new Hono();
       stub.all("/*", (c) => {
@@ -366,7 +404,7 @@ describe("createTenantRouter", () => {
 
     it("forwards a %2F-escaped path segment undecoded, direct and nested under a parent mount", async () => {
       const platform = await seedPlatform();
-      const { router, captured } = stubRouter(platform);
+      const { router, captured } = await stubRouter(platform);
 
       await router.app.fetch(new Request("http://ignored/customers/a%2Fb", { headers: { [TENANT_HEADER]: "cyag" } }));
 
@@ -381,8 +419,7 @@ describe("createTenantRouter", () => {
   describe("errors", () => {
     it("answers 500 INTERNAL, in Arabic, for an unexpected thrown error", async () => {
       const platform = await seedPlatform();
-      const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-tenant-router-err-"));
-      dirs.push(dataDir);
+      const dataDir = await dataDirWithBooks(platform, "mezan-tenant-router-err-");
       const router = createTenantRouter({
         platform,
         dataDir,
@@ -399,8 +436,7 @@ describe("createTenantRouter", () => {
 
     it("maps a TENANT_NOT_FOUND thrown from opening the backend to the 404 body", async () => {
       const platform = await seedPlatform();
-      const dataDir = mkdtempSync(path.join(tmpdir(), "mezan-tenant-router-err2-"));
-      dirs.push(dataDir);
+      const dataDir = await dataDirWithBooks(platform, "mezan-tenant-router-err2-");
       const router = createTenantRouter({
         platform,
         dataDir,
@@ -419,7 +455,7 @@ describe("createTenantRouter", () => {
   describe("a suspended tenant", () => {
     it("still dispatches reads (200) but has its writes refused by the licence gate", async () => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform);
 
       const readRes = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: "susp" } }));
       expect(readRes.status).toBe(200);
@@ -435,18 +471,32 @@ describe("createTenantRouter", () => {
       expect(await writeRes.json()).toMatchObject({ error: "LICENSE_READ_ONLY" });
     });
 
-    it("still lets /bootstrap/admin through — it is allowlisted and self-closing", async () => {
+    it.each(["/bootstrap/admin", "/bootstr%61p/admin"])("refuses an anonymous claim at %s: a served tenant has an owner on the platform, whatever its database holds", async (route) => {
       const platform = await seedPlatform();
-      const { router } = newRouter(platform);
+      const { router } = await newRouter(platform, { platformClaimGuard: true });
 
       const res = await router.app.fetch(
-        new Request("http://ignored/bootstrap/admin", {
+        new Request(`http://ignored${route}`, {
           method: "POST",
           headers: { "content-type": "application/json", [TENANT_HEADER]: "susp" },
           body: JSON.stringify({ nameAr: "المدير", email: "owner-susp@example.com", pin: "123456", companyName: "متجر الاختبار" }),
         }),
       );
-      expect(res.status).toBe(201);
+      const status = await router.app.fetch(new Request("http://ignored/bootstrap/status", { headers: { [TENANT_HEADER]: "susp" } }));
+
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: "TENANT_ALREADY_PROVISIONED", message: "تم إعداد هذه المنشأة بالفعل. سجّل الدخول بحسابك." });
+      expect(await status.json()).toMatchObject({ claimed: true, users: 1 });
+    });
+
+    it("leaves a tenant still being provisioned claimable by the platform's own provisioning, which reaches its backend directly", async () => {
+      const platform = await seedPlatform();
+      const { router } = await newRouter(platform, { platformClaimGuard: true });
+
+      const backend = await router.backendFor("new");
+      const status = await backend.app.fetch(new Request("http://tenant.internal/bootstrap/status"));
+
+      expect(await status.json()).toMatchObject({ claimed: false });
     });
   });
 
@@ -479,7 +529,7 @@ describe("createTenantRouter", () => {
       );
 
     it.each(["frozen", "gone"])("keeps %s readable, refuses its writes and names the reason in Arabic", async (code) => {
-      const { router } = newRouter(await filePlatform());
+      const { router } = await newRouter(await filePlatform());
 
       const read = await router.app.fetch(new Request("http://ignored/tenant", { headers: { [TENANT_HEADER]: code } }));
       expect(read.status).toBe(200);
@@ -493,7 +543,7 @@ describe("createTenantRouter", () => {
     });
 
     it("answers the sign-in lookup the same way the router dispatches: both tenants exist", async () => {
-      const { router } = newRouter(await filePlatform());
+      const { router } = await newRouter(await filePlatform());
       for (const code of ["frozen", "gone", "fine"]) {
         const res = await router.app.fetch(new Request("http://ignored/platform/resolve", { headers: { [TENANT_HEADER]: code } }));
         expect(await res.json()).toMatchObject({ exists: true });
@@ -501,7 +551,7 @@ describe("createTenantRouter", () => {
     });
 
     it("leaves a tenant whose statuses are known writable", async () => {
-      const { router } = newRouter(await filePlatform());
+      const { router } = await newRouter(await filePlatform());
       const write = await writeCustomer(router, "fine");
       expect(write.status).not.toBe(403);
     });
@@ -518,7 +568,7 @@ describe("createTenantRouter", () => {
     it("still sweeps an idle tenant after the console's list reconciled every open tenant's owner", async () => {
       const platform = await seedPlatform();
       let t = new Date(T).getTime();
-      const { router } = newRouter(platform, { idleMs: 1000, ttlMs: 60_000, now: () => new Date(t) });
+      const { router } = await newRouter(platform, { idleMs: 1000, ttlMs: 60_000, now: () => new Date(t) });
       await router.backendFor("nile");
       expect(router.openTenants().map((tenant) => tenant.code)).toEqual(["nile"]);
 
@@ -534,7 +584,7 @@ describe("createTenantRouter", () => {
     it("rebuilds a tenant's resolver after its backend is evicted for being idle", async () => {
       const platform = await seedPlatform();
       let t = new Date(T).getTime();
-      const { router } = newRouter(platform, { idleMs: 1000, ttlMs: 60_000, now: () => new Date(t) });
+      const { router } = await newRouter(platform, { idleMs: 1000, ttlMs: 60_000, now: () => new Date(t) });
 
       const firstToken = await bootstrapAdmin(router, "nile");
       const staleRes = await router.app.fetch(

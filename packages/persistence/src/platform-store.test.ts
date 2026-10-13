@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { Money, PlanKind, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
+import { Money, OwnerConfirmation, PlanKind, type Plan, type Subscription, type Tenant, type PlatformUser, type Payment } from "@mezan/domain";
 import { createSqlitePlatformStores } from "./platform-store.js";
 
 const NOW = "2026-09-13T10:00:00.000Z";
@@ -129,6 +129,27 @@ describe("createSqlitePlatformStores", () => {
     const moved = { ...linked, ownerEmail: "new@cyag.eg", ownerContactVerified: false };
     await expect(stores.tenants.compareAndSetOwner(linked, moved, async () => { throw new Error("audit refused"); })).rejects.toThrow("audit refused");
     expect(await stores.tenants.findById("T1")).toEqual(linked);
+    stores.close();
+  });
+
+  it("writes an owner change only while the tenant's own record that is still due is the one the writer read", async () => {
+    const stores = createSqlitePlatformStores(":memory:");
+    const first = { eventId: "E1", userId: "U1", previousUserId: null, actor: "platform:P", confirmedBy: OwnerConfirmation.PlatformConsole };
+    const second = { ...first, eventId: "E2", userId: "U2", previousUserId: "U1" };
+    const due: Tenant = { ...tenant, ownerUserId: "U1", ownerRecordDue: first };
+    await stores.tenants.save(due);
+    const effects: string[] = [];
+
+    const overAnUnseenRecord = await stores.tenants.compareAndSetOwner({ ...due, ownerRecordDue: null }, { ...due, ownerUserId: "U2", ownerRecordDue: second }, async () => void effects.push("over an unseen record"));
+    const overAnotherRecord = await stores.tenants.compareAndSetOwner({ ...due, ownerRecordDue: second }, { ...due, ownerRecordDue: null }, async () => void effects.push("over another record"));
+
+    expect(overAnUnseenRecord).toBe(false);
+    expect(overAnotherRecord).toBe(false);
+    expect(await stores.tenants.findById("T1")).toEqual(due);
+
+    expect(await stores.tenants.compareAndSetOwner(due, { ...due, ownerRecordDue: null }, async () => void effects.push("cleared"))).toBe(true);
+    expect((await stores.tenants.findById("T1"))?.ownerRecordDue).toBeUndefined();
+    expect(effects).toEqual(["cleared"]);
     stores.close();
   });
 

@@ -324,6 +324,43 @@ describe("a pending hand-over that is not confirmed", () => {
   });
 });
 
+describe("a platform operator who is not the platform owner", () => {
+  const SUPPORT = { email: "support@mezan.local", password: "support-password-123" };
+
+  async function supportToken(w: World): Promise<string> {
+    const created = await w.platformCall("POST", "/users", { ...SUPPORT, role: "support" });
+    expect(created.status).toBe(201);
+    const signedIn = await w.cloud.send("/api/platform/auth/login", { method: "POST", body: JSON.stringify(SUPPORT) });
+    expect(signedIn.status).toBe(200);
+    return ((await signedIn.json()) as { token: string }).token;
+  }
+
+  it.each([
+    ["list the candidates for owner", "GET", "/owner/candidates", undefined],
+    ["assign an owner", "POST", "/owner", { userId: "any" }],
+    ["confirm a pending hand-over", "POST", "/owner/confirm", undefined],
+    ["decline a pending hand-over", "POST", "/owner/decline", undefined],
+    ["send the confirmation link again", "POST", "/owner/resend", undefined],
+    ["release the tenant", "POST", "/release", undefined],
+    ["reset the owner's PIN", "POST", "/owner-pin/reset", undefined],
+  ])("cannot %s: 403, and the tenant's owner, its pending hand-over and its link are as they were", async (_label, method, route, body) => {
+    const clock = { at: new Date("2026-10-12T10:00:00.000Z") };
+    const w = await world(undefined, { clock });
+    const { peer } = await ownerStepsDownOnConsolePin(w);
+    const support = await supportToken(w);
+    const before = tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json);
+    const mailsBefore = w.sent.length;
+
+    const refused = await w.platformCall(method, `/tenants/${w.tenantId}${route}`, body, support);
+
+    expect(refused.status).toBe(403);
+    expect(refused.json["adminPin"]).toBeUndefined();
+    expect(tenantOf((await w.platformCall("GET", `/tenants/${w.tenantId}`)).json)).toEqual(before);
+    expect(before).toMatchObject({ ownerEmail: "owner@nile.example", status: "active", pendingOwner: { userId: peer } });
+    expect(w.sent).toHaveLength(mailsBefore);
+  });
+});
+
 describe("the link a signup mails", () => {
   const body = (code: string) =>
     JSON.stringify({ code, nameAr: "متجر الياسمين", ownerEmail: `owner@${code}.example`, ownerNameAr: "المالك", planId: "PLAN-CORE", billingCycle: "monthly" });

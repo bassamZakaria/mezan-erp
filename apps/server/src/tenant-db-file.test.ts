@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createPlatform, type PlatformHandle } from "@mezan/backend";
 import { activateTenant, createTenant, releaseTenant, tenantDbFile, TenantStatusCode, type Tenant } from "@mezan/domain";
-import { holdSqliteFile, openSqliteConnection } from "@mezan/persistence";
+import { holdSqliteFile, openSqliteConnection, SqliteFileBusyError } from "@mezan/persistence";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
 import { harnessEnv, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, proxiedRequest, type SendInit } from "./cloud-harness.js";
 import type { CloudEnv } from "./env.js";
@@ -226,6 +226,39 @@ describe("a tenant database stored under its code", () => {
     expect(refused).toBeInstanceOf(TenantDbFileBusyError);
     expect(rowsOf(path.join(dataDir, settled.dbFile))).toEqual([1, 2]);
     expect(filesIn(dataDir)).toEqual(["t-busy.db"]);
+  });
+
+  it("keeps the old file to itself for as long as it is being copied: nothing else can take it or write to it until the row has moved", async () => {
+    const { dataDir, platform } = await world();
+    const tenant = await storedByCode(platform, "t-held", "held");
+    const from = path.join(dataDir, "tenants/held.db");
+    books(from, [1]);
+    const duringTheCopy: unknown[] = [];
+    const taken = (): unknown => {
+      try {
+        holdSqliteFile(from, { waitMs: 50 }).release();
+        return "taken";
+      } catch (err) {
+        return err;
+      }
+    };
+    const tenants = {
+      findById: (id: string) => platform.stores.tenants.findById(id),
+      list: () => platform.stores.tenants.list(),
+      setDbFile: (id: string, was: string, to: string) => (duringTheCopy.push(taken()), platform.stores.tenants.setDbFile(id, was, to)),
+    };
+
+    const settled = await settleTenantDbFile(tenants, dataDir, tenant, {
+      copyFile: async (source, to) => {
+        duringTheCopy.push(taken());
+        copyFileSync(source, to);
+        duringTheCopy.push(taken());
+      },
+    });
+
+    expect(duringTheCopy).toHaveLength(3);
+    for (const attempt of duringTheCopy) expect(attempt).toBeInstanceOf(SqliteFileBusyError);
+    expect(rowsOf(path.join(dataDir, settled.dbFile))).toEqual([1]);
   });
 
   it("removes the old file only after the row names the new one, and keeps it when the row does not move", async () => {

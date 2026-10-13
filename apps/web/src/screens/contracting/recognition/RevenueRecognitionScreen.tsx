@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -107,7 +108,7 @@ export function RevenueRecognitionScreen() {
   const currentPage = Math.min(page, Math.max(1, Math.ceil(rows.length / pageSize)));
   const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  async function runMonth(row: RecognitionPreviewDTO): Promise<void> {
+  async function runMonth(row: RecognitionPreviewDTO): Promise<RowActionOutcome | void> {
     if (pendingContractId !== null) return;
     setPendingContractId(row.contractId);
     setActionError(null);
@@ -116,6 +117,7 @@ export function RevenueRecognitionScreen() {
       subPage.open(run.docNo);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("revenueRecognition.api.runFailedToPost"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingContractId(null);
     }
@@ -330,7 +332,7 @@ export function RevenueRecognitionScreen() {
               key: "run",
               label: t("revenueRecognition.action.run"),
               disabled: pendingContractId === row.contractId || row.blockedReasonAr !== null,
-              onSelect: () => void runMonth(row),
+              onSelect: () => runMonth(row),
             });
           }
           if (items.length === 0) return null;

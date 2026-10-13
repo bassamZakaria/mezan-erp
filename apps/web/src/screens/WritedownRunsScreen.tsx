@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   DocumentList,
   EmptyState,
   Money as MoneyDisplay,
@@ -137,6 +138,7 @@ export function WritedownRunsScreen() {
       await postRun.mutateAsync(run.id);
     } catch (err) {
       setPostError(err instanceof ApiError ? err.message : t("writedown.theWriteDownRunCould2"));
+      return RowActionOutcome.Refused;
     } finally {
       setPostingId(null);
     }
@@ -204,7 +206,7 @@ export function WritedownRunsScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => setSelectedId(r.id) },
             ...(r.status === "draft"
-              ? [{ key: "post", label: t("writedown.post"), disabled: postingId === r.id, onSelect: () => void handlePost(r) }]
+              ? [{ key: "post", label: t("writedown.post"), disabled: postingId === r.id, onSelect: () => handlePost(r) }]
               : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.period })} />;

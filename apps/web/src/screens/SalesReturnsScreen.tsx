@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   Chip,
@@ -308,6 +309,7 @@ export function SalesReturnsScreen() {
       await confirmReturn.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -317,6 +319,7 @@ export function SalesReturnsScreen() {
       await cancelReturn.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -677,15 +680,15 @@ export function SalesReturnsScreen() {
               : []),
             ...(d.status === "draft"
               ? [
-                  { key: "confirm", label: t("salesReturns.confirm"), onSelect: () => void confirmExisting(d.id) },
-                  { key: "cancel", label: t("common.cancel"), tone: "danger" as const, onSelect: () => void cancelExisting(d.id) },
+                  { key: "confirm", label: t("salesReturns.confirm"), onSelect: () => confirmExisting(d.id) },
+                  { key: "cancel", label: t("common.cancel"), tone: "danger" as const, onSelect: () => cancelExisting(d.id) },
                 ]
               : []),
             ...(d.awaitingRefund
               ? [{ key: "refund", label: t("salesReturns.refund.submit"), onSelect: () => subPage.open(d.docNo ?? d.id) }]
               : []),
             ...(d.status === "confirmed"
-              ? [{ key: "void", label: t("salesReturns.void"), tone: "danger" as const, onSelect: () => void cancelExisting(d.id) }]
+              ? [{ key: "void", label: t("salesReturns.void"), tone: "danger" as const, onSelect: () => cancelExisting(d.id) }]
               : []),
           ];
           return <RowMenu items={menuItems} label={t("salesReturns.row.actionsFor", { doc: d.docNo ?? d.id })} />;

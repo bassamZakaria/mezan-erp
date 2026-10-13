@@ -5,6 +5,7 @@ import { BranchUnavailableState } from "../shell/BranchRestrictionNotices";
 import { useNavigation } from "../navigation";
 import { useEffect, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   Checkbox,
@@ -1061,6 +1062,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
       if (result.queuedOffline) setNotice({ kind: "offline" });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -1110,6 +1112,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
       await requeueMutation.mutateAsync(id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -1322,7 +1325,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
               key: "submit",
               label: t("eta.submit"),
               disabled: pendingId === s.id,
-              onSelect: () => void submitOne(s.id),
+              onSelect: () => submitOne(s.id),
             });
           }
           if ((s.prevalidation ?? []).length > 0 || s.status === "error" || s.status === "excluded") {
@@ -1330,7 +1333,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
               key: "requeue",
               label: pt("requeue"),
               disabled: pendingId === s.id,
-              onSelect: () => void requeueOne(s.id),
+              onSelect: () => requeueOne(s.id),
             });
           }
           if (actionable(s.status)) {

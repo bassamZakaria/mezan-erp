@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -178,7 +179,7 @@ export function PhysicalCountsScreen() {
     subPage.open(id);
   }
 
-  async function cancelRow(id: string): Promise<void> {
+  async function cancelRow(id: string): Promise<RowActionOutcome | void> {
     if (rowPendingId) return;
     setRowError(null);
     setRowPendingId(id);
@@ -186,6 +187,7 @@ export function PhysicalCountsScreen() {
       await cancelCount.mutateAsync(id);
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -281,7 +283,7 @@ export function PhysicalCountsScreen() {
                     label: t("common.cancel"),
                     tone: "danger" as const,
                     disabled: rowPendingId === c.id,
-                    onSelect: () => void cancelRow(c.id),
+                    onSelect: () => cancelRow(c.id),
                   },
                 ]
               : []),

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -231,6 +232,7 @@ export function PurchaseReturnsScreen() {
       await confirmReturn.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -240,6 +242,7 @@ export function PurchaseReturnsScreen() {
       await cancelReturn.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -447,11 +450,11 @@ export function PurchaseReturnsScreen() {
             { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(d.docNo ?? d.id, "print") },
             ...(d.status === "draft"
               ? [
-                  { key: "confirm", label: t("purchaseReturns.confirm"), onSelect: () => void confirmExisting(d.id) },
-                  { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
+                  { key: "confirm", label: t("purchaseReturns.confirm"), onSelect: () => confirmExisting(d.id) },
+                  { key: "cancel", label: t("common.cancel"), onSelect: () => cancelExisting(d.id) },
                 ]
               : []),
-            ...(d.status === "confirmed" ? [{ key: "void", label: t("purchaseReturns.void"), onSelect: () => void cancelExisting(d.id) }] : []),
+            ...(d.status === "confirmed" ? [{ key: "void", label: t("purchaseReturns.void"), onSelect: () => cancelExisting(d.id) }] : []),
           ];
           return (
             <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>

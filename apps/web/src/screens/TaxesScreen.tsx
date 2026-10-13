@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   DocumentList,
   EmptyState,
   RowMenu,
@@ -298,6 +299,7 @@ export function TaxesScreen() {
       await updateTaxRate.mutateAsync({ id: tax.id, patch: { status: "inactive" } });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("taxes.theTaxCouldNotBe"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -460,7 +462,7 @@ export function TaxesScreen() {
               label: t("taxes.deactivate"),
               tone: "danger",
               disabled: pendingId === tax.id,
-              onSelect: () => void deactivateTax(tax),
+              onSelect: () => deactivateTax(tax),
             });
           }
           return <RowMenu items={items} label={t("common.rowActionsFor", { name: tax.name })} />;

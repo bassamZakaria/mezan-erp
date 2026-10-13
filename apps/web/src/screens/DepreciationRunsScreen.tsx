@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   DocumentList,
   EmptyState,
   Money as MoneyDisplay,
@@ -143,6 +144,7 @@ export function DepreciationRunsScreen() {
       await postRun.mutateAsync(run.id);
     } catch (err) {
       setPostError(err instanceof ApiError ? err.message : t("depreciation.theDepreciationRunCouldNot2"));
+      return RowActionOutcome.Refused;
     } finally {
       setPostingId(null);
     }
@@ -239,7 +241,7 @@ export function DepreciationRunsScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => setSelectedId(r.id) },
             ...(r.status === "draft"
-              ? [{ key: "post", label: t("depreciation.post"), disabled: postingId === r.id, onSelect: () => void handlePost(r) }]
+              ? [{ key: "post", label: t("depreciation.post"), disabled: postingId === r.id, onSelect: () => handlePost(r) }]
               : []),
             ...(r.status === "posted"
               ? [{ key: "reverse", label: t("depreciation.reverse"), disabled: reversingId === r.id, onSelect: () => openReverseConfirm(r) }]

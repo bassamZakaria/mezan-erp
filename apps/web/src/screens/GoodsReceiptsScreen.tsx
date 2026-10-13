@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -401,6 +402,7 @@ export function GoodsReceiptsScreen() {
       await confirmReceipt.mutateAsync(id);
     } catch {
       // failure surfaces via the mutation's own error state on retry; nothing further to do here.
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -773,7 +775,7 @@ export function GoodsReceiptsScreen() {
             { key: "view", label: t("common.view"), onSelect: () => subPage.open(r.number ?? r.id) },
             { key: "print", label: t("print.action.print"), onSelect: () => subPage.open(r.number ?? r.id, "print") },
             ...(r.status === "draft"
-              ? [{ key: "confirm", label: t("goodsReceipts.confirm"), onSelect: () => void confirmSelected(r.id) }]
+              ? [{ key: "confirm", label: t("goodsReceipts.confirm"), onSelect: () => confirmSelected(r.id) }]
               : []),
             ...(r.status === "confirmed" && !r.invoiced
               ? [

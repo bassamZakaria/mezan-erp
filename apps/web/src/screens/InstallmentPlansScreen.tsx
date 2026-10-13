@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -180,6 +181,7 @@ export function InstallmentPlansScreen() {
       await cancelPlan.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -193,6 +195,7 @@ export function InstallmentPlansScreen() {
       await confirmPlan.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setRowPendingId(null);
     }
@@ -296,7 +299,7 @@ export function InstallmentPlansScreen() {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("common.view"), onSelect: () => setPanel({ id: d.id }) },
             ...(d.status === "draft"
-              ? [{ key: "confirm", label: t("instalments.confirmPlan"), disabled: rowPendingId === d.id, onSelect: () => void confirmExisting(d.id) }]
+              ? [{ key: "confirm", label: t("instalments.confirmPlan"), disabled: rowPendingId === d.id, onSelect: () => confirmExisting(d.id) }]
               : []),
             ...(d.lines[0]
               ? [
@@ -314,7 +317,7 @@ export function InstallmentPlansScreen() {
                     label: t("instalments.cancelPlan"),
                     tone: "danger" as const,
                     disabled: rowPendingId === d.id,
-                    onSelect: () => void cancelExisting(d.id),
+                    onSelect: () => cancelExisting(d.id),
                   },
                 ]
               : []),

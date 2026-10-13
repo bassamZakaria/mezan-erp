@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { APPROVAL_STANDING_KEY, ReapprovalNotice } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentDetail,
@@ -1945,7 +1946,7 @@ export function SalesInvoicesScreen() {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
 
-  async function confirmRow(id: string, expectedVersion?: number): Promise<void> {
+  async function confirmRow(id: string, expectedVersion?: number): Promise<RowActionOutcome | void> {
     if (confirmingId) return;
     setRowError(null);
     setConfirmingId(id);
@@ -1955,6 +1956,7 @@ export function SalesInvoicesScreen() {
       await listConfirm.mutateAsync({ id, expectedVersion });
     } catch (err) {
       setRowError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     } finally {
       setConfirmingId(null);
     }
@@ -2215,7 +2217,7 @@ export function SalesInvoicesScreen() {
                         key: "confirm",
                         label: t("salesInvoices.confirm"),
                         disabled: confirmingId === inv.id,
-                        onSelect: () => void confirmRow(inv.id, inv.version),
+                        onSelect: () => confirmRow(inv.id, inv.version),
                       },
                     ]
                   : []),

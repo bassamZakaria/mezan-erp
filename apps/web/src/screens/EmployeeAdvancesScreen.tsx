@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -168,6 +169,7 @@ export function EmployeeAdvancesScreen() {
       await decideAdvance.mutateAsync({ id: advance.id, decision });
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("advances.theDecisionCouldNotBe"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -269,8 +271,8 @@ export function EmployeeAdvancesScreen() {
             { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(a.id); } },
             ...(a.status === "pending"
               ? [
-                  { key: "approve", label: t("advances.approve"), disabled: pendingId === a.id, onSelect: () => void runDecision(a, "approve") },
-                  { key: "reject", label: t("advances.reject"), tone: "danger" as const, disabled: pendingId === a.id, onSelect: () => void runDecision(a, "reject") },
+                  { key: "approve", label: t("advances.approve"), disabled: pendingId === a.id, onSelect: () => runDecision(a, "approve") },
+                  { key: "reject", label: t("advances.reject"), tone: "danger" as const, disabled: pendingId === a.id, onSelect: () => runDecision(a, "reject") },
                 ]
               : []),
             // Paying out needs a treasury account the row cannot supply, so the

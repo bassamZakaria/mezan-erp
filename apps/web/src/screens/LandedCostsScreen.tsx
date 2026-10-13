@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { HeldDocumentReapproval } from "../shell/ReapprovalNotice";
 import { errorMessage } from "../lib/error-message";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -347,6 +348,7 @@ export function LandedCostsScreen() {
       await confirmLandedCost.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -356,6 +358,7 @@ export function LandedCostsScreen() {
       await cancelLandedCost.mutateAsync(id);
     } catch (err) {
       setError(errorMessage(err, t("common.failed")));
+      return RowActionOutcome.Refused;
     }
   }
 
@@ -460,11 +463,11 @@ export function LandedCostsScreen() {
             { key: "view", label: t("common.view"), onSelect: () => setPanel({ id: d.id }) },
             ...(d.status === "draft"
               ? [
-                  { key: "confirm", label: t("landedCosts.confirm"), onSelect: () => void confirmExisting(d.id) },
-                  { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
+                  { key: "confirm", label: t("landedCosts.confirm"), onSelect: () => confirmExisting(d.id) },
+                  { key: "cancel", label: t("common.cancel"), onSelect: () => cancelExisting(d.id) },
                 ]
               : []),
-            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), onSelect: () => void cancelExisting(d.id) }] : []),
+            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), onSelect: () => cancelExisting(d.id) }] : []),
           ];
           return (
             <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>

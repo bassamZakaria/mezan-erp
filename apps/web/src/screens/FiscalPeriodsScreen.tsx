@@ -2,6 +2,7 @@ import { BranchGatedAction } from "../branch-restriction";
 import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   Chip,
@@ -121,6 +122,7 @@ export function FiscalPeriodsScreen() {
       await closePeriodMutation.mutateAsync(period.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.closeFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -134,6 +136,7 @@ export function FiscalPeriodsScreen() {
       await lockPeriodMutation.mutateAsync(period.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.lockFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -147,6 +150,7 @@ export function FiscalPeriodsScreen() {
       await reopenPeriodMutation.mutateAsync(period.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.reopenFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -289,11 +293,11 @@ export function FiscalPeriodsScreen() {
         rowAction={(p) => {
           const menuItems: RowMenuItem[] =
             p.status === "open"
-              ? [{ key: "close", label: t("fiscalPeriods.close"), disabled: pendingId === p.id, onSelect: () => void closePeriod(p) }]
+              ? [{ key: "close", label: t("fiscalPeriods.close"), disabled: pendingId === p.id, onSelect: () => closePeriod(p) }]
               : p.status === "closed"
                 ? [
-                    { key: "reopen", label: t("fiscalPeriods.reopen"), disabled: pendingId === p.id, onSelect: () => void reopenPeriod(p) },
-                    { key: "lock", label: t("fiscalPeriods.lock"), disabled: pendingId === p.id, onSelect: () => void lockPeriod(p) },
+                    { key: "reopen", label: t("fiscalPeriods.reopen"), disabled: pendingId === p.id, onSelect: () => reopenPeriod(p) },
+                    { key: "lock", label: t("fiscalPeriods.lock"), disabled: pendingId === p.id, onSelect: () => lockPeriod(p) },
                   ]
                 : [];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: `${monthLabel(p.periodNumber, t)} ${p.year}` })} />;

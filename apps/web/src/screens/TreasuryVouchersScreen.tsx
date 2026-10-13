@@ -20,6 +20,7 @@ import {
   type DocumentStatusStep,
   type PillTone,
   type EntityPickerOption,
+  RowActionOutcome,
   RowMenu,
 } from "@mezan/ui";
 import {
@@ -559,17 +560,19 @@ export function TreasuryVouchersScreen() {
                       key: "confirm",
                       label: t("vouchers.action.confirm"),
                       disabled: confirmingId === d.id,
-                      onSelect: () => {
-                        if (confirmingId !== null) return;
+                      onSelect: async () => {
+                        if (confirmingId !== null) return RowActionOutcome.Refused;
                         setConfirmingId(d.id);
                         setConfirmError(null);
-                        confirmRow.mutate(
-                          { id: d.id },
-                          {
-                            onError: (err) => setConfirmError(err.message),
-                            onSettled: () => setConfirmingId(null),
-                          },
-                        );
+                        try {
+                          await confirmRow.mutateAsync({ id: d.id });
+                          return undefined;
+                        } catch (err) {
+                          setConfirmError(err instanceof Error ? err.message : t("common.failed"));
+                          return RowActionOutcome.Refused;
+                        } finally {
+                          setConfirmingId(null);
+                        }
                       },
                     },
                   ]
@@ -581,14 +584,18 @@ export function TreasuryVouchersScreen() {
                       label: t("vouchers.action.cancel"),
                       tone: "danger" as const,
                       disabled: cancellingId === d.id,
-                      onSelect: () => {
+                      onSelect: async () => {
                         // The concurrency guard stays an early return rather
                         // than a disabled attribute on every sibling row.
-                        if (cancellingId !== null) return;
+                        if (cancellingId !== null) return RowActionOutcome.Refused;
                         setCancellingId(d.id);
-                        // onSettled, not onSuccess: a failed cancel that never
-                        // cleared this left the row disabled for good.
-                        cancelVoucher.mutate(d.id, { onSettled: () => setCancellingId(null) });
+                        try {
+                          await cancelVoucher.mutateAsync(d.id);
+                          return undefined;
+                        } finally {
+                          // finally, not only on success: a failed cancel that never cleared this left the row disabled for good.
+                          setCancellingId(null);
+                        }
                       },
                     },
                   ]

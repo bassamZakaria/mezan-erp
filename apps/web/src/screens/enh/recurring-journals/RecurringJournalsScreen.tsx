@@ -2,6 +2,7 @@ import { BranchGatedAction } from "../../../branch-restriction";
 import { useBranchGate } from "../../../shell/useBranchGate";
 import { useMemo, useState } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   ConfirmDialog,
@@ -352,6 +353,7 @@ function TemplatesTab() {
       });
     } catch (err) {
       setActionError(errorMessage(err, t("recurringJournals.templateCouldNotBeSaved")));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -398,7 +400,7 @@ function TemplatesTab() {
               key: "toggle",
               label: t(row.status === RecurringJournalTemplateStatusDTO.Active ? "recurringJournals.pause" : "recurringJournals.resume"),
               disabled: pendingId === row.id,
-              onSelect: () => void toggleStatus(row),
+              onSelect: () => toggleStatus(row),
             },
           ];
           return <RowMenu items={items} label={t("common.rowActionsFor", { name: row.nameAr })} />;

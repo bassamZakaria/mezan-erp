@@ -2,6 +2,7 @@ import { BranchGatedAction } from "../branch-restriction";
 import { useBranchGate } from "../shell/useBranchGate";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,
@@ -241,6 +242,7 @@ export function PayrollRunsScreen() {
       else await cancelRun.mutateAsync(run.id);
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("payroll.thatActionCouldNotBe"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -369,7 +371,7 @@ export function PayrollRunsScreen() {
               key: "calculate",
               label: t("payroll.calculatePayroll"),
               disabled: pendingId === r.id,
-              onSelect: () => void runAction(r, "calculate"),
+              onSelect: () => runAction(r, "calculate"),
             });
           }
           if (r.status === "calculated") {
@@ -377,7 +379,7 @@ export function PayrollRunsScreen() {
               key: "approve",
               label: t("payroll.approveAndPostTheEntry"),
               disabled: pendingId === r.id,
-              onSelect: () => void runAction(r, "approve"),
+              onSelect: () => runAction(r, "approve"),
             });
           }
           if (r.status === "draft" || r.status === "calculated") {
@@ -386,7 +388,7 @@ export function PayrollRunsScreen() {
               label: t("payroll.cancelRun"),
               tone: "danger",
               disabled: pendingId === r.id,
-              onSelect: () => void runAction(r, "cancel"),
+              onSelect: () => runAction(r, "cancel"),
             });
           }
           // Disbursing needs a treasury account and a branch the row cannot supply — the menu opens the panel that collects them.

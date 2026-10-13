@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { READ_ONLY_KEEP, ReadOnlyFields } from "../shell/ReadOnlyForm";
 import {
+  RowActionOutcome,
   Button,
   Card,
   Chip,
@@ -87,6 +88,7 @@ export function ExchangeRatesScreen() {
       await approveExchangeRate.mutateAsync(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("fxRates.theExchangeRateCouldNot"));
+      return RowActionOutcome.Refused;
     } finally {
       setPendingId(null);
     }
@@ -225,7 +227,7 @@ export function ExchangeRatesScreen() {
         rowAction={(r) => {
           const menuItems: RowMenuItem[] =
             r.status === "pending"
-              ? [{ key: "approve", label: t("fxRates.approve"), disabled: pendingId === r.id, onSelect: () => void approve(r.id) }]
+              ? [{ key: "approve", label: t("fxRates.approve"), disabled: pendingId === r.id, onSelect: () => approve(r.id) }]
               : [];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.currency })} />;
         }}

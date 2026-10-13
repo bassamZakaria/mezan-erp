@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { matchesSearch } from "@mezan/domain";
 import {
+  RowActionOutcome,
   Button,
   Card,
   DocumentList,

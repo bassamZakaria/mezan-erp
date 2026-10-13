@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { RowMenu, type RowMenuItem } from "./RowMenu";
+import { RowActionOutcome, RowMenu, type RowMenuItem } from "./RowMenu";
 import { ToastProvider } from "./feedback";
 
 function renderWithToasts(items: RowMenuItem[], label = "إجراءات INV-000001") {
@@ -114,6 +114,32 @@ describe("RowMenu", () => {
     await user.click(screen.getByRole("button", { name: "إجراءات INV-000001" }));
     await user.click(screen.getByRole("menuitem", { name: "تأكيد" }));
     expect(await screen.findByText("تم تأكيد الفاتورة")).toBeInTheDocument();
+  });
+
+  it("says nothing of its own when the action reports that it was refused: the screen's refusal is the only message", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn(async () => RowActionOutcome.Refused);
+    renderWithToasts([{ key: "confirm", label: "تأكيد السند", onSelect }]);
+    await user.click(screen.getByRole("button", { name: "إجراءات INV-000001" }));
+    await user.click(screen.getByRole("menuitem", { name: "تأكيد السند" }));
+    await waitFor(() => expect(onSelect).toHaveBeenCalledOnce());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText("تم تنفيذ «تأكيد السند»")).not.toBeInTheDocument();
+    expect(screen.queryByText("تعذّر تنفيذ «تأكيد السند»")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("waits for the action before saying it is done", async () => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    const onSelect = () => new Promise<void>((resolve) => (finish = resolve));
+    renderWithToasts([{ key: "confirm", label: "تأكيد السند", onSelect }]);
+    await user.click(screen.getByRole("button", { name: "إجراءات INV-000001" }));
+    await user.click(screen.getByRole("menuitem", { name: "تأكيد السند" }));
+    expect(screen.queryByText("تم تنفيذ «تأكيد السند»")).not.toBeInTheDocument();
+    finish();
+    expect(await screen.findByText("تم تنفيذ «تأكيد السند»")).toBeInTheDocument();
   });
 
   it("shows an error toast with the thrown message when onSelect rejects", async () => {

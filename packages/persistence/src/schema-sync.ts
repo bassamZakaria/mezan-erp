@@ -54,8 +54,28 @@ export class SchemaTooNewError extends Error {
   }
 }
 
+export class SchemaUpgradeFailedError extends Error {
+  readonly messageEn: string;
+  constructor(
+    readonly fileVersion: number,
+    readonly appSchemaVersion: number,
+    override readonly cause: unknown,
+  ) {
+    super(
+      "تعذّر تحديث قاعدة البيانات إلى هذا الإصدار من ميزان. بياناتك لم تُمَسّ: الملف كما كان قبل المحاولة، " +
+        "ونسخة ما قبل التحديث محفوظة في مجلد النسخ الاحتياطية. أغلق البرنامج وأعد تثبيت الإصدار السابق، " +
+        "أو أرسل سجل الأخطاء إلى الدعم. " +
+        `(schema ${fileVersion} → ${appSchemaVersion})`,
+    );
+    this.name = "SchemaUpgradeFailedError";
+    this.messageEn =
+      "The database could not be upgraded to this version of Mezan. Your data is untouched: the file is exactly as it was, " +
+      "and the pre-update backup is in the backups folder. Close the app and reinstall the previous version, or send the error log to support. " +
+      `(schema ${fileVersion} → ${appSchemaVersion}; ${cause instanceof Error ? cause.message : String(cause)})`;
+  }
+}
+
 const hooked = new WeakSet<Database.Database>();
-const stamped = new WeakSet<Database.Database>();
 
 function readStoredAppVersion(sqlite: Database.Database): string | null {
   try {
@@ -79,40 +99,49 @@ export function readSchemaVersion(sqlite: Database.Database): number {
 }
 
 /**
- * REFUSES a database written by a newer schema, and otherwise stamps this one.
+ * REFUSES a database written by a newer schema, while it is still untouched.
  *
  * The failure it prevents is silent and total: an older build opening a file a
  * newer build wrote reads the columns it knows, ignores the ones it does not,
  * and writes rows the newer build will later find incomplete. The books look
- * fine the whole time. `PRAGMA user_version` is the one place SQLite keeps an
- * application integer that survives a `VACUUM INTO` snapshot, which is why the
- * stamp travels into every backup archive for free.
- *
- * Idempotent per connection, and a no-op on a read-only handle (the stamp is
- * best-effort; the REFUSAL is not).
+ * fine the whole time.
  */
-export function stampSchemaVersion(sqlite: Database.Database, appVersion?: string): void {
+export function assertSchemaReadable(sqlite: Database.Database): void {
   const fileVersion = readSchemaVersion(sqlite);
   if (fileVersion > CURRENT_SCHEMA_VERSION) {
     throw new SchemaTooNewError(fileVersion, CURRENT_SCHEMA_VERSION, readStoredAppVersion(sqlite));
   }
-  if (stamped.has(sqlite)) return;
-  stamped.add(sqlite);
-  try {
-    sqlite.exec(
-      `CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
-    );
-    const put = sqlite.prepare(
-      `INSERT INTO schema_meta (key, value) VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    );
-    put.run("schema_version", String(CURRENT_SCHEMA_VERSION));
-    put.run("app_version", appVersion ?? process.env["MEZAN_APP_VERSION"] ?? "unknown");
-    put.run("stamped_at", new Date().toISOString());
-    sqlite.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
-  } catch {
-    // A read-only connection cannot stamp, and must still be allowed to read.
-  }
+}
+
+/**
+ * Stamps this build's schema version into the file.
+ *
+ * REQUIRED ORDERING: it is the LAST write of an upgrade, inside the upgrade's
+ * own transaction (packages/backend's `createBackend`), never something a mere
+ * open does. A stamp written first survives a failed upgrade: the file then
+ * claims a shape it does not have, the previous build refuses it as "too new",
+ * and the desktop app sees no schema change left to take its pre-update backup
+ * for. `PRAGMA user_version` is transactional, and survives a `VACUUM INTO`
+ * snapshot, which is why the stamp travels into every backup archive for free.
+ */
+export function stampSchemaVersion(sqlite: Database.Database, appVersion?: string): void {
+  assertSchemaReadable(sqlite);
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
+  const put = sqlite.prepare(
+    `INSERT INTO schema_meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  );
+  put.run("schema_version", String(CURRENT_SCHEMA_VERSION));
+  put.run("app_version", appVersion ?? process.env["MEZAN_APP_VERSION"] ?? "unknown");
+  put.run("stamped_at", new Date().toISOString());
+  sqlite.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
+}
+
+export function holdsExistingBooks(sqlite: Database.Database): boolean {
+  const row = sqlite
+    .prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'schema_meta'`)
+    .get();
+  return (row?.n ?? 0) > 0;
 }
 
 function addMissingColumns(sqlite: Database.Database, table: string, body: string): void {
@@ -136,20 +165,24 @@ function addMissingColumns(sqlite: Database.Database, table: string, body: strin
 /**
  * Wraps `exec` so every `CREATE TABLE IF NOT EXISTS` a store runs also brings
  * an existing table up to the declared shape. Idempotent per connection.
+ *
+ * REQUIRED ORDERING: the missing columns are added BEFORE the store's script
+ * runs. A script that declares a column and indexes it in the same breath is
+ * the normal way to write a store, and against an older file the index would
+ * otherwise meet a table that does not have the column yet — "no such column",
+ * at boot, on every launch (the 2026-09-20 bank_statement indexes).
  */
 export function installSchemaSync(sqlite: Database.Database): void {
-  // BEFORE the hook, and before any store's CREATE TABLE runs: a file written
-  // by a newer build must be refused while it is still untouched.
-  stampSchemaVersion(sqlite);
+  assertSchemaReadable(sqlite);
   if (hooked.has(sqlite)) return;
   hooked.add(sqlite);
   const exec = sqlite.exec.bind(sqlite);
   sqlite.exec = (sql: string) => {
-    const result = exec(sql);
-    if (!/CREATE\s+TABLE/i.test(sql)) return result;
-    for (const match of sql.matchAll(CREATE_TABLE_RE)) {
-      addMissingColumns(sqlite, match[1] ?? "", match[2] ?? "");
+    if (/CREATE\s+TABLE/i.test(sql)) {
+      for (const match of sql.matchAll(CREATE_TABLE_RE)) {
+        addMissingColumns(sqlite, match[1] ?? "", match[2] ?? "");
+      }
     }
-    return result;
+    return exec(sql);
   };
 }

@@ -9,6 +9,7 @@ to be picked from a file dialog while exercising an import screen.
 | `data-migration/` | Settings → نقل البيانات (the go-live wizard) | `.xlsx`, one sheet per step |
 | `bank-statements/` | Treasury → تسوية كشوف البنك | `.csv` |
 | `images/` | Company logo, and anywhere an image is accepted | `.png` |
+| `upgrade-matrix/` | `packages/backend/src/upgrade-matrix.test.ts` — the one folder a test reads | gzipped SQLite files written by earlier builds; see its own README |
 
 ## Regenerating
 

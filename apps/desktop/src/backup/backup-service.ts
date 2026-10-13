@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir, open as fsOpen, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { countRows, type BackupManifest, type BackupReason } from "./manifest.js";
+import { BackupReason, countRows, type BackupManifest } from "./manifest.js";
 import type { ArchiveExtraFile } from "./archive.js";
 import { applyRetention, DEFAULT_RETENTION_POLICY, type RetentionPolicy } from "./retention.js";
 import type { BackupWorkerJob, BackupWorkerResult } from "./backup-worker.js";
@@ -33,6 +33,25 @@ export function preUpdateLabel(appVersion: string): string {
 
 export function isPreUpdateArchive(fileName: string): boolean {
   return fileName.startsWith(`${BACKUP_FILE_PREFIX}${PRE_UPDATE_LABEL_PREFIX}-`);
+}
+
+// EXTERNAL CONTRACT: retention reads the reason off the FILE NAME — opening every archive to read its manifest on each backup would unpack the whole folder. An archive with no tag predates tagging and is ranked with the automatic ones.
+const REASON_FILE_TAGS: readonly (readonly [string, BackupReason])[] = [
+  [PRE_UPDATE_LABEL_PREFIX, BackupReason.PreUpdate],
+  [BackupReason.PreRestore, BackupReason.PreRestore],
+  [BackupReason.Manual, BackupReason.Manual],
+  [BackupReason.OnClose, BackupReason.OnClose],
+  [BackupReason.Scheduled, BackupReason.Scheduled],
+];
+
+export function reasonFromFileName(fileName: string): BackupReason | null {
+  const tagged = REASON_FILE_TAGS.find(([tag]) => fileName.startsWith(`${BACKUP_FILE_PREFIX}${tag}-`));
+  return tagged ? tagged[1] : null;
+}
+
+function fileLabelFor(reason: BackupReason, label: string | undefined): string | undefined {
+  if (label) return label;
+  return REASON_FILE_TAGS.some(([tag]) => tag === reason) ? reason : undefined;
 }
 
 export interface BackupResult {
@@ -423,7 +442,7 @@ export async function createBackup(params: {
 
     const tables = countRows(sqlite);
     const liveSchemaVersion = sqlite.pragma("user_version", { simple: true });
-    const archivePath = path.join(backupsDir, backupFileName(now, label));
+    const archivePath = path.join(backupsDir, backupFileName(now, fileLabelFor(reason, label)));
     const { compressible, precompressed } = partitionExtraFiles(extraFiles);
 
     const integrityState = await readIntegrityState(backupsDir);
@@ -474,7 +493,7 @@ export async function createBackup(params: {
       await writeIntegrityState(backupsDir, now.toISOString());
     }
 
-    const removed = await pruneToRetention(backupsDir, retentionPolicy);
+    const removed = await pruneToRetention(backupsDir, retentionPolicy, now);
 
     return { archivePath, manifest: result.manifest, removed };
   } finally {
@@ -493,7 +512,7 @@ export async function createBackup(params: {
 /** Lists existing `*.mezanbak` archives in `backupsDir` with their creation time. */
 export async function listBackups(
   backupsDir: string,
-): Promise<Array<{ path: string; createdAt: Date }>> {
+): Promise<Array<{ path: string; createdAt: Date; reason: BackupReason | null }>> {
   let entries: string[];
   try {
     entries = await readdir(backupsDir);
@@ -502,13 +521,13 @@ export async function listBackups(
     throw err;
   }
 
-  const backups: Array<{ path: string; createdAt: Date }> = [];
+  const backups: Array<{ path: string; createdAt: Date; reason: BackupReason | null }> = [];
   for (const entry of entries) {
     if (!entry.endsWith(BACKUP_FILE_EXTENSION)) continue;
     const full = path.join(backupsDir, entry);
     const fromName = parseCreatedAtFromFileName(entry);
     const createdAt = fromName ?? (await stat(full)).mtime;
-    backups.push({ path: full, createdAt });
+    backups.push({ path: full, createdAt, reason: reasonFromFileName(entry) });
   }
   return backups;
 }
@@ -516,11 +535,13 @@ export async function listBackups(
 async function pruneToRetention(
   backupsDir: string,
   policy: RetentionPolicy,
+  now: Date,
 ): Promise<string[]> {
   const backups = await listBackups(backupsDir);
   const { remove } = applyRetention(
-    backups.map((b) => ({ id: b.path, createdAt: b.createdAt })),
+    backups.map((b) => ({ id: b.path, createdAt: b.createdAt, reason: b.reason })),
     policy,
+    now,
   );
 
   for (const r of remove) {

@@ -48,6 +48,8 @@ export const ar = {
   "secondTarget.title": "مجلد ثانٍ للنسخ",
   "secondTarget.hint":
     "بعد كل نسخة احتياطية تُنسخ نسخة منها إلى فلاشة أو مجلد مشترك على جهاز آخر، فإذا تعطّل هذا الجهاز بقيت النسخ هناك. هذه النسخ مشفّرة بمفتاح هذا الجهاز، فاحتفظ أيضاً بنسخة قابلة للنقل أو بمفتاح التشفير.",
+  "secondTarget.hintUnencrypted":
+    "بعد كل نسخة احتياطية تُنسخ نسخة منها إلى فلاشة أو مجلد مشترك على جهاز آخر، فإذا تعطّل هذا الجهاز بقيت النسخ هناك. هذه النسخ غير مشفّرة على هذا الجهاز: من يحمل الفلاشة يقرأ الدفاتر، فاحفظها في مكان آمن.",
   "secondTarget.none": "لم يُحدَّد مجلد ثانٍ.",
   "secondTarget.choose": "اختر مجلداً",
   "secondTarget.change": "تغيير المجلد",
@@ -114,6 +116,8 @@ export const en: Record<keyof typeof ar, string> = {
   "secondTarget.title": "Second backup folder",
   "secondTarget.hint":
     "After every backup a copy is written to a USB stick or a shared folder on another machine, so the copies survive if this machine dies. They are encrypted with this machine's key, so keep a portable copy or the key card too.",
+  "secondTarget.hintUnencrypted":
+    "After every backup a copy is written to a USB stick or a shared folder on another machine, so the copies survive this machine. These copies are not encrypted on this machine: whoever holds the stick can read the books, so keep it somewhere safe.",
   "secondTarget.none": "No second folder is set.",
   "secondTarget.choose": "Choose a folder",
   "secondTarget.change": "Change folder",

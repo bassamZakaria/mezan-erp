@@ -97,7 +97,8 @@ export type BackupReasonDTO =
   | "scheduled"
   | "pre-migration"
   | "on-close"
-  | "pre-update";
+  | "pre-update"
+  | "pre-restore";
 
 export interface BackupEntryDTO {
   /**
@@ -129,6 +130,8 @@ export interface BackupListResult {
   readonly backupsDir: string;
   /** Newest first. */
   readonly entries: readonly BackupEntryDTO[];
+  /** False on an install running with no database key: its archives are plaintext, and the screen must say so. */
+  readonly archivesEncrypted: boolean;
 }
 
 export type BackupFailureCode =

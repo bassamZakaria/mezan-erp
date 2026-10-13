@@ -32,7 +32,7 @@ import { PortableImportPanel } from "../settings/PortableImportPanel";
  * exist" — it drives which screen a signed-out visitor lands on, and rendering
  * it as a seed row would print a boolean in a column of quantities.
  */
-type SeedCountKey = Exclude<keyof BootstrapSeedResultDTO, "claimed" | "demoSeeded">;
+type SeedCountKey = Exclude<keyof BootstrapSeedResultDTO, "claimed" | "demoSeeded" | "roles">;
 
 const SEED_ROWS: readonly { key: SeedCountKey; labelKey: AppTranslationKey; hintKey: AppTranslationKey }[] = [
   { key: "accounts", labelKey: "firstRun.chartOfAccounts", hintKey: "firstRun.accountsHint" },
@@ -54,12 +54,13 @@ type StepKey = (typeof STEPS)[number]["key"];
 export interface FirstRunWizardProps {
   onFinish: () => void;
   onCancel: () => void;
+  onOwnerSubmitted?: () => void;
 }
 
 function StepIndicator({ currentIndex }: { currentIndex: number }) {
   const { t } = useAppTranslation();
   return (
-    <ol className="flex items-center gap-[8px]">
+    <ol aria-label={t("firstRun.steps")} className="flex items-center gap-[8px]">
       {STEPS.map((step, index) => {
         const isDone = index < currentIndex;
         const isActive = index === currentIndex;
@@ -98,7 +99,7 @@ function StepIndicator({ currentIndex }: { currentIndex: number }) {
  * is told whether they are licensed was the one moment nothing was checked, and
  * every save afterwards was refused with a 403.
  */
-export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
+export function FirstRunWizard({ onFinish, onCancel, onOwnerSubmitted }: FirstRunWizardProps) {
   const { t } = useAppTranslation();
   const [stepIndex, setStepIndex] = useState(0);
   const step: StepKey = (STEPS[stepIndex] ?? STEPS[0]).key;
@@ -157,6 +158,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
       goNext();
       return;
     }
+    onOwnerSubmitted?.();
     // Persist the admin for real and establish their session, then advance.
     createAdmin.mutate(
       { nameAr: adminName.trim(), nameEn: null, email: adminEmail.trim().toLowerCase(), pin: adminPin, companyName: companyName.trim() },
@@ -388,6 +390,11 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
                 );
               })}
             </ul>
+            {counts?.roles === undefined ? null : (
+              <p data-testid="standard-roles-note" className="mt-[10px] rounded-md border border-border p-[10px_12px] text-[12.5px] text-ink">
+                {counts.roles > 1 ? t("firstRun.standardRolesReady", { count: counts.roles - 1 }) : t("firstRun.standardRolesPending")}
+              </p>
+            )}
             <p className="mt-[10px] text-[11.5px] text-ink-muted">
               {t("firstRun.theSeedReallyRunsAgainst")}
             </p>

@@ -178,6 +178,30 @@ describe("installSchemaSync", () => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
+  it("adds a missing column BEFORE the script runs, so an index in the same script can name it", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec(`CREATE TABLE widget (id TEXT PRIMARY KEY, name TEXT NOT NULL)`);
+      db.prepare(`INSERT INTO widget (id, name) VALUES ('w1', 'Widget One')`).run();
+      installSchemaSync(db);
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS widget (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          branch_id TEXT,
+          fingerprint TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_widget_branch ON widget(branch_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS ux_widget_fingerprint ON widget(name, fingerprint) WHERE fingerprint IS NOT NULL;
+      `);
+      const indexes = (db.prepare(`PRAGMA index_list(widget)`).all() as { name: string }[]).map((index) => index.name);
+      expect(indexes).toEqual(expect.arrayContaining(["idx_widget_branch", "ux_widget_fingerprint"]));
+      expect(db.prepare(`SELECT name FROM widget WHERE id = 'w1'`).get()).toEqual({ name: "Widget One" });
+    } finally {
+      db.close();
+    }
+  });
+
   it("migrates a real database file at a previous schema on open, keeping its rows (the actual reopen path)", () => {
     const dir = mkdtempSync(join(tmpdir(), "mezan-schema-sync-"));
     dirs.push(dir);
@@ -227,12 +251,27 @@ describe("the schema version stamp", () => {
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("stamps the file with this build's schema version on open", () => {
+  it("does NOT stamp on open: the stamp is the last act of an upgrade, never the first", () => {
     const db = new Database(":memory:");
     try {
       expect(readSchemaVersion(db)).toBe(0);
       installSchemaSync(db);
+      expect(readSchemaVersion(db)).toBe(0);
+      stampSchemaVersion(db);
       expect(readSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("the stamp rolls back with the transaction it was written in", () => {
+    const db = new Database(":memory:");
+    try {
+      db.exec("BEGIN");
+      stampSchemaVersion(db, "1.4.0");
+      db.exec("ROLLBACK");
+      expect(readSchemaVersion(db)).toBe(0);
+      expect(db.prepare(`SELECT name FROM sqlite_master WHERE name = 'schema_meta'`).get()).toBeUndefined();
     } finally {
       db.close();
     }
@@ -285,7 +324,7 @@ describe("the schema version stamp", () => {
     const reader = new Database(file);
     try {
       expect(() => installSchemaSync(reader)).not.toThrow();
-      expect(readSchemaVersion(reader)).toBe(CURRENT_SCHEMA_VERSION);
+      expect(readSchemaVersion(reader)).toBe(0);
     } finally {
       reader.close();
     }

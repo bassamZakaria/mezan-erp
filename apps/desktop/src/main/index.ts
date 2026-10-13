@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import path from "node:path";
 import { app, BrowserWindow, dialog, safeStorage } from "electron";
 import Database from "better-sqlite3";
 import { startBackendProcess, type BackendProcessHandle } from "./backend-process.js";
@@ -51,6 +52,13 @@ import {
   type TenantCipher,
 } from "./encrypted-database.js";
 import { runPreMigrationBackup } from "../backup/index.js";
+import {
+  LEGACY_DATA_FOLDER_NAME,
+  PRODUCT_DATA_FOLDER_NAME,
+  dataFolderOverridden,
+  resolveDataFolder,
+  type DataFolderResolution,
+} from "./data-folder.js";
 
 /**
  * Electron main process entry point.
@@ -91,6 +99,33 @@ let stopAdvertising: (() => Promise<void>) | undefined;
  * carries it to a screen that can offer to delete it.
  */
 let plaintextArchivePath: string | null = null;
+let preUpdateArchivePath: string | null = null;
+
+/**
+ * REQUIRED ORDERING: before anything asks for `userData`, and before `ready` —
+ * the runtime creates the folder it believes in as it starts, and a folder it
+ * created empty would stand between an existing install and its own books.
+ *
+ * The app's NAME is deliberately left as it is: the operating system's key
+ * store files the database key under that name (`safeStorage`), so renaming
+ * the app would leave every encrypted install unable to open its books. Only
+ * the folders are named after the product.
+ */
+const dataFolder: DataFolderResolution | null =
+  app.isPackaged && !dataFolderOverridden()
+    ? resolveDataFolder({
+        legacyDir: path.join(app.getPath("appData"), LEGACY_DATA_FOLDER_NAME),
+        currentDir: path.join(app.getPath("appData"), PRODUCT_DATA_FOLDER_NAME),
+      })
+    : null;
+if (dataFolder) {
+  app.setPath("userData", dataFolder.dir);
+  app.setAppLogsPath(
+    process.platform === "darwin"
+      ? path.join(app.getPath("home"), "Library", "Logs", PRODUCT_DATA_FOLDER_NAME)
+      : path.join(dataFolder.dir, "logs"),
+  );
+}
 
 // Before whenReady, not inside it: Chromium reads the scheme registry once
 // during startup, and `app://` registered later would have no origin — the
@@ -219,6 +254,15 @@ app.whenReady().then(async () => {
     }
     app.exit(1);
   };
+
+  if (dataFolder) {
+    log(`[data-folder] ${dataFolder.choice}: ${dataFolder.detail}`);
+    if (dataFolder.noticeAr) {
+      void dialog
+        .showMessageBox({ type: "warning", title: "ميزان — مجلد البيانات", message: dataFolder.noticeAr, buttons: ["حسناً"] })
+        .catch(() => undefined);
+    }
+  }
 
   /**
    * `--print-machine-fingerprint`, and it runs before anything opens a file.
@@ -513,13 +557,23 @@ app.whenReady().then(async () => {
       mainWindow.webContents.once("did-finish-load", notifyMigrating);
 
       try {
-        await backupThenMigrate({
-          sqlite: backupConn,
-          appVersion: app.getVersion(),
-          encrypted,
-          cipher: cipher ? { key: cipher.key } : undefined,
-          migrationPending: true,
-        });
+        // REQUIRED ORDERING: the archive is on disk before the worker below is started, which is the first thing to change this file's shape.
+        preUpdateArchivePath = (
+          await backupThenMigrate({
+            sqlite: backupConn,
+            appVersion: app.getVersion(),
+            encrypted,
+            cipher: cipher ? { key: cipher.key } : undefined,
+            migrationPending: true,
+          })
+        ).archivePath;
+      } catch (err) {
+        fatal(
+          "تعذّر أخذ نسخة احتياطية من قاعدة البيانات قبل تحديثها، فلم يبدأ التحديث ولم يتغيّر شيء في بياناتك. " +
+            "تأكد من وجود مساحة كافية على القرص ومن صلاحية الكتابة في مجلد النسخ الاحتياطية، ثم أعد فتح ميزان.",
+          `[backup] pre-update backup failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return;
       } finally {
         // In `finally` because Electron throws on a second handler for one
         // channel: a failed backup that left this registered would turn into
@@ -552,7 +606,8 @@ app.whenReady().then(async () => {
     // What the anti-rollback record is MAC'd with. A guard file the owner can
     // delete to reset the anti-piracy clock is not a guard; sealing it to the
     // database key means the one secret protecting the books also protects
-    // this. `null` on an unencrypted/dev install, where no such secret exists.
+    // this. `null` on an unencrypted/dev install, where the record is sealed
+    // under a secret of its own instead (license-checkin.ts).
     databaseKey: cipher?.key ?? null,
   });
   const license = loaded.license;
@@ -682,6 +737,7 @@ app.whenReady().then(async () => {
      */
     userDataDir: app.getPath("userData"),
     installedAt,
+    preUpdateArchivePath: () => preUpdateArchivePath,
     /*
      * EXTERNAL CONTRACT, and it must be re-stated here: a forked child does not
      * inherit assignments this process made after its own launch, and `GET
@@ -866,6 +922,12 @@ app.whenReady().then(async () => {
    * publish.
    */
   await backendProcess.ready;
+
+  const refusal = backendProcess.bootRefusal();
+  if (refusal) {
+    log(`[backend] ${refusal.code}: ${refusal.messageEn}${preUpdateArchivePath ? ` (pre-update backup: ${preUpdateArchivePath})` : ""}`);
+    return;
+  }
 
   // The identity is a thunk, and it lives BESIDE the database rather than in
   // it: the socket must present the same certificate on every launch or no

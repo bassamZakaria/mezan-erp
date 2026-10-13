@@ -84,3 +84,25 @@ export function mayAskScreenRequest(auth: AuthContext, entitlements: Entitlement
   const module = getPermission(permission)?.module;
   return !entitlements || !module || isModuleLicensed(module, entitlements) || isModuleReadOnly(module, entitlements);
 }
+
+export enum ShellModuleRequest {
+  Notifications = "notifications",
+  UnreadNotificationCount = "unreadNotificationCount",
+}
+
+export interface ShellModuleRequestGate {
+  readonly path: string;
+  readonly module: string;
+}
+
+// INVARIANT: requests the shell sends for every signed-in person, on routes that carry no permission of their own and are refused on their MODULE alone. The shell asks only once the licence is known to carry it; polling a refusal every thirty seconds is what a Core licence did before.
+export const SHELL_MODULE_REQUESTS: Record<ShellModuleRequest, ShellModuleRequestGate> = {
+  [ShellModuleRequest.Notifications]: { path: "/notifications", module: "notifications" },
+  [ShellModuleRequest.UnreadNotificationCount]: { path: "/notifications/unread-count", module: "notifications" },
+};
+
+export function mayAskShellModuleRequest(entitlements: Entitlements | null, request: ShellModuleRequest): boolean {
+  if (!entitlements) return true;
+  const { module } = SHELL_MODULE_REQUESTS[request];
+  return isModuleLicensed(module, entitlements) || isModuleReadOnly(module, entitlements);
+}

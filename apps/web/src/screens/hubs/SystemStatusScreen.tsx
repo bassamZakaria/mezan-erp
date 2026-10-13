@@ -11,9 +11,6 @@ import { useAppTranslation, type AppTranslationKey } from "../../i18n";
  * shipped app version (from `apps/web/package.json`, a real build constant),
  * and is explicit that there is no incident-tracking system and no fabricated
  * uptime history — an empty incident list, not invented outages.
- *
- * The changelog below is real: each entry is an actual commit that shipped in
- * this repository (`git log`), not marketing copy.
  */
 
 const STATE_TONE: Record<ServiceStateDTO, "success" | "warning" | "danger" | "neutral"> = {
@@ -29,16 +26,6 @@ const STATE_KEY: Record<ServiceStateDTO, AppTranslationKey> = {
   down: "systemStatus.unavailable",
   checking: "systemStatus.checking",
 };
-
-/** Real commits from this repository's own history (`git log --date=short`), not invented release notes. */
-const RECENT_CHANGES: { date: string; summaryKey: AppTranslationKey }[] = [
-  { date: "2026-08-23", summaryKey: "systemStatus.itemCategoriesAndUnitsNow" },
-  { date: "2026-08-23", summaryKey: "systemStatus.stockBalancesTransfersAdjustmentsAnd" },
-  { date: "2026-08-23", summaryKey: "systemStatus.entitlementsAreServedOverA" },
-  { date: "2026-08-23", summaryKey: "systemStatus.settingsBranchesWarehousesAndThe" },
-  { date: "2026-08-23", summaryKey: "systemStatus.theTrialBalanceAndAll" },
-  { date: "2026-08-23", summaryKey: "systemStatus.theSessionSurvivesAPage" },
-];
 
 export function SystemStatusScreen() {
   const { t, locale } = useAppTranslation();
@@ -108,21 +95,6 @@ export function SystemStatusScreen() {
         </div>
       </Card>
 
-      <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("systemStatus.recentUpdates")}</h3>
-        <div className="mt-[2px] text-[11.5px] text-ink-faint">{t("systemStatus.realChangesFromTheProject")}</div>
-        <ul className="mt-[12px] flex flex-col gap-[10px]">
-          {RECENT_CHANGES.map((change, index) => (
-            <li key={index} className="flex items-start gap-[10px]">
-              <span aria-hidden className="mt-[6px] h-[6px] w-[6px] flex-none rounded-full bg-brand" />
-              <div>
-                <div className="text-[12.5px] text-ink">{t(change.summaryKey)}</div>
-                <div className="mz-num mt-[1px] text-[11px] text-ink-faint">{change.date}</div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </Card>
     </div>
   );
 }

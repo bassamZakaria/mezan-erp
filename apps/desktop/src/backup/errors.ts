@@ -65,3 +65,14 @@ export class SchemaTooNewForRestoreError extends Error {
     this.name = "SchemaTooNewForRestoreError";
   }
 }
+
+export class ArchiveDamagedError extends Error {
+  readonly messageEn = "The backup file is damaged or incomplete and cannot be opened. Your data was not changed. Use another backup, or copy this file again from where it is kept.";
+  constructor(cause?: unknown) {
+    super(
+      "ملف النسخة الاحتياطية تالف أو غير مكتمل ولا يمكن فتحه. لم تتغيّر بياناتك. استخدم نسخة أخرى، أو انسخ هذا الملف من مصدره مرة ثانية.",
+      cause === undefined ? undefined : { cause },
+    );
+    this.name = "ArchiveDamagedError";
+  }
+}

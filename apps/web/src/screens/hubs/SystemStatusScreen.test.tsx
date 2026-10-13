@@ -55,10 +55,11 @@ describe("SystemStatusScreen", () => {
     expect(getBranchCalls()).toBeGreaterThan(before);
   });
 
-  it("renders the application-version card and the static changelog", async () => {
-    renderScreen(true, true);
+  it("renders the application-version card, and no change list the build cannot vouch for", async () => {
+    const { container } = renderScreen(true, true);
     expect(await screen.findByText("إصدار التطبيق")).toBeInTheDocument();
-    expect(screen.getByText("آخر التحديثات")).toBeInTheDocument();
+    expect(screen.queryByText("آخر التحديثات")).not.toBeInTheDocument();
+    expect(container.textContent).not.toMatch(/git log|2026-08-23/);
     expect(screen.getByText("سجل الأعطال")).toBeInTheDocument();
     expect(screen.getByText("لا توجد حوادث مسجّلة")).toBeInTheDocument();
   });

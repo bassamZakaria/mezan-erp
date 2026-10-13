@@ -33,6 +33,7 @@ import {
   withDerivedTreasuryFx,
   deriveOpenFxBalances,
   type ForeignTreasuryBalance,
+  chequeBounceOntoPartyEntryId,
   chequeLedgerDays,
   ALL_SCOPE,
   SiteService,
@@ -356,6 +357,10 @@ import {
   createSqliteSequenceConfigStore,
   createSqliteSequenceStore,
   CURRENT_SCHEMA_VERSION,
+  SchemaUpgradeFailedError,
+  holdsExistingBooks,
+  readSchemaVersion,
+  stampSchemaVersion,
   securityFallbackFor,
 } from "@mezan/persistence";
 import {
@@ -410,6 +415,7 @@ import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
 import { readStockLedgerDateMismatches } from "./enh/e1-04.js";
 import { seedDemoTenant } from "./demo-seed.js";
+import { ensureStandardRoles } from "./standard-roles.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
 
 /** The confirmed returns citing any of `ids`, in one query where the store can answer it. */
@@ -867,6 +873,12 @@ export interface CreateBackendOptions {
   readonly onUserSignedIn?: (user: SignedInUser) => Promise<void>;
   readonly claimedElsewhere?: () => Promise<boolean>;
   /**
+   * The on-premises editions ask for the standard role set; the cloud and the
+   * demo do not. `resolveEntitlements` answers with the VERIFIED licence or
+   * null — the roles are offered once, the first time a licence is known.
+   */
+  readonly standardRoles?: { readonly resolveEntitlements: () => Entitlements | null };
+  /**
    * The VERIFIED capability set every module-gated route group is checked
    * against, and that `GET /entitlements` and `/roles` report.
    *
@@ -909,28 +921,46 @@ const CERTIFICATE_AR_ACCOUNT_ID = "1105";
 const REVERSAL_PERMISSIONS_GRANT = "reversal_permissions";
 const VOUCHER_REVERSAL_PERMISSION_GRANT = "voucher_reversal_permission";
 
+enum BackendPass {
+  Upgrade = "upgrade",
+  Serve = "serve",
+}
+
 export async function createBackend(options: CreateBackendOptions = {}): Promise<BackendHandle> {
   if (options.seedAdminPin !== undefined && options.seedDemoData !== true) {
     throw new Error("createBackend: seedAdminPin is only accepted together with seedDemoData: true");
   }
+  const { sqlite } = openSqliteConnection(options.dbPath ?? ":memory:", options.connection);
+  try {
+    // REQUIRED ORDERING: before the upgrade transaction — SQLite ignores this pragma inside one, and every store's own copy of it would then be a no-op.
+    sqlite.pragma("foreign_keys = ON");
+    const fileVersion = readSchemaVersion(sqlite);
+    if (fileVersion < CURRENT_SCHEMA_VERSION && holdsExistingBooks(sqlite)) {
+      try {
+        // INVARIANT: an older file is brought to this build's shape in ONE transaction whose last write is the version stamp, so a failure at any step leaves the file exactly as the previous build wrote it (upgrade-matrix.test.ts). The pass is thrown away: everything it composed believes it is inside this transaction.
+        await withSqliteTransaction(
+          sqlite,
+          async () => {
+            (await composeBackend(options, sqlite, BackendPass.Upgrade)).close();
+            stampSchemaVersion(sqlite);
+          },
+          "BEGIN IMMEDIATE",
+        );
+      } catch (cause) {
+        throw new SchemaUpgradeFailedError(fileVersion, CURRENT_SCHEMA_VERSION, cause);
+      }
+    }
+    const handle = await composeBackend(options, sqlite, BackendPass.Serve);
+    if (readSchemaVersion(sqlite) < CURRENT_SCHEMA_VERSION) stampSchemaVersion(sqlite);
+    return handle;
+  } catch (err) {
+    sqlite.close();
+    throw err;
+  }
+}
+
+async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<typeof openSqliteConnection>["sqlite"], pass: BackendPass): Promise<BackendHandle> {
   const dbPath = options.dbPath ?? ":memory:";
-
-  // ONE shared connection for every store below, instead of each of the ~35
-  // stores opening its own. They all point at the SAME on-disk file (or the
-  // same ":memory:" instance), and several of them call into each other
-  // *inside* an open write transaction — e.g. sales-invoice confirm runs
-  // stock issue + GL posting inside the sales-invoice store's own BEGIN
-  // IMMEDIATE. With separate connections, the inner write needs the SAME
-  // file's write lock the outer connection is still holding — a same-call-
-  // stack deadlock that `busy_timeout` cannot wait out (the outer connection
-  // can't release the lock until the inner call returns), which is exactly
-  // the SQLITE_BUSY ("database is locked") confirm used to throw against a
-  // real file. One connection means those are just further statements on the
-  // same writer — no cross-connection lock contention at all. `foreign_keys`
-  // still needs setting per-store below since it's a per-connection pragma,
-  // but harmless to set repeatedly on the same connection.
-  const { sqlite } = openSqliteConnection(dbPath, options.connection);
-
   /*
    * DEC-17 removed the API-key and webhook back end. Their stores are gone, so
    * a new database never creates these tables — but an existing one still
@@ -3015,7 +3045,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
      */
     const chequeEffect = { receivable: 0n, payable: 0n };
     const allCheques = await cheques.list();
-    const chequeEntryDates = await entryDatesOf(allCheques.flatMap((cheque) => [cheque.creationJournalEntryId, cheque.bounceJournalEntryId]));
+    const chequeEntryDates = await entryDatesOf(allCheques.flatMap((cheque) => [cheque.creationJournalEntryId, cheque.bounceJournalEntryId, chequeBounceOntoPartyEntryId(cheque.id)]));
     for (const cheque of allCheques) {
       const { raised, undone } = chequeLedgerDays(cheque, (entryId) => chequeEntryDates.get(entryId));
       if (!upTo(raised)) continue;
@@ -3307,6 +3337,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   await seedIfEmpty(seedStores, undefined, { adminPin: options.seedAdminPin });
 
   const upgradeLedger = createSqliteUpgradeLedger(sqlite);
+  const offerStandardRoles = async (): Promise<void> => {
+    const licensed = options.standardRoles?.resolveEntitlements() ?? null;
+    if (!licensed || licensed.activeModules.length === 0) return;
+    await upgradeLedger.runOnce(UpgradeStepId.StandardRoles, async () => {
+      const created = await ensureStandardRoles(uow, licensed);
+      if (created.length > 0) console.info(`[roles] added the standard role(s) ${created.join(", ")}`);
+    });
+  };
   const sequenceCountersRead = sqlite.prepare("SELECT code, period, value FROM sequence_counter ORDER BY code, period");
   // REQUIRED ORDERING: runs after `grantSuccessorPermissionsOnce` above, so a reversal right granted for an older one is moved with the duty it belongs to.
   const separateSeededDuties = async (split: SeededRoleSplit): Promise<void> => {
@@ -4115,6 +4153,43 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     bankLegFx: chequeBankLegFx,
     realisedFx,
   });
+  // INVARIANT: until 2026-09-18 an incoming cheque's bounce parked the debt on «شيكات مرتجعة» and left the customer's control account credited; everything since reads a bounce as back on the customer, and a replacement credits the customer again. A file holding such a bounce is brought to that shape by an entry of its own — never by editing the posted one.
+  // REQUIRED: not a once-only step. A bounce whose reclassification no open period would take is tried again on every start, and one already made is found by its own entry id.
+  {
+    for (const cheque of await cheques.list({ direction: "incoming", status: "bounced" })) {
+      const entryId = chequeBounceOntoPartyEntryId(cheque.id);
+      if (!cheque.bounceJournalEntryId || (await ledger.findById(entryId))) continue;
+      const bounce = await ledger.findById(cheque.bounceJournalEntryId);
+      if (!bounce || bounce.lines.some((line) => line.accountId === cheque.counterpartyGlAccountId)) continue;
+      const parkedOn = bounce.lines.find((line) => line.debit.equals(cheque.amount) && line.accountId !== cheque.controlAccounts.underCollectionAccountId);
+      if (!parkedOn) continue;
+      const post = (date: string) =>
+        postJournalEntry(
+          {
+            id: entryId,
+            date,
+            memo: `إعادة قيد شيك مرتد رقم ${cheque.chequeNumber} على حساب العميل`,
+            source: "system",
+            sourceDocType: "CHEQUE",
+            sourceDocId: cheque.id,
+            sourceDocNumber: cheque.chequeNumber,
+            lines: [
+              { accountId: cheque.counterpartyGlAccountId, debit: cheque.amount, credit: Money.zero() },
+              { accountId: parkedOn.accountId, debit: Money.zero(), credit: cheque.amount },
+            ],
+          },
+          salesInvoiceGl,
+          { mintedBySystem: true },
+        );
+      try {
+        await post(bounce.date.slice(0, 10)).catch(() => post(tenantTodayIso()));
+        console.info(`[cheques] bounced cheque ${cheque.chequeNumber} moved from ${parkedOn.accountId} back onto ${cheque.counterpartyGlAccountId}`);
+      } catch (err) {
+        console.warn(`[cheques] bounced cheque ${cheque.chequeNumber} stays on ${parkedOn.accountId}: no open period takes its reclassification (${err instanceof Error ? err.message : String(err)})`);
+      }
+    }
+  }
+
   const voucherCheques: VoucherChequeRegistrationPort = {
     async register(input) {
       // Cheque.partyId is required, and a cheque nobody owes is not one the
@@ -4240,6 +4315,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     onSignedIn: announceSignIn,
     demoSeeded: options.seedDemoData === true,
     claimedElsewhere,
+    onTenantClaimed: offerStandardRoles,
   });
 
   const resolveCashAndBankParentAccountId = async () => routedAccountId(await accountRouting.get(), CASH_AND_BANK_ROUTING_KEY);
@@ -5363,6 +5439,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
 
   app.route("/", auth.routes);
+  await offerStandardRoles();
   app.route(
     "/",
     createDashboardRoutes({
@@ -5658,7 +5735,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       for (const h of closers) {
         (h as { close?: () => void }).close?.();
       }
-      sqlite.close();
+      if (pass === BackendPass.Serve) sqlite.close();
     },
   };
 }

@@ -542,6 +542,150 @@ describe("AppLayout — a module the plan left read-only is still read (D-SAAS-0
   });
 });
 
+describe("AppLayout — a direct address to a screen the licence does not carry", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  function open(screenKey: Parameters<typeof pathForRoute>[0], activeModules: string[]): void {
+    renderLayout(stubTransport({ ...baseHandlers(), "GET /entitlements": () => ({ body: { ...entitlements, activeModules } }) }), [pathForRoute(screenKey)]);
+  }
+
+  it("shows the refusal alone, in Arabic — the screen and its buttons are not mounted under it", async () => {
+    open("sales-invoices", entitlements.activeModules.filter((module) => module !== "sales"));
+
+    const refusal = await screen.findByTestId("module-not-licensed");
+    expect(refusal).toHaveTextContent("هذه الشاشة ليست ضمن ترخيص منشأتك");
+    expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
+    expect(within(screen.getByRole("main")).getAllByRole("button").map((button) => button.textContent)).toEqual(["العودة إلى لوحة التحكم"]);
+  });
+
+  it("opens the screen as before when the licence carries its module", async () => {
+    open("sales-invoices", [...entitlements.activeModules]);
+    expect(await screen.findByTestId("location-probe")).toBeInTheDocument();
+    expect(screen.queryByTestId("module-not-licensed")).not.toBeInTheDocument();
+  });
+
+  it("a screen that belongs to no module is never refused on the licence", async () => {
+    open("dashboard", ["dashboard"]);
+    expect(await screen.findByTestId("location-probe")).toBeInTheDocument();
+    expect(screen.queryByTestId("module-not-licensed")).not.toBeInTheDocument();
+  });
+});
+
+describe("AppLayout — the shell asks about notifications only where the licence carries them", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
+  function signedIn(activeModules: string[]): string[] {
+    const requests: string[] = [];
+    const answer = stubTransport({
+      ...baseHandlers(),
+      "GET /entitlements": () => ({ body: { ...entitlements, activeModules } }),
+      "GET /notifications/unread-count": () => ({ body: { count: 3 } }),
+      "GET /notifications": () => ({ body: [] }),
+    });
+    renderLayout((path, init) => {
+      requests.push(path.split("?")[0]!);
+      return answer(path, init);
+    });
+    return requests;
+  }
+
+  it("a Core licence without the notifications module never sends the unread count it would be refused", async () => {
+    const requests = signedIn(entitlements.activeModules.filter((module) => module !== "notifications"));
+    await waitFor(() => expect(requests).toContain("/entitlements"));
+    await waitFor(() => expect(requests).toContain("/branches"));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(requests.filter((path) => path.startsWith("/notifications"))).toEqual([]);
+  });
+
+  it("a licence that carries the module still polls it", async () => {
+    const requests = signedIn([...entitlements.activeModules]);
+    await waitFor(() => expect(requests).toContain("/notifications/unread-count"));
+  });
+});
+
+describe("AppLayout — a backend that is still starting is its own state, never the sign-in form", () => {
+  afterEach(() => {
+    persistSession(null);
+    clearTenantCode();
+    localStorage.clear();
+  });
+
+  const unclaimed = { accounts: 95, taxRates: 3, branches: 1, warehouses: 1, fiscalPeriods: 12, users: 1, claimed: false };
+
+  function boot(status: () => { status?: number; body: unknown }, onStatusAsked: () => void = () => undefined): { asked: () => number; entitlementsAnswered: () => number } {
+    let asked = 0;
+    let entitlementsAnswered = 0;
+    const whileOpening = <T,>(body: T): { status?: number; body: unknown } => {
+      const answer = status();
+      return answer.status === 503 ? answer : { body };
+    };
+    const answer = stubTransport({
+      "GET /platform/resolve": () => ({ status: 404, body: { error: "NOT_FOUND" } }),
+      "GET /bootstrap/status": () => {
+        asked += 1;
+        onStatusAsked();
+        return status();
+      },
+      "GET /entitlements": () => {
+        const reply = whileOpening(entitlements);
+        if (reply.status !== 503) entitlementsAnswered += 1;
+        return reply;
+      },
+      "GET /tenant": () => whileOpening({ name: "Mezan" }),
+    });
+    renderLayout(answer, ["/dashboard"], null);
+    return { asked: () => asked, entitlementsAnswered: () => entitlementsAnswered };
+  }
+
+  it("the very first launch waits in Arabic while the database is seeded, then opens the wizard — the sign-in form is never shown", async () => {
+    let ready = false;
+    const seenSignIn: boolean[] = [];
+    const { asked, entitlementsAnswered } = boot(
+      () => (ready ? { body: unclaimed } : { status: 503, body: { error: "BACKEND_STARTING", message: "جارٍ تشغيل قاعدة البيانات. ستفتح الشاشة تلقائياً خلال ثوانٍ." } }),
+      () => seenSignIn.push(screen.queryByRole("button", { name: "دخول" }) !== null),
+    );
+
+    expect(await screen.findByRole("status", { name: "جاري تجهيز النظام…" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "دخول" })).not.toBeInTheDocument();
+    await waitFor(() => expect(asked()).toBeGreaterThanOrEqual(2), { timeout: 5_000 });
+    expect(screen.getByRole("status", { name: "جاري تجهيز النظام…" })).toBeInTheDocument();
+
+    ready = true;
+
+    expect(await screen.findByRole("heading", { name: "معالج الإعداد الأولي" }, { timeout: 10_000 })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "جاري تجهيز النظام…" })).not.toBeInTheDocument();
+    expect(seenSignIn.slice(1)).not.toContain(true);
+    await waitFor(() => expect(entitlementsAnswered()).toBeGreaterThanOrEqual(1), { timeout: 5_000 });
+  }, 20_000);
+
+  it("the pre-update backup is the same waiting state", async () => {
+    boot(() => ({ status: 503, body: { error: "STARTUP_BUSY", message: "جارٍ أخذ نسخة احتياطية من قاعدة البيانات قبل تحديثها." } }));
+    const waiting = await screen.findByRole("status", { name: "جاري تجهيز النظام…" });
+    expect(waiting).toHaveTextContent("جارٍ أخذ نسخة احتياطية من قاعدة البيانات قبل تحديثها.");
+  });
+
+  it("an upgrade that rolled back is a screen that says the data is untouched, and it is not retried", async () => {
+    const refusal = "تعذّر تحديث قاعدة البيانات إلى هذا الإصدار من ميزان. بياناتك لم تُمَسّ.\nنسخة ما قبل التحديث: /backups/pre-update.mezanbak";
+    const { asked } = boot(() => ({ status: 503, body: { error: "SCHEMA_UPGRADE_FAILED", message: refusal, messageEn: "The database could not be upgraded." } }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("بياناتك لم تُمَسّ");
+    expect(alert).toHaveTextContent("/backups/pre-update.mezanbak");
+    expect(screen.queryByRole("button", { name: "دخول" })).not.toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 1_200));
+    expect(asked()).toBe(1);
+  });
+
+  it("a backend that simply answers keeps opening the sign-in form as before", async () => {
+    boot(() => ({ body: { ...unclaimed, claimed: true } }));
+    expect(await screen.findByRole("button", { name: "دخول" })).toBeInTheDocument();
+  });
+});
+
 describe("AppLayout — nothing tenant-scoped is asked before a company is known (D-SAAS-06)", () => {
   afterEach(() => {
     persistSession(null);
@@ -735,6 +879,44 @@ describe("AppLayout — first-run wizard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "إنهاء والانتقال إلى النظام" }));
 
     // onFinish closed the wizard; the admin session from step 2 now shows the real shell.
+    expect(await screen.findByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" })).toBeInTheDocument();
+  });
+
+  it("the wizard a fresh install opens by itself runs every step it shows — creating the owner does not drop into the dashboard", async () => {
+    let claimed = false;
+    const transport = stubTransport({
+      ...baseHandlers(),
+      "GET /roles": () => ({ body: [] }),
+      "GET /users": () => ({ body: [] }),
+      "GET /tenant": () => ({ body: { name: "Cyag" } }),
+      "GET /bootstrap/status": () => ({ body: { accounts: 95, taxRates: 3, branches: 1, warehouses: 1, fiscalPeriods: 12, users: 1, roles: 12, claimed } }),
+      "POST /bootstrap/admin": () => {
+        claimed = true;
+        return { body: testAdminSession };
+      },
+    });
+    renderLayout(transport, ["/dashboard"], null);
+
+    const stepper = await screen.findByRole("list", { name: "خطوات معالج الإعداد" });
+    const shown = within(stepper).getAllByRole("listitem").length;
+    fireEvent.click(await screen.findByRole("button", { name: "التالي" }));
+    fireEvent.change(await screen.findByLabelText("اسم المنشأة", { exact: false }), { target: { value: "متجر الاختبار" } });
+    fireEvent.change(screen.getByLabelText("الاسم الكامل"), { target: { value: "مدير النظام" } });
+    fireEvent.change(screen.getByLabelText("البريد الإلكتروني", { exact: false }), { target: { value: "owner@cyag.example" } });
+    fireEvent.change(screen.getByLabelText("الرمز السرّي (٦ أرقام)"), { target: { value: "123456" } });
+    fireEvent.change(screen.getByLabelText("تأكيد رمز PIN"), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+
+    let visited = 2;
+    expect(await screen.findByRole("region", { name: "تهيئة البيانات الأساسية" })).toBeInTheDocument();
+    visited += 1;
+    expect(screen.queryByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+    expect(await screen.findByRole("button", { name: "إنهاء والانتقال إلى النظام" })).toBeInTheDocument();
+    visited += 1;
+    expect(visited).toBe(shown);
+
+    fireEvent.click(screen.getByRole("button", { name: "إنهاء والانتقال إلى النظام" }));
     expect(await screen.findByRole("button", { name: "ميزان — الذهاب إلى لوحة التحكم" })).toBeInTheDocument();
   });
 

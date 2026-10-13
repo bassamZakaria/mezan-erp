@@ -42,6 +42,7 @@ import {
   type PeriodCloseFxLineGroup,
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
+import { stockLedgerDateMismatches, type DatedJournalEntry, type DatedStockMovement, type StockLedgerDateMismatch } from "@mezan/domain";
 
 enum SourceStatus {
   Active = "active",
@@ -109,6 +110,12 @@ const NO_PAYROLL_DUE = { dueEmployees: 0, uncoveredEmployees: 0, hasUnpostedRun:
 
 function depreciationBranch(asset: Asset): string | null {
   return asset.scope === AssetScope.Branch ? asset.branchId : null;
+}
+
+export function readStockLedgerDateMismatches(sqlite: BackendModuleContext["sqlite"]): StockLedgerDateMismatch[] {
+  const movements = sqlite.prepare(`SELECT source_doc_type AS sourceDocType, source_doc_id AS sourceDocId, source_doc_number AS sourceDocNumber, occurred_at AS occurredAt FROM stock_movement`).all() as DatedStockMovement[];
+  const entries = sqlite.prepare(`SELECT id, date, source_doc_id AS sourceDocId, reverses_entry_id AS reversesEntryId FROM journal_entry WHERE status IN ('posted', 'reversed')`).all() as DatedJournalEntry[];
+  return stockLedgerDateMismatches(movements, entries);
 }
 
 function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof createSqlitePeriodCloseStore>, closers: { close(): void }[]): PeriodCloseSources {
@@ -205,6 +212,10 @@ function buildSources(ctx: BackendModuleContext, store: ReturnType<typeof create
 
     foreignCurrencies,
     foreignResidues,
+    async stockLedgerDates(window) {
+      const within = (day: string) => day >= window.startDate && day <= window.endDate;
+      return readStockLedgerDateMismatches(sqlite).filter((row) => within(row.movedOn) || row.postedOn.some(within));
+    },
     fxRevaluedCurrencies: async (window) => fxRuns.currenciesRevaluedAsOf(window.endDate),
 
     async recurringDue(window) {

@@ -91,6 +91,7 @@ export enum PeriodCloseFindingKindDTO {
   EtaSubmission = "eta_submission",
   PayrollDue = "payroll_due",
   PayrollPartMonthTax = "payroll_part_month_tax",
+  StockLedgerDate = "stock_ledger_date",
 }
 
 export enum PeriodCloseFindingStateDTO {

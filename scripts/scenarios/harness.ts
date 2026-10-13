@@ -189,9 +189,10 @@ export async function boot() {
       ar: diff("ar"),
       grni: await goodsReceivedNotInvoicedGap(),
       fxResidue: scaled(recon.body?.foreignResidue?.total),
+      stockLedgerDates: typeof recon.body?.stockLedgerDates?.count === "number" ? BigInt(recon.body.stockLedgerDates.count) : null,
     };
     const asNumber = (x: bigint | null) => (x === null ? NaN : Number(x) / 1e6);
-    return { tb: asNumber(exact.tb), inventory: asNumber(exact.inventory), ap: asNumber(exact.ap), ar: asNumber(exact.ar), grni: asNumber(exact.grni), fxResidue: asNumber(exact.fxResidue), exact };
+    return { tb: asNumber(exact.tb), inventory: asNumber(exact.inventory), ap: asNumber(exact.ap), ar: asNumber(exact.ar), grni: asNumber(exact.grni), fxResidue: asNumber(exact.fxResidue), stockLedgerDates: exact.stockLedgerDates === null ? NaN : Number(exact.stockLedgerDates), exact };
   }
 
   /**
@@ -217,6 +218,7 @@ export async function boot() {
     check("AR still reconciles", same("ar"), moved("ar"));
     check("GL 2120 still equals the goods received and not yet invoiced", after.exact.grni !== null && after.exact.grni === before.exact.grni, `${before.grni.toFixed(6)} → ${after.grni.toFixed(6)}`);
     check("nothing holds base with none of its foreign currency", after.exact.fxResidue === 0n, `${before.fxResidue.toFixed(6)} → ${after.fxResidue.toFixed(6)}`);
+    check("no stock movement sits in a different month from its document's entry", after.exact.stockLedgerDates === 0n, `${before.stockLedgerDates} → ${after.stockLedgerDates}`);
   }
 
   function report(): number {

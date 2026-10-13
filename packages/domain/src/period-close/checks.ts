@@ -146,7 +146,19 @@ const tiesCheck: PeriodCloseCheckDefinition = {
         asOfDate: tie.asOfDate,
       });
     });
-    return outcome(findings, findings.length > 0);
+    const misdated = ((await sources.stockLedgerDates?.(window)) ?? []).map((row) =>
+      finding({
+        kind: PeriodCloseFindingKind.StockLedgerDate,
+        ref: row.docId,
+        label: row.docNo,
+        items: [...row.postedOn],
+        state: PeriodCloseFindingState.Mismatch,
+        passed: false,
+        fix: PeriodCloseFixTarget.Reconciliation,
+        asOfDate: row.movedOn,
+      }),
+    );
+    return outcome([...findings, ...misdated], findings.length + misdated.length > 0);
   },
 };
 

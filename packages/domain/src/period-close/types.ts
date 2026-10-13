@@ -102,6 +102,7 @@ export enum PeriodCloseFindingKind {
   EtaSubmission = "eta_submission",
   PayrollDue = "payroll_due",
   PayrollPartMonthTax = "payroll_part_month_tax",
+  StockLedgerDate = "stock_ledger_date",
 }
 
 export enum PeriodCloseFindingState {
@@ -237,10 +238,18 @@ export interface PeriodCloseForeignResidue {
   readonly base: Money;
 }
 
+export interface PeriodCloseStockLedgerDate {
+  readonly docId: string;
+  readonly docNo: string | null;
+  readonly movedOn: string;
+  readonly postedOn: readonly string[];
+}
+
 export interface PeriodCloseSources {
   draftCounts(window: PeriodCloseWindow): Promise<readonly PeriodCloseDocCount[]>;
   pendingApprovalCounts(window: PeriodCloseWindow): Promise<readonly PeriodCloseDocCount[]>;
   subledgerTies(window: PeriodCloseWindow): Promise<readonly PeriodCloseTie[]>;
+  stockLedgerDates?(window: PeriodCloseWindow): Promise<readonly PeriodCloseStockLedgerDate[]>;
   trialBalance(window: PeriodCloseWindow): Promise<PeriodCloseTrialBalance>;
   bankStatements(window: PeriodCloseWindow): Promise<readonly PeriodCloseBankStatement[]>;
   bankAccountsWithMovement(window: PeriodCloseWindow): Promise<readonly PeriodCloseBankAccount[]>;

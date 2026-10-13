@@ -7,6 +7,7 @@ import {
   type NaturalBalance,
   type ReconciliationSummary,
   type ForeignResidue,
+  type StockLedgerDateMismatch,
 } from "@mezan/domain";
 import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 
@@ -25,6 +26,7 @@ export interface ReconciliationRoutesDeps {
   /** Yields the sub-ledger balances to check against their GL control accounts. */
   readonly resolveControls: () => Promise<readonly ReconciliationControl[]>;
   readonly foreignResidues?: () => Promise<readonly ForeignResidue[]>;
+  readonly stockLedgerDates?: () => Promise<readonly StockLedgerDateMismatch[]>;
 }
 
 export async function reconcileControls(
@@ -69,6 +71,7 @@ export function createReconciliationRoutes(
     const lines = (await deps.ledger.listLines?.()) ?? [];
     const unlinked = findUnlinkedControlLines(lines, controlIds);
     const residues = (await deps.foreignResidues?.()) ?? [];
+    const misdated = (await deps.stockLedgerDates?.()) ?? [];
     const residueTotal = residues.reduce((sum, row) => sum + (row.base.scaled < 0n ? -row.base.scaled : row.base.scaled), 0n);
 
     return c.json({
@@ -85,6 +88,10 @@ export function createReconciliationRoutes(
       foreignResidue: {
         total: Money.fromScaled(residueTotal).toString(),
         rows: residues.map((row) => ({ kind: row.kind, ref: row.ref, ...(row.itemType ? { itemType: row.itemType } : {}), currency: row.currency, base: row.base.toString() })),
+      },
+      stockLedgerDates: {
+        count: misdated.length,
+        rows: misdated.map((row) => ({ docType: row.docType, docId: row.docId, docNo: row.docNo, movedOn: row.movedOn, postedOn: [...row.postedOn] })),
       },
       unlinked: unlinked.map((u) => ({
         entryId: u.entryId,

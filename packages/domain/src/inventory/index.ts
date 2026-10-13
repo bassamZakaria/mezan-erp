@@ -77,6 +77,8 @@ export type {
   InventoryGlPostingPort,
 } from "./ports.js";
 
+export { STOCK_ADJUSTMENT_MIRROR_ENTRY_SUFFIX, stockLedgerDateMismatches, type DatedJournalEntry, type DatedStockMovement, type StockLedgerDateMismatch } from "./stock-ledger-dates.js";
+
 export {
   StockLedgerService,
   latestStandingRevaluation,

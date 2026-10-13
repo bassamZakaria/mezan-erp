@@ -32,6 +32,7 @@ import {
   StockSourceDocType,
   isRevaluation,
 } from "./movement.js";
+import { STOCK_ADJUSTMENT_MIRROR_ENTRY_SUFFIX } from "./stock-ledger-dates.js";
 import { LandedCostDateBeforeStockMovementError, StockMovementBeforeRevaluationError, StockRevaluationSource, type StandingStockRevaluation } from "../landed-costs/errors.js";
 import {
   foldPostedAdjustments,
@@ -715,7 +716,7 @@ export class StockLedgerService {
       }
 
       const memo = command.memo ?? `عكس تسوية مخزون ${number ?? command.adjustmentId}`;
-      const mirrored = (await this.deps.gl?.reverse?.(command.adjustmentId, { reversalId: `${command.reversalId}:MIRROR`, date, memo })) ?? null;
+      const mirrored = (await this.deps.gl?.reverse?.(command.adjustmentId, { reversalId: `${command.reversalId}${STOCK_ADJUSTMENT_MIRROR_ENTRY_SUFFIX}`, date, memo })) ?? null;
       const residual = originalValue.add(valueMoved);
       if (mirrored && this.deps.gl && residual.scaled !== 0n) {
         const inventoryLine = mirrored.find((line) => (originalValue.scaled > 0n ? line.debit.scaled > 0n : line.credit.scaled > 0n));

@@ -160,6 +160,8 @@ export function findingTitle(finding: PeriodCloseFindingDTO, t: Translate, forma
       return t("periodClose.finding.payroll", { period: finding.items[0] ?? finding.ref });
     case PeriodCloseFindingKindDTO.PayrollPartMonthTax:
       return t("periodClose.finding.partMonthTax", { period: finding.items[0] ?? finding.ref });
+    case PeriodCloseFindingKindDTO.StockLedgerDate:
+      return t("periodClose.finding.stockLedgerDate", { document: finding.label ?? finding.ref });
   }
 }
 
@@ -192,6 +194,11 @@ export function findingFigure(finding: PeriodCloseFindingDTO, t: Translate, form
       return t("periodClose.finding.employeesUnpaid", { count: format.number(finding.count ?? 0) });
     case PeriodCloseFindingKindDTO.PayrollPartMonthTax:
       return t("periodClose.finding.partMonthTaxDetail", { count: format.number(finding.count ?? 0) });
+    case PeriodCloseFindingKindDTO.StockLedgerDate:
+      return t("periodClose.finding.stockLedgerDateDays", {
+        moved: finding.asOfDate ? format.date(finding.asOfDate) : "",
+        posted: finding.items.map((day) => format.date(day)).join(t("periodClose.listSeparator")),
+      });
     case PeriodCloseFindingKindDTO.RecurringTemplate:
     case PeriodCloseFindingKindDTO.EtaSubmission:
       return "";

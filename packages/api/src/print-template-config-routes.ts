@@ -34,11 +34,11 @@ export enum PrintableDocumentFamily {
   Payslip = "payslip",
 }
 
-// SECURITY: the template and the letterhead are what a PRINTED DOCUMENT
-// carries, so they are read by whoever may view one of the documents that
+// SECURITY: the template is what a PRINTED DOCUMENT
+// carries, so it is read by whoever may view one of the documents that
 // prints — the families below, each with the view permissions its own routes
 // accept — and by nobody else. The list is explicit on purpose: "any view
-// permission" let a caller who may only see the item catalogue read them.
+// permission" let a caller who may only see the item catalogue read it.
 // Editing the template stays behind `admin.settings.edit`.
 export const PRINTABLE_DOCUMENT_VIEW_PERMISSIONS: Readonly<Record<PrintableDocumentFamily, readonly string[]>> = {
   [PrintableDocumentFamily.SalesInvoice]: ["sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"],
@@ -67,18 +67,6 @@ export function createPrintTemplateConfigRoutes(
   app.get("/", gateAnyDocumentView, async (c) => {
     const existing = await deps.repo.get();
     return c.json(existing ?? DEFAULT_PRINT_TEMPLATE_CONFIG);
-  });
-
-  app.get("/letterhead", gateAnyDocumentView, async (c) => {
-    const settings = (await deps.settings?.get()) ?? createDefaultSettings();
-    return c.json({
-      companyName: settings.companyName,
-      address: settings.address,
-      phone: settings.phone,
-      email: settings.email,
-      taxRegistrationNumber: settings.taxRegistrationNumber,
-      commercialRegistrationNumber: settings.commercialRegistrationNumber,
-    });
   });
 
   app.put("/", gate("admin.settings.edit"), async (c) => {

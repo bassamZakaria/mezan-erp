@@ -41,6 +41,7 @@ import {
   MissingHookError,
   UnbookedStockVarianceError,
   assertDocumentWritten,
+  ReversalNotReversibleError,
 } from "./errors.js";
 
 export interface DocumentServiceDeps<Line> {
@@ -332,6 +333,16 @@ export class DocumentService<Line> {
     return doc.workflowRequestId ?? `${doc.id}:confirm`;
   }
 
+  async amendDraftLines(id: string, lines: readonly Line[]): Promise<FrameworkDocument<Line>> {
+    return this.deps.repo.transaction(async () => {
+      const existing = await this.require(id);
+      if (existing.status !== "draft") assertTransition(this.def.code, id, existing.status, "draft");
+      const amended: FrameworkDocument<Line> = { ...existing, lines };
+      await this.write(amended, [DocumentField.Lines], existing.status);
+      return amended;
+    });
+  }
+
   /** Cancel a draft/pending document (never a live one — those are reversed). */
   async cancel(id: string, opts: CancelOptions = {}): Promise<FrameworkDocument<Line>> {
     const cancelled = await this.deps.repo.transaction(async () => {
@@ -368,6 +379,7 @@ export class DocumentService<Line> {
         // assertTransition gives the precise error (only active → reversed is legal).
         assertTransition(this.def.code, id, existing.status, "reversed");
       }
+      if (existing.reversesDocId) throw new ReversalNotReversibleError(this.def.code, id);
       await this.deps.reverseGuard?.(existing);
       const resolvedDate = opts.date ?? existing.date;
       // A reversal dated before the document it reverses would restate a day
@@ -379,11 +391,15 @@ export class DocumentService<Line> {
       if (resolvedDate < existing.date) {
         throw new ReversalDateBeforeOriginalError(id, resolvedDate, existing.date);
       }
+      let sequenceDocNo: string | null = null;
+      if (this.def.numberingSequence && !this.def.numberFromGl && this.deps.numbering) {
+        sequenceDocNo = (await this.deps.numbering.next({ branchId: this.def.branchOf?.(existing) ?? null })).formatted;
+      }
 
       const reversalOf = (posted: DocumentGlPostingResult | null): FrameworkDocument<Line> => ({
         id: opts.reversalId,
         docType: this.def.code,
-        docNo: posted?.journalEntryNo ?? null,
+        docNo: sequenceDocNo ?? posted?.journalEntryNo ?? null,
         date: opts.date ?? existing.date,
         memo: opts.memo ?? `عكس المستند ${existing.docNo ?? existing.id}`,
         status: this.def.confirmedStatus,

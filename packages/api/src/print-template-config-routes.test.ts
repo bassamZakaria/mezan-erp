@@ -36,9 +36,9 @@ describe("print-template-config-routes — GET", () => {
     expect(body).toEqual(DEFAULT_PRINT_TEMPLATE_CONFIG);
   });
 
-  it("serves the template and the letterhead to a caller who may view a printable document, and to nobody else", async () => {
+  it("serves the template to a caller who may view a printable document, and to nobody else", async () => {
     const { app } = newApp();
-    for (const path of ["/", "/letterhead"]) {
+    for (const path of ["/"]) {
       for (const permissions of ["sales.invoice.view_own", "purchases.invoice.view", "treasury.cash_voucher.view", "admin.settings.view"]) {
         expect([path, permissions, (await app.fetch(req(path, { permissions }))).status]).not.toEqual([path, permissions, 403]);
       }

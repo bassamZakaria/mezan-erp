@@ -1,3 +1,4 @@
+import { fiscalPeriodLabel } from "../fiscal-periods/labels.js";
 import { getEmployeeStatusLabel, type EmployeeStatus } from "./employee.js";
 import { getLeaveRequestStatusLabel, type LeaveRequestStatus } from "./leave-request.js";
 import { getPayrollRunStatusLabel, type PayrollRunStatus } from "./payroll-run.js";
@@ -57,20 +58,50 @@ export class EmployeeNotFoundError extends Error {
 /** Raised when a new-employee/edit command fails validation. */
 export class InvalidEmployeeError extends Error {
   readonly code = "INVALID_EMPLOYEE";
-  constructor(readonly reasons: readonly string[]) {
+  readonly messageEn?: string;
+  constructor(
+    readonly reasons: readonly string[],
+    reasonsEn?: readonly string[],
+  ) {
     super(reasons.join("، "));
+    if (reasonsEn) this.messageEn = reasonsEn.join("; ");
     this.name = "InvalidEmployeeError";
+  }
+}
+
+export class EmployeeNotTerminatedError extends Error {
+  readonly code = "EMPLOYEE_NOT_TERMINATED";
+  readonly messageEn: string;
+  constructor(readonly employeeId: string) {
+    super(`الموظف "${employeeId}" لم تُنهَ خدمته، فلا يوجد تاريخ إنهاء خدمة يُصحَّح.`);
+    this.messageEn = `Employee "${employeeId}" is not terminated, so there is no termination date to correct.`;
+    this.name = "EmployeeNotTerminatedError";
+  }
+}
+
+export class TerminationRecoveryAlreadyCollectedError extends Error {
+  readonly code = "TERMINATION_RECOVERY_ALREADY_COLLECTED";
+  readonly messageEn: string;
+  constructor(
+    readonly employeeId: string,
+    readonly advanceNumber: string,
+  ) {
+    super(`لا يمكن تصحيح تاريخ إنهاء الخدمة: السلفة ${advanceNumber} التي سُجّلت عن أجر الأيام بعد آخر يوم عمل حُصّل جزء منها. اعكس التحصيل أولاً.`);
+    this.messageEn = `The termination date cannot be corrected: part of advance ${advanceNumber}, raised for the pay after the last day, has already been collected. Reverse the collection first.`;
+    this.name = "TerminationRecoveryAlreadyCollectedError";
   }
 }
 
 /** Raised when an employee status transition is not allowed by the employee state machine. */
 export class InvalidEmployeeTransitionError extends Error {
   readonly code = "INVALID_EMPLOYEE_TRANSITION";
+  readonly messageEn: string;
   constructor(
     readonly from: EmployeeStatus,
     readonly to: EmployeeStatus,
   ) {
     super(`لا يمكن نقل الموظف من "${getEmployeeStatusLabel(from)}" إلى "${getEmployeeStatusLabel(to)}".`);
+    this.messageEn = `An employee cannot move from "${from}" to "${to}".`;
     this.name = "InvalidEmployeeTransitionError";
   }
 }
@@ -343,6 +374,92 @@ export class InvalidPayrollRunError extends Error {
   constructor(readonly reasons: readonly string[]) {
     super(reasons.join("، "));
     this.name = "InvalidPayrollRunError";
+  }
+}
+
+export class DisbursementTreasuryAccountNotFoundError extends Error {
+  readonly code = "TREASURY_ACCOUNT_NOT_FOUND";
+  readonly messageEn: string;
+  constructor(readonly treasuryAccountId: string) {
+    super("حساب الخزينة غير موجود أو غير نشط أو بلا حساب دفتري.");
+    this.messageEn = "The treasury account does not exist, is inactive, or has no ledger account.";
+    this.name = "DisbursementTreasuryAccountNotFoundError";
+  }
+}
+
+export class PayrollRunDisbursedError extends Error {
+  readonly code = "PAYROLL_RUN_DISBURSED";
+  readonly messageEn: string;
+  constructor(
+    readonly runNumber: string,
+    readonly disbursementVoucherId: string | null,
+  ) {
+    super(`مسير الرواتب ${runNumber} مصروف. اعكس سند صرفه من شاشة السندات أولاً ليعود «معتمد»، ثم ألغِ اعتماده.`);
+    this.messageEn = `Payroll run ${runNumber} has been paid out. Reverse its disbursement voucher on the vouchers screen first, so the run returns to approved, then cancel its approval.`;
+    this.name = "PayrollRunDisbursedError";
+  }
+}
+
+export class PayrollRunNotApprovedError extends Error {
+  readonly code = "PAYROLL_RUN_NOT_APPROVED";
+  readonly messageEn: string;
+  constructor(
+    readonly runNumber: string,
+    readonly status: PayrollRunStatus,
+  ) {
+    super(`مسير الرواتب ${runNumber} حالته "${getPayrollRunStatusLabel(status)}" وليس معتمداً، فلا يوجد اعتماد يُلغى.`);
+    this.messageEn = `Payroll run ${runNumber} is "${status}", not approved, so there is no approval to cancel.`;
+    this.name = "PayrollRunNotApprovedError";
+  }
+}
+
+export class PayrollRunHasTerminationAdjustmentError extends Error {
+  readonly code = "PAYROLL_RUN_HAS_TERMINATION_ADJUSTMENT";
+  readonly messageEn: string;
+  constructor(readonly runNumber: string) {
+    super(`مسير الرواتب ${runNumber} عليه تسوية إنهاء خدمة خُصمت من صافي أحد كشوفه. صحّح تاريخ إنهاء الخدمة إلى آخر يوم مدفوع ليُرفع الخصم، ثم ألغِ الاعتماد.`);
+    this.messageEn = `Payroll run ${runNumber} carries a termination adjustment taken off one of its payslips. Correct the termination date to the last paid day so the adjustment is lifted, then cancel the approval.`;
+    this.name = "PayrollRunHasTerminationAdjustmentError";
+  }
+}
+
+export class AdvancePartlyRepaidError extends Error {
+  readonly code = "ADVANCE_PARTLY_REPAID";
+  readonly messageEn: string;
+  constructor(
+    readonly advanceNumber: string,
+    readonly recovered: string,
+  ) {
+    super(`لا يمكن إلغاء السلفة ${advanceNumber}: سُدّد منها ${recovered}. اعكس السداد أولاً (سند القبض أو اعتماد المسير الذي خصمها)، أو اتركها تُستكمل.`);
+    this.messageEn = `Advance ${advanceNumber} cannot be cancelled: ${recovered} of it has been repaid. Reverse what was repaid first (the receipt voucher, or the approval of the payroll run that deducted it), or let it run its course.`;
+    this.name = "AdvancePartlyRepaidError";
+  }
+}
+
+export class HrProvisionPostingNotFoundError extends Error {
+  readonly code = "HR_PROVISION_POSTING_NOT_FOUND";
+  readonly messageEn: string;
+  constructor(
+    readonly labelAr: string,
+    readonly asOfDate: string,
+  ) {
+    super(`لا يوجد قيد قائم لـ${labelAr} بتاريخ ${asOfDate}.`);
+    this.messageEn = `There is no standing provision posting dated ${asOfDate}.`;
+    this.name = "HrProvisionPostingNotFoundError";
+  }
+}
+
+export class HrProvisionLaterPostingError extends Error {
+  readonly code = "HR_PROVISION_LATER_POSTING_EXISTS";
+  readonly messageEn: string;
+  constructor(
+    readonly labelAr: string,
+    readonly asOfDate: string,
+    readonly laterDate: string,
+  ) {
+    super(`${labelAr} بتاريخ ${asOfDate} بُنيت عليه تسوية لاحقة بتاريخ ${laterDate}. اعكس تسوية ${laterDate} أولاً ثم هذه.`);
+    this.messageEn = `The provision dated ${asOfDate} has a later posting dated ${laterDate} measured on top of it. Reverse the ${laterDate} posting first, then this one.`;
+    this.name = "HrProvisionLaterPostingError";
   }
 }
 

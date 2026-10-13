@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useDocumentEffectText } from "../lib/document-effects";
 import {
   DocumentList,
   DocumentDetail,
@@ -9,7 +10,7 @@ import {
   Chip,
   Card,
   Button,
-  MoneyInput,
+  MoneyStringInput,
   EntityPicker,
   ConfirmDialog,
   type DocumentListColumn,
@@ -22,6 +23,7 @@ import {
   getVoucherPaymentMethodLabel,
   getVoucherTypeDefinition,
   isVoucherType,
+  BASE_CURRENCY,
   convertFromBase,
   Money,
   VOUCHER_PAYMENT_METHODS,
@@ -45,6 +47,7 @@ import type {
 import {
   useAccounts,
   useBranches,
+  useExchangeRates,
   useCostCenters,
   useConfirmVoucher,
   useCreateAllocation,
@@ -66,9 +69,10 @@ import {
   type VoucherRowDTO,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
+import { TreasuryCurrencyNotice, type TreasuryCurrencyRate } from "./TreasuryCurrencyNotice";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { VoucherPrintPage } from "../print/documents";
-import { useScreenIntent, useSubPage } from "../navigation";
+import { useNameSubPage, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { useDomainLabels } from "../lib/domain-labels";
@@ -155,8 +159,24 @@ function toVoucherLine(d: {
   costCenterId: string | null;
   projectId?: string | null;
   costCategory?: CostCategoryDTO | null;
+  treasuryFx?: VoucherRowDTO["treasuryFx"];
 }): VoucherLine {
-  return { ...d, amount: Money.fromMajor(d.amount) };
+  const leg = d.treasuryFx;
+  return {
+    ...d,
+    amount: Money.fromMajor(d.amount),
+    treasuryFx: leg
+      ? {
+          currency: leg.currency,
+          fxRate: leg.fxRate,
+          foreignAmount: Money.fromMajor(leg.foreignAmount),
+          ...(leg.carryingBase ? { carryingBase: Money.fromMajor(leg.carryingBase) } : {}),
+          ...(leg.realised ? { realised: Money.fromMajor(leg.realised) } : {}),
+          ...(leg.realisedAccountId ? { realisedAccountId: leg.realisedAccountId } : {}),
+        }
+      : null,
+    counterTreasuryFx: null,
+  };
 }
 
 function toPreviewDoc(line: VoucherLine, extra: { id: string; date: string; memo: string; status: VoucherDocument["status"] }): VoucherDocument {
@@ -375,6 +395,8 @@ export function TreasuryVouchersScreen() {
   function openDetail(id: string) {
     subPage.open(id);
   }
+  const addressed = selectedId && selectedId !== "new" ? documents.find((d) => d.id === selectedId || d.docNo === selectedId) : undefined;
+  useNameSubPage(addressed ? selectedId : null, addressed ? (addressed.docNo ?? t("docStatus.draft")) : null);
 
   if (selectedId === "new") {
     return (
@@ -606,6 +628,7 @@ function VoucherDetailView({
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
+  const effectText = useDocumentEffectText();
   const query = useVoucherDetail(id);
   const projectsQuery = useProjects();
   const reverseVoucher = useReverseVoucher();
@@ -616,7 +639,7 @@ function VoucherDetailView({
   const [error, setError] = useState<string | null>(null);
   const [reversingAllocId, setReversingAllocId] = useState<string | null>(null);
   const [invoiceId, setInvoiceId] = useState("");
-  const [allocAmount, setAllocAmount] = useState<number | null>(null);
+  const [allocAmount, setAllocAmount] = useState("");
   const [reverseConfirmOpen, setReverseConfirmOpen] = useState(false);
   const [reverseDate, setReverseDate] = useState(todayIso());
 
@@ -656,13 +679,13 @@ function VoucherDetailView({
   }
 
   async function handleAllocate() {
-    if (busy || !doc || invoiceId === "" || !allocAmount || allocAmount <= 0) return;
+    if (busy || !doc || invoiceId === "" || allocAmount === "" || Money.fromMajor(allocAmount).scaled <= 0n) return;
     setBusy(true);
     setError(null);
     try {
-      await createAllocation.mutateAsync({ voucherId: doc.id, body: { invoiceId, amount: String(allocAmount) } });
+      await createAllocation.mutateAsync({ voucherId: doc.id, body: { invoiceId, amount: allocAmount } });
       setInvoiceId("");
-      setAllocAmount(null);
+      setAllocAmount("");
     } catch (err) {
       setError(err instanceof Error ? err.message : t("vouchers.theAmountCouldNotBe"));
     } finally {
@@ -766,12 +789,12 @@ function VoucherDetailView({
                     const inv = invoiceById.get(a.invoiceId);
                     const base = Money.fromMajor(a.amount);
                     const applied = doc.fxRate ? convertFromBase(base, doc.fxRate) : base;
-                    const relieved = a.invoiceAmount ?? a.amount;
+                    const relieved = a.carryingAmount ?? a.invoiceAmount ?? a.amount;
                     const difference = Money.fromMajor(a.fxDifference ?? "0").scaled;
                     const isGain = def.allocationKind === "purchase" ? difference < 0n : difference > 0n;
                     return (
                       <tr key={a.id} className="border-b border-border last:border-b-0">
-                        <td className="mz-num px-[15px] py-[11px] text-ink">{inv?.invoiceNo ?? a.invoiceId}</td>
+                        <td className="mz-num px-[15px] py-[11px] text-ink">{a.invoiceNo ?? inv?.invoiceNo ?? a.invoiceId}</td>
                         <td className="px-[15px] py-[11px] text-end">
                           <MoneyDisplay value={toMajor(applied.toString())} currencyLabel={doc.fxRate ? doc.currency : undefined} />
                         </td>
@@ -827,10 +850,10 @@ function VoucherDetailView({
                 />
                 <div>
                   <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("common.amount")}</div>
-                  <MoneyInput value={allocAmount} onChange={setAllocAmount} aria-label={t("vouchers.amountToAllocate")} />
+                  <MoneyStringInput value={allocAmount} onChange={setAllocAmount} aria-label={t("vouchers.amountToAllocate")} />
                 </div>
                 <div className="flex justify-end">
-                  <Button variant="primary" disabled={busy || invoiceId === "" || !allocAmount} onClick={handleAllocate}>
+                  <Button variant="primary" disabled={busy || invoiceId === "" || allocAmount === ""} onClick={handleAllocate}>
                     {t("vouchers.allocate")}
                   </Button>
                 </div>
@@ -889,7 +912,7 @@ function VoucherDetailView({
         }
         summary={summaryItems}
         effectsTitle={t("vouchers.whatThisVoucherDoes")}
-        effects={(effects?.effects ?? []).map((e) => e.description)}
+        effects={(effects?.effects ?? []).map((e) => effectText(e).text)}
         tabs={tabs}
       />
       <div className="mt-[16px] flex flex-col gap-[12px]">
@@ -937,8 +960,11 @@ function withholdingOf(amount: Money, ratePercent: number | null, direction: str
   };
 }
 
+const EMPTY_RATES: readonly TreasuryCurrencyRate[] = [];
+
 interface CreateDraft {
-  amount: number | null;
+  amount: string;
+  currency: string;
   paymentMethod: VoucherPaymentMethod;
   treasuryAccountId: string;
   counterTreasuryAccountId: string;
@@ -973,6 +999,7 @@ function CreateVoucherView({
   initialVoucherType?: VoucherType | null;
   onDone: () => void;
 }) {
+  const effectText = useDocumentEffectText();
   const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
@@ -980,6 +1007,7 @@ function CreateVoucherView({
   const confirmVoucher = useConfirmVoucher();
   const createCollection = useCreateCollection();
   const branchesQuery = useBranches();
+  const exchangeRatesQuery = useExchangeRates();
   const costCentersQuery = useCostCenters();
   const projectsQuery = useProjects();
 
@@ -990,7 +1018,8 @@ function CreateVoucherView({
     initialCustomerId ? "customer_collection" : initialSupplierId ? "supplier_payment" : initialVoucherType,
   );
   const [draft, setDraft] = useState<CreateDraft>({
-    amount: null,
+    amount: "",
+    currency: "",
     paymentMethod: "cash",
     treasuryAccountId: treasuryAccounts[0]?.id ?? "",
     counterTreasuryAccountId: treasuryAccounts[1]?.id ?? "",
@@ -1047,14 +1076,24 @@ function CreateVoucherView({
     return fixed ?? draft.counterpartyGlAccountId;
   }, [type, def, draft.counterpartyGlAccountId]);
 
+  const chosenTreasuryAccounts = useMemo(
+    () =>
+      [draft.treasuryAccountId, def?.direction === "transfer" ? draft.counterTreasuryAccountId : ""]
+        .map((id) => treasuryAccounts.find((account) => account.id === id))
+        .filter((account): account is TreasuryAccountDTO => account !== undefined),
+    [draft.treasuryAccountId, draft.counterTreasuryAccountId, def?.direction, treasuryAccounts],
+  );
+  const accountCurrencies = new Set([...chosenTreasuryAccounts.map((account) => account.currency), BASE_CURRENCY]);
+  const voucherCurrency = draft.currency !== "" && accountCurrencies.has(draft.currency) ? draft.currency : (chosenTreasuryAccounts[0]?.currency ?? BASE_CURRENCY);
+
   const buildLine = useCallback((): VoucherLine | null => {
     if (!type || !def) return null;
-    const amount = Money.fromMajor(String(draft.amount ?? 0));
+    const amount = draft.amount === "" ? Money.zero() : Money.fromMajor(draft.amount);
     return {
       voucherType: type,
       direction: def.direction,
       amount,
-      currency: treasuryAccounts.find((account) => account.id === draft.treasuryAccountId)?.currency ?? "EGP",
+      currency: voucherCurrency,
       branchId: workingLocation.branchId ?? branchesQuery.data?.[0]?.id ?? "",
       paymentMethod: draft.paymentMethod,
       treasuryAccountId: draft.treasuryAccountId,
@@ -1073,7 +1112,7 @@ function CreateVoucherView({
     // `workingLocation` and the branch list are real inputs: the line's branch
     // is resolved from them, and leaving them out let the effects preview keep
     // showing the branch that was current when the form opened.
-  }, [type, def, draft, workingLocation.branchId, branchesQuery.data, treasuryGlOf, counterpartyGl, treasuryAccounts]);
+  }, [type, def, draft, workingLocation.branchId, branchesQuery.data, treasuryGlOf, counterpartyGl, voucherCurrency]);
 
   // A preview document for the live effects panel — a pure client-side computation, no network call.
   const previewEffects = useMemo(() => {
@@ -1107,6 +1146,7 @@ function CreateVoucherView({
           branchId: line.branchId,
           treasuryAccountId: line.treasuryAccountId,
           amount: line.amount.toString(),
+          currency: line.currency,
           paymentMethod: line.paymentMethod,
           referenceNo: line.referenceNo,
           costCenterId: line.costCenterId ?? null,
@@ -1129,13 +1169,12 @@ function CreateVoucherView({
         memo: draft.memo || voucherLabel(def),
         voucherType: line.voucherType,
         amount: line.amount.toString(),
+        currency: line.currency,
         branchId: line.branchId,
         paymentMethod: line.paymentMethod,
         treasuryAccountId: line.treasuryAccountId,
-        treasuryGlAccountId: line.treasuryGlAccountId,
         counterpartyGlAccountId: line.counterpartyGlAccountId,
         counterTreasuryAccountId: line.counterTreasuryAccountId,
-        counterTreasuryGlAccountId: line.counterTreasuryGlAccountId,
         customerId: line.customerId,
         supplierId: line.supplierId,
         referenceNo: line.referenceNo,
@@ -1209,7 +1248,8 @@ function CreateVoucherView({
 
   const canSubmit =
     !busy &&
-    (draft.amount ?? 0) > 0 &&
+    draft.amount !== "" &&
+    Money.fromMajor(draft.amount).scaled > 0n &&
     draft.treasuryAccountId !== "" &&
     (!def.requiresCustomer && !def.requiresSupplier ? true : draft.partyId !== "") &&
     (def.direction === "transfer" ? draft.counterTreasuryAccountId !== "" && draft.counterTreasuryAccountId !== draft.treasuryAccountId : true);
@@ -1241,7 +1281,7 @@ function CreateVoucherView({
         <Card className="flex flex-col gap-[14px] p-[18px]">
           <div>
             <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("vouchers.amount")}</div>
-            <MoneyInput value={draft.amount} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} aria-label={t("common.amount")} />
+            <MoneyStringInput value={draft.amount} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} aria-label={t("common.amount")} />
           </div>
 
           <SelectField
@@ -1266,6 +1306,16 @@ function CreateVoucherView({
               options={treasuryOptions}
             />
           ) : null}
+
+          <TreasuryCurrencyNotice
+            baseCurrency={BASE_CURRENCY}
+            accounts={chosenTreasuryAccounts}
+            voucherCurrency={voucherCurrency}
+            onVoucherCurrencyChange={(currency) => setDraft((d) => ({ ...d, currency }))}
+            amount={draft.amount}
+            date={draft.date}
+            rates={exchangeRatesQuery.data ?? EMPTY_RATES}
+          />
 
           {def.requiresCustomer || def.requiresSupplier ? (
             <div>
@@ -1338,7 +1388,7 @@ function CreateVoucherView({
             {(previewEffects?.effects ?? []).map((e, i) => (
               <li key={i} className="flex items-start gap-[8px]">
                 <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-brand" />
-                {e.description}
+                {effectText(e).text}
               </li>
             ))}
             {!previewEffects ? <li className="text-ink-muted">{t("vouchers.enterAnAmountToSee")}</li> : null}

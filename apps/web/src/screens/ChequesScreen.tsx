@@ -1,3 +1,5 @@
+import { ReversalDocumentType } from "@mezan/contracts";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { useEffect, useMemo, useState } from "react";
 import { errorMessage } from "../lib/error-message";
 import {
@@ -72,9 +74,6 @@ const DIRECTION_ACCOUNTS: Record<ChequeDirectionDTO, { counterparty: string; und
   outgoing: { counterparty: "2100", underCollection: "2150", bounced: null },
 };
 
-/** The bank GL account a collection lands in — "النقدية بالبنوك" in the standard COA. */
-const BANK_GL_ACCOUNT_ID = "1310";
-
 function today(): string {
   return todayIso();
 }
@@ -108,6 +107,7 @@ const ACTION_KEY = {
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function ChequesScreen() {
+  const reversal = useReverseDocumentAction(ReversalDocumentType.Cheque);
   const { t, locale } = useAppTranslation();
   const [mode, setMode] = useState<"list" | "create">("list");
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
@@ -189,7 +189,7 @@ export function ChequesScreen() {
         if (!bankAccount) throw new Error(t("cheques.thereIsNoActiveBank"));
         await deposit.mutateAsync({ id: cheque.id, body: { bankTreasuryAccountId: bankAccount.id } });
       } else if (action === "collect") {
-        await collect.mutateAsync({ id: cheque.id, body: { bankGlAccountId: BANK_GL_ACCOUNT_ID, date: today() } });
+        await collect.mutateAsync({ id: cheque.id, body: { date: today() } });
       } else if (action === "bounce") {
         await bounce.mutateAsync({ id: cheque.id, body: { date: today() } });
       } else {
@@ -338,6 +338,7 @@ export function ChequesScreen() {
               disabled: pendingId === c.id,
               onSelect: () => void runAction(c, action),
             })),
+            ...(c.status === "collected" ? reversal.menuItems({ id: c.id, params: { id: c.id }, subject: c.chequeNumber ?? c.id }) : []),
           ];
           return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: c.chequeNumber ?? c.id })} />;
         }}
@@ -369,6 +370,7 @@ export function ChequesScreen() {
           )
         }
       />
+      {reversal.dialog}
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("cheques.detailTitle", { number: selected.chequeNumber }) : t("cheques.cheques")}>
         {selected ? (

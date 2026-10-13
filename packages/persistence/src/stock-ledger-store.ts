@@ -3,6 +3,8 @@ import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput
 import {
   Money,
   Qty,
+  latestStandingRevaluation,
+  type StandingStockRevaluation,
   type CostLayer,
   type CostLayerRepository,
   type StockLedgerRepository,
@@ -240,6 +242,7 @@ function toSnapshot(row: SnapshotRow): WacSnapshot {
 class SqliteStockLedgerStore {
   private readonly insertMovement: Database.Statement;
   private readonly selectMovByPosition: Database.Statement;
+  private readonly selectRevaluationMovByPosition: Database.Statement;
   private readonly selectMovByItem: Database.Statement;
   private readonly selectMovByWarehouse: Database.Statement;
   private readonly selectPositions: Database.Statement;
@@ -268,6 +271,9 @@ class SqliteStockLedgerStore {
     `);
     this.selectMovByPosition = sqlite.prepare(
       `SELECT * FROM stock_movement WHERE item_id = ? AND warehouse_id = ? ORDER BY occurred_at, seq`,
+    );
+    this.selectRevaluationMovByPosition = sqlite.prepare(
+      `SELECT * FROM stock_movement WHERE item_id = ? AND warehouse_id = ? AND value_delta IS NOT NULL AND value_delta <> 0 ORDER BY occurred_at, seq`,
     );
     this.selectMovByItem = sqlite.prepare(
       `SELECT * FROM stock_movement WHERE item_id = ? ORDER BY occurred_at, seq`,
@@ -347,6 +353,10 @@ class SqliteStockLedgerStore {
 
   async listByPosition(itemId: string, warehouseId: string): Promise<readonly StockMovement[]> {
     return (this.selectMovByPosition.all(itemId, warehouseId) as MovementRow[]).map(toMovement);
+  }
+
+  async latestStandingRevaluation(itemId: string, warehouseId: string): Promise<StandingStockRevaluation | null> {
+    return latestStandingRevaluation((this.selectRevaluationMovByPosition.all(itemId, warehouseId) as MovementRow[]).map(toMovement));
   }
 
   async listByItem(itemId: string): Promise<readonly StockMovement[]> {

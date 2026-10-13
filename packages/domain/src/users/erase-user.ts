@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import type { Employee, EmployeeStatus } from "../hr/employee.js";
 import type { User, UserStatus } from "./user.js";
 
@@ -16,7 +17,7 @@ export const ERASED_EMPLOYEE_FIRST_NAME_EN = "Deleted";
 export const ERASED_EMPLOYEE_LAST_NAME_EN = "user";
 
 const ERASED_USER_STATUS: UserStatus = "inactive";
-const TERMINATED_EMPLOYEE_STATUS: EmployeeStatus = "terminated";
+const TERMINATED_EMPLOYEE_STATUS: EmployeeStatus = EmployeeRefStatus.Terminated;
 
 /** `.invalid` is reserved by RFC 2606: the address can never route, and it stays unique per account so the email index still holds. */
 export function erasedUserEmail(userId: string): string {

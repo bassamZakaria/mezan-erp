@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { Money } from "../money/money.js";
 import { PlanKind, type Plan } from "./plan.js";
-import type { Subscription } from "./subscription.js";
+import { SubscriptionStatusKind, type Subscription } from "./subscription.js";
 import type { Tenant } from "./tenant.js";
-import { deriveEntitlements, subscriptionLicenseState } from "./derive.js";
+import { deriveEntitlements, LicenseReasonCode, subscriptionLicenseState } from "./derive.js";
 
 const plan: Plan = {
   id: "P1", code: "core", nameAr: "الأساسية", nameEn: "Core", kind: PlanKind.Paid, quotas: {}, modules: ["accounting", "sales"],
@@ -23,7 +23,7 @@ const sub: Subscription = {
 
 const tenant: Tenant = {
   id: "T1", code: "cyag", nameAr: "سياج", nameEn: "Cyag", ownerEmail: "o@cyag.eg", status: "active",
-  dbFile: "tenants/cyag.db", createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z",
+  ownerUserId: null, ownerContactVerified: true, dbFile: "tenants/cyag.db", createdAt: "2026-09-01T00:00:00.000Z", updatedAt: "2026-09-01T00:00:00.000Z",
 };
 
 describe("deriveEntitlements", () => {
@@ -124,3 +124,34 @@ describe("subscriptionLicenseState", () => {
     }
   });
 });
+
+describe("subscriptionLicenseState — a stored status this build does not know", () => {
+  const during = "2026-09-15T00:00:00.000Z";
+  const free = { kind: PlanKind.Free };
+
+  it("refuses writes for an unknown subscription status, on a paid plan and on the free plan", () => {
+    const frozen = { ...sub, status: "frozen" } as unknown as Subscription;
+    for (const planOf of [plan, free]) {
+      expect(subscriptionLicenseState(tenant, frozen, during, planOf)).toMatchObject({
+        state: "READ_ONLY", canWrite: false, usable: true, reason: LicenseReasonCode.StatusUnknown,
+      });
+    }
+  });
+
+  it("refuses writes for an unknown tenant status even when its subscription is in good standing", () => {
+    const terminated = { ...tenant, status: "terminated" } as unknown as Tenant;
+    for (const planOf of [plan, free]) {
+      expect(subscriptionLicenseState(terminated, sub, during, planOf)).toMatchObject({
+        state: "READ_ONLY", canWrite: false, usable: true, reason: LicenseReasonCode.StatusUnknown,
+      });
+    }
+  });
+
+  it("still lets every known status in good standing write", () => {
+    for (const status of [SubscriptionStatusKind.Active, SubscriptionStatusKind.Trialing, SubscriptionStatusKind.PastDue]) {
+      const known = { ...sub, status, trialEndsAt: status === SubscriptionStatusKind.Trialing ? "2026-09-20T00:00:00.000Z" : null };
+      expect(subscriptionLicenseState(tenant, known, during, plan).canWrite).toBe(true);
+    }
+  });
+});
+

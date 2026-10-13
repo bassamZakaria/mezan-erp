@@ -140,6 +140,17 @@ describe("Sales Return — restock + GL", () => {
     expect(totalDebit.equals(totalCredit)).toBe(true);
   });
 
+  it("stamps the restock movement with the return's own date, not the wall clock, and a later reversal with the reversal's date", async () => {
+    const { service, stockService } = harness();
+
+    await service.createDraft({ id: "SR-DATED", date: "2026-08-05", memo: "", lines: [line()] });
+    await service.confirm("SR-DATED");
+    await service.reverse("SR-DATED", { reversalId: "SR-DATED-REV", date: "2026-08-19" });
+
+    expect((await stockService.getMovementsOfDocument("SR-DATED")).map((m) => m.occurredAt)).toEqual(["2026-08-05T00:00:00.000Z"]);
+    expect((await stockService.getMovementsOfDocument("SR-DATED-REV")).map((m) => m.occurredAt)).toEqual(["2026-08-19T00:00:00.000Z"]);
+  });
+
   it("carries the return's projectId onto every posted GL line (D-01)", async () => {
     const { service, ledger } = harness();
 

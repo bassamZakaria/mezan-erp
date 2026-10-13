@@ -3,6 +3,7 @@ import { Money, Qty } from "../money/index.js";
 import { createInventoryStockHook } from "./inventory-stock-hook.js";
 import type { StockLedgerService } from "../inventory/index.js";
 import type { DocumentStockPlan } from "./hooks.js";
+import { StockPlanDateRequiredError } from "./errors.js";
 
 describe("createInventoryStockHook", () => {
   it("forwards the framework's generic plan into applyDocumentStockPlan with the sourceDocType narrowed", async () => {
@@ -16,6 +17,7 @@ describe("createInventoryStockHook", () => {
       sourceDocNumber: "SR-000001",
       warehouseId: "WH1",
       lines: [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("5") }],
+      date: "2026-08-22",
     };
 
     await hook.apply(plan);
@@ -27,7 +29,27 @@ describe("createInventoryStockHook", () => {
       sourceDocNumber: "SR-000001",
       warehouseId: "WH1",
       lines: plan.lines,
+      occurredAt: "2026-08-22T00:00:00.000Z",
     });
+  });
+
+  it("refuses a plan that carries no document date instead of stamping the wall clock", async () => {
+    const applyDocumentStockPlan = vi.fn();
+    const getMovementsOfDocument = vi.fn().mockResolvedValue([
+      { itemId: "I1", warehouseId: "WH1", direction: "IN", qty: Qty.fromMajor("5"), unitCost: Money.fromMajor("10.00") },
+    ]);
+    const hook = createInventoryStockHook({ applyDocumentStockPlan, getMovementsOfDocument } as unknown as StockLedgerService);
+    const undated: DocumentStockPlan = {
+      sourceDocType: "SALES_RETURN",
+      sourceDocId: "SR1",
+      sourceDocNumber: "SR-000001",
+      warehouseId: "WH1",
+      lines: [{ itemId: "I1", direction: "IN", qty: Qty.fromMajor("5") }],
+    };
+
+    await expect(hook.apply(undated)).rejects.toThrow(StockPlanDateRequiredError);
+    await expect(hook.reverse!(undated, "SR0")).rejects.toThrow(StockPlanDateRequiredError);
+    expect(applyDocumentStockPlan).not.toHaveBeenCalled();
   });
 
   it("propagates a rejection from the underlying stock-ledger service (e.g. negative stock)", async () => {
@@ -42,6 +64,7 @@ describe("createInventoryStockHook", () => {
         sourceDocNumber: "INV-000001",
         warehouseId: "WH1",
         lines: [{ itemId: "I1", direction: "OUT", qty: Qty.fromMajor("999") }],
+        date: "2026-08-22",
       }),
     ).rejects.toThrow("NEGATIVE_STOCK");
   });

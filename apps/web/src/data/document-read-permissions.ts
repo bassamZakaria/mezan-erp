@@ -18,8 +18,6 @@ export enum DocumentReadPermission {
   SalesReturnsOwn = "sales.return.view_own",
   InstallmentPlans = "installments.plan.view",
   AuditLog = "audit.logs.view",
-  Workflow = "workflow.view",
-  Subscription = "admin.settings.view",
 }
 
 // SECURITY: this decides only whether a READ is worth sending — the server

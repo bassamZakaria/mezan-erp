@@ -87,7 +87,7 @@ export const depositChequeSchema = z.object({
 });
 
 export const collectChequeSchema = z.object({
-  bankGlAccountId: z.string().min(1),
+  bankGlAccountId: z.string().min(1).optional(),
   date: isoDateOrInstant.optional(),
 });
 

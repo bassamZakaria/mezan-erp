@@ -5,6 +5,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { Money, Qty, StockLedgerService, NegativeStockError, movementValue, replay } from "@mezan/domain";
 import { createSqliteStockLedgerStore, type SqliteStockLedgerHandle } from "./stock-ledger-store.js";
+import { CURRENT_SCHEMA_VERSION } from "./schema-sync.js";
 
 const handles: SqliteStockLedgerHandle[] = [];
 afterEach(() => {
@@ -90,6 +91,40 @@ describe("SqliteStockLedgerStore — the value a movement moved", () => {
     const [legacy] = await reopened.ledger.listByPosition("I1", "W1");
     expect(legacy?.value ?? null).toBeNull();
     expect(movementValue(legacy!).toString()).toBe("30.020001");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it.each([1, 2])("brings a schema-%i file that lacks the column up to shape, keeps its rows and stamps the current schema", async (fileVersion) => {
+    const dir = mkdtempSync(join(tmpdir(), "mezan-stock-value-schema-"));
+    const file = join(dir, "t.db");
+    const first = createSqliteStockLedgerStore(file);
+    await first.ledger.append({
+      id: "M1", itemId: "I1", warehouseId: "W1", direction: "IN", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("10"),
+      sourceDocType: "ADJUSTMENT", sourceDocId: "ADJ1", sourceDocNumber: null, reason: "INITIAL_STOCK", occurredAt: "2026-03-01T00:00:00.000Z",
+    });
+    first.close();
+    const raw = new Database(file);
+    raw.exec("ALTER TABLE stock_movement DROP COLUMN value");
+    raw.exec("CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    raw.prepare("INSERT INTO schema_meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(fileVersion));
+    raw.pragma(`user_version = ${fileVersion}`);
+    raw.close();
+
+    const reopened = createSqliteStockLedgerStore(file);
+    handles.push(reopened);
+    const [legacy] = await reopened.ledger.listByPosition("I1", "W1");
+    expect([legacy?.value ?? null, movementValue(legacy!).toString()]).toEqual([null, "20.000000"]);
+    await reopened.ledger.append({
+      id: "M2", itemId: "I1", warehouseId: "W1", direction: "OUT", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("10"), value: Money.fromMajor("20"),
+      sourceDocType: "SALES_INVOICE", sourceDocId: "SI1", sourceDocNumber: null, reason: null, occurredAt: "2026-03-02T00:00:00.000Z",
+    });
+    expect((await reopened.ledger.listByPosition("I1", "W1")).at(-1)?.value?.toString()).toBe("20.000000");
+    const check = new Database(file, { readonly: true });
+    const columns = (check.prepare("PRAGMA table_info(stock_movement)").all() as { name: string }[]).map((column) => column.name);
+    const stampedVersion = check.pragma("user_version", { simple: true });
+    check.close();
+    expect(columns).toContain("value");
+    expect(stampedVersion).toBe(CURRENT_SCHEMA_VERSION);
     rmSync(dir, { recursive: true, force: true });
   });
 });

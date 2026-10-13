@@ -9,10 +9,8 @@ export type {
   CustodyItem,
   EquipmentHoursRow,
   EquipmentLog,
-  EquipmentLogStatus,
   MaterialConsumption,
   MaterialConsumptionLine,
-  MaterialConsumptionStatus,
   SiteIssue,
   SiteIssueLine,
   SiteIssueStatus,
@@ -21,6 +19,7 @@ export type {
   SiteReceiptStatus,
   UnreceivedRow,
 } from "./site-documents.js";
+export { EquipmentLogStatus, MaterialConsumptionStatus } from "./site-documents.js";
 export type {
   BoqLineExistencePort,
   CustodyFilter,

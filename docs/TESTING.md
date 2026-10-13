@@ -8364,12 +8364,135 @@ section), `/platform` DOES have real URL routing (`react-router`,
 its own session in `localStorage` (`mezan.platform.session`), entirely apart
 from a tenant user's session.
 
-These eight scenarios are new with slice C's deploy and proof work and have
-not yet had their first browser pass — see the C5 task in
-`docs/superpowers/plans/2026-09-14-saas-slice-c-deploy.md`. Run them on
-`pnpm env:testing:fresh` (which seeds the platform owner and the `demo`
-tenant automatically, `scripts/env.mjs`) and tick each with the date once it
-passes, filing any deviation exactly like the rest of this document.
+These eight scenarios are guarded by an automated browser suite, `pnpm
+test:saas` (`e2e/saas/`, `playwright.saas.config.ts`), which also covers
+self-serve signup, card checkout in test mode, trial expiry, the Free invoice
+quota, the lapse of a paid period, and every SaaS screen in both locales and
+both themes. To walk them by hand, run them on `pnpm env:testing:fresh` (which
+seeds the platform owner and the `demo` tenant automatically,
+`scripts/env.mjs`) and file any deviation exactly like the rest of this
+document.
+
+`pnpm test:saas` owns six private ports and no others, and refuses to start
+if any of them already answers: **3321** (API) and **5321** (web) for the whole
+run, **3322** (API) and **5322** (web) for the second pair that spec 06
+restarts under `MEZAN_FAKE_TODAY` — a process cannot change its clock while it
+runs, so each jump in the calendar is a restart on the same platform
+directory — and **3323** (API) and **5323** (web) for the one server spec 08
+boots with the demo seed, once, for its five tests. Each run gets a fresh platform directory and removes it on exit; a
+run that was killed cannot, so the next run removes any `mezan-saas-e2e-*`
+directory older than six hours before it starts. It
+boots `apps/server/src/index.ts`, not `cloud.ts` (the fake clock is refused
+under `NODE_ENV=production`), so the basic-auth gate and static serving of
+`cloud.ts` are not covered by it. Backups are switched off in the suite
+(`MEZAN_BACKUP_INTERVAL_MINUTES=0`) and there is no backup scenario below, so
+the suite says nothing about backups.
+
+The main server boots **without** the demo seed (`MEZAN_SEED_DEMO=0`) and on a
+fixed day (`MEZAN_FAKE_TODAY=2027-01-31`, noon UTC). No spec needs the demo
+company's data: spec 01 used `demo` only as "a tenant that is not on trial", so
+it now provisions a paying tenant through `POST /api/platform/tenants`. The
+fixed day is what lets PLT-SAAS-05 assert literal dates — a first period that
+ends 2027-02-28 (a month from the 31st, clamped) and a renewed one that ends
+2027-03-28 — instead of recomputing the domain's month arithmetic in the test.
+That renewed date was 2027-03-28 until 2026-10-11: a renewal used to start
+from the clamped 28th and stay there. The subscription now keeps the day it is
+billed on, so the 31st comes back after February, and the pinned date moved
+with the rule.
+
+The seeded `demo` tenant has its own spec, 08, on its own server
+(`MEZAN_SEED_DEMO=1`, `MEZAN_FAKE_TODAY=2026-10-11`; the seed's documents are
+dated in 2026, so it does not boot on the main server's 2027 day — it stops at
+`NO_FISCAL_PERIOD_FOR_DATE`). That server gets 600 seconds to boot. Spec 08
+sets the browser's clock to the server's day (`page.clock.setFixedTime`) and
+proves, on a populated tenant: the demo admin signs in; a tenant provisioned
+beside it reads none of the demo's 27 customers by list, by id or by a search
+for each one's name, while the demo itself finds every one of them; the ten
+heaviest lists (chart of accounts, customers, sales and purchase invoices,
+journal entries, items, users, suppliers, employees, warehouses) open with
+rows, one `h1`, no console error, no 4xx/5xx and no page scroll; the plan's
+warehouse limit lets the tenant fill up to 10 and refuses the next with
+«وصلتم إلى الحد الأقصى للمستودعات في باقتكم»; and a trial tenant's banner
+shows the number of days between the server's day and the trial's end.
+
+Signup allows 8 requests per source address per hour per server process, and
+every request counts, including a malformed one. Spec 04 makes 5 signup
+requests on the main server (four by API, one from the form) and spec 06 makes
+1 on the clock server. The suite's servers trust two proxy hops
+(`MEZAN_TRUST_PROXY=1`, `MEZAN_TRUSTED_PROXY_HOPS=2`): the address a signup is
+counted against is the second entry from the right of `x-forwarded-for`, never
+the leftmost one, which the caller writes. A browser in the suite sends its
+client address alone and the Vite dev proxy appends its own hop; a request sent
+straight to the API carries the whole chain, `<client>, 130.176.0.7`
+(`proxiedSource` in `e2e/saas/support/env.ts`). Every browser context gets the
+client `10.9.0.1` unless a spec gives it another, and each of spec 04's signups
+carries its own client, handed out in order from `10.4.0.1`, not at random.
+The limit itself is asserted: one client (`10.44.0.1`) makes eight attempts,
+each with a different address written ahead of it in the chain and each
+answered on its merits; its ninth answers 429 «محاولات كثيرة جدًا، حاول لاحقًا»
+with a `retry-after`; a different client that writes `10.44.0.1` ahead of
+itself still gets through; and a chain too short to hold a client is answered
+503 `SOURCE_UNRESOLVED`.
+
+Sign-in never waits on the company lookup (`GET /api/platform/resolve`). Spec
+03 fails that request in the browser (`page.route`) two ways: a 502 HTML page
+on the bare host, where the form and the company-code field are there at once,
+no «إعادة المحاولة» panel and no alert appear, the lookup is retried by itself,
+the email field is empty, no `/api/*` request other than the lookup leaves
+before a company is typed, and a typed company signs in; and a 500 on a tenant
+subdomain, where the screen settles into subdomain mode without a click once
+the lookup answers, and from then on that host never offers a company-code
+field again, even on a reload while the lookup fails, and the owner still
+signs in. Spec 02
+holds the «انتهت الجلسة» notice to two rules: it is on the sign-in screen after
+a session is revoked, whichever of the page's requests meets the 401 first,
+and it is still there after the page is loaded again, until the first PIN
+digit is typed.
+
+Which host the sign-in screen is on decides what a failing lookup shows
+(`apps/web/src/login/lookup-host.ts`, unit-tested in
+`LoginScreen.test.tsx` and `LoginScreen.lan.test.tsx`): the cloud offers the
+company-code field; a desktop host offers none; a till on the shop's network
+(a private address or a `.local` name) shows «تعذّر الوصول إلى الجهاز الرئيسي…»
+and no code field. The lookup stops on 400, 401, 403 and 410, keeps looking on
+anything else, and spreads each wait by up to a fifth either way. The seed
+admin's email is offered only on a desktop host whose `/bootstrap/status`
+answers `demoSeeded: true`.
+
+The tenant owner on the platform (`apps/server/src/owner-contact.test.ts`,
+`owner-console.test.ts`, `release-tenant.test.ts`, `tenant-db-file.test.ts`):
+only the owner changes the owner account's email, PIN, password, status or
+admin flag, and a peer admin is refused «هذا حساب مالك المنشأة…»; a hand-over
+the owner did not make themself is PENDING until the platform owner confirms
+it in the console or the previous owner presses confirm on the mailed link
+(`/signup/owner-handover`, which confirms nothing on being opened); a sign-in
+or an email change made with a PIN the console issued proves nothing; a tenant
+with no account that can be named its owner is flagged «المنشأة بلا مالك
+محدَّد» and assigned from the console. A tenant's database and backups are
+named by tenant id (`tenants/<id>.db`, `backups/tenants/<id>/`); a database
+kept under the code by an earlier build is copied, verified and adopted on its
+first open, and releasing a stuck tenant never moves a file. Mailed links are
+built on `MEZAN_PUBLIC_URL` or one of the deployment's own tenant subdomains,
+never on a forwarded host.
+
+Timeouts, and the load they were measured at. On a 12-core machine shared with
+other test runs, at a 1-minute load average of 6 to 39 (nine full runs on
+2026-10-11, three of them alongside `pnpm build`s of this repo): a
+screen-walk test took 15 to 34 seconds and the slowest other test 17 seconds
+(the 390px console walk in one run, spec 06's first test in another). The main
+API answered `/healthz` 1 second after start with no seed, measured at load 7
+and again at load 10, not at the higher load. Against that: servers get 300
+seconds to boot, a test 120 seconds, a screen-walk test 180, the three clock
+tests of spec 06 240 each, and an `expect` 20 seconds (Playwright's default of
+5 is too short under load). With the demo seed the same boot measured 8
+seconds at load 7: about 7 seconds of single-threaded CPU and 2 of system
+time, with some 10,700 voluntary context switches, which fits a seed that drives
+every demo document through the real routes, each committing on its own (not
+counted). 159
+seconds were reported for it at load 11; this machine did not reproduce that,
+and the suite no longer depends on it. Spec 03's tests do not depend on each other, so the file is no longer
+serial and one failure does not skip the rest; specs 01, 02, 04, 05 and 06
+stay serial because each test continues the one before it.
 
 - **PLT-SAAS-01** — Platform owner signs in.
   **Pre**: `pnpm env:testing:fresh` running. `scripts/env.mjs` seeds the
@@ -8379,6 +8502,8 @@ passes, filing any deviation exactly like the rest of this document.
   **Assert**: Redirects into the console at `/platform/tenants`; the sidebar
   shows المنشآت / الباقات / المشغّلون and "تسجيل الخروج" (`platform.nav.*`);
   the list shows only the seeded demo tenant `demo` (`MEZAN_SEED_DEMO=1`).
+  The automated suite boots without the seed, so there it asserts the paying
+  tenant it provisioned and no code it did not create.
 
 - **PLT-SAAS-02** — Create tenant `cyag` on the business plan with a trial.
   **Pre**: Signed in as the platform owner from PLT-SAAS-01.
@@ -8389,35 +8514,43 @@ passes, filing any deviation exactly like the rest of this document.
   one-time PIN (`ProvisionResultDTO.adminPin`) with a warning that it will
   never be shown again — copy it down for PLT-SAAS-03. Closing the panel
   returns to the list; `cyag` now appears with status "نشطة" and licence
-  "تجريبي" (`platform.subscriptionStatus.trialing`).
+  "تجريبي" (`platform.subscriptionStatus.trialing`) — a trial and a paid
+  period both derive an ACTIVE licence, so the list shows the trial while the
+  licence is active (D-SAAS-09). The tenant's own company name — in its
+  session, in الإعدادات العامة and on a printed document — is the name typed
+  here, not the vendor's (D-SAAS-02).
 
 - **PLT-SAAS-03** — Tenant owner signs in with the company code and the
   one-time PIN.
   **Pre**: Sign out of `/platform` (a separate session from the tenant app);
   open the ordinary login screen.
-  **Steps**: In رمز المنشأة enter `cyag`, wait for the tenant name to resolve;
-  enter the admin email from PLT-SAAS-02 and the PIN it returned.
+  **Steps**: In رمز المنشأة enter `cyag` and leave the field — the screen
+  echoes «الرمز: cyag» and never the company's name; enter the admin email
+  from PLT-SAAS-02 and the PIN it returned.
   **Assert**: Signs in to `cyag`'s own dashboard — a company with none of the
   `demo` tenant's seed data (fresh, empty lists everywhere). The company code
-  persists in `localStorage` (`login.tenantCode`) across a reload.
+  persists in `localStorage` (`mezan.tenantCode`) across a reload. The same
+  PIN and email against the `demo` code are refused with «اسم المستخدم أو رمز
+  PIN غير صحيح.» and open nothing.
 
-- **PLT-SAAS-04** — Business-plan entitlements: HR is licensed nowhere in the
-  API, but not yet hidden from the nav.
+- **PLT-SAAS-04** — Business-plan entitlements: HR and manufacturing are
+  refused by the API, hidden from the nav, and refused in Arabic on the screen.
   **Pre**: Signed in as `cyag`'s owner (PLT-SAAS-03). `cyag`'s plan
   (`BUSINESS_MODULES`, `packages/backend/src/create-platform.ts`) excludes
   `hr` and `manufacturing`.
-  **Steps**: Call `GET /api/hr/employees` (or any `/hr/*` route) with header
-  `x-mezan-tenant: cyag` and the session token — from the browser's network
-  panel, or a direct fetch.
-  **Assert**: 403 `{"error":"MODULE_NOT_LICENSED","module":"hr","message":
-  "وحدة الموارد البشرية غير مفعّلة في باقتكم"}` (`packages/api/src/
-  module-gate.ts`'s `moduleRefusal`). **Note, verified by reading the code**:
-  the sidebar itself does NOT filter by `GET /entitlements`'s modules list —
-  `AppLayout.tsx` fetches `entitlements` but never uses it to hide a nav
-  group, so الموارد البشرية still shows for a business-plan tenant and only
-  403s once clicked. If reproduced live, record this nav-vs-API mismatch as a
-  new defect rather than assuming the spec's "nav shows only business
-  modules" already holds client-side.
+  **Steps**: Call `GET /api/hr/employees` with header `x-mezan-tenant: cyag`
+  and the session token; look at the workspace rail; open `/people/employees`
+  by its address.
+  **Assert**: 403 `MODULE_NOT_LICENSED` with the message «وحدة الموارد البشرية
+  ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.»
+  (`packages/api/src/module-gate.ts`'s `createModuleGate`; a desktop install,
+  which has a licence and no plan, keeps «… غير مُفعّلة في ترخيص هذه النسخة …»). `GET
+  /api/entitlements` lists `sales` and neither `hr` nor `manufacturing`. The
+  rail shows «البيع والتحصيل» and neither «الأشخاص» nor «التصنيع»
+  (`filterNavGroups`, `AppLayout.tsx`). The employees screen shows that same
+  sentence — not the raw code and not a generic load error. No other screen
+  asks this plan for an HR lookup or a contracting report (D-SAAS-03,
+  D-SAAS-04).
 
 - **PLT-SAAS-05** — Operator records a payment; the subscription period
   advances.
@@ -8434,10 +8567,12 @@ passes, filing any deviation exactly like the rest of this document.
 - **PLT-SAAS-06** — Operator suspends `cyag`; writes refuse in Arabic, reads
   still work.
   **Pre**: `cyag` active, from PLT-SAAS-05.
-  **Steps**: On `cyag`'s tenant detail page, click "إيقاف المنشأة". Then, as
-  `cyag`'s owner (company code `cyag`), sign in and try to save any document
-  (e.g. confirm a new sales invoice).
-  **Assert**: Tenant status flips to "موقوفة"; the owner can still sign in
+  **Steps**: On `cyag`'s tenant detail page, click "إيقاف المنشأة" — a
+  confirmation «إيقاف المنشأة؟» opens and nothing is suspended until it is
+  confirmed (D-SAAS-10); confirm it. Then, as `cyag`'s owner (company code
+  `cyag`), sign in and try to save any document (e.g. a new sales invoice).
+  **Assert**: Tenant status flips to "موقوفة"; the tenant app shows the banner
+  «الترخيص غير فعّال — وضع القراءة فقط»; the owner can still sign in
   and the tenant's lists still load — the tenant router still dispatches a
   suspended tenant (`apps/server/src/tenant-router.ts`, §1.2 of the spec); the
   write is refused with 403 `LICENSE_READ_ONLY` and the Arabic message
@@ -8466,11 +8601,15 @@ passes, filing any deviation exactly like the rest of this document.
   so `MEZAN_TENANT_DOMAIN=localhost` and `http://demo.localhost:4103` also work.
   **Steps**: Open `http://cyag.mezan.test:4103`.
   **Assert**: `GET /platform/resolve` answers
-  `{"mode":"subdomain","tenant":{"code":"cyag",...}}`; the login screen
-  renders with NO رمز المنشأة field at all (`LoginScreen.tsx`'s
-  `tenantMode === "subdomain"` branch hides it); signing in with the admin
-  email and PIN reaches `cyag` directly, the same as PLT-SAAS-03 but without
-  typing the code.
+  `{"mode":"subdomain","exists":true}` — mode and existence only, never the
+  tenant's code or name; the login screen renders with NO رمز المنشأة field at
+  all (`LoginScreen.tsx`'s `tenantMode === "subdomain"` branch hides it) and no
+  company name; signing in with the admin email and PIN reaches `cyag`
+  directly, the same as PLT-SAAS-03 but without typing the code. No response
+  before sign-in carries the company's name: `GET /api/tenant` answers
+  `{"name":"Mezan"}` for any claimed tenant, before and after its owner
+  renames the company in الإعدادات العامة (D-SAAS-07). A subdomain decides the
+  tenant whatever `x-mezan-tenant` header is sent with it.
 
 ---
 
@@ -8488,6 +8627,65 @@ passes, filing any deviation exactly like the rest of this document.
 | PLT-SAAS-08 | pass at the API | Second instance with `MEZAN_TENANT_DOMAIN=localhost` on :4103: `/api/platform/resolve` with host `demo.localhost` → subdomain mode and tenant `demo`; `POST /api/auth/login` with that host and no header succeeded and `GET /api/customers` returned 27 rows; without the host the same login answered 400 `TENANT_REQUIRED`. The code-field-hidden branch is covered by `LoginScreen.test.tsx`; the Chrome extension refuses `*.localhost` navigation, so the screen itself was not driven. |
 
 Found by the final code review the same day and fixed: cached tenant answers and the remembered-users list survived a sign-out and a code switch (cross-tenant leak in one browser); the CloudFront origin secret was never set; a failed provisioning could not be retried from the console.
+
+### Run record — 2026-10-11, `pnpm test:saas` on :3321/:5321 and :3322/:5322, Chromium
+
+Automated, Arabic, light theme, desktop unless the screen walk says otherwise.
+Run three times in a row on the final tree: 59 passed, 0 parked, 0 failed, 0
+skipped each time — 4.3 minutes at a load average rising from 6 to 23, 5.7
+minutes at 24 to 39 with two `pnpm build`s of this repo finishing beside it,
+and 5.3 minutes at 35 to 39. Six earlier runs the same day, at loads of 12 to
+39 and two of them beside four builds, were also green (58 of 58 before the
+owner-PIN test existed, 59 of 59 after). Specs 01, 03 and 04 with
+`--repeat-each=2`: 58 passed.
+
+| ID | Result | What the suite asserts |
+|---|---|---|
+| PLT-SAAS-01 | pass | Owner signs in; the rail shows its three links; the list holds the paying tenant the suite provisioned and no code it did not create; a wrong password answers «بيانات الدخول غير صحيحة» and stores no session. |
+| PLT-SAAS-02 | pass | Tenant created on business with a trial; PIN shown once and gone after a reload; the list marks it «تجريبي» and does not mark the paying tenant so; a second tenant on the same code answers 409 «رمز المنشأة "…" مستخدم بالفعل» and creates nothing. |
+| PLT-SAAS-03 | pass | Code, email and PIN reach an empty tenant; the code survives a reload; the same PIN against the paying tenant answers 401 «اسم المستخدم أو رمز PIN غير صحيح.». |
+| PLT-SAAS-04 | pass | 403 `MODULE_NOT_LICENSED` with its exact sentence; the rail hides «الأشخاص» and «التصنيع»; the screen shows the same sentence. |
+| PLT-SAAS-05 | pass | One payment recorded; status becomes «نشط»; the period end moves from 2027-02-28 to 2027-03-28, same time of day, on the server and on screen; a payment with no amount is refused on the form. |
+| PLT-SAAS-06 | pass | Suspend asks first; then `POST /customers` and `POST /sales-invoices` answer 403 `LICENSE_READ_ONLY` with the exact sentence, reads answer 200, the tenant app shows the read-only banner and refuses a customer on screen; resume restores writing. |
+| PLT-SAAS-07 | pass | A's customer is absent from B on screen and by API; B's token with A's header, A's subdomain with B's header and token, a tenant token on `/api/platform/*`, a platform token on the tenant API and A's record by id from B are all refused; the two database files exist on disk and A's customer is in A's only. |
+| PLT-SAAS-08 | pass | Resolve answers mode and existence only; code mode and subdomain mode carry no company name in any response before sign-in; `GET /api/tenant` answers the placeholder before and after a rename; a shared device opens neutral and keeps a company confirmed this visit. |
+
+Beyond the eight: signup to first sign-in, with the company name in the
+session, in settings and on a printed invoice; a forged success callback for a
+real pending checkout answers 401 `INVALID_SIGNATURE`, pays nothing and renews
+nothing; the day after a trial the tenant is on Free with HR read-only; the
+invoice screen refuses the 101st invoice of the month with the plan's own
+sentence; a paid period left unpaid is marked past due and keeps writing
+through its seven days of grace, is read-only after them, and is restored by a
+recorded payment.
+
+Nothing is parked. D-SAAS-06 is guarded: on a sign-in screen with no company
+code the app asks for `/api/platform/resolve` only, and asks for
+`/api/bootstrap/status` and `/api/entitlements` once a code is confirmed.
+D-SAAS-12 is guarded: at 390px the console's rail is a top bar the width of the
+viewport with its three links and «تسجيل الخروج» in view, the page sits under
+it at the same width, no console page scrolls sideways, and the bar's links
+and a tenant's «عرض» still navigate; the screen walk now takes the console
+through all four phone looks as well.
+
+Also guarded since 2026-10-11: a forged verification link shows the server's
+«رابط التفعيل غير صالح»; the signup form caps the company name at 200
+characters; the platform owner resets a tenant owner's PIN from the tenant
+page — asked first, the new PIN shown once and gone after a reload, the old
+PIN answers 401 and the new one signs in.
+
+### Run record — 2026-10-11 (second), `pnpm test:saas` on :3321–:3323 / :5321–:5323, Chromium
+
+Run three times in a row on `c60a5ed0`: 65 passed, 0 parked, 0 failed, 0
+skipped each time — 5.7 minutes at a load average of 21 falling to 11, 4.3
+minutes at 11 falling to 8, and 4.8 minutes at 8. Afterwards none of the six
+ports answered, no server process of the suite was alive and no
+`mezan-saas-e2e-*` directory remained.
+
+The six tests added since the 59: the per-address signup limit (spec 04) and
+the five of spec 08. PLT-SAAS-05 now asserts a renewed period that ends
+2027-03-31. The suite's server log is kept as its last 4,000 characters
+rather than whole.
 
 # 12. Shell, dashboard and reports
 

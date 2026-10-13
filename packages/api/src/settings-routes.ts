@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import {
   createDefaultSettings,
+  displaySettingsOf,
   updateSettings,
   InvalidSettingsError,
   type AuditSink,
@@ -8,7 +9,7 @@ import {
   type TenantSettings,
 } from "@mezan/domain";
 import { updateTenantSettingsSchema, sendTestEmailSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { createAuthenticatedGate, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
 import { sendTestEmail } from "./smtp-client.js";
 import { changedKeys, changedKeysAsFieldChanges, recordAdminEvent } from "./admin-audit.js";
 
@@ -60,6 +61,10 @@ export function createSettingsRoutes(
   app.get("/", gate("admin.settings.view"), async (c) => {
     const existing = await store.get();
     return c.json(maskSecrets(existing ?? createDefaultSettings()));
+  });
+
+  app.get("/display", createAuthenticatedGate(resolveAuthContext), async (c) => {
+    return c.json(displaySettingsOf((await store.get()) ?? createDefaultSettings()));
   });
 
   app.get("/currencies", gate("admin.settings.view"), async (c) => {

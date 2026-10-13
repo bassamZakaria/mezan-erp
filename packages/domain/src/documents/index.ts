@@ -70,6 +70,8 @@ export {
   DocumentNotFoundError,
   DuplicateDocumentError,
   MissingHookError,
+  StockPlanDateRequiredError,
+  ReversalNotReversibleError,
   InvalidDocumentError,
   DocumentChangedError,
   DocumentReversalRefusedError,
@@ -108,3 +110,5 @@ export {
   type ReturnDocumentLine,
   type ReturnSourceInvoice,
 } from "./return-availability.js";
+
+export { ledgerPresenceAsOf, reversalChainPresenceAsOf, type LedgerPresenceInput } from "./as-of.js";

@@ -5,6 +5,8 @@ import {
   createDefaultSettings,
   tenantAgingPolicy,
   postWritedownRun,
+  reverseWritedownRun,
+  WritedownRunNotPostedError,
   WritedownRunNotFoundError,
   WritedownRunNotDraftError,
   DuplicateWritedownPeriodError,
@@ -15,8 +17,9 @@ import {
   type SettingsRepository,
 } from "@mezan/domain";
 import type { WacSnapshotRepository, StockLedgerRepository } from "@mezan/domain";
-import { createWritedownRunSchema } from "@mezan/contracts";
-import { createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
+import { ReversalPermission, createWritedownRunSchema } from "@mezan/contracts";
+import { createPermissionGate, getAuthContext, type AuthContextResolver } from "./permission-gate.js";
+import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 
 /**
@@ -69,6 +72,11 @@ function serializeRun(run: WritedownRun) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const reversalRefusal = reversalRefusalResponse(c, err);
+  if (reversalRefusal) return reversalRefusal;
+  if (err instanceof WritedownRunNotPostedError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  }
   if (err instanceof WritedownRunNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -142,6 +150,20 @@ export function createInventoryWritedownRoutes(
         gl: deps.gl,
         accounts: deps.accounts,
       });
+      return c.json(serializeRun(run));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/reverse", gate(ReversalPermission.WritedownRun), requireReversalReason, async (c) => {
+    try {
+      const { date, memo } = await readReversalRequest(c);
+      const run = await reverseWritedownRun(
+        c.req.param("id"),
+        { runs: deps.runs, gl: { ...deps.gl, actor: getAuthContext(c)?.userId ?? "system" } },
+        { reversalId: idGen(), date, memo },
+      );
       return c.json(serializeRun(run));
     } catch (err) {
       return handleDomainError(c, err);

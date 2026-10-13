@@ -1,7 +1,23 @@
-import { sessionSchema, type SessionDTO } from "@mezan/contracts";
-import { resolvePermissions } from "@mezan/domain";
+import { OwnerHandOverOutcome, sessionSchema, type SessionDTO } from "@mezan/contracts";
+import { ALL_SCOPE, SHELL_REQUESTS, can, createAuthContext, type AuthContext, type ShellRequest } from "@mezan/domain";
 
 export type Session = SessionDTO;
+
+const grants = new WeakMap<Session, AuthContext>();
+
+export function sessionHolds(session: Session | null, permission: string): boolean {
+  if (!session) return false;
+  let grant = grants.get(session);
+  if (!grant) {
+    grant = createAuthContext({ userId: session.userId, permissions: session.permissions, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    grants.set(session, grant);
+  }
+  return can(grant, permission);
+}
+
+export function sessionMayAsk(session: Session | null, request: ShellRequest): boolean {
+  return sessionHolds(session, SHELL_REQUESTS[request].permission);
+}
 
 const SESSION_STORAGE_KEY = "mezan.session";
 
@@ -89,6 +105,26 @@ export function clearSessionExpired(): void {
   getTabStorage()?.removeItem(SESSION_EXPIRED_KEY);
 }
 
+const OWNER_HAND_OVER_KEY = "mezan.ownerHandOver";
+const UNSETTLED_HAND_OVERS: readonly OwnerHandOverOutcome[] = [OwnerHandOverOutcome.Pending, OwnerHandOverOutcome.PendingUnmailed, OwnerHandOverOutcome.Failed];
+
+// REQUIRED ORDERING: written by the screen that asked for the hand-over, read by
+// the sign-in screen. Stepping down ends the owner's session in the same
+// request, so a notice kept only on the Users page is never seen.
+export function markOwnerHandOver(outcome: OwnerHandOverOutcome): void {
+  if (UNSETTLED_HAND_OVERS.includes(outcome)) getTabStorage()?.setItem(OWNER_HAND_OVER_KEY, outcome);
+  else clearOwnerHandOver();
+}
+
+export function pendingOwnerHandOver(): OwnerHandOverOutcome | null {
+  const stored = getTabStorage()?.getItem(OWNER_HAND_OVER_KEY);
+  return UNSETTLED_HAND_OVERS.find((outcome) => outcome === stored) ?? null;
+}
+
+export function clearOwnerHandOver(): void {
+  getTabStorage()?.removeItem(OWNER_HAND_OVER_KEY);
+}
+
 export const NO_SCOPE_SELECTION: ScopeSelection = { branchId: null, warehouseId: null };
 
 const SCOPE_SELECTION_STORAGE_KEY = "mezan.scopeSelection";
@@ -126,10 +162,24 @@ const TENANT_CODE_STORAGE_KEY = "mezan.tenantCode";
  * it. Stripping to the header-safe slug alphabet here is what keeps that
  * failure from ever reaching `authHeaders`.
  */
+const tenantCodeListeners = new Set<() => void>();
+
+export function subscribeTenantCode(listener: () => void): () => void {
+  tenantCodeListeners.add(listener);
+  return () => {
+    tenantCodeListeners.delete(listener);
+  };
+}
+
+function tenantCodeChanged(): void {
+  for (const listener of [...tenantCodeListeners]) listener();
+}
+
 export function persistTenantCode(code: string): void {
   const storage = getSessionStorage();
   if (!storage) return;
   storage.setItem(TENANT_CODE_STORAGE_KEY, code.trim().toLowerCase().replace(/[^a-z0-9-]/g, ""));
+  tenantCodeChanged();
 }
 
 export function loadTenantCode(): string | null {
@@ -142,6 +192,31 @@ export function clearTenantCode(): void {
   const storage = getSessionStorage();
   if (!storage) return;
   storage.removeItem(TENANT_CODE_STORAGE_KEY);
+  tenantCodeChanged();
+}
+
+const TENANT_CODE_CONFIRMED_KEY = "mezan.tenantCodeConfirmed";
+// INVARIANT: not a secret, only a name for this page load. `crypto.randomUUID` is absent on
+// the plain-http LAN origin a till runs on, and would stop the app loading there.
+const PAGE_LOAD_ID = `${Date.now()}:${Math.random()}`;
+
+export function markTenantCodeConfirmed(code: string): void {
+  getTabStorage()?.setItem(TENANT_CODE_CONFIRMED_KEY, JSON.stringify({ code, load: PAGE_LOAD_ID }));
+}
+
+export function clearTenantCodeConfirmed(): void {
+  getTabStorage()?.removeItem(TENANT_CODE_CONFIRMED_KEY);
+}
+
+export function tenantCodeConfirmedThisVisit(): boolean {
+  const raw = getTabStorage()?.getItem(TENANT_CODE_CONFIRMED_KEY) ?? null;
+  if (raw === null) return false;
+  try {
+    const confirmed = JSON.parse(raw) as { code?: unknown; load?: unknown };
+    return confirmed.load === PAGE_LOAD_ID && confirmed.code === loadTenantCode();
+  } catch {
+    return false;
+  }
 }
 
 const TENANT_CODE_BY_EMAIL_STORAGE_KEY = "mezan.tenantCodeByEmail";
@@ -189,6 +264,14 @@ export function tenantCodeForEmail(email: string): string | null {
   const key = normalizeEmail(email);
   if (key === "") return null;
   return readTenantCodeByEmail()[key] ?? null;
+}
+
+export function deviceSharedAcrossTenants(): boolean {
+  return new Set(Object.values(readTenantCodeByEmail())).size > 1;
+}
+
+export function tenantCodeIsLeftover(): boolean {
+  return loadTenantCode() !== null && deviceSharedAcrossTenants() && !tenantCodeConfirmedThisVisit();
 }
 
 export function rememberTenantCodeForEmail(email: string, code: string): void {
@@ -262,35 +345,4 @@ export function authHeaders(session: Session | null, selection?: ScopeSelection)
     "x-branch-scope": branchScope,
     "x-warehouse-scope": warehouseScope,
   };
-}
-
-const EVERY_PERMISSION = "*";
-
-export enum ReadPermission {
-  Branches = "admin.branches.view",
-  Warehouses = "admin.warehouses.view",
-  Settings = "admin.settings.view",
-  Roles = "admin.roles.view",
-  Users = "admin.users.view",
-  JobTitles = "hr.job_title.view",
-  Employees = "hr.employee.view",
-}
-
-const resolvedBySession = new WeakMap<readonly string[], ReadonlySet<string>>();
-
-/**
- * Whether the session holds a permission, by the SAME dependency table the
- * server resolves a grant with (`resolvePermissions`). An exact match on the
- * raw grant left a query disabled for a role that holds its read only through
- * a dependency, while the server would have answered it.
- */
-export function sessionHolds(session: Session | null, permission: string): boolean {
-  if (session === null) return false;
-  if (session.permissions.includes(EVERY_PERMISSION)) return true;
-  let resolved = resolvedBySession.get(session.permissions);
-  if (!resolved) {
-    resolved = resolvePermissions(session.permissions);
-    resolvedBySession.set(session.permissions, resolved);
-  }
-  return resolved.has(permission);
 }

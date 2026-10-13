@@ -197,6 +197,7 @@ export function createPurchaseReturnDocumentType(
         sourceDocId: doc.id,
         sourceDocNumber: doc.docNo,
         warehouseId: first.warehouseId,
+        date: doc.date,
         lines: doc.lines.map((l) => ({ itemId: l.itemId, direction: "OUT" as const, qty: l.qty })),
       };
     },

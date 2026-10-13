@@ -1,4 +1,4 @@
-import { postingRefusal } from "./posting-refusal.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import type { Context } from "hono";
 import {
   InactiveTaxRateError,
@@ -75,7 +75,7 @@ export function taxClassificationRefusal(c: Context, err: unknown): Response | n
   if (err instanceof JournalTaxTagUnsupportedError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
-  const postingRefused = postingRefusal(c, err);
+  const postingRefused = postingRefusalResponse(c, err);
   if (postingRefused) return postingRefused;
   if (err instanceof TaxClassificationReturnFiledError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, returnNumber: err.returnNumber }, 422);

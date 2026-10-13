@@ -1,10 +1,13 @@
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { ownerPinResetResultSchema } from "@mezan/contracts";
 import type {
   CardCheckoutDTO,
   PlatformCardCheckoutsDTO,
   ChangePlanRequestDTO,
   CreateTenantRequestDTO,
   PlanDTO,
+  OwnerCandidateDTO,
+  OwnerPinResetResultDTO,
   ProvisionResultDTO,
   ProvisionRetryRequestDTO,
   RecordPaymentRequestDTO,
@@ -112,6 +115,62 @@ export function useRetryProvisionMutation() {
   });
 }
 
+export enum OwnerPinResetPhase {
+  Idle = "idle",
+  Pending = "pending",
+  Issued = "issued",
+}
+
+export interface OwnerPinReset {
+  readonly phase: OwnerPinResetPhase;
+  readonly issued: OwnerPinResetResultDTO | null;
+  reset(handlers: { onError: (err: PlatformApiError) => void }): void;
+  acknowledge(): void;
+}
+
+const ownerPinResetKey = (operatorId: string, tenantId: string) => ["platform", "ownerPinReset", operatorId, tenantId] as const;
+
+export function useOwnerPinReset(tenantId: string): OwnerPinReset {
+  const { t } = useAppTranslation();
+  const { request, session } = usePlatformApi();
+  const queryClient = useQueryClient();
+  const mutationKey = ownerPinResetKey(session?.user.id ?? "", tenantId);
+  const mutation = useMutation<OwnerPinResetResultDTO, PlatformApiError, void>({
+    mutationKey,
+    gcTime: Infinity,
+    mutationFn: async () => {
+      const res = await request(`/tenants/${tenantId}/owner-pin/reset`, { method: "POST" });
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.resetOwnerPin.error.generic"));
+      return res.json<OwnerPinResetResultDTO>();
+    },
+  });
+  const latest = useMutationState({
+    filters: { mutationKey, exact: true },
+    select: (entry) => ({ status: entry.state.status, data: entry.state.data }),
+  }).at(-1);
+  const pending = latest?.status === "pending";
+  const parsed = latest?.status === "success" ? ownerPinResetResultSchema.safeParse(latest.data) : null;
+  const issued = parsed?.success ? parsed.data : null;
+
+  const forget = () => {
+    const cache = queryClient.getMutationCache();
+    for (const entry of cache.findAll({ mutationKey, exact: true })) {
+      if (entry.state.status !== "pending") cache.remove(entry);
+    }
+  };
+
+  return {
+    phase: pending ? OwnerPinResetPhase.Pending : issued ? OwnerPinResetPhase.Issued : OwnerPinResetPhase.Idle,
+    issued,
+    reset: ({ onError }) => {
+      if (pending) return;
+      forget();
+      mutation.mutate(undefined, { onError });
+    },
+    acknowledge: forget,
+  };
+}
+
 export function useSuspendTenantMutation() {
   return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/suspend`, () => undefined, "platform.tenantDetail.suspend");
 }
@@ -122,6 +181,52 @@ export function useResumeTenantMutation() {
 
 export function useArchiveTenantMutation() {
   return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/archive`, () => undefined, "platform.tenantDetail.archive");
+}
+
+export function useReleaseTenantMutation() {
+  return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/release`, () => undefined, "platform.tenantDetail.release");
+}
+
+export function useOwnerCandidates(tenantId: string, enabled: boolean) {
+  const { t } = useAppTranslation();
+  const { request } = usePlatformApi();
+  return useQuery<OwnerCandidateDTO[], PlatformApiError>({
+    queryKey: ["platform", "tenants", tenantId, "ownerCandidates"],
+    enabled,
+    queryFn: async () => {
+      const res = await request(`/tenants/${tenantId}/owner/candidates`);
+      if (!res.ok) throw new PlatformApiError(res.status, await readPlatformErrorMessage(res, t, "platform.tenantDetail.owner.loadFailed"));
+      return res.json<OwnerCandidateDTO[]>();
+    },
+  });
+}
+
+export function useAssignOwnerMutation() {
+  return useSummaryMutation<{ tenantId: string; userId: string }>(
+    ({ tenantId }) => `/tenants/${tenantId}/owner`,
+    ({ userId }) => ({ userId }),
+    "platform.tenantDetail.owner.assignFailed",
+  );
+}
+
+export function useConfirmPendingOwnerMutation() {
+  return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/owner/confirm`, () => undefined, "platform.tenantDetail.owner.confirmFailed");
+}
+
+export function useDeclinePendingOwnerMutation() {
+  return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/owner/decline`, () => undefined, "platform.tenantDetail.owner.declineFailed");
+}
+
+export function useResendPendingOwnerMutation() {
+  return useSummaryMutation<string>((tenantId) => `/tenants/${tenantId}/owner/resend`, () => undefined, "platform.tenantDetail.owner.resendFailed");
+}
+
+export function useSetBillingAnchorDayMutation() {
+  return useSummaryMutation<{ tenantId: string; day: number }>(
+    ({ tenantId }) => `/tenants/${tenantId}/subscription/anchor-day`,
+    ({ day }) => ({ day }),
+    "platform.tenantDetail.anchorDay.save",
+  );
 }
 
 export function useChangePlanMutation() {

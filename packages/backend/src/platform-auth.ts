@@ -32,7 +32,7 @@ export interface PlatformAuthDeps {
 
 export interface PlatformAuth {
   readonly app: Hono;
-  readonly requirePlatform: (role?: PlatformRole) => MiddlewareHandler;
+  readonly requirePlatform: (role?: PlatformRole, onRefused?: (c: Context, user: { id: string; role: PlatformRole }) => Promise<void>) => MiddlewareHandler;
 }
 
 function lockedOut(c: Context, seconds: number) {
@@ -67,13 +67,14 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
     return null;
   }
 
-  function requirePlatform(role?: PlatformRole): MiddlewareHandler {
+  function requirePlatform(role?: PlatformRole, onRefused?: (c: Context, user: { id: string; role: PlatformRole }) => Promise<void>): MiddlewareHandler {
     return async (c, next) => {
       const token = readSessionToken(c);
       const grant = token ? sessions.find(token, requestOrigin(c)) : null;
       const userRole = grant ? roleOf(grant.roleCode) : null;
       if (!grant || !userRole) return c.json({ error: "UNAUTHENTICATED" }, 401);
       if (role && userRole !== role) {
+        await onRefused?.(c, { id: grant.userId, role: userRole });
         return c.json({ error: "OWNER_ONLY", message: "هذا الإجراء لمالك المنصة فقط" }, 403);
       }
       c.set("platformUser", { id: grant.userId, role: userRole });

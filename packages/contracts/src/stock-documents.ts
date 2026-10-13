@@ -61,6 +61,8 @@ export const stockAdjustmentDocumentSchema = z.object({
   workflowRequestId: z.string().nullable().optional(),
   approval: documentApprovalSchema.nullable().optional(),
   journalEntryId: z.string().nullable(),
+  reversesDocId: z.string().nullish(),
+  reversedByDocId: z.string().nullish(),
   projectId: z.string().nullish(),
   costCategory: costCategorySchema.nullish(),
 });

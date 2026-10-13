@@ -47,7 +47,7 @@ import {
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { errorMessage } from "../lib/error-message";
 import { JournalEntryPrintPage } from "../print/documents";
-import { useSubPage } from "../navigation";
+import { useNameSubPage, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { useEntityName } from "../lib/entity-names";
@@ -278,6 +278,7 @@ export function JournalsScreen() {
   const needsFetch = Boolean(selectedId) && selectedId !== "new" && onPage === null && !query.isLoading;
   const single = useJournalEntry(needsFetch && selectedId ? selectedId : null);
   const selected = onPage ?? (needsFetch ? (single.data ?? null) : null);
+  useNameSubPage(selectedId && selectedId !== "new" ? selectedId : null, selected ? (selected.entryNo ?? t("docStatus.draft")) : null);
 
   const columns: DocumentListColumn<JournalDoc>[] = [
     {
@@ -431,7 +432,7 @@ export function JournalsScreen() {
           subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} tone={selected.status === "reversed" ? "danger" : "brand"} />}
           actions={
             <>
-              {selected.status === "posted" ? (
+              {selected.status === "posted" && selected.reversibleFromJournal !== false ? (
                 <Button
                   variant="danger-outline"
                   disabled={pendingId === selected.id}
@@ -689,7 +690,7 @@ export function JournalsScreen() {
             // dedicated button opens the date-picking dialog below instead,
             // since embedding a live date field in the row menu's frozen
             // `pending` snapshot would not stay editable.
-            ...(d.status === "posted"
+            ...(d.status === "posted" && d.reversibleFromJournal !== false
               ? [{ key: "reverse", label: t("journals.reverseEntry"), tone: "danger" as const, disabled: pendingId === d.id, onSelect: () => void reverseEntry(d, todayIso()) }]
               : []),
             ...(d.status === "draft"

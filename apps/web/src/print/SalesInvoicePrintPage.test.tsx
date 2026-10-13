@@ -67,7 +67,7 @@ function baseInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO 
 function baseTransport(settingsOverrides: Record<string, unknown> = {}) {
   return stubTransport({
     "GET /print-template-config": () => ({ body: DEFAULT_PRINT_TEMPLATE_CONFIG }),
-    "GET /print-template-config/letterhead": () => ({
+    "GET /settings/display": () => ({
       body: {
         companyName: "شركة سايج",
         address: "القاهرة الجديدة",
@@ -91,7 +91,7 @@ describe("SalesInvoicePrintPage", () => {
   it("shows the empty-state notice when no print template config is available", async () => {
     const transport = stubTransport({
       "GET /print-template-config": () => ({ status: 404, body: {} }),
-      "GET /print-template-config/letterhead": () => ({ body: {} }),
+      "GET /settings/display": () => ({ body: {} }),
       "GET /sales-invoices/*/print-context": () => ({ body: { branchName: null, warehouseName: null, customer: null, etaUuid: null, etaQrValue: null } }),
     });
     renderWithProviders(<SalesInvoicePrintPage invoice={baseInvoice()} />, { transport, initialSession: testAdminSession });
@@ -126,5 +126,18 @@ describe("SalesInvoicePrintPage", () => {
     expect(await screen.findByText("999-888-777", { exact: false })).toBeInTheDocument();
     expect(await screen.findByText("ETA-UUID-1", { exact: false })).toBeInTheDocument();
     expect(asked.filter((path) => /^\/(settings|customers|branches|warehouses|eta\/submissions)/.test(path))).toEqual([]);
+  });
+
+  it("a role that may not read the settings still prints the company's name, address and tax number on the invoice", async () => {
+    const base = baseTransport();
+    const transport: typeof base = (path, init) =>
+      path.split("?")[0] === "/settings"
+        ? Promise.resolve({ status: 403, ok: false, json: <T,>() => Promise.resolve({ error: "PERMISSION_DENIED" } as T), text: () => Promise.resolve("{}") })
+        : base(path, init);
+    const restricted = { ...testAdminSession, userId: "USER-CASHIER", isCompanyAdmin: false, roleCode: "CASHIER", permissions: ["sales.invoice.view_own", "sales.invoice.print"] };
+    renderWithProviders(<SalesInvoicePrintPage invoice={baseInvoice()} />, { transport, initialSession: restricted });
+    expect((await screen.findAllByText(/شركة سايج/)).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/123-456-789/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/اسم الشركة غير|الرقم الضريبي غير/)).not.toBeInTheDocument();
   });
 });

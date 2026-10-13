@@ -111,6 +111,20 @@ describe("previewHistoricalSalesImport", () => {
     expect(preview.groups[0]?.documentNumber).toBe("INV-OK");
   });
 
+  it("one document number under two parties in a batch is reported on each and neither is taken", () => {
+    const rows: HistoricalSalesImportRowInput[] = [
+      row({ rowNumber: 1, documentNumber: "DUP-1", customerId: "party-1" }),
+      row({ rowNumber: 2, documentNumber: "DUP-1", customerId: "party-2" }),
+      row({ rowNumber: 3, documentNumber: "OK-1", customerId: "party-2" }),
+    ];
+    const preview = previewHistoricalSalesImport(rows);
+    expect(preview.groups.map((g) => g.documentNumber)).toEqual(["OK-1"]);
+    expect(preview.errors).toEqual([
+      { rowNumber: 1, reasons: ['رقم المستند "DUP-1" مكرر في الملف لأكثر من عميل (الصفوف 1، 2). رقم المستند لا يتكرر داخل النوع الواحد.'] },
+      { rowNumber: 2, reasons: ['رقم المستند "DUP-1" مكرر في الملف لأكثر من عميل (الصفوف 1، 2). رقم المستند لا يتكرر داخل النوع الواحد.'] },
+    ]);
+  });
+
   it("drops a whole group when its rows disagree on date/due date", () => {
     const rows: HistoricalSalesImportRowInput[] = [
       row({ rowNumber: 1, date: "2026-01-15" }),
@@ -165,6 +179,20 @@ describe("importHistoricalSalesDocuments", () => {
     expect(posting.lines[0]?.credit.toString()).toBe("0.000000");
     expect(posting.lines[1]?.debit.toString()).toBe("0.000000");
     expect(posting.lines[1]?.credit.toString()).toBe("60.000000");
+  });
+
+  it("archives nothing when the opening entry is refused — a document dated into a closed month is not left owed with no entry behind it", async () => {
+    const archives = new InMemoryArchives();
+    const gl = {
+      async post(): Promise<never> {
+        throw new Error("PERIOD_NOT_OPEN_FOR_POSTING");
+      },
+    };
+    const rows: HistoricalSalesImportRowInput[] = [
+      row({ rowNumber: 1, docType: "SALES_INVOICE", unitCost: Money.fromMajor("100.00"), amountPaid: Money.fromMajor("40.00") }),
+    ];
+    await expect(importHistoricalSalesDocuments({ importBatchId: "batch-1", rows }, { archives, gl, accounts: ACCOUNTS, now })).rejects.toThrow("PERIOD_NOT_OPEN_FOR_POSTING");
+    expect(await archives.list()).toEqual([]);
   });
 
   it("posts the mirrored direction for an unsettled SALES_RETURN", async () => {

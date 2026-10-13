@@ -138,6 +138,22 @@ describe("Purchase Return — de-stock + GL", () => {
     expect(totalDebit.equals(totalCredit)).toBe(true);
   });
 
+  it("stamps the de-stock movement with the return's own date, not the wall clock", async () => {
+    const { service, stockService } = harness();
+    await stockService.postAdjustment({
+      adjustmentId: "SEED",
+      warehouseId: "WH1",
+      reason: "INITIAL_STOCK",
+      occurredAt: "2026-08-01T00:00:00.000Z",
+      lines: [{ itemId: "ITEM1", direction: "IN", qty: Qty.fromMajor("5"), unitCost: Money.fromMajor("40") }],
+    });
+
+    await service.createDraft({ id: "PRT-DATED", date: "2026-08-05", memo: "", lines: [line()] });
+    await service.confirm("PRT-DATED");
+
+    expect((await stockService.getMovementsOfDocument("PRT-DATED")).map((m) => m.occurredAt)).toEqual(["2026-08-05T00:00:00.000Z"]);
+  });
+
   it("blocks over-return via NegativeStockError when returning more than is on hand", async () => {
     const { service } = harness();
     await service.createDraft({

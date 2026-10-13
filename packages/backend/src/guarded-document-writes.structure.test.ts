@@ -83,8 +83,6 @@ const RUNS_IN_CALLERS_TRANSACTION: Readonly<Record<string, string>> = {
   stampFxRate: "VoucherService.confirmVoucher's stamping transaction, which re-read the voucher",
   carry: "the invoice classification's transaction (classifyLineTax / classifyPurchaseInvoiceLineTax)",
 };
-// Owned by branch fix/w1a-period-close (partial invoicing); converges after that merge.
-const RESERVED_FOR_ANOTHER_LANE = new Set(["confirmPurchaseInvoice"]);
 
 function enclosing(node: ts.Node, source: ts.SourceFile): { name: string; transaction: ts.Node | null } {
   let transaction: ts.Node | null = null;
@@ -127,8 +125,7 @@ function unguardedStateChanges(file: string, text: string = readFileSync(join(PA
         const exempt =
           (storeWrite && WRITE_HELPERS.has(name)) ||
           (CREATES.has(name) && (method === "save" || method === "create")) ||
-          name in RUNS_IN_CALLERS_TRANSACTION ||
-          RESERVED_FOR_ANOTHER_LANE.has(name);
+          name in RUNS_IN_CALLERS_TRANSACTION;
         if (!exempt && !(transaction && readsBefore(transaction, node, source))) {
           const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
           found.push(`${file}:${line + 1} ${name} → ${receiver}.${method}(…) ${transaction ? "reads nothing in its transaction first" : "is outside a transaction"}`);

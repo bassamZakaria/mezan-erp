@@ -5,6 +5,9 @@ import { ApiError } from "../data/hooks";
 import { usePostProvision, useProvisionPreview, type HrProvisionKindDTO } from "../data/hr-payroll-hooks";
 import { useAppTranslation } from "../i18n";
 import { useConfirmAction } from "../lib/use-confirm-action";
+import { ReversalDocumentType } from "@mezan/contracts";
+import { ReverseDocumentAction } from "../reversal/ReverseDocumentAction";
+import { useHrProvisionPostings } from "../reversal/posted-runs-hooks";
 
 /**
  * ترحيل مخصص الإجازات — puts the payable-leave obligation into the books. It
@@ -16,6 +19,7 @@ function ProvisionRow({ kind, asOfDate }: { kind: HrProvisionKindDTO; asOfDate: 
   const { t } = useAppTranslation();
   const preview = useProvisionPreview(kind, asOfDate);
   const post = usePostProvision();
+  const postings = useHrProvisionPostings(kind);
   const confirm = useConfirmAction();
   const [error, setError] = useState<string | null>(null);
   const [posted, setPosted] = useState<string | null>(null);
@@ -86,6 +90,31 @@ function ProvisionRow({ kind, asOfDate }: { kind: HrProvisionKindDTO; asOfDate: 
       {error ? (
         <div role="alert" className="mt-[8px] rounded-md border border-danger bg-danger-soft px-[10px] py-[8px] text-[12px] text-danger-ink">
           {error}
+        </div>
+      ) : null}
+      {postings.data && postings.data.length > 0 ? (
+        <div className="mt-[12px]">
+          <h4 className="text-[12px] font-bold text-ink-muted">{t("reversal.provisionPostings.title")}</h4>
+          <ul className="mt-[6px] flex flex-col gap-[6px]">
+            {postings.data.map((posting) => (
+              <li key={posting.journalEntryId} className="flex flex-wrap items-center justify-between gap-[10px] rounded-md border border-border px-[10px] py-[8px] text-[12px]">
+                <span className="flex flex-wrap items-center gap-x-[12px] gap-y-[2px]">
+                  <span className="mz-num font-semibold text-ink">{posting.asOfDate}</span>
+                  <span className="mz-num text-ink-muted">{posting.journalEntryNo ?? posting.journalEntryId}</span>
+                  <MoneyDisplay value={posting.movement} />
+                  {posting.reversalEntryId ? (
+                    <span className="text-ink-faint">{t("reversal.reversedBy", { entry: posting.reversalEntryNo ?? posting.reversalEntryId, date: posting.reversalDate ?? "" })}</span>
+                  ) : null}
+                </span>
+                {posting.reversible ? (
+                  <ReverseDocumentAction
+                    type={ReversalDocumentType.HrLeaveProvision}
+                    target={{ id: posting.journalEntryId, params: { kind, asOfDate: posting.asOfDate }, subject: `${data?.labelAr ?? t(`provisions.${kind}`)} ${posting.asOfDate}` }}
+                  />
+                ) : null}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
       {confirm.dialog}

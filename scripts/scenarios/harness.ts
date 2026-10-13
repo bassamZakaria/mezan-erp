@@ -149,6 +149,26 @@ export async function boot() {
     return m[1] ? -units : units;
   }
 
+  async function goodsReceivedNotInvoicedGap(): Promise<bigint | null> {
+    const receipts = await req("GET", "/purchases/receipts?status=confirmed&pageSize=10000");
+    const ledger = await req("GET", "/gl/accounts/2120/ledger");
+    const list = rows(receipts.body);
+    const credit = scaled(ledger.body?.balance?.credit);
+    const debit = scaled(ledger.body?.balance?.debit);
+    if (receipts.status !== 200 || credit === null || debit === null) return null;
+    let accrued = 0n;
+    for (const receipt of list) {
+      if (receipt.status !== "confirmed") continue;
+      for (const line of receipt.lines ?? []) {
+        const qty = scaled(line.remainingQty);
+        const unitCost = scaled(line.unitCost);
+        if (qty === null || unitCost === null) return null;
+        accrued += (qty * unitCost) / 1_000_000n;
+      }
+    }
+    return accrued - (credit - debit);
+  }
+
   async function invariants() {
     const tb = await req("GET", "/financial-reports/trial-balance");
     const g = tb.body?.grandTotals ?? {};
@@ -171,6 +191,9 @@ export async function boot() {
       inventory: diff("inventory"),
       ap: diff("ap"),
       ar: diff("ar"),
+      grni: await goodsReceivedNotInvoicedGap(),
+      fxResidue: scaled(recon.body?.foreignResidue?.total),
+      stockLedgerDates: typeof recon.body?.stockLedgerDates?.count === "number" ? BigInt(recon.body.stockLedgerDates.count) : null,
       strandedStock: positions === null ? null : stranded.reduce((sum, p) => sum + magnitude(scaled(p.totalValue) ?? 0n), 0n),
     };
     const asNumber = (x: bigint | null) => (x === null ? NaN : Number(x) / 1e6);
@@ -179,6 +202,9 @@ export async function boot() {
       inventory: asNumber(exact.inventory),
       ap: asNumber(exact.ap),
       ar: asNumber(exact.ar),
+      grni: asNumber(exact.grni),
+      fxResidue: asNumber(exact.fxResidue),
+      stockLedgerDates: exact.stockLedgerDates === null ? NaN : Number(exact.stockLedgerDates),
       strandedStock: asNumber(exact.strandedStock),
       strandedPositions: stranded.map((p) => `${p.itemId}@${p.warehouseId}=${String(p.totalValue)}`),
       exact,
@@ -206,6 +232,9 @@ export async function boot() {
     check("inventory still reconciles to GL 1200", same("inventory"), moved("inventory"));
     check("AP still reconciles", same("ap"), moved("ap"));
     check("AR still reconciles", same("ar"), moved("ar"));
+    check("GL 2120 still equals the goods received and not yet invoiced", after.exact.grni !== null && after.exact.grni === before.exact.grni, `${before.grni.toFixed(6)} → ${after.grni.toFixed(6)}`);
+    check("nothing holds base with none of its foreign currency", after.exact.fxResidue === 0n, `${before.fxResidue.toFixed(6)} → ${after.fxResidue.toFixed(6)}`);
+    check("no stock movement sits in a different month from its document's entry", after.exact.stockLedgerDates === 0n, `${before.stockLedgerDates} → ${after.stockLedgerDates}`);
     check("no empty stock position holds value", after.exact.strandedStock === 0n, after.strandedPositions.slice(0, 5).join(" · "));
   }
 

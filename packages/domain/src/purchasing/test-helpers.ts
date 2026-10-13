@@ -8,7 +8,7 @@ import {
   InMemorySnapshots,
 } from "../inventory/test-helpers/in-memory-stores.js";
 import type { PurchaseOrder, PurchaseOrderRepository } from "./purchase-order.js";
-import type { GoodsReceipt, GoodsReceiptField, GoodsReceiptRepository } from "./goods-receipt.js";
+import { GoodsReceiptField, type GoodsReceipt, type GoodsReceiptRepository } from "./goods-receipt.js";
 import type { PurchaseInvoice, PurchaseInvoiceField, PurchaseInvoiceRepository } from "./purchase-invoice.js";
 import { PurchaseInvoiceStatusCode, type PurchaseGlPosting, type PurchaseGlPostingPort } from "./types.js";
 
@@ -63,10 +63,15 @@ export class InMemoryGoodsReceipts implements GoodsReceiptRepository {
   async writeFields(next: GoodsReceipt, fields: readonly GoodsReceiptField[], expected: { readonly status: GoodsReceipt["status"] }): Promise<boolean> {
     const stored = this.rows.get(next.id);
     if (!stored || stored.status !== expected.status) return false;
-    this.rows.set(next.id, { ...stored, ...Object.fromEntries(fields.map((field) => [field, next[field]])) });
+    this.rows.set(next.id, { ...stored, ...Object.fromEntries(fields.flatMap((field) => GOODS_RECEIPT_PROPERTIES[field].map((property) => [property, next[property]]))) });
     return true;
   }
 }
+
+const GOODS_RECEIPT_PROPERTIES: Readonly<Record<GoodsReceiptField, readonly (keyof GoodsReceipt)[]>> = {
+  [GoodsReceiptField.Status]: ["status"],
+  [GoodsReceiptField.Billing]: ["invoiced", "lines"],
+};
 
 export class InMemoryPurchaseInvoices implements PurchaseInvoiceRepository {
   readonly rows = new Map<string, PurchaseInvoice>();
@@ -111,10 +116,10 @@ export class RecordingGlPort implements PurchaseGlPostingPort {
 }
 
 /** A real StockLedgerService over in-memory stores, negative stock blocked. */
-export function makeStockService(): StockLedgerService {
+export function makeStockService(layers: InMemoryCostLayers = new InMemoryCostLayers()): StockLedgerService {
   return new StockLedgerService({
     ledger: new InMemoryStockLedger(),
-    layers: new InMemoryCostLayers(),
+    layers,
     snapshots: new InMemorySnapshots(),
     policy: { allowNegativeStock: false },
     clock: () => "2026-08-21T00:00:00.000Z",

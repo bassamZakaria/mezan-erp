@@ -1,8 +1,11 @@
 import { Money } from "../money/index.js";
-import type { AssetRepository } from "./asset.js";
+import type { Asset, AssetRepository } from "./asset.js";
 import type { DepreciationRun, DepreciationRunRepository } from "./depreciation-run.js";
-import { computeMonthlyDepreciation, type DepreciationPeriod } from "./depreciation.js";
+import { DEPRECIABLE_ASSET_STATUSES, computeMonthlyDepreciation, type DepreciationPeriod } from "./depreciation.js";
+
+export { DEPRECIABLE_ASSET_STATUSES };
 import { DuplicateDepreciationPeriodError, NoDepreciableAssetsError } from "./errors.js";
+import { assertOpenForPosting, type FiscalPeriodRepository } from "../fiscal-periods/index.js";
 
 export interface CreateDepreciationRunCommand {
   readonly id: string;
@@ -17,6 +20,7 @@ export interface CreateDepreciationRunCommand {
 export interface CreateDepreciationRunDeps {
   readonly runs: DepreciationRunRepository;
   readonly assets: AssetRepository;
+  readonly periods?: Pick<FiscalPeriodRepository, "findByDate">;
 }
 
 function parsePeriod(period: string): DepreciationPeriod {
@@ -27,9 +31,19 @@ function parsePeriod(period: string): DepreciationPeriod {
   return { year: Number(match[1]), month: Number(match[2]) };
 }
 
+export function depreciationRunsCoverPeriod(assets: readonly Asset[], runs: readonly DepreciationRun[], period: string): boolean {
+  const periodRuns = runs.filter((run) => run.period === period && run.status !== "cancelled");
+  if (periodRuns.length === 0) return false;
+  const covered = new Set(periodRuns.flatMap((run) => run.lines.map((line) => line.assetId)));
+  const month = parsePeriod(period);
+  return assets.every(
+    (asset) => covered.has(asset.id) || !DEPRECIABLE_ASSET_STATUSES.has(asset.status) || computeMonthlyDepreciation(asset, month).amount.scaled === 0n,
+  );
+}
+
 /**
  * Builds a مسودة (draft) depreciation run for a period (+ optional branch
- * scope): rejects a duplicate non-cancelled run for the same period+branch,
+ * scope): rejects a second open draft for the same period+branch,
  * computes each eligible active asset's due amount via
  * {@link computeMonthlyDepreciation}, keeps only non-zero lines, and rejects
  * an empty result.
@@ -40,15 +54,20 @@ export async function createDepreciationRun(
 ): Promise<DepreciationRun> {
   const branchId = cmd.branchId ?? null;
 
-  const existingRun = await deps.runs.findByPeriod(cmd.period, branchId);
-  if (existingRun && existingRun.status !== "cancelled") {
+  const periodRuns = (await deps.runs.list()).filter((run) => run.period === cmd.period && run.status !== "cancelled");
+  if (periodRuns.some((run) => run.branchId === branchId && run.status === "draft")) {
     throw new DuplicateDepreciationPeriodError(cmd.period, branchId);
   }
 
   const period = parsePeriod(cmd.period);
+  if (deps.periods) {
+    const fiscalPeriod = await deps.periods.findByDate(`${cmd.period}-01`);
+    if (fiscalPeriod) assertOpenForPosting(fiscalPeriod);
+  }
   const allAssets = await deps.assets.list();
+  const alreadyOnARun = new Set(periodRuns.flatMap((run) => run.lines.map((line) => line.assetId)));
   const eligible = allAssets.filter((asset) => {
-    if (asset.status !== "active") return false;
+    if (!DEPRECIABLE_ASSET_STATUSES.has(asset.status) || alreadyOnARun.has(asset.id)) return false;
     if (branchId === null) return true;
     if (asset.scope === "general") return true;
     if (asset.scope === "branch") return asset.branchId === branchId;

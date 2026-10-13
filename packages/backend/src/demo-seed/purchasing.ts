@@ -370,7 +370,7 @@ export async function seedPurchasing(app: App): Promise<void> {
    */
   await step(app, "POST", "/landed-costs", {
     id: "LC-DEMO-1",
-    date: "2026-08-13",
+    date: "2026-08-18",
     memo: `تكاليف توريد إذن الاستلام ${receiptOne.number}`,
     distributionMethod: "BY_VALUE",
     costItems: [
@@ -396,7 +396,6 @@ export async function seedPurchasing(app: App): Promise<void> {
       },
     ],
   });
-  await step(app, "POST", "/landed-costs/LC-DEMO-1/confirm", {});
 
   await step(app, "POST", "/landed-costs", {
     id: "LC-DEMO-2",
@@ -593,6 +592,9 @@ export async function seedPurchasing(app: App): Promise<void> {
     ],
   });
   await step(app, "POST", "/sales-returns/SRT-DEMO-1/confirm", {});
+
+  // INVARIANT: confirmed after every seeded movement dated before its absorption day on the positions it loads — an earlier-dated movement is refused once a landed cost stands (landed-cost-backdated-movement.test.ts).
+  await step(app, "POST", "/landed-costs/LC-DEMO-1/confirm", { absorptionDate: "2026-08-18" });
 
   await step(app, "POST", "/sales-returns", {
     id: "SRT-DEMO-2",

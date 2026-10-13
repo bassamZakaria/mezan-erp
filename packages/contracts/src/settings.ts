@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { companyNameSchema } from "./company-name.js";
 
 /** Wire contract for the tenant settings config bag (docs/archive/catalog/09 §"عام"). */
 export const tenantSettingsSchema = z.object({
@@ -15,7 +16,7 @@ export const tenantSettingsSchema = z.object({
   multiCurrencyEnabled: z.boolean(),
 
   weekStartDay: z.number().int().min(0).max(6),
-  companyName: z.string(),
+  companyName: companyNameSchema,
   taxRegistrationNumber: z.string(),
   commercialRegistrationNumber: z.string(),
   phone: z.string(),
@@ -51,6 +52,7 @@ export const tenantSettingsSchema = z.object({
   contractingCbeCreditDiscountRatePercent: z.number().min(0).max(100).nullable().default(null),
   /** المقاولات — waives فصل المهام for a one-person install. Default false: the wildcard admin is bound like anyone. */
   contractingSingleOperatorMode: z.boolean().default(false),
+  periodCloseSingleOperatorMode: z.boolean().default(false),
 
   allowCrossWarehouseSales: z.boolean(),
   showOtherWarehouseStock: z.boolean(),

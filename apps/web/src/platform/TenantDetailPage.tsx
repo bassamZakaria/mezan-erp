@@ -1,17 +1,28 @@
-import { useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
-import { Button, Card, ConfirmDialog, Money, Select, StatusPill, useFormat } from "@mezan/ui";
+import { useEffect, useState } from "react";
+import { Link, useBlocker, useParams, useSearchParams } from "react-router";
+import { Button, Card, ConfirmDialog, Money, Select, StatusPill, TextInput, useFormat } from "@mezan/ui";
 import { MODULES } from "@mezan/domain";
-import type { BillingCycleDTO, ProvisionResultDTO, SubscriptionStatusDTO } from "@mezan/contracts";
+import {
+  SubscriptionStatusCode,
+  TenantWireStatus,
+  type BillingCycleDTO,
+  type ProvisionResultDTO,
+  type SubscriptionStatusDTO,
+  type TenantStatusDTO,
+  type TenantSummaryDTO,
+} from "@mezan/contracts";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { moduleLabel } from "../domain-labels";
 import { SelectField, TextAreaField, ToggleField } from "../settings/form-controls";
 import { LicenseStateChip, TenantStatusChip } from "./chips";
+import { TenantOwnerCard } from "./TenantOwnerCard";
 import { PlatformApiError, usePlatformApi } from "./api";
 import { RecordPaymentDialog } from "./RecordPaymentDialog";
 import { CardCheckoutChip, CheckoutOutcomeNotice, TestModeChip, absoluteCheckoutUrl } from "../billing/CardCheckoutStatus";
 import {
   useArchiveTenantMutation,
+  useReleaseTenantMutation,
+  useSetBillingAnchorDayMutation,
   useCancelSubscriptionMutation,
   useCardCheckoutsQuery,
   useCreateCardCheckoutMutation,
@@ -19,6 +30,8 @@ import {
   usePlansQuery,
   useResumeSubscriptionMutation,
   useResumeTenantMutation,
+  OwnerPinResetPhase,
+  useOwnerPinReset,
   useRetryProvisionMutation,
   useSuspendSubscriptionMutation,
   useSuspendTenantMutation,
@@ -31,35 +44,43 @@ const BILLING_CYCLE_LABEL: Record<BillingCycleDTO, AppTranslationKey> = {
 };
 
 const SUBSCRIPTION_STATUS_LABEL: Record<SubscriptionStatusDTO, AppTranslationKey> = {
-  trialing: "platform.subscriptionStatus.trialing",
-  active: "platform.subscriptionStatus.active",
-  past_due: "platform.subscriptionStatus.past_due",
-  suspended: "platform.subscriptionStatus.suspended",
-  cancelled: "platform.subscriptionStatus.cancelled",
+  [SubscriptionStatusCode.Trialing]: "platform.subscriptionStatus.trialing",
+  [SubscriptionStatusCode.Active]: "platform.subscriptionStatus.active",
+  [SubscriptionStatusCode.PastDue]: "platform.subscriptionStatus.past_due",
+  [SubscriptionStatusCode.Suspended]: "platform.subscriptionStatus.suspended",
+  [SubscriptionStatusCode.Cancelled]: "platform.subscriptionStatus.cancelled",
+  [SubscriptionStatusCode.Unknown]: "platform.status.unknown",
 };
 
 /** Mirrors `TRANSITIONS` in `packages/domain/src/platform/tenant.ts` — suspend only from `active`, resume only from `suspended`, archive from either. */
-function canSuspendTenant(status: string): boolean {
-  return status === "active";
+function canSuspendTenant(status: TenantStatusDTO): boolean {
+  return status === TenantWireStatus.Active;
 }
-function canResumeTenant(status: string): boolean {
-  return status === "suspended";
+function canResumeTenant(status: TenantStatusDTO): boolean {
+  return status === TenantWireStatus.Suspended;
 }
-function canArchiveTenant(status: string): boolean {
-  return status === "active" || status === "suspended";
+function canChangeAnchorDay(status: SubscriptionStatusDTO): boolean {
+  return status !== SubscriptionStatusCode.Cancelled && status !== SubscriptionStatusCode.Unknown;
+}
+
+function canArchiveTenant(status: TenantStatusDTO): boolean {
+  return status === TenantWireStatus.Active || status === TenantWireStatus.Suspended;
+}
+function canResetOwnerPin(status: TenantStatusDTO): boolean {
+  return status === TenantWireStatus.Active || status === TenantWireStatus.Suspended;
 }
 /** Mirrors `changePlan`/`cancelSubscription`/`suspendSubscription`/`resumeSubscription` in `packages/domain/src/platform/subscription.ts`. */
 function canChangePlan(status: SubscriptionStatusDTO): boolean {
-  return status === "trialing" || status === "active" || status === "past_due";
+  return status === SubscriptionStatusCode.Trialing || status === SubscriptionStatusCode.Active || status === SubscriptionStatusCode.PastDue;
 }
 function canCancelSubscription(status: SubscriptionStatusDTO): boolean {
-  return status !== "cancelled";
+  return status !== SubscriptionStatusCode.Cancelled && status !== SubscriptionStatusCode.Unknown;
 }
 function canSuspendSubscription(status: SubscriptionStatusDTO): boolean {
-  return status === "active" || status === "past_due";
+  return status === SubscriptionStatusCode.Active || status === SubscriptionStatusCode.PastDue;
 }
 function canResumeSubscription(status: SubscriptionStatusDTO): boolean {
-  return status === "suspended";
+  return status === SubscriptionStatusCode.Suspended;
 }
 
 const FAILURE_REASON_KEY: Readonly<Record<string, AppTranslationKey>> = {
@@ -96,11 +117,21 @@ export function TenantDetailPage() {
   const suspendTenant = useSuspendTenantMutation();
   const resumeTenant = useResumeTenantMutation();
   const archiveTenant = useArchiveTenantMutation();
+  const releaseTenant = useReleaseTenantMutation();
   const changePlan = useChangePlanMutation();
   const cancelSubscription = useCancelSubscriptionMutation();
   const suspendSubscription = useSuspendSubscriptionMutation();
   const resumeSubscription = useResumeSubscriptionMutation();
   const retryProvision = useRetryProvisionMutation();
+  const ownerPin = useOwnerPinReset(id);
+  const holdsUndeliveredPin = ownerPin.phase !== OwnerPinResetPhase.Idle;
+  const leaving = useBlocker(holdsUndeliveredPin);
+  useEffect(() => {
+    if (!holdsUndeliveredPin) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [holdsUndeliveredPin]);
   const cardCheckouts = useCardCheckoutsQuery(id);
   const createCardCheckout = useCreateCardCheckoutMutation();
   const [searchParams] = useSearchParams();
@@ -109,7 +140,11 @@ export function TenantDetailPage() {
   const [cardLinkCopied, setCardLinkCopied] = useState(false);
 
   const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [confirmSuspend, setConfirmSuspend] = useState(false);
+  const [confirmResetOwnerPin, setConfirmResetOwnerPin] = useState(false);
+  const ownerPinReset = ownerPin.issued;
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [confirmRelease, setConfirmRelease] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmSuspendSubscription, setConfirmSuspendSubscription] = useState(false);
   const [confirmResumeSubscription, setConfirmResumeSubscription] = useState(false);
@@ -123,7 +158,7 @@ export function TenantDetailPage() {
   const [retryBillingCycle, setRetryBillingCycle] = useState<BillingCycleDTO>("monthly");
   const [retryTrial, setRetryTrial] = useState(true);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const onMutationError = (err: PlatformApiError) => setMutationError(err.message);
+  const onMutationError = (err: unknown) => setMutationError(err instanceof PlatformApiError ? err.message : t("platform.error.network"));
 
   const summary = tenantQuery.data;
   if (!summary) {
@@ -179,7 +214,7 @@ export function TenantDetailPage() {
           <TenantStatusChip status={tenant.status} />
           <LicenseStateChip state={licenseState.state} />
         </div>
-        <p className="mt-[2px] text-[12.5px] text-ink-muted">{t("platform.tenantDetail.ownerEmail")}: {tenant.ownerEmail}</p>
+        <TenantOwnerCard tenant={tenant} isOwner={isOwner} onError={onMutationError} />
       </div>
 
       {mutationError ? (
@@ -192,7 +227,7 @@ export function TenantDetailPage() {
 
       {isOwner ? (
         <div className="flex flex-wrap gap-[9px]">
-          {tenant.status === "provisioning" ? (
+          {tenant.status === TenantWireStatus.Provisioning ? (
             <Button
               variant="primary"
               disabled={retryProvision.isPending}
@@ -201,16 +236,23 @@ export function TenantDetailPage() {
               {retryProvision.isPending ? t("platform.tenantDetail.retrying") : t("platform.tenantDetail.retryProvision")}
             </Button>
           ) : null}
+          {tenant.status === TenantWireStatus.Provisioning ? (
+            <Button variant="danger-outline" disabled={releaseTenant.isPending} onClick={() => setConfirmRelease(true)}>
+              {t("platform.tenantDetail.release")}
+            </Button>
+          ) : null}
           {canSuspendTenant(tenant.status) ? (
             <Button
               variant="default"
               disabled={suspendTenant.isPending}
-              onClick={() => {
-                setMutationError(null);
-                suspendTenant.mutate(tenant.id, { onError: onMutationError });
-              }}
+              onClick={() => setConfirmSuspend(true)}
             >
               {t("platform.tenantDetail.suspend")}
+            </Button>
+          ) : null}
+          {canResetOwnerPin(tenant.status) ? (
+            <Button variant="default" disabled={ownerPin.phase === OwnerPinResetPhase.Pending} onClick={() => setConfirmResetOwnerPin(true)}>
+              {t("platform.tenantDetail.resetOwnerPin")}
             </Button>
           ) : null}
           {canResumeTenant(tenant.status) ? (
@@ -233,7 +275,7 @@ export function TenantDetailPage() {
         </div>
       ) : null}
 
-      {tenant.status === "provisioning" && showRetryPicker && !subscription ? (
+      {tenant.status === TenantWireStatus.Provisioning && showRetryPicker && !subscription ? (
         <Card className="p-[16px]">
           <h2 className="mb-[12px] text-[13px] font-bold text-ink">{t("platform.tenantDetail.retryProvision")}</h2>
           <div className="flex flex-col gap-[14px]">
@@ -258,6 +300,38 @@ export function TenantDetailPage() {
                 }}
               >
                 {retryProvision.isPending ? t("platform.tenantDetail.retrying") : t("platform.tenantDetail.retryProvision")}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
+      {ownerPinReset ? (
+        <Card className="p-[16px]">
+          <div className="flex flex-col gap-[10px]">
+            <p className="text-[12.5px] text-ink-muted">{t("platform.tenantDetail.resetOwnerPin.done")}</p>
+            <div className="flex flex-col gap-[10px] rounded-md border border-border bg-surface-2 p-[14px]">
+              <div>
+                <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminEmail")}</span>
+                <span dir="ltr" className="break-all text-[13px] font-semibold text-ink">{ownerPinReset.adminEmail}</span>
+              </div>
+              {ownerPinReset.signInEmail === ownerPinReset.adminEmail ? null : (
+                <div>
+                  <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.tenantDetail.ownerSignInEmail")}</span>
+                  <span dir="ltr" className="break-all text-[13px] font-semibold text-ink">{ownerPinReset.signInEmail}</span>
+                </div>
+              )}
+              <div>
+                <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("platform.newTenant.result.adminPin")}</span>
+                <code dir="ltr" className="mz-num select-all break-all rounded-[6px] bg-surface px-[10px] py-[6px] text-[16px] font-bold text-ink">
+                  {ownerPinReset.adminPin}
+                </code>
+              </div>
+            </div>
+            <p role="status" className="text-[11.5px] font-semibold text-warning-ink">{t("platform.newTenant.result.oneTime")}</p>
+            <div>
+              <Button variant="default" onClick={ownerPin.acknowledge}>
+                {t("platform.tenantDetail.resetOwnerPin.hide")}
               </Button>
             </div>
           </div>
@@ -297,6 +371,7 @@ export function TenantDetailPage() {
             <Fact numeric label={t("platform.tenantDetail.periodEnd")} value={format.date(subscription.currentPeriodEnd)} />
             {subscription.trialEndsAt ? <Fact numeric label={t("platform.tenantDetail.trialEndsAt")} value={format.date(subscription.trialEndsAt)} /> : null}
             <Fact numeric label={t("platform.tenantDetail.graceDays")} value={String(subscription.graceDays)} />
+            <BillingAnchorDay tenantId={tenant.id} subscription={subscription} editable={isOwner && canChangeAnchorDay(subscription.status)} onError={onMutationError} />
 
             {isOwner ? (
               <div className="mt-[6px] flex flex-wrap items-center gap-[9px] border-t border-border pt-[12px]">
@@ -483,6 +558,55 @@ export function TenantDetailPage() {
       <RecordPaymentDialog open={paymentDialogOpen} onClose={() => setPaymentDialogOpen(false)} tenantId={tenant.id} />
 
       <ConfirmDialog
+        open={confirmResetOwnerPin}
+        title={t("platform.tenantDetail.confirmResetOwnerPin.title")}
+        consequence={t("platform.tenantDetail.confirmResetOwnerPin.consequence", { email: tenant.ownerEmail })}
+        confirmLabel={t("platform.tenantDetail.resetOwnerPin.confirm")}
+        tone="danger"
+        onConfirm={() => {
+          setConfirmResetOwnerPin(false);
+          setMutationError(null);
+          ownerPin.reset({ onError: onMutationError });
+        }}
+        onCancel={() => setConfirmResetOwnerPin(false)}
+      />
+      <ConfirmDialog
+        open={leaving.state === "blocked"}
+        title={t("platform.tenantDetail.leaveWithPin.title")}
+        consequence={t("platform.tenantDetail.leaveWithPin.consequence")}
+        confirmLabel={t("platform.tenantDetail.leaveWithPin.leave")}
+        cancelLabel={t("platform.tenantDetail.leaveWithPin.stay")}
+        tone="danger"
+        onConfirm={() => leaving.proceed?.()}
+        onCancel={() => leaving.reset?.()}
+      />
+      <ConfirmDialog
+        open={confirmSuspend}
+        title={t("platform.tenantDetail.confirmSuspend.title")}
+        consequence={t("platform.tenantDetail.confirmSuspend.consequence")}
+        confirmLabel={t("platform.tenantDetail.suspend")}
+        tone="danger"
+        onConfirm={() => {
+          setConfirmSuspend(false);
+          setMutationError(null);
+          suspendTenant.mutate(tenant.id, { onError: onMutationError });
+        }}
+        onCancel={() => setConfirmSuspend(false)}
+      />
+      <ConfirmDialog
+        open={confirmRelease}
+        title={t("platform.tenantDetail.confirmRelease.title")}
+        consequence={t("platform.tenantDetail.confirmRelease.consequence", { code: tenant.code })}
+        confirmLabel={t("platform.tenantDetail.confirmRelease.confirm")}
+        tone="danger"
+        onConfirm={() => {
+          setConfirmRelease(false);
+          setMutationError(null);
+          releaseTenant.mutate(tenant.id, { onError: onMutationError });
+        }}
+        onCancel={() => setConfirmRelease(false)}
+      />
+      <ConfirmDialog
         open={confirmArchive}
         title={t("platform.tenantDetail.confirmArchive.title")}
         consequence={t("platform.tenantDetail.confirmArchive.consequence")}
@@ -561,6 +685,81 @@ export function TenantDetailPage() {
         }}
         onCancel={() => setConfirmResumeSubscription(false)}
       />
+    </div>
+  );
+}
+
+const FIRST_DAY_OF_MONTH = 1;
+const LAST_DAY_OF_MONTH = 31;
+
+function BillingAnchorDay({
+  tenantId,
+  subscription,
+  editable,
+  onError,
+}: {
+  tenantId: string;
+  subscription: NonNullable<TenantSummaryDTO["subscription"]>;
+  editable: boolean;
+  onError: (err: PlatformApiError) => void;
+}) {
+  const { t } = useAppTranslation();
+  const setAnchorDay = useSetBillingAnchorDayMutation();
+  const [typed, setTyped] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const shown = typed ?? String(subscription.billingAnchorDay);
+  const day = Number(shown);
+  const valid = Number.isInteger(day) && day >= FIRST_DAY_OF_MONTH && day <= LAST_DAY_OF_MONTH;
+  const changed = valid && (day !== subscription.billingAnchorDay || subscription.billingAnchorNeedsReview);
+
+  return (
+    <div className="flex flex-col gap-[6px] text-[12.5px]">
+      <div className="flex flex-wrap items-center justify-between gap-[10px]">
+        <span className="text-ink-muted">{t("platform.tenantDetail.anchorDay")}</span>
+        {editable ? (
+          <span className="flex items-center gap-[8px]">
+            <TextInput
+              type="number"
+              min={FIRST_DAY_OF_MONTH}
+              max={LAST_DAY_OF_MONTH}
+              value={shown}
+              aria-label={t("platform.tenantDetail.anchorDay")}
+              invalid={!valid}
+              className="mz-num w-[72px]"
+              onChange={(event) => setTyped(event.target.value)}
+            />
+            <Button
+              size="sm"
+              disabled={!changed || setAnchorDay.isPending}
+              onClick={() => setConfirming(true)}
+            >
+              {t("platform.tenantDetail.anchorDay.save")}
+            </Button>
+            <ConfirmDialog
+              open={confirming}
+              title={t("platform.tenantDetail.anchorDay.confirm.title")}
+              consequence={t("platform.tenantDetail.anchorDay.confirm.consequence", { from: subscription.billingAnchorDay, to: day })}
+              confirmLabel={t("platform.tenantDetail.anchorDay.save")}
+              tone="danger"
+              onConfirm={() => {
+                setConfirming(false);
+                setAnchorDay.mutate({ tenantId, day }, { onSuccess: () => setTyped(null), onError });
+              }}
+              onCancel={() => setConfirming(false)}
+            />
+          </span>
+        ) : (
+          <span className="mz-num font-semibold text-ink">{subscription.billingAnchorDay}</span>
+        )}
+      </div>
+      {subscription.billingAnchorNeedsReview ? (
+        <div className="flex flex-col gap-[4px]">
+          <span>
+            <StatusPill label={t("platform.tenantDetail.anchorDay.review")} tone="warning" />
+          </span>
+          <span className="text-ink-muted">{t("platform.tenantDetail.anchorDay.reviewHint")}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

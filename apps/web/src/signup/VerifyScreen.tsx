@@ -5,7 +5,7 @@ import { Button, Card } from "@mezan/ui";
 import type { VerifySignupResultDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 import { SignupLayout } from "./SignupLayout";
-import { SignupApiError, verifySignup } from "./signup-api";
+import { SignupApiError, SignupErrorCode, verifySignup } from "./signup-api";
 
 function ResultRow({ label, value }: { label: string; value: string }) {
   return (
@@ -40,7 +40,24 @@ function VerifiedPanel({ result }: { result: VerifySignupResultDTO }) {
           {t("signup.verify.oneTime")}
         </p>
       ) : null}
-      <Button variant="primary" className="w-full" onClick={() => { window.location.href = "/"; }}>
+      <Button variant="primary" className="w-full" onClick={goSignIn}>
+        {t("signup.verify.goSignIn")}
+      </Button>
+    </Card>
+  );
+}
+
+function goSignIn() {
+  window.location.href = "/";
+}
+
+function AlreadyActivatedPanel({ message }: { message: string }) {
+  const { t } = useAppTranslation();
+  return (
+    <Card className="flex flex-col gap-[14px] p-[22px]">
+      <h1 className="font-display text-lg font-bold text-ink">{t("signup.verify.alreadyTitle")}</h1>
+      <p className="text-[13px] text-ink-muted">{message}</p>
+      <Button variant="primary" className="w-full" onClick={goSignIn}>
         {t("signup.verify.goSignIn")}
       </Button>
     </Card>
@@ -78,6 +95,8 @@ export function VerifyScreen() {
         <p className="text-[13px] text-ink-muted">{t("signup.verify.working")}</p>
       </Card>
     );
+  } else if (query.isError && query.error instanceof SignupApiError && query.error.code === SignupErrorCode.AlreadyActivated) {
+    body = <AlreadyActivatedPanel message={query.error.message} />;
   } else if (query.isError) {
     body = (
       <Card className="flex flex-col gap-[10px] p-[22px]">

@@ -1,3 +1,4 @@
+import { DEFAULT_TIME_ZONE, toTenantDay } from "../dates.js";
 import type { Money } from "../money/index.js";
 
 /**
@@ -162,4 +163,22 @@ export interface ChequeRepository {
   findByChequeNumber(direction: ChequeDirection, chequeNumber: string): Promise<Cheque | null>;
   list(filter?: ChequeListFilter): Promise<readonly Cheque[]>;
   transaction<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+const UNDONE_CHEQUE_STATUSES: ReadonlySet<ChequeStoredStatus> = new Set<ChequeStoredStatus>(["bounced", "replaced"]);
+
+export interface ChequeLedgerDays {
+  readonly raised: string;
+  readonly undone: string | null;
+}
+
+export function chequeLedgerDays(
+  cheque: Pick<Cheque, "status" | "issueDate" | "creationJournalEntryId" | "bounceJournalEntryId" | "bouncedAt">,
+  entryDate: (entryId: string) => string | undefined,
+  timeZone: string = DEFAULT_TIME_ZONE,
+): ChequeLedgerDays {
+  const raised = (cheque.creationJournalEntryId ? entryDate(cheque.creationJournalEntryId) : undefined) ?? cheque.issueDate;
+  if (!UNDONE_CHEQUE_STATUSES.has(cheque.status)) return { raised, undone: null };
+  const undone = (cheque.bounceJournalEntryId ? entryDate(cheque.bounceJournalEntryId) : undefined) ?? (cheque.bouncedAt ? toTenantDay(cheque.bouncedAt, timeZone) : raised);
+  return { raised, undone };
 }

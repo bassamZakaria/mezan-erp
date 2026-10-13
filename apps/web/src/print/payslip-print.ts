@@ -53,6 +53,7 @@ export interface PayslipPrintContext {
     readonly earning: string;
     readonly deduction: string;
     readonly employerContribution: string;
+    readonly terminationAdjustment: string;
     readonly grossEarnings: string;
     readonly totalDeductions: string;
     readonly netPay: string;
@@ -105,15 +106,22 @@ export function payslipPrintModel(ctx: PayslipPrintContext): PrintDocumentModel 
   const lines: PrintDocumentLine[] = payslip.lines.map((line) => {
     const amount = majorOf(line.amount);
     const kindLabel =
-      line.kind === "earning" ? labels.earning : line.kind === "deduction" ? labels.deduction : labels.employerContribution;
+      line.kind === "earning"
+        ? labels.earning
+        : line.kind === "deduction"
+          ? labels.deduction
+          : line.kind === "termination_adjustment"
+            ? labels.terminationAdjustment
+            : labels.employerContribution;
+    const reducesNet = line.kind === "deduction" || line.kind === "termination_adjustment";
     return {
       description: line.capped ? `${line.nameAr} — ${labels.statutoryCapped}` : line.nameAr,
       unit: kindLabel,
       qty: 1,
       // A deduction reduces the net, so it prints as a negative number rather
       // than as a positive one the reader is expected to know to subtract.
-      unitPrice: line.kind === "deduction" ? -amount : amount,
-      lineTotal: line.kind === "deduction" ? -amount : amount,
+      unitPrice: reducesNet ? -amount : amount,
+      lineTotal: reducesNet ? -amount : amount,
     };
   });
 

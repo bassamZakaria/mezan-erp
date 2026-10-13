@@ -1,10 +1,5 @@
-import type {
-  EmployeeDirectory,
-  EmployeeOvertimeEligibility,
-  EmployeeRef,
-  EmployeeRefStatus,
-  EmployeeWorkerCategory,
-} from "../hr-shared/employee-ref.js";
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
+import type { EmployeeDirectory, EmployeeOvertimeEligibility, EmployeeRef, EmployeeWorkerCategory } from "../hr-shared/employee-ref.js";
 
 /**
  * Employee — docs/archive/catalog/06-crm-hr.md "الموظفون", the HR hub record every
@@ -32,10 +27,10 @@ export interface EmployeeStatusDefinition {
 }
 
 export const EMPLOYEE_STATUS_DEFINITIONS: readonly EmployeeStatusDefinition[] = [
-  { code: "active", labelAr: "نشط" },
-  { code: "on_leave", labelAr: "في إجازة" },
-  { code: "suspended", labelAr: "موقوف" },
-  { code: "terminated", labelAr: "منتهية خدمته" },
+  { code: EmployeeRefStatus.Active, labelAr: "نشط" },
+  { code: EmployeeRefStatus.OnLeave, labelAr: "في إجازة" },
+  { code: EmployeeRefStatus.Suspended, labelAr: "موقوف" },
+  { code: EmployeeRefStatus.Terminated, labelAr: "منتهية خدمته" },
 ] as const;
 
 export function getEmployeeStatusLabel(status: EmployeeStatus): string {
@@ -136,6 +131,7 @@ export function toEmployeeRef(employee: Employee): EmployeeRef {
     managerId: employee.managerId,
     hireDate: employee.hireDate,
     status: employee.status,
+    terminatedAt: employee.terminatedAt,
     workerCategory: employee.workerCategory,
     overtimeEligibility: employee.overtimeEligibility,
     standardWorkHours: employee.standardWorkHours,
@@ -154,9 +150,9 @@ export function toEmployeeRef(employee: Employee): EmployeeRef {
  * (docs/catalog "المزيد → إنهاء الخدمة"), never a plain status edit.
  */
 export const ALLOWED_EMPLOYEE_TRANSITIONS: Record<EmployeeStatus, readonly EmployeeStatus[]> = {
-  active: ["on_leave", "suspended", "terminated"],
-  on_leave: ["active", "suspended", "terminated"],
-  suspended: ["active", "terminated"],
+  active: [EmployeeRefStatus.OnLeave, EmployeeRefStatus.Suspended, EmployeeRefStatus.Terminated],
+  on_leave: [EmployeeRefStatus.Active, EmployeeRefStatus.Suspended, EmployeeRefStatus.Terminated],
+  suspended: [EmployeeRefStatus.Active, EmployeeRefStatus.Terminated],
   terminated: [],
 };
 
@@ -181,7 +177,7 @@ export function createEmployeeDirectory(repo: Pick<EmployeeRepository, "findById
       return (await repo.list()).map(toEmployeeRef);
     },
     async listActive() {
-      return (await repo.list()).filter((e) => e.status !== "terminated").map(toEmployeeRef);
+      return (await repo.list()).filter((e) => e.status !== EmployeeRefStatus.Terminated).map(toEmployeeRef);
     },
   };
 }

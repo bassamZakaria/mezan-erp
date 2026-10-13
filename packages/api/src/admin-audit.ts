@@ -2,10 +2,12 @@ import type { Context } from "hono";
 import {
   auditBranchFromScope,
   auditFieldValue,
+  createAuditEvent,
   diffAuditFields,
   recordSecurityEvent,
   recordSensitiveEvent,
   type AuditChangeAction,
+  type AuditEvent,
   type AuditFieldChange,
   type AuditSeverity,
   type AuditSink,
@@ -36,14 +38,10 @@ export interface AdminAuditEntry {
   readonly details?: Readonly<Record<string, unknown>> | null;
 }
 
-export async function recordAdminEvent(
-  audit: AuditSink | undefined,
-  c: Context,
-  entry: AdminAuditEntry,
-): Promise<void> {
-  if (!audit) return;
+export function buildAdminEvent(c: Context, entry: AdminAuditEntry): AuditEvent {
   const ctx = getAuthContext(c);
-  await recordSensitiveEvent(audit, {
+  return createAuditEvent({
+    stream: "sensitive",
     module: entry.module,
     entityType: entry.entityType,
     entityId: entry.entityId,
@@ -64,6 +62,15 @@ export async function recordAdminEvent(
     severity: entry.severity ?? "WARNING",
     details: withOrigin(c, entry.details),
   });
+}
+
+export async function recordAdminEvent(
+  audit: AuditSink | undefined,
+  c: Context,
+  entry: AdminAuditEntry,
+): Promise<void> {
+  if (!audit) return;
+  await audit.append(buildAdminEvent(c, entry));
 }
 
 /**

@@ -4,7 +4,10 @@ import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
 import type { AuditEvent, AuditSink, AuditStream } from "@mezan/domain";
 
 import { insecureHeaderAuthContextResolver } from "./permission-gate.js";
+import { uncheckedPeriodCloseGuardForTests } from "./test-helpers/unchecked-period-close-guard.js";
+import { NO_PERIOD_CLOSE_GUARD } from "./period-close-routes.js";
 const handles: SqliteFiscalPeriodRepositoryHandle[] = [];
+const DISCARD_AUDIT: AuditSink = { append: async () => {}, query: async () => [] };
 
 afterEach(() => {
   for (const h of handles.splice(0)) h.close();
@@ -13,7 +16,8 @@ afterEach(() => {
 function newApp() {
   const repo = createSqliteFiscalPeriodRepository();
   handles.push(repo);
-  const app = createFiscalPeriodsRoutes(repo, insecureHeaderAuthContextResolver);
+  const guard = uncheckedPeriodCloseGuardForTests(repo, DISCARD_AUDIT);
+  const app = createFiscalPeriodsRoutes(repo, insecureHeaderAuthContextResolver, DISCARD_AUDIT, () => guard);
   return { app, repo };
 }
 
@@ -74,7 +78,7 @@ describe("fiscal-periods router — generate/list/get", () => {
 });
 
 describe("fiscal-periods router — lifecycle actions", () => {
-  it("closes an open period", async () => {
+  it("closes an open period under the explicit TEST-ONLY unchecked guard (a router with no guard refuses — see period-close-routes.test.ts)", async () => {
     const { app } = newApp();
     await generateYear(app);
     const res = await app.fetch(req("/fp-2026-01/close", { method: "POST", permissions: "accounting.period.close" }));
@@ -133,7 +137,7 @@ describe("generating a fiscal year leaves a record", () => {
     const repo = createSqliteFiscalPeriodRepository();
     handles.push(repo);
     const audit = new MemorySink();
-    const app = createFiscalPeriodsRoutes(repo, insecureHeaderAuthContextResolver, audit);
+    const app = createFiscalPeriodsRoutes(repo, insecureHeaderAuthContextResolver, audit, NO_PERIOD_CLOSE_GUARD);
 
     expect((await generateYear(app, 2027)).status).toBe(201);
     expect(audit.events).toHaveLength(1);

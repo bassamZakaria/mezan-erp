@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { describe, expect, it } from "vitest";
 import { ALL_SCOPE } from "../permissions/auth-context.js";
 import type { Employee } from "../hr/employee.js";
@@ -173,7 +174,7 @@ describe("assertUserErasable", () => {
 
   it("refuses while the linked employee is still on the books", () => {
     const target = user({ employeeId: "emp-1" });
-    expect(() => assertUserErasable(target, { actorId, users: [target], employee: employee({ status: "active" }) })).toThrow(
+    expect(() => assertUserErasable(target, { actorId, users: [target], employee: employee({ status: EmployeeRefStatus.Active }) })).toThrow(
       UserErasureRefusedError,
     );
     expect(() => assertUserErasable(target, { actorId, users: [target], employee: employee() })).not.toThrow();

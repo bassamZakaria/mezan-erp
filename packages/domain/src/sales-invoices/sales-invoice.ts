@@ -216,6 +216,10 @@ export interface SalesInvoice {
   readonly reversedByInvoiceId: string | null;
 }
 
+export function salesInvoiceVoidEntryId(invoiceId: string): string {
+  return `${invoiceId}:void`;
+}
+
 /** Whether the invoice is live (its effects have been applied to the ledger). */
 export function isSalesInvoiceActive(status: SalesInvoiceStatus): boolean {
   return SALES_INVOICE_ACTIVE_STATUSES.has(status);

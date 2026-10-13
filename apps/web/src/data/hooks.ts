@@ -1,4 +1,5 @@
-import { ReadPermission, sessionHolds } from "./session";
+import { useSyncExternalStore } from "react";
+import { loadTenantCode, subscribeTenantCode } from "./session";
 import { DocumentReadPermission, sessionMayRead } from "./document-read-permissions";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
@@ -311,7 +312,11 @@ import type {
   RecurringJournalTemplateStatusDTO,
   SkipRecurringJournalOccurrenceDTO,
 } from "@mezan/contracts";
+import { ShellRequest, type DisplaySettingKey } from "@mezan/domain";
+import { TenantResolveMode, type PlatformResolveDTO } from "@mezan/contracts";
+import { UserStatusCode } from "@mezan/domain";
 import { useApi } from "./ApiContext";
+import { sessionMayAsk } from "./session";
 import type { TransportResponse } from "./transport";
 import { useAppTranslation } from "../i18n";
 
@@ -462,35 +467,89 @@ export function useTenantInfo(
   });
 }
 
-/**
- * Deliberately name-free: this is an unauthenticated lookup anyone who knows
- * (or guesses) a tenant code can call, so it must never become a
- * name-enumeration oracle (see `tenant-router.ts`'s `/platform/resolve`).
- */
-export interface PlatformResolveDTO {
-  readonly mode: "subdomain" | "code";
-  readonly exists: boolean;
+export const PLATFORM_LOOKUP_FIRST_RETRY_MS = 1_000;
+export const PLATFORM_LOOKUP_MAX_RETRY_MS = 30_000;
+const PLATFORM_LOOKUP_MAX_RETRY_AFTER_MS = 5 * 60_000;
+const UNREADABLE_LOOKUP_STATUS = 502;
+const TENANT_RESOLVE_MODES: readonly string[] = Object.values(TenantResolveMode);
+
+function retryAfterSecondsOf(res: TransportResponse): number | undefined {
+  const seconds = Number(res.header?.("retry-after") ?? "");
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
-export function usePlatformResolve(): UseQueryResult<PlatformResolveDTO, ApiError> {
+const PLATFORM_LOOKUP_JITTER = 0.2;
+const PERMANENT_LOOKUP_REFUSALS: readonly number[] = [400, 401, 403, 410];
+
+export function platformLookupRetryDelay(failureCount: number, error: unknown, random: () => number = Math.random): number {
+  const backoff = PLATFORM_LOOKUP_FIRST_RETRY_MS * 2 ** Math.min(failureCount, 16);
+  const spread = 1 + PLATFORM_LOOKUP_JITTER * (2 * random() - 1);
+  const jittered = Math.min(PLATFORM_LOOKUP_MAX_RETRY_MS, Math.round(backoff * spread));
+  const asked = error instanceof ApiError && error.retryAfterSeconds !== undefined ? error.retryAfterSeconds * 1000 : 0;
+  return Math.min(PLATFORM_LOOKUP_MAX_RETRY_AFTER_MS, Math.max(asked, jittered));
+}
+
+export function noPlatformInFront(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
+
+export function platformLookupWorthRetrying(error: unknown): boolean {
+  if (noPlatformInFront(error)) return false;
+  return !(error instanceof ApiError && PERMANENT_LOOKUP_REFUSALS.includes(error.status));
+}
+
+export function usePlatformResolve(options: { enabled?: boolean } = {}): UseQueryResult<PlatformResolveDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
   return useQuery<PlatformResolveDTO, ApiError>({
     queryKey: ["platform", "resolve"],
+    enabled: options.enabled ?? true,
+    retry: (_failureCount, error) => platformLookupWorthRetrying(error),
+    retryDelay: (failureCount, error) => platformLookupRetryDelay(failureCount, error),
     queryFn: async () => {
       const res = await request("/platform/resolve");
-      if (!res.ok) throw await loaderError(res, t("api.theCompanySDetailsCould"));
-      return res.json<PlatformResolveDTO>();
+      if (!res.ok) {
+        const refused = await loaderError(res, t("api.theCompanySDetailsCould"));
+        throw new ApiError(res.status, refused.message, undefined, retryAfterSecondsOf(res));
+      }
+      const body = await res.json<Partial<PlatformResolveDTO> | null>().catch(() => null);
+      if (!body || typeof body.exists !== "boolean" || !TENANT_RESOLVE_MODES.includes(String(body.mode))) {
+        throw new ApiError(UNREADABLE_LOOKUP_STATUS, t("api.theCompanySDetailsCould"));
+      }
+      return { mode: body.mode as TenantResolveMode, exists: body.exists };
     },
   });
 }
 
+export function platformLookupFailing(resolve: Pick<UseQueryResult<PlatformResolveDTO, ApiError>, "data" | "failureCount" | "failureReason">): boolean {
+  return resolve.data === undefined && resolve.failureCount > 0 && !noPlatformInFront(resolve.failureReason);
+}
+
+// SECURITY (D-SAAS-06): a tenant-scoped request must never leave before a
+// company is known, and a lookup that failed knows nothing. While it fails the
+// only company there can be is one the person typed and confirmed.
+export function useCompanyKnown(): boolean {
+  const { session } = useApi();
+  const alreadyKnown = session !== null || isDesktopHost();
+  const resolve = usePlatformResolve({ enabled: !alreadyKnown });
+  const storedCode = useSyncExternalStore(subscribeTenantCode, loadTenantCode, () => null);
+  const companyTyped = storedCode !== null && storedCode !== "";
+  if (alreadyKnown) return true;
+  if (resolve.isError) return noPlatformInFront(resolve.error);
+  if (platformLookupFailing(resolve)) return companyTyped;
+  if (!resolve.data) return false;
+  if (resolve.data.mode === TenantResolveMode.Subdomain) return resolve.data.exists;
+  return companyTyped;
+}
+
 /** What base data already exists — drives the wizard's seed checklist without triggering a seed. */
-export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
+export function useBootstrapStatus(options: { enabled?: boolean } = {}): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
+  const companyKnown = useCompanyKnown();
   return useQuery<BootstrapSeedResultDTO, ApiError>({
     queryKey: ["bootstrap", "status"],
+    enabled: companyKnown && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request("/bootstrap/status");
       if (!res.ok) throw await loaderError(res, t("api.theCoreDataStatusCould"), t);
@@ -508,8 +567,10 @@ export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, Api
 export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request } = useApi();
+  const companyKnown = useCompanyKnown();
   return useQuery<EntitlementsDTO, ApiError>({
     queryKey: ["entitlements"],
+    enabled: companyKnown,
     queryFn: async () => {
       const res = await request("/entitlements");
       if (!res.ok) throw await loaderError(res, t("api.licenceDetailsCouldNotBe"), t);
@@ -1342,6 +1403,7 @@ export interface JournalEntryDTO {
   readonly postedAt: string | null;
   readonly reversesEntryId: string | null;
   readonly reversedByEntryId: string | null;
+  readonly reversibleFromJournal?: boolean;
   /** The document this entry came from, and the module derived from it (R6.3). */
   readonly sourceDocType: string | null;
   readonly sourceDocId: string | null;
@@ -1564,16 +1626,28 @@ export interface RecurringJournalTemplateDTO {
   readonly updatedAt: string;
 }
 
+export enum RecurringJournalRunEntryStatusDTO {
+  Draft = "draft",
+  Posted = "posted",
+  Reversed = "reversed",
+}
+
 export interface RecurringJournalRunDTO {
   readonly id: string;
   readonly templateId: string;
   readonly period: string;
+  readonly generation?: number;
   readonly journalEntryId: string;
   readonly journalEntryNo: string | null;
   readonly reversalJournalEntryId: string | null;
   readonly reversalJournalEntryNo: string | null;
   readonly generatedAt: string;
   readonly generatedBy: string;
+  readonly entryStatus?: RecurringJournalRunEntryStatusDTO | null;
+  readonly current?: boolean;
+  readonly reversedByEntryId?: string | null;
+  readonly reversedByEntryNo?: string | null;
+  readonly reversedOn?: string | null;
 }
 
 export interface DueRecurringJournalDTO {
@@ -1801,7 +1875,7 @@ export function useUsers(): UseQueryResult<UserDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<UserDTO[], ApiError>({
     queryKey: ["users"],
-    enabled: sessionHolds(session, ReadPermission.Users),
+    enabled: sessionMayAsk(session, ShellRequest.Users),
     queryFn: async () => {
       const res = await request("/users");
       if (!res.ok) throw await loaderError(res, t("api.usersCouldNotBeLoaded"), t);
@@ -1842,9 +1916,12 @@ export function useSetUserStatus() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<UserDTO, ApiError, { id: string; status: "active" | "inactive" }>({
-    mutationFn: async ({ id, status }) => {
-      const res = await request(`/users/${id}/${status === "active" ? "activate" : "deactivate"}`, { method: "POST" });
+  return useMutation<UserDTO, ApiError, { id: string; status: UserStatusCode; newOwnerUserId?: string }>({
+    mutationFn: async ({ id, status, newOwnerUserId }) => {
+      const res = await request(`/users/${id}/${status === UserStatusCode.Active ? "activate" : "deactivate"}`, {
+        method: "POST",
+        ...(newOwnerUserId ? { body: JSON.stringify({ newOwnerUserId }) } : {}),
+      });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserSStatusCould"), t));
       return res.json<UserDTO>();
     },
@@ -1858,7 +1935,7 @@ export function useRoles(): UseQueryResult<RoleDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<RoleDTO[], ApiError>({
     queryKey: ["roles"],
-    enabled: sessionHolds(session, ReadPermission.Roles),
+    enabled: sessionMayAsk(session, ShellRequest.Roles),
     queryFn: async () => {
       const res = await request("/roles");
       if (!res.ok) throw await loaderError(res, t("api.rolesCouldNotBeLoaded"), t);
@@ -1939,11 +2016,27 @@ export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
   const { request, session } = useApi();
   return useQuery<TenantSettingsDTO, ApiError>({
     queryKey: ["settings"],
-    enabled: sessionHolds(session, ReadPermission.Settings),
+    enabled: sessionMayAsk(session, ShellRequest.Settings),
     queryFn: async () => {
       const res = await request("/settings");
       if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
       return res.json<TenantSettingsDTO>();
+    },
+  });
+}
+
+export type DisplaySettingsDTO = Pick<TenantSettingsDTO, `${DisplaySettingKey}`>;
+
+export function useDisplaySettings(): UseQueryResult<DisplaySettingsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<DisplaySettingsDTO, ApiError>({
+    queryKey: ["settings", "display"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings/display");
+      if (!res.ok) throw await loaderError(res, t("api.settingsCouldNotBeLoaded"), t);
+      return res.json<DisplaySettingsDTO>();
     },
   });
 }
@@ -1972,7 +2065,7 @@ export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<BranchDTO[], ApiError>({
     queryKey: ["branches"],
-    enabled: sessionHolds(session, ReadPermission.Branches),
+    enabled: sessionMayAsk(session, ShellRequest.Branches),
     queryFn: async () => {
       const res = await request("/branches");
       if (!res.ok) throw await loaderError(res, t("api.branchesCouldNotBeLoaded"), t);
@@ -2343,7 +2436,7 @@ export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<WarehouseDTO[], ApiError>({
     queryKey: ["warehouses"],
-    enabled: sessionHolds(session, ReadPermission.Warehouses),
+    enabled: sessionMayAsk(session, ShellRequest.Warehouses),
     queryFn: async () => {
       const res = await request("/warehouses");
       if (!res.ok) throw await loaderError(res, t("api.warehousesCouldNotBeLoaded"), t);
@@ -3692,6 +3785,20 @@ export function useCreateDepreciationRun() {
   });
 }
 
+export function useDiscardDepreciationRun() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DepreciationRunDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/assets/depreciation/runs/${id}/discard`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationDraftCouldNotBeDiscarded"), t));
+      return res.json<DepreciationRunDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] }),
+  });
+}
+
 export function usePostDepreciationRun() {
   const { t } = useAppTranslation();
   const { request } = useApi();
@@ -4694,13 +4801,22 @@ export function useGenerateFiscalYear() {
   });
 }
 
-function useFiscalPeriodTransition(action: "close" | "reopen" | "lock", fallbackMessage: string) {
+enum FiscalPeriodTransitionAction {
+  Close = "close",
+  Reopen = "reopen",
+  Lock = "lock",
+}
+
+function useFiscalPeriodTransition(action: FiscalPeriodTransitionAction, fallbackMessage: string) {
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<FiscalPeriodDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/fiscal-periods/${id}/${action}`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, fallbackMessage));
+      if (!res.ok) {
+        const refusal = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
+        throw new ApiError(res.status, refusal.message ? refusal.message : fallbackMessage, undefined, undefined, refusal.error);
+      }
       return res.json<FiscalPeriodDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fiscal-periods"] }),
@@ -4710,17 +4826,17 @@ function useFiscalPeriodTransition(action: "close" | "reopen" | "lock", fallback
 /** إغلاق الفترة (مفتوحة → مغلقة). */
 export function useClosePeriod() {
   const { t } = useAppTranslation();
-  return useFiscalPeriodTransition("close", t("api.thePeriodCouldNotBe"));
+  return useFiscalPeriodTransition(FiscalPeriodTransitionAction.Close, t("api.thePeriodCouldNotBe"));
 }
 /** إعادة فتح الفترة (مغلقة → مفتوحة). */
 export function useReopenPeriod() {
   const { t } = useAppTranslation();
-  return useFiscalPeriodTransition("reopen", t("api.thePeriodCouldNotBe2"));
+  return useFiscalPeriodTransition(FiscalPeriodTransitionAction.Reopen, t("api.thePeriodCouldNotBe2"));
 }
 /** قفل الفترة (مغلقة → مقفلة، نهائي). */
 export function useLockPeriod() {
   const { t } = useAppTranslation();
-  return useFiscalPeriodTransition("lock", t("api.thePeriodCouldNotBe3"));
+  return useFiscalPeriodTransition(FiscalPeriodTransitionAction.Lock, t("api.thePeriodCouldNotBe3"));
 }
 
 /**
@@ -4943,7 +5059,10 @@ export function useFxRevaluationPost() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRevaluationCouldNotBe2"), t));
       return res.json<FxRevaluationPostResultDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reconciliation"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["reconciliation"] });
+      void queryClient.invalidateQueries({ queryKey: ["revaluation"] });
+    },
   });
 }
 
@@ -6335,6 +6454,23 @@ export function useCancelLandedCost() {
   });
 }
 
+export function useReverseLandedCost() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ original: LandedCostDocumentDTO; reversal: LandedCostDocumentDTO }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/landed-costs/${id}/reverse`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould3"), t));
+      return res.json<{ original: LandedCostDocumentDTO; reversal: LandedCostDocumentDTO }>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["landed-costs"] });
+      void queryClient.invalidateQueries({ queryKey: ["stock-levels"] });
+    },
+  });
+}
+
 export interface InstallmentPlanListFilter {
   /** A stored document status, or one of the derived axis keys `all` / `overdue`. */
   readonly status?: DocumentStatusDTO | "all" | "overdue";
@@ -6609,12 +6745,12 @@ export function useUpdateDepartment() {
   });
 }
 
-export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
+export function useJobTitles(enabled = true): UseQueryResult<JobTitleDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JobTitleDTO[], ApiError>({
     queryKey: ["hr-job-titles"],
-    enabled: sessionHolds(session, ReadPermission.JobTitles),
+    enabled: sessionMayAsk(session, ShellRequest.JobTitles) && enabled,
     queryFn: async () => {
       const res = await request("/hr/job-titles");
       if (!res.ok) throw await loaderError(res, t("api.jobTitlesCouldNotBe"), t);
@@ -6651,12 +6787,12 @@ export function useUpdateJobTitle() {
   });
 }
 
-export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
+export function useEmployees(enabled = true): UseQueryResult<EmployeeDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<EmployeeDTO[], ApiError>({
     queryKey: ["hr-employees"],
-    enabled: sessionHolds(session, ReadPermission.Employees),
+    enabled: sessionMayAsk(session, ShellRequest.Employees) && enabled,
     queryFn: async () => {
       const res = await request("/hr/employees");
       if (!res.ok) throw await loaderError(res, t("api.employeesCouldNotBeLoaded"), t);
@@ -6721,17 +6857,52 @@ export function useTransitionEmployee() {
   });
 }
 
+export interface TerminationPayRecoveryDTO {
+  readonly advanceId: string | null;
+  readonly advanceNumber: string | null;
+  readonly days: number;
+  readonly gross: string;
+  readonly amount: string;
+  readonly payableReduced: string;
+  readonly taxRelief: string;
+  readonly journalEntryId: string;
+  readonly paidThrough: string;
+}
+
+export type TerminatedEmployeeDTO = EmployeeDTO & { readonly payRecovery?: TerminationPayRecoveryDTO | null };
+
 export function useTerminateEmployee() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<EmployeeDTO, ApiError, string>({
-    mutationFn: async (id) => {
-      const res = await request(`/hr/employees/${id}/terminate`, { method: "POST" });
+  return useMutation<TerminatedEmployeeDTO, ApiError, { id: string; effectiveDate: string }>({
+    mutationFn: async ({ id, effectiveDate }) => {
+      const res = await request(`/hr/employees/${id}/terminate`, { method: "POST", body: JSON.stringify({ effectiveDate }) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeSServiceCould"), t));
-      return res.json<EmployeeDTO>();
+      return res.json<TerminatedEmployeeDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["hr-employees"] });
+      void queryClient.invalidateQueries({ queryKey: ["hr-advances"] });
+    },
+  });
+}
+
+export function useCorrectTerminationDate() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TerminatedEmployeeDTO, ApiError, { id: string; effectiveDate: string }>({
+    mutationFn: async ({ id, effectiveDate }) => {
+      const res = await request(`/hr/employees/${id}/correct-termination-date`, { method: "POST", body: JSON.stringify({ effectiveDate }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("employees.couldnTCorrectTheTerminationDate"), t));
+      return res.json<TerminatedEmployeeDTO>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["hr-employees"] });
+      void queryClient.invalidateQueries({ queryKey: ["hr-advances"] });
+      void queryClient.invalidateQueries({ queryKey: ["hr-payroll-runs"] });
+    },
   });
 }
 
@@ -7341,29 +7512,6 @@ export function usePrintTemplateConfig(): UseQueryResult<PrintTemplateConfigDTO,
   });
 }
 
-export interface PrintLetterheadDTO {
-  readonly companyName: string;
-  readonly address: string;
-  readonly phone: string;
-  readonly email: string;
-  readonly taxRegistrationNumber: string;
-  readonly commercialRegistrationNumber: string;
-}
-
-export function usePrintLetterhead(): UseQueryResult<PrintLetterheadDTO, ApiError> {
-  const { t } = useAppTranslation();
-  const { request, session } = useApi();
-  return useQuery<PrintLetterheadDTO, ApiError>({
-    queryKey: ["print-template-config", "letterhead"],
-    enabled: session !== null,
-    queryFn: async () => {
-      const res = await request("/print-template-config/letterhead");
-      if (!res.ok) throw await loaderError(res, t("api.thePrintTemplateCouldNot"), t);
-      return res.json<PrintLetterheadDTO>();
-    },
-  });
-}
-
 export interface SalesInvoicePrintContextDTO {
   readonly branchName: string | null;
   readonly warehouseName: string | null;
@@ -7715,7 +7863,7 @@ export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
   const { request, session } = useApi();
   return useQuery<number, ApiError>({
     queryKey: ["workflow-requests", "pending-count"],
-    enabled: sessionMayRead(session, DocumentReadPermission.Workflow),
+    enabled: sessionMayAsk(session, ShellRequest.PendingApprovals),
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/workflow/requests/pending-count");

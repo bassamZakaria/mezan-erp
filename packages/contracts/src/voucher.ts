@@ -40,6 +40,15 @@ export const heldAllocationSchema = z.object({
   amount: moneyString.nullable(),
 });
 
+export const treasuryLegFxSchema = z.object({
+  currency: z.string(),
+  fxRate: z.string(),
+  foreignAmount: moneyString,
+  carryingBase: z.string().optional(),
+  realised: z.string().optional(),
+  realisedAccountId: z.string().optional(),
+});
+
 export const voucherSchema = z.object({
   id: z.string().min(1),
   docNo: z.string().nullable(),
@@ -58,6 +67,8 @@ export const voucherSchema = z.object({
    * (B-4/B-5).
    */
   fxRate: z.string().nullable(),
+  treasuryFx: treasuryLegFxSchema.nullable().optional(),
+  counterTreasuryFx: treasuryLegFxSchema.nullable().optional(),
   /** `amount` converted at `fxRate` — what the GL, the treasury and every allocation hold. */
   baseAmount: z.string(),
   branchId: z.string(),
@@ -106,7 +117,7 @@ export const createVoucherSchema = z.object({
   branchId: z.string().min(1),
   paymentMethod: voucherPaymentMethodSchema,
   treasuryAccountId: z.string().min(1),
-  treasuryGlAccountId: z.string().min(1),
+  treasuryGlAccountId: z.string().min(1).optional(),
   counterpartyGlAccountId: z.string().nullish(),
   counterTreasuryAccountId: z.string().nullish(),
   counterTreasuryGlAccountId: z.string().nullish(),
@@ -155,9 +166,14 @@ export const voucherAllocationSchema = z.object({
   id: z.string(),
   voucherId: z.string(),
   invoiceId: z.string(),
+  invoiceNo: z.string().nullable().optional(),
   amount: moneyString,
   /** What the invoice was relieved of at its booked rate; differs from `amount` by the realised exchange difference (D221). */
   invoiceAmount: z.string().optional(),
+  revaluationShare: z.string().optional(),
+  carryingAmount: z.string().optional(),
+  moneyRevaluationShare: z.string().optional(),
+  moneyCarryingAmount: z.string().optional(),
   fxDifference: z.string().optional(),
   fxEntryId: z.string().nullable().optional(),
   status: allocationStatusSchema,
@@ -180,6 +196,7 @@ export const createAllocationSchema = z.object({
  * voucher.
  */
 export const createCollectionSchema = z.object({
+  currency: z.string().optional(),
   id: z.string().min(1).optional(),
   date: isoDateOrInstant.optional(),
   memo: z.string().optional(),

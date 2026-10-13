@@ -229,6 +229,8 @@ export async function run(ctx: Ctx): Promise<void> {
   // plant asset — and the totals below are exact.
 
   await scenario("fixed-assets · depreciation run matches each asset's category method/life; posting balances the GL", async () => {
+    const accumulatedBefore = n((await req("GET", "/assets/ASSET-DEMO-1")).body.accumulatedDepreciation);
+    checkEq("AST-0001 enters with the seeded months already depreciated: 77,080.645161", accumulatedBefore, 77080.645161);
     const run = await req("POST", "/assets/depreciation/runs", { period: "2026-08" });
     checkEq("run created", run.status, 201);
     check("starts 'draft'", run.body.status === "draft");
@@ -276,9 +278,11 @@ export async function run(ctx: Ctx): Promise<void> {
       n(debitLine.debit) + n(plantDebit.debit), n(creditLine.credit) + n(plantCredit.credit));
 
     const asset1 = await req("GET", "/assets/ASSET-DEMO-1");
-    checkEq("AST-0001's accumulated depreciation now 2,700.00", n(asset1.body.accumulatedDepreciation), 2700);
-    checkEq("AST-0001's book value == cost − accumulated == 177,300.00",
-      n(asset1.body.acquisitionCost) - n(asset1.body.accumulatedDepreciation), 177300);
+    checkEq("this run added exactly its own 2,700.00 to AST-0001's accumulated depreciation",
+      n(asset1.body.accumulatedDepreciation) - accumulatedBefore, 2700);
+    checkEq("AST-0001's accumulated depreciation is now 79,780.645161", n(asset1.body.accumulatedDepreciation), 79780.645161);
+    checkEq("AST-0001's book value == cost − accumulated == 100,219.354839",
+      n(asset1.body.acquisitionCost) - n(asset1.body.accumulatedDepreciation), 100219.354839);
   });
 
   // --- Fixed Assets: category + register creation validation (after the priority-3 run, so it can't add extra eligible lines) ---

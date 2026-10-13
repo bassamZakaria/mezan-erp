@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installClockOverride, FAKE_TODAY_ENV } from "../../packages/backend/src/clock-override.js";
 import { createCloudApp } from "../../apps/server/src/cloud-app.ts";
-import type { CloudEnv } from "../../apps/server/src/env.ts";
+import { PaymobMode, type CloudEnv } from "../../apps/server/src/env.ts";
 import type { Ctx } from "./harness.js";
 
 /**
@@ -37,7 +37,8 @@ export async function run(ctx: Ctx): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "mezan-freemium-"));
   const env: CloudEnv = {
     platformDir: dir,
-    trustProxy: false,
+    trustProxy: true,
+    clientSource: { trustedProxyHops: 2, trustViewerAddress: false, compareViewerAddress: false },
     sqliteExclusive: false,
     platformOwnerEmail: "owner@platform.example",
     platformOwnerPassword: "platform-owner-password",
@@ -45,7 +46,7 @@ export async function run(ctx: Ctx): Promise<void> {
     backupIntervalMinutes: 0,
     webDist: join(dir, "web"),
     port: 0,
-    paymob: { mode: "off" },
+    paymob: { mode: PaymobMode.Off },
   };
 
   const label = (text: string) => `trial-freemium · ${text}`;
@@ -62,7 +63,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const res = await root.fetch(
       new Request(`http://scenario${path}`, {
         method,
-        headers: { "content-type": "application/json", "x-mezan-tenant": TENANT, ...headers },
+        headers: { "content-type": "application/json", "x-mezan-tenant": TENANT, "x-forwarded-for": "41.33.10.10, 130.176.1.1", ...headers },
         body: body === undefined ? undefined : JSON.stringify(body),
       }),
     );

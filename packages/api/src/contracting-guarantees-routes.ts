@@ -1,11 +1,15 @@
-import { postingRefusal } from "./posting-refusal.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
+import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
+import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import {
   GuaranteeAmountExceedsValueError,
   GuaranteeBankAccountInvalidError,
   GuaranteeChargeAccountNotFoundError,
   GuaranteeNotDraftError,
   GuaranteeNotFoundError,
+  GuaranteeNothingToReverseError,
+  GuaranteePostingFromDocumentError,
   GuaranteeService,
   InvalidGuaranteeError,
   InvalidGuaranteeTransitionError,
@@ -25,6 +29,7 @@ import {
   type TreasuryAccountRepository,
 } from "@mezan/domain";
 import {
+  ReversalPermission,
   callGuaranteeSchema,
   createGuaranteeSchema,
   reduceGuaranteeSchema,
@@ -130,6 +135,8 @@ function serializeSummary(summary: GuaranteeSummary) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof GuaranteeNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -148,6 +155,11 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof GuaranteeNotDraftError) {
     return c.json({ error: err.code, message: err.message, status: err.status }, 409);
   }
+  if (err instanceof GuaranteeNothingToReverseError || err instanceof GuaranteePostingFromDocumentError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
+  }
+  const reversalRefusal = reversalRefusalResponse(c, err);
+  if (reversalRefusal) return reversalRefusal;
   if (err instanceof InvalidGuaranteeTransitionError) {
     return c.json({ error: err.code, message: err.message, from: err.from, to: err.to }, 409);
   }
@@ -155,8 +167,6 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
     return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
   }
-  const postingRefused = postingRefusal(c, err);
-  if (postingRefused) return postingRefused;
   throw err;
 }
 
@@ -321,6 +331,11 @@ export function createContractingGuaranteesRoutes(
         userId: actorId(c),
       }),
     );
+  });
+
+  app.post("/:id/reverse-last", gate(ReversalPermission.LetterOfGuarantee), requireReversalReason, async (c) => {
+    const { date, memo } = await readReversalRequest(c);
+    return act(c, (id) => service.reverseLastPosting(id, { reversalId: randomUUID(), date, memo, userId: actorId(c) }));
   });
 
   return app;

@@ -281,6 +281,12 @@ describe("JournalsScreen — create: post flow", () => {
     expect(postedStat).not.toBeNull();
   });
 
+  it("offers no reverse action on an entry a document owns", async () => {
+    renderScreen([entry({ sourceDocType: "TREASURY_VOUCHER", sourceDocId: "V-1", sourceDocNumber: "CV-000001", reversibleFromJournal: false })]);
+    fireEvent.click(await screen.findByText("JE-000001"));
+    expect(screen.queryByRole("button", { name: "عكس القيد" })).not.toBeInTheDocument();
+  });
+
   it("reverses a posted entry from its detail view, defaulting the confirm dialog's date to today and sending it (D270)", async () => {
     const { reverseRequests } = renderScreen();
     fireEvent.click(await screen.findByText("JE-000001"));

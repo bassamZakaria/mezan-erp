@@ -1,4 +1,4 @@
-import { postingRefusal } from "./posting-refusal.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   CertificateDateOrderError,
@@ -236,6 +236,8 @@ function serializeInternal(report: InternalCertificateReport) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof ProgressCertificateNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -253,8 +255,6 @@ function handleDomainError(c: Context, err: unknown) {
    * return telling the user to pick another date — a 409, never the 500 an
    * unhandled throw turned them into.
    */
-  const postingRefused = postingRefusal(c, err);
-  if (postingRefused) return postingRefused;
   if (
     err instanceof PeriodNotOpenForPostingError ||
     err instanceof NoFiscalPeriodForDateError

@@ -1,4 +1,3 @@
-import { DocumentReadPermission, sessionMayRead } from "../data/document-read-permissions";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   CardCheckoutDTO,
@@ -6,7 +5,9 @@ import type {
   StartModuleTrialRequestDTO,
   TenantBillingDTO,
 } from "@mezan/contracts";
+import { ShellRequest } from "@mezan/domain";
 import { useApi } from "../data/ApiContext";
+import { sessionMayAsk } from "../data/session";
 import { ApiError, readError } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { CHECKOUT_POLL_LIMIT_MS, CHECKOUT_POLL_MS, absoluteCheckoutUrl } from "./CardCheckoutStatus";
@@ -20,7 +21,7 @@ export function useTenantBilling(): UseQueryResult<TenantBillingDTO | null, ApiE
   const { request, session } = useApi();
   return useQuery<TenantBillingDTO | null, ApiError>({
     queryKey: ["billing", "subscription"],
-    enabled: sessionMayRead(session, DocumentReadPermission.Subscription),
+    enabled: sessionMayAsk(session, ShellRequest.Subscription),
     retry: false,
     queryFn: async () => {
       const res = await request("/billing/subscription");

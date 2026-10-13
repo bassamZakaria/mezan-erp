@@ -1,3 +1,4 @@
+import { GoodsReceiptInvoicingStatusDTO } from "@mezan/contracts";
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
@@ -83,9 +84,11 @@ function goodsReceipt(overrides: Partial<GoodsReceiptDTO> = {}): GoodsReceiptDTO
     warehouseId: "MAIN-WH",
     date: "2026-08-19",
     notes: null,
-    lines: [{ itemId: "item-cement", description: null, qty: "20.000000", unitCost: "85.000000", batchNo: null, expiryDate: null }],
+    lines: [{ itemId: "item-cement", description: null, qty: "20.000000", unitCost: "85.000000", batchNo: null, expiryDate: null, invoicedQty: "0.000000", remainingQty: "20.000000" }],
     status: "confirmed",
     invoiced: false,
+    invoicingStatus: GoodsReceiptInvoicingStatusDTO.NotInvoiced,
+    uninvoicedCost: "1700.000000",
     totalCost: "1700.000000",
     createdBy: "محمد الشهابي",
     createdAt: "2026-08-19T10:00:00.000Z",

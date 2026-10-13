@@ -1,3 +1,4 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
@@ -28,6 +29,8 @@ import {
   InactiveAccountError,
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
+  ReversalDateBeforeOriginalError,
+  salesInvoiceVoidEntryId,
   DuplicateJournalEntryError,
   ExpiredStockError,
   NegativeStockError,
@@ -100,6 +103,9 @@ import {
   documentVersionOf,
   documentVersionsOf,
   expectedVersionOf,
+  readOptionalBody,
+  requestedReversalDate,
+  INVALID_REVERSAL_DATE,
   refuseStaleDocument,
   stampDocumentModifier,
   type DocumentVersionGuard,
@@ -192,6 +198,7 @@ export interface SalesInvoiceRoutesDeps {
     invoiceId: string,
     options: { readonly paymentMethod?: EtaReceiptPaymentMethod },
   ) => Promise<{ receiptNo: string; uuid: string; qrValue: string } | null>;
+  readonly releaseRevaluationShare?: (invoiceId: string, date: string) => Promise<void>;
   /**
    * Turns a collection recorded on the invoice into a real confirmed collection
    * voucher, allocated to that invoice. Without it the route refuses rather
@@ -499,6 +506,8 @@ class SalesInvoiceVoidRefusal extends Error {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   const taxRefusal = taxRateRefusal(c, err);
   if (taxRefusal) return taxRefusal;
   if (err instanceof InvalidSalesInvoiceError) {
@@ -536,6 +545,7 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InactiveAccountError ||
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
+    err instanceof ReversalDateBeforeOriginalError ||
     err instanceof NegativeStockError ||
     err instanceof UncostedDeficitIssueError ||
     err instanceof ExpiredStockError
@@ -1489,7 +1499,10 @@ export function createSalesInvoicesRoutes(
     if (stale) return stale;
     const reason = parsed.data.reason;
 
-    const date = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
+    const reversalDate = requestedReversalDate(body);
+    if (!reversalDate.ok) return c.json(INVALID_REVERSAL_DATE, 400);
+    const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
+    const date = reversalDate.date ?? (today < requested.date ? requested.date : today);
     try {
       // INVARIANT: the invoice is re-read inside the transaction and EVERY
       // guard below runs on that read. A collection, a return, a receipt or a
@@ -1500,6 +1513,7 @@ export function createSalesInvoicesRoutes(
         const current = await deps.repo.findById(requested.id);
         if (!current) throw new SalesInvoiceVoidRefusal(404, { error: "NOT_FOUND", message: "الفاتورة غير موجودة." });
         assertSalesInvoiceTransition(current.id, current.status, "reversed");
+        if (date < current.date) throw new ReversalDateBeforeOriginalError(current.id, date, current.date);
         // INVARIANT: an e-invoice or e-receipt the authority is judging or has
         // accepted carries VAT the authority keeps. Voiding the sale would
         // drop that VAT from the books alone, so it is refused here with the
@@ -1570,7 +1584,7 @@ export function createSalesInvoicesRoutes(
         }
 
         const posted = await deps.gl.reverse(journalEntryId, {
-          reversalId: `${current.id}:void`,
+          reversalId: salesInvoiceVoidEntryId(current.id),
           date,
           memo: `عكس فاتورة مبيعات ${current.docNo ?? current.id}`,
         });
@@ -1582,7 +1596,7 @@ export function createSalesInvoicesRoutes(
           const restored = await stockRestore.reverse(
             {
               sourceDocType: SALES_INVOICE_DOC_TYPE,
-              sourceDocId: `${current.id}:void`,
+              sourceDocId: salesInvoiceVoidEntryId(current.id),
               sourceDocNumber: current.docNo,
               warehouseId: current.warehouseId,
               date,
@@ -1604,6 +1618,7 @@ export function createSalesInvoicesRoutes(
           throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, current.id);
         }
         await deps.withdrawUnsentEtaSubmission?.(next);
+        await deps.releaseRevaluationShare?.(next.id, date);
         await recordAdminEvent(deps.audit, c, {
           module: "sales",
           entityType: SALES_INVOICE_DOC_TYPE,

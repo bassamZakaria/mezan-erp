@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS eta_submission (
   rejection_codes  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_eta_submission_status ON eta_submission(status);
+CREATE INDEX IF NOT EXISTS idx_eta_submission_uuid ON eta_submission(eta_uuid);
 CREATE TABLE IF NOT EXISTS eta_branch_code (
   branch_id      TEXT PRIMARY KEY,
   eta_branch_code TEXT NOT NULL,
@@ -301,6 +302,7 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   private readonly selectByInternal: Database.Statement;
   private readonly selectAll: Database.Statement;
   private readonly selectByStatus: Database.Statement;
+  private readonly selectReceiptStatusByUuid: Database.Statement;
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
@@ -328,6 +330,7 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
     this.selectByInternal = sqlite.prepare(`SELECT * FROM eta_submission WHERE internal_id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM eta_submission ORDER BY created_at DESC`);
     this.selectByStatus = sqlite.prepare(`SELECT * FROM eta_submission WHERE status = ? ORDER BY created_at DESC`);
+    this.selectReceiptStatusByUuid = sqlite.prepare(`SELECT status FROM eta_submission WHERE eta_uuid = ? AND document_type = 'receipt'`);
   }
 
   async findById(id: string): Promise<EtaSubmission | null> {
@@ -343,6 +346,11 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   async list(status?: EtaSubmissionStatus): Promise<EtaSubmission[]> {
     const rows = (status ? this.selectByStatus.all(status) : this.selectAll.all()) as SubmissionRow[];
     return rows.map(toSubmission);
+  }
+
+  async statusByEtaUuid(etaUuid: string): Promise<EtaSubmissionStatus | null> {
+    const row = this.selectReceiptStatusByUuid.get(etaUuid) as { status: EtaSubmissionStatus } | undefined;
+    return row?.status ?? null;
   }
 
   async create(submission: EtaSubmission): Promise<void> {

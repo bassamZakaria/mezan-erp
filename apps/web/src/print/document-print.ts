@@ -1,6 +1,6 @@
 import { amountInWords } from "@mezan/domain";
 import type { PrintDocumentLine, PrintDocumentModel, PrintPartyInfo } from "@mezan/ui";
-import type { PrintLetterheadDTO } from "../data/hooks";
+import type { DisplaySettingsDTO } from "../data/hooks";
 import { majorOf, scaledOf, toMajorNumber } from "../lib/money";
 
 /**
@@ -48,7 +48,7 @@ export interface DocumentPrintInput {
   readonly date: string;
   readonly dueDate?: string;
   readonly statusLabel?: string;
-  readonly settings: PrintLetterheadDTO | null;
+  readonly settings: DisplaySettingsDTO | null;
   readonly branchName?: string;
   readonly warehouseName?: string;
   readonly party?: PrintPartyInfo;
@@ -84,7 +84,7 @@ function lineTaxScaled(line: DocumentPrintLineInput): bigint {
   return (lineNetScaled(line) * rate) / 100_000_000n;
 }
 
-export function companyOf(settings: PrintLetterheadDTO | null) {
+export function companyOf(settings: DisplaySettingsDTO | null) {
   return {
     name: settings?.companyName ?? "",
     address: settings?.address || undefined,

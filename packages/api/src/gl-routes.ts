@@ -1,7 +1,8 @@
-import { postingRefusal } from "./posting-refusal.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  type ForeignTreasuryBalance,
   Money,
   createJournalEntry,
   postJournalEntry,
@@ -24,6 +25,9 @@ import {
   PartyRequiredOnControlAccountError,
   InvalidJournalPartyError,
   ReversalDateBeforeOriginalError,
+  JournalEntryOwnedByDocumentError,
+  JournalReversalNotReversibleError,
+  assertReversibleFromJournal,
   type PartyControlKind,
   type JournalEntry,
   type JournalPostingDeps,
@@ -39,6 +43,10 @@ import {
   closeFiscalYear,
   planYearEndClose,
   YearAlreadyClosedError,
+  YearNotClosedError,
+  FollowingYearClosedError,
+  reopenFiscalYear,
+  standingYearClose,
   NothingToCloseError,
   recordVatFiling,
   amendVatFiling,
@@ -52,7 +60,9 @@ import {
   type CurrencyBalanceGroup,
 } from "@mezan/domain";
 import { tenantDay } from "./tenant-day.js";
+import { readReversalRequest, requireReversalReason } from "./document-reversal.js";
 import {
+  ReversalPermission,
   createGlJournalEntrySchema,
   updateGlJournalEntrySchema,
   reverseGlJournalEntrySchema,
@@ -103,6 +113,7 @@ export interface GlRoutesDeps {
    * balance is base-currency.
    */
   readonly openPartyDocuments?: () => Promise<readonly OpenPartyDocument[]>;
+  readonly treasuryCurrencyBalances?: () => Promise<readonly ForeignTreasuryBalance[]>;
   /** The tenant's base currency; defaults to EGP. */
   readonly baseCurrency?: () => Promise<string> | string;
 }
@@ -119,6 +130,7 @@ function serialize(entry: JournalEntry) {
     postedAt: entry.postedAt ?? null,
     reversesEntryId: entry.reversesEntryId ?? null,
     reversedByEntryId: entry.reversedByEntryId ?? null,
+    reversibleFromJournal: reversibleFromJournal(entry),
     sourceDocType: entry.sourceDocType ?? null,
     sourceDocId: entry.sourceDocId ?? null,
     sourceDocNumber: entry.sourceDocNumber ?? null,
@@ -195,6 +207,8 @@ function serializeFiling(f: VatFiling) {
 }
 
 function handleDomainError(c: Context, err: unknown): Response {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof UnbalancedEntryError) {
     return c.json(
       {
@@ -212,11 +226,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof PartyRequiredOnControlAccountError || err instanceof InvalidJournalPartyError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn, accountId: err.accountId }, 422);
   }
-  if (err instanceof ReversalDateBeforeOriginalError) {
+  if (err instanceof ReversalDateBeforeOriginalError || err instanceof JournalEntryOwnedByDocumentError || err instanceof JournalReversalNotReversibleError) {
     return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 422);
   }
-  const postingRefused = postingRefusal(c, err);
-  if (postingRefused) return postingRefused;
   if (err instanceof DuplicateVatFilingError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
@@ -225,6 +237,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof YearAlreadyClosedError) {
     return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof YearNotClosedError || err instanceof FollowingYearClosedError) {
+    return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);
   }
   if (err instanceof NothingToCloseError) {
     return c.json({ error: err.code, message: err.message }, 422);
@@ -269,6 +284,16 @@ function handleDomainError(c: Context, err: unknown): Response {
  * reversing is a money-reversing posting action, so `/reverse` reuses
  * `accounting.journal.post`.
  */
+function reversibleFromJournal(entry: Parameters<typeof assertReversibleFromJournal>[0]): boolean {
+  try {
+    assertReversibleFromJournal(entry);
+    return true;
+  } catch (err) {
+    if (err instanceof JournalEntryOwnedByDocumentError || err instanceof JournalReversalNotReversibleError) return false;
+    throw err;
+  }
+}
+
 export function createGlRoutes(
   deps: GlRoutesDeps,
   resolveAuthContext: AuthContextResolver,
@@ -403,8 +428,9 @@ export function createGlRoutes(
     if (!Number.isInteger(year) || year < 1900 || year > 9999) {
       return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة." }, 400);
     }
-    const entry = await deps.ledger.findById(`YEAR-CLOSE:${year}`);
-    return c.json({ year, closed: entry !== null, entry: entry ? serialize(entry) : null });
+    const entry = await standingYearClose(deps.ledger, year);
+    const followingClosed = (await standingYearClose(deps.ledger, year + 1)) !== null;
+    return c.json({ year, closed: entry !== null, reopenable: entry !== null && !followingClosed, entry: entry ? serialize(entry) : null });
   });
 
   /**
@@ -476,6 +502,20 @@ export function createGlRoutes(
         expensesClosed: result.expensesClosed.toString(),
         accountsClosed: result.accountsClosed,
       }, 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/year-end-close/:year/reopen", gate(ReversalPermission.YearEndClose), requireReversalReason, async (c) => {
+    const year = Number(c.req.param("year"));
+    if (!Number.isInteger(year) || year < 1900 || year > 9999) {
+      return c.json({ error: "VALIDATION_ERROR", message: "سنة غير صالحة.", messageEn: "Invalid year." }, 400);
+    }
+    try {
+      const { memo } = await readReversalRequest(c);
+      const result = await reopenFiscalYear(year, { ...postingDeps(c), ledger: deps.ledger, accounts: deps.accounts }, { reversalId: idGen(), memo });
+      return c.json({ year, journalEntryId: result.journalEntryId, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null, reversalDate: result.reversal.date }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -597,6 +637,7 @@ export function createGlRoutes(
       // `reverseJournalEntry` directly with its own date semantics and is
       // gated by the period lock alone.
       const existing = await deps.ledger.findById(entryId);
+      if (existing) assertReversibleFromJournal(existing);
       if (existing && resolvedDate < existing.date) {
         throw new ReversalDateBeforeOriginalError(entryId, resolvedDate, existing.date);
       }
@@ -768,6 +809,15 @@ export function createGlRoutes(
       payables: report.payables.map(serializeCurrencyGroup),
       receivableTotalBase: report.receivableTotalBase.toString(),
       payableTotalBase: report.payableTotalBase.toString(),
+      treasury: ((await deps.treasuryCurrencyBalances?.()) ?? []).map((row) => ({
+        treasuryAccountId: row.treasuryAccountId,
+        name: row.name,
+        glAccountId: row.glAccountId,
+        currency: row.currency,
+        foreignBalance: row.foreignBalance.toString(),
+        baseBalance: row.baseBalance.toString(),
+        derivedLines: row.derivedLines,
+      })),
     });
   });
 

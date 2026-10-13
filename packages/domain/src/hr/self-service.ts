@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import type { AttendanceEntry } from "./attendance.js";
 import type { Employee } from "./employee.js";
 
@@ -129,7 +130,7 @@ function isOpen(entry: AttendanceEntry | null): boolean {
 }
 
 export function assertMayClock(employee: Pick<Employee, "status">): void {
-  if (employee.status !== "active") throw new ClockPunchRefusedError(ClockRefusalCode.EmployeeNotActive);
+  if (employee.status !== EmployeeRefStatus.Active) throw new ClockPunchRefusedError(ClockRefusalCode.EmployeeNotActive);
 }
 
 /**

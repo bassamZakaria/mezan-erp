@@ -9,8 +9,9 @@
  */
 
 import { Money, Qty } from "../money/index.js";
-import { extend, occurredAtFromDocumentDate, type CostLayerRepository } from "../inventory/index.js";
+import { extend, occurredAtFromDocumentDate, type CostLayer, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
+import { JournalEntryNotFoundError, ReversalDateBeforeOriginalError } from "../gl/errors.js";
 import type { CostCategory } from "../contracting/cost-category.js";
 import {
   applyReceiptToOrder,
@@ -19,6 +20,7 @@ import {
   type PurchaseOrder,
   type PurchaseOrderRepository,
 } from "./purchase-order.js";
+import { LandedCostStandsOnDocumentError } from "../landed-costs/errors.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import { assertDocumentWritten } from "../documents/errors.js";
 import {
@@ -29,6 +31,7 @@ import {
   type PurchaseGlAccounts,
   type PurchaseGlPosting,
   type PurchaseGlPostingPort,
+  type PurchaseGlReversalPort,
 } from "./types.js";
 import {
   DuplicatePurchaseDocumentError,
@@ -57,6 +60,52 @@ export interface GoodsReceiptLine {
   readonly expiryDate?: string | null;
   /** فئة التكلفة — only meaningful with the receipt's `projectId` (D-01). */
   readonly costCategory?: CostCategory | null;
+  /** INVARIANT: moved only by a purchase invoice confirming or cancelling against this line, inside that invoice's transaction; GL 2120 holds (qty − invoicedQty) × unitCost for every confirmed receipt. */
+  readonly invoicedQty?: Qty;
+}
+
+export enum GoodsReceiptInvoicingStatus {
+  NotInvoiced = "not_invoiced",
+  PartiallyInvoiced = "partially_invoiced",
+  Invoiced = "invoiced",
+}
+
+export function receiptLineInvoicedQty(receipt: Pick<GoodsReceipt, "invoiced">, line: GoodsReceiptLine): Qty {
+  if (line.invoicedQty !== undefined) return line.invoicedQty;
+  return receipt.invoiced ? line.qty : Qty.zero();
+}
+
+export function receiptLineRemainingQty(receipt: Pick<GoodsReceipt, "invoiced">, line: GoodsReceiptLine): Qty {
+  return line.qty.subtract(receiptLineInvoicedQty(receipt, line));
+}
+
+export function goodsReceiptInvoicingStatus(receipt: Pick<GoodsReceipt, "invoiced" | "lines">): GoodsReceiptInvoicingStatus {
+  const billed = receipt.lines.map((line) => receiptLineInvoicedQty(receipt, line));
+  if (billed.every((qty) => qty.isZero())) return GoodsReceiptInvoicingStatus.NotInvoiced;
+  const full = receipt.lines.every((line, index) => (billed[index] as Qty).compare(line.qty) >= 0);
+  return full ? GoodsReceiptInvoicingStatus.Invoiced : GoodsReceiptInvoicingStatus.PartiallyInvoiced;
+}
+
+export function goodsReceiptUninvoicedCost(receipt: Pick<GoodsReceipt, "invoiced" | "lines">): Money {
+  return Money.sum(receipt.lines.map((line) => extend(receiptLineRemainingQty(receipt, line), line.unitCost)));
+}
+
+export interface ReceiptLineBilling {
+  readonly lineIndex: number;
+  readonly qty: Qty;
+}
+
+function withBilling(receipt: GoodsReceipt, billings: readonly ReceiptLineBilling[], sign: 1 | -1): GoodsReceipt {
+  const lines = receipt.lines.map((line, index) => {
+    let invoicedQty = receiptLineInvoicedQty(receipt, line);
+    for (const billing of billings) {
+      if (billing.lineIndex !== index) continue;
+      invoicedQty = sign === 1 ? invoicedQty.add(billing.qty) : invoicedQty.subtract(billing.qty);
+    }
+    return { ...line, invoicedQty };
+  });
+  const next = { ...receipt, lines };
+  return { ...next, invoiced: goodsReceiptInvoicingStatus({ invoiced: false, lines }) === GoodsReceiptInvoicingStatus.Invoiced };
 }
 
 export interface GoodsReceipt {
@@ -80,7 +129,7 @@ export interface GoodsReceipt {
 
 export enum GoodsReceiptField {
   Status = "status",
-  Invoiced = "invoiced",
+  Billing = "billing",
 }
 
 export interface GoodsReceiptRepository {
@@ -153,12 +202,38 @@ export interface ConfirmGoodsReceiptDeps extends PurchaseAuditDeps {
 }
 
 export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
+  readonly landedCostsStandingOn?: (documentId: string) => Promise<readonly string[]>;
   readonly receipts: GoodsReceiptRepository;
   readonly orders: PurchaseOrderRepository;
   readonly stock: PurchaseStockPostingPort;
   readonly layers: CostLayerRepository;
+  readonly glReverse?: PurchaseGlReversalPort;
   readonly policy?: PurchasePolicy;
   readonly now?: () => string;
+}
+
+export function goodsReceiptCancelEntryId(receiptId: string): string {
+  return `${receiptId}:cancel`;
+}
+
+export function receiptLayersConsumed(layers: readonly CostLayer[], sourceDocId: string): boolean {
+  const mine = layers.filter((l) => l.sourceDocId === sourceDocId);
+  return mine.length === 0 || mine.some((l) => l.remainingQty.compare(l.originalQty) !== 0);
+}
+
+export interface StockPosition {
+  readonly itemId: string;
+  readonly warehouseId: string;
+}
+
+export function distinctPositions(positions: readonly StockPosition[]): StockPosition[] {
+  const seen = new Set<string>();
+  return positions.filter((p) => {
+    const key = JSON.stringify([p.itemId, p.warehouseId]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function nowIso(deps: { now?: () => string }): string {
@@ -479,6 +554,7 @@ export async function confirmGoodsReceipt(
 export async function cancelGoodsReceipt(
   id: string,
   deps: CancelGoodsReceiptDeps,
+  options: { readonly date?: string } = {},
 ): Promise<GoodsReceipt> {
   const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
 
@@ -488,25 +564,43 @@ export async function cancelGoodsReceipt(
   if (receipt.status === "cancelled") {
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
-  if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(id);
+  if (goodsReceiptInvoicingStatus(receipt) !== GoodsReceiptInvoicingStatus.NotInvoiced) throw new GoodsReceiptAlreadyInvoicedError(id);
+  if (options.date !== undefined && options.date < receipt.date) {
+    throw new ReversalDateBeforeOriginalError(id, options.date, receipt.date);
+  }
+  const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+  const cancelDate = options.date ?? (today < receipt.date ? receipt.date : today);
+
   if (receipt.status === "confirmed") {
+    const standing = (await deps.landedCostsStandingOn?.(receipt.id)) ?? [];
+    if (standing.length > 0) throw new LandedCostStandsOnDocumentError(receipt.id, standing);
+  }
+  if (receipt.status === "confirmed") {
+    const positions = distinctPositions(receipt.lines.map((l) => ({ itemId: l.itemId, warehouseId: receipt.warehouseId })));
     if (policy.trackSoldPurchaseItems) {
-      for (const line of receipt.lines) {
-        const layers = await deps.layers.listByPosition(line.itemId, receipt.warehouseId);
-        const consumed = layers
-          .filter((l) => l.sourceDocId === receipt.id)
-          .some((l) => l.remainingQty.compare(l.originalQty) !== 0);
-        if (consumed) throw new PurchaseItemsAlreadyConsumedError(id);
+      for (const position of positions) {
+        const layers = await deps.layers.listByPosition(position.itemId, position.warehouseId);
+        if (receiptLayersConsumed(layers, receipt.id)) throw new PurchaseItemsAlreadyConsumedError(id);
       }
     }
 
     await deps.stock.reverseReceipt({
-      reversalId: `${receipt.id}:cancel`,
+      reversalId: goodsReceiptCancelEntryId(receipt.id),
       sourceDocType: "PURCHASE_RECEIPT",
       sourceDocId: receipt.id,
-      positions: receipt.lines.map((l) => ({ itemId: l.itemId, warehouseId: receipt.warehouseId })),
-      occurredAt: occurredAtFromDocumentDate(receipt.date),
+      positions,
+      occurredAt: occurredAtFromDocumentDate(cancelDate),
     });
+
+    try {
+      await deps.glReverse?.reverse(receipt.id, {
+        reversalId: goodsReceiptCancelEntryId(receipt.id),
+        date: cancelDate,
+        memo: `عكس إذن استلام ${receipt.number}`,
+      });
+    } catch (err) {
+      if (!(err instanceof JournalEntryNotFoundError)) throw err;
+    }
 
     if (receipt.purchaseOrderId) {
       const order = await deps.orders.findById(receipt.purchaseOrderId);
@@ -535,15 +629,17 @@ export async function cancelGoodsReceipt(
   });
 }
 
-/** Mark a receipt as invoiced (called when a purchase invoice confirms against it). */
-export async function markGoodsReceiptInvoiced(
-  id: string,
-  deps: Pick<ConfirmGoodsReceiptDeps, "receipts">,
-): Promise<void> {
+export async function billGoodsReceipt(id: string, billings: readonly ReceiptLineBilling[], deps: Pick<ConfirmGoodsReceiptDeps, "receipts">): Promise<void> {
   const receipt = await deps.receipts.findById(id);
   if (!receipt) throw new GoodsReceiptNotFoundError(id);
-  if (receipt.invoiced) return;
-  await writeReceipt(deps.receipts, { ...receipt, invoiced: true }, [GoodsReceiptField.Invoiced], receipt.status);
+  await writeReceipt(deps.receipts, withBilling(receipt, billings, 1), [GoodsReceiptField.Billing], receipt.status);
+}
+
+export async function unbillGoodsReceipt(id: string, billings: readonly ReceiptLineBilling[] | null, deps: Pick<ConfirmGoodsReceiptDeps, "receipts">): Promise<void> {
+  const receipt = await deps.receipts.findById(id);
+  if (!receipt) return;
+  const unbilled = billings === null ? { ...receipt, invoiced: false, lines: receipt.lines.map((line) => ({ ...line, invoicedQty: Qty.zero() })) } : withBilling(receipt, billings, -1);
+  await writeReceipt(deps.receipts, unbilled, [GoodsReceiptField.Billing], receipt.status);
 }
 
 async function writeReceipt(

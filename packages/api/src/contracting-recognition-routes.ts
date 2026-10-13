@@ -1,4 +1,4 @@
-import { postingRefusal } from "./posting-refusal.js";
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
   InvalidRecognitionRunError,
@@ -104,6 +104,8 @@ function serializePreview(preview: RecognitionPreview) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   if (err instanceof RecognitionRunNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
@@ -127,8 +129,6 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof PeriodNotOpenForPostingError || err instanceof NoFiscalPeriodForDateError) {
     return c.json({ error: "FISCAL_PERIOD_CLOSED", message: err.message }, 409);
   }
-  const postingRefused = postingRefusal(c, err);
-  if (postingRefused) return postingRefused;
   throw err;
 }
 

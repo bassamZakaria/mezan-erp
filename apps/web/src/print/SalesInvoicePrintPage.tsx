@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { EmptyState, PrintView, resolvePrintTemplateConfig, useFormat, type PrintTemplateConfig } from "@mezan/ui";
 import type { SalesInvoiceDTO } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
-import { usePrintLetterhead, usePrintTemplateConfig, useSalesInvoicePrintContext, useTaxRates } from "../data/hooks";
+import { useDisplaySettings, usePrintTemplateConfig, useSalesInvoicePrintContext, useTaxRates } from "../data/hooks";
 import { salesInvoicePrintModel } from "./sales-invoice-print";
 import { EMPTY } from "../lib/empty";
 
@@ -20,7 +20,7 @@ export function SalesInvoicePrintPage({ invoice }: { invoice: SalesInvoiceDTO })
   const { t } = useAppTranslation();
   const format = useFormat();
   const configQuery = usePrintTemplateConfig();
-  const settings = usePrintLetterhead().data ?? null;
+  const settings = useDisplaySettings().data ?? null;
   const taxRates = useTaxRates().data ?? EMPTY;
   // SECURITY: one read under the invoice's own visibility rule. The page used
   // to list every customer, branch, warehouse and the e-invoice queue to find

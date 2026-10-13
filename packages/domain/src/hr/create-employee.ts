@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "../hr-shared/employee-ref.js";
 import { InvalidEmployeeError } from "./errors.js";
 import type {
   EmergencyContact,
@@ -92,7 +93,7 @@ export async function createEmployee(command: CreateEmployeeCommand, repo: Emplo
     taxDisabilityExemption: command.taxDisabilityExemption ?? false,
     address: command.address ?? null,
     emergencyContact: command.emergencyContact ?? null,
-    status: "active",
+    status: EmployeeRefStatus.Active,
     terminatedAt: null,
     createdAt: new Date().toISOString(),
   };

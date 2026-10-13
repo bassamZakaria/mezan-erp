@@ -34,6 +34,22 @@ export class SignupTokenExpiredError extends Error {
   }
 }
 
+export class SignupAlreadyActivatedError extends Error {
+  readonly code = "SIGNUP_ALREADY_ACTIVATED";
+  constructor() {
+    super("تم تفعيل هذا الحساب مسبقًا. سجّل الدخول برمز منشأتك وبريدك.");
+    this.name = "SignupAlreadyActivatedError";
+  }
+}
+
+export class SignupActivationIncompleteError extends Error {
+  readonly code = "SIGNUP_ACTIVATION_INCOMPLETE";
+  constructor() {
+    super("لم يكتمل تفعيل هذا الحساب، وانتهت صلاحية رابط التفعيل. تواصل مع الدعم لإكمال التفعيل.");
+    this.name = "SignupActivationIncompleteError";
+  }
+}
+
 export class TenantNotFoundError extends Error {
   readonly code = "TENANT_NOT_FOUND";
   constructor(readonly id: string) {

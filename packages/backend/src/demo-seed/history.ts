@@ -155,6 +155,12 @@ function costAt(item: HistoryItem, monthIndex: number): number {
   return item.costPiastres * priceDrift(monthIndex) * between(0.985, 1.015);
 }
 
+const HALF_POUND_PIASTRES = 50;
+
+function wholeHalfPounds(piastres: number): number {
+  return Math.max(HALF_POUND_PIASTRES, Math.round(piastres / HALF_POUND_PIASTRES) * HALF_POUND_PIASTRES);
+}
+
 function priceAt(item: HistoryItem, monthIndex: number): number {
   return item.pricePiastres * priceDrift(monthIndex) * between(0.97, 1.03);
 }
@@ -488,7 +494,7 @@ async function postPurchases(app: App, month: Month, sales: readonly PlannedSale
           itemId: line.item.id,
           kind: "inventory",
           qty: String(line.qty),
-          unitCost: money(costAt(line.item, month.index)),
+          unitCost: money(wholeHalfPounds(costAt(line.item, month.index))),
           taxRateId: VAT_RATE_ID,
         })),
       });

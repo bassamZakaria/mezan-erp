@@ -9,6 +9,7 @@ import {
   PlanNotFoundError,
   SubscriptionNotFoundError,
   TenantNotFoundError,
+  TenantStatusCode,
   type CardCheckout,
   type Payment,
   type PaymentProvider,
@@ -76,7 +77,7 @@ export function createCardCheckoutService(options: CardCheckoutServiceOptions): 
 
   async function open(input: OpenCardCheckoutInput): Promise<CardCheckout> {
     const tenant = await requireTenant(input.tenantId);
-    if (tenant.status !== "active" && tenant.status !== "suspended") {
+    if (tenant.status !== TenantStatusCode.Active && tenant.status !== TenantStatusCode.Suspended) {
       throw new CardCheckoutUnavailableError([`حالة المنشأة "${tenant.status}" لا تسمح بالدفع`], [`tenant status "${tenant.status}" cannot pay`]);
     }
     const subscription = await platform.stores.subscriptions.findLiveByTenant(tenant.id);

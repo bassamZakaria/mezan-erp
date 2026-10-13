@@ -4,6 +4,19 @@ import { render, screen } from "@testing-library/react";
 import { Money, StatCard, StatusPill } from "./atoms";
 
 describe("Money", () => {
+  it("a unit cost shows every decimal it was stored with, where a total stays at the piastre", () => {
+    const { unmount } = render(<Money value="140.333000" showUnit={false} storedPrecision />);
+    expect(screen.getByText("140.333")).toBeInTheDocument();
+    unmount();
+    render(<Money value="140.333000" showUnit={false} />);
+    expect(screen.getByText("140.33")).toBeInTheDocument();
+  });
+
+  it("a unit cost with no sub-piastre part still shows two decimals", () => {
+    render(<Money value="100.000000" showUnit={false} storedPrecision />);
+    expect(screen.getByText("100.00")).toBeInTheDocument();
+  });
+
   it("renders a positive amount with the default currency label", () => {
     render(<Money value={1150} />);
     expect(screen.getByText("1,150.00")).toBeInTheDocument();

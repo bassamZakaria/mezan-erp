@@ -1,5 +1,7 @@
+import { postingRefusalResponse } from "./posting-refusal.js";
 import { Hono, type Context } from "hono";
 import {
+  type ForeignTreasuryBalance,
   Money,
   createTreasuryAccount,
   updateTreasuryAccount,
@@ -8,6 +10,8 @@ import {
   InvalidOpeningBalanceError,
   NegativeCashBalanceError,
   TreasuryAccountNotFoundError,
+  TreasuryAccountHasMovementsError,
+  TreasuryGlAccountCurrencyConflictError,
   AuditChangeAction,
   type AuditSink,
   type TreasuryAccount,
@@ -51,6 +55,8 @@ export const AUDITED_TREASURY_ACCOUNT_FIELDS = [
 ] as const;
 
 function handleDomainError(c: Context, err: unknown) {
+  const postingRefusal = postingRefusalResponse(c, err);
+  if (postingRefusal) return postingRefusal;
   const refuse = (e: Error & { code: string; messageEn?: string }, status: 404 | 409 | 422) =>
     c.json({ error: e.code, message: e.message, ...(e.messageEn ? { messageEn: e.messageEn } : {}) }, status);
   if (err instanceof TreasuryAccountNotFoundError) {
@@ -62,7 +68,9 @@ function handleDomainError(c: Context, err: unknown) {
   if (
     err instanceof NegativeCashBalanceError ||
     err instanceof InvalidGuaranteeFacilityLimitError ||
-    err instanceof InvalidOpeningBalanceError
+    err instanceof InvalidOpeningBalanceError ||
+    err instanceof TreasuryAccountHasMovementsError ||
+    err instanceof TreasuryGlAccountCurrencyConflictError
   ) {
     return refuse(err, 422);
   }
@@ -85,12 +93,13 @@ export function createTreasuryAccountsRoutes(
    * live-balance label is the defect `73381da` fixed — so the live figures are
    * omitted rather than approximated when no ledger is wired.
    */
-  ledger?: { accountBalance(accountId: string, asOfDate?: string): Promise<{ balance: Money }> },
+  ledger?: { accountBalance(accountId: string, asOfDate?: string): Promise<{ balance: Money }>; listLines?(filter: { accountIds: readonly string[] }): Promise<readonly unknown[]> },
   /**
    * Which GL account a till or bank posts to is what decides where cash lands.
    * Repointing one silently is the treasury twin of raising a credit limit.
    */
   audit?: AuditSink,
+  foreignBalances?: () => Promise<readonly ForeignTreasuryBalance[]>,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -146,11 +155,24 @@ export function createTreasuryAccountsRoutes(
     return rows;
   }
 
+  async function withForeignBalance(accounts: readonly TreasuryAccount[]) {
+    const rows = new Map(((await foreignBalances?.()) ?? []).map((row) => [row.treasuryAccountId, row]));
+    return accounts.map((account) => {
+      const row = rows.get(account.id);
+      return {
+        ...serialize(account),
+        foreignBalance: row ? row.foreignBalance.toString() : null,
+        foreignBalanceBase: row ? row.baseBalance.toString() : null,
+        foreignBalanceDerivedLines: row ? row.derivedLines : null,
+      };
+    });
+  }
+
   app.get("/", gate("treasury.account.view"), async (c) => {
     const parsed = parseListQuery(c);
     if (!parsed.ok) return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     const accounts = await listFilteredAccounts(c, parsed.filter);
-    return c.json(accounts.map(serialize));
+    return c.json(await withForeignBalance(accounts));
   });
 
   /**
@@ -231,7 +253,7 @@ export function createTreasuryAccountsRoutes(
   app.get("/:id", gate("treasury.account.view"), async (c) => {
     const account = await repo.findById(c.req.param("id"));
     if (!account) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(account));
+    return c.json((await withForeignBalance([account]))[0]);
   });
 
   app.post("/", gate("treasury.account.manage"), async (c) => {
@@ -255,7 +277,9 @@ export function createTreasuryAccountsRoutes(
     }
     try {
       const before = await repo.findById(c.req.param("id"));
-      const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo);
+      const account = await updateTreasuryAccount(c.req.param("id"), parsed.data, repo, {
+        hasPostedLines: async (glAccountId) => ((await ledger?.listLines?.({ accountIds: [glAccountId] })) ?? []).length > 0,
+      });
       await auditAccount(c, account, AuditChangeAction.Update, before);
       return c.json(serialize(account));
     } catch (err) {

@@ -1,3 +1,4 @@
+import { EmployeeRefStatus } from "@mezan/domain";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ALL_SCOPE,
@@ -349,7 +350,7 @@ describe("POST /users/:id/erase — personal-data erasure (D348)", () => {
     const h = await harness();
     await seedUser(h.uow, { id: "admin-2", email: "second-admin@cyag.test" });
     await seedUser(h.uow, { id: "u-1", email: "mohamed@cyag.test", isCompanyAdmin: false, employeeId: "emp-1" });
-    await h.employees.create(employeeOf({ status: "active" }));
+    await h.employees.create(employeeOf({ status: EmployeeRefStatus.Active }));
 
     const res = await erase(h.app, "u-1", { confirmEmail: "mohamed@cyag.test", reason: "طلب صاحب البيانات" });
     expect(res.status).toBe(409);

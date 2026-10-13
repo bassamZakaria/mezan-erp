@@ -196,10 +196,9 @@ export function createModuleGate(resolveEntitlements: EntitlementsResolver) {
           {
             error: "MODULE_NOT_LICENSED",
             module: moduleId,
-            // Arabic-first: the operator reads this, not the enum beside it.
-            message:
-              `وحدة ${nameAr} غير مُفعّلة في ترخيص هذه النسخة. ` +
-              `تواصل مع الدعم لإضافتها إلى الاشتراك.`,
+            message: entitlements?.planNameAr
+              ? `وحدة ${nameAr} ليست ضمن باقة «${entitlements.planNameAr}». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.`
+              : `وحدة ${nameAr} غير مُفعّلة في ترخيص هذه النسخة. تواصل مع الدعم لإضافتها إلى الاشتراك.`,
           },
           403,
         );

@@ -210,6 +210,7 @@ function grToDomain(row: GrRow): GoodsReceipt {
     batchNo?: string | null;
     expiryDate?: string | null;
     costCategory?: GoodsReceiptLine["costCategory"];
+    invoicedQty?: string;
   }[]).map<GoodsReceiptLine>((l) => ({
     itemId: l.itemId,
     description: l.description,
@@ -218,6 +219,7 @@ function grToDomain(row: GrRow): GoodsReceipt {
     batchNo: l.batchNo ?? null,
     expiryDate: l.expiryDate ?? null,
     costCategory: l.costCategory ?? null,
+    ...(l.invoicedQty === undefined ? {} : { invoicedQty: Qty.fromMajor(l.invoicedQty) }),
   }));
   return {
     id: row.id,
@@ -274,7 +276,7 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
   async writeFields(next: GoodsReceipt, fields: readonly GoodsReceiptField[], expected: { readonly status: GoodsReceipt["status"] }): Promise<boolean> {
     return writeRowColumnsWhere(this.sqlite, {
       table: "goods_receipt",
-      row: { status: next.status, invoiced: next.invoiced ? 1 : 0 },
+      row: { status: next.status, invoiced: next.invoiced ? 1 : 0, lines: goodsReceiptLinesJson(next) },
       columns: columnsOf(GOODS_RECEIPT_COLUMNS, fields),
       id: next.id,
       expectedStatuses: [expected.status],
@@ -290,17 +292,7 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
       date: r.date,
       notes: r.notes,
       project_id: r.projectId ?? null,
-      lines: JSON.stringify(
-        r.lines.map((l) => ({
-          itemId: l.itemId,
-          description: l.description,
-          qty: l.qty.toString(),
-          unitCost: l.unitCost.toString(),
-          batchNo: l.batchNo,
-          expiryDate: l.expiryDate,
-          costCategory: l.costCategory ?? null,
-        })),
-      ),
+      lines: goodsReceiptLinesJson(r),
       status: r.status,
       invoiced: r.invoiced ? 1 : 0,
       created_by: r.createdBy,
@@ -311,13 +303,47 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
 
 const GOODS_RECEIPT_COLUMNS: Readonly<Record<GoodsReceiptField, readonly string[]>> = {
   [GoodsReceiptField.Status]: ["status"],
-  [GoodsReceiptField.Invoiced]: ["invoiced"],
+  [GoodsReceiptField.Billing]: ["invoiced", "lines"],
 };
+
+function goodsReceiptLinesJson(receipt: GoodsReceipt): string {
+  return JSON.stringify(
+    receipt.lines.map((l) => ({
+      itemId: l.itemId,
+      description: l.description,
+      qty: l.qty.toString(),
+      unitCost: l.unitCost.toString(),
+      batchNo: l.batchNo,
+      expiryDate: l.expiryDate,
+      costCategory: l.costCategory ?? null,
+      ...(l.invoicedQty === undefined ? {} : { invoicedQty: l.invoicedQty.toString() }),
+    })),
+  );
+}
 
 const PURCHASE_INVOICE_COLUMNS: Readonly<Record<PurchaseInvoiceField, readonly string[]>> = {
   [PurchaseInvoiceField.Status]: ["status"],
   [PurchaseInvoiceField.FxRate]: ["fx_rate"],
+  [PurchaseInvoiceField.Lines]: ["lines"],
 };
+
+function purchaseInvoiceLinesJson(invoice: PurchaseInvoice): string {
+  return JSON.stringify(
+    invoice.lines.map((l) => ({
+      itemId: l.itemId,
+      description: l.description,
+      kind: l.kind,
+      qty: l.qty.toString(),
+      unitCost: l.unitCost.toString(),
+      taxRatePercent: l.taxRatePercent,
+      taxRateId: l.taxRateId ?? null,
+      batchNo: l.batchNo,
+      expiryDate: l.expiryDate,
+      costCategory: l.costCategory ?? null,
+      ...(l.receiptBillings === undefined ? {} : { receiptBillings: l.receiptBillings.map((b) => ({ lineIndex: b.lineIndex, qty: b.qty.toString() })) }),
+    })),
+  );
+}
 
 // --- Purchase Invoice ------------------------------------------------------
 
@@ -382,6 +408,7 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     batchNo?: string | null;
     expiryDate?: string | null;
     costCategory?: PurchaseInvoiceLine["costCategory"];
+    receiptBillings?: { lineIndex: number; qty: string }[];
   }[]).map<PurchaseInvoiceLine>((l) => ({
     itemId: l.itemId,
     description: l.description,
@@ -393,6 +420,7 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     batchNo: l.batchNo ?? null,
     expiryDate: l.expiryDate ?? null,
     costCategory: l.costCategory ?? null,
+    ...(l.receiptBillings === undefined ? {} : { receiptBillings: l.receiptBillings.map((b) => ({ lineIndex: b.lineIndex, qty: Qty.fromMajor(b.qty) })) }),
   }));
   return {
     id: row.id,
@@ -446,7 +474,8 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
       .gte("date", filter.fromDate)
       .lte("date", filter.toDate)
       .eq("branch_id", filter.branchId)
-      .eq("warehouse_id", filter.warehouseId);
+      .eq("warehouse_id", filter.warehouseId)
+      .eq("receipt_id", filter.receiptId);
     if (filter.statusIn) {
       // An empty set matches nothing, exactly as asked — dropping the clause
       // would widen it to every status.
@@ -485,7 +514,7 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
   async writeFields(next: PurchaseInvoice, fields: readonly PurchaseInvoiceField[], expected: { readonly status: PurchaseInvoice["status"] }): Promise<boolean> {
     const written = writeRowColumnsWhere(this.sqlite, {
       table: "purchase_invoice",
-      row: { status: next.status, fx_rate: next.fxRate ?? null },
+      row: { status: next.status, fx_rate: next.fxRate ?? null, lines: purchaseInvoiceLinesJson(next) },
       columns: columnsOf(PURCHASE_INVOICE_COLUMNS, fields),
       id: next.id,
       expectedStatuses: [expected.status],
@@ -528,20 +557,7 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
       receipt_id: inv.receiptId,
       project_id: inv.projectId ?? null,
       document_kind: inv.documentKind ?? InvoiceDocumentKind.Standard,
-      lines: JSON.stringify(
-        inv.lines.map((l) => ({
-          itemId: l.itemId,
-          description: l.description,
-          kind: l.kind,
-          qty: l.qty.toString(),
-          unitCost: l.unitCost.toString(),
-          taxRatePercent: l.taxRatePercent,
-          taxRateId: l.taxRateId ?? null,
-          batchNo: l.batchNo,
-          expiryDate: l.expiryDate,
-          costCategory: l.costCategory ?? null,
-        })),
-      ),
+      lines: purchaseInvoiceLinesJson(inv),
       status: inv.status,
       fx_rate: inv.fxRate ?? null,
       created_by: inv.createdBy,

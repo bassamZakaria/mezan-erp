@@ -73,6 +73,7 @@ export const landedCostDocumentSchema = z.object({
   docType: z.literal("LANDED_COST"),
   docNo: z.string().nullable(),
   date: z.string(),
+  absorptionDate: z.string().nullable().optional(),
   memo: z.string(),
   status: documentStatusSchema,
   lines: z.array(landedCostLineSchema),

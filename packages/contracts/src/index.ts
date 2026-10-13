@@ -268,8 +268,10 @@ export {
   createUserSchema,
   updateUserSchema,
   eraseUserSchema,
+  deactivateUserSchema,
   userErasureResultSchema,
   ErasureRetention,
+  OwnerHandOverOutcome,
   type EraseUserDTO,
   type UserErasureResultDTO,
   type UserDTO,
@@ -561,6 +563,8 @@ export {
   type PurchaseInvoiceLineFulfilmentDTO,
   type PurchaseInvoiceFulfilmentDTO,
   type PurchaseInvoicePaymentDTO,
+  GoodsReceiptInvoicingStatusDTO,
+  goodsReceiptInvoicingStatusSchema,
   purchaseRfqStatusSchema,
   purchaseRfqLineSchema,
   purchaseRfqSchema,
@@ -925,12 +929,14 @@ export {
   loginResponseSchema,
   bootstrapAdminRequestSchema,
   bootstrapSeedResultSchema,
+  UNDISCLOSED_TENANT_NAME,
   type LoginRequestDTO,
   type SessionDTO,
   type LoginResponseDTO,
   type BootstrapAdminRequestDTO,
   type BootstrapSeedResultDTO,
 } from "./auth.js";
+export { COMPANY_NAME_MAX_LENGTH, companyNameSchema } from "./company-name.js";
 // --- accounting depth cluster (phase9/accounting-depth) ---
 export {
   exchangeRateTypeSchema,
@@ -1743,6 +1749,8 @@ export {
   type PartyCurrencyBalanceDTO,
   type CurrencyBalanceGroupDTO,
   type PartyCurrencyBalanceReportDTO,
+  type TreasuryCurrencyBalanceDTO,
+  treasuryCurrencyBalanceSchema,
 } from "./gl.js";
 
 export {
@@ -1760,6 +1768,12 @@ export {
   platformUserSchema,
   createPlatformUserRequestSchema,
   tenantStatusSchema,
+  TenantWireStatus,
+  tenantStatusOf,
+  TenantResolveMode,
+  type PlatformResolveDTO,
+  tenantDTOOf,
+  subscriptionStatusOf,
   tenantSchema,
   billingCycleSchema,
   createTenantRequestSchema,
@@ -1768,9 +1782,20 @@ export {
   startSubscriptionRequestSchema,
   changePlanRequestSchema,
   subscriptionSuspendRequestSchema,
+  setBillingAnchorDayRequestSchema,
+  type SetBillingAnchorDayRequestDTO,
   subscriptionResumeRequestSchema,
   recordPaymentRequestSchema,
   subscriptionStatusSchema,
+  ownerPinResetResultSchema,
+  type OwnerPinResetResultDTO,
+  ownerCandidateSchema,
+  assignOwnerRequestSchema,
+  pendingOwnerSchema,
+  type OwnerCandidateDTO,
+  type AssignOwnerRequestDTO,
+  type PendingOwnerDTO,
+  SubscriptionStatusCode,
   subscriptionSchema,
   planStatusSchema,
   planKindSchema,
@@ -1784,6 +1809,7 @@ export {
   planUpdateRequestSchema,
   paymentSchema,
   licenseStateNameSchema,
+  LicenseStateCode,
   licenseStateReasonSchema,
   licenseStateViewSchema,
   tenantSummarySchema,
@@ -1874,3 +1900,4 @@ export {
 export * from "./pos/index.js";
 export * from "./enh/index.js";
 export { InvoiceDocumentKind } from "./invoice-document-kind.js";
+export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, ReversalPermission, reversalPermissionSuccessors, reversalRoute, withReversalPermissions, type DocumentReversalPath } from "./document-reversal.js";

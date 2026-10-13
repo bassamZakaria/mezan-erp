@@ -1,6 +1,7 @@
 import { amountInWords } from "@mezan/domain";
 import type { PrintDocumentLine, PrintDocumentModel } from "@mezan/ui";
-import type { PrintLetterheadDTO, SalesInvoiceDTO, SalesInvoiceLineRowDTO } from "../data/hooks";
+import type { DisplaySettingsDTO } from "../data/hooks";
+import type { SalesInvoiceDTO, SalesInvoiceLineRowDTO } from "../data/hooks";
 import { majorOf, scaledOf, toMajorNumber } from "../lib/money";
 
 /**
@@ -24,7 +25,7 @@ import { majorOf, scaledOf, toMajorNumber } from "../lib/money";
 
 export interface SalesInvoicePrintContext {
   readonly invoice: SalesInvoiceDTO;
-  readonly settings: PrintLetterheadDTO | null;
+  readonly settings: DisplaySettingsDTO | null;
   readonly branchName?: string;
   readonly warehouseName?: string;
   readonly customerTaxNumber?: string;

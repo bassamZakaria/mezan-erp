@@ -47,7 +47,7 @@ function sensitive(audit: SqliteAuditSinkHandle): Promise<readonly AuditEvent[]>
   return audit.query("sensitive", 100);
 }
 
-async function setup(options: { withAudit?: boolean } = {}) {
+async function setup(options: { withAudit?: boolean; atomicAudit?: boolean } = {}) {
   const { sqlite } = openSqliteConnection(":memory:");
   closers.push(() => sqlite.close());
   const repo = createSqliteFiscalPeriodRepository(sqlite);
@@ -114,7 +114,7 @@ async function setup(options: { withAudit?: boolean } = {}) {
       return (await store.summaries.list({ periodId })).map((summary) => ({ summary, sealValid: verifyPeriodCloseSeal(summary, audited) }));
     },
     changeToken: store.critical.changeToken,
-    commit: (request) => store.critical.commit({ ...request, appendAudit: (event) => audit.appendSync(event) }),
+    commit: options.atomicAudit === false ? null : (request) => store.critical.commit({ ...request, appendAudit: (event) => audit.appendSync(event) }),
   });
   const source = () => guard;
   const periods = createFiscalPeriodsRoutes(repo, insecureHeaderAuthContextResolver, options.withAudit === false ? undefined : audit, source);
@@ -140,6 +140,21 @@ function get(path: string, permissions: string) {
 async function statusOf(repo: { findById(id: string): Promise<FiscalPeriod | null> }) {
   return (await repo.findById(PERIOD_ID))?.status;
 }
+
+describe("a close whose audit row cannot join its own transaction", () => {
+  it("is refused in both languages, and the period, the summaries and the trail are left as they were", async () => {
+    const { periods, repo, store, closeEvents } = await setup({ atomicAudit: false });
+    const res = await periods.fetch(post(`/${PERIOD_ID}/close`, CLOSE));
+    const body = (await res.json()) as { error: string; message: string; messageEn: string };
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(body.error).toBe("PERIOD_CLOSE_UNAUDITABLE");
+    expect(body.message).toMatch(/[\u0600-\u06FF]/);
+    expect(body.messageEn).toMatch(/audit trail/);
+    expect(await statusOf(repo)).toBe("open");
+    expect(await store.summaries.list({ periodId: PERIOD_ID })).toEqual([]);
+    expect(await closeEvents()).toEqual([]);
+  });
+});
 
 describe("closing a period runs the pre-close checks (D176 C-3)", () => {
   it("closes a clear period: one CLOSE event carrying the summary's seal, and no override on it", async () => {

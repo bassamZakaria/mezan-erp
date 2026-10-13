@@ -23,7 +23,6 @@ async function postDepreciationRun(app: Parameters<NonNullable<SeedFragment["run
   await step(app, "POST", `/assets/depreciation/runs/${id}/post`, {});
 }
 
-// Runs BEFORE the historic periods are closed (seedFragments precedes closeHistoricPeriods): a depreciation run posts into its own month, which must still be open.
 export const seed: SeedFragment = {
   async run(app) {
     for (const period of monthsThrough(FIRST_PERIOD, LAST_PERIOD)) await postDepreciationRun(app, period);

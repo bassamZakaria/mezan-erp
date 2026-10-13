@@ -936,8 +936,6 @@ export async function cancelPurchaseInvoice(
       }
     }
 
-    // Stock first: the ledger refuses when the goods are no longer there to
-    // take back, and nothing must have been written to the GL by then.
     // A from-receipt invoice never posted its own stock (the receipt did) — see confirmPurchaseInvoice.
     if (!invoice.receiptId && inventoryLines.length > 0) {
       await deps.stock.reverseReceipt({

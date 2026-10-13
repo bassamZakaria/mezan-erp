@@ -49,7 +49,7 @@ describe("reversing a material consumption", () => {
     await expectRefusedInClosedPeriod(world, `fp-${doc.month}`, () => world.request("POST", "/contracting/site/consumptions/CON-DEMO-SUB-1/reverse", { memo: "سبب العكس" }));
     expect(position()).toEqual(before.position);
 
-    const reversed = await world.request("POST", "/contracting/site/consumptions/CON-DEMO-SUB-1/reverse", { memo: "سبب العكس" });
+    const reversed = await world.request("POST", "/contracting/site/consumptions/CON-DEMO-SUB-1/reverse", { memo: "سبب العكس", date: "2026-09-03" });
 
     expect(reversed.status, JSON.stringify(reversed.body)).toBe(200);
     expect(reversed.body).toMatchObject({ id: "CON-DEMO-SUB-1", status: "reversed" });
@@ -61,6 +61,13 @@ describe("reversing a material consumption", () => {
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
     const monthEnd = (await world.request("GET", `/reconciliation?asOf=${doc.month}-31`)).body.rows as { key: string; difference: string }[];
     expect(monthEnd.find((r) => r.key === "inventory")?.difference).toBe("0.000000");
+    const nextMonthEnd = (await world.request("GET", "/reconciliation?asOf=2026-09-30")).body.rows as { key: string; difference: string }[];
+    expect(nextMonthEnd.find((r) => r.key === "inventory")?.difference).toBe("0.000000");
+    const cameBackOn = world.sqlite
+      .prepare(`SELECT substr(occurred_at, 1, 10) AS day FROM stock_movement WHERE source_doc_type = 'MATERIAL_CONSUMPTION' AND item_id = ? AND warehouse_id = ? ORDER BY rowid DESC LIMIT 1`)
+      .get(itemId, doc.warehouseId) as { day: string };
+    const mirroredOn = world.sqlite.prepare(`SELECT substr(date, 1, 10) AS day FROM journal_entry WHERE reverses_entry_id = ?`).get(doc.entryId) as { day: string };
+    expect({ stock: cameBackOn.day, ledger: mirroredOn.day }).toEqual({ stock: "2026-09-03", ledger: "2026-09-03" });
 
     const again = await world.request("POST", "/contracting/site/consumptions/CON-DEMO-SUB-1/reverse", { memo: "سبب العكس" });
     expect(`${again.status} ${String(again.body.error)}`).toBe("409 SITE_DOCUMENT_STATUS");

@@ -600,9 +600,6 @@ export async function seedCrm(app: App): Promise<void> {
     });
   }
 
-  // May's run is posted HERE, before the treasury seed files May's VAT return:
-  // a filed month takes no further posting, depreciation included. June and
-  // July are run with the guided close, once every asset is on the register.
   const mayRun = (await step(app, "POST", "/assets/depreciation/runs", { period: "2026-05" })) as { id: string };
   await step(app, "POST", `/assets/depreciation/runs/${mayRun.id}/post`, {});
 }

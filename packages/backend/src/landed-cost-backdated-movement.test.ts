@@ -93,5 +93,14 @@ describe("a landed cost asked to absorb before the position last moved", () => {
     const report = (await world.request("GET", `/inventory/drift?itemId=${item}&warehouseId=WH-MAIN`)).body as { cacheDrift: string };
     expect(report.cacheDrift).toBe("0.000000");
     expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
+
+    expect((await move("LCA-OUT-2", "OUT", "1", "2026-08-25")).status).toBe(201);
+    const reversed = await world.request("POST", "/landed-costs/LCA-1/reverse", { date: "2026-08-21" });
+
+    expect(reversed.status, JSON.stringify(reversed.body)).toBe(201);
+    expect((reversed.body.reversal as { date: string }).date).toBe("2026-08-25");
+    const monthEnd = (await world.request("GET", "/reconciliation?asOf=2026-08-31")).body.rows as { key: string; difference: string }[];
+    expect(monthEnd.find((r) => r.key === "inventory")?.difference).toBe("0.000000");
+    expect(await world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });

@@ -490,10 +490,7 @@ async function seedFieldSales(app: App): Promise<void> {
 }
 
 /**
- * One VAT return already submitted, for a window no scenario posts into (D29).
- * A filed return refuses every later posting into its month, so the guided
- * close files it only after May's own entries — its payroll, its recurring
- * entry, its supplementary depreciation — are in the books.
+ * INVARIANT: filed only after May's own entries — its payroll, its recurring entry, its supplementary depreciation — are in the books; a filed return refuses every later posting into its month (D29).
  */
 export async function seedVatFiling(app: App): Promise<void> {
   await step(app, "POST", "/gl/vat-filings", {

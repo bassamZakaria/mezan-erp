@@ -55,10 +55,7 @@ function pairKey(accounts: ResolvedAccounts, projectId: string | null): string {
 }
 
 /**
- * Posts a draft depreciation run. A line whose asset another posted run has
- * already charged for the period is left out and reported on the run, so one
- * stale line never holds the rest of the month back; a draft with nothing left
- * is refused. For the lines that remain it resolves each one's GL accounts, groups
+ * Posts a draft depreciation run: resolves each line's GL accounts, groups
  * lines by resolved account pair, posts ONE balanced journal entry (Dr
  * depreciation expense / Cr accumulated depreciation per pair) through the
  * REAL GL posting engine, updates each asset's running accumulated

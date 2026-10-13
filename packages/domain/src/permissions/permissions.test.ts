@@ -38,15 +38,6 @@ describe("permission catalog", () => {
     // `POST /users/:id/erase` (`packages/api/src/users-routes.ts`) — the
     // personal-data erasure the store listings promise a path for.
     //
-    // 248 → 249. ENH-E1-04 added `accounting.period.override_close`, read by
-    // `POST /fiscal-periods/:id/close` and `/lock` (`packages/api/src/
-    // period-close-routes.ts`) — closing or locking over a failed pre-close
-    // check is a separate authority from closing a clean month.
-    //
-    // 249 → 264. Each named reversal route is gated by a permission of its own
-    // (`packages/contracts/src/document-reversal.ts`): fifteen codes over
-    // sixteen routes, the two stock-adjustment routes sharing one.
-    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.

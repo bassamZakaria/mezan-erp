@@ -105,10 +105,6 @@ describe("the permission catalogue against the routes that check it", () => {
     //     body or an entity is in hand: `sales.invoice.view_cost`,
     //     `sales.price.override`, `sales.discount.approve` (the invoice discount
     //     ceiling), `purchases.receipt.edit_cost`, `hr.employee.view_salary`;
-    //   - 13 → 14 (ENH-E1-04): `accounting.period.override_close`, read by
-    //     `canOverridePeriodClose` (period-close-routes.ts) inside the close and
-    //     lock handlers — it only matters once the checks have failed AND the
-    //     body carries a reason, so it cannot be a route-level gate;
     //   - `attachments/entity-type.ts`, which resolves a permission from the
     //     entity an attachment hangs on: `purchases.order.edit` is that
     //     module's `manage` right;

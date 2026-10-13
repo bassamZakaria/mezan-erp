@@ -197,4 +197,18 @@ describe("foreign money held on account is an open item of its own", () => {
     expect(rows.reduce((sum, row) => sum + BigInt(row.amount.replace(".", "")), 0n)).toBe(posted);
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
+
+  it.each(SIDES)("%s: money on account whose voucher was reversed is not an open item — the mirror document takes no restatement, the invoice beside it takes all 450, and nothing is reported as residue", async (side) => {
+    books = await openFxBooks();
+    await books.invoice(side);
+    await onAccount(side, "v-held", "1000");
+    await books.ok("POST", "/vouchers/v-held/reverse", { memo: "أُدخل بالخطأ", date: "2026-08-23" }, 201);
+
+    await books.revalue("48.45");
+
+    expect(shares()).toEqual([{ item: FX_INVOICE_ID[side], type: "invoice", amount: "450.000000" }]);
+    expect(books.fx(side)).toEqual({ control: mirrored(side, 48_450n * SCALE), unrealised: mirrored(side, 450n * SCALE), realised: major(0n) });
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
 });

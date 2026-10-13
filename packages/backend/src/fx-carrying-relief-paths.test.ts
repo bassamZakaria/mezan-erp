@@ -22,12 +22,42 @@ const mirrored = (side: FxSide, scaled: bigint) => major(side === FxSide.Receiva
 const pnl = mirrored;
 const carried = mirrored;
 
-async function restated(side: FxSide): Promise<void> {
+async function restated(side: FxSide): Promise<string> {
   books = await openFxBooks();
   await books.invoice(side);
-  await books.revalue("48.45");
+  const runId = await books.revalue("48.45");
   await books.rate("fx-settle", "48.70", "2026-09-10");
   expect(books.fx(side)).toEqual({ control: carried(side, 48_450n * SCALE), unrealised: pnl(side, RESTATED), realised: major(0n) });
+  return runId;
+}
+
+async function numberAt(path: string, field = "docNo"): Promise<string> {
+  const number = (await books.world.request("GET", path)).body[field];
+  expect(String(number), path).toMatch(/\d/);
+  return String(number);
+}
+
+const invoiceNumber = (side: FxSide) => (side === FxSide.Receivable ? numberAt("/sales-invoices/inv-usd") : numberAt("/purchases/invoices/pi-usd", "number"));
+
+async function consumerNumber(path: ReliefPath, side: FxSide, usd: bigint): Promise<string> {
+  if (path === ReliefPath.Settlement) return numberAt(`/vouchers/v-${usd}`);
+  if (path === ReliefPath.Cheque) return `N-chq-${usd}`;
+  if (path === ReliefPath.Return) return numberAt(`/${side === FxSide.Receivable ? "sales-returns" : "purchase-returns"}/ret-${usd}`);
+  return invoiceNumber(side);
+}
+
+async function reverseRun(runId: string) {
+  return books.world.request("POST", `/revaluation/runs/${runId}/reverse`, { memo: "سبب العكس", date: "2026-09-15" });
+}
+
+async function expectRunHeldBy(runId: string, documentNo: string): Promise<void> {
+  const before = { ledger: books.world.sqlite.prepare("SELECT COUNT(*) AS n FROM journal_entry").get(), shares: books.world.sqlite.prepare("SELECT COUNT(*) AS n FROM fx_revaluation_share").get() };
+  const refused = await reverseRun(runId);
+  expect(`${refused.status} ${String(refused.body.error)}`).toBe("409 FX_REVALUATION_SHARE_CONSUMED");
+  expect(String(refused.body.message)).toContain(documentNo);
+  expect(String(refused.body.message)).toMatch(/[\u0600-\u06FF]/);
+  expect(refused.body.consumedBy).toBe(documentNo);
+  expect({ ledger: books.world.sqlite.prepare("SELECT COUNT(*) AS n FROM journal_entry").get(), shares: books.world.sqlite.prepare("SELECT COUNT(*) AS n FROM fx_revaluation_share").get() }).toEqual(before);
 }
 
 async function relieve(path: ReliefPath, side: FxSide, usd: 400n | 1000n): Promise<void> {
@@ -137,6 +167,82 @@ describe("whatever takes foreign money off an open item relieves it at what it i
     await books.ok("POST", "/allocations/al-v-rest/reverse", {}, 200);
 
     expect(books.fx(side)).toEqual({ control: carried(side, -150n * SCALE), unrealised: pnl(side, RESTATED), realised: pnl(side, -180n * SCALE) });
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+});
+
+describe("a run whose share a standing document has taken cannot be reversed out from under it", () => {
+  const taken = SIDES.flatMap((side) => [
+    ...Object.values(ReliefPath).map((path) => ({ side, path, usd: 1000n as const })),
+    ...[ReliefPath.Settlement, ReliefPath.Cheque, ReliefPath.Return].map((path) => ({ side, path, usd: 400n as const })),
+  ]);
+  it.each(taken)("$side relieved of USD $usd by $path: reversing the run is refused in Arabic naming the document, and the books do not move", async ({ side, path, usd }) => {
+    const runId = await restated(side);
+    await relieve(path, side, usd);
+    const held = books.fx(side);
+
+    await expectRunHeldBy(runId, await consumerNumber(path, side, usd));
+
+    expect(books.fx(side)).toEqual(held);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  async function restatedOnAccount(side: FxSide, extra: Record<string, unknown> = {}): Promise<string> {
+    books = await openFxBooks();
+    await books.voucher(side, "v-held", "1000", { date: "2026-08-22", currency: "USD", ...extra });
+    const runId = await books.revalue("48.45");
+    await books.rate("fx-settle", "48.70", "2026-09-10");
+    return runId;
+  }
+
+  it.each(SIDES)("%s: restated money on account whose voucher was reversed holds the run, and the residue check agrees with the control account", async (side) => {
+    const runId = await restatedOnAccount(side);
+    const voucherNo = await numberAt("/vouchers/v-held");
+    await books.ok("POST", "/vouchers/v-held/reverse", { memo: "أُدخل بالخطأ", date: "2026-09-10" }, 201);
+
+    await expectRunHeldBy(runId, voucherNo);
+
+    expect(major(books.world.balance(side === FxSide.Receivable ? "1105" : "2100"))).toBe(major(0n));
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: restated money on account that was refunded holds the run", async (side) => {
+    const runId = await restatedOnAccount(side);
+    const refund = side === FxSide.Receivable ? { voucherType: "customer_refund", customerId: "cust-usd" } : { voucherType: "supplier_refund", supplierId: "sup-usd" };
+    await books.ok("POST", "/vouchers", { id: "v-refund", date: "2026-09-10", amount: "1000", currency: "USD", branchId: "BR-MAIN", paymentMethod: "cash", treasuryAccountId: "ta-cash", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: side === FxSide.Receivable ? "1105" : "2100", ...refund });
+    await books.ok("POST", "/vouchers/v-refund/confirm", {}, 200);
+
+    await expectRunHeldBy(runId, await numberAt("/vouchers/v-refund"));
+
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: restated money whose cheque bounced holds the run", async (side) => {
+    const runId = await restatedOnAccount(side, { paymentMethod: "cheque", referenceNo: "CHQ-78" });
+    const voucherNo = await numberAt("/vouchers/v-held");
+    await books.ok("POST", "/cheques/v-held/deposit", { bankTreasuryAccountId: "ta-bank" }, 200);
+    await books.ok("POST", "/cheques/v-held/bounce", { date: "2026-09-10" }, 200);
+
+    await expectRunHeldBy(runId, voucherNo);
+
+    expect(await residueRows()).toEqual([]);
+    expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
+  });
+
+  it.each(SIDES)("%s: once the cheque that settled the invoice bounces nothing holds the run any more, and reversing it takes the 450 back off the invoice", async (side) => {
+    const runId = await restated(side);
+    await books.cheque(side, "chq-1", "48700");
+    await books.allocateCheque(side, "chq-1", "48700");
+    await books.ok("POST", "/cheques/chq-1/deposit", { bankTreasuryAccountId: "ta-bank" }, 200);
+    await expectRunHeldBy(runId, "N-chq-1");
+    await books.ok("POST", "/cheques/chq-1/bounce", { date: "2026-09-12" }, 200);
+
+    const reversed = await reverseRun(runId);
+
+    expect(reversed.status, JSON.stringify(reversed.body)).toBe(201);
+    expect(books.fx(side)).toEqual({ control: carried(side, 48_000n * SCALE), unrealised: major(0n), realised: major(0n) });
+    expect(await residueRows()).toEqual([]);
     expect(await books.world.invariants()).toEqual(INVARIANTS_ZERO);
   });
 });

@@ -8,6 +8,7 @@ import { reverseJournalEntry } from "../gl/reverse.js";
 import { convertToBase, convertFromBase, isBaseCurrency, FxRateMissingError } from "../exchange-rates/convert.js";
 import { FX_REALISED_LINE_MEMO } from "../vouchers/realised-fx.js";
 import { FxOpenItemType } from "../vouchers/allocation.js";
+import type { AllocationInvoiceKind } from "../vouchers/voucher-types.js";
 
 /**
  * إعادة تقييم العملات الأجنبية — FX Revaluation (docs/archive/catalog/04). At period
@@ -61,7 +62,7 @@ export interface OpenFxBalance {
 export interface OpenFxItem {
   readonly itemId: string;
   readonly itemType: FxOpenItemType;
-  readonly kind: "sales" | "purchase";
+  readonly kind: AllocationInvoiceKind;
   readonly partyId: string;
   readonly foreignOutstanding: Money;
   readonly carryingBase: Money;
@@ -71,7 +72,7 @@ export interface FxRevaluationShare {
   readonly accountId: string;
   readonly itemId: string;
   readonly itemType: FxOpenItemType;
-  readonly kind: "sales" | "purchase";
+  readonly kind: AllocationInvoiceKind;
   readonly partyId: string;
   readonly currency: string;
   readonly amount: Money;

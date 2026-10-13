@@ -58,7 +58,7 @@ export interface FxRevaluationRoutesDeps {
   readonly recordRun?: (run: FxRevaluationRun) => void;
   readonly openFxItems?: (asOfDate: string) => Promise<ReadonlyMap<string, readonly OpenFxItem[]>>;
   readonly saveShares?: (entryId: string, shares: readonly FxRevaluationShare[]) => Promise<void>;
-  readonly sharesConsumed?: (entryId: string) => Promise<boolean>;
+  readonly shareConsumer?: (entryId: string) => Promise<string | null>;
   readonly foreignResidues?: (asOfDate?: string) => Promise<readonly ForeignResidue[]>;
   readonly realisedDifferenceAccounts?: () => Promise<FxDifferenceAccounts>;
   readonly releaseItemShare?: (item: FxOpenItemRef, date: string) => Promise<void>;
@@ -266,11 +266,14 @@ export function createFxRevaluationRoutes(
     }
   });
 
-  const SHARE_CONSUMED = {
-    error: "FX_REVALUATION_SHARE_CONSUMED",
-    message: "لا يمكن عكس إعادة التقييم: جزء منها دخل في تسوية فاتورة ما زالت قائمة. اعكس تخصيص السداد على الفاتورة أولاً.",
-    messageEn: "This revaluation cannot be reversed: a settlement still standing has taken part of it. Reverse the allocation on the invoice first.",
-  } as const;
+  class RevaluationShareConsumedError extends Error {
+    constructor(readonly consumedBy: string) {
+      super(`لا يمكن عكس إعادة التقييم: المستند ${consumedBy} أقفل نصيباً منها وما زال قائماً. اعكس هذا المستند أولاً ثم أعد المحاولة.`);
+    }
+    get messageEn(): string {
+      return `This revaluation cannot be reversed: document ${this.consumedBy} has taken part of it and still stands. Reverse that document first.`;
+    }
+  }
 
   app.get("/runs", gate("accounting.journal.view"), async (c) => {
     const entries = await deps.ledger.list({ sourceDocTypes: [FX_REVALUATION_DOC_TYPE] });
@@ -302,9 +305,10 @@ export function createFxRevaluationRoutes(
       const { date, memo } = await readReversalRequest(c);
       const reversalDate = date ?? original.date.slice(0, 10);
       if (reversalDate < original.date.slice(0, 10)) throw new ReversalDateBeforeOriginalError(original.id, reversalDate, original.date);
-      if (await deps.sharesConsumed?.(original.id)) return c.json(SHARE_CONSUMED, 409);
       const actor = getAuthContext(c)?.userId ?? "system";
       const result = await deps.ledger.transaction(async () => {
+        const consumedBy = await deps.shareConsumer?.(original.id);
+        if (consumedBy) throw new RevaluationShareConsumedError(consumedBy);
         const reversed = await reverseJournalEntry(
           original.id,
           { ledger: deps.ledger, accounts: deps.accounts, periods: deps.periods, numbering: deps.numbering, projects: deps.projects, audit: deps.audit, vatFilings: deps.vatFilings, events: deps.events, now: deps.now, actor },
@@ -321,6 +325,7 @@ export function createFxRevaluationRoutes(
       });
       return c.json({ entryId: original.id, entryStatus: result.original.status, reversalEntryId: result.reversal.id, reversalEntryNo: result.reversal.entryNo ?? null, reversalDate }, 201);
     } catch (err) {
+      if (err instanceof RevaluationShareConsumedError) return c.json({ error: "FX_REVALUATION_SHARE_CONSUMED", message: err.message, messageEn: err.messageEn, consumedBy: err.consumedBy }, 409);
       return handleError(c, err);
     }
   });

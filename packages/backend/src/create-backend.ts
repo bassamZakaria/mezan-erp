@@ -3049,11 +3049,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
   const standingRevaluationShare = (item: FxOpenItemRef) =>
     unconsumedRevaluationShare(item, { shares: vouchers.revaluationShares, allocations: vouchers.allocations, entryStands: revaluationEntryStands });
+  const FX_SHARE_RELEASE_ENTRY_PREFIX = "FXR:release:";
+  type FxItemRelief = { readonly relieved: Money; readonly outstanding: Money };
   const invoiceItem = (id: string): FxOpenItemRef => ({ id, type: FxOpenItemType.Invoice });
   const moneyItem = (id: string): FxOpenItemRef => ({ id, type: FxOpenItemType.Money });
   async function foreignMoneyOnAccount(voucherId: string): Promise<{ date: string; line: VoucherLine; fxRate: string; kind: AllocationInvoiceKind; unallocated: Money } | null> {
     const doc = await vouchers.documents.findById(voucherId);
-    if (!doc || doc.status !== "confirmed") return null;
+    if (!doc || doc.status !== "confirmed" || doc.reversesDocId) return null;
     const line = voucherLine(doc);
     const kind = getVoucherTypeDefinition(line.voucherType).allocationKind;
     if (!kind || !line.fxRate) return null;
@@ -3111,8 +3113,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }
     return (await purchaseInvoices.findById(invoiceId))?.status === "confirmed";
   }
-  const releaseRevaluationShare = (invoiceId: string, date: string, part?: { readonly relieved: Money; readonly outstanding: Money }) => releaseItemShare(invoiceItem(invoiceId), date, part);
-  async function releaseItemShare(item: FxOpenItemRef, date: string, part?: { readonly relieved: Money; readonly outstanding: Money }): Promise<void> {
+  async function fxDocumentNumber(id: string): Promise<string> {
+    const voucher = await vouchers.documents.findById(id);
+    if (voucher?.docNo) return voucher.docNo;
+    const cheque = await cheques.findById(id);
+    if (cheque) return cheque.chequeNumber;
+    return (await salesInvoices.findById(id))?.docNo ?? (await purchaseInvoices.findById(id))?.number ?? id;
+  }
+  const releaseRevaluationShare = (invoiceId: string, date: string, part?: FxItemRelief, releasedBy?: string) => releaseItemShare(invoiceItem(invoiceId), date, part, releasedBy);
+  async function releaseItemShare(item: FxOpenItemRef, date: string, part?: FxItemRelief, releasedBy?: string): Promise<void> {
     const standing = await standingRevaluationShare(item);
     const records = await vouchers.revaluationShares.listByItem(item);
     const share = records[0];
@@ -3126,9 +3135,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     for (const record of records) {
       if (await revaluationEntryStands(record.entryId)) restatedOn = laterDay(restatedOn, (await ledger.findById(record.entryId))?.date.slice(0, 10));
     }
-    const entryId = `FXR:release:${item.id}:${records.length}`;
+    const entryId = `${FX_SHARE_RELEASE_ENTRY_PREFIX}${item.id}:${records.length}`;
+    const itemNo = await fxDocumentNumber(item.id);
     await postJournalEntry(
-      { id: entryId, date: restatedOn, memo: `إقفال إعادة تقييم قائمة على مستند أُقفل (${item.id})`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, sourceDocId: item.id, lines },
+      { id: entryId, date: restatedOn, memo: `إقفال إعادة تقييم قائمة على مستند أُقفل (${itemNo})`, source: "system", sourceDocType: FX_REALISED_DOC_TYPE, sourceDocId: item.id, sourceDocNumber: releasedBy ?? itemNo, lines },
       salesInvoiceGl,
     );
     await vouchers.revaluationShares.saveAll([{ ...share, entryId, amount: Money.fromScaled(-taken.scaled) }]);
@@ -3149,20 +3159,27 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         }
         const posted = await documentGl.post(posting);
         for (const [invoiceId, outstanding] of openBefore) {
-          if (outstanding.scaled > 0n) await releaseRevaluationShare(invoiceId, posting.date.slice(0, 10), { relieved: credits.get(invoiceId) ?? Money.zero(), outstanding });
+          if (outstanding.scaled > 0n) await releaseRevaluationShare(invoiceId, posting.date.slice(0, 10), { relieved: credits.get(invoiceId) ?? Money.zero(), outstanding }, posting.sourceDocNumber ?? undefined);
         }
         return posted;
       },
       reverse: (journalEntryId, opts) => documentGl.reverse(journalEntryId, opts),
     };
   }
-  async function revaluationSharesConsumed(entryId: string): Promise<boolean> {
+  async function revaluationShareConsumer(entryId: string): Promise<string | null> {
     for (const share of await vouchers.revaluationShares.listByEntry(entryId)) {
+      const item: FxOpenItemRef = { id: share.itemId, type: share.itemType };
       const money = share.itemType === FxOpenItemType.Money;
       const taking = money ? await vouchers.allocations.listByVoucher(share.itemId) : await vouchers.allocations.listByInvoice(share.itemId);
-      if (taking.some((allocation) => allocation.status === "active" && ((money ? allocation.moneyRevaluationShare : allocation.revaluationShare)?.scaled ?? 0n) !== 0n)) return true;
+      const settled = taking.find((allocation) => allocation.status === "active" && ((money ? allocation.moneyRevaluationShare : allocation.revaluationShare)?.scaled ?? 0n) !== 0n);
+      if (settled) return fxDocumentNumber(money ? settled.invoiceId : settled.voucherId);
+      for (const record of await vouchers.revaluationShares.listByItem(item)) {
+        if (!record.entryId.startsWith(FX_SHARE_RELEASE_ENTRY_PREFIX)) continue;
+        const release = await ledger.findById(record.entryId);
+        if (release?.status === "posted" && !release.reversedByEntryId) return release.sourceDocNumber ?? (await fxDocumentNumber(share.itemId));
+      }
     }
-    return false;
+    return null;
   }
   async function refundFx(voucherId: string): Promise<{ currency: string; fxRate: string } | null> {
     const refund = await vouchers.documents.findById(voucherId);
@@ -3763,7 +3780,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       foreignTreasuryCurrencies,
       openFxItems,
       saveShares: (entryId, shares) => vouchers.revaluationShares.saveAll(shares.map((share) => ({ ...share, entryId }))),
-      sharesConsumed: revaluationSharesConsumed,
+      shareConsumer: revaluationShareConsumer,
       foreignResidues,
       realisedDifferenceAccounts: () => fxDifferenceAccounts("realised"),
       releaseItemShare,

@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ScreenKey } from "./router/screens";
 
 /** An optional "do this on arrival" hint carried alongside a navigation. */
@@ -111,4 +111,40 @@ export function useSubPage(): {
     open: (...next: string[]) => openSubPage(next),
     close: () => openSubPage([]),
   };
+}
+
+interface SubPageNames {
+  readonly names: Readonly<Record<string, string>>;
+  readonly name: (segment: string, label: string | null) => void;
+}
+
+const SubPageNamesContext = createContext<SubPageNames>({ names: {}, name: () => {} });
+
+export function SubPageNamesProvider({ children }: { children: ReactNode }) {
+  const [names, setNames] = useState<Readonly<Record<string, string>>>({});
+  const name = useCallback((segment: string, label: string | null) => {
+    setNames((previous) => {
+      if (label === null) {
+        if (!(segment in previous)) return previous;
+        const { [segment]: _dropped, ...rest } = previous;
+        return rest;
+      }
+      return previous[segment] === label ? previous : { ...previous, [segment]: label };
+    });
+  }, []);
+  const value = useMemo(() => ({ names, name }), [names, name]);
+  return <SubPageNamesContext.Provider value={value}>{children}</SubPageNamesContext.Provider>;
+}
+
+export function useSubPageNames(): Readonly<Record<string, string>> {
+  return useContext(SubPageNamesContext).names;
+}
+
+export function useNameSubPage(segment: string | null | undefined, label: string | null | undefined): void {
+  const { name } = useContext(SubPageNamesContext);
+  useEffect(() => {
+    if (!segment || !label) return;
+    name(segment, label);
+    return () => name(segment, null);
+  }, [segment, label, name]);
 }

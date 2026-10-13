@@ -1,5 +1,5 @@
 import { Button } from "@mezan/ui";
-import { useNavigation } from "./navigation";
+import { useNavigation, useSubPageNames } from "./navigation";
 import { groupKeyForScreen, hubScreenForGroup } from "./routing";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import type { ScreenKey } from "./router/screens";
@@ -28,7 +28,15 @@ const SEGMENT_LABEL_KEY: Record<string, AppTranslationKey> = {
   aging: "inventoryReports.view.aging",
   expiring: "inventoryReports.view.expiring",
   "slow-moving": "inventoryReports.view.slowMoving",
+  due: "recurringJournals.tab.due",
+  history: "recurringJournals.tab.history",
+  depreciation: "recurringJournals.tab.depreciation",
 };
+
+export const NAMED_SUB_PAGE_SEGMENTS: ReadonlySet<string> = new Set(Object.keys(SEGMENT_LABEL_KEY));
+
+const NAMED_BY_ITS_SCREEN: ReadonlySet<ScreenKey> = new Set<ScreenKey>(["treasury-vouchers", "journals", "physical-counts", "price-lists", "site-issues"]);
+const UNNAMED_YET = "…";
 
 const SUB_PAGE_LABEL_KEY: Partial<Record<ScreenKey, AppTranslationKey>> = { "bank-reconciliation": "bankRec.reconcileABankStatement" };
 
@@ -73,6 +81,7 @@ function BackArrow() {
 export function Breadcrumbs({ screen }: { screen: ScreenKey }) {
   const { t } = useAppTranslation();
   const { navigate, segments, openSubPage } = useNavigation();
+  const names = useSubPageNames();
 
   if (screen === "dashboard") return null;
   // A third orientation row that restates the rail and the screens bar is not
@@ -106,12 +115,14 @@ export function Breadcrumbs({ screen }: { screen: ScreenKey }) {
     // item id — and printing it puts a raw enum in the Arabic breadcrumb.
     if (i > 0 && segments[0] === "new") break;
     const subPageKey = i === 0 ? SUB_PAGE_LABEL_KEY[screen] : undefined;
-    crumbs.push({ label: subPageKey ? t(subPageKey) : segmentLabel(segment, t), onClick: undefined });
+    const awaitsName = i === 0 && NAMED_BY_ITS_SCREEN.has(screen) && !(segment in SEGMENT_LABEL_KEY);
+    crumbs.push({ label: names[segment] ?? (subPageKey ? t(subPageKey) : awaitsName ? UNNAMED_YET : segmentLabel(segment, t)), onClick: undefined });
     if (i > 0) break;
   }
 
   const back = parentSegments(segments);
-  const backTarget = back.length > 0 ? segmentLabel(back[back.length - 1]!, t) : screenLabel;
+  const backSegment = back[back.length - 1];
+  const backTarget = backSegment !== undefined ? (names[backSegment] ?? segmentLabel(backSegment, t)) : screenLabel;
 
   return (
     <div className="mb-[10px] flex flex-wrap items-center gap-[10px]">

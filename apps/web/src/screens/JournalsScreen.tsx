@@ -47,7 +47,7 @@ import {
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { errorMessage } from "../lib/error-message";
 import { JournalEntryPrintPage } from "../print/documents";
-import { useSubPage } from "../navigation";
+import { useNameSubPage, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 import { useEntityName } from "../lib/entity-names";
@@ -278,6 +278,7 @@ export function JournalsScreen() {
   const needsFetch = Boolean(selectedId) && selectedId !== "new" && onPage === null && !query.isLoading;
   const single = useJournalEntry(needsFetch && selectedId ? selectedId : null);
   const selected = onPage ?? (needsFetch ? (single.data ?? null) : null);
+  useNameSubPage(selectedId && selectedId !== "new" ? selectedId : null, selected ? (selected.entryNo ?? t("docStatus.draft")) : null);
 
   const columns: DocumentListColumn<JournalDoc>[] = [
     {

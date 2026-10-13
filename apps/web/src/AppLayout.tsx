@@ -46,7 +46,7 @@ import {
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage, type RoleEditorSaveCommand } from "./pages/RoleEditorPage";
-import { NavigationProvider, toScreenIntent, type ScreenIntent, type ScreenIntentInput } from "./navigation";
+import { NavigationProvider, SubPageNamesProvider, toScreenIntent, type ScreenIntent, type ScreenIntentInput } from "./navigation";
 import { groupKeyForScreen, hubScreenForGroup, parsePath, pathForRoute } from "./routing";
 import { isRoutable, type RoutableKey, type ScreenKey } from "./router/screens";
 import { Breadcrumbs, parentSegments } from "./Breadcrumbs";
@@ -589,6 +589,7 @@ export function AppLayout() {
   return (
     <TenantPreferences>
     <NavigationProvider value={navigation}>
+    <SubPageNamesProvider>
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
       onNavigateHome={() => navigate("dashboard")}
@@ -697,6 +698,7 @@ export function AppLayout() {
       ) : null}
       <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} moduleJumps={moduleJumps} />
     </AppShell>
+    </SubPageNamesProvider>
     </NavigationProvider>
     </TenantPreferences>
   );

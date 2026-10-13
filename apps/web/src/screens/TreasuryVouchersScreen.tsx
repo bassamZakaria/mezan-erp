@@ -72,7 +72,7 @@ import { useWorkingLocation } from "../data/hub-hooks";
 import { TreasuryCurrencyNotice, type TreasuryCurrencyRate } from "./TreasuryCurrencyNotice";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { VoucherPrintPage } from "../print/documents";
-import { useScreenIntent, useSubPage } from "../navigation";
+import { useNameSubPage, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useEntityName } from "../lib/entity-names";
 import { useDomainLabels } from "../lib/domain-labels";
@@ -392,6 +392,8 @@ export function TreasuryVouchersScreen() {
   function openDetail(id: string) {
     subPage.open(id);
   }
+  const addressed = selectedId && selectedId !== "new" ? documents.find((d) => d.id === selectedId || d.docNo === selectedId) : undefined;
+  useNameSubPage(addressed ? selectedId : null, addressed ? (addressed.docNo ?? t("docStatus.draft")) : null);
 
   if (selectedId === "new") {
     return (

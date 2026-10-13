@@ -13,7 +13,7 @@ import type { CostCategory } from "../contracting/cost-category.js";
  */
 
 import type { Money } from "../money/index.js";
-import type { PostReceiptCommand, ReverseReceiptCommand } from "../inventory/index.js";
+import type { PostReceiptCommand, PostReceiptResult, ReverseReceiptCommand } from "../inventory/index.js";
 
 /** أمر الشراء lifecycle (docs/archive/catalog/02 §Purchase Orders §Workflows/statuses). */
 export type PurchaseOrderStatus =
@@ -146,6 +146,8 @@ export interface PurchaseGlAccounts {
    */
   readonly goodsReceivedNotInvoicedAccountId?: string;
   readonly priceVarianceAccountId?: string;
+  /** Takes what a receipt stated for goods that levelled a back-order beyond the value that back-order carried: the cost of goods already sold. */
+  readonly backOrderCostAccountId?: string;
 }
 
 /**
@@ -154,7 +156,7 @@ export interface PurchaseGlAccounts {
  * `postReceipt` method (the costing/stock-ledger engine).
  */
 export interface PurchaseStockPostingPort {
-  postReceipt(command: PostReceiptCommand): Promise<void>;
+  postReceipt(command: PostReceiptCommand): Promise<PostReceiptResult>;
   /** Undo a prior `postReceipt` (cancellation). `StockLedgerService.reverseReceipt` satisfies this structurally. */
   reverseReceipt(command: ReverseReceiptCommand): Promise<void>;
   applyReceiptCostVariance?(command: ReceiptCostVarianceCommand): Promise<{ readonly absorbed: Money; readonly unabsorbed: Money; readonly occurredAt?: string }>;

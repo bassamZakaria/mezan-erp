@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
-import type { ReconciliationReportDTO } from "@mezan/contracts";
+import { StockPositionFaultCode, type ReconciliationReportDTO } from "@mezan/contracts";
 import { ReconciliationScreen } from "./ReconciliationScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
@@ -144,8 +144,8 @@ describe("ReconciliationScreen — a stock position the books cannot stand behin
       stockPositions: {
         count: 2,
         rows: [
-          { itemId: "ITEM-A", warehouseId: "WH-MAIN", onHand: "0.000000", totalValue: "-30.000000", fault: "value_without_quantity" },
-          { itemId: "ITEM-B", warehouseId: "WH-MAIN", onHand: "1.000000", totalValue: "-2.000000", fault: "negative_value" },
+          { itemId: "ITEM-A", warehouseId: "WH-MAIN", onHand: "0.000000", totalValue: "-30.000000", fault: StockPositionFaultCode.ValueWithoutQuantity },
+          { itemId: "ITEM-B", warehouseId: "WH-MAIN", onHand: "1.000000", totalValue: "-2.000000", fault: StockPositionFaultCode.NegativeValue },
         ],
       },
     });

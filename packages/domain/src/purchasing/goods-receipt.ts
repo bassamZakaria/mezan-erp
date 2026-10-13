@@ -22,7 +22,7 @@ import {
 } from "./purchase-order.js";
 import { LandedCostStandsOnDocumentError } from "../landed-costs/errors.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
-import { assertDocumentWritten } from "../documents/errors.js";
+import { UnbookedStockVarianceError, assertDocumentWritten } from "../documents/errors.js";
 import {
   DEFAULT_PURCHASE_POLICY,
   type GoodsReceiptStatus,
@@ -30,6 +30,7 @@ import {
   type PurchaseStockPostingPort,
   type PurchaseGlAccounts,
   type PurchaseGlPosting,
+  type PurchaseGlPostingLine,
   type PurchaseGlPostingPort,
   type PurchaseGlReversalPort,
 } from "./types.js";
@@ -444,9 +445,31 @@ async function createAdHocGoodsReceipt(
  * invoice later clears the GRNI credit against the real payable, so inventory
  * is debited exactly once, by whichever document actually moved the stock.
  */
+// INVARIANT: the receiving document's own entry debits inventory by what the
+// receipt stated; the stock ledger added less (or more) where the goods
+// levelled a back-order. These two lines carry the difference to the cost of
+// the goods already sold, so the control account moves by what the stock did.
+export function backOrderCoverLines(
+  variance: Money,
+  accounts: { readonly inventoryAccountId: string; readonly backOrderCostAccountId?: string; readonly priceVarianceAccountId?: string },
+  dimensions: { readonly projectId?: string | null; readonly branchId?: string | null } = {},
+): PurchaseGlPostingLine[] {
+  if (variance.scaled === 0n) return [];
+  const costAccountId = accounts.backOrderCostAccountId ?? accounts.priceVarianceAccountId;
+  if (!costAccountId) throw new UnbookedStockVarianceError(variance.negate());
+  const dearer = variance.scaled > 0n;
+  const magnitude = dearer ? variance : variance.negate();
+  const [debited, credited] = dearer ? [costAccountId, accounts.inventoryAccountId] : [accounts.inventoryAccountId, costAccountId];
+  return [
+    { accountId: debited, debit: magnitude, credit: Money.zero(), ...dimensions },
+    { accountId: credited, debit: Money.zero(), credit: magnitude, ...dimensions },
+  ];
+}
+
 export function buildGoodsReceiptPosting(
   receipt: GoodsReceipt,
-  accounts: { readonly inventoryAccountId: string; readonly goodsReceivedNotInvoicedAccountId: string },
+  accounts: { readonly inventoryAccountId: string; readonly goodsReceivedNotInvoicedAccountId: string; readonly backOrderCostAccountId?: string; readonly priceVarianceAccountId?: string },
+  coverVariance: Money = Money.zero(),
 ): PurchaseGlPosting {
   const value = Money.sum(receipt.lines.map((l) => extend(l.qty, l.unitCost)));
   // Split the inventory debit by cost category (never the GRNI credit — that
@@ -477,6 +500,7 @@ export function buildGoodsReceiptPosting(
     lines: [
       ...debitLines,
       { accountId: accounts.goodsReceivedNotInvoicedAccountId, debit: Money.zero(), credit: value, projectId },
+      ...backOrderCoverLines(coverVariance, accounts, { projectId }),
     ],
   };
 }
@@ -491,7 +515,7 @@ export async function confirmGoodsReceipt(
   if (receipt.status !== "draft") {
     throw new PurchaseDocumentNotDraftError(id, receipt.status);
   }
-  await deps.stock.postReceipt({
+  const received = await deps.stock.postReceipt({
     receiptId: receipt.id,
     receiptNumber: receipt.number,
     warehouseId: receipt.warehouseId,
@@ -511,10 +535,16 @@ export async function confirmGoodsReceipt(
   // behind if something later fails.
   if (deps.gl && deps.accounts?.goodsReceivedNotInvoicedAccountId) {
     await deps.gl.post(
-      buildGoodsReceiptPosting(receipt, {
-        inventoryAccountId: deps.accounts.inventoryAccountId,
-        goodsReceivedNotInvoicedAccountId: deps.accounts.goodsReceivedNotInvoicedAccountId,
-      }),
+      buildGoodsReceiptPosting(
+        receipt,
+        {
+          inventoryAccountId: deps.accounts.inventoryAccountId,
+          goodsReceivedNotInvoicedAccountId: deps.accounts.goodsReceivedNotInvoicedAccountId,
+          backOrderCostAccountId: deps.accounts.backOrderCostAccountId,
+          priceVarianceAccountId: deps.accounts.priceVarianceAccountId,
+        },
+        received.coverVariance,
+      ),
     );
   }
 

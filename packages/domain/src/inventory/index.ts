@@ -94,6 +94,7 @@ export {
   type PostTransferResult,
   type ReceiptLine,
   type PostReceiptCommand,
+  type PostReceiptResult,
   type IssueLine,
   type PostIssueCommand,
   type IssueLineCost,

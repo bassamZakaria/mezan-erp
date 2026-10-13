@@ -21,7 +21,7 @@ import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
 import { resolveDocumentLineTax, type TaxRate, type TaxRateRepository } from "../tax-rates/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository, ReceiptLineBilling } from "./goods-receipt.js";
-import { billGoodsReceipt, distinctPositions, GoodsReceiptInvoicingStatus, goodsReceiptInvoicingStatus, receiptLayersConsumed, receiptLineRemainingQty, unbillGoodsReceipt } from "./goods-receipt.js";
+import { backOrderCoverLines, billGoodsReceipt, distinctPositions, GoodsReceiptInvoicingStatus, goodsReceiptInvoicingStatus, receiptLayersConsumed, receiptLineRemainingQty, unbillGoodsReceipt } from "./goods-receipt.js";
 import { LandedCostStandsOnDocumentError } from "../landed-costs/errors.js";
 import { atomically, recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import { assertDocumentWritten } from "../documents/errors.js";
@@ -916,10 +916,10 @@ export async function confirmPurchaseInvoice(
         }
       }
     }
-    await deps.gl.post(posting);
-    for (const late of latePostings) await deps.gl.post(late);
-
-    // Manual invoice (no prior receipt): the invoice IS the stock-in document.
+    // ORDER MATTERS: a manual invoice (no prior receipt) IS the stock-in
+    // document, and its goods enter stock before its entry is posted — what
+    // they levelled of a back-order is booked in that same entry. Both sit in
+    // this one transaction, so a refused entry takes the stock back with it.
     if (!invoice.receiptId) {
       // The stock ledger keeps every cost in BASE currency, because GL 1200
       // does and the two must reconcile. Receiving a foreign invoice at its
@@ -937,7 +937,7 @@ export async function confirmPurchaseInvoice(
           })),
         );
       if (stockLines.length > 0) {
-        await deps.stock.postReceipt({
+        const received = await deps.stock.postReceipt({
           receiptId: invoice.id,
           receiptNumber: invoice.number,
           warehouseId: invoice.warehouseId,
@@ -945,8 +945,12 @@ export async function confirmPurchaseInvoice(
           lines: stockLines,
           occurredAt: occurredAtFromDocumentDate(invoice.date),
         });
+        const cover = backOrderCoverLines(received.coverVariance, deps.accounts, { projectId: invoice.projectId ?? null, branchId: invoice.branchId ?? null });
+        if (cover.length > 0) posting = { ...posting, lines: [...posting.lines, ...cover] };
       }
     }
+    await deps.gl.post(posting);
+    for (const late of latePostings) await deps.gl.post(late);
 
     if (invoice.receiptId && deps.receipts && billings) {
       await billGoodsReceipt(invoice.receiptId, billings.flat(), { receipts: deps.receipts });

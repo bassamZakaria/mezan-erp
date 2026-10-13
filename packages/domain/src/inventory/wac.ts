@@ -178,15 +178,17 @@ export function replay(
       continue;
     }
     if (m.direction === "IN") {
+      const short = onHand.isNegative() ? onHand.negate() : Qty.zero();
+      const layered = m.qty.compare(short) > 0 ? m.qty.subtract(short) : Qty.zero();
       totalValue = totalValue.add(movementValue(m));
       onHand = onHand.add(m.qty);
-      layers.push({
+      if (!layered.isZero()) layers.push({
         id: m.id,
         itemId: m.itemId,
         warehouseId: m.warehouseId,
         unitCost: m.unitCost,
-        originalQty: m.qty,
-        remainingQty: m.qty,
+        originalQty: layered,
+        remainingQty: layered,
         sourceDocType: m.sourceDocType,
         sourceDocId: m.sourceDocId,
         sourceDocNumber: m.sourceDocNumber,

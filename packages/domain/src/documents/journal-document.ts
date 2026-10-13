@@ -164,7 +164,7 @@ export function createJournalGlHook(deps: JournalPostingDeps, stockVariance?: St
           sourceDocType: posting.sourceDocType,
           sourceDocId: posting.sourceDocId,
           sourceDocNumber: posting.sourceDocNumber,
-          lines: posting.lines.map((l) => ({
+          lines: [...posting.lines, ...stockVarianceLines(posting.stockVariance, stockVariance, BACK_ORDER_COVER_MEMO)].map((l) => ({
             accountId: l.accountId,
             debit: l.debit,
             credit: l.credit,
@@ -202,9 +202,10 @@ export function createJournalGlHook(deps: JournalPostingDeps, stockVariance?: St
   };
 }
 
-const STOCK_VARIANCE_MEMO = "فرق تكلفة: عكس حركة مخزنية أفرغت رصيد الصنف";
+const STOCK_VARIANCE_MEMO = "فرق تكلفة: عكس حركة مخزنية بمتوسط تكلفة الرصيد";
+const BACK_ORDER_COVER_MEMO = "فرق تكلفة: بضاعة غطّت كمية بيعت قبل وصولها";
 
-function stockVarianceLines(unmirrored: Money | undefined, accounts: StockReversalVarianceAccounts | undefined): JournalLine[] {
+export function stockVarianceLines(unmirrored: Money | undefined, accounts: StockReversalVarianceAccounts | undefined, memo: string = STOCK_VARIANCE_MEMO): JournalLine[] {
   if (!unmirrored || unmirrored.scaled === 0n) return [];
   if (!accounts) throw new UnbookedStockVarianceError(unmirrored);
   // The mirrored lines already took the FULL mirrored value off the inventory
@@ -215,8 +216,8 @@ function stockVarianceLines(unmirrored: Money | undefined, accounts: StockRevers
     ? [accounts.costVarianceAccountId, accounts.inventoryAccountId]
     : [accounts.inventoryAccountId, accounts.costVarianceAccountId];
   return [
-    { accountId: debited, debit: magnitude, credit: Money.zero(), memo: STOCK_VARIANCE_MEMO },
-    { accountId: credited, debit: Money.zero(), credit: magnitude, memo: STOCK_VARIANCE_MEMO },
+    { accountId: debited, debit: magnitude, credit: Money.zero(), memo },
+    { accountId: credited, debit: Money.zero(), credit: magnitude, memo },
   ];
 }
 

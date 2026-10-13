@@ -385,6 +385,7 @@ const PURCHASE_GL_ACCOUNTS = {
   // 2120 rather than debiting inventory a second time.
   goodsReceivedNotInvoicedAccountId: "2120",
   priceVarianceAccountId: "5080",
+  backOrderCostAccountId: "5100",
 };
 
 /**
@@ -436,6 +437,7 @@ const MANUFACTURING_GL_ACCOUNTS = {
   // of what the product cost to make (EAS/IAS 2), so it gets its own leaf
   // rather than sharing 5070 with damaged stock in a warehouse.
   abnormalScrapAccountId: "5220",
+  backOrderCostAccountId: "5100",
   wipAccountId: "1250",
 };
 
@@ -511,6 +513,11 @@ const LANDED_COST_GL_ACCOUNTS = {
   accruedLandedCostPayableId: "2130",
   unabsorbedCostAccountId: "5100",
   clearingAccountId: "1240",
+};
+
+const STOCK_VARIANCE_ACCOUNTS = {
+  inventoryAccountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
+  costVarianceAccountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
 };
 
 /**
@@ -1179,6 +1186,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
     // through a separate path and never passes `command.gl`, so this is additive.
     gl: createInventoryGlPostingHook(salesInvoiceGl),
+    transferCoverAccounts: { inventoryAccountId: STOCK_VARIANCE_ACCOUNTS.inventoryAccountId, costAccountId: STOCK_VARIANCE_ACCOUNTS.costVarianceAccountId },
     // The last-resort cost for an issue out of a position that holds nothing
     // and was never received anywhere. Without it such an issue was written at
     // zero and COGS was understated by the whole deficit (D101).
@@ -1389,7 +1397,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const service = new SalesInvoiceService({
         repo: salesInvoices,
         numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
-        gl: createSalesInvoiceGlHook(salesInvoiceGl),
+        gl: createSalesInvoiceGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS),
         stock: createSalesInvoiceStockHook(stockService),
         taxRates,
         taxRerating: salesInvoiceTaxRerating,
@@ -1598,7 +1606,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const service = new SalesInvoiceService({
         repo: salesInvoices,
         numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
-        gl: createSalesInvoiceGlHook(salesInvoiceGl),
+        gl: createSalesInvoiceGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS),
         stock: createSalesInvoiceStockHook(stockService),
         taxRates,
         taxRerating: salesInvoiceTaxRerating,
@@ -1982,10 +1990,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   };
 
 
-  const documentGl = createJournalGlHook(salesInvoiceGl, {
-    inventoryAccountId: LANDED_COST_GL_ACCOUNTS.inventoryAccountId,
-    costVarianceAccountId: LANDED_COST_GL_ACCOUNTS.unabsorbedCostAccountId,
-  });
+  const documentGl = createJournalGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS);
   const documentWorkflowGate = createDocumentWorkflowGate(
     (actionType) => workflowConfigs.resolveSync(actionType),
     approvalRequests,
@@ -4051,7 +4056,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       itemCheck: items,
       masterData: masterDataChecks,
       numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
-      gl: createSalesInvoiceGlHook(salesInvoiceGl),
+      gl: createSalesInvoiceGlHook(salesInvoiceGl, STOCK_VARIANCE_ACCOUNTS),
       // "السماح بالبيع من مستودع آخر": only when the document's warehouse holds
       // NONE of the item, and only when one other warehouse can cover the whole
       // line — a line split across two warehouses would have two costs, and an

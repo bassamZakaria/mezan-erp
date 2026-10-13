@@ -90,6 +90,12 @@ export interface DocumentGlPosting {
   readonly date: string;
   readonly memo: string;
   readonly lines: readonly DocumentGlPostingLine[];
+  /**
+   * Set by the framework, never by a document type: what the stock ledger
+   * moved beyond (positive) or short of (negative) what the document's own
+   * lines state. The GL hook books it in this same entry.
+   */
+  readonly stockVariance?: Money;
 }
 
 /**
@@ -182,9 +188,10 @@ export interface DocumentStockResult {
   /** Signed: positive when value entered stock, negative when it left. */
   readonly valueMoved: Money;
   /**
-   * Only on a reversal: what the mirrored issues were asked to take out beyond
-   * what the positions they emptied still held. The reversing entry books it,
-   * or the control account and the stock ledger part by exactly this figure.
+   * Signed, positive when stock holds more than the document's lines state:
+   * what mirrored issues were asked to take and did not, less what receipts
+   * into a back-ordered position stated and did not add. The document's entry
+   * books it, or the control account and the stock ledger part by this figure.
    */
   readonly unmirroredValue?: Money;
 }

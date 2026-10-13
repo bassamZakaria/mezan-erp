@@ -1585,36 +1585,44 @@ export function createSalesInvoicesRoutes(
           });
         }
 
+        // INVARIANT: the goods go back as the ledger recorded them leaving —
+        // base units, the warehouse each was drawn from and the average each
+        // left at — never as the invoice line states them. A line sold by
+        // the carton names 1 where the ledger issued 12.
+        // ORDER MATTERS: they go back while the reversing entry is being
+        // built, so what a back-ordered position took differently from what
+        // the sale gave up is booked in that same entry.
+        const restoreStock =
+          stockLines.length > 0 && stockRestore?.reverse
+            ? async () => {
+                const restored = await stockRestore.reverse!(
+                  {
+                    sourceDocType: SALES_INVOICE_DOC_TYPE,
+                    sourceDocId: salesInvoiceVoidEntryId(current.id),
+                    sourceDocNumber: current.docNo,
+                    warehouseId: current.warehouseId,
+                    date,
+                    lines: [],
+                  },
+                  current.id,
+                );
+                const issuedAtCost = stockLines.some((l) => l.unitCost !== null && l.unitCost.scaled !== 0n);
+                if (issuedAtCost && restored.valueMoved.scaled === 0n) {
+                  throw new SalesInvoiceVoidRefusal(409, {
+                    error: SalesInvoiceVoidRefusalCode.IssueMovementMissing,
+                    message: "لا يمكن إرجاع المخزون: حركة صرف هذه الفاتورة غير موجودة في دفتر المخزون.",
+                    messageEn: "The stock cannot be put back: this invoice's issue movement is not in the stock ledger.",
+                  });
+                }
+                return restored;
+              }
+            : undefined;
         const posted = await deps.gl.reverse(journalEntryId, {
           reversalId: salesInvoiceVoidEntryId(current.id),
           date,
           memo: `عكس فاتورة مبيعات ${current.docNo ?? current.id}`,
+          stock: restoreStock,
         });
-        if (stockLines.length > 0 && stockRestore?.reverse) {
-          // INVARIANT: the goods go back as the ledger recorded them leaving —
-          // base units, the warehouse each was drawn from and the average each
-          // left at — never as the invoice line states them. A line sold by
-          // the carton names 1 where the ledger issued 12.
-          const restored = await stockRestore.reverse(
-            {
-              sourceDocType: SALES_INVOICE_DOC_TYPE,
-              sourceDocId: salesInvoiceVoidEntryId(current.id),
-              sourceDocNumber: current.docNo,
-              warehouseId: current.warehouseId,
-              date,
-              lines: [],
-            },
-            current.id,
-          );
-          const issuedAtCost = stockLines.some((l) => l.unitCost !== null && l.unitCost.scaled !== 0n);
-          if (issuedAtCost && restored.valueMoved.scaled === 0n) {
-            throw new SalesInvoiceVoidRefusal(409, {
-              error: SalesInvoiceVoidRefusalCode.IssueMovementMissing,
-              message: "لا يمكن إرجاع المخزون: حركة صرف هذه الفاتورة غير موجودة في دفتر المخزون.",
-              messageEn: "The stock cannot be put back: this invoice's issue movement is not in the stock ledger.",
-            });
-          }
-        }
         const next: SalesInvoice = { ...current, status: REVERSED_STATUS, voidReason: reason };
         if (!(await deps.repo.writeFields(next, [SalesInvoiceField.Status, SalesInvoiceField.VoidReason], { status: [current.status] }))) {
           throw new DocumentChangedError(SALES_INVOICE_DOC_TYPE, current.id);

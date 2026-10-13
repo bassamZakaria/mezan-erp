@@ -17,6 +17,7 @@ import type {
   PostIssueCommand,
   PostIssueResult,
   PostReceiptCommand,
+  PostReceiptResult,
   PostTransferCommand,
   PostTransferResult,
 } from "../inventory/index.js";
@@ -75,7 +76,7 @@ export type ItemPolicy = "per_order" | "per_spec";
  */
 export interface ManufacturingStockPort {
   postIssue(command: PostIssueCommand): Promise<PostIssueResult>;
-  postReceipt(command: PostReceiptCommand): Promise<void>;
+  postReceipt(command: PostReceiptCommand): Promise<PostReceiptResult>;
   postTransfer(command: PostTransferCommand): Promise<PostTransferResult>;
 }
 
@@ -134,6 +135,8 @@ export interface WorkOrderGlAccounts {
   readonly overheadAppliedAccountId: string;
   /** Debited for scrap beyond the BOM's waste allowance, at the moment it is logged. */
   readonly abnormalScrapAccountId: string;
+  /** Takes what finished goods that levelled a back-order cost beyond the value that back-order carried. */
+  readonly backOrderCostAccountId?: string;
   /**
    * إنتاج تحت التشغيل — parks the value of NORMAL scrap between the moment it
    * is destroyed and the moment the product that absorbs it is received.

@@ -29,6 +29,7 @@ import type {
   DocumentEventPublisher,
   DocumentEventType,
   DocumentStockResult,
+  DocumentGlPosting,
   DocumentGlPostingResult,
 } from "./hooks.js";
 import { assertTransition, isActive, type DocumentStatus } from "./status.js";
@@ -235,14 +236,18 @@ export class DocumentService<Line> {
     }
 
     let journalEntryId = existing.journalEntryId;
-    if (this.def.buildGlPosting) {
-      const posting = this.def.buildGlPosting(working, stockResult);
-      if (posting) {
-        if (!this.deps.gl) throw new MissingHookError(this.def.code, "gl");
-        const result = await this.deps.gl.post(posting);
-        journalEntryId = result.journalEntryId;
-        if (this.def.numberFromGl) docNo = result.journalEntryNo;
-      }
+    const stated = this.def.buildGlPosting?.(working, stockResult) ?? null;
+    const stockVariance = stockResult?.unmirroredValue;
+    const unbooked = stockVariance !== undefined && stockVariance.scaled !== 0n ? stockVariance : null;
+    if (unbooked && !this.deps.gl) throw new UnbookedStockVarianceError(unbooked);
+    const posting: DocumentGlPosting | null = unbooked
+      ? { ...(stated ?? { sourceDocType: this.def.code, sourceDocId: working.id, sourceDocNumber: working.docNo, date: working.date, memo: working.memo ?? working.docNo ?? working.id, lines: [] }), stockVariance: unbooked }
+      : stated;
+    if (posting) {
+      if (!this.deps.gl) throw new MissingHookError(this.def.code, "gl");
+      const result = await this.deps.gl.post(posting);
+      journalEntryId = result.journalEntryId;
+      if (this.def.numberFromGl) docNo = result.journalEntryNo;
     }
 
     const next: FrameworkDocument<Line> = {

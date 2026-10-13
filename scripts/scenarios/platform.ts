@@ -848,7 +848,7 @@ async function settingsPoliciesAreLive(ctx: Ctx): Promise<void> {
     check("and CONFIRMS, because a back-order is exactly what the tenant asked for", confirmed.status === 200 && confirmed.body?.status === "confirmed", JSON.stringify(confirmed.body).slice(0, 200));
     checkEq("the shortfall is recorded as a negative position, not hidden", await onHand(), -3);
 
-    const restored = await adjust("SCN-SET-ADJ-BO-BACK", "IN", "3", "100");
+    const restored = await adjust("SCN-SET-ADJ-BO-BACK", "IN", "3", "90");
     check("goods arrive and clear the back-order", restored.status === 200, JSON.stringify(restored.body).slice(0, 160));
     checkEq("the position is level again", await onHand(), 0);
 

@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 264 permissions across 19 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 265 permissions across 19 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -38,13 +38,16 @@ describe("permission catalog", () => {
     // `POST /users/:id/erase` (`packages/api/src/users-routes.ts`) — the
     // personal-data erasure the store listings promise a path for.
     //
+    // 264 → 265. `POST /vouchers/:id/reverse` joined the reversal registry with
+    // `treasury.cash_voucher.reverse`; it rode on the three voucher `.void` codes.
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(264);
+    expect(PERMISSIONS).toHaveLength(265);
     expect(MODULES).toHaveLength(19);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(264);
+    expect(summed).toBe(265);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -96,7 +99,7 @@ describe("permission catalog", () => {
     expect(PERMISSIONS.filter((p) => p.code.endsWith(".reverse")).every((p) => p.sensitive)).toBe(true);
     expect(isSensitive("purchases.landed_cost.void")).toBe(false);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(24);
+    expect(sensitiveCount).toBe(25);
   });
 
   it("marks the one platform-admin-only permission", () => {

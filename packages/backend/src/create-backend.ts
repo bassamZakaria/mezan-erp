@@ -1,4 +1,4 @@
-import { reversalPermissionSuccessors } from "@mezan/contracts";
+import { ReversalDocumentType, reversalPermissionSuccessors } from "@mezan/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createApp,
@@ -675,6 +675,7 @@ export interface CreateBackendOptions {
 const CERTIFICATE_AR_ACCOUNT_ID = "1105";
 
 const REVERSAL_PERMISSIONS_GRANT = "reversal_permissions";
+const VOUCHER_REVERSAL_PERMISSION_GRANT = "voucher_reversal_permission";
 
 export async function createBackend(options: CreateBackendOptions = {}): Promise<BackendHandle> {
   if (options.seedAdminPin !== undefined && options.seedDemoData !== true) {
@@ -732,6 +733,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   const uow = createSqliteUnitOfWork(sqlite);
   grantSuccessorPermissionsOnce(sqlite, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
+  // INVARIANT: a marker of its own — books that already hold the marker above were upgraded before the voucher route joined the registry and would never be given its permission.
+  grantSuccessorPermissionsOnce(sqlite, VOUCHER_REVERSAL_PERMISSION_GRANT, reversalPermissionSuccessors([ReversalDocumentType.Voucher]));
   const settings = createSqliteSettingsStore(sqlite);
   const vatFilings = createSqliteVatFilingStore(sqlite);
   const simplifiedRegime = createSqliteSimplifiedRegimeStore(sqlite);

@@ -4514,7 +4514,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect((await post(app, "/vouchers/v-rev/confirm", {}, admin(app))).status).toBe(200);
     expect(await reconDiff(app, "ar")).toBe(0);
 
-    expect((await post(app, "/vouchers/v-rev/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-rev/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(201);
     expect(await glBalance(app, "1105")).toBe(1000);
     expect(await reconDiff(app, "ar")).toBe(0);
     const aging = await get(app, "/reports/aging/customers?asOfDate=2026-09-30");
@@ -4533,7 +4533,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
     expect((await post(app, "/vouchers/v-exp/confirm", {}, admin(app))).status).toBe(200);
     expect(Number((await get(app, "/dashboard/summary")).gl.expenses)).toBe(250);
 
-    expect((await post(app, "/vouchers/v-exp/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-exp/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(201);
     expect(Number((await get(app, "/dashboard/summary")).gl.expenses)).toBe(0);
     const entries = (await get(app, "/gl/journal-entries?pageSize=200")) as { items?: { sourceModule: string; memo: string }[] } | { sourceModule: string }[];
     const list = Array.isArray(entries) ? entries : (entries.items ?? []);
@@ -4663,7 +4663,7 @@ describe("createBackend — FX aging, the customers screen and cheque vouchers (
 
     expect((await post(app, "/vouchers/v-chq/allocations", { invoiceId: "inv-chq", amount: "400.00" }, admin(app))).status).toBe(201);
     expect((await get(app, "/cheques/v-chq")).allocations).toHaveLength(1);
-    expect((await post(app, "/vouchers/v-chq/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(422);
+    expect((await post(app, "/vouchers/v-chq/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(422);
 
     expect((await post(app, "/cheques/v-chq/deposit", { bankTreasuryAccountId: "ta-cash" }, admin(app))).status).toBe(200);
     expect((await post(app, "/cheques/v-chq/bounce", { date: "2026-08-25" }, admin(app))).status).toBe(200);
@@ -4899,7 +4899,7 @@ describe("createBackend — party balances no invoice carries, and one figure pe
     const before = await get(app, "/reports/tax/withholding?periodFrom=2026-01-01&periodTo=2026-12-31");
     expect(before.rows.filter((r: { voucherId: string }) => r.voucherId === "v-wht")).toHaveLength(1);
 
-    expect((await post(app, "/vouchers/v-wht/reverse", { date: "2026-08-23" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-wht/reverse", { memo: "سبب العكس", date: "2026-08-23" }, admin(app))).status).toBe(201);
     const after = await get(app, "/reports/tax/withholding?periodFrom=2026-01-01&periodTo=2026-12-31");
     expect(after.rows).toEqual([]);
     const reversed = (await get(app, "/vouchers")) as { id: string; reversesDocId?: string | null }[];
@@ -5581,7 +5581,7 @@ describe("createBackend — foreign documents settle and return in base (D202, D
     expect(await position(app, today, "1105")).toEqual(half);
     expect(await reconDiff(app, "ar")).toBe(0);
 
-    expect((await post(app, "/vouchers/v-half/reverse", { date: "2026-08-28" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-half/reverse", { memo: "سبب العكس", date: "2026-08-28" }, admin(app))).status).toBe(201);
     expect((await get(app, "/sales-invoices/inv-usd")).remainingBalance).toBe("4800.000000");
     expect(await glBalance(app, "4920")).toBe(0);
     expect(await position(app, today, "1105")).toEqual(open);
@@ -5790,7 +5790,7 @@ describe("createBackend — a ladder run as of a past day ties to its control ac
       expect((await post(app, "/vouchers", receipt(id, date, amount), admin(app))).status).toBe(201);
       expect((await post(app, `/vouchers/${id}/confirm`, {}, admin(app))).status).toBe(200);
     }
-    expect((await post(app, "/vouchers/v-rev/reverse", { date: "2026-08-25" }, admin(app))).status).toBe(201);
+    expect((await post(app, "/vouchers/v-rev/reverse", { memo: "سبب العكس", date: "2026-08-25" }, admin(app))).status).toBe(201);
     expect((await post(app, "/cheques", {
       id: "chq-asof", direction: "incoming", chequeNumber: "770001", bankName: "بنك القاهرة", amount: "70.00", issueDate: "2026-08-18", dueDate: "2026-08-19",
       branchId: "BR-MAIN", partyId: "cust-asof", counterpartyGlAccountId: "1105", controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },

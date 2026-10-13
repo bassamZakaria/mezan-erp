@@ -12,7 +12,6 @@ import {
   Button,
   MoneyStringInput,
   EntityPicker,
-  ConfirmDialog,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
@@ -44,6 +43,7 @@ import type {
   VoucherListQueryDTO,
   VoucherStatusDTO,
 } from "@mezan/contracts";
+import { ReversalDocumentType } from "@mezan/contracts";
 import {
   useAccounts,
   useBranches,
@@ -57,7 +57,6 @@ import {
   useOpenInvoices,
   useProjects,
   useReverseAllocation,
-  useReverseVoucher,
   useSuppliers,
   useTreasuryAccounts,
   useVoucherDetail,
@@ -78,6 +77,7 @@ import { useEntityName } from "../lib/entity-names";
 import { useDomainLabels } from "../lib/domain-labels";
 import { useDebounced } from "../lib/use-debounced";
 import { todayIso } from "../lib/dates";
+import { useReverseDocumentAction } from "../reversal/ReverseDocumentAction";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
@@ -624,7 +624,7 @@ function VoucherDetailView({
   const effectText = useDocumentEffectText();
   const query = useVoucherDetail(id);
   const projectsQuery = useProjects();
-  const reverseVoucher = useReverseVoucher();
+  const reversal = useReverseDocumentAction(ReversalDocumentType.Voucher);
   const createAllocation = useCreateAllocation();
   const reverseAllocation = useReverseAllocation();
 
@@ -635,8 +635,6 @@ function VoucherDetailView({
   const [allocAmount, setAllocAmount] = useState("");
   const [allocDate, setAllocDate] = useState("");
   const [allocatedOn, setAllocatedOn] = useState<string | null>(null);
-  const [reverseConfirmOpen, setReverseConfirmOpen] = useState(false);
-  const [reverseDate, setReverseDate] = useState(todayIso());
 
   const doc = query.data;
   const def = doc ? getVoucherTypeDefinition(doc.voucherType) : null;
@@ -654,27 +652,6 @@ function VoucherDetailView({
     const preview = toPreviewDoc(line, { id: doc.id, date: doc.date, memo: doc.memo, status: doc.status });
     return voucherDocumentType.describeEffects(preview);
   }, [doc]);
-
-  function openReverseConfirm() {
-    if (busy || !doc) return;
-    setReverseDate(todayIso());
-    setReverseConfirmOpen(true);
-  }
-
-  async function handleReverseVoucher() {
-    if (busy || !doc) return;
-    setReverseConfirmOpen(false);
-    setBusy(true);
-    setError(null);
-    try {
-      await reverseVoucher.mutateAsync({ id: doc.id, body: { date: reverseDate } });
-      onBack();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t("vouchers.theVoucherCouldNotBe"));
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function handleAllocate() {
     if (busy || !doc || invoiceId === "" || allocAmount === "" || Money.fromMajor(allocAmount).scaled <= 0n) return;
@@ -911,8 +888,8 @@ function VoucherDetailView({
         subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={doc.status} tone={doc.status === "reversed" ? "danger" : "brand"} />}
         actions={
           <>
-            {doc.status === "confirmed" ? (
-              <Button variant="danger-outline" disabled={busy} onClick={openReverseConfirm}>
+            {doc.status === "confirmed" && reversal.allowed ? (
+              <Button variant="danger-outline" disabled={busy || reversal.pendingId === doc.id} onClick={() => void reversal.ask({ id: doc.id, params: { id: doc.id }, subject: doc.docNo ?? t("vouchers.cashVoucher") })}>
                 {t("vouchers.reverseVoucher")}
               </Button>
             ) : null}
@@ -923,20 +900,7 @@ function VoucherDetailView({
         effects={(effects?.effects ?? []).map((e) => effectText(e).text)}
         tabs={tabs}
       />
-      <ConfirmDialog
-        open={reverseConfirmOpen}
-        title={t("vouchers.reverseConfirmTitle")}
-        consequence={
-          <div className="flex flex-col gap-[10px]">
-            <p>{t("vouchers.reverseConfirmBody")}</p>
-            <TextField label={t("vouchers.reversalDate")} value={reverseDate} onChange={setReverseDate} type="date" />
-          </div>
-        }
-        confirmLabel={t("vouchers.reverseVoucher")}
-        tone="danger"
-        onConfirm={() => void handleReverseVoucher()}
-        onCancel={() => setReverseConfirmOpen(false)}
-      />
+      {reversal.dialog}
     </div>
   );
 }

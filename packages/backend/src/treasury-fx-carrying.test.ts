@@ -74,7 +74,7 @@ describe("money leaving a foreign-currency treasury account leaves at what it is
     expect(await holds()).toEqual({ foreign: "1000.000000", base: "48900.000000" });
     expect(realised() - before).toBe(-90n * SCALE);
 
-    expect((await world.request("POST", "/vouchers/CAR-PART/reverse", { date: "2026-08-21" })).status).toBe(201);
+    expect((await world.request("POST", "/vouchers/CAR-PART/reverse", { memo: "سبب العكس", date: "2026-08-21" })).status).toBe(201);
     expect(await holds()).toEqual({ foreign: "1200.000000", base: "58680.000000" });
     expect(realised() - before).toBe(0n);
   });

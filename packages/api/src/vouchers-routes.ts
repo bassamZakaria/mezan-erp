@@ -56,7 +56,9 @@ import {
   createAllocationSchema,
   voucherListQuerySchema,
   type VoucherListQueryDTO,
+  ReversalPermission,
 } from "@mezan/contracts";
+import { requireReversalReason } from "./document-reversal.js";
 import { type AuthContextResolver, branchScopeOf, callerRoleCodes, createAnyPermissionGate, createPermissionGate, getAuthContext, permissionDeniedBody, withinScope } from "./permission-gate.js";
 import { MasterDataKind, refuseUnknownMasterData, type MasterDataChecks } from "./master-data-check.js";
 import { tenantDay } from "./tenant-day.js";
@@ -250,7 +252,7 @@ function handleDomainError(c: Context, err: unknown): Response {
  *   POST /vouchers                          create a draft                 create
  *   POST /vouchers/:id/confirm              confirm (cash guard + GL post) confirm
  *   POST /vouchers/:id/cancel               cancel a draft/pending         void
- *   POST /vouchers/:id/reverse              reverse a confirmed voucher    void
+ *   POST /vouchers/:id/reverse              reverse a confirmed voucher    reverse
  *   GET  /vouchers/:id/allocations          list allocations               alloc.view
  *   POST /vouchers/:id/allocations          allocate onto an invoice       alloc.manage
  *   POST /allocations/:id/reverse           reverse one allocation         alloc.manage
@@ -794,7 +796,8 @@ export function createVouchersRoutes(
 
   app.post(
     "/:id/reverse",
-    gateAny("treasury.cash_voucher.void", "treasury.customer_refund.void", "treasury.transfer.void"),
+    gate(ReversalPermission.Voucher),
+    requireReversalReason,
     async (c) => {
     let body: unknown = {};
     try {
@@ -817,7 +820,7 @@ export function createVouchersRoutes(
         // reported. `deps.now`, not a raw `new Date()`, so it stays the same
         // injectable clock every other default in this route uses.
         date: await tenantDay(c, parsed.data.date ?? (deps.now ? deps.now() : new Date().toISOString())),
-        memo: parsed.data.memo,
+        memo: parsed.data.memo?.trim(),
       });
       return c.json({ original: serialize(result.original), reversal: serialize(result.reversal) }, 201);
     } catch (err) {

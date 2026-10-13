@@ -72,7 +72,6 @@ import {
   useRecordSalesInvoicePayment,
   useReverseAllocation,
   useReverseJournalEntry,
-  useReverseVoucher,
   useRoles,
   useSalesInvoice,
   useSalesQuoteCounts,
@@ -707,10 +706,6 @@ describe("vouchers", () => {
     cancel.current.mutate("V1");
     await waitFor(() => expect(cancel.current.isSuccess).toBe(true));
 
-    const { result: reverse } = renderHook(() => useReverseVoucher(), { wrapper: Wrapper });
-    reverse.current.mutate({ id: "V1" });
-    await waitFor(() => expect(reverse.current.isSuccess).toBe(true));
-
     const { result: allocate } = renderHook(() => useCreateAllocation(), { wrapper: Wrapper });
     allocate.current.mutate({ voucherId: "V1", body: {} as never });
     await waitFor(() => expect(allocate.current.isSuccess).toBe(true));
@@ -719,7 +714,7 @@ describe("vouchers", () => {
     reverseAllocation.current.mutate("AL1");
     await waitFor(() => expect(reverseAllocation.current.isSuccess).toBe(true));
 
-    expect(spy).toHaveBeenCalledTimes(5);
+    expect(spy).toHaveBeenCalledTimes(4);
     for (const call of spy.mock.calls) expect(call[0]).toEqual({ queryKey: ["vouchers"] });
   });
 

@@ -63,7 +63,7 @@ const CORE_MODULES: readonly ModuleDef[] = [
   { id: "inventory", labelAr: "المخزون", count: 22 },
   { id: "field", labelAr: "المبيعات الميدانية", count: 4 },
   { id: "accounting", labelAr: "المحاسبة", count: 18 },
-  { id: "treasury", labelAr: "الخزينة", count: 19 },
+  { id: "treasury", labelAr: "الخزينة", count: 20 },
   { id: "workflow", labelAr: "سير العمل", count: 5 },
   { id: "hr", labelAr: "الموارد البشرية", count: 40 },
   { id: "crm", labelAr: "إدارة العملاء", count: 13 },
@@ -226,6 +226,7 @@ const ROWS: readonly Row[] = [
   ["treasury.cash_voucher.create", "treasury.cash_voucher.view,treasury.account.view"],
   ["treasury.cash_voucher.confirm", "treasury.cash_voucher.view"],
   ["treasury.cash_voucher.void", "treasury.cash_voucher.view"],
+  ["treasury.cash_voucher.reverse", "treasury.cash_voucher.view", "s"],
   /*
    * The two voucher types that are NOT ordinary till traffic.
    *

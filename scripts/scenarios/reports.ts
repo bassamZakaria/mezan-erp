@@ -992,7 +992,7 @@ export async function foreignSettledInBaseIsNotRevalued_D260(ctx: Ctx): Promise<
       ar = await detailOn("1105");
       check("D265: the receipt was applied by hand today, so at the August close SCN-D260-SI2 was still open — GBP 100 at 6,000.00", n(ar?.foreignAmount) === 100 && n(ar?.bookedBase) === 6000 && n(ar?.delta) === -100, JSON.stringify(ar));
 
-      const reversed = await req("POST", "/vouchers/SCN-D260-CV/reverse", { date: ctx.onCalendar("2026-08-28") });
+      const reversed = await req("POST", "/vouchers/SCN-D260-CV/reverse", { memo: "سبب العكس", date: ctx.onCalendar("2026-08-28") });
       check("the part receipt is reversed on the 28th", reversed.status === 201, `status ${reversed.status} ${JSON.stringify(reversed.body).slice(0, 200)}`);
       ar = await detailOn("1105");
       check("D260: the reversal reopens all of SCN-D260-SI2 — GBP 100 at 6,000.00, restated by −100.00", n(ar?.foreignAmount) === 100 && n(ar?.bookedBase) === 6000 && n(ar?.delta) === -100, JSON.stringify(ar));
@@ -1167,7 +1167,7 @@ export async function voucherReversalDatedByReversalDay_D270(ctx: Ctx): Promise<
     const beforeReversalYesterday = await rowOn(yesterday);
     check("setup: before the reversal, yesterday's ladder already reads the invoice settled", n(beforeReversalYesterday?.total) === 0, JSON.stringify(beforeReversalYesterday));
 
-    const reversed = await req("POST", "/vouchers/SCN-D270-CV/reverse", {});
+    const reversed = await req("POST", "/vouchers/SCN-D270-CV/reverse", { memo: "سبب العكس" });
     check("D270: reversing with no date defaults to today, not the voucher's own 5 July", reversed.status === 201 && reversed.body?.reversal?.date === today, JSON.stringify(reversed.body).slice(0, 300));
 
     const stillSettledYesterday = await rowOn(yesterday);
@@ -1181,7 +1181,7 @@ export async function voucherReversalDatedByReversalDay_D270(ctx: Ctx): Promise<
       treasuryAccountId: "TR-DEMO-CASH", treasuryGlAccountId: cashGl, counterpartyGlAccountId: "1105", customerId: "SCN-D270-CUST",
     });
     check("a second EGP 10.00 receipt posts on 10 July", past.status === 201 && (await req("POST", "/vouchers/SCN-D270-CV2/confirm", {})).status === 200);
-    const tooEarly = await req("POST", "/vouchers/SCN-D270-CV2/reverse", { date: "2026-07-01" });
+    const tooEarly = await req("POST", "/vouchers/SCN-D270-CV2/reverse", { memo: "سبب العكس", date: "2026-07-01" });
     check("D270: a reversal dated before the voucher's own day is refused, bilingually", tooEarly.status === 422 && tooEarly.body?.error === "REVERSAL_DATE_BEFORE_ORIGINAL" && typeof tooEarly.body?.messageEn === "string" && tooEarly.body.messageEn.length > 0, JSON.stringify(tooEarly.body));
     check("and nothing posted for the refused reversal — the second receipt is still confirmed", (await req("GET", "/vouchers/SCN-D270-CV2")).body?.status === "confirmed");
 

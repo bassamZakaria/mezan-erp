@@ -195,7 +195,6 @@ import type {
   RecordVanCashMovementDTO,
   ReplaceChequeDTO,
   ReverseGlJournalEntryDTO,
-  ReverseVoucherDTO,
   RfqQuoteDTO,
   RoleDTO,
   SalesInvoiceDiscountDTO,
@@ -2583,20 +2582,6 @@ export function useCancelVoucher() {
       const res = await request(`/vouchers/${id}/cancel`, { method: "POST", body: JSON.stringify({}) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe3"), t));
       return res.json<VoucherDTO>();
-    },
-    onSuccess: () => invalidateVouchers(queryClient),
-  });
-}
-
-export function useReverseVoucher() {
-  const { t } = useAppTranslation();
-  const { request } = useApi();
-  const queryClient = useQueryClient();
-  return useMutation<{ original: VoucherDTO; reversal: VoucherDTO }, ApiError, { id: string; body?: ReverseVoucherDTO }>({
-    mutationFn: async ({ id, body }) => {
-      const res = await request(`/vouchers/${id}/reverse`, { method: "POST", body: JSON.stringify(body ?? {}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe4"), t));
-      return res.json<{ original: VoucherDTO; reversal: VoucherDTO }>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
   });

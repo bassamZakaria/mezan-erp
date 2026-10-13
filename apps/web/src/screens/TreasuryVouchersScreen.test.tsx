@@ -8,7 +8,6 @@ import { TreasuryVouchersScreen } from "./TreasuryVouchersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { VoucherDetailDTO, VoucherRowDTO } from "../data/hooks";
 import { NavigationProvider } from "../navigation";
-import { todayIso } from "../lib/dates";
 
 /**
  * TreasuryVouchersScreen's create and detail views are sub-pages addressed via
@@ -148,7 +147,7 @@ function statsOf(rows: VoucherRowDTO[]): Record<string, number> {
   };
 }
 
-function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]> } = {}) {
+function renderScreen({ heldOnConfirm = false, allocations = seededAllocations, permissions }: { heldOnConfirm?: boolean; allocations?: Record<string, VoucherAllocationDTO[]>; permissions?: string[] } = {}) {
   let current = [...seededVouchers];
   let nextSeq = 5;
   const allocationsByVoucher = { ...allocations };
@@ -245,7 +244,7 @@ function renderScreen({ heldOnConfirm = false, allocations = seededAllocations }
     <TestNavigation>
       <TreasuryVouchersScreen />
     </TestNavigation>,
-    { transport, initialSession: testAdminSession },
+    { transport, initialSession: permissions ? { ...testAdminSession, permissions } : testAdminSession },
   );
   return { ...result, reverseRequests, collectionRequests, allocationRequests };
 }
@@ -417,26 +416,30 @@ describe("TreasuryVouchersScreen — the day an allocation takes effect", () => 
   });
 });
 
-describe("TreasuryVouchersScreen — reversal (D270)", () => {
-  it("opens a confirm dialog defaulting its date field to today and sends that date, not the voucher's own", async () => {
+describe("TreasuryVouchersScreen — reversal", () => {
+  it("asks for a reason before it reverses, sends it, and leaves the date to the server when none is picked", async () => {
     const { reverseRequests } = renderScreen();
     fireEvent.click(await screen.findByText("CV-000001"));
     fireEvent.click(await screen.findByRole("button", { name: "عكس السند" }));
 
     const dialog = await screen.findByRole("dialog");
-    const dateInput = within(dialog).getByLabelText("تاريخ العكس") as HTMLInputElement;
-    // The component's default is the LOCAL calendar day (`todayIso`), not
-    // `toISOString()`'s UTC day — the two disagree for several hours a day
-    // east of Greenwich, which is where this product ships.
-    const today = todayIso();
-    // The voucher itself is dated 2026-08-07; the dialog defaults to today, not that (D270).
-    expect(dateInput.value).toBe(today);
-    expect(dateInput.value).not.toBe("2026-08-07");
+    const confirm = within(dialog).getByRole("button", { name: "عكس السند" });
+    expect(confirm).toBeDisabled();
+    expect((within(dialog).getByLabelText("تاريخ العكس") as HTMLInputElement).value).toBe("");
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "عكس السند" }));
+    fireEvent.change(within(dialog).getByLabelText("سبب العكس"), { target: { value: "سُجّل على العميل الخطأ" } });
+    fireEvent.click(confirm);
 
-    await waitFor(() => expect(reverseRequests).toEqual([{ date: today }]));
+    await waitFor(() => expect(reverseRequests).toEqual([{ memo: "سُجّل على العميل الخطأ" }]));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("offers no reversal to a user who holds the void permission but not the reversal one", async () => {
+    renderScreen({ permissions: ["treasury.cash_voucher.view", "treasury.account.view", "treasury.allocation.view", "treasury.cash_voucher.void"] });
+    fireEvent.click(await screen.findByText("CV-000001"));
+    await screen.findByRole("tab", { name: /تخصيص على الفواتير/ });
+
+    expect(screen.queryByRole("button", { name: "عكس السند" })).not.toBeInTheDocument();
   });
 });
 

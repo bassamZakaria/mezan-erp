@@ -132,3 +132,34 @@ describe("a voucher held before the upgrade, from start-up marking to posting", 
     expect((await cashier("GET", `/workflow/requests/${REQUEST}/standing`)).body.status).toBe("approved");
   });
 });
+
+describe("the approvals inbox names who asked and what for", () => {
+  it("shows the submitter's name and the held document, not a raw user id and a dash", async () => {
+    const roleId = ((await admin("GET", "/roles")).body as { id: string; code: string }[]).find((role) => role.code === APPROVER_ROLE)!.id;
+    const made = await admin("POST", "/users", { nameAr: "أمين الخزينة سامي", email: "sami.cashier@cyag.example", roleId, isCompanyAdmin: false, branchScope: ["BR-MAIN"], warehouseScope: "*", password: "correct-horse-battery" });
+    expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(201);
+    const token = handle.sessions.issue({ userId: made.body.id, permissions: ["treasury.cash_voucher.create", "treasury.cash_voucher.confirm", "treasury.cash_voucher.view"], roleCode: "TREASURY_CASHIER", branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const sami: Caller = async (method, path, body) => {
+      const res = await handle.app.fetch(new Request(`http://local${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) }));
+      const text = await res.text();
+      return { status: res.status, body: text ? JSON.parse(text) : null };
+    };
+    expect((await sami("POST", "/vouchers", { id: "RA-VCH-2", date: TODAY, memo: "سند ثانٍ", voucherType: "other_income", amount: "20.00", branchId: "BR-MAIN", paymentMethod: "cash", treasuryAccountId: "TR-RA", treasuryGlAccountId: "1300-1", counterpartyGlAccountId: "4100" })).status).toBe(201);
+    expect((await sami("POST", "/vouchers/RA-VCH-2/confirm", {})).body?.held).toBe(true);
+
+    const inbox = (await supervisor("GET", "/workflow/requests/pending")).body as { id: string; submittedBy: string; submittedByName: string | null; documentId: string | null; documentNo: string | null }[];
+    const row = inbox.find((request) => request.id === "RA-VCH-2:confirm");
+    expect(row).toMatchObject({ submittedBy: made.body.id, submittedByName: "أمين الخزينة سامي", documentId: "RA-VCH-2" });
+
+    expect((await supervisor("POST", "/workflow/requests/RA-VCH-2:confirm/decide", { decision: "approve" })).status).toBe(200);
+    const stamped = ((await supervisor("GET", "/workflow/requests")).body as { id: string; documentNo: string | null }[]).find((request) => request.id === "RA-VCH-2:confirm");
+    expect(stamped?.documentNo).toBe((await sami("GET", "/vouchers/RA-VCH-2")).body.docNo);
+    expect(stamped?.documentNo).toBeTruthy();
+  });
+
+  it("a request that gates no document carries no document, and an unknown submitter no name", async () => {
+    const general = await supervisor("POST", "/workflow/requests", { actionType: "TREASURY_VOUCHER_CONFIRM", entityLabel: "طلب عام" });
+    expect(general.status, JSON.stringify(general.body)).toBe(201);
+    expect(general.body).toMatchObject({ submittedByName: null, documentId: null, documentNo: null });
+  });
+});

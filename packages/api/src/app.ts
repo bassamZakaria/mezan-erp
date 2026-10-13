@@ -1822,6 +1822,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // An approval step may only name a role that exists, so the code an
           // approval is matched on can never be freed and re-taken.
           roleExists: options.workflow.roleExists ?? (async (code) => (await uow.roles.list()).some((r) => r.code === code)),
+          submitterName: options.workflow.submitterName ?? (async (userId) => (await uow.users.findById(userId))?.nameAr ?? null),
         },
         resolveAuth,
       ),
@@ -1874,6 +1875,7 @@ export type App = ReturnType<typeof createApp>;
 function buildHeldDocumentResolver(options: CreateAppOptions) {
   const fromDocumentService = <L>(svc: DocumentService<L>): HeldDocumentActions => ({
     heldRequestId: async (docId) => (await svc.findById(docId))?.workflowRequestId ?? null,
+    documentNo: async (docId) => (await svc.findById(docId))?.docNo ?? null,
     confirm: async (docId, actor) => {
       await svc.confirm(docId, { actor });
     },
@@ -1890,6 +1892,7 @@ function buildHeldDocumentResolver(options: CreateAppOptions) {
     const vouchers = options.vouchers;
     actions.TREASURY_VOUCHER_CONFIRM = {
       heldRequestId: async (docId) => (await new VoucherService(vouchers).findById(docId))?.workflowRequestId ?? null,
+      documentNo: async (docId) => (await new VoucherService(vouchers).findById(docId))?.docNo ?? null,
       confirm: async (docId, actor) => {
         await new VoucherService({ ...vouchers, actor }).confirmVoucher(docId);
       },
@@ -1902,6 +1905,7 @@ function buildHeldDocumentResolver(options: CreateAppOptions) {
     const invoices = options.salesInvoices;
     actions.SALES_INVOICE_CONFIRM = {
       heldRequestId: async (docId) => (await new SalesInvoiceService(invoices).findById(docId))?.workflowRequestId ?? null,
+      documentNo: async (docId) => (await new SalesInvoiceService(invoices).findById(docId))?.docNo ?? null,
       confirm: async (docId, actor) => {
         await new SalesInvoiceService({ ...invoices, actor }).confirm(docId);
       },

@@ -45,6 +45,8 @@ export interface HeldDocumentActions {
    * (the approvals inbox' own demo rows) gates no document at all.
    */
   heldRequestId(docId: string): Promise<string | null>;
+  /** The held document's number, null until one is stamped or when the document is not there. */
+  documentNo(docId: string): Promise<string | null>;
   /** Post the document the request was gating (its gate now grants). */
   confirm(docId: string, actor: string): Promise<void>;
   /** Hand the document back to its submitter as an editable draft. */
@@ -70,6 +72,8 @@ export interface WorkflowRoutesDeps {
   readonly audit?: AuditSink;
   /** Whether an approver role code resolves to a real role. See `saveWorkflowConfig`. */
   readonly roleExists?: ApproverRoleResolver;
+  /** The user directory's name for a submitter, joined into each request the caller is already served. */
+  readonly submitterName?: (userId: string) => Promise<string | null>;
 }
 
 function serializeConfig(config: WorkflowConfigRecord) {
@@ -92,11 +96,19 @@ const HELD_DOCUMENT_READ_PERMISSIONS: readonly string[] = [
   "treasury.cash_voucher.view",
 ];
 
-function serializeRequest(request: ApprovalRequestRecord) {
+async function serializeRequest(deps: WorkflowRoutesDeps, request: ApprovalRequestRecord) {
+  const documentId = request.subject?.documentId ?? null;
+  const [submittedByName, documentNo] = await Promise.all([
+    deps.submitterName?.(request.submittedBy) ?? null,
+    documentId === null ? null : (deps.heldDocuments?.(request)?.documentNo(documentId) ?? null),
+  ]);
   return {
     id: request.id,
     actionType: request.actionType,
     submittedBy: request.submittedBy,
+    submittedByName,
+    documentId,
+    documentNo,
     steps: request.steps,
     currentStep: request.currentStep,
     status: request.status,
@@ -264,7 +276,7 @@ export function createWorkflowRoutes(
   app.get("/requests/pending", gate("workflow.view"), async (c) => {
     const roles = actorRoles(c);
     const rows = await deps.requests.listPendingForRoles(roles);
-    return c.json(rows.map(serializeRequest));
+    return c.json(await Promise.all(rows.map((row) => serializeRequest(deps, row))));
   });
 
   app.get("/requests/pending-count", gate("workflow.view"), async (c) => {
@@ -278,7 +290,7 @@ export function createWorkflowRoutes(
   app.get("/requests/mine", gate("workflow.view"), async (c) => {
     const ctx = getAuthContext(c);
     const rows = ctx ? await deps.requests.listBySubmitter(ctx.userId) : [];
-    return c.json(rows.map(serializeRequest));
+    return c.json(await Promise.all(rows.map((row) => serializeRequest(deps, row))));
   });
 
   /**
@@ -291,12 +303,12 @@ export function createWorkflowRoutes(
     if (!ctx) return c.json([]);
     const rows = await deps.requests.list();
     const mine = rows.filter((row) => row.decisions.some((decision) => decision.actorId === ctx.userId));
-    return c.json(mine.map(serializeRequest));
+    return c.json(await Promise.all(mine.map((row) => serializeRequest(deps, row))));
   });
 
   app.get("/requests", gate("workflow.view"), async (c) => {
     const rows = await deps.requests.list();
-    return c.json(rows.map(serializeRequest));
+    return c.json(await Promise.all(rows.map((row) => serializeRequest(deps, row))));
   });
 
   /**
@@ -335,7 +347,7 @@ export function createWorkflowRoutes(
       config ? { actionType: config.actionType, steps: config.steps } : { actionType, steps: [] },
       deps.requests,
     );
-    return c.json(serializeRequest(record), 201);
+    return c.json(await serializeRequest(deps, record), 201);
   });
 
   app.post("/requests/:id/decide", gate("workflow.view"), async (c) => {
@@ -356,9 +368,9 @@ export function createWorkflowRoutes(
       const actions = deps.heldDocuments?.(record) ?? null;
       if (actions) {
         const docId = record.subject?.documentId;
-        if (!docId) return c.json(serializeRequest(record));
+        if (!docId) return c.json(await serializeRequest(deps, record));
         try {
-          if ((await actions.heldRequestId(docId)) !== record.id) return c.json(serializeRequest(record));
+          if ((await actions.heldRequestId(docId)) !== record.id) return c.json(await serializeRequest(deps, record));
           if (record.status === "approved") await actions.confirm(docId, ctx.userId);
           else if (record.status === "rejected" || record.status === "modification_requested") {
             await actions.returnToDraft(docId);
@@ -373,13 +385,13 @@ export function createWorkflowRoutes(
               message: err instanceof Error ? err.message : String(err),
               ...(err instanceof Error && "messageEn" in err && typeof err.messageEn === "string" ? { messageEn: err.messageEn } : {}),
               ...(err instanceof Error && "code" in err && typeof err.code === "string" ? { reason: err.code } : {}),
-              request: serializeRequest(record),
+              request: await serializeRequest(deps, record),
             },
             409,
           );
         }
       }
-      return c.json(serializeRequest(record));
+      return c.json(await serializeRequest(deps, record));
     } catch (err) {
       if (err instanceof ApprovalRequestNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
       if (err instanceof ApprovalRequestReapprovalRequiredError) return c.json({ error: err.code, message: err.message, messageEn: err.messageEn }, 409);

@@ -57,6 +57,11 @@ export const approvalRequestSchema = z.object({
   id: z.string(),
   actionType: z.string(),
   submittedBy: z.string(),
+  /** The submitter's name as the user directory holds it; null when that user is not there. */
+  submittedByName: z.string().nullable(),
+  /** The document this request holds, and its number once one is stamped; both null for a request that gates no document. */
+  documentId: z.string().nullable(),
+  documentNo: z.string().nullable(),
   steps: z.array(gateStepSchema),
   currentStep: z.number().int().nonnegative(),
   status: approvalStatusSchema,

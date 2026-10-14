@@ -1206,6 +1206,10 @@ export class StockLedgerService {
     undoes?: Money,
   ): Promise<StockChangeResult> {
     const change = await this.revaluationOf(movements, movement, undoes);
+    // LEDGER INVARIANT: a value-only change the position absorbs none of is no
+    // stock movement. The ledger is append-only and no entry is posted for it
+    // on that day, so a zero movement would fail the month's close for good.
+    if (change.valueChange.scaled === 0n) return change;
     await this.deps.ledger.append({
       ...movement,
       qty: Qty.zero(),

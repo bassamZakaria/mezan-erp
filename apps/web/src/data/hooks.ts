@@ -688,6 +688,15 @@ export function useMayAskScreen(request: ScreenRequest): boolean {
   return sessionMayAskScreen(session, entitlements.data ?? null, request);
 }
 
+// INVARIANT: decided by the permission alone, at once. A session that may not
+// read a list never asks for it; one that may still asks on a plan without the
+// list's module, because the server's refusal there is the sentence the screen
+// shows a user who opened it by its address.
+export function useHoldsScreenRequest(request: ScreenRequest): boolean {
+  const { session } = useApi();
+  return sessionMayAskScreen(session, null, request);
+}
+
 export function useMayAskShellModule(request: ShellModuleRequest): boolean {
   const { session } = useApi();
   const entitlements = useEntitlements();
@@ -1146,10 +1155,11 @@ function supplierParams(filter: SupplierListFilter): URLSearchParams {
 
 export function useSuppliers(filter: SupplierListFilter = {}): UseQueryResult<SupplierDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Suppliers);
   return useQuery<SupplierDTO[], ApiError>({
     queryKey: ["suppliers", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = supplierParams(filter).toString();
       const res = await request(`/suppliers${qs ? `?${qs}` : ""}`);
@@ -1325,10 +1335,11 @@ export function useUpdateTreasuryAccount() {
 /** قوائم الأسعار (docs/archive/catalog/01) — real list off `/price-lists`. */
 export function usePriceLists(): UseQueryResult<PriceListDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.PriceLists);
   return useQuery<PriceListDTO[], ApiError>({
     queryKey: ["price-lists"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/price-lists");
       if (!res.ok) throw await loaderError(res, t("api.priceListsCouldNotBe"), t);
@@ -1430,10 +1441,11 @@ function salesQuoteParams(filter: SalesQuoteListFilter): URLSearchParams {
 /** عروض الأسعار / sales quotes (docs/archive/catalog/01) — real list off `/sales-quotes`. */
 export function useSalesQuotes(filter: SalesQuoteListFilter = {}): UseQueryResult<SalesQuoteRecord[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.SalesQuotes);
   return useQuery<SalesQuoteRecord[], ApiError>({
     queryKey: ["sales-quotes", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = salesQuoteParams(filter).toString();
       const res = await request(`/sales-quotes${qs ? `?${qs}` : ""}`);
@@ -2347,10 +2359,11 @@ function chequeParams(filters: ChequeListFilters): URLSearchParams {
  */
 export function useCheques(filters: ChequeListFilters = {}): UseQueryResult<ChequeDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Cheques);
   return useQuery<ChequeDTO[], ApiError>({
     queryKey: ["cheques", filters],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = chequeParams(filters).toString();
       const res = await request(`/cheques${qs ? `?${qs}` : ""}`);
@@ -2931,10 +2944,11 @@ function purchaseOrderParams(filter: PurchaseOrderListFilter): URLSearchParams {
 /** أوامر الشراء (docs/archive/catalog/02) — list, create, confirm (draft → sent). */
 export function usePurchaseOrders(filter: PurchaseOrderListFilter = {}): UseQueryResult<PurchaseOrderDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.PurchaseOrders);
   return useQuery<PurchaseOrderDTO[], ApiError>({
     queryKey: ["purchase-orders", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = purchaseOrderParams(filter).toString();
       const res = await request(`/purchases/orders${qs ? `?${qs}` : ""}`);
@@ -3037,10 +3051,11 @@ function goodsReceiptParams(filter: GoodsReceiptListFilter): URLSearchParams {
 /** إيصالات الاستلام (docs/archive/catalog/02) — list, create (from a sent/partially-received PO), confirm. */
 export function useGoodsReceipts(filter: GoodsReceiptListFilter = {}): UseQueryResult<GoodsReceiptDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.GoodsReceipts);
   return useQuery<GoodsReceiptDTO[], ApiError>({
     queryKey: ["goods-receipts", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = goodsReceiptParams(filter).toString();
       const res = await request(`/purchases/receipts${qs ? `?${qs}` : ""}`);
@@ -3861,10 +3876,11 @@ function assetParams(filter: AssetListFilter): URLSearchParams {
 
 export function useAssets(filter: AssetListFilter = {}): UseQueryResult<AssetDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Assets);
   return useQuery<AssetDTO[], ApiError>({
     queryKey: ["assets", filter],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const qs = assetParams(filter).toString();
       const res = await request(`/assets${qs ? `?${qs}` : ""}`);
@@ -4089,10 +4105,11 @@ export function usePostWritedownRun() {
 
 export function useProductTemplates(): UseQueryResult<ProductTemplateDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.ProductTemplates);
   return useQuery<ProductTemplateDTO[], ApiError>({
     queryKey: ["product-templates"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/inventory/product-templates");
       if (!res.ok) throw await loaderError(res, t("api.productTemplatesCouldNotBe"), t);
@@ -4308,10 +4325,11 @@ export interface BomRecord {
 /** قوائم المواد (docs/archive/catalog/07) — the manufacturing recipe a work order is built from. */
 export function useBoms(): UseQueryResult<BomRecord[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Boms);
   return useQuery<BomRecord[], ApiError>({
     queryKey: ["boms"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/manufacturing/boms");
       if (!res.ok) throw await loaderError(res, t("api.billsOfMaterialsCouldNot"), t);
@@ -4767,10 +4785,11 @@ export interface ConfigurableProductRecord {
 /** المنتجات القابلة للتهيئة (docs/archive/catalog/07) — formula-driven master data consumed by التصنيع المخصص orders. */
 export function useConfigurableProducts(): UseQueryResult<ConfigurableProductRecord[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.ConfigurableProducts);
   return useQuery<ConfigurableProductRecord[], ApiError>({
     queryKey: ["configurable-products"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/manufacturing/configurable-products");
       if (!res.ok) throw await loaderError(res, t("api.configurableProductsCouldNotBe"), t);
@@ -4934,10 +4953,11 @@ export function usePreviewConfigInstance() {
 /** مراكز التكلفة (docs/archive/catalog/04) — list, create, edit. */
 export function useCostCenters(): UseQueryResult<CostCenterDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.CostCenters);
   return useQuery<CostCenterDTO[], ApiError>({
     queryKey: ["cost-centers"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/cost-centers");
       if (!res.ok) throw await loaderError(res, t("api.costCentresCouldNotBe"), t);
@@ -4977,10 +4997,11 @@ export function useUpdateCostCenter() {
 /** الفترات المالية (docs/archive/catalog/04) — list, generate a fiscal year, and the three-tier close/reopen/lock lifecycle. */
 export function useFiscalPeriods(): UseQueryResult<FiscalPeriodDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.FiscalPeriods);
   return useQuery<FiscalPeriodDTO[], ApiError>({
     queryKey: ["fiscal-periods"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/fiscal-periods");
       if (!res.ok) throw await loaderError(res, t("api.financialPeriodsCouldNotBe"), t);
@@ -5054,10 +5075,11 @@ export function useYearEndClosePreview(
   enabled = true,
 ): UseQueryResult<YearEndClosePreviewDTO | null, ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.YearEndClosePreview);
   return useQuery<YearEndClosePreviewDTO | null, ApiError>({
     queryKey: ["gl", "year-end-close", year],
-    enabled: session !== null && year !== null && enabled,
+    enabled: mayAsk && year !== null && enabled,
     queryFn: async () => {
       const res = await request(`/gl/year-end-close/${year}/preview`);
       if (res.status === 409 || res.status === 422) return null;
@@ -5177,10 +5199,11 @@ export function useUpdateTaxRate() {
 
 export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.ExchangeRates);
   return useQuery<ExchangeRateDTO[], ApiError>({
     queryKey: ["exchange-rates"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/exchange-rates");
       if (!res.ok) throw await loaderError(res, t("api.exchangeRatesCouldNotBe"), t);
@@ -6934,10 +6957,11 @@ export function useCancelFollowUp() {
 
 export function useDepartments(): UseQueryResult<DepartmentDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Departments);
   return useQuery<DepartmentDTO[], ApiError>({
     queryKey: ["hr-departments"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/hr/departments");
       if (!res.ok) throw await loaderError(res, t("api.departmentsCouldNotBeLoaded"), t);
@@ -7154,10 +7178,11 @@ export function useRehireEmployee() {
 
 export function useContracts(): UseQueryResult<ContractDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.EmploymentContracts);
   return useQuery<ContractDTO[], ApiError>({
     queryKey: ["hr-contracts"],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request("/hr/contracts");
       if (!res.ok) throw await loaderError(res, t("api.contractsCouldNotBeLoaded"), t);
@@ -8283,10 +8308,11 @@ function attendanceQueryString(filters: AttendanceFilters): string {
 
 export function useAttendance(filters: AttendanceFilters): UseQueryResult<AttendanceEntryDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.Attendance);
   return useQuery<AttendanceEntryDTO[], ApiError>({
     queryKey: ["hr-attendance", filters],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const res = await request(`/hr/attendance${attendanceQueryString(filters)}`);
       if (!res.ok) throw await loaderError(res, t("api.theAttendanceRecordCouldNot"), t);
@@ -8460,10 +8486,11 @@ export function useApplyLeavePolicyPreset() {
 
 export function useLeaveBalances(employeeId: string | null, year: number): UseQueryResult<LeaveBalanceDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.LeaveBalances);
   return useQuery<LeaveBalanceDTO[], ApiError>({
     queryKey: ["hr-leave-balances", employeeId, year],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const params = new URLSearchParams({ year: String(year) });
       if (employeeId) params.set("employeeId", employeeId);
@@ -8534,10 +8561,11 @@ export interface LeaveRequestFilters {
 
 export function useLeaveRequests(filters: LeaveRequestFilters): UseQueryResult<LeaveRequestDTO[], ApiError> {
   const { t } = useAppTranslation();
-  const { request, session } = useApi();
+  const { request } = useApi();
+  const mayAsk = useHoldsScreenRequest(ScreenRequest.LeaveRequests);
   return useQuery<LeaveRequestDTO[], ApiError>({
     queryKey: ["hr-leave-requests", filters],
-    enabled: session !== null,
+    enabled: mayAsk,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filters.employeeId) params.set("employeeId", filters.employeeId);

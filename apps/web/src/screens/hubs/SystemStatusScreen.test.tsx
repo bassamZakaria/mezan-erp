@@ -14,7 +14,7 @@ function renderScreen(healthOk: boolean, branchesOk: boolean) {
   let branchCalls = 0;
   const transport = stubTransport({
     "GET /health": () => (healthOk ? { body: { ok: true } } : { status: 500, body: { error: "DOWN" } }),
-    "GET /branches": () => {
+    "GET /profile": () => {
       branchCalls += 1;
       return branchesOk ? { body: sampleBranches } : { status: 500, body: { error: "DOWN" } };
     },

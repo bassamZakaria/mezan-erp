@@ -172,7 +172,7 @@ export function useSystemStatus(): UseQueryResult<SystemStatusDTO, ApiError> {
     queryFn: async () => {
       const [health, db] = await Promise.all([
         timedCheck(() => request("/health")),
-        timedCheck(() => request("/branches")),
+        timedCheck(() => request("/profile")),
       ]);
       const services: ServiceCheckDTO[] = [
         {

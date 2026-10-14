@@ -335,10 +335,10 @@ export function moduleForScreen(screenKey: string): ModuleId | undefined {
   return (group ? moduleForNavItem(group.key, screenKey) : undefined) ?? (NAV_ITEM_ACCESS[screenKey]?.module as ModuleId | undefined);
 }
 
-export function isScreenOutsideLicence(screenKey: string, entitlements: Entitlements | null): boolean {
-  if (!entitlements) return false;
+export function moduleOutsideLicence(screenKey: string, entitlements: Entitlements | null): ModuleId | null {
+  if (!entitlements) return null;
   const moduleId = moduleForScreen(screenKey);
-  return moduleId !== undefined && !isModuleLicensed(moduleId, entitlements) && !isModuleReadOnly(moduleId, entitlements);
+  return moduleId !== undefined && !isModuleLicensed(moduleId, entitlements) && !isModuleReadOnly(moduleId, entitlements) ? moduleId : null;
 }
 
 export function filterNavGroupsByEntitlements(groups: readonly NavGroup[], entitlements: Entitlements | null): NavGroup[] {

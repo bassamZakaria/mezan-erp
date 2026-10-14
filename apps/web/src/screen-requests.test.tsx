@@ -3,16 +3,43 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { render, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { SCREEN_REQUESTS, ScreenRequest } from "@mezan/domain";
+import { MODULE_CATALOG, SCREEN_REQUESTS, ScreenRequest } from "@mezan/domain";
 import { AppProviders } from "./data/AppProviders";
-import { useAccounts, useTreasuryAccounts, useVouchers } from "./data/hooks";
+import {
+  useAccounts,
+  useAssets,
+  useAttendance,
+  useBoms,
+  useCheques,
+  useConfigurableProducts,
+  useContracts,
+  useCostCenters,
+  useDepartments,
+  useExchangeRates,
+  useFiscalPeriods,
+  useGoodsReceipts,
+  useLeaveBalances,
+  useLeaveRequests,
+  usePriceLists,
+  useProductTemplates,
+  usePurchaseOrders,
+  useSalesQuotes,
+  useSuppliers,
+  useTreasuryAccounts,
+  useVouchers,
+  useYearEndClosePreview,
+} from "./data/hooks";
+import { useWorksContracts } from "./data/contracting-contracts-hooks";
+import { useFinancialReport } from "./data/financial-reports-hooks";
+import { useEmployeeAdvances, usePayrollComponents, usePayrollStatutoryFlag } from "./data/hr-payroll-hooks";
 import { useSupplierAging } from "./data/partner-detail-hooks";
 import { useSupplierAging as useDashboardSupplierAging } from "./dashboard/dashboard-hooks";
 import { persistSession, sessionHolds, type Session } from "./data/session";
 import { testAdminSession } from "./data/test-support";
 import type { Transport } from "./data/transport";
 
-const EVERY_MODULE = ["dashboard", "sales", "purchases", "inventory", "accounting", "treasury"];
+const EVERY_MODULE: readonly string[] = MODULE_CATALOG;
+const PREVIEWED_YEAR = 2026;
 const SCREEN_PATHS = Object.values(SCREEN_REQUESTS).map((gate) => gate.path);
 const EVERY_SCREEN_PERMISSION = [...new Set(Object.values(SCREEN_REQUESTS).map((gate) => gate.permission))];
 
@@ -33,6 +60,30 @@ function InvoicePageReads() {
   useVouchers({ type: "customer_collection", status: "confirmed" });
   useSupplierAging();
   useDashboardSupplierAging();
+  useSuppliers();
+  usePurchaseOrders();
+  useGoodsReceipts();
+  usePriceLists();
+  useCostCenters();
+  useFiscalPeriods();
+  useExchangeRates();
+  useProductTemplates();
+  useConfigurableProducts();
+  useBoms();
+  useDepartments();
+  useContracts();
+  useEmployeeAdvances();
+  usePayrollStatutoryFlag();
+  usePayrollComponents();
+  useCheques();
+  useSalesQuotes();
+  useAssets();
+  useWorksContracts();
+  useFinancialReport("trial-balance", "/trial-balance", {});
+  useAttendance({});
+  useLeaveBalances(null, PREVIEWED_YEAR);
+  useLeaveRequests({ employeeId: null, status: null, leaveType: null, from: null, to: null });
+  useYearEndClosePreview(PREVIEWED_YEAR);
   return <div data-testid="page" />;
 }
 
@@ -82,6 +133,13 @@ describe("a document screen asks for its side lists only where the session may r
 
     expect(asked).not.toContain("/treasury-accounts");
     expect(asked).not.toContain("/vouchers");
+  });
+
+  it("a session that may read a list still asks for it on a plan without its module, so the screen can show the server's refusal", async () => {
+    const { asked } = renderPage(restricted(["hr.department.view"]), EVERY_MODULE.filter((module) => module !== "hr"));
+
+    await waitFor(() => expect(asked).toContain("/entitlements"));
+    await waitFor(() => expect(asked).toContain(SCREEN_REQUESTS[ScreenRequest.Departments].path));
   });
 
   it("the administrator still gets every one of them", async () => {

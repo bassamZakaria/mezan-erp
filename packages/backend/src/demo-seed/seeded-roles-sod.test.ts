@@ -38,6 +38,12 @@ describe("seeded roles — segregation of duties", () => {
     expect(accountant.has("treasury.cash_voucher.create")).toBe(false);
   });
 
+  it("the storekeeper, described as the one who receives goods, may raise and confirm a goods receipt and read the supplier and the order it is received against", () => {
+    const keeper = grantsOf("WAREHOUSE_KEEPER");
+    expect(roles.find((role) => role.code === "WAREHOUSE_KEEPER")?.description).toContain("يستلم");
+    for (const code of ["purchases.receipt.view", "purchases.receipt.create", "purchases.receipt.confirm", "purchases.supplier.view", "purchases.order.view"]) expect(keeper.has(code), code).toBe(true);
+  });
+
   it("every seeded grant is a catalog permission", () => {
     for (const role of roles) for (const code of role.permissions) expect(getPermission(code), `${role.code}: ${code}`).toBeDefined();
   });

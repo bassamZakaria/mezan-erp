@@ -1,4 +1,4 @@
-import type { JournalEntry, JournalLine } from "../journal.js";
+import { MANUAL_JOURNAL_DOC_TYPE, type JournalEntry, type JournalLine } from "../journal.js";
 import { recordSensitiveEvent } from "../audit/index.js";
 import { assertBalanced, assertPeriodOpen, assertVatNotFiled, type JournalPostingDeps } from "./post.js";
 import { namingEarliestOpenDay } from "../fiscal-periods/errors.js";
@@ -108,6 +108,7 @@ export async function reverseJournalEntry(
     const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);
     const appended = inBranchOf(reversalLines, (await opts.appendLines?.({ id: opts.reversalId, entryNo: number.formatted })) ?? []);
     if (appended.length > 0) assertBalanced(appended);
+    const mirrorsTypedEntry = !original.sourceDocType && original.source === "manual";
     const reversal: JournalEntry = {
       id: opts.reversalId,
       entryNo: number.formatted,
@@ -122,9 +123,9 @@ export async function reverseJournalEntry(
       reversedByEntryId: null,
       // The mirror belongs to the same document's trail (R6.3): without these a
       // reversal is filed under no module at all.
-      sourceDocType: original.sourceDocType ?? null,
-      sourceDocId: original.sourceDocId ?? null,
-      sourceDocNumber: original.sourceDocNumber ?? null,
+      sourceDocType: original.sourceDocType ?? (mirrorsTypedEntry ? MANUAL_JOURNAL_DOC_TYPE : null),
+      sourceDocId: original.sourceDocId ?? (mirrorsTypedEntry ? original.id : null),
+      sourceDocNumber: original.sourceDocNumber ?? (mirrorsTypedEntry ? (original.entryNo ?? null) : null),
     };
     await deps.ledger.save(reversal);
 

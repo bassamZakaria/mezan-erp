@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -12,7 +13,7 @@ import {
   withSqliteTransaction,
   type SqliteConnectionInput,
 } from "./sqlite-connection.js";
-import { auditChangedFieldNames, AuditStreamName } from "@mezan/domain";
+import { auditChangedFieldNames, AuditStreamName, recordSecurityEventOrFallback } from "@mezan/domain";
 import { reportUntransactedAudit } from "./untransacted-audits.js";
 import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream, TurnObserver } from "@mezan/domain";
 
@@ -275,6 +276,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   private readonly writeHead: Database.Statement;
   private readonly insertField: Database.Statement;
   private readonly appendNested: (row: AuditChainFields, fields: readonly string[]) => void;
+  private readonly heldBack = new AsyncLocalStorage<{ open: boolean; readonly events: AuditEvent[] }>();
 
   constructor(
     private readonly sqlite: Database.Database,
@@ -333,6 +335,11 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
   // savepoint is released before this function returns, so a caller that does
   // not await the append cannot commit ahead of it.
   async append(event: AuditEvent): Promise<void> {
+    const held = event.stream === AuditStreamName.Security ? this.heldBack.getStore() : undefined;
+    if (held?.open) {
+      held.events.push(event);
+      return;
+    }
     const row = chainFieldsOf(event);
     const fields = auditChangedFieldNames(event.details);
     if (insideSqliteTransaction(this.sqlite)) {
@@ -343,6 +350,21 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
       reportUntransactedAudit(`${event.module}/${event.entityType}/${event.action}`);
     }
     await withSqliteTransaction(this.sqlite, async () => this.appendChained(row, fields));
+  }
+
+  // SECURITY: a security event appended while `fn` runs is written only after
+  // `fn` settles, so a transaction `fn` opens and rolls back cannot take the
+  // record of a refused attempt with it; one that still cannot be written
+  // goes to the unrecorded-events file. `appendSync` is not held back: its
+  // callers need the row atomic with their own write.
+  async securityEventsOutlive<T>(fn: () => Promise<T>): Promise<T> {
+    const held = { open: true, events: [] as AuditEvent[] };
+    try {
+      return await this.heldBack.run(held, fn);
+    } finally {
+      held.open = false;
+      for (const event of held.events) await recordSecurityEventOrFallback(this, event);
+    }
   }
 
   // CONTRACT: for a caller already inside its own synchronous transaction on
@@ -519,6 +541,7 @@ export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort, AuditC
   turn<T>(fn: () => Promise<T>, observer?: TurnObserver): Promise<T>;
   outsideTurn<T>(fn: () => Promise<T>): Promise<T>;
   appendSync(event: AuditEvent): void;
+  securityEventsOutlive<T>(fn: () => Promise<T>): Promise<T>;
   close(): void;
   /** The raw connection, for tests asserting the append-only triggers fire. */
   readonly db: Database.Database;

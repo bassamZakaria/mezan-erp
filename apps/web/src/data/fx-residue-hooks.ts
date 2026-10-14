@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { ForeignResidueKind, FxOpenItemType } from "@mezan/domain";
+import { ScreenRequest, type ForeignResidueKind, type FxOpenItemType } from "@mezan/domain";
 import type { FxRevaluationRequestDTO } from "@mezan/contracts";
 import { useBranchGate } from "../shell/useBranchGate";
 import { useApi } from "./ApiContext";
-import { ApiError, loaderError, readError } from "./hooks";
+import { ApiError, loaderError, readError, useHoldsScreenRequest } from "./hooks";
 import { sessionHolds } from "./session";
 import { useAppTranslation } from "../i18n";
 
@@ -11,8 +11,7 @@ const RESIDUE_KEY = "fx-residue";
 const RESIDUE_PATH = "/revaluation/residue";
 const QUERIES_A_SWEEP_MOVES = [RESIDUE_KEY, "reconciliation", "journal-entries", "gl", "account-ledger", "financial-reports", "reports"];
 
-// INVARIANT: the permissions `/revaluation/residue` is gated on in packages/api/src/fx-revaluation-routes.ts — the list on the first, the sweep on the second.
-export const FX_RESIDUE_VIEW_PERMISSION = "accounting.journal.view";
+// INVARIANT: the permission the sweep is gated on in packages/api/src/fx-revaluation-routes.ts; the list's own is `ScreenRequest.FxResidues`.
 export const FX_RESIDUE_SWEEP_PERMISSION = "accounting.journal.post";
 
 export interface ForeignResidueDTO {
@@ -43,7 +42,7 @@ export interface FxResidueAccess {
 export function useFxResidueAccess(): FxResidueAccess {
   const { session } = useApi();
   const companyWide = useBranchGate().allowsApi(RESIDUE_PATH);
-  const mayView = companyWide && sessionHolds(session, FX_RESIDUE_VIEW_PERMISSION);
+  const mayView = useHoldsScreenRequest(ScreenRequest.FxResidues) && companyWide;
   return { mayView, maySweep: mayView && sessionHolds(session, FX_RESIDUE_SWEEP_PERMISSION) };
 }
 

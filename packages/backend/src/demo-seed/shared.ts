@@ -70,6 +70,9 @@ export function seedBranchActorHeaders(userId: string, permissions: readonly str
 
 export const SEED_TENANT_DOMAIN = "cyag.example";
 
+export const SALES_REP_EMPLOYEE_ID = "EMP-DEMO-10";
+export const FORMER_SALES_REP_EMPLOYEE_ID = "EMP-DEMO-11";
+
 /** The seeded people another module acts as, by the email local part `seedAccess` gives them. */
 export enum SeedPerson {
   SalesRep = "karim.fouad",

@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { BranchGatedAction } from "../branch-restriction";
 import { useBranchGate } from "../shell/useBranchGate";
 import { useApi } from "./ApiContext";
-import { ApiError, loaderError, readError } from "./hooks";
+import { ScreenRequest } from "@mezan/domain";
+import { ApiError, loaderError, readError, useHoldsScreenRequest } from "./hooks";
 import { sessionHolds } from "./session";
 import { useAppTranslation } from "../i18n";
 
@@ -10,8 +11,7 @@ const DUPLICATES_KEY = "opening-balance-duplicates";
 const DUPLICATES_PATH = "/gl/opening-balance-duplicates";
 const QUERIES_A_REPAIR_MOVES = [DUPLICATES_KEY, "reconciliation", "journal-entries", "gl", "account-ledger", "financial-reports", "reports", "audit"];
 
-// INVARIANT: the permissions `/gl/opening-balance-duplicates` is gated on in packages/api/src/opening-balance-duplicates-routes.ts — the list on the first, the repair on the second.
-export const OPENING_BALANCE_DUPLICATES_VIEW_PERMISSION = "accounting.reports.view";
+// INVARIANT: the permission the repair is gated on in packages/api/src/opening-balance-duplicates-routes.ts; the list's own is `ScreenRequest.OpeningBalanceDuplicates`.
 export const OPENING_BALANCE_REPAIR_PERMISSION = "accounting.journal.post";
 
 export enum OpeningBalancePartyKind {
@@ -46,7 +46,7 @@ export interface OpeningBalanceDuplicatesAccess {
 export function useOpeningBalanceDuplicatesAccess(): OpeningBalanceDuplicatesAccess {
   const { session } = useApi();
   const companyWide = useBranchGate().allows(BranchGatedAction.OpeningBalanceDuplicates);
-  const mayView = companyWide && sessionHolds(session, OPENING_BALANCE_DUPLICATES_VIEW_PERMISSION);
+  const mayView = useHoldsScreenRequest(ScreenRequest.OpeningBalanceDuplicates) && companyWide;
   return { mayView, mayRepair: mayView && sessionHolds(session, OPENING_BALANCE_REPAIR_PERMISSION) };
 }
 

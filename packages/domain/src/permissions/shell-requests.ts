@@ -65,11 +65,40 @@ export enum ScreenRequest {
   TreasuryAccounts = "treasuryAccounts",
   Vouchers = "vouchers",
   SupplierAging = "supplierAging",
+  Suppliers = "suppliers",
+  PurchaseOrders = "purchaseOrders",
+  GoodsReceipts = "goodsReceipts",
+  PriceLists = "priceLists",
+  CostCenters = "costCenters",
+  FiscalPeriods = "fiscalPeriods",
+  ExchangeRates = "exchangeRates",
+  ProductTemplates = "productTemplates",
+  ConfigurableProducts = "configurableProducts",
+  Boms = "boms",
+  Departments = "departments",
+  EmploymentContracts = "employmentContracts",
+  EmployeeAdvances = "employeeAdvances",
+  PayrollStatutoryFlag = "payrollStatutoryFlag",
+  Cheques = "cheques",
+  SalesQuotes = "salesQuotes",
+  Assets = "assets",
+  WorksContracts = "worksContracts",
+  FinancialReports = "financialReports",
+  PayrollComponents = "payrollComponents",
+  Attendance = "attendance",
+  LeaveBalances = "leaveBalances",
+  LeaveRequests = "leaveRequests",
+  YearEndClosePreview = "yearEndClosePreview",
+  VatFilings = "vatFilings",
+  OpeningBalanceDuplicates = "openingBalanceDuplicates",
+  FxResidues = "fxResidues",
 }
 
 export interface ScreenRequestGate {
   readonly path: string;
   readonly permission: string;
+  /** Narrower tiers the route also serves, each cut to the caller's own records. */
+  readonly ownTiers?: readonly string[];
 }
 
 // INVARIANT: lists a document screen reads beside its own document. Each
@@ -80,11 +109,38 @@ export const SCREEN_REQUESTS: Record<ScreenRequest, ScreenRequestGate> = {
   [ScreenRequest.TreasuryAccounts]: { path: "/treasury-accounts", permission: "treasury.account.view" },
   [ScreenRequest.Vouchers]: { path: "/vouchers", permission: "treasury.cash_voucher.view" },
   [ScreenRequest.SupplierAging]: { path: "/reports/aging/suppliers", permission: "purchases.invoice.view" },
+  [ScreenRequest.Suppliers]: { path: "/suppliers", permission: "purchases.supplier.view" },
+  [ScreenRequest.PurchaseOrders]: { path: "/purchases/orders", permission: "purchases.order.view" },
+  [ScreenRequest.GoodsReceipts]: { path: "/purchases/receipts", permission: "purchases.receipt.view" },
+  [ScreenRequest.PriceLists]: { path: "/price-lists", permission: "sales.price_list.view" },
+  [ScreenRequest.CostCenters]: { path: "/cost-centers", permission: "accounting.coa.view" },
+  [ScreenRequest.FiscalPeriods]: { path: "/fiscal-periods", permission: "accounting.period.view" },
+  [ScreenRequest.ExchangeRates]: { path: "/exchange-rates", permission: "accounting.exchange_rate.manage" },
+  [ScreenRequest.ProductTemplates]: { path: "/inventory/product-templates", permission: "inventory.template.view" },
+  [ScreenRequest.ConfigurableProducts]: { path: "/manufacturing/configurable-products", permission: "manufacturing.bom.view" },
+  [ScreenRequest.Boms]: { path: "/manufacturing/boms", permission: "manufacturing.bom.view" },
+  [ScreenRequest.Departments]: { path: "/hr/departments", permission: "hr.department.view" },
+  [ScreenRequest.EmploymentContracts]: { path: "/hr/contracts", permission: "hr.contract.view" },
+  [ScreenRequest.EmployeeAdvances]: { path: "/hr/advances", permission: "hr.advance.view" },
+  [ScreenRequest.PayrollStatutoryFlag]: { path: "/hr/payroll/statutory-flag", permission: "hr.payroll.view" },
+  [ScreenRequest.Cheques]: { path: "/cheques", permission: "cheques.view" },
+  [ScreenRequest.SalesQuotes]: { path: "/sales-quotes", permission: "sales.quote.view", ownTiers: ["sales.quote.view_own"] },
+  [ScreenRequest.Assets]: { path: "/assets", permission: "assets.view" },
+  [ScreenRequest.WorksContracts]: { path: "/contracting/contracts", permission: "contracting.boq.view" },
+  [ScreenRequest.FinancialReports]: { path: "/financial-reports/trial-balance", permission: "accounting.reports.view" },
+  [ScreenRequest.PayrollComponents]: { path: "/hr/payroll/components", permission: "hr.payroll.view" },
+  [ScreenRequest.Attendance]: { path: "/hr/attendance", permission: "hr.attendance.view" },
+  [ScreenRequest.LeaveBalances]: { path: "/hr/leave-balances", permission: "hr.leave.view" },
+  [ScreenRequest.LeaveRequests]: { path: "/hr/leave-requests", permission: "hr.leave.view" },
+  [ScreenRequest.YearEndClosePreview]: { path: "/gl/year-end-close/2026/preview", permission: "accounting.period.close" },
+  [ScreenRequest.VatFilings]: { path: "/gl/vat-filings", permission: "accounting.reports.view" },
+  [ScreenRequest.OpeningBalanceDuplicates]: { path: "/gl/opening-balance-duplicates", permission: "accounting.reports.view" },
+  [ScreenRequest.FxResidues]: { path: "/revaluation/residue", permission: "accounting.journal.view" },
 };
 
 export function mayAskScreenRequest(auth: AuthContext, entitlements: Entitlements | null, request: ScreenRequest): boolean {
-  const { permission } = SCREEN_REQUESTS[request];
-  if (!can(auth, permission)) return false;
+  const { permission, ownTiers } = SCREEN_REQUESTS[request];
+  if (![permission, ...(ownTiers ?? [])].some((code) => can(auth, code))) return false;
   const module = getPermission(permission)?.module;
   return !entitlements || !module || isModuleLicensed(module, entitlements) || isModuleReadOnly(module, entitlements);
 }

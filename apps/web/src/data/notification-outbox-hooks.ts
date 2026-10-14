@@ -1,14 +1,11 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import type { DrainResult } from "@mezan/domain";
+import { ShellModuleRequest, type DrainResult } from "@mezan/domain";
 import { useApi } from "./ApiContext";
-import { ApiError, loaderError, readError } from "./hooks";
+import { ApiError, loaderError, readError, useMayAskShellModule } from "./hooks";
 import { sessionHolds } from "./session";
 import { useAppTranslation } from "../i18n";
 
 const OUTBOX_KEY = "notification-outbox";
-
-// INVARIANT: the permission `/notifications/outbox` and `/notifications/drain` are gated on in packages/api/src/notifications-routes.ts.
-export const NOTIFICATION_OUTBOX_PERMISSION = "admin.settings.edit";
 
 export interface NotificationOutboxDTO {
   readonly queued: number;
@@ -18,9 +15,13 @@ export interface NotificationOutboxDTO {
   readonly transportAvailable: boolean;
 }
 
+// INVARIANT: `/notifications/outbox` and `/notifications/drain` are refused on the notifications MODULE and then on this permission (packages/api/src/notifications-routes.ts); the card asks only when both hold.
+export const NOTIFICATION_OUTBOX_PERMISSION = "admin.settings.edit";
+
 export function useMayManageNotificationOutbox(): boolean {
   const { session } = useApi();
-  return sessionHolds(session, NOTIFICATION_OUTBOX_PERMISSION);
+  const moduleLicensed = useMayAskShellModule(ShellModuleRequest.Notifications);
+  return moduleLicensed && sessionHolds(session, NOTIFICATION_OUTBOX_PERMISSION);
 }
 
 export function useNotificationOutbox(): UseQueryResult<NotificationOutboxDTO, ApiError> {

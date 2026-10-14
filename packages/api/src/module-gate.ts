@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
 import {
-  hasModule, hasReadOnlyModule, moduleReadOnlyRefusal, MODULES,
+  hasModule, hasReadOnlyModule, moduleNotLicensedMessageAr, moduleReadOnlyRefusal, MODULE_NAME_AR as DOMAIN_MODULE_NAME_AR, MODULES,
   type Entitlements, type ModuleReadOnlyRefusal, type PlanLabel,
 } from "@mezan/domain";
 import { POS_MODULE_ROUTES } from "./pos/route-prefixes.js";
@@ -25,26 +25,8 @@ export type EntitlementsResolver = (
   c: Context,
 ) => Entitlements | null | undefined | Promise<Entitlements | null | undefined>;
 
-/** Arabic name of each licensable module, so a refusal names what was bought. */
-const CORE_MODULE_NAME_AR: Readonly<Record<string, string>> = {
-  sales: "المبيعات",
-  purchases: "المشتريات",
-  inventory: "المخازن",
-  accounting: "المحاسبة",
-  treasury: "الخزينة",
-  installments: "الأقساط",
-  financial_papers: "الأوراق المالية",
-  crm: "إدارة العملاء",
-  hr: "الموارد البشرية",
-  manufacturing: "التصنيع",
-  assets: "الأصول الثابتة",
-  field: "البيع الميداني",
-  projects: "المشروعات",
-  notifications: "التنبيهات",
-};
-
 const MODULE_NAME_AR: Readonly<Record<string, string>> = {
-  ...CORE_MODULE_NAME_AR,
+  ...DOMAIN_MODULE_NAME_AR,
   ...POS_MODULE_ROUTES.namesAr,
   ...ENH_MODULE_ROUTES.namesAr,
 };
@@ -191,14 +173,11 @@ export function createModuleGate(resolveEntitlements: EntitlementsResolver) {
         if (readOnly) return c.json(readOnly, 403);
       }
       if (!entitlements || !hasModule(entitlements, moduleId)) {
-        const nameAr = MODULE_NAME_AR[moduleId] ?? moduleId;
         return c.json(
           {
             error: "MODULE_NOT_LICENSED",
             module: moduleId,
-            message: entitlements?.planNameAr
-              ? `وحدة ${nameAr} ليست ضمن باقة «${entitlements.planNameAr}». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.`
-              : `وحدة ${nameAr} غير مُفعّلة في ترخيص هذه النسخة. تواصل مع الدعم لإضافتها إلى الاشتراك.`,
+            message: moduleNotLicensedMessageAr(moduleId, entitlements?.planNameAr, MODULE_NAME_AR),
           },
           403,
         );

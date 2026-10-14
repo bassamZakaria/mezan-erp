@@ -4,6 +4,14 @@ import { DuplicateRecordIdError, RecordErrorCode } from "@mezan/domain";
 import type { ConfigTransactor } from "./config-transactor.js";
 import { duplicateIdRefusal, refusedCreateRollsBack } from "./duplicate-id.js";
 
+const CREATE_ROUTES: ReadonlySet<string> = new Set(["/made", "/refused", "/thrown", "/invalid", "/forbidden", "/half-done", "/half-done-then-failed", "/forbidden-after-a-number", "/numbered-then-failed"]);
+
+const INJECTED_IDS: readonly (readonly [string, unknown])[] = [
+  ["no id", {}],
+  ["an id key", { id: "x" }],
+  ["an id key one object down", { z: { id: "x" } }],
+];
+
 function harness() {
   const rows = new Map<string, string>();
   let transactions = 0;
@@ -21,7 +29,15 @@ function harness() {
     },
   };
   const app = new Hono();
-  app.use("*", refusedCreateRollsBack(transactor, () => rows.get("number") ?? ""));
+  app.use("*", refusedCreateRollsBack(transactor, () => rows.get("number") ?? "", CREATE_ROUTES));
+  app.post("/users/:id/deactivate", async (c) => {
+    rows.set("audit", "refused: outside the caller's branches");
+    return c.json({ error: "USER_NOT_FOUND" }, 404);
+  });
+  app.post("/documents/:id/confirm", async (c) => {
+    rows.set("confirmed", "after a call to the tax authority");
+    return c.json({ ok: true }, 200);
+  });
   app.post("/made", async (c) => {
     rows.set("number", "DOC-0001");
     return c.json({ ok: true }, 201);
@@ -130,10 +146,27 @@ describe("a create refused for a taken id leaves nothing behind", () => {
     expect(rows.size).toBe(0);
   });
 
-  it("opens no transaction for a body that names no id", async () => {
-    const { post, transactions } = harness();
+  it("a create route runs in its transaction whatever its body names", async () => {
+    const { rows, post, transactions } = harness();
     const opened = transactions();
-    expect((await post("/made", { name: "بلا معرّف" })).status).toBe(201);
-    expect(transactions()).toBe(opened);
+    expect((await post("/half-done", { status: 422 })).status).toBe(422);
+    expect(transactions()).toBe(opened + 1);
+    expect(rows.size).toBe(0);
+  });
+});
+
+describe("the route decides whether a request runs in the create transaction, never its body", () => {
+  it.each(INJECTED_IDS)("a refusal on a route that creates nothing keeps its audit row — %s", async (_label, body) => {
+    const { rows, post, transactions } = harness();
+    expect((await post("/users/U-1/deactivate", body)).status).toBe(404);
+    expect(transactions()).toBe(0);
+    expect(rows.get("audit")).toBe("refused: outside the caller's branches");
+  });
+
+  it.each(INJECTED_IDS)("a confirm is never pulled into the create transaction — %s", async (_label, body) => {
+    const { rows, post, transactions } = harness();
+    expect((await post("/documents/D-1/confirm", body)).status).toBe(200);
+    expect(transactions()).toBe(0);
+    expect(rows.get("confirmed")).toBe("after a call to the tax authority");
   });
 });

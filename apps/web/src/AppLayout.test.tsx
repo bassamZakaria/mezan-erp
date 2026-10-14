@@ -21,7 +21,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { QueryClient } from "@tanstack/react-query";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router";
 import type { EntitlementsDTO, RoleDTO, UserDTO } from "@mezan/contracts";
-import { SUBSCRIPTION_BILLING_FEATURE } from "@mezan/domain";
+import { SUBSCRIPTION_BILLING_FEATURE, moduleNotLicensedMessageAr } from "@mezan/domain";
 import { AppLayout } from "./AppLayout";
 import { useEffect, useState } from "react";
 import { useApi } from "./data/ApiContext";
@@ -581,13 +581,22 @@ describe("AppLayout — a direct address to a screen the licence does not carry"
     renderLayout(stubTransport({ ...baseHandlers(), "GET /entitlements": () => ({ body: { ...entitlements, activeModules } }) }), [pathForRoute(screenKey)]);
   }
 
-  it("shows the refusal alone, in Arabic — the screen and its buttons are not mounted under it", async () => {
+  it("shows the server's own sentence for that module and nothing else — the screen is not mounted and the block carries no button", async () => {
     open("sales-invoices", entitlements.activeModules.filter((module) => module !== "sales"));
 
     const refusal = await screen.findByTestId("module-not-licensed");
-    expect(refusal).toHaveTextContent("هذه الشاشة ليست ضمن ترخيص منشأتك");
+    expect(refusal.textContent).toBe(moduleNotLicensedMessageAr("sales", undefined));
+    expect(refusal).toHaveTextContent("وحدة المبيعات");
+    expect(within(refusal).getByRole("heading", { level: 1 }).textContent).toBe(moduleNotLicensedMessageAr("sales", undefined));
     expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
-    expect(within(screen.getByRole("main")).getAllByRole("button").map((button) => button.textContent)).toEqual(["العودة إلى لوحة التحكم"]);
+    expect(within(screen.getByRole("main")).queryAllByRole("button")).toEqual([]);
+  });
+
+  it("names the plan the way the server's refusal does when the licence states one", async () => {
+    renderLayout(stubTransport({ ...baseHandlers(), "GET /entitlements": () => ({ body: { ...entitlements, planNameAr: "الأعمال", activeModules: entitlements.activeModules.filter((module) => module !== "hr") } }) }), [pathForRoute("employees")]);
+
+    const refusal = await screen.findByTestId("module-not-licensed");
+    expect(refusal.textContent).toBe("وحدة الموارد البشرية ليست ضمن باقة «الأعمال». يمكنكم إضافتها بترقية الباقة من صفحة الاشتراك.");
   });
 
   it("opens the screen as before when the licence carries its module", async () => {

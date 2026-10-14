@@ -3,15 +3,15 @@ import type { AmendVatFilingDTO, RecordVatFilingDTO, VatFilingDTO } from "@mezan
 import { BranchGatedAction } from "../branch-restriction";
 import { useBranchGate } from "../shell/useBranchGate";
 import { useApi } from "./ApiContext";
-import { ApiError, loaderError, readError } from "./hooks";
+import { ScreenRequest } from "@mezan/domain";
+import { ApiError, loaderError, readError, useHoldsScreenRequest } from "./hooks";
 import { sessionHolds } from "./session";
 import { useAppTranslation } from "../i18n";
 
 const VAT_FILINGS_KEY = "vat-filings";
 const VAT_FILINGS_PATH = "/gl/vat-filings";
 
-// INVARIANT: the permissions `/gl/vat-filings` is gated on in packages/api/src/gl-routes.ts — the list on the first, filing and amending on the second.
-export const VAT_FILINGS_VIEW_PERMISSION = "accounting.reports.view";
+// INVARIANT: the permission filing and amending are gated on in packages/api/src/gl-routes.ts; the list's own is `ScreenRequest.VatFilings`.
 export const VAT_FILINGS_FILE_PERMISSION = "accounting.period.close";
 
 export interface VatFilingAccess {
@@ -22,7 +22,7 @@ export interface VatFilingAccess {
 export function useVatFilingAccess(): VatFilingAccess {
   const { session } = useApi();
   const companyWide = useBranchGate().allows(BranchGatedAction.VatFilings);
-  const mayView = companyWide && sessionHolds(session, VAT_FILINGS_VIEW_PERMISSION);
+  const mayView = useHoldsScreenRequest(ScreenRequest.VatFilings) && companyWide;
   return { mayView, mayFile: mayView && sessionHolds(session, VAT_FILINGS_FILE_PERMISSION) };
 }
 

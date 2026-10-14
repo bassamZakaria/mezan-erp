@@ -12,3 +12,4 @@ export {
   type EntitlementLimits,
 } from "./entitlements.js";
 export { hasReadOnlyModule, type EntitlementModuleTrial } from "./entitlements.js";
+export { MODULE_NAME_AR, moduleNotLicensedMessageAr } from "./module-refusal.js";

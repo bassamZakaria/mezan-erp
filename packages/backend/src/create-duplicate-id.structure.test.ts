@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as contracts from "@mezan/contracts";
 import { ALL_SCOPE, createEntitlements, LAN_MULTI_TILL_FEATURE, MODULE_CATALOG, RecordErrorCode } from "@mezan/domain";
 import { openSqliteConnection } from "@mezan/persistence";
+import { ID_CARRYING_CREATE_ROUTES } from "@mezan/api";
 import { createBackend, type BackendHandle } from "./create-backend.js";
 import { sampleOf } from "./test-helpers/zod-sample.js";
 
@@ -542,6 +543,11 @@ describe("every create schema with a caller-supplied id is covered", () => {
   it("names no schema that no longer exists or no longer takes an id", () => {
     const stale = [...Object.keys(CREATE_ROUTES), ...Object.keys(NOT_A_CREATE)].filter((name) => !createSchemasWithId.includes(name));
     expect(stale).toEqual([]);
+  });
+
+  it("the routes that run in the create transaction are exactly the create routes walked here — none missing, and none that creates nothing", () => {
+    const walked = [...new Set(Object.values(CREATE_ROUTES).map((entry) => entry.route))].sort();
+    expect([...ID_CARRYING_CREATE_ROUTES].sort()).toEqual(walked);
   });
 
   it("names only routes the application mounts", () => {

@@ -3361,7 +3361,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     }
     if (corrected.length > 0) console.info(`[roles] separated duties (${split}) on seeded role(s) ${corrected.join(", ")}`);
     if (dutyChanges.length > 0) {
-      const { title, body } = seededRoleDutyNotice(dutyChanges);
+      const { title, body } = seededRoleDutyNotice(dutyChanges, split);
       const roles = await uow.roles.list();
       const holdsEverything = new Set(roles.filter((role) => role.permissions.includes("*")).map((role) => role.id));
       const createdAt = new Date().toISOString();
@@ -3387,6 +3387,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   };
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleDutySplit, () => separateSeededDuties(SeededRoleSplit.Duties));
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleReconciliationSplit, () => separateSeededDuties(SeededRoleSplit.BankReconciliation));
+  await upgradeLedger.runOnce(UpgradeStepId.SeededRoleGoodsReceiving, () => separateSeededDuties(SeededRoleSplit.GoodsReceiving));
   await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
     const marked = markApprovalsNeedingReapproval(sqlite);
     if (marked.length > 0) console.info(`[workflow] ${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);
@@ -4382,7 +4383,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     supplierStore: suppliers,
     customerOpeningBalances,
     supplierOpeningBalances,
-    createTransactor: configTransactor,
+    createTransactor: { run: (fn) => auditSink.securityEventsOutlive(() => configTransactor.run(fn)) },
     numbersDrawn: () => JSON.stringify(sequenceCountersRead.all()),
     accounts: { repo: accounts },
     items: { repo: items, snapshots: stockLedger.snapshots },

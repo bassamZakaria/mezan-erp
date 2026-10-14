@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { ADMIN_HEADERS, BRANCH_ID, CORE, seedActorHeaders, seedToday, step } from "./shared.js";
+import { ADMIN_HEADERS, BRANCH_ID, CORE, FORMER_SALES_REP_EMPLOYEE_ID, SALES_REP_EMPLOYEE_ID, seedActorHeaders, seedToday, step } from "./shared.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -54,6 +54,8 @@ const JOB_TITLES = [
 function address(street: string, city: string, governorate: string, postalCode: string) {
   return { street, city, governorate, postalCode };
 }
+
+const FORMER_SALES_REP_CONTRACT_ID = "ECT-DEMO-12";
 
 function emergencyContact(name: string, relationship: string, phone: string) {
   return { name, relationship, phone, altPhone: null };
@@ -283,6 +285,58 @@ const EMPLOYEES = [
     address: address("2 شارع النيل", "المنصورة", "الدقهلية", "35515"),
     emergencyContact: emergencyContact("هالة سليم", "والدة", "01144556688"),
   },
+  {
+    id: SALES_REP_EMPLOYEE_ID,
+    deviceBadgeId: "1010",
+    firstName: "Karim",
+    lastName: "Fouad",
+    firstNameAr: "كريم",
+    lastNameAr: "فؤاد",
+    email: "karim.fouad@wadi-akhdar.example",
+    phone: "01066778899",
+    birthDate: "1994-04-11",
+    nationalId: "29404111201573",
+    gender: "male",
+    maritalStatus: "single",
+    departmentId: "DEPT-DEMO-2",
+    jobTitleId: "JT-DEMO-3",
+    managerId: "EMP-DEMO-1",
+    hireDate: "2026-09-01",
+    workerCategory: "staff",
+    employmentType: "full_time",
+    overtimeEligibility: "inherit_department",
+    standardWorkHours: 8,
+    probationEndDate: null,
+    priorServiceYears: 2,
+    address: address("9 شارع الجلاء", "المنصورة", "الدقهلية", "35511"),
+    emergencyContact: emergencyContact("فؤاد حسن", "والد", "01066778800"),
+  },
+  {
+    id: FORMER_SALES_REP_EMPLOYEE_ID,
+    deviceBadgeId: "1011",
+    firstName: "Hala",
+    lastName: "Mostafa",
+    firstNameAr: "هالة",
+    lastNameAr: "مصطفى",
+    email: "hala.mostafa@wadi-akhdar.example",
+    phone: "01277889900",
+    birthDate: "1995-07-23",
+    nationalId: "29507231202446",
+    gender: "female",
+    maritalStatus: "single",
+    departmentId: "DEPT-DEMO-2",
+    jobTitleId: "JT-DEMO-3",
+    managerId: "EMP-DEMO-1",
+    hireDate: "2024-06-01",
+    workerCategory: "staff",
+    employmentType: "full_time",
+    overtimeEligibility: "inherit_department",
+    standardWorkHours: 8,
+    probationEndDate: null,
+    priorServiceYears: 0,
+    address: address("15 شارع بورسعيد", "طلخا", "الدقهلية", "35681"),
+    emergencyContact: emergencyContact("مصطفى كامل", "والد", "01277889911"),
+  },
 ];
 
 /**
@@ -413,6 +467,26 @@ const CONTRACTS = [
     endDate: null,
     monthlySalary: "6200",
     allowances: [{ id: "ECT-DEMO-10-A1", name: "بدل انتقال", amount: "500", componentId: "PC-DEMO-TRANSPORT" }],
+    deductions: [],
+  },
+  {
+    id: "ECT-DEMO-11",
+    employeeId: SALES_REP_EMPLOYEE_ID,
+    type: "indefinite",
+    startDate: "2026-09-01",
+    endDate: null,
+    monthlySalary: "6000",
+    allowances: [{ id: "ECT-DEMO-11-A1", name: "بدل انتقال", amount: "500", componentId: "PC-DEMO-TRANSPORT" }],
+    deductions: [],
+  },
+  {
+    id: FORMER_SALES_REP_CONTRACT_ID,
+    employeeId: FORMER_SALES_REP_EMPLOYEE_ID,
+    type: "indefinite",
+    startDate: "2024-06-01",
+    endDate: null,
+    monthlySalary: "5800",
+    allowances: [],
     deductions: [],
   },
 ];
@@ -747,6 +821,8 @@ export async function seedHr(app: App): Promise<void> {
   }
   await step(app, "POST", "/hr/contracts/ECT-DEMO-10/terminate", {});
   await step(app, "POST", "/hr/employees/EMP-DEMO-9/terminate", { effectiveDate: "2026-05-31" });
+  await step(app, "POST", `/hr/contracts/${FORMER_SALES_REP_CONTRACT_ID}/terminate`, {});
+  await step(app, "POST", `/hr/employees/${FORMER_SALES_REP_EMPLOYEE_ID}/terminate`, { effectiveDate: "2026-05-31" });
   await step(app, "POST", "/hr/employees/EMP-DEMO-8/transition", { status: "suspended" });
 
   for (const holiday of HOLIDAYS) {

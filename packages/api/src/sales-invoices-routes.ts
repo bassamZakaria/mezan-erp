@@ -607,6 +607,12 @@ export function createSalesInvoicesRoutes(
     return own === NO_SUCH_ACTOR ? null : own;
   };
   const NOT_FOUND_BODY = { error: "NOT_FOUND" } as const;
+  // INVARIANT: a caller who sees only their own invoices is found by their employee file; an invoice they raised without one would be on nobody's list, their own included.
+  const NOT_LINKED_TO_EMPLOYEE_BODY = {
+    error: "USER_NOT_LINKED_TO_EMPLOYEE",
+    message: "حسابك غير مرتبط بملف موظف، فلا تُنشأ فاتورة باسمك. اطلب من مدير النظام ربط حسابك بملف الموظف الخاص بك.",
+    messageEn: "Your account is not linked to an employee, so no invoice can be raised under your name. Ask the administrator to link your account to your employee record.",
+  } as const;
   // SECURITY: the ONE place a route under `/:id` resolves its invoice. A
   // caller whose only grant is the own-records tier is answered as if a
   // colleague's invoice did not exist — on a read and on every action alike,
@@ -699,6 +705,7 @@ export function createSalesInvoicesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    if (deps.users && ownVisibilityOnly(c) && (await ownSalespersonIdOf(c)) === NO_SUCH_ACTOR) return c.json(NOT_LINKED_TO_EMPLOYEE_BODY, 422);
     const currencyRefusal = await deps.currencyCheck?.(d.currency);
     if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);
     const ownEmployeeId = !d.salespersonId && ownVisibilityOnly(c) ? await ownSalespersonIdOf(c) : NO_SUCH_ACTOR;

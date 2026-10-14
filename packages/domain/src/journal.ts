@@ -174,6 +174,8 @@ export enum JournalSourceModuleCode {
 }
 export type JournalSourceModule = `${JournalSourceModuleCode}`;
 
+export const MANUAL_JOURNAL_DOC_TYPE = "JOURNAL_ENTRY";
+
 const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
   SALES_INVOICE: "sales",
   SALES_RETURN: "sales",
@@ -212,7 +214,7 @@ const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
   SITE_RECEIPT: "contracting",
   MATERIAL_CONSUMPTION: "contracting",
   EQUIPMENT_LOG: "contracting",
-  JOURNAL_ENTRY: "manual",
+  [MANUAL_JOURNAL_DOC_TYPE]: "manual",
   HISTORICAL_SALES_IMPORT: "sales",
   HISTORICAL_PURCHASE_IMPORT: "purchases",
   VOUCHER: "treasury",

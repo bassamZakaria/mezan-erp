@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { companyNameSchema } from "./company-name.js";
+import { mailAddressInput } from "./mail-address.js";
 
 /** Wire contract for the tenant settings config bag (docs/archive/catalog/09 §"عام"). */
 export const tenantSettingsSchema = z.object({
@@ -71,7 +72,8 @@ export const tenantSettingsSchema = z.object({
   allowNegativeTreasury: z.boolean(),
 
   smtpEnabled: z.boolean(),
-  smtpHost: z.string(),
+  // SECURITY: written into EHLO verbatim — no whitespace or CR/LF may reach the command line.
+  smtpHost: z.string().trim().regex(/^[A-Za-z0-9.:[\]-]*$/),
   smtpPort: z.number().int().min(1).max(65535),
   smtpSecurity: z.enum(["NONE", "STARTTLS", "TLS"]),
   smtpUsername: z.string(),
@@ -79,7 +81,7 @@ export const tenantSettingsSchema = z.object({
   // string on the way in means "keep the one already stored".
   smtpPassword: z.string(),
   smtpFromName: z.string(),
-  smtpFromEmail: z.string(),
+  smtpFromEmail: mailAddressInput,
   emailTemplateSubject: z.string(),
   emailTemplateBody: z.string(),
 });
@@ -89,12 +91,24 @@ export const updateTenantSettingsSchema = tenantSettingsSchema.partial();
 
 /** POST /settings/email/test body — sends the configured template to one address. */
 export const sendTestEmailSchema = z.object({
-  to: z.string().email(),
+  to: z.string().trim().email(),
 });
+
+export enum SmtpStage {
+  Disabled = "disabled",
+  Refused = "refused",
+  Connect = "connect",
+  Greeting = "greeting",
+  Ehlo = "ehlo",
+  StartTls = "starttls",
+  Auth = "auth",
+  Send = "send",
+  Done = "done",
+}
 
 export const testEmailResultSchema = z.object({
   ok: z.boolean(),
-  stage: z.enum(["disabled", "connect", "greeting", "ehlo", "starttls", "auth", "send", "done"]),
+  stage: z.nativeEnum(SmtpStage),
   message: z.string(),
 });
 

@@ -1,7 +1,9 @@
-import { connect as netConnect, type Socket } from "node:net";
+import { lookup } from "node:dns/promises";
+import { connect as netConnect, isIP, type Socket } from "node:net";
 import { connect as tlsConnect } from "node:tls";
 import type { TenantSettings } from "@mezan/domain";
-import type { TestEmailResultDTO } from "@mezan/contracts";
+import { SmtpStage, type TestEmailResultDTO } from "@mezan/contracts";
+import { isBlockedWebhookAddress } from "./blocked-address.js";
 
 /**
  * The eight fields this whole file actually touches — narrower than
@@ -123,11 +125,12 @@ class SmtpSession {
   }
 }
 
-function openSocket(host: string, port: number, useTls: boolean): Promise<Socket> {
+function openSocket(host: string, address: string, port: number, useTls: boolean): Promise<Socket> {
   return new Promise((resolve, reject) => {
+    const servername = isIP(host) === 0 ? host : undefined;
     const socket = useTls
-      ? tlsConnect({ host, port, servername: host }, () => resolve(socket))
-      : netConnect({ host, port }, () => resolve(socket));
+      ? tlsConnect({ host: address, port, ...(servername ? { servername } : {}) }, () => resolve(socket))
+      : netConnect({ host: address, port }, () => resolve(socket));
     socket.setTimeout(TIMEOUT_MS, () => {
       socket.destroy();
       reject(new Error(`تعذّر الاتصال بخادم البريد ${host}:${port} خلال المهلة المحددة`));
@@ -138,7 +141,7 @@ function openSocket(host: string, port: number, useTls: boolean): Promise<Socket
 
 function upgradeToTls(socket: Socket, host: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const secure = tlsConnect({ socket, servername: host }, () => resolve(secure));
+    const secure = tlsConnect({ socket, host, ...(isIP(host) === 0 ? { servername: host } : {}) }, () => resolve(secure));
     secure.once("error", (err: Error) => reject(err));
   });
 }
@@ -221,13 +224,92 @@ function isLoopbackHost(host: string): boolean {
   return normalized === "localhost" || normalized === "::1" || /^127\.\d+\.\d+\.\d+$/.test(normalized);
 }
 
+export enum SmtpDestinationPolicy {
+  AnyHost = "any_host",
+  PublicOnly = "public_only",
+}
+
+export interface SmtpSendOptions {
+  readonly destinations?: SmtpDestinationPolicy;
+}
+
+const PUBLIC_SMTP_PORTS: ReadonlySet<number> = new Set([25, 465, 587]);
+const MAIL_HOST = /^[A-Za-z0-9.:[\]-]+$/;
+const MAILBOX = /^[^\s<>()@",;:\\[\]]+@[^\s<>()@",;:\\[\]]+\.[^\s<>()@",;:\\[\]]+$/;
+
+const REFUSED_DESTINATION =
+  "لا يُسمح بالإرسال إلى خادم البريد هذا: يجب أن يكون عنوانًا عامًا على المنفذ 25 أو 465 أو 587. — This mail server is not allowed: it must be a public address on port 25, 465 or 587.";
+const INVALID_ADDRESS = "عنوان البريد الإلكتروني للمرسل أو المستلم غير صالح. — The sender or recipient email address is not valid.";
+const INVALID_HOST = "اسم خادم البريد غير صالح. — The mail server name is not valid.";
+
+const GUARDED_FAILURE: Readonly<Record<SmtpStage, string>> = {
+  [SmtpStage.Disabled]: "البريد الإلكتروني غير مُفعَّل في الإعدادات. — Email is not enabled in the settings.",
+  [SmtpStage.Refused]: REFUSED_DESTINATION,
+  [SmtpStage.Connect]: "تعذّر الاتصال بخادم البريد. — Could not connect to the mail server.",
+  [SmtpStage.Greeting]: "رفض خادم البريد بدء الجلسة. — The mail server refused the session.",
+  [SmtpStage.Ehlo]: "رفض خادم البريد بدء الجلسة. — The mail server refused the session.",
+  [SmtpStage.StartTls]: "تعذّر تشفير الاتصال بخادم البريد. — The connection to the mail server could not be encrypted.",
+  [SmtpStage.Auth]: "رفض خادم البريد اسم المستخدم أو كلمة المرور. — The mail server rejected the username or password.",
+  [SmtpStage.Send]: "رفض خادم البريد المرسل أو المستلم أو الرسالة. — The mail server rejected the sender, recipient or message.",
+  [SmtpStage.Done]: "تم إرسال الرسالة. — The message was sent.",
+};
+
+class SmtpDestinationRefused extends Error {}
+
+function withLookupDeadline<T>(work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("SMTP host lookup timed out")), TIMEOUT_MS);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
+// SECURITY: returns the ADDRESS the socket must dial. Every answer is vetted and only a vetted
+// answer is dialled — checking one resolution and connecting by name would be DNS rebinding.
+async function publicDialAddress(host: string): Promise<string> {
+  const bare = host.replace(/^\[|\]$/g, "");
+  if (isIP(bare) !== 0) {
+    if (isBlockedWebhookAddress(bare)) throw new SmtpDestinationRefused();
+    return bare;
+  }
+  const answers = await withLookupDeadline(lookup(bare, { all: true, verbatim: true }));
+  if (answers.length === 0) throw new Error("SMTP host did not resolve");
+  for (const { address } of answers) {
+    if (isBlockedWebhookAddress(address)) throw new SmtpDestinationRefused();
+  }
+  return answers[0]!.address;
+}
+
 export async function sendTestEmail(
   settings: SmtpConfig,
   to: string,
   message?: OutgoingMail,
+  options: SmtpSendOptions = {},
 ): Promise<TestEmailResultDTO> {
   if (!settings.smtpEnabled) {
-    return { ok: false, stage: "disabled", message: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
+    return { ok: false, stage: SmtpStage.Disabled, message: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
+  }
+
+  // SECURITY: the last line before CR/LF reaches MAIL FROM, RCPT TO, EHLO or a header. Addresses
+  // arrive from stored settings and customer and user rows, not only from a validated request.
+  if (!MAILBOX.test(to) || !MAILBOX.test(settings.smtpFromEmail)) {
+    return { ok: false, stage: SmtpStage.Send, message: INVALID_ADDRESS };
+  }
+  if (!MAIL_HOST.test(settings.smtpHost)) {
+    return { ok: false, stage: SmtpStage.Refused, message: INVALID_HOST };
+  }
+
+  const guarded = options.destinations === SmtpDestinationPolicy.PublicOnly;
+  if (guarded && !PUBLIC_SMTP_PORTS.has(settings.smtpPort)) {
+    return { ok: false, stage: SmtpStage.Refused, message: REFUSED_DESTINATION };
   }
 
   /*
@@ -242,10 +324,10 @@ export async function sendTestEmail(
    * arrive. A relay with no TLS still works; it just cannot be handed a
    * password to leak.
    */
-  if (settings.smtpUsername && settings.smtpSecurity === "NONE" && !isLoopbackHost(settings.smtpHost)) {
+  if (settings.smtpUsername && settings.smtpSecurity === "NONE" && (guarded || !isLoopbackHost(settings.smtpHost))) {
     return {
       ok: false,
-      stage: "auth",
+      stage: SmtpStage.Auth,
       message:
         "لا يمكن إرسال كلمة المرور عبر اتصال غير مُشفَّر. اختر TLS أو STARTTLS، أو امسح اسم المستخدم للإرسال بدون مصادقة.",
     };
@@ -253,38 +335,42 @@ export async function sendTestEmail(
 
   let session: SmtpSession | null = null;
   try {
-    const socket = await openSocket(settings.smtpHost, settings.smtpPort, settings.smtpSecurity === "TLS");
+    const address = guarded ? await publicDialAddress(settings.smtpHost) : settings.smtpHost;
+    const socket = await openSocket(settings.smtpHost, address, settings.smtpPort, settings.smtpSecurity === "TLS");
     session = new SmtpSession(socket);
 
-    await session.expect("greeting", ["220"]);
-    await session.expect("ehlo", ["250"], `EHLO ${settings.smtpHost}`);
+    await session.expect(SmtpStage.Greeting, ["220"]);
+    await session.expect(SmtpStage.Ehlo, ["250"], `EHLO ${settings.smtpHost}`);
 
     if (settings.smtpSecurity === "STARTTLS") {
-      await session.expect("starttls", ["220"], "STARTTLS");
+      await session.expect(SmtpStage.StartTls, ["220"], "STARTTLS");
       session.replaceSocket(await upgradeToTls(session.raw, settings.smtpHost));
-      await session.expect("ehlo", ["250"], `EHLO ${settings.smtpHost}`);
+      await session.expect(SmtpStage.Ehlo, ["250"], `EHLO ${settings.smtpHost}`);
     }
 
     if (settings.smtpUsername) {
-      await session.expect("auth", ["334"], "AUTH LOGIN");
-      await session.expect("auth", ["334"], Buffer.from(settings.smtpUsername, "utf8").toString("base64"));
-      await session.expect("auth", ["235"], Buffer.from(settings.smtpPassword, "utf8").toString("base64"));
+      await session.expect(SmtpStage.Auth, ["334"], "AUTH LOGIN");
+      await session.expect(SmtpStage.Auth, ["334"], Buffer.from(settings.smtpUsername, "utf8").toString("base64"));
+      await session.expect(SmtpStage.Auth, ["235"], Buffer.from(settings.smtpPassword, "utf8").toString("base64"));
     }
 
-    await session.expect("send", ["250"], `MAIL FROM:<${settings.smtpFromEmail}>`);
-    await session.expect("send", ["250", "251"], `RCPT TO:<${to}>`);
-    await session.expect("send", ["354"], "DATA");
+    await session.expect(SmtpStage.Send, ["250"], `MAIL FROM:<${settings.smtpFromEmail}>`);
+    await session.expect(SmtpStage.Send, ["250", "251"], `RCPT TO:<${to}>`);
+    await session.expect(SmtpStage.Send, ["354"], "DATA");
     session.write(buildMessage(settings, to, message));
-    const accepted = await session.expect("send", ["250"], ".");
-    session.expect("done", ["221"], "QUIT").catch(() => undefined);
+    const accepted = await session.expect(SmtpStage.Send, ["250"], ".");
+    session.expect(SmtpStage.Done, ["221"], "QUIT").catch(() => undefined);
 
-    return { ok: true, stage: "done", message: `تم إرسال رسالة الاختبار إلى ${to} — ${accepted}` };
+    return { ok: true, stage: SmtpStage.Done, message: guarded ? `تم إرسال رسالة الاختبار إلى ${to}` : `تم إرسال رسالة الاختبار إلى ${to} — ${accepted}` };
   } catch (err) {
-    if (err instanceof SmtpFailure) return { ok: false, stage: err.stage, message: err.message };
+    // SECURITY: on the cloud a reply line or socket error is another host's banner or an internal
+    // address; the tenant is told the stage, never what the far end said.
+    if (err instanceof SmtpDestinationRefused) return { ok: false, stage: SmtpStage.Refused, message: REFUSED_DESTINATION };
+    if (err instanceof SmtpFailure) return { ok: false, stage: err.stage, message: guarded ? GUARDED_FAILURE[err.stage] : err.message };
     return {
       ok: false,
-      stage: "connect",
-      message: err instanceof Error ? err.message : "تعذّر الاتصال بخادم البريد.",
+      stage: SmtpStage.Connect,
+      message: guarded ? GUARDED_FAILURE[SmtpStage.Connect] : err instanceof Error ? err.message : "تعذّر الاتصال بخادم البريد.",
     };
   } finally {
     session?.close();
@@ -307,12 +393,14 @@ export async function sendNotificationEmail(
   settings: SmtpConfig,
   to: string,
   message: OutgoingMail,
+  options: SmtpSendOptions = {},
 ): Promise<{ outcome: "sent" | "offline" | "rejected"; detail: string }> {
-  const result = await sendTestEmail(settings, to, message);
+  const result = await sendTestEmail(settings, to, message, options);
   if (result.ok) return { outcome: "sent", detail: result.message };
   // `connect` is the only stage that means "no path to the server". Everything
-  // else — a refused auth, a rejected recipient, a disabled configuration — is
-  // the server or the tenant saying no, and retrying it changes nothing.
-  const offline = result.stage === "connect";
+  // else — a refused auth, a rejected recipient, a disabled configuration, a
+  // destination the cloud will not dial — is the server or the tenant saying
+  // no, and retrying it changes nothing.
+  const offline = result.stage === SmtpStage.Connect;
   return { outcome: offline ? "offline" : "rejected", detail: result.message };
 }

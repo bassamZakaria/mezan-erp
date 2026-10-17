@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createServer, type Server, type Socket } from "node:net";
 import { createDefaultSettings, type TenantSettings } from "@mezan/domain";
-import { sendTestEmail } from "./smtp-client.js";
+import { SmtpStage } from "@mezan/contracts";
+import { sendNotificationEmail, sendTestEmail, SmtpDestinationPolicy } from "./smtp-client.js";
 
 /**
  * The SMTP client is the one place in Mezan that takes a credential the tenant
@@ -295,5 +296,48 @@ describe("sendTestEmail — the message it actually builds", () => {
     expect(result.stage).toBe("greeting");
     expect(result.message).toContain("554");
     expect(server.transcript).toEqual([]);
+  });
+});
+
+describe("sendTestEmail — a tenant's SMTP host cannot reach the platform network", () => {
+  const guarded = { destinations: SmtpDestinationPolicy.PublicOnly };
+
+  it.each(["127.0.0.1", "localhost", "10.0.0.5", "[::ffff:127.0.0.1]"])("refuses %s on the cloud with the fixed message, never the far end's reply", async (host) => {
+    const result = await sendTestEmail(settingsFor(587, { smtpHost: host }), "owner@mezan.test", undefined, guarded);
+    expect(result.ok).toBe(false);
+    expect(result.stage).toBe(SmtpStage.Refused);
+    expect(result.message).toContain("587");
+  });
+
+  it("refuses a port other than 25, 465 or 587 before dialling anything", async () => {
+    const result = await sendTestEmail(settingsFor(6379, { smtpHost: "8.8.8.8" }), "owner@mezan.test", undefined, guarded);
+    expect(result.stage).toBe(SmtpStage.Refused);
+  });
+
+  it("treats a refused destination as terminal, so the mail queue does not retry it forever", async () => {
+    const result = await sendNotificationEmail(settingsFor(587, { smtpHost: "127.0.0.1" }), "owner@mezan.test", { subject: "s", body: "b" }, guarded);
+    expect(result.outcome).toBe("rejected");
+  });
+
+  it("still dials a loopback relay on the desktop", async () => {
+    const server = await smtpServer({ DATA: "354 End data with .\r\n" });
+    const result = await sendTestEmail(settingsFor(server.port), "owner@mezan.test");
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("sendTestEmail — no address can split an SMTP command or header", () => {
+  it.each(["owner@mezan.test\r\nRCPT TO:<x@evil.test>", "owner@mezan.test>\r\nBcc: x@evil.test", "a b@mezan.test"])("refuses recipient %j without connecting", async (to) => {
+    const server = await smtpServer({});
+    const result = await sendTestEmail(settingsFor(server.port), to);
+    expect(result.ok).toBe(false);
+    expect(server.connections()).toBe(0);
+  });
+
+  it("refuses a sender address carrying a line break", async () => {
+    const server = await smtpServer({});
+    const result = await sendTestEmail(settingsFor(server.port, { smtpFromEmail: "shop@mezan.test\r\nBcc: x@evil.test" }), "owner@mezan.test");
+    expect(result.ok).toBe(false);
+    expect(server.connections()).toBe(0);
   });
 });

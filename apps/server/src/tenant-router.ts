@@ -2,7 +2,7 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import path from "node:path";
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { createSourceThrottle, delegatedGrantEnv, throttleSource, tooManyAttempts, type SourceThrottle } from "@mezan/api";
+import { createSourceThrottle, delegatedGrantEnv, SmtpDestinationPolicy, throttleSource, tooManyAttempts, type SourceThrottle } from "@mezan/api";
 import { createBackend, type BackendHandle, type CompanyAdminAccount, type IntegrationsGateway, type PlatformHandle, type SignedInUser } from "@mezan/backend";
 import type { SessionGrant, SmtpConfig } from "@mezan/api";
 import {
@@ -256,6 +256,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       unlockLink: mail.unlockLink,
       platformOperatorUnlocks: true,
       sessionsInDatabase: true,
+      tenantMailDestinations: SmtpDestinationPolicy.PublicOnly,
       backupStatus: async () => readTenantBackupStatus(options.dataDir, books.tenantId, dbPath, options.now),
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),

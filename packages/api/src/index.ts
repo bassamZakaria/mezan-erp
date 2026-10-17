@@ -168,7 +168,8 @@ export {
   createSecurityReportsRoutes,
   type SecurityReportsRoutesDeps,
 } from "./security-reports-routes.js";
-export { sendNotificationEmail, type SmtpConfig } from "./smtp-client.js";
+export { sendNotificationEmail, SmtpDestinationPolicy, type SmtpConfig, type SmtpSendOptions } from "./smtp-client.js";
+export { isBlockedWebhookAddress } from "./blocked-address.js";
 export { createPrecomputingHasher, type PrecomputingHasher, type SecretsToPrecompute } from "./precomputed-secrets.js";
 export { drainTurnYields, reportTurnYield } from "./turn-yields.js";
 export {

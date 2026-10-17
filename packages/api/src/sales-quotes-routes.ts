@@ -57,7 +57,18 @@ import {
 import { storedBranchesById } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
-import { DuplicateRecordIdError } from "@mezan/domain";
+import {
+  DuplicateRecordIdError,
+  PricingGuardBlockedError,
+  PricingGuardLineOutcome,
+  PricingGuardOverrideKind,
+  computeQuoteTotals,
+  overridesOf,
+  quotePricingGuardInput,
+  type DocumentPricingGuardPort,
+  type PricingGuardEvaluation,
+} from "@mezan/domain";
+import { maySeeCost, pricingGuardRefusal, serializePricingGuardEvaluation } from "./pricing-guard-routes.js";
 import { normalizedSearchTerm, partyIdsNamed, type PartyDirectory } from "./party-name-search.js";
 
 /**
@@ -84,6 +95,7 @@ export interface SalesQuoteRoutesDeps {
   readonly customerTax?: CustomerTaxProfileSource;
   readonly taxPolicy?: SalesTaxPolicySource;
   readonly numbering: DocumentNumberingHook;
+  readonly pricingGuard?: DocumentPricingGuardPort;
   readonly now?: () => string;
   /** Generates a quote id when the request omits one. Defaults to a UUID. */
   readonly idGen?: () => string;
@@ -175,6 +187,8 @@ function withMessageEn(err: { code: string; message: string }) {
 
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateRecordIdError) return duplicateIdRefusal(c, err);
+  const priceFloorRefusal = pricingGuardRefusal(c, err);
+  if (priceFloorRefusal) return priceFloorRefusal;
   const postingRefusal = postingRefusalResponse(c, err);
   if (postingRefusal) return postingRefusal;
   const taxRefusal = taxRateRefusal(c, err);
@@ -254,6 +268,28 @@ export function createSalesQuotesRoutes(
     return svc.totalsOf(quote);
   }
 
+  async function judgePrices(quote: Pick<SalesQuote, "id" | "date" | "customerId" | "branchId" | "currency" | "lines" | "discount" | "customerTaxExempt">): Promise<PricingGuardEvaluation | null> {
+    if (!deps.pricingGuard || quote.lines.length === 0) return null;
+    const totals = computeQuoteTotals(quote.lines, quote.discount, { taxExempt: quote.customerTaxExempt });
+    const evaluation = await deps.pricingGuard.evaluate(quotePricingGuardInput(quote, totals));
+    if (evaluation.outcome === PricingGuardLineOutcome.Blocked) throw new PricingGuardBlockedError(evaluation.lines);
+    return evaluation;
+  }
+
+  async function recordQuoteOverride(c: Context, quote: SalesQuote, evaluation: PricingGuardEvaluation | null, svc: SalesQuoteService): Promise<void> {
+    if (!deps.pricingGuard || evaluation?.outcome !== PricingGuardLineOutcome.NeedsApproval) return;
+    await deps.pricingGuard.recordOverrides(
+      overridesOf(quotePricingGuardInput(quote, totalsFor(svc, quote)), evaluation, {
+        docNo: quote.docNo,
+        customerNameAr: quote.customerNameAr,
+        kind: PricingGuardOverrideKind.QuoteSentBelowFloor,
+        approvalRequestId: null,
+        actor: getAuthContext(c)?.userId ?? "system",
+        recordedAt: new Date().toISOString(),
+      }),
+    );
+  }
+
   app.post("/", gate("sales.quote.create"), async (c) => {
     const parsed = createSalesQuoteSchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -297,8 +333,15 @@ export function createSalesQuotesRoutes(
 
     const svc = service(c);
     try {
+      const priceCheck = await judgePrices({ ...cmd, currency: cmd.currency ?? "EGP", discount: cmd.discount ?? { type: "percent", percent: 0 }, customerTaxExempt: cmd.customerTaxExempt ?? false, lines: cmd.lines.map((line) => ({ ...line, discountPercent: line.discountPercent ?? 0, taxRatePercent: line.taxRatePercent ?? 0, taxRateId: line.taxRateId ?? null })) });
       const quote = await svc.createDraft(cmd);
-      return c.json(salesQuoteSchema.parse(serialize(quote, totalsFor(svc, quote))), 201);
+      return c.json(
+        {
+          ...salesQuoteSchema.parse(serialize(quote, totalsFor(svc, quote))),
+          ...(priceCheck ? { pricingGuard: serializePricingGuardEvaluation(priceCheck, maySeeCost(c)) } : {}),
+        },
+        201,
+      );
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -469,9 +512,15 @@ export function createSalesQuotesRoutes(
     if (stale) return stale;
     const svc = service(c);
     try {
+      const stored = await svc.findById(c.req.param("id"));
+      const priceCheck = stored ? await judgePrices(stored) : null;
       const quote = await svc.send(c.req.param("id"));
       await stampDocumentModifier(deps.versionGuard, quote.id, getAuthContext(c)?.userId);
-      return c.json(serialize(quote, totalsFor(svc, quote)));
+      await recordQuoteOverride(c, quote, priceCheck, svc);
+      return c.json({
+        ...serialize(quote, totalsFor(svc, quote)),
+        ...(priceCheck ? { pricingGuard: serializePricingGuardEvaluation(priceCheck, maySeeCost(c)) } : {}),
+      });
     } catch (err) {
       return handleDomainError(c, err);
     }

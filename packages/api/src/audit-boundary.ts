@@ -77,6 +77,7 @@ export const AUDITED_MOUNTS: readonly AuditedMount[] = [
   { prefix: "/data-migration", only: /^\/[^/]+\/commit$/ },
   { prefix: "/workflow" },
   { prefix: "/cash-forecast", only: /^\/threshold$/ },
+  { prefix: "/pricing-guard", only: /^\/rules(\/|$)/ },
   { prefix: "/contracting" },
   { prefix: "/collections", only: /^(?!\/outbox\/drain$)/ },
 ];

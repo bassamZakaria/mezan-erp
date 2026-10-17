@@ -10,6 +10,9 @@ import {
   type EntityPickerOption,
 } from "@mezan/ui";
 import type { ItemDTO, TaxRateDTO } from "@mezan/contracts";
+import { PricingGuardDiscountTypeDTO, PricingGuardDocTypeDTO, type PricingGuardEvaluateRequestDTO } from "@mezan/contracts";
+import { usePricingGuardPreview } from "../enh/pricing-guard/pricing-guard-hooks";
+import { PricingGuardLineStatus, PricingGuardSummary } from "../enh/pricing-guard/PricingGuardLineStatus";
 import { Money } from "@mezan/domain";
 import { NumberField, SectionCard, SelectField, TextAreaField, TextField } from "../../settings/form-controls";
 import {
@@ -128,6 +131,32 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
     [domainLines, discount, customer],
   );
   const totalsByLineId = useMemo(() => new Map(totals.lines.map((l) => [l.lineId, l])), [totals]);
+
+  const priceGuardRequest = useMemo<PricingGuardEvaluateRequestDTO | null>(() => {
+    if (!customer || !effectiveBranchId || domainLines.length === 0) return null;
+    return {
+      docType: PricingGuardDocTypeDTO.SalesQuote,
+      date,
+      customerId: customer.id,
+      branchId: effectiveBranchId,
+      warehouseId: null,
+      currency,
+      discount:
+        discount.type === "percent"
+          ? { type: PricingGuardDiscountTypeDTO.Percent, percent: discount.percent }
+          : { type: PricingGuardDiscountTypeDTO.Amount, amount: discount.amount.toString() },
+      lines: domainLines.map((l) => ({
+        lineId: l.lineId,
+        itemId: l.itemId,
+        qty: l.qty.toString(),
+        unitPrice: l.unitPrice.toString(),
+        discountPercent: l.discountPercent,
+        taxRatePercent: l.taxRatePercent,
+      })),
+    };
+  }, [customer, effectiveBranchId, domainLines, date, currency, discount]);
+  const priceGuard = usePricingGuardPreview(priceGuardRequest);
+  const priceGuardByLine = useMemo(() => new Map((priceGuard?.lines ?? []).map((l) => [l.lineId, l])), [priceGuard]);
 
   function updateLine(key: string, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -330,6 +359,8 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
                       ) : null
                     ) : null}
 
+                    {item ? <PricingGuardLineStatus line={priceGuardByLine.get(line.key)} costVisible={priceGuard?.costVisible ?? false} /> : null}
+
                     {line.expanded && item ? (
                       <div className="grid gap-3 border-t border-border pt-2 sm:grid-cols-2">
                         <NumberField
@@ -354,6 +385,7 @@ export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: ()
               <Button variant="default" onClick={() => setLines((prev) => [...prev, blankLine()])}>
                 {t("quotes.addLine")}
               </Button>
+              <PricingGuardSummary evaluation={priceGuard} />
             </div>
           </SectionCard>
 

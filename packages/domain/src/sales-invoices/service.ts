@@ -60,6 +60,17 @@ import type {
 } from "../documents/hooks.js";
 import { confirmRequestIdOf, statedBranchOf } from "../documents/hooks.js";
 import { ApprovalStatusCode } from "../workflow/gate.js";
+import { WILDCARD_PERMISSION } from "../permissions/catalog.js";
+import { PricingGuardApprovalUnconfiguredError, PricingGuardBlockedError, PricingGuardChangedError } from "../pricing-guard/errors.js";
+import { overridesOf, type DocumentPricingGuardPort } from "../pricing-guard/service.js";
+import {
+  PricingGuardDocType,
+  PricingGuardLineOutcome,
+  PricingGuardOverrideKind,
+  priceFloorRequestIdOf,
+  type PricingGuardDocumentInput,
+  type PricingGuardEvaluation,
+} from "../pricing-guard/types.js";
 import type { GateableActionType } from "../workflow/index.js";
 import type { CreditControlMode } from "../settings/settings.js";
 import { checkCustomerCredit, CreditLimitExceededError, type CreditCheckResult } from "../credit-control/index.js";
@@ -140,6 +151,13 @@ export interface PricingVariance {
 
 /** The workflow action gated on confirm (docs/archive/catalog/09). */
 const GATE_ACTION: GateableActionType = "SALES_INVOICE_CONFIRM";
+const PRICE_FLOOR_GATE_ACTION: GateableActionType = "SALES_PRICE_FLOOR_OVERRIDE";
+const PRICE_FLOOR_LABEL_AR = "دون الحد الأدنى للسعر";
+
+interface PriceFloorClearance {
+  readonly kind: PricingGuardOverrideKind;
+  readonly requestId: string | null;
+}
 
 export type { SalesInvoiceTaxPolicy };
 
@@ -151,6 +169,7 @@ export enum SalesInvoiceLifecycleAuditAction {
   Confirm = "CONFIRM",
   Cancel = "CANCEL",
   ReturnReratedToDraft = "RETURN_RERATED_TO_DRAFT",
+  PriceFloorOverride = "PRICE_FLOOR_OVERRIDE",
 }
 
 const SALES_INVOICE_DOC_TYPE = "SALES_INVOICE";
@@ -170,6 +189,7 @@ export interface SalesInvoiceServiceDeps {
   readonly promotions?: SalesInvoicePromotionHook;
   /** Customer price lists; when omitted, no invoice is ever checked against one. */
   readonly pricing?: SalesInvoicePricingDeps;
+  readonly pricingGuard?: DocumentPricingGuardPort;
   readonly audit?: AuditSink;
   /**
    * Receivables sub-ledger. Without it a confirmed invoice never becomes an
@@ -431,20 +451,50 @@ export class SalesInvoiceService {
       ]);
     }
 
+    const submitterRoles = opts.actorRoles ?? this.deps.actorRoles;
+    const submitterIsAdmin = submitterRoles?.includes(WILDCARD_PERMISSION) ?? false;
+    const priceGuard = this.deps.pricingGuard ? await this.evaluatePriceGuard(await this.applyPromotion(existing)) : null;
+    if (priceGuard?.outcome === PricingGuardLineOutcome.Blocked) throw new PricingGuardBlockedError(priceGuard.lines);
+    const needsPriceApproval = priceGuard?.outcome === PricingGuardLineOutcome.NeedsApproval;
+    // INVARIANT (fail closed): approve-mode with nowhere to route the request is
+    // a refusal — an empty chain would otherwise grant on submission.
+    if (needsPriceApproval && !submitterIsAdmin && (!this.deps.workflow || !(await this.deps.pricingGuard?.approvalChainConfigured()))) {
+      throw new PricingGuardApprovalUnconfiguredError(priceGuard.lines);
+    }
+    let priceClearance: PriceFloorClearance | null = needsPriceApproval && !this.deps.workflow ? { kind: PricingGuardOverrideKind.AdminBypass, requestId: null } : null;
+
     // --- Workflow gate on confirm ---
     if (this.deps.workflow) {
+      const baseLabel = existing.docNo ?? approvalLabel({ type: "فاتورة مبيعات", amount: this.totalsOf(existing).grandTotal, currency: existing.currency, party: existing.customerNameAr });
       const decision = await this.deps.workflow.evaluate({
-        actionType: GATE_ACTION,
-        requestId,
+        actionType: needsPriceApproval ? PRICE_FLOOR_GATE_ACTION : GATE_ACTION,
+        requestId: needsPriceApproval ? priceFloorRequestIdOf(id) : requestId,
         submittedBy: opts.actor ?? this.deps.actor ?? "system",
-        submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
-        entityLabel: existing.docNo ?? approvalLabel({ type: "فاتورة مبيعات", amount: this.totalsOf(existing).grandTotal, currency: existing.currency, party: existing.customerNameAr }),
+        submitterRoles,
+        entityLabel: needsPriceApproval ? `${baseLabel} — ${PRICE_FLOOR_LABEL_AR}` : baseLabel,
         document: { id, branchId: statedBranchOf(existing), content: existing, heldRequestId: existing.workflowRequestId },
       });
+      if (decision.granted && needsPriceApproval) {
+        const bypassed = submitterIsAdmin && existing.status !== SalesInvoiceStatusCode.Pending;
+        priceClearance = { kind: bypassed ? PricingGuardOverrideKind.AdminBypass : PricingGuardOverrideKind.ApprovedByChain, requestId: decision.requestId };
+      }
       if (!decision.granted) {
         // Re-confirming while the request is still in the inbox is a no-op, not
         // an illegal pending → pending transition.
-        if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
+        if (existing.status === "pending" && existing.workflowRequestId === decision.requestId) {
+          return { invoice: existing, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
+        }
+        // INVARIANT: a held invoice points at the request that now holds it. The
+        // price guard can move it between the ordinary and the price-floor
+        // request; left on the old id, neither approval could ever post it.
+        if (existing.status === "pending") {
+          const repointed: SalesInvoice = { ...existing, workflowRequestId: decision.requestId };
+          await this.deps.repo.transaction(async () => {
+            await this.writeFields(repointed, [SalesInvoiceField.WorkflowRequestId], SalesInvoiceStatusCode.Pending);
+            if (existing.workflowRequestId) await this.deps.workflow?.reopen?.(existing.workflowRequestId);
+          });
+          return { invoice: repointed, held: true, creditWarning: null, pricingVariances: [], taxRecalculated: false };
+        }
 
         const held = await this.deps.repo.transaction(async () => {
           const fresh = await this.require(id);
@@ -501,6 +551,9 @@ export class SalesInvoiceService {
       // (credit exposure, GL posting, AR) reflects the discount it granted.
       const promoted = await this.applyContractBilling(await this.applyPromotion(fresh));
       const totals = this.totalsOf(promoted);
+      const postedGuard = await this.evaluatePriceGuard(promoted);
+      if (postedGuard?.outcome === PricingGuardLineOutcome.Blocked) throw new PricingGuardBlockedError(postedGuard.lines);
+      if (postedGuard?.outcome === PricingGuardLineOutcome.NeedsApproval && !priceClearance) throw new PricingGuardChangedError();
 
       // A foreign-currency invoice needs the rate BEFORE anything is written:
       // resolved here, a missing rate refuses the confirm outright rather than
@@ -583,6 +636,9 @@ export class SalesInvoiceService {
         });
       }
       await this.recordAudit(SalesInvoiceLifecycleAuditAction.Confirm, next, AuditSeverityCode.Info);
+      if (postedGuard && priceClearance && postedGuard.outcome === PricingGuardLineOutcome.NeedsApproval) {
+        await this.recordPriceFloorOverride(next, totals, postedGuard, priceClearance, opts.actor ?? this.deps.actor ?? "system");
+      }
       return { posted: true, confirmed: next, creditWarning, pricingVariances, taxRecalculated } as const;
     });
 
@@ -751,6 +807,66 @@ export class SalesInvoiceService {
     return { ...invoice, lines, notes };
   }
 
+  pricingGuardInputOf(invoice: SalesInvoice, totals: SalesInvoiceTotals = this.totalsOf(invoice)): PricingGuardDocumentInput {
+    const netByLine = new Map(totals.lines.map((line) => [line.lineId, line.taxableBase]));
+    return {
+      docType: PricingGuardDocType.SalesInvoice,
+      docId: invoice.id,
+      date: invoice.date,
+      customerId: invoice.customerId,
+      branchId: invoice.branchId,
+      warehouseId: invoice.warehouseId,
+      currency: invoice.currency,
+      lines: invoice.lines
+        .filter((line) => line.itemId !== RETENTION_RELEASE_ITEM_ID)
+        .map((line) => ({ lineId: line.lineId, itemId: line.itemId, baseQty: line.baseQty, netAmount: netByLine.get(line.lineId) ?? Money.zero() })),
+    };
+  }
+
+  private async evaluatePriceGuard(invoice: SalesInvoice): Promise<PricingGuardEvaluation | null> {
+    const guard = this.deps.pricingGuard;
+    if (!guard || invoice.lines.length === 0 || isRetentionRelease(invoice)) return null;
+    return guard.evaluate(this.pricingGuardInputOf(invoice));
+  }
+
+  private async recordPriceFloorOverride(
+    invoice: SalesInvoice,
+    totals: SalesInvoiceTotals,
+    evaluation: PricingGuardEvaluation,
+    clearance: PriceFloorClearance,
+    actor: string,
+  ): Promise<void> {
+    const guard = this.deps.pricingGuard;
+    if (!guard) return;
+    const rows = overridesOf(this.pricingGuardInputOf(invoice, totals), evaluation, {
+      docNo: invoice.docNo,
+      customerNameAr: invoice.customerNameAr,
+      kind: clearance.kind,
+      approvalRequestId: clearance.requestId,
+      actor,
+      recordedAt: this.now(),
+    });
+    await guard.recordOverrides(rows);
+    if (this.deps.audit) {
+      await recordSensitiveEvent(this.deps.audit, {
+        module: SALES_MODULE,
+        entityType: SALES_INVOICE_DOC_TYPE,
+        entityId: invoice.id,
+        action: SalesInvoiceLifecycleAuditAction.PriceFloorOverride,
+        actor,
+        branchId: invoice.branchId ?? null,
+        severity: AuditSeverityCode.Warning,
+        details: {
+          invoiceId: invoice.id,
+          docNo: invoice.docNo,
+          overrideKind: clearance.kind,
+          approvalRequestId: clearance.requestId,
+          lines: rows.map((row) => row.lineId).join(","),
+        },
+      });
+    }
+  }
+
   /** Lines charged below the customer's own list price (D35). */
   private async checkPricing(invoice: SalesInvoice): Promise<readonly PricingVariance[]> {
     const pricing = this.deps.pricing;
@@ -912,6 +1028,7 @@ export class SalesInvoiceService {
       // on its next confirm: the request goes back to «طلب تعديل» here, in the
       // edit's own transaction, and the gate's rules are not touched.
       await this.deps.workflow?.reopen?.(confirmRequestIdOf(id));
+      await this.deps.workflow?.reopen?.(priceFloorRequestIdOf(id));
       if (this.deps.audit) {
         const figures = (line: SalesInvoiceLine) => ({
           qty: line.qty.toString(),

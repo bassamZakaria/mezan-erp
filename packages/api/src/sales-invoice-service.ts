@@ -14,6 +14,7 @@ export type SalesInvoiceServiceWiring = Pick<
   | "creditControl"
   | "promotions"
   | "pricing"
+  | "pricingGuard"
   | "taxPolicy"
   | "taxRates"
   | "customerTax"
@@ -55,6 +56,7 @@ export function buildSalesInvoiceService(wiring: SalesInvoiceServiceWiring, acto
     creditControl: wiring.creditControl,
     promotions: wiring.promotions,
     pricing: wiring.pricing,
+    pricingGuard: wiring.pricingGuard,
     taxPolicy: wiring.taxPolicy,
     taxRates: wiring.taxRates,
     taxRerating: salesTaxRerating(wiring.customerTax, wiring.itemTax),

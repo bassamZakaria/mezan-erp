@@ -52,7 +52,7 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
 
 let idSeq = 0;
 
-async function newApp() {
+async function newApp(extra: Partial<VoucherRoutesDeps> = {}) {
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
   const periods = createSqliteFiscalPeriodRepository();
@@ -99,6 +99,7 @@ async function newApp() {
     projects,
     now: () => "2026-08-22T10:00:00.000Z",
     idGen: () => `gen-${++idSeq}`,
+    ...extra,
   };
   return { vouchers: createVouchersRoutes(deps, insecureHeaderAuthContextResolver), root: createAllocationRoutes(deps, insecureHeaderAuthContextResolver), ledger };
 }
@@ -149,6 +150,42 @@ describe("vouchers routes", () => {
     expect((await res.json() as any)).toHaveLength(1);
     const none = await vouchers.fetch(req("/?type=supplier_payment"));
     expect((await none.json() as any)).toHaveLength(0);
+  });
+
+  it("a search for a customer's or a supplier's name finds their vouchers, in the rows and in the chip counts", async () => {
+    let directoryReads = 0;
+    const directory = (rows: { id: string; nameAr: string; nameEn: string }[]) => ({
+      findAll: async () => {
+        directoryReads += 1;
+        return rows;
+      },
+    });
+    const { vouchers } = await newApp({
+      customers: directory([{ id: "cust-1", nameAr: "مؤسسة النور للمقاولات", nameEn: "Al Noor Contracting" }]),
+      suppliers: directory([{ id: "sup-9", nameAr: "شركة الدلتا للتوريدات", nameEn: "Delta Supplies Co." }]),
+    });
+    await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify(collection) }));
+    await vouchers.fetch(req("/", { method: "POST", body: JSON.stringify({ ...collection, id: "v2", customerId: "cust-other" }) }));
+    await vouchers.fetch(
+      req("/", {
+        method: "POST",
+        body: JSON.stringify({ ...collection, id: "v3", voucherType: "supplier_payment", counterpartyGlAccountId: "2100", customerId: undefined, supplierId: "sup-9", amount: "10.00" }),
+      }),
+    );
+    expect(((await (await vouchers.fetch(req("/"))).json()) as unknown[]).length).toBe(3);
+
+    directoryReads = 0;
+    const byCustomer = (await (await vouchers.fetch(req(`/?search=${encodeURIComponent("النور")}`))).json()) as { id: string }[];
+    expect(byCustomer.map((row) => row.id)).toEqual(["v1"]);
+    expect(directoryReads).toBe(2);
+    const byEnglishName = (await (await vouchers.fetch(req(`/?search=${encodeURIComponent("  DELTA  ")}`))).json()) as { id: string }[];
+    expect(byEnglishName.map((row) => row.id)).toEqual(["v3"]);
+    const bySupplier = (await (await vouchers.fetch(req(`/?search=${encodeURIComponent("الدلتا")}`))).json()) as { id: string }[];
+    expect(bySupplier.map((row) => row.id)).toEqual(["v3"]);
+    const counts = (await (await vouchers.fetch(req(`/counts?search=${encodeURIComponent("النور")}`))).json()) as Record<string, number>;
+    expect(counts.all).toBe(1);
+    const nobody = (await (await vouchers.fetch(req(`/?search=${encodeURIComponent("لا أحد")}`))).json()) as unknown[];
+    expect(nobody).toEqual([]);
   });
 
   it("blocks a cash payment that would overdraw the drawer (422)", async () => {

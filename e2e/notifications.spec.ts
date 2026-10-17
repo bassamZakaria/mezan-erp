@@ -97,8 +97,11 @@ test.describe("Notification rules builder", () => {
 test.describe("Notifications inbox", () => {
   test("opens from صندوق الوارد and shows the real, engine-generated notifications", async ({ page }) => {
     await loginAsDemoUser(page);
-    await page.getByRole("button", { name: "صندوق الوارد", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "الإشعارات" })).toBeVisible();
+    // The rail button names its unread count — «صندوق الوارد (21)» — and drops
+    // the suffix only at zero, so an exact «صندوق الوارد» matched on an empty
+    // inbox alone.
+    await page.getByRole("button", { name: /^صندوق الوارد( \(\d+\))?$/ }).click();
+    await expect(page.getByRole("heading", { name: "الإشعارات", level: 1 })).toBeVisible();
 
     // At least 3 real notifications from the seeded sales/purchase returns
     // (packages/backend/src/demo-seed/platform.ts) — not asserting an exact
@@ -110,11 +113,21 @@ test.describe("Notifications inbox", () => {
         return Number(text.match(/عرض\s*\d+\s*من\s*(\d+)\s*إشعار/)?.[1] ?? 0);
       })
       .toBeGreaterThanOrEqual(3);
-    const salesReturnRow = page.locator("tr", { hasText: "تم تسجيل مرتجع مبيعات" }).first();
+    // The list is paged and newest-first, and sibling specs confirm dozens of
+    // invoices while this runs, so the seeded rows are found by search rather
+    // than by hoping they are still on the first page.
+    const search = page.getByRole("searchbox", { name: "ابحث في العنوان أو التفاصيل…" });
+    await search.fill("تم تسجيل مرتجع مبيعات");
+    const salesReturnRow = page.locator("tbody tr", { hasText: "تم تسجيل مرتجع مبيعات" }).first();
     await expect(salesReturnRow).toBeVisible();
     await expect(salesReturnRow.getByText(/تم تأكيد مرتجع مبيعات على المستند SRT-\d+/)).toBeVisible();
-    const purchaseReturnRow = page.locator("tr", { hasText: "تم تسجيل مرتجع مشتريات" });
+    await expect(page.locator("tbody tr", { hasText: "تم تسجيل مرتجع مشتريات" })).toHaveCount(0);
+
+    await search.fill("تم تسجيل مرتجع مشتريات");
+    const purchaseReturnRow = page.locator("tbody tr", { hasText: "تم تسجيل مرتجع مشتريات" }).first();
     await expect(purchaseReturnRow).toBeVisible();
+    await expect(page.locator("tbody tr", { hasText: "تم تسجيل مرتجع مبيعات" })).toHaveCount(0);
+    await search.fill("");
 
     await page.getByRole("button", { name: "تحديد الكل كمقروء" }).click();
     await expect(page.getByText("غير مقروء", { exact: true }).first().locator("xpath=..")).toContainText("0");

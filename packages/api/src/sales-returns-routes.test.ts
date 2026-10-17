@@ -858,9 +858,9 @@ describe("GET /sales-returns/counts and /stats", () => {
 });
 
 describe("listFilteredReturns — the filters actually narrow the rows AND the header together", () => {
-  async function seeded() {
+  async function seeded(customers?: Parameters<typeof createSalesReturnsRoutes>[6]) {
     const { service } = await buildService();
-    const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver);
+    const app = createSalesReturnsRoutes(service, insecureHeaderAuthContextResolver, undefined, undefined, undefined, undefined, customers);
     await app.fetch(
       req("/", {
         method: "POST",
@@ -891,6 +891,24 @@ describe("listFilteredReturns — the filters actually narrow the rows AND the h
     const res = await app.fetch(req("/?customerId=CUST-A", { permissions: "sales.return.view" }));
     const rows = (await res.json()) as { id: string }[];
     expect(rows.map((r) => r.id)).toEqual(["SR-CUST-A"]);
+  });
+
+  it("a search for the customer's name finds that customer's returns — Arabic or English, any case, padded — in the rows, the chips and the stats", async () => {
+    const app = await seeded({
+      findAll: async () => [
+        { id: "CUST-A", nameAr: "مؤسسة النور للمقاولات", nameEn: "Al Noor Contracting" },
+        { id: "CUST-B", nameAr: "شركة الأمل التجارية", nameEn: "Al Amal Trading" },
+      ],
+    });
+    const view = { permissions: "sales.return.view" };
+    for (const term of ["النور", "al noor", "  NOOR  "]) {
+      const rows = (await (await app.fetch(req(`/?search=${encodeURIComponent(term)}`, view))).json()) as { id: string }[];
+      expect(rows.map((r) => r.id), term).toEqual(["SR-CUST-A"]);
+    }
+    const search = `search=${encodeURIComponent("الأمل")}`;
+    expect(((await (await app.fetch(req(`/counts?${search}`, view))).json()) as Record<string, number>).all).toBe(1);
+    expect(((await (await app.fetch(req(`/stats?${search}`, view))).json()) as { count: number }).count).toBe(1);
+    expect(await (await app.fetch(req(`/?search=${encodeURIComponent("لا أحد")}`, view))).json()).toEqual([]);
   });
 
   it("search matches the source invoice number and excludes the non-matching row", async () => {

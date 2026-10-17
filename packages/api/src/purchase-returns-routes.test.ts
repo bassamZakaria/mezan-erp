@@ -450,9 +450,9 @@ describe("purchase-returns router — cancel", () => {
 });
 
 describe("purchase-returns router — list, counts, stats and warehouse scope", () => {
-  async function seedTwoReturns() {
+  async function seedTwoReturns(suppliers?: Parameters<typeof createPurchaseReturnsRoutes>[4]) {
     const rig = await buildRig();
-    const app = createPurchaseReturnsRoutes(rig.service, insecureHeaderAuthContextResolver);
+    const app = createPurchaseReturnsRoutes(rig.service, insecureHeaderAuthContextResolver, undefined, undefined, suppliers);
     await rig.stockService.recordOpeningBalance({
       adjustmentId: "OPEN-1",
       warehouseId: "WH1",
@@ -516,6 +516,25 @@ describe("purchase-returns router — list, counts, stats and warehouse scope", 
     expect(body.confirmed).toBe(1);
     // PRT-WH1 is the only confirmed one: 2 * 60.00 = 120.00.
     expect(body.returnedTotal).toBe("120.000000");
+  });
+
+  it("a search for the supplier's name finds that supplier's returns — Arabic or English, any case, padded — in the rows, the chips and the stats", async () => {
+    const { app } = await seedTwoReturns({
+      findAll: async () => [
+        { id: "SUP1", nameAr: "شركة الدلتا للتوريدات", nameEn: "Delta Supplies Co." },
+        { id: "SUP2", nameAr: "مصنع الوادي الأخضر", nameEn: "Green Valley Factory" },
+      ],
+    });
+    const view = { permissions: "purchases.return.view" };
+    for (const term of ["الوادي", "green valley", "  GREEN  "]) {
+      const rows = (await json(await app.fetch(req(`/?search=${encodeURIComponent(term)}`, view)))) as Array<{ id: string }>;
+      expect(rows.map((r) => r.id), term).toEqual(["PRT-WH2"]);
+    }
+    const search = `search=${encodeURIComponent("الدلتا")}`;
+    expect(((await json(await app.fetch(req(`/?${search}`, view)))) as Array<{ id: string }>).map((r) => r.id)).toEqual(["PRT-WH1"]);
+    expect(((await json(await app.fetch(req(`/counts?${search}`, view)))) as Record<string, number>).all).toBe(1);
+    expect(((await json(await app.fetch(req(`/stats?${search}`, view)))) as { count: number }).count).toBe(1);
+    expect(await json(await app.fetch(req(`/?search=${encodeURIComponent("لا أحد")}`, view)))).toEqual([]);
   });
 
   it("?supplierId= and ?search= narrow an already warehouse-scoped set", async () => {

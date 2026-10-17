@@ -161,3 +161,47 @@ export function loadScreenCatalog(): ScreenEntry[] {
     routed: routedKeys.has(key),
   }));
 }
+
+export enum ScreenDoor {
+  Public = "public",
+  Platform = "platform",
+  Tenant = "tenant",
+}
+
+export enum AddressSource {
+  BankStatement = "bank-statement",
+  LandedCost = "landed-cost",
+  ClosedFiscalPeriod = "closed-fiscal-period",
+  OpenFiscalPeriod = "open-fiscal-period",
+  PlatformTenant = "platform-tenant",
+  PlatformPlan = "platform-plan",
+}
+
+export const ADDRESS_PLACEHOLDER = "{id}";
+
+export interface AddressedScreen {
+  readonly key: string;
+  readonly door: ScreenDoor;
+  readonly path: string;
+  readonly addressedBy?: AddressSource;
+}
+
+export const ADDRESSED_SCREENS: readonly AddressedScreen[] = [
+  { key: "bank-reconciliation-workspace", door: ScreenDoor.Tenant, path: `/money/bank-reconciliation/${ADDRESS_PLACEHOLDER}`, addressedBy: AddressSource.BankStatement },
+  { key: "landed-cost-document", door: ScreenDoor.Tenant, path: `/buy/landed-costs/${ADDRESS_PLACEHOLDER}`, addressedBy: AddressSource.LandedCost },
+  { key: "landed-cost-new", door: ScreenDoor.Tenant, path: "/buy/landed-costs/new" },
+  { key: "recurring-journals-due", door: ScreenDoor.Tenant, path: "/money/recurring-journals/due" },
+  { key: "recurring-journals-history", door: ScreenDoor.Tenant, path: "/money/recurring-journals/history" },
+  { key: "period-close-closed-month", door: ScreenDoor.Tenant, path: `/money/period-close?period=${ADDRESS_PLACEHOLDER}`, addressedBy: AddressSource.ClosedFiscalPeriod },
+  { key: "period-close-open-month", door: ScreenDoor.Tenant, path: `/money/period-close?period=${ADDRESS_PLACEHOLDER}`, addressedBy: AddressSource.OpenFiscalPeriod },
+  { key: "unlock-link", door: ScreenDoor.Public, path: "/unlock" },
+  { key: "signup", door: ScreenDoor.Public, path: "/signup" },
+  { key: "owner-hand-over", door: ScreenDoor.Public, path: "/signup/owner-handover" },
+  { key: "platform-login", door: ScreenDoor.Public, path: "/platform/login" },
+  { key: "platform-tenants", door: ScreenDoor.Platform, path: "/platform/tenants" },
+  { key: "platform-tenant-detail", door: ScreenDoor.Platform, path: `/platform/tenants/${ADDRESS_PLACEHOLDER}`, addressedBy: AddressSource.PlatformTenant },
+  { key: "platform-plans", door: ScreenDoor.Platform, path: "/platform/plans" },
+  { key: "platform-plan-editor", door: ScreenDoor.Platform, path: `/platform/plans/${ADDRESS_PLACEHOLDER}`, addressedBy: AddressSource.PlatformPlan },
+  { key: "platform-operators", door: ScreenDoor.Platform, path: "/platform/users" },
+  { key: "platform-security-events", door: ScreenDoor.Platform, path: "/platform/security" },
+];

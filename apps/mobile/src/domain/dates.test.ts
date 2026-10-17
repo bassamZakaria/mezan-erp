@@ -1,9 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { addDaysIso, formatAsOf, todayIso } from "./dates";
 
 describe("todayIso", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("returns a calendar day, not an instant", () => {
     expect(todayIso()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("is the day on the device's own calendar half an hour after midnight, not the day UTC is still in", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-14T00:30:00"));
+    expect(todayIso()).toBe("2026-10-14");
   });
 });
 

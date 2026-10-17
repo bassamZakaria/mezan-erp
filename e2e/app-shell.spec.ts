@@ -48,12 +48,18 @@ test.describe("App shell", () => {
     await expect(page.getByText("مدير الشركة")).toBeVisible();
   });
 
-  test("the column's foot shows the single-branch scope as a label and the warehouse scope as a switcher", async ({ page }) => {
+  test("the column's foot offers the branch scope and the warehouse scope as switchers", async ({ page }) => {
     const rail = page.getByRole("navigation", { name: "التنقل بين مساحات العمل" });
-    // Seed data has exactly one branch — a single option renders as a static
-    // label (ScopeSwitcher.tsx), not a dropdown offering a choice of one.
-    await expect(rail.getByTitle("الفرع الحالي: الفرع الرئيسي")).toBeVisible();
+    const branchScope = rail.getByRole("combobox", { name: "الفرع الحالي" });
+    await expect(branchScope).toHaveText("كل الفروع");
     await expect(rail.getByRole("combobox", { name: "المستودع الحالي" })).toHaveText("كل المستودعات");
+
+    await branchScope.click();
+    await expect(page.getByRole("option", { name: "كل الفروع", exact: true })).toBeVisible();
+    await expect(page.getByRole("option", { name: "الفرع الرئيسي", exact: true })).toBeVisible();
+    await expect(page.getByRole("option", { name: "فرع الإسكندرية", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(branchScope).toHaveText("كل الفروع");
   });
 
   test("صندوق الوارد opens the notifications inbox from row one", async ({ page }) => {

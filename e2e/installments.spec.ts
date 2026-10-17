@@ -33,7 +33,7 @@ async function createCustomer(page: Page, name: string): Promise<void> {
  */
 async function createItem(page: Page, name: string, salePrice: string): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
-  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
   await page.getByRole("button", { name: "إضافة صنف" }).first().click();
   await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
   // Service items skip inventory tracking, so they stay sellable without

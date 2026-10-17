@@ -17,6 +17,7 @@ import { useReport, type ReportResult } from "../data/reports-hooks";
 import { useDashboardGate, useSalesInvoices } from "../data/hooks";
 import type { ApiError, SalesInvoiceDTO } from "../data/hooks";
 import type { UseQueryResult } from "@tanstack/react-query";
+import { localIsoDay, monthEndIsoOf, monthStartIsoOf } from "../lib/dates";
 
 /**
  * The dashboard's non-summary data. `GET /dashboard/summary` backs the KPI
@@ -33,8 +34,6 @@ export interface ReportWindow {
   readonly to: string;
 }
 
-const isoDate = (d: Date) => d.toISOString().slice(0, 10);
-
 /**
  * Concrete bounds for the report endpoints. They default to the CURRENT MONTH
  * when a bound is blank, so "كل الفترات" has to send explicit outer bounds
@@ -42,10 +41,10 @@ const isoDate = (d: Date) => d.toISOString().slice(0, 10);
  * with the summary they sit next to.
  */
 export function reportWindow(range: DashboardRangeValue, now = new Date()): ReportWindow {
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
+  const y = now.getFullYear();
+  const m = now.getMonth();
   if (range === "month") {
-    return { from: isoDate(new Date(Date.UTC(y, m, 1))), to: isoDate(new Date(Date.UTC(y, m + 1, 0))) };
+    return { from: monthStartIsoOf(y, m), to: monthEndIsoOf(y, m) };
   }
   if (range === "year") return { from: `${y}-01-01`, to: `${y}-12-31` };
   return { from: "1900-01-01", to: `${y + 50}-12-31` };
@@ -53,10 +52,10 @@ export function reportWindow(range: DashboardRangeValue, now = new Date()): Repo
 
 /** The window immediately before {@link reportWindow}'s — `null` for "all periods", which has no predecessor. */
 export function previousReportWindow(range: DashboardRangeValue, now = new Date()): ReportWindow | null {
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
+  const y = now.getFullYear();
+  const m = now.getMonth();
   if (range === "month") {
-    return { from: isoDate(new Date(Date.UTC(y, m - 1, 1))), to: isoDate(new Date(Date.UTC(y, m, 0))) };
+    return { from: monthStartIsoOf(y, m - 1), to: monthEndIsoOf(y, m - 1) };
   }
   if (range === "year") return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
   return null;
@@ -173,7 +172,7 @@ const DUE_SOON_DAYS = 30;
 function daysUntil(dueDate: string, today: Date): number {
   const due = Date.parse(`${dueDate}T00:00:00.000Z`);
   if (Number.isNaN(due)) return Number.POSITIVE_INFINITY;
-  const start = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const start = Date.parse(`${localIsoDay(today)}T00:00:00.000Z`);
   return Math.round((due - start) / 86_400_000);
 }
 

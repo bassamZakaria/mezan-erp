@@ -1067,7 +1067,7 @@ export function createManufacturingRoutes(
 
   app.get("/dashboard", gate("manufacturing.wo.view"), async (c) => {
     const orders = await deps.workOrders.list();
-    const today = (deps.now ? deps.now() : new Date().toISOString()).slice(0, 10);
+    const today = await tenantDay(c, deps.now?.() ?? new Date().toISOString());
     const month = today.slice(0, 7);
 
     const active = orders.filter((o) => o.status === "in_progress" || o.status === "planned");

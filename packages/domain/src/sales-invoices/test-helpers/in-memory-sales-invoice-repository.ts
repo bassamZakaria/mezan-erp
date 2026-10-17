@@ -69,7 +69,9 @@ export class InMemorySalesInvoiceRepository implements SalesInvoiceRepository {
       .filter((inv) => (filter.salespersonId ? inv.salespersonId === filter.salespersonId : true))
       .filter((inv) =>
         term
-          ? (inv.docNo ?? "").toLowerCase().includes(term) || (inv.customerNameAr ?? "").toLowerCase().includes(term)
+          ? (inv.docNo ?? "").toLowerCase().includes(term) ||
+            (inv.customerNameAr ?? "").toLowerCase().includes(term) ||
+            (filter.searchCustomerIds ?? []).includes(inv.customerId)
           : true,
       )
       .sort((a, b) => {

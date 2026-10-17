@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { StockLedgerService, Qty, type Account, type PurchasePolicy } from "@mezan/domain";
+import { StockLedgerService, Qty, createSupplier, type Account, type PurchasePolicy } from "@mezan/domain";
 import {
   createSqliteUnitOfWork,
   createSqliteLedgerStore,
@@ -8,6 +8,7 @@ import {
   createSqlitePurchasingStores,
   createSqlitePurchaseOrderStore,
   createSqliteStockLedgerStore,
+  createSqliteSupplierRepository,
   createSqliteTaxRateRepository,
 } from "@mezan/persistence";
 import { createApp } from "./app.js";
@@ -32,7 +33,7 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   };
 }
 
-async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy; withVersions?: boolean; withTaxRates?: boolean } = {}) {
+async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy; withVersions?: boolean; withTaxRates?: boolean; withSuppliers?: boolean } = {}) {
   const uow = createSqliteUnitOfWork();
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
@@ -79,8 +80,16 @@ async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy; wit
     await taxRates.create(rate("VAT-EXPORT", 0, "V001"));
   }
 
+  const suppliers = opts.withSuppliers ? createSqliteSupplierRepository() : undefined;
+  if (suppliers) {
+    closers.push(suppliers);
+    await suppliers.insert(createSupplier({ id: "sup-1", code: "S000001", nameAr: "شركة الدلتا للتوريدات", nameEn: "Delta Supplies Co." }));
+    await suppliers.insert(createSupplier({ id: "sup-2", code: "S000002", nameAr: "مصنع الوادي الأخضر", nameEn: "Green Valley Factory" }));
+  }
+
   const app = createApp(uow, {
     taxRateRepo: taxRates,
+    supplierStore: suppliers,
     purchases: {
       orderVersions: versionedOrders ? { versions: versionedOrders.versions } : undefined,
       orders: versionedOrders ?? purchasing.orders,
@@ -490,8 +499,8 @@ describe("purchases-routes — cancel endpoints (require `layers`)", () => {
 });
 
 describe("purchases-routes — the list surfaces the screens actually read", () => {
-  async function seededChain() {
-    const harness = await newApp();
+  async function seededChain(opts: Parameters<typeof newApp>[0] = {}) {
+    const harness = await newApp(opts);
     const { app } = harness;
     await app.fetch(req("/purchases/orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(orderBody) }));
     await app.fetch(req("/purchases/orders/po-1/confirm", { method: "POST", permissions: ADMIN }));
@@ -594,6 +603,42 @@ describe("purchases-routes — the list surfaces the screens actually read", () 
 
     const stats = await app.fetch(req("/purchases/invoices/stats", { permissions: ADMIN }));
     expect(JSON.stringify(await stats.json())).toContain("353.400000");
+  });
+
+  it("a search for the supplier's name finds its orders, receipts and invoices — Arabic or English, any case, padded — in the rows, the chips and the stats alike", async () => {
+    const { app } = await seededChain({ withSuppliers: true });
+    await invoiceFromReceipt(app);
+    await app.fetch(req("/purchases/orders", { method: "POST", permissions: ADMIN, body: JSON.stringify({ ...orderBody, id: "po-2", supplierId: "sup-2" }) }));
+    await app.fetch(req("/purchases/orders/po-2/confirm", { method: "POST", permissions: ADMIN }));
+    await app.fetch(req("/purchases/receipts", { method: "POST", permissions: ADMIN, body: JSON.stringify({ id: "gr-2", purchaseOrderId: "po-2", date: "2026-08-22" }) }));
+    await app.fetch(
+      req("/purchases/invoices", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({ id: "pi-2", supplierId: "sup-2", date: "2026-08-22", branchId: "MAIN", warehouseId: "MAIN-WH", lines: [{ itemId: "item-C", kind: "inventory", qty: "4", unitCost: "50.00", taxRatePercent: 14 }] }),
+      }),
+    );
+    const idsOf = async (path: string) => ((await (await app.fetch(req(path, { permissions: ADMIN }))).json()) as { id: string }[]).map((row) => row.id);
+    const bodyOf = async (path: string) => (await (await app.fetch(req(path, { permissions: ADMIN }))).json()) as Record<string, unknown>;
+
+    for (const term of ["الدلتا", "delta supplies", "  DELTA  "]) {
+      const search = `search=${encodeURIComponent(term)}`;
+      expect(await idsOf(`/purchases/orders?${search}`), `orders · ${term}`).toEqual(["po-1"]);
+      expect(await idsOf(`/purchases/receipts?${search}`), `receipts · ${term}`).toEqual(["gr-1"]);
+      expect(await idsOf(`/purchases/invoices?${search}`), `invoices · ${term}`).toEqual(["pi-1"]);
+    }
+    const search = `search=${encodeURIComponent("الدلتا")}`;
+    expect((await bodyOf(`/purchases/orders/counts?${search}`)).all).toBe(1);
+    expect((await bodyOf(`/purchases/orders/stats?${search}`)).count).toBe(1);
+    expect((await bodyOf(`/purchases/receipts/counts?${search}`)).all).toBe(1);
+    expect((await bodyOf(`/purchases/invoices/counts?${search}`)).all).toBe(1);
+    expect(await idsOf(`/purchases/invoices?${search}&page=1&pageSize=25`)).toEqual(["pi-1"]);
+
+    const nobody = `search=${encodeURIComponent("لا أحد")}`;
+    for (const list of ["orders", "receipts", "invoices"]) {
+      expect(await idsOf(`/purchases/${list}?${nobody}`), list).toEqual([]);
+    }
+    expect(await idsOf(`/purchases/orders?search=${encodeURIComponent("الوادي")}`)).toEqual(["po-2"]);
   });
 
   it("returns an empty list for a filter that matches nothing, not the whole table", async () => {

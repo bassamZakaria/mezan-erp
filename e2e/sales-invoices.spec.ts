@@ -2,6 +2,23 @@ import { test, expect, type Page, type Locator } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
 import { brokenLabelField } from "./support/broken-label";
+import {
+  apiGet,
+  creditOn,
+  debitOn,
+  expectPostedEntryOf,
+  journalEntriesForDocument,
+  journalEntry,
+  microUnits,
+} from "./support/ledger";
+
+const TRADE_RECEIVABLES = "1105";
+
+interface ControlAccountCheck {
+  readonly key: string;
+  readonly difference: string;
+  readonly matched: boolean;
+}
 
 /**
  * Sales Invoices (فواتير المبيعات) — real API-backed screen
@@ -58,7 +75,7 @@ async function createTreasuryAccount(page: Page, name: string, code: string): Pr
 
 async function createItem(page: Page, name: string, salePrice: string): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
-  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
   await page.getByRole("button", { name: "إضافة صنف" }).first().click();
   // Items' add/edit is a full sub-PAGE, not a dialog — and its "نوع الصنف"
   // field is a custom portaled `Select` (packages/ui/src/primitives/Select.tsx),
@@ -75,7 +92,7 @@ async function createItem(page: Page, name: string, salePrice: string): Promise<
   await price.fill(salePrice);
   await price.press("Tab");
   await page.getByRole("button", { name: "إضافة", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
 }
 
 /** Types into an EntityPicker combobox and clicks the matching option button. */
@@ -139,7 +156,16 @@ test.describe("Sales Invoices", () => {
     await expect(row.getByText("مؤكد", { exact: true })).toBeVisible();
 
     await row.click();
-    await expect(page.getByRole("heading", { name: /^INV-\d+$/ })).toBeVisible();
+    const invoiceHeading = page.getByRole("heading", { name: /^INV-\d+$/ });
+    await expect(invoiceHeading).toBeVisible();
+    const invoiceNo = (await invoiceHeading.innerText()).trim();
+
+    // «مؤكد» with no entry behind it is the defect, not the proof (D2, D3): one
+    // line at 100.00 plus the default 14% VAT must sit on trade receivables.
+    const invoiceEntries = await journalEntriesForDocument(page, invoiceNo);
+    expect(invoiceEntries, `journal entries posted for ${invoiceNo}`).toHaveLength(1);
+    expectPostedEntryOf(invoiceEntries[0]!, "114");
+    expect(debitOn(invoiceEntries[0]!, TRADE_RECEIVABLES)).toBe(microUnits("114"));
 
     await expect(page.getByText("تأثيرات هذه الفاتورة")).toBeVisible();
     await expect(page.getByText(/تم صرف الأصناف المخزنية/)).toBeVisible();
@@ -152,9 +178,32 @@ test.describe("Sales Invoices", () => {
     // EntityPicker — chosen by clicking it then its option.
     await page.getByRole("combobox", { name: "الخزينة المستلمة" }).click();
     await page.getByRole("option", { name: treasuryName }).click();
+    const collected = page.waitForResponse((r) => r.request().method() === "POST" && /\/sales-invoices\/[^/]+\/payments$/.test(new URL(r.url()).pathname));
     await page.getByRole("button", { name: "تحصيل دفعة" }).click();
+    const collectionResponse = await collected;
+    expect(collectionResponse.status()).toBe(200);
+    const paid = (await collectionResponse.json()) as { voucherId: string; amountPaid: string };
+    expect(microUnits(paid.amountPaid)).toBe(microUnits("40"));
+    const collection = await apiGet<{ status: string; journalEntryId: string | null; treasuryGlAccountId: string }>(
+      page,
+      `/vouchers/${paid.voucherId}`,
+    );
 
     await expect(page.getByText("مدفوع جزئياً").first()).toBeVisible();
+
+    // «مدفوع جزئياً» used to be a flag flipped with nothing posted (D40). The 40.00
+    // has to be in the drawer's GL account and off trade receivables — and the
+    // customer sub-ledger still has to tie to its control account afterwards.
+    expect(collection.status).toBe("confirmed");
+    expect(collection.journalEntryId, "the collection must carry its journal entry").toBeTruthy();
+    const collectionEntry = await journalEntry(page, collection.journalEntryId!);
+    expectPostedEntryOf(collectionEntry, "40");
+    expect(debitOn(collectionEntry, collection.treasuryGlAccountId)).toBe(microUnits("40"));
+    expect(creditOn(collectionEntry, TRADE_RECEIVABLES)).toBe(microUnits("40"));
+    const { rows: controls } = await apiGet<{ rows: ControlAccountCheck[] }>(page, "/reconciliation");
+    const receivables = controls.find((c) => c.key === "ar");
+    expect(receivables, "the AR row of the reconciliation").toBeTruthy();
+    expect(microUnits(receivables!.difference), "customer sub-ledger vs GL 1105").toBe(0n);
 
     await page.getByRole("button", { name: "رجوع" }).click();
     await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();

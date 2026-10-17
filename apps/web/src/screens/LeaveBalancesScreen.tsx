@@ -10,7 +10,7 @@ import { useUrlNumber } from "../lib/url-state";
 
 /** أرصدة الإجازات (Leave Balances) — per-employee, per-leave-type position for a year: what accrual credited, what carried over, what approved leave consumed. */
 
-const CURRENT_YEAR = new Date().getUTCFullYear();
+const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1];
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 

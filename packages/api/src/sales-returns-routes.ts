@@ -39,6 +39,7 @@ import { tenantDay, tenantToday } from "./tenant-day.js";
 import { handleReturnJournalTax, type ReturnJournalTaxPort } from "./return-journal-tax.js";
 import { VOID_REASON_REQUIRED, isReturnMirror, voidReasonOf, voidReasonsOf, voidReturn } from "./return-void.js";
 import { DOCUMENT_NOT_FOUND, MirrorAccess, createVisibleDocumentResolver } from "./document-visibility.js";
+import { normalizedSearchTerm, partyIdsNamed, type PartyDirectory } from "./party-name-search.js";
 
 type CreateSalesReturnLineInput = z.infer<typeof createSalesReturnSchema>["lines"][number];
 
@@ -133,6 +134,7 @@ export function createSalesReturnsRoutes(
   refunds?: SalesReturnRefundPort,
   ownSalespersonId?: (userId: string) => Promise<string | null>,
   journalTax?: ReturnJournalTaxPort<SalesReturnLine>,
+  customers?: PartyDirectory,
 ) {
   const app = new Hono();
   const storedBranches = storedBranchesById(
@@ -333,15 +335,17 @@ export function createSalesReturnsRoutes(
     if (filter.customerId) {
       rows = rows.filter((doc) => doc.lines.some((line) => line.customerId === filter.customerId));
     }
-    const term = filter.search?.trim().toLowerCase();
+    const term = normalizedSearchTerm(filter.search);
     if (term) {
+      const named = await partyIdsNamed(term, customers);
       rows = rows.filter(
         (doc) =>
           (doc.docNo ?? "").toLowerCase().includes(term) ||
           doc.lines.some(
             (line) =>
               (line.sourceInvoiceNumber ?? "").toLowerCase().includes(term) ||
-              line.customerId.toLowerCase().includes(term),
+              line.customerId.toLowerCase().includes(term) ||
+              named.has(line.customerId),
           ),
       );
     }

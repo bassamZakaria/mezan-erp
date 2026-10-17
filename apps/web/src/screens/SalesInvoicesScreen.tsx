@@ -99,7 +99,7 @@ import { ConfirmRecalculationNotice, confirmAcknowledgementOf, twoDecimals } fro
 import { VoidReasonNotice, VoidSalesInvoiceAction } from "./VoidSalesInvoiceAction";
 import { UnnamedTaxNotice } from "./UnnamedTaxNotice";
 import { DERIVED_TAX, TaxRateField, appliedTaxPercent, chosenTaxRateId, lineTaxPayload, postedTaxRateLabel, type TaxChoice } from "./tax-rate-field";
-import { todayIso } from "../lib/dates";
+import { addDaysIso, todayIso } from "../lib/dates";
 import { EMPTY } from "../lib/empty";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -506,9 +506,7 @@ function CreateInvoicePage({
   // it the moment a customer is chosen and lets the user override it.
   useEffect(() => {
     if (dueDateTouched || !customerRecord) return;
-    const due = new Date(date);
-    due.setDate(due.getDate() + (customerRecord.paymentTermsDays ?? 0));
-    setDueDate(due.toISOString().slice(0, 10));
+    setDueDate(addDaysIso(date, customerRecord.paymentTermsDays ?? 0));
   }, [customerRecord, date, dueDateTouched]);
 
   const acceptedQuotes = (quotesQuery.data ?? []).filter((q) => q.status === "accepted");
@@ -2016,9 +2014,23 @@ export function SalesInvoicesScreen() {
 
   // A filter that changes the result set must not leave the pager on a page
   // that no longer exists — the server would answer with nothing at all.
+  // Only a CHANGE resets it: running on mount sent a reloaded or linked
+  // `?page=3` back to the first page before its rows were ever asked for.
+  const filterKey = JSON.stringify([
+    statusFilter,
+    customerFilter?.id ?? null,
+    fromDate,
+    toDate,
+    branchFilter,
+    warehouseFilter,
+    debouncedSearch,
+  ]);
+  const settledFilterKey = useRef(filterKey);
   useEffect(() => {
+    if (settledFilterKey.current === filterKey) return;
+    settledFilterKey.current = filterKey;
     setPage(1);
-  }, [statusFilter, customerFilter, fromDate, toDate, branchFilter, warehouseFilter, debouncedSearch, setPage]);
+  }, [filterKey, setPage]);
   const listBranches = useBranches().data ?? [];
   const listWarehouses = useWarehouses().data ?? [];
   const listCustomers = useCustomers().data ?? [];

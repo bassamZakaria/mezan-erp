@@ -104,18 +104,23 @@ test.describe("FX Revaluation", () => {
     await expect(page.getByRole("heading", { name: "إعادة تقييم العملات الأجنبية" })).toBeVisible();
   });
 
-  test("previewing with no foreign-currency exposure shows a genuine empty result, not a crash", async ({ page }) => {
+  test("previewing revalues the seeded dollar bank balance, and the row's own figures foot", async ({ page }) => {
     await expect(page.getByText('اضغط "معاينة" لعرض الأرصدة المفتوحة وحساب فروق العملة.')).toBeVisible();
 
     await page.getByRole("button", { name: "معاينة" }).click();
 
-    // "لا توجد أرصدة مفتوحة." now labels a DIFFERENT, always-visible "open
-    // balances by party" table further down the screen — the preview
-    // RESULT's own empty state is this EmptyState title/description pair.
-    await expect(page.getByText("لا توجد أرصدة عملات أجنبية مفتوحة")).toBeVisible();
-    await expect(
-      page.getByText("لا توجد أرصدة بعملة أجنبية مفتوحة في هذا التاريخ — إعادة التقييم تحتاج رصيداً قائماً بعملة غير العملة الأساسية."),
-    ).toBeVisible();
+    const usdRow = page.locator("table tbody tr").filter({ has: page.getByRole("cell", { name: "حساب بنكي بالدولار", exact: true }) });
+    await expect(usdRow).toHaveCount(1);
+    await expect(page.getByText("لا توجد أرصدة عملات أجنبية مفتوحة")).toHaveCount(0);
+    await expect(usdRow.locator("td").nth(1)).toHaveText("USD");
+
+    const figure = async (index: number): Promise<number> => Number((await usdRow.locator("td").nth(index).innerText()).replace(/,/g, ""));
+    const [foreign, rate, book, revalued, difference] = [await figure(2), await figure(3), await figure(4), await figure(5), await figure(6)];
+    expect(foreign).toBeGreaterThan(0);
+    expect(rate).toBeGreaterThan(1);
+    expect(Math.round(revalued * 100)).toBe(Math.round(foreign * rate * 100));
+    expect(Math.round(difference * 100)).toBe(Math.round(revalued * 100) - Math.round(book * 100));
+    expect(difference).not.toBe(0);
   });
 });
 
@@ -170,23 +175,24 @@ test.describe("ETA e-Invoicing setup", () => {
 
   test("mapping the seeded item units raises the readiness percentage", async ({ page }) => {
     // The demo seed already fills tax registration, activity code, address,
-    // branch codes and API credentials (67% ready — 6 of 9 items), so
+    // branch codes and API credentials, so
     // filling "رقم التسجيل الضريبي *" again changes nothing: it's already
     // `complete: true` (GET /eta/config). "ربط الوحدات" (unit mapping) is one
-    // of the 3 items the seed deliberately leaves incomplete (8 of 8 seeded
-    // units unmapped), so it's what this test drives to completion instead.
+    // of the items the seed deliberately leaves incomplete (it maps PCS alone,
+    // demo-seed.ts — 7 of 8 seeded units unmapped), so it's what this test
+    // drives to completion instead.
     const before = Number((await page.getByText(/الجاهزية: \d+%/).innerText()).match(/(\d+)%/)?.[1] ?? "0");
 
     const tablist = page.getByRole("tablist");
     await tablist.getByRole("tab", { name: "ربط الوحدات" }).click();
 
-    // "تطبيق الاقتراحات" maps every unit it has a confident suggestion for in
-    // one call — 7 of the 8 seeded units (packages/backend/src/seed.ts's
-    // SEED_ITEM_UNITS), leaving only "خدمة" (Service, code SVC) unresolved.
+    // "تطبيق الاقتراحات" maps every UNMAPPED unit it has a confident suggestion
+    // for in one call — 6 of the 7 the seed left (packages/backend/src/seed.ts's
+    // SEED_ITEM_UNITS less PCS), leaving only "خدمة" (Service, code SVC) unresolved.
     const applied = page.waitForResponse((r) => r.url().includes("/eta/unit-mappings/apply-suggestions"));
     await page.getByRole("button", { name: "تطبيق الاقتراحات" }).click();
     await applied;
-    await expect(page.getByText(/الاقتراحات المُطبَّقة: 7/)).toBeVisible();
+    await expect(page.getByRole("status")).toHaveText("الاقتراحات المُطبَّقة: 6 — ووحدات بلا اقتراح: 1.");
 
     // Map the one unit with no suggestion by hand — "يوم" (Day) is a
     // reasonable authority code for a service unit — so "ربط الوحدات"

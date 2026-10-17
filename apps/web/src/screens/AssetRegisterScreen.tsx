@@ -35,6 +35,7 @@ import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useUrlNumber, useUrlSearch } from "../lib/url-state";
 import { EMPTY } from "../lib/empty";
+import { todayIso } from "../lib/dates";
 
 /** سجل الأصول (Asset Register) — docs/archive/catalog/07 §"سجل الأصول". List + detail + register-asset panel. */
 
@@ -161,7 +162,7 @@ export function AssetRegisterScreen() {
   const [rateEffectiveFrom, setRateEffectiveFrom] = useState("");
   const [rateError, setRateError] = useState<string | null>(null);
   const [disposeOpen, setDisposeOpen] = useState(false);
-  const [disposeDate, setDisposeDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [disposeDate, setDisposeDate] = useState(() => todayIso());
   const [disposeProceeds, setDisposeProceeds] = useState<number | null>(null);
   const [disposeError, setDisposeError] = useState<string | null>(null);
   const proceedsAccountsQuery = useDisposalProceedsAccounts();

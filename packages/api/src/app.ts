@@ -1284,7 +1284,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/gl/opening-balance-duplicates", createOpeningBalanceDuplicatesRoutes(options.openingBalanceDuplicates, resolveAuth));
   }
   if (options.vouchers) {
-    app.route("/vouchers", createVouchersRoutes(options.vouchers, resolveAuth));
+    app.route(
+      "/vouchers",
+      createVouchersRoutes(
+        { ...options.vouchers, customers: options.vouchers.customers ?? options.customerStore, suppliers: options.vouchers.suppliers ?? options.supplierStore },
+        resolveAuth,
+      ),
+    );
     app.route("/", createAllocationRoutes(options.vouchers, resolveAuth));
   }
   if (options.cheques) {
@@ -1398,6 +1404,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/sales-quotes", createSalesQuotesRoutes(
         {
           ...salesQuotes,
+          customers: salesQuotes.customers ?? options.customerStore,
           taxRates: salesQuotes.taxRates ?? options.taxRateRepo,
           customerTax: salesQuotes.customerTax ?? (options.customerStore ? customerTaxProfileFrom(options.customerStore) : undefined),
           taxPolicy: salesQuotes.taxPolicy ?? salesTaxPolicy,
@@ -1416,13 +1423,14 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         options.salesReturns.refunds,
         async (userId) => (await uow.users.findById(userId))?.employeeId ?? null,
         options.salesReturns.journalTax,
+        options.customerStore,
       ),
     );
   }
   if (options.purchaseReturns) {
     app.route(
       "/purchase-returns",
-      createPurchaseReturnsRoutes(options.purchaseReturns.service, (options.purchaseReturns.resolveAuthContext ?? resolveAuth), options.purchaseReturns.invoices, options.purchaseReturns.journalTax),
+      createPurchaseReturnsRoutes(options.purchaseReturns.service, (options.purchaseReturns.resolveAuthContext ?? resolveAuth), options.purchaseReturns.invoices, options.purchaseReturns.journalTax, options.supplierStore),
     );
   }
   if (options.landedCosts) {
@@ -1608,6 +1616,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           orders: purchases.orders,
           receipts: purchases.receipts,
           invoices: purchases.invoices,
+          suppliers: options.supplierStore,
           // N-9: declared on the option but never forwarded, so the whole
           // optimistic-concurrency guard was dead through `createApp`.
           orderVersions: purchases.orderVersions,
@@ -1999,6 +2008,7 @@ function wireSalesInvoices(options: CreateAppOptions, uow: UnitOfWork): SalesInv
     promotions,
     quota: salesInvoices.quota ?? createSalesInvoiceQuota(salesInvoices.repo, (fn) => uow.transaction(fn)),
     users: salesInvoices.users ?? uow.users,
+    customers: salesInvoices.customers ?? customerStore,
     returns: salesInvoices.returns ?? options.salesReturns?.service,
     currencyCheck: salesInvoices.currencyCheck ?? (settingsStore ? createCurrencyCheck(settingsStore) : undefined),
     exchangeRates: salesInvoices.exchangeRates ?? options.exchangeRateRepo,

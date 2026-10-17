@@ -58,6 +58,7 @@ import { storedBranchesById } from "./stored-branches.js";
 import { tenantDay } from "./tenant-day.js";
 import { duplicateIdRefusal } from "./duplicate-id.js";
 import { DuplicateRecordIdError } from "@mezan/domain";
+import { normalizedSearchTerm, partyIdsNamed, type PartyDirectory } from "./party-name-search.js";
 
 /**
  * External dependencies the sales-quote routes bind the domain service to.
@@ -68,6 +69,7 @@ import { DuplicateRecordIdError } from "@mezan/domain";
  */
 export interface SalesQuoteRoutesDeps {
   readonly repo: SalesQuoteRepository;
+  readonly customers?: PartyDirectory;
   /**
    * N-9 — optimistic concurrency. Omitted, the routes behave exactly as before;
    * supplied, a caller holding a stale `expectedVersion` is refused instead of
@@ -363,10 +365,14 @@ export function createSalesQuotesRoutes(
       await svc.list({ ...dateFilter, ...(stored ? { status: stored } : {}) } as Parameters<SalesQuoteService["list"]>[0]),
     );
     if (branchId) rows = rows.filter((q) => q.branchId === branchId);
-    const term = search?.trim().toLowerCase();
+    const term = normalizedSearchTerm(search);
     if (term) {
+      const named = await partyIdsNamed(term, deps.customers);
       rows = rows.filter(
-        (q) => (q.docNo ?? "").toLowerCase().includes(term) || (q.customerNameAr ?? "").toLowerCase().includes(term),
+        (q) =>
+          (q.docNo ?? "").toLowerCase().includes(term) ||
+          (q.customerNameAr ?? "").toLowerCase().includes(term) ||
+          named.has(q.customerId),
       );
     }
     if (status === "expired") {

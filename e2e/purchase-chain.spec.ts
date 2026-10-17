@@ -1,7 +1,8 @@
-import { test, expect, type Page, type Locator } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
 import { brokenLabelField } from "./support/broken-label";
+import { searchList } from "./support/search";
 
 /**
  * Purchase chain — Purchase Order → Goods Receipt → Purchase Invoice
@@ -48,7 +49,7 @@ async function createSupplier(page: Page, name: string): Promise<void> {
  */
 async function createItem(page: Page, name: string, salePrice: string): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
-  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
   await page.getByRole("button", { name: "إضافة صنف" }).first().click();
   await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
   await page.getByLabel("اسم الصنف *").fill(name);
@@ -56,7 +57,7 @@ async function createItem(page: Page, name: string, salePrice: string): Promise<
   await price.fill(salePrice);
   await price.press("Tab");
   await page.getByRole("button", { name: "إضافة", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
 }
 
 /** Clicks a `Select` primitive's combobox trigger, then the matching portaled option. */
@@ -66,10 +67,6 @@ async function chooseCombo(page: Page, comboLabel: string, optionName: string | 
 }
 
 /** Returns the single row containing `text`, asserting it's unique. */
-function uniqueRow(page: Page, text: string): Locator {
-  return page.locator("table tbody tr").filter({ hasText: text });
-}
-
 /**
  * `clickSidebarItem` right after a breadcrumb "رجوع" navigation is a real,
  * reproducible race — the «كل الشاشات» click occasionally lands while the
@@ -127,9 +124,7 @@ test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
     await page.getByRole("button", { name: "حفظ مسودة" }).click();
     await expect(page.getByRole("heading", { name: "أوامر الشراء" })).toBeVisible();
 
-    await page.getByPlaceholder("بحث برقم الأمر أو اسم المورد…").fill(supplierName);
-    let row = uniqueRow(page, supplierName);
-    await expect(row).toHaveCount(1);
+    let row = await searchList(page, "بحث برقم الأمر أو اسم المورد…", "/api/purchases/orders", supplierName);
     const poNumber = (await row.locator("td").first().innerText()).trim();
     expect(poNumber).toMatch(/^PO-\d+$/);
 
@@ -159,9 +154,7 @@ test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
     await page.getByRole("button", { name: "حفظ مسودة" }).click();
     await expect(page.getByRole("heading", { name: "إيصالات الاستلام" })).toBeVisible();
 
-    await page.getByPlaceholder("بحث برقم الإيصال أو المورد…").fill(supplierName);
-    row = uniqueRow(page, supplierName);
-    await expect(row).toHaveCount(1);
+    row = await searchList(page, "بحث برقم الإيصال أو المورد…", "/api/purchases/receipts", supplierName);
     const grNumber = (await row.locator("td").first().innerText()).trim();
     expect(grNumber).toMatch(/^GR-\d+$/);
 
@@ -200,9 +193,7 @@ test.describe("Purchase chain — PO → GRN → Purchase Invoice", () => {
     await page.getByRole("button", { name: "حفظ مسودة" }).click();
     await expect(page.getByRole("heading", { name: "فواتير المشتريات" })).toBeVisible();
 
-    await page.getByPlaceholder("بحث برقم الفاتورة أو اسم المورد…").fill(supplierName);
-    row = uniqueRow(page, supplierName);
-    await expect(row).toHaveCount(1);
+    row = await searchList(page, "بحث برقم الفاتورة أو اسم المورد…", "/api/purchases/invoices", supplierName);
     const piNumber = (await row.locator("td").first().innerText()).trim();
     expect(piNumber).toMatch(/^PI-\d+$/);
 

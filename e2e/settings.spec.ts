@@ -76,6 +76,8 @@ test.describe("Settings — general", () => {
 });
 
 test.describe("Settings — branches", () => {
+  test.describe.configure({ mode: "serial" });
+
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
     await expandSidebarGroup(page, "الإعدادات");
@@ -83,9 +85,10 @@ test.describe("Settings — branches", () => {
     await expect(page.getByRole("heading", { name: "الفروع", exact: true })).toBeVisible();
   });
 
-  test("lists the seeded main branch", async ({ page }) => {
-    await expect(page.getByText("عرض 1 من 1 فرع")).toBeVisible();
-    await expect(page.locator("table tbody tr td:first-child")).toHaveText(["الفرع الرئيسي"]);
+  test("lists the two seeded branches", async ({ page }) => {
+    await expect(page.getByText("عرض 2 من 2 فرع")).toBeVisible();
+    await expect(page.locator("table tbody tr td:first-child")).toHaveText(["فرع الإسكندرية", "الفرع الرئيسي"]);
+    await expect(page.locator("table tbody tr td:nth-child(2)")).toHaveText(["ALEX", "MAIN"]);
   });
 
   test("adding a branch appears in the list and opens its Branch-360 overview", async ({ page }) => {
@@ -97,7 +100,7 @@ test.describe("Settings — branches", () => {
     await form.getByRole("button", { name: "حفظ الفرع" }).click();
     await expect(form).toBeHidden();
 
-    await expect(page.getByText("عرض 2 من 2 فرع")).toBeVisible();
+    await expect(page.getByText("عرض 3 من 3 فرع")).toBeVisible();
     await page.getByText(name, { exact: true }).click();
 
     await expect(page.getByRole("heading", { name: new RegExp(`^${name} · TST$`) })).toBeVisible();
@@ -114,6 +117,8 @@ test.describe("Settings — branches", () => {
 });
 
 test.describe("Settings — warehouses", () => {
+  test.describe.configure({ mode: "serial" });
+
   test.beforeEach(async ({ page }) => {
     await loginAsDemoUser(page);
     await expandSidebarGroup(page, "الإعدادات");
@@ -121,8 +126,9 @@ test.describe("Settings — warehouses", () => {
     await expect(page.getByRole("heading", { name: "المستودعات" })).toBeVisible();
   });
 
-  test("lists the seven seeded warehouses, and shows all 6 catalog types as filter chips", async ({ page }) => {
-    await expect(page.getByText("عرض 7 من 7 مستودع")).toBeVisible();
+  test("lists the eight seeded warehouses, and shows all 6 catalog types as filter chips", async ({ page }) => {
+    await expect(page.getByText("عرض 8 من 8 مستودع")).toBeVisible();
+    await expect(page.locator("table tbody tr").filter({ hasText: "WH-ALEX" }).getByText("فرع الإسكندرية")).toBeVisible();
     // The type filter is a radiogroup, not plain buttons.
     for (const label of ["كل الأنواع", "رئيسي", "مستودع وسيط", "مرتجعات", "إنتاج", "ڤان (سيارة توزيع)", "مستودع موقع"]) {
       await expect(page.getByRole("radio", { name: label, exact: true })).toBeVisible();
@@ -140,7 +146,7 @@ test.describe("Settings — warehouses", () => {
     await form.getByRole("button", { name: "حفظ المستودع" }).click();
     await expect(form).toBeHidden();
 
-    await expect(page.getByText("عرض 8 من 8 مستودع")).toBeVisible();
+    await expect(page.getByText("عرض 9 من 9 مستودع")).toBeVisible();
 
     // The demo seed already carries one van warehouse (WH-DEMO-VAN), so the
     // filter narrows to TWO rows, not just the one this test just added.
@@ -149,6 +155,6 @@ test.describe("Settings — warehouses", () => {
     await expect(page.getByText(name, { exact: true })).toBeVisible();
 
     await page.getByRole("radio", { name: "كل الأنواع" }).click();
-    await expect(page.locator("table tbody tr")).toHaveCount(8);
+    await expect(page.locator("table tbody tr")).toHaveCount(9);
   });
 });

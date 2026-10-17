@@ -18,6 +18,7 @@ import { ApiError, useEmployees } from "../data/hooks";
 import { useCreateGarnishment, useGarnishments, useReleaseGarnishment } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { EMPTY } from "../lib/empty";
+import { todayIso } from "../lib/dates";
 
 /**
  * الحجز على الأجر — court-ordered and agreed deductions from wages.
@@ -61,7 +62,7 @@ function blankDraft(): GarnishmentDraft {
     labelAr: "",
     totalAmount: "",
     monthlyAmount: "",
-    startDate: new Date().toISOString().slice(0, 10),
+    startDate: todayIso(),
     endDate: "",
     notes: "",
   };

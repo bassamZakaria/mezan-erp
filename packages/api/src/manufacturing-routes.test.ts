@@ -66,7 +66,7 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   };
 }
 
-async function newApp(masterData?: MasterDataChecks) {
+async function newApp(masterData?: MasterDataChecks, clock: () => string = () => "2026-08-22T00:00:00.000Z") {
   const uow = createSqliteUnitOfWork();
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
@@ -124,7 +124,7 @@ async function newApp(masterData?: MasterDataChecks) {
   wipAccountId: "1250",
       },
       resolveUnitCost: async (id) => (await stock.getBalanceDetail(id, RAW)).averageCost,
-      now: () => "2026-08-22T00:00:00.000Z",
+      now: clock,
     },
   });
   return { app, ledger, stock };
@@ -330,6 +330,27 @@ describe("manufacturing-routes — configurable products + custom manufacturing"
     res = await app.fetch(req(`/manufacturing/work-orders/${instance.workOrderId}`, { permissions: ADMIN }));
     expect(res.status).toBe(200);
     expect((await body(res)).configInstanceId).toBe("ci-1");
+  });
+});
+
+describe("manufacturing-routes — the dashboard's today is the tenant's day, not the UTC one", () => {
+  it("at 01:30 Cairo an order that was due yesterday is overdue, though UTC is still on that day", async () => {
+    let instant = "2026-08-22T00:00:00.000Z";
+    const { app } = await newApp(undefined, () => instant);
+    await app.fetch(req("/manufacturing/boms", { method: "POST", permissions: ADMIN, body: JSON.stringify(bomBody) }));
+    await app.fetch(
+      req("/manufacturing/work-orders", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({ id: "wo-1", bomId: "bom-1", plannedQty: "10", sourceWarehouseId: RAW, wipWarehouseId: WIP, destinationWarehouseId: FG, scheduledStartDate: "2026-08-01", scheduledEndDate: "2026-10-13" }),
+      }),
+    );
+    await app.fetch(req("/manufacturing/work-orders/wo-1/start", { method: "POST", permissions: ADMIN }));
+
+    instant = "2026-10-13T20:30:00.000Z";
+    expect((await body(await app.fetch(req("/manufacturing/dashboard", { permissions: ADMIN })))).overdueCount).toBe(0);
+    instant = "2026-10-13T22:30:00.000Z";
+    expect((await body(await app.fetch(req("/manufacturing/dashboard", { permissions: ADMIN })))).overdueCount).toBe(1);
   });
 });
 

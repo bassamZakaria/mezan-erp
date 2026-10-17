@@ -162,6 +162,8 @@ export interface PurchaseInvoiceListFilter {
   readonly receiptId?: string;
   /** Substring of the document number or the supplier's own invoice number. */
   readonly search?: string;
+  /** Suppliers the search term names; ORed with the number match, and read only beside `search`. */
+  readonly searchSupplierIds?: readonly string[];
   readonly limit?: number;
   readonly offset?: number;
 }

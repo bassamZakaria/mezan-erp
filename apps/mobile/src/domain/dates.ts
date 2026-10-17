@@ -1,6 +1,8 @@
 /** Today as a calendar day (`YYYY-MM-DD`) — the shape `isoDateOrInstant`/`isoDay` in @mezan/contracts accept. */
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const two = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}`;
 }
 
 /** A calendar day offset from another one, carried through `Date`'s own UTC arithmetic (never a money value, so `Number`/`Date` math is fine here). */

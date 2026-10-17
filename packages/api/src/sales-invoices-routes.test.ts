@@ -101,6 +101,7 @@ async function harness(
     withdrawUnsentEtaSubmission?: SalesInvoiceRoutesDeps["withdrawUnsentEtaSubmission"];
     now?: string;
     workflow?: DocumentWorkflowGate;
+    customers?: SalesInvoiceRoutesDeps["customers"];
   } = {},
 ) {
   const accounts = {
@@ -162,6 +163,7 @@ async function harness(
     gl: glHook,
     stock: createSalesInvoiceStockHook(stockService),
     ...(opts.workflow ? { workflow: opts.workflow } : {}),
+    ...(opts.customers ? { customers: opts.customers } : {}),
     ...(opts.withoutStockRestore ? {} : { stockRestore: createInventoryStockHook(stockService) }),
     ...(opts.etaDocumentOf ? { etaDocumentOf: opts.etaDocumentOf } : {}),
     ...(opts.withdrawUnsentEtaSubmission ? { withdrawUnsentEtaSubmission: opts.withdrawUnsentEtaSubmission } : {}),
@@ -225,6 +227,34 @@ const draftBody = {
     { lineId: "L2", itemId: "SVC-1", itemNameAr: "خدمة", isStock: false, qty: "2", unitPrice: "50", discountPercent: 10, taxRatePercent: 14, revenueAccountId: REVENUE },
   ],
 };
+
+describe("sales-invoices routes — the search names the customer", () => {
+  it("finds a customer's invoices by the directory's Arabic or English name, any case, padded, in the page and the chips", async () => {
+    const { app } = await harness({
+      customers: {
+        findAll: async () => [
+          { id: "cust-1", nameAr: "مؤسسة النور للمقاولات", nameEn: "Al Noor Contracting" },
+          { id: "cust-2", nameAr: "شركة الأمل التجارية", nameEn: "Al Amal Trading" },
+        ],
+      },
+    });
+    const create = (body: unknown) => app.fetch(req("/", { method: "POST", body: JSON.stringify(body), permissions: "sales.invoice.create" }));
+    const first = (await (await create({ ...draftBody, customerNameAr: "مؤسسة النور للمقاولات" })).json()) as { id: string };
+    await create({ ...draftBody, customerId: "cust-2", customerNameAr: "شركة الأمل التجارية" });
+    const view = { permissions: "sales.invoice.view" };
+    const idsOf = async (path: string) => {
+      const body = (await (await app.fetch(req(path, view))).json()) as { id: string }[] | { items: { id: string }[] };
+      return (Array.isArray(body) ? body : body.items).map((row) => row.id);
+    };
+    for (const term of ["النور", "al noor", "  NOOR  "]) {
+      expect(await idsOf(`/?search=${encodeURIComponent(term)}`), term).toEqual([first.id]);
+      expect(await idsOf(`/?search=${encodeURIComponent(term)}&page=1&pageSize=25`), `${term} · paged`).toEqual([first.id]);
+    }
+    const counts = (await (await app.fetch(req(`/counts?search=${encodeURIComponent("noor")}`, view))).json()) as Record<string, number>;
+    expect(counts.all).toBe(1);
+    expect(await idsOf(`/?search=${encodeURIComponent("لا أحد")}`)).toEqual([]);
+  });
+});
 
 describe("sales-invoices routes", () => {
   it("rejects an unauthenticated create with 403", async () => {

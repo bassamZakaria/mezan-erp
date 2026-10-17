@@ -43,6 +43,7 @@ import {
 } from "./dashboard-hooks";
 import { entityName } from "../lib/entity-names";
 import { useContractingExceptionSummary } from "../data/contracting-controls-hooks";
+import { monthEndIsoOf, monthStartIsoOf } from "../lib/dates";
 
 type QuickAction = { labelKey: AppTranslationKey; screen: ScreenKey; permission: string; intent?: ScreenIntentInput; primary?: boolean };
 
@@ -63,13 +64,11 @@ const RANGE_OPTIONS = [
   { value: "all", labelKey: "dashboard.range.all" },
 ] as const satisfies readonly { value: DashboardRangeValue; labelKey: AppTranslationKey }[];
 
-const isoDate = (d: Date) => d.toISOString().slice(0, 10);
-
 function rangeToDates(range: DashboardRangeValue, now: Date): DashboardRange {
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
+  const y = now.getFullYear();
+  const m = now.getMonth();
   if (range === "month") {
-    return { fromDate: isoDate(new Date(Date.UTC(y, m, 1))), toDate: isoDate(new Date(Date.UTC(y, m + 1, 0))) };
+    return { fromDate: monthStartIsoOf(y, m), toDate: monthEndIsoOf(y, m) };
   }
   if (range === "year") return { fromDate: `${y}-01-01`, toDate: `${y}-12-31` };
   return {};

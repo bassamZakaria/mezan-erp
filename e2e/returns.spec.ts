@@ -1,7 +1,8 @@
-import { test, expect, type Page, type Locator } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
 import { brokenLabelField } from "./support/broken-label";
+import { searchList } from "./support/search";
 
 /**
  * Sales Returns (مرتجعات المبيعات) and Purchase Returns (مرتجعات المشتريات)
@@ -54,7 +55,7 @@ async function createSupplier(page: Page, name: string): Promise<void> {
  */
 async function createItem(page: Page, name: string, salePrice: string, type: "stock" | "service"): Promise<void> {
   await clickSidebarItem(page, "الأصناف");
-  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
   await page.getByRole("button", { name: "إضافة صنف" }).first().click();
   await expect(page.getByRole("heading", { name: "إضافة صنف", level: 1 })).toBeVisible();
   if (type === "service") {
@@ -66,17 +67,13 @@ async function createItem(page: Page, name: string, salePrice: string, type: "st
   await price.fill(salePrice);
   await price.press("Tab");
   await page.getByRole("button", { name: "إضافة", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "الأصناف" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "الأصناف", level: 1, exact: true })).toBeVisible();
 }
 
 /** Clicks a `Select` primitive's combobox trigger, then the matching portaled option. */
 async function chooseCombo(page: Page, comboLabel: string, optionName: string | RegExp): Promise<void> {
   await page.getByRole("combobox", { name: comboLabel }).click();
   await page.getByRole("option", { name: optionName }).click();
-}
-
-function uniqueRow(page: Page, text: string): Locator {
-  return page.locator("table tbody tr").filter({ hasText: text });
 }
 
 /**
@@ -115,9 +112,7 @@ async function createConfirmedPurchaseInvoice(page: Page, supplierName: string, 
   await page.getByRole("button", { name: "حفظ مسودة" }).click();
   await expect(page.getByRole("heading", { name: "أوامر الشراء" })).toBeVisible();
 
-  await page.getByPlaceholder("بحث برقم الأمر أو اسم المورد…").fill(supplierName);
-  let row = uniqueRow(page, supplierName);
-  await expect(row).toHaveCount(1);
+  let row = await searchList(page, "بحث برقم الأمر أو اسم المورد…", "/api/purchases/orders", supplierName);
   const poNumber = (await row.locator("td").first().innerText()).trim();
   await row.click();
   await page.getByRole("button", { name: "تأكيد وإرسال" }).click();
@@ -135,9 +130,7 @@ async function createConfirmedPurchaseInvoice(page: Page, supplierName: string, 
   await page.getByRole("button", { name: "حفظ مسودة" }).click();
   await expect(page.getByRole("heading", { name: "إيصالات الاستلام" })).toBeVisible();
 
-  await page.getByPlaceholder("بحث برقم الإيصال أو المورد…").fill(supplierName);
-  row = uniqueRow(page, supplierName);
-  await expect(row).toHaveCount(1);
+  row = await searchList(page, "بحث برقم الإيصال أو المورد…", "/api/purchases/receipts", supplierName);
   const grNumber = (await row.locator("td").first().innerText()).trim();
   await row.click();
   // The detail view derives its "selected" receipt from the SAME shared
@@ -168,9 +161,7 @@ async function createConfirmedPurchaseInvoice(page: Page, supplierName: string, 
   await page.getByRole("button", { name: "حفظ مسودة" }).click();
   await expect(page.getByRole("heading", { name: "فواتير المشتريات" })).toBeVisible();
 
-  await page.getByPlaceholder("بحث برقم الفاتورة أو اسم المورد…").fill(supplierName);
-  row = uniqueRow(page, supplierName);
-  await expect(row).toHaveCount(1);
+  row = await searchList(page, "بحث برقم الفاتورة أو اسم المورد…", "/api/purchases/invoices", supplierName);
   const piNumber = (await row.locator("td").first().innerText()).trim();
   await row.click();
   await page.getByRole("button", { name: "تأكيد الفاتورة" }).click();
@@ -191,9 +182,7 @@ async function createConfirmedSalesInvoice(page: Page, customerName: string, ite
   await page.getByRole("button", { name: "تأكيد الفاتورة" }).click();
   await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
 
-  await page.getByPlaceholder("بحث برقم الفاتورة أو اسم العميل…").fill(customerName);
-  const row = uniqueRow(page, customerName);
-  await expect(row).toHaveCount(1);
+  const row = await searchList(page, "بحث برقم الفاتورة أو اسم العميل…", "/api/sales-invoices", customerName);
   // The docNo cell wraps two stacked divs (docNo, then "customer · date") —
   // scope to the .mz-num one specifically, not the outer wrapper div (whose
   // innerText would combine both lines).

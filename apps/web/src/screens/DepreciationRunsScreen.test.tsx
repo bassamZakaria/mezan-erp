@@ -91,6 +91,20 @@ describe("DepreciationRunsScreen", () => {
     expect(screen.getByText("2026-05")).toBeInTheDocument();
   });
 
+  it("lists the newest period first, so a run just made is on the first page however long the history", async () => {
+    const history: DepreciationRunDTO[] = Array.from({ length: 30 }, (_, index) => {
+      const period = `${2024 + Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
+      return { ...sampleRuns[1]!, id: `hist-${index}`, period, createdAt: `${period}-01T00:00:00.000Z`, postedAt: `${period}-02T00:00:00.000Z` };
+    });
+    const latest: DepreciationRunDTO = { ...sampleRuns[0]!, id: "run-latest", period: "2026-08" };
+    renderScreen([...history, latest]);
+    const table = await screen.findByRole("table");
+    await within(table).findByText("2026-08");
+    const firstCells = within(table).getAllByRole("row").slice(1).map((row) => within(row).getAllByRole("cell")[0]!.textContent);
+    expect(firstCells.slice(0, 3)).toEqual(["2026-08", "2026-06", "2026-05"]);
+    expect(within(table).queryByText("2024-01")).not.toBeInTheDocument();
+  });
+
   it("shows an empty state when there are no runs yet", async () => {
     renderScreen([]);
     expect(await screen.findByText(/لا توجد عمليات إهلاك/)).toBeInTheDocument();

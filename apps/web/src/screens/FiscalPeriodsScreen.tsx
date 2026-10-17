@@ -84,7 +84,7 @@ export function FiscalPeriodsScreen() {
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
 
   const years = useMemo(() => [...new Set(periods.map((p) => p.year))].sort((a, b) => a - b), [periods]);
-  const selectedYear = year ?? years[years.length - 1] ?? new Date().getUTCFullYear();
+  const selectedYear = year ?? years[years.length - 1] ?? new Date().getFullYear();
   const periodsInYear = useMemo(
     () => periods.filter((p) => p.year === selectedYear).sort((a, b) => a.periodNumber - b.periodNumber),
     [periods, selectedYear],
@@ -164,7 +164,7 @@ export function FiscalPeriodsScreen() {
 
   async function generateNextYear() {
     setActionError(null);
-    const nextYear = years.length > 0 ? Math.max(...years) + 1 : new Date().getUTCFullYear();
+    const nextYear = years.length > 0 ? Math.max(...years) + 1 : new Date().getFullYear();
     try {
       await generateFiscalYear.mutateAsync({ year: nextYear });
       setYear(nextYear);

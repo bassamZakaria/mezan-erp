@@ -6,6 +6,7 @@ import { readError } from "../../../data/hooks";
 import { useAppTranslation } from "../../../i18n";
 import { branchName } from "../../../settings/branch-name";
 import { auditChangesOfEvent, useAuditLabels } from "./audit-changes";
+import { todayIso } from "../../../lib/dates";
 
 const PAGE = 200;
 export const AUDIT_EXPORT_CAP = 10_000;
@@ -100,7 +101,7 @@ export function useAuditExport(branches: readonly BranchDTO[]) {
       });
       const file = await buildReportExport(columns, rows, {
         format,
-        baseFilename: `audit-log-${new Date().toISOString().slice(0, 10)}`,
+        baseFilename: `audit-log-${todayIso()}`,
         sheetName: t("auditLedger.sheetName"),
       });
       downloadReportExport(file);

@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
+import { localTodayIso } from "./support/dates";
 
 /**
  * Operational reports (apps/web/src/screens/reports/*ReportsScreens.tsx) —
@@ -29,7 +30,7 @@ import { clickSidebarItem } from "./support/nav";
  */
 
 function isoToday(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localTodayIso();
 }
 
 function isoMonthStart(): string {
@@ -84,9 +85,31 @@ test.describe("Purchases by Supplier", () => {
   test("auto-runs and its export buttons are enabled against the seeded purchase activity", async ({ page }) => {
     await expect(page.getByLabel("الفترة — من")).toHaveValue(isoMonthStart());
     await expect(page.getByLabel("الفترة — إلى")).toHaveValue(isoToday());
+
+    // The seeded purchase history is dated, not relative: it ends on
+    // demo-seed/history.ts's HISTORY_END (2026-08-15). The default
+    // month-to-date window only held purchases while that month was current,
+    // or when purchase-chain.spec.ts happened to post one first.
+    const seededWindow = page.waitForResponse((r) => {
+      const url = new URL(r.url());
+      return (
+        url.pathname.endsWith("/reports/purchases/by-supplier") &&
+        url.searchParams.get("dateFrom") === "2026-08-01" &&
+        url.searchParams.get("dateTo") === "2026-08-15"
+      );
+    });
+    await page.getByLabel("الفترة — من").fill("2026-08-01");
+    await page.getByLabel("الفترة — إلى").fill("2026-08-15");
+    const report = (await (await seededWindow).json()) as { rows: unknown[]; grandTotals: { count: number } };
+    expect(report.rows.length).toBeGreaterThan(0);
+    expect(report.grandTotals.count).toBeGreaterThan(0);
+
     await expect(page.getByText("لا توجد بيانات لعرضها.")).toHaveCount(0);
-    await expect(page.locator("table tbody tr").first()).toBeVisible();
+    const totalsRow = page.locator("table tbody tr").filter({ hasText: "الإجمالي" });
+    await expect(totalsRow).toHaveCount(1);
+    await expect(page.locator("table tbody tr")).toHaveCount(report.rows.length + 1);
     await expect(page.getByRole("button", { name: "تصدير CSV" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "تصدير Excel" })).toBeEnabled();
   });
 });
 

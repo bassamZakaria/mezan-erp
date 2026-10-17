@@ -40,7 +40,7 @@ import {
   type ChequeListFilters,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { todayIso } from "../lib/dates";
+import { addDaysIso, todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
 import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
@@ -81,7 +81,7 @@ function today(): string {
 }
 
 function plusDays(days: number): string {
-  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+  return addDaysIso(todayIso(), days);
 }
 
 /** The lifecycle actions legal from a cheque's CURRENT stored status (domain status.ts). */

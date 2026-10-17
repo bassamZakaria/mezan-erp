@@ -501,6 +501,26 @@ describe("PurchaseReturnsScreen", () => {
     ]);
   });
 
+  it("picking the invoice that is already chosen keeps the line the server seeded — it does not empty the form", async () => {
+    const transport = stubTransport(baseHandlers([], [purchaseInvoice(), purchaseInvoiceTile]));
+    renderWithProviders(
+      <WithSubPageNav>
+        <PurchaseReturnsScreen />
+      </WithSubPageNav>,
+      { transport, initialSession: testAdminSession },
+    );
+    await screen.findByText("لا توجد مرتجعات — أنشئ مرتجعاً جديداً");
+    fireEvent.click(screen.getAllByRole("button", { name: "مرتجع جديد" })[0]!);
+    await screen.findByRole("heading", { name: "مرتجع مشتريات جديد" });
+    const seeded = (await screen.findByRole("combobox", { name: "الصنف" })).textContent;
+    const chosen = screen.getAllByRole("combobox", { name: "الفاتورة الأصلية *" })[0]!.textContent!.trim();
+
+    selectOptionAt("الفاتورة الأصلية *", 0, chosen);
+
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "الصنف" })).toHaveTextContent(seeded!));
+    expect(screen.getAllByRole("combobox", { name: "الصنف" })).toHaveLength(1);
+  });
+
   it("switching the source invoice repopulates the returnable lines AND the selected value from the NEWLY picked invoice, not the stale one", async () => {
     const transport = stubTransport(baseHandlers([], [purchaseInvoice(), purchaseInvoiceTile]));
     renderWithProviders(

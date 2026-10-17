@@ -4,7 +4,7 @@ import { DERIVED_TAX, appliedTaxPercent, chosenTaxRateId, type TaxChoice } from 
 import type { SalesQuoteRecord } from "../../data/hooks";
 import type { AppTranslationKey } from "../../i18n";
 import type { PillTone } from "@mezan/ui";
-import { todayIso } from "../../lib/dates";
+import { addDaysIso, todayIso } from "../../lib/dates";
 import { finiteOrZero } from "../../lib/money";
 
 export type QuoteStatus = SalesQuoteRecord["status"];
@@ -40,7 +40,7 @@ export function today(): string {
 }
 
 export function plusDays(days: number): string {
-  return new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+  return addDaysIso(todayIso(), days);
 }
 
 /** منتهي — a live quote whose pricing validity has lapsed (mirrors the domain's `isQuoteExpired`). */

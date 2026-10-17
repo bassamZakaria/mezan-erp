@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Context, Hono, MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import {
   BANK_FILE_LAYOUTS,
   BankFileCurrencyError,
@@ -24,6 +24,7 @@ import {
 import { BankFileExceptionReasonDTO, BankFileFormatDTO, bankFileRequestSchema, type BankFileExportDTO, type BankFileLayoutDTO, type BankFilePreviewDTO } from "@mezan/contracts";
 import { getAuthContext } from "./permission-gate.js";
 import { tenantToday } from "./tenant-day.js";
+import { atomically, type ConfigTransactor } from "./config-transactor.js";
 
 export interface BankFileRoutesDeps {
   readonly runs: PayrollRunRepository;
@@ -31,6 +32,7 @@ export interface BankFileRoutesDeps {
   readonly employees: EmployeeRepository;
   readonly treasuryAccounts?: { findById(id: string): Promise<TreasuryAccount | null> };
   readonly audit?: AuditSink;
+  readonly transactor?: ConfigTransactor;
 }
 
 type Gate = (permission: string) => MiddlewareHandler;
@@ -114,8 +116,9 @@ function serializePreview(runId: string, file: BankFile): BankFilePreviewDTO {
   };
 }
 
-/** Mounted inside the payroll router; every path here is under `/payroll`. */
-export function mountBankFileRoutes(app: Hono, deps: BankFileRoutesDeps, gate: Gate): void {
+/** Mounted at the payroll router's root; every path here is under `/payroll`. */
+export function createBankFileRoutes(deps: BankFileRoutesDeps, gate: Gate): Hono {
+  const app = new Hono();
   async function build(c: Context, format: BankFileFormat, valueDate: string | undefined, treasuryAccountId: string | null | undefined): Promise<BankFile | Response> {
     const run = await deps.runs.findById(c.req.param("id") ?? "");
     if (!run) return c.json({ error: "PAYROLL_RUN_NOT_FOUND", message: "مسير الرواتب غير موجود.", messageEn: "The payroll run was not found." }, 404);
@@ -170,8 +173,9 @@ export function mountBankFileRoutes(app: Hono, deps: BankFileRoutesDeps, gate: G
       return c.json(withMessageEn(empty), 409);
     }
     const sha256 = createHash("sha256").update(built.content, "utf8").digest("hex");
-    if (deps.audit) {
-      await recordSensitiveEvent(deps.audit, {
+    const audit = deps.audit;
+    if (audit) {
+      await atomically(deps.transactor, () => recordSensitiveEvent(audit, {
         module: "hr",
         entityType: "PAYROLL_RUN",
         entityId: c.req.param("id"),
@@ -189,9 +193,11 @@ export function mountBankFileRoutes(app: Hono, deps: BankFileRoutesDeps, gate: G
           treasuryAccountId: parsed.data.treasuryAccountId ?? null,
           sha256,
         },
-      });
+      }));
     }
     const body: BankFileExportDTO = { ...serializePreview(c.req.param("id"), built), fileName: built.fileName, mimeType: built.mimeType, content: built.content, sha256 };
     return c.json(body);
   });
+
+  return app;
 }

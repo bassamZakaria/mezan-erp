@@ -1,6 +1,6 @@
 import { createMemoryKeyedLock, LockBusyError, LOCK_BUSY_AR, type KeyedLock } from "./keyed-lock.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
-import { mountBankFileRoutes, type BankFileRoutesDeps } from "./hr-bank-file-routes.js";
+import { createBankFileRoutes, type BankFileRoutesDeps } from "./hr-bank-file-routes.js";
 import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -1041,10 +1041,12 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
 
   // --- Payroll runs --------------------------------------------------------
 
-  mountBankFileRoutes(
-    app,
-    { runs: deps.runs, payslips: deps.payslips, employees: deps.employees, treasuryAccounts: deps.treasuryAccounts, audit: deps.audit },
-    gate,
+  app.route(
+    "/",
+    createBankFileRoutes(
+      { runs: deps.runs, payslips: deps.payslips, employees: deps.employees, treasuryAccounts: deps.treasuryAccounts, audit: deps.audit, transactor: deps.transactor },
+      gate,
+    ),
   );
 
   app.get("/payroll/runs", gate("hr.payroll.view"), async (c) => {

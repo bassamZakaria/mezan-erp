@@ -24,6 +24,7 @@ import { STATUTORY_PAYSLIP_LINE_SOURCES, payrollUnimplementedRulesFor } from "@m
 import { PayslipPrintPage } from "../print/PayslipPrintPage";
 import { HrProvisionsPanel } from "./HrProvisionsPanel";
 import { PayrollBankFilePanel } from "./PayrollBankFilePanel";
+import { EntityHistoryPanel } from "./enh/audit-ledger/EntityHistoryPanel";
 import { HrPermission, NEW_SEGMENT, useMayDo } from "./hr-permissions";
 import { useUnverifiedStatutoryCodes } from "../data/hr-payroll-hooks";
 import { NumberField, SelectField } from "../settings/form-controls";
@@ -56,6 +57,7 @@ enum RunDetailTab {
   Calculation = "calculation",
   Disbursement = "disbursement",
   BankFile = "bank-file",
+  History = "history",
 }
 
 const PAYSLIP_SEGMENT = "payslip";
@@ -364,6 +366,7 @@ function PayrollRunDetail({ run, pending, error, onBack, onAction, onDisburse, o
     { key: RunDetailTab.Calculation, label: t("hrPages.run.tabCalculation"), content: calculationTab },
     ...(payable ? [{ key: RunDetailTab.Disbursement, label: t("hrPages.run.tabDisbursement"), content: disbursementTab }] : []),
     ...(payable && mayExportBankFile ? [{ key: RunDetailTab.BankFile, label: t("hrPages.run.tabBankFile"), content: <PayrollBankFilePanel run={run} /> }] : []),
+    { key: RunDetailTab.History, label: t("hrPages.employee.tabHistory"), content: <EntityHistoryPanel entityType="PAYROLL_RUN" entityId={run.id} /> },
   ];
 
   return (

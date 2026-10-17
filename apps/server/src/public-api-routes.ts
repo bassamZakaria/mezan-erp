@@ -127,6 +127,13 @@ function hashBody(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+// REQUIRED: the record id is derived from the Idempotency-Key, so two server instances racing the
+// same key forward the same id and the backend's own duplicate-id refusal keeps one record.
+function recordIdFor(seed: string): string {
+  const hex = hashBody(seed);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${((parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80).toString(16)}${hex.slice(18, 20)}-${hex.slice(20, 32)}`;
+}
+
 export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
   const app = new Hono();
   const now = deps.now ?? (() => new Date());
@@ -250,7 +257,7 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
     ] as const;
   }
 
-  async function idempotentWrite(c: Context, route: string, body: unknown, target: (body: unknown) => Forward): Promise<Response> {
+  async function idempotentWrite(c: Context, route: string, body: unknown, target: (body: unknown, id: string) => Forward): Promise<Response> {
     const caller = callerOf(c);
     const gateway = caller.door.integrations!;
     const key = c.req.header(PUBLIC_API_IDEMPOTENCY_HEADER) ?? null;
@@ -262,7 +269,7 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
         .recordWrite({ keyId: caller.auth.keyId, keyName: caller.auth.keyName, actor: caller.auth.grant.userId, method: c.req.method, path: `${PUBLIC_API_BASE_PATH}${route}`, status, idempotencyKey: key, replayed })
         .catch((err: unknown) => console.error("[api-v1] the write could not be audited", err));
     const run = async () => {
-      const result = await forward(c, target(body));
+      const result = await forward(c, target(body, key === null ? randomUUID() : recordIdFor(`${caller.tenant.id}:${caller.auth.keyId}:${route}:${key}`)));
       await record(result.status, false);
       return result;
     };
@@ -305,7 +312,7 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
     const raw = await jsonBody(c);
     const parsed = CUSTOMER_FIELDS.safeParse(raw);
     if (!parsed.success) return refuse(c, PublicApiRefusal.ValidationError, 400, { details: parsed.error.flatten() });
-    return idempotentWrite(c, "/customers", parsed.data, (body) => ({ method: "POST", path: "/customers", body: { id: randomUUID(), ...(body as object) } }));
+    return idempotentWrite(c, "/customers", parsed.data, (body, id) => ({ method: "POST", path: "/customers", body: { id, ...(body as object) } }));
   });
 
   app.get("/suppliers", ...read(ApiKeyScopeDTO.SuppliersRead, () => "/suppliers"));
@@ -319,7 +326,7 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
   app.post("/sales-invoices", requireScope(ApiKeyScopeDTO.SalesInvoicesWrite), async (c) => {
     const raw = await jsonBody(c);
     if (!raw) return refuse(c, PublicApiRefusal.ValidationError, 400);
-    return idempotentWrite(c, "/sales-invoices", raw, (body) => ({ method: "POST", path: "/sales-invoices", body: { id: randomUUID(), ...(body as object) } }));
+    return idempotentWrite(c, "/sales-invoices", raw, (body, id) => ({ method: "POST", path: "/sales-invoices", body: { id, ...(body as object) } }));
   });
 
   app.get("/receipts", ...read(ApiKeyScopeDTO.ReceiptsRead, () => "/vouchers", { type: RECEIPT_TYPE }));
@@ -330,7 +337,7 @@ export function createPublicApiRoutes(deps: PublicApiDeps): Hono {
       return refuse(c, PublicApiRefusal.ValidationError, 400, { field: "customerId" });
     }
     const { voucherType: _ignored, supplierId: _supplier, counterTreasuryAccountId: _counter, counterTreasuryGlAccountId: _counterGl, ...rest } = raw;
-    return idempotentWrite(c, "/receipts", rest, (body) => ({ method: "POST", path: "/vouchers", body: { id: randomUUID(), ...(body as object), voucherType: RECEIPT_TYPE } }));
+    return idempotentWrite(c, "/receipts", rest, (body, id) => ({ method: "POST", path: "/vouchers", body: { id, ...(body as object), voucherType: RECEIPT_TYPE } }));
   });
 
   app.get("/payments", ...read(ApiKeyScopeDTO.PaymentsRead, () => "/vouchers", { type: PAYMENT_TYPE }));

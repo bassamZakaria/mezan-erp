@@ -602,6 +602,21 @@ const EXISTENCE_READER: AuthContext = createAuthContext({
   warehouseScope: ALL_SCOPE,
 });
 
+// SECURITY: the identity an integration API key acts with, set by the cloud's `/api/v1` gateway
+// on the env of a request it builds in-process. A symbol key cannot arrive over a socket, and
+// the gateway forwards only to its own allow-list of read and draft-create routes.
+const DELEGATED_GRANT = Symbol("mezan.delegated-grant");
+
+export function delegatedGrantEnv<E extends object>(env: E, grant: SessionGrant): E {
+  return { ...env, [DELEGATED_GRANT]: grant };
+}
+
+function delegatedGrantOf(c: Context): SessionGrant | null {
+  const env = c.env as Record<symbol, unknown> | undefined;
+  const grant = env?.[DELEGATED_GRANT];
+  return grant && typeof grant === "object" ? (grant as SessionGrant) : null;
+}
+
 /**
  * Resolves the caller from the session registry. A request with no valid token
  * gets an AuthContext holding NO permissions, so every gated route answers 403
@@ -610,6 +625,16 @@ const EXISTENCE_READER: AuthContext = createAuthContext({
 export function createSessionAuthContextResolver(sessions: SessionRegistry): AuthContextResolver {
   return function resolveAuthContext(c: Context): AuthContext {
     if (existenceReads.has(c.req.raw)) return EXISTENCE_READER;
+    const delegated = delegatedGrantOf(c);
+    if (delegated) {
+      return createAuthContext({
+        userId: delegated.userId,
+        permissions: [...delegated.permissions],
+        roleCodes: delegated.roleCode ? [delegated.roleCode] : [],
+        branchScope: delegated.branchScope,
+        warehouseScope: delegated.warehouseScope,
+      });
+    }
     const token = readSessionToken(c);
     if (!token) return ANONYMOUS;
     // The second argument is the whole of the origin binding at the gate: a

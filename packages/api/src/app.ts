@@ -104,6 +104,7 @@ import {
   type ApprovalRequestRecord,
   type GateableActionType,
   MODULE_CATALOG,
+  isCloudOnlyModule,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createLanRoutes } from "./lan/routes.js";
@@ -260,7 +261,7 @@ import type { ConfigTransactor } from "./config-transactor.js";
 function defaultEntitlementsResolver(): EntitlementsResolver {
   const entitlements: Entitlements = createEntitlements({
     plan: "ENTERPRISE",
-    activeModules: MODULE_CATALOG,
+    activeModules: MODULE_CATALOG.filter((id) => !isCloudOnlyModule(id)),
     features: {},
     seats: 10,
     expiresAt: null,

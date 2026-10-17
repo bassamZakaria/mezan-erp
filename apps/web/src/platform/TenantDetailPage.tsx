@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { Link, useBlocker, useParams, useSearchParams } from "react-router";
 import { Button, Card, ConfirmDialog, Money, Select, StatusPill, TextInput, useFormat } from "@mezan/ui";
-import { CardCheckoutFailureReason, CardCheckoutStatus, MODULES, RENEWABLE_SUBSCRIPTION_STATES } from "@mezan/domain";
+import { CardCheckoutFailureReason, CardCheckoutStatus, MODULES, RENEWABLE_SUBSCRIPTION_STATES, moduleName } from "@mezan/domain";
 import {
   REFUSED_TENANT_BOOKS,
   SubscriptionStatusCode,
@@ -138,7 +138,7 @@ const CATALOG_MODULE_ID: Readonly<Record<string, string>> = { financial_papers: 
 function entitlementModuleLabel(id: string, t: (key: AppTranslationKey) => string): string {
   const catalogId = CATALOG_MODULE_ID[id] ?? id;
   const entry = MODULES.find((m) => m.id === catalogId);
-  return entry ? moduleLabel(entry, t) : id;
+  return entry ? moduleLabel(entry, t) : moduleName(id).ar;
 }
 
 /** «تفاصيل المنشأة» — a routed page (not an overlay: this is a document, not a short form), reached from `TenantsPage`'s row click. */

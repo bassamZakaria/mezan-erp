@@ -17,7 +17,7 @@ import {
 import { BodyLimitRefusal, createSessionRegistry } from "@mezan/api";
 import { SubscriptionStatusKind, TenantNotFoundError, type Tenant } from "@mezan/domain";
 import { createSqliteSessionStore, emptyBooksScratch } from "@mezan/persistence";
-import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
+import { PUBLIC_API_BASE_PATH, type CreateTenantRequestDTO, type OwnerPinResetResultDTO, type ProvisionResultDTO, type ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { booksScratchDir, createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
 import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
 import { platformActor, provisionResultDTOOf, provisionTenant, PlanRequiredError } from "./provision-tenant.js";
@@ -49,6 +49,7 @@ import { PaymobMode, type CloudEnv } from "./env.js";
 import { MailOutcome, pendingHandOverEmail, smtpMailer, type PlatformMailer } from "./platform-mail.js";
 import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH } from "./public-origin.js";
 import { createCookieSessions } from "./cookie-session.js";
+import { createPublicApiRoutes, refuseApiKeysOutsidePublicApi } from "./public-api-routes.js";
 
 const OPERATOR_SWEEP_BUDGET_MS = 20_000;
 
@@ -338,6 +339,18 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   root.use("/api/*", requireOriginSecret(env.originSecret));
   root.use("/api/*", sourceGate);
+
+  // SECURITY / REQUIRED ORDERING (DEC-27): the integration API is mounted here, after the origin
+  // secret and the source gate and BEFORE the cookie sessions, so a browser cookie never reaches
+  // it and CSRF has nothing to guard: its only credential is `Authorization: Bearer mzn_…`, and
+  // that credential is refused on every other `/api` path.
+  root.use("/api/*", refuseApiKeysOutsidePublicApi());
+  root.use(`${PUBLIC_API_BASE_PATH}/*`, bodyLimit({
+    maxSize: PLATFORM_BODY_BYTES,
+    onError: (c) =>
+      c.json({ error: BodyLimitRefusal.PayloadTooLarge, message: "حجم البيانات المرسلة أكبر من المسموح به.", messageEn: "The request is larger than this route accepts." }, 413),
+  }));
+  root.route(PUBLIC_API_BASE_PATH, createPublicApiRoutes({ platform, router, publicUrl: null, now }));
 
   // SECURITY: the cloud edition's browser sessions ride in HttpOnly cookies and
   // every state-changing request made with one must carry its CSRF token. The

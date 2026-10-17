@@ -28,6 +28,7 @@ export const MODULE_CATALOG = [
   "projects",
   "contracting",
   "pos",
+  "integrations",
 ] as const;
 
 export type ModuleId = (typeof MODULE_CATALOG)[number];
@@ -63,7 +64,16 @@ export const MODULE_NAMES: Readonly<Record<ModuleId, ModuleName>> = {
   projects: { ar: "المشروعات", en: "Projects" },
   contracting: { ar: "المقاولات", en: "Contracting" },
   pos: { ar: "نقاط البيع", en: "Point of sale" },
+  integrations: { ar: "التكامل وواجهة البرمجة", en: "Integrations and API" },
 };
+
+// DEC-17 / DEC-27: served only by the cloud edition. A build that answers no `/api/v1` must not
+// report the module as active, or its nav entry leads to a screen with nothing behind it.
+export const CLOUD_ONLY_MODULES: readonly ModuleId[] = ["integrations"];
+
+export function isCloudOnlyModule(id: string): boolean {
+  return (CLOUD_ONLY_MODULES as readonly string[]).includes(id);
+}
 
 export function moduleName(id: string): ModuleName {
   return isKnownModule(id) ? MODULE_NAMES[id] : { ar: id, en: id };

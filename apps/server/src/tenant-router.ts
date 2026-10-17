@@ -2,8 +2,8 @@ import { Hono, type Context, type MiddlewareHandler } from "hono";
 import path from "node:path";
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import { createSourceThrottle, throttleSource, tooManyAttempts, type SourceThrottle } from "@mezan/api";
-import { createBackend, type BackendHandle, type CompanyAdminAccount, type PlatformHandle, type SignedInUser } from "@mezan/backend";
+import { createSourceThrottle, delegatedGrantEnv, throttleSource, tooManyAttempts, type SourceThrottle } from "@mezan/api";
+import { createBackend, type BackendHandle, type CompanyAdminAccount, type IntegrationsGateway, type PlatformHandle, type SignedInUser } from "@mezan/backend";
 import type { SessionGrant, SmtpConfig } from "@mezan/api";
 import {
   clearTenantBinding,
@@ -141,12 +141,18 @@ const CROSS_TENANT_FREE_ATTEMPTS = 90;
 export interface TenantDoor {
   fetch(request: Request, source: CloudSource): Promise<Response>;
   findSession(token: string, source: CloudSource, deviceSecret: string | null): SessionGrant | null;
+  readonly integrations: IntegrationsGateway | null;
+  // SECURITY: answers `request` as `grant` without a session token. Only the `/api/v1` gateway
+  // calls it, with a grant it resolved from a verified API key.
+  fetchAs(request: Request, source: CloudSource, grant: SessionGrant): Promise<Response>;
 }
 
 function doorTo(backend: BackendHandle): TenantDoor {
   return {
     fetch: async (request, source) => backend.app.fetch(request, originEnv(source)),
     findSession: (token, source, deviceSecret) => backend.sessions.find(token, source, deviceSecret),
+    integrations: backend.integrations ?? null,
+    fetchAs: async (request, source, grant) => backend.app.fetch(request, delegatedGrantEnv(originEnv(source), grant)),
   };
 }
 
@@ -236,7 +242,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       return !tenant || tenant.ownerUserId !== null || tenant.status !== TenantStatusCode.Provisioning;
     },
   });
-  const openBackend = options.openBackend ?? (async (_code, dbPath, r, hooks, connection, mail, books) => {
+  const openBackend = options.openBackend ?? (async (code, dbPath, r, hooks, connection, mail, books) => {
     mkdirSync(path.dirname(dbPath), { recursive: true });
     return createBackend({
       dbPath,
@@ -254,6 +260,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       onUserSignedIn: hooks.onUserSignedIn,
       companyOwner: hooks.companyOwner,
       claimedElsewhere: hooks.claimedElsewhere,
+      integrations: { tenantCode: code },
     });
   });
   // SECURITY: open backends are keyed by tenant id, never by code. A code is

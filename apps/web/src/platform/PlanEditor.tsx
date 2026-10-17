@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, Field, TextInput } from "@mezan/ui";
-import { MODULE_CATALOG, MODULES } from "@mezan/domain";
+import { MODULE_CATALOG, MODULES, moduleName } from "@mezan/domain";
 import type {
   PlanCreateRequestDTO,
   PlanDTO,
@@ -36,7 +36,7 @@ function moduleOptions(t: (key: AppTranslationKey) => string) {
   return MODULE_CATALOG.map((id) => {
     const catalogId = CATALOG_MODULE_ID[id] ?? id;
     const entry = MODULES.find((m) => m.id === catalogId);
-    return { value: id, label: entry ? moduleLabel(entry, t) : id };
+    return { value: id, label: entry ? moduleLabel(entry, t) : moduleName(id).ar };
   });
 }
 

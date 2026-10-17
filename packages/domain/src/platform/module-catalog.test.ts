@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { MODULE_CATALOG, isKnownModule } from "./module-catalog.js";
 
 describe("MODULE_CATALOG", () => {
-  it("holds the nineteen licensable modules, each once, in order", () => {
+  it("holds the twenty licensable modules, each once, in order", () => {
     expect([...MODULE_CATALOG]).toEqual([
       "sales",
       "purchases",
@@ -28,6 +28,8 @@ describe("MODULE_CATALOG", () => {
       // DEC-23 un-deferred POS: its routes ship and gate on `pos.*` codes, so
       // the module has to be licensable or those gates can never be granted.
       "pos",
+      // DEC-27: the integration API, licensable on the cloud edition only.
+      "integrations",
     ]);
   });
 

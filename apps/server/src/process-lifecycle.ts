@@ -4,7 +4,8 @@ import { LogEvent, createLogger, flushLogs } from "@mezan/api";
 import { AlertKind, type Alerter } from "./alerter.js";
 
 const RUNNING_MARKER = "mezan-running.json";
-const SHUTDOWN_BUDGET_MS = 10_000;
+// Must stay below the container stop_grace_period (deploy/contabo: 90s), or Docker kills the process mid-close and leaves the crash marker.
+const SHUTDOWN_BUDGET_MS = 75_000;
 const UNCAUGHT_EXIT_CODE = 1;
 
 const log = createLogger("process");

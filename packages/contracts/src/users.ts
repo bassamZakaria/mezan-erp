@@ -91,6 +91,10 @@ export const updateUserSchema = z
     ...userBaseFields,
     password: z.string().min(8, "Password must be at least 8 characters").optional(),
     pin: pinSchema.nullable().optional(),
+    // CONTRACT: required, one or the other, when the caller changes their OWN
+    // email, PIN or password here.
+    currentPin: pinSchema.optional(),
+    currentPassword: z.string().min(1).optional(),
     newOwnerUserId: z.string().trim().min(1).optional(),
     ...sodAcknowledgeFields,
   })

@@ -60,7 +60,7 @@ function resolveCallerId(c: Context): string {
 
 function profileErrorResponse(c: Context, err: unknown) {
   if (err instanceof IncorrectPasswordError) {
-    return c.json({ error: err.code, message: err.message }, 401);
+    return c.json({ error: err.code, message: err.message }, 403);
   }
   if (err instanceof InvalidUserError) {
     return c.json({ error: err.code, message: err.message }, 400);

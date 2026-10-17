@@ -33,7 +33,7 @@ export { createSuppliersRouter } from "./suppliers-routes.js";
 export { createItemsRouter } from "./items-routes.js";
 export { createLabelLayoutsRouter } from "./label-routes.js";
 export { createRolesRoutes } from "./roles-routes.js";
-export { createUsersRoutes, OwnerHandOverOutcome, COMPANY_OWNER_HAND_OVER_AUDIT, type CompanyOwnerPort, type UserEmailChange } from "./users-routes.js";
+export { createUsersRoutes, UsersRefusal, OwnCredentialAction, OwnerHandOverOutcome, COMPANY_OWNER_HAND_OVER_AUDIT, type CompanyOwnerPort, type UserEmailChange } from "./users-routes.js";
 export {
   createUserErasurePort,
   EMPTY_ERASURE_COUNTS,
@@ -78,6 +78,11 @@ export { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-ro
 export { ATTACHMENT_ENTITY_OWNERS, AttachmentOwner, createAttachmentsRoutes, type AttachmentsRoutesDeps } from "./attachments-routes.js";
 export {
   createSessionRegistry,
+  createMemorySessionStore,
+  DISPLACED_SESSIONS_REMEMBERED,
+  type SessionStore,
+  type StoredSession,
+  type DisplacedSession,
   createSessionAuthContextResolver,
   readSessionToken,
   sessionOriginReporting,

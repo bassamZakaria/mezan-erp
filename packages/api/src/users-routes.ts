@@ -32,7 +32,7 @@ import {
   type ScopeSelection,
   type SecretHasher,
 } from "@mezan/domain";
-import { ErasureRetention, OwnerHandOverOutcome, createUserSchema, deactivateUserSchema, eraseUserSchema, updateUserSchema } from "@mezan/contracts";
+import { CurrentSecretRefusal, ErasureRetention, OwnerHandOverOutcome, createUserSchema, deactivateUserSchema, eraseUserSchema, updateUserSchema } from "@mezan/contracts";
 import { EMPTY_ERASURE_COUNTS, type UserErasurePort } from "./user-erasure.js";
 import {
   createPermissionGate,
@@ -43,7 +43,18 @@ import {
 import { recordAdminEvent, recordSecurityAdminEvent, recordSecurityAdminEventOrFallback } from "./admin-audit.js";
 import { afterAuditCommit, insideAuditBoundary } from "./audit-boundary.js";
 import type { SessionRegistry } from "./session-auth.js";
-import type { LoginThrottle } from "./login-throttle.js";
+import { throttleKey, tooManyAttempts, type LoginThrottle } from "./login-throttle.js";
+import { requestOrigin } from "./request-origin.js";
+
+export enum UsersRefusal {
+  CurrentSecretRequired = "CURRENT_SECRET_REQUIRED",
+}
+
+export enum OwnCredentialAction {
+  EmailChanged = "EMAIL_CHANGED",
+  PasswordChanged = "PASSWORD_CHANGED",
+  PinChanged = "PIN_CHANGED",
+}
 
 function serializeUser(user: User) {
   return {
@@ -249,8 +260,6 @@ export function createUsersRoutes(
    */
   function auditCredentialReset(c: Context, user: User, change: CredentialChange) {
     if (!change.pinChanged && !change.passwordChanged) return Promise.resolve();
-    const actor = getAuthContext(c)?.userId;
-    if (actor === user.id) return Promise.resolve(); // self-service; profile-routes records it
     return recordSecurityAdminEvent(audit, c, {
       module: "admin",
       entityType: "USER",
@@ -532,6 +541,67 @@ export function createUsersRoutes(
     return owner !== undefined && (await owner.currentOwnerUserId()) === userId;
   }
 
+  // SECURITY: a user changing their OWN email, PIN or password here proves
+  // they hold a current secret first, as the profile route does: otherwise a
+  // stolen session holding admin.users.edit could take the account over. The
+  // PIN is accepted because a console-provisioned owner has no password they
+  // know; wrong answers count on the sign-in ladder like a wrong step-up PIN.
+  async function refuseOwnCredentialChange(c: Context, user: User, presented: { currentPin?: string; currentPassword?: string }): Promise<Response | null> {
+    const key = throttleKey(user.email, requestOrigin(c));
+    const waitSeconds = loginThrottle?.retryAfter(key) ?? 0;
+    if (waitSeconds > 0) {
+      c.header("retry-after", String(waitSeconds));
+      return c.json(tooManyAttempts(waitSeconds), 429);
+    }
+    if (presented.currentPin === undefined && presented.currentPassword === undefined) {
+      return c.json(
+        {
+          error: UsersRefusal.CurrentSecretRequired,
+          message: "أدخل رمز PIN الحالي أو كلمة المرور الحالية لتغيير بريدك أو رمزك أو كلمة مرورك.",
+          messageEn: "Enter your current PIN or password to change your own email, PIN or password.",
+        },
+        400,
+      );
+    }
+    const held =
+      presented.currentPin !== undefined
+        ? user.pinHash !== null && (await hasher.verify(presented.currentPin, user.pinHash))
+        : await hasher.verify(presented.currentPassword ?? "", user.passwordHash);
+    if (held) {
+      loginThrottle?.succeed(key);
+      return null;
+    }
+    const lockedFor = loginThrottle?.fail(key) ?? 0;
+    await auditRefusal(c, user.id, { reason: presented.currentPin !== undefined ? CurrentSecretRefusal.IncorrectPin : CurrentSecretRefusal.IncorrectPassword });
+    if (lockedFor > 0) {
+      c.header("retry-after", String(lockedFor));
+      return c.json(tooManyAttempts(lockedFor), 429);
+    }
+    return presented.currentPin !== undefined
+      ? c.json({ error: CurrentSecretRefusal.IncorrectPin, message: "رمز PIN الحالي غير صحيح." }, 403)
+      : c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور الحالية غير صحيحة." }, 403);
+  }
+
+  function auditOwnCredentialChange(c: Context, before: User, after: User, change: CredentialChange) {
+    const actions = [
+      ...(before.email !== after.email ? [OwnCredentialAction.EmailChanged] : []),
+      ...(change.passwordChanged ? [OwnCredentialAction.PasswordChanged] : []),
+      ...(change.pinChanged ? [OwnCredentialAction.PinChanged] : []),
+    ];
+    return Promise.all(
+      actions.map((action) =>
+        recordSecurityAdminEvent(audit, c, {
+          module: "admin",
+          entityType: "USER",
+          entityId: after.id,
+          action,
+          severity: "WARNING",
+          details: action === OwnCredentialAction.EmailChanged ? { from: before.email, to: after.email } : { email: after.email },
+        }),
+      ),
+    );
+  }
+
   async function refuseOwnerIdentityChange(c: Context, targetId: string) {
     await auditRefusal(c, targetId, { reason: "OWNER_ACCOUNT_PROTECTED" });
     return c.json(
@@ -660,9 +730,14 @@ export function createUsersRoutes(
     if (outranked) return outranked;
     const escalation = await refuseIfEscalating(c, parsed.data, id);
     if (escalation) return escalation;
-    const { newOwnerUserId, ...fields } = parsed.data;
+    const { newOwnerUserId, currentPin, currentPassword, ...fields } = parsed.data;
     const change = credentialChange(fields);
     const actorId = getAuthContext(c)?.userId;
+    const ownCredentials = actorId === id && (normalizeEmail(fields.email) !== before.email || change.pinChanged || change.passwordChanged);
+    if (ownCredentials) {
+      const unproven = await refuseOwnCredentialChange(c, before, { currentPin, currentPassword });
+      if (unproven) return unproven;
+    }
     let successor: User | null = null;
     if (await isCompanyOwner(id)) {
       const identityChanged =
@@ -728,7 +803,8 @@ export function createUsersRoutes(
         if (!afterAuditCommit(c, announce)) await announce();
       }
       await auditUser(c, user, "UPDATE", before, change);
-      await auditCredentialReset(c, user, change);
+      if (actorId === id) await auditOwnCredentialChange(c, before, user, change);
+      else await auditCredentialReset(c, user, change);
       if (onCredentialSetByOther && actorId && actorId !== id && (change.pinChanged || change.passwordChanged)) await onCredentialSetByOther(id, actorId);
       if (conflicts.length > 0) await auditSodOverride(c, user, conflicts, parsed.data.reason ?? "");
       // A grant is snapshotted into the session at login. Anything that changes

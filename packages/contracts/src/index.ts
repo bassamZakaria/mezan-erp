@@ -960,6 +960,7 @@ export {
   DeviceBinding,
   CSRF_HEADER,
   CsrfCookie,
+  CurrentSecretRefusal,
   type StepUpRequestDTO,
   type UnlockAccountRequestDTO,
   type UnlockAccountByLinkRequestDTO,

@@ -1,8 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createApp } from "./app.js";
 import { createSessionRegistry } from "./session-auth.js";
-import type { UserEmailChange } from "./users-routes.js";
-import { createSqliteUnitOfWork, createSqliteSettingsStore, type SqliteSettingsStoreHandle, type SqliteUnitOfWorkHandle } from "@mezan/persistence";
+import { OwnCredentialAction, UsersRefusal, type UserEmailChange } from "./users-routes.js";
+import { createLoginThrottle } from "./login-throttle.js";
+import { CurrentSecretRefusal } from "@mezan/contracts";
+import { createScryptHasher, createSqliteUnitOfWork, createSqliteSettingsStore, type SqliteSettingsStoreHandle, type SqliteUnitOfWorkHandle } from "@mezan/persistence";
 import { createAuthContext, createDefaultSettings, createEntitlements, ALL_SCOPE, type AuditSink } from "@mezan/domain";
 
 const handles: (SqliteUnitOfWorkHandle | SqliteSettingsStoreHandle)[] = [];
@@ -1025,5 +1027,97 @@ describe("announcing an email change", () => {
 
     expect((await rename(app, { ...user, phone: "+201111111111" }, "mohamed@cyag.test")).status).toBe(200);
     expect(announced).toEqual([]);
+  });
+});
+
+describe("a user editing their own account through the users route", () => {
+  const CURRENT_PIN = "135790";
+  const hasher = createScryptHasher();
+  const body = { ...newUserBody, nameAr: "المستخدم نفسه", email: "self@cyag.test", password: undefined };
+
+  async function selfApp() {
+    const uow = createSqliteUnitOfWork(":memory:");
+    handles.push(uow);
+    const ctx = createAuthContext({ userId: "u1", permissions: ["*"], branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
+    const loginThrottle = createLoginThrottle();
+    const events: string[] = [];
+    const auditSink: AuditSink = { append: async (event) => void events.push(event.action), query: async () => [] };
+    const app = createApp(uow, { resolveAuthContext: () => ctx, hasher, auditSink, security: { loginThrottle } });
+    await uow.users.save({
+      id: "u1",
+      nameAr: body.nameAr,
+      nameEn: null,
+      email: body.email,
+      phone: null,
+      passwordHash: await hasher.hash("CurrentPass1"),
+      pinHash: await hasher.hash(CURRENT_PIN),
+      roleId: null,
+      isCompanyAdmin: true,
+      employeeId: null,
+      branchScope: "*",
+      warehouseScope: "*",
+      status: "active",
+      photoUrl: null,
+      lastLoginAt: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const put = (changes: Record<string, unknown>) =>
+      app.fetch(new Request("http://x/users/u1", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, ...changes }) }));
+    return { put, users: uow.users, events };
+  }
+
+  it.each([
+    ["email", { email: "taken-over@cyag.test" }],
+    ["password", { password: "BrandNewPass1" }],
+    ["PIN", { pin: "482913" }],
+  ])("asks for the current PIN or password before changing their own %s, and changes nothing without it", async (_what, changes) => {
+    const { put, users } = await selfApp();
+    const before = await users.findById("u1");
+
+    const missing = await put(changes);
+    expect(missing.status).toBe(400);
+    expect(((await json(missing)) as { error: string }).error).toBe(UsersRefusal.CurrentSecretRequired);
+    const wrong = await put({ ...changes, currentPin: "000000" });
+    expect(wrong.status).toBe(403);
+    expect(((await json(wrong)) as { error: string }).error).toBe(CurrentSecretRefusal.IncorrectPin);
+    const wrongPassword = await put({ ...changes, currentPassword: "not-it" });
+    expect(wrongPassword.status).toBe(403);
+    expect(((await json(wrongPassword)) as { error: string }).error).toBe(CurrentSecretRefusal.IncorrectPassword);
+
+    expect(await users.findById("u1")).toEqual(before);
+  });
+
+  it("changes their own email with the current PIN, and records it on the security stream as their own change", async () => {
+    const { put, users, events } = await selfApp();
+
+    const saved = await put({ email: "moved@cyag.test", currentPin: CURRENT_PIN });
+
+    expect(saved.status).toBe(200);
+    expect((await users.findById("u1"))?.email).toBe("moved@cyag.test");
+    expect(events).toContain(OwnCredentialAction.EmailChanged);
+    expect(events).not.toContain("CREDENTIAL_RESET_BY_ADMIN");
+  });
+
+  it("changes their own password with the current password", async () => {
+    const { put, users } = await selfApp();
+
+    expect((await put({ password: "BrandNewPass1", currentPassword: "CurrentPass1" })).status).toBe(200);
+    expect(await hasher.verify("BrandNewPass1", (await users.findById("u1"))!.passwordHash)).toBe(true);
+  });
+
+  it("stops guessing the current PIN on the sign-in ladder", async () => {
+    const { put } = await selfApp();
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 12; attempt += 1) statuses.push((await put({ pin: "482913", currentPin: String(100000 + attempt) })).status);
+
+    expect(statuses).toContain(429);
+    expect((await put({ pin: "482913", currentPin: CURRENT_PIN })).status).toBe(429);
+  });
+
+  it("saves the rest of their own record without asking (negative control)", async () => {
+    const { put, users } = await selfApp();
+
+    expect((await put({ phone: "+201111111111" })).status).toBe(200);
+    expect((await users.findById("u1"))?.phone).toBe("+201111111111");
   });
 });

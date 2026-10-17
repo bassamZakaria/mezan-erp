@@ -211,7 +211,7 @@ async function secondAdmin(co: Company, email = `second@${co.code}.example`): Pr
 async function ownerMovedWhilePlatformWasDown(c: Cloud, co: Company, email: string): Promise<Record<string, unknown>> {
   const owner = await co.user(`owner@${co.code}.example`);
   c.faults.ownerWriteRefuses = true;
-  expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email })).status).toBe(200);
+  expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, currentPin: co.ownerPin, email })).status).toBe(200);
   c.faults.ownerWriteRefuses = false;
   await c.router.reconcileOwner(co.code);
   expect(await co.recorded()).toMatchObject({ ownerEmail: `owner@${co.code}.example`, ownerContactVerified: false });
@@ -261,7 +261,7 @@ describe("the platform's record of a tenant's owner", () => {
     const co = await company(c, "bravo");
     const owner = await co.user("owner@bravo.example");
 
-    const changed = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: " New@Bravo.example " });
+    const changed = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, currentPin: co.ownerPin, email: " New@Bravo.example " });
 
     expect(changed.status).toBe(200);
     expect(await co.recorded()).toMatchObject({ ownerEmail: "new@bravo.example", ownerContactVerified: true, ownerUserId: owner["id"] });
@@ -278,7 +278,7 @@ describe("the platform's record of a tenant's owner", () => {
     const owner = await co.user("owner@bison.example");
 
     c.faults.ownerWritesLost = 1;
-    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "new@bison.example" })).status).toBe(200);
+    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, currentPin: co.ownerPin, email: "new@bison.example" })).status).toBe(200);
 
     expect(c.faults.ownerWritesLost).toBe(0);
     expect(await co.recorded()).toMatchObject({ ownerEmail: "new@bison.example", ownerContactVerified: true });
@@ -292,12 +292,12 @@ describe("the platform's record of a tenant's owner", () => {
     const owner = await co.user("owner@charlie.example");
     const before = await co.recorded();
 
-    const refused = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "taken@charlie.example" });
+    const refused = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, currentPin: co.ownerPin, email: "taken@charlie.example" });
 
     expect(refused.status).toBe(409);
     expect(await co.recorded()).toEqual(before);
     expect(await ownerAudit(c, OwnerContactAudit.EmailChanged)).toEqual([]);
-    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "real@charlie.example" })).status).toBe(200);
+    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, currentPin: co.ownerPin, email: "real@charlie.example" })).status).toBe(200);
     expect((await co.recorded()).ownerEmail).toBe("real@charlie.example");
   });
 
@@ -310,7 +310,7 @@ describe("the platform's record of a tenant's owner", () => {
       const before = await co.recorded();
 
       c.faults[fault] = true;
-      const changed = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "moved@delta.example" });
+      const changed = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, currentPin: co.ownerPin, email: "moved@delta.example" });
       c.faults[fault] = false;
 
       expect(changed.status).toBe(200);
@@ -448,7 +448,7 @@ describe("the platform's record of a tenant's owner", () => {
     const co = await company(c, "uniform");
     const owner = await co.user("owner@uniform.example");
 
-    const moved = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "moved@uniform.example" });
+    const moved = await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, currentPin: co.ownerPin, email: "moved@uniform.example" });
 
     expect(moved.status).toBe(200);
     expect(await co.recorded()).toMatchObject({ ownerEmail: "moved@uniform.example" });
@@ -462,7 +462,7 @@ describe("the platform's record of a tenant's owner", () => {
     const reset = await resetTenantOwnerPin({ platform: c.platform, router: c.router }, { tenant: await co.recorded(), actorId: "op-1" });
     const session = (await co.signIn("owner@raven.example", reset.adminPin)).token;
 
-    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "inbox@elsewhere.example" }, session)).status).toBe(200);
+    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "inbox@elsewhere.example", currentPin: reset.adminPin }, session)).status).toBe(200);
 
     expect(await co.recorded()).toMatchObject({ ownerEmail: "owner@raven.example", ownerContactVerified: false });
     expect(await ownerAudit(c, OwnerContactAudit.EmailChanged)).toEqual([]);
@@ -473,7 +473,7 @@ describe("the platform's record of a tenant's owner", () => {
     const co = await company(c, "foxtrot");
     const owner = await ownerMovedWhilePlatformWasDown(c, co, "inbox@elsewhere.example");
 
-    await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "owner@foxtrot.example" });
+    await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, currentPin: co.ownerPin, email: "owner@foxtrot.example" });
 
     expect(await co.recorded()).toMatchObject({ ownerEmail: "owner@foxtrot.example", ownerContactVerified: true });
     expect(await ownerAudit(c, OwnerContactAudit.EmailChanged)).toEqual([]);
@@ -518,13 +518,13 @@ describe("the platform's record of a tenant's owner", () => {
     const ownerOne = await one.user("owner@hotel.example");
     const peer = await secondAdmin(one);
 
-    expect((await one.call("PUT", `/users/${String(ownerOne["id"])}`, { ...ownerOne, email: "owner@india.example" })).status).toBe(200);
+    expect((await one.call("PUT", `/users/${String(ownerOne["id"])}`, { ...ownerOne, email: "owner@india.example", currentPin: one.ownerPin })).status).toBe(200);
 
     expect((await one.recorded()).ownerEmail).toBe("owner@india.example");
     expect(await two.recorded()).toEqual(twoBefore);
 
     const peerRow = await one.user("second@hotel.example");
-    expect((await one.call("PUT", `/users/${peer.id}`, { ...peerRow, email: "owner@hotel.example" }, peer.token)).status).toBe(200);
+    expect((await one.call("PUT", `/users/${peer.id}`, { ...peerRow, email: "owner@hotel.example", currentPin: SECOND_ADMIN_PIN }, peer.token)).status).toBe(200);
     expect(await one.recorded()).toMatchObject({ ownerEmail: "owner@india.example", ownerUserId: ownerOne["id"], ownerContactVerified: true });
     expect(await two.recorded()).toEqual(twoBefore);
   });
@@ -982,7 +982,7 @@ describe("the platform assigning a tenant's owner", () => {
     expect(await co.recorded()).toMatchObject({ ownerEmail: "inbox@elsewhere.example", ownerContactVerified: true });
     const session = (await co.signIn("inbox@elsewhere.example", reset.adminPin)).token;
     const account = ((await co.call("GET", "/users", undefined, session)).json as Record<string, unknown>[]).find((user) => user["id"] === owner["id"]);
-    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...account, email: "final@lotus.example" }, session)).status).toBe(200);
+    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...account, email: "final@lotus.example", currentPin: reset.adminPin }, session)).status).toBe(200);
     expect(await co.recorded()).toMatchObject({ ownerEmail: "final@lotus.example", ownerContactVerified: true });
   });
 });
@@ -1157,7 +1157,7 @@ describe("the signup request of a tenant whose owner moved", () => {
       .run(T, T, T);
     raw.close();
 
-    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, email: "new@amber.example" })).status).toBe(200);
+    expect((await co.call("PUT", `/users/${String(owner["id"])}`, { ...owner, currentPin: co.ownerPin, email: "new@amber.example" })).status).toBe(200);
 
     expect((await c.platform.stores.signupRequests.findByTokenHash("hash-amber"))?.ownerEmail).toBe("new@amber.example");
   });

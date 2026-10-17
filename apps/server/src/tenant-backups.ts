@@ -41,6 +41,8 @@ const WORK_DIR_PREFIX = "work-";
 const SCRUBBED_TABLES = [
   { name: "sign_in_attempt", clear: "DELETE FROM sign_in_attempt" },
   { name: "resource_lease", clear: "DELETE FROM resource_lease" },
+  { name: "auth_session", clear: "DELETE FROM auth_session" },
+  { name: "auth_session_displaced", clear: "DELETE FROM auth_session_displaced" },
 ] as const;
 
 const refuse = (code: TenantBackupRefusal, message: string, messageEn: string, status: 404 | 409 | 422 | 503): TenantBackupRefusalError =>
@@ -127,8 +129,9 @@ function removeOrphans(root: string, olderThan: number): void {
   }
 }
 
-// SECURITY: the sign-in log holds accounts and source addresses of failed sign-ins, and the lease table
-// is another instance's coordination state. Neither belongs in a file that leaves the platform; the live
+// SECURITY: the sign-in log holds accounts and source addresses of failed sign-ins, the session tables
+// hold live sessions a restored copy must not bring back, and the lease table is another instance's
+// coordination state. Neither belongs in a file that leaves the platform; the live
 // database is never touched, and VACUUM drops the deleted rows from free pages.
 function scrubSnapshot(file: string): void {
   const { sqlite } = openSqliteConnection(file);

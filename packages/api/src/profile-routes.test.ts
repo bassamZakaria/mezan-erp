@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createSqliteUnitOfWork, createScryptHasher, type SqliteUnitOfWorkHandle } from "@mezan/persistence";
+import { CurrentSecretRefusal } from "@mezan/contracts";
 import type { AuditEvent, AuditSink } from "@mezan/domain";
 import { createProfileRoutes } from "./profile-routes.js";
 
@@ -232,11 +233,12 @@ describe("profile router — changing the email (the login id) needs the current
     expect((await uow.users.findById("u1"))?.email).toBe("mohamed@cyag.test");
   });
 
-  it("refuses a wrong current password with 401, writes nothing, and audits the refusal", async () => {
+  it("refuses a wrong current password with 403 INCORRECT_PASSWORD, writes nothing, and audits the refusal", async () => {
     const { app, uow, audit } = newApp();
     await seedUser(uow);
     const res = await app.fetch(changeTo({ currentPassword: "wrong-password" }));
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
+    expect(((await json(res)) as { error: string }).error).toBe(CurrentSecretRefusal.IncorrectPassword);
     expect((await uow.users.findById("u1"))?.email).toBe("mohamed@cyag.test");
     expect(audit?.events.map((e) => e.action)).toContain("EMAIL_CHANGE_REFUSED");
   });
@@ -281,13 +283,14 @@ describe("profile router — change-password", () => {
     expect(audit!.events[0]).toMatchObject({ action: "PASSWORD_CHANGED", actor: "u1", entityId: "u1", stream: "security" });
   });
 
-  it("rejects the wrong current password with 401, changes nothing, and audits nothing", async () => {
+  it("rejects the wrong current password with 403 INCORRECT_PASSWORD, changes nothing, and audits nothing", async () => {
     const { app, uow, audit } = newApp();
     await seedUser(uow);
     const res = await app.fetch(
       req("/change-password", { method: "POST", userId: "u1", body: JSON.stringify({ currentPassword: "WrongPass1", newPassword: "BrandNewPass1" }) }),
     );
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
+    expect(((await json(res)) as { error: string }).error).toBe(CurrentSecretRefusal.IncorrectPassword);
     const untouched = await uow.users.findById("u1");
     expect(await hasher.verify(CURRENT_PASSWORD, untouched!.passwordHash)).toBe(true);
     expect(audit!.events).toHaveLength(0);
@@ -342,13 +345,14 @@ describe("profile router — change-pin", () => {
     expect(await hasher.verify("111111", untouched!.pinHash!)).toBe(true);
   });
 
-  it("rejects the wrong current password with 401 before ever looking at the new PIN", async () => {
+  it("rejects the wrong current password with 403 before ever looking at the new PIN", async () => {
     const { app, uow } = newApp();
     await seedUser(uow, { pinHash: await hasher.hash("111111") });
     const res = await app.fetch(
       req("/change-pin", { method: "POST", userId: "u1", body: JSON.stringify({ currentPassword: "WrongPass1", newPin: "222222" }) }),
     );
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(403);
+    expect(((await json(res)) as { error: string }).error).toBe(CurrentSecretRefusal.IncorrectPassword);
     const untouched = await uow.users.findById("u1");
     expect(await hasher.verify("111111", untouched!.pinHash!)).toBe(true);
   });
@@ -465,7 +469,7 @@ describe("profile router — a credential change never gives the event loop away
     ["/change-password", { currentPassword: CURRENT_PASSWORD, newPassword: "BrandNewPass1" }, 204],
     ["/change-pin", { currentPassword: CURRENT_PASSWORD, newPin: "482913" }, 204],
     ["/change-pin", { currentPassword: CURRENT_PASSWORD, newPin: null }, 204],
-    ["/change-password", { currentPassword: "WrongPass1", newPassword: "BrandNewPass1" }, 401],
+    ["/change-password", { currentPassword: "WrongPass1", newPassword: "BrandNewPass1" }, 403],
   ])("POST %s %j", async (path, body, status) => {
     const { app, uow } = newApp();
     await seedUser(uow);

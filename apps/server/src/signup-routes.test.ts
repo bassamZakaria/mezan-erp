@@ -490,7 +490,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
       new Request(`http://cloud.internal/api/users/${String(owner?.["id"])}`, {
         method: "PUT",
         headers: tenantHeaders,
-        body: JSON.stringify({ ...owner, email: " Sara@Moved-Shop.example " }),
+        body: JSON.stringify({ ...owner, email: " Sara@Moved-Shop.example ", currentPin: first.adminPin }),
       }),
     );
 
@@ -559,7 +559,7 @@ describe("the platform owner resets a tenant owner's PIN", () => {
     expect((await platform.stores.tenants.findByCode("steady"))?.ownerEmail).toBe("owner@steady.example");
 
     refuseSave = true;
-    const refused = await call("PUT", `/users/${String(owner?.["id"])}`, { ...owner, email: "new@steady.example" });
+    const refused = await call("PUT", `/users/${String(owner?.["id"])}`, { ...owner, email: "new@steady.example", currentPin: adminPin });
 
     expect(refused.status).toBe(200);
     expect((await platform.stores.tenants.findByCode("steady"))?.ownerEmail).toBe("owner@steady.example");

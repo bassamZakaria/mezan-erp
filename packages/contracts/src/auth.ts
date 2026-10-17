@@ -27,6 +27,14 @@ export enum CsrfCookie {
   Platform = "mezan_platform_csrf",
 }
 
+// CONTRACT: a wrong CURRENT secret from a signed-in caller (password change,
+// PIN change, email change, step-up) answers 403 with one of these. 401 is kept
+// for "this session is gone": the clients sign out on it.
+export enum CurrentSecretRefusal {
+  IncorrectPassword = "INCORRECT_PASSWORD",
+  IncorrectPin = "INCORRECT_PIN",
+}
+
 export const stepUpRequestSchema = z.object({ pin: z.string().regex(/^\d{6}$/) });
 export type StepUpRequestDTO = z.infer<typeof stepUpRequestSchema>;
 

@@ -34,6 +34,8 @@ export interface UsersPageProps {
   warehouses: { id: string; name: string; branchId: string }[];
   employees: { id: string; name: string; position: string }[];
   onSave: (draft: UserFormDraft, editingId: string | null) => Promise<StoreResult<UserDTO>>;
+  /** The signed-in user: changing their own email, PIN or password here asks for their current PIN. */
+  currentUserId?: string | null;
   onToggleStatus: (userId: string, status: UserStatusCode, newOwnerUserId?: string) => Promise<StoreResult<UserDTO>>;
   /**
    * Clears a failed-login lockout.
@@ -60,6 +62,8 @@ export interface UserFormDraft {
   phone: string;
   password: string;
   pin: string;
+  /** Asked for, and sent, only when the signed-in user changes their own email, PIN or password. */
+  currentPin?: string;
   roleId: string | null;
   isCompanyAdmin: boolean;
   employeeId: string | null;
@@ -125,7 +129,7 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
   };
 }
 
-export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus, onUnlock, onErase }: UsersPageProps) {
+export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus, onUnlock, onErase, currentUserId = null }: UsersPageProps) {
   const { t } = useAppTranslation();
   const [statusFilter, setStatusFilter] = useUrlParam("status", "all") as [
     UserStatusDTO | "all",
@@ -310,6 +314,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   }
 
   const editingOwner = editingId !== null && users.some((u) => u.id === editingId && u.isCompanyOwner === true);
+  const editingSelf = editingId !== null && editingId === currentUserId;
   const ownerSteppingDown = editingOwner && (draft.status !== UserStatusCode.Active || !draft.isCompanyAdmin);
   const roleOptions: EntityPickerOption[] = roles.map((r) => ({ id: r.id, label: r.name, sublabel: r.code }));
   const employeeOptions: EntityPickerOption[] = employees.map((e) => ({ id: e.id, label: e.name, sublabel: e.position }));
@@ -493,6 +498,15 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
               onChange={(v) => setDraft((d) => ({ ...d, password: v }))}
             />
             <TextField label={t("users.pinOptional46Digits")} value={draft.pin} onChange={(v) => setDraft((d) => ({ ...d, pin: v }))} placeholder="123456" />
+            {editingSelf ? (
+              <TextField
+                label={t("users.currentPin")}
+                type="password"
+                value={draft.currentPin ?? ""}
+                onChange={(v) => setDraft((d) => ({ ...d, currentPin: v.replace(/\D/g, "").slice(0, 6) }))}
+                hint={t("users.currentPinHint")}
+              />
+            ) : null}
           </FormSection>
 
           <FormSection title={t("users.roleAndRights")}>

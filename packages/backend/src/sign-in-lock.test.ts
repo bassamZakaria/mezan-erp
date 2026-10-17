@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SmtpConfig } from "@mezan/api";
 import { openSqliteConnection } from "@mezan/persistence";
-import type { SessionDTO } from "@mezan/contracts";
+import { CurrentSecretRefusal, type SessionDTO } from "@mezan/contracts";
 import { createBackend, type BackendHandle, type CreateBackendOptions } from "./create-backend.js";
 
 const OWNER = { nameAr: "المالك", nameEn: "Owner", email: "owner@shop.eg", pin: "731946", companyName: "متجر الاختبار" };
@@ -165,7 +165,7 @@ describe("getting back into a locked account", () => {
         headers: { "content-type": "application/json", authorization: `Bearer ${host.token}` },
         body: JSON.stringify({
           nameAr: OWNER.nameAr, nameEn: OWNER.nameEn, email: OWNER.email, roleId: null, isCompanyAdmin: true,
-          branchScope: "*", warehouseScope: "*", pin: "864201",
+          branchScope: "*", warehouseScope: "*", pin: "864201", currentPin: OWNER.pin,
         }),
       }),
     );
@@ -689,7 +689,10 @@ describe("a session bound to the device that signed in rather than to its addres
     expect(await moved.json()).toMatchObject({ error: "STEP_UP_REQUIRED", message: expect.stringContaining("رمز PIN") });
     expect((await call(h, "GET", "/profile", "102.44.7.1", bearer)).status).toBe(200);
 
-    expect((await call(h, "POST", "/auth/step-up", "102.44.7.1", bearer, { pin: "000000" })).status).toBe(401);
+    const wrong = await call(h, "POST", "/auth/step-up", "102.44.7.1", bearer, { pin: "000000" });
+    expect(wrong.status).toBe(403);
+    expect(await wrong.json()).toMatchObject({ error: CurrentSecretRefusal.IncorrectPin });
+    expect((await call(h, "GET", "/profile", "102.44.7.1", bearer)).status).toBe(200);
     expect((await call(h, "POST", "/auth/step-up", "102.44.7.1", bearer, { pin: OWNER.pin })).status).toBe(200);
     expect((await unlockSelf("102.44.7.1")).status).toBe(200);
   }, 120_000);

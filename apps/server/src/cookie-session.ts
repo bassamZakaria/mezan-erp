@@ -86,8 +86,8 @@ enum SessionGone {
 
 const SESSION_GONE: ReadonlySet<string> = new Set(Object.values(SessionGone));
 
-// A wrong password inside a live session is also a 401; only an answer that
-// names the session as gone may expire the cookies that carry it.
+// Only a 401 that names the session as gone may expire the cookies that carry
+// it; a wrong current password inside a live session is a 403.
 async function sessionIsGone(answer: Response): Promise<boolean> {
   if (answer.status !== 401) return false;
   const body = (await answer.clone().json().catch(() => null)) as { error?: unknown } | null;

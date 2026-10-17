@@ -4,7 +4,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { TenantBackupDrillOutcome, TenantBackupRefusal } from "@mezan/contracts";
 import type { Tenant } from "@mezan/domain";
-import { bindTenantDatabase, openSqliteConnection } from "@mezan/persistence";
+import { createSessionRegistry, DEFAULT_SESSION_LIMITS } from "@mezan/api";
+import { bindTenantDatabase, createSqliteSessionStore, openSqliteConnection } from "@mezan/persistence";
 import { decryptFile } from "../../desktop/src/backup/portable-export.js";
 import { restoreBackup } from "../../desktop/src/backup/restore-service.js";
 import { inspectBackupFile } from "./backup-verify-core.js";
@@ -173,13 +174,16 @@ describe("a tenant's backup export", () => {
     expect(exportFiles(dir)).toEqual([]);
   });
 
-  it("leaves the sign-in log and the lease table empty in the exported database, and untouched in the live one", async () => {
+  it("leaves the sign-in log, the sessions and the lease table empty in the exported database, and untouched in the live one", async () => {
     const dir = tempDir("mezan-export-");
     const books = liveBooks(dir, "acme", 2);
     const live = books.sqlite;
     live.exec(`CREATE TABLE sign_in_attempt (scope TEXT, key TEXT, failures INTEGER); CREATE TABLE resource_lease (lease_key TEXT PRIMARY KEY, owner TEXT, expires_at INTEGER)`);
     live.prepare(`INSERT INTO sign_in_attempt VALUES ('account', 'ali@example.eg', 3)`).run();
     live.prepare(`INSERT INTO resource_lease VALUES ('hr-punch:u1', 'o', 1)`).run();
+    const sessions = createSessionRegistry(Date.now, DEFAULT_SESSION_LIMITS, createSqliteSessionStore(live));
+    const first = sessions.issueDeviceBound({ userId: "u1", permissions: ["*"], roleCode: null, branchScope: "*", warehouseScope: "*" }, "41.33.10.10");
+    sessions.issueDeviceBound({ userId: "u2", permissions: ["*"], roleCode: null, branchScope: "*", warehouseScope: "*" }, "41.33.10.10", first.deviceSecret);
     const svc = service(dir, { acme: books });
 
     const offer = await svc.exportTenant({ tenant: tenantOf("acme"), passphrase: PASSPHRASE });
@@ -194,6 +198,10 @@ describe("a tenant's backup export", () => {
     closers.push(() => exported.close());
     expect(exported.prepare(`SELECT count(*) AS n FROM sign_in_attempt`).get()).toEqual({ n: 0 });
     expect(exported.prepare(`SELECT count(*) AS n FROM resource_lease`).get()).toEqual({ n: 0 });
+    expect(exported.prepare(`SELECT count(*) AS n FROM auth_session`).get()).toEqual({ n: 0 });
+    expect(exported.prepare(`SELECT count(*) AS n FROM auth_session_displaced`).get()).toEqual({ n: 0 });
+    expect(live.prepare(`SELECT count(*) AS n FROM auth_session`).get()).toEqual({ n: 1 });
+    expect(live.prepare(`SELECT count(*) AS n FROM auth_session_displaced`).get()).toEqual({ n: 1 });
     expect(exported.prepare(`SELECT count(*) AS n FROM invoice`).get()).toEqual({ n: 2 });
     expect(live.prepare(`SELECT count(*) AS n FROM sign_in_attempt`).get()).toEqual({ n: 1 });
     expect(live.prepare(`SELECT count(*) AS n FROM resource_lease`).get()).toEqual({ n: 1 });

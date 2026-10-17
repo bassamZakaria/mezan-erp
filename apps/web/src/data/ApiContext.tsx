@@ -31,8 +31,15 @@ function parsed(text: string): { error?: string; message?: string } | null {
   }
 }
 
+// A 403 is read to learn whether it asks for a step-up; any other refusal is
+// handed back whole — status, headers and body — as if it had not been read.
 function replayable(response: TransportResponse, text: string): TransportResponse {
-  return { status: response.status, ok: response.ok, json: async <T,>() => JSON.parse(text) as T, text: async () => text };
+  return {
+    ...response,
+    json: async <T,>() => JSON.parse(text) as T,
+    text: async () => text,
+    blob: async () => new Blob([text], { type: response.header?.("content-type") ?? "" }),
+  };
 }
 
 import { branchRefusalBefore, isBranchRestricted } from "../branch-restriction";
@@ -184,6 +191,10 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
          *
          * The login POST is excluded — a wrong PIN is a 401 the login screen
          * reports itself, not a session that expired.
+         *
+         * CONTRACT: a wrong CURRENT password or PIN from a signed-in caller
+         * (password/PIN/email change, step-up) is a 403 with a
+         * CurrentSecretRefusal code, so it never lands here.
          */
         if (response.status === 401 && session !== null && !path.startsWith("/auth/login")) {
           markSignInNotice(response.sessionEnded === SessionEndedReason.Displaced ? SignInNotice.SignedInElsewhere : SignInNotice.SessionExpired);

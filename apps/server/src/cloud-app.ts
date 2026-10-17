@@ -16,7 +16,7 @@ import {
 } from "@mezan/backend";
 import { BodyLimitRefusal, createSessionRegistry } from "@mezan/api";
 import { SubscriptionStatusKind, TenantNotFoundError, type Tenant } from "@mezan/domain";
-import { emptyBooksScratch } from "@mezan/persistence";
+import { createSqliteSessionStore, emptyBooksScratch } from "@mezan/persistence";
 import type { CreateTenantRequestDTO, OwnerPinResetResultDTO, ProvisionResultDTO, ProvisionRetryRequestDTO } from "@mezan/contracts";
 import { booksScratchDir, createTenantRouter, requireOriginSecret, type TenantBooksScan, type TenantRouter } from "./tenant-router.js";
 import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
@@ -120,7 +120,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     printGeneratedOwnerPassword(ownerPassword);
   }
 
-  const sessions = createSessionRegistry(Date.now, PLATFORM_SESSION_LIMITS);
+  const sessions = createSessionRegistry(Date.now, PLATFORM_SESSION_LIMITS, createSqliteSessionStore(platform.stores.sqlite));
   const auth = createPlatformAuth({ platform, sessions, now, sourceOf: callerSource });
   const sourceReporter = createSourceReporter();
   const sourceGate = requireCloudSource(env.clientSource, sourceReporter);

@@ -5,7 +5,7 @@ import {
   verifyPlatformLogin,
   type PlatformRole,
 } from "@mezan/domain";
-import { DEVICE_SECRET_HEADER, platformLoginRequestSchema, platformStepUpRequestSchema } from "@mezan/contracts";
+import { CurrentSecretRefusal, DEVICE_SECRET_HEADER, platformLoginRequestSchema, platformStepUpRequestSchema } from "@mezan/contracts";
 import {
   createLoginThrottle,
   readSessionToken,
@@ -217,7 +217,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
         sessions.revoke(caller.token);
         return lockedOut(c, lockedFor);
       }
-      return c.json({ error: "INVALID_CREDENTIALS", message: "كلمة المرور غير صحيحة" }, 401);
+      return c.json({ error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور غير صحيحة" }, 403);
     }
     throttle.succeed(key);
     sessions.confirmStepUp(caller.token);

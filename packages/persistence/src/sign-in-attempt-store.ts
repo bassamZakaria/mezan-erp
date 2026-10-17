@@ -29,6 +29,7 @@ export interface StoredAttemptChange<T> {
 
 export interface SqliteAttemptStore {
   update<T>(key: string, change: (held: StoredAttempt | null) => StoredAttemptChange<T>): T;
+  peek(key: string): StoredAttempt | null;
   remove(key: string): void;
   removeWithPrefix(prefix: string): void;
   sweep(at: number, limits: { readonly decayMs: number; readonly maxRecords: number }): void;
@@ -98,6 +99,10 @@ export function createSqliteAttemptStore(input: SqliteConnectionInput, scope: Si
 
   return {
     update: <T>(key: string, change: (held: StoredAttempt | null) => StoredAttemptChange<T>): T => exchange.immediate(key, change) as T,
+    peek(key) {
+      const row = get.get(scope, key) as Row | undefined;
+      return row ? { failures: parseFailures(row.failures), lockedUntil: row.locked_until } : null;
+    },
     remove: (key) => void remove.run(scope, key),
     removeWithPrefix: (prefix) => void removeRange.run(scope, prefix, prefixEnd(prefix)),
     sweep: (at, limits) => trim.immediate(at, limits),

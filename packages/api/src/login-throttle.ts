@@ -74,6 +74,8 @@ export interface AttemptChange<T> {
  */
 export interface AttemptStore {
   update<T>(key: string, change: (held: AttemptRecord | null) => AttemptChange<T>): T;
+  /** A plain read for the common "no failures held" and "still locked" answers, which must not take the write lock. */
+  peek(key: string): AttemptRecord | null;
   remove(key: string): void;
   removeWithPrefix(prefix: string): void;
   sweep(at: number, limits: { readonly decayMs: number; readonly maxRecords: number }): void;
@@ -178,6 +180,10 @@ export function createMemoryAttemptStore(): AttemptStore {
       else if (outcome.record !== undefined) records.set(key, outcome.record);
       return outcome.result;
     },
+    peek(key) {
+      const held = records.get(key);
+      return held ? { failures: [...held.failures], lockedUntil: held.lockedUntil } : null;
+    },
     remove: (key) => void records.delete(key),
     removeWithPrefix(prefix) {
       for (const held of [...records.keys()]) if (held.startsWith(prefix)) records.delete(held);
@@ -249,6 +255,10 @@ export function createLoginThrottle(now: () => number = Date.now, store: Attempt
   return {
     retryAfter(key) {
       const at = now();
+      const seen = store.peek(key);
+      if (!seen) return 0;
+      const open = liveRecord(seen, at);
+      if (open && open.lockedUntil > at) return Math.ceil((open.lockedUntil - at) / 1000);
       return store.update(key, (held) => {
         const record = liveRecord(held, at);
         if (!record) return { record: held ? null : undefined, result: 0 };
@@ -314,10 +324,8 @@ export function createSourceThrottle(
   return {
     retryAfter(source) {
       const at = now();
-      return store.update(source, (held) => {
-        const record = liveRecord(held, at);
-        return { result: record && record.lockedUntil > at ? Math.ceil((record.lockedUntil - at) / 1000) : 0 };
-      });
+      const record = liveRecord(store.peek(source), at);
+      return record && record.lockedUntil > at ? Math.ceil((record.lockedUntil - at) / 1000) : 0;
     },
     fail(source) {
       const at = now();

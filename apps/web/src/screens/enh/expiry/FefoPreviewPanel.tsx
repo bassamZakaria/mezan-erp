@@ -1,7 +1,7 @@
-import { StatusPill } from "@mezan/ui";
+import { StatusPill, formatQty } from "@mezan/ui";
 import { useFefoPreview } from "../../../data/expiry-hooks";
 import { useAppTranslation } from "../../../i18n";
-import { scaledOf } from "../../../lib/money";
+import { majorOf, scaledOf } from "../../../lib/money";
 
 const TH = "border-b border-border bg-surface-2 px-[10px] py-[7px] text-start text-[11px] font-bold uppercase text-ink-muted";
 const TH_END = "border-b border-border bg-surface-2 px-[10px] py-[7px] text-end text-[11px] font-bold uppercase text-ink-muted";
@@ -23,8 +23,8 @@ export function FefoPreviewPanel({ warehouseId, itemId, qty, title }: { warehous
       <div className="flex flex-wrap items-center justify-between gap-[8px] border-b border-border px-[10px] py-[8px] text-[12px]">
         <span className="font-semibold text-ink">{title ?? t("expiry.fefo.title")}</span>
         <span className="flex flex-wrap gap-[6px]">
-          {data.blockedByExpired ? <StatusPill tone="danger" label={t("expiry.fefo.expiredAtHead", { qty: data.expiredQty })} /> : null}
-          {short ? <StatusPill tone="warning" label={t("expiry.fefo.shortfall", { qty: data.shortfall })} /> : null}
+          {data.blockedByExpired ? <StatusPill tone="danger" label={t("expiry.fefo.expiredAtHead", { qty: formatQty(majorOf(data.expiredQty)) })} /> : null}
+          {short ? <StatusPill tone="warning" label={t("expiry.fefo.shortfall", { qty: formatQty(majorOf(data.shortfall)) })} /> : null}
         </span>
       </div>
       <div className="overflow-x-auto">
@@ -45,8 +45,8 @@ export function FefoPreviewPanel({ warehouseId, itemId, qty, title }: { warehous
                   {slice.expiryDate ?? "—"}
                   {slice.expired ? ` · ${t("expiry.status.expired")}` : ""}
                 </td>
-                <td className="mz-num px-[10px] py-[6px] text-end">{slice.available}</td>
-                <td className="mz-num px-[10px] py-[6px] text-end font-semibold">{scaledOf(slice.take) > 0n ? slice.take : "—"}</td>
+                <td className="mz-num px-[10px] py-[6px] text-end">{formatQty(majorOf(slice.available))}</td>
+                <td className="mz-num px-[10px] py-[6px] text-end font-semibold">{scaledOf(slice.take) > 0n ? formatQty(majorOf(slice.take)) : "—"}</td>
               </tr>
             ))}
           </tbody>

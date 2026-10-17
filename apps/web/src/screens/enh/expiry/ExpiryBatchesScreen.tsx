@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Card, EmptyState, Money as MoneyValue, StatusPill } from "@mezan/ui";
+import { Button, Card, EmptyState, Money as MoneyValue, StatusPill, formatQty } from "@mezan/ui";
 import { ExpiryStatus, can, createAuthContext, createInventoryBatchesReport, DEFAULT_NEAR_EXPIRY_DAYS } from "@mezan/domain";
 import type { BatchTrailEntryDTO, ExpiryWriteOffResultDTO } from "@mezan/contracts";
 import { useApi } from "../../../data/ApiContext";
@@ -25,6 +25,11 @@ import { ReportScreen } from "../../reports/ReportScreen";
 import { FefoPreviewPanel } from "./FefoPreviewPanel";
 import { ExpiryTab } from "./expiry-routes";
 
+
+enum WriteOffOutcome {
+  Posted = "posted",
+  Held = "held",
+}
 
 const STATUS_TONE: Record<string, "danger" | "warning" | "success" | "neutral"> = {
   [ExpiryStatus.Expired]: "danger",
@@ -91,7 +96,7 @@ function WriteOffTab() {
   const [memo, setMemo] = useState("");
   const [result, setResult] = useState<ExpiryWriteOffResultDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
+  const [confirmed, setConfirmed] = useState<WriteOffOutcome | null>(null);
   const proposal = useExpiryWriteOffProposal(warehouseId);
   const create = useCreateExpiryWriteOff();
   const confirm = useConfirmStockAdjustment();
@@ -105,7 +110,7 @@ function WriteOffTab() {
     try {
       const created = await create.mutateAsync({ warehouseId, memo: memo.trim() || undefined });
       setResult(created);
-      setConfirmed(false);
+      setConfirmed(null);
     } catch (err) {
       setError(errorMessage(err, t("expiry.writeOff.createFailed")));
     }
@@ -115,8 +120,9 @@ function WriteOffTab() {
     if (!result || confirm.isPending) return;
     setError(null);
     try {
-      await confirm.mutateAsync(result.adjustmentId);
-      setConfirmed(true);
+      const outcome = await confirm.mutateAsync(result.adjustmentId);
+      setResult({ ...result, docNo: outcome.document.docNo ?? result.docNo, status: outcome.document.status });
+      setConfirmed(outcome.held ? WriteOffOutcome.Held : WriteOffOutcome.Posted);
       void proposal.refetch();
     } catch (err) {
       setError(errorMessage(err, t("expiry.writeOff.confirmFailed")));
@@ -143,15 +149,17 @@ function WriteOffTab() {
       {result ? (
         <Card className="flex flex-col gap-[10px] border-brand p-[16px]">
           <p className="text-[13px] font-semibold text-ink">
-            {confirmed
-              ? t("expiry.writeOff.confirmed", { docNo: result.docNo ?? result.adjustmentId })
-              : t("expiry.writeOff.draftCreated", { docNo: result.docNo ?? result.adjustmentId })}
+            {confirmed === WriteOffOutcome.Posted
+              ? t("expiry.writeOff.confirmed", { docNo: result.docNo ?? "" })
+              : confirmed === WriteOffOutcome.Held
+                ? t("expiry.writeOff.held")
+                : t("expiry.writeOff.draftCreated")}
           </p>
           <p className="text-[12.5px] text-ink-muted">
             {t("expiry.writeOff.totalAtWac")} <MoneyValue value={majorOf(result.totalValue)} />
           </p>
           <div className="flex flex-wrap gap-[9px]">
-            {!confirmed && mayConfirm ? (
+            {confirmed === null && mayConfirm ? (
               <Button variant="primary" disabled={confirm.isPending} onClick={() => void confirmDraft()}>
                 {t("expiry.writeOff.confirm")}
               </Button>
@@ -185,7 +193,7 @@ function WriteOffTab() {
                       <td className={TD}>{i === 0 ? itemLabel(line.itemId) : ""}</td>
                       <td className={TD}>{batch.batchNo ?? t("expiry.lot.noBatch")}</td>
                       <td className={`${TD} mz-num`}>{batch.expiryDate}</td>
-                      <td className={TD_END}>{batch.qty}</td>
+                      <td className={TD_END}>{formatQty(majorOf(batch.qty))}</td>
                       <td className={TD_END}>
                         <MoneyValue value={majorOf(batch.value)} showUnit={false} />
                       </td>
@@ -247,7 +255,7 @@ function AlertsTab() {
                     <td className={TD}>{row.batchNo ?? t("expiry.lot.noBatch")}</td>
                     <td className={`${TD} mz-num`}>{row.expiryDate ?? "—"}</td>
                     <td className={TD_END}>{row.daysToExpiry ?? "—"}</td>
-                    <td className={TD_END}>{row.qty}</td>
+                    <td className={TD_END}>{formatQty(majorOf(row.qty))}</td>
                     <td className={TD}>
                       <StatusPill label={t(STATUS_KEY[row.status] ?? "expiry.status.ok")} tone={STATUS_TONE[row.status] ?? "neutral"} />
                     </td>
@@ -320,7 +328,7 @@ function TrailTable({ rows }: { rows: readonly BatchTrailEntryDTO[] }) {
                 <td className={TD}>{itemLabel(row.itemId)}</td>
                 <td className={TD}>{warehouseLabel(row.warehouseId)}</td>
                 <td className={`${TD} mz-num`}>{row.expiryDate ?? "—"}</td>
-                <td className={TD_END}>{row.qty}</td>
+                <td className={TD_END}>{formatQty(majorOf(row.qty))}</td>
               </tr>
             ))}
           </tbody>

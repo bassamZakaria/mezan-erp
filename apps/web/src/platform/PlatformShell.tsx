@@ -8,6 +8,7 @@ import { PlanEditor } from "./PlanEditor";
 import { PlansPage } from "./PlansPage";
 import { OperatorsPage } from "./OperatorsPage";
 import { SecurityEventsPage } from "./SecurityEventsPage";
+import { OperationsPage } from "./OperationsPage";
 import { useUnrecordedSecurityEventsQuery } from "./hooks";
 
 const RAIL_ITEMS = [
@@ -56,6 +57,21 @@ export function PlatformShell() {
           {isOwner ? (
             <li>
               <NavLink
+                to="/platform/operations"
+                className={({ isActive }) =>
+                  cn(
+                    "flex min-h-[var(--h-btn)] items-center whitespace-nowrap rounded-md px-[10px] text-[13px] transition-colors md:w-full",
+                    isActive ? "bg-chrome-active text-chrome-ink" : "text-chrome-ink-muted hover:bg-chrome-hover hover:text-chrome-ink",
+                  )
+                }
+              >
+                {t("platform.nav.operations")}
+              </NavLink>
+            </li>
+          ) : null}
+          {isOwner ? (
+            <li>
+              <NavLink
                 to="/platform/security"
                 className={({ isActive }) =>
                   cn(
@@ -99,6 +115,7 @@ export function PlatformShell() {
           <Route path="plans/:id" element={<PlanEditor />} />
           <Route path="users" element={<OperatorsPage />} />
           <Route path="security" element={<SecurityEventsPage />} />
+          <Route path="operations" element={<OperationsPage />} />
         </Routes>
       </main>
     </div>

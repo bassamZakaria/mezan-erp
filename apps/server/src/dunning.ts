@@ -1,3 +1,4 @@
+import type { JobTracker } from "@mezan/api";
 import { defaultFreePlan, isFreePlan, markPastDue, SubscriptionStatusKind, TenantStatusCode } from "@mezan/domain";
 import { materialiseEndedTrial, type PlatformHandle } from "@mezan/backend";
 
@@ -57,6 +58,7 @@ export interface DunningTimerOptions {
   readonly now?: () => Date;
   readonly intervalMs?: number;
   readonly onError?: (err: unknown) => void;
+  readonly job?: JobTracker;
 }
 
 export interface DunningTimer {
@@ -68,7 +70,8 @@ export function startDunningTimer(platform: PlatformHandle, options: DunningTime
   const intervalMs = options.intervalMs ?? DAY_MS;
 
   const run = () => {
-    runDunningSweep(platform, now).catch((err) => options.onError?.(err));
+    const sweep = () => runDunningSweep(platform, now);
+    (options.job ? options.job.run(sweep, (result) => result.marked) : sweep()).catch((err) => options.onError?.(err));
   };
   run();
 

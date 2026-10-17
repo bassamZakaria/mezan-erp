@@ -24,6 +24,7 @@ import type { ScreenKey } from "../../../router/screens";
 import { MaintenancePanel } from "../../../settings/MaintenancePanel";
 import { SystemStatusScreen } from "../../hubs/SystemStatusScreen";
 import { useDesktopBackupHealth, useMayViewSystemHealth, useSystemHealth } from "./hooks";
+import { ClientErrorsCard } from "./ClientErrorsCard";
 
 const FIX_SCREEN: Readonly<Record<HealthItemKey, ScreenKey>> = {
   [HealthItemKey.Outbox]: "notification-rules",
@@ -484,6 +485,8 @@ export function HealthConsoleScreen() {
           </Card>
         ))}
       </div>
+
+      {data?.clientErrors ? <ClientErrorsCard errors={data.clientErrors} /> : null}
 
       {data && data.withheld.length > 0 ? (
         <p className="text-[11.5px] text-ink-faint">

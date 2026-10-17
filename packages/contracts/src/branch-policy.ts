@@ -283,6 +283,7 @@ export const BRANCH_POLICY_TABLE: readonly BranchPolicyEntry[] = [
   companyWide("/security-reports"),
   companyWide("/audit/verify"),
   companyWide("/system"),
+  companyWide("/client-errors"),
   companyWide("/revaluation"),
   companyWide("/reconciliation"),
   companyWide("/tax"),

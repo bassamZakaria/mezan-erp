@@ -36,6 +36,9 @@ import { callerSource, requireCloudSource, type SourceReporter } from "./client-
 import { platformRateLimiter } from "./rate-limit.js";
 import type { CloudEnv } from "./env.js";
 import type { TenantRouter } from "./tenant-router.js";
+import { LogEvent, createLogger, errorIdentity } from "@mezan/api";
+
+const log = createLogger("signup");
 
 export const SIGNUP_BASE_PATH = "/api/signup";
 
@@ -128,7 +131,7 @@ function signupErrorResponse(c: Context, err: unknown): Response {
     return c.json({ error: err.code, message: err.message }, 503);
   }
   if (err instanceof TenantProvisioningError) {
-    console.error(err, err.cause);
+    log.error({ event: LogEvent.UnhandledError, ...errorIdentity(err), cause: errorIdentity(err.cause) }, "provisioning a signed-up tenant failed");
     return c.json({ error: err.code, message: err.message }, 500);
   }
   throw err;
@@ -234,7 +237,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
     const mailer = options.mailer;
     const origin = mailer ? await trustedPublicOrigin(c.req.raw, env, servedTenantLookup(platform)) : forwardedOrigin(c.req.raw, env.trustProxy);
     if (origin === null) {
-      console.error("[signup] refused: mail is configured but no public origin is (set MEZAN_PUBLIC_URL or MEZAN_TENANT_DOMAIN)");
+      log.error("refused: mail is configured but no public origin is (set MEZAN_PUBLIC_URL or MEZAN_TENANT_DOMAIN)");
       return c.json({ error: "SIGNUP_LINK_ORIGIN_UNKNOWN", message: "التسجيل غير متاح الآن. حاول لاحقًا أو تواصل مع الدعم." }, 503);
     }
 
@@ -281,7 +284,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       const mail = verificationEmail(verifyUrl, body.nameAr);
       const result = await platform.outsideTheTurn(() => mailer.send(body.ownerEmail, mail));
       if (result.outcome !== MailOutcome.Sent) {
-        console.error(`[signup] verification email to a pending tenant could not be delivered (${result.outcome}): ${result.detail}`);
+        log.error({ outcome: result.outcome }, "a verification email to a pending tenant could not be delivered");
       }
     }
 
@@ -363,7 +366,7 @@ export function createSignupRoutes(options: SignupRoutesOptions): Hono {
       if (Date.now() >= giveUpAt) throw new SignupVerificationBusyError();
     }
     const stillOurs = () => claims.renewProvisioning(tokenHash, claimId, now().toISOString());
-    const heartbeat = setInterval(() => void stillOurs().catch((err: unknown) => console.error("[signup] provisioning claim heartbeat failed", err)), provisionHeartbeatMs);
+    const heartbeat = setInterval(() => void stillOurs().catch((err: unknown) => log.error({ err }, "provisioning claim heartbeat failed")), provisionHeartbeatMs);
     heartbeat.unref();
     try {
       const fence = await claims.provisioningFence(tokenHash, claimId);

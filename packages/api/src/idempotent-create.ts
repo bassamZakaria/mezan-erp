@@ -4,6 +4,9 @@ import type { AuditSink } from "@mezan/domain";
 import { IdempotencyRefusal, IDEMPOTENT_REPLAY_HEADER } from "@mezan/contracts";
 import { MutatingMethod, preloadBody } from "./audit-boundary.js";
 import type { AuthContextResolver } from "./permission-gate.js";
+import { createLogger } from "./observability/index.js";
+
+const log = createLogger("idempotency");
 
 export { IdempotencyRefusal, IDEMPOTENT_REPLAY_HEADER };
 
@@ -210,7 +213,7 @@ export function idempotentCreate(options: IdempotentCreateOptions): IdempotentCr
         requests.record(create.scope, create.key, { requestHash: create.requestHash, status, body: answer }, now().toISOString());
         forgetOld();
       } catch (err) {
-        console.error(`[idempotency] could not keep the answer to ${c.req.method} ${c.req.path}; the create was rolled back`, err);
+        log.error({ method: c.req.method, route: c.req.path, err }, `could not keep the answer to ${c.req.method} ${c.req.path}; the create was rolled back`);
         throw new AnswerNotRecorded();
       }
     };

@@ -753,9 +753,18 @@ describe("what the server says about every company's books when it starts", () =
     await second.app.booksScanned;
     const seen = [await standingOf(second, nile!), await standingOf(second, delta!), await standingOf(second, sudd!)];
     await second.app.close();
-    const books = lines.filter((line) => line.includes("books"));
+    const books = lines
+      .flatMap((line) => {
+        try {
+          return [JSON.parse(line) as { component?: string; msg?: string }];
+        } catch {
+          return [];
+        }
+      })
+      .filter((entry) => entry.component === "cloud" && (entry.msg ?? "").includes("books"))
+      .map((entry) => entry.msg);
 
-    expect(books).toEqual(["[cloud] tenant books at start: 3 checked: unbound 2, missing 1", `[cloud] tenant books: "sudd" (${sudd!.tenantId}) is missing`]);
+    expect(books).toEqual(["tenant books at start: 3 checked: unbound 2, missing 1", `tenant books: "sudd" (${sudd!.tenantId}) is missing`]);
     expect(seen).toEqual([TenantBooksStanding.Unbound, TenantBooksStanding.Unbound, TenantBooksStanding.Missing]);
     expect([existsSync(idFile(env, nile!)), existsSync(codeFile(env, nile!)), boundTo(env, nile!)]).toEqual([false, true, null]);
   });

@@ -43,6 +43,9 @@ import {
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { stockLedgerDateMismatches, type DatedJournalEntry, type DatedStockMovement, type StockLedgerDateMismatch } from "@mezan/domain";
+import { createLogger } from "@mezan/api";
+
+const areaLog = createLogger("period-close");
 
 enum SourceStatus {
   Active = "active",
@@ -321,7 +324,7 @@ export const area: BackendArea = {
         };
         return evaluatePeriodClose(window, scope.payrollEntitled ? sources : { ...sources, payrollDue: async () => NO_PAYROLL_DUE }, {
           now: new Date().toISOString(),
-          onCheckFailure: ({ code, error }) => console.error(`[period-close] check "${code}" could not be evaluated for ${period.id}`, error),
+          onCheckFailure: ({ code, error }) => areaLog.error({ err: error }, `check "${code}" could not be evaluated for ${period.id}`),
         });
       },
       buildSummary,

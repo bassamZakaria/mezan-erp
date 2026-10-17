@@ -23,6 +23,9 @@ import {
   type Tenant,
   type TenantOwnerAccount,
 } from "@mezan/domain";
+import { createLogger } from "@mezan/api";
+
+const log = createLogger("cloud");
 
 export enum OwnerContactAudit {
   Linked = "TENANT_OWNER_LINKED",
@@ -192,12 +195,12 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
       await outside(() => deps.mailPendingHandOver!(mail));
       return true;
     } catch (err) {
-      console.error(`[cloud] the pending hand-over of "${tenant.code}" is recorded, but mailing its confirmation link failed`, err);
+      log.error({ err: err }, `the pending hand-over of "${tenant.code}" is recorded, but mailing its confirmation link failed`);
       // SECURITY: a link nobody received must not stay redeemable, and the
       // console must not say one was mailed.
       const unsent = tenantWithPendingOwnerLink(pending, PendingOwnerLink.Withdrawn, null, deps.now().toISOString());
       await write(pending, unsent, { action: OwnerContactAudit.HandOverLinkUnsent, severity: AuditSeverityCode.Warning }, actor, { toUserId: pending.pendingOwner.userId }).catch(
-        (failure: unknown) => console.error(`[cloud] the unsent confirmation link of "${tenant.code}" could not be withdrawn`, failure),
+        (failure: unknown) => log.error({ err: failure }, `the unsent confirmation link of "${tenant.code}" could not be withdrawn`),
       );
       return false;
     }
@@ -213,7 +216,7 @@ export function createOwnerContact(deps: OwnerContactDeps): OwnerContact {
 
   function flushOwnerRecordQuietly(tenantId: string, backend: RecordingBackend): Promise<void> {
     return flushOwnerRecord(tenantId, backend).catch((err: unknown) =>
-      console.error(`[cloud] the owner of tenant "${tenantId}" is recorded on the platform; the tenant's own audit row is still due and is retried on the next open`, err),
+      log.error({ err: err }, `the owner of tenant "${tenantId}" is recorded on the platform; the tenant's own audit row is still due and is retried on the next open`),
     );
   }
 

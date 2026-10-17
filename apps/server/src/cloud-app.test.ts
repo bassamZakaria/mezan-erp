@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Context } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createCloudApp, type CloudApp } from "./cloud-app.js";
+import { OWNER_PASSWORD_FILE, createCloudApp, type CloudApp } from "./cloud-app.js";
 import { parseEnv, type CloudEnv } from "./env.js";
 import { platformBearer, reachable, rememberPlatformDevice } from "./cloud-harness.js";
 
@@ -153,19 +153,23 @@ describe("createCloudApp", () => {
     expect(token).toBeTruthy();
   });
 
-  it("generates and prints the owner password once when none is configured", async () => {
+  it("generates the owner password once, writes it to a file only the server user can read, and never logs it", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const env = testEnv({ platformOwnerPassword: undefined });
     const app = await boot(env);
-    const printed = logSpy.mock.calls.flat().join("\n");
-    expect(printed).toMatch(/owner password:/);
-    const passwordLine = logSpy.mock.calls.map((c) => String(c[0])).find((line) => line.includes("owner password:"));
-    const generated = passwordLine!.split("owner password:")[1]!.trim();
+    const file = path.join(env.platformDir, OWNER_PASSWORD_FILE);
+    const generated = readFileSync(file, "utf8").trim();
     expect(generated).toHaveLength(20);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    const logged = [...logSpy.mock.calls, ...warnSpy.mock.calls].flat().join("\n");
+    expect(logged).not.toContain(generated);
+    expect(logged).toContain(OWNER_PASSWORD_FILE);
 
     const token = await platformLogin(app, "owner@mezan.local", generated);
     expect(token).toBeTruthy();
     logSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 
   it("provisions a tenant on disk and lets its owner log in through /api", async () => {

@@ -4,6 +4,9 @@ import { OwnerPinResetOutcome, PlatformAuditUnavailableError, TENANT_CODE_PROVIS
 import { tenantDTOOf, type ProvisionResultDTO } from "@mezan/contracts";
 import { withSqliteTransaction } from "@mezan/persistence";
 import type { TenantRouter } from "./tenant-router.js";
+import { createLogger } from "@mezan/api";
+
+const log = createLogger("cloud");
 
 export interface ProvisionTenantCommand {
   readonly code: string;
@@ -228,7 +231,7 @@ async function provisionUnderItsClaim(cmd: ProvisionTenantCommand, deps: Provisi
 
     await deps.router
       .reconcileOwnerOf(registered.id)
-      .catch((err: unknown) => console.error(`[cloud] owner of "${registered.code}" could not be linked while provisioning`, err));
+      .catch((err: unknown) => log.error({ err: err }, `owner of "${registered.code}" could not be linked while provisioning`));
 
     // REQUIRED ORDERING: the activation and the event that records it are one
     // write; `recorded` runs inside the transaction that re-checks the claim.

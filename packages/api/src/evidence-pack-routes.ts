@@ -63,6 +63,9 @@ import { redactCost } from "./audit-routes.js";
 import { reconcileControls, type ReconciliationControl } from "./reconciliation-routes.js";
 import { AgingLadderSide, agingLadderTable, type ReportTable, type ReportsRoutesDeps } from "./reports-routes.js";
 import type { SealedPeriodCloseSummary } from "./period-close-routes.js";
+import { createLogger } from "./observability/index.js";
+
+const log = createLogger("evidence");
 
 export enum EvidencePermission {
   SequenceGaps = "audit.sequence_gaps.view",
@@ -552,7 +555,7 @@ export function createEvidencePackRoutes(deps: EvidencePackRoutesDeps, resolveAu
     } catch (err) {
       pack?.abort();
       rmSync(dir, { recursive: true, force: true });
-      console.error("[evidence] building the pack failed", err);
+      log.error({ err }, "building the evidence pack failed");
       await recordSensitiveEvent(deps.audit, {
         module: "audit",
         entityType: PACK_ENTITY,

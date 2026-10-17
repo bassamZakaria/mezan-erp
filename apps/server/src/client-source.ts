@@ -1,6 +1,9 @@
 import { isIP } from "node:net";
 import type { Context, MiddlewareHandler } from "hono";
 import { canonicalOrigin, requestOrigin } from "@mezan/api";
+import { createLogger } from "@mezan/api";
+
+const sourceLog = createLogger("client-source");
 
 declare const cloudSourceBrand: unique symbol;
 
@@ -110,7 +113,7 @@ export interface SourceReporter {
   viewerMismatch(mismatch: ViewerMismatch): void;
 }
 
-export function createSourceReporter(log: (line: string) => void = (line) => console.error(line), now: () => number = Date.now): SourceReporter {
+export function createSourceReporter(log: (line: string) => void = (line) => sourceLog.error(line), now: () => number = Date.now): SourceReporter {
   const last = new Map<string, { at: number; held: number }>();
   function report(kind: string, line: () => string) {
     const at = now();

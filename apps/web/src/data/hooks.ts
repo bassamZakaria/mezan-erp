@@ -767,9 +767,9 @@ export async function readError(
   fallback: string,
   t?: AppTranslate,
 ): Promise<string> {
-  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-  if (body.message !== undefined && body.message !== "") return body.message;
-  return withSupportCode(fallback, res.status, t);
+  const body = (await res.json<{ message?: string; requestId?: string }>().catch(() => ({}))) as { message?: string; requestId?: string };
+  if (body.message !== undefined && body.message !== "") return withRequestReference(body.message, res.status, body.requestId, t);
+  return withRequestReference(withSupportCode(fallback, res.status, t), res.status, body.requestId, t);
 }
 
 export async function codedError(
@@ -777,9 +777,9 @@ export async function codedError(
   fallback: string,
   t?: AppTranslate,
 ): Promise<ApiError> {
-  const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as { error?: string; message?: string };
+  const body = (await res.json<{ error?: string; message?: string; requestId?: string }>().catch(() => ({}))) as { error?: string; message?: string; requestId?: string };
   const message = body.message !== undefined && body.message !== "" ? body.message : withSupportCode(fallback, res.status, t);
-  return new ApiError(res.status, message, undefined, undefined, body.error);
+  return new ApiError(res.status, withRequestReference(message, res.status, body.requestId, t), undefined, undefined, body.error);
 }
 
 /** `t`, narrowed to what {@link readError} needs, so data files need no i18n types of their own. */
@@ -790,6 +790,17 @@ export type AppTranslate = ReturnType<typeof useAppTranslation>["t"];
  * did it say", and «تعذّر تحميل …» is the same sentence for a sleeping host, a
  * permission denial and an expired session.
  */
+const SERVER_ERRORS_FROM = 500;
+
+/**
+ * Appends the server's request id to the message of an unexpected server failure, so the person
+ * reporting it can quote the one id that finds the failing request in the server log.
+ */
+export function withRequestReference(message: string, status: number, requestId: string | undefined, t?: AppTranslate): string {
+  if (!t || status < SERVER_ERRORS_FROM || typeof requestId !== "string" || requestId === "") return message;
+  return `${message} ${t("health.requestReference", { id: requestId })}`;
+}
+
 export function withSupportCode(message: string, status: number, t?: AppTranslate): string {
   if (!t || !Number.isFinite(status) || status <= 0) return message;
   return `${message} ${t("api.supportCode", { code: String(status) })}`;
@@ -854,17 +865,18 @@ export async function loaderError(
   fallback: string,
   t?: AppTranslate,
 ): Promise<ApiError> {
-  const body = (await res.json<{ error?: string; message?: string }>().catch(() => ({}))) as {
+  const body = (await res.json<{ error?: string; message?: string; requestId?: string }>().catch(() => ({}))) as {
     error?: string;
     message?: string;
+    requestId?: string;
   };
   if (res.status === 403 && body.error === "MODULE_NOT_LICENSED" && body.message) {
     return new ApiError(res.status, body.message, undefined, undefined, body.error);
   }
   const branchRefusal = branchRefusalMessageKey(body.error);
   if (branchRefusal && t) return new ApiError(res.status, t(branchRefusal), undefined, undefined, body.error);
-  if (body.message !== undefined && body.message !== "") return new ApiError(res.status, body.message);
-  return new ApiError(res.status, withSupportCode(fallback, res.status, t));
+  if (body.message !== undefined && body.message !== "") return new ApiError(res.status, withRequestReference(body.message, res.status, body.requestId, t));
+  return new ApiError(res.status, withRequestReference(withSupportCode(fallback, res.status, t), res.status, body.requestId, t));
 }
 
 /** الأصناف (docs/archive/catalog/03) — list, create, edit. */

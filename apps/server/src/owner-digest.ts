@@ -1,3 +1,4 @@
+import type { JobTracker } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import { TenantStatusCode, hasModule } from "@mezan/domain";
 import { createTenantResolvers } from "./tenant-entitlements.js";
@@ -50,6 +51,7 @@ export async function runOwnerDigestSweep(options: OwnerDigestSweepOptions): Pro
 
 export interface OwnerDigestTimerOptions extends OwnerDigestSweepOptions {
   readonly intervalMs?: number;
+  readonly job?: JobTracker;
 }
 
 export interface OwnerDigestTimer {
@@ -66,7 +68,8 @@ export function startOwnerDigestTimer(options: OwnerDigestTimerOptions): OwnerDi
   const run = (): void => {
     if (running) return;
     running = true;
-    current = runOwnerDigestSweep(options)
+    const sweep = () => runOwnerDigestSweep(options);
+    current = (options.job ? options.job.run(sweep, (result) => result.queued) : sweep())
       .catch((err: unknown) => options.onError?.(err))
       .finally(() => {
         running = false;

@@ -16,6 +16,7 @@ import {
 import {
   HealthLevelDTO,
   HealthSectionDTO,
+  type HealthClientErrorDTO,
   type HealthJobDTO,
   type SystemHealthDTO,
 } from "@mezan/contracts";
@@ -55,8 +56,12 @@ export interface SystemHealthRoutesDeps {
   readonly mailConfigured: () => Promise<boolean>;
   readonly resolveLicenseState?: LicenseStateResolver;
   readonly cloudTenant: boolean;
+  readonly clientErrors?: (sinceIso: string, recentLimit: number) => { readonly lastDay: number; readonly recent: readonly HealthClientErrorDTO[] };
   readonly now?: () => Date;
 }
+
+const CLIENT_ERRORS_SHOWN = 20;
+const MS_PER_DAY = 24 * MS_PER_HOUR;
 
 const LEVEL_DTO: Readonly<Record<HealthLevel, HealthLevelDTO>> = {
   [HealthLevel.Ok]: HealthLevelDTO.Ok,
@@ -137,6 +142,14 @@ export function createSystemHealthRoutes(deps: SystemHealthRoutesDeps, resolveAu
       };
     });
 
+    let clientErrors: SystemHealthDTO["clientErrors"] = null;
+    if (deps.clientErrors) {
+      const reading = deps.clientErrors(new Date(now.getTime() - MS_PER_DAY).toISOString(), CLIENT_ERRORS_SHOWN);
+      const level = reading.lastDay === 0 ? HealthLevel.Ok : HealthLevel.Warn;
+      levels.push(level);
+      clientErrors = { level: LEVEL_DTO[level], ...reading };
+    }
+
     const body: SystemHealthDTO = {
       generatedAt: now.toISOString(),
       cloudTenant: deps.cloudTenant,
@@ -157,6 +170,7 @@ export function createSystemHealthRoutes(deps: SystemHealthRoutesDeps, resolveAu
       seats: { level: LEVEL_DTO[seats], licensed: licensedSeats, activeUsers },
       jobs,
       database: deps.database(),
+      clientErrors,
     };
     return c.json(body);
   });

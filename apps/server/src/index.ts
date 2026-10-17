@@ -4,6 +4,9 @@ import { serve } from "@hono/node-server";
 import { takeSeededAdminSecrets } from "@mezan/backend";
 import { parseEnv } from "./env.js";
 import { createCloudApp } from "./cloud-app.js";
+import { LogEvent, createLogger } from "@mezan/api";
+
+const devLog = createLogger("server");
 
 /**
  * Dev entrypoint: the same cloud composition `cloud.ts` runs, pointed at a
@@ -49,7 +52,7 @@ if (seeded?.generated) {
  * boot above, so a failure to start is still fatal and visible.
  */
 process.on("unhandledRejection", (reason) => {
-  console.error("[server] unhandled rejection (ignored, server stays up):", reason);
+  devLog.error({ event: LogEvent.ProcessUnhandledRejection, err: reason }, "unhandled rejection (ignored, server stays up)");
 });
 
 /**

@@ -184,3 +184,4 @@ export { IDEMPOTENT_CREATES, IDEMPOTENT_REPLAY_HEADER, IdempotencyRefusal, idemp
 
 export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, reversalRoute, type DocumentReversalPath } from "./document-reversal-paths.js";
 export { ID_CARRYING_CREATE_ROUTES, IdCarryingCreateRoute } from "./id-carrying-create-routes.js";
+export * from "./observability/index.js";

@@ -61,6 +61,7 @@ export interface CloudEnv {
   readonly platformSmtp?: SmtpConfig;
   readonly supportEmail?: string;
   readonly reviewTenant?: ReviewTenantConfig;
+  readonly alertEmail?: string;
 }
 
 export interface ParseEnvOptions {
@@ -187,6 +188,13 @@ function parseSupportEmail(value: string | undefined): string | undefined {
   const email = trimmedOrUndefined(value);
   if (email === undefined) return undefined;
   if (!EMAIL_PATTERN.test(email)) throw new Error(`MEZAN_SUPPORT_EMAIL must be an e-mail address, got "${email}"`);
+  return email;
+}
+
+function parseAlertEmail(value: string | undefined): string | undefined {
+  const email = trimmedOrUndefined(value);
+  if (email === undefined) return undefined;
+  if (!EMAIL_PATTERN.test(email)) throw new Error(`MEZAN_ALERT_EMAIL must be an e-mail address, got "${email}"`);
   return email;
 }
 
@@ -339,5 +347,6 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     platformSmtp: parsePlatformSmtp(env),
     supportEmail: parseSupportEmail(env["MEZAN_SUPPORT_EMAIL"]),
     reviewTenant: parseReviewTenant(env),
+    alertEmail: parseAlertEmail(env["MEZAN_ALERT_EMAIL"]),
   });
 }

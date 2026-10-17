@@ -47,6 +47,9 @@ import type { SessionRegistry } from "./session-auth.js";
 import { throttleKey, tooManyAttempts, type LoginThrottle } from "./login-throttle.js";
 import { requestOrigin } from "./request-origin.js";
 import { mountUserProvisioning, type ProvisioningPorts } from "./users-provisioning.js";
+import { createLogger } from "./observability/index.js";
+
+const log = createLogger("users");
 
 export enum UsersRefusal {
   CurrentSecretRequired = "CURRENT_SECRET_REQUIRED",
@@ -647,7 +650,7 @@ export function createUsersRoutes(
     const actorId = getAuthContext(c)?.userId ?? "unknown";
     const outcome = owner
       ? await owner.handOver({ fromUserId, toUserId: successor.id, toEmail: successor.email, actorId }).catch((err: unknown) => {
-          console.error("[users] the account change was saved, but handing the company over failed", err);
+          log.error({ err }, "the account change was saved, but handing the company over failed");
           return OwnerHandOverOutcome.Failed;
         })
       : OwnerHandOverOutcome.Failed;
@@ -806,7 +809,7 @@ export function createUsersRoutes(
       if (onEmailChanged && user.email !== committed.emailBefore) {
         const moved = { userId: id, before: committed.emailBefore, after: user.email, actorId: getAuthContext(c)?.userId ?? "unknown" };
         const announce = (): Promise<void> =>
-          onEmailChanged(moved).catch((err: unknown) => console.error("[users] the email change was saved, but announcing it failed", err));
+          onEmailChanged(moved).catch((err: unknown) => log.error({ errName: err instanceof Error ? err.name : typeof err }, "the email change was saved, but announcing it failed"));
         // REQUIRED ORDERING: the announcement reaches the platform, so it waits
         // for the commit like the hand-over below it.
         if (!afterAuditCommit(c, announce)) await announce();

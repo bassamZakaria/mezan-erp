@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export enum HealthLevelDTO {
   Ok = "ok",
   Warn = "warn",
@@ -87,4 +89,79 @@ export interface SystemHealthDTO {
   readonly seats: HealthSeatsDTO;
   readonly jobs: readonly HealthJobDTO[];
   readonly database: HealthDatabaseDTO;
+  readonly clientErrors?: HealthClientErrorsDTO | null;
+}
+
+export enum ClientErrorPlatformDTO {
+  Web = "web",
+  Desktop = "desktop",
+  Mobile = "mobile",
+}
+
+export enum ClientErrorKindDTO {
+  RouteError = "route_error",
+  WindowError = "window_error",
+  UnhandledRejection = "unhandled_rejection",
+  JsError = "js_error",
+  FatalJsError = "fatal_js_error",
+}
+
+export const CLIENT_ERROR_LIMITS = {
+  message: 500,
+  stack: 4000,
+  route: 300,
+  appVersion: 40,
+  userAgent: 300,
+} as const;
+
+const trimmedText = (max: number) => z.string().transform((value) => value.slice(0, max));
+
+export const clientErrorReportSchema = z.object({
+  platform: z.nativeEnum(ClientErrorPlatformDTO),
+  kind: z.nativeEnum(ClientErrorKindDTO),
+  message: z.string().min(1).transform((value) => value.slice(0, CLIENT_ERROR_LIMITS.message)),
+  stack: trimmedText(CLIENT_ERROR_LIMITS.stack).nullish(),
+  route: trimmedText(CLIENT_ERROR_LIMITS.route).nullish(),
+  appVersion: trimmedText(CLIENT_ERROR_LIMITS.appVersion).nullish(),
+  userAgent: trimmedText(CLIENT_ERROR_LIMITS.userAgent).nullish(),
+  requestId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).nullish(),
+});
+
+export type ClientErrorReportDTO = z.input<typeof clientErrorReportSchema>;
+
+export interface HealthClientErrorDTO {
+  readonly id: string;
+  readonly receivedAt: string;
+  readonly platform: ClientErrorPlatformDTO;
+  readonly kind: ClientErrorKindDTO;
+  readonly message: string;
+  readonly stack: string | null;
+  readonly route: string | null;
+  readonly appVersion: string | null;
+  readonly userAgent: string | null;
+  readonly requestId: string | null;
+  readonly userId: string | null;
+}
+
+export interface HealthClientErrorsDTO {
+  readonly level: HealthLevelDTO;
+  readonly lastDay: number;
+  readonly recent: readonly HealthClientErrorDTO[];
+}
+
+export interface PlatformAlertStateDTO {
+  readonly key: string;
+  readonly kind: string;
+  readonly lastSentAt: string | null;
+  readonly lastRaisedAt: string;
+  readonly suppressed: number;
+}
+
+export interface PlatformOperationsDTO {
+  readonly generatedAt: string;
+  readonly ready: boolean;
+  readonly checks: Readonly<Record<string, boolean>>;
+  readonly alertsConfigured: boolean;
+  readonly jobs: readonly HealthJobDTO[];
+  readonly alerts: readonly PlatformAlertStateDTO[];
 }

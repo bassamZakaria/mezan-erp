@@ -71,7 +71,7 @@ async function boot(env: Record<string, string>): Promise<{ port: number; stop: 
   await new Promise<void>((resolve, reject) => {
     const onData = (c: Buffer) => {
       output += c.toString();
-      if (output.includes("[cloud] Mezan platform on :")) resolve();
+      if (output.includes('"event":"process.started"')) resolve();
     };
     child.stdout.on("data", onData);
     child.stderr.on("data", onData);

@@ -1,6 +1,9 @@
 import type { App } from "@mezan/api";
 import type { SeedFragment } from "./fragments.js";
 import { ACCOUNTS, CORE, SeedPerson, VAT_PERCENT, call, seedBranchActorHeaders, seededUserId, step } from "./shared.js";
+import { createLogger } from "@mezan/api";
+
+const seedLog = createLogger("demo-seed");
 
 /**
  * A second branch with its own warehouse, cash drawer and trade (D111).
@@ -43,7 +46,7 @@ async function run(app: App): Promise<void> {
     address: "طريق الحرية، الإسكندرية",
   });
   if (!branchCreated) {
-    console.warn(`[demo-seed] ${SECOND_BRANCH_ID} was NOT seeded: the tenant's plan holds no room for a second branch. Every seeded posting is in one branch, so a branch filter has nothing to narrow.`);
+    seedLog.warn(`${SECOND_BRANCH_ID} was NOT seeded: the tenant's plan holds no room for a second branch. Every seeded posting is in one branch, so a branch filter has nothing to narrow.`);
     return;
   }
   await step(app, "PUT", `/eta/branch-codes/${SECOND_BRANCH_ID}`, { etaBranchCode: "2", deviceSerialNumber: "MEZAN-POS-0002" });
@@ -55,7 +58,7 @@ async function run(app: App): Promise<void> {
     branchId: SECOND_BRANCH_ID,
   });
   if (!warehouseCreated) {
-    console.warn(`[demo-seed] ${SECOND_BRANCH_WAREHOUSE_ID} was NOT seeded: the tenant's plan holds no room for another warehouse, so ${SECOND_BRANCH_ID} exists with no trade in it.`);
+    seedLog.warn(`${SECOND_BRANCH_WAREHOUSE_ID} was NOT seeded: the tenant's plan holds no room for another warehouse, so ${SECOND_BRANCH_ID} exists with no trade in it.`);
     return;
   }
 

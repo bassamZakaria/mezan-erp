@@ -48,6 +48,9 @@ import {
   type SourceThrottle,
 } from "@mezan/api";
 import { SEED_ADMIN_USER_ID, SEED_TENANT_NAME, currentCounts, seedIfEmpty, tenantBooksClaimed, type SeedStores } from "./seed.js";
+import { createLogger } from "@mezan/api";
+
+const authLog = createLogger("auth");
 
 export interface AuthRoutesDeps {
   readonly demoSeeded?: boolean;
@@ -462,7 +465,7 @@ export function createAuth(deps: AuthRoutesDeps): AuthMount {
     // SECURITY: announced only here, after this request's own PIN check. A
     // session answered without one proves nothing about who holds the credential.
     await deps.onSignedIn?.({ userId: signedIn.id, email: signedIn.email }).catch((err: unknown) =>
-      console.error("[auth] the sign-in succeeded, but announcing it failed", err),
+      authLog.error({ err: err }, "the sign-in succeeded, but announcing it failed"),
     );
     // The session is bound to the origin the CREDENTIAL was verified from, so
     // the till that logged in is the only place the token it got back works.

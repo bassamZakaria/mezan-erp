@@ -1,4 +1,5 @@
 import { customerTaxProfileFrom } from "./customer-tax-profile.js";
+import { LogEvent, createLogger, requestLogging } from "./observability/index.js";
 import { Hono, type Context } from "hono";
 import type { ItemCatalogCheck } from "./item-check.js";
 import {
@@ -1019,6 +1020,8 @@ function attachmentEntityBranches(options: CreateAppOptions): AttachmentEntityBr
   };
 }
 
+const appLog = createLogger("api");
+
 export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   /**
    * One resolver for every route on this app.
@@ -1090,6 +1093,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
 
   const app = new Hono();
+  app.use("*", requestLogging({ isQuiet: () => true }));
 
   // AN APP WITH NO SINK RECORDS NOTHING, AND SAYS SO AT BOOT.
   //
@@ -1987,7 +1991,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     const refusal = postingRefusalResponse(c, err) ?? journalRefusalResponse(c, err);
     if (refusal) return refusal;
     try {
-      console.error(`[api] unhandled error on ${c.req.method} ${c.req.path}`, err);
+      appLog.error({ event: LogEvent.UnhandledError, method: c.req.method, route: c.req.path, err }, "unhandled error");
     } catch {
       // A logger that throws must not turn a 500 into a crash.
     }

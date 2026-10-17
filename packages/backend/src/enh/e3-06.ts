@@ -33,6 +33,9 @@ import {
 } from "@mezan/persistence";
 import type { BackendArea, BackendModuleContext } from "../module-context.js";
 import { ScheduledJobKind, type ScheduledJob } from "../scheduled-jobs.js";
+import { createLogger } from "@mezan/api";
+
+const areaLog = createLogger("crm");
 
 export const CRM_ACTIVITY_DUE_EVENT = "CRM_ACTIVITY_DUE" satisfies EventCode;
 export const SALES_QUOTE_ACCEPTED_EVENT = "SALES_QUOTE_ACCEPTED" satisfies EventCode;
@@ -228,7 +231,7 @@ export const area: BackendArea = {
     const turn = inTheTurn(ctx.audit);
     const onQuote = (event: DomainEvent<QuoteEventPayload>): void => {
       void turn(() => markOpportunityWonByQuote({ opportunities, pipelineStages, audit: ctx.audit }, event)).catch((error: unknown) => {
-        console.error(`[crm] could not close the opportunity of quote ${event.payload.quoteId ?? "?"} as won`, error);
+        areaLog.error({ err: error }, `could not close the opportunity of quote ${event.payload.quoteId ?? "?"} as won`);
       });
     };
     ctx.eventBus.subscribe<QuoteEventPayload>(SALES_QUOTE_ACCEPTED_EVENT, onQuote);

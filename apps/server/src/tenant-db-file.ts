@@ -5,6 +5,9 @@ import path from "node:path";
 import type { Context } from "hono";
 import { tenantDbFile, TenantDbFileRefusal, tenantDbFileRefusalOf, TenantStatusCode, type Tenant, type TenantRepository } from "@mezan/domain";
 import { holdSqliteFile, SqliteFileBusyError } from "@mezan/persistence";
+import { createLogger } from "@mezan/api";
+
+const log = createLogger("cloud");
 
 const SQLITE_FILE_SUFFIXES = ["", "-wal", "-shm"] as const;
 const SQLITE_SIBLING_SUFFIXES = ["-wal", "-shm"] as const;
@@ -171,7 +174,7 @@ async function dropStaleCopy(tenants: Tenants, dataDir: string, tenant: Tenant, 
   const reported = differingStaleCopies.has(key);
   differingStaleCopies.set(key, stamp);
   if (reported) return;
-  console.warn(`[cloud] tenant "${tenant.id}" is served from "${tenant.dbFile}", and a different file was left at "${legacy}"; it was not removed`);
+  log.warn(`tenant "${tenant.id}" is served from "${tenant.dbFile}", and a different file was left at "${legacy}"; it was not removed`);
 }
 
 // REQUIRED ORDERING: hold the old file exclusively, copy and verify, point the

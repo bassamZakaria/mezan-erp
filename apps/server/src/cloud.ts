@@ -2,6 +2,11 @@ import { serve } from "@hono/node-server";
 import type { Context, MiddlewareHandler } from "hono";
 import { parseEnv, PaymobMode } from "./env.js";
 import { createCloudApp } from "./cloud-app.js";
+import { LogEvent, createLogger } from "@mezan/api";
+import { AlertKind } from "./alerter.js";
+import { installProcessHandlers, markRunning } from "./process-lifecycle.js";
+
+const log = createLogger("cloud");
 
 /**
  * Cloud entrypoint: one origin serving the built web bundle at `/`, the
@@ -104,12 +109,24 @@ const transformIndexHtml = analyticsToken
     }
   : undefined;
 
-const { root } = await createCloudApp(env, { authMiddleware, transformIndexHtml });
+const cloud = await createCloudApp(env, { authMiddleware, transformIndexHtml });
+const { root } = cloud;
+
+const marker = markRunning(env.platformDir);
+installProcessHandlers({ alerter: cloud.alerter, marker, close: () => cloud.close() });
+if (marker.previous) {
+  log.error({ event: LogEvent.ProcessUncleanRestart, previousStartedAt: marker.previous.startedAt ?? null }, "the server started after an unclean exit");
+  cloud.alerter.raise({
+    kind: AlertKind.UncleanRestart,
+    summary: "the server started after an unclean exit (crash, kill or power loss)",
+    facts: { previousStartedAt: marker.previous.startedAt ?? null, previousPid: marker.previous.pid ?? null },
+  });
+}
 
 // SECURITY: the socket is passed through, and is the caller's address only
 // when no proxy is trusted. With MEZAN_TRUST_PROXY=1 it is the proxy and is
 // never read: the address comes from the forwarded chain, and a request whose
 // chain yields none is refused (client-source.ts).
 serve({ fetch: root.fetch, port: env.port, hostname: "0.0.0.0" }, (info) => {
-  console.log(`[cloud] Mezan platform on :${info.port} (platform dir: ${env.platformDir})`);
+  log.info({ event: LogEvent.ProcessStarted, port: info.port, platformDir: env.platformDir }, "Mezan platform is serving");
 });

@@ -33,6 +33,10 @@ sharing the directory does not lose a download in flight. The exported database
 has the sign-in attempt log and the lease table emptied; the live database is
 never touched.
 
+## Logging and alerts
+
+The cloud server's JSON logs, request ids, mailed alerts (`MEZAN_ALERT_EMAIL`), `/healthz` and `/readyz`, and the UptimeRobot setup are described in [OPERATIONS.md](OPERATIONS.md).
+
 ## Audit trail anchors (tamper evidence from outside the database)
 
 The audit trail is hash-chained, but anyone with the files can re-chain it or

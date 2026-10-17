@@ -7,6 +7,7 @@ import { loginResponseSchema, type SessionDTO } from "@mezan/contracts";
 import { ApiError, ApiFailure } from "@/api/errors";
 import { forgetCachedReads } from "@/api/query-cache";
 import { HttpMethod, apiRequest, ScopeAll, type ApiCredentials, type RequestOptions } from "@/api/client";
+import { installMobileErrorReporter } from "@/api/client-errors";
 import { confirmDeviceOwner, deviceCanConfirmOwner } from "./device-lock";
 import { clearSession, loadConnection, loadSession, saveConnection, saveSession, type Connection } from "./storage";
 
@@ -132,6 +133,12 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
     }),
     [connection, session],
   );
+
+  const credentialsRef = useRef(credentials);
+  useEffect(() => {
+    credentialsRef.current = credentials;
+  }, [credentials]);
+  useEffect(() => installMobileErrorReporter(() => credentialsRef.current), []);
 
   const signOut = useCallback(async () => {
     setSession(null);

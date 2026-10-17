@@ -1,3 +1,4 @@
+import { createLogger, type JobTracker } from "@mezan/api";
 import type { PlatformHandle } from "@mezan/backend";
 import { isAuditChainAnchorSource, type AuditChainAnchorSource } from "@mezan/persistence";
 import type { AuditSink } from "@mezan/domain";
@@ -47,10 +48,11 @@ interface LiveSnapshot {
   readonly hashes: ReadonlyMap<number, string | null>;
 }
 
+const anchorLog = createLogger("audit-anchor");
+
 export function defaultAnchorLog(record: AnchorLogRecord): void {
-  const line = JSON.stringify({ at: new Date().toISOString(), service: "mezan-cloud", ...record });
-  if (record.event === AnchorLogEvent.Anchored || record.event === AnchorLogEvent.Unchanged) console.log(line);
-  else console.error(line);
+  if (record.event === AnchorLogEvent.Anchored || record.event === AnchorLogEvent.Unchanged) anchorLog.info(record, record.event);
+  else anchorLog.error(record, record.event);
 }
 
 async function snapshotOf(audit: AuditSink, extraRow: number | null): Promise<LiveSnapshot | null> {
@@ -124,11 +126,12 @@ export interface AuditAnchorTimer {
   runNow(): Promise<AuditAnchorSweepResult | null>;
 }
 
-export function startAuditAnchorTimer(options: AuditAnchorJobOptions & { readonly intervalMs: number }): AuditAnchorTimer {
+export function startAuditAnchorTimer(options: AuditAnchorJobOptions & { readonly intervalMs: number; readonly job?: JobTracker }): AuditAnchorTimer {
   const log = options.log ?? defaultAnchorLog;
   let current: Promise<AuditAnchorSweepResult | null> = Promise.resolve(null);
   const run = (): Promise<AuditAnchorSweepResult | null> => {
-    current = runAuditAnchorSweep(options).catch((err: unknown) => {
+    const sweep = () => runAuditAnchorSweep(options);
+    current = (options.job ? options.job.run(sweep, (result) => result.anchored) : sweep()).catch((err: unknown) => {
       log({ event: AnchorLogEvent.SweepFailed, reason: err instanceof Error ? err.message : String(err) });
       return null;
     });

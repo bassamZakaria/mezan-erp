@@ -1,3 +1,4 @@
+import { annotateRequest } from "./observability/index.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import type { Context, MiddlewareHandler } from "hono";
@@ -632,6 +633,7 @@ export function createSessionAuthContextResolver(sessions: SessionRegistry): Aut
     if (existenceReads.has(c.req.raw)) return EXISTENCE_READER;
     const delegated = delegatedGrantOf(c);
     if (delegated) {
+      annotateRequest({ userId: delegated.userId });
       return createAuthContext({
         userId: delegated.userId,
         permissions: [...delegated.permissions],
@@ -650,6 +652,7 @@ export function createSessionAuthContextResolver(sessions: SessionRegistry): Aut
     const { grant, refusal } = sessionLookup(sessions, c, token);
     if (refusal?.reason === SessionRefusalKind.Displaced) markSessionDisplaced(c);
     if (!grant) return ANONYMOUS;
+    annotateRequest({ userId: grant.userId });
     return createAuthContext({
       userId: grant.userId,
       permissions: [...grant.permissions],

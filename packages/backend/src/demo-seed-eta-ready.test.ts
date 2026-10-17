@@ -61,7 +61,7 @@ beforeAll(async () => {
   etaLogLines = [];
   const record = (...parts: unknown[]) => {
     const line = parts.map(String).join(" ");
-    if (line.includes("[eta]")) etaLogLines.push(line);
+    if (line.includes("[eta]") || line.includes('"component":"eta"')) etaLogLines.push(line);
   };
   const spies = [vi.spyOn(console, "error").mockImplementation(record), vi.spyOn(console, "warn").mockImplementation(record), vi.spyOn(console, "log").mockImplementation(record)];
   kit = await bootBackendKit();

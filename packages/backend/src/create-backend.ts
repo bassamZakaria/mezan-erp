@@ -444,6 +444,9 @@ import { seedDemoTenant } from "./demo-seed.js";
 import { ensureStandardRoles } from "./standard-roles.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
 import { createVanReconciliationPostingPort, createVanTripActivityPort } from "./van-reconciliation-ports.js";
+import { createLogger } from "@mezan/api";
+
+const backendLog = createLogger("backend");
 
 /** The confirmed returns citing any of `ids`, in one query where the store can answer it. */
 async function listReturnsCiting<L>(
@@ -678,7 +681,7 @@ function createDocumentEventBridge(
       void Promise.all([bridgedDocumentBranchIds(directory, event.docType, event.docId), enrich ? enrich(event.docId) : {}])
         .then(([branchIds, extra]) => eventBus.publish(code, { ...basePayload, ...extra, [EVENT_BRANCH_IDS_KEY]: branchIds }, event.occurredAt))
         .catch((error: unknown) => {
-          console.error(`[notifications] event bridge lookup failed for ${event.docType}/${event.type}`, error);
+          backendLog.error({ area: "notifications", err: error }, `event bridge lookup failed for ${event.docType}/${event.type}`);
         });
     },
   };
@@ -1339,7 +1342,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   removeNotificationLinesMatching(sqlite, ACCOUNT_LOCKED_NOTICE, STORED_UNLOCK_SECRET);
   const eventBus = new EventBus({
     onError: (error, event) => {
-      console.error(`[notifications] a subscriber failed handling "${event.code}"`, error);
+      backendLog.error({ area: "notifications", err: error }, `a subscriber failed handling "${event.code}"`);
     },
   });
   // The directory reads tables that stores mounted further down create, so it
@@ -1365,7 +1368,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const notifyInTheTurn = inTheTurn("notification rules");
   eventBus.subscribeAll((event) => {
     void notifyInTheTurn(() => notificationEngine.handle(event)).catch((error: unknown) => {
-      console.error(`[notifications] engine failed handling "${event.code}"`, error);
+      backendLog.error({ area: "notifications", err: error }, `engine failed handling "${event.code}"`);
     });
   });
 
@@ -1448,7 +1451,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
           try {
             handler(event);
           } catch (error) {
-            console.error("[inventory] a stock-event subscriber failed", error);
+            backendLog.error({ area: "inventory", err: error }, "a stock-event subscriber failed");
           }
         }
       },
@@ -3429,7 +3432,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     if (!licensed || licensed.activeModules.length === 0) return;
     await upgradeLedger.runOnce(UpgradeStepId.StandardRoles, async () => {
       const created = await ensureStandardRoles(uow, licensed);
-      if (created.length > 0) console.info(`[roles] added the standard role(s) ${created.join(", ")}`);
+      if (created.length > 0) backendLog.info({ area: "roles" }, `added the standard role(s) ${created.join(", ")}`);
     });
   };
   const sequenceCountersRead = sqlite.prepare("SELECT code, period, value FROM sequence_counter ORDER BY code, period");
@@ -3446,7 +3449,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       await uow.roles.save({ ...role, permissions });
       corrected.push(role.code);
     }
-    if (corrected.length > 0) console.info(`[roles] separated duties (${split}) on seeded role(s) ${corrected.join(", ")}`);
+    if (corrected.length > 0) backendLog.info({ area: "roles" }, `separated duties (${split}) on seeded role(s) ${corrected.join(", ")}`);
     if (dutyChanges.length > 0) {
       const { title, body } = seededRoleDutyNotice(dutyChanges, split);
       const roles = await uow.roles.list();
@@ -3477,7 +3480,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   await upgradeLedger.runOnce(UpgradeStepId.SeededRoleGoodsReceiving, () => separateSeededDuties(SeededRoleSplit.GoodsReceiving));
   await upgradeLedger.runOnce(UpgradeStepId.ApprovalFingerprint, async () => {
     const marked = markApprovalsNeedingReapproval(sqlite);
-    if (marked.length > 0) console.info(`[workflow] ${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);
+    if (marked.length > 0) backendLog.info({ area: "workflow" }, `${marked.length} approval(s) given before this version need re-approval: ${marked.join(", ")}`);
   });
 
   /**
@@ -3487,15 +3490,15 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    */
   if (!leftEmpty) {
     const { added, skipped } = await addMissingStandardAccounts(accounts);
-    if (added.length > 0) console.info(`[chart-of-accounts] added standard account(s) ${added.join(", ")}`);
+    if (added.length > 0) backendLog.info({ area: "chart-of-accounts" }, `added standard account(s) ${added.join(", ")}`);
     const fxSkipped = skipped.filter((id) => id !== LANDED_COST_GL_ACCOUNTS.clearingAccountId);
     if (fxSkipped.length > 0) {
-      console.warn(`[chart-of-accounts] ${fxSkipped.join(", ")} already used by another account; map the fx.* slots in account routing`);
+      backendLog.warn({ area: "chart-of-accounts" }, `${fxSkipped.join(", ")} already used by another account; map the fx.* slots in account routing`);
     }
     if (skipped.includes(LANDED_COST_GL_ACCOUNTS.clearingAccountId)) {
       // INVARIANT: a landed cost never posts into an account the tenant keeps for something else — it waits in cost of sales as it did before the clearing account existed (landed-cost-clearing-backfill.test.ts).
       landedCostGlAccounts.clearingAccountId = landedCostGlAccounts.unabsorbedCostAccountId;
-      console.warn(`[chart-of-accounts] ${LANDED_COST_GL_ACCOUNTS.clearingAccountId} is used by another account; a landed cost dated before its confirm day waits in ${landedCostGlAccounts.unabsorbedCostAccountId}`);
+      backendLog.warn({ area: "chart-of-accounts" }, `${LANDED_COST_GL_ACCOUNTS.clearingAccountId} is used by another account; a landed cost dated before its confirm day waits in ${landedCostGlAccounts.unabsorbedCostAccountId}`);
     }
   }
 
@@ -3516,12 +3519,12 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         if (supplier.openingBalance.scaled !== 0n && (await postPartyOpeningBalance("supplier", supplier, "backfill"))) posted += 1;
       }
       if (posted > 0) {
-        console.info(`[opening-balances] posted ${posted} previously-unposted party opening balance(s) to the ledger`);
+        backendLog.info({ area: "opening-balances" }, `posted ${posted} previously-unposted party opening balance(s) to the ledger`);
       }
     } catch (error) {
       // A refused posting (no fiscal period yet, a closed one) must not stop
       // the server: the same backfill runs again on the next start.
-      console.error("[opening-balances] backfill could not complete", error);
+      backendLog.error({ area: "opening-balances", err: error }, "backfill could not complete");
     }
   }
 
@@ -3739,7 +3742,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         if (err instanceof ConnectionTurnLostError && err.completed) {
           const late = SETTLED_AS[dispatchOutcomeOf(err.completed.value as MailResult).kind];
           void recordLateInTheTurn(() => notifications.settleChannel(notification.id, "email", late, claim)).catch((error: unknown) => {
-            console.error(`[notifications] could not record what the mail server answered for ${notification.id}`, error);
+            backendLog.error({ area: "notifications", err: error }, `could not record what the mail server answered for ${notification.id}`);
           });
         }
         throw err;
@@ -3761,7 +3764,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
               failureReason: late.kind === "sent" ? null : late.reason,
             }),
           ).catch((error: unknown) => {
-            console.error(`[collections] could not record what the mail server answered for customer message ${messageId}`, error);
+            backendLog.error({ area: "collections", err: error }, `could not record what the mail server answered for customer message ${messageId}`);
           });
         }
         throw err;
@@ -3813,7 +3816,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       transports: [emailTransport(smtp)],
     });
     void lockMailInTheTurn(() => dispatcher.drain({ only: ids })).catch((error: unknown) => {
-      console.error("[auth] the account-lock notice could not be mailed; it stays queued", error);
+      backendLog.error({ area: "auth", err: error }, "the account-lock notice could not be mailed; it stays queued");
     });
   };
 
@@ -4326,9 +4329,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         );
       try {
         await post(bounce.date.slice(0, 10)).catch(() => post(tenantTodayIso()));
-        console.info(`[cheques] bounced cheque ${cheque.chequeNumber} moved from ${parkedOn.accountId} back onto ${cheque.counterpartyGlAccountId}`);
+        backendLog.info({ area: "cheques" }, `bounced cheque ${cheque.chequeNumber} moved from ${parkedOn.accountId} back onto ${cheque.counterpartyGlAccountId}`);
       } catch (err) {
-        console.warn(`[cheques] bounced cheque ${cheque.chequeNumber} stays on ${parkedOn.accountId}: no open period takes its reclassification (${err instanceof Error ? err.message : String(err)})`);
+        backendLog.warn({ area: "cheques" }, `bounced cheque ${cheque.chequeNumber} stays on ${parkedOn.accountId}: no open period takes its reclassification (${err instanceof Error ? err.message : String(err)})`);
       }
     }
   }
@@ -5926,7 +5929,6 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         ],
         today: async () => tenantTodayIso((await settings.get())?.timezone || DEFAULT_TIME_ZONE),
         turn: inTheTurn("scheduled jobs"),
-        onError: (kind, err) => console.error(`[scheduled-jobs] ${kind} failed`, err),
       })
     : null;
   if (scheduledJobs) scheduledJobsStatus.read = () => scheduledJobs.status();

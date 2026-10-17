@@ -33,6 +33,8 @@ RUN mkdir -p /data && chown node:node /data
 # if MEZAN_SEED_ADMIN_PIN pins it process-wide. Only the demo tenant keeps the
 # published `123456`, pinned in apps/server/src/demo-tenant.ts.
 ENV NODE_ENV=production
+ARG MEZAN_VERSION=dev
+ENV MEZAN_VERSION=$MEZAN_VERSION
 ENV MEZAN_PLATFORM_DIR=/data
 ENV PORT=8080
 EXPOSE 8080

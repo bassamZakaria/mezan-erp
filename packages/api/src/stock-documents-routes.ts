@@ -123,7 +123,9 @@ function serializeCount(count: PhysicalCount) {
     memo: count.memo,
     status: count.status,
     blind: count.blind,
-    lines: varianceLinesOf(count).map((l) => ({
+    zoned: count.zoned,
+    lines: varianceLinesOf(count).map((l, index) => ({
+      recount: count.lines[index]?.recount ?? false,
       itemId: l.itemId,
       systemQty: reveal ? l.systemQty.toString() : null,
       unitCost: reveal ? l.unitCost.toString() : null,

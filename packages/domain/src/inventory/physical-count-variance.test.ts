@@ -4,7 +4,7 @@ import { lineVarianceOf, summarizePhysicalCountVariance, varianceLinesOf } from 
 import type { PhysicalCount, PhysicalCountLine } from "./physical-count.js";
 
 function line(overrides: Partial<PhysicalCountLine> = {}): PhysicalCountLine {
-  return { itemId: "item-1", systemQty: Qty.fromMajor("10"), unitCost: Money.fromMajor("20.00"), countedQty: null, ...overrides };
+  return { itemId: "item-1", systemQty: Qty.fromMajor("10"), unitCost: Money.fromMajor("20.00"), countedQty: null, recount: false, ...overrides };
 }
 
 function count(lines: readonly PhysicalCountLine[]): PhysicalCount {
@@ -16,6 +16,7 @@ function count(lines: readonly PhysicalCountLine[]): PhysicalCount {
     memo: "",
     status: "COMPLETED",
     blind: false,
+    zoned: false,
     lines,
     createdAt: "2026-03-01T00:00:00.000Z",
     completedAt: "2026-03-01T10:00:00.000Z",

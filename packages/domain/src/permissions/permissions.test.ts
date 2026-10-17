@@ -53,13 +53,15 @@ describe("permission catalog", () => {
     // 268 → 269. `POST /vouchers/:id/reverse` joined the reversal registry with
     // `treasury.cash_voucher.reverse`; it rode on the three voucher `.void` codes.
     //
+    // 269 → 273. ENH-E2-03 count mode: inventory.count.scan, .assign, .review and .approve (sensitive).
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(269);
+    expect(PERMISSIONS).toHaveLength(273);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(269);
+    expect(summed).toBe(273);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -112,7 +114,7 @@ describe("permission catalog", () => {
     expect(PERMISSIONS.filter((p) => p.code.endsWith(".reverse")).every((p) => p.sensitive)).toBe(true);
     expect(isSensitive("purchases.landed_cost.void")).toBe(false);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(26);
+    expect(sensitiveCount).toBe(27);
   });
 
   it("marks the one platform-admin-only permission", () => {

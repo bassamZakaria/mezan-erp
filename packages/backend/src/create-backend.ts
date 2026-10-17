@@ -423,6 +423,7 @@ import type { BackendModuleContext } from "./module-context.js";
 import { mountPos } from "./pos/index.js";
 import { ENH_EMITTED_EVENT_CODES, mountEnhancements } from "./enh/index.js";
 import { readStockLedgerDateMismatches } from "./enh/e1-04.js";
+import { countModeCompletionGate, registerCountModeCounts } from "./enh/e2-03.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { ensureStandardRoles } from "./standard-roles.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
@@ -2603,7 +2604,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     stockLedger: stockService,
     adjustments: stockAdjustments,
     numbering: { next: () => ledger.numbering.next("PHYSICAL_COUNT") },
+    completionGate: countModeCompletionGate(sqlite),
   });
+  registerCountModeCounts(sqlite, physicalCounts);
 
   /**
    * مطابقة الأرصدة — Balance Reconciliation's sub-ledger side (docs/archive/catalog/04):

@@ -8,6 +8,7 @@ import { useNavigation } from "../../../navigation";
 import { CloneUserPanel } from "./CloneUserPanel";
 import { Notice, NoticeTone, type NoticeState } from "./Notice";
 import { CredentialSheet } from "./CredentialSheet";
+import { CLONE_SEGMENT } from "./segments";
 import { RoleTemplatesPanel } from "./RoleTemplatesPanel";
 import { UserImportPanel } from "./UserImportPanel";
 
@@ -16,8 +17,6 @@ enum ProvisioningTab {
   Import = "import",
   Clone = "clone",
 }
-
-const CLONE_SEGMENT = "clone";
 
 export function ProvisioningScreen() {
   const { t } = useAppTranslation();

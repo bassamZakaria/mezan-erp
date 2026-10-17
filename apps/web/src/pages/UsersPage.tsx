@@ -20,6 +20,7 @@ import { OWNER_HAND_OVER_NOTICE_KEYS } from "../data/owner-hand-over-notice";
 import { markOwnerHandOver } from "../data/session";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation } from "../navigation";
+import { CLONE_SEGMENT } from "../screens/enh/provisioning/segments";
 import { useUrlParam } from "../lib/url-state";
 
 export interface StoreResult<T> {
@@ -400,7 +401,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
               variant="ghost"
               onClick={(e) => {
                 e.stopPropagation();
-                openScreenAt("user-provisioning", ["clone", row.id]);
+                openScreenAt("user-provisioning", [CLONE_SEGMENT, row.id]);
               }}
             >
               {t("users.clone")}

@@ -6,10 +6,10 @@ import { useAppTranslation } from "../../../i18n";
 import { useNavigation } from "../../../navigation";
 import { EMPTY } from "../../../lib/empty";
 import { useCloneUser } from "./hooks";
+import { CLONE_SEGMENT } from "./segments";
 import { Notice, NoticeTone, type NoticeState } from "./Notice";
 
 const SOD_CONFLICT = "SOD_CONFLICT";
-const CLONE_SEGMENT = "clone";
 
 export interface CloneUserPanelProps {
   readonly onIssued: (credentials: readonly OneTimeCredentialDTO[], message: string) => void;

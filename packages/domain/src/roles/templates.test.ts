@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getPermission, resolvePermissions } from "../permissions/index.js";
+import { correctedSeededRolePermissions, SeededRoleSplit } from "./seeded-role-corrections.js";
 import {
   ROLE_TEMPLATES,
   RoleTemplateId,
@@ -24,6 +25,12 @@ describe("role templates", () => {
     const problems = roleTemplateProblems(template);
     expect(problems.unknownPermissions).toEqual([]);
     expect(problems.sodConflicts.map((match) => match.ruleId)).toEqual([]);
+  });
+
+  it.each(ROLE_TEMPLATES.map((template) => [template.id, template] as const))("%s is left as written by every seeded-role correction its code shares", (_id, template) => {
+    for (const split of Object.values(SeededRoleSplit)) {
+      expect(correctedSeededRolePermissions(template.code, template.permissions, undefined, split), split).toBeNull();
+    }
   });
 
   it("a template holding both sides of a segregation-of-duties pair is reported", () => {

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { UserImportRowStatusDTO, type RoleTemplateDTO, type UserImportReportDTO } from "@mezan/contracts";
 import { ProvisioningScreen } from "./ProvisioningScreen";
-import { renderWithProviders, stubTransport, testAdminSession } from "../../../data/test-support";
+import { TestNavigation, renderWithProviders, stubTransport, testAdminSession } from "../../../data/test-support";
 
 afterEach(cleanup);
 
@@ -42,11 +42,15 @@ interface Calls {
   readonly templates: Record<string, unknown>[];
 }
 
-function renderScreen(handlers: { dry?: UserImportReportDTO; committed?: UserImportReportDTO; permissions?: string[] } = {}) {
+function renderScreen(handlers: { dry?: UserImportReportDTO; committed?: UserImportReportDTO; permissions?: string[]; segments?: string[] } = {}) {
   const calls: Calls = { imports: [], templates: [] };
   const transport = stubTransport({
     "GET /roles/templates": () => ({ body: [TEMPLATE] }),
-    "GET /users": () => ({ body: [] }),
+    "GET /users": () => ({
+      body: [
+        { id: "u1", nameAr: "كريم", nameEn: null, email: "karim@x.test", phone: null, roleId: "r1", isCompanyAdmin: false, employeeId: null, branchScope: "*", warehouseScope: "*", status: "active", hasPin: true, photoUrl: null, lastLoginAt: null, createdAt: "2026-10-01" },
+      ],
+    }),
     "POST /roles/from-template": (init) => {
       calls.templates.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
       return { status: 201, body: { id: "r1", code: "ACCOUNTANT_2", name: "محاسب", description: "", permissions: TEMPLATE.permissions.slice(0, 1), isSystem: false, createdAt: "2026-10-17", templateId: "accountant", omittedPermissions: ["hr.employee.view"] } };
@@ -70,7 +74,12 @@ function renderScreen(handlers: { dry?: UserImportReportDTO; committed?: UserImp
     },
   });
   const session = handlers.permissions ? { ...testAdminSession, permissions: handlers.permissions } : testAdminSession;
-  renderWithProviders(<ProvisioningScreen />, { transport, initialSession: session });
+  renderWithProviders(
+    <TestNavigation initialSegments={handlers.segments ?? []}>
+      <ProvisioningScreen />
+    </TestNavigation>,
+    { transport, initialSession: session },
+  );
   return calls;
 }
 
@@ -165,5 +174,12 @@ describe("ProvisioningScreen", () => {
     fireEvent.click(await screen.findByRole("button", { name: "إنشاء الدور" }));
     expect(await screen.findByText(/تم إنشاء الدور «محاسب» بالكود ACCOUNTANT_2/)).toBeInTheDocument();
     expect(calls.templates).toEqual([{ templateId: "accountant", name: "محاسب" }]);
+  });
+
+  it("opens the clone tab with the user picked in the users list already chosen", async () => {
+    renderScreen({ segments: ["clone", "u1"] });
+    expect(await screen.findByLabelText("المستخدم المراد استنساخه")).toBeInTheDocument();
+    expect(await screen.findByText("كريم — karim@x.test")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "استنساخ مستخدم" })).toBeChecked();
   });
 });

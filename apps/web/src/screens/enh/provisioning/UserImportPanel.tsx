@@ -1,13 +1,11 @@
 import { useState, type ChangeEvent } from "react";
 import { Button, Checkbox, Field, StatusPill, TextArea, TextInput } from "@mezan/ui";
-import { UserImportRowStatusDTO, type OneTimeCredentialDTO, type UserImportProblemDTO, type UserImportReportDTO } from "@mezan/contracts";
+import { USER_IMPORT_MAX_CSV_CHARS, UserImportRowStatusDTO, type OneTimeCredentialDTO, type UserImportProblemDTO, type UserImportReportDTO } from "@mezan/contracts";
+import { USER_IMPORT_ROW_LIMIT, UserImportRowProblemCode } from "@mezan/domain";
 import { useAppTranslation } from "../../../i18n";
 import { useImportUsers } from "./hooks";
 import { Notice, NoticeTone, type NoticeState } from "./Notice";
 
-const ROW_LIMIT = 100;
-const MAX_CSV_CHARS = 200_000;
-const SOD_ROW_CODE = "ROW_SOD_CONFLICT";
 const SAMPLE_CSV = "name_ar,name_en,email,phone,role,branches,warehouses\nسلمى حسن,Salma Hassan,salma@example.com,01000000000,CASHIER,MAIN,WH-1\n";
 const CSV_FILE_NAME = "users-import-sample.csv";
 
@@ -37,7 +35,7 @@ export function UserImportPanel({ onIssued }: UserImportPanelProps) {
   const problemText = (problem: UserImportProblemDTO) => (arabic ? problem.messageAr : problem.messageEn);
   const acknowledged = acknowledge && reason.trim() !== "";
   const ackFields = acknowledged ? { acknowledge: true, reason: reason.trim() } : {};
-  const needsAcknowledgement = report?.rows.some((row) => row.problems.some((problem) => problem.code === SOD_ROW_CODE)) ?? false;
+  const needsAcknowledgement = report?.rows.some((row) => row.problems.some((problem) => problem.code === UserImportRowProblemCode.SodConflict)) ?? false;
   const unchanged =
     checkedWith !== null && checkedWith.csv === csv && checkedWith.acknowledge === acknowledged && checkedWith.reason === (acknowledged ? reason.trim() : "");
   const canCommit = report !== null && report.digest !== null && unchanged && !pending;
@@ -48,7 +46,7 @@ export function UserImportPanel({ onIssued }: UserImportPanelProps) {
     const reader = new FileReader();
     reader.onload = () => {
       const text = typeof reader.result === "string" ? reader.result : "";
-      if (text.length > MAX_CSV_CHARS) {
+      if (text.length > USER_IMPORT_MAX_CSV_CHARS) {
         setNotice({ tone: NoticeTone.Danger, message: t("provisioning.import.fileTooLarge") });
         return;
       }
@@ -108,7 +106,7 @@ export function UserImportPanel({ onIssued }: UserImportPanelProps) {
   return (
     <div className="flex flex-col gap-[14px]">
       <p className="max-w-[70ch] text-[12.5px] text-ink-muted">{t("provisioning.import.intro")}</p>
-      <p className="max-w-[70ch] text-[12px] text-ink-faint">{t("provisioning.import.limit", { limit: String(ROW_LIMIT) })}</p>
+      <p className="max-w-[70ch] text-[12px] text-ink-faint">{t("provisioning.import.limit", { limit: String(USER_IMPORT_ROW_LIMIT) })}</p>
       <Notice notice={notice} />
 
       <Field label={t("provisioning.import.csvLabel")} htmlFor="user-import-csv">

@@ -87,6 +87,7 @@ export const NAV_ITEM_API: Readonly<Record<string, string>> = {
   "user-provisioning": "/users",
   "evidence-pack": "/audit/evidence-packs",
   "sequence-gaps": "/audit/sequence-gaps",
+  status: "/system/health",
 };
 
 export enum BranchGatedAction {

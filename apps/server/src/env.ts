@@ -28,6 +28,7 @@ export interface AuditAnchorEnv {
   readonly intervalMinutes: number;
   readonly signingKey?: string;
   readonly publicKey?: string;
+  readonly trustedPublicKeys?: readonly string[];
   readonly dir?: string;
   readonly s3?: { readonly bucket: string; readonly region: string; readonly prefix?: string; readonly endpoint?: string };
 }
@@ -282,6 +283,17 @@ function requireOriginForMailedLinks(parsed: CloudEnv): CloudEnv {
   return parsed;
 }
 
+function parseTrustedPublicKeys(raw: string | undefined): string[] {
+  const keys = (raw ?? "")
+    .split(",")
+    .map((key) => key.trim().toLowerCase())
+    .filter((key) => key !== "");
+  for (const key of keys) {
+    if (!/^[0-9a-f]{64}$/.test(key)) throw new Error("MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS must be comma-separated Ed25519 public keys, each 64 hex characters");
+  }
+  return [...new Set(keys)];
+}
+
 export function parseAuditAnchor(env: Record<string, string | undefined>): AuditAnchorEnv {
   const bucket = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_BUCKET"]);
   const region = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_REGION"]) ?? trimmedOrUndefined(env["AWS_REGION"]);
@@ -293,10 +305,12 @@ export function parseAuditAnchor(env: Record<string, string | undefined>): Audit
   const dir = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_DIR"]);
   const prefix = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_PREFIX"]);
   const endpoint = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_ENDPOINT"]);
+  const trustedPublicKeys = parseTrustedPublicKeys(env["MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS"]);
   return {
     intervalMinutes: parseNonNegativeInt(env["MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES"], "MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES", 15),
     ...(signingKey ? { signingKey } : {}),
     ...(publicKey ? { publicKey } : {}),
+    ...(trustedPublicKeys.length > 0 ? { trustedPublicKeys } : {}),
     ...(dir ? { dir } : {}),
     ...(bucket && region ? { s3: { bucket, region, ...(prefix ? { prefix } : {}), ...(endpoint ? { endpoint } : {}) } } : {}),
   };

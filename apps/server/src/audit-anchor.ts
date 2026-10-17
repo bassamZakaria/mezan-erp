@@ -1,5 +1,5 @@
 import { createHash, createPrivateKey, createPublicKey, sign, verify, type KeyObject } from "node:crypto";
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, chmodSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync } from "node:fs";
 import path from "node:path";
 import type { AuditChainVerification } from "@mezan/persistence";
 
@@ -25,8 +25,10 @@ export interface SignedAuditAnchor {
 
 export interface AuditAnchorSink {
   append(signed: SignedAuditAnchor): Promise<void>;
-  /** Oldest first, at most `limit` of the newest. */
+  /** Oldest first, at most `limit` of the newest. Reads every anchor of the scope: for verification, not for the per-tick sweep. */
   list(scope: string, limit: number): Promise<readonly SignedAuditAnchor[]>;
+  /** The newest anchor alone, in constant work however long the scope's history is. */
+  latest(scope: string): Promise<SignedAuditAnchor | null>;
 }
 
 export class AuditAnchorKeyError extends Error {
@@ -39,6 +41,8 @@ export class AuditAnchorKeyError extends Error {
 export interface AuditAnchorSigner {
   readonly keyId: string;
   readonly publicKeyHex: string;
+  /** SECURITY: this signer's own key plus every retired key whose anchors are still honoured; only the own key signs. */
+  readonly trustedPublicKeys: readonly string[];
   sign(anchor: Omit<AuditAnchor, "keyId">): SignedAuditAnchor;
 }
 
@@ -60,7 +64,7 @@ export function keyIdOf(publicKeyHex: string): string {
  * shape the release-signing key uses. It comes from a secret, never from the
  * repository and never from the database an attacker is holding.
  */
-export function createAuditAnchorSigner(seedHex: string): AuditAnchorSigner {
+export function createAuditAnchorSigner(seedHex: string, retiredPublicKeys: readonly string[] = []): AuditAnchorSigner {
   if (!HEX_32_BYTES.test(seedHex)) throw new AuditAnchorKeyError("MEZAN_AUDIT_ANCHOR_SIGNING_KEY must be the 32-byte Ed25519 seed as 64 lowercase hex characters");
   const privateKey = createPrivateKey({ key: Buffer.concat([PKCS8_ED25519_PREFIX, Buffer.from(seedHex, "hex")]), format: "der", type: "pkcs8" });
   const publicDer = createPublicKey(privateKey).export({ format: "der", type: "spki" });
@@ -69,6 +73,7 @@ export function createAuditAnchorSigner(seedHex: string): AuditAnchorSigner {
   return {
     keyId,
     publicKeyHex,
+    trustedPublicKeys: [...new Set([publicKeyHex, ...retiredPublicKeys])],
     sign(partial) {
       const anchor: AuditAnchor = { ...partial, keyId };
       return { anchor, signature: sign(null, canonicalAnchor(anchor), privateKey).toString("base64") };
@@ -83,6 +88,10 @@ export function verifyAnchorSignature(signed: SignedAuditAnchor, publicKeyHex: s
   } catch {
     return false;
   }
+}
+
+export function verifyAnchorSignatureAmong(signed: SignedAuditAnchor, publicKeysHex: readonly string[]): boolean {
+  return publicKeysHex.some((publicKeyHex) => verifyAnchorSignature(signed, publicKeyHex));
 }
 
 export function parseSignedAnchor(raw: unknown): SignedAuditAnchor | null {
@@ -144,7 +153,43 @@ export function createFileAuditAnchorSink(dir: string): AuditAnchorSink {
       const valid = anchors.filter((a): a is SignedAuditAnchor => a !== null);
       return valid.slice(-limit);
     },
+    async latest(scope) {
+      const file = fileOf(scope);
+      if (!existsSync(file)) return null;
+      return newestAnchorInFile(file);
+    },
   };
+}
+
+const TAIL_CHUNK_BYTES = 4096;
+
+function newestAnchorInFile(file: string): SignedAuditAnchor | null {
+  const fd = openSync(file, "r");
+  try {
+    const size = fstatSync(fd).size;
+    let window = TAIL_CHUNK_BYTES;
+    for (;;) {
+      const start = Math.max(0, size - window);
+      const buffer = Buffer.alloc(size - start);
+      readSync(fd, buffer, 0, buffer.length, start);
+      const lines = buffer.toString("utf8").split("\n");
+      if (start > 0) lines.shift();
+      for (let i = lines.length - 1; i >= 0; i -= 1) {
+        const line = (lines[i] as string).trim();
+        if (line === "") continue;
+        try {
+          const parsed = parseSignedAnchor(JSON.parse(line) as unknown);
+          if (parsed) return parsed;
+        } catch {
+          continue;
+        }
+      }
+      if (start === 0) return null;
+      window *= 2;
+    }
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export interface AuditChainView {
@@ -182,6 +227,8 @@ export interface VerifyAgainstAnchorsInput {
   readonly chain: AuditChainView;
   readonly anchors: readonly SignedAuditAnchor[];
   readonly publicKeyHex: string;
+  /** Retired keys whose anchors still count as genuine. */
+  readonly trustedPublicKeys?: readonly string[];
   readonly verifyChain: boolean;
 }
 
@@ -197,9 +244,10 @@ export async function verifyAgainstAnchors(input: VerifyAgainstAnchorsInput): Pr
   const head = input.chain.head();
   const liveHeadSeq = head?.rowId ?? null;
 
+  const trusted = [input.publicKeyHex, ...(input.trustedPublicKeys ?? [])];
   const genuine: SignedAuditAnchor[] = [];
   for (const signed of input.anchors) {
-    if (signed.anchor.scope !== input.scope || !verifyAnchorSignature(signed, input.publicKeyHex)) {
+    if (signed.anchor.scope !== input.scope || !verifyAnchorSignatureAmong(signed, trusted)) {
       findings.push({ verdict: AnchorVerdict.AnchorsForged, detail: `anchor at seq ${signed.anchor.seq} does not carry a valid signature for this scope` });
     } else {
       genuine.push(signed);
@@ -295,7 +343,7 @@ export async function anchorHead(input: AnchorHeadInput): Promise<AnchorHeadResu
   }
   const { latest } = input;
   if (latest) {
-    if (!verifyAnchorSignature(latest, input.signer.publicKeyHex)) {
+    if (!verifyAnchorSignatureAmong(latest, input.signer.trustedPublicKeys)) {
       return { outcome: AnchorOutcome.Refused, reason: `the newest anchor on record (seq ${latest.anchor.seq}) does not carry a valid signature` };
     }
     if (head.rowId < latest.anchor.seq) {

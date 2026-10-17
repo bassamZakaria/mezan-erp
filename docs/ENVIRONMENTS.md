@@ -44,11 +44,20 @@ start-up.
 
 - `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`: the 32-byte Ed25519 seed as 64 lowercase hex characters. A secret; never commit it.
 - `MEZAN_AUDIT_ANCHOR_PUBLIC_KEY`: the matching public key, for verifying elsewhere (derived from the signing key when that is present).
+- `MEZAN_AUDIT_ANCHOR_TRUSTED_PUBLIC_KEYS`: comma-separated Ed25519 public keys (64 hex each) of retired signing keys. Anchors signed by them still verify, and a new signing key extends a chain whose newest anchor a retired key signed. To rotate: put the old key's public key here, then change `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`. Only the current key signs; remove a retired key from the list only when its anchors no longer matter.
 - `MEZAN_AUDIT_ANCHOR_S3_BUCKET`, `MEZAN_AUDIT_ANCHOR_S3_REGION` (else `AWS_REGION`), `MEZAN_AUDIT_ANCHOR_S3_PREFIX` (default `audit-anchors`), `MEZAN_AUDIT_ANCHOR_S3_ENDPOINT` (S3-compatible stores): one object per anchor at `<prefix>/<scope>/<12-digit seq>.json`, written with `If-None-Match: *`. Credentials come from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` or an ECS task role. For real immutability the bucket needs S3 Object Lock; the code works with or without it.
 - `MEZAN_AUDIT_ANCHOR_DIR`: without a bucket, anchors are appended to `<dir>/<scope>.jsonl` (default `<platform dir>/audit-anchors`). That is for dev and test: a file on the same host is not external.
 
+Each sweep reads only the newest anchor per scope: the S3 sink keeps a
+`<prefix>/<scope>/latest.json` pointer (`{"seq": n}`) beside the anchors, and the
+anchor objects stay authoritative (a missing or wrong pointer costs one full
+listing and is rewritten). The verifier below still reads every anchor.
+
 Check a tenant (scope is the tenant id, or `platform`) against its anchors,
-using a copy of the database file and the original `audit-chain.key`:
+using a copy of the database file made with `sqlite3 live.db ".backup copy.db"`
+(or `VACUUM INTO 'copy.db'`) and the original `audit-chain.key`. Copying only the
+`.sqlite` file of a WAL database loses the newest rows, so the tool refuses a
+database that has a non-empty `-wal` file beside it:
 
 ```sh
 pnpm exec tsx apps/server/src/audit-anchor-cli.ts verify --db copy.db --scope <tenant id>

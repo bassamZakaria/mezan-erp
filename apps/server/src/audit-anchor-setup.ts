@@ -17,7 +17,7 @@ export interface AuditAnchorService {
 
 export function createAuditAnchorService(config: AuditAnchorEnv | undefined, platformDir: string): AuditAnchorService | null {
   if (config === undefined || config.intervalMinutes === 0 || config.signingKey === undefined) return null;
-  const signer = createAuditAnchorSigner(config.signingKey);
+  const signer = createAuditAnchorSigner(config.signingKey, config.trustedPublicKeys);
   const intervalMs = config.intervalMinutes * 60_000;
   if (config.s3) {
     return {

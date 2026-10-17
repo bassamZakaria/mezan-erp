@@ -1,3 +1,4 @@
+import { existsSync, statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { openAuditChainFile } from "@mezan/persistence";
 import {
@@ -21,15 +22,30 @@ const ANCHORS_CHECKED = 200;
 
 const USAGE = `usage: tsx apps/server/src/audit-anchor-cli.ts verify --db <database file> --scope <tenant id | platform> [--public-key <hex>] [--skip-chain]
 
-Run it against a COPY of the database (or with the server stopped): the live file
-may be exclusively locked. Reads MEZAN_AUDIT_ANCHOR_* from the environment to
+Run it against a COPY of the database made with \`sqlite3 <live file> ".backup copy.db"\`
+or \`VACUUM INTO 'copy.db'\` (or with the server stopped). Copying only the .sqlite file of a
+database in WAL mode drops the newest rows and reports a false ROLLED_BACK; the tool refuses a
+database with a non-empty -wal file beside it. Reads MEZAN_AUDIT_ANCHOR_* from the environment to
 find the anchor store. Needs the chain key (MEZAN_AUDIT_CHAIN_KEY or the
 original audit-chain.key beside the file).
 Exit: 0 verified, 1 could not run, 2 tampering found (rollback, rewrite, broken chain, forged anchors).`;
 
+const WAL_REFUSAL =
+  "قاعدة البيانات لها ملف -wal غير فارغ بجانبها: نسخ ملف .sqlite وحده يُسقط أحدث الصفوف ويُظهر ROLLED_BACK كاذبًا. أنشئ نسخة بالأمر sqlite3 .backup أو VACUUM INTO ثم أعد التشغيل.\n" +
+  "The database has a non-empty -wal file beside it: copying only the .sqlite file loses the newest rows and reports a false ROLLED_BACK. Make the copy with sqlite3 .backup or VACUUM INTO and run again.";
+
+export function hasPendingWal(db: string): boolean {
+  const wal = `${db}-wal`;
+  return existsSync(wal) && statSync(wal).size > 0;
+}
+
 function argOf(args: readonly string[], name: string): string | undefined {
   const at = args.indexOf(name);
   return at === -1 ? undefined : args[at + 1];
+}
+
+function trustedKeysFrom(env: Record<string, string | undefined>): readonly string[] {
+  return parseAuditAnchor(env).trustedPublicKeys ?? [];
 }
 
 function publicKeyHexFrom(env: Record<string, string | undefined>, explicit: string | undefined): string {
@@ -69,12 +85,16 @@ export async function main(args: readonly string[], env: Record<string, string |
     console.error(USAGE);
     return VerifyExit.Failure;
   }
+  if (hasPendingWal(db)) {
+    console.error(WAL_REFUSAL);
+    return VerifyExit.Failure;
+  }
   const reader = openAuditChainFile(db);
   try {
     const publicKeyHex = publicKeyHexFrom(env, argOf(args, "--public-key"));
     if (!/^[0-9a-f]{64}$/.test(publicKeyHex)) throw new Error("the public key must be 64 hex characters");
     const anchors = await sinkFrom(env).list(scope, ANCHORS_CHECKED);
-    const result = await verifyAgainstAnchors({ scope, chain: reader, anchors, publicKeyHex, verifyChain: !args.includes("--skip-chain") });
+    const result = await verifyAgainstAnchors({ scope, chain: reader, anchors, publicKeyHex, trustedPublicKeys: trustedKeysFrom(env), verifyChain: !args.includes("--skip-chain") });
     console.log(renderVerification(result));
     return exitCodeOf(result);
   } finally {

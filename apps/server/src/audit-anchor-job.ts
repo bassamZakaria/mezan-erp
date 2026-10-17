@@ -75,7 +75,7 @@ export async function anchorOneScope(
   audit: AuditSink,
   options: Pick<AuditAnchorJobOptions, "signer" | "sink" | "now">,
 ): Promise<{ outcome: AnchorOutcome; reason?: string; anchor?: SignedAuditAnchor }> {
-  const [latest = null] = (await options.sink.list(scope, 1)).slice(-1);
+  const latest = await options.sink.latest(scope);
   const snapshot = await snapshotOf(audit, latest?.anchor.seq ?? null);
   if (snapshot === null) return { outcome: AnchorOutcome.Refused, reason: "the audit sink cannot report its chain head" };
   return anchorHead({

@@ -128,6 +128,14 @@ export async function storedSession(page: Page): Promise<StoredSession | null> {
   }, StorageKey.Session);
 }
 
+// The browser holds its session only in HttpOnly cookies; this signs it out
+// on the server through the page's own cookie jar, as the app itself does.
+export async function serverSignOut(page: Page, tenantCode: string): Promise<number> {
+  const csrf = (await page.context().cookies()).find((cookie) => cookie.name === "mezan_csrf")?.value ?? "";
+  const response = await page.request.post("/api/auth/logout", { headers: { "x-mezan-tenant": tenantCode, "x-mezan-csrf": decodeURIComponent(csrf) } });
+  return response.status();
+}
+
 export async function addCustomer(page: Page, name: string, baseUrl = ""): Promise<number> {
   await page.goto(`${baseUrl}/sell/customers`);
   await page.getByRole("button", { name: "إضافة عميل" }).first().click();
@@ -143,12 +151,21 @@ export async function tenantSignOut(page: Page): Promise<void> {
   await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
 }
 
+const platformDevices = new Map<string, string>();
+
 export async function platformToken(request: APIRequestContext, apiUrl = SAAS_API_URL): Promise<string> {
   const response = await request.post(`${apiUrl}/api/platform/auth/login`, {
     data: { email: PLATFORM_OWNER_EMAIL, password: PLATFORM_OWNER_PASSWORD },
   });
   expect(response.status()).toBe(200);
-  return ((await response.json()) as { token: string }).token;
+  const { token, deviceSecret } = (await response.json()) as { token: string; deviceSecret: string };
+  platformDevices.set(token, deviceSecret);
+  return token;
+}
+
+export function bearer(token: string): Record<string, string> {
+  const device = platformDevices.get(token);
+  return { authorization: `Bearer ${token}`, ...(device ? { "x-mezan-device": device } : {}) };
 }
 
 export async function provisionTenant(
@@ -158,7 +175,7 @@ export async function provisionTenant(
 ): Promise<TenantLogin> {
   const token = await platformToken(request, apiUrl);
   const response = await request.post(`${apiUrl}/api/platform/tenants`, {
-    headers: { authorization: `Bearer ${token}` },
+    headers: { ...bearer(token) },
     data: {
       code: input.code,
       nameAr: input.nameAr,
@@ -203,7 +220,7 @@ export async function tenantCall(
 ): Promise<ApiAnswer> {
   const response = await request.fetch(`${apiUrl}/api${path}`, {
     method,
-    headers: { authorization: `Bearer ${api.token}`, [TENANT_HEADER]: api.code, ...extraHeaders },
+    headers: { ...bearer(api.token), [TENANT_HEADER]: api.code, ...extraHeaders },
     data,
   });
   const text = await response.text();

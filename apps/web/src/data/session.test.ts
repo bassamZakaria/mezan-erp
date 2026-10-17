@@ -200,6 +200,15 @@ describe("per-operator tenant memory", () => {
 });
 
 describe("authHeaders", () => {
+  it("sends a cookie session's CSRF token and no bearer when the session holds no token", () => {
+    document.cookie = "mezan_csrf=CSRF-T; path=/";
+    const { token: _token, ...cookieSession } = validSession;
+    const headers = authHeaders(cookieSession);
+    expect(headers["authorization"]).toBeUndefined();
+    expect(headers["x-mezan-csrf"]).toBe("CSRF-T");
+    document.cookie = "mezan_csrf=; path=/; max-age=0";
+  });
+
   it("returns no headers for a signed-out caller with no tenant code stored", () => {
     expect(authHeaders(null)).toEqual({});
   });

@@ -8,6 +8,7 @@ import {
   DuplicateUserEmailError,
   UserNotFoundError,
   recordSecurityEvent,
+  recordSecurityEventOrFallback,
   type User,
   type UnitOfWork,
   type SecretHasher,
@@ -19,6 +20,16 @@ import { createPrecomputingHasher } from "./precomputed-secrets.js";
 
 export enum ProfileRefusal {
   CredentialChangedMeanwhile = "CREDENTIAL_CHANGED_MEANWHILE",
+  CurrentPasswordRequired = "CURRENT_PASSWORD_REQUIRED",
+}
+
+export enum ProfileSecurityAction {
+  EmailChanged = "EMAIL_CHANGED",
+  EmailChangeRefused = "EMAIL_CHANGE_REFUSED",
+}
+
+function sameEmail(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
 class CredentialChangedMeanwhile extends Error {}
@@ -154,10 +165,56 @@ export function createProfileRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const { currentPassword, ...details } = parsed.data;
     try {
-      const user = await updateOwnProfile(callerId, parsed.data, uow);
-      return c.json(serializeProfile(user));
+      const before = await uow.users.findById(callerId);
+      if (!before) return c.json({ error: "NOT_FOUND" }, 404);
+      if (sameEmail(before.email, details.email)) {
+        return c.json(serializeProfile(await updateOwnProfile(callerId, details, uow)));
+      }
+      // SECURITY: the email is the login id, so changing it is a credential
+      // change and needs the current password, exactly as change-password does.
+      if (!currentPassword) {
+        return c.json(
+          {
+            error: ProfileRefusal.CurrentPasswordRequired,
+            message: "أدخل كلمة المرور الحالية لتغيير البريد الإلكتروني.",
+            messageEn: "Enter your current password to change your email.",
+          },
+          400,
+        );
+      }
+      const saved: { user: User | null } = { user: null };
+      const changed = await withCurrentPasswordChecked(callerId, currentPassword, null, async (tx) => {
+        const stored = await tx.users.findById(callerId);
+        if (!stored) throw new UserNotFoundError(callerId);
+        if (!(await secrets.hasher.verify(currentPassword, stored.passwordHash))) throw new IncorrectPasswordError();
+        saved.user = await updateOwnProfile(callerId, details, tx);
+        if (audit) {
+          await recordSecurityEvent(audit, {
+            module: "profile",
+            entityType: "USER",
+            entityId: callerId,
+            action: ProfileSecurityAction.EmailChanged,
+            actor: callerId,
+            severity: "WARNING",
+            details: { from: stored.email, to: details.email },
+          });
+        }
+      });
+      if (!changed || saved.user === null) return changedMeanwhile(c);
+      return c.json(serializeProfile(saved.user));
     } catch (err) {
+      if (err instanceof IncorrectPasswordError && audit) {
+        await recordSecurityEventOrFallback(audit, {
+          module: "profile",
+          entityType: "USER",
+          entityId: callerId,
+          action: ProfileSecurityAction.EmailChangeRefused,
+          actor: callerId,
+          severity: "WARNING",
+        });
+      }
       return profileErrorResponse(c, err);
     }
   });

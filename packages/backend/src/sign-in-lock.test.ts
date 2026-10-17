@@ -726,9 +726,9 @@ describe("a second person signing in on a device somebody else is signed in on",
     const created = await post(h, "/users", { ...cashier, password: "a-long-password-1", roleId: null, isCompanyAdmin: true, branchScope: "*", warehouseScope: "*", acknowledge: true, reason: "مدير ثانٍ للاختبار" }, null, owner.token);
     expect(created.status, await created.clone().text()).toBeLessThan(300);
 
-    const first = (await (await deviceSignIn(h, OWNER.email, OWNER.pin)).json()) as SessionDTO & { deviceSecret: string };
+    const first = (await (await deviceSignIn(h, OWNER.email, OWNER.pin)).json()) as SessionDTO & { token: string; deviceSecret: string };
     expect((await profileOf(h, first.token, first.deviceSecret)).status).toBe(200);
-    const second = (await (await deviceSignIn(h, cashier.email, cashier.pin, first.deviceSecret)).json()) as SessionDTO & { deviceSecret: string };
+    const second = (await (await deviceSignIn(h, cashier.email, cashier.pin, first.deviceSecret)).json()) as SessionDTO & { token: string; deviceSecret: string };
     expect(second.userId).not.toBe(first.userId);
 
     const displaced = await profileOf(h, first.token, second.deviceSecret);

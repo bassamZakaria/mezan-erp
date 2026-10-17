@@ -26,6 +26,7 @@ import {
   errorOf,
   invoiceDrafts,
   pickEntity,
+  bearer,
   platformToken,
   provisionTenant,
   rowsOf,
@@ -87,7 +88,7 @@ async function restartApiOn(day: string): Promise<void> {
 
 async function paidSubscription(request: APIRequestContext): Promise<PlatformSubscription> {
   const token = await platformToken(request, CLOCK_API_URL);
-  const response = await request.get(`${CLOCK_API_URL}/api/platform/tenants/${paidTenant.id}`, { headers: { authorization: `Bearer ${token}` } });
+  const response = await request.get(`${CLOCK_API_URL}/api/platform/tenants/${paidTenant.id}`, { headers: { ...bearer(token) } });
   expect(response.status()).toBe(200);
   return ((await response.json()) as { subscription: PlatformSubscription }).subscription;
 }
@@ -288,7 +289,7 @@ test.describe("The clock moves — a trial lands on Free, the Free quota holds, 
 
     const operator = await platformToken(request, CLOCK_API_URL);
     const payment = await request.post(`${CLOCK_API_URL}/api/platform/tenants/${paidTenant.id}/payments`, {
-      headers: { authorization: `Bearer ${operator}` },
+      headers: { ...bearer(operator) },
       data: { amount: "490", reference: `LAPSE-${paidTenant.code}`, paidAt: new Date().toISOString(), idempotencyKey: `LAPSE-KEY-${paidTenant.code}` },
     });
     expect(payment.status(), await payment.text()).toBe(201);

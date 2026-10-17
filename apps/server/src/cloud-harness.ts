@@ -4,12 +4,14 @@ import path from "node:path";
 import { createCloudApp, type CloudApp, type CreateCloudAppOptions } from "./cloud-app.js";
 import { parseEnv, type CloudEnv } from "./env.js";
 import { originEnv, type CloudSource } from "./client-source.js";
+import { DEVICE_SECRET_HEADER } from "@mezan/contracts";
 
 export const HARNESS_PROXY_HOP = "130.176.1.1";
 export const HARNESS_CLIENT = "41.33.10.10";
 export const HARNESS_OWNER_EMAIL = "owner@mezan.local";
 export const HARNESS_OWNER_PASSWORD = "owner-password-123";
 const HARNESS_HOPS = "2";
+const PLATFORM_LOGIN = "/api/platform/auth/login";
 
 export interface SendInit extends RequestInit {
   readonly token?: string;
@@ -26,9 +28,23 @@ export interface CloudHarness {
   close(): Promise<void>;
 }
 
+const platformDevices = new Map<string, string>();
+
+export function rememberPlatformDevice(body: unknown): void {
+  const { token, deviceSecret } = (body ?? {}) as { token?: unknown; deviceSecret?: unknown };
+  if (typeof token === "string" && typeof deviceSecret === "string") platformDevices.set(token, deviceSecret);
+}
+
+export function platformBearer(token: string): Record<string, string> {
+  const device = platformDevices.get(token);
+  return { authorization: `Bearer ${token}`, ...(device ? { [DEVICE_SECRET_HEADER]: device } : {}) };
+}
+
 export function proxiedRequest(pathname: string, init: SendInit = {}): Request {
   const { token, tenant, client, chain, ...rest } = init;
   const headers = new Headers(rest.headers);
+  const device = token ? platformDevices.get(token) : undefined;
+  if (device && !headers.has(DEVICE_SECRET_HEADER)) headers.set(DEVICE_SECRET_HEADER, device);
   if (rest.body && !headers.has("content-type")) headers.set("content-type", "application/json");
   if (token) headers.set("authorization", `Bearer ${token}`);
   if (tenant) headers.set("x-mezan-tenant", tenant);
@@ -59,7 +75,11 @@ export async function bootCloudHarness(
   const dirs: string[] = [];
   const env = harnessEnv(input.vars, input.env, dirs);
   const app = await createCloudApp(env, input.options);
-  const send = (pathname: string, init: SendInit = {}) => Promise.resolve(app.root.fetch(proxiedRequest(pathname, init)));
+  const send = (pathname: string, init: SendInit = {}) =>
+    Promise.resolve(app.root.fetch(proxiedRequest(pathname, init))).then(async (res) => {
+      if (res.ok && pathname.startsWith(PLATFORM_LOGIN)) rememberPlatformDevice(await res.clone().json());
+      return res;
+    });
   return {
     app,
     env,

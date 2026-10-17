@@ -9,7 +9,7 @@ import { PlatformRefusalCode, REFUSED_TENANT_BOOKS, TenantBooksStanding } from "
 import { createTenant, tenantDbFile, TenantBooksReview, TenantDbFileRefusal, TenantStatusCode, UserStatusCode, type Tenant } from "@mezan/domain";
 import { bindTenantDatabase, openSqliteConnection, type SqliteDriver, type TenantBooksIdentity, type TenantBooksUser } from "@mezan/persistence";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
-import { harnessEnv, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, proxiedRequest, type SendInit } from "./cloud-harness.js";
+import { harnessEnv, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, proxiedRequest, rememberPlatformDevice, type SendInit } from "./cloud-harness.js";
 import type { CloudEnv } from "./env.js";
 import { hashHandOverToken } from "./owner-contact.js";
 import { BooksFileState, classifyTenantBooks, type BooksFile } from "./tenant-books.js";
@@ -33,6 +33,7 @@ async function boot(env: CloudEnv) {
     return { status: res.status, json: (await res.json().catch(() => null)) as Record<string, unknown> | null };
   };
   const login = await send("/api/platform/auth/login", { method: "POST", body: JSON.stringify({ email: HARNESS_OWNER_EMAIL, password: HARNESS_OWNER_PASSWORD }) });
+  rememberPlatformDevice(login.json);
   const platformToken = String(login.json?.["token"]);
   const console_ = (method: string, route: string, body?: unknown, token = platformToken) =>
     send(`/api/platform${route}`, { method, token, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -918,7 +919,9 @@ describe("a database bound to the wrong company by mistake", () => {
     const { on, nile } = await wronglyBound(env);
     const SUPPORT = { email: "support@mezan.example", password: "support-password-1" };
     expect((await on.console("POST", "/users", { ...SUPPORT, role: "support" })).status).toBe(201);
-    const support = String((await on.send("/api/platform/auth/login", { method: "POST", body: JSON.stringify(SUPPORT) })).json?.["token"]);
+    const supportLogin = (await on.send("/api/platform/auth/login", { method: "POST", body: JSON.stringify(SUPPORT) })).json;
+    rememberPlatformDevice(supportLogin);
+    const support = String(supportLogin?.["token"]);
 
     const answers = [
       await on.console("GET", `/tenants/${nile.tenantId}/books`, undefined, support),

@@ -12,6 +12,21 @@ import { companyNameSchema } from "./company-name.js";
 export const DEVICE_BINDING_HEADER = "x-mezan-device-binding";
 export const DEVICE_SECRET_HEADER = "x-mezan-device";
 
+export enum DeviceBinding {
+  Header = "1",
+  Cookie = "cookie",
+}
+
+// CONTRACT: the cloud edge sets these readable cookies beside the HttpOnly
+// session cookie; a browser client echoes the value in CSRF_HEADER on every
+// request it sends with that session.
+export const CSRF_HEADER = "x-mezan-csrf";
+
+export enum CsrfCookie {
+  Tenant = "mezan_csrf",
+  Platform = "mezan_platform_csrf",
+}
+
 export const stepUpRequestSchema = z.object({ pin: z.string().regex(/^\d{6}$/) });
 export type StepUpRequestDTO = z.infer<typeof stepUpRequestSchema>;
 
@@ -65,7 +80,7 @@ export const sessionSchema = z.object({
    * `permissions` above are for hiding UI the user cannot use, never for
    * deciding what a request is allowed to do.
    */
-  token: z.string(),
+  token: z.string().optional(),
   deviceSecret: z.string().optional(),
 });
 

@@ -14,14 +14,14 @@ import {
 } from "./session";
 import { resolveDefaultTransport, SessionEndedReason, type Transport, type TransportResponse } from "./transport";
 import { publishLoaderApi } from "./api-bridge";
-import { DEVICE_BINDING_HEADER } from "@mezan/contracts";
+import { DEVICE_BINDING_HEADER, DeviceBinding } from "@mezan/contracts";
 import { StepUpDialog, type StepUpPrompt } from "./StepUpDialog";
 
 const SIGN_IN_PATH = "/auth/login";
+const SESSION_ISSUING_PATHS: ReadonlySet<string> = new Set([SIGN_IN_PATH, "/bootstrap/admin"]);
 const STEP_UP_PATH = "/auth/step-up";
 const STEP_UP_STATUS = 403;
 const STEP_UP_REQUIRED = "STEP_UP_REQUIRED";
-const COOKIE_KEPT_DEVICE_SECRET = "cookie";
 
 function parsed(text: string): { error?: string; message?: string } | null {
   try {
@@ -162,7 +162,7 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
         const narrowing = method === "GET" || method === "HEAD" ? scopeSelection : undefined;
         for (const [k, v] of Object.entries(authHeaders(session, narrowing))) headers.set(k, v);
         if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
-        if (path === SIGN_IN_PATH) headers.set(DEVICE_BINDING_HEADER, COOKIE_KEPT_DEVICE_SECRET);
+        if (SESSION_ISSUING_PATHS.has(path)) headers.set(DEVICE_BINDING_HEADER, DeviceBinding.Cookie);
         const refusedByBranchPolicy = isBranchRestricted(session) ? branchRefusalBefore(path, method) : null;
         if (refusedByBranchPolicy) return locallyRefused(refusedByBranchPolicy);
         const send = (): Promise<TransportResponse> => resolvedTransport(path, { ...init, headers });

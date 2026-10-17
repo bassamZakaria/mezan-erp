@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { TransportResponse } from "../data/transport";
 import { PlatformApiProvider, usePlatformApi } from "./api";
@@ -38,6 +39,86 @@ describe("PlatformApiProvider", () => {
     screen.getByRole("button", { name: "fire" }).click();
     await vi.waitFor(() => expect(seen).toHaveLength(1));
     expect(seen[0]).toEqual({ path: "/tenants", auth: "Bearer TEST-PLATFORM-TOKEN" });
+  });
+
+  it("sends a cookie session's CSRF token instead of a bearer, and asks the server for cookies at sign-in", async () => {
+    document.cookie = "mezan_platform_csrf=CSRF-1; path=/";
+    const seen: { path: string; headers: Headers }[] = [];
+    const transport = (path: string, init?: RequestInit): Promise<TransportResponse> => {
+      seen.push({ path, headers: new Headers(init?.headers) });
+      return Promise.resolve({ status: 200, ok: true, json: <T,>() => Promise.resolve({} as T), text: () => Promise.resolve("{}") });
+    };
+    render(
+      <PlatformApiProvider transport={transport} initialSession={{ user: testPlatformSession.user }}>
+        <SessionAndRequestProbe path="/tenants" />
+      </PlatformApiProvider>,
+    );
+    screen.getByRole("button", { name: "fire" }).click();
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(seen[0]?.headers.get("authorization")).toBeNull();
+    expect(seen[0]?.headers.get("x-mezan-csrf")).toBe("CSRF-1");
+    document.cookie = "mezan_platform_csrf=; path=/; max-age=0";
+  });
+
+  it("ends the session on the server when the operator signs out", async () => {
+    const seen: string[] = [];
+    const transport = (path: string, init?: RequestInit): Promise<TransportResponse> => {
+      seen.push(`${init?.method ?? "GET"} ${path}`);
+      return Promise.resolve({ status: 200, ok: true, json: <T,>() => Promise.resolve({} as T), text: () => Promise.resolve("{}") });
+    };
+    function SignOut() {
+      const { session, endSession } = usePlatformApi();
+      return (
+        <button type="button" onClick={endSession}>
+          {session ? "out" : "gone"}
+        </button>
+      );
+    }
+    render(
+      <PlatformApiProvider transport={transport} initialSession={testPlatformSession}>
+        <SignOut />
+      </PlatformApiProvider>,
+    );
+    screen.getByRole("button", { name: "out" }).click();
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: "gone" })).toBeInTheDocument());
+    expect(seen).toEqual(["POST /auth/logout"]);
+  });
+
+  it("asks for the password again when the server wants a step-up, and resends the action once it is confirmed", async () => {
+    const seen: string[] = [];
+    let confirmed = false;
+    const transport = (path: string, init?: RequestInit): Promise<TransportResponse> => {
+      seen.push(`${init?.method ?? "GET"} ${path}`);
+      const answer = (status: number, body: unknown): Promise<TransportResponse> =>
+        Promise.resolve({ status, ok: status < 300, json: <T,>() => Promise.resolve(body as T), text: () => Promise.resolve(JSON.stringify(body)) });
+      if (path === "/auth/step-up") {
+        confirmed = JSON.parse(String(init?.body)).password === "correct horse";
+        return confirmed ? answer(200, { ok: true }) : answer(401, { message: "كلمة المرور غير صحيحة" });
+      }
+      return confirmed ? answer(200, {}) : answer(403, { error: "STEP_UP_REQUIRED", message: "أعد إدخال كلمة المرور" });
+    };
+    function Write() {
+      const { request } = usePlatformApi();
+      const [status, setStatus] = useState<number | null>(null);
+      return (
+        <button type="button" onClick={() => void request("/plans", { method: "POST", body: "{}" }).then((res) => setStatus(res.status))}>
+          {status === null ? "write" : `done ${status}`}
+        </button>
+      );
+    }
+    render(
+      <PlatformApiProvider transport={transport} initialSession={testPlatformSession}>
+        <Write />
+      </PlatformApiProvider>,
+    );
+    screen.getByRole("button", { name: "write" }).click();
+    const dialog = await screen.findByRole("dialog");
+    const password = dialog.querySelector("input[type=password]");
+    expect(password).not.toBeNull();
+    fireEvent.change(password!, { target: { value: "correct horse" } });
+    fireEvent.submit(dialog);
+    expect(await screen.findByRole("button", { name: "done 200" })).toBeInTheDocument();
+    expect(seen).toEqual(["POST /plans", "POST /auth/step-up", "POST /plans"]);
   });
 
   it("clears the session when any request comes back 401", async () => {

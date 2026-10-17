@@ -77,7 +77,7 @@ New defects found in the receipt path (file in lane 0A, fix in 0D):
 | # | Task | Status | Evidence / what is left |
 |---|---|---|---|
 | 1–5 | Postgres codegen, dialect, dual-engine CI, golden ledger ×2, pg_trgm | superseded | one SQLite database per tenant (`superpowers/specs/2026-09-14-saas-completion-design.md` §5 "Out of scope: Postgres"). Do not build |
-| 6 | JWT + refresh in HttpOnly cookie, Argon2id | partial | opaque bearer sessions hashed server-side (`api/session-auth.ts:29`), scrypt PINs; the token is kept in `localStorage` (`web/src/data/session.ts`, `platform/session.ts:9`) → lane 6A |
+| 6 | JWT + refresh in HttpOnly cookie, Argon2id | done (6A) | opaque bearer sessions hashed server-side (`api/session-auth.ts:29`), scrypt PINs; on the cloud edition the browser's tenant and console sessions ride in HttpOnly SameSite=Strict cookies with a session-bound CSRF token (`server/cookie-session.ts`); desktop, LAN and mobile keep bearer tokens |
 | 7 | Postgres RLS | superseded | DB-per-tenant is stronger isolation |
 | 8 | Platform admin tier | done | platform-owner/support, `requirePlatform` (`backend/platform-routes.ts`) |
 | 9 | Tenant resolution, server hardening | done | `server/tenant-resolver.ts`, `tenant-router.ts`, `backend-cache.ts` |

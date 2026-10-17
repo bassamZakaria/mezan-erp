@@ -1,4 +1,4 @@
-import { OwnerHandOverOutcome, sessionSchema, type SessionDTO } from "@mezan/contracts";
+import { CSRF_HEADER, CsrfCookie, OwnerHandOverOutcome, sessionSchema, type SessionDTO } from "@mezan/contracts";
 import { ALL_SCOPE, SHELL_REQUESTS, can, createAuthContext, mayAskScreenRequest, type AuthContext, type Entitlements, type ScreenRequest, type ShellRequest } from "@mezan/domain";
 
 export type Session = SessionDTO;
@@ -371,8 +371,26 @@ export function authHeaders(session: Session | null, selection?: ScopeSelection)
     // wifi. The scope headers stay because they are a NARROWING the user chose
     // in the topbar; the server clamps them to the session's own grant and can
     // never be widened by them.
-    authorization: `Bearer ${session.token}`,
+    ...sessionCredential(session, CsrfCookie.Tenant),
     "x-branch-scope": branchScope,
     "x-warehouse-scope": warehouseScope,
   };
+}
+
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  for (const part of document.cookie.split(";")) {
+    const at = part.indexOf("=");
+    if (at > 0 && part.slice(0, at).trim() === name) return decodeURIComponent(part.slice(at + 1).trim());
+  }
+  return null;
+}
+
+// SECURITY: a cloud browser session has no token the page can read — it rides
+// in an HttpOnly cookie — so the request carries the CSRF token the edge set
+// beside it instead. Desktop, LAN and API clients still send their bearer.
+export function sessionCredential(session: { readonly token?: string }, csrfCookie: CsrfCookie): Record<string, string> {
+  if (session.token) return { authorization: `Bearer ${session.token}` };
+  const csrf = readCookie(csrfCookie);
+  return csrf ? { [CSRF_HEADER]: csrf } : {};
 }

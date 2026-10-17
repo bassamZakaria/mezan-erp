@@ -42,7 +42,6 @@ import type { PaymobTestProvider } from "./paymob-provider.js";
 import { PaymobMode, type CloudEnv } from "./env.js";
 import { answerTenantDbFileRefusal } from "./tenant-db-file.js";
 import type { TenantDoor, TenantRouter } from "./tenant-router.js";
-import { deviceSecretOf } from "./device-cookie.js";
 import { callerSource, requireCloudSource, type CloudSource, type SourceReporter } from "./client-source.js";
 import { resolveTenantCode } from "./tenant-resolver.js";
 import { servedTenantLookup, trustedPublicOrigin, type ServedTenantLookup } from "./public-origin.js";
@@ -208,7 +207,7 @@ export function createTenantBillingRoutes(options: TenantBillingRoutesOptions): 
     if (!token) return c.json({ error: "UNAUTHENTICATED", message: "سجّل الدخول أولًا" }, 401);
     const source = callerSource(c);
     const door = await router.callerDoor(code);
-    const deviceSecret = deviceSecretOf(c.req.raw);
+    const deviceSecret = c.req.header(DEVICE_SECRET_HEADER) ?? null;
     const device: Record<string, string> = deviceSecret ? { [DEVICE_SECRET_HEADER]: deviceSecret } : {};
     // REQUIRED ORDERING: the tenant's own app sees the request first, so an
     // address change on a device-bound session is written to its audit log

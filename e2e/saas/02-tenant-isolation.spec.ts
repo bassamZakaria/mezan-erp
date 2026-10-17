@@ -20,9 +20,11 @@ import {
   enterCredentials,
   enterTenantCode,
   errorOf,
+  bearer,
   platformToken,
   provisionTenant,
   rowsOf,
+  serverSignOut,
   storedSession,
   tenantApiLogin,
   tenantCall,
@@ -126,12 +128,12 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
 
     for (const route of ["/tenants", `/tenants/${tenantB.id}`, `/tenants/${tenantB.id}/payments`, "/plans", "/users"]) {
       const asTenant = await request.get(`${SAAS_API_URL}/api/platform${route}`, {
-        headers: { authorization: `Bearer ${apiA.token}`, [TENANT_HEADER]: tenantA.code },
+        headers: { ...bearer(apiA.token), [TENANT_HEADER]: tenantA.code },
       });
       expect(asTenant.status(), route).toBe(401);
       expect(((await asTenant.json()) as { error: string }).error, route).toBe(ApiError.Unauthenticated);
     }
-    const suspendAsTenant = await request.post(`${SAAS_API_URL}/api/platform/tenants/${tenantB.id}/suspend`, { headers: { authorization: `Bearer ${apiA.token}` } });
+    const suspendAsTenant = await request.post(`${SAAS_API_URL}/api/platform/tenants/${tenantB.id}/suspend`, { headers: { ...bearer(apiA.token) } });
     expect(suspendAsTenant.status()).toBe(401);
 
     const asOperator = { code: tenantA.code, token: operator };
@@ -141,7 +143,7 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
     expect(JSON.stringify(read.body)).not.toContain(CUSTOMER_OF_A);
     expect((await tenantCall(request, asOperator, HttpMethod.Post, "/customers", { id: "CUST-OPERATOR", code: "OPR", nameAr: INTRUDER_NAME })).status).toBe(401);
 
-    const tenants = await request.get(`${SAAS_API_URL}/api/platform/tenants`, { headers: { authorization: `Bearer ${operator}` } });
+    const tenants = await request.get(`${SAAS_API_URL}/api/platform/tenants`, { headers: { ...bearer(operator) } });
     const statusOfB = ((await tenants.json()) as { tenant: { id: string; status: string } }[]).find((row) => row.tenant.id === tenantB.id)?.tenant.status;
     expect(statusOfB).toBe(TenantStatus.Active);
     expect(rowsOf((await tenantCall(request, apiA, HttpMethod.Get, "/customers")).body).map((row) => row["nameAr"])).toEqual([CUSTOMER_OF_A]);
@@ -171,7 +173,7 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
 
   test("each tenant has its own database file on disk, and A's customer is written only into A's", async ({ request }) => {
     const token = await platformToken(request);
-    const response = await request.get(`${SAAS_API_URL}/api/platform/tenants`, { headers: { authorization: `Bearer ${token}` } });
+    const response = await request.get(`${SAAS_API_URL}/api/platform/tenants`, { headers: { ...bearer(token) } });
     const listed = (await response.json()) as { tenant: { id: string; code: string; dbFile: string } }[];
     const rowOf = (code: string) => listed.find((row) => row.tenant.code === code)?.tenant;
     const dbFileOf = (code: string): string => rowOf(code)?.dbFile ?? "";
@@ -192,17 +194,17 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
     expect(bytesOnDisk(fileOfB).includes(marker), "A's customer is in B's file").toBe(false);
   });
 
-  test("signing out of A and into B on the same browser shows nothing cached from A", async ({ page, request }) => {
+  test("signing out of A and into B on the same browser shows nothing cached from A", async ({ page }) => {
     await tenantSignIn(page, tenantA);
     await page.goto("/sell/customers");
     await expect(page.getByRole("cell", { name: CUSTOMER_OF_A }).first()).toBeVisible();
-    const tokenOfA = (await storedSession(page))?.token ?? "";
-    expect(tokenOfA).not.toBe("");
+    expect((await storedSession(page))?.token, "the page's script never holds the session token").toBeUndefined();
+    expect((await page.request.get("/api/customers", { headers: { [TENANT_HEADER]: tenantA.code } })).status()).toBe(200);
 
     await tenantSignOut(page);
     expect(await page.evaluate((key) => window.localStorage.getItem(key), StorageKey.Session)).toBeNull();
-    const revoked = await tenantCall(request, { code: tenantA.code, token: tokenOfA }, HttpMethod.Get, "/customers");
-    expect(revoked.status).toBe(401);
+    expect((await page.request.get("/api/customers", { headers: { [TENANT_HEADER]: tenantA.code } })).status()).toBe(401);
+    expect((await page.context().cookies()).some((cookie) => cookie.name === "mezan_session")).toBe(false);
 
     await page.goBack();
     await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
@@ -220,17 +222,12 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
     expect(await page.evaluate((key) => window.localStorage.getItem(key), StorageKey.TenantCode)).toBe(tenantB.code);
   });
 
-  test("an invalidated session mid-work lands on sign-in with the reason, not on stale data", async ({ page, request }) => {
+  test("an invalidated session mid-work lands on sign-in with the reason, not on stale data", async ({ page }) => {
     await tenantSignIn(page, tenantA);
-    const token = (await storedSession(page))?.token ?? "";
-    const headers = { authorization: `Bearer ${token}`, [TENANT_HEADER]: tenantA.code };
-    const tokenAlone = await request.post(`${SAAS_API_URL}/api/auth/logout`, { headers });
-    expect(tokenAlone.status()).toBe(200);
     await page.goto("/sell/customers");
     await expect(page.getByRole("cell", { name: CUSTOMER_OF_A }).first()).toBeVisible();
 
-    const logout = await page.request.post("/api/auth/logout", { headers });
-    expect(logout.status()).toBe(200);
+    expect(await serverSignOut(page, tenantA.code)).toBe(200);
     await page.goto("/sell/customers");
     await expect(page.getByLabel("رمز PIN رقم 1")).toBeVisible();
     await expect(page.getByRole("status")).toContainText("انتهت الجلسة");
@@ -239,9 +236,7 @@ test.describe("PLT-SAAS-07 — one tenant never sees another tenant's data", () 
 
   test("the reason a session ended is still on sign-in after the page loads again, and goes once the user starts to sign in", async ({ page }) => {
     await tenantSignIn(page, tenantA);
-    const token = (await storedSession(page))?.token ?? "";
-    const logout = await page.request.post("/api/auth/logout", { headers: { authorization: `Bearer ${token}`, [TENANT_HEADER]: tenantA.code } });
-    expect(logout.status()).toBe(200);
+    expect(await serverSignOut(page, tenantA.code)).toBe(200);
 
     await page.reload();
     await expect(page.getByRole("status")).toContainText("انتهت الجلسة");

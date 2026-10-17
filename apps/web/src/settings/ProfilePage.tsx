@@ -51,6 +51,7 @@ function InfoTab() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [emailPassword, setEmailPassword] = useState("");
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -65,6 +66,7 @@ function InfoTab() {
 
   if (profileQuery.isLoading) return <p className="text-[12.5px] text-ink-muted">{t("common.loading")}</p>;
   if (!profile) return <p className="text-[12.5px] text-danger-ink">{t("profile.couldNotLoadTheAccount")}</p>;
+  const emailChanges = email.trim().toLowerCase() !== profile.email.trim().toLowerCase();
 
   async function handlePickPhoto(file: File) {
     setMessage(null);
@@ -87,7 +89,9 @@ function InfoTab() {
         email,
         phone: phone.trim() === "" ? null : phone,
         photoUrl,
+        ...(emailChanges ? { currentPassword: emailPassword } : {}),
       });
+      setEmailPassword("");
       setMessage({ kind: "ok", text: t("profile.theAccountDetailsWereSaved") });
     } catch (err) {
       setMessage({ kind: "error", text: err instanceof Error ? err.message : t("profile.couldNotSaveTheDetails") });
@@ -134,9 +138,18 @@ function InfoTab() {
       <TextField label={t("users.nameAr")} value={nameAr} onChange={setNameAr} />
       <TextField label={t("users.nameEn")} value={nameEn} onChange={setNameEn} placeholder={t("users.nameEnOptional")} />
       <TextField label={t("common.email")} value={email} onChange={setEmail} type="email" />
+      {emailChanges ? (
+        <TextField
+          label={t("profile.currentPassword")}
+          value={emailPassword}
+          onChange={setEmailPassword}
+          type="password"
+          hint={t("profile.emailChangeNeedsPassword")}
+        />
+      ) : null}
       <TextField label={t("profile.phoneNumber")} value={phone} onChange={setPhone} type="tel" placeholder={t("profile.optional")} />
       <div className="col-span-full flex items-center gap-[10px]">
-        <Button variant="primary" disabled={updateProfile.isPending} onClick={() => void handleSave()}>
+        <Button variant="primary" disabled={updateProfile.isPending || (emailChanges && emailPassword === "")} onClick={() => void handleSave()}>
           {updateProfile.isPending ? t("profile.saving") : t("profile.saveTheChanges")}
         </Button>
         {message ? (

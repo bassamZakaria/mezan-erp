@@ -6,7 +6,7 @@ import { createBackend, createPlatform, SEED_ADMIN_PIN, type PlatformHandle } fr
 import { activateTenant, createTenant, releaseTenant, tenantDbFile, TenantStatusCode, type Tenant } from "@mezan/domain";
 import { bindTenantDatabase, holdSqliteFile, openSqliteConnection, SqliteFileBusyError } from "@mezan/persistence";
 import { createCloudApp, type CloudApp } from "./cloud-app.js";
-import { harnessEnv, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, proxiedRequest, reachable, type SendInit } from "./cloud-harness.js";
+import { harnessEnv, HARNESS_OWNER_EMAIL, HARNESS_OWNER_PASSWORD, proxiedRequest, reachable, rememberPlatformDevice, type SendInit } from "./cloud-harness.js";
 import type { CloudEnv } from "./env.js";
 import { provisionTenant } from "./provision-tenant.js";
 import {
@@ -449,6 +449,7 @@ async function boot(env: CloudEnv) {
     return { status: res.status, json: (await res.json().catch(() => null)) as Record<string, unknown> | null };
   };
   const login = await send("/api/platform/auth/login", { method: "POST", body: JSON.stringify({ email: HARNESS_OWNER_EMAIL, password: HARNESS_OWNER_PASSWORD }) });
+  rememberPlatformDevice(login.json);
   return { app, send, platformToken: String(login.json?.["token"]) };
 }
 

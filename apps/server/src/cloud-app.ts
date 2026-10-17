@@ -9,6 +9,7 @@ import {
   createPlatform,
   createPlatformAuth,
   createPlatformRoutes,
+  PLATFORM_SESSION_LIMITS,
   type OwnerPinResetAccount,
   type PlatformHandle,
   type RecordedActivation,
@@ -46,6 +47,7 @@ import {
 import { PaymobMode, type CloudEnv } from "./env.js";
 import { MailOutcome, pendingHandOverEmail, smtpMailer, type PlatformMailer } from "./platform-mail.js";
 import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH } from "./public-origin.js";
+import { createCookieSessions } from "./cookie-session.js";
 
 const OPERATOR_SWEEP_BUDGET_MS = 20_000;
 
@@ -118,7 +120,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     printGeneratedOwnerPassword(ownerPassword);
   }
 
-  const sessions = createSessionRegistry();
+  const sessions = createSessionRegistry(Date.now, PLATFORM_SESSION_LIMITS);
   const auth = createPlatformAuth({ platform, sessions, now, sourceOf: callerSource });
   const sourceReporter = createSourceReporter();
   const sourceGate = requireCloudSource(env.clientSource, sourceReporter);
@@ -328,6 +330,19 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
 
   root.use("/api/*", requireOriginSecret(env.originSecret));
   root.use("/api/*", sourceGate);
+
+  // SECURITY: the cloud edition's browser sessions ride in HttpOnly cookies and
+  // every state-changing request made with one must carry its CSRF token. The
+  // backends behind this never see a cookie: the edge turns it back into the
+  // bearer token every other client sends.
+  const cookieSessions = createCookieSessions({
+    trustProxy: env.trustProxy,
+    tenantResolver: { tenantDomain: env.tenantDomain, trustForwardedHost: env.trustProxy, allowTenantHeader: true },
+    platformMaxAgeMs: PLATFORM_SESSION_LIMITS.maxMs,
+    audit: platform.audit,
+  });
+  root.use("/api/platform/*", cookieSessions.platform);
+  root.use("/api/*", cookieSessions.tenant);
 
   // `/api/platform` before `/api`: the tenant router's own catch-all would
   // otherwise swallow the console's routes first.

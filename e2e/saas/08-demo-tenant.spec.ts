@@ -18,6 +18,7 @@ import {
 } from "./support/env";
 import {
   expectHealthyScreen,
+  bearer,
   platformToken,
   provisionTenant,
   rowsOf,
@@ -76,7 +77,7 @@ async function onServerDay(page: Page): Promise<void> {
 
 async function platformTenant(request: APIRequestContext, match: (row: { tenant: { id: string; code: string } }) => boolean) {
   const token = await platformToken(request, DEMO_API_URL);
-  const listed = await request.get(`${DEMO_API_URL}/api/platform/tenants`, { headers: { authorization: `Bearer ${token}` } });
+  const listed = await request.get(`${DEMO_API_URL}/api/platform/tenants`, { headers: { ...bearer(token) } });
   expect(listed.status()).toBe(200);
   const rows = (await listed.json()) as { tenant: { id: string; code: string }; subscription: { status: string; trialEndsAt: string | null } | null }[];
   const found = rows.find(match);

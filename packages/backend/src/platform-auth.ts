@@ -5,13 +5,17 @@ import {
   verifyPlatformLogin,
   type PlatformRole,
 } from "@mezan/domain";
-import { platformLoginRequestSchema } from "@mezan/contracts";
+import { DEVICE_SECRET_HEADER, platformLoginRequestSchema, platformStepUpRequestSchema } from "@mezan/contracts";
 import {
   createLoginThrottle,
   readSessionToken,
   requestOrigin,
+  SessionRefusalKind,
+  STEP_UP_REQUIRED,
   throttleKey,
   type LoginThrottle,
+  type SessionLimits,
+  type SessionLookup,
   type SessionRegistry,
   tooManyAttempts,
 } from "@mezan/api";
@@ -23,6 +27,22 @@ declare module "hono" {
     platformUser?: { readonly id: string; readonly role: PlatformRole };
   }
 }
+
+// SECURITY: the console reaches every tenant, so its session is held to a
+// tighter bound than a till's: a working day at most, and half an hour idle.
+export const PLATFORM_SESSION_LIMITS: SessionLimits = { idleMs: 30 * 60 * 1000, maxMs: 8 * 60 * 60 * 1000 };
+
+export enum PlatformSecurityAction {
+  SessionAddressChanged = "PLATFORM_SESSION_ADDRESS_CHANGED",
+  SessionDeviceRejected = "PLATFORM_SESSION_DEVICE_REJECTED",
+  SessionExpired = "PLATFORM_SESSION_EXPIRED",
+  StepUpRequired = "PLATFORM_STEP_UP_REQUIRED",
+  StepUpConfirmed = "PLATFORM_STEP_UP_CONFIRMED",
+  StepUpFailed = "PLATFORM_STEP_UP_FAILED",
+  LoggedOut = "PLATFORM_LOGGED_OUT",
+}
+
+const READ_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export interface PlatformAuthDeps {
   readonly platform: PlatformHandle;
@@ -67,17 +87,76 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
     return null;
   }
 
+  const lookups = new WeakMap<Context, SessionLookup>();
+  const reported = new WeakSet<Context>();
+
+  function deviceOf(c: Context): string | null {
+    return c.req.header(DEVICE_SECRET_HEADER) ?? null;
+  }
+
+  // ONE lookup per request: a refused device secret counts towards ending the
+  // session, so asking twice in one request would end it twice as fast.
+  function lookUp(c: Context, token: string): SessionLookup {
+    let lookup = lookups.get(c);
+    if (!lookup) {
+      lookup = sessions.inspect(token, sourceOf(c), deviceOf(c));
+      lookups.set(c, lookup);
+    }
+    return lookup;
+  }
+
+  async function reportLookup(c: Context, lookup: SessionLookup): Promise<void> {
+    if (reported.has(c)) return;
+    reported.add(c);
+    const { refusal, addressChange } = lookup;
+    if (addressChange) {
+      await security(c, PlatformSecurityAction.SessionAddressChanged, "WARNING", { userId: addressChange.userId, from: addressChange.from, to: addressChange.to });
+    }
+    if (!refusal) return;
+    if (refusal.reason === SessionRefusalKind.Device) {
+      await security(c, PlatformSecurityAction.SessionDeviceRejected, "CRITICAL", {
+        userId: refusal.userId,
+        issuedFrom: refusal.issuedFrom,
+        presentedFrom: refusal.presentedFrom,
+        sessionEnded: refusal.sessionEnded,
+        method: c.req.method,
+        path: new URL(c.req.url).pathname,
+      });
+      return;
+    }
+    await security(c, PlatformSecurityAction.SessionExpired, refusal.reason === SessionRefusalKind.Moved ? "CRITICAL" : "INFO", {
+      userId: refusal.userId,
+      reason: refusal.reason,
+      issuedFrom: refusal.issuedFrom,
+      presentedFrom: refusal.presentedFrom,
+    });
+  }
+
+  async function signedIn(c: Context): Promise<{ readonly token: string; readonly userId: string; readonly role: PlatformRole } | null> {
+    const token = readSessionToken(c);
+    if (!token) return null;
+    const lookup = lookUp(c, token);
+    await reportLookup(c, lookup);
+    const role = lookup.grant ? roleOf(lookup.grant.roleCode) : null;
+    return lookup.grant && role ? { token, userId: lookup.grant.userId, role } : null;
+  }
+
   function requirePlatform(role?: PlatformRole, onRefused?: (c: Context, user: { id: string; role: PlatformRole }) => Promise<void>): MiddlewareHandler {
     return async (c, next) => {
-      const token = readSessionToken(c);
-      const grant = token ? sessions.find(token, sourceOf(c)) : null;
-      const userRole = grant ? roleOf(grant.roleCode) : null;
-      if (!grant || !userRole) return c.json({ error: "UNAUTHENTICATED" }, 401);
-      if (role && userRole !== role) {
-        await onRefused?.(c, { id: grant.userId, role: userRole });
+      const caller = await signedIn(c);
+      if (!caller) return c.json({ error: "UNAUTHENTICATED" }, 401);
+      if (role && caller.role !== role) {
+        await onRefused?.(c, { id: caller.userId, role: caller.role });
         return c.json({ error: "OWNER_ONLY", message: "هذا الإجراء لمالك المنصة فقط" }, 403);
       }
-      c.set("platformUser", { id: grant.userId, role: userRole });
+      // SECURITY: a console session that has changed address since its
+      // password was entered may read, but changes nothing until the
+      // password is entered again (POST /auth/step-up).
+      if (!READ_METHODS.has(c.req.method) && sessions.needsStepUp(caller.token)) {
+        await security(c, PlatformSecurityAction.StepUpRequired, "WARNING", { userId: caller.userId, method: c.req.method, path: new URL(c.req.url).pathname });
+        return c.json({ error: STEP_UP_REQUIRED, message: "تغيّر عنوان اتصالك منذ تسجيل الدخول. أعد إدخال كلمة المرور لتأكيد هذا الإجراء." }, 403);
+      }
+      c.set("platformUser", { id: caller.userId, role: caller.role });
       await next();
     };
   }
@@ -107,7 +186,7 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
     }
     throttle.succeed(key);
     await security(c, "PLATFORM_LOGIN_SUCCEEDED", "INFO", { userId: user.id, email: user.email });
-    const token = sessions.issue(
+    const { token, deviceSecret } = sessions.issueDeviceBound(
       {
         userId: user.id,
         permissions: ["platform.*"],
@@ -116,13 +195,42 @@ export function createPlatformAuth(deps: PlatformAuthDeps): PlatformAuth {
         warehouseScope: ALL_SCOPE,
       },
       sourceOf(c),
+      deviceOf(c),
     );
-    return c.json({ token, user: { id: user.id, email: user.email, role: user.role } });
+    return c.json({ token, deviceSecret, user: { id: user.id, email: user.email, role: user.role } });
   });
 
-  app.post("/logout", (c) => {
-    const token = readSessionToken(c);
-    if (token && sessions.find(token, sourceOf(c))) sessions.revoke(token);
+  app.post("/step-up", async (c) => {
+    const parsed = platformStepUpRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const caller = await signedIn(c);
+    const user = caller ? await platform.stores.platformUsers.findById(caller.userId) : null;
+    if (!caller || !user) return c.json({ error: "UNAUTHENTICATED" }, 401);
+    const key = throttleKey(user.email, sourceOf(c));
+    const waitSeconds = throttle.retryAfter(key);
+    if (waitSeconds > 0) return lockedOut(c, waitSeconds);
+    const verified = await verifyPlatformLogin({ email: user.email, password: parsed.data.password }, platform.stores.platformUsers, platform.hasher);
+    if (!verified || verified.id !== caller.userId) {
+      const lockedFor = throttle.fail(key);
+      await security(c, PlatformSecurityAction.StepUpFailed, "WARNING", { userId: caller.userId });
+      if (lockedFor > 0) {
+        sessions.revoke(caller.token);
+        return lockedOut(c, lockedFor);
+      }
+      return c.json({ error: "INVALID_CREDENTIALS", message: "كلمة المرور غير صحيحة" }, 401);
+    }
+    throttle.succeed(key);
+    sessions.confirmStepUp(caller.token);
+    await security(c, PlatformSecurityAction.StepUpConfirmed, "INFO", { userId: caller.userId });
+    return c.json({ ok: true });
+  });
+
+  app.post("/logout", async (c) => {
+    const caller = await signedIn(c);
+    if (caller) {
+      sessions.revoke(caller.token);
+      await security(c, PlatformSecurityAction.LoggedOut, "INFO", { userId: caller.userId });
+    }
     return c.json({ ok: true });
   });
 

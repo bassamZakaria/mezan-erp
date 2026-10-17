@@ -37,8 +37,16 @@ export const platformLoginRequestSchema = z.object({
   password: z.string().min(1),
 });
 
+export const platformStepUpRequestSchema = z.object({
+  password: z.string().min(1),
+});
+
+// SECURITY: a browser console session carries neither field — both live in
+// HttpOnly cookies set by the cloud edge. Only a scripted client that did not
+// ask for cookies is handed them, and must then send both on every request.
 export const platformSessionSchema = z.object({
-  token: z.string().min(1),
+  token: z.string().min(1).optional(),
+  deviceSecret: z.string().min(1).optional(),
   user: z.object({
     id: z.string().min(1),
     email: z.string().min(1),

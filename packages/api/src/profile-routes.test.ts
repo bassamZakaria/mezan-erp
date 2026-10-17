@@ -122,6 +122,7 @@ describe("profile router — PUT / cannot escalate the caller's own privileges",
           nameEn: null,
           email: "mohamed.ahmed@cyag.test",
           phone: "+201111111111",
+          currentPassword: CURRENT_PASSWORD,
           // Every one of these is an attempted privilege escalation through
           // the self-service profile form.
           isCompanyAdmin: true,
@@ -202,7 +203,7 @@ describe("profile router — PUT / cannot escalate the caller's own privileges",
     await seedUser(uow, { id: "u1", email: "one@cyag.test" });
     await seedUser(uow, { id: "u2", email: "two@cyag.test" });
     const res = await app.fetch(
-      req("/", { method: "PUT", userId: "u2", body: JSON.stringify({ nameAr: "آخر", email: "one@cyag.test", phone: null }) }),
+      req("/", { method: "PUT", userId: "u2", body: JSON.stringify({ nameAr: "آخر", email: "one@cyag.test", phone: null, currentPassword: CURRENT_PASSWORD }) }),
     );
     expect(res.status).toBe(409);
     expect((await uow.users.findById("u2"))?.email).toBe("two@cyag.test");
@@ -213,6 +214,49 @@ describe("profile router — PUT / cannot escalate the caller's own privileges",
     await seedUser(uow);
     const res = await app.fetch(
       req("/", { method: "PUT", userId: "u1", body: JSON.stringify({ nameAr: "محمد المعدّل", email: "mohamed@cyag.test", phone: null }) }),
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("profile router — changing the email (the login id) needs the current password", () => {
+  const changeTo = (extra: Record<string, unknown> = {}) =>
+    req("/", { method: "PUT", userId: "u1", body: JSON.stringify({ nameAr: "محمد", email: "new@cyag.test", phone: null, ...extra }) });
+
+  it("refuses a new email sent without the current password, and writes nothing", async () => {
+    const { app, uow } = newApp();
+    await seedUser(uow);
+    const res = await app.fetch(changeTo());
+    expect(res.status).toBe(400);
+    expect(((await json(res)) as { error: string }).error).toBe("CURRENT_PASSWORD_REQUIRED");
+    expect((await uow.users.findById("u1"))?.email).toBe("mohamed@cyag.test");
+  });
+
+  it("refuses a wrong current password with 401, writes nothing, and audits the refusal", async () => {
+    const { app, uow, audit } = newApp();
+    await seedUser(uow);
+    const res = await app.fetch(changeTo({ currentPassword: "wrong-password" }));
+    expect(res.status).toBe(401);
+    expect((await uow.users.findById("u1"))?.email).toBe("mohamed@cyag.test");
+    expect(audit?.events.map((e) => e.action)).toContain("EMAIL_CHANGE_REFUSED");
+  });
+
+  it("changes the email with the right password and audits old and new address", async () => {
+    const { app, uow, audit } = newApp();
+    await seedUser(uow);
+    const res = await app.fetch(changeTo({ currentPassword: CURRENT_PASSWORD }));
+    expect(res.status).toBe(200);
+    expect((await uow.users.findById("u1"))?.email).toBe("new@cyag.test");
+    const event = audit?.events.find((e) => e.action === "EMAIL_CHANGED");
+    expect(event?.stream).toBe("security");
+    expect(event?.details).toMatchObject({ from: "mohamed@cyag.test", to: "new@cyag.test" });
+  });
+
+  it("does not ask for the password when only the case of the email differs", async () => {
+    const { app, uow } = newApp();
+    await seedUser(uow);
+    const res = await app.fetch(
+      req("/", { method: "PUT", userId: "u1", body: JSON.stringify({ nameAr: "محمد", email: "Mohamed@cyag.test", phone: null }) }),
     );
     expect(res.status).toBe(200);
   });

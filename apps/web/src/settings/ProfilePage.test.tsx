@@ -63,6 +63,29 @@ describe("ProfilePage — info tab", () => {
     expect((getSeenBody() as { nameAr: string }).nameAr).toBe("محمد الشهابي المعدّل");
   });
 
+  it("changing the email asks for the current password and sends it with the save", async () => {
+    const { getSeenBody } = renderPage();
+    await screen.findByRole("heading", { name: "محمد الشهابي" });
+    expect(screen.queryByLabelText("كلمة المرور الحالية")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue("admin@cyag.example"), { target: { value: "owner@cyag.example" } });
+    const save = screen.getByRole("button", { name: "حفظ التغييرات" });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("كلمة المرور الحالية"), { target: { value: "correct-pass" } });
+    fireEvent.click(save);
+
+    await screen.findByText("تم حفظ بيانات الحساب.");
+    expect(getSeenBody()).toMatchObject({ email: "owner@cyag.example", currentPassword: "correct-pass" });
+  });
+
+  it("a save that keeps the email sends no password", async () => {
+    const { getSeenBody } = renderPage();
+    await screen.findByRole("heading", { name: "محمد الشهابي" });
+    fireEvent.click(screen.getByRole("button", { name: "حفظ التغييرات" }));
+    await screen.findByText("تم حفظ بيانات الحساب.");
+    expect(getSeenBody()).not.toHaveProperty("currentPassword");
+  });
+
   it("a save the backend rejects shows an Arabic refusal, not a raw error code", async () => {
     const transport = stubTransport({
       "GET /profile": () => ({ body: baseProfile }),

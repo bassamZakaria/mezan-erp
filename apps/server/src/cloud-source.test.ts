@@ -82,11 +82,15 @@ describe("a cloud caller behind the two-hop proxy", () => {
     }
   });
 
-  it("does not accept the platform owner's token from a second address", async () => {
+  it("lets the platform owner's session read from a second address but change nothing there until the password is entered again", async () => {
     const h = await boot();
     const token = await h.platformToken();
     expect((await h.send("/api/platform/tenants", { token })).status).toBe(200);
-    expect((await h.send("/api/platform/tenants", { token, client: "66.66.66.66" })).status).toBe(401);
+    expect((await h.send("/api/platform/tenants", { token, client: "66.66.66.66" })).status).toBe(200);
+    const moved = await h.send("/api/platform/plans", { method: "POST", token, client: "66.66.66.66", body: "{}" });
+    expect(moved.status).toBe(403);
+    expect(((await moved.json()) as { error: string }).error).toBe("STEP_UP_REQUIRED");
+    expect((await h.send("/api/platform/tenants", { token, client: "66.66.66.66", headers: { "x-mezan-device": "stolen" } })).status).toBe(401);
   });
 
   it("lets a phone roam between addresses on a device-bound session, on the tenant's routes and on billing, and refuses the token alone", async () => {
@@ -113,106 +117,185 @@ describe("a cloud caller behind the two-hop proxy", () => {
     expect((await h.send("/api/profile", { token, tenant: "acme", headers: device })).status).toBe(401);
   });
 
-  describe("a browser's device secret", () => {
-    async function browserSignIn(h: CloudHarness, admin: { adminEmail: string; adminPin: string }, headers: Record<string, string> = {}) {
-      const res = await h.send("/api/auth/login", {
-        method: "POST", tenant: "acme", headers: { "x-mezan-device-binding": "cookie", ...headers },
-        body: JSON.stringify({ username: admin.adminEmail, pin: admin.adminPin }),
-      });
-      const setCookie = res.headers.get("set-cookie") ?? "";
-      const body = (await res.json()) as { token: string; deviceSecret?: string };
-      return { status: res.status, setCookie, body, cookie: setCookie.split(";")[0] ?? "" };
+  describe("a browser's cookie session", () => {
+    interface Jar {
+      readonly cookie: string;
+      readonly csrf: string;
+      readonly setCookies: readonly string[];
     }
 
-    it("is set as an httpOnly, same-site cookie under /api and never handed to the page's script", async () => {
+    function jarOf(res: Response): Jar {
+      const set = res.headers.getSetCookie();
+      const values = new Map<string, string>();
+      for (const line of set) {
+        const first = line.split(";")[0] ?? "";
+        const at = first.indexOf("=");
+        if (/Max-Age=0/.test(line)) values.delete(first.slice(0, at));
+        else values.set(first.slice(0, at), first.slice(at + 1));
+      }
+      return {
+        cookie: [...values].map(([k, v]) => `${k}=${v}`).join("; "),
+        csrf: decodeURIComponent(values.get("mezan_csrf") ?? values.get("mezan_platform_csrf") ?? ""),
+        setCookies: set,
+      };
+    }
+
+    async function browserSignIn(h: CloudHarness, admin: { adminEmail: string; adminPin: string }, headers: Record<string, string> = {}) {
+      const res = await h.send("/api/auth/login", {
+        method: "POST", tenant: "acme", headers: { "x-mezan-device-binding": "cookie", "sec-fetch-site": "same-origin", ...headers },
+        body: JSON.stringify({ username: admin.adminEmail, pin: admin.adminPin }),
+      });
+      const body = (await res.json()) as { token?: string; deviceSecret?: string; userId?: string };
+      return { status: res.status, body, jar: jarOf(res) };
+    }
+
+    const brand = { id: "b-x", code: "BX", name: "x", nameAr: "س" };
+
+    it("keeps the session token and the device secret in HttpOnly cookies and hands neither to the page's script", async () => {
       const h = await boot();
       const admin = await provision(h);
       const plain = await browserSignIn(h, admin);
       expect(plain.status).toBe(200);
+      expect(plain.body.token).toBeUndefined();
       expect(plain.body.deviceSecret).toBeUndefined();
-      expect(plain.setCookie).toMatch(/^mezan_device=[A-Za-z0-9_-]{40,}; /);
-      expect(plain.setCookie).toContain("Path=/api");
-      expect(plain.setCookie).toContain("HttpOnly");
-      expect(plain.setCookie).toContain("SameSite=Strict");
-      expect(plain.setCookie).not.toContain("Secure");
+      expect(plain.body.userId).toBeDefined();
+      const session = plain.jar.setCookies.find((line) => line.startsWith("mezan_session="));
+      const device = plain.jar.setCookies.find((line) => line.startsWith("mezan_device="));
+      const csrf = plain.jar.setCookies.find((line) => line.startsWith("mezan_csrf="));
+      for (const line of [session, device]) {
+        expect(line).toContain("Path=/api");
+        expect(line).toContain("HttpOnly");
+        expect(line).toContain("SameSite=Strict");
+        expect(line).not.toContain("Secure");
+      }
+      expect(session).toMatch(/^mezan_session=acme\./);
+      expect(csrf).toContain("Path=/;");
+      expect(csrf).not.toContain("HttpOnly");
 
       const https = await browserSignIn(h, admin, { "x-forwarded-proto": "https" });
-      expect(https.setCookie).toContain("Secure");
+      for (const line of https.jar.setCookies) expect(line).toContain("Secure");
     });
 
-    it("lets the browser change address, on the tenant's routes and on billing, and records each move once as information", async () => {
+    it("serves reads with the cookie alone, on the tenant's routes and on billing, across a change of address", async () => {
       const h = await boot();
       const admin = await provision(h);
-      const { body, cookie } = await browserSignIn(h, admin);
-      const browser = { token: body.token, tenant: "acme", headers: { cookie } };
-
+      const { jar } = await browserSignIn(h, admin);
+      const browser = { tenant: "acme", headers: { cookie: jar.cookie } };
       expect((await h.send("/api/profile", browser)).status).toBe(200);
       expect((await h.send("/api/profile", { ...browser, client: "102.44.7.1" })).status).toBe(200);
       expect((await h.send("/api/billing/subscription", { ...browser, client: "197.55.1.9" })).status).toBe(200);
-      expect((await h.send("/api/profile", { ...browser, client: "197.55.1.9" })).status).toBe(200);
-
-      const audit = await (await h.send("/api/audit?action=SESSION_ADDRESS_CHANGED", { ...browser, client: "197.55.1.9" })).text();
-      expect(audit.match(/"action":"SESSION_ADDRESS_CHANGED"/g) ?? []).toHaveLength(2);
     });
 
-    it("is not a credential: a cross-site request carrying only the cookie is refused, and so is the token without the cookie", async () => {
+    it("refuses a state-changing request without the CSRF token, or from another origin, and accepts it with both", async () => {
       const h = await boot();
       const admin = await provision(h);
-      const { body, cookie } = await browserSignIn(h, admin);
+      const { jar } = await browserSignIn(h, admin);
+      const write = (headers: Record<string, string>) =>
+        h.send("/api/item-brands", { method: "POST", tenant: "acme", headers: { cookie: jar.cookie, ...headers }, body: JSON.stringify(brand) });
 
-      const crossSite = await h.send("/api/item-brands", {
-        method: "POST", tenant: "acme", headers: { cookie, origin: "https://evil.example" },
-        body: JSON.stringify({ id: "b-x", code: "BX", name: "x", nameAr: "س" }),
-      });
-      expect(crossSite.status).toBe(401);
-      expect((await h.send("/api/profile", { tenant: "acme", headers: { cookie } })).status).toBe(401);
-      expect((await h.send("/api/profile", { token: body.token, tenant: "acme", headers: { cookie } })).status).toBe(200);
-
-      expect((await h.send("/api/profile", { token: body.token, tenant: "acme" })).status).toBe(401);
+      const noToken = await write({});
+      expect(noToken.status).toBe(403);
+      expect(((await noToken.json()) as { error: string }).error).toBe("CSRF_REFUSED");
+      expect((await write({ "x-mezan-csrf": "forged" })).status).toBe(403);
+      expect((await write({ "x-mezan-csrf": jar.csrf, origin: "https://evil.example" })).status).toBe(403);
+      expect((await write({ "x-mezan-csrf": jar.csrf, "sec-fetch-site": "same-site" })).status).toBe(403);
+      expect((await write({ "x-mezan-csrf": jar.csrf, origin: "http://cloud.internal" })).status).toBe(201);
     });
 
-    it("keeps both sessions when one user signs in on two browsers, on a browser and a phone, or with no device binding, all from one address", async () => {
+    it("never presents one tenant's cookie to another tenant", async () => {
       const h = await boot();
       const admin = await provision(h);
-      const first = await browserSignIn(h, admin);
-      const second = await browserSignIn(h, admin);
+      await provision(h, "other");
+      const { jar } = await browserSignIn(h, admin);
+      expect((await h.send("/api/profile", { tenant: "other", headers: { cookie: jar.cookie } })).status).toBe(401);
+      const write = await h.send("/api/item-brands", { method: "POST", tenant: "other", headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf }, body: JSON.stringify(brand) });
+      expect(write.status).toBe(401);
+    });
+
+    it("keeps a device-bound phone and a bearer client working beside the browser", async () => {
+      const h = await boot();
+      const admin = await provision(h);
+      const browser = await browserSignIn(h, admin);
       const phone = (await (await h.send("/api/auth/login", {
         method: "POST", tenant: "acme", headers: { "x-mezan-device-binding": "1" }, body: JSON.stringify({ username: admin.adminEmail, pin: admin.adminPin }),
       })).json()) as { token: string; deviceSecret: string };
-      const plainA = (await (await signIn(h, admin)).json()) as { token: string };
-      const plainB = (await (await signIn(h, admin)).json()) as { token: string };
-
+      const plain = (await (await signIn(h, admin)).json()) as { token: string };
       const statuses = [
-        (await h.send("/api/profile", { token: first.body.token, tenant: "acme", headers: { cookie: first.cookie } })).status,
-        (await h.send("/api/profile", { token: second.body.token, tenant: "acme", headers: { cookie: second.cookie } })).status,
+        (await h.send("/api/profile", { tenant: "acme", headers: { cookie: browser.jar.cookie } })).status,
         (await h.send("/api/profile", { token: phone.token, tenant: "acme", headers: { "x-mezan-device": phone.deviceSecret } })).status,
-        (await h.send("/api/profile", { token: plainA.token, tenant: "acme" })).status,
-        (await h.send("/api/profile", { token: plainB.token, tenant: "acme" })).status,
-        (await h.send("/api/profile", { token: first.body.token, tenant: "acme", headers: { cookie: first.cookie } })).status,
+        (await h.send("/api/profile", { token: plain.token, tenant: "acme" })).status,
+        (await h.send("/api/item-brands", { method: "POST", token: plain.token, tenant: "acme", body: JSON.stringify(brand) })).status,
       ];
-      expect(statuses).toEqual([200, 200, 200, 200, 200, 200]);
+      expect(statuses).toEqual([200, 200, 200, 201]);
     });
 
-    it("keeps the first tab signed in when the same user signs in again in the same browser, and records no rejected device", async () => {
+    it("ends the session on the server and clears every cookie on sign-out", async () => {
       const h = await boot();
       const admin = await provision(h);
-      const first = await browserSignIn(h, admin);
-      const second = await browserSignIn(h, admin, { cookie: first.cookie });
-      const browser = { tenant: "acme", headers: { cookie: second.cookie } };
-
-      expect((await h.send("/api/profile", { ...browser, token: first.body.token })).status).toBe(200);
-      expect((await h.send("/api/profile", { ...browser, token: second.body.token })).status).toBe(200);
-      const audit = await (await h.send("/api/audit?action=SESSION_DEVICE_REJECTED", { ...browser, token: second.body.token })).text();
-      expect(audit).not.toContain('"action":"SESSION_DEVICE_REJECTED"');
+      const { jar } = await browserSignIn(h, admin);
+      const out = await h.send("/api/auth/logout", { method: "POST", tenant: "acme", headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf } });
+      expect(out.status).toBe(200);
+      const cleared = out.headers.getSetCookie();
+      for (const name of ["mezan_session", "mezan_device", "mezan_csrf"]) {
+        expect(cleared.some((line) => line.startsWith(`${name}=;`) && /Max-Age=0/.test(line))).toBe(true);
+      }
+      expect((await h.send("/api/profile", { tenant: "acme", headers: { cookie: jar.cookie } })).status).toBe(401);
     });
 
-    it("is cleared on sign-out", async () => {
+    it("signs in again over a cookie whose session the server has already forgotten, and expires a dead cookie on first contact", async () => {
       const h = await boot();
       const admin = await provision(h);
-      const { body, cookie } = await browserSignIn(h, admin);
-      const out = await h.send("/api/auth/logout", { method: "POST", token: body.token, tenant: "acme", headers: { cookie } });
-      expect(out.headers.get("set-cookie")).toMatch(/^mezan_device=; .*Max-Age=0/);
-      expect((await h.send("/api/profile", { token: body.token, tenant: "acme", headers: { cookie } })).status).toBe(401);
+      const stale = "mezan_session=acme.forgotten; mezan_csrf=forgotten";
+      const again = await browserSignIn(h, admin, { cookie: stale });
+      expect(again.status).toBe(200);
+      expect(again.jar.setCookies.some((line) => line.startsWith("mezan_session=acme."))).toBe(true);
+
+      const dead = await h.send("/api/profile", { tenant: "acme", headers: { cookie: stale } });
+      expect(dead.status).toBe(401);
+      expect(dead.headers.getSetCookie().some((line) => line.startsWith("mezan_session=;") && /Max-Age=0/.test(line))).toBe(true);
+
+      const platform = await h.send("/api/platform/auth/login", {
+        method: "POST", headers: { "x-mezan-device-binding": "cookie", cookie: "mezan_platform_session=forgotten" },
+        body: JSON.stringify({ email: "owner@mezan.local", password: "owner-password-123" }),
+      });
+      expect(platform.status).toBe(200);
+      const deadConsole = await h.send("/api/platform/tenants", { headers: { cookie: "mezan_platform_session=forgotten" } });
+      expect(deadConsole.status).toBe(401);
+      expect(deadConsole.headers.getSetCookie().some((line) => line.startsWith("mezan_platform_session=;"))).toBe(true);
+    });
+
+    it("keeps the cookies when a live session's request is refused for a wrong password", async () => {
+      const h = await boot();
+      const admin = await provision(h);
+      const { jar } = await browserSignIn(h, admin);
+      const wrong = await h.send("/api/profile/change-password", {
+        method: "POST", tenant: "acme", headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf },
+        body: JSON.stringify({ currentPassword: "not-the-password", newPassword: "a-new-password-1" }),
+      });
+      expect(wrong.status).toBe(401);
+      expect(wrong.headers.getSetCookie()).toEqual([]);
+      expect((await h.send("/api/profile", { tenant: "acme", headers: { cookie: jar.cookie } })).status).toBe(200);
+    });
+
+    it("keeps the platform console's session in its own cookies, with the same CSRF rule", async () => {
+      const h = await boot();
+      const login = await h.send("/api/platform/auth/login", {
+        method: "POST", headers: { "x-mezan-device-binding": "cookie" },
+        body: JSON.stringify({ email: "owner@mezan.local", password: "owner-password-123" }),
+      });
+      expect(login.status).toBe(200);
+      expect(((await login.json()) as { token?: string }).token).toBeUndefined();
+      const set = login.headers.getSetCookie();
+      expect(set.find((line) => line.startsWith("mezan_platform_session="))).toContain("Path=/api/platform");
+      expect(set.find((line) => line.startsWith("mezan_platform_session="))).toContain("Max-Age=28800");
+      expect(set.find((line) => line.startsWith("mezan_platform_device="))).toContain("HttpOnly");
+      const jar = jarOf(login);
+      expect((await h.send("/api/platform/tenants", { headers: { cookie: jar.cookie } })).status).toBe(200);
+      expect((await h.send("/api/platform/plans", { method: "POST", headers: { cookie: jar.cookie }, body: "{}" })).status).toBe(403);
+      expect((await h.send("/api/platform/plans", { method: "POST", headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf }, body: "{}" })).status).toBe(400);
+      const out = await h.send("/api/platform/auth/logout", { method: "POST", headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf } });
+      expect(out.headers.getSetCookie().some((line) => line.startsWith("mezan_platform_session=;"))).toBe(true);
+      expect((await h.send("/api/platform/tenants", { headers: { cookie: jar.cookie } })).status).toBe(401);
     });
   });
 

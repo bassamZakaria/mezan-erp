@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { createDefaultSettings, updateSettings } from "@mezan/domain";
+import { randomBytes } from "node:crypto";
+import Database from "better-sqlite3";
 import { createSqliteSettingsStore } from "./settings-store.js";
+import { createAesGcmSecretBox, isSealedSecret } from "./secret-box.js";
 
 describe("SqliteSettingsStore", () => {
   it("returns null before any settings are saved", async () => {
@@ -51,5 +54,39 @@ describe("SqliteSettingsStore", () => {
     } finally {
       store.close();
     }
+  });
+
+  describe("the SMTP password at rest, under a platform key", () => {
+    const box = createAesGcmSecretBox(randomBytes(32));
+    const rawPassword = (sqlite: Database.Database): string =>
+      (JSON.parse((sqlite.prepare(`SELECT data FROM tenant_settings`).get() as { data: string }).data) as { smtpPassword: string }).smtpPassword;
+
+    it("is sealed on disk and read back as the password", async () => {
+      const sqlite = new Database(":memory:");
+      const store = createSqliteSettingsStore(sqlite, box);
+      await store.save(createDefaultSettings({ smtpPassword: "relay-pass" }));
+      expect(rawPassword(sqlite)).not.toContain("relay-pass");
+      expect(isSealedSecret(rawPassword(sqlite))).toBe(true);
+      expect((await store.get())?.smtpPassword).toBe("relay-pass");
+      sqlite.close();
+    });
+
+    it("seals a password stored before sealing existed when the books are opened", async () => {
+      const sqlite = new Database(":memory:");
+      await createSqliteSettingsStore(sqlite).save(createDefaultSettings({ smtpPassword: "legacy-pass" }));
+      expect(rawPassword(sqlite)).toBe("legacy-pass");
+      const store = createSqliteSettingsStore(sqlite, box);
+      expect(isSealedSecret(rawPassword(sqlite))).toBe(true);
+      expect((await store.get())?.smtpPassword).toBe("legacy-pass");
+      sqlite.close();
+    });
+
+    it("reads a password it cannot open as unset, never as ciphertext", async () => {
+      const sqlite = new Database(":memory:");
+      await createSqliteSettingsStore(sqlite, box).save(createDefaultSettings({ smtpPassword: "relay-pass" }));
+      expect((await createSqliteSettingsStore(sqlite).get())?.smtpPassword).toBe("");
+      expect((await createSqliteSettingsStore(sqlite, createAesGcmSecretBox(randomBytes(32))).get())?.smtpPassword).toBe("");
+      sqlite.close();
+    });
   });
 });

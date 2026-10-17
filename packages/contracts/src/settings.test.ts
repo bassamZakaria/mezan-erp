@@ -152,6 +152,18 @@ describe("sendTestEmailSchema", () => {
     const result = sendTestEmailSchema.safeParse({ to: "not-an-email" });
     expect(result.success).toBe(false);
   });
+
+  it("rejects a recipient carrying a line break, which would split RCPT TO or the To header", () => {
+    expect(sendTestEmailSchema.safeParse({ to: "admin@acme.test\r\nBcc: x@evil.test" }).success).toBe(false);
+  });
+});
+
+describe("updateTenantSettingsSchema — what reaches the SMTP command line", () => {
+  it("rejects a sender address or host with CR/LF, and still lets the address be cleared", () => {
+    expect(updateTenantSettingsSchema.safeParse({ smtpFromEmail: "shop@acme.test\r\nBcc: x@evil.test" }).success).toBe(false);
+    expect(updateTenantSettingsSchema.safeParse({ smtpHost: "smtp.acme.test\r\nRSET" }).success).toBe(false);
+    expect(updateTenantSettingsSchema.safeParse({ smtpFromEmail: "" }).success).toBe(true);
+  });
 });
 
 describe("testEmailResultSchema", () => {

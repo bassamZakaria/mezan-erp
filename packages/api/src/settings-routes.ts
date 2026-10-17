@@ -16,7 +16,7 @@ import {
   type TenantSettingsLookupDTO,
 } from "@mezan/contracts";
 import { createAuthenticatedGate, createPermissionGate, type AuthContextResolver } from "./permission-gate.js";
-import { sendTestEmail } from "./smtp-client.js";
+import { sendTestEmail, SmtpDestinationPolicy } from "./smtp-client.js";
 import { changedKeys, changedKeysAsFieldChanges, recordAdminEvent } from "./admin-audit.js";
 
 /**
@@ -59,6 +59,7 @@ export function createSettingsRoutes(
    * nothing at all.
    */
   audit?: AuditSink,
+  mailDestinations: SmtpDestinationPolicy = SmtpDestinationPolicy.AnyHost,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -136,7 +137,7 @@ export function createSettingsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const settings = (await store.get()) ?? createDefaultSettings();
-    const send = () => sendTestEmail(settings, parsed.data.to);
+    const send = () => sendTestEmail(settings, parsed.data.to, undefined, { destinations: mailDestinations });
     const result = await (audit?.outsideTurn ? audit.outsideTurn(send) : send());
     return c.json(result, result.ok ? 200 : 422);
   });

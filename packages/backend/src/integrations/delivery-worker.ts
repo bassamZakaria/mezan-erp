@@ -73,7 +73,7 @@ export function startWebhookDeliveryWorker(deps: WebhookDeliveryWorkerDeps): Web
     }
     const attempt = delivery.attempts + 1;
     const timestamp = String(Math.floor(deps.now().getTime() / 1000));
-    const signature = formatWebhookSignature(timestamp, signWebhookPayload(webhook.signingSecret, webhookSignedPayload(timestamp, delivery.payload)));
+    const signature = formatWebhookSignature(timestamp, signWebhookPayload(deps.store.webhooks.signingSecretOf(webhook), webhookSignedPayload(timestamp, delivery.payload)));
     const outcome = await deps.transport.send({
       url: webhook.url,
       body: delivery.payload,

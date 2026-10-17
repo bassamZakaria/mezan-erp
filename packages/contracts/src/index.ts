@@ -1742,10 +1742,12 @@ export {
   type DecideApprovalRequestDTO,
 } from "./workflow.js";
 
+export { mailAddressInput } from "./mail-address.js";
 export { listCountsSchema, listStatsSchema, type ListCountsDTO, type ListStatsDTO } from "./list-aggregates.js";
 export {
   sendTestEmailSchema,
   testEmailResultSchema,
+  SmtpStage,
   allowedCurrenciesSchema,
   type SendTestEmailDTO,
   type TestEmailResultDTO,

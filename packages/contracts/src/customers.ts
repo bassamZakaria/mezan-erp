@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { moneyString } from "./money-string.js";
 import { clientSuppliedId } from "./client-supplied-id.js";
+import { mailAddressInput } from "./mail-address.js";
 
 /**
  * Wire contract for a Customer (docs/archive/catalog/01-sales.md "العملاء"). Money
@@ -55,7 +56,7 @@ export const createCustomerSchema = z.object({
   nameAr: z.string().min(1),
   nameEn: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
-  email: z.string().nullable().optional(),
+  email: mailAddressInput.nullable().optional(),
   contactPerson: z.string().nullable().optional(),
   taxNumber: z.string().nullable().optional(),
   category: z.string().nullable().optional(),
@@ -86,7 +87,7 @@ export const createCustomerSchema = z.object({
 export const updateCustomerSchema = customerSchema
   .omit({ id: true, owed: true })
   .partial()
-  .extend({ openingBalanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+  .extend({ email: mailAddressInput.nullable().optional(), openingBalanceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
 
 export type EtaBuyerTypeDTO = z.infer<typeof etaBuyerTypeSchema>;
 export type CustomerDTO = z.infer<typeof customerSchema>;

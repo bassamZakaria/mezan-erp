@@ -116,6 +116,7 @@ export {
   type SqliteNotificationStoreHandle,
 } from "./notification-store.js";
 export { createScryptHasher } from "./secret-hasher.js";
+export { createAesGcmSecretBox, isSealedSecret, SecretUnsealError, type SecretBox } from "./secret-box.js";
 export {
   createSqliteTaxRateRepository,
   type SqliteTaxRateRepositoryHandle,

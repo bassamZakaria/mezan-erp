@@ -27,6 +27,8 @@ import {
   type InstallmentCollectPort,
   type SessionRegistry,
   sendNotificationEmail,
+  SmtpDestinationPolicy,
+  type SmtpSendOptions,
   createPrecomputingHasher,
   reportTurnYield,
   customerTaxProfileFrom,
@@ -381,6 +383,7 @@ import {
   readSchemaVersion,
   stampSchemaVersion,
   securityFallbackFor,
+  type SecretBox,
 } from "@mezan/persistence";
 import {
   EtaService,
@@ -879,6 +882,11 @@ export interface CreateBackendOptions {
   // TEST HOOK: the clock the account lock and its unlock code's expiry read.
   readonly signInClock?: () => number;
   readonly sendMail?: typeof sendNotificationEmail;
+  // SECURITY: PublicOnly on the cloud — a tenant SMTP host must not reach the platform network.
+  readonly tenantMailDestinations?: SmtpDestinationPolicy;
+  // SECURITY: seals stored outbound credentials (webhook signing secrets, the SMTP password) under the
+  // platform key, which lives outside every tenant directory. Supplied by the cloud; omitted elsewhere.
+  readonly secrets?: SecretBox;
   /** Runs the operator's external CAdES-BES signing program. Tests inject a fake. */
   readonly etaSigningRunner?: EtaCommandRunner;
   /**
@@ -1071,7 +1079,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   grantSuccessorPermissionsOnce(sqlite, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
   // INVARIANT: a marker of its own — books that already hold the marker above were upgraded before the voucher route joined the registry and would never be given its permission.
   grantSuccessorPermissionsOnce(sqlite, VOUCHER_REVERSAL_PERMISSION_GRANT, reversalPermissionSuccessors([ReversalDocumentType.Voucher]));
-  const settings = createSqliteSettingsStore(sqlite);
+  const settings = createSqliteSettingsStore(sqlite, options.secrets);
   const vatFilings = createSqliteVatFilingStore(sqlite);
   const simplifiedRegime = createSqliteSimplifiedRegimeStore(sqlite);
   const branches = createSqliteBranchStore(sqlite);
@@ -3702,9 +3710,13 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   const loginThrottle: LoginThrottle = { ...signInLadder, unlock: credentialsResetByAdministrator };
   const ownerDigestStore = createSqliteOwnerDigestStore(sqlite);
   const sendMail = options.sendMail ?? sendNotificationEmail;
-  const securitySmtp = async (): Promise<SmtpConfig | null> => {
+  // SECURITY: a tenant-typed SMTP host is held to the edition policy; the platform relay from the deployment env is not.
+  const tenantMail: SmtpSendOptions = { destinations: options.tenantMailDestinations ?? SmtpDestinationPolicy.AnyHost };
+  const platformMail: SmtpSendOptions = { destinations: SmtpDestinationPolicy.AnyHost };
+  const securitySmtp = async (): Promise<{ readonly config: SmtpConfig; readonly sendOptions: SmtpSendOptions } | null> => {
     const tenant = (await settings.get()) ?? createDefaultSettings();
-    return tenant.smtpEnabled ? tenant : (options.securityMail ?? null);
+    if (tenant.smtpEnabled) return { config: tenant, sendOptions: tenantMail };
+    return options.securityMail ? { config: options.securityMail, sendOptions: platformMail } : null;
   };
   const lockMailInTheTurn = inTheTurn("account lock notice");
   const recordLateInTheTurn = inTheTurn("late notification record");
@@ -3721,7 +3733,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     for (const [stale, kept] of lockMailBodies) if (kept.expiresAt <= at) lockMailBodies.delete(stale);
     lockMailBodies.set(id, { body, expiresAt: at + UNLOCK_CODE_TTL_MS });
   };
-  const emailTransport = (smtp: SmtpConfig | null): NotificationTransport => ({
+  const emailTransport = (smtp: SmtpConfig | null, sendOptions: SmtpSendOptions = tenantMail): NotificationTransport => ({
     channel: "email",
     async send(notification, recipientEmail, claim) {
       if (smtp === null) return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
@@ -3730,7 +3742,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       if (body === undefined) return { kind: "rejected", reason: "انتهت صلاحية رمز فكّ القفل قبل إرساله؛ يُرسل رمز جديد عند المحاولة التالية." };
       const html = notification.eventCode === OWNER_DIGEST_EVENT ? ownerDigestStore.mailHtml(notification.id) : null;
       try {
-        const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body, ...(html ? { html } : {}) })));
+        const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, recipientEmail, { subject: notification.title, body, ...(html ? { html } : {}) }, sendOptions)));
         const outcome = dispatchOutcomeOf(sent);
         if (outcome.kind !== "offline") lockMailBodies.delete(notification.id);
         return outcome;
@@ -3751,7 +3763,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     async sendTo(address, message, claim, messageId) {
       if (smtp === null) return { kind: "rejected", reason: "البريد الإلكتروني غير مُفعَّل في الإعدادات." };
       try {
-        const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, address, { subject: message.subject, body: message.body })));
+        const sent = await outsideTheTurn(() => withinDeadline(OutsideWork.Mail, () => sendMail(smtp, address, { subject: message.subject, body: message.body }, sendOptions)));
         return dispatchOutcomeOf(sent);
       } catch (err) {
         if (err instanceof OutsideWorkDeadlineError) return { kind: "offline", reason: err.message };
@@ -3813,7 +3825,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     const dispatcher = new NotificationDispatcher({
       notifications,
       recipientEmail: async (userId) => (await uow.users.findById(userId))?.email ?? null,
-      transports: [emailTransport(smtp)],
+      transports: [emailTransport(smtp.config, smtp.sendOptions)],
     });
     void lockMailInTheTurn(() => dispatcher.drain({ only: ids })).catch((error: unknown) => {
       backendLog.error({ area: "auth", err: error }, "the account-lock notice could not be mailed; it stays queued");
@@ -4570,6 +4582,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         ? { resolveEntitlements: () => options.entitlements! }
         : {}),
     settingsStore: settings,
+    tenantMailDestinations: options.tenantMailDestinations,
     branchStore: branches,
     userPreferences,
     branchDirectory: deferredBranchDirectory,
@@ -5717,6 +5730,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     addCloser: (closer) => areaClosers.push(closer),
     reports: reportsDeps,
     ...(options.connection?.key ? { databaseKey: options.connection.key } : {}),
+    ...(options.secrets ? { secrets: options.secrets } : {}),
   };
   await mountPos(areaContext);
   await mountEnhancements(areaContext);

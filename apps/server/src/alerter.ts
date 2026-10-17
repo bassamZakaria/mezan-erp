@@ -7,6 +7,7 @@ export enum AlertKind {
   UncleanRestart = "unclean_restart",
   NotReady = "not_ready",
   UnhandledRejection = "unhandled_rejection",
+  AuditAnchorDisabled = "audit_anchor_disabled",
 }
 
 export const ALERT_DEDUP_WINDOW_MS = 30 * 60_000;

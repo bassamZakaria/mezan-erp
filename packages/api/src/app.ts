@@ -122,6 +122,7 @@ import {
   type LicenseStateResolver,
 } from "./license-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
+import type { SmtpDestinationPolicy } from "./smtp-client.js";
 import { tenantTimeZoneMiddleware } from "./tenant-day.js";
 import { clientSuppliedIdRefusalMiddleware, fiscalPeriodsMiddleware } from "./posting-refusal.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
@@ -407,6 +408,8 @@ export interface CreateAppOptions {
   readonly financialReports?: FinancialReportsRoutesDeps;
   /** Mounts `/settings` (docs/archive/catalog/09) when present — omit it for no `/settings` route. */
   readonly settingsStore?: SettingsRepository;
+  // SECURITY: PublicOnly on the cloud, where the tenant SMTP host is dialled from inside the platform network.
+  readonly tenantMailDestinations?: SmtpDestinationPolicy;
   /** Mounts `/branches` (docs/archive/catalog/09) when present — omit it for no `/branches` route. */
   readonly branchStore?: BranchRepository;
   readonly userPreferences?: UserPreferencesRepository;
@@ -1248,7 +1251,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   applyModuleGates(app, resolveEntitlements);
 
   if (options.settingsStore) {
-    app.route("/settings", createSettingsRoutes(options.settingsStore, resolveAuth, options.auditSink));
+    app.route("/settings", createSettingsRoutes(options.settingsStore, resolveAuth, options.auditSink, options.tenantMailDestinations));
   }
   if (options.branchStore) {
     app.route("/branches", createBranchesRoutes(options.branchStore, resolveAuth));

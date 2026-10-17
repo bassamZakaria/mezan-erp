@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { createTenant, activateTenant, startModuleTrial, startSubscription } from "@mezan/domain";
+import { SmtpDestinationPolicy } from "@mezan/api";
 import { createBackend, SEED_ADMIN_PIN, type BackendHandle, type PlatformHandle } from "@mezan/backend";
 import { createTenantResolvers } from "./tenant-entitlements.js";
 import { tenantDbPath, type TenantRouter } from "./tenant-router.js";
@@ -123,6 +124,7 @@ export async function provisionSeededTenant(deps: ProvisionDemoTenantDeps, spec:
     scheduledJobs: false,
     connection: { exclusive: deps.env.sqliteExclusive },
     tenantBinding: activated.id,
+    tenantMailDestinations: SmtpDestinationPolicy.PublicOnly,
     seedDemoData: true,
     seedAdminPin: spec.adminPin,
     resolveEntitlements: () => resolvers.resolveEntitlements(),

@@ -51,6 +51,7 @@ import { servedTenantLookup, tenantPublicOrigin, tenantUnlockLink, UNLOCK_PATH }
 import { createCookieSessions } from "./cookie-session.js";
 import { createPublicApiRoutes, refuseApiKeysOutsidePublicApi } from "./public-api-routes.js";
 import { AlertKind, createAlerter, type Alerter } from "./alerter.js";
+import { loadSecretBox } from "./secrets-key.js";
 
 const log = createLogger("cloud");
 
@@ -170,6 +171,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const now = options.now ?? (() => new Date());
   mkdirSync(env.platformDir, { recursive: true });
   emptyBooksScratch(booksScratchDir(env.platformDir));
+  const secrets = loadSecretBox(env.secretsKey, env.platformDir);
 
   const ownerPassword = env.platformOwnerEmail ? (env.platformOwnerPassword ?? generateOwnerPassword()) : undefined;
   const platform = await createPlatform({
@@ -201,6 +203,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
   const router = createTenantRouter({
     platform,
     dataDir: env.platformDir,
+    secrets,
     mailPendingHandOver: mailer
       ? async ({ tenant, to, successorEmail, token }) => {
           const origin = tenantPublicOrigin(env, tenant.code);
@@ -377,11 +380,15 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
         job: jobs.track(PlatformJobKind.AuditAnchor, anchorService.intervalMs),
       })
     : null;
+  const productionCloud = process.env["NODE_ENV"] === "production" && !env.seedDemo;
   if (!anchorService) {
-    log.warn(
-      { event: "audit_anchor.disabled", reason: "MEZAN_AUDIT_ANCHOR_SIGNING_KEY is not set (or the interval is 0): the audit trail is not anchored outside the database" },
-      "audit anchoring is disabled",
-    );
+    const disabled = { event: "audit_anchor.disabled", reason: "MEZAN_AUDIT_ANCHOR_SIGNING_KEY is not set (or the interval is 0): the audit trail is not anchored outside the database" };
+    if (productionCloud) {
+      log.error(disabled, "audit anchoring is disabled on a production platform");
+      alerter.raise({ kind: AlertKind.AuditAnchorDisabled, summary: "audit anchoring is disabled on a production platform: set MEZAN_AUDIT_ANCHOR_SIGNING_KEY and MEZAN_AUDIT_ANCHOR_S3_BUCKET" });
+    } else {
+      log.warn(disabled, "audit anchoring is disabled");
+    }
   } else if (anchorService.sinkKind === AnchorSinkKind.LocalFile) {
     log.warn(
       { event: "audit_anchor.local_sink", reason: "anchors go to a local file, which is not external to this host; set MEZAN_AUDIT_ANCHOR_S3_BUCKET" },

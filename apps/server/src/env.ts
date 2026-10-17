@@ -62,6 +62,8 @@ export interface CloudEnv {
   readonly supportEmail?: string;
   readonly reviewTenant?: ReviewTenantConfig;
   readonly alertEmail?: string;
+  // SECURITY: 64 hex characters; seals stored webhook and SMTP secrets. Unset, a key file is generated in the platform dir.
+  readonly secretsKey?: string;
 }
 
 export interface ParseEnvOptions {
@@ -348,5 +350,6 @@ export function parseEnv(env: Record<string, string | undefined> = process.env, 
     supportEmail: parseSupportEmail(env["MEZAN_SUPPORT_EMAIL"]),
     reviewTenant: parseReviewTenant(env),
     alertEmail: parseAlertEmail(env["MEZAN_ALERT_EMAIL"]),
+    secretsKey: trimmedOrUndefined(env["MEZAN_SECRETS_KEY"]),
   });
 }

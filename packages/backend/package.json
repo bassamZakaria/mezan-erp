@@ -12,6 +12,6 @@
     "@mezan/contracts": "workspace:*",
     "@mezan/domain": "workspace:*",
     "@mezan/persistence": "workspace:*",
-    "hono": "^4.6.14"
+    "hono": "^4.13.7"
   }
 }

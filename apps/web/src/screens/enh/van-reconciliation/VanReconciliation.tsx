@@ -88,13 +88,15 @@ export function VanTripCountForm({ trip, itemName, pending, onCancel, onSubmit }
   const [countedCash, setCountedCash] = useState<number | null>(null);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
+  const [seeded, setSeeded] = useState(false);
   const data = expectation.data;
 
   useEffect(() => {
-    if (!data) return;
+    if (!data || seeded) return;
     setCounts(Object.fromEntries(data.lines.map((l) => [l.itemId, majorOf(l.expectedQty)])));
     setCountedCash(majorOf(data.expectedCash));
-  }, [data]);
+    setSeeded(true);
+  }, [data, seeded]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();

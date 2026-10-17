@@ -12,6 +12,8 @@ export function useVanTripExpectation(tripId: string | null, enabled: boolean): 
   return useQuery<VanTripExpectationDTO, ApiError>({
     queryKey: expectationKey(tripId ?? ""),
     enabled: enabled && tripId !== null && session !== null,
+    staleTime: Infinity,
+    refetchOnMount: "always",
     queryFn: async () => {
       const res = await request(`/field/van-trips/${tripId}/expected`);
       if (!res.ok) throw await loaderError(res, t("vanRecon.expectedCouldNotLoad"), t);

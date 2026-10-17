@@ -1,0 +1,93 @@
+import { pathToFileURL } from "node:url";
+import { openAuditChainFile } from "@mezan/persistence";
+import {
+  AnchorVerdict,
+  createAuditAnchorSigner,
+  createFileAuditAnchorSink,
+  verifyAgainstAnchors,
+  type AnchorVerification,
+  type AuditAnchorSink,
+} from "./audit-anchor.js";
+import { createS3AuditAnchorSink } from "./audit-anchor-s3.js";
+import { parseAuditAnchor } from "./env.js";
+
+export enum VerifyExit {
+  Verified = 0,
+  Failure = 1,
+  Tampering = 2,
+}
+
+const ANCHORS_CHECKED = 200;
+
+const USAGE = `usage: tsx apps/server/src/audit-anchor-cli.ts verify --db <database file> --scope <tenant id | platform> [--public-key <hex>] [--skip-chain]
+
+Run it against a COPY of the database (or with the server stopped): the live file
+may be exclusively locked. Reads MEZAN_AUDIT_ANCHOR_* from the environment to
+find the anchor store. Needs the chain key (MEZAN_AUDIT_CHAIN_KEY or the
+original audit-chain.key beside the file).
+Exit: 0 verified, 1 could not run, 2 tampering found (rollback, rewrite, broken chain, forged anchors).`;
+
+function argOf(args: readonly string[], name: string): string | undefined {
+  const at = args.indexOf(name);
+  return at === -1 ? undefined : args[at + 1];
+}
+
+function publicKeyHexFrom(env: Record<string, string | undefined>, explicit: string | undefined): string {
+  const given = explicit ?? env["MEZAN_AUDIT_ANCHOR_PUBLIC_KEY"]?.trim();
+  if (given) return given.toLowerCase();
+  const seed = env["MEZAN_AUDIT_ANCHOR_SIGNING_KEY"]?.trim();
+  if (seed) return createAuditAnchorSigner(seed).publicKeyHex;
+  throw new Error("set MEZAN_AUDIT_ANCHOR_PUBLIC_KEY (or pass --public-key): anchors cannot be checked without it");
+}
+
+function sinkFrom(env: Record<string, string | undefined>): AuditAnchorSink {
+  const config = parseAuditAnchor(env);
+  if (config.s3) return createS3AuditAnchorSink(config.s3);
+  if (config.dir) return createFileAuditAnchorSink(config.dir);
+  throw new Error("set MEZAN_AUDIT_ANCHOR_S3_BUCKET (or MEZAN_AUDIT_ANCHOR_DIR for the local file store)");
+}
+
+export function renderVerification(result: AnchorVerification): string {
+  const lines = [
+    `scope ${result.scope}: ${result.ok ? "VERIFIED" : "NOT VERIFIED"}`,
+    `  anchors checked: ${result.anchorsChecked}, latest anchored seq: ${result.latestAnchoredSeq ?? "none"}, live head seq: ${result.liveHeadSeq ?? "none"}`,
+    ...result.findings.map((f) => `  ${f.verdict}: ${f.detail}`),
+  ];
+  return lines.join("\n");
+}
+
+export function exitCodeOf(result: AnchorVerification): VerifyExit {
+  if (result.ok) return VerifyExit.Verified;
+  const onlyMissing = result.findings.every((f) => f.verdict === AnchorVerdict.NoAnchors);
+  return onlyMissing ? VerifyExit.Failure : VerifyExit.Tampering;
+}
+
+export async function main(args: readonly string[], env: Record<string, string | undefined> = process.env): Promise<VerifyExit> {
+  const db = argOf(args, "--db");
+  const scope = argOf(args, "--scope");
+  if (args[0] !== "verify" || !db || !scope) {
+    console.error(USAGE);
+    return VerifyExit.Failure;
+  }
+  const reader = openAuditChainFile(db);
+  try {
+    const publicKeyHex = publicKeyHexFrom(env, argOf(args, "--public-key"));
+    if (!/^[0-9a-f]{64}$/.test(publicKeyHex)) throw new Error("the public key must be 64 hex characters");
+    const anchors = await sinkFrom(env).list(scope, ANCHORS_CHECKED);
+    const result = await verifyAgainstAnchors({ scope, chain: reader, anchors, publicKeyHex, verifyChain: !args.includes("--skip-chain") });
+    console.log(renderVerification(result));
+    return exitCodeOf(result);
+  } finally {
+    reader.close();
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err: unknown) => {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(VerifyExit.Failure);
+    },
+  );
+}

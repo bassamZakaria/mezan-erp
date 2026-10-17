@@ -24,6 +24,34 @@ into `<platform dir>/backups/` (`MEZAN_BACKUP_INTERVAL_MINUTES`, default 15).
 On the demo host that directory sits under `/tmp` and is lost on restart; on
 AWS a sidecar syncs it to S3 — see the `apps/mezan` README in `cyag-devops`.
 
+## Audit trail anchors (tamper evidence from outside the database)
+
+The audit trail is hash-chained, but anyone with the files can re-chain it or
+restore an older backup. Every `MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES` (default
+15, `0` turns it off) the server signs each open tenant's chain head, and the
+platform database's, with Ed25519 and writes it to a store outside the
+database. Nothing is anchored until a signing key is set; the server says so at
+start-up.
+
+- `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`: the 32-byte Ed25519 seed as 64 lowercase hex characters. A secret; never commit it.
+- `MEZAN_AUDIT_ANCHOR_PUBLIC_KEY`: the matching public key, for verifying elsewhere (derived from the signing key when that is present).
+- `MEZAN_AUDIT_ANCHOR_S3_BUCKET`, `MEZAN_AUDIT_ANCHOR_S3_REGION` (else `AWS_REGION`), `MEZAN_AUDIT_ANCHOR_S3_PREFIX` (default `audit-anchors`), `MEZAN_AUDIT_ANCHOR_S3_ENDPOINT` (S3-compatible stores): one object per anchor at `<prefix>/<scope>/<12-digit seq>.json`, written with `If-None-Match: *`. Credentials come from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` or an ECS task role. For real immutability the bucket needs S3 Object Lock; the code works with or without it.
+- `MEZAN_AUDIT_ANCHOR_DIR`: without a bucket, anchors are appended to `<dir>/<scope>.jsonl` (default `<platform dir>/audit-anchors`). That is for dev and test: a file on the same host is not external.
+
+Check a tenant (scope is the tenant id, or `platform`) against its anchors,
+using a copy of the database file and the original `audit-chain.key`:
+
+```sh
+pnpm exec tsx apps/server/src/audit-anchor-cli.ts verify --db copy.db --scope <tenant id>
+```
+
+It exits 0 when the chain verifies and extends the latest anchor, 2 on a
+rollback (`ROLLED_BACK`), a rewrite (`REWRITTEN`), a broken chain or forged
+anchors, and 1 when it could not run. A scope whose newest anchor no longer
+matches its database is never re-anchored; the sweep logs
+`audit_anchor.refused_possible_tampering` at error level every interval until
+someone looks.
+
 ## Behind a proxy: which address a request is counted against
 
 Sign-in throttling, signup and deletion-form rate limits, and the address a

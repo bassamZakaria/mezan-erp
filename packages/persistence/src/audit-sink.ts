@@ -477,6 +477,18 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort, AuditChainVerifyPort
     return { ok: true, checked, unchained, brokenRowId: null, reason: "OK" };
   }
 
+  chainHead(): AuditChainHeadReading | null {
+    const head = this.sqlite.prepare(`SELECT row_id, row_hash FROM audit_chain_head WHERE id = 1`).get() as
+      | { row_id: number; row_hash: string }
+      | undefined;
+    return head ? { rowId: head.row_id, rowHash: head.row_hash } : null;
+  }
+
+  chainRowHash(rowId: number): string | null {
+    const row = this.sqlite.prepare(`SELECT row_hash FROM audit_event WHERE id = ?`).get(rowId) as { row_hash: string | null } | undefined;
+    return row?.row_hash ?? null;
+  }
+
   async query(stream: AuditStream, limit = 100): Promise<readonly AuditEvent[]> {
     const rows = this.select.all(stream, limit) as AuditRow[];
     return rows.map(rowToEvent);
@@ -622,6 +634,83 @@ export function createSqliteAuditSink(
     close: () => { if (owned) sqlite.close(); },
     db: sqlite,
   }) as SqliteAuditSinkHandle;
+}
+
+export interface AuditChainHeadReading {
+  readonly rowId: number;
+  readonly rowHash: string;
+}
+
+/** What the anchor job reads from a live sink. Call it inside the sink's turn: the sink shares its connection with in-flight requests. */
+export interface AuditChainAnchorSource {
+  chainHead(): AuditChainHeadReading | null;
+  chainRowHash(rowId: number): string | null;
+}
+
+export function isAuditChainAnchorSource(sink: unknown): sink is AuditChainAnchorSource {
+  return typeof sink === "object" && sink !== null && typeof (sink as AuditChainAnchorSource).chainHead === "function";
+}
+
+export interface AuditChainFileReader {
+  head(): AuditChainHeadReading | null;
+  rowHashAt(rowId: number): string | null;
+  verify(): Promise<AuditChainVerification>;
+  close(): void;
+}
+
+export class AuditChainKeyMissingError extends Error {
+  constructor(file: string) {
+    super(`no audit chain key for "${file}": set MEZAN_AUDIT_CHAIN_KEY or place the original audit-chain.key beside the database`);
+    this.name = "AuditChainKeyMissingError";
+  }
+}
+
+function existingChainKeyMaterial(file: string, provided: string | undefined): string {
+  if (provided !== undefined) return provided;
+  const fromEnv = process.env["MEZAN_AUDIT_CHAIN_KEY"];
+  if (fromEnv !== undefined) return fromEnv;
+  try {
+    const existing = readFileSync(path.join(path.dirname(path.resolve(file)), "audit-chain.key"), "utf8").trim();
+    if (/^[0-9a-f]{64}$/.test(existing)) return existing;
+  } catch {
+    // Falls through to the refusal below.
+  }
+  throw new AuditChainKeyMissingError(file);
+}
+
+/**
+ * Read-only view of one database file's audit chain, for the anchor job and the
+ * verifier. SECURITY: never writes the file and never mints a chain key — a
+ * verifier that minted one would report a forged head as merely "altered".
+ */
+export function openAuditChainFile(file: string, options: SqliteAuditSinkOptions = {}): AuditChainFileReader {
+  const sqlite = new Database(file, { readonly: true, fileMustExist: true });
+  const hasTable = (name: string): boolean =>
+    sqlite.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== undefined;
+  let sink: SqliteAuditSink | null = null;
+  return {
+    head() {
+      if (!hasTable("audit_chain_head")) return null;
+      const row = sqlite.prepare(`SELECT row_id, row_hash FROM audit_chain_head WHERE id = 1`).get() as
+        | { row_id: number; row_hash: string }
+        | undefined;
+      return row ? { rowId: row.row_id, rowHash: row.row_hash } : null;
+    },
+    rowHashAt(rowId) {
+      if (!hasTable("audit_event")) return null;
+      const row = sqlite.prepare(`SELECT row_hash FROM audit_event WHERE id = ?`).get(rowId) as { row_hash: string | null } | undefined;
+      return row?.row_hash ?? null;
+    },
+    async verify() {
+      if (!hasTable("audit_event")) return { ok: true, checked: 0, unchained: 0, brokenRowId: null, reason: "OK" };
+      sink ??= new SqliteAuditSink(
+        sqlite,
+        createHash("sha256").update(`${CHAIN_VERSION}:key`, "utf8").update(existingChainKeyMaterial(file, options.chainKey), "utf8").digest(),
+      );
+      return sink.verifyChain();
+    },
+    close: () => sqlite.close(),
+  };
 }
 
 /**

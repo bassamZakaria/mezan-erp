@@ -21,11 +21,21 @@ describe("the Render blueprint", () => {
   });
 });
 
+describe("parseEnv audit anchoring", () => {
+  it("reads the S3 sink, falling back to AWS_REGION, and refuses a bucket without a region", () => {
+    expect(
+      parseEnv({ MEZAN_AUDIT_ANCHOR_S3_BUCKET: "backups", AWS_REGION: "eu-south-1", MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES: "5", MEZAN_AUDIT_ANCHOR_SIGNING_KEY: "ab" }).auditAnchor,
+    ).toEqual({ intervalMinutes: 5, signingKey: "ab", s3: { bucket: "backups", region: "eu-south-1" } });
+    expect(() => parseEnv({ MEZAN_AUDIT_ANCHOR_S3_BUCKET: "backups" })).toThrow(/MEZAN_AUDIT_ANCHOR_S3_REGION/);
+  });
+});
+
 describe("parseEnv", () => {
   it("defaults every field when nothing is set", () => {
     const env = parseEnv({});
     expect(env).toEqual({
       platformDir: ".data/platform",
+      auditAnchor: { intervalMinutes: 15 },
       tenantDomain: undefined,
       trustProxy: false,
       clientSource: { trustedProxyHops: 0, trustViewerAddress: false, compareViewerAddress: false },
@@ -123,6 +133,7 @@ describe("parseEnv", () => {
     });
     expect(env).toEqual({
       platformDir: "/data",
+      auditAnchor: { intervalMinutes: 15 },
       tenantDomain: "mezan.test",
       trustProxy: true,
       clientSource: { trustedProxyHops: 2, trustViewerAddress: true, compareViewerAddress: true },

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { nonNegativeQuantityString } from "../money-string.js";
 
 const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -27,7 +28,7 @@ export const goodsReceiptLotsSchema = z.object({
 export const fefoPreviewQuerySchema = z.object({
   warehouseId: z.string().min(1),
   itemId: z.string().min(1),
-  qty: z.string().regex(/^\d+(\.\d{1,6})?$/).optional(),
+  qty: nonNegativeQuantityString.optional(),
   date: isoDay.optional(),
 });
 

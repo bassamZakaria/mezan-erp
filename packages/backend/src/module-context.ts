@@ -1,7 +1,8 @@
 import type Database from "better-sqlite3";
-import type { App, AuthContextResolver, OwnerDigestBackupReading, PeriodCloseGuardSlot, ReconciliationControl, ScheduledDigestResult, SessionRegistry } from "@mezan/api";
+import type { App, AuthContextResolver, LicenseStateResolver, OwnerDigestBackupReading, PeriodCloseGuardSlot, ReconciliationControl, ScheduledDigestResult, SessionRegistry } from "@mezan/api";
 import type { EtaReceiptIssuer } from "./eta-receipts.js";
-import type { ApprovalRequestRepository, AuditQueryPort, AuditSink, DrainResult, EventBus, InventoryDomainEvent, PayrollBindings, UnitOfWork } from "@mezan/domain";
+import type { ScheduledJobStatus } from "./scheduled-jobs.js";
+import type { ApprovalRequestRepository, AuditChainHeadReason, AuditQueryPort, AuditSink, DrainResult, EventBus, InventoryDomainEvent, PayrollBindings, UnitOfWork } from "@mezan/domain";
 import type {
   createScryptHasher,
   createSqliteAccountRepository,
@@ -98,6 +99,10 @@ export interface BackendModuleContext {
   };
   readonly backupStatus: (() => Promise<OwnerDigestBackupReading | null>) | undefined;
   readonly ownerDigestSlot: OwnerDigestSlot;
+  readonly auditChain: { verifyHead(): { reason: AuditChainHeadReason; headRowId: number | null } };
+  readonly scheduledJobStatus: () => readonly ScheduledJobStatus[];
+  readonly resolveLicenseState?: LicenseStateResolver;
+  readonly cloudTenant: boolean;
   readonly addCloser: (closer: { close(): void }) => void;
 }
 

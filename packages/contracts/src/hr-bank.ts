@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { moneyString } from "./money-string.js";
 
 export enum SalaryPaymentMethodDTO {
   BankTransfer = "bank_transfer",
@@ -63,7 +64,7 @@ export const bankFileLineSchema = z.object({
   nameAr: z.string(),
   nameLatin: z.string(),
   ibanMasked: z.string(),
-  amount: z.string(),
+  amount: moneyString,
   reference: z.string(),
 });
 
@@ -71,7 +72,7 @@ export const bankFileExceptionSchema = z.object({
   employeeId: z.string(),
   employeeCode: z.string().nullable(),
   nameAr: z.string().nullable(),
-  amount: z.string(),
+  amount: moneyString,
   reason: z.nativeEnum(BankFileExceptionReasonDTO),
 });
 

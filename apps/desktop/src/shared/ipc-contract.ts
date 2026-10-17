@@ -268,6 +268,8 @@ export interface BackupStatusResult {
   readonly staleAfterDays: number;
   readonly drillRunning: boolean;
   readonly secondTarget: SecondTargetStatusDTO;
+  readonly lastBackupAt: string | null;
+  readonly diskFreeBytes: number | null;
 }
 
 export type BackupDrillResult = { readonly ok: true; readonly drill: DrillRecordDTO } | BackupFailure;

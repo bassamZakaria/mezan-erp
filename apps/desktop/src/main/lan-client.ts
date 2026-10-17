@@ -519,7 +519,7 @@ export function withSeatClaim(forward: LanForward, config: ClientConfig): LanFor
     const seat = await forward("/lan/sessions", {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ deviceId: config.deviceId, deviceLabel: config.deviceLabel }),
+      body: JSON.stringify({ deviceId: config.deviceId, deviceLabel: config.deviceLabel, appVersion: process.env["MEZAN_APP_VERSION"] || undefined }),
     });
     if (seat.status !== 201) {
       console.error(`[client] the host refused this device a seat (HTTP ${seat.status}): ${seat.body}`);
@@ -538,7 +538,7 @@ export function withSeatClaim(forward: LanForward, config: ClientConfig): LanFor
         void forward("/lan/sessions", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${lastToken}` },
-          body: JSON.stringify({ deviceId: config.deviceId, deviceLabel: config.deviceLabel }),
+          body: JSON.stringify({ deviceId: config.deviceId, deviceLabel: config.deviceLabel, appVersion: process.env["MEZAN_APP_VERSION"] || undefined }),
         }).then(
           (res) => {
             // A 401 means the session died on the host (restart, revocation,

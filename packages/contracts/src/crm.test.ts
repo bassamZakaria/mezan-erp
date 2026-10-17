@@ -134,6 +134,9 @@ describe("opportunitySchema", () => {
     probability: 50,
     expectedCloseDate: null,
     notes: null,
+    ownerUserId: null,
+    lostReason: null,
+    lostNote: null,
     status: "open" as const,
     createdAt: "2026-08-30T10:00:00.000Z",
     closedAt: null,
@@ -235,6 +238,7 @@ describe("activitySchema", () => {
     dueDate: "2026-09-01",
     status: "pending" as const,
     notes: null,
+    assigneeUserId: null,
     createdAt: "2026-08-30T10:00:00.000Z",
   };
 

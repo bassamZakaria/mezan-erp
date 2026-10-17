@@ -1,3 +1,5 @@
 import type { PermissionFragment } from "../../permissions/fragment.js";
 
-export const fragment: PermissionFragment = { rows: [] };
+export const fragment: PermissionFragment = {
+  rows: [["dashboard.glance.view", undefined, "s"]],
+};

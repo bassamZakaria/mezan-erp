@@ -1,8 +1,9 @@
-import { Navigate, type RouteObject } from "react-router";
+import { type RouteObject } from "react-router";
 import { AppLayout } from "../AppLayout";
 import { LanHostGate } from "../lan/LanHostGate";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
 import { HydrateFallback } from "./HydrateFallback";
+import { HomeRedirect } from "./HomeRedirect";
 import { SCREEN_MODULES, type RoutableKey } from "./screens";
 import { routePathForScreen } from "../routing";
 import { listLoader } from "./loader";
@@ -99,12 +100,17 @@ export const routes: RouteObject[] = [
     ErrorBoundary: RouteErrorBoundary,
   },
   {
+    path: "/glance/*",
+    lazy: async () => ({ Component: (await import("../screens/enh/glance/GlanceApp")).GlanceApp }),
+    ErrorBoundary: RouteErrorBoundary,
+  },
+  {
     path: "/",
     Component: GatedAppLayout,
     HydrateFallback,
     ErrorBoundary: RouteErrorBoundary,
     children: [
-      { index: true, element: <Navigate to="/dashboard" replace /> },
+      { index: true, element: <HomeRedirect /> },
       /*
        * THE DESKTOP ENTRY POINT. The packaged shell loads
        * `app://mezan/index.html` (main/renderer-protocol.ts), so the app boots
@@ -116,7 +122,7 @@ export const routes: RouteObject[] = [
        * A browser build is served at `/` and never sees this path, which is
        * why it is invisible everywhere except the packaged app.
        */
-      { path: "index.html", element: <Navigate to="/dashboard" replace /> },
+      { path: "index.html", element: <HomeRedirect /> },
       ...Object.keys(SCREEN_MODULES).map(screenRoute),
       /*
        * المستخدمون / الأدوار are not stateless screen modules — the role

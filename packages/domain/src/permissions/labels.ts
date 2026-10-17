@@ -179,6 +179,7 @@ export const PERMISSION_ENTITY_LABELS = {
   reorder: { ar: "إعادة الطلب", en: "Reorder" },
   expiry: { ar: "الصلاحية والتشغيلات", en: "Expiry and batches" },
   owner_digest: { ar: "ملخص المالك", en: "Owner digest" },
+  glance: { ar: "نظرة سريعة عن بعد", en: "Remote glance" },
   terminal: { ar: "جهاز نقطة البيع", en: "POS terminal" },
   revaluation: { ar: "إعادة تقييم العملات", en: "FX revaluation" },
   year_end_close: { ar: "إقفال نهاية السنة", en: "Year-end close" },

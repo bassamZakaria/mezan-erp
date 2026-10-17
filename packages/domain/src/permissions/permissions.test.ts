@@ -70,13 +70,15 @@ describe("permission catalog", () => {
     //
     // 288 → 291. ENH-E3-02 owner digest: `accounting.owner_digest.view`, `.manage` and `.send` (the last two sensitive).
     //
+    // 291 → 292. ENH-E3-01 remote glance: `dashboard.glance.view` (sensitive), gated on `GET /dashboard/glance`.
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(291);
+    expect(PERMISSIONS).toHaveLength(292);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(291);
+    expect(summed).toBe(292);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -131,7 +133,7 @@ describe("permission catalog", () => {
     // 26 → 27: the salary bank file carries every bank-paid employee's IBAN and net pay.
     expect(isSensitive("hr.payroll.bank_file")).toBe(true);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(33);
+    expect(sensitiveCount).toBe(34);
   });
 
   it("marks the one platform-admin-only permission", () => {

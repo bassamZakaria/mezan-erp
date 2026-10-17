@@ -4,6 +4,7 @@ import { posAr, posEn } from "../screens/pos/nav";
 import { enhAr, enhEn } from "../screens/enh/nav";
 import { hrSelfAr, hrSelfEn } from "../screens/hr-self-strings";
 import { reversalAr, reversalEn } from "../reversal/strings";
+import { hrPagesAr, hrPagesEn } from "../screens/hr-pages-strings";
 
 /**
  * The web app's own strings. Arabic is the source language and `webEn` is typed
@@ -10045,6 +10046,7 @@ const webAr = {
   ...enhAr,
   ...hrSelfAr,
   ...reversalAr,
+  ...hrPagesAr,
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -20091,6 +20093,7 @@ const webEn: Record<WebTranslationKey, string> = {
   ...enhEn,
   ...hrSelfEn,
   ...reversalEn,
+  ...hrPagesEn,
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -100,6 +101,21 @@ function runDetail(overrides: Partial<PayrollRunDetailDTO> = {}): PayrollRunDeta
   };
 }
 
+function RoutedScreen({ openScreenAt }: { openScreenAt: (...args: unknown[]) => void }) {
+  const [segments, setSegments] = useState<readonly string[]>([]);
+  return (
+    <NavigationProvider value={{ navigate: () => {}, segments, openSubPage: (next) => setSegments(next), openScreenAt, intent: null, clearIntent: () => {} }}>
+      <PayrollRunsScreen />
+    </NavigationProvider>
+  );
+}
+
+function renderRouted(transport: ReturnType<typeof stubTransport>) {
+  const openScreenAt = vi.fn();
+  const result = renderWithProviders(<RoutedScreen openScreenAt={openScreenAt} />, { transport, initialSession: testAdminSession });
+  return { ...result, openScreenAt };
+}
+
 function renderScreen(runs: PayrollRunDTO[] = [run()]) {
   let current = [...runs];
   const details = new Map<string, PayrollRunDetailDTO>(current.map((r) => [r.id, runDetail({ ...r })]));
@@ -156,16 +172,8 @@ function renderScreen(runs: PayrollRunDTO[] = [run()]) {
       return { body: current.find((r) => r.id === id)! };
     },
   });
-  const openScreenAt = vi.fn();
-  const result = renderWithProviders(
-    <NavigationProvider
-      value={{ navigate: () => {}, segments: [], openSubPage: () => {}, openScreenAt, intent: null, clearIntent: () => {} }}
-    >
-      <PayrollRunsScreen />
-    </NavigationProvider>,
-    { transport, initialSession: testAdminSession },
-  );
-  return { ...result, openScreenAt, getCreatedBody: () => createdBody, getDisburseBody: () => disburseBody };
+  const result = renderRouted(transport);
+  return { ...result, getCreatedBody: () => createdBody, getDisburseBody: () => disburseBody };
 }
 
 describe("PayrollRunsScreen", () => {
@@ -214,21 +222,21 @@ describe("PayrollRunsScreen", () => {
     expect(screen.getByText("PR-000002")).toBeInTheDocument();
   });
 
-  it("creates a new run with the picked year/month, then opens its detail", async () => {
+  it("creates a new run on its own page with the picked year/month, then opens its detail page", async () => {
     const { getCreatedBody } = renderScreen([]);
     await screen.findByText("لا توجد بيانات");
     fireEvent.click(screen.getAllByRole("button", { name: "تشغيل رواتب جديد" })[0]!);
-    const dialog = screen.getByRole("dialog");
+    expect(await screen.findByRole("heading", { name: "تشغيل رواتب جديد" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
     const user = userEvent.setup();
-    await user.click(within(dialog).getByRole("combobox", { name: "الشهر *" }));
+    await user.click(screen.getByRole("combobox", { name: "الشهر *" }));
     await user.click(await screen.findByRole("option", { name: "سبتمبر" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "إنشاء" }));
+    fireEvent.click(screen.getByRole("button", { name: "إنشاء" }));
     await waitFor(() => expect(getCreatedBody()).not.toBeNull());
     const body = getCreatedBody() as Record<string, unknown>;
     expect(body.month).toBe(9);
     expect(typeof body.year).toBe("number");
-    // Creating opens the new run's own detail panel.
-    expect(await screen.findByRole("heading", { name: "PR-000002" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "مسير الرواتب PR-000002" })).toBeInTheDocument();
   });
 
   it("a server refusal on create renders the server's Arabic message, not raw JSON", async () => {
@@ -239,33 +247,32 @@ describe("PayrollRunsScreen", () => {
       "GET /hr/payroll/runs": () => ({ body: [] }),
       "POST /hr/payroll/runs": () => ({ status: 400, body: { message: "توجد دورة رواتب بالفعل لهذا الشهر" } }),
     });
-    renderWithProviders(<PayrollRunsScreen />, { transport, initialSession: testAdminSession });
+    renderRouted(transport);
     await screen.findByText("لا توجد بيانات");
     fireEvent.click(screen.getAllByRole("button", { name: "تشغيل رواتب جديد" })[0]!);
-    const dialog = screen.getByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "إنشاء" }));
-    expect(await within(dialog).findByText("توجد دورة رواتب بالفعل لهذا الشهر")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "إنشاء" }));
+    expect(await screen.findByText("توجد دورة رواتب بالفعل لهذا الشهر")).toBeInTheDocument();
   });
 
-  it("opens a run's detail panel showing status, totals and the unimplemented-rules note", async () => {
+  it("opens a run as a page, not a panel, showing status, totals and the unimplemented-rules note", async () => {
     renderScreen();
     fireEvent.click(await screen.findByText("PR-000001"));
-    const dialog = screen.getByRole("dialog");
-    expect(await within(dialog).findByText("مسودة")).toBeInTheDocument();
-    expect(within(dialog).getByText("ضريبة كسب العمل")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "مسير الرواتب PR-000001" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getAllByText("مسودة").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("tab", { name: "الاحتساب والملاحظات" }));
+    expect(await screen.findByText("ضريبة كسب العمل")).toBeInTheDocument();
   });
 
   it("calculate → approve moves the run through its real lifecycle and posts the entry", async () => {
     const { openScreenAt } = renderScreen();
     fireEvent.click(await screen.findByText("PR-000001"));
-    const dialog = screen.getByRole("dialog");
-    fireEvent.click(await within(dialog).findByRole("button", { name: "احتساب الرواتب" }));
-    await within(dialog).findByText("محتسب");
-    fireEvent.click(within(dialog).getByRole("button", { name: "اعتماد وترحيل القيد" }));
-    await within(dialog).findByText("معتمد");
+    fireEvent.click(await screen.findByRole("button", { name: "احتساب الرواتب" }));
+    fireEvent.click(await screen.findByRole("button", { name: "اعتماد وترحيل القيد" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "اعتماد وترحيل القيد" })).toBeNull());
     // The entry by its human number, linked to the journal — never the raw id.
-    const entryLink = await within(dialog).findByRole("button", { name: "JE-000321" });
-    expect(within(dialog).queryByText(/PAYROLL-JE:/)).not.toBeInTheDocument();
+    const entryLink = await screen.findByRole("button", { name: "JE-000321" });
+    expect(screen.queryByText(/PAYROLL-JE:/)).not.toBeInTheDocument();
     fireEvent.click(entryLink);
     expect(openScreenAt).toHaveBeenCalledWith("journals", ["JE-000321"]);
   });
@@ -304,17 +311,17 @@ describe("PayrollRunsScreen", () => {
   it("disburse requires a picked treasury account and branch, both real ids in the request body", async () => {
     const { getDisburseBody } = renderScreen([run({ status: "approved" })]);
     fireEvent.click(await screen.findByText("PR-000001"));
-    const dialog = screen.getByRole("dialog");
-    const payButton = await within(dialog).findByRole("button", { name: "صرف" });
+    fireEvent.click(await screen.findByRole("tab", { name: "الصرف" }));
+    const payButton = await screen.findByRole("button", { name: "صرف" });
     fireEvent.click(payButton);
     // Blocked with an Arabic message until both fields are picked.
-    expect(await within(dialog).findByText("اختر الخزينة والفرع قبل الصرف.")).toBeInTheDocument();
+    expect(await screen.findByText("اختر الخزينة والفرع قبل الصرف.")).toBeInTheDocument();
     expect(getDisburseBody()).toBeNull();
 
     const user = userEvent.setup();
-    await user.click(within(dialog).getByRole("combobox", { name: "الخزينة *" }));
+    await user.click(screen.getByRole("combobox", { name: "الخزينة *" }));
     await user.click(await screen.findByRole("option", { name: /خزينة الفرع الرئيسي/ }));
-    await user.click(within(dialog).getByRole("combobox", { name: "الفرع *" }));
+    await user.click(screen.getByRole("combobox", { name: "الفرع *" }));
     await user.click(await screen.findByRole("option", { name: "الفرع الرئيسي" }));
     fireEvent.click(payButton);
     await waitFor(() => expect(getDisburseBody()).not.toBeNull());
@@ -332,18 +339,16 @@ describe("PayrollRunsScreen", () => {
       "GET /hr/payroll/runs/*": () => ({ body: runDetail() }),
       "POST /hr/payroll/runs/*/calculate": () => ({ status: 400, body: { message: "لا يمكن احتساب دورة بلا موظفين نشطين" } }),
     });
-    renderWithProviders(<PayrollRunsScreen />, { transport, initialSession: testAdminSession });
+    renderRouted(transport);
     fireEvent.click(await screen.findByText("PR-000001"));
-    const dialog = screen.getByRole("dialog");
-    fireEvent.click(await within(dialog).findByRole("button", { name: "احتساب الرواتب" }));
-    expect(await within(dialog).findByText("لا يمكن احتساب دورة بلا موظفين نشطين")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "احتساب الرواتب" }));
+    expect(await screen.findByText("لا يمكن احتساب دورة بلا موظفين نشطين")).toBeInTheDocument();
   });
 
   it("payslip lines render the real employee name and formatted money, never a raw balance string", async () => {
     renderScreen();
     fireEvent.click(await screen.findByText("PR-000001"));
-    const dialog = screen.getByRole("dialog");
-    expect(await within(dialog).findByText("أحمد محمود")).toBeInTheDocument();
-    expect(within(dialog).queryByText("10000.000000")).not.toBeInTheDocument();
+    expect(await screen.findByText("أحمد محمود")).toBeInTheDocument();
+    expect(screen.queryByText("10000.000000")).not.toBeInTheDocument();
   });
 });

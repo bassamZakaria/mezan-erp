@@ -53,7 +53,7 @@ a fresh install used to land on an ordinary login form with an empty account lis
 email box, no indication the machine had never been set up, and the wizard reachable only
 through a small link at the bottom — the natural first move was to type the owner's own name,
 fail five times, and land in a lockout on a brand-new install within ninety seconds. The wizard
-has four steps (`apps/web/src/login/FirstRunWizard.tsx`):
+has five steps on the desktop host, four on the browser build (`apps/web/src/login/FirstRunWizard.tsx`):
 
 1. **Activate the licence** — a real **file import**, not a code box. «استيراد ملف الترخيص»
    opens a file picker, hands `license.mezan` to the same verifier the write gate uses, and
@@ -66,12 +66,15 @@ has four steps (`apps/web/src/login/FirstRunWizard.tsx`):
    and, optionally, English), a real email, and a PIN **they** choose. This call also
    idempotently seeds the empty database (chart of accounts, VAT, the main branch and
    warehouse, fiscal periods) if nothing has run `POST /bootstrap/seed` yet.
-3. **Core data** — confirms/re-runs the same idempotent seed and shows what exists. This step
+3. **«حماية النسخ الاحتياطية»** (desktop host only, required) — the owner sets a recovery
+   passphrase, or saves the key card to a USB stick and confirms it is off the PC. «التالي» stays
+   disabled until one is set. Without it no backup opens on replacement hardware. §4.1.1.
+4. **Core data** — confirms/re-runs the same idempotent seed and shows what exists. This step
    runs `POST /bootstrap/seed` **after** step 2 has already claimed the tenant, so that route
    is deliberately **not** gated on claimed-ness. The invariant it actually enforces is
    emptiness, inside `seedIfEmpty` — a claimed-tenant guard here was tried and reverted,
    because it 409'd the wizard on its own next click on a brand-new install.
-4. **Import** — hands off into the data migration wizard, §3 below.
+5. **Import** — hands off into the data migration wizard, §3 below.
 
 After step 2, the seeded fallback account (`USER-ADMIN`) still exists in the database, PIN
 unknown to anyone. It is not deleted and does not need to be — it plays no further role once
@@ -279,8 +282,11 @@ in `الإعدادات ← النسخ الاحتياطي والاستعادة` t
 backup (daily, on-close, manual) is copied there as soon as it is sealed and verified, with
 the same 7/4/12 GFS retention (`apps/desktop/src/backup/secondary-target.ts`). A missing stick
 never fails the backup; the screen shows «فشل آخر نسخ إلى المجلد الثاني» until a copy lands
-again. Those copies are still keyed to this machine — pair them with a portable export or the
-key card below.
+again. **Once a recovery secret is set (§4.1.1), those copies are portable**: each one is written
+as a `.mezanbak.enc` sealed under the owner's recovery passphrase and opens on any machine with
+it. Until one is set they are the machine-keyed `.mezanbak` and die with this PC — the screen
+says which kind the newest copy is («آخر نسخة في المجلد الثاني …»). The local backups in "Mezan
+Backups" are unchanged either way: still machine-keyed, still 7/4/12.
 
 **Restore drills.** A backup that has never been restored is a hope, not a backup. Once a week
 (after the daily backup, or ten minutes after launch on a shop that closes every evening), and
@@ -297,7 +303,7 @@ question for the accountant, not a broken backup
 (`apps/desktop/src/backup/drill-service.ts`, `drill-worker.ts`). The equivalent of QuickBooks
 Desktop's Verify Data, run against the backup instead of the live file.
 
-**For a copy that has to open somewhere else, use «تصدير نسخة قابلة للنقل»** in
+**For a one-off copy that has to open somewhere else, use «تصدير نسخة قابلة للنقل»** in
 `الإعدادات ← النسخ الاحتياطي والاستعادة`. A scheduled archive is keyed to this machine and
 dies with it (the key-card box below); the portable export re-encrypts one under a
 **passphrase the owner picks**, so it opens on replacement hardware without carrying the key
@@ -333,6 +339,12 @@ same verified restore as any archive. Until 2026-09-19 nothing called the decryp
 > which asks for a confirmation before it unlinks. The banner covers **both** files: the key
 > card and the pre-conversion plaintext archive below. When neither exists, it renders nothing.
 >
+> **The protection step (§4.1.1) is the in-app way to deal with it**: choosing «ملف مفتاح
+> التشفير» there saves the card to a USB stick and makes its key the recovery secret, so the
+> second-folder copies open on a new computer with that key typed as the passphrase. Choosing a
+> passphrase instead does not make the card harmless — it still opens the local archives — so the
+> steps below still apply.
+>
 > **On install day, in front of the owner:**
 > 1. Open the banner's «افتح مجلد الملف», or open `database-key.txt` directly.
 > 2. Copy the key into the client's safe, their password manager, or a notebook that lives
@@ -354,6 +366,50 @@ card. Nothing deletes it automatically, on purpose: silently destroying the only
 pre-conversion copy of a shop's books to tidy up is the worse failure. Delete it once the
 converted install has been used for real work.
 
+### 4.1.1 «حماية النسخ الاحتياطية» — the recovery secret (required on a new install)
+
+The first-run wizard now runs **licence → administrator → «حماية النسخ الاحتياطية» → base data →
+import**, and the protection step cannot be skipped on the desktop host. The owner picks one of:
+
+- **A recovery passphrase** — at least 10 characters, typed twice, with a strength hint, and a
+  tick-box acknowledging that it cannot be recovered and is the only way to open the backups on
+  another computer. *Neither we nor support can recover it.*
+- **The key card** — «احفظ ملف المفتاح على فلاشة» writes `database-key.txt`'s content to a
+  place the owner picks in a save dialog (a USB stick, not this disk), then a tick-box confirms it
+  has been moved off the PC. The key printed on that card is then the recovery secret: on a new
+  computer it is typed into the passphrase box. Only offered on an encrypted install.
+
+**What is stored, and what is not.** The secret itself is never written anywhere. At set time a
+random 16-byte salt is drawn and the secret is run through **scrypt (N=2^15, r=8, p=1) → 32-byte
+key** — exactly the KDF and parameters of the MEZANPBK1 portable format. That derived key is sealed
+with the OS keychain (`safeStorage`, the same store that seals the database key) and kept with the
+salt in `Mezan Backups/.recovery-key.json` (0600). Every scheduled, on-close and manual backup
+then writes its second-folder copy as: snapshot decrypted off-thread in the backup worker into a
+private scratch directory under `Mezan Backups/.tmp/second-copy-*` → verified → sealed with
+**AES-256-GCM**, the stored salt and a fresh 12-byte IV in the MEZANPBK1 header → written to the
+second folder → scratch deleted (and swept on the next launch if the app died mid-copy). Because
+the salt is in every file's header, `decryptFile(passphrase)` re-derives the key from the
+passphrase alone on any machine; a wrong passphrase fails the GCM tag and is refused. If the
+portable copy cannot be prepared (disk full, keychain refused), the machine-keyed archive is
+copied instead and the screen says the last copy is not portable.
+
+**Installs that never set one.** An install upgraded from an earlier build has no recovery secret.
+Until it is set, the backup screen carries a red banner — «النسخ الاحتياطية لا تُفتح إلا على هذا
+الجهاز» — with a button straight to the form, the dashboard shows «احمِ نسخك الاحتياطية» to anyone
+holding `admin.backup.restore` with a one-click inline form, and the health console's backup item
+(ENH-E3-10) turns **warn** with «لم تُحدَّد كلمة سر لاسترداد النسخ». None of these appear on a LAN
+till: a till owns no backups, its backup channels answer «النسخ الاحتياطي يُدار من الجهاز
+الرئيسي», and every surface renders nothing on that answer. On a machine with no OS keyring the
+form says protection cannot be turned on there (and the first-run step lets the owner continue).
+
+**Changing it.** «تغيير كلمة السر أو الطريقة» on the backup screen asks for the new secret and the
+signed-in user's **current PIN**, which the main process proves through the backend's own
+`POST /auth/step-up` — so a wrong PIN counts on the same lock-out ladder as a wrong sign-in. Only
+**future** second-folder copies use the new secret. **Copies already written keep the old
+passphrase and are never rewritten** — tell the owner to keep the old one for as long as those
+copies matter. Setting and changing are written to the security audit trail
+(`backup.recovery.set` / `backup.recovery.changed` / `backup.recovery.keyCardSaved`, WARNING).
+
 ### 4.2 Restoring onto replacement hardware
 
 **Read the key-card box in §4.1 first. On replacement hardware it is the whole ballgame:** an
@@ -363,17 +419,39 @@ you to the new machine, or do not bother bringing the archive.
 
 Two cases behave differently, and it is worth knowing which one you are in:
 
-- **An archive taken from an ENCRYPTED install** carries no key inside it. The restoring
-  machine must already hold that key — meaning you entered it from the key card during
-  setup, or you are restoring onto the same machine and OS user account it came from.
+- **A local archive (`.mezanbak`) taken from an ENCRYPTED install** carries no key inside it and
+  restores only onto the same machine and OS user account it came from. There is no screen that
+  takes a foreign database key for a `.mezanbak`; on replacement hardware use one of the two
+  `.mezanbak.enc` routes below instead.
 - **A legacy archive taken before encryption existed** is plaintext, and still restores
   normally onto an encrypted install. The restored file lands as plaintext and **the next
   launch converts it** to encrypted storage under this machine's own key. Nothing special to
   do; just expect the conversion message on the following start.
 
-- **A portable export (`.mezanbak.enc`)** carries no machine key at all: it opens anywhere
-  with its passphrase, through «استعادة نسخة قابلة للنقل» (below). This is the route for an
-  owner who never kept the key card.
+- **A second-folder copy (`mezan-backup-…mezanbak.enc`, written once a recovery secret is set)**
+  opens anywhere with the recovery passphrase — or, if the owner chose the key card, with the key
+  printed on it — through «استعادة نسخة قابلة للنقل». This is the normal route after a dead PC.
+- **A portable export (`mezan-portable-…mezanbak.enc`)** carries no machine key at all: it opens
+  anywhere with the passphrase chosen at export, through the same «استعادة نسخة قابلة للنقل».
+
+**Restore on a brand-new PC, step by step:**
+
+1. Install Mezan on the new machine and start it. It opens «الإعداد الأولي».
+2. On the first step, import the licence issued for the new machine (the licence is not in the
+   backup).
+3. On the same step, under «استعادة نسخة قابلة للنقل», press «اختر الملف» and pick the newest
+   `.mezanbak.enc` from the USB stick / network share that was the «مجلد ثانٍ للنسخ» (or a portable
+   export).
+4. Type the recovery passphrase (or the key-card key) and press restore. The file is decrypted,
+   its checksum and `integrity_check` are verified, and a copy made by a newer build is refused —
+   all before anything on disk changes. A wrong passphrase leaves the install untouched.
+5. The database is re-keyed to the new machine's own key and the app relaunches onto the login
+   screen. Sign in with a PIN from the old machine (or `--reset-admin`, §1.4).
+6. The recovery secret does **not** travel with the books (its sealed key belongs to the old
+   machine's keychain), so the backup screen shows the protection banner again: set the passphrase
+   once more and pick the second folder again.
+
+The same «استعادة نسخة قابلة للنقل» is on the backup screen of a running install.
 
 The restore machinery is wired end to end and driven from the settings screen and the
 first-run screen (see below).

@@ -122,6 +122,61 @@ describe("PlatformApiProvider", () => {
     expect(seen).toEqual(["POST /plans", "POST /auth/step-up", "POST /plans"]);
   });
 
+  it("hands a 403 that is not a step-up back whole — status, headers and body — and opens no dialog", async () => {
+    let received: TransportResponse | null = null;
+    const transport = (): Promise<TransportResponse> =>
+      Promise.resolve({
+        status: 403,
+        ok: false,
+        retryAfterSeconds: 7,
+        json: <T,>() => Promise.resolve({ error: "FORBIDDEN" } as T),
+        text: () => Promise.resolve(JSON.stringify({ error: "FORBIDDEN", message: "ممنوع" })),
+        header: (name: string) => (name === "x-request-id" ? "r-1" : null),
+      });
+    function Probe() {
+      const { request } = usePlatformApi();
+      const [done, setDone] = useState(false);
+      return (
+        <button type="button" onClick={() => void request("/plans", { method: "POST", body: "{}" }).then((res) => { received = res; setDone(true); })}>
+          {done ? "done" : "write"}
+        </button>
+      );
+    }
+    render(
+      <PlatformApiProvider transport={transport} initialSession={testPlatformSession}>
+        <Probe />
+      </PlatformApiProvider>,
+    );
+    screen.getByRole("button", { name: "write" }).click();
+    await screen.findByRole("button", { name: "done" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const refusal = received as TransportResponse | null;
+    expect(refusal?.status).toBe(403);
+    expect(refusal?.retryAfterSeconds).toBe(7);
+    expect(refusal?.header?.("x-request-id")).toBe("r-1");
+    expect(await refusal?.json()).toEqual({ error: "FORBIDDEN", message: "ممنوع" });
+  });
+
+  it("keeps the session when the step-up password is wrong, and shows the refusal in the dialog", async () => {
+    const answer = (status: number, body: unknown): Promise<TransportResponse> =>
+      Promise.resolve({ status, ok: status < 300, json: <T,>() => Promise.resolve(body as T), text: () => Promise.resolve(JSON.stringify(body)) });
+    const transport = (path: string): Promise<TransportResponse> =>
+      path === "/auth/step-up"
+        ? answer(403, { error: CurrentSecretRefusal.IncorrectPassword, message: "كلمة المرور غير صحيحة" })
+        : answer(403, { error: "STEP_UP_REQUIRED", message: "أعد إدخال كلمة المرور" });
+    render(
+      <PlatformApiProvider transport={transport} initialSession={testPlatformSession}>
+        <SessionAndRequestProbe path="/plans" />
+      </PlatformApiProvider>,
+    );
+    screen.getByRole("button", { name: "fire" }).click();
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(dialog.querySelector("input[type=password]")!, { target: { value: "wrong" } });
+    fireEvent.submit(dialog);
+    expect(await screen.findByText("كلمة المرور غير صحيحة")).toBeInTheDocument();
+    expect(screen.getByTestId("session")).toHaveTextContent("owner@mezan.example");
+  });
+
   it("clears the session when any request comes back 401", async () => {
     const transport = stubPlatformTransport({ "GET /tenants": () => ({ status: 401, body: { error: "UNAUTHENTICATED" } }) });
     render(

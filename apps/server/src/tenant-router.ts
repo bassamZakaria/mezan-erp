@@ -245,6 +245,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       securityMail: options.securityMail,
       unlockLink: mail.unlockLink,
       platformOperatorUnlocks: true,
+      sessionsInDatabase: true,
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),
       onUserEmailChanged: hooks.onUserEmailChanged,

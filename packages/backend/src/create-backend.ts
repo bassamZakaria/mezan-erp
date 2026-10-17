@@ -14,6 +14,8 @@ import {
   type SmtpConfig,
   createSessionAuthContextResolver,
   createSessionRegistry,
+  createMemorySessionStore,
+  DEFAULT_SESSION_LIMITS,
   createSimplifiedRegimeRoutes,
   MasterDataKind,
   type MasterDataChecks,
@@ -355,6 +357,7 @@ import {
   createSqliteIdempotentRequestStore,
   createSqliteAccountLockStore,
   createSqliteAttemptStore,
+  createSqliteSessionStore,
   createSqliteLeaseStore,
   SignInAttemptScope,
   createSqlitePeriodCloseStore,
@@ -842,6 +845,10 @@ export interface CreateBackendOptions {
   // CONTRACT: true where a platform operator can unlock this tenant's accounts
   // from the console (the cloud edition). It changes what a locked account is told.
   readonly platformOperatorUnlocks?: boolean;
+  // SECURITY: true where more than one server process serves this database (the
+  // cloud edition). Sessions are then held in it, so a token minted or revoked
+  // on one instance is minted or revoked on all; otherwise they stay in memory.
+  readonly sessionsInDatabase?: boolean;
   // TEST HOOK: the clock the account lock and its unlock code's expiry read.
   readonly signInClock?: () => number;
   readonly sendMail?: typeof sendNotificationEmail;
@@ -3597,7 +3604,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    * this app reads its caller from. Before this the routes fell back to the
    * header resolver, so a request declared its own permissions.
    */
-  const sessions = createSessionRegistry();
+  const sessions = createSessionRegistry(Date.now, DEFAULT_SESSION_LIMITS, options.sessionsInDatabase ? createSqliteSessionStore(sqlite) : createMemorySessionStore());
   const resolveAuthContext = createSessionAuthContextResolver(sessions);
   /**
    * ONE throttle for the whole backend. `/auth/login` counts against it and

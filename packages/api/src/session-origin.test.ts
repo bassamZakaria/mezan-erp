@@ -403,10 +403,11 @@ describe("a moved token is recorded", () => {
       fromAddress(OTHER_TILL),
     );
     expect(res.status).toBe(200);
-    // AND THE REVOCATION STANDS (D298). The registry is in-memory and the
-    // forensic row is best-effort, so this pair is deliberately NOT atomic: an
-    // audit failure that rolled the revocation back would hand the moved token
-    // straight back to whoever presented it.
+    // AND THE REVOCATION STANDS (D298). The forensic row is best-effort, so
+    // this pair is deliberately NOT atomic — in memory and in the database
+    // store alike, the revocation commits on its own before the audit write:
+    // an audit failure that rolled it back would hand the moved token straight
+    // back to whoever presented it.
     expect(sessions.find(token, TILL)).toBeNull();
   });
 

@@ -297,15 +297,17 @@ describe("token reader and comparison", () => {
 describe("a second sign-in from a device that already holds a session's secret", () => {
   const grantOf = (userId: string) => ({ userId, permissions: ["*"], roleCode: null, branchScope: ALL_SCOPE, warehouseScope: ALL_SCOPE });
 
-  it("keeps the same user's first session alive, bound to the secret the device already holds", () => {
+  it("keeps the secret the device already holds and ends the same user's earlier session on it, whose cookie the sign-in overwrites", () => {
     const sessions = createSessionRegistry();
     const first = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
+    const elsewhere = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10");
     const second = sessions.issueDeviceBound(grantOf("u-1"), "41.33.10.10", first.deviceSecret);
 
     expect(second.deviceSecret).toBe(first.deviceSecret);
     expect(second.token).not.toBe(first.token);
-    expect(sessions.inspect(first.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-1");
+    expect(sessions.inspect(first.token, "41.33.10.10", second.deviceSecret)).toEqual({ grant: null, refusal: null });
     expect(sessions.inspect(second.token, "41.33.10.10", second.deviceSecret).grant?.userId).toBe("u-1");
+    expect(sessions.inspect(elsewhere.token, "41.33.10.10", elsewhere.deviceSecret).grant?.userId).toBe("u-1");
   });
 
   it("ends another user's session on that device and says why — displaced by a sign-in, never a stolen device or a moved address", () => {

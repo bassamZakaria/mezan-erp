@@ -75,16 +75,18 @@ export interface SessionGrant {
   readonly warehouseScope: ScopeSelection;
 }
 
-interface StoredSession extends SessionGrant {
+export interface StoredSession extends SessionGrant {
   /** For {@link MAX_SESSION_MS}. Never moves — that is the whole point of it. */
   readonly issuedAt: number;
   /** Canonical form of where `issue()` was called from; null is the in-process mount. */
   readonly issuedFrom: string | null;
   readonly deviceHash: string | null;
-  lastOrigin: string | null;
-  movedSincePin: boolean;
-  lastSeenAt: number;
-  deviceMismatches: number[];
+  readonly lastOrigin: string | null;
+  readonly movedSincePin: boolean;
+  readonly lastSeenAt: number;
+  readonly deviceMismatches: readonly number[];
+  readonly idleMs: number;
+  readonly maxMs: number;
 }
 
 export enum SessionRefusalKind {
@@ -97,10 +99,79 @@ export enum SessionRefusalKind {
 
 export const DISPLACED_SESSIONS_REMEMBERED = 1000;
 
-interface DisplacedSession {
+export interface DisplacedSession {
   readonly userId: string;
   readonly issuedFrom: string | null;
   readonly at: number;
+}
+
+/**
+ * Where sessions are held, keyed by the SHA-256 of the token — never the token.
+ *
+ * CONTRACT: `atomically` runs its body as one read-modify-write across every
+ * process that shares the store. The registry reads outside it and repeats the
+ * read inside it before any write, so a device-mismatch count, a revocation or
+ * a displacement on one server instance is what the next instance sees.
+ */
+export interface SessionStore {
+  /** How stale a stored `lastSeenAt` may be before a lookup rewrites it. */
+  readonly lastSeenWriteIntervalMs: number;
+  atomically<T>(work: () => T): T;
+  get(key: string): StoredSession | null;
+  put(key: string, session: StoredSession): void;
+  remove(key: string): void;
+  removeUser(userId: string): void;
+  onDevice(deviceHash: string): ReadonlyArray<readonly [string, StoredSession]>;
+  displaced(key: string): DisplacedSession | null;
+  /** Bounded to {@link DISPLACED_SESSIONS_REMEMBERED}, oldest dropped first. */
+  rememberDisplaced(key: string, ended: DisplacedSession): void;
+  forgetDisplaced(key: string): void;
+  sweep(at: number, displacedForMs: number): void;
+}
+
+function expiredAt(session: StoredSession, at: number, limits: SessionLimits): SessionRefusalKind | null {
+  if (at - session.lastSeenAt > Math.min(session.idleMs, limits.idleMs)) return SessionRefusalKind.Idle;
+  if (at - session.issuedAt > Math.min(session.maxMs, limits.maxMs)) return SessionRefusalKind.Aged;
+  return null;
+}
+
+export function createMemorySessionStore(): SessionStore {
+  const byHash = new Map<string, StoredSession>();
+  // SECURITY: a record that a session ENDED, kept only so its holder can be
+  // told why. It grants nothing, is bounded, and is forgotten after the idle
+  // window; it is written only by another user's verified sign-in on the same
+  // device, never by a revoke, a sign-out or anything a caller sends.
+  const displaced = new Map<string, DisplacedSession>();
+  return {
+    lastSeenWriteIntervalMs: 0,
+    atomically: (work) => work(),
+    get: (key) => byHash.get(key) ?? null,
+    put: (key, session) => void byHash.set(key, session),
+    remove: (key) => void byHash.delete(key),
+    removeUser(userId) {
+      for (const [key, session] of byHash) if (session.userId === userId) byHash.delete(key);
+    },
+    onDevice: (deviceHash) => [...byHash].filter(([, session]) => session.deviceHash !== null && tokensMatch(session.deviceHash, deviceHash)),
+    displaced: (key) => displaced.get(key) ?? null,
+    rememberDisplaced(key, ended) {
+      displaced.delete(key);
+      displaced.set(key, ended);
+      while (displaced.size > DISPLACED_SESSIONS_REMEMBERED) {
+        const oldest = displaced.keys().next();
+        if (oldest.done) break;
+        displaced.delete(oldest.value);
+      }
+    },
+    forgetDisplaced: (key) => void displaced.delete(key),
+    sweep(at, displacedForMs) {
+      for (const [key, session] of byHash) {
+        if (expiredAt(session, at, session)) byHash.delete(key);
+      }
+      for (const [key, ended] of displaced) {
+        if (at - ended.at > displacedForMs) displaced.delete(key);
+      }
+    },
+  };
 }
 
 export interface SessionAddressChange {
@@ -280,146 +351,168 @@ export interface SessionLimits {
 
 export const DEFAULT_SESSION_LIMITS: SessionLimits = { idleMs: IDLE_TIMEOUT_MS, maxMs: MAX_SESSION_MS };
 
-export function createSessionRegistry(now: () => number = Date.now, limits: SessionLimits = DEFAULT_SESSION_LIMITS): SessionRegistry {
-  const byHash = new Map<string, StoredSession>();
-  // SECURITY: a record that a session ENDED, kept only so its holder can be
-  // told why. It grants nothing, is bounded, and is forgotten after the idle
-  // window; it is written only by another user's verified sign-in on the same
-  // device, never by a revoke, a sign-out or anything a caller sends.
-  const displaced = new Map<string, DisplacedSession>();
+interface Evaluation {
+  readonly lookup: SessionLookup;
+  /** undefined leaves the stored session alone, null ends it, a session replaces it. */
+  readonly write?: StoredSession | null;
+}
 
-  function rememberDisplaced(key: string, session: StoredSession, at: number): void {
-    displaced.delete(key);
-    displaced.set(key, { userId: session.userId, issuedFrom: session.issuedFrom, at });
-    while (displaced.size > DISPLACED_SESSIONS_REMEMBERED) {
-      const oldest = displaced.keys().next();
-      if (oldest.done) break;
-      displaced.delete(oldest.value);
-    }
-  }
-
-  function open(grant: SessionGrant, origin: string | null, deviceHash: string | null): string {
-    const at = now();
-    sweep(at);
+export function createSessionRegistry(
+  now: () => number = Date.now,
+  limits: SessionLimits = DEFAULT_SESSION_LIMITS,
+  store: SessionStore = createMemorySessionStore(),
+): SessionRegistry {
+  function open(grant: SessionGrant, origin: string | null, deviceHash: string | null, at: number): string {
     const token = randomBytes(32).toString("base64url");
     const from = canonicalOrigin(origin);
-    byHash.set(hashToken(token), { ...grant, issuedAt: at, issuedFrom: from, deviceHash, lastOrigin: from, movedSincePin: false, lastSeenAt: at, deviceMismatches: [] });
+    store.put(hashToken(token), {
+      userId: grant.userId,
+      permissions: [...grant.permissions],
+      roleCode: grant.roleCode,
+      branchScope: grant.branchScope,
+      warehouseScope: grant.warehouseScope,
+      issuedAt: at,
+      issuedFrom: from,
+      deviceHash,
+      lastOrigin: from,
+      movedSincePin: false,
+      lastSeenAt: at,
+      deviceMismatches: [],
+      idleMs: limits.idleMs,
+      maxMs: limits.maxMs,
+    });
     return token;
   }
 
-  function expired(session: StoredSession, at: number): SessionRefusalKind | null {
-    if (at - session.lastSeenAt > limits.idleMs) return SessionRefusalKind.Idle;
-    if (at - session.issuedAt > limits.maxMs) return SessionRefusalKind.Aged;
-    return null;
+  const expired = (session: StoredSession, at: number) => expiredAt(session, at, limits);
+
+  function seen(session: StoredSession, at: number): StoredSession | undefined {
+    return at - session.lastSeenAt >= store.lastSeenWriteIntervalMs ? { ...session, lastSeenAt: at } : undefined;
   }
 
-  function sweep(at: number) {
-    for (const [key, session] of byHash) {
-      if (expired(session, at)) byHash.delete(key);
+  function evaluate(key: string, at: number, presented: string | null, device: string | null): Evaluation {
+    const session = store.get(key);
+    if (!session) {
+      const ended = store.displaced(key);
+      if (!ended || at - ended.at > limits.idleMs) return { lookup: { grant: null, refusal: null } };
+      return {
+        lookup: {
+          grant: null,
+          refusal: { reason: SessionRefusalKind.Displaced, sessionEnded: true, userId: ended.userId, issuedFrom: originLabel(ended.issuedFrom), presentedFrom: originLabel(presented) },
+        },
+      };
     }
-    for (const [key, ended] of displaced) {
-      if (at - ended.at > limits.idleMs) displaced.delete(key);
+
+    if (session.deviceHash !== null) {
+      const held = device !== null && device !== "" && tokensMatch(hashToken(device), session.deviceHash);
+      const from = { userId: session.userId, issuedFrom: originLabel(session.issuedFrom), presentedFrom: originLabel(presented) };
+      if (!held) {
+        const deviceMismatches = [...session.deviceMismatches.filter((refusedAt) => at - refusedAt < DEVICE_MISMATCH_WINDOW_MS), at];
+        const sessionEnded = deviceMismatches.length >= DEVICE_MISMATCH_LIMIT;
+        return {
+          lookup: { grant: null, refusal: { reason: SessionRefusalKind.Device, sessionEnded, ...from } },
+          write: sessionEnded ? null : { ...session, deviceMismatches },
+        };
+      }
+      const reason = expired(session, at);
+      if (reason) return { lookup: { grant: null, refusal: { reason, sessionEnded: true, ...from } }, write: null };
+      if (presented === session.lastOrigin) return { lookup: { grant: session, refusal: null }, write: seen(session, at) };
+      const addressChange = { userId: session.userId, from: originLabel(session.lastOrigin), to: originLabel(presented) };
+      const moved = { ...session, lastSeenAt: at, lastOrigin: presented, movedSincePin: true };
+      return { lookup: { grant: moved, refusal: null, addressChange }, write: moved };
     }
+    // ORIGIN BEFORE EXPIRY, deliberately. A token presented from a second
+    // address is the signal an auditor wants whether or not it had also aged
+    // out, and reporting "idle" for it would file a theft as housekeeping.
+    const reason: SessionRefusalKind | null = presented !== session.issuedFrom ? SessionRefusalKind.Moved : expired(session, at);
+    if (reason) {
+      return {
+        lookup: {
+          grant: null,
+          refusal: { reason, sessionEnded: true, userId: session.userId, issuedFrom: originLabel(session.issuedFrom), presentedFrom: originLabel(presented) },
+        },
+        write: null,
+      };
+    }
+    return { lookup: { grant: session, refusal: null }, write: seen(session, at) };
   }
 
   const registry: SessionRegistry = {
     issue(grant, origin = null) {
-      return open(grant, origin, null);
+      const at = now();
+      return store.atomically(() => {
+        store.sweep(at, limits.idleMs);
+        return open(grant, origin, null, at);
+      });
     },
     issueDeviceBound(grant, origin = null, heldSecret = null) {
-      // SECURITY: a secret the caller presents is adopted only when a LIVE
-      // session of the SAME user was issued with it. Anything else — a value
-      // the server never issued, or another user's secret planted on this
-      // device — is discarded for a fresh one, so a sign-in can never be bound
-      // to a secret somebody else chose.
-      if (heldSecret) {
-        const heldHash = hashToken(heldSecret);
-        const at = now();
-        const onThisDevice = [...byHash].filter(([, session]) => session.deviceHash !== null && tokensMatch(session.deviceHash, heldHash) && !expired(session, at));
-        if (onThisDevice.some(([, session]) => session.userId === grant.userId)) {
-          return { token: open(grant, origin, heldHash), deviceSecret: heldSecret };
+      const at = now();
+      return store.atomically(() => {
+        store.sweep(at, limits.idleMs);
+        // SECURITY: a secret the caller presents is adopted only when a LIVE
+        // session of the SAME user was issued with it. Anything else — a value
+        // the server never issued, or another user's secret planted on this
+        // device — is discarded for a fresh one, so a sign-in can never be bound
+        // to a secret somebody else chose. Adopting it ends that user's earlier
+        // sessions on the device: the cookie that held their token is being
+        // overwritten, so nothing legitimate presents it again.
+        if (heldSecret) {
+          const heldHash = hashToken(heldSecret);
+          const onThisDevice = store.onDevice(heldHash).filter(([, session]) => !expired(session, at));
+          const mine = onThisDevice.filter(([, session]) => session.userId === grant.userId);
+          if (mine.length > 0) {
+            for (const [key] of mine) store.remove(key);
+            return { token: open(grant, origin, heldHash, at), deviceSecret: heldSecret };
+          }
+          for (const [key, session] of onThisDevice) {
+            store.remove(key);
+            store.rememberDisplaced(key, { userId: session.userId, issuedFrom: session.issuedFrom, at });
+          }
         }
-        for (const [key, session] of onThisDevice) {
-          byHash.delete(key);
-          rememberDisplaced(key, session, at);
-        }
-      }
-      const deviceSecret = randomBytes(32).toString("base64url");
-      return { token: open(grant, origin, hashToken(deviceSecret)), deviceSecret };
+        const deviceSecret = randomBytes(32).toString("base64url");
+        return { token: open(grant, origin, hashToken(deviceSecret), at), deviceSecret };
+      });
     },
     needsStepUp(token) {
-      return byHash.get(hashToken(token))?.movedSincePin === true;
+      return store.get(hashToken(token))?.movedSincePin === true;
     },
     confirmStepUp(token) {
-      const session = byHash.get(hashToken(token));
-      if (session) session.movedSincePin = false;
+      const key = hashToken(token);
+      store.atomically(() => {
+        const session = store.get(key);
+        if (session?.movedSincePin) store.put(key, { ...session, movedSincePin: false });
+      });
     },
     inspect(token, origin = null, device = null) {
       const at = now();
       const key = hashToken(token);
-      const session = byHash.get(key);
-      if (!session) {
-        const ended = displaced.get(key);
-        if (!ended || at - ended.at > limits.idleMs) return { grant: null, refusal: null };
-        return {
-          grant: null,
-          refusal: { reason: SessionRefusalKind.Displaced, sessionEnded: true, userId: ended.userId, issuedFrom: originLabel(ended.issuedFrom), presentedFrom: originLabel(canonicalOrigin(origin)) },
-        };
-      }
-
       const presented = canonicalOrigin(origin);
-      if (session.deviceHash !== null) {
-        const held = device !== null && device !== "" && tokensMatch(hashToken(device), session.deviceHash);
-        const from = { userId: session.userId, issuedFrom: originLabel(session.issuedFrom), presentedFrom: originLabel(presented) };
-        if (!held) {
-          session.deviceMismatches = [...session.deviceMismatches.filter((refusedAt) => at - refusedAt < DEVICE_MISMATCH_WINDOW_MS), at];
-          const sessionEnded = session.deviceMismatches.length >= DEVICE_MISMATCH_LIMIT;
-          if (sessionEnded) byHash.delete(key);
-          return { grant: null, refusal: { reason: SessionRefusalKind.Device, sessionEnded, ...from } };
-        }
-        const reason = expired(session, at);
-        if (reason) {
-          byHash.delete(key);
-          return { grant: null, refusal: { reason, sessionEnded: true, ...from } };
-        }
-        session.lastSeenAt = at;
-        if (presented === session.lastOrigin) return { grant: session, refusal: null };
-        const addressChange = { userId: session.userId, from: originLabel(session.lastOrigin), to: originLabel(presented) };
-        session.lastOrigin = presented;
-        session.movedSincePin = true;
-        return { grant: session, refusal: null, addressChange };
-      }
-      // ORIGIN BEFORE EXPIRY, deliberately. A token presented from a second
-      // address is the signal an auditor wants whether or not it had also aged
-      // out, and reporting "idle" for it would file a theft as housekeeping.
-      const reason: SessionRefusalKind | null = presented !== session.issuedFrom ? SessionRefusalKind.Moved : expired(session, at);
-      if (reason) {
-        byHash.delete(key);
-        return {
-          grant: null,
-          refusal: {
-            reason,
-            sessionEnded: true,
-            userId: session.userId,
-            issuedFrom: originLabel(session.issuedFrom),
-            presentedFrom: originLabel(presented),
-          },
-        };
-      }
-      session.lastSeenAt = at;
-      return { grant: session, refusal: null };
+      const first = evaluate(key, at, presented, device);
+      if (first.write === undefined) return first.lookup;
+      // SECURITY: on a shared tenant connection this write can land inside
+      // another request's open transaction and be rolled back with it. Nothing
+      // depends on it surviving: every lookup re-applies expiry, origin and
+      // device checks, so an ended session that came back is ended again on
+      // its next presentation.
+      return store.atomically(() => {
+        const settled = evaluate(key, at, presented, device);
+        if (settled.write === null) store.remove(key);
+        else if (settled.write !== undefined) store.put(key, settled.write);
+        return settled.lookup;
+      });
     },
     find(token, origin = null, device = null) {
       return registry.inspect(token, origin, device).grant;
     },
     revoke(token) {
-      byHash.delete(hashToken(token));
-      displaced.delete(hashToken(token));
+      const key = hashToken(token);
+      store.atomically(() => {
+        store.remove(key);
+        store.forgetDisplaced(key);
+      });
     },
     revokeUser(userId) {
-      for (const [key, session] of byHash) {
-        if (session.userId === userId) byHash.delete(key);
-      }
+      store.removeUser(userId);
     },
   };
 

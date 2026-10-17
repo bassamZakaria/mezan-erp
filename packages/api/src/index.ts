@@ -78,6 +78,11 @@ export { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-ro
 export { ATTACHMENT_ENTITY_OWNERS, AttachmentOwner, createAttachmentsRoutes, type AttachmentsRoutesDeps } from "./attachments-routes.js";
 export {
   createSessionRegistry,
+  createMemorySessionStore,
+  DISPLACED_SESSIONS_REMEMBERED,
+  type SessionStore,
+  type StoredSession,
+  type DisplacedSession,
   createSessionAuthContextResolver,
   readSessionToken,
   sessionOriginReporting,

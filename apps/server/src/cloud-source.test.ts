@@ -272,7 +272,8 @@ describe("a cloud caller behind the two-hop proxy", () => {
         method: "POST", tenant: "acme", headers: { cookie: jar.cookie, "x-mezan-csrf": jar.csrf },
         body: JSON.stringify({ currentPassword: "not-the-password", newPassword: "a-new-password-1" }),
       });
-      expect(wrong.status).toBe(401);
+      expect(wrong.status).toBe(403);
+      expect(((await wrong.json()) as { error: string }).error).toBe("INCORRECT_PASSWORD");
       expect(wrong.headers.getSetCookie()).toEqual([]);
       expect((await h.send("/api/profile", { tenant: "acme", headers: { cookie: jar.cookie } })).status).toBe(200);
     });

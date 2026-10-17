@@ -99,6 +99,7 @@ export {
 export {
   createMemoryKeyedLock,
   createLeasedKeyedLock,
+  leaseBeforeTheTurn,
   LockBusyError,
   LOCK_BUSY_AR,
   type KeyedLock,

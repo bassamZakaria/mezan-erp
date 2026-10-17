@@ -1,4 +1,8 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createSqliteLeaseStore } from "@mezan/persistence";
 import { ALL_SCOPE, type EtaCommandResult } from "@mezan/domain";
 import { IDEMPOTENT_CREATES } from "@mezan/api";
 import { createBackend, type BackendHandle, type CreateBackendOptions } from "./create-backend.js";
@@ -699,5 +703,44 @@ describe("a create sent again because its answer never arrived", () => {
     expect(refused.status).toBeGreaterThanOrEqual(400);
 
     expect((await t.call("POST", "/sales-invoices", invoice("66666666-aaaa-4bbb-8ccc-000000000006"))).status).toBe(201);
+  });
+});
+
+describe("a tenant's connection while an HR request waits for a resource lease", () => {
+  it("serves another request while the waiting one polls, and finishes the waiting one once the lease frees", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "mezan-lease-"));
+    const dbPath = join(dir, "books.sqlite");
+    try {
+      const t = await open({ dbPath });
+      const holder = createSqliteLeaseStore(dbPath);
+      holder.tryAcquire("hr-advance:ADV-HELD", "other-instance", Date.now() + 60_000, Date.now());
+
+      const waiting = t.call("POST", "/hr/advances/ADV-HELD/repay", {
+        treasuryAccountId: "1101",
+        branchId: "BR-MAIN",
+        repaymentId: "REP-1",
+        amount: "10",
+      });
+      let settled = false;
+      void waiting.then(() => (settled = true));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const read = await t.call("GET", "/item-brands");
+      const write = await t.addBrand();
+
+      expect(read.status).toBe(200);
+      expect(write.status).toBe(201);
+      expect(settled, JSON.stringify(await Promise.race([waiting, null]))).toBe(false);
+
+      holder.release("hr-advance:ADV-HELD", "other-instance");
+      const answer = await waiting;
+      expect(answer.status, JSON.stringify(answer.body)).toBe(404);
+    } finally {
+      for (const handle of handles.splice(0)) {
+        await handle.drain();
+        handle.close();
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

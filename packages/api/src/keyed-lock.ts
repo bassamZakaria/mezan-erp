@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Context } from "hono";
 
 export interface KeyedLock {
   run<T>(key: string, work: () => Promise<T>): Promise<T>;
@@ -79,5 +80,43 @@ export function createLeasedKeyedLock(options: LeasedKeyedLockOptions): KeyedLoc
           options.store.release(key, owner);
         }
       }),
+  };
+}
+
+export interface LeaseBeforeTheTurnOptions {
+  readonly store: LeaseStore;
+  readonly inTurn: <T>(work: () => Promise<T>) => Promise<T>;
+  readonly keyFor: (c: Context) => Promise<string | null>;
+  readonly now?: () => number;
+  readonly leaseMs?: number;
+  readonly waitMs?: number;
+  readonly pollMs?: number;
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * SECURITY/CORRECTNESS: the wait for a lease held by another instance happens
+ * BEFORE the request takes the connection's turn and opens its audit
+ * transaction. Inside either, a poll that yields would hold every other write
+ * of the tenant behind it, or roll the request back as having yielded. Each
+ * database statement here is one short turn of its own.
+ */
+export function leaseBeforeTheTurn(options: LeaseBeforeTheTurnOptions) {
+  const now = options.now ?? Date.now;
+  const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
+  const waitMs = options.waitMs ?? DEFAULT_WAIT_MS;
+  const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  return async (c: Context): Promise<(() => void) | Response | void> => {
+    const key = await options.keyFor(c);
+    if (key === null) return;
+    const owner = randomUUID();
+    const deadline = now() + waitMs;
+    while (!(await options.inTurn(async () => options.store.tryAcquire(key, owner, now() + leaseMs, now())))) {
+      if (now() >= deadline) return c.json({ error: "RESOURCE_BUSY", message: LOCK_BUSY_AR }, 409);
+      await sleep(pollMs);
+    }
+    return () => void options.inTurn(async () => options.store.release(key, owner)).catch(() => undefined);
   };
 }

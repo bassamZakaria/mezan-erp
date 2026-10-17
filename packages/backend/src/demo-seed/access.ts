@@ -182,6 +182,7 @@ const ROLES = [
       "hr.payroll.view",
       "hr.payroll.approve",
       "hr.payroll.pay",
+      "hr.payroll.bank_file",
       "workflow.view",
       "workflow.approve",
       "workflow.reject",

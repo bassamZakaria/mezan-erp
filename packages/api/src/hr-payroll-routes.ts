@@ -1,5 +1,6 @@
 import { createMemoryKeyedLock, LockBusyError, LOCK_BUSY_AR, type KeyedLock } from "./keyed-lock.js";
 import { postingRefusalResponse } from "./posting-refusal.js";
+import { mountBankFileRoutes, type BankFileRoutesDeps } from "./hr-bank-file-routes.js";
 import { readReversalRequest, reversalRefusalResponse, requireReversalReason } from "./document-reversal.js";
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
@@ -192,8 +193,10 @@ export interface HrPayrollRoutesDeps {
     readonly balances: Pick<LeaveBalanceRepository, "list">;
     readonly policies: Pick<LeavePolicyRepository, "list">;
   };
-  /** Forensic trail for the statutory switch and the admin-entered legal figures. */
+  /** Forensic trail for the statutory switch, the admin-entered legal figures and every exported bank file. */
   readonly audit?: AuditSink;
+  /** Resolves the bank account a salary bank file is debited from. */
+  readonly treasuryAccounts?: BankFileRoutesDeps["treasuryAccounts"];
   readonly idGen?: () => string;
 }
 
@@ -1037,6 +1040,12 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
   }
 
   // --- Payroll runs --------------------------------------------------------
+
+  mountBankFileRoutes(
+    app,
+    { runs: deps.runs, payslips: deps.payslips, employees: deps.employees, treasuryAccounts: deps.treasuryAccounts, audit: deps.audit },
+    gate,
+  );
 
   app.get("/payroll/runs", gate("hr.payroll.view"), async (c) => {
     return c.json((await deps.runs.list()).map(serializeRun));

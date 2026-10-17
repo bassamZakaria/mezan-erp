@@ -4925,6 +4925,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
         // 2180 already carries, so it reads the posted ledger.
         ledger,
         audit: auditSink,
+        treasuryAccounts,
       },
       users: uow.users,
       numbering: ledger.numbering,

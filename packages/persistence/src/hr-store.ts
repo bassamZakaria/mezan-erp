@@ -3,6 +3,7 @@ import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-conne
 import { insertingNew, prepareInsertOnly } from "./insert-new.js";
 import {
   DuplicateDeviceBadgeError,
+  type SalaryPaymentMethod,
   Money,
   type Department,
   type DepartmentRepository,
@@ -271,6 +272,10 @@ CREATE TABLE IF NOT EXISTS hr_employee (
   device_badge_id               TEXT,
   address_json                  TEXT,
   emergency_contact_json        TEXT,
+  salary_payment_method         TEXT,
+  bank_iban                     TEXT,
+  bank_account_name             TEXT,
+  bank_name                     TEXT,
   status                        TEXT NOT NULL,
   terminated_at                 TEXT,
   created_at                    TEXT NOT NULL
@@ -308,6 +313,10 @@ interface EmployeeRow {
   tax_disability_exemption: number;
   address_json: string | null;
   emergency_contact_json: string | null;
+  salary_payment_method: string | null;
+  bank_iban: string | null;
+  bank_account_name: string | null;
+  bank_name: string | null;
   status: string;
   terminated_at: string | null;
   created_at: string;
@@ -345,6 +354,8 @@ function toEmployee(row: EmployeeRow): Employee {
     taxDisabilityExemption: row.tax_disability_exemption === 1,
     address: row.address_json ? (JSON.parse(row.address_json) as EmployeeAddress) : null,
     emergencyContact: row.emergency_contact_json ? (JSON.parse(row.emergency_contact_json) as EmergencyContact) : null,
+    salaryPaymentMethod: (row.salary_payment_method as SalaryPaymentMethod | null) ?? null,
+    bankAccount: row.bank_iban ? { iban: row.bank_iban, accountName: row.bank_account_name ?? null, bankName: row.bank_name ?? null } : null,
     status: row.status as EmployeeStatus,
     terminatedAt: row.terminated_at,
     createdAt: row.created_at,
@@ -364,14 +375,14 @@ class SqliteEmployeeRepository implements EmployeeRepository {
         gender, marital_status, department_id, job_title_id, manager_id, branch_id, hire_date, worker_category,
         employment_type, overtime_eligibility, standard_work_hours, probation_end_date, prior_service_years,
         require_selfie_at_clock_in, require_biometric_at_clock_in, device_badge_id, has_pension_entitlement, tax_disability_exemption,
-        address_json, emergency_contact_json, status, terminated_at, created_at
+        address_json, emergency_contact_json, salary_payment_method, bank_iban, bank_account_name, bank_name, status, terminated_at, created_at
       )
       VALUES (
         @id, @code, @first_name, @last_name, @first_name_ar, @last_name_ar, @email, @phone, @birth_date, @national_id,
         @gender, @marital_status, @department_id, @job_title_id, @manager_id, @branch_id, @hire_date, @worker_category,
         @employment_type, @overtime_eligibility, @standard_work_hours, @probation_end_date, @prior_service_years,
         @require_selfie_at_clock_in, @require_biometric_at_clock_in, @device_badge_id, @has_pension_entitlement, @tax_disability_exemption,
-        @address_json, @emergency_contact_json, @status, @terminated_at, @created_at
+        @address_json, @emergency_contact_json, @salary_payment_method, @bank_iban, @bank_account_name, @bank_name, @status, @terminated_at, @created_at
       )
       ON CONFLICT(id) DO UPDATE SET
         first_name = excluded.first_name,
@@ -402,6 +413,10 @@ class SqliteEmployeeRepository implements EmployeeRepository {
         tax_disability_exemption = excluded.tax_disability_exemption,
         address_json = excluded.address_json,
         emergency_contact_json = excluded.emergency_contact_json,
+        salary_payment_method = excluded.salary_payment_method,
+        bank_iban = excluded.bank_iban,
+        bank_account_name = excluded.bank_account_name,
+        bank_name = excluded.bank_name,
         status = excluded.status,
         terminated_at = excluded.terminated_at
     `);
@@ -468,6 +483,10 @@ class SqliteEmployeeRepository implements EmployeeRepository {
       tax_disability_exemption: employee.taxDisabilityExemption ? 1 : 0,
       address_json: employee.address ? JSON.stringify(employee.address) : null,
       emergency_contact_json: employee.emergencyContact ? JSON.stringify(employee.emergencyContact) : null,
+      salary_payment_method: employee.salaryPaymentMethod ?? null,
+      bank_iban: employee.bankAccount?.iban ?? null,
+      bank_account_name: employee.bankAccount?.accountName ?? null,
+      bank_name: employee.bankAccount?.bankName ?? null,
       status: employee.status,
       terminated_at: employee.terminatedAt,
       created_at: employee.createdAt,
@@ -904,6 +923,9 @@ export function createSqliteEmployeeRepository(path: SqliteConnectionInput = ":m
   if (!columns.has("has_pension_entitlement")) sqlite.exec("ALTER TABLE hr_employee ADD COLUMN has_pension_entitlement INTEGER");
   if (!columns.has("tax_disability_exemption")) sqlite.exec("ALTER TABLE hr_employee ADD COLUMN tax_disability_exemption INTEGER NOT NULL DEFAULT 0");
   if (!columns.has("device_badge_id")) sqlite.exec("ALTER TABLE hr_employee ADD COLUMN device_badge_id TEXT");
+  for (const column of ["salary_payment_method", "bank_iban", "bank_account_name", "bank_name"]) {
+    if (!columns.has(column)) sqlite.exec(`ALTER TABLE hr_employee ADD COLUMN ${column} TEXT`);
+  }
   ensureDeviceBadgeIndex(sqlite);
   const repo = new SqliteEmployeeRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteEmployeeRepositoryHandle;

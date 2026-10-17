@@ -77,6 +77,10 @@ import {
   type PrintTemplateConfigRepository,
   type SettingsRepository,
   DuplicateDeviceBadgeError,
+  InvalidSalaryPaymentError,
+  SalaryPaymentMethod,
+  maskIban,
+  setEmployeeSalaryPayment,
   assertDeviceBadgeAvailable,
   normalizeDeviceBadgeId,
 } from "@mezan/domain";
@@ -93,6 +97,8 @@ import {
   createHolidaySchema,
   updateHolidaySchema,
   createLeaveRequestSchema,
+  setSalaryPaymentSchema,
+  SalaryPaymentMethodDTO,
   type PayBasisDTO,
   type TransitionEmployeeDTO,
 } from "@mezan/contracts";
@@ -193,7 +199,18 @@ function serializeJobTitle(j: JobTitle) {
   };
 }
 
-function serializeEmployee(e: Employee) {
+function serializeBankAccount(e: Employee, withSalary: boolean) {
+  if (!e.bankAccount) return null;
+  return {
+    ...(withSalary ? { iban: e.bankAccount.iban } : {}),
+    ibanMasked: maskIban(e.bankAccount.iban),
+    accountName: e.bankAccount.accountName,
+    bankName: e.bankAccount.bankName,
+  };
+}
+
+/** The IBAN rides only for `hr.employee.view_salary`, like contract pay (D31); everyone else sees the masked form. */
+function serializeEmployee(e: Employee, withSalary = false) {
   return {
     id: e.id,
     code: e.code,
@@ -225,6 +242,8 @@ function serializeEmployee(e: Employee) {
     taxDisabilityExemption: e.taxDisabilityExemption,
     address: e.address,
     emergencyContact: e.emergencyContact,
+    salaryPaymentMethod: e.salaryPaymentMethod,
+    bankAccount: serializeBankAccount(e, withSalary),
     status: e.status,
     terminatedAt: e.terminatedAt,
     createdAt: e.createdAt,
@@ -306,6 +325,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof DuplicateDeviceBadgeError) {
     return c.json(withMessageEn(err), 409);
   }
+  if (err instanceof InvalidSalaryPaymentError) {
+    return c.json(withMessageEn(err), 422);
+  }
   if (
     err instanceof DepartmentNotFoundError ||
     err instanceof JobTitleNotFoundError ||
@@ -341,6 +363,12 @@ async function resolveCallerEmployeeId(c: Context, deps: HrRoutesDeps): Promise<
   const user = await deps.users.findById(ctx.userId);
   return user?.employeeId ?? null;
 }
+
+const SALARY_PAYMENT_FROM_WIRE: Record<SalaryPaymentMethodDTO, SalaryPaymentMethod> = {
+  [SalaryPaymentMethodDTO.BankTransfer]: SalaryPaymentMethod.BankTransfer,
+  [SalaryPaymentMethodDTO.Cash]: SalaryPaymentMethod.Cash,
+  [SalaryPaymentMethodDTO.Cheque]: SalaryPaymentMethod.Cheque,
+};
 
 export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthContextResolver): Hono {
   const app = new Hono();
@@ -527,13 +555,59 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   // --- Employees -----------------------------------------------------------
 
   app.get("/employees", gate("hr.employee.view"), async (c) => {
-    return c.json(withinScope(await deps.employees.list(), branchScopeOf(c), (e) => e.branchId).map(serializeEmployee));
+    const withSalary = maySeeSalary(c);
+    return c.json(withinScope(await deps.employees.list(), branchScopeOf(c), (e) => e.branchId).map((e) => serializeEmployee(e, withSalary)));
   });
 
   app.get("/employees/:id", gate("hr.employee.view"), async (c) => {
     const employee = await deps.employees.findById(c.req.param("id"));
     if (!employee) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
-    return c.json(serializeEmployee(employee));
+    return c.json(serializeEmployee(employee, maySeeSalary(c)));
+  });
+
+  app.put("/employees/:id/salary-payment", gate("hr.employee.edit"), async (c) => {
+    if (!maySeeSalary(c)) {
+      return c.json(
+        {
+          error: "SALARY_PAYMENT_FORBIDDEN",
+          message: "تعديل طريقة صرف الراتب والحساب البنكي يتطلب صلاحية «عرض الراتب».",
+          messageEn: "Changing how a salary is paid and to which account requires the View salary permission.",
+        },
+        403,
+      );
+    }
+    const parsed = setSalaryPaymentSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const employee = await atomically(deps.transactor, async () => {
+        const current = await deps.employees.findById(c.req.param("id"));
+        if (!current) throw new EmployeeNotFoundError(c.req.param("id"));
+        const next = setEmployeeSalaryPayment(current, { ...parsed.data, method: SALARY_PAYMENT_FROM_WIRE[parsed.data.method] });
+        await deps.employees.update(next);
+        if (deps.audit) {
+          await recordSensitiveEvent(deps.audit, {
+            module: "hr",
+            entityType: "EMPLOYEE",
+            entityId: next.id,
+            action: "SALARY_PAYMENT_CHANGED",
+            actor: getAuthContext(c)?.userId ?? "system",
+            severity: "WARNING",
+            details: {
+              methodFrom: current.salaryPaymentMethod,
+              methodTo: next.salaryPaymentMethod,
+              ibanFrom: current.bankAccount ? maskIban(current.bankAccount.iban) : null,
+              ibanTo: next.bankAccount ? maskIban(next.bankAccount.iban) : null,
+              accountNameTo: next.bankAccount?.accountName ?? null,
+              bankNameTo: next.bankAccount?.bankName ?? null,
+            },
+          });
+        }
+        return next;
+      });
+      return c.json(serializeEmployee(employee, true));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   app.get("/employees/:id/contracts", gate("hr.contract.view"), async (c) => {

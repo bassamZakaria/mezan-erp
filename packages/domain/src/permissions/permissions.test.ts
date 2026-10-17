@@ -53,13 +53,17 @@ describe("permission catalog", () => {
     // 268 → 269. `POST /vouchers/:id/reverse` joined the reversal registry with
     // `treasury.cash_voucher.reverse`; it rode on the three voucher `.void` codes.
     //
+    // 269 → 270. Lane 4D added `hr.payroll.bank_file`, gated on
+    // `POST /hr/payroll/runs/:id/bank-file` (`packages/api/src/hr-payroll-routes.ts`) —
+    // exporting the salary transfer file for a run.
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(269);
+    expect(PERMISSIONS).toHaveLength(270);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(269);
+    expect(summed).toBe(270);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -111,8 +115,10 @@ describe("permission catalog", () => {
     expect(isSensitive("accounting.period.close")).toBe(false);
     expect(PERMISSIONS.filter((p) => p.code.endsWith(".reverse")).every((p) => p.sensitive)).toBe(true);
     expect(isSensitive("purchases.landed_cost.void")).toBe(false);
+    // 26 → 27: the salary bank file carries every bank-paid employee's IBAN and net pay.
+    expect(isSensitive("hr.payroll.bank_file")).toBe(true);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(26);
+    expect(sensitiveCount).toBe(27);
   });
 
   it("marks the one platform-admin-only permission", () => {

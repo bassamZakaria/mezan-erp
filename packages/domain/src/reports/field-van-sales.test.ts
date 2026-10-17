@@ -35,6 +35,8 @@ function employee(overrides: Partial<Employee> = {}): Employee {
     requireBiometricAtClockIn: false, deviceBadgeId: null, hasPensionEntitlement: null, taxDisabilityExemption: false,
     address: null,
     emergencyContact: null,
+    salaryPaymentMethod: null,
+    bankAccount: null,
     status: EmployeeRefStatus.Active,
     terminatedAt: null,
     createdAt: "2020-01-01T00:00:00.000Z",

@@ -58,6 +58,7 @@ export const PERMISSION_ACTION_LABELS = {
   apply_preset: { ar: "تطبيق نموذج", en: "Apply preset" },
   calculate: { ar: "احتساب", en: "Calculate" },
   pay: { ar: "دفع", en: "Pay" },
+  bank_file: { ar: "تصدير ملف تحويل الرواتب للبنك", en: "Export the salary bank file" },
   dispose: { ar: "استبعاد", en: "Dispose" },
   submit: { ar: "إرسال", en: "Submit" },
   import: { ar: "استيراد", en: "Import" },

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { employeeBankAccountSchema, salaryPaymentMethodSchema } from "./hr-bank.js";
 import { moneyString } from "./money-string.js";
 import { clientSuppliedId } from "./client-supplied-id.js";
 
@@ -126,6 +127,8 @@ export const employeeSchema = z.object({
   taxDisabilityExemption: z.boolean(),
   address: employeeAddressSchema.nullable(),
   emergencyContact: emergencyContactSchema.nullable(),
+  salaryPaymentMethod: salaryPaymentMethodSchema.nullable().optional(),
+  bankAccount: employeeBankAccountSchema.nullable().optional(),
   status: employeeStatusSchema,
   terminatedAt: z.string().nullable(),
   createdAt: z.string().min(1),

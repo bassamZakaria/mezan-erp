@@ -51,6 +51,19 @@ export interface EmergencyContact {
   readonly altPhone: string | null;
 }
 
+export enum SalaryPaymentMethod {
+  BankTransfer = "bank_transfer",
+  Cash = "cash",
+  Cheque = "cheque",
+}
+
+export interface EmployeeBankAccount {
+  /** Normalised (no spaces, upper case) and validated by `validateEgyptianIban` before it is stored. */
+  readonly iban: string;
+  readonly accountName: string | null;
+  readonly bankName: string | null;
+}
+
 export interface Employee {
   readonly id: string;
   /** EMP-#### numbering-engine code. */
@@ -96,6 +109,9 @@ export interface Employee {
   readonly taxDisabilityExemption: boolean;
   readonly address: EmployeeAddress | null;
   readonly emergencyContact: EmergencyContact | null;
+  /** Null = never recorded; the payroll bank file lists such an employee as an exception rather than guessing. */
+  readonly salaryPaymentMethod: SalaryPaymentMethod | null;
+  readonly bankAccount: EmployeeBankAccount | null;
   readonly status: EmployeeStatus;
   readonly terminatedAt: string | null;
   readonly createdAt: string;

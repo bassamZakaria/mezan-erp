@@ -2011,3 +2011,6 @@ export {
 export { decimalRateString, MONEY_STRING_RULES, moneyString, nonNegativeMoneyString, nonNegativeQuantityString, quantityString } from "./money-string.js";
 export { InvoiceDocumentKind } from "./invoice-document-kind.js";
 export { DOCUMENT_REVERSAL_PATHS, ReversalDocumentType, ReversalPermission, reversalPermissionSuccessors, reversalRoute, withReversalPermissions, type DocumentReversalPath } from "./document-reversal.js";
+
+// --- hr-bank.ts — employee salary payment method, IBAN and the payroll bank file (lane 4D) ---
+export * from "./hr-bank.js";

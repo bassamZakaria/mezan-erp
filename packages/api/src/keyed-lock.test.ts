@@ -1,0 +1,99 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { createSqliteLeaseStore } from "@mezan/persistence";
+import { createLeasedKeyedLock, createMemoryKeyedLock, LockBusyError } from "./keyed-lock.js";
+
+const dirs: string[] = [];
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
+function sharedFile() {
+  const dir = mkdtempSync(join(tmpdir(), "mezan-lease-"));
+  dirs.push(dir);
+  return join(dir, "tenant.db");
+}
+
+const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 1));
+
+describe("createMemoryKeyedLock", () => {
+  it("runs two callers on one key strictly one after the other", async () => {
+    const lock = createMemoryKeyedLock();
+    const order: string[] = [];
+    const first = lock.run("k", async () => {
+      order.push("a:start");
+      await tick();
+      order.push("a:end");
+    });
+    const second = lock.run("k", async () => {
+      order.push("b:start");
+      order.push("b:end");
+    });
+    await Promise.all([first, second]);
+    expect(order).toEqual(["a:start", "a:end", "b:start", "b:end"]);
+  });
+
+  it("a failing holder does not wedge the key", async () => {
+    const lock = createMemoryKeyedLock();
+    await expect(lock.run("k", async () => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
+    await expect(lock.run("k", async () => "ok")).resolves.toBe("ok");
+  });
+});
+
+describe("createLeasedKeyedLock across two server instances over one database", () => {
+  it("never lets two instances inside the same key at once", async () => {
+    const file = sharedFile();
+    const a = createLeasedKeyedLock({ store: createSqliteLeaseStore(file), pollMs: 1 });
+    const b = createLeasedKeyedLock({ store: createSqliteLeaseStore(file), pollMs: 1 });
+    let inside = 0;
+    let overlapped = false;
+    const critical = async () => {
+      inside += 1;
+      if (inside > 1) overlapped = true;
+      await tick();
+      await tick();
+      inside -= 1;
+    };
+    await Promise.all([a, b, a, b, a, b].map((lock) => lock.run("hr-advance:ADV-1", critical)));
+    expect(overlapped).toBe(false);
+  });
+
+  it("different keys do not wait for each other", async () => {
+    const file = sharedFile();
+    const a = createLeasedKeyedLock({ store: createSqliteLeaseStore(file), pollMs: 1 });
+    const b = createLeasedKeyedLock({ store: createSqliteLeaseStore(file), pollMs: 1 });
+    let release!: () => void;
+    const held = a.run("one", () => new Promise<void>((resolve) => (release = resolve)));
+    await tick();
+    await expect(b.run("two", async () => "free")).resolves.toBe("free");
+    release();
+    await held;
+  });
+
+  it("refuses with LockBusyError once the wait is spent, and the holder still releases", async () => {
+    const file = sharedFile();
+    let now = 1_000;
+    const store = createSqliteLeaseStore(file);
+    const a = createLeasedKeyedLock({ store, now: () => now, leaseMs: 60_000, waitMs: 50, pollMs: 10, sleep: async (ms) => void (now += ms) });
+    const b = createLeasedKeyedLock({ store: createSqliteLeaseStore(file), now: () => now, leaseMs: 60_000, waitMs: 50, pollMs: 10, sleep: async (ms) => void (now += ms) });
+    let release!: () => void;
+    const held = a.run("k", () => new Promise<void>((resolve) => (release = resolve)));
+    await tick();
+    await expect(b.run("k", async () => "never")).rejects.toBeInstanceOf(LockBusyError);
+    release();
+    await held;
+    await expect(b.run("k", async () => "now")).resolves.toBe("now");
+  });
+
+  it("an instance that died inside the work does not hold the key past its lease", async () => {
+    const file = sharedFile();
+    const store = createSqliteLeaseStore(file);
+    expect(store.tryAcquire("k", "dead-instance", 2_000, 1_000)).toBe(true);
+    expect(store.tryAcquire("k", "other", 3_000, 1_500)).toBe(false);
+    expect(store.tryAcquire("k", "other", 4_000, 2_000)).toBe(true);
+    store.release("k", "dead-instance");
+    expect(store.tryAcquire("k", "third", 5_000, 3_000)).toBe(false);
+  });
+});

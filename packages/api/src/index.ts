@@ -97,6 +97,14 @@ export {
   type SessionRefusal,
 } from "./session-auth.js";
 export {
+  createMemoryKeyedLock,
+  createLeasedKeyedLock,
+  LockBusyError,
+  LOCK_BUSY_AR,
+  type KeyedLock,
+  type LeaseStore,
+} from "./keyed-lock.js";
+export {
   createLoginThrottle,
   createSourceThrottle,
   createMemoryAttemptStore,

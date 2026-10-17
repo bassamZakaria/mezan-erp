@@ -10,6 +10,7 @@ import {
   createPeriodCloseGuardSlot,
   createLoginThrottle,
   createSourceThrottle,
+  createLeasedKeyedLock,
   type LoginThrottle,
   type SmtpConfig,
   createSessionAuthContextResolver,
@@ -355,6 +356,7 @@ import {
   createSqliteIdempotentRequestStore,
   createSqliteAccountLockStore,
   createSqliteAttemptStore,
+  createSqliteLeaseStore,
   SignInAttemptScope,
   createSqlitePeriodCloseStore,
   deriveAuditChainKey,
@@ -1276,6 +1278,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   };
   const hrClockCredentials = createSqliteClockCredentialRepository(sqlite);
   const hrChallenges = createSqliteWebauthnChallengeRepository(sqlite);
+  const hrLocks = createLeasedKeyedLock({ store: createSqliteLeaseStore(sqlite) });
   const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
   const hrPayslips = createSqlitePayslipRepository(sqlite);
   const hrPayrollComponents = createSqlitePayrollComponentRepository(sqlite);
@@ -4897,6 +4900,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       audit: auditSink,
       clockCredentials: hrClockCredentials,
       challenges: hrChallenges,
+      locks: hrLocks,
       payroll: {
         masterData: masterDataChecks,
         advances: hrAdvances,

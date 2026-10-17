@@ -1,5 +1,5 @@
 import type { App } from "@mezan/api";
-import { call, step, BRANCH_ID, WAREHOUSE_ID, ACCOUNTS, seedToday, seedScaled, seedDecimal } from "./shared.js";
+import { call, step, BRANCH_ID, WAREHOUSE_ID, ACCOUNTS, SeedPerson, seedActorHeaders, seededUserId, seedToday, seedScaled, seedDecimal } from "./shared.js";
 
 /**
  * Seed profile module — see `./shared.ts`. Local and test environments only.
@@ -467,6 +467,19 @@ async function seedFieldSales(app: App): Promise<void> {
       { itemId: "ITEM-DEMO-3", countedQty: "30" },
     ],
   });
+
+  // Approval is a second person's act (E3-04): the supervisor posts the cash
+  // handover, the stock return and the SHORTAGE adjustment the count found.
+  const approval = await app.fetch(
+    new Request(`http://demo-seed/field/van-trips/${tripA.id}/approve`, {
+      method: "POST",
+      headers: seedActorHeaders(seededUserId(SeedPerson.Supervisor), ["field.van_trip.approve", "field.van_trip.view"]),
+      body: JSON.stringify({}),
+    }),
+  );
+  if (!approval.ok) {
+    throw new Error(`[demo-seed] POST /field/van-trips/${tripA.id}/approve failed with ${approval.status}: ${await approval.text()}`);
+  }
 
   await step(app, "POST", "/field/van-trips", {
     id: "seed-van-trip-b",

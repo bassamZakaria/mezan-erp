@@ -43,6 +43,7 @@ import {
   SiteService,
   StockLedgerService,
   type InventoryDomainEvent,
+  VanTripCashMovementKind,
   applyAllocatedSettlement,
   EtaSubmissionStatusCode,
   EtaReceiptSourceKind,
@@ -440,6 +441,7 @@ import { lotRequirementFromItems } from "./enh/e2-04.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { ensureStandardRoles } from "./standard-roles.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
+import { createVanReconciliationPostingPort, createVanTripActivityPort } from "./van-reconciliation-ports.js";
 
 /** The confirmed returns citing any of `ids`, in one query where the store can answer it. */
 async function listReturnsCiting<L>(
@@ -3555,12 +3557,12 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     audit: auditSink,
   });
 
-  async function vanTripTreasuryTransfer(input: TreasuryTransferInput): Promise<void> {
+  async function vanTripTreasuryTransfer(input: TreasuryTransferInput & { readonly voucherId?: string }): Promise<void> {
     const [from, to] = await Promise.all([
       treasuryAccounts.findById(input.fromTreasuryAccountId),
       treasuryAccounts.findById(input.toTreasuryAccountId),
     ]);
-    const id = randomUUID();
+    const id = input.voucherId ?? randomUUID();
     await vanTripVoucherService.createVoucher({
       id,
       date: input.date,
@@ -3586,7 +3588,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   async function recordVanCashTaking(input: {
     tripId: string;
     movementId: string;
-    kind: "sale" | "collection";
+    kind: VanTripCashMovementKind;
     amount: Money;
     date: string;
     branchId: string;
@@ -3595,17 +3597,18 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     if (input.amount.scaled <= 0n) return;
     const van = await treasuryAccounts.findById(input.vanTreasuryAccountId);
     const id = `VAN-CASH:${input.movementId}`;
+    const sale = input.kind === VanTripCashMovementKind.Sale;
     await vanTripVoucherService.createVoucher({
       id,
       date: input.date,
-      memo: `${input.kind === "sale" ? "بيع" : "تحصيل"} ميداني — رحلة ${input.tripId}`,
+      memo: `${sale ? "بيع" : "تحصيل"} ميداني — رحلة ${input.tripId}`,
       voucherType: "other_income",
       amount: input.amount,
       branchId: input.branchId,
       paymentMethod: "cash",
       treasuryAccountId: input.vanTreasuryAccountId,
       treasuryGlAccountId: van?.glAccountId ?? "1010",
-      counterpartyGlAccountId: input.kind === "sale" ? "4100" : "2160",
+      counterpartyGlAccountId: sale ? "4100" : "2160",
     });
     await vanTripVoucherService.confirmVoucher(id);
   }
@@ -3617,6 +3620,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    * nobody holds and the next trip inherits it.
    */
   async function recordVanCashVariance(input: {
+    voucherId: string;
     tripId: string;
     date: string;
     branchId: string;
@@ -3626,7 +3630,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     if (input.variance.scaled === 0n) return;
     const shortage = input.variance.scaled < 0n;
     const van = await treasuryAccounts.findById(input.vanTreasuryAccountId);
-    const id = `VAN-VAR:${input.tripId}`;
+    const id = input.voucherId;
     await vanTripVoucherService.createVoucher({
       id,
       date: input.date,
@@ -3641,6 +3645,26 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     });
     await vanTripVoucherService.confirmVoucher(id);
   }
+
+  // --- E3-04 van reconciliation: what the books hold for a van, and the approval's postings. ---
+  const vanTripActivity = createVanTripActivityPort({
+    stock: stockService,
+    movementsOfWarehouse: (warehouseId) => stockLedger.ledger.listByWarehouse(warehouseId),
+    itemCostPrice: async (itemId) => (await items.findById(itemId))?.costPrice ?? null,
+    treasuryAccounts,
+    ledger,
+    listVouchers: (filter) => vanTripVoucherService.list(filter),
+    listInvoices: (filter) => salesInvoices.list(filter),
+    listReturns: (filter) => salesReturns.list(filter),
+  });
+  const vanReconciliationPostings = createVanReconciliationPostingPort({
+    adjustments: stockAdjustments,
+    transfers: stockTransfers,
+    movementsOfDocument: (documentId) => stockService.getMovementsOfDocument(documentId),
+    voucherExists: async (voucherId) => (await vanTripVoucherService.findById(voucherId)) !== null,
+    recordCashVariance: recordVanCashVariance,
+    treasuryTransfer: vanTripTreasuryTransfer,
+  });
 
   /**
    * Sessions live here, and the resolver below is what every gated route on
@@ -5131,7 +5155,9 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
       stock: stockService,
       treasuryTransfer: vanTripTreasuryTransfer,
       recordCashTaking: recordVanCashTaking,
-      recordCashVariance: recordVanCashVariance,
+      activity: vanTripActivity,
+      postings: vanReconciliationPostings,
+      audit: auditSink,
       numbering: { next: (opts) => ledger.numbering.next("VAN_TRIP", { branchId: opts?.branchId }) },
     },
     manufacturing: {

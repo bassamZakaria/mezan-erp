@@ -1,7 +1,10 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import {
+  Money,
   Qty,
   StockLedgerService,
+  type VanReconciliationPostingPort,
+  type VanTripActivityPort,
   type CostLayer,
   type CostLayerRepository,
   type StockLedgerRepository,
@@ -182,8 +185,33 @@ describe("field-sales router — permission gate", () => {
 });
 
 describe("field-sales router — full open -> cash movements -> settle flow", () => {
-  it("reconciles cash variance and stock variance exactly per the domain math", async () => {
-    const { app, treasuryTransfer } = newApp();
+  it("settles against the van's books without posting, and a second user's approval posts the reconciliation", async () => {
+    const activity: VanTripActivityPort = {
+      read: async (trip) => ({
+        stock: [
+          { itemId: "item1", onHand: Qty.fromMajor("20"), unitCost: Money.fromMajor("4"), loadedQty: Qty.fromMajor("20"), soldQty: Qty.zero(), returnedQty: Qty.zero() },
+          { itemId: "item2", onHand: Qty.fromMajor("10"), unitCost: Money.fromMajor("2"), loadedQty: Qty.fromMajor("10"), soldQty: Qty.zero(), returnedQty: Qty.zero() },
+        ],
+        tillBalance: Money.sum([trip.openingCashFloat, ...trip.cashMovements.map((m) => m.amount)]),
+        voucherCollections: Money.zero(),
+        invoicedSales: Money.zero(),
+        returnsValue: Money.zero(),
+      }),
+    };
+    const posted: string[] = [];
+    const postings: VanReconciliationPostingPort = {
+      recordCashVariance: async (input) => void posted.push(`variance:${input.variance.toString()}`),
+      returnCash: async (input) => void posted.push(`cash:${input.amount.toString()}`),
+      postAdjustment: async (input) => {
+        posted.push(`adjust:${input.reason}`);
+        return { held: false, value: Money.fromMajor("8") };
+      },
+      postTransfer: async () => {
+        posted.push("transfer");
+        return { held: false, value: null };
+      },
+    };
+    const { app, treasuryTransfer } = newApp({ activity, postings });
 
     const openRes = await app.fetch(
       req("/", { method: "POST", permissions: "field.van_trip.open", headers: { "content-type": "application/json" }, body: JSON.stringify(openPayload) }),
@@ -191,85 +219,65 @@ describe("field-sales router — full open -> cash movements -> settle flow", ()
     expect(openRes.status).toBe(201);
     const trip = (await openRes.json()) as { id: string; status: string; openingCashFloat: string };
     expect(trip.status).toBe("ongoing");
-    expect(trip.openingCashFloat).toBe("500.000000");
-    // openingCashFloat > 0 → treasuryTransfer invoked on open
     expect(treasuryTransfer).toHaveBeenCalledTimes(1);
 
-    const move1 = await app.fetch(
-      req(`/${trip.id}/cash-movements`, {
-        method: "POST",
-        permissions: "field.van_trip.open",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: "cm1", kind: "sale", amount: "120.50", occurredAt: "2026-08-21T09:00:00.000Z", notes: null }),
-      }),
-    );
-    expect(move1.status).toBe(200);
+    for (const body of [
+      { id: "cm1", kind: "sale", amount: "120.50", occurredAt: "2026-08-21T09:00:00.000Z", notes: null },
+      { id: "cm2", kind: "collection", amount: "75.00", occurredAt: "2026-08-21T11:00:00.000Z", notes: "تحصيل" },
+    ]) {
+      const res = await app.fetch(
+        req(`/${trip.id}/cash-movements`, { method: "POST", permissions: "field.van_trip.open", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+      );
+      expect(res.status).toBe(200);
+    }
 
-    const move2 = await app.fetch(
-      req(`/${trip.id}/cash-movements`, {
-        method: "POST",
-        permissions: "field.van_trip.open",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: "cm2", kind: "collection", amount: "75.00", occurredAt: "2026-08-21T11:00:00.000Z", notes: "تحصيل" }),
-      }),
-    );
-    expect(move2.status).toBe(200);
-    const afterMovements = (await move2.json()) as { cashMovements: unknown[] };
-    expect(afterMovements.cashMovements).toHaveLength(2);
-
-    // expectedCash = openingCashFloat(500) + sale(120.50) + collection(75) = 695.50
-    // countedCash = 690 → cashVariance = -5.50
+    const settleBody = JSON.stringify({ countedCash: "690.00", stockCounts: [{ itemId: "item1", countedQty: "18" }, { itemId: "item2", countedQty: "10" }] });
     const settleRes = await app.fetch(
-      req(`/${trip.id}/settle`, {
-        method: "POST",
-        permissions: "field.van_trip.settle",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          countedCash: "690.00",
-          stockCounts: [
-            { itemId: "item1", countedQty: "18" },
-            { itemId: "item2", countedQty: "10" },
-          ],
-        }),
-      }),
+      req(`/${trip.id}/settle`, { method: "POST", permissions: "field.van_trip.settle", headers: { "content-type": "application/json", "x-user-id": "rep-1" }, body: settleBody }),
     );
     expect(settleRes.status).toBe(200);
     const settled = (await settleRes.json()) as {
       status: string;
-      settlement: {
-        expectedCash: string;
-        countedCash: string;
-        cashVariance: string;
-        stockCounts: { itemId: string; expectedQty: string; countedQty: string; varianceQty: string }[];
-      };
+      settlement: { expectedCash: string; cashVariance: string; settledBy: string; stockCounts: { itemId: string; expectedQty: string; varianceQty: string; varianceValue: string }[] };
     };
-    expect(settled.status).toBe("settled");
+    expect(settled.status).toBe("awaiting_approval");
     expect(settled.settlement.expectedCash).toBe("695.500000");
-    expect(settled.settlement.countedCash).toBe("690.000000");
     expect(settled.settlement.cashVariance).toBe("-5.500000");
-    expect(settled.settlement.stockCounts).toEqual([
-      { itemId: "item1", expectedQty: "20.000000", countedQty: "18.000000", varianceQty: "-2.000000" },
-      { itemId: "item2", expectedQty: "10.000000", countedQty: "10.000000", varianceQty: "0.000000" },
+    expect(settled.settlement.settledBy).toBe("rep-1");
+    expect(settled.settlement.stockCounts.map((l) => [l.itemId, l.varianceQty, l.varianceValue])).toEqual([
+      ["item1", "-2.000000", "-8.000000"],
+      ["item2", "0.000000", "0.000000"],
     ]);
-    // countedCash > 0 → treasuryTransfer invoked again on settle (van → source)
-    expect(treasuryTransfer).toHaveBeenCalledTimes(2);
+    expect(posted).toEqual([]);
+    expect(treasuryTransfer).toHaveBeenCalledTimes(1);
+
+    const selfApprove = await app.fetch(req(`/${trip.id}/approve`, { method: "POST", permissions: "field.van_trip.approve", headers: { "x-user-id": "rep-1" } }));
+    expect(selfApprove.status).toBe(403);
+
+    const noPermission = await app.fetch(req(`/${trip.id}/approve`, { method: "POST", permissions: "field.van_trip.settle", headers: { "x-user-id": "sup-1" } }));
+    expect(noPermission.status).toBe(403);
+
+    const approveRes = await app.fetch(req(`/${trip.id}/approve`, { method: "POST", permissions: "field.van_trip.approve", headers: { "x-user-id": "sup-1" } }));
+    expect(approveRes.status).toBe(200);
+    const approved = (await approveRes.json()) as { held: boolean; trip: { status: string } };
+    expect(approved.held).toBe(false);
+    expect(approved.trip.status).toBe("settled");
+    expect(posted).toEqual(["variance:-5.500000", "cash:690.000000", "transfer", "adjust:SHORTAGE"]);
+
+    const again = await app.fetch(req(`/${trip.id}/settle`, { method: "POST", permissions: "field.van_trip.settle", headers: { "content-type": "application/json" }, body: settleBody }));
+    expect(again.status).toBe(409);
   });
 
-  it("409s settling an already-settled trip", async () => {
+  it("503s settling where no reconciliation ports are wired", async () => {
     const { app } = newApp();
     const openRes = await app.fetch(
       req("/", { method: "POST", permissions: "field.van_trip.open", headers: { "content-type": "application/json" }, body: JSON.stringify(openPayload) }),
     );
     const trip = (await openRes.json()) as { id: string };
-    const settleBody = JSON.stringify({ countedCash: "500", stockCounts: [] });
-    const first = await app.fetch(
-      req(`/${trip.id}/settle`, { method: "POST", permissions: "field.van_trip.settle", headers: { "content-type": "application/json" }, body: settleBody }),
+    const res = await app.fetch(
+      req(`/${trip.id}/settle`, { method: "POST", permissions: "field.van_trip.settle", headers: { "content-type": "application/json" }, body: JSON.stringify({ countedCash: "500", stockCounts: [] }) }),
     );
-    expect(first.status).toBe(200);
-    const second = await app.fetch(
-      req(`/${trip.id}/settle`, { method: "POST", permissions: "field.van_trip.settle", headers: { "content-type": "application/json" }, body: settleBody }),
-    );
-    expect(second.status).toBe(409);
+    expect(res.status).toBe(503);
   });
 
   it("422s opening a trip with the same source and van warehouse", async () => {

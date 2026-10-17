@@ -1,6 +1,7 @@
+import { VanTripCashMovementKind, VanTripCrewRole, VanTripStatus } from "./van-trip.js";
 import { describe, expect, it } from "vitest";
 import { Money } from "../money/index.js";
-import type { VanTrip, VanTripStatus } from "./van-trip.js";
+import type { VanTrip } from "./van-trip.js";
 import { VanTripNotOngoingError } from "./errors.js";
 import { recordVanCashMovement } from "./record-van-cash-movement.js";
 
@@ -16,10 +17,10 @@ function trip(overrides: Partial<VanTrip> = {}): VanTrip {
     sourceWarehouseId: "wh-main",
     sourceTreasuryAccountId: "tr-main",
     openingCashFloat: Money.fromMajor("500"),
-    crew: [{ employeeId: "emp-1", role: "rep" }],
+    crew: [{ employeeId: "emp-1", role: VanTripCrewRole.Rep }],
     loadedStock: [],
     cashMovements: [],
-    status: "ongoing",
+    status: VanTripStatus.Ongoing,
     openedAt: "2026-03-01T07:00:00.000Z",
     settledAt: null,
     settlement: null,
@@ -30,7 +31,7 @@ function trip(overrides: Partial<VanTrip> = {}): VanTrip {
 
 const sale = {
   id: "mv-1",
-  kind: "sale" as const,
+  kind: VanTripCashMovementKind.Sale as const,
   amount: Money.fromMajor("1250.50"),
   occurredAt: "2026-03-01T09:30:00.000Z",
 };
@@ -39,7 +40,7 @@ describe("recordVanCashMovement", () => {
   it("appends the movement with its exact amount", () => {
     const next = recordVanCashMovement(trip(), sale);
     expect(next.cashMovements).toHaveLength(1);
-    expect(next.cashMovements[0]).toMatchObject({ id: "mv-1", kind: "sale", occurredAt: sale.occurredAt });
+    expect(next.cashMovements[0]).toMatchObject({ id: "mv-1", kind: VanTripCashMovementKind.Sale, occurredAt: sale.occurredAt });
     expect(next.cashMovements[0]?.amount.toString()).toBe("1250.500000");
   });
 
@@ -47,7 +48,7 @@ describe("recordVanCashMovement", () => {
     const withSale = recordVanCashMovement(trip(), sale);
     const withCollection = recordVanCashMovement(withSale, {
       id: "mv-2",
-      kind: "collection",
+      kind: VanTripCashMovementKind.Collection,
       amount: Money.fromMajor("300"),
       occurredAt: "2026-03-01T11:00:00.000Z",
     });
@@ -59,7 +60,7 @@ describe("recordVanCashMovement", () => {
     for (const [index, amount] of ["100", "200", "300"].entries()) {
       current = recordVanCashMovement(current, {
         id: `mv-${index}`,
-        kind: "sale",
+        kind: VanTripCashMovementKind.Sale,
         amount: Money.fromMajor(amount),
         occurredAt: `2026-03-01T0${index + 8}:00:00.000Z`,
       });
@@ -76,7 +77,7 @@ describe("recordVanCashMovement", () => {
     for (const [index, amount] of ["1250.50", "300.25"].entries()) {
       current = recordVanCashMovement(current, {
         id: `mv-${index}`,
-        kind: "sale",
+        kind: VanTripCashMovementKind.Sale,
         amount: Money.fromMajor(amount),
         occurredAt: "2026-03-01T09:00:00.000Z",
       });
@@ -108,14 +109,14 @@ describe("recordVanCashMovement", () => {
   });
 
   it("refuses to record against a trip that is not ongoing", () => {
-    for (const status of ["settled", "cancelled"] as VanTripStatus[]) {
+    for (const status of [VanTripStatus.AwaitingApproval, VanTripStatus.Settled, VanTripStatus.Cancelled]) {
       expect(() => recordVanCashMovement(trip({ status }), sale)).toThrow(VanTripNotOngoingError);
     }
   });
 
   it("names the trip and its status in the refusal, so the screen can say why", () => {
     try {
-      recordVanCashMovement(trip({ status: "settled" }), sale);
+      recordVanCashMovement(trip({ status: VanTripStatus.Settled }), sale);
       throw new Error("expected the movement to be refused");
     } catch (error) {
       expect(error).toBeInstanceOf(VanTripNotOngoingError);

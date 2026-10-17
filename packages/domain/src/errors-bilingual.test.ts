@@ -29,7 +29,18 @@ import {
   ActivityNotFoundError,
   ActivityNotPendingError,
 } from "./crm/errors.js";
-import { VanTripNotFoundError, VanTripNotOngoingError, SameWarehouseVanTripError } from "./field-sales/errors.js";
+import {
+  VanTripNotFoundError,
+  VanTripNotOngoingError,
+  SameWarehouseVanTripError,
+  VanTripNotAwaitingApprovalError,
+  VanTripSelfApprovalError,
+  VanTripExpectationChangedError,
+  VanTripRecountLockedError,
+  VanBusyError,
+  InvalidVanTripCountError,
+} from "./field-sales/errors.js";
+import { VanTripStatus } from "./field-sales/van-trip.js";
 import {
   ItemNotFoundError,
   InvalidItemError,
@@ -164,8 +175,14 @@ describe("domain errors are bilingual (D280)", () => {
     ["ActivityNotPendingError", new ActivityNotPendingError("act-1")],
     // field-sales
     ["VanTripNotFoundError", new VanTripNotFoundError("trip-1")],
-    ["VanTripNotOngoingError", new VanTripNotOngoingError("trip-1", "settled")],
+    ["VanTripNotOngoingError", new VanTripNotOngoingError("trip-1", VanTripStatus.Settled)],
     ["SameWarehouseVanTripError", new SameWarehouseVanTripError("wh-1")],
+    ["VanTripNotAwaitingApprovalError", new VanTripNotAwaitingApprovalError("trip-1", VanTripStatus.Ongoing)],
+    ["VanTripSelfApprovalError", new VanTripSelfApprovalError("trip-1")],
+    ["VanTripExpectationChangedError", new VanTripExpectationChangedError("trip-1")],
+    ["VanTripRecountLockedError", new VanTripRecountLockedError("trip-1")],
+    ["VanBusyError", new VanBusyError("wh-van", "trip-0")],
+    ["InvalidVanTripCountError", new InvalidVanTripCountError(["سالب"])],
     // items
     ["ItemNotFoundError", new ItemNotFoundError("itm-1")],
     ["InvalidItemError", new InvalidItemError(["اسم الصنف بالعربية مطلوب"])],

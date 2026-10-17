@@ -16,7 +16,10 @@ import {
   type PillTone,
   type RowMenuItem,
 } from "@mezan/ui";
-import type { VanDTO, VanTripCrewRoleDTO, VanTripDTO, VanTripCashMovementKindDTO, VanTripStatusDTO } from "@mezan/contracts";
+import { can, createAuthContext } from "@mezan/domain";
+import { VanTripCashMovementKindDTO, VanTripCrewRoleDTO, VanTripStatusDTO, type VanDTO, type VanTripDTO } from "@mezan/contracts";
+import { useApi } from "../data/ApiContext";
+import { VanTripCountForm, VanTripReconciliationCard } from "./enh/van-reconciliation/VanReconciliation";
 import {
   ApiError,
   useBranches,
@@ -41,12 +44,34 @@ import { useUrlNumber, useUrlParam, useUrlSearch } from "../lib/url-state";
 
 /** رحلات المندوبين (Van/Rep Trips — Field Sales) — docs/archive/catalog/07 §"رحلات المندوبين". List + open-trip form + detail with cash-movement/settle actions. */
 
-const STATUS_KEY: Record<VanTripStatusDTO, AppTranslationKey> = { ongoing: "vanTrips.statusOngoing", settled: "vanTrips.statusSettled", cancelled: "vanTrips.statusCancelled" };
-const STATUS_TONE: Record<VanTripStatusDTO, PillTone> = { ongoing: "info", settled: "success", cancelled: "neutral" };
-const ROLE_KEY: Record<VanTripCrewRoleDTO, AppTranslationKey> = { driver: "vanTrips.roleDriver", rep: "vanTrips.roleRep", assistant: "vanTrips.roleAssistant" };
-const ROLE_VALUES = Object.keys(ROLE_KEY) as VanTripCrewRoleDTO[];
-const KIND_KEY: Record<VanTripCashMovementKindDTO, AppTranslationKey> = { sale: "vanTrips.kindSale", collection: "vanTrips.kindCollection" };
-const KIND_VALUES = Object.keys(KIND_KEY) as VanTripCashMovementKindDTO[];
+const STATUS_KEY: Record<VanTripStatusDTO, AppTranslationKey> = {
+  [VanTripStatusDTO.Ongoing]: "vanTrips.statusOngoing",
+  [VanTripStatusDTO.AwaitingApproval]: "vanRecon.statusAwaitingApproval",
+  [VanTripStatusDTO.Settled]: "vanTrips.statusSettled",
+  [VanTripStatusDTO.Cancelled]: "vanTrips.statusCancelled",
+};
+const STATUS_TONE: Record<VanTripStatusDTO, PillTone> = {
+  [VanTripStatusDTO.Ongoing]: "info",
+  [VanTripStatusDTO.AwaitingApproval]: "warning",
+  [VanTripStatusDTO.Settled]: "success",
+  [VanTripStatusDTO.Cancelled]: "neutral",
+};
+const ROLE_KEY: Record<VanTripCrewRoleDTO, AppTranslationKey> = {
+  [VanTripCrewRoleDTO.Driver]: "vanTrips.roleDriver",
+  [VanTripCrewRoleDTO.Rep]: "vanTrips.roleRep",
+  [VanTripCrewRoleDTO.Assistant]: "vanTrips.roleAssistant",
+};
+const ROLE_VALUES = Object.values(VanTripCrewRoleDTO);
+const KIND_KEY: Record<VanTripCashMovementKindDTO, AppTranslationKey> = {
+  [VanTripCashMovementKindDTO.Sale]: "vanTrips.kindSale",
+  [VanTripCashMovementKindDTO.Collection]: "vanTrips.kindCollection",
+};
+const KIND_VALUES = Object.values(VanTripCashMovementKindDTO);
+
+function countable(trip: VanTripDTO): boolean {
+  if (trip.status === VanTripStatusDTO.Ongoing) return true;
+  return trip.status === VanTripStatusDTO.AwaitingApproval && (trip.settlement?.reconciliation?.steps.length ?? 0) === 0;
+}
 
 function toMajor(scaledDecimalString: string): number {
   return Number(scaledDecimalString);
@@ -127,6 +152,10 @@ export function VanTripsScreen() {
   const openVanTrip = useOpenVanTrip();
   const recordCashMovement = useRecordVanCashMovement();
   const settleVanTrip = useSettleVanTrip();
+  const { session } = useApi();
+  const auth = createAuthContext({ userId: session?.userId ?? "anonymous", permissions: session?.permissions ?? [], branchScope: "*", warehouseScope: "*" });
+  const mayApprove = can(auth, "field.van_trip.approve");
+  const currentUserId = session?.userId ?? null;
 
   const trips = query.data ?? EMPTY;
   const warehouses = warehousesQuery.data ?? EMPTY;
@@ -174,19 +203,16 @@ export function VanTripsScreen() {
   const [page, setPage] = useUrlNumber("page", 1);
   const [pageSize, setPageSize] = useUrlNumber("size", 25);
   const [crewEmployeeId, setCrewEmployeeId] = useState("");
-  const [crewRole, setCrewRole] = useState<VanTripCrewRoleDTO>("driver");
+  const [crewRole, setCrewRole] = useState<VanTripCrewRoleDTO>(VanTripCrewRoleDTO.Driver);
   const [stockItemId, setStockItemId] = useState("");
   const [stockQty, setStockQty] = useState(1);
 
-  const [movementKind, setMovementKind] = useState<VanTripCashMovementKindDTO>("sale");
+  const [movementKind, setMovementKind] = useState<VanTripCashMovementKindDTO>(VanTripCashMovementKindDTO.Sale);
   const [movementAmount, setMovementAmount] = useState<number | null>(null);
   const [movementNotes, setMovementNotes] = useState("");
   const [movementError, setMovementError] = useState<string | null>(null);
 
   const [settleOpen, setSettleOpen] = useState(false);
-  const [settleCountedCash, setSettleCountedCash] = useState<number | null>(null);
-  const [settleCounts, setSettleCounts] = useState<Record<string, number>>({});
-  const [settleError, setSettleError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     let rows = trips;
@@ -199,8 +225,9 @@ export function VanTripsScreen() {
   }, [trips, statusFilter, search]);
 
   const totalCount = trips.length;
-  const ongoingCount = trips.filter((trip) => trip.status === "ongoing").length;
-  const settledCount = trips.filter((trip) => trip.status === "settled").length;
+  const ongoingCount = trips.filter((trip) => trip.status === VanTripStatusDTO.Ongoing).length;
+  const awaitingCount = trips.filter((trip) => trip.status === VanTripStatusDTO.AwaitingApproval).length;
+  const settledCount = trips.filter((trip) => trip.status === VanTripStatusDTO.Settled).length;
 
   const selected = selectedId ? (trips.find((trip) => trip.id === selectedId) ?? null) : null;
   const selectedVan = draft.vanId === "" ? null : (vans.find((v) => v.id === draft.vanId) ?? null);
@@ -213,7 +240,7 @@ export function VanTripsScreen() {
     setDraft(blankDraft());
     setFormError(null);
     setCrewEmployeeId("");
-    setCrewRole("driver");
+    setCrewRole(VanTripCrewRoleDTO.Driver);
     setStockItemId("");
     setStockQty(1);
     setFormOpen(true);
@@ -223,7 +250,7 @@ export function VanTripsScreen() {
     if (crewEmployeeId.trim() === "") return;
     setDraft((d) => ({ ...d, crew: [...d.crew, { employeeId: crewEmployeeId.trim(), role: crewRole }] }));
     setCrewEmployeeId("");
-    setCrewRole("driver");
+    setCrewRole(VanTripCrewRoleDTO.Driver);
   }
 
   function removeCrewRow(index: number) {
@@ -270,12 +297,7 @@ export function VanTripsScreen() {
     }
   }
 
-  function openSettleForm(trip: VanTripDTO) {
-    const initialCounts: Record<string, number> = {};
-    for (const line of trip.loadedStock) initialCounts[line.itemId] = toMajor(line.qty);
-    setSettleCounts(initialCounts);
-    setSettleCountedCash(0);
-    setSettleError(null);
+  function openSettleForm() {
     setSettleOpen(true);
   }
 
@@ -305,26 +327,7 @@ export function VanTripsScreen() {
     }
   }
 
-  async function handleSettle(event: FormEvent) {
-    event.preventDefault();
-    if (!selected) return;
-    setSettleError(null);
-    try {
-      await settleVanTrip.mutateAsync({
-        id: selected.id,
-        body: {
-          countedCash: (settleCountedCash ?? 0).toFixed(6),
-          stockCounts: selected.loadedStock.map((line) => ({
-            itemId: line.itemId,
-            countedQty: (settleCounts[line.itemId] ?? 0).toFixed(6),
-          })),
-        },
-      });
-      setSettleOpen(false);
-    } catch (err) {
-      setSettleError(err instanceof ApiError ? err.message : t("vanTrips.couldNotSettleTheTrip"));
-    }
-  }
+  const userLabel = (id: string) => (id === currentUserId ? t("vanRecon.you") : id);
 
   const columns: DocumentListColumn<VanTripDTO>[] = [
     {
@@ -359,7 +362,7 @@ export function VanTripsScreen() {
       ),
     },
     { key: "branch", header: t("common.branch"), render: (trip) => branchName(trip.branchId) },
-    { key: "sales", header: t("vanTrips.sales"), render: (trip) => <span className="mz-num">{trip.cashMovements.filter((m) => m.kind === "sale").length}</span> },
+    { key: "sales", header: t("vanTrips.sales"), render: (trip) => <span className="mz-num">{trip.cashMovements.filter((m) => m.kind === VanTripCashMovementKindDTO.Sale).length}</span> },
     { key: "status", header: t("common.status"), render: (trip) => <StatusPill label={t(STATUS_KEY[trip.status])} tone={STATUS_TONE[trip.status]} /> },
     {
       key: "cash",
@@ -391,6 +394,7 @@ export function VanTripsScreen() {
         stats={[
           { label: t("vanTrips.total"), value: <span className="mz-num">{totalCount}</span> },
           { label: t("vanTrips.open"), value: <span className="mz-num">{ongoingCount}</span> },
+          { label: t("vanRecon.statusAwaitingApproval"), value: <span className="mz-num">{awaitingCount}</span> },
           { label: t("vanTrips.settled"), value: <span className="mz-num">{settledCount}</span> },
         ]}
         searchValue={searchText}
@@ -403,9 +407,10 @@ export function VanTripsScreen() {
             {(
               [
                 ["all", t("common.all")],
-                ["ongoing", t("vanTrips.open")],
-                ["settled", t("vanTrips.settled")],
-                ["cancelled", t("vanTrips.cancelled")],
+                [VanTripStatusDTO.Ongoing, t("vanTrips.open")],
+                [VanTripStatusDTO.AwaitingApproval, t("vanRecon.statusAwaitingApproval")],
+                [VanTripStatusDTO.Settled, t("vanTrips.settled")],
+                [VanTripStatusDTO.Cancelled, t("vanTrips.cancelled")],
               ] as const
             ).map(([value, label]) => (
               <Chip
@@ -429,14 +434,14 @@ export function VanTripsScreen() {
         rowAction={(trip) => {
           const menuItems: RowMenuItem[] = [
             { key: "view", label: t("vanTrips.row.view"), onSelect: () => setSelectedId(trip.id) },
-            ...(trip.status === "ongoing"
+            ...(countable(trip)
               ? [
                   {
                     key: "settle",
                     label: t("vanTrips.settleTheTrip"),
                     onSelect: () => {
                       setSelectedId(trip.id);
-                      openSettleForm(trip);
+                      openSettleForm();
                     },
                   },
                 ]
@@ -577,7 +582,7 @@ export function VanTripsScreen() {
               )}
             </Card>
 
-            {selected.status === "ongoing" ? (
+            {selected.status === VanTripStatusDTO.Ongoing ? (
               <Card className="p-[13px_15px]">
                 <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("vanTrips.recordACashMovement")}</h3>
                 {movementError ? (
@@ -599,106 +604,34 @@ export function VanTripsScreen() {
               </Card>
             ) : null}
 
-            {selected.status === "ongoing" && !settleOpen ? (
-              <Button variant="primary" onClick={() => openSettleForm(selected)}>
-                {t("vanTrips.settleTheTrip")}
+            {countable(selected) && !settleOpen ? (
+              <Button variant="primary" onClick={openSettleForm}>
+                {selected.status === VanTripStatusDTO.AwaitingApproval ? t("vanRecon.recount") : t("vanTrips.settleTheTrip")}
               </Button>
             ) : null}
 
-            {selected.status === "ongoing" && settleOpen ? (
-              <Card className="p-[13px_15px]">
-                <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("vanTrips.settleTheTrip")}</h3>
-                {settleError ? (
-                  <div role="alert" className="mb-[10px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-                    {settleError}
-                  </div>
-                ) : null}
-                <form onSubmit={handleSettle} className="flex flex-col gap-[12px]">
-                  <div>
-                    <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("vanTrips.cashCounted")}</div>
-                    <MoneyInput value={settleCountedCash} onChange={setSettleCountedCash} aria-label={t("vanTrips.cashCounted")} />
-                  </div>
-                  {selected.loadedStock.length > 0 ? (
-                    <div className="flex flex-col gap-[8px]">
-                      <div className="text-[12.5px] font-semibold text-ink">{t("vanTrips.stockCount")}</div>
-                      {selected.loadedStock.map((line) => (
-                        <div key={line.itemId} className="flex items-center justify-between gap-[10px]">
-                          <span className="text-[12.5px] text-ink">{itemName(line.itemId)}</span>
-                          <QtyInput
-                            aria-label={t("vanTrips.countedQtyLabel", { item: itemName(line.itemId) })}
-                            value={settleCounts[line.itemId] ?? 0}
-                            onChange={(v) => setSettleCounts((c) => ({ ...c, [line.itemId]: v }))}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="flex justify-end gap-[9px]">
-                    <Button type="button" onClick={() => setSettleOpen(false)}>
-                      {t("common.cancel")}
-                    </Button>
-                    <Button type="submit" variant="primary" disabled={settleVanTrip.isPending}>
-                      {t("vanTrips.confirmTheSettlement")}
-                    </Button>
-                  </div>
-                </form>
-              </Card>
+            {countable(selected) && settleOpen ? (
+              <VanTripCountForm
+                key={selected.id}
+                trip={selected}
+                itemName={itemName}
+                pending={settleVanTrip.isPending}
+                onCancel={() => setSettleOpen(false)}
+                onSubmit={async (body) => {
+                  await settleVanTrip.mutateAsync({ id: selected.id, body });
+                  setSettleOpen(false);
+                }}
+              />
             ) : null}
 
-            {selected.settlement ? (
-              <Card className="p-[13px_15px]">
-                <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("vanTrips.settlement")}</h3>
-                <div className="grid grid-cols-3 gap-[10px]">
-                  <div>
-                    <div className="text-[11px] font-semibold text-ink-faint">{t("vanTrips.expected")}</div>
-                    <MoneyDisplay value={toMajor(selected.settlement.expectedCash)} className="mt-[4px] text-[13px] font-bold" />
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-semibold text-ink-faint">{t("vanTrips.counted")}</div>
-                    <MoneyDisplay value={toMajor(selected.settlement.countedCash)} className="mt-[4px] text-[13px] font-bold" />
-                  </div>
-                  <div>
-                    <div className="text-[11px] font-semibold text-ink-faint">{t("vanTrips.difference")}</div>
-                    <StatusPill
-                      label={String(toMajor(selected.settlement.cashVariance))}
-                      tone={
-                        toMajor(selected.settlement.cashVariance) === 0
-                          ? "neutral"
-                          : toMajor(selected.settlement.cashVariance) > 0
-                            ? "success"
-                            : "danger"
-                      }
-                      className="mt-[4px]"
-                    />
-                  </div>
-                </div>
-                {selected.settlement.stockCounts.length > 0 ? (
-                  <table className="mt-[12px] w-full text-[12.5px]">
-                    <thead>
-                      <tr className="text-start text-ink-faint">
-                        <th className="p-[6px] text-start">{t("common.item")}</th>
-                        <th className="p-[6px] text-start">{t("vanTrips.expected")}</th>
-                        <th className="p-[6px] text-start">{t("vanTrips.counted")}</th>
-                        <th className="p-[6px] text-start">{t("vanTrips.difference")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selected.settlement.stockCounts.map((line, i) => (
-                        <tr key={i} className="border-t border-border">
-                          <td className="p-[6px] text-ink">{itemName(line.itemId)}</td>
-                          <td className="mz-num p-[6px] text-ink">{toMajor(line.expectedQty)}</td>
-                          <td className="mz-num p-[6px] text-ink">{toMajor(line.countedQty)}</td>
-                          <td className="p-[6px]">
-                            <VarianceBeam value={toMajor(line.varianceQty)}>
-                              <span className="mz-num">{toMajor(line.varianceQty)}</span>
-                            </VarianceBeam>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : null}
-              </Card>
+            {selected.settlement && !settleOpen ? (
+              <VanTripReconciliationCard
+                trip={selected}
+                itemName={itemName}
+                userName={userLabel}
+                mayApprove={mayApprove}
+                currentUserId={currentUserId}
+              />
             ) : null}
           </div>
         ) : null}

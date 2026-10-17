@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 292 permissions across 20 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 293 permissions across 20 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -70,13 +70,15 @@ describe("permission catalog", () => {
     //
     // 288 → 291. ENH-E3-02 owner digest: `accounting.owner_digest.view`, `.manage` and `.send` (the last two sensitive).
     //
+    // 291 → 292 → 293. ENH-E3-10 health console: `admin.health.view`; ENH-E3-04 van reconciliation: `field.van_trip.approve` (sensitive — it posts stock and cash write-offs).
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(292);
+    expect(PERMISSIONS).toHaveLength(293);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(292);
+    expect(summed).toBe(293);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -131,7 +133,8 @@ describe("permission catalog", () => {
     // 26 → 27: the salary bank file carries every bank-paid employee's IBAN and net pay.
     expect(isSensitive("hr.payroll.bank_file")).toBe(true);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
-    expect(sensitiveCount).toBe(33);
+    expect(isSensitive("field.van_trip.approve")).toBe(true);
+    expect(sensitiveCount).toBe(34);
   });
 
   it("marks the one platform-admin-only permission", () => {

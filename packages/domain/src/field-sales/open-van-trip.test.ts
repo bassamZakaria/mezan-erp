@@ -1,3 +1,4 @@
+import { VanTripCrewRole, VanTripStatus } from "./van-trip.js";
 import { describe, it, expect, vi } from "vitest";
 import { Money, Qty } from "../money/index.js";
 import { createInMemoryVanTripRepository } from "./test-helpers/in-memory-van-trip-repository.js";
@@ -13,7 +14,7 @@ function baseCmd() {
     vanTreasuryAccountId: "treasury-van",
     sourceWarehouseId: "wh-main",
     sourceTreasuryAccountId: "treasury-main",
-    crew: [{ employeeId: "emp1", role: "driver" as const }],
+    crew: [{ employeeId: "emp1", role: VanTripCrewRole.Driver as const }],
   };
 }
 
@@ -37,7 +38,7 @@ describe("openVanTrip", () => {
       toWarehouseId: "wh-van",
       lines: [{ itemId: "item1", qty: Qty.fromMajor("10") }],
     });
-    expect(trip.status).toBe("ongoing");
+    expect(trip.status).toBe(VanTripStatus.Ongoing);
     expect(await trips.findById("trip1")).toEqual(trip);
   });
 

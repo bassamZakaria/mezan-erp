@@ -222,6 +222,7 @@ const CORE_READ_PATHS = [
   "/reports/installments/overview",
   "/reports/installments/overdue",
   "/reports/field/van-sales",
+  "/reports/field/rep-daily",
   "/reports/manufacturing/make-vs-buy",
   "/reports/tax/withholding",
   "/financial-reports/trial-balance",

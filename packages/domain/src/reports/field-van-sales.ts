@@ -2,7 +2,7 @@ import { z } from "zod";
 import { isoDateParamSchema } from "./iso-date.js";
 import { Money, Qty } from "../money/index.js";
 import { fullNameAr, type Employee } from "../hr/employee.js";
-import { getVanTripStatusLabel, type VanTrip, type VanTripStatus } from "../field-sales/van-trip.js";
+import { VAN_TRIP_STATUS_DEFINITIONS, VanTripCashMovementKind, VanTripStatus, getVanTripStatusLabel, type VanTrip } from "../field-sales/van-trip.js";
 import type { ReportDefinition } from "./types.js";
 import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
@@ -54,7 +54,7 @@ export interface VanSalesRow {
 const paramsSchema = z.object({
   dateFrom: isoDateParamSchema,
   dateTo: isoDateParamSchema,
-  status: z.enum(["all", "ongoing", "settled", "cancelled"]),
+  status: z.union([z.literal("all"), z.nativeEnum(VanTripStatus)]),
   branchId: branchIdParamSchema,
 });
 
@@ -81,9 +81,7 @@ export function createVanSalesReport(
         label: "الحالة",
         options: [
           { value: "all", label: "كل الحالات" },
-          { value: "ongoing", label: "جارية" },
-          { value: "settled", label: "مسواة" },
-          { value: "cancelled", label: "ملغاة" },
+          ...VAN_TRIP_STATUS_DEFINITIONS.map((d) => ({ value: d.code, label: d.labelAr })),
         ],
       },
       BRANCH_PARAM_FIELD,
@@ -126,8 +124,8 @@ export function createVanSalesReport(
         if (params.status !== "all" && trip.status !== params.status) continue;
         if (!matchesBranch(trip.branchId, params.branchId)) continue;
 
-        const salesCash = Money.sum(trip.cashMovements.filter((m) => m.kind === "sale").map((m) => m.amount));
-        const collectionsCash = Money.sum(trip.cashMovements.filter((m) => m.kind === "collection").map((m) => m.amount));
+        const salesCash = Money.sum(trip.cashMovements.filter((m) => m.kind === VanTripCashMovementKind.Sale).map((m) => m.amount));
+        const collectionsCash = Money.sum(trip.cashMovements.filter((m) => m.kind === VanTripCashMovementKind.Collection).map((m) => m.amount));
         const loadedQty = sumQty(trip.loadedStock);
         const settlement = trip.settlement;
         const returnedQty = settlement ? Qty.sum(settlement.stockCounts.map((s) => s.countedQty)) : null;

@@ -9,7 +9,18 @@ import {
   recordVanCashMovement,
   resolveVanCascade,
   settleVanTrip,
+  approveVanTripSettlement,
+  buildVanTripExpectation,
+  AuditSeverityCode,
+  AuditStreamName,
   VanTripNotFoundError,
+  VanTripNotAwaitingApprovalError,
+  VanTripSelfApprovalError,
+  VanTripExpectationChangedError,
+  VanTripRecountLockedError,
+  VanBusyError,
+  InvalidVanTripCountError,
+  VanReconciliationDocumentMismatchError,
   InvalidVanTripError,
   InvalidVanError,
   VanCascadeMismatchError,
@@ -19,16 +30,21 @@ import {
   type Van,
   type VanRepository,
   type VanTrip,
+  type VanTripCashBreakdown,
   type VanTripCashMovementKind,
+  type VanTripCrewRole,
   type VanTripRepository,
   type StockLedgerService,
-  type SettleVanTripDeps,
+  type AuditSink,
+  type VanTripActivityPort,
+  type VanReconciliationPostingPort,
   type TreasuryTransferInput,
   type VanTripNumberingHook,
 } from "@mezan/domain";
 import { createVanSchema, openVanTripSchema, recordVanCashMovementSchema, settleVanTripSchema } from "@mezan/contracts";
 import {
   branchScopeOf,
+  callerRoleCodes,
   createAnyPermissionGate,
   createPermissionGate,
   getAuthContext,
@@ -78,8 +94,11 @@ export interface FieldSalesRoutesDeps {
     branchId: string;
     vanTreasuryAccountId: string;
   }) => Promise<void>;
-  /** Writes a settlement's counted-versus-expected cash difference off the van treasury. */
-  readonly recordCashVariance?: SettleVanTripDeps["recordCashVariance"];
+  /** Reads what the ledgers hold for a trip's van: on-hand and WAC per item, the till's own balance, collections, sales. */
+  readonly activity?: VanTripActivityPort;
+  /** Posts an approved settlement: cash variance, cash handover, overage/shortage adjustments and the stock return transfer. */
+  readonly postings?: VanReconciliationPostingPort;
+  readonly audit?: AuditSink;
 }
 
 function serialize(trip: VanTrip) {
@@ -116,11 +135,45 @@ function serialize(trip: VanTrip) {
             expectedQty: c.expectedQty.toString(),
             countedQty: c.countedQty.toString(),
             varianceQty: c.varianceQty.toString(),
+            loadedQty: c.loadedQty.toString(),
+            soldQty: c.soldQty.toString(),
+            returnedQty: c.returnedQty.toString(),
+            otherQty: c.otherQty.toString(),
+            unitCost: c.unitCost.toString(),
+            varianceValue: c.varianceValue.toString(),
           })),
           settledAt: trip.settlement.settledAt,
+          settledBy: trip.settlement.settledBy,
+          settlementDate: trip.settlement.settlementDate,
+          cashBreakdown: trip.settlement.cashBreakdown ? serializeBreakdown(trip.settlement.cashBreakdown) : null,
+          invoicedSales: trip.settlement.invoicedSales.toString(),
+          returnsValue: trip.settlement.returnsValue.toString(),
+          reconciliation: trip.settlement.reconciliation
+            ? {
+                approvedBy: trip.settlement.reconciliation.approvedBy,
+                startedAt: trip.settlement.reconciliation.startedAt,
+                completedAt: trip.settlement.reconciliation.completedAt,
+                steps: trip.settlement.reconciliation.steps.map((step) => ({
+                  kind: step.kind,
+                  documentId: step.documentId,
+                  state: step.state,
+                  value: step.value?.toString() ?? null,
+                })),
+              }
+            : null,
         }
       : null,
     notes: trip.notes,
+  };
+}
+
+function serializeBreakdown(b: VanTripCashBreakdown) {
+  return {
+    openingFloat: b.openingFloat.toString(),
+    fieldSales: b.fieldSales.toString(),
+    fieldCollections: b.fieldCollections.toString(),
+    voucherCollections: b.voucherCollections.toString(),
+    other: b.other.toString(),
   };
 }
 
@@ -150,7 +203,18 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof VanTripNotFoundError || err instanceof VanNotFoundError) {
     return c.json(withMessageEn(err), 404);
   }
+  if (err instanceof VanTripSelfApprovalError) return c.json(withMessageEn(err), 403);
   if (
+    err instanceof VanTripNotAwaitingApprovalError ||
+    err instanceof VanTripExpectationChangedError ||
+    err instanceof VanTripRecountLockedError ||
+    err instanceof VanReconciliationDocumentMismatchError ||
+    err instanceof VanBusyError
+  ) {
+    return c.json(withMessageEn(err), 409);
+  }
+  if (
+    err instanceof InvalidVanTripCountError ||
     err instanceof InvalidVanTripError ||
     err instanceof SameWarehouseVanTripError ||
     err instanceof InvalidVanError ||
@@ -350,7 +414,7 @@ export function createFieldSalesRoutes(
           sourceWarehouseId: body.sourceWarehouseId,
           sourceTreasuryAccountId: body.sourceTreasuryAccountId,
           openingCashFloat: body.openingCashFloat !== undefined ? Money.fromMajor(body.openingCashFloat) : undefined,
-          crew: body.crew,
+          crew: body.crew.map((m) => ({ employeeId: m.employeeId, role: m.role as unknown as VanTripCrewRole })),
           loadedStock: body.loadedStock?.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
           notes: body.notes,
         },
@@ -385,12 +449,13 @@ export function createFieldSalesRoutes(
     const body = parsed.data;
     const trip = await deps.trips.findById(c.req.param("id"));
     if (!trip) return c.json({ error: "VAN_TRIP_NOT_FOUND" }, 404);
+    const kind = body.kind as unknown as VanTripCashMovementKind;
     try {
       const movementId = randomUUID();
       const amount = Money.fromMajor(body.amount);
       const updated = recordVanCashMovement(trip, {
         id: movementId,
-        kind: body.kind,
+        kind,
         amount,
         occurredAt: body.occurredAt,
         notes: body.notes,
@@ -401,7 +466,7 @@ export function createFieldSalesRoutes(
         await deps.recordCashTaking({
           tripId: trip.id,
           movementId,
-          kind: body.kind,
+          kind,
           amount,
           date: await tenantDay(c, body.occurredAt),
           branchId: trip.branchId,
@@ -415,23 +480,120 @@ export function createFieldSalesRoutes(
     }
   });
 
+  const reconciliationUnavailable = (c: Context) =>
+    c.json({ error: "VAN_RECONCILIATION_UNAVAILABLE", message: "تسوية رحلات المندوبين غير مفعّلة في هذا الإصدار.", messageEn: "Van trip reconciliation is not wired in this edition." }, 503);
+
+  async function visibleTrip(c: Context): Promise<VanTrip | null> {
+    const trip = await deps.trips.findById(c.req.param("id") ?? "");
+    if (!trip || visibleTrips(c, [trip]).length === 0) return null;
+    return trip;
+  }
+
+  const actorOf = (c: Context) => getAuthContext(c)?.userId ?? "system";
+
+  app.get("/:id/expected", gateAny("field.van_trip.view", "field.van_trip.view_own"), async (c) => {
+    if (!deps.activity) return reconciliationUnavailable(c);
+    const trip = await visibleTrip(c);
+    if (!trip) return c.json({ error: "VAN_TRIP_NOT_FOUND" }, 404);
+    const asOf = await tenantToday(c);
+    const expectation = buildVanTripExpectation(trip, await deps.activity.read(trip, asOf, []));
+    return c.json({
+      tripId: trip.id,
+      asOf,
+      expectedCash: expectation.expectedCash.toString(),
+      cashBreakdown: serializeBreakdown(expectation.cashBreakdown),
+      lines: expectation.lines.map((l) => ({
+        itemId: l.itemId,
+        expectedQty: l.expectedQty.toString(),
+        loadedQty: l.loadedQty.toString(),
+        soldQty: l.soldQty.toString(),
+        returnedQty: l.returnedQty.toString(),
+        otherQty: l.otherQty.toString(),
+        unitCost: l.unitCost.toString(),
+      })),
+      invoicedSales: expectation.invoicedSales.toString(),
+      returnsValue: expectation.returnsValue.toString(),
+    });
+  });
+
   app.post("/:id/settle", gate("field.van_trip.settle"), async (c) => {
+    if (!deps.activity) return reconciliationUnavailable(c);
     const parsed = settleVanTripSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const body = parsed.data;
+    if (!(await visibleTrip(c))) return c.json({ error: "VAN_TRIP_NOT_FOUND" }, 404);
     try {
       const trip = await settleVanTrip(
         {
           tripId: c.req.param("id"),
           countedCash: Money.fromMajor(body.countedCash),
           stockCounts: body.stockCounts.map((s) => ({ itemId: s.itemId, countedQty: Qty.fromMajor(s.countedQty) })),
+          actor: actorOf(c),
           date: await tenantToday(c),
         },
-        { trips: deps.trips, treasuryTransfer: deps.treasuryTransfer, recordCashVariance: deps.recordCashVariance },
+        { trips: deps.trips, activity: deps.activity },
       );
+      await deps.audit?.append({
+        stream: AuditStreamName.Sensitive,
+        module: "field",
+        entityType: "VAN_TRIP",
+        entityId: trip.id,
+        action: "VAN_TRIP_SETTLEMENT_ENTERED",
+        actor: actorOf(c),
+        branchId: trip.branchId,
+        severity: AuditSeverityCode.Info,
+        timestamp: new Date().toISOString(),
+        details: {
+          expectedCash: trip.settlement?.expectedCash.toString() ?? null,
+          countedCash: trip.settlement?.countedCash.toString() ?? null,
+          cashVariance: trip.settlement?.cashVariance.toString() ?? null,
+          stockVariances: (trip.settlement?.stockCounts ?? [])
+            .filter((l) => !l.varianceQty.isZero())
+            .map((l) => ({ itemId: l.itemId, varianceQty: l.varianceQty.toString(), varianceValue: l.varianceValue.toString() })),
+        },
+      });
       return c.json(serialize(trip));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/:id/approve", gate("field.van_trip.approve"), async (c) => {
+    if (!deps.activity || !deps.postings) return reconciliationUnavailable(c);
+    if (!(await visibleTrip(c))) return c.json({ error: "VAN_TRIP_NOT_FOUND" }, 404);
+    try {
+      const result = await approveVanTripSettlement(
+        {
+          tripId: c.req.param("id"),
+          actor: actorOf(c),
+          actorRoles: callerRoleCodes(c),
+          date: await tenantToday(c),
+        },
+        { trips: deps.trips, activity: deps.activity, postings: deps.postings },
+      );
+      await deps.audit?.append({
+        stream: AuditStreamName.Sensitive,
+        module: "field",
+        entityType: "VAN_TRIP",
+        entityId: result.trip.id,
+        action: result.held ? "VAN_TRIP_SETTLEMENT_APPROVAL_HELD" : "VAN_TRIP_SETTLEMENT_APPROVED",
+        actor: actorOf(c),
+        branchId: result.trip.branchId,
+        severity: AuditSeverityCode.Info,
+        timestamp: new Date().toISOString(),
+        details: {
+          settledBy: result.trip.settlement?.settledBy ?? null,
+          steps: (result.trip.settlement?.reconciliation?.steps ?? []).map((s) => ({
+            kind: s.kind,
+            documentId: s.documentId,
+            state: s.state,
+            value: s.value?.toString() ?? null,
+          })),
+        },
+      });
+      return c.json({ trip: serialize(result.trip), held: result.held });
     } catch (err) {
       return handleDomainError(c, err);
     }

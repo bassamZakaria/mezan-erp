@@ -83,6 +83,7 @@ export const AUDITED_MOUNTS: readonly AuditedMount[] = [
   { prefix: "/collections", only: /^(?!\/outbox\/drain$)/ },
   { prefix: "/reorder" },
   { prefix: "/owner-digest" },
+  { prefix: "/field/van-trips", only: /^\/[^/]+\/(settle|approve)$/ },
 ];
 
 interface BoundaryState {

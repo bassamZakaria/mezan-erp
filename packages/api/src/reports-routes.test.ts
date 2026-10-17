@@ -1,3 +1,4 @@
+import { VanTripCashMovementKind, VanTripStatus } from "@mezan/domain";
 import { describe, it, expect, afterEach } from "vitest";
 import {
   createSqliteSalesInvoiceStore,
@@ -1532,16 +1533,35 @@ describe("reports routes — field/van-sales", () => {
       openingCashFloat: Money.fromMajor("200.00"),
       crew: [],
       loadedStock: [{ itemId: "item-1", qty: Qty.fromMajor("50") }],
-      cashMovements: [{ id: "cm-1", kind: "sale", amount: Money.fromMajor("300.00"), occurredAt: "2026-08-10T10:00:00.000Z", notes: null }],
-      status: "settled",
+      cashMovements: [{ id: "cm-1", kind: VanTripCashMovementKind.Sale, amount: Money.fromMajor("300.00"), occurredAt: "2026-08-10T10:00:00.000Z", notes: null }],
+      status: VanTripStatus.Settled,
       openedAt: "2026-08-10T08:00:00.000Z",
       settledAt: "2026-08-10T18:00:00.000Z",
       settlement: {
         expectedCash: Money.fromMajor("500.00"),
         countedCash: Money.fromMajor("500.00"),
         cashVariance: Money.zero(),
-        stockCounts: [{ itemId: "item-1", expectedQty: Qty.fromMajor("10"), countedQty: Qty.fromMajor("10"), varianceQty: Qty.zero() }],
+        stockCounts: [
+          {
+            itemId: "item-1",
+            expectedQty: Qty.fromMajor("10"),
+            countedQty: Qty.fromMajor("10"),
+            varianceQty: Qty.zero(),
+            loadedQty: Qty.fromMajor("10"),
+            soldQty: Qty.zero(),
+            returnedQty: Qty.zero(),
+            otherQty: Qty.zero(),
+            unitCost: Money.zero(),
+            varianceValue: Money.zero(),
+          },
+        ],
         settledAt: "2026-08-10T18:00:00.000Z",
+        settledBy: null,
+        settlementDate: null,
+        cashBreakdown: null,
+        invoicedSales: Money.zero(),
+        returnsValue: Money.zero(),
+        reconciliation: null,
       },
       notes: null,
       ...overrides,

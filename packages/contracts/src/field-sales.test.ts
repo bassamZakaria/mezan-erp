@@ -17,7 +17,7 @@ import {
 
 describe("vanTripStatusSchema", () => {
   it("accepts each known status", () => {
-    for (const s of ["ongoing", "settled", "cancelled"]) {
+    for (const s of ["ongoing", "awaiting_approval", "settled", "cancelled"]) {
       expect(vanTripStatusSchema.safeParse(s).success).toBe(true);
     }
   });
@@ -66,7 +66,19 @@ describe("vanTripCashMovementSchema", () => {
 });
 
 describe("vanTripSettlementSchema", () => {
-  const settlement = { expectedCash: "5000.000000", countedCash: "4980.000000", cashVariance: "-20.000000", stockCounts: [], settledAt: "2026-08-30T18:00:00.000Z" };
+  const settlement = {
+    expectedCash: "5000.000000",
+    countedCash: "4980.000000",
+    cashVariance: "-20.000000",
+    stockCounts: [],
+    settledAt: "2026-08-30T18:00:00.000Z",
+    settledBy: "user-1",
+    settlementDate: "2026-08-30",
+    cashBreakdown: null,
+    invoicedSales: "0.000000",
+    returnsValue: "0.000000",
+    reconciliation: null,
+  };
 
   it("accepts a minimal valid settlement and preserves every field verbatim", () => {
     const result = vanTripSettlementSchema.safeParse(settlement);

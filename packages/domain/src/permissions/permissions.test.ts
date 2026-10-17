@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 294 permissions across 20 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 295 permissions across 20 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -74,13 +74,15 @@ describe("permission catalog", () => {
     //
     // 293 → 294. ENH-E3-07 funnel and leaderboard: `crm.funnel.view`.
     //
+    // 294 → 295. ENH-E3-01 remote glance: `dashboard.glance.view` (sensitive).
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(294);
+    expect(PERMISSIONS).toHaveLength(295);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(294);
+    expect(summed).toBe(295);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {
@@ -136,7 +138,7 @@ describe("permission catalog", () => {
     expect(isSensitive("hr.payroll.bank_file")).toBe(true);
     const sensitiveCount = PERMISSIONS.filter((p) => p.sensitive).length;
     expect(isSensitive("field.van_trip.approve")).toBe(true);
-    expect(sensitiveCount).toBe(34);
+    expect(sensitiveCount).toBe(35);
   });
 
   it("marks the one platform-admin-only permission", () => {

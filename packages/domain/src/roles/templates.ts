@@ -10,6 +10,7 @@ export enum RoleTemplateId {
   SalesRep = "sales_rep",
   Manager = "manager",
   Auditor = "auditor",
+  OwnerGlance = "owner_glance",
 }
 
 export interface RoleTemplate {
@@ -219,6 +220,22 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       "contracting.boq.view",
       "contracting.certificate.view",
       "contracting.guarantee.view",
+    ],
+  },
+  {
+    id: RoleTemplateId.OwnerGlance,
+    code: "OWNER_GLANCE",
+    nameAr: "نظرة سريعة (مالك، قراءة فقط)",
+    nameEn: "Glance (owner, read-only)",
+    descriptionAr: "يفتح شاشة النظرة السريعة على الهاتف: مبيعات اليوم والنقدية والمتأخرات والمخزون والموافقات المنتظرة — بلا أي تعديل، والتكلفة والهامش مخفيان ما لم تُمنح صلاحية عرض التكلفة.",
+    descriptionEn: "Opens the phone glance screen: today's sales, cash, overdue receivables, stock and approvals waiting — nothing editable, with cost and margin hidden unless the view-cost right is granted.",
+    permissions: [
+      "dashboard.glance.view",
+      "sales.invoice.view",
+      "purchases.invoice.view",
+      "treasury.account.view",
+      "inventory.item.view",
+      "workflow.view",
     ],
   },
 ];

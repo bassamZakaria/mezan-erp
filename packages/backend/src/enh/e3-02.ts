@@ -19,27 +19,31 @@ const OWNER_DIGEST_BOOK_VERSION = "owner-digest";
  * operator presses «إرسال الآن»; on the cloud a tenant that switched the schedule
  * on is served by the host timer calling `runOwnerDigest`.
  */
+export function ownerDigestServiceOf(ctx: BackendModuleContext, store = createSqliteOwnerDigestStore(ctx.sqlite)) {
+  return createOwnerDigestService({
+    cockpit: cockpitDepsOf(ctx, () => OWNER_DIGEST_BOOK_VERSION),
+    settings: ctx.stores.settings,
+    store,
+    users: ctx.uow.users,
+    roles: ctx.uow.roles,
+    salesInvoices: ctx.stores.salesInvoices,
+    audit: ctx.auditQuery,
+    pricingOverrides: createSqlitePricingGuardStores(ctx.sqlite).overrides,
+    vanTrips: createSqliteVanTripRepository(ctx.sqlite),
+    approvals: ctx.approvalRequests,
+    eta: ctx.stores.eta.submissions,
+    backup: ctx.backupStatus,
+    notifications: createSqliteNotificationStore(ctx.sqlite),
+    mailConfigured: ctx.notificationOutbox.configured,
+    drainOnly: ctx.notificationOutbox.drainOnly,
+    scheduleSupported: ctx.cloud,
+  });
+}
+
 export const area: BackendArea = {
   mount(ctx: BackendModuleContext) {
     const store = createSqliteOwnerDigestStore(ctx.sqlite);
-    const service = createOwnerDigestService({
-      cockpit: cockpitDepsOf(ctx, () => OWNER_DIGEST_BOOK_VERSION),
-      settings: ctx.stores.settings,
-      store,
-      users: ctx.uow.users,
-      roles: ctx.uow.roles,
-      salesInvoices: ctx.stores.salesInvoices,
-      audit: ctx.auditQuery,
-      pricingOverrides: createSqlitePricingGuardStores(ctx.sqlite).overrides,
-      vanTrips: createSqliteVanTripRepository(ctx.sqlite),
-      approvals: ctx.approvalRequests,
-      eta: ctx.stores.eta.submissions,
-      backup: ctx.backupStatus,
-      notifications: createSqliteNotificationStore(ctx.sqlite),
-      mailConfigured: ctx.notificationOutbox.configured,
-      drainOnly: ctx.notificationOutbox.drainOnly,
-      scheduleSupported: ctx.cloud,
-    });
+    const service = ownerDigestServiceOf(ctx, store);
 
     ctx.app.route(
       "/owner-digest",

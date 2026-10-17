@@ -165,7 +165,7 @@ describe("getting back into a locked account", () => {
         headers: { "content-type": "application/json", authorization: `Bearer ${host.token}` },
         body: JSON.stringify({
           nameAr: OWNER.nameAr, nameEn: OWNER.nameEn, email: OWNER.email, roleId: null, isCompanyAdmin: true,
-          branchScope: "*", warehouseScope: "*", pin: "864201",
+          branchScope: "*", warehouseScope: "*", pin: "864201", currentPin: OWNER.pin,
         }),
       }),
     );

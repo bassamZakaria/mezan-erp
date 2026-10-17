@@ -16,7 +16,7 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("carries only what the product enforces — 274 permissions across 20 modules (DEC-14, DEC-23)", () => {
+  it("carries only what the product enforces — 277 permissions across 20 modules (DEC-14, DEC-23)", () => {
     // 298 → 231. DEC-14 removed the 67 codes that named nothing the server
     // checks: the `dashboard` and `transactions` modules, per-voucher-type
     // `.view` tiers over a single voucher list, print rights that are
@@ -56,13 +56,15 @@ describe("permission catalog", () => {
     // 269 → 274. ENH-E2-09 AR collections: `sales.collections.{view,edit,run,send,manage}`,
     // gated by `/collections`; `send` and `manage` reach customers or the dunning policy and are sensitive.
     //
+    // 274 → 277. ENH-E3-03 reorder: `inventory.reorder.{view,manage,create}`, gated by `/reorder`.
+    //
     // Pinned deliberately. A code added without a route to check it, or a route
     // deleted while its code stays, moves one of these numbers — which is the
     // whole point of asserting them.
-    expect(PERMISSIONS).toHaveLength(274);
+    expect(PERMISSIONS).toHaveLength(277);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(274);
+    expect(summed).toBe(277);
   });
 
   it("carries a `pos` module again, and the INVOICE discount ceiling still lives under sales", () => {

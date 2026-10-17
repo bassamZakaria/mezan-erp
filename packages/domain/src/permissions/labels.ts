@@ -172,6 +172,7 @@ export const PERMISSION_ENTITY_LABELS = {
   cash_forecast: { ar: "توقع السيولة", en: "cash forecast" },
   recurring: { ar: "القيود المتكررة", en: "Recurring journals" },
   collections: { ar: "تحصيل المستحقات", en: "Receivables collection" },
+  reorder: { ar: "إعادة الطلب", en: "Reorder" },
   terminal: { ar: "جهاز نقطة البيع", en: "POS terminal" },
   revaluation: { ar: "إعادة تقييم العملات", en: "FX revaluation" },
   year_end_close: { ar: "إقفال نهاية السنة", en: "Year-end close" },

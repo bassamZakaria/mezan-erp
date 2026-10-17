@@ -37,6 +37,7 @@ const ALERT_LABEL: Readonly<Record<string, AppTranslationKey>> = {
   unclean_restart: "platform.operations.alert.unclean_restart",
   not_ready: "platform.operations.alert.not_ready",
   unhandled_rejection: "platform.operations.alert.unhandled_rejection",
+  audit_anchor_disabled: "platform.operations.alert.audit_anchor_disabled",
 };
 
 function JobRow({ job }: { job: HealthJobDTO }) {

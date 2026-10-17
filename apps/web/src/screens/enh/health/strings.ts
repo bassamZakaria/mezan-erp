@@ -132,6 +132,7 @@ export const ar = {
   "platform.operations.alert.unclean_restart": "إعادة تشغيل بعد توقف غير سليم",
   "platform.operations.alert.not_ready": "الخادم غير جاهز",
   "platform.operations.alert.unhandled_rejection": "خطأ غير معالَج",
+  "platform.operations.alert.audit_anchor_disabled": "تثبيت سجل التدقيق متوقف",
 
   "health.services": "الخادم وقاعدة البيانات",
 } as const;
@@ -270,6 +271,7 @@ export const en: Record<keyof typeof ar, string> = {
   "platform.operations.alert.unclean_restart": "Restart after an unclean exit",
   "platform.operations.alert.not_ready": "Server not ready",
   "platform.operations.alert.unhandled_rejection": "Unhandled error",
+  "platform.operations.alert.audit_anchor_disabled": "Audit trail anchoring is off",
 
   "health.services": "Server and database",
 };

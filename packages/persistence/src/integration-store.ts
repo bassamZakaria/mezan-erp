@@ -1,5 +1,6 @@
 import { WebhookDeliveryState as WebhookDeliveryStatusDTO, isApiKeyScope, type ApiKeyRecord, type ApiKeyScope as ApiKeyScopeDTO, type WebhookDeliveryRecord, type WebhookRecord } from "@mezan/domain";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { isSealedSecret, SecretUnsealError, type SecretBox } from "./secret-box.js";
 
 // DEC-17 drops `api_key`, `webhook` and `webhook_delivery` on every open (create-backend.ts):
 // these tables must never take those names.
@@ -188,6 +189,7 @@ export interface SqliteIntegrationStore {
     findById(id: string): WebhookRecord | null;
     save(webhook: WebhookRecord): void;
     subscribedTo(eventCode: string): WebhookRecord[];
+    signingSecretOf(webhook: WebhookRecord): string;
     stats(): ReadonlyMap<string, WebhookDeliveryStats>;
   };
   readonly deliveries: {
@@ -203,9 +205,23 @@ export interface SqliteIntegrationStore {
   close(): void;
 }
 
-export function createSqliteIntegrationStore(input: SqliteConnectionInput): SqliteIntegrationStore {
+const signingSecretContext = (webhookId: string): string => `integration_webhook:${webhookId}:signing_secret`;
+
+// SECURITY: with a platform key the signing secret is sealed at rest and a record carries only the
+// sealed text; `signingSecretOf` is the one place it is opened, at signing time. Without one (the
+// desktop and unit tests) the column stays as it always was.
+export function createSqliteIntegrationStore(input: SqliteConnectionInput, secrets?: SecretBox): SqliteIntegrationStore {
   const { sqlite, owned } = openSqliteConnection(input);
   sqlite.exec(CREATE_TABLES);
+  const sealSigningSecret = (webhookId: string, value: string): string =>
+    secrets && !isSealedSecret(value) ? secrets.seal(value, signingSecretContext(webhookId)) : value;
+  if (secrets) {
+    const plain = (sqlite.prepare(`SELECT id, signing_secret FROM integration_webhook`).all() as { id: string; signing_secret: string }[]).filter((row) => !isSealedSecret(row.signing_secret));
+    const reseal = sqlite.prepare(`UPDATE integration_webhook SET signing_secret = ? WHERE id = ? AND signing_secret = ?`);
+    sqlite.transaction(() => {
+      for (const row of plain) reseal.run(sealSigningSecret(row.id, row.signing_secret), row.id, row.signing_secret);
+    })();
+  }
 
   const insertKey = sqlite.prepare(
     `INSERT INTO integration_api_key (id, name, lookup, token_hash, scopes, created_by, created_at, expires_at, last_used_at, revoked_at, revoked_by)
@@ -297,7 +313,7 @@ export function createSqliteIntegrationStore(input: SqliteConnectionInput): Sqli
     },
     webhooks: {
       insert(webhook) {
-        insertWebhook.run({ ...webhook, events: JSON.stringify(webhook.events), active: webhook.active ? 1 : 0 });
+        insertWebhook.run({ ...webhook, signingSecret: sealSigningSecret(webhook.id, webhook.signingSecret), events: JSON.stringify(webhook.events), active: webhook.active ? 1 : 0 });
       },
       list: () => (listWebhooks.all() as WebhookRow[]).map(webhookOf),
       findById(id) {
@@ -311,10 +327,15 @@ export function createSqliteIntegrationStore(input: SqliteConnectionInput): Sqli
           url: webhook.url,
           events: JSON.stringify(webhook.events),
           active: webhook.active ? 1 : 0,
-          signingSecret: webhook.signingSecret,
+          signingSecret: sealSigningSecret(webhook.id, webhook.signingSecret),
           updatedAt: webhook.updatedAt,
           secretRotatedAt: webhook.secretRotatedAt,
         });
+      },
+      signingSecretOf(webhook) {
+        if (!isSealedSecret(webhook.signingSecret)) return webhook.signingSecret;
+        if (!secrets) throw new SecretUnsealError();
+        return secrets.open(webhook.signingSecret, signingSecretContext(webhook.id));
       },
       subscribedTo: (eventCode) => (activeWebhooks.all() as WebhookRow[]).map(webhookOf).filter((w) => w.events.includes(eventCode)),
       stats() {

@@ -29,6 +29,7 @@ import type {
   createSqliteTreasuryAccountRepository,
   createSqliteVoucherStore,
   createSqliteWarehouseStore,
+  SecretBox,
 } from "@mezan/persistence";
 
 export interface BackendStores {
@@ -112,6 +113,7 @@ export interface BackendModuleContext {
   readonly reports: ReportsRoutesDeps;
   // SECURITY: the database encryption key (desktop: sealed in the OS keychain). Only for deriving install keys; never logged or returned.
   readonly databaseKey?: string;
+  readonly secrets?: SecretBox;
 }
 
 export interface IntegrationsSurface {

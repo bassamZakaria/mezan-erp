@@ -13,6 +13,7 @@ import {
   sqliteFileStamp,
   TenantBindingMismatchError,
   writeTenantBinding,
+  type SecretBox,
   type SqliteOpenOptions,
   type TenantBooksIdentity,
 } from "@mezan/persistence";
@@ -61,6 +62,7 @@ export interface TenantRouterOptions {
   readonly clientSource?: ClientSourceOptions;
   readonly sourceReporter?: SourceReporter;
   readonly securityMail?: SmtpConfig;
+  readonly secrets?: SecretBox;
   readonly allowTenantHeader?: boolean;
   readonly idleMs?: number;
   readonly ttlMs?: number;
@@ -257,6 +259,7 @@ export function createTenantRouter(options: TenantRouterOptions): TenantRouter {
       platformOperatorUnlocks: true,
       sessionsInDatabase: true,
       tenantMailDestinations: SmtpDestinationPolicy.PublicOnly,
+      secrets: options.secrets,
       backupStatus: async () => readTenantBackupStatus(options.dataDir, books.tenantId, dbPath, options.now),
       resolveEntitlements: () => r.resolveEntitlements(),
       resolveLicenseState: () => r.resolveLicenseState(),

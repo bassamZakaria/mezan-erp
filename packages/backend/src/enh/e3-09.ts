@@ -20,7 +20,7 @@ export const area: BackendArea = {
     const { tenantCode } = ctx.integrations;
     const now = () => new Date();
     const turn = turnOf(ctx);
-    const store = createSqliteIntegrationStore(ctx.sqlite);
+    const store = createSqliteIntegrationStore(ctx.sqlite, ctx.secrets);
     const worker = startWebhookDeliveryWorker({
       store,
       transport: ctx.integrations.transport ?? createPinnedWebhookTransport(),

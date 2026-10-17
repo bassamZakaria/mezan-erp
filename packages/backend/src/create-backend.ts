@@ -383,6 +383,7 @@ import {
   readSchemaVersion,
   stampSchemaVersion,
   securityFallbackFor,
+  type SecretBox,
 } from "@mezan/persistence";
 import {
   EtaService,
@@ -883,6 +884,9 @@ export interface CreateBackendOptions {
   readonly sendMail?: typeof sendNotificationEmail;
   // SECURITY: PublicOnly on the cloud — a tenant SMTP host must not reach the platform network.
   readonly tenantMailDestinations?: SmtpDestinationPolicy;
+  // SECURITY: seals stored outbound credentials (webhook signing secrets, the SMTP password) under the
+  // platform key, which lives outside every tenant directory. Supplied by the cloud; omitted elsewhere.
+  readonly secrets?: SecretBox;
   /** Runs the operator's external CAdES-BES signing program. Tests inject a fake. */
   readonly etaSigningRunner?: EtaCommandRunner;
   /**
@@ -1075,7 +1079,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
   grantSuccessorPermissionsOnce(sqlite, REVERSAL_PERMISSIONS_GRANT, reversalPermissionSuccessors());
   // INVARIANT: a marker of its own — books that already hold the marker above were upgraded before the voucher route joined the registry and would never be given its permission.
   grantSuccessorPermissionsOnce(sqlite, VOUCHER_REVERSAL_PERMISSION_GRANT, reversalPermissionSuccessors([ReversalDocumentType.Voucher]));
-  const settings = createSqliteSettingsStore(sqlite);
+  const settings = createSqliteSettingsStore(sqlite, options.secrets);
   const vatFilings = createSqliteVatFilingStore(sqlite);
   const simplifiedRegime = createSqliteSimplifiedRegimeStore(sqlite);
   const branches = createSqliteBranchStore(sqlite);
@@ -5726,6 +5730,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     addCloser: (closer) => areaClosers.push(closer),
     reports: reportsDeps,
     ...(options.connection?.key ? { databaseKey: options.connection.key } : {}),
+    ...(options.secrets ? { secrets: options.secrets } : {}),
   };
   await mountPos(areaContext);
   await mountEnhancements(areaContext);

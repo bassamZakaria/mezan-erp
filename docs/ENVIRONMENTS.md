@@ -37,6 +37,12 @@ never touched.
 
 The cloud server's JSON logs, request ids, mailed alerts (`MEZAN_ALERT_EMAIL`), `/healthz` and `/readyz`, and the UptimeRobot setup are described in [OPERATIONS.md](OPERATIONS.md).
 
+## Stored outbound secrets
+
+Webhook signing secrets and a tenant's SMTP password are sealed with AES-256-GCM before they are written to the tenant database.
+
+- `MEZAN_SECRETS_KEY`: the 32-byte platform key as 64 hex characters. A secret; never commit it. Unset, the server generates one once into `<platform dir>/secrets.key` (mode 0600, outside every tenant directory) and logs that it did. Back the key up apart from the tenant backups: without it the stored secrets cannot be read, webhooks stop signing and the SMTP password must be typed again. Plaintext values written before sealing are sealed when a tenant's books are opened.
+
 ## Audit trail anchors (tamper evidence from outside the database)
 
 The audit trail is hash-chained, but anyone with the files can re-chain it or
@@ -44,7 +50,8 @@ restore an older backup. Every `MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES` (default
 15, `0` turns it off) the server signs each open tenant's chain head, and the
 platform database's, with Ed25519 and writes it to a store outside the
 database. Nothing is anchored until a signing key is set; the server says so at
-start-up.
+start-up, and on a production platform that seeds no demo it logs
+`audit_anchor.disabled` at error level and raises an operator alert.
 
 - `MEZAN_AUDIT_ANCHOR_SIGNING_KEY`: the 32-byte Ed25519 seed as 64 lowercase hex characters. A secret; never commit it.
 - `MEZAN_AUDIT_ANCHOR_PUBLIC_KEY`: the matching public key, for verifying elsewhere (derived from the signing key when that is present).

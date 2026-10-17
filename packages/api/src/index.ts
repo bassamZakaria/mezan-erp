@@ -99,6 +99,7 @@ export {
 export {
   createLoginThrottle,
   createSourceThrottle,
+  createMemoryAttemptStore,
   throttleKey,
   throttleSource,
   tooManyAttempts,
@@ -108,6 +109,9 @@ export {
   SignInRefusal,
   type LoginThrottle,
   type SourceThrottle,
+  type AttemptStore,
+  type AttemptRecord,
+  type AttemptChange,
 } from "./login-throttle.js";
 export {
   ACCOUNT_LOCK_FAILURES,

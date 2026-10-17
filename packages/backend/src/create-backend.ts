@@ -9,6 +9,7 @@ import {
   createAccountLocks,
   createPeriodCloseGuardSlot,
   createLoginThrottle,
+  createSourceThrottle,
   type LoginThrottle,
   type SmtpConfig,
   createSessionAuthContextResolver,
@@ -353,6 +354,8 @@ import {
   createSqliteAuditSink,
   createSqliteIdempotentRequestStore,
   createSqliteAccountLockStore,
+  createSqliteAttemptStore,
+  SignInAttemptScope,
   createSqlitePeriodCloseStore,
   deriveAuditChainKey,
   createSqliteLabelLayoutStore,
@@ -3600,7 +3603,8 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
    * object: a per-router throttle would let an admin "unlock" an account that
    * stays locked at the login route.
    */
-  const signInLadder = createLoginThrottle(options.signInClock);
+  const signInLadder = createLoginThrottle(options.signInClock, createSqliteAttemptStore(sqlite, SignInAttemptScope.Ladder));
+  const signInSources = createSourceThrottle(options.signInClock, undefined, createSqliteAttemptStore(sqlite, SignInAttemptScope.Source));
   const accountLockStore = createSqliteAccountLockStore(sqlite, { now: options.signInClock, failureWindowMs: ACCOUNT_LOCK_WINDOW_MS });
   const accountLocks = createAccountLocks({ known: accountLockStore, unknown: accountLockStore.unknownNames, now: options.signInClock });
   // REQUIRED: every unlock in the product — the Users screen, a PIN reset, an
@@ -4331,6 +4335,7 @@ async function composeBackend(options: CreateBackendOptions, sqlite: ReturnType<
     seedStores,
     sessions,
     loginThrottle: signInLadder,
+    sourceThrottle: signInSources,
     accountLocks,
     platformOperatorUnlocks: options.platformOperatorUnlocks === true,
     onAccountLocked: notifyAccountLocked,

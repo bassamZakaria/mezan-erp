@@ -398,6 +398,7 @@ export {
   type IdempotentAnswer,
   type IdempotentRequestStore,
 } from "./idempotent-request-store.js";
+export { createSqliteAttemptStore, SignInAttemptScope, type SqliteAttemptStore, type StoredAttempt } from "./sign-in-attempt-store.js";
 export { createSqliteAccountLockStore, type SqliteAccountLockStore, type StoredAccountLock } from "./account-lock-store.js";
 export { drainForeignWrites, drainUntransactedAudits, keepRecent } from "./untransacted-audits.js";
 export { createFileSecurityEventFallback, securityFallbackFor, type FileSecurityEventFallbackOptions } from "./security-fallback-file.js";

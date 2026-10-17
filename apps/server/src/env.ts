@@ -24,8 +24,17 @@ export type PaymobEnv =
   | { readonly mode: PaymobMode.Test; readonly publicUrl?: string }
   | { readonly mode: PaymobMode.Off };
 
+export interface AuditAnchorEnv {
+  readonly intervalMinutes: number;
+  readonly signingKey?: string;
+  readonly publicKey?: string;
+  readonly dir?: string;
+  readonly s3?: { readonly bucket: string; readonly region: string; readonly prefix?: string; readonly endpoint?: string };
+}
+
 export interface CloudEnv {
   readonly platformDir: string;
+  readonly auditAnchor?: AuditAnchorEnv;
   readonly publicOrigin?: string;
   readonly tenantDomain?: string;
   readonly trustProxy: boolean;
@@ -273,9 +282,30 @@ function requireOriginForMailedLinks(parsed: CloudEnv): CloudEnv {
   return parsed;
 }
 
+export function parseAuditAnchor(env: Record<string, string | undefined>): AuditAnchorEnv {
+  const bucket = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_BUCKET"]);
+  const region = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_REGION"]) ?? trimmedOrUndefined(env["AWS_REGION"]);
+  if (bucket !== undefined && region === undefined) {
+    throw new Error("MEZAN_AUDIT_ANCHOR_S3_REGION (or AWS_REGION) is required once MEZAN_AUDIT_ANCHOR_S3_BUCKET is set");
+  }
+  const signingKey = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_SIGNING_KEY"]);
+  const publicKey = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_PUBLIC_KEY"]);
+  const dir = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_DIR"]);
+  const prefix = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_PREFIX"]);
+  const endpoint = trimmedOrUndefined(env["MEZAN_AUDIT_ANCHOR_S3_ENDPOINT"]);
+  return {
+    intervalMinutes: parseNonNegativeInt(env["MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES"], "MEZAN_AUDIT_ANCHOR_INTERVAL_MINUTES", 15),
+    ...(signingKey ? { signingKey } : {}),
+    ...(publicKey ? { publicKey } : {}),
+    ...(dir ? { dir } : {}),
+    ...(bucket && region ? { s3: { bucket, region, ...(prefix ? { prefix } : {}), ...(endpoint ? { endpoint } : {}) } } : {}),
+  };
+}
+
 export function parseEnv(env: Record<string, string | undefined> = process.env, options: ParseEnvOptions = {}): CloudEnv {
   return requireOriginForMailedLinks({
     platformDir: env["MEZAN_PLATFORM_DIR"] ?? ".data/platform",
+    auditAnchor: parseAuditAnchor(env),
     ...publicOriginOf(env),
     tenantDomain: parseTenantDomain(env["MEZAN_TENANT_DOMAIN"]),
     trustProxy: flag(env["MEZAN_TRUST_PROXY"]),

@@ -59,6 +59,12 @@ export {
 export {
   createSqliteAuditSink,
   deriveAuditChainKey,
+  openAuditChainFile,
+  isAuditChainAnchorSource,
+  type AuditChainAnchorSource,
+  AuditChainKeyMissingError,
+  type AuditChainFileReader,
+  type AuditChainHeadReading,
   type SqliteAuditSinkHandle,
   type SqliteAuditSinkOptions,
   type AuditChainVerification,

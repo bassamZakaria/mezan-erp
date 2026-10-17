@@ -29,6 +29,8 @@ import { provisionReviewTenant } from "./review-tenant.js";
 import { createLegalRoutes, LEGAL_BASE_PATH } from "./legal-routes.js";
 import { startDunningTimer } from "./dunning.js";
 import { createBackupScheduler } from "./backup-scheduler.js";
+import { startAuditAnchorTimer } from "./audit-anchor-job.js";
+import { AnchorSinkKind, createAuditAnchorService } from "./audit-anchor-setup.js";
 import { createCardCheckoutService, type CardCheckoutService } from "./card-checkout.js";
 import { startCardCheckoutSweepTimer } from "./card-checkout-sweep.js";
 import { createPaymobProvider, createPaymobTestProvider, type PaymobTestProvider } from "./paymob-provider.js";
@@ -271,6 +273,20 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
     stopBackups = backups.start();
   }
 
+  const anchorService = createAuditAnchorService(env.auditAnchor, env.platformDir);
+  const anchorTimer = anchorService
+    ? startAuditAnchorTimer({ platform, router, signer: anchorService.signer, sink: anchorService.sink, intervalMs: anchorService.intervalMs, now })
+    : null;
+  if (!anchorService) {
+    console.error(
+      JSON.stringify({ event: "audit_anchor.disabled", service: "mezan-cloud", reason: "MEZAN_AUDIT_ANCHOR_SIGNING_KEY is not set (or the interval is 0): the audit trail is not anchored outside the database" }),
+    );
+  } else if (anchorService.sinkKind === AnchorSinkKind.LocalFile) {
+    console.warn(
+      JSON.stringify({ event: "audit_anchor.local_sink", service: "mezan-cloud", reason: "anchors go to a local file, which is not external to this host; set MEZAN_AUDIT_ANCHOR_S3_BUCKET" }),
+    );
+  }
+
   const root = new Hono();
 
   // A health check must never depend on the demo password: register it
@@ -369,6 +385,7 @@ export async function createCloudApp(env: CloudEnv, options: CreateCloudAppOptio
       if (closed) return;
       closed = true;
       stopBackups?.();
+      await anchorTimer?.stop();
       dunningTimer.stop();
       checkoutSweepTimer?.stop();
       await router.close();
